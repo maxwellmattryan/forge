@@ -295,7 +295,7 @@
        spacer that keeps the right cluster at the edge. Its word goes sr-only when the strip runs short, and below md
        only the focus glyph shows. -->
   <div bind:this={factsBox} class="facts flex-1 basis-0">
-    {#if focus}<button id="footer-focus" class="inline-flex shrink-0 items-center gap-[5px] cursor-pointer hover:text-gleam focus-visible:-outline-offset-2 max-md:min-w-11 max-md:justify-center" title={focusTitle} onclick={() => openDrawer(focus.id)}><span class="inline-flex md:hidden text-gleam" aria-hidden="true"><Icon name="review" /></span><span class="k max-md:sr-only {hid.focusWord ? 'sr-only' : ''}">{$t('statusbar.facts.focus')}</span><span class="max-md:sr-only max-w-[24ch] truncate">{focus.id}</span><span class="sr-only">{', '}{focus.title}</span></button>{/if}
+    {#if focus}<button id="footer-focus" class="inline-flex shrink-0 items-center gap-[5px] hover:text-gleam focus-visible:-outline-offset-2 max-md:min-w-11 max-md:justify-center" title={focusTitle} onclick={() => openDrawer(focus.id)}><span class="inline-flex md:hidden text-gleam" aria-hidden="true"><Icon name="review" /></span><span class="k max-md:sr-only {hid.focusWord ? 'sr-only' : ''}">{$t('statusbar.facts.focus')}</span><span class="max-md:sr-only max-w-[24ch] truncate">{focus.id}</span><span class="sr-only">{', '}{focus.title}</span></button>{/if}
   </div>
 
   <div bind:this={rightBox} class="ml-auto flex min-w-0 items-center justify-end overflow-x-clip px-1">

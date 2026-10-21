@@ -62,7 +62,10 @@ describe('config sinks validation', { concurrency: 4 }, () => {
     has(one({ 'env-file': '.env', values: { A: 'x-{typo.x}' } }), /\[0\]\.values\.A uses unknown expression \{typo\.x\}/);
     has(one({ file: { path: 'c.json', format: 'json', mode: 'merge' }, values: { a: { b: '{what}' } } }), /\[0\]\.values\.a\.b uses unknown expression \{what\}/);
     // Non-identifier braces are literal, and reserved roots pass validation (they fail at render).
-    assert.deepEqual(one({ env: { A: '{"a":1}', B: '{secret.db}' } }), []);
+    assert.deepEqual(one({ env: { A: '{"a":1}', B: '{endpoint.db}' } }), []);
+    // A secret reference must name a declared secret.
+    has(one({ env: { B: '{secret.db}' } }), /\[0\]\.env\.B names undeclared secret \{secret\.db\}; declare it under secrets/);
+    assert.deepEqual(componentProblems({ secrets: { db: { env: 'DB_VALUE' } }, components: [component([{ env: { B: '{secret.db}' } }])] }), []);
     has(problems([{ env: { A: 'x' } }], { repo: 'engine' }), /^components "api"\.config is only for a root-repo component; this one sets repo "engine"/);
     has(one({ command: '' }), /\[0\]\.command must be a non-empty shell command \(got ""\)/);
     has(one({ command: 7 }), /\[0\]\.command must be a non-empty shell command/);
@@ -82,13 +85,13 @@ describe('config sinks validation', { concurrency: 4 }, () => {
   });
 
   test('a v19 config migrates to v20 unchanged', async () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 22);
+    assert.equal(CONFIG_SCHEMA_VERSION, 26);
     const v19 = { schemaVersion: 19, components: [component(VALID)] };
     const m = migrateConfig(structuredClone(v19));
     assert.equal(m.from, 19);
-    assert.deepEqual(m.config, { ...v19, schemaVersion: 22 });
+    assert.deepEqual(m.config, { ...v19, schemaVersion: 26 });
     // Through the backing bump (#272) too: v18 → v19 → v20 is two no-ops.
-    assert.deepEqual(migrateConfig({ ...structuredClone(v19), schemaVersion: 18 }).config, { ...v19, schemaVersion: 22 });
+    assert.deepEqual(migrateConfig({ ...structuredClone(v19), schemaVersion: 18 }).config, { ...v19, schemaVersion: 26 });
     const repo = tempRepo();
     try {
       const cfg = path.join(repo.dir, '.forge', 'config.yml');
@@ -134,12 +137,31 @@ describe('config sink expressions', { concurrency: 4 }, () => {
   });
 
   test('reserved namespaces name their issue', () => {
-    assert.throws(() => resolveValue('{secret.db}', CTX), { message: '{secret.db} needs secret references (#197), which this Forge does not support yet' });
     assert.throws(() => resolveValue('x={endpoint.api.url}', CTX), { message: '{endpoint.api.url} needs endpoints (#195), which this Forge does not support yet' });
     assert.throws(() => resolveString('{backing.postgres.host}', CTX), { message: '{backing.postgres.host} needs backing services (#193), which this Forge does not support yet' });
-    assert.throws(() => fillTemplate('"{secret}"', CTX), /\{secret\} needs secret references \(#197\)/);
     // A root that merely starts with a namespace's letters is unknown, not reserved.
+    assert.throws(() => resolveValue('{backings.x}', CTX), /unknown expression/);
+  });
+
+  test('{secret.NAME} resolves through the context, and only there', () => {
+    // No secret callback (no declared secrets in play): a reference fails at render.
+    assert.throws(() => resolveValue('{secret.db}', CTX), { message: '{secret.db} needs a declared secret' });
+    // `secret` alone, a dotted tail or a non-identifier name is no secret reference.
+    assert.throws(() => resolveValue('{secret}', CTX), /unknown expression \{secret\}/);
+    assert.throws(() => resolveValue('{secret.a.b}', CTX), /unknown expression \{secret\.a\.b\}/);
     assert.throws(() => resolveValue('{secrets.x}', CTX), /unknown expression/);
+    const asked: string[] = [];
+    const ctx = { ...CTX, secret: (n: string) => (asked.push(n), `v"al\\${n}`) };
+    assert.equal(resolveValue('{secret.DB}', ctx), 'v"al\\DB');
+    assert.equal(resolveString('u:{secret.DB}@h', ctx), 'u:v"al\\DB@h');
+    assert.equal(fillTemplate('{"p": "{secret.TOK}", "x": "{secret}"}', ctx), '{"p": "v\\"al\\\\TOK", "x": "{secret}"}');
+    assert.deepEqual(asked, ['DB', 'DB', 'TOK']);
+    // Validation: undeclared names are problems only when the declared set is given.
+    assert.deepEqual(sinkProblems([{ env: { A: '{secret.DB}' } }], 'x', {}), []);
+    assert.deepEqual(sinkProblems([{ env: { A: '{secret.DB}' } }], 'x', {}, new Set(['DB'])), []);
+    assert.deepEqual(sinkProblems([{ file: { path: 'c.json', format: 'json', mode: 'merge' }, values: { a: { b: '{secret.NOPE}' } } }], 'x', {}, new Set(['DB'])), [
+      'x[0].values.a.b names undeclared secret {secret.NOPE}; declare it under secrets',
+    ]);
   });
 
   test('templates escape values and keep other braces', () => {

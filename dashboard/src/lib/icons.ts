@@ -52,6 +52,8 @@ export const ICONS = {
   shield: [{ el: 'path', d: 'M12 3l7.5 3v5.5c0 4.5-3.2 8-7.5 9.5-4.3-1.5-7.5-5-7.5-9.5V6z' }],
   stop: [{ el: 'rect', x: '6', y: '6', width: '12', height: '12', rx: '1' }],
   table: [{ el: 'rect', x: '3', y: '5', width: '18', height: '14', rx: '1' }, { el: 'path', d: 'M3 10h18M3 15h18M9 5v14' }],
+  // A console and its prompt: a process's or container's log.
+  terminal: [{ el: 'rect', x: '3', y: '4', width: '18', height: '16', rx: '1' }, { el: 'path', d: 'M7 9l3 3-3 3M12.5 15H17' }],
   tracker: [{ el: 'path', d: 'M3 4h10l8 8-8 8H3z' }, { el: 'circle', cx: '7', cy: '12', r: '1.5' }],
 } as const satisfies Record<string, IconDef>;
 

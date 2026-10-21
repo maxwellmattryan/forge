@@ -47,7 +47,7 @@ import { isSafeRemote, readLocalConfig, resolveMemberPath } from './member-repos
 import { historyEnv } from './protected.ts';
 import type { RepoKey } from './repo-order.ts';
 import { enqueue, listRequests } from './requests.ts';
-import { logSecrets, refusalMessage, scanBranch, scanFiles, secretMode } from './secrets.ts';
+import { logSecrets, refusalMessage, scanBranch, scanFiles, secretMode, secretsBlock } from './secrets.ts';
 import type { Config, InterimStrategy, Job, JobEvent, WaitingOn } from './types.ts';
 import { ForgeError, SAFE_REF, findOnPath, run } from './util.ts';
 
@@ -794,7 +794,7 @@ export function publishCanary(root: string, config: Config, id: string, key: Rep
   const scan = scanBranch(root, config, view, { staged: false, head });
   logSecrets(root, id, 'publish', scan, { blocked: mode === 'block' });
   if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of ${repoLabel(key)}'s commits could not finish (${scan.error}); forge job interim publish won't publish unscanned code`, 'secret_found', `forge secrets scan ${id}`);
-  if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of ${repoLabel(key)}`, scan.findings), 'secret_found', `forge secrets scan ${id}`);
+  if (secretsBlock(scan.findings, mode)) throw new ForgeError(refusalMessage(`the commits of ${repoLabel(key)}`, scan.findings), 'secret_found', `forge secrets scan ${id}`);
   const byName = new Map<string, string>();
   for (const e of edges) for (const l of e.links) if (!byName.has(l.name)) byName.set(l.name, l.relPath);
   const would: CanaryPackage[] = [];
@@ -834,9 +834,9 @@ export function publishCanary(root: string, config: Config, id: string, key: Rep
       fs.mkdirSync(tree, { mode: 0o700 });
       fs.mkdirSync(prefix, { mode: 0o700 });
       const files = exportTree(wt, trees.get(p.name)!, tree);
-      const exported = scanFiles(root, config, files);
+      const exported = scanFiles(root, config, files, { id });
       logSecrets(root, id, 'publish', exported, { blocked: mode === 'block' });
-      if (mode === 'block' && exported.findings.length) throw new ForgeError(refusalMessage(`the package ${p.name} of ${repoLabel(key)}`, exported.findings), 'secret_found', `forge secrets scan ${id}`);
+      if (secretsBlock(exported.findings, mode)) throw new ForgeError(refusalMessage(`the package ${p.name} of ${repoLabel(key)}`, exported.findings), 'secret_found', `forge secrets scan ${id}`);
       const pkgDir = path.join(tree, p.dir);
       const file = path.join(pkgDir, 'package.json');
       const raw = fs.readFileSync(file, 'utf8');

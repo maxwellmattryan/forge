@@ -5,8 +5,8 @@ import { jobAcs } from '../acs.ts';
 import { jobFindings } from '../findings.ts';
 import { assistantBrief, jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
-import { OFFICE_REFUSAL, daemonClaimOpts, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
-import { OFFICE_JOB_COMMANDS, checkForemanDecision, classReservation, checkOfficeSetFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor } from '../foreman.ts';
+import { OFFICE_REFUSAL, daemonClaimOpts, inInboxOrOffice, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
+import { OFFICE_JOB_COMMANDS, checkForemanDecision, classReservation, checkOfficeSetFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor, securityHold } from '../foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
 import { agentOutputMissing, attachAgent, claimJob, createJob, ownerStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir, readEvents } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
@@ -24,6 +24,7 @@ import { isLens, lensRepoAllowed, reviewedRepoNames } from '../lens.ts';
 import { resolveLinks } from '../links.ts';
 import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
 import { daemonScope } from '../requests.ts';
+import { recordScore } from '../scoring.ts';
 import { jobPanel } from '../panel.ts';
 import { jobScope } from '../scope.ts';
 import { loadStepInput, step } from '../step.ts';
@@ -35,9 +36,11 @@ import { modelFor, resolveEffort } from '../config.ts';
 import { ForgeError, coerce, getPath, run } from '../util.ts';
 import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './args.ts';
 import { mirrorToTracker, startFromRef } from './tracker.ts';
-import { archiveJob, archiveOlder, prune } from '../retention.ts';
+import { TeardownRefusal, archiveJob, archiveOlder, prune } from '../retention.ts';
 import { deleteJob } from '../delete.ts';
+import { finishEnvironment, finishEnvironmentStopOnly } from '../environment-lifecycle.ts';
 import type { AgentUsage, ArchiveResult, Config, Effort, HelpGroup, Job, JobIssue } from '../types.ts';
+import { pullPrHead } from '../pr.ts';
 import { FOREMAN_ACTOR, currentActor } from '../actor.ts';
 import { jobAudit, toCsv } from '../audit.ts';
 import { checkRepoBudget, isRepoHold, parkForRepoBudget, repoBudgetBlock, repoBudgetExempt } from '../repo-budget.ts';
@@ -114,7 +117,8 @@ const JOB: HelpGroup = {
     {
       command: 'job set',
       args: '<id> [--stage S] [--state S] [--waiting-on W|none] [--reason R] [--note N] [--field key=value]...',
-      summary: "change a job's stage, state or fields; every check runs before anything is written",
+      summary:
+        "change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox or office daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry",
       flags: [
         ['--stage S', 'the pipeline stage'],
         ['--state S', 'queued, running, waiting, blocked, failed, cancelled or done'],
@@ -253,7 +257,8 @@ const JOB: HelpGroup = {
     {
       command: 'job archive',
       args: '<id>|--done --older-than D',
-      summary: 'archive a finished job into .forge/archive/<id>.json (its job.json, events and a summary) and delete its job folder; with --done --older-than D, every finished job at least D days old. Stats, audit and retro still read archived jobs',
+      summary:
+        'archive a finished job into .forge/archive/<id>.json (its job.json, events and a summary) and delete its job folder, after tearing down what is left of its environment; with --done --older-than D, every finished job at least D days old. A job whose teardown fails is listed in refused and kept. Stats, audit and retro still read archived jobs',
       flags: [
         ['--done', 'every finished job old enough, instead of one id'],
         ['--older-than D', 'with --done: days since the job finished (an integer, 0 or more)'],
@@ -296,6 +301,12 @@ const JOB: HelpGroup = {
       exits: [[1, 'no such job, or no reviewers selected']],
     },
     { command: 'job decision', args: '<id>', summary: "read decision.md and record the approver's decision", exits: [NO_JOB] },
+    {
+      command: 'job score',
+      args: 'record <id>',
+      summary: "record the post-merge judge's score from score.md (first non-empty line `SCORE: <0-5>/5`) on a job whose score run forge sync queued; a missing or malformed file records the run as failed",
+      exits: [[1, 'unknown job, nothing queued, or missing/malformed score.md']],
+    },
     { command: 'job progress', args: '<id>', summary: 'tasks done and total in tasks.md', exits: [NO_JOB] },
     { command: 'job paths', args: '<id>', summary: "absolute paths of the job's files, for agent briefs", exits: [NO_JOB] },
     {
@@ -415,6 +426,8 @@ const LOCKED_FIELDS: Record<string, string> = {
   repos: 'forge job repo add|remove',
   // What its PRs point at, and what may be published, is too.
   interim: 'forge job repo interim',
+  // A hand-set `queued` score would spend a judge run nobody sampled.
+  score: 'forge sync or forge job score record',
 };
 
 // Kinds step routes differently: a retro job's review panel is fixed at code and docs, and an eval
@@ -584,9 +597,12 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         refreshDependencyWait(root, job.id);
         job = loadJob(root, job.id);
       }
+      // After the write, which a failed teardown never rolls back: the result says so and any later teardown path retries.
+      // The inbox and office sessions only stop it, as `forge environment down` is refused there.
+      const environment = inInboxOrOffice() ? finishEnvironmentStopOnly(root, config, before, job) : finishEnvironment(root, config, before, job);
       const gate = maybeEnqueueGate(root, config, before, job);
       await mirrorToTracker(root, config, job);
-      return { id: job.id, stage: job.stage, state: job.state, waitingOn: job.waitingOn, ...(gate ? { gateRequest: gate.id } : {}) };
+      return { id: job.id, stage: job.stage, state: job.state, waitingOn: job.waitingOn, ...(gate ? { gateRequest: gate.id } : {}), ...(environment ? { environment } : {}) };
     }
     case 'claim': {
       const jobId = requireJob(root, id).id;
@@ -814,7 +830,9 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       });
       ensureReviewDir(root, job.id, job.round);
       logEvent(root, job.id, 'round', { round: job.round });
-      return { round: job.round, maxRounds: job.maxRounds, exhausted: job.round > job.maxRounds };
+      // A rework round on an open PR starts from the PR's head, whoever moved it.
+      const pull = job.round > 1 ? pullPrHead(root, config, job) : null;
+      return { round: job.round, maxRounds: job.maxRounds, exhausted: job.round > job.maxRounds, ...(pull && pull.pulled !== 'none' ? { pulled: pull.pulled } : {}) };
     }
     case 'verdicts': {
       const job = loadJob(root, req(id, 'job id'));
@@ -875,10 +893,17 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       refuseRetentionInDaemon('archive');
       if (flags.done !== undefined || flags['older-than'] !== undefined) {
         if (id !== undefined || flags.done !== true || flags['older-than'] === undefined) throw usageError(JOB, 'archive');
-        return archiveOlder(root, num(flags['older-than'], '--older-than', { integer: true })!, 'cli');
+        return archiveOlder(root, num(flags['older-than'], '--older-than', { integer: true })!, 'cli', { config });
       }
       if (rest.length !== 1) throw usageError(JOB, 'archive');
-      return { archived: [archiveJob(root, req(id, 'job id'), 'cli')], refused: [] } satisfies ArchiveResult;
+      const jobId = req(id, 'job id');
+      try {
+        return { archived: [archiveJob(root, jobId, 'cli', { config })], refused: [] } satisfies ArchiveResult;
+      } catch (e) {
+        // Kept for the next attempt, as --done lists it: the job dir and its records still exist.
+        if (e instanceof TeardownRefusal) return { archived: [], refused: [{ id: jobId, reason: e.reason }] } satisfies ArchiveResult;
+        throw e;
+      }
     }
     case 'delete': {
       refuseRetentionInDaemon('delete');
@@ -906,6 +931,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return jobPanel(root, config, req(id, 'job id'));
     case 'acs':
       return jobAcs(root, req(id, 'job id'));
+    case 'score': {
+      if (rest[0] !== 'record' || rest.length !== 2) throw usageError(JOB, 'score');
+      return recordScore(root, rest[1]);
+    }
     case 'findings': {
       const jobId = requireJob(root, id).id;
       return { id: jobId, ...jobFindings(root, jobId) };
@@ -948,7 +977,7 @@ function assist(root: string, config: Config, job: Job, rawGate: unknown) {
     model: modelFor(config, 'assistant'),
     effort: resolveEffort(config, job, 'assistant').level,
     subagent: 'forge:assistant',
-    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved, events, pending, releaseHash),
+    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved, events, pending, releaseHash, stale ? null : securityHold(job)),
     // The brief's `Pending repos` names: the foreman passes exactly these as --repo, and `exact` refuses once they stop being the pending set.
     ...(gate === 'repo-proposal' && !stale ? { repos: pending.map((r) => r.repo) } : {}),
   };

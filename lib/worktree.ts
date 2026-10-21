@@ -2,9 +2,10 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { backingDown, backingEnv, backingUp, hasJobBacking, jobDbPasswords, portsLock } from './backing.ts';
+import { backingDown, backingEnv, hasJobBacking, portsLock } from './backing.ts';
+import { ensureEnvironment, hasManagedBacking } from './environment-lifecycle.ts';
 import type { DatabaseOpts } from './backing.ts';
-import { redact } from './backing-db.ts';
+import { knownValues, redactKnown, removeKnown } from './known-secrets.ts';
 import { enforceBudget } from './budget.ts';
 import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
 import { isOwnWorktreePath, loadConfig, verifyGroups, worktreeRoot } from './config.ts';
@@ -30,8 +31,9 @@ import { refreshInterim } from './interim-apply.ts';
 import { applyLinks, consumerLockfiles, pathPrelude, resolveLinks, restoreLockfiles, snapshotLockfiles } from './links.ts';
 import type { AppliedLinks, LockSnapshot } from './links.ts';
 import { memberClone, memberEntry, memberRepos, memberWorktree, memberWorktreePath, trustedMemberWorktree } from './job-repos.ts';
-import type { BackingDownResult, BackingUpEntry, ComponentConfig, CompactSecrets, Config, Job, JobRepo, SecretScan, VerifyRun, VerifyRunRepo } from './types.ts';
-import { ForgeError, assertSafeRef, fill, now, readJson, run, shellArgs, tail, withLock, writeJsonAtomic } from './util.ts';
+import type { BackingDownResult, BackingUpEntry, ComponentConfig, CompactSecrets, Config, EventActor, Job, JobRepo, SecretScan, VerifyRun, VerifyRunRepo } from './types.ts';
+import { ForgeError, assertSafeRef, fill, now, readJson, run, shellArgs, tail, withLock, withLockAsync, writeJsonAtomic } from './util.ts';
+import { readSmallJson } from './focus.ts';
 
 /** One member repo's part of `forge worktree create`: createMemberWorktrees. */
 export interface MemberWorktreeResult {
@@ -171,7 +173,8 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   Object.assign(job, { worktree: dir, port, ports });
   logEvent(root, id, 'worktree', { path: dir, port, ports });
   // Before setup, so setup commands (migrations, seeds) can reach the services.
-  const backing = config.backing?.length ? { backing: backingUp(root, config, { id, port, ports }, undefined, databaseCommands(root, config, job)) } : {};
+  // Through ensure up, so the environment record says running and a later park stops it.
+  const backing = config.backing?.length ? { backing: ensureEnvironment(root, config, job, 'worktree').backing } : {};
   const down = backing.backing?.find((b) => !b.ok);
   if (down) {
     logEvent(root, id, 'worktree-setup-failed', { backing: down.name });
@@ -179,11 +182,11 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   }
   const setupLog: { cmd: string; ok: boolean; tail: string }[] = [];
   const setupPort = commandPort(config, job, jobComponent(config, job));
-  // Setup sees the job database's url; its stored tail never holds the password.
-  const passwords = jobDbPasswords(root, id, config);
+  // Setup sees the job database's url; its stored tail never holds the password or another known value.
+  const known = knownValues(root, id, config);
   for (const cmd of config.worktrees.setup ?? []) {
     const res = shell(fill(cmd, vars(root, config, job, dir, setupPort, cmd)), dir, jobEnv(root, config, job, dir, setupPort));
-    setupLog.push({ cmd, ok: res.ok, tail: redact(tail(res.output, 15), passwords) });
+    setupLog.push({ cmd, ok: res.ok, tail: redactKnown(tail(res.output, 15), known) });
     if (!res.ok) {
       logEvent(root, id, 'worktree-setup-failed', { cmd });
       return { path: dir, created: true, port, ports, ...stacked, ...backing, setup: setupLog, ok: false };
@@ -554,6 +557,8 @@ interface PreparedCommand {
   links: AppliedLinks | null;
   /** The component's config sinks rendered for this command, when it has any. */
   config?: SinkSummary;
+  /** Known values to redact from the log and tail: this render's secrets and the job's recorded ones. */
+  redact: string[];
 }
 
 /** The env and PATH prelude of a consumer repo's links, rendered fresh for this command. */
@@ -583,7 +588,8 @@ function prepareCommand(root: string, config: Config, id: string, name: string, 
   if (applied) logEvent(root, id, 'config-sinks', applied.summary);
   // Sink env sits over the inherited environment and under the links' (names are disjoint by validation).
   const env = { ...jobEnv(root, config, job, job.worktree, port), ...applied?.env };
-  return { cmd, cwd, ...withLinks(root, config, job, null, env), ...(applied ? { config: applied.summary } : {}) };
+  const redact = [...new Set([...(applied?.values ?? []), ...knownValues(root, id, config)])];
+  return { cmd, cwd, ...withLinks(root, config, job, null, env), ...(applied ? { config: applied.summary } : {}), redact };
 }
 
 /**
@@ -598,7 +604,7 @@ function prepareMemberCommand(root: string, config: Config, id: string, name: st
   const port = commandPort(config, job, component);
   const cmd = fillCommand(name, component.commands![name]!, memberVars(root, config, job, member, worktree, port), opts.args ?? []);
   touchJob(root, id);
-  return { cmd, cwd: path.join(worktree, component.path), ...withLinks(root, config, job, repo, jobEnv(root, config, job, worktree, port)), repo };
+  return { cmd, cwd: path.join(worktree, component.path), ...withLinks(root, config, job, repo, jobEnv(root, config, job, worktree, port)), repo, redact: knownValues(root, id, config) };
 }
 
 /** The one component of member `repo` that defines `name`, null when none does; several is refused. */
@@ -622,8 +628,10 @@ function recordCommand(root: string, id: string, name: string, p: PreparedComman
   fs.mkdirSync(logDir, { recursive: true });
   const logFile = path.join(logDir, `${opts.label ?? (p.repo ? `${p.repo}-${name}` : name)}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
   const linksLine = p.links?.binDir ? `(links ${p.links.binDir})\n` : '';
-  fs.writeFileSync(logFile, `$ ${p.cmd}\n(cwd ${p.cwd})\n${linksLine}\n${res.output}\n\n[exit ${res.status}]\n`);
-  const result: CommandResult = { name, cmd: p.cmd, ok: res.ok, exit: res.status, durationMs: Date.now() - started, log: path.relative(jobDir(root, id), logFile), tail: tail(res.output, opts.tail ?? 40) };
+  // The command saw the secrets; what Forge keeps of its output never holds one verbatim.
+  const output = redactKnown(res.output, p.redact);
+  fs.writeFileSync(logFile, `$ ${p.cmd}\n(cwd ${p.cwd})\n${linksLine}\n${output}\n\n[exit ${res.status}]\n`);
+  const result: CommandResult = { name, cmd: p.cmd, ok: res.ok, exit: res.status, durationMs: Date.now() - started, log: path.relative(jobDir(root, id), logFile), tail: tail(output, opts.tail ?? 40) };
   if (p.links?.labels.length) result.links = p.links.labels;
   if (restored.length) result.restored = restored;
   if (p.config) result.config = p.config;
@@ -765,7 +773,17 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   else if (interim.commits.length)
     interimStep.reason = interim.commits.map((c) => `${c.kind === 'release' ? 'release bump' : 'pins'} committed in ${c.repo === null ? 'the root repo' : `repo ${c.repo}`} (${c.sha.slice(0, 12)})`).join('; ');
   if (interim.active) results.push(interimStep);
-  const gatesOk = secretsStep.ok && protectedStep.ok && interimStep.ok;
+  let gatesOk = secretsStep.ok && protectedStep.ok && interimStep.ok;
+  // Before any configured command, once the gates pass: a stopped per-job container starts again. A
+  // failure records the step and runs no command, so no gate passes on steps that never ran.
+  if (!dirty && gatesOk && hasManagedBacking(config)) {
+    const envStarted = Date.now();
+    const env = ensureEnvironment(root, config, job, 'verify');
+    const envStep: VerifyStep = { name: 'environment', ok: env.ok, exit: null, durationMs: Date.now() - envStarted };
+    if (!env.ok) envStep.tail = env.error ?? 'a backing service did not start';
+    results.push(envStep);
+    gatesOk = env.ok;
+  }
   if (!dirty) {
     // One snapshot before the first group: steps of a group run at once, so each restores only after all settle.
     const locks = gatesOk ? verifyLockSnapshot(root, config, job, null) : null;
@@ -973,6 +991,11 @@ function renderSteps(lines: string[], results: VerifyStep[], secrets: SecretScan
       lines.push('## links: FAILED', '', 'No link from a changed repo is active for this downstream consumer, so its tests would build against the released library; no configured step ran:', '', ...String(r.tail).split('\n').map((l) => `- ${l}`), '');
       continue;
     }
+    if (r.name === 'environment' && !('cmd' in r)) {
+      if (r.ok) lines.push('## environment: ok', '', "The job's backing services are up.", '');
+      else lines.push('## environment: FAILED', '', "The job's backing services did not start (docs/CONFIG.md \"Backing services\"); no configured step ran:", '', '```', String(r.tail), '```', '');
+      continue;
+    }
     if (r.name === 'interim') {
       if (r.ok) lines.push('## interim: ok', '', r.reason ?? 'Every git-ref and canary pin, and every release bump, is current.', '');
       else lines.push('## interim: FAILED', '', 'Interim pins or release bumps (docs/CONFIG.md "Interim strategies") could not be written; no configured step ran:', '', ...String(r.tail).split('\n').map((l) => `- ${l}`), '');
@@ -1031,6 +1054,9 @@ export async function startBackground(
   const template = config.commands[name];
   if (!template) throw new ForgeError(`no "${name}" command configured`);
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree yet`);
+  // The server needs its backing services: a failed start exits 5 before any process starts.
+  const env = ensureEnvironment(root, config, job, 'run');
+  if (!env.ok) throw new ForgeError(`the job's environment did not start: ${env.error}`, 5);
   touchJob(root, id);
   const port = commandPort(config, job, jobComponent(config, job));
   const dir = jobDir(root, id);
@@ -1086,8 +1112,114 @@ export function pidAlive(pid: unknown): boolean {
   return false;
 }
 
+/** How far the process's start time may be from runtime.json's `startedAt` (ps reports whole seconds). */
+const DEV_START_SLACK_MS = 30_000;
+const DEV_STOP_WAIT_MS = 5_000;
+const PROBE_TIMEOUT_MS = 5_000;
+
+/** The process's working directory, or null when it can't be read (no /proc, no lsof, not ours to inspect). */
+function processCwd(pid: number): string | null {
+  if (process.platform === 'linux') {
+    try {
+      return fs.readlinkSync(`/proc/${pid}/cwd`);
+    } catch {
+      return null;
+    }
+  }
+  if (process.platform !== 'darwin') return null;
+  const r = run('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { allowFail: true, timeoutMs: PROBE_TIMEOUT_MS });
+  if (!r.ok) return null;
+  const line = r.stdout.split('\n').find((l) => l.startsWith('n'));
+  return line ? line.slice(1) : null;
+}
+
+/**
+ * One `ps -o pgid= -o tty= -o lstart=` row: the process group, whether the process has a controlling
+ * terminal (`?` on Linux and `??` on macOS mean none), and its start time; null for anything else.
+ */
+export function parseDevProbe(stdout: string): { pgid: number; tty: boolean; started: number } | null {
+  const m = /^\s*(\d+)\s+(\S+)\s+(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})\s*$/.exec(stdout.trim());
+  if (!m) return null;
+  const started = Date.parse(m[3]);
+  return Number.isFinite(started) ? { pgid: Number(m[1]), tty: !/^\?+$/.test(m[2]), started } : null;
+}
+
+/**
+ * Whether runtime.json's dev record names the dev server Forge started for this job. The record is in
+ * the job dir, which the job's agents can write, so it is proved rather than trusted (as isOurChild in
+ * lib/daemon.ts proves a session): the pid is not 1 or ours, leads its own group and has no controlling
+ * terminal (startBackground spawns detached, which starts a new session; a shell the human opened in the
+ * worktree, and anything it runs, keeps its terminal), is not our group, started within 30 s of
+ * `startedAt`, and runs inside the job's contained worktree. The command line is not compared:
+ * `sh -lc '<one command>'` execs that command, so the shell is often gone from it. Always false on
+ * Windows, which has none of these probes.
+ */
+export function ownDevProcess(worktree: string, rec: unknown): boolean {
+  if (process.platform === 'win32' || !rec || typeof rec !== 'object') return false;
+  const { pid, startedAt } = rec as { pid?: unknown; startedAt?: unknown };
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1 || pid === process.pid) return false;
+  const recorded = typeof startedAt === 'string' ? Date.parse(startedAt) : NaN;
+  if (!Number.isFinite(recorded)) return false;
+  const env = { ...process.env, LC_ALL: 'C' };
+  const ps = run('ps', ['-o', 'pgid=', '-o', 'tty=', '-o', 'lstart=', '-p', String(pid)], { allowFail: true, env, timeoutMs: PROBE_TIMEOUT_MS });
+  const probe = ps.ok ? parseDevProbe(ps.stdout) : null;
+  if (!probe || probe.pgid !== pid || probe.tty) return false;
+  const own = run('ps', ['-o', 'pgid=', '-p', String(process.pid)], { allowFail: true, env, timeoutMs: PROBE_TIMEOUT_MS });
+  if (!own.ok || Number(own.stdout.trim()) === pid) return false;
+  if (Math.abs(probe.started - recorded) > DEV_START_SLACK_MS) return false;
+  const cwd = processCwd(pid);
+  if (!cwd) return false;
+  const base = realpath(worktree);
+  const real = realpath(cwd);
+  return real === base || real.startsWith(base + path.sep);
+}
+
+/**
+ * The dashboard's Stop: SIGTERM to the dev server's process group, SIGKILL after 5 s if it is still
+ * alive, then only the `dev` key leaves runtime.json. Under the runtime lock, so it never races
+ * startBackground. A pid it can't prove (ownDevProcess) is refused and nothing is signalled. No record
+ * or a dead pid only clears the key. `forge stop` (stopBackground) is unchanged.
+ */
+export async function stopDevProven(root: string, id: string, worktree: string, actor: EventActor): Promise<{ stopped: boolean; refused?: number }> {
+  const dir = jobDir(root, id);
+  const pidFile = path.join(dir, 'runtime.json');
+  return withLockAsync(path.join(dir, '.runtime.lock'), async () => {
+    const rt = readSmallJson(pidFile) ?? {};
+    const rec = rt.dev;
+    const pid = rec && typeof rec === 'object' ? (rec as { pid?: unknown }).pid : undefined;
+    const clear = () => {
+      if (!Object.hasOwn(rt, 'dev')) return;
+      delete rt.dev;
+      writeJsonAtomic(pidFile, rt);
+    };
+    if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) {
+      clear();
+      return { stopped: false };
+    }
+    // pid 1 and our own pid always read alive (and pid 1 would make the group signal -1, everything we may signal).
+    if (pid === 1 || pid === process.pid) return { stopped: false, refused: pid };
+    if (!pidAlive(pid)) {
+      clear();
+      return { stopped: false };
+    }
+    if (!ownDevProcess(worktree, rec)) return { stopped: false, refused: pid };
+    const signal = (sig: NodeJS.Signals) => {
+      try {
+        process.kill(-pid, sig);
+      } catch {}
+    };
+    signal('SIGTERM');
+    const deadline = Date.now() + DEV_STOP_WAIT_MS;
+    while (pidAlive(pid) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+    if (pidAlive(pid)) signal('SIGKILL');
+    clear();
+    logEvent(root, id, 'background-stop', { names: ['dev'], actor });
+    return { stopped: true };
+  });
+}
+
 /** Whether something accepts TCP connections on the port, over IPv4 then IPv6. */
-async function portAnswers(port: number): Promise<boolean> {
+export async function portAnswers(port: number): Promise<boolean> {
   for (const host of ['127.0.0.1', '::1']) {
     const ok = await new Promise((resolve) => {
       const sock = net.connect({ port, host });
@@ -1110,12 +1242,16 @@ export function stopBackground(root: string, id: string): string[] {
   const rt = readJson(pidFile, {});
   const stopped: string[] = [];
   for (const [name, info] of Object.entries(rt)) {
+    // runtime.json is in the job dir, which the job's agents can write, and this runs unattended on
+    // every park: pid 1 would make kill(-1) signal every process the user may signal.
+    const pid = (info as any)?.pid;
+    if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) continue;
     try {
-      process.kill(-(info as any).pid, 'SIGTERM');
+      process.kill(-pid, 'SIGTERM');
       stopped.push(name);
     } catch {
       try {
-        process.kill((info as any).pid, 'SIGTERM');
+        process.kill(pid, 'SIGTERM');
         stopped.push(name);
       } catch {}
     }
@@ -1142,6 +1278,8 @@ export async function removeWorktree(
   const removedRoot = await removeRootWorktree(root, id, opts);
   const config = loadConfig(root).config;
   const res = { ...removedRoot, ...rootBackingDown(root, config, id) };
+  // Beside backing-db.json, which rootBackingDown removes: the values go with the worktree.
+  removeKnown(root, id);
   const job = loadJob(root, id);
   const members = memberRepos(job);
   if (!members.length) return res;

@@ -2,9 +2,11 @@
 // returns in-process and hands back only the next action that needs judgement, so a stretch of
 // bookkeeping costs the orchestrator one call instead of a turn per command. `step` stays pure.
 import { refuseInboxDrive } from '../daemon-owner.ts';
-import { loadJob, ownerStatus, touchJob } from '../jobs.ts';
+import { maybeEnqueueGate } from '../foreman.ts';
+import { loadJob, logEvent, ownerStatus, readEvents, setJob, touchJob } from '../jobs.ts';
+import { progressMark } from '../stranded.ts';
 import { loadStepInput, step } from '../step.ts';
-import { ForgeError } from '../util.ts';
+import { ForgeError, safeText } from '../util.ts';
 import { num, req, str } from './args.ts';
 import type { AdvanceRan, CliContext, Dispatch, Dispatched } from '../types.ts';
 
@@ -12,7 +14,7 @@ import type { AdvanceRan, CliContext, Dispatch, Dispatched } from '../types.ts';
  * The command groups advance runs: every group lib/step.ts emits. Anything else (config writes,
  * commands that print for themselves, trackers, a nested advance) stays a separate call.
  */
-export const ADVANCE_GROUPS = ['job', 'worktree', 'pr', 'verify', 'verifiers', 'integrate', 'run', 'stop', 'eval'] as const;
+export const ADVANCE_GROUPS = ['job', 'worktree', 'pr', 'verify', 'verifiers', 'integrate', 'run', 'stop', 'environment', 'eval'] as const;
 
 export function runnableInProcess(argv: readonly string[]): boolean {
   return (ADVANCE_GROUPS as readonly string[]).includes(argv[0]) && !(argv[0] === 'job' && argv[1] === 'advance');
@@ -90,8 +92,28 @@ export async function advance(ctx: CliContext, id: string, opts: { session: stri
       }
     }
     ran.push({ rule: a.rule, command: a.command, ok: error === null, ...(error === null ? { result } : { error }), ...(a.tell ? { tell: a.tell } : {}) });
-    if (error !== null) return { data: { ...a, failed: true, error, ran }, exitCode: 1 };
+    if (error !== null) return { data: { ...a, failed: true, error, ran, ...(parkRepeatedFailure(ctx, jobId, a.rule, a.command, error) ? { parked: true } : {}) }, exitCode: 1 };
   }
+}
+
+/**
+ * Logs an `advance-failed` event, and parks the job on escalation when the same rule and command
+ * already failed with no pipeline progress since (lib/stranded.ts): a session that stopped there
+ * would leave the job running with nothing to drive it, so the gate hands it to the foreman instead.
+ */
+function parkRepeatedFailure(ctx: CliContext, id: string, rule: string, command: readonly string[], error: string): boolean {
+  const { root, config } = ctx;
+  const events = readEvents(root, id);
+  const mark = progressMark(events);
+  const prev = events.findLast((e) => e.type === 'advance-failed');
+  logEvent(root, id, 'advance-failed', { rule, command, error, mark });
+  if (!prev || prev.rule !== rule || JSON.stringify(prev.command) !== JSON.stringify(command) || prev.mark !== mark) return false;
+  const reason = safeText(`${rule}: forge ${command.slice(0, 2).join(' ')} failed twice: ${error}`).slice(0, 200);
+  const before = loadJob(root, id);
+  if (before.state !== 'running') return false;
+  const after = setJob(root, id, { state: 'waiting', waitingOn: 'escalation', reason });
+  maybeEnqueueGate(root, config, before, after);
+  return true;
 }
 
 export async function advanceCmd(ctx: CliContext, rest: string[], flags: Record<string, any>, dispatch: Dispatch): Promise<Dispatched> {

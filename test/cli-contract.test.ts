@@ -471,7 +471,7 @@ test('help covers every routed command', () => {
     s.init();
     const r = s.cli(['job', 'bogus']);
     assert.equal(r.status, 2);
-    assert.ok(r.stderr.includes('usage: forge job new|from-ref|link|list|show|get|set|effort|claim|release|repo|interim|note|human|assist|agent|round|budget|audit|archive|delete|prune|verdicts|decision|progress|paths|links|scope|panel|acs|findings|step|advance; run `forge help job`'), r.stderr);
+    assert.ok(r.stderr.includes('usage: forge job new|from-ref|link|list|show|get|set|effort|claim|release|repo|interim|note|human|assist|agent|round|budget|audit|archive|delete|prune|verdicts|decision|score|progress|paths|links|scope|panel|acs|findings|step|advance; run `forge help job`'), r.stderr);
   } finally {
     s.cleanup();
   }
@@ -624,9 +624,12 @@ test('CLI JSON keys are stable', POSIX, () => {
     assert.deepEqual(keyPaths(s.json(['stats', '--json']), ['waitingOn', 'cost.byRole', 'cost.byModel', 'reviewers', 'verifiers']), [
       'cost', 'cost.avgCostPerJobUsd', 'cost.avgTokensPerJob', 'cost.byModel', 'cost.byRole', 'cost.estCostUsd', 'cost.reportingCoverage', 'cost.reportingCoverage.agentRuns',
       'cost.reportingCoverage.exact', 'cost.reportingCoverage.withUsage', 'cost.totalTokens', 'counts', 'counts.active', 'counts.archived', 'counts.cancelled', 'counts.done', 'counts.failed',
-      'counts.total', 'counts.waiting', 'generatedAt', 'quality', 'quality.avgRounds', 'quality.escalationRate', 'quality.firstPassReviewRate', 'quality.foremanDecisions', 'quality.foremanReworks', 'quality.humanDeltaCoverage',
+      'counts.total', 'counts.waiting', 'generatedAt', 'quality', 'quality.autonomyRate', 'quality.autonomyRateStrict', 'quality.avgRounds', 'quality.churnRate', 'quality.escalationRate', 'quality.firstPassReviewRate', 'quality.followUpRate',
+      'quality.foremanDecisions', 'quality.foremanReworks', 'quality.humanDeltaCoverage',
       'quality.humanDeltaCoverage.measured', 'quality.humanDeltaCoverage.merged', 'quality.humanDeltaRate', 'quality.humanFeedbackOnPrRate', 'quality.humanReworks',
-      'quality.medianHumanDeltaLines', 'quality.recurringFindings', 'quality.specFirstApprovalRate', 'quality.verifyFirstPassRate', 'reviewers', 'since', 'speed', 'speed.medianMinutesToDone',
+      'quality.medianHumanDeltaLines', 'quality.medianScore', 'quality.outcomeCoverage', 'quality.outcomeCoverage.final', 'quality.outcomeCoverage.merged', 'quality.outcomeCoverage.open', 'quality.recurringFindings', 'quality.revertRate',
+      'quality.scoreByBuilderModel', 'quality.scoreCoverage', 'quality.scoreCoverage.failed', 'quality.scoreCoverage.held', 'quality.scoreCoverage.merged', 'quality.scoreCoverage.queued', 'quality.scoreCoverage.sampled', 'quality.scoreCoverage.scored',
+      'quality.specFirstApprovalRate', 'quality.verifyFirstPassRate', 'reviewers', 'since', 'speed', 'speed.medianMinutesToDone',
       'speed.medianMinutesToPr', 'verifiers', 'waitingOn',
     ]);
     assert.deepEqual(keyPaths(s.json(['version', '--json'])), ['commit', 'installedAs', 'node', 'version']);

@@ -4,7 +4,8 @@ import path from 'node:path';
 import { paths, exists } from './paths.ts';
 import { currentActor } from './actor.ts';
 import { clearFocusIf } from './focus.ts';
-import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, endFinishedJobAgents, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
+import { knownRecordValues, redactDeep } from './known-secrets.ts';
+import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, endFinishedJobAgents, finishedJobRoles, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
 import { idPrefix } from './issue-ref.ts';
 import { localRepoSlug } from './repo-slug.ts';
 import type { AgentUsage, Config, Effort, EventActor, Job, JobAgent, JobIssue, JobChange, JobOwner, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
@@ -90,7 +91,9 @@ export function ownerStatus(job: Pick<Job, 'owner' | 'agents'>, at = Date.now())
 }
 
 export function logEvent(root: string, id: string, type: string, data: Record<string, any> = {}): void {
-  const line = JSON.stringify({ v: EVENT_SCHEMA_VERSION, ts: now(), type, ...data });
+  // The job's recorded secret values never land in events.jsonl, which the dashboard and bundles read.
+  const clean = redactDeep(data, knownRecordValues(root, id));
+  const line = JSON.stringify({ v: EVENT_SCHEMA_VERSION, ts: now(), type, ...clean });
   fs.appendFileSync(path.join(jobDir(root, id), 'events.jsonl'), line + '\n');
 }
 
@@ -289,7 +292,7 @@ export function setJob(
     for (const [k, v] of Object.entries(c.fields ?? {})) setPath(j, k, v);
     if (['done', 'cancelled'].includes(j.state) && !j.finishedAt) j.finishedAt = now();
     // In the same write as the state, so no reader sees a finished job with an agent still running.
-    const ended = endFinishedJobAgents(j.agents, j.state, now());
+    const ended = endFinishedJobAgents(j.agents, j.state, now(), finishedJobRoles(j));
     j.agents = ended.agents;
     lost = ended.roles;
     // In the same locked write, so no session can claim between the change and the release.

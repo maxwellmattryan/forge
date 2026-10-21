@@ -1,9 +1,11 @@
+import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { daemonProblems, loadConfig, resolveEffort, validateConfig } from './config.ts';
+import { allKnownValues, isPrivateJobFile, isPrivateName, knownValues, redactDeep, redactKnown, scopeKnownValues } from './known-secrets.ts';
 import { ConfigSetError, FIELDS } from './config-fields.ts';
 import { dashboardActor } from './actor.ts';
 import { setConfigValue } from './config-set.ts';
@@ -17,6 +19,7 @@ import { containedWorktree, editorArgv, openEditor } from './editor.ts';
 import { readSmallJson } from './focus.ts';
 import { CheckoutError } from './checkout.ts';
 import { InactiveJobError, currentFocus, focusJob } from './focus-actions.ts';
+import { recordEnvironmentStopped } from './environment-lifecycle.ts';
 import { createPreviewer, ghRunner, parseGitHubUrl } from './github-preview.ts';
 import type { GhRunner } from './github-preview.ts';
 import { daemonSessionIds, jobSessionEnv, ownerStatusWithProof } from './daemon-owner.ts';
@@ -42,8 +45,10 @@ import type { TranscriptHit } from './transcripts.ts';
 import { redactContext, redactText } from './redact.ts';
 import { ForgeError, getPath, readJson, readText } from './util.ts';
 import { versionInfo } from './version.ts';
-import { commandTemplate, pidAlive, startBackground } from './worktree.ts';
+import { commandTemplate, pidAlive, startBackground, stopDevProven } from './worktree.ts';
 import { jobEndpoints } from './endpoints.ts';
+import { containerName, entriesOrNone, isManaged, projectSlug } from './backing.ts';
+import { DOCKER_NAME, environmentsSnapshot, forgeJson, jobEnvironment, openConfinedLog, openDevLog } from './environment.ts';
 import { zip } from './zip.ts';
 import type {
   AboutResponse,
@@ -52,8 +57,14 @@ import type {
   ApiError,
   DeleteJobResult,
   ApiState,
+  BackingEntry,
   BacklogResponse,
   Config,
+  EnvironmentAction,
+  EnvironmentsResponse,
+  EnvironmentTarget,
+  JobEnvironmentResponse,
+  PostEnvironmentResponse,
   ConfigResponse,
   DaemonLogPage,
   DaemonPoolState,
@@ -186,6 +197,17 @@ const TRANSCRIPT_TAIL_BYTES = 64 * 1024;
 /** How much of a transcript one poll (or a Last-Event-ID resume) reads at most. */
 const TRANSCRIPT_READ_BYTES = 1024 * 1024;
 const TRANSCRIPT_POLL_MS = 1000;
+/** How long GET /api/jobs/:id/environment reuses a job's environment. */
+const ENV_MEMO_MS = 2000;
+/** How long GET /api/environments reuses its snapshot. */
+const ENVS_CACHE_MS = 5000;
+const ENV_STATUS_TIMEOUT_MS = 10_000;
+/** `backing up` may pull images: lib/backing.ts's RUN_TIMEOUT_MS plus a margin. */
+const BACKING_UP_TIMEOUT_MS = 11 * 60_000;
+const BACKING_STOP_TIMEOUT_MS = 60_000;
+/** An environment log frame carries at most this many characters of one line. */
+const TEXT_FRAME_MAX = 16384;
+const ENV_ACTIONS: readonly EnvironmentAction[] = ['start', 'stop', 'restart'];
 const NO_TRANSCRIPT = 'no transcript';
 const DIST_DIR = path.join(PLUGIN_ROOT, 'dashboard', 'dist');
 const NOT_BUILT = `dashboard is not built: run ${BUILD_DASHBOARD}`;
@@ -227,6 +249,8 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     if (!budgetCache || Date.now() - budgetCache.at > BUDGET_MEMO_MS) budgetCache = { at: Date.now(), data: repoBudgetStatus(root, loadConfig(root).config, { write: false }) };
     return budgetCache.data;
   };
+  const envMemo = new Map<string, { at: number; p: Promise<JobEnvironmentResponse> }>();
+  let envsCache: { at: number; p: Promise<EnvironmentsResponse> } | null = null;
 
   const server = http.createServer(async (req, res) => {
     if (opts.onRequest) observeRequest(req, res, opts.onRequest);
@@ -273,6 +297,10 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       }
       if (req.method === 'GET' && p === '/api/config') return json(res, configResponse(root, Boolean(pool?.state().wanted)));
       if (req.method === 'GET' && p === '/api/about') return json(res, about(provenance));
+      if (req.method === 'GET' && p === '/api/environments') return environments(req, res);
+      const envm = p.match(/^\/api\/jobs\/([^/]+)\/environment(\/logs)?$/);
+      if (envm && req.method === 'GET') return envm[2] ? environmentLogs(req, res, envm[1], url) : environmentGet(req, res, envm[1]);
+      if (envm && req.method === 'POST' && !envm[2]) return environmentPost(req, res, envm[1]);
       if (req.method === 'GET' && p === '/api/doctor') {
         // It spawns git and gh, so it takes the token like a POST.
         if (guardToken(req, res, token)) return;
@@ -311,15 +339,20 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (m[2] === '/transcript/events') return transcriptEvents(req, res, id, url);
         const rel = url.searchParams.get('path') ?? '';
         const file = safeJoin(jobDir(root, id), rel);
-        if (file && m[2] === '/file' && IMAGE_TYPES[path.extname(file).toLowerCase()]) return sendImage(res, jobDir(root, id), file);
-        if (!file || !exists(file) || !TEXT_EXT.has(path.extname(file))) return send(res, 404, 'text/plain', 'not found');
+        // Private job files hold credentials: not served under any path that names them or links to them.
+        if (!file || isPrivateJobFile(file)) return send(res, 404, 'text/plain', 'not found');
+        if (m[2] === '/file' && IMAGE_TYPES[path.extname(file).toLowerCase()]) return sendImage(res, jobDir(root, id), file);
+        if (!exists(file) || !TEXT_EXT.has(path.extname(file))) return send(res, 404, 'text/plain', 'not found');
+        // Background logs are written by the child itself, so known values are taken out here.
+        const known = knownValues(root, id, loadConfig(root).config);
         if (m[2] === '/raw') {
           res.setHeader('Content-Security-Policy', RAW_CSP);
-          return send(res, 200, 'text/html; charset=utf-8', fs.readFileSync(file));
+          const raw = fs.readFileSync(file);
+          return send(res, 200, 'text/html; charset=utf-8', known.length ? redactKnown(raw.toString('utf8'), known) : raw);
         }
         const size = fs.statSync(file).size;
         const text = size > MAX_FILE ? `…truncated (${size} bytes); showing the last 2 MB…\n` + readTail(file, MAX_FILE) : readText(file);
-        return send(res, 200, 'text/plain; charset=utf-8', text);
+        return send(res, 200, 'text/plain; charset=utf-8', redactKnown(text, known));
       }
       if (req.method === 'POST' && p === '/api/requests') {
         if (guardPost(req, res, token)) return;
@@ -600,10 +633,12 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     // Syntax only, so the logs of deleted jobs stay viewable.
     if (!validScope(scope)) return jsonStatus(res, 400, { error: 'session must be "_inbox", "_office" or a job id' });
     if (clients.size >= MAX_SSE_CLIENTS) return send(res, 503, 'text/plain', 'too many event streams');
+    // Before the headers: an unreadable config then fails the request instead of a half-open stream.
+    const known = scopeKnownValues(root, scope, loadConfig(root).config);
     sseHead(res);
     res.write('retry: 3000\n\n');
     clients.set(res, scope);
-    res.write(stateFrame(pool ? pool.sessionState(scope) : offSessionState(root, scope)));
+    res.write(stateFrame(pool ? pool.sessionState(scope) : offSessionState(root, scope), known));
     const last = Number(req.headers['last-event-id']);
     for (const r of pool?.recent(scope, req.headers['last-event-id'] === undefined || !Number.isFinite(last) ? undefined : last) ?? []) res.write(lineFrame(r.offset, r.line));
     const recycle = setTimeout(() => res.end(), opts.sseMaxAgeMs ?? SSE_MAX_AGE_MS);
@@ -659,7 +694,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     const t = found ? openTranscript(found.hit, projects) : null;
     if (!found || !t) return jsonStatus(res, 404, { error: NO_TRANSCRIPT });
     try {
-      const page = readLogPage(t.fd, t.size, 0, { before });
+      const page = redactPage(readLogPage(t.fd, t.size, 0, { before }), knownValues(root, id, loadConfig(root).config));
       return json(res, { job: id, source: found.source, role: found.role, ...page } satisfies TranscriptPage);
     } catch {
       return jsonStatus(res, 404, { error: NO_TRANSCRIPT });
@@ -683,67 +718,24 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     const t = found ? openTranscript(found.hit, projects) : null;
     if (!found || !t) return jsonStatus(res, 404, { error: NO_TRANSCRIPT });
     const fd = t.fd;
+    const known = knownReader(id);
     sseHead(res);
     res.write('retry: 3000\n\n');
     clients.set(res, `transcript:${id}:${found.role ?? 'owner'}`);
-    const last = Number(req.headers['last-event-id']);
-    const resume = req.headers['last-event-id'] !== undefined && Number.isSafeInteger(last) && last >= 0 && last < t.size && t.size - last <= TRANSCRIPT_READ_BYTES;
-    // From Last-Event-ID, the line at that offset is the one the client has: skip it.
-    let pos = resume ? last : Math.max(0, t.size - TRANSCRIPT_TAIL_BYTES);
-    let skipPartial = resume || pos > 0;
-    if (pos > 0 && !resume) pos -= 1;
-    let size = t.size;
-    let closed = false;
-    const pump = (): void => {
-      if (closed) return;
-      try {
-        const now = fs.fstatSync(fd).size;
-        if (now < size) {
-          // Truncated or rewritten: start over.
-          pos = 0;
-          skipPartial = false;
-        }
-        size = now;
-        while (pos < size) {
-          const len = Math.min(size - pos, TRANSCRIPT_READ_BYTES);
-          const buf = Buffer.alloc(len);
-          const n = fs.readSync(fd, buf, 0, len, pos);
-          if (n <= 0) break;
-          const chunk = buf.subarray(0, n);
-          const lastNl = chunk.lastIndexOf(0x0a);
-          if (lastNl === -1) {
-            // No complete line yet: wait for it, unless one line is over the read cap.
-            if (n < TRANSCRIPT_READ_BYTES) break;
-            if (!skipPartial) res.write(lineFrame(pos, JSON.stringify({ type: 'forge-truncated', originalType: null, bytes: n } satisfies ForgeTruncatedLine)));
-            skipPartial = true;
-            pos += n;
-            continue;
-          }
-          let at = 0;
-          while (at <= lastNl) {
-            const nl = chunk.indexOf(0x0a, at);
-            if (skipPartial) skipPartial = false;
-            else {
-              const line = chunk.subarray(at, nl).toString('utf8');
-              if (line.trim()) res.write(lineFrame(pos + at, line));
-            }
-            at = nl + 1;
-          }
-          pos += lastNl + 1;
-          if (res.writableLength > SSE_SLOW_CLIENT_BYTES) return void res.end();
-        }
-      } catch {
-        res.end();
-      }
-    };
-    pump();
-    const poll = setInterval(pump, TRANSCRIPT_POLL_MS);
-    poll.unref();
+    const stop = followFd(
+      res,
+      fd,
+      t.size,
+      req.headers['last-event-id'],
+      (offset, line) => {
+        if (line.trim()) res.write(lineFrame(offset, redactKnown(line, known())));
+      },
+      (offset, bytes) => res.write(lineFrame(offset, JSON.stringify({ type: 'forge-truncated', originalType: null, bytes } satisfies ForgeTruncatedLine))),
+    );
     const recycle = setTimeout(() => res.end(), opts.sseMaxAgeMs ?? SSE_MAX_AGE_MS);
     recycle.unref();
     res.on('close', () => {
-      closed = true;
-      clearInterval(poll);
+      stop();
       clearTimeout(recycle);
       clients.delete(res);
       fs.closeSync(fd);
@@ -752,38 +744,239 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   }
 
   /**
-   * One session log file opened for reading: 'missing' when it does not exist, 'refused' when it
-   * (or the daemons dir) resolves outside the real daemons dir or is not a regular file. Read
-   * through one non-blocking descriptor checked to be a regular file; the caller closes it.
+   * A reader of a job's known values for one open stream: a value a sink resolves while the stream is
+   * open is redacted from then on. Re-read at most once a second, since a tail is hundreds of lines.
    */
-  function openConfinedLog(dirPath: string, file: string): { fd: number; size: number } | 'missing' | 'refused' {
-    let real: string;
-    let dir: string;
-    try {
-      dir = fs.realpathSync(dirPath);
-      real = fs.realpathSync(file);
-    } catch (e) {
-      return (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'refused';
+  function knownReader(id: string): () => string[] {
+    let cached: { at: number; values: string[] } | null = null;
+    return () => {
+      if (!cached || Date.now() - cached.at > 1000) cached = { at: Date.now(), values: knownValues(root, id, loadConfig(root).config) };
+      return cached.values;
+    };
+  }
+
+  /** The job behind an environment route, or null after answering 404. */
+  function environmentJob(res: http.ServerResponse, id: string): LoadedJob | null {
+    if (!validJobId(id) || !exists(path.join(jobDir(root, id), 'job.json'))) {
+      jsonStatus(res, 404, { error: validJobId(id) ? `no job ${id}` : 'no such job' });
+      return null;
     }
-    // The daemons dir itself must be where it should be: a symlinked .forge/runtime or daemons
-    // dir would otherwise move the confinement root somewhere else.
-    const expected = path.join(fs.realpathSync(root), path.relative(root, dirPath));
-    if (dir !== expected || !real.startsWith(dir + path.sep)) return 'refused';
-    let fd: number | undefined;
+    return loadJob(root, id);
+  }
+
+  const redactor = (config: Config) => (s: string): string => {
     try {
-      // O_NONBLOCK: a FIFO planted as the log must not hang the server; fstat rejects it.
-      // `real` is fully resolved, so O_NOFOLLOW only refuses a link swapped in since the check.
-      fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
-      const stat = fs.fstatSync(fd);
-      if (!stat.isFile()) {
-        fs.closeSync(fd);
-        return 'refused';
-      }
-      return { fd, size: stat.size };
+      return redactText(s, redactContext(root, config)).text;
     } catch {
-      if (fd !== undefined) fs.closeSync(fd);
-      return 'refused';
+      return 'the backing status could not be read';
     }
+  };
+
+  /** A job's environment, reused for 2 s per job: the card polls every 5 s and each read can spawn the CLI. */
+  function environmentOf(config: Config, job: LoadedJob, fresh = false): Promise<JobEnvironmentResponse> {
+    const hit = envMemo.get(job.id);
+    if (!fresh && hit && Date.now() - hit.at < ENV_MEMO_MS) return hit.p;
+    const p = jobEnvironment(root, config, job, redactor(config));
+    envMemo.set(job.id, { at: Date.now(), p });
+    p.catch(() => envMemo.delete(job.id));
+    return p;
+  }
+
+  /** GET /api/jobs/:id/environment: the job's dev server and backing services. */
+  async function environmentGet(req: http.IncomingMessage, res: http.ServerResponse, id: string): Promise<void> {
+    if (readGuard(req, res) || guardToken(req, res, token)) return;
+    const job = environmentJob(res, id);
+    if (!job) return;
+    return json(res, (await environmentOf(loadConfig(root).config, job)) satisfies JobEnvironmentResponse);
+  }
+
+  /**
+   * POST /api/jobs/:id/environment: start, stop or restart the job's dev server or its backing services.
+   * Every action needs the job's own contained worktree (job.json is agent-writable), start needs an
+   * active job, and stop signals only a pid ownDevProcess proves is this job's dev server.
+   */
+  async function environmentPost(req: http.IncomingMessage, res: http.ServerResponse, id: string): Promise<void> {
+    if (guardPost(req, res, token)) return;
+    const parsed = await readJsonBody(req);
+    if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+    const job = environmentJob(res, id);
+    if (!job) return;
+    const body = parsed.body;
+    const keys = isObject(body) ? Object.keys(body).sort().join(',') : '';
+    if (!isObject(body) || keys !== 'action,target' || (body.target !== 'dev' && body.target !== 'backing') || !ENV_ACTIONS.includes(body.action as EnvironmentAction))
+      return jsonStatus(res, 400, { error: 'body must be {"target": "dev"|"backing", "action": "start"|"stop"|"restart"}' });
+    const target = body.target as EnvironmentTarget;
+    const action = body.action as EnvironmentAction;
+    const { config } = loadConfig(root);
+    const starts = action !== 'stop';
+    const wt = containedWorktree(root, config, job);
+    if (starts && !isActive(job)) return jsonStatus(res, 409, { error: `job ${job.id} is ${job.state}; only an active job's ${target === 'dev' ? 'dev server' : 'backing services'} can be started` });
+    // A worktree field pointing anywhere but <root>/<id> is forged: nothing is spawned or signalled for it.
+    if ((target === 'dev' || job.worktree) && !wt) return jsonStatus(res, 409, { error: `job ${job.id} has no worktree inside the worktrees root` });
+    let ok = true;
+    let detail: string | null = null;
+    if (target === 'dev') {
+      if (action !== 'start') {
+        const r = await stopDevProven(root, job.id, wt!, dashboardActor());
+        if (r.refused !== undefined)
+          return jsonStatus(res, 409, {
+            error: process.platform === 'win32' ? `the dashboard cannot stop a dev server on Windows; stop it with forge stop ${job.id}` : `cannot prove pid ${r.refused} is this job's dev server; stop it with forge stop ${job.id}`,
+          });
+      }
+      if (starts) {
+        try {
+          await startBackground(root, config, job.id, 'dev');
+        } catch (e) {
+          if (e instanceof ForgeError) return jsonStatus(res, 409, { error: e.message });
+          throw e;
+        }
+      }
+    } else {
+      if (!entriesOrNone(config).some(isManaged)) return jsonStatus(res, 409, { error: 'no backing service is run by Forge: every backing entry is external or none is configured' });
+      // Start is an ensure up, so the environment record and environments.maxRunning count it (and
+      // it may evict); Stop keeps the dev server running, so it is backing stop plus the record.
+      const up: [string[], number] = [['environment', 'up', job.id], BACKING_UP_TIMEOUT_MS];
+      const stop: [string[], number] = [['backing', 'stop', job.id], BACKING_STOP_TIMEOUT_MS];
+      const steps = action === 'start' ? [up] : action === 'stop' ? [stop] : [stop, up];
+      for (const [args, timeout] of steps) {
+        const r = await forgeJson(root, args, timeout);
+        if (args[1] === 'stop') recordEnvironmentStopped(root, job.id);
+        if (r.exitCode === 0) continue;
+        ok = false;
+        const list = Array.isArray(r.data?.backing) ? r.data.backing : r.data?.services;
+        const failed = Array.isArray(list) ? list.find((s: any) => s && s.ok === false)?.error : r.data?.error;
+        detail = redactor(config)(typeof failed === 'string' ? failed : (r.data?.error ?? r.error ?? `forge ${args.join(' ')} failed`));
+        break;
+      }
+    }
+    const environment = await environmentOf(config, loadJob(root, job.id), true);
+    return json(res, { target, action, ok, detail, environment } satisfies PostEnvironmentResponse);
+  }
+
+  /**
+   * GET /api/jobs/:id/environment/logs: the dev log (`logs/dev.log`, followed like a transcript) or a
+   * managed backing container's `docker logs --follow`, as SSE frames whose data is a JSON string of one
+   * line. `source` is validated before anything is opened or spawned: `dev`, or `backing:<name>` for a
+   * managed entry in config, whose container name is derived from config and the job id, never from
+   * the query. The container must read as this job's (or this project's) in `backing status`.
+   */
+  async function environmentLogs(req: http.IncomingMessage, res: http.ServerResponse, id: string, url: URL): Promise<void> {
+    if (readGuard(req, res)) return;
+    if (!tokenMatches(url.searchParams.get('token'), token)) return send(res, 403, 'text/plain', 'bad token');
+    const job = environmentJob(res, id);
+    if (!job) return;
+    const { config } = loadConfig(root);
+    const source = url.searchParams.get('source') ?? '';
+    let entry: BackingEntry | null = null;
+    let container: string | null = null;
+    if (source !== 'dev') {
+      const name = source.startsWith('backing:') ? source.slice('backing:'.length) : null;
+      entry = name === null ? null : (entriesOrNone(config).find((e) => e.name === name && isManaged(e)) ?? null);
+      container = entry ? containerName(entry.isolation === 'shared' ? projectSlug(root, config) : id, entry.name) : null;
+      if (!entry || !container || !DOCKER_NAME.test(container)) return jsonStatus(res, 400, { error: 'source must be "dev" or "backing:<name>" for a backing service Forge runs' });
+    }
+    if (clients.size >= MAX_SSE_CLIENTS) return send(res, 503, 'text/plain', 'too many event streams');
+    const scope = `env:${id}:${source}`;
+    if (source === 'dev') {
+      const opened = openDevLog(root, id);
+      if (typeof opened === 'string') return jsonStatus(res, 404, { error: 'no dev log' });
+      const fd = opened.fd;
+      const known = knownReader(id);
+      sseHead(res);
+      res.write('retry: 3000\n\n');
+      clients.set(res, scope);
+      const stop = followFd(
+        res,
+        fd,
+        opened.size,
+        req.headers['last-event-id'],
+        (offset, line) => res.write(textFrame(offset, redactKnown(line, known()))),
+        (offset, bytes) => res.write(textFrame(offset, `… a line of ${bytes} bytes was skipped`)),
+      );
+      const recycle = setTimeout(() => res.end(), opts.sseMaxAgeMs ?? SSE_MAX_AGE_MS);
+      recycle.unref();
+      res.on('close', () => {
+        stop();
+        clearTimeout(recycle);
+        clients.delete(res);
+        fs.closeSync(fd);
+      });
+      return startPing();
+    }
+    // A client that leaves during the status call has already fired `close`, so the handler below would
+    // never run: its slot and its `docker logs --follow` child would outlive it.
+    let gone = false;
+    res.once('close', () => (gone = true));
+    const status = await forgeJson(root, ['backing', 'status', id], ENV_STATUS_TIMEOUT_MS);
+    if (gone || res.destroyed) return;
+    const svc = Array.isArray(status.data?.services) ? status.data.services.find((s: any) => s?.name === entry!.name) : null;
+    if (!svc || (svc.state !== 'running' && svc.state !== 'stopped')) return jsonStatus(res, 409, { error: `container ${container} is ${svc?.state ?? 'unknown'}: its logs are not shown` });
+    // Checked again: the status call above took time, and other streams may have opened meanwhile.
+    if (clients.size >= MAX_SSE_CLIENTS) return send(res, 503, 'text/plain', 'too many event streams');
+    sseHead(res);
+    res.write('retry: 3000\n\n');
+    clients.set(res, scope);
+    const known = knownReader(id);
+    const child = spawn('docker', ['logs', '--follow', '--tail', '200', '--', container!], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let ended = false;
+    const lines = (pipe: NodeJS.ReadableStream) => {
+      let partial = '';
+      pipe.setEncoding?.('utf8');
+      pipe.on('data', (c: string) => {
+        partial += c;
+        let nl = partial.indexOf('\n');
+        while (nl !== -1) {
+          res.write(textFrame(null, redactKnown(partial.slice(0, nl), known())));
+          partial = partial.slice(nl + 1);
+          nl = partial.indexOf('\n');
+        }
+        // One endless line is sent in pieces rather than held.
+        if (partial.length > SSE_MAX_LINE) {
+          // Redacted whole, before it is cut into pieces, so a value can't straddle two of them.
+          res.write(textFrame(null, redactKnown(partial, known())));
+          partial = '';
+        }
+        if (res.writableLength > SSE_SLOW_CLIENT_BYTES) res.end();
+      });
+      pipe.on('end', () => {
+        if (partial && !ended) res.write(textFrame(null, redactKnown(partial, known())));
+        partial = '';
+      });
+    };
+    lines(child.stdout);
+    lines(child.stderr);
+    child.on('error', () => res.end());
+    const finish = () => {
+      if (ended) return;
+      ended = true;
+      res.write('event: end\ndata: null\n\n');
+      res.end();
+    };
+    child.on('close', finish);
+    // A recycled container stream ends rather than reconnects: its frames carry no offset, so a reconnect
+    // would replay the last 200 lines on top of the ones already shown.
+    const recycle = setTimeout(finish, opts.sseMaxAgeMs ?? SSE_MAX_AGE_MS);
+    recycle.unref();
+    res.on('close', () => {
+      ended = true;
+      clearTimeout(recycle);
+      clients.delete(res);
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    });
+    startPing();
+  }
+
+  /** GET /api/environments: every running environment, reused for 5 s, with one computation shared by concurrent callers. */
+  async function environments(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (readGuard(req, res) || guardToken(req, res, token)) return;
+    if (!envsCache || Date.now() - envsCache.at > ENVS_CACHE_MS) {
+      const p = environmentsSnapshot(root, loadConfig(root).config);
+      envsCache = { at: Date.now(), p };
+      p.catch(() => {
+        if (envsCache?.p === p) envsCache = null;
+      });
+    }
+    return json(res, (await envsCache.p) satisfies EnvironmentsResponse);
   }
 
   /**
@@ -799,10 +992,11 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     const before = rawBefore === null || rawBefore === '' ? null : Number(rawBefore);
     if (before !== null && !(Number.isSafeInteger(before) && before >= 0)) return jsonStatus(res, 400, { error: 'before must be a log offset' });
     const f = sessionFiles(root, scope);
+    const known = scopeKnownValues(root, scope, loadConfig(root).config);
     const empty: DaemonLogPage = { scope, lines: [], start: 0, end: 0, more: false };
     const opened: number[] = [];
     const open = (file: string) => {
-      const r = openConfinedLog(f.dir, file);
+      const r = openConfinedLog(root, f.dir, file);
       if (typeof r !== 'string') opened.push(r.fd);
       return r;
     };
@@ -813,7 +1007,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         const prev = open(`${f.log}.1`);
         if (prev === 'missing') return json(res, empty);
         if (prev === 'refused') return jsonStatus(res, 404, { error: 'no session log' });
-        const page = readLogPage(prev.fd, prev.size, Math.max(0, logBase - prev.size), { before });
+        const page = redactPage(readLogPage(prev.fd, prev.size, Math.max(0, logBase - prev.size), { before }), known);
         return json(res, { scope, ...page } satisfies DaemonLogPage);
       }
       const cur = open(f.log);
@@ -825,7 +1019,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (typeof prev !== 'string' && prev.size > 0) page.more = true;
         else if (cur === 'missing') return json(res, empty);
       }
-      return json(res, { scope, ...page } satisfies DaemonLogPage);
+      return json(res, { scope, ...redactPage(page, known) } satisfies DaemonLogPage);
     } catch {
       return jsonStatus(res, 404, { error: 'no session log' });
     } finally {
@@ -874,7 +1068,16 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       const d = createPool(root, opts.daemon);
       pool = d;
       // Each stream gets only its own session's lines and state.
-      d.subscribe((e) => broadcast(clients, e.kind === 'line' ? lineFrame(e.offset, e.line) : stateFrame(e.state), SSE_SLOW_CLIENT_BYTES, e.scope));
+      d.subscribe((e) => {
+        let frame: string;
+        try {
+          frame = e.kind === 'line' ? lineFrame(e.offset, e.line) : stateFrame(e.state, scopeKnownValues(root, e.scope, loadConfig(root).config));
+        } catch {
+          // Unreadable config: a state frame that can't be redacted is dropped, never sent raw.
+          return;
+        }
+        broadcast(clients, frame, SSE_SLOW_CLIENT_BYTES, e.scope);
+      });
       try {
         const { config } = loadConfig(root);
         // A dev dashboard often runs in a fresh clone of a repo that commits daemon.enabled: true,
@@ -1060,8 +1263,14 @@ function sameOrigin(origin: string, host: string | undefined): boolean {
   }
 }
 
-function stateFrame(st: DaemonSessionState): string {
-  return `event: state\ndata: ${JSON.stringify(st)}\n\n`;
+/** A log or transcript page with known values taken out of each line; offsets stay the file's. */
+function redactPage<P extends { lines: { offset: number; line: string }[] }>(page: P, known: readonly string[]): P {
+  return known.length ? { ...page, lines: page.lines.map((l) => ({ ...l, line: redactKnown(l.line, known) })) } : page;
+}
+
+/** A session's state as an SSE frame; its permission inputs and errors can quote a known value, so they are redacted like /api/state. */
+export function stateFrame(st: DaemonSessionState, known: readonly string[]): string {
+  return `event: state\ndata: ${JSON.stringify(redactDeep(st, known))}\n\n`;
 }
 
 /**
@@ -1078,6 +1287,85 @@ function lineFrame(offset: number, line: string): string {
     data = JSON.stringify({ type: 'forge-truncated', originalType, bytes } satisfies ForgeTruncatedLine);
   }
   return `event: line\nid: ${offset}\ndata: ${data}\n\n`;
+}
+
+/**
+ * One line of a text log as an SSE frame: the data is a JSON string, so a CR, a `<script>` or text that
+ * looks like SSE stays inside one frame and reaches the page as text. Never lineFrame, which assumes JSON lines.
+ */
+export function textFrame(offset: number | null, line: string): string {
+  const text = line.length > TEXT_FRAME_MAX ? `${line.slice(0, TEXT_FRAME_MAX)}…` : line;
+  return `${offset === null ? '' : `id: ${offset}\n`}data: ${JSON.stringify(text)}\n\n`;
+}
+
+/**
+ * Follows a file through one open descriptor: its last ≤64 KiB of complete lines (or what follows
+ * Last-Event-ID), then each line appended later, polled every second. `emit` gets each complete line
+ * at its offset; `oversize` a line over the read cap, which is skipped. A truncated file starts over.
+ * Ends the response on a read error or a slow client. Returns the function that stops the polling.
+ */
+function followFd(
+  res: http.ServerResponse,
+  fd: number,
+  initialSize: number,
+  lastEventId: string | string[] | undefined,
+  emit: (offset: number, line: string) => void,
+  oversize: (offset: number, bytes: number) => void,
+): () => void {
+  const last = Number(lastEventId);
+  const resume = lastEventId !== undefined && Number.isSafeInteger(last) && last >= 0 && last < initialSize && initialSize - last <= TRANSCRIPT_READ_BYTES;
+  // From Last-Event-ID, the line at that offset is the one the client has: skip it.
+  let pos = resume ? last : Math.max(0, initialSize - TRANSCRIPT_TAIL_BYTES);
+  let skipPartial = resume || pos > 0;
+  if (pos > 0 && !resume) pos -= 1;
+  let size = initialSize;
+  let closed = false;
+  const pump = (): void => {
+    if (closed) return;
+    try {
+      const now = fs.fstatSync(fd).size;
+      if (now < size) {
+        // Truncated or rewritten: start over.
+        pos = 0;
+        skipPartial = false;
+      }
+      size = now;
+      while (pos < size) {
+        const len = Math.min(size - pos, TRANSCRIPT_READ_BYTES);
+        const buf = Buffer.alloc(len);
+        const n = fs.readSync(fd, buf, 0, len, pos);
+        if (n <= 0) break;
+        const chunk = buf.subarray(0, n);
+        const lastNl = chunk.lastIndexOf(0x0a);
+        if (lastNl === -1) {
+          // No complete line yet: wait for it, unless one line is over the read cap.
+          if (n < TRANSCRIPT_READ_BYTES) break;
+          if (!skipPartial) oversize(pos, n);
+          skipPartial = true;
+          pos += n;
+          continue;
+        }
+        let at = 0;
+        while (at <= lastNl) {
+          const nl = chunk.indexOf(0x0a, at);
+          if (skipPartial) skipPartial = false;
+          else emit(pos + at, chunk.subarray(at, nl).toString('utf8'));
+          at = nl + 1;
+        }
+        pos += lastNl + 1;
+        if (res.writableLength > SSE_SLOW_CLIENT_BYTES) return void res.end();
+      }
+    } catch {
+      res.end();
+    }
+  };
+  pump();
+  const poll = setInterval(pump, TRANSCRIPT_POLL_MS);
+  poll.unref();
+  return () => {
+    closed = true;
+    clearInterval(poll);
+  };
 }
 
 type SseClient = { write: (s: string) => unknown; end: () => unknown; writableLength: number };
@@ -1112,7 +1400,8 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
     // The time rule only, so polling never spawns `ps`; the job detail adds the daemon proofs.
     return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: ownerStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events), endpoints: endpointsFor(root, config, j) };
   });
-  return {
+  // Every string leaf: titles, events and activity lines can all carry what a command printed.
+  return redactDeep<ApiState>({
     apiVersion: API_VERSION,
     forgeVersion: forgeVersion(),
     repo: { name: paths(root).repoName },
@@ -1134,7 +1423,7 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
     focus: currentFocus(root),
     budget,
     now: new Date().toISOString(),
-  };
+  }, allKnownValues(root, config));
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
@@ -1241,7 +1530,7 @@ function jobDetail(root: string, id: string, projects: string): JobDetail {
       if (e.name.startsWith('.')) continue;
       const full = path.join(d, e.name);
       if (e.isDirectory() && depth < 3) walk(full, depth + 1);
-      else if (e.isFile() && TEXT_EXT.has(path.extname(e.name)) && !['job.json', 'events.jsonl', 'runtime.json'].includes(e.name))
+      else if (e.isFile() && TEXT_EXT.has(path.extname(e.name)) && !['job.json', 'events.jsonl', 'runtime.json'].includes(e.name) && !isPrivateName(e.name))
         files.push(path.relative(dir, full));
     }
   };
@@ -1259,7 +1548,7 @@ function jobDetail(root: string, id: string, projects: string): JobDetail {
   const createdIssues = Array.isArray(created?.issues) ? (created.issues as unknown[]) : [];
   const createdSource = created?.source as { ref?: unknown } | null | undefined;
   const fromTracker = createdIssues.some((i) => Boolean(i && typeof i === 'object' && (i as { ref?: unknown }).ref)) || Boolean(createdSource?.ref);
-  return {
+  return redactDeep<JobDetail>({
     job: { ...job, progress: progress(root, id), ownerStatus: ownerStatusWithProof(root, job, { env: jobSessionEnv(job.id) }) },
     events: events.slice(-400),
     files,
@@ -1269,7 +1558,7 @@ function jobDetail(root: string, id: string, projects: string): JobDetail {
     requestFromTracker: fromTracker,
     agents: roundAgents(root, job, events, projects),
     ownerTranscript: ((o) => (o ? { session: o.session } : null))(interactiveOwner(root, job, projects)),
-  };
+  }, knownValues(root, id, loadConfig(root).config));
 }
 
 /** request.md without its `# title` line, for the Thread's opening message; null when empty. */

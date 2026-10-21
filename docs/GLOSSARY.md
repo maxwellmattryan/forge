@@ -15,7 +15,7 @@ Planned in M004, except where a config key exists today.
 | **port-bearing component** | A `service` or `app` component, which holds one job port (`ports` in `job.json`, `{endpoint.<component>}` in commands); a `library` holds none. | `components`, `ports` |
 | **dependency** | An edge from one component to another, `build` when it is needed to compile or bundle and `runtime` when it must be running. | planned (M004) |
 | **project graph** | The components of all of a project's repos and the dependencies between them, drawn by the dashboard's project view. | `components` |
-| **focus** | The job whose environment you are currently pointed at, set with `forge focus` or the dashboard, where switching focus starts or stops no server and runs the checkout steps. | - |
+| **focus** | The job whose environment you are currently pointed at, set with `forge focus` or the dashboard, where switching focus runs the checkout steps and starts the job's stopped backing services, but starts or stops no dev server. | - |
 | **checkout step** | A configured action that makes a fixed path or tool follow the focused job: a `link` from a fixed path to the job's build, or a `run` of a configured command with an optional `undo`, undone when focus moves away. | `checkout` |
 | **issue ref** | A tracker's reference to one issue (`owner/repo#12` for GitHub, a local backlog title slug, or a custom adapter's own `KEY-123`), kept in a job's `issues` list in job.json, where the first is the primary issue and one issue may sit on several jobs. | - |
 
@@ -55,14 +55,15 @@ Planned in M007; a row with a config key is implemented.
 
 | Term | Meaning | Config key |
 |---|---|---|
-| **environment** | The running components and backing services one job uses, each at its own endpoints (today a job's environment is its worktree plus its `ports`, one per port-bearing component, and its backing services). | planned (M007) |
+| **environment** | The running components and backing services one job uses, each at its own endpoints: its per-job containers and volumes, its job databases and its background processes, beside its worktree and `ports`, shown for one job in its panel's Environment card and for every running one in the dashboard's Running environments section, and which Forge starts on demand, stops while the job is parked and tears down when the job finishes (`forge environment`). | `backing`, `environments.maxRunning` |
 | **endpoint** | An address (URL or host and port) where an environment serves one component or backing service: `{endpoint.<component>}` and `{backing.<name>.port}` in commands, the `Endpoints:` brief line and the Environment card. | `components`, `backing` |
 | **backing service** | Infrastructure a component needs while it runs, such as a database, cache or queue. | `backing` |
 | **isolation** | How a backing service is provided to jobs: `per-job` (its own container per job), `shared` (one instance every job uses) or `external` (run outside Forge, which only points at it). | `backing` |
 | **job database** | One job's own database and login role on a shared Postgres backing service, cloned from a template database and dropped when the job's worktree is removed. | `backing[].database` |
 | **template database** | The database a shared Postgres backing service's migrate and seed commands build once per template hash, which every job database is cloned from. | `backing[].database` |
 | **config sink** | Where Forge writes a component's configuration for an environment (environment variables, a `.env` file, a JSON, YAML or TOML file, or a project script), chosen per component and never assumed. | `components[].config` |
-| **secret reference** | A pointer to a secret held elsewhere (an environment variable name, a keychain entry, a secret manager path) that Forge resolves at run time and never writes into job files, prompts or logs. | planned (M007) |
+| **secret reference** | A named pointer to a secret held elsewhere (an environment variable, a keychain entry, a 1Password item, a git-ignored file) that a config sink names as `{secret.NAME}` and Forge resolves only when the sink renders, never writing it into job files, briefs or logs. | `secrets` |
+| **known value** | A secret value a job's sinks have resolved, or one of its job database passwords: Forge replaces it with `[redacted]` wherever it writes or serves text, and the secret scanner refuses to publish it. | `secrets` |
 
 ## Profiles
 
@@ -94,5 +95,11 @@ The new words build on these, which exist today.
 | **output mode** | How a `forge` call prints: `human` (rendered text for a person at a terminal) or `agent` (compact JSON, the CLI's contract), chosen by `--json`, `--mode`, `FORGE_MODE`, then whether stdout is a terminal (docs/CLI.md "Output mode"). | - |
 | **activity log** | The timestamped lines a foreground `forge dash` prints after its banner in human mode, of three kinds: `session` (session transitions), `http` (requests worth noting) and `job` (newly appended job events); `--quiet` and agent mode leave only the banner (docs/CLI.md "Output mode"). | - |
 | **Foreman** | The office session that decides gates for jobs under `foreman.decides`. | `foreman.decides` |
+| **stranded job** | A job whose `state` is `running` (no gate holds it) while nothing drives it: no turn in flight, no agents, no pending request and no other live owner; `forge job advance` and the pool's turn-end check park one on `escalation` rather than leave it. | - |
 | **rework panel** | The lenses that re-run on a rework round under `review.onRework: narrow` (the `always` and `alwaysOnRework` lenses, `security` by default, those whose last verdict asked for changes or that have none, and those whose `paths` the fix touched), while every other lens on the job's panel keeps its last pass. | `review.onRework` |
+| **outcome** | What happened to a merged job inside its window after the merge (reverted, follow-up bug issues, churn), `open` until the window closes and `final` after, measured by `forge sync` and stored as `outcome` in job.json. | `outcomes.windowDays` |
+| **autonomy rate** | The share of merged jobs with a final outcome that shipped with no person's rework, revision, decision, PR feedback or edit, and were neither reverted nor followed by a bug; the **strict** autonomy rate also counts a person's approval at a gate config requires (spec, split, repos, release, issue link, infra, protected paths). | - |
+| **score** | A sampled merged job's post-merge quality score from the judge, 0-5, against the spec's acceptance criteria and the merged diff; queued by `forge sync`, recorded by `forge job score record` and stored as `score` in job.json (`held` when a budget stopped it, `failed` without a valid `score.md`). | `scoring.sample`, `scoring.model` |
+| **score coverage** | How many merged jobs were sampled for a score, and how many of those were scored, held, failed or are still queued (`scoreCoverage` in `forge stats`). | `scoring.sample` |
+| **churn** | Later non-Forge commits on the base branch, inside a job's outcome window, that touch a file the job's merge changed; a soft signal reported beside the autonomy rate, never counted against it. | `outcomes.windowDays` |
 | **`release` gate class** | The Foreman's approval of one job's release plan (`forge release plan --job`), which stands in for `forge release run`'s publish prompt without a terminal, for that exact plan only, which stays a human's unless a project adds `release` to `foreman.decides` and removes `gate:release` from `foreman.reserved` (not the **release gate**, the CI check on interim references). | `foreman.reserved` |

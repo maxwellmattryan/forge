@@ -1,6 +1,6 @@
 // Local links (config schemaVersion 12): the `link` shape on dependsOn edges, its validation, link
-// resolution against the job's repos, and the pure renderers. No sh and no toolchains, so this file
-// runs on CI's Windows leg too; the CLI and toolchain tests are links-cli and links-toolchains.
+// resolution against the job's repos, and the pure renderers. No sh and no toolchains;
+// the CLI and toolchain tests are links-cli and links-toolchains.
 import { after, describe, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -39,11 +39,11 @@ const COMPONENTS = [
 
 describe('links: config shape', { concurrency: 4 }, () => {
   test('a v11 config migrates to v12 unchanged', async () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 22);
+    assert.equal(CONFIG_SCHEMA_VERSION, 26);
     const v11 = { schemaVersion: 11, repos: structuredClone(REPOS), components: structuredClone(COMPONENTS) };
     const { config, from } = migrateConfig(structuredClone(v11));
     assert.equal(from, 11);
-    assert.deepEqual(config, { ...v11, schemaVersion: 22, downstream: { enabled: true, max: 5, skip: [] } });
+    assert.deepEqual(config, { ...v11, schemaVersion: 26, downstream: { enabled: true, max: 5, skip: [] } });
     const repo = tempRepo();
     cleanups.push(repo.cleanup);
     const cfg = path.join(repo.dir, '.forge', 'config.yml');
@@ -52,7 +52,7 @@ describe('links: config shape', { concurrency: 4 }, () => {
     const m = await forgeAsync(repo.dir, ['migrate']);
     assert.equal(m.status, 0, m.stderr);
     const text = fs.readFileSync(cfg, 'utf8');
-    assert.match(text, /^schemaVersion: 22$/m);
+    assert.match(text, /^schemaVersion: 26$/m);
     assert.deepEqual(yaml.parse(text).components, COMPONENTS);
   });
 

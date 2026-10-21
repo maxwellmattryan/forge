@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.18.7
+
+- **Behaviour change: environment lifecycle.** A job's environment (backing containers and volumes, job databases, background dev processes) now stops when the job parks, starts again on demand, and is torn down when the job finishes. `environments.maxRunning` caps how many run at once, stopping the least recently used but never the focused job.
+- **Secrets:** `secrets:` in `.forge/config.yml` declares secrets from env, the keychain, 1Password or a git-ignored file, used in config as `{secret.NAME}`. They are resolved only when a command runs, fail closed, are redacted everywhere Forge writes or serves text, and are blocked by the secret scanner even in `warn` mode.
+- **Dashboard:** an environment view per job (dev server and backing services with health, start/stop/restart and live logs) and a Running environments section on the Project page; more themes; a dropdown select that takes custom entries; fixes to chat inputs, the activity log and the job card's live dot.
+- **Run outcomes:** `forge sync` records each merged job's post-merge outcome (reverts, follow-up bugs, churn) within `outcomes.windowDays`, and `forge stats` reports an autonomy rate.
+- **Post-merge scoring:** with `scoring.sample` above 0, the judge scores a sampled share of merged jobs against their spec, shown in `forge stats`, `forge eval compare` and the retro. Off by default.
+- **Foreman:** sync starts a rework on its own when a parked PR's CI is red, and a non-PASS security review no longer keeps every gate with a human.
+- **No stranded jobs:** `forge pr open` merges a moved remote PR head instead of failing the push, `forge job advance` parks a job on `escalation` when the same command fails again with no progress, and the pool resumes a job a session left `running` with nothing driving it, then parks it if that turn makes no progress either.
+- CI runs on Linux only.
+- Versions: config schema 22 → 26, job schema 14 → 16, `API_VERSION` 29 → 31.
+
 ## 0.18.6
 
 - **Backing services:** a per-job database on a shared server (Postgres `TEMPLATE`), with seeds and migrations.

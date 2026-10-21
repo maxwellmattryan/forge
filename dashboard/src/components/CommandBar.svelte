@@ -232,7 +232,7 @@
           id={optionId(i)}
           role="option"
           aria-selected={i === active}
-          class="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer {i === active ? 'bg-raised text-fg shadow-[inset_var(--bar-rule)_0_0_0_var(--gleam)]' : 'text-muted'}"
+          class="flex items-center gap-3 px-3 py-2 text-sm {i === active ? 'bg-raised text-fg shadow-[inset_var(--bar-rule)_0_0_0_var(--gleam)]' : 'text-muted'}"
           onmousemove={() => (active = i)}
           onclick={() => activate(o)}
         >

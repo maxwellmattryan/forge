@@ -114,9 +114,9 @@ function fakeKit() {
 
 const turnsIn = (child) => child.written.split(TURN_LINE).length - 1;
 
-/** A pool over in-memory children that never polls on its own. */
+/** A pool over in-memory children that never polls or syncs on its own. */
 function kitPool(dir, kit, cfg: any = config(), extra = {}) {
-  return createPool(dir, { spawn: kit.spawn, killTree: kit.killTree, loadConfig: () => ({ config: cfg }), pollMs: 3_600_000, slotGraceMs: 0, ...extra });
+  return createPool(dir, { spawn: kit.spawn, killTree: kit.killTree, loadConfig: () => ({ config: cfg }), pollMs: 3_600_000, slotGraceMs: 0, syncMs: 0, ...extra });
 }
 
 test('AC5: command template to argv', async () => {
@@ -844,6 +844,50 @@ test('AC11: crash loop cap and missing executable', async () => {
   }
 });
 
+test('a wanted pool runs forge sync on an interval, one at a time, and never once stopped', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  let calls = 0;
+  let live = 0;
+  let maxLive = 0;
+  let release: (v: string | null) => void = () => {};
+  const runSync = () => {
+    calls++;
+    live++;
+    maxLive = Math.max(maxLive, live);
+    return new Promise<string | null>((r) => {
+      release = (v) => {
+        live--;
+        r(v);
+      };
+    });
+  };
+  const d = kitPool(repo.dir, kit, config(), { syncMs: 20, runSync });
+  try {
+    await sleep(60);
+    assert.equal(calls, 0, 'nothing syncs before the pool starts');
+    d.start();
+    await waitFor(() => calls === 1, 2000, 'first periodic sync');
+    await sleep(80);
+    assert.equal(calls, 1, 'a sync still running skips the next intervals');
+    release('gh: offline');
+    await waitFor(() => calls === 2, 2000, 'sync after the first ended');
+    release('gh: offline');
+    await waitFor(() => calls === 3, 2000, 'third sync');
+    assert.equal(maxLive, 1);
+    assert.equal(logOf(repo.dir).split('periodic forge sync failed: gh: offline').length - 1, 1, 'a repeated failure is logged once');
+    release(null);
+    await d.stop();
+    const after = calls;
+    await sleep(80);
+    assert.equal(calls, after, 'a stopped pool never syncs');
+  } finally {
+    release(null);
+    await d.close();
+    repo.cleanup();
+  }
+});
+
 test('AC12: idle stop and wake on new work', async () => {
   const repo = tempRepo();
   try {
@@ -1354,8 +1398,10 @@ test('a switch claude never confirms: a narrowing one stops the session, a widen
     d.setPermissionMode(INBOX, 'dontAsk', DASH);
     await waitFor(() => first.exited, 2000, 'the narrowing stop');
     assert.deepEqual(d.state().permissionModes, { [INBOX]: 'dontAsk' });
-    await logged(repo.dir, INBOX, 'error');
-    assert.match(eventsIn(logOf(repo.dir), 'error').at(-1).message, /did not confirm permission mode dontAsk; stopping the session/);
+    // The widening's error is already logged, so wait for this one rather than for any error.
+    const narrowing = /did not confirm permission mode dontAsk; stopping the session/;
+    await waitFor(() => eventsIn(logOf(repo.dir), 'error').some((e) => narrowing.test(e.message)), 2000, 'the narrowing error');
+    assert.match(eventsIn(logOf(repo.dir), 'error').at(-1).message, narrowing);
   } finally {
     await d.close();
     repo.cleanup();

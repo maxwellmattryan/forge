@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { builtCss } from './built-css.ts';
 import { noDist } from './dist.ts';
+import { THEMES } from '../dashboard/src/lib/theme.ts';
 
 // Every test here reads the real build, so each skips without one (test/dist.ts).
 const test = (name: string, fn: () => void) => nodeTest(name, { skip: noDist() }, fn);
@@ -17,7 +18,7 @@ const styleCss = () => fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8'
 
 const UTILITIES = (
   'ground falloff plain solid chrome plate clickable h label callout mono num muted dimmed caption stamp-line prose btn seg chip ' +
-  'navlist input check radio field cmd-field track fill tabs tab tbl facts kpi ic dot halo backdrop scrim mark'
+  'navlist input check radio field cmd-field track fill tabs tab tbl facts kpi ic dot halo backdrop scrim mark menu-pop'
 ).split(' ');
 // Compound selectors as the build writes them (minified, attribute quotes dropped).
 const MODIFIERS = [
@@ -28,7 +29,7 @@ const MODIFIERS = [
   '.navlist a', '.navlist button', '.navlist a.active', '.navlist .lbl', '.navlist.row', '.navlist.row a', '.navlist.row button',
   '.input:focus', '.input.sm', '.input:is(textarea)', '.input:is(select)', '.check:checked:after', '.radio.on:after', '.cmd-field input', '.cmd-field:focus-within', '.fill.ok', '.fill.warn', '.fill.bad',
   '.tab.active', '.tbl th', '.tbl tr.clickable', '.tbl .r', '.facts .k', '.facts .sep', '.kpi .v',
-  '.dot.ok', '.dot.gleam', '.dot.spark', '.dot.ember', '.dot.hollow', '.dot.plain', '[data-theme=ash] .backdrop', '[data-theme=ash] .scrim', '.ground:before', '.falloff:after',
+  '.dot.ok', '.dot.gleam', '.dot.spark', '.dot.ember', '.dot.warn', '.dot.hollow', '.dot.plain', '[data-theme=ash] .backdrop', '[data-theme=ash] .scrim', '.ground:before', '.falloff:after',
 ];
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -323,6 +324,22 @@ test('reduced motion disables transitions and animations', () => {
   assert.ok(builtCss().lastIndexOf('@media(prefers-reduced-motion:reduce)') > builtCss().indexOf('.transition'), 'the block comes after the utilities');
 });
 
+test('the menu panel transitions open and closed, and not under reduced motion', () => {
+  const css = builtCss();
+  const pop = ruleFor(css, '.menu-pop');
+  assert.match(pop, /opacity:0/);
+  assert.match(pop, /scale:\.96/);
+  assert.match(pop, /transition:opacity \.12s( ease)?,scale \.12s( ease)?,overlay \.12s( ease)? allow-discrete,display \.12s( ease)? allow-discrete/, 'fades and scales, and keeps the panel drawn and in the top layer until it ends');
+  assert.doesNotMatch(pop, /transform:/, 'scale, not transform');
+  assert.match(ruleFor(css, '.menu-pop:popover-open'), /opacity:1/, 'the open end state');
+  assert.match(ruleFor(css, '.menu-pop:popover-open'), /scale:1/);
+  const start = /@starting-style\{\.menu-pop:popover-open\{([^}]*)\}\}/.exec(css);
+  assert.ok(start, 'an @starting-style start state');
+  assert.match(start[1], /opacity:0/);
+  assert.match(start[1], /scale:\.96/);
+  assert.ok(css.lastIndexOf('@media(prefers-reduced-motion:reduce)') > css.indexOf('.menu-pop'), 'the reduced-motion block comes after it');
+});
+
 /** Every `@media` block whose prelude matches (Tailwind's `hover:` variants emit their own): the bodies joined, and the CSS without them. */
 function mediaSplit(css: string, prelude: RegExp): { inside: string; outside: string } {
   const inside: string[] = [];
@@ -468,7 +485,7 @@ test('every control has the solid focus ring', () => {
   assert.match(ruleFor(css, '.check:checked:after'), /border:solid var\(--on-gleam\)/, 'with an on-gleam tick');
   assert.match(ruleFor(css, '.check:disabled'), /border-style:dashed/);
   assert.match(ruleFor(css, 'input[type=checkbox]:focus-visible'), RING, 'a drawn checkbox keeps the ring');
-  // .radio on a native radio (the session log's Permissions and Effort popovers): round, drawn, with the .on dot when checked.
+  // .radio on a native radio: round, drawn, with the .on dot when checked.
   assert.match(ruleFor(css, '.radio'), /appearance:none/, 'the radio is drawn, not the OS one');
   assert.match(ruleFor(css, '.radio'), /border-radius:50%/, 'and round, so an exclusive choice never reads as checkboxes');
   assert.match(ruleFor(css, '.radio:checked'), /border-color:var\(--gleam\)/, 'a checked radio rings gleam, as .on does');
@@ -680,7 +697,8 @@ test('sender tints are opaque tokens with readable text', () => {
   const lum = (c: number[]) => 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
   const contrast = (a: number[], b: number[]) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
   const TINTS = { agent: ['gleam', 15], cli: ['fg', 5], forge: ['ember', 7] } as const;
-  for (const [theme, sel] of [['forge', ':root, [data-theme="forge"]'], ['ash', '[data-theme="ash"]']] as const) {
+  for (const theme of THEMES) {
+    const sel = theme === 'forge' ? ':root, [data-theme="forge"]' : `[data-theme="${theme}"]`;
     const b = block(sel);
     const panel = hex(b, 'panel');
     const mixes: Record<string, number[]> = {};
@@ -696,10 +714,11 @@ test('sender tints are opaque tokens with readable text', () => {
       }
       assert.ok(contrast(mixed, panel) > 1.01, `${theme}: --tint-${name} is visibly off the panel`);
     }
-    // The agent and cli rows must read apart at a glance: agent cool, cli neutral.
+    // The agent and cli rows must read apart at a glance. In forge and ash agent is cool and cli neutral; the other themes
+    // tint agent with their own gleam, which is warm by design in crucible (molten gold), so only the difference holds there.
     const { agent, cli } = mixes;
     assert.ok(Math.max(...agent.map((v, i) => Math.abs(v - cli[i]))) >= 10, `${theme}: --tint-agent ${agent} and --tint-cli ${cli} differ by 10 or more in a channel`);
-    assert.ok(agent[2] - agent[0] > cli[2] - cli[0], `${theme}: --tint-agent is cooler than --tint-cli`);
+    if (theme === 'forge' || theme === 'ash') assert.ok(agent[2] - agent[0] > cli[2] - cli[0], `${theme}: --tint-agent is cooler than --tint-cli`);
   }
   const css = builtCss();
   for (const name of Object.keys(TINTS)) {
@@ -708,4 +727,39 @@ test('sender tints are opaque tokens with readable text', () => {
     assert.match(rule, new RegExp(`--surface:var\\(--tint-${name}\\)`), `.tint.${name} is a surface`);
   }
   assert.match(styleCss(), /@utility tint \{/);
+});
+
+const POINTER = ['button', 'summary', '[role=button]', '[role=option]', '[role=menuitem]', '[role=menuitemradio]', '[role=menuitemcheckbox]', '[role=tab]', '[role=switch]', '[role=checkbox]', '[role=radio]', 'input[type=checkbox]', 'input[type=radio]', 'label:has(>input[type=checkbox])', 'label:has(>input[type=radio])'];
+const NOT_ALLOWED = [':is(button,summary,input,[role]):disabled', '[role][aria-disabled=true]', 'label:has(>input:disabled)'];
+/** The index of the first built rule whose selector list names `selector` with that body; -1 when none. */
+function ruleIndex(css: string, selector: string, body: string): number {
+  for (const m of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) if (m[2] === body && splitTop(m[1], /,/).some((s) => s.trim() === selector)) return m.index ?? -1;
+  return -1;
+}
+
+test('clickable elements show a pointer, disabled ones not-allowed', () => {
+  const source = styleCss();
+  const base = source.slice(source.indexOf('@layer base {'), source.indexOf('\n}\n', source.indexOf('@layer base {')));
+  const lines = base.split('\n');
+  const pointer = lines.findIndex((l) => /\{ cursor: pointer; \}$/.test(l) && l.includes('label:has(>input[type=radio])'));
+  const blocked = lines.findIndex((l) => /\{ cursor: not-allowed; \}$/.test(l));
+  assert.ok(pointer >= 0, '@layer base has one pointer rule');
+  for (const sel of POINTER) assert.ok(splitTop(lines[pointer].replace(/\{.*$/, ''), /,/).includes(sel), `the pointer rule covers ${sel}`);
+  assert.ok(blocked > pointer, 'the not-allowed rule comes after it');
+  for (const sel of NOT_ALLOWED) assert.ok(splitTop(lines[blocked].replace(/\{.*$/, '').replace(/,\s+/g, ','), /,/).includes(sel), `the not-allowed rule covers ${sel}`);
+  assert.match(base, /input, textarea, select, \[contenteditable\]:not\(\[contenteditable="false"\]\) \{ cursor: auto; \}/, 'text fields keep their cursor');
+
+  const css = builtCss();
+  const last = Math.max(...POINTER.map((sel) => ruleIndex(css, sel, 'cursor:pointer')));
+  for (const sel of POINTER) assert.ok(ruleIndex(css, sel, 'cursor:pointer') >= 0, `the build points at ${sel}`);
+  for (const sel of NOT_ALLOWED) assert.ok(ruleIndex(css, sel, 'cursor:not-allowed') > last, `the build blocks ${sel} after the pointer rules`);
+});
+
+nodeTest('no ad-hoc pointer classes remain', () => {
+  const SRC = path.join(DASHBOARD, 'src');
+  const files = fs.readdirSync(SRC, { recursive: true }).map((f) => String(f).split(path.sep).join('/')).filter((f) => /\.(svelte|ts)$/.test(f));
+  const hits = files.flatMap((f) => [...fs.readFileSync(path.join(SRC, f), 'utf8').matchAll(/\bcursor-(pointer|not-allowed)\b/g)].map((m) => `${f}: ${m[0]}`));
+  // DepChips' chip is a span inside the card's button: the base rule matches buttons and roles, never a bare span.
+  assert.deepEqual(hits, ['components/DepChips.svelte: cursor-pointer']);
+  for (const f of ['App.svelte', 'components/Drawer.svelte']) assert.match(fs.readFileSync(path.join(SRC, f), 'utf8'), /\bcursor-col-resize\b/, `${f}'s resize handle keeps col-resize`);
 });

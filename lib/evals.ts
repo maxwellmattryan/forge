@@ -9,7 +9,9 @@ import path from 'node:path';
 import { DEFAULT_TEST_PATTERN } from './integrity.ts';
 import { applyOverlay } from './eval-overlay.ts';
 import { aggregateTasks, delta, jobTiming, stageStats, stat, taskPass, TASK_METRICS } from './eval-stats.ts';
-import { createJob, loadJob, logEvent, readEvents, setJob, jobDir } from './jobs.ts';
+import { listArchived } from './archive.ts';
+import { createJob, listJobs, loadJob, logEvent, readEvents, setJob, jobDir } from './jobs.ts';
+import { mergeTime } from './scoring.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
 import { posixShell } from './platform.ts';
 import { createWorktree } from './worktree.ts';
@@ -19,7 +21,7 @@ import { jobComponent } from './components.ts';
 import { repoSlug } from './pr.ts';
 import { firstVerifyRun } from './stats.ts';
 import * as yaml from './yaml.ts';
-import type { Config, EvalCompare, EvalCompareSide, EvalDelta, EvalOverlay, EvalResult, EvalRun, EvalSummary, EvalTask, EvalTaskMetric, Job } from './types.ts';
+import type { Config, EvalCompare, EvalCompareSide, EvalDelta, EvalOverlay, EvalResult, EvalRun, EvalSummary, EvalTask, EvalTaskMetric, Job, RealJobScores } from './types.ts';
 
 /** An eval task as loadTask reads it: the served EvalTask plus its directory and request text. */
 export type LoadedTask = EvalTask & { dir: string; request: string };
@@ -522,7 +524,40 @@ export function compareRuns(root: string, a: string, b: string): EvalCompare {
     overlay: r.overlay ?? {},
     repeat: r.repeat ?? 1,
   });
-  return { a: side(ra), b: side(rb), delta: summaryDelta, stages, perTask };
+  const real = [...listJobs(root), ...listArchived(root).map((x) => x.job)].filter((j) => j.kind !== 'eval');
+  return { a: side(ra), b: side(rb), delta: summaryDelta, stages, perTask, realJobs: { a: realJobScores(real, ra.startedAt), b: realJobScores(real, rb.startedAt) } };
+}
+
+/** Days of real-job merges before a run's start that `forge eval compare` sets beside its scores. */
+export const REAL_SCORE_WINDOW_DAYS = 14;
+
+/**
+ * Post-merge scores of the real jobs merged in the REAL_SCORE_WINDOW_DAYS ending at `startedAt`.
+ * avgScore is value/5, on avgJudgeScore's 0-1 scale.
+ */
+export function realJobScores(jobs: Job[], startedAt: string): RealJobScores {
+  const end = Date.parse(startedAt);
+  const start = end - REAL_SCORE_WINDOW_DAYS * 86_400_000;
+  const ok = Number.isFinite(end);
+  const values = ok
+    ? jobs
+        .filter((j) => {
+          const at = mergeTime(j);
+          return j.score?.status === 'scored' && j.score.value !== null && at !== null && at >= start && at <= end;
+        })
+        .map((j) => j.score!.value as number)
+    : [];
+  const sorted = [...values].sort((x, y) => x - y);
+  const mid = Math.floor(sorted.length / 2);
+  const median = !sorted.length ? null : sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  const avg = values.length ? values.reduce((n, v) => n + v / 5, 0) / values.length : null;
+  return {
+    from: ok ? new Date(start).toISOString() : startedAt,
+    to: ok ? new Date(end).toISOString() : startedAt,
+    scored: values.length,
+    medianScore: median === null ? null : Math.round(median * 100) / 100,
+    avgScore: avg === null ? null : Math.round(avg * 1000) / 1000,
+  };
 }
 
 export function createTask(root: string, name: string, title: string, request: string): { dir: string } {

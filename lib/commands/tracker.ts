@@ -3,9 +3,12 @@ import { daemonClaimOpts, ownerStatusWithProof } from '../daemon-owner.ts';
 import { DEP_REASON, claimRespectingDeps, refreshDependencyWait, retargetPlan, unmetDependencies } from '../deps.ts';
 import { createJob, isActive, listJobs, loadJob, logEvent, readEvents, setJob, claimJob } from '../jobs.ts';
 import * as pr from '../pr.ts';
+import { measureOutcomes } from '../outcome.ts';
+import { queueScores } from '../scoring.ts';
 import { listRequests } from '../requests.ts';
 import { checkRepoBudget, isRepoHold, repoBudgetBlock } from '../repo-budget.ts';
 import { applyRetention } from '../retention.ts';
+import { finishEnvironment } from '../environment-lifecycle.ts';
 import { searchTerms } from '../issue-link.ts';
 import { checkIssueRef, isSafeUrl, linkedIssues, nativeRef, nativeRefs, parseIssueRef, primaryIssue, sameIssue } from '../issue-ref.ts';
 import { localRepoSlug } from '../repo-slug.ts';
@@ -112,7 +115,7 @@ export const HELP: HelpGroup[] = [
   {
     name: 'sync',
     summary: 'reconcile PRs and trackers for all jobs',
-    commands: [{ command: 'sync', args: '', summary: "reconcile PRs and trackers for every job, retarget stacked PRs, release dependency waits and finish umbrella jobs; a job's failure is reported in its result" }],
+    commands: [{ command: 'sync', args: '', summary: "reconcile PRs and trackers for every job, measure merged jobs' outcomes (revert, follow-up bugs, churn; at most 10 per run), queue a post-merge judge score run for sampled merged jobs (scoring.sample; at most 5 per run), retarget stacked PRs, release dependency waits and finish umbrella jobs; a job's failure is reported in its result" }],
   },
   TRACKER,
 ];
@@ -328,7 +331,7 @@ export async function startFromRef(root: string, config: Config, tracker: Tracke
   const job = createJob(root, config, { title: item.title, issues, body: item.body ?? '', splitMode: opts.splitMode });
   const claim = tracker.claim(ctx, item.ref, job);
   if (!claim.ok) {
-    setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` });
+    finishEnvironment(root, config, job, setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` }));
     throw new ForgeError(`could not claim ${ref}: ${claim.reason}`, 3);
   }
   if (session) claimJob(root, job.id, session, false, daemonClaimOpts(root, job.id));
@@ -362,7 +365,7 @@ async function startFromMemberRef(
   recordJobRepo(root, config, job.id, member.name, false);
   const claim = tracker.claim(ctx, member.n, loadJob(root, job.id));
   if (!claim.ok) {
-    setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` });
+    finishEnvironment(root, config, job, setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` }));
     throw new ForgeError(`could not claim ${ref}: ${claim.reason}`, 3);
   }
   if (session) claimJob(root, job.id, session, false, daemonClaimOpts(root, job.id));
@@ -507,7 +510,7 @@ function linkedMergeDeferred(root: string, config: Config, job: Job): boolean {
 export async function syncAll(
   root: string,
   config: Config,
-): Promise<{ synced: number; results: Record<string, unknown>[]; requests: number; integrating: string[]; retention?: { archived: string[]; logs: string[] } }> {
+): Promise<{ synced: number; results: Record<string, unknown>[]; requests: number; integrating: string[]; outcomes?: { measured: number; finalized: string[] }; scoring?: { queued: string[]; held: string[] }; retention?: { archived: string[]; logs: string[] } }> {
   const results: Record<string, unknown>[] = [];
   const integrating: string[] = [];
   for (const job of listJobs(root).filter((j) => j.kind !== 'eval')) {
@@ -543,6 +546,26 @@ export async function syncAll(
       results.push({ id: job.id, error: (e as Error).message.slice(0, 300) });
     }
   }
+  // After the PR loop, so a merge this sync recorded is measured in the same run.
+  let outcomes: { measured: number; finalized: string[] } | null = null;
+  if (config.pr.enabled) {
+    try {
+      const o = measureOutcomes(root, config);
+      if (o.measured.length) outcomes = { measured: o.measured.length, finalized: o.finalized };
+    } catch (e) {
+      results.push({ outcomes: 'error', error: (e as Error).message.slice(0, 300) });
+    }
+  }
+  // After the outcome pass, so a job's outcome merge time is there for a PR with none of its own.
+  let scoring: { queued: string[]; held: string[] } | null = null;
+  if (config.pr.enabled) {
+    try {
+      const s = queueScores(root, config);
+      if (s.queued.length || s.held.length) scoring = s;
+    } catch (e) {
+      results.push({ scoring: 'error', error: (e as Error).message.slice(0, 300) });
+    }
+  }
   // Both passes are local git and job state, so they run even with PRs disabled.
   for (const p of retargetPlan(root, config)) {
     try {
@@ -571,7 +594,7 @@ export async function syncAll(
     }).filter(Boolean);
     // filter(Boolean) above dropped the children that failed to load.
     if (kids.length && kids.every((k) => ['done', 'cancelled'].includes(k!.state))) {
-      setJob(root, job.id, { stage: 'done', state: 'done', reason: 'all child jobs finished' });
+      finishEnvironment(root, config, job, setJob(root, job.id, { stage: 'done', state: 'done', reason: 'all child jobs finished' }));
       results.push({ id: job.id, umbrellaDone: true });
     }
   }
@@ -584,5 +607,5 @@ export async function syncAll(
   // The human's retention policy runs in any session, daemon ones included: they set it, not a request.
   const retention = applyRetention(root, config, 'policy');
   // Counted last, so it includes the resumes sync queued for the jobs it routed.
-  return { synced: results.length, results, requests: listRequests(root, { status: 'pending' }).length, integrating, ...(retention ? { retention } : {}) };
+  return { synced: results.length, results, requests: listRequests(root, { status: 'pending' }).length, integrating, ...(outcomes ? { outcomes } : {}), ...(scoring ? { scoring } : {}), ...(retention ? { retention } : {}) };
 }

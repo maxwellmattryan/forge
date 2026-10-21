@@ -116,6 +116,8 @@ const resolvedIntegration = (events: ReturnType<typeof ev>[], config: (c: Config
   events: [...events, ev('agent-start', 33, { role: 'integrator' })],
   integrationTouched: { head: HEAD_SHA, upstream: BASE_SHA, sha: 's', files: listed(events), ...touched },
 });
+/** A post-merge score run forge sync queued at minute 20. */
+const QUEUED_SCORE: NonNullable<Job['score']> = { status: 'queued', queuedAt: t(20), value: null, outOf: 5, recordedAt: null, judgeModel: null, builderModel: null };
 const OPEN_PR: Job['pr'] = { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) };
 type Side = { stage: string; state?: string; waitingOn?: string | null };
 /** A transition event at minute n; a side's state defaults to running. */
@@ -160,10 +162,42 @@ const ppPark = (parkAt: number, approveAt: number, human: Record<string, unknown
 const rows: Row[] = [
   // ---- Global
   { name: 'G1 a done job is done', fx: { job: job({ stage: 'done', state: 'done' }) }, want: { action: 'done', state: 'done' } },
+  { name: 'G1 with score scored', fx: { job: job({ stage: 'done', state: 'done', score: { ...QUEUED_SCORE, status: 'scored', value: 4, recordedAt: t(30) }, agents: { judge: ag(1, 21, 25) } }) }, want: { action: 'done', state: 'done' } },
+  { name: 'G1 with score null', fx: { job: job({ stage: 'done', state: 'done', score: null }) }, want: { action: 'done', state: 'done' } },
+  { name: 'G1 with score failed', fx: { job: job({ stage: 'done', state: 'done', score: { ...QUEUED_SCORE, status: 'failed', recordedAt: t(30), reason: 'no score.md' }, agents: { judge: ag(1, 21, 25) } }) }, want: { action: 'done', state: 'done' } },
+  { name: 'G1 an eval job never runs a score', fx: { job: job({ kind: 'eval', stage: 'done', state: 'done', score: QUEUED_SCORE }) }, want: { action: 'done', state: 'done' } },
+  { name: 'G1 a cancelled job with a queued score is done', fx: { job: job({ stage: 'done', state: 'cancelled', score: QUEUED_SCORE }) }, want: { action: 'done', state: 'cancelled' } },
+  {
+    name: 'JS2 spawns the scoring judge on a done job',
+    fx: { job: job({ stage: 'done', state: 'done', round: 1, score: QUEUED_SCORE }), files: ['request', 'spec'], present: [path.join(JOB_DIR, 'score.diff')] },
+    want: { action: 'spawn', role: 'judge', agent: 'forge:judge', output: path.join(JOB_DIR, 'score.md'), model: 'opus' },
+    check: (a) => assert.deepEqual(a.start, ['job', 'agent', 'j', 'start', '--role', 'judge', '--model', 'opus', '--output', path.join(JOB_DIR, 'score.md')]),
+  },
+  {
+    name: 'JS2 takes scoring.model',
+    fx: { config: (c) => (c.scoring.model = 'haiku'), job: job({ stage: 'done', state: 'done', score: QUEUED_SCORE }) },
+    want: { action: 'spawn', role: 'judge', model: 'haiku', output: path.join(JOB_DIR, 'score.md') },
+  },
+  { name: 'JS2 an older judge run does not count', fx: { job: job({ stage: 'done', state: 'done', score: QUEUED_SCORE, agents: { judge: ag(1, 5, 9) } }) }, want: { action: 'spawn', role: 'judge' } },
+  { name: 'JS1 waits while the scoring judge runs', fx: { job: job({ stage: 'done', state: 'done', score: QUEUED_SCORE, agents: { judge: ag(1, 21) } }) }, want: { action: 'wait', waitingOn: 'agents', running: ['judge'] } },
+  { name: 'JS3 records the score once the judge ends', fx: { job: job({ stage: 'done', state: 'done', score: QUEUED_SCORE, agents: { judge: ag(1, 21, 25) } }) }, want: run('job', 'score', 'record', 'j') },
+  { name: 'JS3 records a lost judge too', fx: { job: job({ stage: 'done', state: 'done', score: QUEUED_SCORE, agents: { judge: ag(1, 21, 25, { status: 'lost' }) } }) }, want: run('job', 'score', 'record', 'j') },
   { name: 'G1 a cancelled job is done', fx: { job: job({ stage: 'build', state: 'cancelled' }) }, want: { action: 'done', state: 'cancelled', tell: 'j is cancelled' } },
   { name: 'G2 a failed job reports its reason', fx: { job: job({ stage: 'backlog', state: 'failed', reason: 'worktree setup failed' }) }, want: { action: 'done', state: 'failed', tell: 'j failed: worktree setup failed' } },
   { name: 'G3 releases the claim while the PR waits', fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', owner: { session: 's', host: 'h', since: t(0), heartbeat: t(0) } }) }, want: run('job', 'release', 'j') },
-  { name: 'G3 stops background processes', fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review' }), runtime: ['dev'] }, want: run('stop', 'j') },
+  { name: 'G3 stops background processes through the environment', fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review' }), runtime: ['dev'] }, want: { ...run('environment', 'stop', 'j'), rule: 'G3' } },
+  { name: 'G3 stops a running environment', fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review' }), environment: 'running' }, want: { ...run('environment', 'stop', 'j'), rule: 'G3' } },
+  { name: 'G3 releases the claim before stopping the environment', fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', owner: { session: 's', host: 'h', since: t(0), heartbeat: t(0) } }), environment: 'running' }, want: run('job', 'release', 'j') },
+  { name: 'G3 waits once the environment is stopped', fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review' }), environment: 'stopped' }, want: { action: 'wait', rule: 'G3', waitingOn: 'pr-review' } },
+  { name: 'G4 an escalation stops a running environment', fx: { job: job({ stage: 'decide', state: 'waiting', waitingOn: 'escalation', reason: 'r' }), environment: 'running' }, want: { ...run('environment', 'stop', 'j'), rule: 'G4' } },
+  { name: 'G4 blocked stops background processes', fx: { job: job({ stage: 'build', state: 'blocked', reason: 'dependency' }), runtime: ['dev'] }, want: { ...run('environment', 'stop', 'j'), rule: 'G4' } },
+  { name: 'G4 waits once the environment is stopped', fx: { job: job({ stage: 'decide', state: 'waiting', waitingOn: 'escalation', reason: 'r' }), environment: 'stopped' }, want: { action: 'wait', rule: 'G4', waitingOn: 'escalation' } },
+  { name: 'E1 a resumed build starts its stopped environment', fx: { job: job({ stage: 'build', round: 1 }), environment: 'stopped' }, want: { ...run('environment', 'up', 'j'), rule: 'E1', tell: 'the job resumed: start its environment' } },
+  { name: 'E1 a resumed verify starts its stopped environment', fx: { job: job({ stage: 'verify', round: 1 }), environment: 'stopped' }, want: { ...run('environment', 'up', 'j'), rule: 'E1' } },
+  { name: 'E1 a resumed review starts its stopped environment', fx: { job: job({ stage: 'review', round: 1 }), environment: 'stopped' }, want: { ...run('environment', 'up', 'j'), rule: 'E1' } },
+  { name: 'no E1 without a record entry', fx: { job: job({ stage: 'build', round: 1 }), environment: null }, want: {}, check: (a) => assert.notEqual(a.rule, 'E1') },
+  { name: 'no E1 in spec', fx: { job: job({ stage: 'spec' }), environment: 'stopped' }, want: {}, check: (a) => assert.notEqual(a.rule, 'E1') },
+  { name: 'no E1 while the environment runs', fx: { job: job({ stage: 'build', round: 1 }), environment: 'running' }, want: {}, check: (a) => assert.notEqual(a.rule, 'E1') },
   {
     name: 'G3 waits on review and names a missing issue',
     fx: { config: (c) => (c.tracker.kind = 'local'), job: job({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }) },
@@ -392,6 +426,9 @@ const rows: Row[] = [
   { name: 'B1 a human rework starts a round', fx: { job: job({ stage: 'build', round: 2, agents: { builder: ag(2, 5, 6) } }), events: [ev('round', 4), ev('human', 7, { action: 'rework' })] }, want: run('job', 'round', 'j') },
   { name: 'B2 rounds exhausted', fx: { job: job({ stage: 'build', round: 4, maxRounds: 3, agents: { builder: ag(3, 5, 6) } }), events: [ev('round', 7)] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 4 exceeds maxRounds 3') },
   { name: 'B2 a live job past maxRounds still parks', fx: { job: job({ stage: 'build', round: 4, maxRounds: 3, agents: { builder: ag(3, 5, 6) } }), events: [ev('round', 7)] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 4 exceeds maxRounds 3'), rule: 'B2' } },
+  { name: 'B4 an open security review reworks past maxRounds', fx: { job: job({ stage: 'build', round: 4, maxRounds: 3, verdicts: { 3: { code: 'PASS', security: 'CHANGES' } }, agents: { builder: ag(3, 5, 6) } }), events: [ev('round', 7)] }, want: { action: 'spawn', rule: 'B4', role: 'builder' } },
+  { name: 'B2 an open security review parks at twice maxRounds', fx: { job: job({ stage: 'build', round: 7, maxRounds: 3, verdicts: { 6: { security: 'MALFORMED' } }, agents: { builder: ag(6, 5, 6) } }), events: [ev('round', 7)] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 7 exceeds twice maxRounds 3 with the security review not PASS') },
+  { name: 'B2 a security review that passed again parks at maxRounds', fx: { job: job({ stage: 'build', round: 4, maxRounds: 3, verdicts: { 2: { security: 'CHANGES' }, 3: { code: 'CHANGES', security: 'PASS' } }, agents: { builder: ag(3, 5, 6) } }), events: [ev('round', 7)] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 4 exceeds maxRounds 3') },
   { name: 'B6 an eval job past maxRounds goes to decide', fx: { job: job({ kind: 'eval', eval: { run: 'r', task: 'hello' }, stage: 'build', round: 4, maxRounds: 3, agents: { builder: ag(3, 5, 6) } }), events: [ev('round', 7)] }, want: { ...run('job', 'set', 'j', '--stage', 'decide', '--state', 'running', '--reason', 'eval: round 4 exceeds maxRounds 3'), rule: 'B6' } },
   { name: 'rounds exhausted: a human rework continues', fx: { job: job({ stage: 'build', round: 4, maxRounds: 3, agents: { builder: ag(3, 5, 6) } }), events: [ev('human', 7, { action: 'rework' }), ev('round', 8)] }, want: { action: 'spawn', rule: 'B4', role: 'builder' } },
   { name: 'B4 a rework past maxRounds spawns the builder', fx: { job: job({ stage: 'build', round: 5, maxRounds: 3, agents: { builder: ag(4, 5, 6) } }), events: [ev('round', 10), ev('human', 20, { action: 'rework' }), ev('round', 21)] }, want: { action: 'spawn', rule: 'B4', role: 'builder' } },
@@ -911,6 +948,9 @@ const rows: Row[] = [
   // ---- PR
   { name: 'PR1 pr.enabled false finishes on the branch', fx: { config: (c) => (c.pr.enabled = false), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }) }, want: { ...run('job', 'set', 'j', '--stage', 'done', '--state', 'done'), tell: 'j finished on branch forge/j' } },
   { name: 'PR2 an unverified HEAD is verified first', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, false)] }) }, want: run('verify', 'j') },
+  { name: 'PR2 a PR branch merged in after verify is verified again', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-head-pulled', 12, { pulled: 'fast-forward', head: 'a'.repeat(40) })] }, want: run('verify', 'j') },
+  { name: 'PR3 a pull the last verify already covered opens the PR', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 14, true)] }), events: [ev('pr-head-pulled', 12, { pulled: 'merge', head: 'a'.repeat(40) })] }, want: run('pr', 'open', 'j') },
+  { name: 'PR3 an aborted conflicting pull does not re-verify', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-head-pulled', 12, { pulled: 'conflicts', head: 'a'.repeat(40) })] }, want: run('pr', 'open', 'j') },
   { name: 'PR3 opens the PR', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }) }, want: run('pr', 'open', 'j') },
 
   // ---- Protected paths (PP1, PP2)

@@ -382,7 +382,10 @@ describe('forge config set and get', { concurrency: 4 }, () => {
       // pr.integrationReview only chooses between reviewing and skipping a docs-only conflict review; the rest of pr.* stays locked.
       // retention.logMaxBytes only moves when a log rotates (1 MiB floor); jobsDays and logsDays delete files and stay locked.
       // budget.* only caps spend: raising it never runs, loads or writes anything.
-      assert.match(f.key, /^((pipeline|review|runtime|tracker|dashboard|daemon|budget)\.|pr\.integrationReview$|retention\.logMaxBytes$)/, `${f.key} is in an editable section`);
+      // outcomes.windowDays only sets how long sync watches a merged job; it names nothing Forge runs.
+      // scoring.sample and scoring.model pick which merged jobs get a judge run and its model; budgets still hold it.
+      // environments.maxRunning only caps running environments: a wrong value stops (never removes) one.
+      assert.match(f.key, /^((pipeline|review|runtime|tracker|dashboard|daemon|budget)\.|pr\.integrationReview$|retention\.logMaxBytes$|outcomes\.windowDays$|environments\.maxRunning$|scoring\.(sample|model)$)/, `${f.key} is in an editable section`);
       for (const p of forbidden) assert.ok(!f.key.startsWith(p), `${f.key} must not be editable (${p})`);
     }
     assert.ok(FIELDS.some((f) => f.key === 'runtime.models.builder' && f.editable));

@@ -63,11 +63,11 @@ function scratch(edit: (c: any) => void = () => {}) {
 const WAIT_SPEC = { stage: 'spec' as const, state: 'waiting' as const, waitingOn: 'spec-approval' as const, reason: 'spec ready' };
 
 test('config v4 migrates to v7 with foreman defaults off', () => {
-  assert.equal(CONFIG_SCHEMA_VERSION, 22);
+  assert.equal(CONFIG_SCHEMA_VERSION, 26);
   const v4 = { schemaVersion: 4, git: { base: 'trunk' }, runtime: { models: { builder: 'sonnet' } } };
   const { config, from } = migrateConfig(structuredClone(v4));
   assert.equal(from, 4);
-  assert.deepEqual(config, { ...v4, schemaVersion: 22, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
+  assert.deepEqual(config, { ...v4, schemaVersion: 26, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
   const d = defaults();
   // repo-proposal widens the repos a job pushes to and release publishes, so the default leaves both with a human.
   assert.deepEqual(d.foreman, { enabled: false, decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal' && g !== 'release'), reserved: d.foreman.reserved, ship: 'propose' });
@@ -403,20 +403,28 @@ describe('foreman CLI', { concurrency: 4 }, () => {
     }
   });
 
-  test('a security review asking for changes keeps every gate with a human', async () => {
+  test('a security review asking for changes lets the foreman mitigate but never approve', async () => {
     const s = scratch();
     try {
       const id = s.job('Sec', { stage: 'build', state: 'running', fields: { verdicts: { 1: { code: 'PASS', security: 'CHANGES' }, 2: { code: 'CHANGES' } } } });
       const r = await s.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 3 exceeds maxRounds 2');
       assert.equal(r.code, 0, r.out);
-      assert.equal(s.gates(id)[0].args.reserved, SECURITY_CHANGES);
-      assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'human');
+      assert.equal(s.gates(id)[0].args.reserved, null, 'the gate reaches the assistant');
+      assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'foreman');
+      const assist = (await s.cli(undefined, 'job', 'assist', id, '--gate', 'rounds-exhausted')).json();
+      assert.equal(assist.reserved, null);
+      assert.match(assist.brief, /^Security review: \(security review: CHANGES\)\. Approving is refused while it stands: security always has to pass, so rework or revise to fix the findings\.$/m);
       const before = s.snapshot(id);
       const refused = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'approve', '--actor', 'foreman', '--note', 'cosmetic');
       assert.equal(refused.code, 1, refused.out);
       assert.match(refused.out, /security review: CHANGES/);
       assert.equal(s.snapshot(id), before);
-      assert.equal((await s.cli(undefined, 'job', 'assist', id, '--gate', 'rounds-exhausted')).json().reserved, SECURITY_CHANGES);
+      const fixed = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'rework', '--actor', 'foreman', '--note', 'fix the injection finding');
+      assert.equal(fixed.code, 0, fixed.out);
+      // A gate with no mitigating action (conflicts: approve only) stays a human's.
+      const conflicted = s.job('Conflicted', { stage: 'pr', state: 'waiting', waitingOn: 'conflicts', fields: { verdicts: { 1: { security: 'CHANGES' } } } });
+      assert.equal(reservedFor(s.root, s.config(), loadJob(s.root, conflicted), 'conflicts'), SECURITY_CHANGES);
+      assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, conflicted)), 'human');
       // A later round whose security review passed clears it.
       assert.equal(latestSecurityVerdict({ verdicts: { 1: { security: 'CHANGES' }, 3: { security: 'PASS' } } } as any), 'PASS');
       assert.equal(latestSecurityVerdict({ verdicts: {} } as any), null);
@@ -454,22 +462,22 @@ describe('foreman CLI', { concurrency: 4 }, () => {
     }
   });
 
-  test('a malformed security review keeps the gate with a human', async () => {
+  test('a malformed security review refuses a foreman approval', async () => {
     const s = scratch();
     try {
       const id = s.job('Malformed', { stage: 'build', state: 'running', fields: { verdicts: { 1: { code: 'PASS', security: 'MALFORMED' } } } });
       assert.equal((await s.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 2 exceeds maxRounds 1')).code, 0);
-      assert.equal(s.gates(id)[0].args.reserved, SECURITY_UNCLEAR);
-      assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'human');
+      assert.equal(s.gates(id)[0].args.reserved, null);
       const before = s.snapshot(id);
       const r = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'approve', '--actor', 'foreman', '--note', 'cosmetic');
       assert.equal(r.code, 1, r.out);
       assert.match(r.out, /security review: not PASS/);
       assert.equal(s.snapshot(id), before);
-      const at = (verdicts: unknown) => reservedFor(s.root, s.config(), { id, reason: 'x', verdicts } as any, 'escalation');
+      const at = (verdicts: unknown, action = 'approve') => reservedFor(s.root, s.config(), { id, reason: 'x', verdicts } as any, 'escalation', [], { action });
       assert.equal(at({ 1: { security: 'PASS' } }), null);
       assert.equal(at({ 1: { security: 'CHANGES' } }), SECURITY_CHANGES);
       for (const v of ['MALFORMED', 'MISSING', 'weird']) assert.equal(at({ 1: { security: v } }), SECURITY_UNCLEAR, v);
+      for (const a of ['rework', 'revise-spec']) assert.equal(at({ 1: { security: 'CHANGES' } }, a), null, a);
     } finally {
       s.cleanup();
     }
@@ -562,6 +570,82 @@ esac
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
     }
+    fs.rmSync(bin, { recursive: true, force: true });
+    s.cleanup();
+  }
+});
+
+test('failing checks start a foreman rework from sync, once per head, with no office gate', { skip: process.platform === 'win32' }, () => {
+  const s = scratch((c) => (c.tracker.github = { ...(c.tracker.github ?? {}), repo: 'o/r' }));
+  const bin = path.join(s.root, '..', `fakebin-${path.basename(s.root)}`);
+  fs.mkdirSync(bin);
+  fs.writeFileSync(
+    path.join(bin, 'gh'),
+    `#!/bin/sh
+case "$1 $2" in
+  "pr view") printf '{"number":7,"url":"https://github.com/o/r/pull/7","state":"OPEN","isDraft":false,"headRefOid":"%s","mergeable":"MERGEABLE","mergeStateStatus":"UNSTABLE","reviewDecision":null,"statusCheckRollup":[{"conclusion":"FAILURE","status":"COMPLETED"},{"conclusion":"","status":"IN_PROGRESS"}],"mergedAt":null,"closedAt":null,"headRefName":"forge/x","baseRefName":"main"}' "$FAKE_HEAD_OID" ;;
+  "repo view") echo o/r ;;
+  "api graphql") printf '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[]},"reviewThreads":{"nodes":[]}}}}}' ;;
+esac
+`,
+    { mode: 0o755 },
+  );
+  const saved = { PATH: process.env.PATH, FAKE_HEAD_OID: process.env.FAKE_HEAD_OID };
+  process.env.PATH = `${bin}${path.delimiter}${saved.PATH}`;
+  const parked = { stage: 'pr' as const, state: 'waiting' as const, waitingOn: 'pr-review' as const, fields: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } };
+  const resumes = (id: string) => listRequests(s.root).filter((q) => q.type === 'resume' && q.job === id);
+  try {
+    const base = s.config();
+    const config = { ...base, daemon: { ...base.daemon, enabled: true } };
+    const id = s.job('Red CI', parked);
+    const head1 = 'a'.repeat(40);
+    process.env.FAKE_HEAD_OID = head1;
+    syncPr(s.root, config, id);
+    let job = loadJob(s.root, id);
+    assert.equal(job.stage, 'build');
+    assert.equal(job.state, 'running');
+    assert.equal(job.reason, 'forge sync: checks failing on PR #7');
+    assert.deepEqual(s.gates(id), [], 'failing checks need no office turn');
+    assert.equal(resumes(id).length, 1);
+    const feedback = fs.readFileSync(path.join(jobDir(s.root, id), 'feedback.md'), 'utf8');
+    assert.match(feedback, /CI is failing on PR #7 at a{12}\./);
+    assert.match(feedback, /gh pr checks 7/);
+    const rework = readEvents(s.root, id).filter((e) => e.type === 'human' && e.action === 'rework');
+    assert.equal(rework.length, 1);
+    assert.equal(rework[0].ciHead, head1);
+    assert.equal(rework[0].actor?.source, 'foreman', "the foreman's decision, not a person's");
+    // Back on pr-review with the same red head (the round pushed nothing new): never a second rework.
+    setJob(s.root, id, { stage: 'pr', state: 'waiting', waitingOn: 'pr-review' });
+    syncPr(s.root, config, id);
+    assert.equal(loadJob(s.root, id).stage, 'pr');
+    assert.equal(readEvents(s.root, id).filter((e) => e.type === 'human' && e.action === 'rework').length, 1);
+    // A new head that is red again, a GitHub "Update branch" included, reworks again.
+    process.env.FAKE_HEAD_OID = 'b'.repeat(40);
+    syncPr(s.root, config, id);
+    assert.equal(loadJob(s.root, id).stage, 'build');
+    // Without the daemon nothing runs unattended: the gate is queued as before.
+    const manual = s.job('Manual', parked);
+    process.env.FAKE_HEAD_OID = 'c'.repeat(40);
+    syncPr(s.root, base, manual);
+    job = loadJob(s.root, manual);
+    assert.equal(job.waitingOn, 'pr-review');
+    assert.equal(s.gates(manual).length, 1);
+    // A security review asking for changes doesn't hold a rework: fixing things is mitigation.
+    const held = s.job('Held', { ...parked, fields: { ...parked.fields, verdicts: { '1': { security: 'CHANGES' } } } });
+    process.env.FAKE_HEAD_OID = 'd'.repeat(40);
+    syncPr(s.root, config, held);
+    assert.equal(loadJob(s.root, held).stage, 'build');
+    // A reserved pattern in the reason still does: it goes through the gate.
+    const reserved = { ...config, foreman: { ...config.foreman, reserved: ['billing'] } };
+    const billing = s.job('Billing', { ...parked, reason: 'billing change' });
+    process.env.FAKE_HEAD_OID = 'f'.repeat(40);
+    syncPr(s.root, reserved, billing);
+    assert.equal(loadJob(s.root, billing).waitingOn, 'pr-review');
+    assert.equal(s.gates(billing).length, 1);
+  } finally {
+    process.env.PATH = saved.PATH;
+    if (saved.FAKE_HEAD_OID === undefined) delete process.env.FAKE_HEAD_OID;
+    else process.env.FAKE_HEAD_OID = saved.FAKE_HEAD_OID;
     fs.rmSync(bin, { recursive: true, force: true });
     s.cleanup();
   }

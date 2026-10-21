@@ -75,6 +75,38 @@ export interface HumanDelta {
   attempts?: number;
 }
 
+/** What happened to a merged job inside its window: measureOutcome in lib/outcome.ts. */
+export interface JobOutcome {
+  status: 'open' | 'final';
+  windowDays: number;
+  mergedAt: string;
+  closesAt: string;
+  mergeSha: string | null;
+  reverted: boolean | null;
+  revertedBy: { kind: 'commit'; sha: string } | { kind: 'pr'; number: number } | null;
+  followUps: number | 'unsupported' | null;
+  followUpRefs: string[];
+  churn: { commits: number; lines: number; files: number } | null;
+  measuredAt: string;
+  attempts: number;
+  reason?: string;
+}
+
+/** A sampled merged job's post-merge judge score: queueScores and recordScore in lib/scoring.ts. */
+export interface JobScore {
+  status: 'queued' | 'held' | 'scored' | 'failed';
+  /** null when held */
+  queuedAt: string | null;
+  /** 0-5, one decimal at most; only when scored */
+  value: number | null;
+  outOf: 5;
+  /** when held, scored or failed was set */
+  recordedAt: string | null;
+  judgeModel: string | null;
+  builderModel: string | null;
+  reason?: 'budget exceeded' | 'repo budget' | 'no score.md' | 'malformed score.md';
+}
+
 /** A job's pull request: findPr, openPr and syncPr in lib/pr.ts; sync-only fields are optional. */
 export interface JobPr {
   number: number;
@@ -299,6 +331,10 @@ export interface Job {
   interim: InterimStrategy | null;
   /** The root repo first, then member repos: `forge job repo add|remove` in lib/job-repos.ts. */
   repos: JobRepo[];
+  /** The merged root PR's post-merge outcome, written by `forge sync` (lib/outcome.ts); null until measured. */
+  outcome: JobOutcome | null;
+  /** The post-merge judge score of a sampled merged job (lib/scoring.ts); null until forge sync queues one. */
+  score: JobScore | null;
 }
 
 /** One `policy.protectedPaths` rule: docs/CONFIG.md "Protected paths". */
@@ -443,6 +479,8 @@ export interface StepInput {
   acs: AcCoverage;
   /** The record names in runtime.json. */
   runtime: string[];
+  /** The job's entry in the environment record (lib/environment-record.ts); null when it has none. */
+  environment: EnvironmentState | null;
   /** The events step reads, oldest first: human, round, worktree*, pr-*, scope, integrate*, integration-review, decision, fields, eval-graded, transition, agent-start/end. */
   events: JobEvent[];
   evalTask: { rubric: string | null; reference: string | null } | null;
@@ -460,7 +498,7 @@ export interface StepInput {
 }
 
 /** The job files StepInput.files records. */
-export type StepFile = 'request' | 'plan' | 'spec' | 'design' | 'mockup' | 'build' | 'tasks' | 'questions' | 'feedback' | 'prFeedback' | 'runbook' | 'decision' | 'scope' | 'issueCandidates' | 'evalJudge';
+export type StepFile = 'request' | 'plan' | 'spec' | 'design' | 'mockup' | 'build' | 'tasks' | 'questions' | 'feedback' | 'prFeedback' | 'runbook' | 'decision' | 'scope' | 'issueCandidates' | 'evalJudge' | 'score';
 
 /** One member repo an agent proposed for a job (lib/repo-proposals.ts), as repo-proposals.json lists it. */
 export interface RepoProposal {
@@ -553,7 +591,7 @@ export interface SecretFinding {
   path: string;
   line: number;
   excerpt: string;
-  /** `sha256:` + 64 hex of the full value. */
+  /** `sha256:` + 64 hex of the full value; for a `known-secret`, `known:` + 12 hex keyed per process, never the value's hash. */
   fingerprint: string;
   commit: string | null;
   /** `.forge/secrets-allow.txt:<line>`, on an allowed finding. */
@@ -749,6 +787,13 @@ export type ConfigSink =
   | { file: { path: string; format: SinkFormat; mode: SinkMode; from?: string | null }; values?: SinkValues }
   | { command: string; values?: Record<string, string> };
 
+/** Where one declared secret's value comes from: exactly one source key (lib/secret-refs-config.ts). */
+export type SecretSource =
+  | { env: string }
+  | { keychain: { service: string; account?: string } }
+  | { op: string }
+  | { file: string; key?: string };
+
 /** One member repo: an entry of `repos` (docs/CONFIG.md "Repos"). The root repo is implicit. */
 export interface MemberRepoConfig {
   name: string;
@@ -879,6 +924,8 @@ export interface Config {
   checkout: CheckoutStep[];
   /** Databases, caches and queues jobs run against: lib/backing.ts, docs/CONFIG.md "Backing services". */
   backing: BackingEntry[];
+  /** Named credentials config sinks reach as `{secret.NAME}`: lib/secret-refs.ts, docs/CONFIG.md "Secret references". */
+  secrets: Record<string, SecretSource>;
   /** Verify-only consumers of a changed library: docs/CONFIG.md "Downstream verification". */
   downstream: { enabled: boolean; max: number; skip: string[] };
   infra: {
@@ -913,6 +960,12 @@ export interface Config {
   policy: { protectedPaths: ProtectedRule[] };
   /** What Forge deletes and when; null keeps forever: docs/CONFIG.md "Retention". */
   retention: { jobsDays: number | null; logsDays: number | null; logMaxBytes: number | null };
+  /** Job environments running at once; null means no cap (lib/environment-lifecycle.ts eviction). */
+  environments: { maxRunning: number | null };
+  /** How long after a merge `forge sync` watches a job's outcome: docs/CONFIG.md "Outcomes". */
+  outcomes: { windowDays: number };
+  /** The share of merged jobs that get one post-merge judge run, and its model: docs/CONFIG.md "Scoring". */
+  scoring: { sample: number; model: string | null };
   /** Where Forge pushes gate, PR, failure and budget notifications: docs/CONFIG.md "Notifications". */
   notify: { webhooks: NotifyWebhook[]; command: string | null };
   /** Repo-wide spend caps per UTC day and month: docs/CONFIG.md "Repo budget". */
@@ -1548,6 +1601,20 @@ export interface Stats {
     specFirstApprovalRate: number | null;
     /** Recurring (lens, path) review findings across every job in the window. */
     recurringFindings: number;
+    /** Autonomous jobs (lib/autonomy.ts) over merged jobs with a final outcome. */
+    autonomyRate: number | null;
+    /** The same, also without a person's approval at a required gate. */
+    autonomyRateStrict: number | null;
+    revertRate: number | null;
+    followUpRate: number | null;
+    churnRate: number | null;
+    outcomeCoverage: { merged: number; final: number; open: number };
+    /** The median post-merge judge score (0-5) over scored jobs (lib/scoring.ts). */
+    medianScore: number | null;
+    /** `sampled` counts jobs with any score; `merged` is the merged count above. */
+    scoreCoverage: { merged: number; sampled: number; scored: number; held: number; failed: number; queued: number };
+    /** Scored jobs per builder model (`unknown` when none was recorded). */
+    scoreByBuilderModel: Record<string, { scored: number; medianScore: number | null }>;
   };
   speed: { medianMinutesToPr: number | null; medianMinutesToDone: number | null };
   cost: {
@@ -1716,6 +1783,17 @@ export interface EvalCompare {
     stats: { a: EvalTaskAggregate | null; b: EvalTaskAggregate | null };
     delta: Record<EvalTaskMetric, EvalDelta>;
   }[];
+  /** Post-merge scores of real jobs merged in the 14 days before each run started (lib/scoring.ts). */
+  realJobs: { a: RealJobScores; b: RealJobScores };
+}
+
+/** Real jobs' post-merge scores over a window: realJobScores in lib/evals.ts. avgScore is 0-1, as avgJudgeScore. */
+export interface RealJobScores {
+  from: string;
+  to: string;
+  scored: number;
+  medianScore: number | null;
+  avgScore: number | null;
 }
 
 /** One run's stamps in a comparison. */
@@ -2118,6 +2196,56 @@ export interface BackingDownResult {
   error?: string;
 }
 
+/** What Forge last did to a job's environment: lib/environment-record.ts. */
+export type EnvironmentState = 'running' | 'stopped';
+
+export interface EnvironmentEntry {
+  state: EnvironmentState;
+  usedAt: string;
+}
+
+/** `.forge/runtime/environments.json`, written only by the CLI under `.forge/locks/environments`. */
+export interface EnvironmentRecord {
+  v: 1;
+  jobs: Record<string, EnvironmentEntry>;
+}
+
+/** Which path started, stopped or tore down an environment; the trigger of its event. */
+export type EnvironmentUpTrigger = 'verify' | 'run' | 'focus' | 'worktree' | 'step' | 'cli';
+export type EnvironmentStopTrigger = 'park' | 'evict' | 'cli' | 'done' | 'cancelled';
+export type EnvironmentDownTrigger = 'done' | 'cancelled' | 'archive' | 'cli';
+
+/** Ensure up: lib/environment-lifecycle.ts ensureEnvironment. `backing` lists each service as `forge backing up` does. */
+export interface EnvironmentUpResult {
+  ok: boolean;
+  backing: BackingUpEntry[];
+  evicted: string[];
+  error?: string;
+}
+
+/** Stop: the background commands signalled and the per-job containers stopped. */
+export interface EnvironmentStopResult {
+  ok: boolean;
+  processes: string[];
+  stopped: string[];
+  error?: string;
+}
+
+/** A job finished from the inbox or office session: only a stop, and archive or `forge environment down` tears it down. */
+export interface EnvironmentFinishStopResult extends EnvironmentStopResult {
+  teardown: 'deferred';
+}
+
+/** Teardown: the background commands stopped, then what `forge backing down` removed. */
+export interface EnvironmentDownResult {
+  ok: boolean;
+  processes: string[];
+  removed: string[];
+  volumes: string[];
+  databases?: string[];
+  error?: string;
+}
+
 /** One checkout step applied or undone on a focus change: lib/checkout.ts. `log` is relative to the job dir. */
 export interface CheckoutStepResult {
   step: number;
@@ -2153,6 +2281,87 @@ export interface PostRunResponse {
 export interface PostEditorResponse {
   ok: true;
   editor: string;
+}
+
+/** A job's dev server: `down` is a recorded pid that is dead (it crashed or was killed outside Forge). */
+export type DevState = 'running' | 'starting' | 'down' | 'stopped';
+
+/** GET /api/jobs/:id/environment's dev row: `pid` only while alive, `tail` (oldest first) only when `down`. */
+export interface EnvironmentDev {
+  state: DevState;
+  pid: number | null;
+  port: number | null;
+  listening: boolean | null;
+  startedAt: string | null;
+  tail: string[];
+}
+
+/** A container's healthcheck status; null without a healthcheck or while not running. */
+export type BackingHealth = 'healthy' | 'unhealthy' | 'starting' | null;
+
+/** One `backing:` entry as the Environment card shows it (from `forge backing status <id>`). */
+export interface EnvironmentService {
+  name: string;
+  isolation: string;
+  managed: boolean;
+  container: string | null;
+  state: 'running' | 'stopped' | 'missing' | 'unknown' | 'external';
+  health: BackingHealth;
+  ports: Record<string, number>;
+}
+
+/** GET /api/jobs/:id/environment reply. `backingError` is the redacted reason the backing status failed. */
+export interface JobEnvironmentResponse {
+  job: string;
+  active: boolean;
+  worktree: boolean;
+  dev: EnvironmentDev | null;
+  backing: EnvironmentService[];
+  backingError: string | null;
+  /** Docker's state, asked only when a managed service reads `unknown`; null otherwise. */
+  docker: 'ok' | 'missing' | 'stopped' | null;
+  at: string;
+}
+
+export type EnvironmentTarget = 'dev' | 'backing';
+export type EnvironmentAction = 'start' | 'stop' | 'restart';
+
+/** POST /api/jobs/:id/environment body. */
+export interface PostEnvironmentBody {
+  target: EnvironmentTarget;
+  action: EnvironmentAction;
+}
+
+/** POST /api/jobs/:id/environment reply, with the environment read after the action. */
+export interface PostEnvironmentResponse {
+  target: EnvironmentTarget;
+  action: EnvironmentAction;
+  ok: boolean;
+  detail: string | null;
+  environment: JobEnvironmentResponse;
+}
+
+/** CPU % and memory of a process group or a container; null where they can't be measured. */
+export interface EnvironmentUsage {
+  cpu: number | null;
+  memBytes: number | null;
+}
+
+/** One row of GET /api/environments: a job (or, with `job: null`, the shared services) with what runs for it. */
+export interface EnvironmentRow {
+  job: string | null;
+  title: string;
+  state: string | null;
+  focused: boolean;
+  dev: ({ pid: number; port: number | null } & EnvironmentUsage) | null;
+  containers: ({ name: string; backing: string } & EnvironmentUsage)[];
+}
+
+/** GET /api/environments reply: every running environment in this checkout. */
+export interface EnvironmentsResponse {
+  docker: 'ok' | 'missing' | 'stopped' | 'error';
+  rows: EnvironmentRow[];
+  at: string;
 }
 
 /**

@@ -6,6 +6,7 @@ import path from 'node:path';
 import type { ComponentConfig, Config, Job } from './types.ts';
 import { SAFE_REF, isInsidePath } from './util.ts';
 import { sinkProblems } from './config-sinks.ts';
+import { declaredSecrets } from './secret-refs-config.ts';
 
 export { isInsidePath };
 
@@ -135,7 +136,7 @@ export function componentProblems(c: any): string[] {
       else for (const [k, v] of Object.entries(e.commands)) if (v !== null && typeof v !== 'string') problems.push(`${at}.commands.${k} must be a string or null (got ${show(v)})`);
     }
     if (e.notes !== undefined && e.notes !== null && typeof e.notes !== 'string') problems.push(`${at}.notes must be a string or null (got ${show(e.notes)})`);
-    if (e.config !== undefined) problems.push(...sinkProblems(e.config, `${at}.config`, e));
+    if (e.config !== undefined) problems.push(...sinkProblems(e.config, `${at}.config`, e, declaredSecrets(c)));
     if (e.dependsOn === undefined) return;
     if (!Array.isArray(e.dependsOn)) return problems.push(`${at}.dependsOn must be a list (got ${show(e.dependsOn)})`);
     e.dependsOn.forEach((d: unknown, j: number) => {

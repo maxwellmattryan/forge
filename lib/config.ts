@@ -5,6 +5,7 @@ import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
 import { componentProblems } from './components.ts';
 import { downstreamProblems, releaseProblems, repoProblems } from './member-repos.ts';
 import { backingProblems } from './backing-config.ts';
+import { secretRefProblems } from './secret-refs-config.ts';
 import { placeholderProblems } from './endpoints-config.ts';
 import { checkoutProblems } from './checkout-config.ts';
 import { notifyProblems } from './notify-config.ts';
@@ -161,6 +162,7 @@ export function defaults(): Config {
     repos: [],
     checkout: [],
     backing: [],
+    secrets: {},
     // A changed library's linked consumers join the job as verify-only repos (lib/downstream.ts).
     downstream: { enabled: true, max: 5, skip: [] },
     infra: {
@@ -248,6 +250,20 @@ export function defaults(): Config {
       logsDays: null,
       logMaxBytes: null,
     },
+    // No cap by default: a start never stops another job's environment; docs/CONFIG.md "Environments".
+    environments: {
+      maxRunning: null,
+    },
+    // How long after a merge forge sync watches for a revert, follow-up bugs and churn;
+    // docs/CONFIG.md "Outcomes".
+    outcomes: {
+      windowDays: 14,
+    },
+    // Off by default: sample 0 queues no post-merge score run; docs/CONFIG.md "Scoring".
+    scoring: {
+      sample: 0,
+      model: null,
+    },
     // Off by default: with no webhook and no command Forge spawns nothing and sends nothing;
     // docs/CONFIG.md "Notifications".
     notify: {
@@ -303,6 +319,47 @@ export function retentionProblems(c: any): string[] {
   check('jobsDays', RETENTION_DAYS);
   check('logsDays', RETENTION_DAYS);
   check('logMaxBytes', LOG_MAX_BYTES);
+  return problems;
+}
+
+/** environments.maxRunning: running job environments at once. */
+export const MAX_RUNNING = { min: 1, max: 64 } as const;
+
+/** environments.*: maxRunning null or an integer from 1 to 64. */
+export function environmentsProblems(c: any): string[] {
+  const e = c.environments;
+  if (e === undefined) return [];
+  if (e === null || typeof e !== 'object' || Array.isArray(e)) return [`environments must be a map (got ${JSON.stringify(e)})`];
+  const v = e.maxRunning;
+  if (v === null || v === undefined) return [];
+  if (!Number.isInteger(v) || v < MAX_RUNNING.min || v > MAX_RUNNING.max) return [`environments.maxRunning must be null or an integer from ${MAX_RUNNING.min} to ${MAX_RUNNING.max} (got ${JSON.stringify(v)})`];
+  return [];
+}
+
+/** outcomes.windowDays: a day to a year. */
+export const OUTCOME_WINDOW_DAYS = { min: 1, max: 365 } as const;
+
+/** outcomes.windowDays: an integer in its range. */
+export function outcomesProblems(c: any): string[] {
+  const o = c.outcomes;
+  if (o === undefined) return [];
+  if (o === null || typeof o !== 'object' || Array.isArray(o)) return [`outcomes must be a map (got ${JSON.stringify(o)})`];
+  const v = o.windowDays;
+  if (v === undefined) return [];
+  const { min, max } = OUTCOME_WINDOW_DAYS;
+  return !Number.isInteger(v) || v < min || v > max ? [`outcomes.windowDays must be an integer from ${min} to ${max} (got ${JSON.stringify(v)})`] : [];
+}
+
+/** scoring.sample a number from 0 to 1, scoring.model null or a model MODEL_RE accepts. */
+export function scoringProblems(c: any): string[] {
+  const s = c.scoring;
+  if (s === undefined) return [];
+  if (s === null || typeof s !== 'object' || Array.isArray(s)) return [`scoring must be a map (got ${JSON.stringify(s)})`];
+  const problems: string[] = [];
+  const v = s.sample;
+  if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 1)) problems.push(`scoring.sample must be a number from 0 to 1 (got ${JSON.stringify(v)})`);
+  const m = s.model;
+  if (m !== undefined && m !== null && !validModel(m)) problems.push(`scoring.model must be a model alias or id (letters, digits and . _ : - [ ]) or null (got ${JSON.stringify(m)})`);
   return problems;
 }
 
@@ -426,11 +483,15 @@ export function validateConfig(c: any, root: string): string[] {
   problems.push(...foremanProblems(c));
   problems.push(...policyProblems(c));
   problems.push(...retentionProblems(c));
+  problems.push(...environmentsProblems(c));
+  problems.push(...outcomesProblems(c));
+  problems.push(...scoringProblems(c));
   problems.push(...notifyProblems(c));
   problems.push(...componentProblems(c));
   problems.push(...repoProblems(c, root));
   problems.push(...checkoutProblems(c));
   problems.push(...backingProblems(c));
+  problems.push(...secretRefProblems(c));
   problems.push(...placeholderProblems(c));
   problems.push(...downstreamProblems(c));
   problems.push(...repoBudgetProblems(c));
@@ -870,8 +931,12 @@ export function validModel(v: unknown): string | null {
  * roster all read it. Reviewers take their lens's panel `model`, then runtime.models.reviewer.
  * The builder takes the first valid of: runtime.reworkModel on a rework round whose only inputs
  * are review findings, runtime.modelByComplexity[job.complexity], runtime.models.builder, inherit.
+ * The judge on a real (non-eval) job is the post-merge scorer: scoring.model, then runtime.models.judge.
  */
-export function resolveModel(config: Config, job: { complexity?: unknown; round?: unknown } | null, role: string, rework: readonly string[] = []): string {
+export function resolveModel(config: Config, job: { complexity?: unknown; round?: unknown; kind?: unknown } | null, role: string, rework: readonly string[] = []): string {
+  if (role === 'judge' && job && job.kind !== 'eval') {
+    return validModel(config.scoring?.model) ?? config.runtime.models.judge ?? 'inherit';
+  }
   if (role.startsWith('reviewer:')) {
     const lens = role.slice('reviewer:'.length);
     return config.review.panel.find((p) => p.name === lens)?.model ?? config.runtime.models.reviewer ?? 'inherit';

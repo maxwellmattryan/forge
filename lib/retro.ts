@@ -61,6 +61,39 @@ function expiredLine(l: LearningEntry, ledger: Map<string, ExperimentEntry>, sta
   return parts.join(' · ');
 }
 
+/**
+ * A job's revert and follow-up lines when its outcome was measured after `since`. Only stored
+ * values reach them: an `isSha` sha, numbers and validated refs, never a GitHub title or body.
+ */
+function outcomeLines(j: LoadedJob, since: string | undefined): string[] {
+  const o = j.outcome;
+  if (!o || (since && !(o.measuredAt > since))) return [];
+  const open = o.status === 'open' ? ' (window open)' : '';
+  const lines: string[] = [];
+  if (o.reverted === true && o.revertedBy) lines.push(`- ${j.id}: reverted by ${o.revertedBy.kind === 'commit' ? `commit ${o.revertedBy.sha.slice(0, 12)}` : `PR #${o.revertedBy.number}`}${open}`);
+  if (typeof o.followUps === 'number' && o.followUps > 0) lines.push(`- ${j.id}: ${o.followUps} follow-up bug issue(s): ${o.followUpRefs.join(', ')}${open}`);
+  return lines;
+}
+
+/** Scores at or below this are listed under `## Low-scoring jobs`. */
+const LOW_SCORE = 2;
+
+/**
+ * A job's low post-merge score line when it was recorded after `since`. Only stored, validated
+ * values (cleanScore) and the score.md path reach it, never the file's text.
+ */
+function scoreLines(root: string, j: LoadedJob, since: string | undefined): string[] {
+  const s = j.score;
+  if (s?.status !== 'scored' || s.value === null || s.value > LOW_SCORE || !s.recordedAt || (since && !(s.recordedAt > since))) return [];
+  let file: string;
+  try {
+    file = path.join(jobDir(root, j.id), 'score.md');
+  } catch {
+    return [];
+  }
+  return [`- ${j.id}: ${s.value}/5 (builder ${s.builderModel ?? 'unknown'}) · ${file}`];
+}
+
 const head = (text: string, n: number): string => text.split('\n').slice(0, n).join('\n').trim();
 
 export function prepareRetro(
@@ -120,6 +153,10 @@ export function prepareRetro(
     if (!lines.length) continue;
     out.push(`## ${j.id} (${j.state}, rounds ${Object.keys(j.verdicts ?? {}).length}, ${j.usage?.totalTokens ?? 0} tokens)`, ...lines, '');
   }
+  const escapes = allJobs(root).flatMap((j) => outcomeLines(j, since));
+  if (escapes.length) out.push('## Post-merge outcomes', ...escapes, '');
+  const low = allJobs(root).flatMap((j) => scoreLines(root, j, since));
+  if (low.length) out.push('## Low-scoring jobs', ...low, '');
   const runs = listRuns(root).slice(0, 5);
   if (runs.length) {
     out.push('## Recent eval runs', '');

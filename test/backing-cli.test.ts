@@ -109,6 +109,103 @@ test('forge backing with a job database', async () => {
   }
 });
 
+/** A scratch repo with the per-job postgres and shared redis entries, and the fake docker on PATH. */
+async function backingScratch() {
+  const r = template();
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-docker-')));
+  const stateFile = path.join(tmp, 'state.json');
+  const log = path.join(tmp, 'argv.log');
+  const env = { PATH: `${DOCKER_BIN}${path.delimiter}${process.env.PATH}`, FAKE_DOCKER_STATE: stateFile, FAKE_DOCKER_LOG: log };
+  const cli = async (args: string[], extra: NodeJS.ProcessEnv = {}) => {
+    const res = await forgeAsync(r.dir, args, { ...env, ...extra });
+    return { ...res, json: res.stdout.trim().startsWith('{') ? JSON.parse(res.stdout) : null };
+  };
+  const state = () => JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  const setState = (patch: object) => fs.writeFileSync(stateFile, JSON.stringify({ ...state(), ...patch }));
+  const argv = (): string[][] =>
+    fs
+      .readFileSync(log, 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l));
+  const cleanup = () => {
+    r.cleanup();
+    fs.rmSync(`${r.dir}.wt`, { recursive: true, force: true });
+    fs.rmSync(tmp, { recursive: true, force: true });
+  };
+  return { dir: r.dir, cli, state, setState, argv, cleanup };
+}
+
+test('backing stop stops only the job\'s own per-job containers', async () => {
+  const s = await backingScratch();
+  try {
+    const { id } = (await s.cli(['job', 'new', '--title', 'Stop me'])).json;
+    const { id: other } = (await s.cli(['job', 'new', '--title', 'Other job'])).json;
+    assert.equal((await s.cli(['backing', 'up', id])).status, 0);
+    const mine = `forge-${id}-postgres`;
+    const sharedName = Object.keys(s.state().containers).find((n) => n.endsWith('-redis'))!;
+    const volumesBefore = Object.keys(s.state().volumes);
+
+    const stop = await s.cli(['backing', 'stop', id]);
+    assert.equal(stop.status, 0, stop.stderr);
+    assert.deepEqual(stop.json, { job: id, stopped: [mine], skipped: [], ok: true });
+    assert.equal(s.state().containers[mine].running, false);
+    assert.equal(s.state().containers[sharedName].running, true, 'shared container untouched');
+    assert.deepEqual(Object.keys(s.state().volumes), volumesBefore, 'volumes kept');
+    assert.ok(fs.existsSync(path.join(s.dir, '.forge', 'jobs', id, 'backing.json')), 'record kept');
+    assert.ok(s.argv().some((a) => a.join(' ') === `stop --time 10 -- ${mine}`));
+
+    // Idempotent: already stopped is skipped.
+    const again = await s.cli(['backing', 'stop', id]);
+    assert.equal(again.status, 0);
+    assert.deepEqual(again.json, { job: id, stopped: [], skipped: [{ name: mine, reason: 'already stopped' }], ok: true });
+
+    // A same-named container with another job's labels is never stopped.
+    const foreign = `forge-${other}-postgres`;
+    s.setState({ containers: { ...s.state().containers, [foreign]: { running: true, labels: { ...s.state().containers[mine].labels, 'forge.job': id } } } });
+    const refused = await s.cli(['backing', 'stop', other]);
+    assert.equal(refused.status, 0);
+    assert.deepEqual(refused.json.skipped, [{ name: foreign, reason: "not this job's" }]);
+    assert.equal(s.state().containers[foreign].running, true);
+
+    const missing = await s.cli(['backing', 'stop', `${id}-gone`]);
+    assert.deepEqual(missing.json.skipped, [{ name: `forge-${id}-gone-postgres`, reason: 'missing' }]);
+
+    assert.equal((await s.cli(['backing', 'stop', '../x'])).status, 1, 'invalid id');
+    s.setState({ daemon: 'down' });
+    const down = await s.cli(['backing', 'stop', id]);
+    assert.equal(down.status, 5);
+    assert.equal(down.json.ok, false);
+    assert.match(down.json.error, /daemon is not reachable/);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('status reports container health', async () => {
+  const s = await backingScratch();
+  try {
+    const { id } = (await s.cli(['job', 'new', '--title', 'Health'])).json;
+    assert.equal((await s.cli(['backing', 'up', id])).status, 0);
+    const mine = `forge-${id}-postgres`;
+    const health = async () => (await s.cli(['backing', 'status', id])).json.services.map((x: any) => [x.name, x.health]);
+    assert.deepEqual(await health(), [['postgres', null], ['redis', null]], 'no healthcheck');
+    for (const h of ['healthy', 'unhealthy', 'starting']) {
+      s.setState({ containers: { ...s.state().containers, [mine]: { ...s.state().containers[mine], health: h } } });
+      assert.deepEqual((await health())[0], ['postgres', h]);
+    }
+    s.setState({ containers: { ...s.state().containers, [mine]: { ...s.state().containers[mine], health: 'none' } } });
+    assert.deepEqual((await health())[0], ['postgres', null], "Docker's none reads as null");
+    // A label value with spaces still parses.
+    s.setState({ containers: { ...s.state().containers, [mine]: { ...s.state().containers[mine], health: 'healthy', labels: { ...s.state().containers[mine].labels, note: 'a b  c' } } } });
+    assert.deepEqual((await health())[0], ['postgres', 'healthy']);
+    s.setState({ containers: { ...s.state().containers, [mine]: { ...s.state().containers[mine], running: false } } });
+    assert.deepEqual((await health())[0], ['postgres', null], 'not running: null');
+  } finally {
+    s.cleanup();
+  }
+});
+
 test('forge backing up|status|down', async () => {
   const r = template();
   const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-docker-')));
@@ -148,7 +245,7 @@ test('forge backing up|status|down', async () => {
     const status = await cli(['backing', 'status', id]);
     assert.equal(status.status, 0);
     assert.deepEqual(Object.keys(status.json), ['job', 'services']);
-    assert.deepEqual(Object.keys(status.json.services[0]), ['name', 'isolation', 'container', 'state', 'host', 'ports', 'env']);
+    assert.deepEqual(Object.keys(status.json.services[0]), ['name', 'isolation', 'container', 'state', 'health', 'host', 'ports', 'env']);
     assert.equal(status.json.services[0].state, 'running');
     const all = await cli(['backing', 'status']);
     assert.equal(all.status, 0);

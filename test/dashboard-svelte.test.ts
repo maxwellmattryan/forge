@@ -136,7 +136,7 @@ const HEAD = `<head>
         const saved = localStorage.getItem('forge.theme');
         const light = matchMedia('(prefers-color-scheme: light)').matches;
         document.documentElement.dataset.theme =
-          saved === 'forge' || saved === 'cyanotype' || saved === 'dark' || saved === 'nightprint' ? 'forge' : saved === 'temper' ? 'temper' : saved === 'ash' || saved === 'vellum' || saved === 'light' ? 'ash' : light ? 'ash' : 'forge';
+          saved === 'forge' || saved === 'cyanotype' || saved === 'dark' || saved === 'nightprint' ? 'forge' : ['temper', 'crucible', 'patina', 'obsidian'].includes(saved) ? saved : saved === 'ash' || saved === 'vellum' || saved === 'light' ? 'ash' : light ? 'ash' : 'forge';
         const grain = localStorage.getItem('forge.grain');
         document.documentElement.dataset.grain = (grain === null ? localStorage.getItem('forge.paper') : grain) === 'off' ? 'off' : 'on';
       } catch {}
@@ -327,8 +327,24 @@ test('the issue chooser shows on an issue-link gate and, approving, on a pending
   assert.match(actions, /inboxActions\(kind, \{ linkPending: pending \}\)/);
   // Both modes send the same body: the approve request with args.link.
   const chooser = read('src/components/IssueLinkActions.svelte');
-  assert.match(chooser, /const link = \(to: string\): void => req\(\{ type: 'approve', job: id, note, args: \{ link: to \} \}\);/);
+  assert.match(chooser, /req\(\{ type: 'approve', job: id, note: text, args: \{ link: to \} \}\)/);
   assert.match(chooser, /approving = false/);
+});
+
+test('gate composers clear as soon as a request is sent and restore only on failure', () => {
+  const actions = read('src/components/JobActions.svelte');
+  const chooser = read('src/components/IssueLinkActions.svelte');
+  const repos = read('src/components/RepoProposalActions.svelte');
+  for (const [name, src] of [['JobActions', actions], ['IssueLinkActions', chooser]] as const) {
+    assert.match(src, /if \(!sending\) return;\s*note = '';/, `${name} clears the note once the request goes`);
+    assert.match(src, /note === ''\) note = text;/, `${name} restores the note only on failure`);
+  }
+  assert.match(chooser, /other = '';/, 'the ref field clears too');
+  assert.match(repos, /const text = note;\s*note = '';/, 'repo decisions clear the note on send');
+  assert.match(repos, /catch \(e\) \{\s*if \(note === ''\) note = text;/, 'and restore it on failure');
+  // The note is bound, so a child's send clears the box JobActions renders.
+  assert.match(actions, /<IssueLinkActions [^>]*bind:note/);
+  assert.match(actions, /<RepoProposalActions [^>]*bind:note buttons/);
 });
 
 test('InboxCard explains Approve on a secret park and shows Still blocked', () => {

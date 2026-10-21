@@ -76,6 +76,10 @@ export function statsSections(s: Stats): StatsSections {
   return {
     jobs: [`jobs ${s.counts.total}${s.counts.archived ? ` (${s.counts.archived} archived)` : ''} (active ${s.counts.active}, done ${s.counts.done}, waiting ${s.counts.waiting}, cancelled ${s.counts.cancelled})`],
     quality: [
+      // An older stats.json (or /api/stats) has no outcome fields.
+      `autonomy ${pct(q.autonomyRate ?? null)} (strict ${pct(q.autonomyRateStrict ?? null)}) · reverted ${pct(q.revertRate ?? null)} · follow-ups ${pct(q.followUpRate ?? null)} · churn ${pct(q.churnRate ?? null)} · outcomes final ${q.outcomeCoverage?.final ?? 0}/${q.outcomeCoverage?.merged ?? 0} (open ${q.outcomeCoverage?.open ?? 0})`,
+      // An older stats.json (or /api/stats) has no score fields either.
+      `score median ${typeof q.medianScore === 'number' ? `${q.medianScore}/5` : '-'} · scored ${q.scoreCoverage?.scored ?? 0}/${q.scoreCoverage?.sampled ?? 0} sampled (held ${q.scoreCoverage?.held ?? 0}, failed ${q.scoreCoverage?.failed ?? 0})`,
       `first-pass review ${pct(q.firstPassReviewRate)} · avg rounds ${q.avgRounds ?? '—'} · verify first-pass ${pct(q.verifyFirstPassRate)} · recurring findings ${q.recurringFindings}`,
       `escalations ${pct(q.escalationRate)} · PRs with human feedback ${pct(q.humanFeedbackOnPrRate)} · human reworks ${q.humanReworks} · spec approved first try ${pct(q.specFirstApprovalRate)}`,
       `human delta after push ${pct(q.humanDeltaRate ?? null)} · median ${q.medianHumanDeltaLines ?? '—'} lines · measured ${q.humanDeltaCoverage?.measured ?? 0}/${q.humanDeltaCoverage?.merged ?? 0}`,

@@ -2,7 +2,9 @@
 // so they work with or without a running `forge dash` and never talk to its server.
 import fs from 'node:fs';
 import path from 'node:path';
+import { loadConfig } from '../config.ts';
 import { openRead, readInfo, sessionAgents, sessionFiles, sessionRecords, tailLines } from '../daemon.ts';
+import { redactKnown, scopeKnownValues } from '../known-secrets.ts';
 import { paths } from '../paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '../requests.ts';
 import { ForgeError, readJson } from '../util.ts';
@@ -116,11 +118,14 @@ async function log(root: string, job: string | undefined, flags: Record<string, 
   const n = flags.lines === undefined ? 100 : Number(flags.lines);
   if (!Number.isInteger(n) || n < 1 || n > MAX_LINES) throw new ForgeError(`--lines must be an integer from 1 to ${MAX_LINES}`, 'usage');
   const file = sessionFiles(root, scope).log;
+  // Lines are redacted at write; this covers values recorded since, or a log written before.
+  const known = scopeKnownValues(root, scope, loadConfig(root).config);
+  const show = (line: string) => escapeControls(redactKnown(line, known));
   if (!flags.follow) {
     if (!fs.existsSync(file)) throw new ForgeError(`no session log for ${scope}`);
-    return tail(file, n).lines.map(escapeControls).join('\n');
+    return tail(file, n).lines.map(show).join('\n');
   }
-  await follow(file, n);
+  await follow(file, n, show);
   return undefined;
 }
 
@@ -147,9 +152,9 @@ function tail(file: string, n: number): { lines: string[]; end: number } {
  * Prints the tail, then appended lines as they arrive, until interrupted. Waits for a missing log
  * to appear, and starts over from the top when the file shrinks (it was rotated).
  */
-async function follow(file: string, n: number): Promise<never> {
+async function follow(file: string, n: number, show: (line: string) => string): Promise<never> {
   const print = (lines: string[]) => {
-    if (lines.length) process.stdout.write(lines.map(escapeControls).join('\n') + '\n');
+    if (lines.length) process.stdout.write(lines.map(show).join('\n') + '\n');
   };
   let pos = 0;
   let partial = '';

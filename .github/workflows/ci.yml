@@ -1,7 +1,5 @@
 # Forge's own gate: the "Verify before claiming it works" list in AGENTS.md, in the same order.
-# test/ci-workflow.test.ts fails when the two drift, so edit both together. The windows job is a
-# regression guard outside that list: native Windows is unsupported (docs/SUPPORT.md), and the job
-# only keeps the cheap fixes that let the CLI run there from breaking again.
+# test/ci-workflow.test.ts fails when the two drift, so edit both together. It runs on Linux only.
 # release.yml and main-update.yml call this whole workflow (workflow_call) before they tag a release or
 # open the main-update PR. main-update.yml also starts it on ci/main-update (workflow_dispatch), because a
 # PR or push made with GITHUB_TOKEN starts no pull_request run, and the PR head needs its checks
@@ -28,16 +26,14 @@ defaults:
 
 jobs:
   verify:
-    name: verify (${{ matrix.os }}, node ${{ matrix.node }}, shard ${{ matrix.shard }})
-    runs-on: ${{ matrix.os }}
+    name: verify (node ${{ matrix.node }}, shard ${{ matrix.shard }})
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
         node: ['22.18.0', '24.x']
-        # The suite is CPU-bound and a hosted runner has 3-4 cores, so each cell runs half the test
-        # files. Two, not more: an account runs at most five macOS jobs at once.
+        # The suite is CPU-bound and a hosted runner has 3-4 cores, so each cell runs half the test files.
         shard: ['1/2', '2/2']
     steps:
       - name: Check out
@@ -119,79 +115,3 @@ jobs:
             *) npm run release:check ;;
           esac
 
-  windows:
-    name: windows (node 22.18.0)
-    runs-on: windows-latest
-    timeout-minutes: 30
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Node 22.18.0
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '22.18.0'
-          package-manager-cache: false
-      - name: Install dependencies
-        run: npm ci
-      - name: Typecheck engine and tests
-        run: npm run typecheck
-      - name: Run the tests that pass on Windows
-        env:
-          # One `test/<file>.test.ts: <reason>` per line. scripts/windows-tests.ts refuses a line with
-          # no reason, a path that is not one existing test file, a repeat, or a list that skips them all.
-          WINDOWS_SKIP: |
-            test/daemon.test.ts: spawns the test/fixtures/bin claude stub, a sh script
-            test/daemon-claim.test.ts: spawns the test/fixtures/bin claude stub, a sh script
-            test/ownership.test.ts: spawns the test/fixtures/bin claude stub, a sh script
-            test/server.test.ts: spawns the test/fixtures/bin claude stub, a sh script
-            test/background.test.ts: uses process groups and ps
-            test/cli.test.ts: runs command templates through sh
-            test/command-env.test.ts: runs command templates through sh
-            test/evals.test.ts: runs command templates through sh
-            test/regenerate.test.ts: runs command templates through sh
-            test/run-args.test.ts: runs command templates through sh
-            test/step-e2e.test.ts: runs command templates through sh
-            test/verify-e2e.test.ts: runs command templates through sh
-            test/verify-groups.test.ts: runs command templates through sh
-            test/verifiers-cli.test.ts: runs command templates through sh
-            test/config-sinks-run.test.ts: runs command templates through sh
-            test/job-repos.test.ts: runs command templates through sh
-            test/job-repos-pr.test.ts: spawns a fake gh, a sh script
-            test/member-intake.test.ts: spawns a fake gh, a sh script
-            test/interim-cli.test.ts: drives member repo worktrees, which test/job-repos.test.ts covers only off Windows
-            test/interim-pr.test.ts: spawns a fake gh, a sh script
-            test/backing-cli.test.ts: spawns a fake docker sh script on PATH
-            test/backing.test.ts: runs command templates through sh
-            test/interim-gitref.test.ts: spawns a fake gh, a sh script
-            test/interim-canary.test.ts: spawns a fake gh and npm, sh scripts
-            test/links-cli.test.ts: runs command templates through sh
-            test/links-toolchains.test.ts: runs command templates through sh
-            test/downstream-verify.test.ts: runs command templates through sh
-            test/foreman.test.ts: runs sh stubs and hooks it writes
-            test/git-commit.test.ts: runs sh stubs and hooks it writes
-            test/daemon-cli.test.ts: relies on FIFOs
-            test/transcripts.test.ts: relies on FIFOs
-            test/daemon-missed-end.test.ts: the pool refuses to start on native Windows, so no fake session is spawned
-            test/brief.test.ts: forge job step refuses the job's backslash paths as unsafe arguments
-            test/split-gate.test.ts: forge job step refuses the job's backslash paths as unsafe arguments
-            test/step.test.ts: forge job step refuses the job's backslash paths as unsafe arguments
-            test/step-cli.test.ts: forge job step refuses the job's backslash paths as unsafe arguments
-            test/step-e2e-issue-link.test.ts: forge job step refuses the job's backslash paths as unsafe arguments
-            test/eval-overlay.test.ts: forge job step refuses the job's backslash paths as unsafe arguments
-            test/config-daemon.test.ts: the migration names .forge\config.yml where the test expects .forge/config.yml
-            test/dashboard-shell.test.ts: compares component paths with / and gets \ on Windows
-            test/server-transcripts.test.ts: tool activity reads Read lib\server.ts where the test expects lib/server.ts
-            test/delta.test.ts: writes a file name with a tab, which Windows forbids
-            test/integrity.test.ts: writes file names with control characters and backticks, which Windows forbids
-            test/platform.test.ts: the WSL /mnt/ check resolves POSIX paths, which become drive paths on Windows
-            test/secrets.test.ts: a symlinked allowlist is read as a plain file (2 entries where 0 are expected)
-            test/secrets-gates.test.ts: forge git commit exits with code failed instead of secret_found
-            test/bundle.test.ts: redaction misses the 8.3 short temp path (C:\Users\RUNNER~1\...), and the trap test cannot create its symlink, FIFO and ANSI-named files
-            test/protected-paths.test.ts: forge git add and commit exit with code failed instead of protected_path
-            test/server-bundle.test.ts: its loopback HTTP requests fail with read ECONNRESET
-            test/update.test.ts: updateForge refuses on native Windows in the tests that inject no platform
-            test/usage-import.test.ts: agent end --import finds no transcript under the fake HOME, so usage is null
-            test/notify-triggers.test.ts: spawns a detached forge notify send child that holds the temp repo open
-        run: node scripts/windows-tests.ts

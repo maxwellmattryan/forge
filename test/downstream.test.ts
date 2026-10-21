@@ -1,5 +1,5 @@
 // Downstream verification (issue #186): config `downstream`, its migration, and the pure candidate
-// list (lib/downstream.ts). Pure data, no sh, so it also runs on CI's Windows leg.
+// list (lib/downstream.ts). Pure data, no sh.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -60,11 +60,11 @@ describe('downstream verification: config', { concurrency: 4 }, () => {
   });
 
   test('config v13 migrates to v14 with the downstream default', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 22);
+    assert.equal(CONFIG_SCHEMA_VERSION, 26);
     const v13 = { schemaVersion: 13, repos: structuredClone(REPOS), git: { base: 'trunk' } };
     const m = migrateConfig(structuredClone(v13));
     assert.equal(m.from, 13);
-    assert.deepEqual(m.config, { ...v13, schemaVersion: 22, downstream: DEFAULT });
+    assert.deepEqual(m.config, { ...v13, schemaVersion: 26, downstream: DEFAULT });
     const kept = migrateConfig({ schemaVersion: 13, downstream: { enabled: false, max: 'x' } }).config;
     assert.deepEqual(kept.downstream, { enabled: false, max: 'x' }, 'an existing value is kept for validation to judge');
     const r = tempRepo();
@@ -75,7 +75,7 @@ describe('downstream verification: config', { concurrency: 4 }, () => {
       assert.equal(loadConfig(r.dir).migratedFrom, 13);
       migrate(r.dir);
       const text = fs.readFileSync(file, 'utf8');
-      assert.match(text, /^schemaVersion: 22$/m);
+      assert.match(text, /^schemaVersion: 26$/m);
       assert.deepEqual(yaml.parse(text).downstream, DEFAULT);
     } finally {
       r.cleanup();

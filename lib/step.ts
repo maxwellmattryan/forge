@@ -12,7 +12,9 @@ import { readJobRecord, readSharedRecord } from './backing.ts';
 import { jobPathMap, renderBrief, roleBrief } from './brief.ts';
 import type { RoleContext } from './brief.ts';
 import { autoMerge, lensAlwaysOnRework, lensNeedsApp, resolveEffort, resolveModel } from './config.ts';
+import { environmentState } from './environment-record.ts';
 import { configForJob } from './eval-overlay.ts';
+import { latestSecurityVerdict } from './foreman.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
@@ -69,6 +71,11 @@ export const RULES = [
   // Downstream verification: add a changed library's linked consumers as verify-only repos (DS1).
   // Appended, though it runs before the stage rules, as IDs are stable.
   'DS1',
+  // A sampled merged job's post-merge score run: wait, spawn the judge, record. Appended, as IDs are stable.
+  'JS1', 'JS2', 'JS3',
+  // A resumed job whose environment a park stopped: start it again (E1). Appended, though it runs
+  // right after G4, as IDs are stable.
+  'E1',
   // No rule matched: a state step can't advance, parked visibly instead of looping.
   'X1',
 ] as const;
@@ -142,6 +149,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     scope: exists(at('scope.md')),
     issueCandidates: exists(at('issue-candidates.md')),
     evalJudge: exists(at('eval-judge.md')),
+    score: exists(at('score.md')),
   };
   const present = Object.values(paths).filter((v): v is string => typeof v === 'string' && exists(v));
   // The only I/O for the rework brief's review inputs, so step itself stays pure.
@@ -193,6 +201,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     },
     acs: acCoverage(read('spec.md'), read('build.md')),
     runtime,
+    environment: environmentState(root, job.id),
     events,
     evalTask,
     checklists: lensChecklists(root, config, job, names),
@@ -538,6 +547,8 @@ const toStage = (x: StepInput, rule: RuleId, stage: string, why: string, extra: 
 const park = (x: StepInput, rule: RuleId, waitingOn: WaitingOn, reason: string, note?: string) =>
   set(x, rule, { state: 'waiting', waitingOn, reason, note }, `wait on ${waitingOn}`);
 
+/** A parked job still holding something to stop: a running environment record or a background process. */
+const parkedRunning = (x: StepInput): boolean => x.environment === 'running' || x.runtime.length > 0;
 const runningRoles = (x: StepInput) => Object.keys(x.job.agents).filter((r) => x.job.agents[r].status === 'running').sort();
 
 function wait(x: StepInput, rule: RuleId, waitingOn: StepWaitingOn, tell?: string): StepWait {
@@ -559,7 +570,7 @@ function outputFor(x: StepInput, role: string): string | undefined {
     return x.job.stage === 'integrate' ? p(x, 'integrationReview') : path.join(x.jobDir, 'review', `round-${x.job.round}`, reviewFileName(lens));
   }
   if (role === 'verifier') return path.join(x.jobDir, 'verify', `round-${x.job.round}-verifier-answers.md`);
-  const fixed: Record<string, string> = { planner: 'plan.md', 'spec-writer': 'spec.md', designer: 'design.md', approver: 'decision.md', judge: 'eval-judge.md' };
+  const fixed: Record<string, string> = { planner: 'plan.md', 'spec-writer': 'spec.md', designer: 'design.md', approver: 'decision.md', judge: x.job.kind === 'eval' ? 'eval-judge.md' : 'score.md' };
   return fixed[role] ? path.join(x.jobDir, fixed[role]) : undefined;
 }
 
@@ -801,10 +812,23 @@ function blockedRole(x: StepInput): string | null {
   return role && ['lost', 'failed'].includes(String(a(role)?.status)) ? role : null;
 }
 
+/**
+ * JS1-JS3: a done job's queued post-merge score run. Only a judge started after the queue counts,
+ * so an older judge record never stands in for it; record then makes the score terminal.
+ */
+function scoreRun(x: StepInput): StepAction {
+  const j = x.job;
+  const judge = agent(x, 'judge');
+  if (!after(judge?.startedAt, j.score!.queuedAt)) return spawn(x, 'JS2', 'judge');
+  if (judge!.status === 'running') return wait(x, 'JS1', 'agents');
+  return run(x, 'JS3', ['job', 'score', 'record', j.id], "record the judge's post-merge score");
+}
+
 function decide(x: StepInput): StepAction {
   const j = x.job;
 
   // Global
+  if (j.state === 'done' && j.kind !== 'eval' && j.score?.status === 'queued') return scoreRun(x);
   if (j.state === 'done' || j.state === 'cancelled' || j.stage === 'done') {
     const tell = j.state === 'cancelled' ? `${j.id} is cancelled` : j.pr?.url ? `${j.id} is done: ${safe(j.pr.url, SAFE_URL, `PR #${Number(j.pr.number) || '?'}`)}` : `${j.id} finished on branch ${safe(j.branch, SAFE_REF, 'its branch')}`;
     return done(x, 'G1', tell);
@@ -812,13 +836,17 @@ function decide(x: StepInput): StepAction {
   if (j.state === 'failed') return done(x, 'G2', `${j.id} failed: ${j.reason ?? 'no reason recorded'}`);
   if (j.state === 'waiting' && j.waitingOn === 'pr-review') {
     if (j.owner) return run(x, 'G3', ['job', 'release', j.id], 'the PR waits on human review; let the claim go');
-    if (x.runtime.length) return run(x, 'G3', ['stop', j.id], 'stop background processes while the PR waits');
+    if (parkedRunning(x)) return run(x, 'G3', ['environment', 'stop', j.id], 'stop the environment while the PR waits');
     return wait(x, 'G3', 'pr-review', prReviewTell(x));
   }
   if (j.state === 'waiting' || j.state === 'blocked') {
+    if (parkedRunning(x)) return run(x, 'G4', ['environment', 'stop', j.id], 'the job is parked: stop its environment');
     const on: WaitingOn = j.state === 'blocked' ? 'external' : (j.waitingOn ?? 'external');
     return wait(x, 'G4', on, gateTell(x, on));
   }
+  // Only a job whose environment Forge stopped: one never started has no entry and starts on demand.
+  if (j.state === 'running' && x.environment === 'stopped' && ['build', 'verify', 'review'].includes(j.stage))
+    return run(x, 'E1', ['environment', 'up', j.id], 'a park stopped the environment', 'the job resumed: start its environment');
   if (runningRoles(x).length && !(j.stage === 'review' && (nextLenses(x).length || retryLens(x)))) return wait(x, 'G5', 'agents');
   const blocked = blockedRole(x);
   if (blocked) return spawn(x, 'L1', blocked);
@@ -1049,9 +1077,14 @@ function build(x: StepInput): StepAction {
   const lv = lastVerify(x);
   if (j.round === 0 || j.verdicts[String(j.round)] || after(rework?.ts, lastEvent(x, (e) => e.type === 'round')?.ts)) return run(x, 'B1', ['job', 'round', j.id], 'start the next build round');
   // A rework that came after the previous round started is the one that opened this round (B1), so the whole round is exempt. Comparing with the builder's start lost the exemption once the builder ran.
-  if (j.round > j.maxRounds && !after(rework?.ts, x.events.filter((e) => e.type === 'round').at(-2)?.ts)) {
+  // Security always has to pass: while the latest security review isn't PASS, rounds run past
+  // maxRounds, up to twice it, before the park (where the foreman may only rework or revise).
+  const security = latestSecurityVerdict(j);
+  const securityOpen = j.kind !== 'eval' && security !== null && security !== 'PASS';
+  const limit = securityOpen ? j.maxRounds * 2 : j.maxRounds;
+  if (j.round > limit && !after(rework?.ts, x.events.filter((e) => e.type === 'round').at(-2)?.ts)) {
     if (j.kind === 'eval') return set(x, 'B6', { stage: 'decide', state: 'running', reason: `eval: round ${j.round} exceeds maxRounds ${j.maxRounds}` }, 'an eval job has no human to clear rounds-exhausted: grade it');
-    return park(x, 'B2', 'rounds-exhausted', `round ${j.round} exceeds maxRounds ${j.maxRounds}`);
+    return park(x, 'B2', 'rounds-exhausted', securityOpen ? `round ${j.round} exceeds twice maxRounds ${j.maxRounds} with the security review not PASS` : `round ${j.round} exceeds maxRounds ${j.maxRounds}`);
   }
   if (endedIn(b, j.round)) {
     const n = needsInput(x, 'builder');
@@ -1348,6 +1381,9 @@ function pr(x: StepInput): StepAction {
   if (bump) return bump;
   const last = j.verifyRuns.at(-1);
   if (!last?.ok) return run(x, 'PR2', ['verify', j.id], 'pr open needs a verified HEAD');
+  // pr open merged a PR branch that moved on the remote: the merged HEAD is not the one verified.
+  const pulled = lastEvent(x, (e) => e.type === 'pr-head-pulled' && e.pulled !== 'conflicts');
+  if (after(pulled?.ts, last.at)) return run(x, 'PR2', ['verify', j.id], 'the PR branch moved on the remote and was merged in: verify the merged HEAD');
   // The last open attempt: a deferral counts, so PR3 doesn't run pr open again on the same verify.
   const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated' || e.type === 'pr-deferred');
   if (!after(opened?.ts, last.at)) return run(x, 'PR3', ['pr', 'open', j.id], 'push and open or update the PR');

@@ -111,9 +111,9 @@ test('state exposes focus and endpoints', { timeout: 60_000 }, async () => {
     s.patchJob(badPort, { port: 70000, ports: { dev: 70000 } });
 
     let st = await s.state();
-    assert.equal(st.apiVersion, 29);
-    assert.equal(API_VERSION, 29);
-    assert.equal(DASH_API_VERSION, 29);
+    assert.equal(st.apiVersion, 31);
+    assert.equal(API_VERSION, 31);
+    assert.equal(DASH_API_VERSION, 31);
     assert.equal(st.focus, null);
     const row = (id: string) => st.jobs.find((j: any) => j.id === id);
     assert.deepEqual(row(a).endpoints, [{ kind: 'component', name: 'dev', url: `http://localhost:${wtA.port}/`, port: wtA.port, live: false }]);

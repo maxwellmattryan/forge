@@ -13,7 +13,8 @@ import { jobDir, loadJob } from '../jobs.ts';
 import { memberWorktree } from '../job-repos.ts';
 import { blobReader, checkProtected, comparisonPoint, diffEntries, historyEnv, logEscalated, logRefused, policyRules, prefixHits, recordProtected, refusalText } from '../protected.ts';
 import { resolveWorktreePaths } from '../paths.ts';
-import { applyAllowlist, diffUnits, loadAllowlist, logSecrets, refusalMessage, refuseSecrets, scanUnits, secretMode, textUnit } from '../secrets.ts';
+import { knownValues } from '../known-secrets.ts';
+import { applyAllowlist, diffUnits, loadAllowlist, logSecrets, refusalMessage, refuseSecrets, scanUnits, secretMode, secretsBlock, textUnit } from '../secrets.ts';
 import { ForgeError, run } from '../util.ts';
 import { usageError } from './args.ts';
 import type { CommandHelp, Config, HelpGroup, Job, ProtectedHit } from '../types.ts';
@@ -341,9 +342,10 @@ export function gitWrite(
   // take a key out. The index stays staged on a refusal, for the builder to fix.
   const mode = secretMode(config);
   const staged = diffUnits(git([...PINNED_GIT_CONFIG, 'diff', '--cached', ...PINNED_DIFF_OPTS, '--text', '-U0', '--']).stdout, 'staged');
-  const found = applyAllowlist(scanUnits(staged.units, { config }), loadAllowlist(root));
-  logSecrets(root, id, 'commit', found, { blocked: mode === 'block' });
-  if (mode === 'block' && found.findings.length) throw new ForgeError(refusalMessage('the staged changes', found.findings), 'secret_found', `forge secrets scan ${id}`);
+  const found = applyAllowlist(scanUnits(staged.units, { config, known: knownValues(root, id, config) }), loadAllowlist(root));
+  const blocked = secretsBlock(found.findings, mode);
+  logSecrets(root, id, 'commit', found, { blocked });
+  if (blocked) throw new ForgeError(refusalMessage('the staged changes', found.findings), 'secret_found', `forge secrets scan ${id}`);
   const tmp = path.join(dir, `.commit-msg-${process.pid}-${Date.now()}.txt`);
   fs.writeFileSync(tmp, message);
   try {
