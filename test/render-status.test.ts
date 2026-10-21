@@ -58,6 +58,12 @@ const STATS = {
     foremanReworks: 0,
     specFirstApprovalRate: 0.75,
     recurringFindings: 2,
+    autonomyRate: 0.75,
+    autonomyRateStrict: 0.5,
+    revertRate: 0,
+    followUpRate: 0.25,
+    churnRate: 0.5,
+    outcomeCoverage: { merged: 6, final: 4, open: 1 },
   },
   speed: { medianMinutesToPr: 30, medianMinutesToDone: null },
   cost: { totalTokens: 1234567, estCostUsd: 12.5, avgTokensPerJob: null, avgCostPerJobUsd: 3.13, reportingCoverage: { agentRuns: 10, withUsage: 9, exact: 8 }, byRole: {}, byModel: {} },
@@ -68,6 +74,7 @@ const STATS = {
 const tokens = (1234567).toLocaleString();
 const LINES = [
   'jobs 4 (active 2, done 1, waiting 1, cancelled 1)',
+  'autonomy 75% (strict 50%) · reverted 0% · follow-ups 25% · churn 50% · outcomes final 4/6 (open 1)',
   'first-pass review 50% · avg rounds 1.5 · verify first-pass 100% · recurring findings 2',
   'escalations 25% · PRs with human feedback — · human reworks 1 · spec approved first try 75%',
   'human delta after push 10% · median 12 lines · measured 1/2',
@@ -83,7 +90,7 @@ test('statsText is unchanged', () => {
 });
 
 test('stats: headings, then reviewers and verifiers one per line', () => {
-  const head = ['Jobs', `  ${LINES[0]}`, '', 'Quality', `  ${LINES[1]}`, `  ${LINES[2]}`, `  ${LINES[3]}`, '', 'Speed', `  ${LINES[4]}`, '', 'Cost', `  ${LINES[5]}`];
+  const head = ['Jobs', `  ${LINES[0]}`, '', 'Quality', `  ${LINES[1]}`, `  ${LINES[2]}`, `  ${LINES[3]}`, `  ${LINES[4]}`, '', 'Speed', `  ${LINES[5]}`, '', 'Cost', `  ${LINES[6]}`];
   assert.equal(plain(stats, STATS), [...head, '', 'Reviewers', '  code  50% changes, 10% disputed', '  security  — changes, 0% disputed', '', 'Verifiers', '  no-todo  20% hit over 5 runs, 1 blocked'].join('\n'));
   const { verifiers: _v, ...older } = STATS;
   assert.equal(plain(stats, { ...older, reviewers: {} }), head.join('\n'), 'an older stats object with no verifiers, and no reviewers');

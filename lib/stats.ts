@@ -2,6 +2,7 @@
 // what makes them comparable across every repo Forge runs in and gives the retro loop
 // something stable to improve against.
 import { listArchived } from './archive.ts';
+import { judgeAutonomy } from './autonomy.ts';
 import { jobFindings } from './findings.ts';
 import type { JobFindings } from './findings.ts';
 import { isForemanActor, listJobs, readEvents } from './jobs.ts';
@@ -73,6 +74,9 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
   let reviewed = 0, firstPass = 0, roundsSum = 0, decided = 0, escalated = 0, verified = 0, verifyFirstPass = 0;
   let withPr = 0, prWithHumanFeedback = 0, humanRework = 0, foremanDecisions = 0, foremanRework = 0, specJobs = 0, specFirstTry = 0;
   let merged = 0, deltaMeasured = 0, deltaNonEmpty = 0, recurringFindings = 0;
+  // Outcomes: only final ones are judged, and each rate's denominator skips checks that never completed.
+  let outcomesFinal = 0, outcomesOpen = 0, autonomous = 0, autonomousStrict = 0;
+  let revertChecked = 0, reverted = 0, followUpChecked = 0, followedUp = 0, churnChecked = 0, churned = 0;
   const deltaLines: number[] = [];
   const timeToPr: number[] = [];
   const cycle: number[] = [];
@@ -149,6 +153,26 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       timeToPr.push((Date.parse(opened.ts) - created) / 60000);
     }
     if (events.some((e) => e.type === 'pr-synced' && e.newFeedback)) prWithHumanFeedback++;
+    const outcome = j.pr?.state === 'MERGED' ? j.outcome : null;
+    if (outcome?.status === 'open') outcomesOpen++;
+    const judged = outcome?.status === 'final' ? judgeAutonomy(j, events) : null;
+    if (outcome && judged) {
+      outcomesFinal++;
+      if (judged.autonomous) autonomous++;
+      if (judged.strict) autonomousStrict++;
+      if (outcome.reverted !== null) {
+        revertChecked++;
+        if (outcome.reverted) reverted++;
+      }
+      if (typeof outcome.followUps === 'number') {
+        followUpChecked++;
+        if (outcome.followUps > 0) followedUp++;
+      }
+      if (outcome.churn) {
+        churnChecked++;
+        if (outcome.churn.commits > 0) churned++;
+      }
+    }
     addVerifierStats(verifiers, events);
     for (const e of events) {
       if (e.type !== 'agent-end') continue;
@@ -207,6 +231,12 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       foremanReworks: foremanRework,
       specFirstApprovalRate: ratio(specFirstTry, specJobs),
       recurringFindings,
+      autonomyRate: ratio(autonomous, outcomesFinal),
+      autonomyRateStrict: ratio(autonomousStrict, outcomesFinal),
+      revertRate: ratio(reverted, revertChecked),
+      followUpRate: ratio(followedUp, followUpChecked),
+      churnRate: ratio(churned, churnChecked),
+      outcomeCoverage: { merged, final: outcomesFinal, open: outcomesOpen },
     },
     speed: {
       medianMinutesToPr: median(timeToPr) === null ? null : r2(median(timeToPr) as number),

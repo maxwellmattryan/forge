@@ -3,15 +3,16 @@
 // strands jobs or configs written by an older version. A file from a *newer* plugin is
 // refused rather than guessed at.
 import { isInterimStrategy, servicesToComponents } from './components.ts';
+import { isSha } from './delta.ts';
 import { isSafeUrl, isStoredRef, sameIssue } from './issue-ref.ts';
 import { REPO_NAME, isSafeBranch } from './member-repos.ts';
-import type { EventActor, Job, JobAgent, JobEvent, JobIssue, JobRepo, JobRepoPr, LoadedJob } from './types.ts';
+import type { EventActor, Job, JobAgent, JobEvent, JobIssue, JobOutcome, JobRepo, JobRepoPr, LoadedJob } from './types.ts';
 
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from './backing-config.ts';
 
-export const CONFIG_SCHEMA_VERSION = 24;
-export const JOB_SCHEMA_VERSION = 14;
+export const CONFIG_SCHEMA_VERSION = 25;
+export const JOB_SCHEMA_VERSION = 15;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
 export const ARCHIVE_SCHEMA_VERSION = 1;
@@ -19,7 +20,7 @@ export const ARCHIVE_SCHEMA_VERSION = 1;
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 29;
+export const API_VERSION = 30;
 
 /**
  * Where an event's `actor` came from: lib/actor.ts resolves env, gh, git, os and dashboard; the
@@ -213,9 +214,12 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // changes; the bump lets older Forges refuse a config whose {secret.NAME} references they would
   // reject at render or, worse, leave unredacted.
   22: (c) => c,
-  // v24 adds environments.maxRunning, null by default, so no v23 config changes; the bump lets older
-  // Forges refuse a config whose cap they would ignore.
+  // v24 adds outcomes.windowDays (14 by default), so no v23 config changes; the bump lets older
+  // Forges refuse a config whose outcome window they would ignore.
   23: (c) => c,
+  // v25 adds environments.maxRunning, null by default, so no v24 config changes; the bump lets older
+  // Forges refuse a config whose cap they would ignore.
+  24: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
@@ -273,7 +277,66 @@ const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
   // v14 adds one port per port-bearing component. A v13 job keeps its `port`, which the next
   // `worktree create` reconciles into `ports` (lib/ports.ts), so nothing it runs changes.
   13: (j) => ({ ...j, ports: {} }),
+  // v15 adds the merged PR's post-merge outcome, which forge sync measures. A v14 job has none yet,
+  // and the next sync measures it, so a long-merged job gets a final outcome straight away.
+  14: (j) => ({ ...j, outcome: j.outcome ?? null }),
 };
+
+const MAX_FOLLOW_UP_REFS = 20;
+/** A follow-up ref as an outcome stores it: `owner/repo#n`. */
+export const OUTCOME_REF = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#\d+$/;
+const OUTCOME_REASON = /^[A-Za-z0-9 ,.:()-]{1,200}$/;
+const isCount = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
+const isTime = (v: unknown): v is string => typeof v === 'string' && v.length <= 40 && !Number.isNaN(Date.parse(v));
+
+/**
+ * A stored outcome, or null when any field is malformed, so the next sync measures it again.
+ * job.json is writable outside the CLI and the outcome feeds stats and the retro: only the keys
+ * Forge writes are kept, and only in the shapes it writes. Bad follow-up refs are dropped alone.
+ */
+export function cleanOutcome(raw: unknown): JobOutcome | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  if (o.status !== 'open' && o.status !== 'final') return null;
+  if (!Number.isInteger(o.windowDays) || (o.windowDays as number) < 1 || (o.windowDays as number) > 365) return null;
+  if (!isTime(o.mergedAt) || !isTime(o.closesAt) || !isTime(o.measuredAt)) return null;
+  if (o.mergeSha !== null && !isSha(o.mergeSha)) return null;
+  if (o.reverted !== null && typeof o.reverted !== 'boolean') return null;
+  let revertedBy: JobOutcome['revertedBy'] = null;
+  if (o.revertedBy !== null) {
+    const r = o.revertedBy as Record<string, unknown> | undefined;
+    if (!r || typeof r !== 'object') return null;
+    if (r.kind === 'commit' && isSha(r.sha)) revertedBy = { kind: 'commit', sha: r.sha };
+    else if (r.kind === 'pr' && isCount(r.number) && r.number > 0) revertedBy = { kind: 'pr', number: r.number };
+    else return null;
+  }
+  if (o.followUps !== null && o.followUps !== 'unsupported' && !isCount(o.followUps)) return null;
+  let churn: JobOutcome['churn'] = null;
+  if (o.churn !== null) {
+    const c = o.churn as Record<string, unknown> | undefined;
+    if (!c || typeof c !== 'object' || !isCount(c.commits) || !isCount(c.lines) || !isCount(c.files)) return null;
+    churn = { commits: c.commits, lines: c.lines, files: c.files };
+  }
+  if (!isCount(o.attempts)) return null;
+  // Forge writes only short fixed phrases here.
+  if (o.reason !== undefined && (typeof o.reason !== 'string' || !OUTCOME_REASON.test(o.reason))) return null;
+  const refs = Array.isArray(o.followUpRefs) ? o.followUpRefs.filter((r): r is string => typeof r === 'string' && r.length <= 200 && OUTCOME_REF.test(r)).slice(0, MAX_FOLLOW_UP_REFS) : [];
+  return {
+    status: o.status,
+    windowDays: o.windowDays as number,
+    mergedAt: o.mergedAt,
+    closesAt: o.closesAt,
+    mergeSha: (o.mergeSha as string | null) ?? null,
+    reverted: o.reverted as boolean | null,
+    revertedBy,
+    followUps: o.followUps as JobOutcome['followUps'],
+    followUpRefs: refs,
+    churn,
+    measuredAt: o.measuredAt,
+    attempts: o.attempts,
+    ...(typeof o.reason === 'string' ? { reason: o.reason } : {}),
+  };
+}
 
 /**
  * `ports` as stored, or `{}` for anything that is not a map of distinct integer ports from 1 to
@@ -491,6 +554,7 @@ export function normalizeJob(raw: any): LoadedJob {
     protectedPaths: job.protectedPaths && typeof job.protectedPaths === 'object' && Array.isArray(job.protectedPaths.hits) ? job.protectedPaths : null,
     interim: interimOrNull(job.interim),
     repos: cleanRepos({ branch: job.branch ?? null, base: job.base ?? null, worktree: job.worktree ?? null, pr: job.pr ?? null, interim: job.interim, repos: job.repos }),
+    outcome: cleanOutcome(job.outcome),
   };
 }
 

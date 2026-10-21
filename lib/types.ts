@@ -75,6 +75,23 @@ export interface HumanDelta {
   attempts?: number;
 }
 
+/** What happened to a merged job inside its window: measureOutcome in lib/outcome.ts. */
+export interface JobOutcome {
+  status: 'open' | 'final';
+  windowDays: number;
+  mergedAt: string;
+  closesAt: string;
+  mergeSha: string | null;
+  reverted: boolean | null;
+  revertedBy: { kind: 'commit'; sha: string } | { kind: 'pr'; number: number } | null;
+  followUps: number | 'unsupported' | null;
+  followUpRefs: string[];
+  churn: { commits: number; lines: number; files: number } | null;
+  measuredAt: string;
+  attempts: number;
+  reason?: string;
+}
+
 /** A job's pull request: findPr, openPr and syncPr in lib/pr.ts; sync-only fields are optional. */
 export interface JobPr {
   number: number;
@@ -299,6 +316,8 @@ export interface Job {
   interim: InterimStrategy | null;
   /** The root repo first, then member repos: `forge job repo add|remove` in lib/job-repos.ts. */
   repos: JobRepo[];
+  /** The merged root PR's post-merge outcome, written by `forge sync` (lib/outcome.ts); null until measured. */
+  outcome: JobOutcome | null;
 }
 
 /** One `policy.protectedPaths` rule: docs/CONFIG.md "Protected paths". */
@@ -926,6 +945,8 @@ export interface Config {
   retention: { jobsDays: number | null; logsDays: number | null; logMaxBytes: number | null };
   /** Job environments running at once; null means no cap (lib/environment-lifecycle.ts eviction). */
   environments: { maxRunning: number | null };
+  /** How long after a merge `forge sync` watches a job's outcome: docs/CONFIG.md "Outcomes". */
+  outcomes: { windowDays: number };
   /** Where Forge pushes gate, PR, failure and budget notifications: docs/CONFIG.md "Notifications". */
   notify: { webhooks: NotifyWebhook[]; command: string | null };
   /** Repo-wide spend caps per UTC day and month: docs/CONFIG.md "Repo budget". */
@@ -1561,6 +1582,14 @@ export interface Stats {
     specFirstApprovalRate: number | null;
     /** Recurring (lens, path) review findings across every job in the window. */
     recurringFindings: number;
+    /** Autonomous jobs (lib/autonomy.ts) over merged jobs with a final outcome. */
+    autonomyRate: number | null;
+    /** The same, also without a person's approval at a required gate. */
+    autonomyRateStrict: number | null;
+    revertRate: number | null;
+    followUpRate: number | null;
+    churnRate: number | null;
+    outcomeCoverage: { merged: number; final: number; open: number };
   };
   speed: { medianMinutesToPr: number | null; medianMinutesToDone: number | null };
   cost: {

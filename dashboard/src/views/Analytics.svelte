@@ -50,6 +50,7 @@
   {@const q = s.quality}
   {@const cov = s.cost.reportingCoverage}
   {@const deltaCov = q.humanDeltaCoverage ?? { merged: 0, measured: 0 }}
+  {@const outcomes = q.outcomeCoverage ?? { merged: 0, final: 0, open: 0 }}
   {@const js = jobsSummary(s.counts)}
   <div class="grid gap-3 grid-cols-2 lg:grid-cols-3">
     {#if js.key === 'analytics.jobsSubArchived'}
@@ -57,6 +58,7 @@
     {:else}
       {@render kpi($t('analytics.jobs'), num(s.counts.total), $t('analytics.jobsSub', js.params))}
     {/if}
+    {@render kpi($t('analytics.autonomy'), pct(q.autonomyRate ?? null), $t('analytics.autonomySub', { strict: pct(q.autonomyRateStrict ?? null), reverted: pct(q.revertRate ?? null), final: outcomes.final, merged: outcomes.merged }))}
     {@render kpi($t('analytics.firstPass'), pct(q.firstPassReviewRate), $t('analytics.firstPassSub', { rounds: q.avgRounds ?? '—' }))}
     {@render kpi($t('analytics.escalation'), pct(q.escalationRate), $t('analytics.escalationSub', { count: q.humanReworks }))}
     {@render kpi($t('analytics.prFeedback'), pct(q.humanFeedbackOnPrRate), $t('analytics.prFeedbackSub'))}

@@ -254,6 +254,11 @@ export function defaults(): Config {
     environments: {
       maxRunning: null,
     },
+    // How long after a merge forge sync watches for a revert, follow-up bugs and churn;
+    // docs/CONFIG.md "Outcomes".
+    outcomes: {
+      windowDays: 14,
+    },
     // Off by default: with no webhook and no command Forge spawns nothing and sends nothing;
     // docs/CONFIG.md "Notifications".
     notify: {
@@ -324,6 +329,20 @@ export function environmentsProblems(c: any): string[] {
   if (v === null || v === undefined) return [];
   if (!Number.isInteger(v) || v < MAX_RUNNING.min || v > MAX_RUNNING.max) return [`environments.maxRunning must be null or an integer from ${MAX_RUNNING.min} to ${MAX_RUNNING.max} (got ${JSON.stringify(v)})`];
   return [];
+}
+
+/** outcomes.windowDays: a day to a year. */
+export const OUTCOME_WINDOW_DAYS = { min: 1, max: 365 } as const;
+
+/** outcomes.windowDays: an integer in its range. */
+export function outcomesProblems(c: any): string[] {
+  const o = c.outcomes;
+  if (o === undefined) return [];
+  if (o === null || typeof o !== 'object' || Array.isArray(o)) return [`outcomes must be a map (got ${JSON.stringify(o)})`];
+  const v = o.windowDays;
+  if (v === undefined) return [];
+  const { min, max } = OUTCOME_WINDOW_DAYS;
+  return !Number.isInteger(v) || v < min || v > max ? [`outcomes.windowDays must be an integer from ${min} to ${max} (got ${JSON.stringify(v)})`] : [];
 }
 
 /** foreman.reserved's default: topics that always stay with a human. */
@@ -447,6 +466,7 @@ export function validateConfig(c: any, root: string): string[] {
   problems.push(...policyProblems(c));
   problems.push(...retentionProblems(c));
   problems.push(...environmentsProblems(c));
+  problems.push(...outcomesProblems(c));
   problems.push(...notifyProblems(c));
   problems.push(...componentProblems(c));
   problems.push(...repoProblems(c, root));

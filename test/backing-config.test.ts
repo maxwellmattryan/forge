@@ -134,21 +134,21 @@ describe('backing config', { concurrency: 4 }, () => {
   });
 
   test('v21 config migrates to v22 unchanged', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 24);
-    assert.equal(API_VERSION, 29, 'no /api/state change');
+    assert.equal(CONFIG_SCHEMA_VERSION, 25);
+    assert.equal(API_VERSION, 30, 'no /api/state change');
     const v21 = { schemaVersion: 21, git: { base: 'trunk' }, backing: [{ name: 'redis', isolation: 'shared', image: 'redis:7', ports: [6379] }] };
     const { config, from } = migrateConfig(structuredClone(v21));
     assert.equal(from, 21);
-    assert.deepEqual(config, { ...v21, schemaVersion: 24 }, 'migration 21 changes nothing but schemaVersion');
+    assert.deepEqual(config, { ...v21, schemaVersion: 25 }, 'migration 21 changes nothing but schemaVersion');
   });
 
   test('v18 config migrates to v19 with no backing', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 24);
+    assert.equal(CONFIG_SCHEMA_VERSION, 25);
     assert.deepEqual(defaults().backing, []);
     const v18 = { schemaVersion: 18, git: { base: 'trunk' }, components: [], repos: [], downstream: { enabled: true, max: 5, skip: [] } };
     const { config, from } = migrateConfig(structuredClone(v18));
     assert.equal(from, 18);
-    assert.deepEqual(config, { ...v18, schemaVersion: 24 }, 'migration 18 changes nothing but schemaVersion');
+    assert.deepEqual(config, { ...v18, schemaVersion: 25 }, 'migration 18 changes nothing but schemaVersion');
     const repo = tempRepo();
     try {
       const cfg = path.join(repo.dir, '.forge', 'config.yml');
@@ -156,7 +156,7 @@ describe('backing config', { concurrency: 4 }, () => {
       fs.writeFileSync(cfg, 'schemaVersion: 18\n');
       const loaded = loadConfig(repo.dir);
       assert.equal(loaded.migratedFrom, 18);
-      assert.equal(loaded.config.schemaVersion, 24);
+      assert.equal(loaded.config.schemaVersion, 25);
       assert.deepEqual(loaded.config.backing, []);
     } finally {
       repo.cleanup();
