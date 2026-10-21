@@ -4,7 +4,7 @@ import { activityLine, newestActivity, ownerLiveness, roundAgents, sortedActivit
 
 const NOW = Date.parse('2026-10-15T10:10:00.000Z');
 const act = (role: string, startedAt: string | null, over: Record<string, unknown> = {}) => ({ role, model: 'opus', startedAt, last: null, ...over }) as any;
-const owner = (status: string, heartbeat: string | null) => ({ status, session: 's', since: '2026-10-15T09:00:00.000Z', heartbeat, agentRunning: false, reason: null, jobSession: false }) as any;
+const owner = (status: string, renewedAt: string | null) => ({ status, session: 's', since: '2026-10-15T09:00:00.000Z', renewedAt, expiresAt: null, epoch: 1, jobSession: false }) as any;
 
 test('activityLine gives role, model, elapsed time and the last thing', () => {
   const a = act('reviewer:security', '2026-10-15T10:06:00.000Z', { last: { kind: 'tool', text: 'Read lib/server.ts', at: null } });
@@ -26,10 +26,10 @@ test('newestActivity picks the latest start and counts the rest', () => {
   assert.deepEqual(sortedActivity(list).map((x) => x.role), ['b', 'a', 'c']);
 });
 
-test('ownerLiveness tones live, stale and dead, and hides a missing owner', () => {
+test('ownerLiveness tones a live and an expired lease, and hides a missing driver', () => {
   assert.deepEqual(ownerLiveness(owner('live', '2026-10-15T10:09:40.000Z'), NOW), { tone: 'ok', status: 'live', age: '20s ago' });
-  assert.deepEqual(ownerLiveness(owner('stale', '2026-10-15T09:29:00.000Z'), NOW), { tone: 'warn', status: 'stale', age: '41m ago' });
-  assert.equal(ownerLiveness(owner('dead', null), NOW).tone, 'warn');
+  assert.deepEqual(ownerLiveness(owner('expired', '2026-10-15T09:29:00.000Z'), NOW), { tone: 'warn', status: 'expired', age: '41m ago' });
+  assert.deepEqual(ownerLiveness(owner('expired', null), NOW), { tone: 'warn', status: 'expired', age: '1h ago' }, 'never renewed: the age is the claim time');
   assert.deepEqual(ownerLiveness(owner('none', null), NOW), { tone: null, status: null, age: null });
   assert.deepEqual(ownerLiveness(null, NOW), { tone: null, status: null, age: null });
 });

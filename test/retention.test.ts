@@ -163,7 +163,7 @@ describe('archive', { concurrency: 4 }, () => {
         await refuse(seedJob(r.dir, 'Eval', { kind: 'eval' }), 'eval jobs stay with their run');
       });
       await t.test('a live owner', async () => {
-        const id = seedJob(r.dir, 'Owned', { patch: (j) => void (j.owner = { session: 'sess-1', host: 'h', since: new Date().toISOString(), heartbeat: new Date().toISOString() }) });
+        const id = seedJob(r.dir, 'Owned', { patch: (j) => void (j.lease = { driver: 'sess-1', epoch: 1, since: new Date().toISOString(), renewedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() }) });
         await refuse(id, 'owned by live session sess-1');
       });
       await t.test('a running daemon session', async () => {
@@ -428,11 +428,11 @@ test('archived jobs only in stats', async () => {
 describe('retention config and policy', { concurrency: 4 }, () => {
   test('retention config v7', () => {
     assert.deepEqual(defaults().retention, { jobsDays: null, logsDays: null, logMaxBytes: null });
-    assert.equal(CONFIG_SCHEMA_VERSION, 27);
+    assert.equal(CONFIG_SCHEMA_VERSION, 28);
     const v6 = { schemaVersion: 6, git: { base: 'trunk' }, daemon: { maxConcurrent: 2 } };
     const { config, from } = migrateConfig(structuredClone(v6));
     assert.equal(from, 6);
-    assert.deepEqual(config, { ...v6, schemaVersion: 27, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
+    assert.deepEqual(config, { ...v6, schemaVersion: 28, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
     const problems = (retention: Record<string, unknown>) => validateConfig({ ...defaults(), retention: { ...defaults().retention, ...retention } }, process.cwd()).filter((p) => p.startsWith('retention'));
     assert.deepEqual(problems({}), []);
     assert.deepEqual(problems({ jobsDays: 30, logsDays: 3650, logMaxBytes: 1048576 }), []);

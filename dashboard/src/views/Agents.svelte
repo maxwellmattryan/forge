@@ -50,14 +50,13 @@
 {#if sessions.length}
   <div class="plate flat"><div class="overflow-x-auto">
     <table class="tbl">
-      <thead><tr><th>{$t('agents.session')}</th><th>{$t('agents.host')}</th><th>{$t('agents.jobs')}</th><th>{$t('agents.lastSeen')}</th></tr></thead>
+      <thead><tr><th>{$t('agents.session')}</th><th>{$t('agents.jobs')}</th><th>{$t('agents.lastSeen')}</th></tr></thead>
       <tbody>
         {#each sessions as s (s.session)}
           <tr>
             <td class="font-mono text-xs"><span class="dot {s.live ? 'ok' : 'hollow'} mr-1.5"></span>{s.session}</td>
-            <td>{s.host ?? '—'}</td>
             <td>{#each s.jobs as j (j.id)}<button class="hover:text-gleam mr-2" onclick={() => openDrawer(j.id)}>{j.id}</button>{/each}</td>
-            <td class="text-muted">{ago(s.heartbeat)}</td>
+            <td class="text-muted">{ago(s.renewedAt)}</td>
           </tr>
         {/each}
       </tbody>

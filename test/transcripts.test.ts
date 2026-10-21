@@ -22,7 +22,7 @@ function scratch() {
 
 const job = (over: Record<string, any> = {}) => ({
   id: '153-job',
-  owner: { session: OWNER, host: 'h', since: '2026-10-15T00:00:00.000Z', heartbeat: '2026-10-15T00:00:00.000Z' },
+  lease: { driver: OWNER, epoch: 1, since: '2026-10-15T00:00:00.000Z', renewedAt: '2026-10-15T00:00:00.000Z', expiresAt: '2026-10-15T00:30:00.000Z' },
   runs: [{ session: OLD, startedAt: '2026-10-14T00:00:00.000Z' }, { session: OWNER, startedAt: '2026-10-15T00:00:00.000Z' }],
   agents: { 'reviewer:code': { runs: 1, status: 'running', agentId: 'abc123' }, builder: { runs: 1, status: 'done', agentId: 'old999' } } as Record<string, any>,
   worktree: null as string | null,
@@ -125,7 +125,7 @@ describe('transcripts', { concurrency: 4 }, () => {
       write(path.join(s.slugDir, 'not-a-uuid', 'subagents', 'agent-abc123.jsonl'));
       const opts = { projects: s.projects };
       // A session id that is not a uuid.
-      const bad = job({ owner: { session: 'not-a-uuid' }, runs: [{ session: 'not-a-uuid' }] });
+      const bad = job({ lease: { driver: 'not-a-uuid', epoch: 1, since: null, renewedAt: null, expiresAt: null }, runs: [{ session: 'not-a-uuid' }] });
       assert.equal(ownerTranscript(s.root, bad, opts), null);
       assert.equal(agentTranscript(s.root, bad, 'reviewer:code', opts), null);
       // Agent ids with traversal.

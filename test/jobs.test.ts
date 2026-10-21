@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
-import { claimJob, createJob, loadJob, readEvents, roundVerdicts, setJob, recordAgent, progress, parseDecision, touchJob, jobDir } from '../lib/jobs.ts';
+import { claimJob, createJob, loadJob, readEvents, roundVerdicts, setJob, recordAgent, progress, parseDecision, AGENT_LEASE_MS, renewLease, jobDir } from '../lib/jobs.ts';
 import { computeStats } from '../lib/stats.ts';
 import { EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, normalizeEvent, normalizeJob } from '../lib/schema.ts';
 import { sleepSync } from '../lib/util.ts';
@@ -31,7 +31,7 @@ test('job lifecycle: ids, transitions, claims, usage, verdict policy', () => {
 
     claimJob(root, a.id, 'session-1');
     assert.throws(() => claimJob(root, a.id, 'session-2'), /being driven by session session-1/);
-    assert.equal(claimJob(root, a.id, 'session-2', true).owner.session, 'session-2');
+    assert.equal(claimJob(root, a.id, 'session-2', true).lease.driver, 'session-2');
 
     recordAgent(root, a.id, { role: 'builder', phase: 'start', model: 'opus' }, config);
     const after = recordAgent(root, a.id, { role: 'builder', phase: 'end', usage: { input: 1000, output: 2000, cacheRead: 100000, cacheWrite: 5000 } }, config);
@@ -89,30 +89,33 @@ test('job lifecycle: ids, transitions, claims, usage, verdict policy', () => {
   }
 });
 
-test('claims stay alive while an agent runs, and heartbeats refresh on touch', () => {
+test('an agent start keeps the lease live past the claim window, and renewals extend it', () => {
   const repo = tempRepo();
   try {
     const root = repo.dir;
     const config = defaults();
     const job = createJob(root, config, { title: 'Long build' });
     claimJob(root, job.id, 'session-1');
-    // Every write refreshes the heartbeat, so a stale one has to be planted behind the CLI's back.
-    const plantStaleHeartbeat = () => {
+    // Renewed 45 minutes ago, planted behind the CLI's back: the lease then ends at `expiresAt`.
+    const plantRenewal = (expiresInMin: number) => {
       const file = path.join(jobDir(root, job.id), 'job.json');
       const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-      raw.owner.heartbeat = new Date(Date.now() - 45 * 60 * 1000).toISOString();
+      raw.lease.renewedAt = new Date(Date.now() - 45 * 60 * 1000).toISOString();
+      raw.lease.expiresAt = new Date(Date.now() + expiresInMin * 60 * 1000).toISOString();
       fs.writeFileSync(file, JSON.stringify(raw));
     };
+    // `forge job agent start` records the agent and renews the lease for the longest agent run.
     recordAgent(root, job.id, { role: 'builder', phase: 'start', model: 'opus' }, config);
-    plantStaleHeartbeat();
-    assert.throws(() => claimJob(root, job.id, 'session-2'), /an agent is still running/, 'a running agent keeps the claim alive past the heartbeat window');
-    const before = loadJob(root, job.id).owner.heartbeat;
+    renewLease(root, job.id, { ttl: AGENT_LEASE_MS });
+    plantRenewal(75);
+    assert.throws(() => claimJob(root, job.id, 'session-2'), /being driven by session session-1/, 'an agent lease keeps the claim live past the 30-minute window');
+    const before = loadJob(root, job.id).lease.renewedAt!;
     sleepSync(5);
-    touchJob(root, job.id);
-    assert.ok(loadJob(root, job.id).owner.heartbeat > before, 'touch refreshes the heartbeat');
+    renewLease(root, job.id);
+    assert.ok(loadJob(root, job.id).lease.renewedAt! > before, 'a session-less renewal renews a live lease');
     recordAgent(root, job.id, { role: 'builder', phase: 'end' }, config);
-    plantStaleHeartbeat();
-    assert.equal(claimJob(root, job.id, 'session-2').owner.session, 'session-2', 'a stale claim with no running agent can be taken over');
+    plantRenewal(-15);
+    assert.equal(claimJob(root, job.id, 'session-2').lease.driver, 'session-2', 'an expired lease can be taken over');
   } finally {
     repo.cleanup();
   }
@@ -188,14 +191,14 @@ test('reads v1 events into the v2 actor shape', () => {
 test('v9 job gains protectedPaths null', () => {
   const repo = tempRepo();
   try {
-    assert.equal(JOB_SCHEMA_VERSION, 16);
+    assert.equal(JOB_SCHEMA_VERSION, 17);
     const job = createJob(repo.dir, defaults(), { title: 'Old v9' });
     const file = path.join(jobDir(repo.dir, job.id), 'job.json');
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     delete raw.protectedPaths;
     fs.writeFileSync(file, JSON.stringify({ ...raw, schemaVersion: 9 }));
     const loaded = loadJob(repo.dir, job.id);
-    assert.equal(loaded.schemaVersion, 16);
+    assert.equal(loaded.schemaVersion, 17);
     assert.equal(loaded.protectedPaths, null);
     assert.equal(normalizeJob({ id: 'x', schemaVersion: 10 }).protectedPaths, null);
     // Tolerant: a hand-edited value without a hits list reads as no flag.
@@ -217,14 +220,14 @@ test('setJob derive decides from the locked job', () => {
     // The caller loaded `stale` before a session claimed the job: derive must see the claim.
     const stale = loadJob(root, job.id);
     claimJob(root, job.id, 'session-1');
-    assert.equal(stale.owner, null);
+    assert.equal(stale.lease.driver, null);
     const seen: (string | null)[] = [];
     const out = setJob(root, job.id, {
       fields: { 'pr.number': 7 },
       reason: 'static',
       derive: (j) => {
-        seen.push(j.owner?.session ?? null);
-        return j.owner ? { state: 'waiting', waitingOn: 'conflicts', reason: 'derived', fields: { 'pr.number': 8 }, note: 'derived note' } : { stage: 'integrate', state: 'running' };
+        seen.push(j.lease.driver);
+        return j.lease.driver ? { state: 'waiting', waitingOn: 'conflicts', reason: 'derived', fields: { 'pr.number': 8 }, note: 'derived note' } : { stage: 'integrate', state: 'running' };
       },
     });
     assert.deepEqual(seen, ['session-1'], 'called once, with the job as stored at write time');
@@ -232,7 +235,7 @@ test('setJob derive decides from the locked job', () => {
     assert.equal(out.waitingOn, 'conflicts');
     assert.equal(out.reason, 'derived', 'the derived value wins over the static one');
     assert.equal(out.pr?.number, 8);
-    assert.equal(out.owner?.session, 'session-1', 'the owner is untouched');
+    assert.equal(out.lease.driver, 'session-1', 'the lease is untouched');
     const stored = loadJob(root, job.id);
     assert.deepEqual([stored.waitingOn, stored.reason, stored.pr?.number], ['conflicts', 'derived', 8], 'applied in the same write');
     const evs = readEvents(root, job.id);

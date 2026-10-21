@@ -127,7 +127,7 @@ test('daemon status reports sessions kept by running agents', () => {
     const at = new Date().toISOString();
     for (const [id, owner] of [[live, sid], [dead, sid], [other, '99999999-2222-3333-4444-555555555555']]) {
       updateJob(repo.dir, id, (j) => {
-        j.owner = { session: owner, host: 'test-host', since: at, heartbeat: at };
+        j.lease = { driver: owner, epoch: 1, since: at, renewedAt: at, expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() };
       });
       recordAgent(repo.dir, id, { role: 'reviewer:code', phase: 'start' }, defaults());
     }

@@ -59,12 +59,12 @@ function project() {
 
 describe('member repos config', { concurrency: 4 }, () => {
   test('a v10 config migrates to 11 with empty repos', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 27);
+    assert.equal(CONFIG_SCHEMA_VERSION, 28);
     assert.deepEqual(defaults().repos, []);
     const v10 = { schemaVersion: 10, tracker: { kind: 'none' }, components: [] };
     const m = migrateConfig(structuredClone(v10));
     assert.equal(m.from, 10);
-    assert.deepEqual(m.config, { ...v10, repos: [], schemaVersion: 27, downstream: { enabled: true, max: 5, skip: [] } });
+    assert.deepEqual(m.config, { ...v10, repos: [], schemaVersion: 28, downstream: { enabled: true, max: 5, skip: [] } });
     assert.deepEqual(validateConfig(deepMerge(defaults(), m.config), process.cwd()), []);
     const kept = migrateConfig({ schemaVersion: 10, repos: 'nope' }).config;
     assert.equal(kept.repos, 'nope', 'an existing repos value is kept for validation to judge');
@@ -81,10 +81,10 @@ describe('member repos config', { concurrency: 4 }, () => {
       const loaded = loadConfig(r.dir);
       assert.equal(loaded.migratedFrom, 10);
       assert.deepEqual(loaded.config.repos, []);
-      assert.equal(loaded.config.schemaVersion, 27);
+      assert.equal(loaded.config.schemaVersion, 28);
       migrate(r.dir);
       const onDisk = yaml.parse(fs.readFileSync(file, 'utf8'));
-      assert.equal(onDisk.schemaVersion, 27);
+      assert.equal(onDisk.schemaVersion, 28);
       assert.deepEqual(onDisk.repos, []);
     } finally {
       r.cleanup();

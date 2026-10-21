@@ -37,11 +37,12 @@ test('AC1: defaults carry the daemon block and no dashboard.launcher', () => {
     allowedTools: DEFAULT_TOOLS,
     maxConcurrent: 3,
     idleStopMinutes: 30,
+    turnTimeoutMinutes: 60,
     auth: 'subscription',
     jobBudget: { tokens: 600000000, usd: 150 },
   });
   assert.deepEqual(d.dashboard, { port: 7400 });
-  assert.equal(CONFIG_SCHEMA_VERSION, 27);
+  assert.equal(CONFIG_SCHEMA_VERSION, 28);
   // The quoted tool names survive a YAML round trip, so `forge init write` can store the block.
   assert.deepEqual(yaml.parse(yaml.stringify({ daemon: d.daemon })).daemon, d.daemon);
 });
@@ -56,7 +57,7 @@ test('AC2: v1 dashboard.launcher migrates to daemon.command', () => {
   try {
     write('schemaVersion: 1\ndashboard:\n  port: 7411\n  launcher: \'claude -p "{prompt}"\'\n');
     let loaded = loadConfig(repo.dir);
-    assert.equal(loaded.config.schemaVersion, 27);
+    assert.equal(loaded.config.schemaVersion, 28);
     assert.equal(loaded.config.daemon.command, 'claude -p "{prompt}"');
     assert.equal(loaded.config.daemon.enabled, false, 'the migration never enables the daemon');
     assert.equal('launcher' in loaded.config.dashboard, false);
@@ -82,7 +83,7 @@ test('AC2: v1 dashboard.launcher migrates to daemon.command', () => {
     write('schemaVersion: 1\ndashboard:\n  port: 7400\n  launcher: \'claude -p "{prompt}"\'\n');
     assert.deepEqual(migrate(repo.dir).changed, ['.forge/config.yml']);
     const text = fs.readFileSync(cfg, 'utf8');
-    assert.match(text, /^schemaVersion: 27$/m);
+    assert.match(text, /^schemaVersion: 28$/m);
     assert.match(text, /^daemon:$/m);
     assert.doesNotMatch(text, /launcher:/);
     assert.equal(yaml.parse(text).daemon.command, 'claude -p "{prompt}"');
@@ -222,6 +223,36 @@ test('the trust digest covers the secrets allowlist', async () => {
     const r = await forgeAsync(repo.dir, ['status'], daemon);
     assert.equal(r.status, 1);
     assert.match(r.stderr, /secrets-allow\.txt, \.forge\/trackers\/ or \.forge\/verifiers\/ changed since a human started the daemon/);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('turnTimeoutMinutes validation', async () => {
+  assert.equal(defaults().daemon.turnTimeoutMinutes, 60);
+  const problems = (v: unknown) => {
+    const c: any = defaults();
+    c.daemon.turnTimeoutMinutes = v;
+    return daemonProblems(c, process.cwd()).filter((p) => p.startsWith('daemon.turnTimeoutMinutes'));
+  };
+  for (const bad of [0, -5, 'x', '60', true]) assert.equal(problems(bad).length, 1, JSON.stringify(bad));
+  for (const ok of [null, 60, 0.5]) assert.deepEqual(problems(ok), [], JSON.stringify(ok));
+  // forge config validate refuses 0 and "x" and takes null.
+  const repo = tempRepo();
+  try {
+    const cfg = path.join(repo.dir, '.forge', 'config.yml');
+    fs.mkdirSync(path.dirname(cfg), { recursive: true });
+    const validate = (v: unknown) => {
+      fs.writeFileSync(cfg, yaml.stringify({ schemaVersion: 28, tracker: { kind: 'none' }, daemon: { turnTimeoutMinutes: v } }));
+      return forgeAsync(repo.dir, ['config', 'validate']);
+    };
+    for (const bad of [0, 'x']) {
+      const r = await validate(bad);
+      assert.equal(r.status, 1, `${JSON.stringify(bad)}: ${r.stdout}`);
+      assert.match(r.stdout + r.stderr, /daemon\.turnTimeoutMinutes must be null or a positive number/);
+    }
+    const r = await validate(null);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
   } finally {
     repo.cleanup();
   }

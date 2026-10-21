@@ -11,7 +11,7 @@ import { RETENTION_DAYS, loadConfig } from './config.ts';
 import { daemonsDir, openAppend, readInfo, sessionFiles } from './daemon.ts';
 import { hasEnvironment, teardownEnvironment } from './environment-lifecycle.ts';
 import { jobFindings } from './findings.ts';
-import { isActive, jobDir, listJobs, logEvent, ownerStatus, readEvents } from './jobs.ts';
+import { isActive, jobDir, leaseStatus, listJobs, logEvent, readEvents } from './jobs.ts';
 import { paths } from './paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, validScope } from './requests.ts';
 import { ARCHIVE_SCHEMA_VERSION, normalizeJob } from './schema.ts';
@@ -98,7 +98,7 @@ export function daemonRunning(root: string, id: string): boolean {
 export function eligibility(root: string, job: Job, live: Job[]): string | null {
   if (job.state !== 'done' && job.state !== 'cancelled') return `active (${job.stage}/${job.state})`;
   if (job.kind === 'eval') return 'eval jobs stay with their run';
-  const owner = ownerStatus(job);
+  const owner = leaseStatus(job);
   if (owner.status === 'live') return `owned by live session ${owner.session}`;
   if (daemonRunning(root, job.id)) return 'daemon session running';
   if (job.pr?.state === 'OPEN') return `PR #${job.pr.number} still open`;
