@@ -3,29 +3,35 @@
 // Touches `document` and `matchMedia` only inside functions so tests can import it under Node.
 import { pref } from './prefs.ts';
 
-export const THEMES = ['forge', 'ash', 'temper'] as const;
+/** The six themes: forge (the default), ash (light), and the dark temper, crucible, patina and obsidian. */
+export const THEMES = ['forge', 'ash', 'temper', 'crucible', 'patina', 'obsidian'] as const;
 export type Theme = (typeof THEMES)[number];
 
-/** What Settings › General offers: the three themes, or follow the OS. */
+/** What Settings › General offers: the six themes, or follow the OS. */
 export const THEME_CHOICES = [...THEMES, 'system'] as const;
 export type ThemeChoice = (typeof THEME_CHOICES)[number];
 
 const LIGHT_QUERY = '(prefers-color-scheme: light)';
 
-/** What System shows on a dark OS (a light OS gets ash). System never picks temper: it is only ever chosen. */
+/** The themes System never picks: they show only when chosen, by their exact lower-case id. */
+const CHOSEN_ONLY = ['temper', 'crucible', 'patina', 'obsidian'] as const;
+const chosenOnly = (saved: string | null | undefined): saved is (typeof CHOSEN_ONLY)[number] => (CHOSEN_ONLY as readonly string[]).includes(saved ?? '');
+
+/** What System shows on a dark OS (a light OS gets ash). System never picks temper, crucible, patina or obsidian. */
 export const SYSTEM_DARK: Theme = 'forge';
 
 /**
  * The theme to show for a saved `forge.theme` value. The ids of earlier looks still work: the Drafting
- * `cyanotype` and `nightprint` and the older `dark` load as forge, `vellum` and `light` as ash, and `temper` is temper; anything else
- * (`Temper` in the wrong case included) counts as unset and follows the OS: light → ash, dark → forge. The saved value itself is never rewritten.
+ * `cyanotype` and `nightprint` and the older `dark` load as forge, `vellum` and `light` as ash, and `temper`, `crucible`,
+ * `patina` and `obsidian` are themselves; anything else (`Temper` or `PATINA` in the wrong case included) counts as unset
+ * and follows the OS: light → ash, dark → forge. The saved value itself is never rewritten.
  * index.html's inline script duplicates this mapping because it runs before the bundle;
  * test/dashboard-theme.test.ts keeps the two in step.
  */
 export function normalizeTheme(saved: string | null | undefined, prefersLight: boolean): Theme {
   if (saved === 'forge' || saved === 'cyanotype' || saved === 'dark' || saved === 'nightprint') return 'forge';
   if (saved === 'ash' || saved === 'vellum' || saved === 'light') return 'ash';
-  if (saved === 'temper') return 'temper';
+  if (chosenOnly(saved)) return saved;
   return prefersLight ? 'ash' : SYSTEM_DARK;
 }
 
@@ -33,7 +39,7 @@ export function normalizeTheme(saved: string | null | undefined, prefersLight: b
 export function themeChoice(saved: string | null | undefined): ThemeChoice {
   if (saved === 'forge' || saved === 'cyanotype' || saved === 'dark' || saved === 'nightprint') return 'forge';
   if (saved === 'ash' || saved === 'vellum' || saved === 'light') return 'ash';
-  if (saved === 'temper') return 'temper';
+  if (chosenOnly(saved)) return saved;
   return 'system';
 }
 

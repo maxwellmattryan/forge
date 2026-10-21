@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { builtCss } from './built-css.ts';
 import { noDist } from './dist.ts';
+import { THEMES } from '../dashboard/src/lib/theme.ts';
 
 // Every test here reads the real build, so each skips without one (test/dist.ts).
 const test = (name: string, fn: () => void) => nodeTest(name, { skip: noDist() }, fn);
@@ -696,7 +697,8 @@ test('sender tints are opaque tokens with readable text', () => {
   const lum = (c: number[]) => 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
   const contrast = (a: number[], b: number[]) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
   const TINTS = { agent: ['gleam', 15], cli: ['fg', 5], forge: ['ember', 7] } as const;
-  for (const [theme, sel] of [['forge', ':root, [data-theme="forge"]'], ['ash', '[data-theme="ash"]']] as const) {
+  for (const theme of THEMES) {
+    const sel = theme === 'forge' ? ':root, [data-theme="forge"]' : `[data-theme="${theme}"]`;
     const b = block(sel);
     const panel = hex(b, 'panel');
     const mixes: Record<string, number[]> = {};
@@ -712,10 +714,11 @@ test('sender tints are opaque tokens with readable text', () => {
       }
       assert.ok(contrast(mixed, panel) > 1.01, `${theme}: --tint-${name} is visibly off the panel`);
     }
-    // The agent and cli rows must read apart at a glance: agent cool, cli neutral.
+    // The agent and cli rows must read apart at a glance. In forge and ash agent is cool and cli neutral; the other themes
+    // tint agent with their own gleam, which is warm by design in crucible (molten gold), so only the difference holds there.
     const { agent, cli } = mixes;
     assert.ok(Math.max(...agent.map((v, i) => Math.abs(v - cli[i]))) >= 10, `${theme}: --tint-agent ${agent} and --tint-cli ${cli} differ by 10 or more in a channel`);
-    assert.ok(agent[2] - agent[0] > cli[2] - cli[0], `${theme}: --tint-agent is cooler than --tint-cli`);
+    if (theme === 'forge' || theme === 'ash') assert.ok(agent[2] - agent[0] > cli[2] - cli[0], `${theme}: --tint-agent is cooler than --tint-cli`);
   }
   const css = builtCss();
   for (const name of Object.keys(TINTS)) {
