@@ -418,7 +418,14 @@ export function tryLock(lockDir: string): { release: () => void } | { holder: { 
   const w = newWait();
   fs.mkdirSync(path.dirname(lockDir), { recursive: true });
   const token = attemptLock(lockDir, w);
-  if (token === null) return { holder: { pid: w.holder?.pid ?? null, host: w.holder?.host ?? null } };
+  if (token === null) {
+    // A holder that won the mkdir a moment ago may not have written holder.json yet: give it a beat, so the refusal can name it.
+    for (let i = 0; i < 20 && !w.holder; i++) {
+      sleepSync(10);
+      w.holder = readLockHolder(lockDir);
+    }
+    return { holder: { pid: w.holder?.pid ?? null, host: w.holder?.host ?? null } };
+  }
   let released = false;
   return {
     release: () => {

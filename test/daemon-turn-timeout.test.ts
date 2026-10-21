@@ -26,7 +26,7 @@ test('a turn past its timeout', POSIX, async () => {
   const cfg = defaults();
   Object.assign(cfg.daemon, { enabled: true, command: FAKE_COMMAND });
   const env = { ...process.env, FAKE_CLAUDE_LOG: logFile, FAKE_CLAUDE_DRIVE: '1', FAKE_CLAUDE_IGNORE_EOF: '1' };
-  const pool = createPool(root, { env, loadConfig: () => ({ config: cfg }), pollMs: 3_600_000, graceMs: 1000, syncMs: 0, reconcileMs: 0, turnTimeoutMs: 1500 });
+  const pool = createPool(root, { env, loadConfig: () => ({ config: cfg }), pollMs: 3_600_000, graceMs: 1000, syncMs: 0, reconcileMs: 0, turnTimeoutMs: 6000 });
   const sessionLog = () => {
     const f = path.join(root, '.forge', 'runtime', 'daemons', `${id}.log`);
     return fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [];
@@ -36,11 +36,13 @@ test('a turn past its timeout', POSIX, async () => {
     setJob(root, id, { stage: 'build', state: 'running' });
     const req = enqueue(root, null, { type: 'resume', job: id });
     pool.start();
-    await waitFor(() => records().some((r) => r.drove), { timeoutMs: 20_000, what: 'the turn to claim the job' });
+    // The limit leaves the turn's four forge calls time to finish on a loaded machine.
+    await waitFor(() => records().some((r) => r.drove || r.droveError), { timeoutMs: 30_000, what: 'the turn to claim the job' });
+    assert.equal(records().find((r) => r.droveError)?.droveError, undefined);
     assert.equal(pool.sessionState(id).status, 'busy');
-    await waitFor(() => sessionLog().some((e) => e.event === 'turn-timeout'), { timeoutMs: 10_000, what: 'turn-timeout' });
+    await waitFor(() => sessionLog().some((e) => e.event === 'turn-timeout'), { timeoutMs: 20_000, what: 'turn-timeout' });
     const timeout = sessionLog().find((e) => e.event === 'turn-timeout');
-    assert.equal(timeout.minutes, 0.025);
+    assert.equal(timeout.minutes, 0.1);
     await waitFor(() => readEvents(root, id).some((e) => e.type === 'lease-expired'), { timeoutMs: 10_000, what: 'the lease to expire' });
     assert.ok(sessionLog().some((e) => e.event === 'stop' && e.reason === 'turn-timeout'), 'stopped for the timeout');
     assert.ok(readEvents(root, id).some((e) => e.type === 'note' && String(e.text).includes(`request ${req.id} (resume) is pending again`)), 'its request was requeued');
