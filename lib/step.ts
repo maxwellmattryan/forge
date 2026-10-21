@@ -14,10 +14,10 @@ import type { RoleContext } from './brief.ts';
 import { autoMerge, lensAlwaysOnRework, lensNeedsApp, resolveEffort, resolveModel } from './config.ts';
 import { environmentState } from './environment-record.ts';
 import { configForJob } from './eval-overlay.ts';
-import { latestSecurityVerdict } from './foreman.ts';
+import { latestSecurityVerdict, pastTotalCeiling, totalRoundCeiling } from './foreman.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
-import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
+import { isForemanActor, jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
 import { memberRepos } from './job-repos.ts';
 import { deferralStatus, readDeferrals, releaseGates, releaseIndex, resolveInterim } from './interim.ts';
 import { LENS_NAME, isLens, lensRepoAllowed, reviewFileName, splitLens } from './lens.ts';
@@ -79,6 +79,9 @@ export const RULES = [
   // A pull of the PR's remote branch conflicted after the last verify: park on a human (PR11).
   // Appended, as IDs are stable.
   'PR11',
+  // A build round past the total-round ceiling that no person reopened parks for a human (B7, run
+  // before B2). Appended, as IDs are stable.
+  'B7',
   // No rule matched: a state step can't advance, parked visibly instead of looping.
   'X1',
 ] as const;
@@ -740,6 +743,8 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
     case 'escalation':
       return `${id} escalated (${reason}): see ${escalationFile(x)}. /forge approve ${id} or /forge rework ${id} <note>`;
     case 'rounds-exhausted':
+      if (pastTotalCeiling(x.config, j))
+        return `${id} reached the total-round ceiling (${totalRoundCeiling(x.config, j)} rounds): only a human may clear it. /forge approve ${id} to ship, or /forge rework ${id} <note>`;
       return `${id} used all ${j.maxRounds} rounds. /forge approve ${id} to ship, or /forge rework ${id} <note>`;
     case 'infra':
       return `${id} waits on runbook steps before merge: ${p(x, 'runbook')}. /forge continue ${id} when done`;
@@ -1080,12 +1085,21 @@ function build(x: StepInput): StepAction {
   const lv = lastVerify(x);
   if (j.round === 0 || j.verdicts[String(j.round)] || after(rework?.ts, lastEvent(x, (e) => e.type === 'round')?.ts)) return run(x, 'B1', ['job', 'round', j.id], 'start the next build round');
   // A rework that came after the previous round started is the one that opened this round (B1), so the whole round is exempt. Comparing with the builder's start lost the exemption once the builder ran.
+  const previousRound = x.events.filter((e) => e.type === 'round').at(-2)?.ts;
+  // The total-round ceiling counts every round, whoever opened it: past it only a person's rework or
+  // revise-spec since the previous round started opens this one. The foreman's (CI reworks included) never does.
+  const personRework = lastEvent(x, (e) => e.type === 'human' && (e.action === 'rework' || e.action === 'revise-spec') && !isForemanActor(e));
+  if (pastTotalCeiling(x.config, j) && !after(personRework?.ts, previousRound)) {
+    const ceiling = totalRoundCeiling(x.config, j);
+    if (j.kind === 'eval') return set(x, 'B6', { stage: 'decide', state: 'running', reason: `eval: round ${j.round} exceeds the total-round ceiling ${ceiling}` }, 'an eval job has no human to clear rounds-exhausted: grade it');
+    return park(x, 'B7', 'rounds-exhausted', `round ${j.round} exceeds the total-round ceiling ${ceiling}: only a human clears it`);
+  }
   // Security always has to pass: while the latest security review isn't PASS, rounds run past
   // maxRounds, up to twice it, before the park (where the foreman may only rework or revise).
   const security = latestSecurityVerdict(j);
   const securityOpen = j.kind !== 'eval' && security !== null && security !== 'PASS';
   const limit = securityOpen ? j.maxRounds * 2 : j.maxRounds;
-  if (j.round > limit && !after(rework?.ts, x.events.filter((e) => e.type === 'round').at(-2)?.ts)) {
+  if (j.round > limit && !after(rework?.ts, previousRound)) {
     if (j.kind === 'eval') return set(x, 'B6', { stage: 'decide', state: 'running', reason: `eval: round ${j.round} exceeds maxRounds ${j.maxRounds}` }, 'an eval job has no human to clear rounds-exhausted: grade it');
     return park(x, 'B2', 'rounds-exhausted', securityOpen ? `round ${j.round} exceeds twice maxRounds ${j.maxRounds} with the security review not PASS` : `round ${j.round} exceeds maxRounds ${j.maxRounds}`);
   }
@@ -1234,7 +1248,7 @@ function decideStage(x: StepInput): StepAction {
   const ap = agent(x, 'approver');
   // B6 sent a rounds-exhausted eval job here: the approver would only ESCALATE a branch that never
   // passed review, and skipping it keeps escalationRate an approver-only metric.
-  const exhausted = j.kind === 'eval' && j.round > j.maxRounds;
+  const exhausted = j.kind === 'eval' && (j.round > j.maxRounds || pastTotalCeiling(x.config, j));
   if (!exhausted) {
     if (!startedIn(ap, j.round) || !ended(ap)) return spawn(x, 'DC1', 'approver');
     const m = missingOutput(x, 'approver');

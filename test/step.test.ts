@@ -20,6 +20,8 @@ interface Row {
 const run = (...command: string[]) => ({ action: 'run', command });
 const vr = (round: number, at: number, ok: boolean, failure: string | null = ok ? null : 'test'): VerifyRun => ({ round, attempt: 1, sha: 's', ok, at: t(at), file: `verify/round-${round}.md`, failure });
 const job = (j: Partial<Job>): Partial<Job> => ({ state: 'running', ...j });
+/** The actor a foreman decision (and forge sync's CI rework) records. */
+const FOREMAN = { login: null, source: 'foreman' };
 // A root app that depends on member lib, lib's interim strategy from config (default local).
 const twoRepoConfig = (c: any, interim?: string) => {
   c.repos = [{ name: 'lib', remote: '/x/lib.git', defaultBranch: 'main', ...(interim ? { release: { interim } } : {}) }];
@@ -427,7 +429,7 @@ const rows: Row[] = [
   { name: 'B2 rounds exhausted', fx: { job: job({ stage: 'build', round: 4, maxRounds: 3, agents: { builder: ag(3, 5, 6) } }), events: [ev('round', 7)] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 4 exceeds maxRounds 3') },
   { name: 'B2 a live job past maxRounds still parks', fx: { job: job({ stage: 'build', round: 4, maxRounds: 3, agents: { builder: ag(3, 5, 6) } }), events: [ev('round', 7)] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 4 exceeds maxRounds 3'), rule: 'B2' } },
   { name: 'B4 an open security review reworks past maxRounds', fx: { job: job({ stage: 'build', round: 4, maxRounds: 3, verdicts: { 3: { code: 'PASS', security: 'CHANGES' } }, agents: { builder: ag(3, 5, 6) } }), events: [ev('round', 7)] }, want: { action: 'spawn', rule: 'B4', role: 'builder' } },
-  { name: 'B2 an open security review parks at twice maxRounds', fx: { job: job({ stage: 'build', round: 7, maxRounds: 3, verdicts: { 6: { security: 'MALFORMED' } }, agents: { builder: ag(6, 5, 6) } }), events: [ev('round', 7)] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 7 exceeds twice maxRounds 3 with the security review not PASS') },
+  { name: 'B2 an open security review parks at twice maxRounds', fx: { config: (c) => (c.pipeline.maxTotalRounds = 20), job: job({ stage: 'build', round: 7, maxRounds: 3, verdicts: { 6: { security: 'MALFORMED' } }, agents: { builder: ag(6, 5, 6) } }), events: [ev('round', 7)] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 7 exceeds twice maxRounds 3 with the security review not PASS') },
   { name: 'B2 a security review that passed again parks at maxRounds', fx: { job: job({ stage: 'build', round: 4, maxRounds: 3, verdicts: { 2: { security: 'CHANGES' }, 3: { code: 'CHANGES', security: 'PASS' } }, agents: { builder: ag(3, 5, 6) } }), events: [ev('round', 7)] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 4 exceeds maxRounds 3') },
   { name: 'B6 an eval job past maxRounds goes to decide', fx: { job: job({ kind: 'eval', eval: { run: 'r', task: 'hello' }, stage: 'build', round: 4, maxRounds: 3, agents: { builder: ag(3, 5, 6) } }), events: [ev('round', 7)] }, want: { ...run('job', 'set', 'j', '--stage', 'decide', '--state', 'running', '--reason', 'eval: round 4 exceeds maxRounds 3'), rule: 'B6' } },
   { name: 'rounds exhausted: a human rework continues', fx: { job: job({ stage: 'build', round: 4, maxRounds: 3, agents: { builder: ag(3, 5, 6) } }), events: [ev('human', 7, { action: 'rework' }), ev('round', 8)] }, want: { action: 'spawn', rule: 'B4', role: 'builder' } },
@@ -443,6 +445,13 @@ const rows: Row[] = [
     fx: { job: job({ stage: 'build', round: 6, maxRounds: 3, verdicts: { 5: { code: 'CHANGES' } }, agents: { builder: ag(5, 22, 30) } }), events: [ev('round', 10), ev('human', 20, { action: 'rework' }), ev('round', 21), ev('round', 40)] },
     want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 6 exceeds maxRounds 3'),
   },
+  { name: 'B7 a builder round past the total-round ceiling parks', fx: { job: job({ stage: 'build', round: 5, maxRounds: 2, agents: { builder: ag(4, 5, 6) } }), events: [ev('round', 7), ev('round', 10)] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 5 exceeds the total-round ceiling 4: only a human clears it') },
+  { name: 'B7 a foreman-opened round past the ceiling parks', fx: { job: job({ stage: 'build', round: 5, maxRounds: 2, agents: { builder: ag(4, 5, 6) } }), events: [ev('round', 7), ev('human', 8, { action: 'rework', actor: FOREMAN }), ev('round', 9)] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 5 exceeds the total-round ceiling 4: only a human clears it') },
+  { name: 'B7 a CI-rework round past the ceiling parks', fx: { job: job({ stage: 'build', round: 5, maxRounds: 2, agents: { builder: ag(4, 5, 6) } }), events: [ev('round', 7), ev('human', 8, { action: 'rework', actor: FOREMAN, ciHead: 'a'.repeat(40) }), ev('round', 9)] }, want: { rule: 'B7', action: 'run' } },
+  { name: "B7 the round after a person's rework parks again", fx: { job: job({ stage: 'build', round: 6, maxRounds: 2, verdicts: { 5: { code: 'CHANGES' } }, agents: { builder: ag(5, 10, 11) } }), events: [ev('round', 7), ev('human', 8, { action: 'rework', actor: { login: 'alice', source: 'cli' } }), ev('round', 9), ev('round', 12)] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 6 exceeds the total-round ceiling 4: only a human clears it') },
+  { name: 'B7 pipeline.maxTotalRounds sets the ceiling', fx: { config: (c) => (c.pipeline.maxTotalRounds = 3), job: job({ stage: 'build', round: 4, maxRounds: 5, agents: { builder: ag(3, 5, 6) } }), events: [ev('round', 7)] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 4 exceeds the total-round ceiling 3: only a human clears it') },
+  { name: 'B6 an eval job past the total-round ceiling goes to decide', fx: { config: (c) => (c.pipeline.maxTotalRounds = 2), job: job({ kind: 'eval', eval: { run: 'r', task: 'hello' }, stage: 'build', round: 3, maxRounds: 3, agents: { builder: ag(2, 5, 6) } }), events: [ev('round', 7)] }, want: { ...run('job', 'set', 'j', '--stage', 'decide', '--state', 'running', '--reason', 'eval: round 3 exceeds the total-round ceiling 2'), rule: 'B6' } },
+  { name: 'B7 wins over B2 past both limits', fx: { job: job({ stage: 'build', round: 7, maxRounds: 2, agents: { builder: ag(6, 5, 6) } }), events: [ev('round', 7)] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 7 exceeds the total-round ceiling 4: only a human clears it'), rule: 'B7' } },
   { name: 'G4 rounds-exhausted tell', fx: { job: job({ stage: 'build', round: 4, maxRounds: 3, state: 'waiting', waitingOn: 'rounds-exhausted' }) }, want: { action: 'wait', tell: 'j used all 3 rounds. /forge approve j to ship, or /forge rework j <note>' } },
   {
     name: 'B3 integrity fails twice around a builder run',
@@ -1228,6 +1237,30 @@ for (const row of rv9Skips) {
   test(row.name, () => {
     const a = step(fixture(row.fx)) as any;
     assert.notEqual(a.rule, 'RV9', row.name);
+    for (const [k, v] of Object.entries(row.want)) assert.deepEqual(a[k], v, `${row.name}: ${k}`);
+    assertSafe(a, row.name);
+  });
+}
+
+// B7's negative cases and its tell: another rule decides, so they can't be `rows`.
+const b7Skips: Row[] = [
+  {
+    name: "B7 a person's rework past the ceiling opens one round",
+    fx: { job: job({ stage: 'build', round: 5, maxRounds: 2, agents: { builder: ag(4, 5, 6) } }), events: [ev('round', 7), ev('human', 8, { action: 'rework', actor: { login: 'alice', source: 'cli' } }), ev('round', 9)] },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+  },
+  {
+    name: 'B7 tell names the ceiling and a human',
+    fx: { job: job({ stage: 'build', round: 5, maxRounds: 2, state: 'waiting', waitingOn: 'rounds-exhausted' }) },
+    want: { action: 'wait', rule: 'G4', tell: 'j reached the total-round ceiling (4 rounds): only a human may clear it. /forge approve j to ship, or /forge rework j <note>' },
+  },
+  { name: 'B7 a round within the ceiling parks on B2', fx: { job: job({ stage: 'build', round: 4, maxRounds: 2, agents: { builder: ag(3, 5, 6) } }), events: [ev('round', 7)] }, want: { rule: 'B2' } },
+];
+
+for (const row of b7Skips) {
+  test(row.name, () => {
+    const a = step(fixture(row.fx)) as any;
+    assert.notEqual(a.rule, 'B7', row.name);
     for (const [k, v] of Object.entries(row.want)) assert.deepEqual(a[k], v, `${row.name}: ${k}`);
     assertSafe(a, row.name);
   });

@@ -34,7 +34,7 @@ Approve when `plan.md`'s child jobs are independent enough to ship one at a time
 Read `decision.md` (its `## Why` and `## For the human`), the latest review files and `verify`. Approve only when what is left is cosmetic (naming, wording, a nit) and the acceptance criteria hold. `rework` when the remaining findings are concrete code fixes within the spec. `revise` when the spec itself is wrong. Anything about risk, policy or an `alwaysEscalate` class: `escalate`.
 
 ## rounds-exhausted
-As for escalation: approve when the open findings are cosmetic, `rework` when one more round would clear concrete, in-scope findings, otherwise `escalate`.
+As for escalation: approve when the open findings are cosmetic, `rework` when one more round would clear concrete, in-scope findings, otherwise `escalate`. Past the total-round ceiling (the reason names it) the foreman is refused whatever you answer: `escalate` and leave it to a human. The same holds on a PR whose reason starts `CI rework cap:`.
 
 ## conflicts
 Approve (the integrator resolves them) unless the conflicting work touches a reserved topic, in which case `escalate`.

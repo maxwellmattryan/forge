@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
 import { TRUST_ENV, autoMerge, defaults, loadConfig, trustDigest, validateConfig } from '../lib/config.ts';
 import { FIELDS } from '../lib/config-fields.ts';
-import { INVALID_RESERVED, SECURITY_CHANGES, SECURITY_UNCLEAR, gateClass, gateOwner, latestSecurityVerdict, reservedFor, reservedMatch } from '../lib/foreman.ts';
+import { INVALID_RESERVED, SECURITY_CHANGES, SECURITY_UNCLEAR, TOTAL_CEILING, gateClass, gateOwner, latestSecurityVerdict, reservedFor, reservedMatch } from '../lib/foreman.ts';
 import { createJob, jobDir, loadJob, logEvent, readEvents, setJob } from '../lib/jobs.ts';
 import { syncPr, trustedFeedback } from '../lib/pr.ts';
 import { OFFICE_SCOPE, ackRequest, enqueue, listRequests, requestScope } from '../lib/requests.ts';
@@ -478,6 +478,46 @@ describe('foreman CLI', { concurrency: 4 }, () => {
       assert.equal(at({ 1: { security: 'CHANGES' } }), SECURITY_CHANGES);
       for (const v of ['MALFORMED', 'MISSING', 'weird']) assert.equal(at({ 1: { security: v } }), SECURITY_UNCLEAR, v);
       for (const a of ['rework', 'revise-spec']) assert.equal(at({ 1: { security: 'CHANGES' } }, a), null, a);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('foreman is refused past the total-round ceiling', async () => {
+    const s = scratch();
+    try {
+      // maxRounds 2: the ceiling is 4, and round 5 is past it.
+      const id = s.job('Ceiling', { stage: 'build', state: 'running', fields: { round: 5, maxRounds: 2 } });
+      const r = await s.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 5 exceeds the total-round ceiling 4: only a human clears it');
+      assert.equal(r.code, 0, r.out);
+      assert.deepEqual(s.gates(id), [], 'no foreman gate is queued past the ceiling');
+      assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'human');
+      assert.equal(reservedFor(s.root, s.config(), loadJob(s.root, id), 'rounds-exhausted', [], { action: 'rework' }), TOTAL_CEILING);
+      for (const action of ['approve', 'rework', 'revise-spec']) {
+        const before = s.snapshot(id);
+        const refused = await s.cli(OFFICE_SCOPE, 'job', 'human', id, action, '--actor', 'foreman', '--note', 'one more try');
+        assert.equal(refused.code, 1, `${action}: ${refused.out}`);
+        assert.match(refused.out, /--actor foreman refused: .*total-round ceiling/, action);
+        assert.equal(s.snapshot(id), before, `${action}: nothing written`);
+      }
+      // A person may still open one more round.
+      const person = await s.cli(undefined, 'job', 'human', id, 'rework', '--note', 'try the other approach');
+      assert.equal(person.code, 0, person.out);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('foreman still decides rounds-exhausted within the ceiling', async () => {
+    const s = scratch();
+    try {
+      const id = s.job('Within', { stage: 'build', state: 'running', fields: { round: 3, maxRounds: 2 } });
+      const r = await s.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 3 exceeds maxRounds 2');
+      assert.equal(r.code, 0, r.out);
+      assert.equal(s.gates(id).length, 1);
+      assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'foreman');
+      const ok = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'approve', '--actor', 'foreman', '--note', 'cosmetic findings only');
+      assert.equal(ok.code, 0, ok.out);
     } finally {
       s.cleanup();
     }
