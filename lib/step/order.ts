@@ -3,6 +3,7 @@
 // returns the next action, so the same state always gives the same answer and every rule is a
 // table row in test/step.test.ts. It never writes; the orchestrator runs what it returns.
 import type { StepAction, StepInput } from '../types.ts';
+import { computeFacts } from './facts.ts';
 import { downstreamGate, protectedGate, repoProposalGate, secretGate } from './gates.ts';
 import { stuck } from './generic.ts';
 import { globalStep, kindStep } from './global.ts';
@@ -19,7 +20,8 @@ import { verify } from './stages/verify.ts';
 
 /** The next action for the job. Pure: reads only `x`. */
 export function step(x: StepInput): StepAction {
-  const g = globalStep(x) ?? kindStep(x) ?? secretGate(x) ?? protectedGate(x) ?? repoProposalGate(x) ?? downstreamGate(x);
+  const f = computeFacts(x);
+  const g = globalStep(x, f) ?? kindStep(x) ?? secretGate(x) ?? protectedGate(x) ?? repoProposalGate(x) ?? downstreamGate(x);
   if (g) return g;
   switch (x.job.stage) {
     case 'backlog':
@@ -37,9 +39,9 @@ export function step(x: StepInput): StepAction {
     case 'review':
       return review(x);
     case 'decide':
-      return decideStage(x);
+      return decideStage(x, f);
     case 'integrate':
-      return integrate(x);
+      return integrate(x, f);
     case 'pr':
       return pr(x);
   }

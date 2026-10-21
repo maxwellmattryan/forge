@@ -7,9 +7,9 @@ import type { RoleContext } from '../brief.ts';
 import { resolveEffort, resolveModel } from '../config.ts';
 import { reviewFileName } from '../lens.ts';
 import { AGENT_ID } from '../transcripts.ts';
-import type { StepDone, StepInput, StepProcedure, StepRun, StepSpawn, StepWait, StepWaitingOn, WaitingOn } from '../types.ts';
+import type { JobEvent, StepDone, StepInput, StepProcedure, StepRun, StepSpawn, StepWait, StepWaitingOn, WaitingOn } from '../types.ts';
 import { ForgeError } from '../util.ts';
-import { after, agent, human, isPrRework, lastConflicts, lastEvent, lastVerify, p, pendingVerifiers, ref, runningRoles, splitMode } from './facts.ts';
+import { after, afterIdx, agent, human, isPrRework, lastIdx, lastVerify, orNull, p, pendingVerifiers, ref, runningRoles, splitMode } from './facts.ts';
 import { reworkReviewFiles } from './panel.ts';
 import type { RuleId } from './rules.ts';
 
@@ -99,7 +99,8 @@ export function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: bo
   const output = outputFor(x, role);
   const ctx: RoleContext = { lens, output: base === 'reviewer' ? output : undefined, answered: o.answered };
   if (o.retry) ctx.retry = o.retryLine ?? `Retry: ${output} was not written last time; write it before you reply.`;
-  const conflicts = lastConflicts(x);
+  const conflictsAt = lastIdx(x, (e) => e.type === 'integrate-conflicts');
+  const conflicts = x.events[conflictsAt] as JobEvent | undefined;
   const conflictFiles = Array.isArray(conflicts?.conflicts) ? (conflicts.conflicts as unknown[]).map(String) : [];
   const regenerated = Array.isArray(conflicts?.regenerated) ? (conflicts.regenerated as unknown[]).map(String) : [];
   if (base === 'planner') ctx.splitMode = splitMode(x);
@@ -116,8 +117,8 @@ export function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: bo
   }
   if (base === 'integrator') {
     // The fix pass: an integration review of this episode's resolution asked for changes.
-    const review = lastEvent(x, (e) => e.type === 'integration-review');
-    ctx.integration = { conflicts: conflictFiles, regenerated, fix: Boolean(review && review.outcome === 'CHANGES' && after(review.ts, conflicts?.ts)) };
+    const reviewAt = lastIdx(x, (e) => e.type === 'integration-review');
+    ctx.integration = { conflicts: conflictFiles, regenerated, fix: reviewAt >= 0 && x.events[reviewAt].outcome === 'CHANGES' && afterIdx(reviewAt, orNull(conflictsAt)) };
     ctx.strategy = x.config.pr.updateStrategy;
   }
   const model = resolveModel(x.config, x.job, role, ctx.rework ?? []);

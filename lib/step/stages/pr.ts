@@ -5,7 +5,7 @@ import { memberRepos } from '../../job-repos.ts';
 import type { JobEvent, StepAction, StepInput } from '../../types.ts';
 import { SAFE_REF } from '../../util.ts';
 import { SAFE_ELEMENT, park, run, safe, set, toStage } from '../actions.ts';
-import { after, human, lastEvent } from '../facts.ts';
+import { after, human, lastEvent, lastIdx } from '../facts.ts';
 
 const MERGE_EVENTS = ['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed'];
 const SAFE_VERSION = /^[0-9A-Za-z.+-]{1,120}$/;
@@ -31,7 +31,8 @@ export function pr(x: StepInput): StepAction {
     return run(x, 'PR2', ['verify', j.id], 'the PR branch moved on the remote and was merged in: verify the merged HEAD');
   }
   // The last open attempt: a deferral counts, so PR3 doesn't run pr open again on the same verify.
-  const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated' || e.type === 'pr-deferred');
+  const openedAt = lastIdx(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated' || e.type === 'pr-deferred');
+  const opened = x.events[openedAt] as JobEvent | undefined;
   if (!after(opened?.ts, last.at)) return run(x, 'PR3', ['pr', 'open', j.id], 'push and open or update the PR');
   if (opened!.type === 'pr-deferred') return deferredPr(x, opened!);
   // The first draft consumer in merge order whose every gate is released leaves draft.
@@ -49,7 +50,7 @@ export function pr(x: StepInput): StepAction {
   const local = edges.some((e, i) => e.strategy === 'local' && gates[i].gate !== 'released');
   const held = gates.find((g) => g.gate === 'held' || g.gate === 'bump-due');
   const draft = edges.length > 0 && (j.pr?.isDraft === true || memberRepos(j).some((m) => m.pr?.isDraft === true));
-  if (!local && !held && !draft && x.decision.autoMerge && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !lastEvent(x, (e) => MERGE_EVENTS.includes(e.type) && after(e.ts, opened!.ts)))
+  if (!local && !held && !draft && x.decision.autoMerge && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !x.events.some((e, i) => i > openedAt && MERGE_EVENTS.includes(e.type)))
     return run(x, 'PR4', ['pr', 'merge', j.id], 'the approver marked it auto-merge eligible');
   // Plain words only: the reason goes through shellLine, which allows no quote, pipe or angle bracket.
   const reason =
@@ -70,15 +71,17 @@ function releaseBump(x: StepInput, gates: ReturnType<typeof releaseGates>): Step
   const due = gates.filter((g) => g.gate === 'bump-due');
   if (!due.length) return null;
   const j = x.job;
-  let since: string | null = null;
+  // The latest release record by log position; its timestamp is only compared with verify runs.
+  let latestAt = -1;
   let first = due[0];
   for (const g of due) {
-    const at = x.events[releaseIndex(x.events, g.dependency)]?.ts ?? null;
-    if (at && (!since || at > since)) {
-      since = at;
+    const at = releaseIndex(x.events, g.dependency);
+    if (at > latestAt) {
+      latestAt = at;
       first = g;
     }
   }
+  const since = x.events[latestAt]?.ts ?? null;
   const what = `${repoWord(first.dependency)} ${safe(first.version, SAFE_VERSION, 'version')}`;
   const runs = j.verifyRuns.filter((r) => after(r.at, since));
   if (!runs.length) return run(x, 'PR9', ['verify', j.id], `release of ${what} recorded: bump its consumers and verify`);

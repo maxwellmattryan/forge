@@ -3,12 +3,13 @@
 import type { StepAction, StepInput, WaitingOn } from '../types.ts';
 import { SAFE_REF } from '../util.ts';
 import { SAFE_URL, done, procedure, run, safe, spawn, toStage, wait } from './actions.ts';
-import { after, agent, ended, parkedRunning, pendingVerifiers, runningRoles, stageSince } from './facts.ts';
+import { after, agent, ended, parkedRunning, pendingVerifiers, runningRoles } from './facts.ts';
+import type { Facts } from './facts.ts';
 import { gateTell, prReviewTell } from './gates.ts';
 import { nextLenses, retryLens } from './stages/review.ts';
 
 /** The role whose lost or failed run blocks the current stage (L1); reviewers go through M1/M2 instead. */
-export function blockedRole(x: StepInput): string | null {
+export function blockedRole(x: StepInput, f: Facts): string | null {
   const j = x.job;
   const a = (r: string) => agent(x, r);
   const latest = (roles: string[]) => roles.filter((r) => a(r)?.startedAt).sort((m, n) => String(a(n)!.startedAt).localeCompare(String(a(m)!.startedAt)))[0] ?? null;
@@ -34,7 +35,7 @@ export function blockedRole(x: StepInput): string | null {
       if (role === 'approver' && a('approver')?.round !== j.round) role = null;
       break;
     case 'integrate':
-      role = after(a('integrator')?.startedAt, stageSince(x)) ? 'integrator' : null;
+      role = after(a('integrator')?.startedAt, f.stageEntry?.ts) ? 'integrator' : null;
       break;
   }
   return role && ['lost', 'failed'].includes(String(a(role)?.status)) ? role : null;
@@ -52,7 +53,7 @@ function scoreRun(x: StepInput): StepAction {
   return run(x, 'JS3', ['job', 'score', 'record', j.id], "record the judge's post-merge score");
 }
 
-export function globalStep(x: StepInput): StepAction | null {
+export function globalStep(x: StepInput, f: Facts): StepAction | null {
   const j = x.job;
   if (j.state === 'done' && j.kind !== 'eval' && j.score?.status === 'queued') return scoreRun(x);
   if (j.state === 'done' || j.state === 'cancelled' || j.stage === 'done') {
@@ -74,7 +75,7 @@ export function globalStep(x: StepInput): StepAction | null {
   if (j.state === 'running' && x.environment === 'stopped' && ['build', 'verify', 'review'].includes(j.stage))
     return run(x, 'E1', ['environment', 'up', j.id], 'a park stopped the environment', 'the job resumed: start its environment');
   if (runningRoles(x).length && !(j.stage === 'review' && (nextLenses(x).length || retryLens(x)))) return wait(x, 'G5', 'agents');
-  const blocked = blockedRole(x);
+  const blocked = blockedRole(x, f);
   if (blocked) return spawn(x, 'L1', blocked);
   return null;
 }

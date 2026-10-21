@@ -2,11 +2,12 @@
 import { pastTotalCeiling } from '../../foreman.ts';
 import type { StepAction, StepInput, WaitingOn } from '../../types.ts';
 import { park, run, spawn, toStage } from '../actions.ts';
-import { after, agent, ended, gateApprovals, isPrRework, lastEvent, reviewedAt, stageOf, startedIn, waitedSince } from '../facts.ts';
+import { after, afterIdx, agent, ended, gateApprovals, isPrRework, lastEvent, lastIdx, stageOf, startedIn, waitedSince } from '../facts.ts';
+import type { Facts } from '../facts.ts';
 import { protectedPark } from '../gates.ts';
 import { missingOutput } from '../generic.ts';
 
-export function decideStage(x: StepInput): StepAction {
+export function decideStage(x: StepInput, f: Facts): StepAction {
   const j = x.job;
   if (j.kind !== 'eval' && isPrRework(x)) return toStage(x, 'DC10', 'pr', 'the PR is open: nothing to decide');
   const ap = agent(x, 'approver');
@@ -30,7 +31,7 @@ export function decideStage(x: StepInput): StepAction {
   // A human approve given at this gate after the approver ended cleared it, so a job sent back here
   // (an integrate-stage escalation) isn't parked again on the same stale ESCALATE or runbook. Only
   // an approve at that gate counts: acknowledging a budget stop clears neither.
-  const cleared = (on: WaitingOn) => gateApprovals(x, [on], 'decide').some((e) => after(e.ts, ap?.endedAt));
+  const cleared = (on: WaitingOn) => gateApprovals(f, [on], 'decide').some((a) => after(a.e.ts, ap?.endedAt));
   if (!x.decision.decision && !cleared('escalation')) return park(x, 'DC3', 'escalation', 'decision.md has no APPROVE/ESCALATE line');
   if (x.decision.decision === 'ESCALATE' && !cleared('escalation')) return park(x, 'DC7', 'escalation', 'approver escalated: see decision.md');
   if (x.runbookBeforeMerge && !cleared('infra')) return park(x, 'DC8', 'infra', 'runbook: steps before merge');
@@ -40,7 +41,7 @@ export function decideStage(x: StepInput): StepAction {
   // No loop: after integrate → decide with no wait since, this goes to pr. After a wait (or for an
   // older job that never integrated since review), integrate's IG3/IG5/IG10 reach pr, because the
   // decision or approval now counts there.
-  const left = lastEvent(x, (e) => e.type === 'transition' && stageOf(e.from).stage === 'integrate' && stageOf(e.to).stage === 'decide');
-  if (left && after(left.ts, reviewedAt(x)) && !waitedSince(x, left.ts)) return toStage(x, 'DC9', 'pr', 'approved on an up-to-date branch');
+  const left = lastIdx(x, (e) => e.type === 'transition' && stageOf(e.from).stage === 'integrate' && stageOf(e.to).stage === 'decide');
+  if (afterIdx(left, f.reviewedAt) && !waitedSince(x, left)) return toStage(x, 'DC9', 'pr', 'approved on an up-to-date branch');
   return toStage(x, 'DC9', 'integrate', 'approved: bring the branch up to date');
 }

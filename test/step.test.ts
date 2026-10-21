@@ -8,7 +8,7 @@ import path from 'node:path';
 import { RULES, hasSpecDeltas, listLineCount, parsePlan, parseSpecHeader, roundLenses, selectPanel, shellLine, step } from '../lib/step.ts';
 import type { Job, StepAction } from '../lib/types.ts';
 import { fixture, verdicts } from './step-fixture.ts';
-import { DS_CHECKED, DS_VERIFY, OPEN_PR, PANEL_SET, SPEC_DONE, ag, dsConfig, ev, inReview, job, panelled, rows, run, scoped, vr } from './step-rows.ts';
+import { DS_CHECKED, DS_VERIFY, OPEN_PR, PANEL_SET, SPEC_DONE, ag, atIntegrate, dsConfig, entered, ev, inReview, job, panelled, rows, run, scoped, vr } from './step-rows.ts';
 import type { Row } from './step-rows.ts';
 
 // DS1's negative cases: another rule decides, so they can't be `rows`.
@@ -94,6 +94,24 @@ for (const row of b7Skips) {
   test(row.name, () => {
     const a = step(fixture(row.fx)) as any;
     assert.notEqual(a.rule, 'B7', row.name);
+    for (const [k, v] of Object.entries(row.want)) assert.deepEqual(a[k], v, `${row.name}: ${k}`);
+    assertSafe(a, row.name);
+  });
+}
+
+// IG1 must not run `forge integrate` again once this episode integrated: another rule decides, so not `rows`.
+const ig1Skips: Row[] = [
+  {
+    name: "IG1 runs once when integrated shares the entry's millisecond",
+    fx: { job: atIntegrate(), events: [entered, ev('integrated', 30, { behind: 0 })] },
+    want: { ...run('job', 'set', 'j', '--stage', 'decide', '--state', 'running'), rule: 'IG3' },
+  },
+];
+
+for (const row of ig1Skips) {
+  test(row.name, () => {
+    const a = step(fixture(row.fx)) as any;
+    assert.notEqual(a.rule, 'IG1', row.name);
     for (const [k, v] of Object.entries(row.want)) assert.deepEqual(a[k], v, `${row.name}: ${k}`);
     assertSafe(a, row.name);
   });

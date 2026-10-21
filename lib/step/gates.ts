@@ -10,7 +10,7 @@ import type { RuleId } from './rules.ts';
 import type { StepAction, StepInput, WaitingOn } from '../types.ts';
 import { SAFE_REF } from '../util.ts';
 import { SAFE_URL, park, run, safe, set, toStage } from './actions.ts';
-import { after, agent, human, lastEvent, p } from './facts.ts';
+import { after, afterIdx, agent, human, lastEvent, lastIdx, orNull, p } from './facts.ts';
 
 const CI_CAP_REASON = /^CI rework cap: [A-Za-z0-9 ._/,:#?-]{1,600}$/;
 
@@ -110,9 +110,10 @@ export function secretGate(x: StepInput): StepAction | null {
     return stop('SC1', `secret scan blocked verify round ${Number(last.round) || 0}`);
   }
   if (j.stage === 'pr') {
-    const refused = lastEvent(x, (e) => e.type === 'secret-found' && e.gate === 'pr' && e.blocked === true);
-    const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
-    if (refused && after(refused.ts, opened?.ts) && after(refused.ts, last?.at) && !after(human(x, 'approve')?.ts, refused.ts)) return stop('SC3', 'secret scan blocked pr open');
+    const refused = lastIdx(x, (e) => e.type === 'secret-found' && e.gate === 'pr' && e.blocked === true);
+    const opened = lastIdx(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
+    const approved = lastIdx(x, (e) => e.type === 'human' && e.action === 'approve');
+    if (afterIdx(refused, orNull(opened)) && after(x.events[refused].ts, last?.at) && !afterIdx(approved, refused)) return stop('SC3', 'secret scan blocked pr open');
   }
   return null;
 }
@@ -135,9 +136,9 @@ export function protectedGate(x: StepInput): StepAction | null {
   const last = j.verifyRuns.at(-1);
   const back = () => toStage(x, 'PP2', 'build', 'a path the protected-paths policy refuses is on the branch');
   if (last && !last.ok && last.failure === 'protected' && !after(agent(x, 'builder')?.endedAt, last.at)) return back();
-  const refused = lastEvent(x, (e) => e.type === 'protected-path' && e.gate === 'pr' && e.action === 'refuse');
-  const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
-  if (refused && after(refused.ts, opened?.ts) && after(refused.ts, last?.at)) return back();
+  const refused = lastIdx(x, (e) => e.type === 'protected-path' && e.gate === 'pr' && e.action === 'refuse');
+  const opened = lastIdx(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
+  if (afterIdx(refused, orNull(opened)) && after(x.events[refused].ts, last?.at)) return back();
   return protectedPark(x);
 }
 

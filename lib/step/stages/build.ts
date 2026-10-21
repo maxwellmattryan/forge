@@ -1,23 +1,25 @@
 // Build: open a round, hold it to the round limits, run the builder, then verify.
 import { isForemanActor } from '../../jobs.ts';
 import { latestSecurityVerdict, pastTotalCeiling, totalRoundCeiling } from '../../foreman.ts';
-import type { StepAction, StepInput } from '../../types.ts';
+import type { JobEvent, StepAction, StepInput } from '../../types.ts';
 import { park, run, set, spawn, toStage } from '../actions.ts';
-import { after, agent, endedIn, human, lastEvent, lastVerify, startedIn } from '../facts.ts';
+import { after, afterIdx, agent, endedIn, lastIdx, lastVerify, startedIn } from '../facts.ts';
 import { needsInput, stuck } from '../generic.ts';
 
 export function build(x: StepInput): StepAction {
   const j = x.job;
   const b = agent(x, 'builder');
-  const rework = human(x, 'rework');
+  const reworkAt = lastIdx(x, (e) => e.type === 'human' && e.action === 'rework');
+  const rework = x.events[reworkAt] as JobEvent | undefined;
   const lv = lastVerify(x);
-  if (j.round === 0 || j.verdicts[String(j.round)] || after(rework?.ts, lastEvent(x, (e) => e.type === 'round')?.ts)) return run(x, 'B1', ['job', 'round', j.id], 'start the next build round');
+  const rounds = x.events.flatMap((e, i) => (e.type === 'round' ? [i] : []));
+  if (j.round === 0 || j.verdicts[String(j.round)] || afterIdx(reworkAt, rounds.at(-1) ?? null)) return run(x, 'B1', ['job', 'round', j.id], 'start the next build round');
   // A rework that came after the previous round started is the one that opened this round (B1), so the whole round is exempt. Comparing with the builder's start lost the exemption once the builder ran.
-  const previousRound = x.events.filter((e) => e.type === 'round').at(-2)?.ts;
+  const previousRound = rounds.at(-2) ?? null;
   // The total-round ceiling counts every round, whoever opened it: past it only a person's rework or
   // revise-spec since the previous round started opens this one. The foreman's (CI reworks included) never does.
-  const personRework = lastEvent(x, (e) => e.type === 'human' && (e.action === 'rework' || e.action === 'revise-spec') && !isForemanActor(e));
-  if (pastTotalCeiling(x.config, j) && !after(personRework?.ts, previousRound)) {
+  const personRework = lastIdx(x, (e) => e.type === 'human' && (e.action === 'rework' || e.action === 'revise-spec') && !isForemanActor(e));
+  if (pastTotalCeiling(x.config, j) && !afterIdx(personRework, previousRound)) {
     const ceiling = totalRoundCeiling(x.config, j);
     if (j.kind === 'eval') return set(x, 'B6', { stage: 'decide', state: 'running', reason: `eval: round ${j.round} exceeds the total-round ceiling ${ceiling}` }, 'an eval job has no human to clear rounds-exhausted: grade it');
     return park(x, 'B7', 'rounds-exhausted', `round ${j.round} exceeds the total-round ceiling ${ceiling}: only a human clears it`);
@@ -27,7 +29,7 @@ export function build(x: StepInput): StepAction {
   const security = latestSecurityVerdict(j);
   const securityOpen = j.kind !== 'eval' && security !== null && security !== 'PASS';
   const limit = securityOpen ? j.maxRounds * 2 : j.maxRounds;
-  if (j.round > limit && !after(rework?.ts, previousRound)) {
+  if (j.round > limit && !afterIdx(reworkAt, previousRound)) {
     if (j.kind === 'eval') return set(x, 'B6', { stage: 'decide', state: 'running', reason: `eval: round ${j.round} exceeds maxRounds ${j.maxRounds}` }, 'an eval job has no human to clear rounds-exhausted: grade it');
     return park(x, 'B2', 'rounds-exhausted', securityOpen ? `round ${j.round} exceeds twice maxRounds ${j.maxRounds} with the security review not PASS` : `round ${j.round} exceeds maxRounds ${j.maxRounds}`);
   }

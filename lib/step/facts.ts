@@ -15,41 +15,66 @@ export const lastVerify = (x: StepInput): VerifyRun | undefined => x.job.verifyR
 export const p = (x: StepInput, key: string) => String(x.paths[key]);
 export const ref = (x: StepInput, name: string) => path.join(x.pluginRoot, 'skills', 'forge', 'reference', name);
 
-/** When the job last entered its current stage from another one: transitions within a stage (a gate and back) don't count. */
-export function stageSince(x: StepInput): string | null {
-  const t = lastEvent(x, (e) => {
-    if (e.type !== 'transition') return false;
-    const to = e.to as { stage?: string } | null;
-    const from = e.from as { stage?: string } | null;
-    return to?.stage === x.job.stage && from?.stage !== x.job.stage;
-  });
-  return t?.ts ?? null;
-}
-
 export const isPrRework = (x: StepInput) => x.job.pr?.state === 'OPEN';
 
-export const stageOf = (side: unknown) => (side as { stage?: string; state?: string; waitingOn?: string | null } | null) ?? {};
-
-/** When the job last left review for another stage, or null for a job whose transitions predate the log. */
-export function reviewedAt(x: StepInput): string | null {
-  return lastEvent(x, (e) => e.type === 'transition' && stageOf(e.from).stage === 'review' && stageOf(e.to).stage !== 'review')?.ts ?? null;
-}
-
-/** A gate (any waiting or blocked state) was entered after `ts`. */
-export const waitedSince = (x: StepInput, ts: string) =>
-  x.events.some((e) => e.type === 'transition' && after(e.ts, ts) && ['waiting', 'blocked'].includes(String(stageOf(e.to).state)));
+type Side = { stage?: string; state?: string; waitingOn?: string | null };
+export const stageOf = (side: unknown) => (side as Side | null) ?? {};
 
 /**
- * The human `approve` events that answered one of the gates in `on`: the job was parked there (in
- * `stage`, when given) when the human approved. An approve answers the gate it was given at, so a
- * budget acknowledgement never clears an escalation or a runbook.
+ * Event `i` came after event `j` in the log (or `j` never happened). Positions, not timestamps: two
+ * events in one millisecond, or a clock that stepped back, keep their log order. -1 means `i` never happened.
  */
-export function gateApprovals(x: StepInput, on: readonly WaitingOn[], stage?: string): JobEvent[] {
-  return x.events.filter((e, i) => {
-    if (e.type !== 'human' || e.action !== 'approve') return false;
-    const park = stageOf(x.events.slice(0, i).findLast((t) => t.type === 'transition')?.to);
-    return park.state === 'waiting' && on.includes(park.waitingOn as WaitingOn) && (!stage || park.stage === stage);
+export const afterIdx = (i: number, j: number | null): boolean => i >= 0 && (j === null || i > j);
+/** The position of the last event matching `pred`, or -1. */
+export const lastIdx = (x: StepInput, pred: (e: JobEvent) => boolean): number => x.events.findLastIndex(pred);
+/** A position as afterIdx's `j`: null when the event never happened. */
+export const orNull = (i: number): number | null => (i < 0 ? null : i);
+
+/** One human `approve` and the park the latest transition before it entered. */
+export interface Approval {
+  i: number;
+  e: JobEvent;
+  park: Side;
+}
+
+/** What step reads off the event log, once per call: positions in `x.events`, which keeps log order. */
+export interface Facts {
+  /** The last transition into the job's stage from another one (a gate and back doesn't count), and its ts for agent records. */
+  stageEntry: { i: number; ts: string } | null;
+  /** The last transition out of review for another stage; null for a job whose transitions predate the log. */
+  reviewedAt: number | null;
+  /** Every human approve with the park it answered, in one pass. */
+  approvals: Approval[];
+}
+
+export function computeFacts(x: StepInput): Facts {
+  let entry = -1;
+  let reviewed = -1;
+  let park: Side = {};
+  const approvals: Approval[] = [];
+  x.events.forEach((e, i) => {
+    if (e.type === 'transition') {
+      const from = stageOf(e.from);
+      const to = stageOf(e.to);
+      if (to.stage === x.job.stage && from.stage !== x.job.stage) entry = i;
+      if (from.stage === 'review' && to.stage !== 'review') reviewed = i;
+      park = to;
+    } else if (e.type === 'human' && e.action === 'approve') approvals.push({ i, e, park });
   });
+  return { stageEntry: entry < 0 ? null : { i: entry, ts: x.events[entry].ts }, reviewedAt: orNull(reviewed), approvals };
+}
+
+/** A gate (any waiting or blocked state) was entered after event `i`. */
+export const waitedSince = (x: StepInput, i: number) =>
+  x.events.some((e, k) => k > i && e.type === 'transition' && ['waiting', 'blocked'].includes(String(stageOf(e.to).state)));
+
+/**
+ * The human approves that answered one of the gates in `on`: the job was parked there (in `stage`,
+ * when given) when the human approved. An approve answers the gate it was given at, so a budget
+ * acknowledgement never clears an escalation or a runbook.
+ */
+export function gateApprovals(f: Facts, on: readonly WaitingOn[], stage?: string): Approval[] {
+  return f.approvals.filter((a) => a.park.state === 'waiting' && on.includes(a.park.waitingOn as WaitingOn) && (!stage || a.park.stage === stage));
 }
 
 /** Gates whose human approve means "ship it": an escalation, exhausted rounds, an infra runbook. */
@@ -61,11 +86,11 @@ const SHIP_GATES: readonly WaitingOn[] = ['escalation', 'rounds-exhausted', 'inf
  * clearing a rounds-exhausted or approver escalation. An approve inside the episode (IG4 `ask`)
  * only lets the integrator fix conflicts.
  */
-export function approvedSinceReview(x: StepInput): boolean {
-  const reviewed = reviewedAt(x);
-  if (x.events.some((e) => e.type === 'decision' && e.decision !== 'ESCALATE' && after(e.ts, reviewed))) return true;
-  const since = stageSince(x);
-  return gateApprovals(x, SHIP_GATES).some((e) => after(e.ts, reviewed) && !after(e.ts, since));
+export function approvedSinceReview(x: StepInput, f: Facts): boolean {
+  const reviewed = f.reviewedAt;
+  if (x.events.some((e, i) => e.type === 'decision' && e.decision !== 'ESCALATE' && afterIdx(i, reviewed))) return true;
+  const entry = f.stageEntry;
+  return entry !== null && gateApprovals(f, SHIP_GATES).some((a) => afterIdx(a.i, reviewed) && a.i < entry.i);
 }
 
 export const splitMode = (x: StepInput) => x.job.splitMode ?? x.config.pipeline.split;
@@ -84,10 +109,6 @@ export function latestVerifiers(x: StepInput): JobEvent | undefined {
 export function pendingVerifiers(x: StepInput): JobEvent | null {
   const e = latestVerifiers(x);
   return e?.phase === 'run' ? e : null;
-}
-
-export function lastConflicts(x: StepInput): JobEvent | undefined {
-  return lastEvent(x, (e) => e.type === 'integrate-conflicts');
 }
 
 export function outputMissing(x: StepInput, role: string): boolean {
