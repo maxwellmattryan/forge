@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.8
+
+-
+
 ## 0.18.7
 
 - **Behaviour change: environment lifecycle.** A job's environment (backing containers and volumes, job databases, background dev processes) now stops when the job parks, starts again on demand, and is torn down when the job finishes. `environments.maxRunning` caps how many run at once, stopping the least recently used but never the focused job.
