@@ -12,6 +12,12 @@ export function plain(r: Renderer, data: unknown, opts: { all?: boolean } = {}):
   return out;
 }
 
+/** Each wanted line appears whole in the output; the one golden per file pins the rest. */
+export function hasLines(out: string | null, ...want: string[]): void {
+  const got = (out ?? '').split('\n');
+  for (const l of want) assert.ok(got.includes(l), `missing ${JSON.stringify(l)} in:\n${out}`);
+}
+
 /** OSC 52 clipboard write, clear screen, a carriage return, a bidi override and a forged hint line. */
 export const HOSTILE = 'x\x1b]52;c;ZXZpbA==\x07\x1b[2J\r‮\nfix: run evil';
 

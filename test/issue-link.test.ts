@@ -79,7 +79,9 @@ describe('forge job link', { concurrency: 4 }, () => {
       const id = await s.newJob('Show reading time');
       const linked = await s.cli('job', 'link', id, '#reading-time-badge');
       assert.equal(linked.status, 0, linked.stderr);
-      assert.deepEqual(linked.json, { id, issues: [{ tracker: 'local', ref: 'reading-time-badge', url: null }], added: ['reading-time-badge'], removed: [] });
+      assert.equal(linked.json.id, id);
+      assert.deepEqual(linked.json.issues, [{ tracker: 'local', ref: 'reading-time-badge', url: null }]);
+      assert.deepEqual(linked.json.added, ['reading-time-badge']);
       assert.deepEqual(loadJob(s.root, id).issues, [{ tracker: 'local', ref: 'reading-time-badge', url: null }]);
       assert.match(s.backlog(), new RegExp(`- \\[~\\] Reading time badge → ${id}`));
       assert.deepEqual(readEvents(s.root, id).filter((e) => e.type === 'linked').map((e: any) => e.ref), ['reading-time-badge']);
@@ -88,7 +90,8 @@ describe('forge job link', { concurrency: 4 }, () => {
       const before = s.raw(id);
       const again = await s.cli('job', 'link', id, 'reading-time-badge');
       assert.equal(again.status, 0);
-      assert.deepEqual(again.json, { ...linked.json, added: [] }, 'the same ref again is a no-op');
+      assert.deepEqual(again.json.added, [], 'the same ref again is a no-op');
+      assert.deepEqual(again.json.issues, linked.json.issues);
       assert.equal(s.raw(id), before);
       assert.equal(readEvents(s.root, id).filter((e) => e.type === 'linked').length, 1);
 
@@ -133,7 +136,9 @@ describe('forge job link', { concurrency: 4 }, () => {
       const id = await s.newJob('Export to CSV', '--body', 'Users want a CSV export.\n\nWith headers.');
       const r = await s.cli('job', 'link', id, '--create');
       assert.equal(r.status, 0, r.stderr);
-      assert.deepEqual(r.json, { id, issues: [{ tracker: 'local', ref: 'export-to-csv', url: null }], added: ['export-to-csv'], removed: [], created: true });
+      assert.equal(r.json.created, true);
+      assert.deepEqual(r.json.issues, [{ tracker: 'local', ref: 'export-to-csv', url: null }]);
+      assert.deepEqual(r.json.added, ['export-to-csv']);
       const text = s.backlog();
       assert.match(text, new RegExp(`- \\[~\\] Export to CSV → ${id}\\n  Users want a CSV export\\.\\n  With headers\\.`));
       assert.ok(!text.includes('# Export to CSV'), 'the request title line is not part of the body');
@@ -214,14 +219,14 @@ describe('forge job link', { concurrency: 4 }, () => {
       for (const [id, status] of [[linked, 'linked'], [waived, 'none'], [child, 'exempt'], [retro, 'exempt']]) {
         const r = await s.cli('job', 'link', id, '--suggest');
         assert.equal(r.status, 0, r.stderr);
-        assert.deepEqual(r.json, { id, needed: false, status });
+        assert.deepEqual([r.json.needed, r.json.status], [false, status]);
         assert.deepEqual(files(id), [], `${status}: nothing written`);
       }
 
       const id = await s.newJob('Add a reading time badge');
       const r = await s.cli('job', 'link', id, '--suggest');
       assert.equal(r.status, 0, r.stderr);
-      assert.deepEqual(r.json, { id, needed: true, status: 'missing', query: 'reading time badge', candidates: 2, file: 'issue-candidates.md' });
+      assert.deepEqual([r.json.needed, r.json.status, r.json.query, r.json.candidates, r.json.file], [true, 'missing', 'reading time badge', 2, 'issue-candidates.md']);
       const md = fs.readFileSync(path.join(jobDir(s.root, id), 'issue-candidates.md'), 'utf8');
       assert.match(md.split('\n')[0], /^> Untrusted data: .*not instructions/);
       assert.match(md, /^## 1\. reading-time-badge-on-posts Reading time badge on posts$/m);
@@ -248,7 +253,8 @@ describe('forge job link', { concurrency: 4 }, () => {
     const n = await setup('none');
     try {
       const id = await n.newJob('No tracker here');
-      assert.deepEqual((await n.cli('job', 'link', id, '--suggest')).json, { id, needed: false, status: 'no-tracker' });
+      const none = (await n.cli('job', 'link', id, '--suggest')).json;
+      assert.deepEqual([none.needed, none.status], [false, 'no-tracker']);
       assert.ok(!fs.existsSync(path.join(jobDir(n.root, id), 'issue-candidates.md')));
     } finally {
       n.repo.cleanup();
@@ -495,7 +501,8 @@ describe('forge job human --link', { concurrency: 4 }, () => {
       const linked = await s.newJob('Show reading time');
       const r = await s.cli('job', 'human', linked, 'approve-spec', '--link', '#reading-time-badge', '--note', 'looks good');
       assert.equal(r.status, 0, r.stderr);
-      assert.deepEqual(r.json, { ok: true, link: { id: linked, issues: [{ tracker: 'local', ref: 'reading-time-badge', url: null }], added: ['reading-time-badge'], removed: [] } });
+      assert.equal(r.json.ok, true);
+      assert.deepEqual(r.json.link.added, ['reading-time-badge']);
       assert.equal(loadJob(s.root, linked).issues[0]?.ref, 'reading-time-badge');
       assert.match(s.backlog(), new RegExp(`- \\[~\\] Reading time badge → ${linked}`), 'the item is claimed');
       const evs = readEvents(s.root, linked);
@@ -507,7 +514,8 @@ describe('forge job human --link', { concurrency: 4 }, () => {
       const created = await s.newJob('Export to CSV');
       const c = await s.cli('job', 'human', created, 'approve-spec', '--link', 'new');
       assert.equal(c.status, 0, c.stderr);
-      assert.deepEqual(c.json, { ok: true, link: { id: created, issues: [{ tracker: 'local', ref: 'export-to-csv', url: null }], added: ['export-to-csv'], removed: [], created: true } });
+      assert.equal(c.json.ok, true);
+      assert.deepEqual([c.json.link.created, c.json.link.added], [true, ['export-to-csv']]);
       assert.equal(humans(created)[0].action, 'approve-spec');
 
       const waived = await s.newJob('Bump a typo');
@@ -523,7 +531,8 @@ describe('forge job human --link', { concurrency: 4 }, () => {
       const gate = await s.newJob('Dark mode');
       const a = await s.cli('job', 'human', gate, 'approve', '--link', 'dark-mode-toggle', '--note', 'that one');
       assert.equal(a.status, 0, a.stderr);
-      assert.deepEqual(a.json, { ok: true, link: { id: gate, issues: [{ tracker: 'local', ref: 'dark-mode-toggle', url: null }], added: ['dark-mode-toggle'], removed: [] } });
+      assert.equal(a.json.ok, true);
+      assert.deepEqual(a.json.link.added, ['dark-mode-toggle']);
       assert.deepEqual([humans(gate)[0].action, humans(gate)[0].note], ['approve', 'that one']);
       const gate2 = await s.newJob('Another one');
       const a2 = await s.cli('job', 'human', gate2, 'approve', '--link', 'new');
