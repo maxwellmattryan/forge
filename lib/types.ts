@@ -498,6 +498,12 @@ export interface StepInput {
   verifiers: number;
   /** The job's and the project's backing port records, for the brief's Backing services line; absent without backing entries. */
   backing?: { job: BackingRecord; shared: BackingRecord };
+  /** loadStepInput's clock, ISO: step reads no other (the repo-budget tell names its period from it). */
+  now: string;
+  /** jobEndpoints' components, for a reviewer brief's Endpoints line; empty without `commands.dev`. */
+  endpoints: { name: string; url: string }[];
+  /** trustedMemberWorktree per member repo, never job.json's `worktree`: a reviewer brief's Lens repo line. */
+  memberWorktrees: Record<string, string | null>;
 }
 
 /** The job files StepInput.files records. */

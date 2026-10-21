@@ -64,7 +64,7 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
       if (!reason.startsWith('repo budget:'))
         return `${id} over budget: ${reason}. /forge approve ${id} to acknowledge, or raise it: forge job budget ${id} --set usd=…`;
       // The repo cap is lifted by a human's ack of the period, never by approving or a per-job budget.
-      const at = new Date().toISOString();
+      const at = x.now;
       const month = reason.includes('this month');
       return `${id} held by the repo budget (${reason}). A human runs forge budget ack --period ${month ? at.slice(0, 7) : at.slice(0, 10)}, or raises budget.${month ? 'usdPerMonth' : 'usdPerDay'} in .forge/config.yml; the job resumes once the repo is under its cap`;
     }

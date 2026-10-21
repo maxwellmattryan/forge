@@ -8,7 +8,8 @@ import { environmentState } from '../environment-record.ts';
 import { configForJob } from '../eval-overlay.ts';
 import { loadTask } from '../evals.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from '../jobs.ts';
-import { memberRepos } from '../job-repos.ts';
+import { jobEndpoints } from '../endpoints.ts';
+import { memberRepos, trustedMemberWorktree } from '../job-repos.ts';
 import { lensChecklists } from '../member-panel.ts';
 import { PLUGIN_ROOT, exists } from '../paths.ts';
 import { approachPaths, integrationTouched } from '../scope.ts';
@@ -123,6 +124,10 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     // The main checkout's, never the worktree's: a branch can't switch the gate on or off.
     verifiers: verifierCount(root),
     ...(config.backing?.length ? { backing: { job: readJobRecord(root, job.id, config), shared: readSharedRecord(root, config) } } : {}),
+    now: new Date().toISOString(),
+    endpoints: config.commands.dev ? jobEndpoints(root, config, job).components.map((e) => ({ name: e.name, url: e.url })) : [],
+    // The computed path, never job.json's: the session can write job.json, and verdicts trusts the same value.
+    memberWorktrees: Object.fromEntries(memberRepos(job).map((m) => [m.repo, trustedMemberWorktree(root, config, job, m.repo)])),
   };
 }
 

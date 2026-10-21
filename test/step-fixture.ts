@@ -4,6 +4,7 @@ import path from 'node:path';
 import { acCoverage } from '../lib/acs.ts';
 import { jobPathMap } from '../lib/brief.ts';
 import { defaults } from '../lib/config.ts';
+import { jobEndpoints } from '../lib/endpoints.ts';
 import { normalizeJob } from '../lib/schema.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
 import type { Config, Job, JobAgent, JobEvent, StepFile, StepInput } from '../lib/types.ts';
@@ -46,6 +47,12 @@ export interface FixtureOpts {
   memberWorktreesMissing?: boolean;
   /** Extra existing paths (dirs such as review/round-1). */
   present?: string[];
+  /** loadStepInput's clock; the real one by default, so the budget rows' tells name today. */
+  now?: string;
+  /** The job's endpoints; jobEndpoints' components by default when commands.dev is set. */
+  endpoints?: StepInput['endpoints'];
+  /** trustedMemberWorktree per member repo; none by default. */
+  memberWorktrees?: StepInput['memberWorktrees'];
 }
 
 const FILE_NAMES: Record<StepFile, string> = {
@@ -109,5 +116,8 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     checklists: Object.fromEntries(config.review.panel.map((p) => [p.name, path.join(PLUGIN_ROOT, 'reviewers', `${p.name}.md`)])),
     integrationTouched: o.integrationTouched ?? null,
     verifiers: o.verifiers ?? 0,
+    now: o.now ?? new Date().toISOString(),
+    endpoints: o.endpoints ?? (config.commands.dev ? jobEndpoints(ROOT, config, job).components.map((e) => ({ name: e.name, url: e.url })) : []),
+    memberWorktrees: o.memberWorktrees ?? {},
   };
 }
