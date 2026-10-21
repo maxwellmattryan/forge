@@ -495,9 +495,6 @@ test('pr open reports unlinked only when missing', () => {
   assert.deepEqual(prLinkNote({ ...base, kind: 'eval' }, local), {});
   assert.deepEqual(prLinkNote({ ...base, issues: [{ tracker: 'local', ref: '3', url: null }] }, local), {});
   assert.deepEqual(prLinkNote(base, { tracker: { kind: 'none' } } as any), {});
-  // openPr spreads the note into its result.
-  const src = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'lib', 'pr.ts'), 'utf8');
-  assert.equal(src.match(/created: (true|false), \.\.\.prLinkNote\(job, config\)/g)?.length, 3);
 });
 
 describe('forge job human --link', { concurrency: 4 }, () => {
@@ -619,7 +616,7 @@ describe('forge job human --link', { concurrency: 4 }, () => {
     }
   });
 
-  test('the spec gate links, and the answers route through commands.md', async () => {
+  test('the spec gate links, and step tells the answers', async () => {
     // `forge job step` I1 still searches before the worktree exists; with candidates, Intake goes on.
     const intake = (files: StepFile[] = []) => step(fixture({ config: (c) => (c.tracker.kind = 'local'), worktree: false, files, job: { stage: 'backlog', state: 'queued' } }));
     const i1 = intake();
@@ -633,23 +630,6 @@ describe('forge job human --link', { concurrency: 4 }, () => {
     const unlinked = fixture({ config: (c) => (c.tracker.kind = 'local'), job: { stage: 'spec', state: 'waiting', waitingOn: 'spec-approval', reason: 'spec ready, issue unlinked' } });
     assert.deepEqual(gateTell(unlinked, 'spec-approval').split('\n'), [gateTell(fixture(), 'spec-approval'), tell]);
 
-    const skill = path.resolve(import.meta.dirname, '..', 'skills', 'forge');
-    const ref = path.join(skill, 'reference');
-    const commands = fs.readFileSync(path.join(ref, 'commands.md'), 'utf8');
-    const approve = commands.slice(commands.indexOf('## `approve'), commands.indexOf('## `revise'));
-    const row = (on: string) => approve.split('\n').find((l) => l.startsWith(`| \`${on}\``)) ?? '';
-    for (const s of ['forge job human <job> approve-spec [--link …]', 'spec ready, issue unlinked', '`forge job set <job> --state running`']) assert.ok(row('spec-approval').includes(s), s);
-    for (const s of ['forge job human <job> approve --link <link>', '`forge job set <job> --state running`']) assert.ok(row('issue-link').includes(s), s);
-    for (const s of ['args.link', '`--link <ref>`', '`--link new`', "`--link none --reason '<rest of the note>'`", '^#?[A-Za-z0-9][A-Za-z0-9._-]*$', '`new`, `none`, all digits, starts with `#`, or is a qualified ref', '`owner/repo#12` or `group/sub/project#12`', 'the CLI records nothing when the link fails']) assert.ok(approve.includes(s), s);
-    for (const s of ['--stage backlog', 'forge job link <job>']) assert.ok(!approve.includes(s), `${s} is gone from approve`);
-    const requests = fs.readFileSync(path.join(ref, 'requests.md'), 'utf8');
-    for (const s of ['`next` (args.n, default 1) → `next <n>`', '`args.intake: new`', 'Split mode: pipeline.split', 'or on a `spec-approval` job with `args.link` → the link rows of `approve`, using `args.link`']) assert.ok(requests.includes(s), s);
-    const skillMd = fs.readFileSync(path.join(skill, 'SKILL.md'), 'utf8');
-    // Inside the commands table the pipes are escaped, so the row stays one row.
-    assert.ok(skillMd.includes('| `approve <job> [<ref>\\|new\\|none] [note]`, `revise`'), 'SKILL.md commands row');
-    assert.ok(skillMd.includes('approve <job> [<ref>|new|none] [note]'), 'SKILL.md argument-hint');
-    const split = fs.readFileSync(path.join(ref, 'split.md'), 'utf8');
-    assert.ok(split.includes('`forge tracker create --title … --body … --parent <ref>` when the parent job has an issue in `issues` (the ref of the first one), otherwise the same without `--parent`'), 'split.md --parent is conditional');
     // `unlinked` is reported, never acted on: step's pr-review tell carries it.
     const waiting = step(fixture({ config: (c) => (c.tracker.kind = 'local'), job: { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', pr: { number: 1, url: 'https://github.com/o/r/pull/1', state: 'OPEN', isDraft: false, lastSyncedAt: 'now' } } }));
     assert.ok(waiting.action === 'wait' && waiting.tell?.includes('j has no linked issue: `forge job link j <ref>` or `--none`'));

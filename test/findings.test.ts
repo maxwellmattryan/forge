@@ -164,6 +164,8 @@ test('disagree counts as disputed, fixed as fixed', () => {
   assert.ok(!JSON.stringify(r).includes('sanitised'));
 });
 
+// Forge counts the builder's "Findings addressed" lines, so the format the prompt teaches must be the
+// one parseAddressed reads; no public function holds the prompt (docs/TESTING.md exception).
 test('builder prompt example parses', () => {
   const prompt = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'agents', 'builder.md'), 'utf8');
   const examples: string[] = [];

@@ -1,10 +1,6 @@
-// The command bar (dashboard/src/lib/command.ts and CommandBar.svelte): grammar, completions,
-// keyboard rule, request mapping and the combobox markup.
+// The command bar (dashboard/src/lib/command.ts): grammar, completions, keyboard rule and request mapping.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { tags } from './svelte-markup.ts';
 import { VERBS, commandKey, commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, scopeVerbs, scopedJob, shellEscape, shortcutAction, shortcutLabel, suggest } from '../dashboard/src/lib/command.ts';
 import { buildRequest } from '../dashboard/src/lib/view.ts';
 
@@ -257,33 +253,4 @@ test('commandRequest bodies', () => {
   assert.deepEqual(body('answer fix-login-g7h8'), { error: 'Write something first.' });
   assert.ok('error' in body('approve '), 'a partial command sends nothing');
   assert.ok('error' in body(''), 'nor does an empty bar');
-});
-
-test('command bar markup is an ARIA combobox', () => {
-  const file = path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'CommandBar.svelte');
-  const all = tags('CommandBar.svelte', fs.readFileSync(file, 'utf8'));
-  const attr = (t: any, name: string) => t.attrs.find((a: any) => a.name === name)?.value;
-  const with_ = (name: string, value: string) => all.filter((t) => attr(t, name) === value);
-  const [dialog] = with_('role', '"dialog"');
-  assert.ok(dialog, 'a dialog');
-  assert.equal(attr(dialog, 'aria-modal'), '"true"');
-  assert.match(attr(dialog, 'aria-label') ?? attr(dialog, 'aria-labelledby') ?? '', /\$t\('command\.title'\)|\S/);
-  const [combo] = with_('role', '"combobox"');
-  assert.ok(combo && combo.name === 'input', 'the input is the combobox');
-  for (const a of ['aria-expanded', 'aria-activedescendant', 'aria-label']) assert.ok(attr(combo, a), a);
-  assert.equal(attr(combo, 'aria-controls'), '"command-list"');
-  assert.equal(attr(combo, 'aria-autocomplete'), '"list"');
-  const [list] = with_('role', '"listbox"');
-  assert.equal(attr(list, 'id'), '"command-list"');
-  const [option] = with_('role', '"option"');
-  assert.ok(attr(option, 'aria-selected'), 'options carry aria-selected');
-  assert.ok(attr(option, 'id'), 'options have ids for aria-activedescendant');
-  assert.equal(with_('aria-live', '"polite"').length, 1, 'one polite live region');
-  assert.ok(with_('role', '"alert"').length >= 1, 'server errors show as an alert');
-  // The job scope: a chip that describes the combobox, and its own labelled remove button.
-  assert.equal(with_('id', '"command-scope"').length, 1, 'the scope chip');
-  // The shared close control (CloseButton renders a button with aria-label={label}).
-  const remove = with_('label', "{$t('command.clearScope')}");
-  assert.ok(remove.length === 1 && remove[0].name === 'CloseButton', 'a button removes the scope');
-  assert.match(attr(combo, 'aria-describedby') ?? '', /^\{(\w+) \? 'command-scope' : undefined\}$/, 'the combobox is described by the chip only while scoped');
 });

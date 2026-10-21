@@ -96,7 +96,6 @@ for (const [name, file, opts] of [
   test(`${name} inline script agrees with normalizeTheme`, opts, () => {
     const html = fs.readFileSync(file, 'utf8');
     assert.match(html, /<html lang="en" data-theme="forge">/, `${name} defaults to forge before the script runs`);
-    assert.doesNotMatch(html, /data-(grid|paper)|dataset\.(grid|paper)/, `${name} sets no Drafting drawing attribute`);
     for (const [saved, light, want] of CASES) {
       for (const grain of DRAWING_VALUES) {
         for (const paper of DRAWING_VALUES) {

@@ -1,14 +1,14 @@
 // Forge's own CI: .github/workflows/ci.yml runs the AGENTS.md verify list in the same order, and stays
 // closed to the bypasses a PR author, a retagged action or a later edit could use to make red read green.
+// The pin, permission and credential checks live in test/workflow-lint.ts, shared with the release workflows.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isDeepStrictEqual } from 'node:util';
 import { spawnSync } from 'node:child_process';
 import { parse } from '../lib/yaml.ts';
-import { tempRepo } from './helpers.ts';
+import { credentialRefs, dependencyCaches, excessPermissions, forbiddenTriggers, loadWorkflow, persistedCredentials, runExpressions, secretLeaks, unpinnedActions } from './workflow-lint.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -16,10 +16,9 @@ const POSIX = { skip: process.platform === 'win32' && 'POSIX-only' };
 
 const VALIDATE = 'claude plugin validate . --strict';
 const CLI_INSTALL = /^npm install -g @anthropic-ai\/claude-code(?:@\S*)?$/;
-const CLI_PINNED = /^npm install -g (@anthropic-ai\/claude-code@\d+\.\d+\.\d+)$/;
-const USES_LINE = /^\s*(?:-\s+)?uses:/;
-const PINNED_LINE = /^\s*(?:-\s+)?uses:\s+[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[0-9a-f]{40} # v\d+\.\d+\.\d+\s*$/;
-const PINNED_REF = /^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[0-9a-f]{40}$/;
+const CLI_PINNED = /^npm install -g @anthropic-ai\/claude-code@\d+\.\d+\.\d+$/;
+const TEST_CMD = 'node --test "test/*.test.ts"';
+const SHARDED_TEST_CMD = 'node --test --test-shard="$TEST_SHARD" "test/*.test.ts"';
 // `|| true`, `|| :`, `|| exit 0` and `set +e` turn a failing command into a passing step.
 const MASKS: [RegExp, string][] = [
   [/\|\|\s*(?:true|:)(?![\w-])/, '|| true / || :'],
@@ -28,188 +27,35 @@ const MASKS: [RegExp, string][] = [
 ];
 // Writing these from a step reaches every later step: `NODE_OPTIONS=--test-only` makes `node --test` pass a failing suite.
 const ENV_REACH = /\b(?:GITHUB_ENV|GITHUB_PATH|BASH_ENV|NODE_OPTIONS)\b/;
-
-// Allowlists rather than deny-lists: a key, action or expression the workflow does not use today fails here, so adding
-// one means editing this test too, in the same reviewed diff.
-const WORKFLOW_KEYS = ['name', 'on', 'permissions', 'concurrency', 'defaults', 'jobs'];
-const JOBS = ['audit', 'release-check', 'verify'];
-const JOB_KEYS = ['name', 'needs', 'runs-on', 'timeout-minutes', 'strategy', 'steps'];
-// Only the release check waits, and only on verify: it adds nothing when the suite is red.
-const NEEDS: Record<string, string> = { 'release-check': 'verify' };
-// release.yml calls this workflow whole; inputs or secrets on the call would let a caller reshape the gate. A manual
-// dispatch passes no inputs either, and the token here stays read-only.
-const TRIGGERS = ['pull_request', 'push', 'workflow_call', 'workflow_dispatch'];
-const STEP_KEYS = ['name', 'uses', 'with', 'run', 'env', 'continue-on-error'];
-const ACTIONS = ['actions/checkout', 'actions/setup-node'];
-const VALIDATE_ENV = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
-// Each verify cell runs one shard of the test files. The shard reaches the command through env, not
-// interpolated into run, and the strategy pin below holds the matrix to every shard of the split.
-const TEST_CMD = 'node --test "test/*.test.ts"';
-const SHARDED_TEST_CMD = 'node --test --test-shard="$TEST_SHARD" "test/*.test.ts"';
-// FORGE_REQUIRE_DIST turns the real-build tests' skip into a run (test/dist.ts): the step before built it.
-const TEST_ENV = { TEST_SHARD: '${{ matrix.shard }}', FORGE_REQUIRE_DIST: '1' };
-// develop never tracks dashboard/dist; main must. The ref reaches the script through env.
-const REF_EXPR = '${{ github.base_ref || github.ref_name }}';
-const RELEASE_CHECK_RUN = [
-  'case "$REF" in',
-  '  develop) npm run release:check -- --dist absent ;;',
-  '  main) npm run release:check -- --dist present ;;',
-  '  *) npm run release:check ;;',
-  'esac',
-].join('\n');
-const RELEASE_CHECK_ENV = { REF: REF_EXPR };
-// The only steps that may set env, each to exactly this map.
-const STEP_ENVS: Record<string, Record<string, string>> = { [VALIDATE]: VALIDATE_ENV, [SHARDED_TEST_CMD]: TEST_ENV, [RELEASE_CHECK_RUN]: RELEASE_CHECK_ENV };
-// Values pinned exactly, not just by key: each is free text a one-line edit could use to drop coverage or mask a failure.
-// Branch protection, once set, requires checks by these names, so a rename would leave a required check waiting forever.
-const JOB_NAMES: Record<string, string> = {
-  verify: 'verify (node ${{ matrix.node }}, shard ${{ matrix.shard }})',
-  audit: 'audit',
-  'release-check': 'release check',
-};
-// An `exclude` or `include` under the matrix silently drops or swaps a cell.
-const STRATEGIES: Record<string, unknown> = {
-  verify: { 'fail-fast': false, matrix: { node: ['22.18.0', '24.x'], shard: ['1/2', '2/2'] } },
-};
-const SETUP_NODE_WITH: Record<string, unknown> = {
-  verify: { 'node-version': '${{ matrix.node }}', 'package-manager-cache': false },
-  audit: { 'node-version-file': '.nvmrc', 'package-manager-cache': false },
-  'release-check': { 'node-version-file': '.nvmrc', 'package-manager-cache': false },
-};
-// An extra step before the blocking audit could swap the lockfile it reads.
-const AUDIT_RUNS = ['npm audit --omit=dev', 'npm audit'];
-// Built-ins only, so no `npm ci` first: nothing from the registry runs before it.
-const RELEASE_CHECK_RUNS = [`${RELEASE_CHECK_RUN}\n`];
-const EXPRESSIONS = [
-  '${{ matrix.node }}',
-  '${{ matrix.shard }}',
-  '${{ github.workflow }}',
-  '${{ github.event.pull_request.number || github.sha }}',
-  REF_EXPR,
-];
-// These and the expression allowlist read the raw text, comments included, so a comment saying "no secrets" fails too.
-// That is deliberate: it fails closed with a clear message, and the parser's view of the file never has to be trusted.
-const SECRETS = /\bsecrets\b/i;
-const TOKEN = /\bgithub\s*(?:\.|\[\s*['"])token\b|toJSON\(\s*github\s*\)/i;
+// Nothing in CI may write: it runs PR code.
+const ALLOWED = {};
 
 type Step = Record<string, any>;
-type Job = Record<string, any>;
-
-const jobsOf = (wf: any): [string, Job][] => Object.entries(wf?.jobs ?? {}) as [string, Job][];
-const stepsOf = (job: Job | undefined): Step[] => (Array.isArray(job?.steps) ? job.steps : []);
+const jobsOf = (wf: any): [string, any][] => Object.entries(wf?.jobs ?? {});
+const stepsOf = (job: any): Step[] => (Array.isArray(job?.steps) ? job.steps : []);
 const runOf = (step: Step): string | null => (typeof step?.run === 'string' ? step.run : null);
-const usesAction = (step: Step, action: string) => typeof step?.uses === 'string' && step.uses.startsWith(`${action}@`);
 const label = (job: string, step: Step) => `${job} › ${step?.name ?? step?.uses ?? step?.run}`;
-const isMap = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
-const extraKeys = (v: unknown, allowed: string[]) => (isMap(v) ? Object.keys(v).filter((k) => !allowed.includes(k)) : []);
 
-// ---------- pure checkers: each returns the problems it finds, [] when the workflow is sound ----------
-
-function triggerProblems(wf: any, text: string): string[] {
-  const out: string[] = [];
-  const on = wf?.on;
-  if (!on || typeof on !== 'object' || Array.isArray(on)) {
-    out.push('`on` must be a map of events');
-  } else {
-    const events = Object.keys(on).sort();
-    if (!isDeepStrictEqual(events, TRIGGERS)) out.push(`\`on\` must be exactly ${TRIGGERS.join(', ')}, got ${events.join(', ')}`);
-    if (!(on.workflow_call === null || (isMap(on.workflow_call) && !Object.keys(on.workflow_call).length)))
-      out.push('workflow_call must take no inputs, secrets or outputs');
-    // A filter (branches, paths, paths-ignore, types) quietly stops the gate running on some PRs.
-    if (!(on.pull_request === null || (isMap(on.pull_request) && !Object.keys(on.pull_request).length)))
-      out.push('pull_request must have no filters');
-    if (!isDeepStrictEqual(on.push, { branches: ['develop', 'main'] })) out.push('push must be exactly branches: [develop, main], with no other filter');
-    // Inputs would let a dispatcher reshape the gate.
-    if (on.workflow_dispatch !== null) out.push('workflow_dispatch must take no inputs');
+/** The ways a step can make a red run read green, or reach the steps after it. */
+function gateBypasses(wf: any): string[] {
+  const out: string[] = [...forbiddenTriggers(wf), ...runExpressions(wf)];
+  for (const scope of [wf, ...jobsOf(wf).map(([, j]) => j)]) {
+    for (const k of Object.keys(scope?.env ?? {})) if (ENV_REACH.test(k)) out.push(`env ${k} reaches every step`);
   }
-  // Both hand fork code a write token and secrets.
-  for (const word of ['pull_request_target', 'workflow_run']) if (text.includes(word)) out.push(`the workflow must not mention ${word}`);
-  return out;
-}
-
-function permissionProblems(wf: any, text: string): string[] {
-  const out: string[] = [];
-  if (!isDeepStrictEqual(wf?.permissions, { contents: 'read' })) out.push('top-level permissions must be exactly { contents: read }');
-  for (const [id, job] of jobsOf(wf)) if (job && typeof job === 'object' && 'permissions' in job) out.push(`job ${id} must not set permissions`);
-  if (text.includes('secrets.')) out.push('the workflow must not reference secrets.');
-  if (text.includes('github.token')) out.push('the workflow must not reference github.token');
-  // Index and toJSON forms reach the same values: secrets['X'], toJSON(secrets), github['token'], toJSON(github).
-  if (SECRETS.test(text)) out.push('the workflow must not reference the secrets context');
-  if (TOKEN.test(text)) out.push('the workflow must not reference the github token');
-  for (let i = text.indexOf('${{'); i !== -1; i = text.indexOf('${{', i + 3)) {
-    if (!EXPRESSIONS.some((e) => text.startsWith(e, i))) out.push(`expression not on the allowlist: ${text.slice(i, i + 80).split('\n')[0]}`);
-  }
-  return out;
-}
-
-function pinProblems(text: string): string[] {
-  const out: string[] = [];
-  const lines = text.split(/\r?\n/).filter((l) => USES_LINE.test(l));
-  if (!lines.length) out.push('no `uses:` lines found');
-  for (const l of lines) if (!PINNED_LINE.test(l)) out.push(`not pinned to a full commit SHA with its version comment: ${l.trim()}`);
-  // A `uses` written some other way (a flow map, a quoted key) never shows up as a `uses:` line above.
-  let wf: any;
-  try {
-    wf = parse(text);
-  } catch (e) {
-    return [...out, `the workflow does not parse: ${(e as Error).message}`];
-  }
-  const parsed = jobsOf(wf).flatMap(([, job]) => [job?.uses, ...stepsOf(job).map((s) => s?.uses)]).filter((u) => u !== undefined);
-  for (const u of parsed) if (typeof u !== 'string' || !PINNED_REF.test(u)) out.push(`not pinned to a full commit SHA: ${u}`);
-  if (parsed.length !== lines.length) out.push(`${parsed.length} actions are used but ${lines.length} \`uses:\` lines carry a pin`);
-  return out;
-}
-
-function hardeningProblems(wf: any): string[] {
-  const out: string[] = [];
-  for (const k of extraKeys(wf, WORKFLOW_KEYS)) out.push(`the workflow must not set ${k}`);
-  // GitHub runs `shell: bash` as `bash --noprofile --norc -eo pipefail`; without -e a `for` loop reports only its last command.
-  if (!isDeepStrictEqual(wf?.defaults, { run: { shell: 'bash' } })) out.push('defaults must be exactly run.shell: bash');
-  const ids = jobsOf(wf).map(([id]) => id).sort();
-  if (!isDeepStrictEqual(ids, JOBS)) out.push(`jobs must be exactly ${JOBS.join(', ')}, got ${ids.join(', ')}`);
   for (const [id, job] of jobsOf(wf)) {
-    if (!isMap(job)) continue;
-    for (const k of extraKeys(job, JOB_KEYS)) out.push(`job ${id} must not set ${k}`);
-    if (id in JOB_NAMES && job.name !== JOB_NAMES[id]) out.push(`job ${id} must be named exactly ${JOB_NAMES[id]}`);
-    // Linux only: the macOS and Windows legs cost far more wall time than they caught.
-    if (job['runs-on'] !== 'ubuntu-latest') out.push(`job ${id} must run on ubuntu-latest`);
-    if (!isDeepStrictEqual(job.needs, NEEDS[id])) out.push(id in NEEDS ? `job ${id} must set exactly needs: ${NEEDS[id]}` : `job ${id} must not set needs`);
-    if (!isDeepStrictEqual(job.strategy, STRATEGIES[id]))
-      out.push(id in STRATEGIES ? `job ${id} strategy must be exactly ${JSON.stringify(STRATEGIES[id])}` : `job ${id} must not set strategy`);
-    if (id === 'audit') {
-      const runs = stepsOf(job).map(runOf).filter((r) => r !== null);
-      if (!isDeepStrictEqual(runs, AUDIT_RUNS)) out.push(`job audit must run exactly ${AUDIT_RUNS.join(', then ')}`);
-    }
-    if (id === 'release-check') {
-      const runs = stepsOf(job).map(runOf).filter((r) => r !== null);
-      if (!isDeepStrictEqual(runs, RELEASE_CHECK_RUNS)) out.push(`job release-check must run exactly ${RELEASE_CHECK_RUNS.join(', then ')}`);
-    }
-    const actions = stepsOf(job).filter((s) => isMap(s) && 'uses' in s).map((s) => String(s.uses).split('@')[0]);
-    if (!isDeepStrictEqual(actions, ACTIONS)) out.push(`job ${id} must use exactly ${ACTIONS.join(' then ')}, got ${actions.join(', ') || 'none'}`);
+    if (job?.['continue-on-error'] !== undefined) out.push(`job ${id} must not set continue-on-error`);
+    if (job?.if !== undefined) out.push(`job ${id} must not set if`);
     for (const step of stepsOf(job)) {
       const at = label(id, step);
-      for (const k of extraKeys(step, STEP_KEYS)) out.push(`${at}: must not set ${k}`);
-      if (usesAction(step, 'actions/checkout') && !isDeepStrictEqual(step.with, { 'persist-credentials': false }))
-        out.push(`${at}: checkout must set exactly persist-credentials: false`);
-      if (usesAction(step, 'actions/setup-node')) {
-        if (step.with?.['package-manager-cache'] !== false) out.push(`${at}: setup-node must set package-manager-cache: false`);
-        if (!isDeepStrictEqual(step.with, SETUP_NODE_WITH[id])) out.push(`${at}: setup-node must set exactly ${JSON.stringify(SETUP_NODE_WITH[id] ?? null)}`);
-      }
-      if ('continue-on-error' in step && runOf(step) !== 'npm audit') out.push(`${at}: only the report-only npm audit may set continue-on-error`);
       const run = runOf(step);
-      if (run !== null) {
-        for (const [re, what] of MASKS) if (re.test(run)) out.push(`${at}: run must not mask a failure with ${what}`);
-        if (run.includes('${{')) out.push(`${at}: run must not interpolate an expression`);
-        if (ENV_REACH.test(run)) out.push(`${at}: run must not set the environment of later steps`);
-      }
-      if ('env' in step) {
-        const allowed = run !== null && Object.hasOwn(STEP_ENVS, run.trim()) ? STEP_ENVS[run.trim()] : undefined;
-        // Each allowed map is pinned exactly; TEST_SHARD's expression is a matrix value the workflow fixes itself.
-        if (!allowed || !isDeepStrictEqual(step.env, allowed)) {
-          out.push(`${at}: only Validate plugin, the sharded Run tests, and the release check may set env, each only to its allowed map`);
-          for (const [k, v] of Object.entries(isMap(step.env) ? step.env : {})) if (String(v).includes('${{')) out.push(`${at}: env ${k} must not interpolate an expression`);
-        }
-      }
+      // The full audit is report-only: devDependency advisories must not block a PR.
+      if ('continue-on-error' in step && run !== 'npm audit') out.push(`${at}: only the report-only npm audit may set continue-on-error`);
+      if ('if' in step) out.push(`${at}: must not set if`);
+      if ('shell' in step) out.push(`${at}: its own shell could drop -e`);
+      for (const k of Object.keys(step.env ?? {})) if (ENV_REACH.test(k)) out.push(`${at}: env ${k}`);
+      if (run === null) continue;
+      for (const [re, what] of MASKS) if (re.test(run)) out.push(`${at}: run must not mask a failure with ${what}`);
+      if (ENV_REACH.test(run)) out.push(`${at}: run must not set the environment of later steps`);
     }
   }
   return out;
@@ -249,54 +95,24 @@ function verifyListProblems(agentsText: string, wf: any): string[] {
   for (let i = 0; i < Math.max(want.length, got.length); i++) {
     if (want[i] !== got[i]) out.push(`command ${i + 1}: AGENTS.md has ${JSON.stringify(want[i] ?? null)}, CI runs ${JSON.stringify(got[i] ?? null)}`);
   }
-  for (const [id, job] of jobsOf(wf)) {
-    const seen = new Set<string>();
-    for (const step of stepsOf(job)) {
-      const name = typeof step?.name === 'string' ? step.name.trim() : '';
-      if (!name) out.push(`job ${id} has a step with no name`);
-      else if (seen.has(name)) out.push(`job ${id} has two steps named ${JSON.stringify(name)}`);
-      seen.add(name);
-    }
-  }
   return out;
 }
 
 function cliProblems(wf: any): string[] {
   const out: string[] = [];
   const steps = stepsOf(wf?.jobs?.verify);
-  for (const s of steps) {
-    const run = runOf(s)?.trim() ?? '';
-    if (CLI_INSTALL.test(run) && !CLI_PINNED.test(run)) out.push(`the Claude Code CLI install must pin an exact x.y.z version: ${run}`);
-  }
-  // A second install would decide which CLI actually validates, and AC3 skips every install, so allow exactly one.
-  const installs = steps.filter((s) => CLI_INSTALL.test(runOf(s)?.trim() ?? '')).length;
-  if (installs > 1) out.push(`verify must install the Claude Code CLI exactly once, got ${installs}`);
-  const install = steps.findIndex((s) => CLI_PINNED.test(runOf(s)?.trim() ?? ''));
+  const installs = steps.filter((s) => CLI_INSTALL.test(runOf(s)?.trim() ?? ''));
+  for (const s of installs) if (!CLI_PINNED.test(runOf(s)!.trim())) out.push(`the Claude Code CLI install must pin an exact x.y.z version: ${runOf(s)}`);
+  // The last install decides which CLI validates, so allow exactly one, directly before validation.
+  if (installs.length !== 1) out.push(`verify must install the Claude Code CLI exactly once, got ${installs.length}`);
+  const install = steps.findIndex((s) => CLI_INSTALL.test(runOf(s)?.trim() ?? ''));
   const validate = steps.findIndex((s) => runOf(s)?.trim() === VALIDATE);
-  if (install === -1) out.push('verify must install @anthropic-ai/claude-code at an exact version');
   if (validate === -1) out.push(`verify must run ${VALIDATE}`);
   if (install !== -1 && validate !== -1 && install !== validate - 1) out.push('the CLI must be installed in the step directly before the plugin is validated');
-  // A condition or continue-on-error here would make validation a quiet skip.
-  for (const i of [install, validate]) {
-    if (i === -1) continue;
-    for (const key of ['if', 'continue-on-error']) if (key in steps[i]) out.push(`${label('verify', steps[i])}: must not set ${key}`);
-  }
   return out;
 }
 
-/** `@anthropic-ai/claude-code@x.y.z` as the workflow installs it. */
-function cliPackage(wf: any): string | undefined {
-  for (const s of stepsOf(wf?.jobs?.verify)) {
-    const m = (runOf(s)?.trim() ?? '').match(CLI_PINNED);
-    if (m) return m[1];
-  }
-  return undefined;
-}
-
-// ---------- fixtures ----------
-
-const TEXT = read('.github/workflows/ci.yml');
-const WF = parse(TEXT);
+const WF = loadWorkflow('ci.yml');
 const AGENTS = read('AGENTS.md');
 
 const mutate = (fn: (wf: any) => void): any => {
@@ -304,15 +120,10 @@ const mutate = (fn: (wf: any) => void): any => {
   fn(copy);
   return copy;
 };
-const stepNamed = (wf: any, job: string, name: string): Step => {
-  const step = stepsOf(wf.jobs[job]).find((s) => s.name === name);
-  assert.ok(step, `${job} has a step named ${name}`);
+const stepRunning = (wf: any, job: string, pred: (run: string) => boolean): Step => {
+  const step = stepsOf(wf.jobs[job]).find((s) => runOf(s) !== null && pred(runOf(s)!));
+  assert.ok(step, `${job} has the step`);
   return step;
-};
-const stepRunning = (job: string, pred: (run: string) => boolean): string => {
-  const run = stepsOf(WF.jobs[job]).map(runOf).find((r) => r !== null && pred(r));
-  assert.ok(run, `${job} has the step`);
-  return run;
 };
 /** Runs a step script the way GitHub runs `shell: bash`, with this test's Node first on PATH. */
 const bash = (script: string, cwd: string) =>
@@ -323,77 +134,126 @@ const bash = (script: string, cwd: string) =>
   });
 const assertFlags = (problems: string[], what: string) => assert.ok(problems.length > 0, `the checker flags: ${what}`);
 
-// ---------- tests ----------
+const SHA = 'a'.repeat(40);
+/** A one-job workflow around `job` (indented as under `jobs.j`), with `top` at the top level. */
+const workflow = (job: string, top = 'permissions:\n  contents: read\n') =>
+  parse(`name: x\non:\n  push:\n${top}jobs:\n  j:\n    runs-on: ubuntu-latest\n${job}`);
+const steps = (...lines: string[]) => `    steps:\n${lines.map((l) => `      ${l}`).join('\n')}\n`;
 
-test('workflow triggers on pull_request, pushes to develop and main, workflow_call and a bare workflow_dispatch', () => {
-  assert.equal(WF.name, 'CI');
-  assert.deepEqual(triggerProblems(WF, TEXT), []);
-  assert.deepEqual(WF.on.push, { branches: ['develop', 'main'] });
-  assert.equal(WF.on.workflow_dispatch, null, 'a manual dispatch passes nothing in');
-  assertFlags(triggerProblems(mutate((wf) => { wf.on.push.branches = ['main']; }), TEXT), 'develop dropped from push');
-  assertFlags(triggerProblems(mutate((wf) => { wf.on.push.branches = ['develop', 'main', 'release']; }), TEXT), 'a third push branch');
-  assertFlags(triggerProblems(mutate((wf) => { wf.on.workflow_dispatch = { inputs: { ref: { type: 'string' } } }; }), TEXT), 'workflow_dispatch with inputs');
-  assertFlags(triggerProblems(mutate((wf) => { wf.on.workflow_dispatch = {}; }), TEXT), 'workflow_dispatch as an empty map');
-  assertFlags(triggerProblems(mutate((wf) => { delete wf.on.workflow_dispatch; }), TEXT), 'no workflow_dispatch');
+test('workflow-lint reports each bypass and accepts each safe form', () => {
+  const all = (wf: any) => [
+    ...unpinnedActions(wf),
+    ...excessPermissions(wf, ALLOWED),
+    ...secretLeaks(wf),
+    ...forbiddenTriggers(wf),
+    ...runExpressions(wf),
+    ...dependencyCaches(wf),
+  ];
+  const reported: [string, any][] = [
+    ['uses: actions/checkout@v4', workflow(steps('- uses: actions/checkout@v4'))],
+    ['uses: actions/checkout@main', workflow(steps('- uses: actions/checkout@main'))],
+    ['a short SHA', workflow(steps('- uses: actions/checkout@3d3c42e'))],
+    ['an uppercase SHA', workflow(steps(`- uses: actions/checkout@${SHA.toUpperCase()}`))],
+    ['a docker image by tag', workflow(steps('- uses: docker://alpine:3'))],
+    ['a reusable workflow by tag', parse(`on:\n  push:\npermissions:\n  contents: read\njobs:\n  j:\n    uses: org/repo/.github/workflows/x.yml@v1\n`)],
+    ['permissions: write-all', workflow(steps('- run: make'), 'permissions: write-all\n')],
+    ['a top-level write', workflow(steps('- run: make'), 'permissions:\n  contents: write\n')],
+    ['a job write not allowed', workflow(`    permissions:\n      contents: write\n${steps('- run: make')}`)],
+    ['a job with no permissions block', parse(`on:\n  push:\njobs:\n  a:\n    permissions:\n      contents: read\n    steps:\n      - run: a\n  b:\n    steps:\n      - run: b\n`)],
+    ['no top-level permissions', workflow(`    permissions:\n      contents: read\n${steps('- run: make')}`, '')],
+    ['job-level env: { T: ${{ secrets.X }} }', workflow(`    env:\n      T: \${{ secrets.X }}\n${steps('- run: make')}`)],
+    ['workflow-level env: { T: ${{ github.token }} }', workflow(steps('- run: make'), 'permissions:\n  contents: read\nenv:\n  T: ${{ github.token }}\n')],
+    ['run: echo ${{ secrets.X }}', workflow(steps('- run: echo ${{ secrets.X }}'))],
+    ['run: gh api -H "x: ${{ github.token }}"', workflow(steps('- run: gh api -H "x: ${{ github.token }}"'))],
+    ["the token through an index in run", workflow(steps("- run: echo ${{ github['token'] }}"))],
+    ['toJSON(secrets) in run', workflow(steps('- run: echo ${{ toJSON(secrets) }}'))],
+    ['run: echo "${{ github.event.head_commit.message }}"', workflow(steps('- run: echo "${{ github.event.head_commit.message }}"'))],
+    ['on: pull_request_target', parse(`on:\n  pull_request_target:\npermissions:\n  contents: read\njobs:\n  j:\n    runs-on: ubuntu-latest\n${steps('- run: make')}`)],
+    ['on: [push, workflow_run]', parse(`on: [push, workflow_run]\npermissions:\n  contents: read\njobs:\n  j:\n    runs-on: ubuntu-latest\n${steps('- run: make')}`)],
+    ['uses: actions/cache@<40-hex>', workflow(steps(`- uses: actions/cache@${SHA}`))],
+    ['setup-node without package-manager-cache: false', workflow(steps(`- uses: actions/setup-node@${SHA}`, '  with:', '    node-version: 22'))],
+    ['setup-node with cache: npm', workflow(steps(`- uses: actions/setup-node@${SHA}`, '  with:', '    cache: npm', '    package-manager-cache: false'))],
+  ];
+  for (const [what, wf] of reported) assertFlags(all(wf), what);
+  // A job with no block is named, not just covered by the missing top level.
+  assert.ok(excessPermissions(reported[9][1], ALLOWED).some((f) => f.startsWith('job b:')));
+  assert.ok(!excessPermissions(reported[9][1], ALLOWED).some((f) => f.startsWith('job a:')));
 
-  const withTarget = TEXT.replace('on:\n  pull_request:\n', 'on:\n  pull_request:\n  pull_request_target:\n');
-  assert.notEqual(withTarget, TEXT);
-  assertFlags(triggerProblems(parse(withTarget), withTarget), 'pull_request_target in `on` (text)');
-  assertFlags(triggerProblems(mutate((wf) => { wf.on.pull_request_target = null; }), TEXT), 'pull_request_target in `on` (parsed)');
-  assertFlags(triggerProblems(WF, `${TEXT}\n# on workflow_run\n`), 'text containing workflow_run');
-  assertFlags(triggerProblems(mutate((wf) => { wf.on.push.branches = ['main', 'dev']; }), TEXT), 'push to another branch');
-  assertFlags(triggerProblems(mutate((wf) => { delete wf.on.push; }), TEXT), 'no push trigger');
-  assert.equal(WF.on.workflow_call, null, 'release.yml can call it, with nothing passed in');
-  assertFlags(triggerProblems(mutate((wf) => { wf.on.workflow_call = { inputs: { ref: { type: 'string' } } }; }), TEXT), 'workflow_call with inputs');
-  assertFlags(triggerProblems(mutate((wf) => { wf.on.workflow_call = { secrets: { NPM: { required: false } } }; }), TEXT), 'workflow_call with secrets');
-  assertFlags(triggerProblems(mutate((wf) => { delete wf.on.workflow_call; }), TEXT), 'no workflow_call');
-  assertFlags(triggerProblems(mutate((wf) => { wf.on.schedule = [{ cron: '0 0 * * *' }]; }), TEXT), 'a schedule trigger');
-  // Filters that stop the gate running on some or all PRs, or on main.
-  const prFilter = (filter: string) => {
-    const t = TEXT.replace('on:\n  pull_request:\n', `on:\n  pull_request:\n    ${filter}\n`);
-    assert.notEqual(t, TEXT);
-    return triggerProblems(parse(t), t);
-  };
-  assertFlags(prFilter("paths-ignore: ['**']"), 'pull_request paths-ignore');
-  assertFlags(prFilter('branches: [nothing]'), 'pull_request branches');
-  assertFlags(prFilter('types: [closed]'), 'pull_request types');
-  assertFlags(triggerProblems(mutate((wf) => { wf.on.push['paths-ignore'] = ['**']; }), TEXT), 'push paths-ignore');
+  const accepted: [string, any][] = [
+    ['uses: ./.github/workflows/ci.yml', parse(`on:\n  push:\npermissions:\n  contents: read\njobs:\n  verify:\n    uses: ./.github/workflows/ci.yml\n`)],
+    [`uses: docker://alpine@sha256:<64-hex>`, workflow(steps(`- uses: docker://alpine@sha256:${'b'.repeat(64)}`))],
+    ['uses: actions/checkout@<40-hex>', workflow(steps(`- uses: actions/checkout@${SHA}`))],
+    ['step-level env: { GH_TOKEN: ${{ github.token }} }', workflow(steps('- env:', '    GH_TOKEN: ${{ github.token }}', '  run: gh release list'))],
+    ['a token in a step with', workflow(steps(`- uses: actions/checkout@${SHA}`, '  with:', '    token: ${{ secrets.X }}'))],
+    ['a job write the allowed map names', workflow(`    permissions:\n      contents: write\n${steps('- run: make')}`)],
+    ['an expression passed through step env and quoted', workflow(steps('- env:', '    MSG: ${{ github.event.head_commit.message }}', '  run: echo "$MSG"'))],
+    ['setup-node with package-manager-cache: false', workflow(steps(`- uses: actions/setup-node@${SHA}`, '  with:', '    package-manager-cache: false'))],
+  ];
+  for (const [what, wf] of accepted) {
+    const problems = what === 'a job write the allowed map names' ? excessPermissions(wf, { j: { contents: 'write' } }) : all(wf);
+    assert.deepEqual(problems, [], what);
+  }
+  assert.equal(credentialRefs(accepted[3][1]).length, 1, 'the step-level token is found, then accepted');
+  assert.deepEqual(persistedCredentials(workflow(steps(`- uses: actions/checkout@${SHA}`))).length, 1, 'a checkout keeping credentials');
 });
 
-test('verify matrix covers Node 22.18.0 and Node 24 on Ubuntu, every test shard in each', () => {
-  const verify = WF.jobs.verify;
-  assert.equal(verify['runs-on'], 'ubuntu-latest');
-  assert.equal(verify.strategy['fail-fast'], false);
-  assert.deepEqual(verify.strategy.matrix.node, ['22.18.0', '24.x']);
-  // k/N for every k: a missing shard would silently skip its share of the test files.
-  const shards: string[] = verify.strategy.matrix.shard;
-  assert.deepEqual(shards, shards.map((_, i) => `${i + 1}/${shards.length}`));
-  assert.equal(stepNamed(WF, 'verify', 'Run tests').run, SHARDED_TEST_CMD);
-  assert.deepEqual(stepNamed(WF, 'verify', 'Run tests').env, TEST_ENV);
-  assert.equal(typeof verify['timeout-minutes'], 'number');
-  const setup = stepsOf(verify).filter((s) => usesAction(s, 'actions/setup-node'));
-  assert.equal(setup.length, 1);
-  assert.equal(setup[0].with['node-version'], '${{ matrix.node }}');
-  // One check per cell, under the names branch protection requires.
-  assert.equal(verify.name, 'verify (node ${{ matrix.node }}, shard ${{ matrix.shard }})');
-  assert.deepEqual(Object.keys(verify.strategy), ['fail-fast', 'matrix']);
-  assert.deepEqual(Object.keys(verify.strategy.matrix), ['node', 'shard']);
+test('ci.yml pins every action, keeps a read-only token, holds no credential and persists none', () => {
+  assert.deepEqual(unpinnedActions(WF), []);
+  assert.deepEqual(excessPermissions(WF, ALLOWED), []);
+  assert.deepEqual(secretLeaks(WF), []);
+  assert.deepEqual(persistedCredentials(WF), []);
+  // PR code runs here: a cache it writes would be restored into the next push run.
+  assert.deepEqual(dependencyCaches(WF), []);
+  assertFlags(dependencyCaches(mutate((wf) => { delete wf.jobs.audit.steps.find((s: Step) => String(s.uses).startsWith('actions/setup-node@')).with['package-manager-cache']; })), 'package-manager-cache unset');
+  assertFlags(dependencyCaches(mutate((wf) => { wf.jobs.verify.steps.splice(2, 0, { uses: `actions/cache@${SHA}`, with: { path: 'node_modules', key: 'k' } }); })), 'an actions/cache step');
+  assertFlags(unpinnedActions(mutate((wf) => { wf.jobs.verify.steps[0].uses = 'actions/checkout@v7'; })), 'a pin rewritten to @v7');
+  assertFlags(excessPermissions(mutate((wf) => { wf.permissions.contents = 'write'; }), ALLOWED), 'contents: write');
+  assertFlags(excessPermissions(mutate((wf) => { wf.jobs.verify.permissions = 'write-all'; }), ALLOWED), 'job-level write-all');
+  assertFlags(secretLeaks(mutate((wf) => { wf.jobs.verify.env = { NPM_TOKEN: '${{ secrets.NPM_TOKEN }}' }; })), 'a job-level secret');
+  assertFlags(persistedCredentials(mutate((wf) => { delete wf.jobs.verify.steps[0].with['persist-credentials']; })), 'checkout keeping credentials');
+});
 
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.strategy.matrix.exclude = [{ node: '22.18.0' }]; })), 'a matrix exclude dropping the floor');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify['runs-on'] = '${{ matrix.os }}'; })), 'runs-on off Ubuntu');
-  assertFlags(hardeningProblems(mutate((wf) => {
-    wf.jobs.verify.strategy.matrix.include = [{ node: '24.x', extra: true }];
-  })), 'a matrix include');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.strategy['fail-fast'] = true; })), 'fail-fast: true');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.strategy.matrix.shard = ['1/2']; })), 'a shard dropped');
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Run tests').env.TEST_SHARD = '${{ github.event.pull_request.title }}'; })), 'TEST_SHARD from the PR title');
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Run tests').run = TEST_CMD; })), 'the shard env on an unsharded run');
-  assertFlags(verifyListProblems(AGENTS, mutate((wf) => { stepNamed(wf, 'verify', 'Run tests').run = 'node --test --test-shard="$TEST_SHARD" "test/a.test.ts"'; })), 'a sharded run over fewer files');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.name = 'build'; })), 'verify renamed');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.audit.strategy = { matrix: { os: ['ubuntu-latest'] } }; })), 'a strategy on audit');
-  assertFlags(hardeningProblems(mutate((wf) => {
-    stepNamed(wf, 'verify', 'Set up Node ${{ matrix.node }}').with['node-version'] = '24.x';
-  })), 'a hard-coded node-version');
+test('no trigger, env or step can make a red run read green', () => {
+  assert.deepEqual(gateBypasses(WF), []);
+  assertFlags(gateBypasses(mutate((wf) => { wf.on.pull_request_target = null; })), 'pull_request_target');
+  assertFlags(gateBypasses(mutate((wf) => { wf.on.workflow_run = { workflows: ['x'] }; })), 'workflow_run');
+  assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r === 'npm ci').run = 'npm ci || true'; })), 'npm ci || true');
+  assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r === 'npm ci').run = 'npm ci || :'; })), 'npm ci || :');
+  assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r === 'npm ci').run = 'npm ci || exit 0'; })), 'npm ci || exit 0');
+  assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r === SHARDED_TEST_CMD).run = `set +e\n${TEST_CMD}`; })), 'set +e');
+  assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r === SHARDED_TEST_CMD)['continue-on-error'] = true; })), 'continue-on-error on Run tests');
+  assertFlags(gateBypasses(mutate((wf) => { wf.jobs.verify['continue-on-error'] = true; })), 'continue-on-error on a job');
+  assertFlags(gateBypasses(mutate((wf) => { wf.jobs.verify.if = false; })), 'a job that never runs');
+  assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r === VALIDATE).if = false; })), 'a skipped validate step');
+  assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r.includes('node --check')).shell = 'bash {0}'; })), 'a step dropping -e with its own shell');
+  assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r === 'npm ci').run = 'echo "${{ github.event.pull_request.title }}"'; })), 'a run interpolating the PR title');
+  const testOnly = { NODE_OPTIONS: '--test-only' };
+  assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r === SHARDED_TEST_CMD).env = testOnly; })), 'NODE_OPTIONS on a step');
+  assertFlags(gateBypasses(mutate((wf) => { wf.jobs.verify.env = testOnly; })), 'NODE_OPTIONS on a job');
+  assertFlags(gateBypasses(mutate((wf) => { wf.env = testOnly; })), 'NODE_OPTIONS on the workflow');
+  assertFlags(gateBypasses(mutate((wf) => {
+    const step = stepRunning(wf, 'verify', (r) => r === 'npm run build:dashboard');
+    step.run = `echo "NODE_OPTIONS=--test-only" >> "$GITHUB_ENV"\n${step.run}`;
+  })), 'a run writing GITHUB_ENV');
+});
+
+const RUNTIME_AUDIT = 'npm audit --omit=dev';
+/** The runtime audit must exist and fail the run: gateBypasses exempts only the report-only full audit. */
+function runtimeAuditProblems(wf: any): string[] {
+  const audits = jobsOf(wf).flatMap(([, job]) => stepsOf(job)).filter((s) => runOf(s)?.trim() === RUNTIME_AUDIT);
+  if (audits.length === 0) return [`no step runs exactly ${RUNTIME_AUDIT}`];
+  return audits.filter((s) => 'continue-on-error' in s).map(() => `${RUNTIME_AUDIT} must not set continue-on-error`);
+}
+
+test('the runtime dependency audit blocks', () => {
+  assert.deepEqual(runtimeAuditProblems(WF), []);
+  assert.deepEqual(gateBypasses(WF), []);
+  const setAudit = (fn: (s: Step) => void) => mutate((wf) => fn(stepRunning(wf, 'audit', (r) => r.trim() === RUNTIME_AUDIT)));
+  assertFlags(runtimeAuditProblems(mutate((wf) => { wf.jobs.audit.steps = wf.jobs.audit.steps.filter((s: Step) => runOf(s)?.trim() !== RUNTIME_AUDIT); })), 'the runtime audit removed');
+  assertFlags(runtimeAuditProblems(setAudit((s) => { s.run = `${RUNTIME_AUDIT} --audit-level=critical`; })), 'a weakened runtime audit');
+  assertFlags(runtimeAuditProblems(setAudit((s) => { s['continue-on-error'] = true; })), 'continue-on-error on the runtime audit');
+  assertFlags(gateBypasses(setAudit((s) => { s['continue-on-error'] = true; })), 'continue-on-error on the runtime audit');
+  assertFlags(gateBypasses(setAudit((s) => { s.run = `${RUNTIME_AUDIT} || true`; })), 'a masked runtime audit');
 });
 
 test('ci runs the AGENTS.md verify list in the same order and nothing else', () => {
@@ -415,18 +275,34 @@ test('ci runs the AGENTS.md verify list in the same order and nothing else', () 
     wf.jobs.verify.steps = wf.jobs.verify.steps.filter((s: Step) => s.run !== 'npm run typecheck');
   })), 'a CI step is missing');
   assertFlags(verifyListProblems(AGENTS, mutate((wf) => {
-    const steps = wf.jobs.verify.steps;
-    const a = steps.findIndex((s: Step) => s.name === 'Typecheck engine and tests');
-    const b = steps.findIndex((s: Step) => s.name === 'Check dashboard sources');
-    [steps[a], steps[b]] = [steps[b], steps[a]];
+    const s = wf.jobs.verify.steps;
+    const a = s.findIndex((x: Step) => x.run === 'npm run typecheck');
+    const b = s.findIndex((x: Step) => x.run === 'npm run check:dashboard');
+    [s[a], s[b]] = [s[b], s[a]];
   })), 'two CI steps are swapped');
   assertFlags(verifyListProblems(AGENTS, mutate((wf) => { wf.jobs.verify.steps.push({ name: 'Extra', run: 'npm run extra' }); })), 'CI gains an extra run step');
-  assertFlags(verifyListProblems(AGENTS, mutate((wf) => { delete stepNamed(wf, 'verify', 'Run tests').name; })), 'a step with no name');
-  assertFlags(verifyListProblems(AGENTS, mutate((wf) => { stepNamed(wf, 'audit', 'Set up Node').name = 'Check out'; })), 'two steps with one name');
+  assertFlags(verifyListProblems(AGENTS, mutate((wf) => {
+    stepRunning(wf, 'verify', (r) => r === SHARDED_TEST_CMD).run = 'node --test --test-shard="$TEST_SHARD" "test/a.test.ts"';
+  })), 'a sharded run over fewer files');
+});
+
+test('the Claude Code CLI is pinned and installed once, directly before validation', () => {
+  assert.deepEqual(cliProblems(WF), []);
+  const setInstall = (run: string) => mutate((wf) => { stepRunning(wf, 'verify', (r) => CLI_INSTALL.test(r)).run = run; });
+  assertFlags(cliProblems(setInstall('npm install -g @anthropic-ai/claude-code@latest')), 'an install at @latest');
+  assertFlags(cliProblems(setInstall('npm install -g @anthropic-ai/claude-code')), 'an install with no version');
+  assertFlags(cliProblems(mutate((wf) => { wf.jobs.verify.steps = wf.jobs.verify.steps.filter((s: Step) => s.run !== VALIDATE); })), 'no validate step');
+  // The last install wins, so a second one could run validation on any version.
+  const downgrade = mutate((wf) => {
+    const s = wf.jobs.verify.steps;
+    s.splice(s.findIndex((x: Step) => x.run === VALIDATE), 0, { name: 'Downgrade', run: 'npm install -g @anthropic-ai/claude-code@1.0.0' });
+  });
+  assert.deepEqual(verifyListProblems(AGENTS, downgrade), [], 'the list check skips every install');
+  assertFlags(cliProblems(downgrade), 'a second, pinned install just before validate');
 });
 
 test('the syntax-check step fails when any file has a syntax error, not only the last', POSIX, () => {
-  const script = stepRunning('verify', (r) => r.includes('node --check'));
+  const script = runOf(stepRunning(WF, 'verify', (r) => r.includes('node --check')))!;
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-ci-check-')));
   const write = (rel: string, body: string) => {
     fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
@@ -449,88 +325,8 @@ test('the syntax-check step fails when any file has a syntax error, not only the
   }
 });
 
-test('the Claude Code CLI is pinned and plugin validation always runs', () => {
-  assert.deepEqual(cliProblems(WF), []);
-  assert.match(stepRunning('verify', (r) => CLI_INSTALL.test(r)), /^npm install -g @anthropic-ai\/claude-code@\d+\.\d+\.\d+$/);
-
-  const setInstall = (run: string) => mutate((wf) => { stepNamed(wf, 'verify', 'Install Claude Code CLI').run = run; });
-  assertFlags(cliProblems(setInstall('npm install -g @anthropic-ai/claude-code@latest')), 'an install at @latest');
-  assertFlags(cliProblems(setInstall('npm install -g @anthropic-ai/claude-code')), 'an install with no version');
-  assertFlags(cliProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Validate plugin').if = false; })), 'if: false on the validate step');
-  assertFlags(cliProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Validate plugin')['continue-on-error'] = true; })), 'continue-on-error on the validate step');
-  assertFlags(cliProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Install Claude Code CLI').if = "runner.os == 'Linux'"; })), 'a condition on the install step');
-  assertFlags(cliProblems(mutate((wf) => {
-    wf.jobs.verify.steps = wf.jobs.verify.steps.filter((s: Step) => s.run !== VALIDATE);
-  })), 'no validate step');
-  assertFlags(cliProblems(mutate((wf) => {
-    const steps = wf.jobs.verify.steps;
-    const i = steps.findIndex((s: Step) => s.name === 'Install Claude Code CLI');
-    [steps[i], steps[i + 1]] = [steps[i + 1], steps[i]];
-  })), 'install after validate');
-  // The last install wins, so a second one could run validation on any version.
-  const downgrade = mutate((wf) => {
-    const steps = wf.jobs.verify.steps;
-    const i = steps.findIndex((s: Step) => s.run === VALIDATE);
-    steps.splice(i, 0, { name: 'Downgrade Claude Code CLI', run: 'npm install -g @anthropic-ai/claude-code@1.0.0' });
-  });
-  assert.deepEqual(verifyListProblems(AGENTS, downgrade), [], 'the list check skips every install');
-  assertFlags(cliProblems(downgrade), 'a second, pinned install just before validate');
-  assertFlags(cliProblems(mutate((wf) => {
-    const steps = wf.jobs.verify.steps;
-    const i = steps.findIndex((s: Step) => s.name === 'Install Claude Code CLI');
-    steps.splice(i - 1, 0, steps.splice(i, 1)[0]);
-  })), 'an install that is not directly before validate');
-});
-
-test('the audit job blocks on runtime advisories and only reports devDependency ones', () => {
-  const audit = WF.jobs.audit;
-  assert.equal(audit['runs-on'], 'ubuntu-latest');
-  const steps = stepsOf(audit);
-  const setup = steps.filter((s) => usesAction(s, 'actions/setup-node'));
-  assert.equal(setup.length, 1);
-  assert.equal(setup[0].with['node-version-file'], '.nvmrc');
-  const runtime = steps.findIndex((s) => s.run === 'npm audit --omit=dev');
-  const all = steps.findIndex((s) => s.run === 'npm audit');
-  assert.ok(runtime !== -1, 'a blocking runtime audit');
-  assert.ok(!('continue-on-error' in steps[runtime]), 'the runtime audit blocks');
-  assert.ok(all > runtime, 'the full audit comes after the runtime audit');
-  assert.equal(steps[all]['continue-on-error'], true);
-  assert.equal(audit.name, 'audit');
-
-  assertFlags(hardeningProblems(mutate((wf) => {
-    wf.jobs.audit.steps.splice(2, 0, { name: 'Older lockfile', run: 'git checkout HEAD~1 -- package-lock.json' });
-  })), 'an extra run before the blocking audit');
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'audit', 'Audit runtime dependencies').run = 'npm audit --omit=dev --audit-level=critical'; })), 'a weakened runtime audit');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.audit.name = 'verify (ubuntu-latest, node 22.18.0)'; })), 'audit renamed to a verify check name');
-});
-
-test('the release check job runs after verify, with built-ins only', () => {
-  const job = WF.jobs['release-check'];
-  assert.equal(job.name, 'release check');
-  assert.equal(job.needs, 'verify');
-  assert.equal(job['runs-on'], 'ubuntu-latest');
-  assert.equal(typeof job['timeout-minutes'], 'number');
-  assert.deepEqual(stepsOf(job).map((s) => s.uses?.split('@')[0] ?? s.run), ['actions/checkout', 'actions/setup-node', `${RELEASE_CHECK_RUN}\n`]);
-  assert.deepEqual(stepNamed(WF, 'release-check', 'Check release metadata').env, RELEASE_CHECK_ENV);
-  assert.deepEqual(JSON.parse(read('package.json')).scripts['release:check'], 'node scripts/release-check.ts');
-  assert.deepEqual(hardeningProblems(WF), []);
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'release-check', 'Check release metadata').env.REF = '${{ github.head_ref }}'; })), 'REF from the PR head branch');
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'release-check', 'Check release metadata').run = 'npm run release:check\n'; })), 'the --dist choice dropped');
-
-  for (const other of ['verify', 'audit']) assertFlags(hardeningProblems(mutate((wf) => { wf.jobs[other].needs = 'release-check'; })), `needs on ${other}`);
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs['release-check'].steps.push({ name: 'Extra', run: 'npm ci' }); })), 'a second run step in release-check');
-  assertFlags(hardeningProblems(mutate((wf) => {
-    wf.jobs['release-check'].steps.splice(2, 0, { name: 'Install dependencies', run: 'npm ci' });
-  })), 'npm ci before the release check');
-  assertFlags(hardeningProblems(mutate((wf) => { delete wf.jobs['release-check'].needs; })), 'release-check without needs');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs['release-check'].needs = 'audit'; })), 'release-check needing audit');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs['release-check'].name = 'release'; })), 'release check renamed');
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'release-check', 'Check release metadata').run = 'npm run release:check || true'; })), 'a masked release check');
-  assertFlags(hardeningProblems(mutate((wf) => { delete stepNamed(wf, 'release-check', 'Check out').with['persist-credentials']; })), 'release-check checkout keeping credentials');
-});
-
 test('the release check picks --dist from the PR base or the branch', POSIX, () => {
-  const script = stepRunning('release-check', (r) => r.includes('release:check'));
+  const script = runOf(stepRunning(WF, 'release-check', (r) => r.includes('release:check')))!;
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-ci-dist-')));
   try {
     // A stub npm on PATH records the arguments the step passes.
@@ -553,111 +349,6 @@ test('the release check picks --dist from the PR base or the branch', POSIX, () 
   }
 });
 
-test('a new push to a PR cancels its previous run and pushes to main never cancel', () => {
-  assert.equal(WF.concurrency.group, '${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}');
-  assert.equal(WF.concurrency['cancel-in-progress'], true);
-});
-
-test('the token is read-only and no secret is referenced', () => {
-  assert.deepEqual(permissionProblems(WF, TEXT), []);
-  assertFlags(permissionProblems(mutate((wf) => { wf.permissions.contents = 'write'; }), TEXT), 'contents: write');
-  assertFlags(permissionProblems(mutate((wf) => { wf.jobs.verify.permissions = 'write-all'; }), TEXT), 'job-level permissions: write-all');
-  const withSecret = TEXT.replace("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'\n          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}");
-  assert.notEqual(withSecret, TEXT);
-  assertFlags(permissionProblems(parse(withSecret), withSecret), 'a ${{ secrets.NPM_TOKEN }} reference');
-  assertFlags(permissionProblems(WF, TEXT.replace('persist-credentials: false', 'token: ${{ github.token }}')), 'a github.token reference');
-  // The same values reached through index and toJSON forms, each in a workflow-level env.
-  for (const expr of ["${{ secrets['NPM_TOKEN'] }}", '${{ toJSON(secrets) }}', "${{ github['token'] }}", '${{ toJSON(github) }}']) {
-    const t = TEXT.replace('\npermissions:\n', `\nenv:\n  LEAK: ${expr}\n\npermissions:\n`);
-    assert.notEqual(t, TEXT);
-    assertFlags(permissionProblems(parse(t), t), expr);
-  }
-  assertFlags(permissionProblems(WF, TEXT.replace('${{ matrix.node }}\n', '${{ github.event.pull_request.title }}\n')), 'an expression off the allowlist');
-
-});
-
-test('every action is pinned to a full commit SHA with its version comment', () => {
-  assert.deepEqual(pinProblems(TEXT), []);
-  const pin = '@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1';
-  assert.ok(TEXT.includes(pin));
-  assertFlags(pinProblems(TEXT.replace(pin, '@v7')), 'a pin rewritten to @v7');
-  assertFlags(pinProblems(TEXT.replace(pin, '@3d3c42e # v7.0.1')), 'a 7-character SHA');
-  assertFlags(pinProblems(TEXT.replace(pin, '@3d3c42e5aac5ba805825da76410c181273ba90b1')), 'a full SHA without the version comment');
-  assertFlags(pinProblems(TEXT.replace(pin, '@3D3C42E5AAC5BA805825DA76410C181273BA90B1 # v7.0.1')), 'an uppercase SHA');
-  const checkout = `      - name: Check out\n        uses: actions/checkout${pin}\n        with:\n          persist-credentials: false\n`;
-  const flow = TEXT.replace(checkout, '      - { name: Check out, uses: actions/checkout@v7, with: { persist-credentials: false } }\n');
-  assert.notEqual(flow, TEXT);
-  assert.equal(parse(flow).jobs.verify.steps[0].uses, 'actions/checkout@v7', 'the flow-map step parses');
-  assertFlags(pinProblems(flow), 'a uses hidden in a flow map');
-});
-
-test('checkout keeps no credentials, nothing is cached, and no step can mask a failure or inject an expression', () => {
-  assert.deepEqual(hardeningProblems(WF), []);
-  assert.equal(stepsOf(WF.jobs.verify).concat(stepsOf(WF.jobs.audit)).filter((s) => 'continue-on-error' in s).length, 1);
-
-  assertFlags(hardeningProblems(mutate((wf) => { delete stepNamed(wf, 'verify', 'Check out').with['persist-credentials']; })), 'persist-credentials unset');
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Set up Node ${{ matrix.node }}').with.cache = 'npm'; })), 'cache: npm on setup-node');
-  assertFlags(hardeningProblems(mutate((wf) => { delete stepNamed(wf, 'audit', 'Set up Node').with['package-manager-cache']; })), 'package-manager-cache unset');
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Run tests')['continue-on-error'] = true; })), 'continue-on-error on Run tests');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify['continue-on-error'] = true; })), 'continue-on-error on a job');
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Install dependencies').run = 'npm ci || true'; })), 'npm ci || true');
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Install dependencies').run = 'npm ci || :'; })), 'npm ci || :');
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Run tests').run = 'set +e\nnode --test "test/*.test.ts"'; })), 'set +e');
-  assertFlags(hardeningProblems(mutate((wf) => {
-    stepNamed(wf, 'verify', 'Run tests').run = 'echo "${{ github.event.pull_request.title }}"';
-  })), 'a run interpolating the PR title');
-  assertFlags(hardeningProblems(mutate((wf) => {
-    stepNamed(wf, 'verify', 'Validate plugin').env.TITLE = '${{ github.event.pull_request.title }}';
-  })), 'a step env interpolating the PR title');
-  assertFlags(hardeningProblems(mutate((wf) => { delete wf.defaults; })), 'defaults unset');
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Syntax-check JavaScript entry points').shell = 'bash {0}'; })), 'a step dropping -e with its own shell');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.if = false; })), 'a job that never runs');
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Install dependencies').run = 'npm ci || exit 0'; })), 'npm ci || exit 0');
-
-  // `NODE_OPTIONS=--test-only` makes `node --test` exit 0 on a failing suite, from any env scope.
-  const testOnly = { NODE_OPTIONS: '--test-only' };
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Run tests').env = testOnly; })), 'NODE_OPTIONS on the Run tests step');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.env = testOnly; })), 'NODE_OPTIONS on the verify job');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.env = testOnly; })), 'NODE_OPTIONS on the workflow');
-  assertFlags(hardeningProblems(mutate((wf) => { Object.assign(stepNamed(wf, 'verify', 'Validate plugin').env, testOnly); })), 'an extra env on Validate plugin');
-  assertFlags(hardeningProblems(mutate((wf) => {
-    const step = stepNamed(wf, 'verify', 'Build dashboard');
-    step.run = `echo "NODE_OPTIONS=--test-only" >> "$GITHUB_ENV"\n${step.run}`;
-  })), 'a run writing GITHUB_ENV');
-
-  // Any action other than checkout then setup-node runs code the gate never sees, however well it is pinned.
-  const extraAction = { name: 'Cache', uses: `actions/cache@${'a'.repeat(40)}` };
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.steps.splice(2, 0, extraAction); })), 'an extra SHA-pinned action in verify');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.audit.steps.push(extraAction); })), 'an extra SHA-pinned action in audit');
-  assertFlags(hardeningProblems(mutate((wf) => {
-    const steps = wf.jobs.verify.steps;
-    [steps[0], steps[1]] = [steps[1], steps[0]];
-  })), 'setup-node before checkout');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.steps.shift(); })), 'no checkout');
-
-  // Keys outside the allowlists.
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Run tests')['working-directory'] = 'docs'; })), 'a step working-directory');
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Run tests')['timeout-minutes'] = 1; })), 'a step timeout');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.container = 'node:22'; })), 'a job container');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.extra = { 'runs-on': 'ubuntu-latest', steps: [] }; })), 'an extra job');
-  assertFlags(hardeningProblems(mutate((wf) => { wf.defaults.run['working-directory'] = 'docs'; })), 'a default working-directory');
-  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Check out').with.ref = 'main'; })), 'a checkout ref');
-  assertFlags(hardeningProblems(mutate((wf) => {
-    stepNamed(wf, 'verify', 'Set up Node ${{ matrix.node }}').with['registry-url'] = 'https://registry.npmjs.org';
-  })), 'a setup-node registry-url');
-});
-
-test('.nvmrc, the engines floor and the matrix floor agree', () => {
-  const nvmrc = read('.nvmrc');
-  assert.equal(nvmrc, '22.18.0\n');
-  const engines = JSON.parse(read('package.json')).engines.node;
-  const m = engines.match(/^>=(\d+)\.(\d+)(?:\.(\d+))?$/);
-  assert.ok(m, `engines.node is a >= floor: ${engines}`);
-  const floor = `${m[1]}.${m[2]}.${m[3] ?? 0}`;
-  assert.equal(nvmrc.trim(), floor);
-  assert.equal(WF.jobs.verify.strategy.matrix.node[0], floor);
-});
-
 test('the CLI starts without a type-stripping warning on this Node', () => {
   const env = { ...process.env };
   delete env.NODE_OPTIONS;
@@ -666,45 +357,3 @@ test('the CLI starts without a type-stripping warning on this Node', () => {
   assert.equal(JSON.parse(r.stdout).version, JSON.parse(read('package.json')).version);
   assert.doesNotMatch(r.stderr, /ExperimentalWarning/);
 });
-
-test('README carries the CI badge and the Node 22.18 floor', () => {
-  const lines = read('README.md').split('\n');
-  const version = lines.findIndex((l) => l.includes('<img alt="version"'));
-  assert.ok(version !== -1, 'the version badge');
-  const open = lines.lastIndexOf('<p align="center">', version);
-  const close = lines.indexOf('</p>', version);
-  assert.ok(open !== -1 && close !== -1 && !lines.slice(open + 1, version).includes('</p>'), 'the version badge sits in a centred badge block');
-
-  const ci = lines[version + 1].match(/^\s*<a href="([^"]+)"><img alt="CI" src="([^"]+)"><\/a>$/);
-  assert.ok(ci && version + 1 < close, 'the CI badge directly follows the version badge, in the same block');
-  assert.equal(ci[1], 'https://github.com/maxwellmattryan/forge/actions/workflows/ci.yml');
-  assert.ok(ci[2].includes('img.shields.io/github/actions/workflow/status/maxwellmattryan/forge/ci.yml'), ci[2]);
-
-  const node = lines.slice(open, close).find((l) => l.includes('<img alt="node"'));
-  assert.ok(node, 'the Node badge is in the block');
-  assert.ok(node.includes('node-%E2%89%A522.18-'), node);
-  assert.ok(!lines.join('\n').includes('%E2%89%A520-'), 'no badge still says >=20');
-});
-
-test('AGENTS.md says CI runs the verify list and names the pinned CLI version', () => {
-  const section = (heading: string) => {
-    const start = AGENTS.indexOf(`\n${heading}\n`);
-    assert.ok(start !== -1, heading);
-    const end = AGENTS.indexOf('\n## ', start + 1);
-    return AGENTS.slice(start, end === -1 ? undefined : end);
-  };
-  const verify = section('## Verify before claiming it works');
-  assert.ok(verify.includes('.github/workflows/ci.yml'));
-  assert.ok(verify.includes('test/ci-workflow.test.ts'));
-  assert.ok(verify.includes('](docs/CI.md)'), 'the verify section links docs/CI.md');
-  const ci = read('docs/CI.md');
-  const pkg = cliPackage(WF);
-  assert.ok(pkg, 'the workflow pins the CLI');
-  assert.ok(verify.includes(pkg), `the verify section names ${pkg}`);
-  assert.ok(ci.includes(pkg), `docs/CI.md names ${pkg}`);
-  assert.deepEqual(verifyListProblems(AGENTS, WF), [], 'the fence is in CI order');
-
-  assert.match(section('## Layout'), /^- `\.github\/workflows\/ci\.yml`: /m);
-  assert.match(section('## Where a change goes'), /^\| CI \| `\.github\/workflows\/ci\.yml` \| .*`test\/ci-workflow\.test\.ts` \|$/m);
-});
-

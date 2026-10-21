@@ -109,25 +109,25 @@ describe('release gate seeding', { concurrency: 4 }, () => {
     }
   });
 
+  // The workflow init writes into a consumer repo: read-only, pinned, no stored credentials, no install.
   test('the seeded workflow runs the script with read-only permissions', () => {
-    const wf: any = yaml.parse(fs.readFileSync(path.join(TEMPLATE, 'forge-release-gate.yml'), 'utf8'));
-    const ci: any = yaml.parse(fs.readFileSync(path.join(PLUGIN_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8'));
-    const ciCheckout = ci.jobs.verify.steps.find((s: any) => String(s.uses).startsWith('actions/checkout@')).uses;
-    const ciRaw = fs.readFileSync(path.join(PLUGIN_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
-    const wfRaw = fs.readFileSync(path.join(TEMPLATE, 'forge-release-gate.yml'), 'utf8');
-    const comment = (raw: string) => /uses: actions\/checkout@[0-9a-f]{40} (# .+)$/m.exec(raw)?.[1];
-    assert.equal(wf.name, 'forge release gate');
-    assert.deepEqual(wf.on, { pull_request: {}, merge_group: {} });
-    assert.deepEqual(wf.permissions, { contents: 'read' });
-    assert.deepEqual(Object.keys(wf.jobs), ['release-gate']);
-    const job = wf.jobs['release-gate'];
-    assert.deepEqual({ ...job, steps: undefined }, { name: 'release gate', 'runs-on': 'ubuntu-latest', 'timeout-minutes': 5, steps: undefined });
-    assert.equal(job.steps.length, 2);
-    assert.equal(job.steps[0].uses, ciCheckout);
-    assert.match(job.steps[0].uses, /^actions\/checkout@[0-9a-f]{40}$/);
-    assert.equal(comment(wfRaw), comment(ciRaw), 'the same version comment as ci.yml');
-    assert.deepEqual(job.steps[0].with, { 'persist-credentials': false });
-    assert.equal(job.steps[1].run, 'node .forge/ci/release-gate.mjs');
-    assert.ok(!/setup-node|npm |install/.test(wfRaw.replace(/^#.*$/gm, '')), 'no setup and no install');
+    const r = tempRepo();
+    try {
+      initWrite(r.dir, { ...base, release: { interim: 'canary' } }, false);
+      const wfRaw = fs.readFileSync(path.join(r.dir, WORKFLOW), 'utf8');
+      const wf: any = yaml.parse(wfRaw);
+      assert.deepEqual(wf.permissions, { contents: 'read' });
+      const steps = Object.values<any>(wf.jobs).flatMap((j) => {
+        assert.equal(j.permissions, undefined, 'no job widens the workflow permissions');
+        return j.steps;
+      });
+      for (const s of steps.filter((x: any) => x.uses)) assert.match(s.uses, /^[\w.-]+\/[\w./-]+@[0-9a-f]{40}$/, 'pinned to a commit');
+      const checkout = steps.find((s: any) => String(s.uses).startsWith('actions/checkout@'));
+      assert.deepEqual(checkout.with, { 'persist-credentials': false });
+      assert.ok(steps.some((s: any) => s.run === 'node .forge/ci/release-gate.mjs'), 'runs the seeded script');
+      assert.ok(!/setup-node|npm |install/.test(wfRaw.replace(/^#.*$/gm, '')), 'no setup and no install');
+    } finally {
+      r.cleanup();
+    }
   });
 });

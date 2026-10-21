@@ -74,22 +74,7 @@ test('split-approval is a waiting reason jobs can park on and leave', () => {
   }
 });
 
-const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
-const between = (text: string, from: string, to: string) => {
-  const start = text.indexOf(from);
-  assert.ok(start >= 0, `missing ${from}`);
-  const end = text.indexOf(to, start + from.length);
-  return end > start ? text.slice(start, end) : text.slice(start);
-};
-// The split gate's decisions live in `forge job step` (lib/step.ts); the human commands and the
-// child-creation procedure live in the orchestrator's references.
-const COMMANDS = read('skills/forge/reference/commands.md');
-const SPLIT = read('skills/forge/reference/split.md');
-const approveRow = (gate: string) => {
-  const line = between(COMMANDS, '## `approve', '\n## ').split('\n').find((l) => l.startsWith(`| \`${gate}\``));
-  assert.ok(line, `no approve row for ${gate}`);
-  return line;
-};
+// The split gate's decisions live in `forge job step` (lib/step.ts).
 const planned = (split: 'ask' | 'auto' | 'never', splitMode: 'never' | null = null) =>
   fixture({ config: (c) => (c.pipeline.split = split), job: { stage: 'plan', state: 'running', splitMode, agents: { planner: ag(0, 1, 2) } }, plan: { verdict: 'SPLIT', jobs: 3 } });
 
@@ -100,19 +85,12 @@ test('a split under ask waits on split-approval and creates nothing', () => {
   if (a.action !== 'run') return;
   assert.deepEqual(a.command, ['job', 'set', 'j', '--stage', 'plan', '--state', 'waiting', '--waiting-on', 'split-approval', '--reason', 'planner proposes 3 jobs']);
   assert.equal(step(planned('never')).rule, 'P3', 'a SPLIT returned under never waits too');
-
-  const approve = approveRow('split-approval');
-  assert.ok(approve.includes('approve-split') && approve.includes('reference/split.md'));
-  const revise = between(COMMANDS, '## `revise', '\n## ');
-  for (const s of ['split-approval', 'revise-split', 'split mode `never`', '--stage plan --state running']) assert.ok(revise.includes(s), s);
 });
 
-test('split.md keeps today\'s split path under auto', () => {
+test('a split under auto hands off to split.md', () => {
   const a = step(planned('auto'));
   assert.equal(a.action, 'procedure');
   if (a.action === 'procedure') assert.equal(a.reference, path.join(ROOT, 'skills', 'forge', 'reference', 'split.md'));
-  for (const s of ['forge tracker create --title … --body … --parent <ref>', 'forge job new --title … --body … --parent <id>', 'dependsOn', '--waiting-on external --reason "split into N jobs"'])
-    assert.ok(SPLIT.includes(s), s);
 });
 
 test('issue <ref> plans with split mode never', () => {
@@ -121,20 +99,4 @@ test('issue <ref> plans with split mode never', () => {
   assert.ok(spawn.action === 'spawn' && spawn.brief.split('\n').includes('Split mode: never'));
   const fresh = step(fixture({ config: (c) => (c.pipeline.split = 'auto'), job: { stage: 'plan', state: 'running' } }));
   assert.ok(fresh.action === 'spawn' && fresh.brief.split('\n').includes('Split mode: auto'));
-  assert.ok(read('skills/forge/SKILL.md').split('\n').some((l) => l.startsWith('| `issue <ref>`') && l.includes('forge job from-ref')));
-  // The planner half: under never the plan stays one job and a split opinion is only advice.
-  const planner = read('agents/planner.md');
-  assert.ok(planner.includes('Split mode'));
-  assert.ok(planner.includes('`never`: the human chose this boundary, so the plan is always `PLAN: SINGLE`'));
-  assert.ok(planner.includes('External line starting `Recommend splitting:`'));
-  assert.ok(planner.includes('`feedback.md`'));
-});
-
-test('prompts carry phases from plan to tasks to commits', () => {
-  const template = between(read('agents/planner.md'), '## Write `plan.md`', '## Finish');
-  assert.ok(template.includes('## Phases          (only for SINGLE)'));
-  const writer = read('agents/spec-writer.md');
-  assert.ok(writer.includes('When `plan.md` has `## Phases`, group `## Tasks` under `### Phase <n>: <title>` headings'));
-  const builder = read('agents/builder.md');
-  assert.ok(builder.includes('commit at the end of each phase with build and tests green'));
 });

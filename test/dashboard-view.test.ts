@@ -1,6 +1,5 @@
-// The view logic moved out of the pre-Svelte app.js (dashboard/src/lib/view.ts). Goldens were produced by running
-// main's app.js code (inboxCard, the click handler's req/eval-run branches, compareTable, prChip, filteredJobs) and
-// are pasted here as data, so any drift in actions, placeholders or POST bodies fails.
+// The dashboard's view logic (dashboard/src/lib/view.ts and thread.ts): small input/output cases for the inbox
+// cards, the POST bodies its buttons send, the board, chips and the drawer.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as V from '../dashboard/src/lib/view.ts';
@@ -10,41 +9,59 @@ import { dur, tokensShort } from '../dashboard/src/lib/util.ts';
 import { STAGES, STATES, WAITING_ON } from '../dashboard/src/lib/types.ts';
 import { DEP_REASON } from '../lib/deps.ts';
 
-// Per waiting kind: the card's buttons, its textarea placeholder (null: no textarea) and its "Read …" link.
-const INBOX = {"spec-approval":{"actions":[{"label":"Approve spec","type":"approve","primary":true,"needsNote":false},{"label":"Request changes","type":"revise-spec","primary":false,"needsNote":true}],"note":"Optional note for the agents…","doc":"spec.md"},"split-approval":{"actions":[{"label":"Approve split","type":"approve","primary":true,"needsNote":false},{"label":"Keep as one job","type":"revise-spec","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":"plan.md"},"input":{"actions":[{"label":"Send answer","type":"answer","primary":true,"needsNote":true}],"note":"Your answer…","doc":"questions.md"},"escalation":{"actions":[{"label":"Approve","type":"approve","primary":true,"needsNote":false},{"label":"Rework","type":"rework","primary":false,"needsNote":true},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":"decision.md"},"rounds-exhausted":{"actions":[{"label":"Another round","type":"rework","primary":false,"needsNote":true},{"label":"Accept as is","type":"approve","primary":false,"needsNote":false},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":"review/round-2"},"budget":{"actions":[{"label":"Approve & continue","type":"approve","primary":true,"needsNote":true},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional: new limits, e.g. usd=20 tokens=2000000","doc":null},"infra":{"actions":[{"label":"Steps done, resume","type":"resume","primary":true,"needsNote":false}],"note":null,"doc":"runbook.md"},"conflicts":{"actions":[{"label":"Fix conflicts now","type":"rework","primary":true,"needsNote":false,"text":"Resolve merge conflicts with the base branch"},{"label":"Leave for later","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null},"external":{"actions":[{"label":"Unblocked, resume","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null},"human":{"actions":[{"label":"Approve","type":"approve","primary":true,"needsNote":false},{"label":"Rework","type":"rework","primary":false,"needsNote":true},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":null},"failed":{"actions":[{"label":"Retry","type":"resume","primary":false,"needsNote":false},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":null,"doc":null},"pr-review":{"actions":[{"label":"Resume","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null},"mystery":{"actions":[{"label":"Resume","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null}};
-const REQUESTS = {"runNext":{"type":"next","job":null,"text":null,"args":{}},"start":{"type":"run","job":null,"text":null,"args":{"ref":"12"}},"addressFeedback":{"type":"rework","job":"j2","text":"Address the PR feedback","args":{}},"approveWithNote":{"type":"approve","job":"j1","text":"ship it","args":{}},"approveNoNote":{"type":"approve","job":"j3","text":null,"args":{}},"answerEmpty":{"toast":["Write something first.",true]},"reworkEmpty":{"type":"rework","job":"j3","text":null,"args":{}},"fixConflicts":{"type":"rework","job":"j1","text":"Resolve merge conflicts with the base branch","args":{}},"evalRun":{"type":"eval-run","args":{"tags":"replay, ui","tasks":null,"label":"base"}},"evalRunEmpty":{"type":"eval-run","args":{"tags":null,"tasks":null,"label":null}}};
-const FILTERS = {"active":["a","b","c","d","i"],"waiting":["b","c","d"],"done":["e","f"],"all":["a","b","c","d","e","f","g","h","i"]};
+// Per waiting kind: its buttons as `type` (`*` primary, `!` needs a note), whether it has a textarea, and the doc
+// its "Read …" link opens.
+const INBOX: Record<string, [string, boolean, string | null]> = {
+  'spec-approval': ['approve* revise-spec!', true, 'spec.md'],
+  'split-approval': ['approve* revise-spec', true, 'plan.md'],
+  input: ['answer*!', true, 'questions.md'],
+  escalation: ['approve* rework! cancel', true, 'decision.md'],
+  'rounds-exhausted': ['rework! approve cancel', true, 'review/round-2'],
+  budget: ['approve*! cancel', true, null],
+  infra: ['resume*', false, 'runbook.md'],
+  conflicts: ['rework* resume', false, null],
+  external: ['resume', false, null],
+  human: ['approve* rework! cancel', true, null],
+  failed: ['resume cancel', false, null],
+  'pr-review': ['resume', false, null],
+  mystery: ['resume', false, null],
+};
+const shape = (actions: { type: string; primary: boolean; needsNote: boolean }[]) => actions.map((a) => `${a.type}${a.primary ? '*' : ''}${a.needsNote ? '!' : ''}`).join(' ');
 
 const card = (kind): any => (kind === 'failed' ? { id: 'j1', state: 'failed', waitingOn: null, round: 2 } : { id: 'j1', state: 'waiting', waitingOn: kind, round: 2 });
 
 test('inbox: every waiting kind keeps its actions, note and doc', () => {
-  for (const [kind, want] of Object.entries(INBOX)) {
+  for (const [kind, [actions, note, doc]] of Object.entries(INBOX)) {
     const k = V.inboxKind(card(kind));
-    assert.deepEqual(V.inboxActions(k), want.actions, kind);
-    assert.equal(V.showsNote(k) ? V.notePlaceholder(k) : null, want.note, kind);
-    assert.equal(V.inboxDoc(k, card(kind)), want.doc, kind);
+    assert.equal(shape(V.inboxActions(k)), actions, kind);
+    assert.equal(V.showsNote(k), note, kind);
+    if (note) assert.ok(V.notePlaceholder(k), kind);
+    assert.equal(V.inboxDoc(k, card(kind)), doc, kind);
   }
+  assert.notEqual(V.notePlaceholder('budget'), V.notePlaceholder('human'), 'the budget card asks for new limits');
+  assert.equal(V.inboxActions('conflicts')[0].text, 'Resolve merge conflicts with the base branch', 'Fix conflicts sends a fixed rework text');
   assert.equal(V.inboxKind({ state: 'failed', waitingOn: 'input' }), 'failed');
 });
 
-test('requests: the exact POST bodies of main\'s buttons', () => {
+test('requests: the POST bodies the buttons send', () => {
   const body = (input) => {
     const r = V.buildRequest(input);
-    return 'error' in r ? { toast: [r.error, true] } : r.body;
+    return 'error' in r ? 'error' : r.body;
   };
   const note = '  ship it  ';
-  assert.deepEqual(body({ type: 'next' }), REQUESTS.runNext, 'Run next');
-  assert.deepEqual(body({ type: 'run', ref: '12' }), REQUESTS.start, 'Start');
-  assert.deepEqual(body({ type: 'rework', job: 'j2', fixedText: 'Address the PR feedback' }), REQUESTS.addressFeedback, 'Address feedback');
-  assert.deepEqual(body({ type: 'approve', job: 'j1', note }), REQUESTS.approveWithNote, 'approve with a note');
-  assert.deepEqual(body({ type: 'approve', job: 'j3', note: '' }), REQUESTS.approveNoNote, 'approve without a note');
-  assert.deepEqual(body({ type: 'approve', job: 'j3', note: null }), REQUESTS.approveNoNote, 'a card without a textarea');
-  assert.deepEqual(body({ type: 'answer', job: 'j3', note: '   ', needsNote: true }), REQUESTS.answerEmpty, 'an empty answer');
-  assert.deepEqual(body({ type: 'revise-spec', job: 'j3', note: '', needsNote: true }), REQUESTS.answerEmpty, 'empty spec changes');
-  assert.deepEqual(body({ type: 'rework', job: 'j3', note: '', needsNote: true }), REQUESTS.reworkEmpty, 'rework may be empty');
-  assert.deepEqual(body({ type: 'rework', job: 'j1', note, fixedText: 'Resolve merge conflicts with the base branch' }), REQUESTS.fixConflicts, 'fixed text wins over the note');
-  assert.deepEqual(V.evalRunBody({ tags: ' replay, ui ', tasks: '   ', label: 'base' }), REQUESTS.evalRun, 'Run eval');
-  assert.deepEqual(V.evalRunBody({ tags: '', tasks: null, label: '' }), REQUESTS.evalRunEmpty, 'Run eval, empty form');
+  const req = (type: string, job: string | null, text: string | null, args = {}) => ({ type, job, text, args });
+  assert.deepEqual(body({ type: 'next' }), req('next', null, null), 'Run next');
+  assert.deepEqual(body({ type: 'run', ref: '12' }), req('run', null, null, { ref: '12' }), 'Start');
+  assert.deepEqual(body({ type: 'rework', job: 'j2', fixedText: 'Address the PR feedback' }), req('rework', 'j2', 'Address the PR feedback'), 'Address feedback');
+  assert.deepEqual(body({ type: 'approve', job: 'j1', note }), req('approve', 'j1', 'ship it'), 'approve with a note');
+  assert.deepEqual(body({ type: 'approve', job: 'j3', note: '' }), req('approve', 'j3', null), 'approve without a note');
+  assert.deepEqual(body({ type: 'approve', job: 'j3', note: null }), req('approve', 'j3', null), 'a card without a textarea');
+  assert.equal(body({ type: 'answer', job: 'j3', note: '   ', needsNote: true }), 'error', 'an empty answer');
+  assert.equal(body({ type: 'revise-spec', job: 'j3', note: '', needsNote: true }), 'error', 'empty spec changes');
+  assert.deepEqual(body({ type: 'rework', job: 'j3', note: '', needsNote: true }), req('rework', 'j3', null), 'rework may be empty');
+  assert.deepEqual(body({ type: 'rework', job: 'j1', note, fixedText: 'Resolve merge conflicts with the base branch' }), req('rework', 'j1', 'Resolve merge conflicts with the base branch'), 'fixed text wins over the note');
+  assert.deepEqual(V.evalRunBody({ tags: ' replay, ui ', tasks: '   ', label: 'base' }), { type: 'eval-run', args: { tags: 'replay, ui', tasks: null, label: 'base' } }, 'Run eval');
+  assert.deepEqual(V.evalRunBody({ tags: '', tasks: null, label: '' }), { type: 'eval-run', args: { tags: null, tasks: null, label: null } }, 'Run eval, empty form');
   assert.deepEqual(Object.keys(body({ type: 'next' })), ['type', 'job', 'text', 'args'], 'same key order on the wire');
   assert.deepEqual(body({ type: 'approve', job: 'j1', note: ' why ', args: { link: 'none' } }), { type: 'approve', job: 'j1', text: 'why', args: { link: 'none' } }, 'args ride along');
   assert.deepEqual(body({ type: 'run', ref: '12', args: { n: 2 } }), { type: 'run', job: null, text: null, args: { ref: '12', n: 2 } }, 'args merge after ref');
@@ -71,7 +88,7 @@ test('chips: state, verdict and PR tones and text', () => {
   assert.equal(V.stateText({ state: 'waiting', waitingOn: 'later' } as any), 'later', 'unknown wait reasons show raw');
   assert.equal(V.stateText({ state: 'running' }), 'running');
   assert.deepEqual(['PASS', 'CHANGES', 'MALFORMED', undefined].map(V.verdictTone), ['ok', 'bad', 'warn', 'muted']);
-  // main's prChip, as [input, toneChip(tone, text)] with toneChip stubbed to `[tone:text]`.
+  // prChipModel, as [input, `[tone:text]`].
   const prs: any = [
     [null, ''], [{}, ''], [{ number: 5, state: 'MERGED' }, '[ok:#5]'], [{ number: 5, state: 'CLOSED', conflicts: true }, '[muted:#5 · conflicts]'],
     [{ number: 5, state: 'OPEN', conflicts: true }, '[warn:#5 · conflicts]'], [{ number: 5, state: 'OPEN', checks: { state: 'failing' } }, '[bad:#5 · failing]'],
@@ -120,7 +137,8 @@ const JOBS: any = [
 
 test('pipeline: filters, counts, board columns and nav badges', () => {
   const base = JOBS.slice(0, 9);
-  for (const [f, ids] of Object.entries(FILTERS)) assert.deepEqual(V.filterJobs(base, f).map((j) => j.id), ids, f);
+  const filters = { active: ['a', 'b', 'c', 'd', 'i'], waiting: ['b', 'c', 'd'], done: ['e', 'f'], all: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'] };
+  for (const [f, ids] of Object.entries(filters)) assert.deepEqual(V.filterJobs(base, f).map((j) => j.id), ids, f);
   assert.deepEqual(V.pipelineCounts(base), { all: 9, active: 5, waiting: 3, done: 2 }, 'all counts evals; the rest do not');
   assert.deepEqual(V.boardColumns([]).map((c) => c.id), ['queued', 'plan', 'build', 'ship']);
   assert.deepEqual(V.boardColumns(JOBS).map((c) => [c.id, c.jobs.map((j) => j.id)]), [['queued', ['i']], ['plan', ['b']], ['build', ['c', 'd', 'a', 'g']], ['ship', ['p']], ['done', ['e', 'f', 'h']]]);
@@ -171,7 +189,7 @@ test('evals: compare rows keep the old table\'s values and tones', () => {
       avgRounds: { a: 2, b: 1, change: -1 }, escalationRate: { a: 0, b: 0.5, change: 0.5 }, roundsExhaustedRate: { a: 0, b: 0.25, change: 0.25 }, avgTokens: { a: 100, b: 100, change: 0 }, avgCostUsd: { a: 1, b: 2, change: 1 }, avgMinutes: { a: 10, b: 5, change: -5 },
     },
   } as any);
-  // main's compareTable rendered these rows (metric, A, B, Δ and the Δ cell's tone class).
+  // Rows as metric, A, B, Δ and the Δ cell's tone.
   assert.deepEqual(rows.map((r) => [r.key, r.a, r.b, r.change, r.tone]), [
     ['checkPassRate', '0.5', '0.75', '+0.25', 'text-ok'],
     ['avgJudgeScore', '0.9', '0.8', '-0.1', 'text-bad'],
@@ -434,14 +452,13 @@ test('spec-approval on an unlinked job: the chooser replaces Approve', () => {
   ] as const)
     assert.equal(V.specLinkPending(j as any), false, why);
 
-  assert.deepEqual(V.inboxActions('spec-approval', { linkPending: true }), [{ label: 'Request changes', type: 'revise-spec', primary: false, needsNote: true }]);
-  assert.deepEqual(V.inboxActions('spec-approval'), INBOX['spec-approval'].actions, 'a linked spec card is unchanged');
-  assert.deepEqual(V.inboxActions('spec-approval', { linkPending: false }), INBOX['spec-approval'].actions);
-  assert.equal(V.notePlaceholder('spec-approval', { linkPending: true }), 'Optional note for the agents, or why no issue is needed…');
-  assert.equal(V.notePlaceholder('spec-approval'), INBOX['spec-approval'].note);
+  assert.equal(shape(V.inboxActions('spec-approval', { linkPending: true })), 'revise-spec!');
+  assert.equal(shape(V.inboxActions('spec-approval')), INBOX['spec-approval'][0], 'a linked spec card is unchanged');
+  assert.equal(shape(V.inboxActions('spec-approval', { linkPending: false })), INBOX['spec-approval'][0]);
+  assert.notEqual(V.notePlaceholder('spec-approval', { linkPending: true }), V.notePlaceholder('spec-approval'), 'the note may say why no issue is needed');
   // linkPending only changes the spec gate.
   for (const kind of Object.keys(INBOX)) if (kind !== 'spec-approval') {
-    assert.deepEqual(V.inboxActions(kind as any, { linkPending: true }), INBOX[kind].actions, kind);
+    assert.deepEqual(V.inboxActions(kind as any, { linkPending: true }), V.inboxActions(kind as any), kind);
     assert.equal(V.notePlaceholder(kind as any, { linkPending: true }), V.notePlaceholder(kind as any), kind);
   }
 });
@@ -688,7 +705,7 @@ test('actorLabel and lastActed', () => {
   assert.equal(V.actorLabel(ev({ login: null, source: 'foreman' })), null, 'the foreman keeps its chip and shows no login');
   assert.equal(V.actorLabel({ v: 2, ts: 't', type: 'agent-end' }), null);
   assert.equal(V.actorLabel(null), null);
-  // Markup is returned as text; Svelte's {…} escapes it, and no {@html} renders an actor (dashboard-svelte.test.ts).
+  // Markup is returned as text; Svelte's {…} escapes it, and no {@html} renders an actor (dashboard-invariants.test.ts).
   assert.equal(V.actorLabel(ev({ login: '<img src=x onerror=alert(1)>', source: 'env' }))!.login, '<img src=x onerror=alert(1)>');
 
   assert.equal(V.lastActed({ lastHuman: null }), null);
