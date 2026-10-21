@@ -994,7 +994,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       }
     }
     try {
-      const { requeued, rejected } = requeueOrphanedRequests(root, { exited: ids });
+      // No claim-age rule here: this session can't see which of the pool's others are mid-turn; the pool's reconciler can.
+      const { requeued, rejected } = requeueOrphanedRequests(root, { exited: ids, byAge: false });
       if (requeued.length || rejected.length) logEvent('requeued', { requests: requeued.map((r) => r.id), rejected: rejected.map((r) => r.id) });
     } catch (e) {
       logEvent('error', { message: `requeueing claimed requests: ${(e as Error).message}` });

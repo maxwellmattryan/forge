@@ -9,7 +9,7 @@ import { maybeEnqueueGate } from './foreman.ts';
 import { leaseStatus, listJobs, loadJob, logEvent, readEvents, requeueOrphanedRequests, setJob } from './jobs.ts';
 import { paths } from './paths.ts';
 import { enqueue, listRequests, requestScope, validJobId } from './requests.ts';
-import { readJson, withLock, writeJsonAtomic } from './util.ts';
+import { lockHeld, readJson, withLock, writeJsonAtomic } from './util.ts';
 import type { Config, ForgeRequest, Job, JobEvent, LoadedJob } from './types.ts';
 
 /** Event types that mean the pipeline moved; renewals, syncs, notes and failures don't count. */
@@ -35,6 +35,9 @@ export const RECONCILE_TEXT =
 /** The lock a `forge dash` holds while its pool is started; `forge sync` probes it and leaves reconciling to the dash. */
 export const daemonLockDir = (root: string): string => path.join(paths(root).locks, 'daemon');
 
+/** Whether a live `forge dash` holds the daemon lock, read without taking it, so a probe never refuses a dash starting that instant. */
+export const dashRunning = (root: string): boolean => lockHeld(daemonLockDir(root));
+
 /** What `forge dash` knows about a job's own session: every id it ran under, its status, claude's background task count (-1 until reported) and since when it is idle. */
 export type SessionFacts = { ids: string[]; status: string; background: number; idleSince: string | null };
 
@@ -42,9 +45,10 @@ export type SessionFacts = { ids: string[]; status: string; background: number; 
  * Whether a running job is driven. A request routed to it (pending or in progress), its own session
  * busy or stopping, or a live lease each drive it, except a lease whose driver is the job's own
  * session while that session is off, or has sat idle with no background task for IDLE_UNDRIVEN_MS:
- * that driver will not act again unasked. Pure.
+ * that driver will not act again unasked. A claude that has not reported its background tasks
+ * counts as busy with them only while job.json marks an agent running. Pure.
  */
-export function judge(job: Pick<Job, 'lease'>, routed: readonly Pick<ForgeRequest, 'status'>[], facts: SessionFacts | null | undefined, at: number): { driven: boolean; why: string } {
+export function judge(job: Pick<Job, 'lease' | 'agents'>, routed: readonly Pick<ForgeRequest, 'status'>[], facts: SessionFacts | null | undefined, at: number): { driven: boolean; why: string } {
   if (routed.some((r) => r.status === 'pending' || r.status === 'in-progress')) return { driven: true, why: 'request' };
   if (facts && (facts.status === 'busy' || facts.status === 'stopping')) return { driven: true, why: 'session busy' };
   const lease = leaseStatus(job, at);
@@ -52,7 +56,10 @@ export function judge(job: Pick<Job, 'lease'>, routed: readonly Pick<ForgeReques
   const own = Boolean(facts && job.lease.driver && facts.ids.includes(job.lease.driver));
   if (own && facts!.status === 'off') return { driven: false, why: 'its session is off' };
   const idle = facts?.idleSince ? Date.parse(facts.idleSince) : NaN;
-  if (own && facts!.status === 'idle' && facts!.background === 0 && Number.isFinite(idle) && at - idle >= IDLE_UNDRIVEN_MS) return { driven: false, why: 'its session is idle' };
+  if (own && facts!.status === 'idle' && Number.isFinite(idle) && at - idle >= IDLE_UNDRIVEN_MS) {
+    const agentsRunning = Object.values(job.agents ?? {}).some((a) => a?.status === 'running');
+    if (facts!.background === 0 || (facts!.background < 0 && !agentsRunning)) return { driven: false, why: 'its session is idle' };
+  }
   return { driven: true, why: 'lease' };
 }
 
@@ -102,12 +109,17 @@ export interface ReconcileResult {
  * job is resumed the first time and whenever it made progress since the last resume, and escalated
  * when it is undriven again at the same mark with nothing routed to it. Jobs in any other state
  * lose their record. `facts` are the dash's sessions by job id; `exited`, session ids just seen
- * exiting (their claimed requests go back to pending).
+ * exiting (their claimed requests go back to pending); `busy`, the ids of the dash's sessions
+ * mid-turn, whose claims stay however old.
  */
-export function reconcile(root: string, config: Config, opts: { at?: number; facts?: Map<string, SessionFacts>; only?: string; exited?: string[] } = {}): ReconcileResult {
+export function reconcile(
+  root: string,
+  config: Config,
+  opts: { at?: number; facts?: Map<string, SessionFacts>; only?: string; exited?: string[]; busy?: readonly string[] } = {},
+): ReconcileResult {
   const at = opts.at ?? Date.now();
   const out: ReconcileResult = { resumed: [], escalated: [], requeued: [] };
-  out.requeued = requeueOrphanedRequests(root, { at, exited: opts.exited }).requeued.map((r) => r.id);
+  out.requeued = requeueOrphanedRequests(root, { at, exited: opts.exited, busy: opts.busy }).requeued.map((r) => r.id);
   withLock(memoryLock(root), () => {
     const mem = readMemory(root);
     let jobs: LoadedJob[];

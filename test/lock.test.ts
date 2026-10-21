@@ -4,7 +4,7 @@ import { execFile, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { readLockHolder, tryLock, withLock } from '../lib/util.ts';
+import { lockHeld, readLockHolder, tryLock, withLock } from '../lib/util.ts';
 
 const CHILD = path.resolve(import.meta.dirname, 'fixtures', 'lock-child.ts');
 
@@ -135,6 +135,70 @@ describe('the lock proves death', { concurrency: 4 }, () => {
       lock = fresh();
       plant(lock, '{not json', { mtimeAgoMs: 61_000 });
       assert.equal(enters(lock), true, 'garbage holder, old');
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  // Synchronous on purpose: the stubbed process.kill is restored before any other test in this file runs.
+  test('EPERM is not proof of death', { skip: process.platform === 'win32' && 'POSIX-only' }, () => {
+    const s = scratch();
+    let n = 0;
+    const fresh = () => path.join(s.dir, `lock-${n++}`);
+    const realKill = process.kill;
+    try {
+      // Another uid's process, or one outside this sandbox: it exists, but this process may not signal it.
+      process.kill = ((pid: number, sig?: string | number) => {
+        if (sig === 0) throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
+        return realKill.call(process, pid, sig);
+      }) as typeof process.kill;
+      let lock = fresh();
+      plant(lock, holder({ pid: deadPid() }));
+      assert.equal(enters(lock), false, 'a holder we may not signal keeps its lock');
+      assert.equal(lockHeld(lock), true);
+      lock = fresh();
+      plant(lock, holder());
+      assert.equal(enters(lock), false, 'a matching start time keeps it too');
+      // ps still proves a reused pid.
+      lock = fresh();
+      plant(lock, holder({ startedAt: new Date(Date.parse(startedAt()) - 3_600_000).toISOString() }));
+      assert.equal(enters(lock), true, 'pid reuse');
+    } finally {
+      process.kill = realKill;
+      s.cleanup();
+    }
+  });
+
+  test('a lock path that is not a directory is never broken through', { skip: process.platform === 'win32' && 'POSIX-only' }, () => {
+    const s = scratch();
+    try {
+      const target = path.join(s.dir, 'target');
+      fs.mkdirSync(target);
+      const t = new Date(Date.now() - 10 * 60_000);
+      fs.utimesSync(target, t, t);
+      fs.symlinkSync(target, s.lock);
+      assert.equal(enters(s.lock), false, 'an old holder-less target is still not broken');
+      assert.equal(lockHeld(s.lock), true);
+      assert.deepEqual(fs.readdirSync(target), [], 'nothing was made inside the target');
+      assert.equal(fs.lstatSync(s.lock).isSymbolicLink(), true);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('lockHeld reads the lock without taking it', () => {
+    const s = scratch();
+    try {
+      assert.equal(lockHeld(s.lock), false, 'no lock');
+      const held = tryLock(s.lock);
+      assert.ok('release' in held);
+      const before = fs.statSync(s.lock).ino;
+      assert.equal(lockHeld(s.lock), true, 'a live holder');
+      assert.equal(fs.statSync(s.lock).ino, before, 'the probe left the dir alone');
+      held.release();
+      plant(s.lock, holder({ pid: deadPid() }));
+      assert.equal(lockHeld(s.lock), false, 'a dead holder');
+      assert.equal(fs.existsSync(s.lock), true, 'and the probe broke nothing');
     } finally {
       s.cleanup();
     }

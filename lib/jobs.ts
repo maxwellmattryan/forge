@@ -139,7 +139,10 @@ export function expireLease(root: string, id: string, ids: readonly string[], re
 }
 
 /** requeueOrphans with leases read from job.json and its notes logged on each request's job. */
-export function requeueOrphanedRequests(root: string, opts: { at?: number; exited?: readonly string[] } = {}): { requeued: ForgeRequest[]; rejected: ForgeRequest[] } {
+export function requeueOrphanedRequests(
+  root: string,
+  opts: { at?: number; exited?: readonly string[]; busy?: readonly string[]; byAge?: boolean } = {},
+): { requeued: ForgeRequest[]; rejected: ForgeRequest[] } {
   return requeueOrphans(root, {
     ...opts,
     leaseOf: (id) => {

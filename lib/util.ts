@@ -193,6 +193,23 @@ export function pidAlive(pid: unknown): boolean {
   return false;
 }
 
+/**
+ * Whether `pid` is provably gone: its group and the pid both answer ESRCH. Stricter than pidAlive,
+ * for breaking locks: EPERM means a process exists that this one may not signal (another uid, or
+ * one outside this sandbox), so it is never proof of death.
+ */
+export function pidGone(pid: number): boolean {
+  for (const target of [-pid, pid]) {
+    try {
+      process.kill(target, 0);
+      return false;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ESRCH') return false;
+    }
+  }
+  return true;
+}
+
 /** How far a process's start time may be from a recorded one and still be that process (ps reports whole seconds). */
 export const START_SLACK_MS = 30_000;
 
@@ -261,13 +278,13 @@ interface LockWait {
 const newWait = (): LockWait => ({ probes: new Map(), holder: null });
 
 /**
- * Whether a parseable holder is provably gone: on this host, and its pid is not alive or (ps
+ * Whether a parseable holder is provably gone: on this host, and its pid is gone (pidGone) or (ps
  * permitting) belongs to a process that started at another time, so the pid was reused. Another
  * host, a matching start time, or a ps that fails all count as alive: age never does.
  */
 function holderDead(h: LockHolder, w: LockWait): boolean {
   if (h.host !== os.hostname()) return false;
-  if (!pidAlive(h.pid)) return true;
+  if (pidGone(h.pid)) return true;
   if (process.platform === 'win32') return false;
   const seen = w.probes.get(h.token);
   if (seen && Math.abs(Date.now() - seen.at) < PROBE_EVERY_MS) return seen.dead;
@@ -290,12 +307,12 @@ function bury(lockDir: string): boolean {
 }
 
 /**
- * Breaks a lock judged dead (holder `token`, or null for a legacy holder-less dir), one breaker at a
- * time: the `breaking` marker excludes the others, and the re-read proves the dir is still the one
- * judged. A breaker that dies before the rename leaves the marker, which wedges the lock rather than
- * ever admitting a second holder. Returns whether the lock is gone.
+ * Breaks a lock judged dead (holder `token`, or null for a legacy holder-less dir whose stat was
+ * `judged`), one breaker at a time: the `breaking` marker excludes the others, and the re-read
+ * proves the dir is still the one judged. A breaker that dies before the rename leaves the marker,
+ * which wedges the lock rather than ever admitting a second holder. Returns whether the lock is gone.
  */
-function breakLock(lockDir: string, token: string | null): boolean {
+function breakLock(lockDir: string, token: string | null, judged?: fs.Stats): boolean {
   const marker = path.join(lockDir, 'breaking');
   try {
     fs.mkdirSync(marker);
@@ -303,8 +320,9 @@ function breakLock(lockDir: string, token: string | null): boolean {
     return (e as NodeJS.ErrnoException).code === 'ENOENT';
   }
   const now = readLockHolder(lockDir);
-  // A legacy dir must still hold nothing but the marker and an unreadable holder.json: a temp file is a new holder mid-write.
-  const same = token === null ? now === null && onlyMarker(lockDir) : now?.token === token;
+  // A legacy dir must be the very dir judged (a new holder's, made since, has another inode or birth
+  // time even before it writes anything) and hold nothing but the marker and an unreadable holder.json.
+  const same = token === null ? now === null && sameDir(lockDir, judged) && onlyMarker(lockDir) : now?.token === token;
   if (!same) {
     try {
       fs.rmdirSync(marker);
@@ -312,6 +330,16 @@ function breakLock(lockDir: string, token: string | null): boolean {
     return false;
   }
   return bury(lockDir);
+}
+
+function sameDir(lockDir: string, judged: fs.Stats | undefined): boolean {
+  if (!judged) return false;
+  try {
+    const st = fs.lstatSync(lockDir);
+    return st.isDirectory() && st.dev === judged.dev && st.ino === judged.ino && st.birthtimeMs === judged.birthtimeMs;
+  } catch {
+    return false;
+  }
 }
 
 function onlyMarker(lockDir: string): boolean {
@@ -333,19 +361,21 @@ function attemptLock(lockDir: string, w: LockWait): string | null {
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
       if (tries > 0) return null;
+      let st: fs.Stats;
+      try {
+        st = fs.lstatSync(lockDir);
+      } catch {
+        continue;
+      }
+      // Not a directory (a planted symlink, say): wedged, never broken through into its target.
+      if (!st.isDirectory()) return null;
       const holder = readLockHolder(lockDir);
       w.holder = holder;
       if (holder) {
         if (!holderDead(holder, w) || !breakLock(lockDir, holder.token)) return null;
-      } else {
-        let mtime: number;
-        try {
-          mtime = fs.statSync(lockDir).mtimeMs;
-        } catch {
-          continue;
-        }
+      } else if (Date.now() - st.mtimeMs <= LEGACY_LOCK_MS || !breakLock(lockDir, null, st)) {
         // The only place a lock's age counts.
-        if (Date.now() - mtime <= LEGACY_LOCK_MS || !breakLock(lockDir, null)) return null;
+        return null;
       }
       continue;
     }
@@ -408,6 +438,24 @@ export async function withLockAsync<T>(lockDir: string, fn: () => Promise<T>, op
   } finally {
     releaseLock(lockDir, token);
   }
+}
+
+/**
+ * Whether a live holder has the lock, judged without touching it: a probe that must not hold the
+ * lock even for an instant (another start would then be refused). A holder-less dir counts as held
+ * while it is young, and a lock path that is not a directory as held, as attemptLock treats them.
+ */
+export function lockHeld(lockDir: string): boolean {
+  let st: fs.Stats;
+  try {
+    st = fs.lstatSync(lockDir);
+  } catch {
+    return false;
+  }
+  if (!st.isDirectory()) return true;
+  const holder = readLockHolder(lockDir);
+  if (holder) return !holderDead(holder, newWait());
+  return Date.now() - st.mtimeMs <= LEGACY_LOCK_MS;
 }
 
 /**

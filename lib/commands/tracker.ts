@@ -20,9 +20,9 @@ import { loadTracker, memberTracker } from '../trackers/index.ts';
 import { matchMember, memberForRef, memberTrackerConfig, memberTrackers, qualify } from '../member-trackers.ts';
 import type { MemberTracker } from '../member-trackers.ts';
 import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '../triage.ts';
-import { daemonLockDir, reconcile } from '../reconcile.ts';
+import { dashRunning, reconcile } from '../reconcile.ts';
 import type { ReconcileResult } from '../reconcile.ts';
-import { ForgeError, tryLock } from '../util.ts';
+import { ForgeError } from '../util.ts';
 import * as wt from '../worktree.ts';
 import { bodyFrom, list, num, req, str, usageError } from './args.ts';
 import type { Config, HelpGroup, Job, JobIssue, JobPr, Tracker, TrackerItem } from '../types.ts';
@@ -519,7 +519,7 @@ export async function syncAll(
   outcomes?: { measured: number; finalized: string[] };
   scoring?: { queued: string[]; held: string[] };
   retention?: { archived: string[]; logs: string[] };
-  reconcile: ReconcileResult | 'skipped (forge dash owns it)';
+  reconcile: ReconcileResult | 'skipped (forge dash owns it)' | { error: string };
 }> {
   const results: Record<string, unknown>[] = [];
   const integrating: string[] = [];
@@ -624,10 +624,14 @@ export async function syncAll(
 /**
  * The reconciler's pass without `forge dash` (lib/reconcile.ts): a running dash reconciles on its own
  * timer with its sessions' facts, so sync leaves it to the dash whenever a live process holds its lock.
+ * Read, never taken: a dash starting that instant must not find it held. A failed pass is reported,
+ * not thrown, since every other sync step has already run.
  */
-function syncReconcile(root: string, config: Config): ReconcileResult | 'skipped (forge dash owns it)' {
-  const probe = tryLock(daemonLockDir(root));
-  if (!('release' in probe)) return 'skipped (forge dash owns it)';
-  probe.release();
-  return reconcile(root, config);
+function syncReconcile(root: string, config: Config): ReconcileResult | 'skipped (forge dash owns it)' | { error: string } {
+  if (dashRunning(root)) return 'skipped (forge dash owns it)';
+  try {
+    return reconcile(root, config);
+  } catch (e) {
+    return { error: (e as Error).message.slice(0, 300) };
+  }
 }

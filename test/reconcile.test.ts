@@ -11,8 +11,8 @@ import { initWrite } from '../lib/commands/init.ts';
 import { assertEpoch, claimJob, createJob, leaseStatus, loadJob, readEvents, recordAgent, renewLease, setJob, updateJob } from '../lib/jobs.ts';
 import { IDLE_UNDRIVEN_MS, RECONCILE_TEXT, daemonLockDir, judge, progressMark, reconcile } from '../lib/reconcile.ts';
 import type { SessionFacts } from '../lib/reconcile.ts';
-import { ackRequest, listRequests } from '../lib/requests.ts';
-import { tryLock, withLock } from '../lib/util.ts';
+import { ackRequest, claimRequest, enqueue, listRequests } from '../lib/requests.ts';
+import { readLockHolder, tryLock, withLock } from '../lib/util.ts';
 import type { Config } from '../lib/types.ts';
 
 const HOUR = 3_600_000;
@@ -156,7 +156,11 @@ describe('reconciler', { concurrency: 4 }, () => {
       const job = loadJob(root, id);
       assert.equal(judge(job, [], facts({}), at).driven, false);
       assert.equal(judge(job, [], facts({ background: 1 }), at).driven, true, 'a background task is running');
-      assert.equal(judge(job, [], facts({ background: -1 }), at).driven, true, 'claude has not reported its tasks');
+      assert.equal(judge(job, [], facts({ background: -1 }), at).driven, true, 'claude has not reported its tasks while an agent runs');
+      // A turn that ended with the job still running, no agent marked running and no task ever reported: the old turn-end check.
+      const quiet = runningJob(root, 'Turn ended', 'S', true);
+      assert.deepEqual(judge(loadJob(root, quiet), [], facts({ background: -1 }), at), { driven: false, why: 'its session is idle' });
+      assert.equal(judge(loadJob(root, quiet), [], facts({ background: -1, idleSince: new Date(at - 1000).toISOString() }), at).driven, true, 'idle under a minute');
       assert.equal(judge(job, [], facts({ status: 'busy', idleSince: null }), at).driven, true, 'its session is busy');
       assert.equal(judge(job, [], facts({ status: 'stopping', idleSince: null }), at).driven, true);
       assert.equal(judge(job, [], facts({ idleSince: new Date(at - 1000).toISOString() }), at).driven, true, 'idle under a minute');
@@ -170,6 +174,23 @@ describe('reconciler', { concurrency: 4 }, () => {
 
       const human = runningJob(root, 'Human drives', 'H', true);
       assert.deepEqual(reconcile(root, config, { facts: new Map([[human, facts({})]]), at, only: human }).resumed, [], 'leased live by a non-daemon session: driven');
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  test('a busy session keeps an old claim', () => {
+    const repo = tempRepo();
+    const root = repo.dir;
+    const config = foremanConfig();
+    try {
+      // An inbox turn may run past the 30-minute claim age, up to daemon.turnTimeoutMinutes.
+      const r = enqueue(root, null, { type: 'next' });
+      claimRequest(root, r.id, 'I');
+      const later = Date.now() + 31 * 60_000;
+      assert.deepEqual(reconcile(root, config, { at: later, busy: ['I'] }).requeued, [], 'claimed 31 min ago by a busy session');
+      assert.equal(listRequests(root).find((x) => x.id === r.id)!.status, 'in-progress');
+      assert.deepEqual(reconcile(root, config, { at: later }).requeued, [r.id], 'once its session is not busy, the age rule applies');
     } finally {
       repo.cleanup();
     }
@@ -192,9 +213,17 @@ describe('reconciler', { concurrency: 4 }, () => {
       try {
         const skipped = JSON.parse((await forgeAsync(root, ['sync'])).stdout);
         assert.equal(skipped.reconcile, 'skipped (forge dash owns it)');
+        assert.equal(readLockHolder(daemonLockDir(root))?.pid, process.pid, 'sync read the lock without taking it');
       } finally {
         held.release();
       }
+      // A failed pass is reported, not thrown: the rest of the sync already ran.
+      const memoryFile = path.join(root, '.forge', 'runtime', 'reconcile.json');
+      fs.rmSync(memoryFile);
+      fs.mkdirSync(path.join(memoryFile, 'blocker'), { recursive: true });
+      const failed = await forgeAsync(root, ['sync']);
+      assert.equal(failed.status, 0, failed.stderr);
+      assert.equal(typeof JSON.parse(failed.stdout).reconcile.error, 'string');
     } finally {
       repo.cleanup();
     }

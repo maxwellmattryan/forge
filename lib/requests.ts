@@ -138,16 +138,28 @@ export function claimRequest(root: string, id: string, session: string, force = 
  * lease that session holds and the lease has expired, (b) the caller saw that session exit
  * (`exited`: the supervisor on a child's exit, the pool at boot), or (c) neither lease rule covers
  * it and its claim is older than CLAIM_STALE_MS (inbox, office and job-less requests, or a job
- * another session drives). A request requeued once before is rejected instead, so one that kills
- * its session can't loop. `leaseOf` reads a job's lease (lib/jobs.ts), which this module must not
- * import; `note` logs on the request's job after the lock is released.
+ * another session drives). Rule (c) never touches a claim of a session in `busy` (forge dash's
+ * sessions mid-turn: a turn may run past CLAIM_STALE_MS, up to daemon.turnTimeoutMinutes), and is
+ * off with `byAge: false` (a caller that can't see the dash's sessions while one runs). A request
+ * requeued once before is rejected instead, so one that kills its session can't loop. `leaseOf`
+ * reads a job's lease (lib/jobs.ts), which this module must not import; `note` logs on the
+ * request's job after the lock is released.
  */
 export function requeueOrphans(
   root: string,
-  opts: { leaseOf: (jobId: string) => JobLease | null; at?: number; exited?: readonly string[]; note?: (job: string, text: string) => void },
+  opts: {
+    leaseOf: (jobId: string) => JobLease | null;
+    at?: number;
+    exited?: readonly string[];
+    busy?: readonly string[];
+    byAge?: boolean;
+    note?: (job: string, text: string) => void;
+  },
 ): { requeued: ForgeRequest[]; rejected: ForgeRequest[] } {
   const at = opts.at ?? Date.now();
   const exited = new Set(opts.exited ?? []);
+  const busy = new Set(opts.busy ?? []);
+  const byAge = opts.byAge !== false;
   const requeued: ForgeRequest[] = [];
   const rejected: ForgeRequest[] = [];
   if (!listRequests(root, { status: 'in-progress' }).length) return { requeued, rejected };
@@ -159,7 +171,7 @@ export function requeueOrphans(
       const leased = Boolean(lease?.driver && rec.session && lease.driver === rec.session);
       const expired = leased && !(Date.parse(lease!.expiresAt ?? '') > at);
       const claimed = Date.parse(rec.updatedAt ?? rec.createdAt);
-      const stale = !leased && !(at - claimed < CLAIM_STALE_MS);
+      const stale = byAge && !leased && !(rec.session && busy.has(rec.session)) && !(at - claimed < CLAIM_STALE_MS);
       if (!expired && !stale && !(rec.session && exited.has(rec.session))) continue;
       const again = (Number.isSafeInteger(rec.requeues) ? rec.requeues! : 0) >= 1;
       const next: ForgeRequest = again

@@ -318,7 +318,9 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
   function runReconcile(only?: string): void {
     if (closed || !fs.existsSync(root)) return;
     try {
-      const r = reconcile(root, config(), { facts: sessionFacts(), ...(only !== undefined ? { only } : {}) });
+      // Inbox and office sessions too: their requests have no lease, so only this keeps a long turn's claim.
+      const busy = [...sessions.values()].filter((s) => s.status === 'busy' || s.status === 'stopping').flatMap((s) => s.facts().ids);
+      const r = reconcile(root, config(), { facts: sessionFacts(), busy, ...(only !== undefined ? { only } : {}) });
       for (const id of r.resumed) sessions.get(id)?.logEvent('reconcile', { action: 'resume' });
       for (const id of r.escalated) sessions.get(id)?.logEvent('reconcile', { action: 'escalate' });
       lastReconcileError = null;

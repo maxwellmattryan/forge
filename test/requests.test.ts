@@ -6,7 +6,9 @@ import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
 import { claimJob, createJob, loadJob, readEvents, requeueOrphanedRequests, updateJob } from '../lib/jobs.ts';
+import { daemonLockDir } from '../lib/reconcile.ts';
 import { REQUEUE_REJECTED, ackRequest, claimRequest, enqueue, listRequests, requeueOrphans } from '../lib/requests.ts';
+import { tryLock } from '../lib/util.ts';
 
 /** Runs the CLI against a scratch repo; `env` adds to (or, with undefined, removes from) the environment. */
 function cliIn(dir) {
@@ -277,6 +279,10 @@ test('requeue follows the lease', async () => {
     const inbox = enqueue(root, null, { type: 'next' });
     claimRequest(root, inbox.id, 'I');
     assert.deepEqual(requeueOrphans(root, { leaseOf: () => null }).requeued, [], 'a fresh job-less claim stays');
+    // (c) never touches a busy session's claim, and is off for a caller that can't see the sessions.
+    assert.deepEqual(requeueOrphans(root, { leaseOf: () => null, at: Date.now() + 31 * 60_000, busy: ['I'] }).requeued, [], 'a busy session');
+    assert.deepEqual(requeueOrphans(root, { leaseOf: () => null, at: Date.now() + 31 * 60_000, byAge: false }).requeued, [], 'no age rule');
+    assert.equal(byId(inbox.id).status, 'in-progress');
     assert.deepEqual(requeueOrphans(root, { leaseOf: () => null, at: Date.now() + 31 * 60_000 }).requeued.map((x) => x.id), [inbox.id]);
     claimRequest(root, inbox.id, 'J');
     assert.deepEqual(requeueOrphans(root, { leaseOf: () => null, exited: ['J'] }).rejected.map((x) => x.id), [inbox.id]);
@@ -289,6 +295,22 @@ test('requeue follows the lease', async () => {
     expire(other);
     const listed = await forgeAsync(root, ['requests']);
     assert.ok(JSON.parse(listed.stdout).some((x: any) => x.id === o.id && x.status === 'pending'), listed.stderr);
+
+    // While a forge dash runs, `forge requests` leaves the claim-age rule to the dash's reconciler.
+    const old = enqueue(root, null, { type: 'next' });
+    claimRequest(root, old.id, 'K');
+    const file = path.join(root, '.forge', 'runtime', 'requests', `${old.id}.json`);
+    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), updatedAt: new Date(Date.now() - 31 * 60_000).toISOString() }));
+    const dash = tryLock(daemonLockDir(root));
+    assert.ok('release' in dash);
+    try {
+      await forgeAsync(root, ['requests']);
+      assert.equal(byId(old.id).status, 'in-progress', 'a live dash holds the daemon lock');
+    } finally {
+      dash.release();
+    }
+    await forgeAsync(root, ['requests']);
+    assert.equal(byId(old.id).status, 'pending', 'no dash: the age rule applies');
   } finally {
     repo.cleanup();
   }

@@ -1,5 +1,6 @@
-// One `forge dash` pool for test/dash-single.test.ts, over in-memory claude children: waits for
-// <go> to exist, starts, prints {pid, wanted, lastError} and stays up until killed.
+// One `forge dash` pool for test/dash-single.test.ts, over in-memory claude children: prints
+// `ready` once its pool exists, waits for <go> to exist, starts, prints {pid, wanted, lastError}
+// and stays up until killed.
 // Usage: node dash-child.ts <root> <go>
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
@@ -21,6 +22,7 @@ const spawn: any = () => {
 };
 const killTree = (c: any) => setImmediate(() => c.emit('close', null, 'SIGTERM'));
 const pool = createPool(root, { spawn, killTree, loadConfig: () => ({ config: cfg }), pollMs: 3_600_000, syncMs: 0 });
+process.stdout.write('ready\n');
 while (!fs.existsSync(go)) await new Promise((r) => setTimeout(r, 5));
 const s = pool.start();
 process.stdout.write(JSON.stringify({ pid: process.pid, wanted: s.wanted, lastError: s.lastError }) + '\n');

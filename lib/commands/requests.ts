@@ -5,6 +5,7 @@ import path from 'node:path';
 import { inboxSessionIds } from '../daemon-owner.ts';
 import { releaseJob, requeueOrphanedRequests } from '../jobs.ts';
 import { exists, paths } from '../paths.ts';
+import { dashRunning } from '../reconcile.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, ackRequest, claimRequest, daemonScope, enqueue, listRequests, requestScope, validJobId } from '../requests.ts';
 import { ForgeError } from '../util.ts';
 import { req, str, usageError } from './args.ts';
@@ -84,8 +85,9 @@ export function requestsCmd(
   };
   if (!sub || sub === 'list') {
     const s = scoped();
-    // First, so a drain without `forge dash` sees the requests a dead session left claimed.
-    requeueOrphanedRequests(root);
+    // First, so a drain without `forge dash` sees the requests a dead session left claimed. While a
+    // dash runs, its reconciler applies the claim-age rule: only it knows which sessions are mid-turn.
+    requeueOrphanedRequests(root, { byAge: !dashRunning(root) });
     const all = listRequests(root, { status: flags.all ? undefined : 'pending' });
     return s.daemon ? all.filter((r) => requestScope(root, r) === s.scope) : all;
   }

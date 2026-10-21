@@ -8,20 +8,45 @@ import { tempRepo } from './helpers.ts';
 
 const CHILD = path.resolve(import.meta.dirname, 'fixtures', 'dash-child.ts');
 
-/** Starts one dash child; resolves with it and the state its start printed. */
-function dash(root: string, go: string): Promise<{ proc: ChildProcess; out: { pid: number; wanted: boolean; lastError: string | null } }> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(process.execPath, [CHILD, root, go], { stdio: ['ignore', 'pipe', 'pipe'] });
-    let buf = '';
-    let err = '';
-    proc.stderr!.on('data', (d) => (err += d));
-    proc.stdout!.on('data', (d) => {
-      buf += d;
-      const nl = buf.indexOf('\n');
-      if (nl !== -1) resolve({ proc, out: JSON.parse(buf.slice(0, nl)) });
-    });
-    proc.on('exit', (code) => reject(new Error(`dash child exited ${code}: ${err}`)));
+type Started = { proc: ChildProcess; out: { pid: number; wanted: boolean; lastError: string | null } };
+
+function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: Error) => void } {
+  let resolve!: (v: T) => void;
+  let reject!: (e: Error) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
   });
+  return { promise, resolve, reject };
+}
+
+/** Starts one dash child: `ready` once its pool exists and it waits on `go`, `started` with the state its start printed. */
+function dash(root: string, go: string): { ready: Promise<void>; started: Promise<Started> } {
+  const ready = deferred<void>();
+  const started = deferred<Started>();
+  // Either may go unawaited when the child dies first; the awaited one reports it.
+  ready.promise.catch(() => {});
+  started.promise.catch(() => {});
+  const proc = spawn(process.execPath, [CHILD, root, go], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let buf = '';
+  let err = '';
+  proc.stderr!.on('data', (d) => (err += d));
+  proc.stdout!.on('data', (d) => {
+    buf += d;
+    let nl;
+    while ((nl = buf.indexOf('\n')) !== -1) {
+      const line = buf.slice(0, nl);
+      buf = buf.slice(nl + 1);
+      if (line === 'ready') ready.resolve();
+      else started.resolve({ proc, out: JSON.parse(line) });
+    }
+  });
+  proc.on('exit', (code) => {
+    const e = new Error(`dash child exited ${code}: ${err}`);
+    ready.reject(e);
+    started.reject(e);
+  });
+  return { ready: ready.promise, started: started.promise };
 }
 
 const exited = (p: ChildProcess) => new Promise((r) => (p.exitCode !== null || p.signalCode !== null ? r(null) : p.once('exit', r)));
@@ -33,9 +58,9 @@ test('two forge dash starts at once', async () => {
     const go = path.join(repo.dir, 'go');
     const pending = [dash(repo.dir, go), dash(repo.dir, go)];
     // Both children are up and polling before either may start.
-    await new Promise((r) => setTimeout(r, 300));
+    await Promise.all(pending.map((p) => p.ready));
     fs.writeFileSync(go, '');
-    const [a, b] = await Promise.all(pending);
+    const [a, b] = await Promise.all(pending.map((p) => p.started));
     procs.push(a.proc, b.proc);
     const winners = [a, b].filter((x) => x.out.wanted);
     assert.equal(winners.length, 1, JSON.stringify([a.out, b.out]));
@@ -50,7 +75,7 @@ test('two forge dash starts at once', async () => {
     fs.rmSync(go);
     const again = dash(repo.dir, go);
     fs.writeFileSync(go, '');
-    const c = await again;
+    const c = await again.started;
     procs.push(c.proc);
     assert.equal(c.out.wanted, true, JSON.stringify(c.out));
     assert.equal(c.out.lastError, null);
