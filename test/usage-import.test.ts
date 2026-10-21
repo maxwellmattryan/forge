@@ -104,13 +104,13 @@ test('imports via session lookup', () => {
     for (const d of [own, decoy]) fs.mkdirSync(d, { recursive: true });
     fs.writeFileSync(path.join(own, `agent-${AGENT}.jsonl`), round1);
     fs.writeFileSync(path.join(decoy, `agent-${AGENT}.jsonl`), round1 + round2);
-    const job = { id: 'resumed', owner: { session, host: 'h', since: round1End, heartbeat: round1End }, runs: [], agents: {}, worktree: null };
+    const job = { id: 'resumed', lease: { driver: session, epoch: 1, since: round1End, renewedAt: round1End, expiresAt: round1End }, runs: [], agents: {}, worktree: null };
     const viaSession = importClaudeCodeTranscript(AGENT, { projectsDir, root, job })!;
     assert.equal(viaSession.transcript, fs.realpathSync(path.join(own, `agent-${AGENT}.jsonl`)));
     assert.equal(viaSession.through, round1End);
     // Without the job, or when the session lookup misses, the old scan still finds it.
     assert.equal(importClaudeCodeTranscript(AGENT, { projectsDir })!.transcript, path.join(decoy, `agent-${AGENT}.jsonl`));
-    const elsewhere = { ...job, owner: { ...job.owner, session: '99999999-2222-4333-8444-555555555555' } };
+    const elsewhere = { ...job, lease: { ...job.lease, driver: '99999999-2222-4333-8444-555555555555' } };
     assert.equal(importClaudeCodeTranscript(AGENT, { projectsDir, root, job: elsewhere })!.transcript, path.join(decoy, `agent-${AGENT}.jsonl`));
   } finally {
     fs.rmSync(home, { recursive: true, force: true });

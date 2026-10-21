@@ -36,17 +36,17 @@ test('config defaults and validation', () => {
 });
 
 test('config v8 migrates to v9 unchanged', () => {
-  assert.equal(CONFIG_SCHEMA_VERSION, 27);
+  assert.equal(CONFIG_SCHEMA_VERSION, 28);
   const v8 = { schemaVersion: 8, git: { base: 'trunk' }, notify: { webhooks: [], command: null } };
   const { config, from } = migrateConfig(structuredClone(v8));
   assert.equal(from, 8);
-  assert.deepEqual(config, { ...v8, schemaVersion: 27, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
+  assert.deepEqual(config, { ...v8, schemaVersion: 28, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
   const repo = tempRepo();
   try {
     fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
     fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify(v8));
     const loaded = loadConfig(repo.dir);
-    assert.equal(loaded.config.schemaVersion, 27);
+    assert.equal(loaded.config.schemaVersion, 28);
     assert.deepEqual(loaded.config.budget, defaults().budget, 'a v8 config loads with the budget defaults');
   } finally {
     repo.cleanup();
@@ -151,7 +151,7 @@ describe('repo budget', { concurrency: 4 }, () => {
       assert.equal(job.state, 'waiting');
       assert.equal(job.waitingOn, 'budget');
       assert.equal(job.reason, 'repo budget: $103.20 of $100.00 this month');
-      assert.equal(job.owner, null, 'not claimed, even with --session');
+      assert.equal(job.lease.driver, null, 'not claimed, even with --session');
       const [t] = events(s.root, r.id, 'transition');
       assert.deepEqual(transitionEvents(t.from as any, t.to as any, job)?.events, ['budget-exceeded', 'gate'], 'the park queues budget-exceeded like other budget parks');
       assert.equal(events(s.root, r.id, 'repo-budget-hold').length, 1);
@@ -169,7 +169,7 @@ describe('repo budget', { concurrency: 4 }, () => {
       assert.equal(retro.repoBudget, undefined);
       const forced: any = await jobCmd(s.root, s.config, 'new', [], { title: 'Forced', session: 'S', force: true });
       const job = loadJob(s.root, forced.id);
-      assert.equal(job.owner?.session, 'S', 'claimed when --session is given');
+      assert.equal(job.lease.driver, 'S', 'claimed when --session is given');
       assert.notEqual(job.state, 'waiting');
       const [o] = events(s.root, forced.id, 'budget-override');
       assert.equal(o.month, month());
@@ -177,7 +177,7 @@ describe('repo budget', { concurrency: 4 }, () => {
       assert.ok(o.actor, 'the override names who forced it');
       await jobCmd(s.root, s.config, 'release', [forced.id], {});
       const again: any = await jobCmd(s.root, s.config, 'claim', [forced.id], { session: 'S2' });
-      assert.equal(again.owner.session, 'S2', 'a later claim this month is not parked');
+      assert.equal(again.lease.driver, 'S2', 'a later claim this month is not parked');
       assert.notEqual(loadJob(s.root, forced.id).state, 'waiting');
     } finally {
       s.cleanup();
@@ -211,12 +211,12 @@ describe('repo budget', { concurrency: 4 }, () => {
       assert.equal(r.status, 4, r.stderr);
       assert.match(r.stderr, /repo budget: \$150\.00 of \$100\.00 this month/);
       const job = loadJob(s.root, j.id);
-      assert.deepEqual([job.state, job.waitingOn, job.stage, job.owner], ['waiting', 'budget', 'build', null]);
+      assert.deepEqual([job.state, job.waitingOn, job.stage, job.lease.driver], ['waiting', 'budget', 'build', null]);
       assert.equal(events(s.root, j.id, 'transition').length, before + 1);
       const again = await forgeAsync(s.root, ['job', 'claim', j.id, '--session', 'S']);
       assert.equal(again.status, 4);
       assert.equal(events(s.root, j.id, 'transition').length, before + 1, 'a second claim logs no second transition');
-      assert.equal(loadJob(s.root, j.id).owner, null);
+      assert.equal(loadJob(s.root, j.id).lease.driver, null);
     } finally {
       s.cleanup();
     }
@@ -229,7 +229,7 @@ describe('repo budget', { concurrency: 4 }, () => {
       setJob(s.root, running.id, { stage: 'build', state: 'running' });
       recordAgent(s.root, running.id, { role: 'builder', phase: 'start' }, s.config);
       const r: any = await jobCmd(s.root, s.config, 'claim', [running.id], { session: 'S' });
-      assert.equal(r.owner.session, 'S');
+      assert.equal(r.lease.driver, 'S');
       assert.deepEqual(r.repoBudget, { held: true, reason: 'repo budget: $150.00 of $100.00 this month' });
       assert.equal(loadJob(s.root, running.id).state, 'running', 'state unchanged');
 
@@ -257,7 +257,7 @@ describe('repo budget', { concurrency: 4 }, () => {
       assert.equal(n.status, 0, n.stderr);
       assert.deepEqual(json(n), { held: true, repoBudget: { held: true, reason: 'repo budget: $150.00 of $100.00 this month' } });
       const q = loadJob(s.root, queued.id);
-      assert.deepEqual([q.state, q.owner], ['queued', null], 'the queued job stays queued and unowned');
+      assert.deepEqual([q.state, q.lease.driver], ['queued', null], 'the queued job stays queued and unowned');
       assert.deepEqual(fs.readdirSync(path.join(s.root, '.forge', 'jobs')).sort(), jobsBefore, 'no job is created');
       assert.match(fs.readFileSync(path.join(s.root, '.forge', 'backlog.md'), 'utf8'), /- \[ \] Ready item/, 'no tracker item is claimed');
       const f = await forgeAsync(s.root, ['job', 'from-ref', 'ready-item', '--session', 'S']);
@@ -274,7 +274,7 @@ describe('repo budget', { concurrency: 4 }, () => {
       const reason = 'repo budget: $150.00 of $100.00 this month';
       const created: any = await jobCmd(s.root, s.config, 'new', [], { title: 'New', session: 'S' });
       assert.deepEqual(created.repoBudget, { held: false, reason });
-      assert.equal(loadJob(s.root, created.id).owner?.session, 'S');
+      assert.equal(loadJob(s.root, created.id).lease.driver, 'S');
       assert.equal(events(s.root, created.id, 'repo-budget-warn').length, 1);
 
       const q = createJob(s.root, s.config, { title: 'Queued' });

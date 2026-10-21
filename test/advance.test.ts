@@ -392,14 +392,14 @@ test('advance continues past releasing its own claim and refreshes the heartbeat
     assert.equal(a.action, 'wait');
     assert.equal(a.rule, 'G3');
     assert.deepEqual(a.ran.map((e: any) => [e.rule, e.command, e.ok]), [['G3', ['job', 'release', id], true]]);
-    assert.equal(loadJob(s.root, id).owner, null);
+    assert.equal(loadJob(s.root, id).lease.driver, null);
 
     const kept = s.f('job', 'new', '--title', 'Still held', '--session', 'S').id;
-    const before = loadJob(s.root, kept).owner!.heartbeat!;
+    const before = loadJob(s.root, kept).lease.renewedAt!;
     await sleep(20);
     const k = s.raw('job', 'advance', kept, '--session', 'S', '--max', '0');
     assert.equal(k.status, 0, k.stderr);
-    const after = loadJob(s.root, kept).owner!.heartbeat!;
+    const after = loadJob(s.root, kept).lease.renewedAt!;
     assert.ok(Date.parse(after) > Date.parse(before), `${after} is later than ${before}`);
   } finally {
     s.cleanup();
@@ -426,7 +426,7 @@ test('advance stops when another session takes the job mid-call', async () => {
     assert.equal(d.owner, 'B');
     assert.equal(d.ran.length, 1);
     assert.equal(calls, 1);
-    assert.equal(loadJob(s.root, id).owner!.session, 'B');
+    assert.equal(loadJob(s.root, id).lease.driver, 'B');
   } finally {
     s.cleanup();
   }
@@ -488,7 +488,7 @@ test('job usage and help list advance', () => {
     assert.match(bogus.stderr, /usage: forge job [a-z|-]*\|step\b/);
     const help = s.raw('help', 'job');
     assert.equal(help.status, 0);
-    assert.ok(help.stdout.includes('forge job advance <id> --session S [--max N]'));
+    assert.ok(help.stdout.includes('forge job advance <id> --session S [--epoch N] [--max N]'));
   } finally {
     s.cleanup();
   }

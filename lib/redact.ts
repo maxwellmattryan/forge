@@ -49,7 +49,7 @@ function hostOwners(text: string): string[] {
 /** Host names that say nothing about the machine's owner. */
 const ANONYMOUS_HOSTS: ReadonlySet<string> = new Set(['localhost', 'localhost.localdomain']);
 
-/** The machine's host name and its first label: `claimJob` writes it into job.json, and it often carries the owner's name. */
+/** The machine's host name and its first label: older job.json owners and lock holders record it, and it often carries the owner's name. */
 function hostNames(): string[] {
   try {
     const host = os.hostname().trim();

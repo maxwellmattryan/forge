@@ -3,8 +3,8 @@
 // bookkeeping costs the orchestrator one call instead of a turn per command. `step` stays pure.
 import { refuseInboxDrive } from '../daemon-owner.ts';
 import { maybeEnqueueGate } from '../foreman.ts';
-import { loadJob, logEvent, ownerStatus, readEvents, setJob, touchJob } from '../jobs.ts';
-import { progressMark } from '../stranded.ts';
+import { assertEpoch, leaseStatus, loadJob, logEvent, readEvents, renewLease, setJob } from '../jobs.ts';
+import { progressMark } from '../reconcile.ts';
 import { loadStepInput, step } from '../step.ts';
 import { ForgeError, safeText } from '../util.ts';
 import { num, req, str } from './args.ts';
@@ -58,26 +58,28 @@ export function summarize(data: unknown): string {
  * a job `session` does not hold, at entry and again after every command, so an unattended
  * session never drives a job another session took.
  */
-export async function advance(ctx: CliContext, id: string, opts: { session: string; max: number }, dispatch: Dispatch): Promise<Dispatched> {
+export async function advance(ctx: CliContext, id: string, opts: { session: string; max: number; epoch?: number }, dispatch: Dispatch): Promise<Dispatched> {
   const { root, config } = ctx;
-  const { session, max } = opts;
+  const { session, max, epoch } = opts;
   const job = loadJob(root, id);
   const jobId = job.id;
   refuseInboxDrive(jobId);
-  if (job.owner?.session !== session) {
-    const o = job.owner;
-    if (o && ownerStatus(job).status === 'live') throw new ForgeError(`job ${jobId} is being driven by session ${o.session}; advance only drives a job its session holds`, 3);
+  if (epoch !== undefined) assertEpoch(job, epoch, session);
+  if (job.lease.driver !== session) {
+    const driver = job.lease.driver;
+    if (driver && leaseStatus(job).status === 'live') throw new ForgeError(`job ${jobId} is being driven by session ${driver}; advance only drives a job its session holds`, 3);
     throw new ForgeError(`job ${jobId} is not claimed by session ${session}; run: forge job claim ${jobId} --session ${session}`, 3);
   }
 
   const ran: AdvanceRan[] = [];
   for (;;) {
-    touchJob(root, jobId, session);
+    // Fenced by epoch alone: G3's release leaves no driver but the same epoch, and a takeover always moves it.
+    renewLease(root, jobId, { session, ...(epoch !== undefined ? { fence: { epoch } } : {}) });
     const x = loadStepInput(root, config, jobId);
     const a = step(x);
     if (a.action !== 'run') return { data: { ...a, ran }, exitCode: 0 };
-    // A null owner keeps going: G3 releases this session's own claim, then waits.
-    if (x.job.owner && x.job.owner.session !== session) return { data: { ...a, ran, refused: true, owner: x.job.owner.session }, exitCode: 3 };
+    // A null driver keeps going: G3 releases this session's own claim, then waits.
+    if (x.job.lease.driver && x.job.lease.driver !== session) return { data: { ...a, ran, refused: true, owner: x.job.lease.driver }, exitCode: 3 };
     if (ran.length >= max) return { data: { ...a, ran, capped: true }, exitCode: 0 };
     let result = '';
     let error: string | null = null;
@@ -98,7 +100,7 @@ export async function advance(ctx: CliContext, id: string, opts: { session: stri
 
 /**
  * Logs an `advance-failed` event, and parks the job on escalation when the same rule and command
- * already failed with no pipeline progress since (lib/stranded.ts): a session that stopped there
+ * already failed with no pipeline progress since (progressMark in lib/reconcile.ts): a session that stopped there
  * would leave the job running with nothing to drive it, so the gate hands it to the foreman instead.
  * The running check is made under the job lock: a job a human or another session moved since the
  * events were read is left exactly as it is. `hooks.beforePark` is a test seam, run just before.
@@ -129,7 +131,8 @@ export function parkRepeatedFailure(ctx: CliContext, id: string, rule: string, c
 export async function advanceCmd(ctx: CliContext, rest: string[], flags: Record<string, any>, dispatch: Dispatch): Promise<Dispatched> {
   // In this order, and all before loadJob, so a bad call writes nothing.
   const session = req(str(flags.session, '--session'), '--session');
+  const epoch = num(flags.epoch, '--epoch', { integer: true });
   const max = num(flags.max, '--max', { integer: true }) ?? 20;
   const id = req(rest[0], 'job id');
-  return advance(ctx, id, { session, max }, dispatch);
+  return advance(ctx, id, { session, max, epoch }, dispatch);
 }

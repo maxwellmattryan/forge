@@ -106,14 +106,14 @@ test('suggest ordering and limits', () => {
 });
 
 test('continue and resume', () => {
-  const owner = (status: string, agentRunning = false) => ({ ownerStatus: { status, session: 's1', since: null, heartbeat: null, agentRunning, reason: null } });
+  const owner = (status: string) => ({ ownerStatus: { status, session: status === 'none' ? null : 's1', since: null, renewedAt: null, expiresAt: null, epoch: 1, jobSession: false } });
   const jobs = [
     job('add-queued-q1', 'queued', owner('none')),
     job('add-held-q2', 'queued', owner('live')),
-    job('add-failed-f1', 'failed', owner('stale')),
-    job('add-stalled-r1', 'running', owner('stale')),
+    job('add-failed-f1', 'failed', owner('expired')),
+    job('add-stalled-r1', 'running', owner('expired')),
     job('add-running-r2', 'running', owner('live')),
-    job('add-waiting-w1', 'waiting', { waitingOn: 'spec-approval', ...owner('stale') }),
+    job('add-waiting-w1', 'waiting', { waitingOn: 'spec-approval', ...owner('expired') }),
     job('add-done-d1', 'done', owner('none')),
   ];
   const c: any = { jobs, backlog: [], tracker: 'local' };
@@ -140,7 +140,7 @@ test('continue and resume', () => {
 });
 
 test('scopeVerbs per state and gate', () => {
-  const owner = (status: string) => ({ ownerStatus: { status, session: status === 'none' ? null : 's1', since: null, heartbeat: null, agentRunning: false, reason: null } });
+  const owner = (status: string) => ({ ownerStatus: { status, session: status === 'none' ? null : 's1', since: null, renewedAt: null, expiresAt: null, epoch: 1, jobSession: false } });
   const gate = (waitingOn: string) => scopeVerbs(job('x', 'waiting', { waitingOn, ...owner('none') }));
   assert.deepEqual(gate('spec-approval'), ['approve', 'revise', 'cancel']);
   for (const g of ['split-approval', 'issue-link', 'infra', 'external', 'budget']) assert.deepEqual(gate(g), ['approve', 'cancel'], g);
@@ -150,10 +150,10 @@ test('scopeVerbs per state and gate', () => {
   assert.deepEqual(scopeVerbs(job('x', 'failed', owner('none'))), ['continue', 'cancel']);
   assert.deepEqual(scopeVerbs(job('x', 'failed')), ['continue', 'cancel'], 'no ownerStatus at all');
   assert.deepEqual(scopeVerbs(job('x', 'queued', owner('none'))), ['continue', 'cancel']);
-  assert.deepEqual(scopeVerbs(job('x', 'running', owner('live'))), ['cancel'], 'a live owner drives it');
-  assert.deepEqual(scopeVerbs(job('x', 'running', owner('stale'))), ['continue', 'cancel']);
+  assert.deepEqual(scopeVerbs(job('x', 'running', owner('live'))), ['cancel'], 'a live lease drives it');
+  assert.deepEqual(scopeVerbs(job('x', 'running', owner('expired'))), ['continue', 'cancel']);
   assert.deepEqual(scopeVerbs(job('x', 'done', owner('none'))), []);
-  assert.deepEqual(scopeVerbs(job('x', 'cancelled', owner('stale'))), []);
+  assert.deepEqual(scopeVerbs(job('x', 'cancelled', owner('expired'))), []);
   // Always in VERBS order.
   for (const g of ['spec-approval', 'input', 'escalation']) {
     const got = gate(g);

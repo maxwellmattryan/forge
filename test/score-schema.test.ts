@@ -14,18 +14,18 @@ const good = () => ({
 
 describe('score schema', { concurrency: 4 }, () => {
   test('v15 job reads', () => {
-    assert.equal(JOB_SCHEMA_VERSION, 16);
-    assert.equal(CONFIG_SCHEMA_VERSION, 27);
-    assert.equal(API_VERSION, 32);
+    assert.equal(JOB_SCHEMA_VERSION, 17);
+    assert.equal(CONFIG_SCHEMA_VERSION, 28);
+    assert.equal(API_VERSION, 33);
     const v15 = normalizeJob({ schemaVersion: 15, id: 'old', state: 'done', pr: { number: 1, state: 'MERGED' }, outcome: null });
-    assert.equal(v15.schemaVersion, 16);
+    assert.equal(v15.schemaVersion, 17);
     assert.equal(v15.score, null);
     assert.equal(normalizeJob({ schemaVersion: 1, id: 'older' }).score, null, 'a v1 job walks every migration to score null');
     assert.deepEqual(normalizeJob({ schemaVersion: 16, id: 'new', score: good() }).score, good());
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 17 })._unsupported, true, 'a newer job is refused');
+    assert.equal(normalizeJob({ id: 'x', schemaVersion: 18 })._unsupported, true, 'a newer job is refused');
     const m = migrateConfig({ schemaVersion: 24, tracker: { kind: 'none' } });
     assert.equal(m.from, 24);
-    assert.deepEqual(m.config, { schemaVersion: 27, tracker: { kind: 'none' } }, 'migration 24 changes nothing but schemaVersion');
+    assert.deepEqual(m.config, { schemaVersion: 28, tracker: { kind: 'none' } }, 'migration 24 changes nothing but schemaVersion');
   });
 
   test('malformed score reads as null', () => {

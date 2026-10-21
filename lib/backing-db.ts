@@ -34,7 +34,7 @@ const READY_TIMEOUT_MS = 60_000;
 const READY_POLL_MS = 250;
 /** A clone of a large template is a file copy; give it minutes, not docker's default 30 s. */
 const PSQL_TIMEOUT_MS = 300_000;
-const BUILD_LOCK = { timeoutMs: 15 * 60_000, staleMs: 20 * 60_000 };
+const BUILD_LOCK = { timeoutMs: 15 * 60_000 };
 const MAX_RECORD = 64 * 1024;
 
 const sha256 = (s: string | Buffer): string => crypto.createHash('sha256').update(s).digest('hex');

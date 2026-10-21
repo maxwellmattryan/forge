@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,7 +8,7 @@ import path from 'node:path';
  * The CLI's error codes and the exit each one fixes (docs/CLI.md "Error codes"). Scripts branch on
  * these, so renaming or removing one is a breaking change.
  */
-export const ERROR_CODES = { failed: 1, not_found: 1, internal: 1, secret_found: 1, protected_path: 1, interim_stale: 1, release_gate: 1, usage: 2, unknown_command: 2, not_initialized: 2, not_a_repo: 2, config_invalid: 2, owned: 3, blocked: 4, external: 5 } as const;
+export const ERROR_CODES = { failed: 1, not_found: 1, internal: 1, secret_found: 1, protected_path: 1, interim_stale: 1, release_gate: 1, usage: 2, unknown_command: 2, not_initialized: 2, not_a_repo: 2, config_invalid: 2, owned: 3, stale_epoch: 3, blocked: 4, external: 5 } as const;
 export type ErrorCode = keyof typeof ERROR_CODES;
 export type ExitCode = (typeof ERROR_CODES)[ErrorCode];
 /** The code a bare exit number means, so `new ForgeError(msg, 3)` written before codes existed keeps working. */
@@ -178,70 +179,254 @@ export function sleepSync(ms: number): void {
 }
 
 /**
- * mkdir is atomic on every filesystem we care about, which makes it a portable lock primitive
- * across concurrent Forge sessions on one machine.
+ * The process group first (the shell's children keep it alive), then the pid. EPERM counts as
+ * dead too: a process we may not signal is not ours, so the pid was reused.
  */
-export function withLock<T>(lockDir: string, fn: () => T, opts: { timeoutMs?: number; staleMs?: number } = {}): T {
-  const timeoutMs = opts.timeoutMs ?? 10_000;
-  const staleMs = opts.staleMs ?? 60_000;
-  const start = Date.now();
-  fs.mkdirSync(path.dirname(lockDir), { recursive: true });
-  while (true) {
+export function pidAlive(pid: unknown): boolean {
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return false;
+  for (const target of [-pid, pid]) {
+    try {
+      process.kill(target, 0);
+      return true;
+    } catch {}
+  }
+  return false;
+}
+
+/** How far a process's start time may be from a recorded one and still be that process (ps reports whole seconds). */
+export const START_SLACK_MS = 30_000;
+
+/** `ps -o lstart=`'s format under LC_ALL=C: `Tue Oct 21 09:14:03 2026`. */
+const LSTART = /^\s*(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})\s*$/;
+
+/** When `pid` started, in ms, from `ps -o lstart=`; null on Windows, for a bad pid, or when ps fails or prints something else. */
+export function processStartMs(pid: number): number | null {
+  if (process.platform === 'win32' || !Number.isInteger(pid) || pid <= 0) return null;
+  const ps = run('ps', ['-o', 'lstart=', '-p', String(pid)], { allowFail: true, env: { ...process.env, LC_ALL: 'C' }, timeoutMs: 5000 });
+  const m = ps.ok ? LSTART.exec(ps.stdout) : null;
+  const t = m ? Date.parse(m[1]) : NaN;
+  return Number.isFinite(t) ? t : null;
+}
+
+/** This process's start, taken once at load so a test that fakes Date.now later can't move it. */
+const PROCESS_STARTED_AT = new Date(Date.now() - process.uptime() * 1000).toISOString();
+
+/** What a lock's holder writes into `<lockDir>/holder.json` straight after its mkdir. */
+export interface LockHolder {
+  v: 1;
+  pid: number;
+  startedAt: string;
+  host: string;
+  token: string;
+}
+
+/** A lock dir with no parseable holder.json (an older Forge's, or one caught between mkdir and write) is broken only past this mtime age. */
+const LEGACY_LOCK_MS = 60_000;
+/** A waiter asks ps about one holder token at most this often. */
+const PROBE_EVERY_MS = 1000;
+const HOLDER_MAX_BYTES = 4096;
+const NOFOLLOW_FLAG = fs.constants.O_NOFOLLOW ?? 0;
+const NONBLOCK_FLAG = fs.constants.O_NONBLOCK ?? 0;
+
+/**
+ * The holder a lock dir names, or null for anything else: missing, oversized, not a regular file,
+ * or not the v1 shape. The dir is writable by whoever can write its parent (a job dir's agents,
+ * say), so a planted file is read without following links or blocking, and garbage only ever gets
+ * the slow legacy rule.
+ */
+export function readLockHolder(lockDir: string): LockHolder | null {
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(path.join(lockDir, 'holder.json'), fs.constants.O_RDONLY | NOFOLLOW_FLAG | NONBLOCK_FLAG);
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.size > HOLDER_MAX_BYTES) return null;
+    const h = JSON.parse(fs.readFileSync(fd, 'utf8'));
+    if (!h || typeof h !== 'object' || h.v !== 1) return null;
+    if (!Number.isInteger(h.pid) || h.pid <= 0 || typeof h.host !== 'string' || typeof h.token !== 'string' || !h.token || h.token.length > 100) return null;
+    if (typeof h.startedAt !== 'string' || !Number.isFinite(Date.parse(h.startedAt))) return null;
+    return { v: 1, pid: h.pid, startedAt: h.startedAt, host: h.host, token: h.token };
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+/** One waiter's memory across its polls: when it last asked ps about each holder token, and the answer. */
+interface LockWait {
+  probes: Map<string, { at: number; dead: boolean }>;
+  holder: LockHolder | null;
+}
+
+const newWait = (): LockWait => ({ probes: new Map(), holder: null });
+
+/**
+ * Whether a parseable holder is provably gone: on this host, and its pid is not alive or (ps
+ * permitting) belongs to a process that started at another time, so the pid was reused. Another
+ * host, a matching start time, or a ps that fails all count as alive: age never does.
+ */
+function holderDead(h: LockHolder, w: LockWait): boolean {
+  if (h.host !== os.hostname()) return false;
+  if (!pidAlive(h.pid)) return true;
+  if (process.platform === 'win32') return false;
+  const seen = w.probes.get(h.token);
+  if (seen && Math.abs(Date.now() - seen.at) < PROBE_EVERY_MS) return seen.dead;
+  const started = processStartMs(h.pid);
+  const dead = started !== null && Math.abs(started - Date.parse(h.startedAt)) > START_SLACK_MS;
+  w.probes.set(h.token, { at: Date.now(), dead });
+  return dead;
+}
+
+/** Renames a lock dir to a fresh grave beside it and removes that, so no waiter ever sees a half-removed lock. */
+function bury(lockDir: string): boolean {
+  const grave = `${lockDir}.dead-${crypto.randomUUID().slice(0, 8)}`;
+  try {
+    fs.renameSync(lockDir, grave);
+  } catch {
+    return false;
+  }
+  fs.rmSync(grave, { recursive: true, force: true });
+  return true;
+}
+
+/**
+ * Breaks a lock judged dead (holder `token`, or null for a legacy holder-less dir), one breaker at a
+ * time: the `breaking` marker excludes the others, and the re-read proves the dir is still the one
+ * judged. A breaker that dies before the rename leaves the marker, which wedges the lock rather than
+ * ever admitting a second holder. Returns whether the lock is gone.
+ */
+function breakLock(lockDir: string, token: string | null): boolean {
+  const marker = path.join(lockDir, 'breaking');
+  try {
+    fs.mkdirSync(marker);
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'ENOENT';
+  }
+  const now = readLockHolder(lockDir);
+  // A legacy dir must still hold nothing but the marker and an unreadable holder.json: a temp file is a new holder mid-write.
+  const same = token === null ? now === null && onlyMarker(lockDir) : now?.token === token;
+  if (!same) {
+    try {
+      fs.rmdirSync(marker);
+    } catch {}
+    return false;
+  }
+  return bury(lockDir);
+}
+
+function onlyMarker(lockDir: string): boolean {
+  try {
+    return fs.readdirSync(lockDir).every((n) => n === 'breaking' || n === 'holder.json');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * One try at the lock: mkdir, and on EEXIST at most one death-proof break followed by one more
+ * mkdir. Returns the new holder's token, or null while someone else holds it.
+ */
+function attemptLock(lockDir: string, w: LockWait): string | null {
+  for (let tries = 0; tries < 2; tries++) {
     try {
       fs.mkdirSync(lockDir);
-      break;
     } catch (e) {
-      if ((e as any).code !== 'EEXIST') throw e;
-      try {
-        const age = Date.now() - fs.statSync(lockDir).mtimeMs;
-        if (age > staleMs) {
-          fs.rmSync(lockDir, { recursive: true, force: true });
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+      if (tries > 0) return null;
+      const holder = readLockHolder(lockDir);
+      w.holder = holder;
+      if (holder) {
+        if (!holderDead(holder, w) || !breakLock(lockDir, holder.token)) return null;
+      } else {
+        let mtime: number;
+        try {
+          mtime = fs.statSync(lockDir).mtimeMs;
+        } catch {
           continue;
         }
-      } catch {
-        continue;
+        // The only place a lock's age counts.
+        if (Date.now() - mtime <= LEGACY_LOCK_MS || !breakLock(lockDir, null)) return null;
       }
-      if (Date.now() - start > timeoutMs) throw new ForgeError(`timed out waiting for lock ${lockDir}`);
-      sleepSync(50);
+      continue;
     }
+    const token = crypto.randomUUID();
+    try {
+      writeJsonAtomic(path.join(lockDir, 'holder.json'), { v: 1, pid: process.pid, startedAt: PROCESS_STARTED_AT, host: os.hostname(), token } satisfies LockHolder);
+    } catch (e) {
+      fs.rmSync(lockDir, { recursive: true, force: true });
+      throw e;
+    }
+    return token;
+  }
+  return null;
+}
+
+/** Removes the lock only while it is still this holder's: a dir another holder now owns is left alone. */
+function releaseLock(lockDir: string, token: string): void {
+  if (readLockHolder(lockDir)?.token === token) bury(lockDir);
+}
+
+function lockTimeout(lockDir: string, w: LockWait): ForgeError {
+  return new ForgeError(`timed out waiting for lock ${lockDir} (${w.holder ? `held by pid ${w.holder.pid}` : 'holder unknown'})`);
+}
+
+/**
+ * mkdir is atomic on every filesystem we care about, which makes it a portable lock primitive
+ * across concurrent Forge sessions on one machine. A lock is never broken for its age, only when
+ * its holder is provably dead (holderDead), so a long section keeps it and needs no refresh.
+ */
+export function withLock<T>(lockDir: string, fn: () => T, opts: { timeoutMs?: number } = {}): T {
+  const timeoutMs = opts.timeoutMs ?? 10_000;
+  const start = Date.now();
+  const w = newWait();
+  fs.mkdirSync(path.dirname(lockDir), { recursive: true });
+  let token: string | null;
+  while ((token = attemptLock(lockDir, w)) === null) {
+    if (Date.now() - start > timeoutMs) throw lockTimeout(lockDir, w);
+    sleepSync(50);
   }
   try {
     return fn();
   } finally {
-    fs.rmSync(lockDir, { recursive: true, force: true });
+    releaseLock(lockDir, token);
   }
 }
 
 /** withLock for async work: the same mkdir lock, waiting without blocking the event loop. */
-export async function withLockAsync<T>(lockDir: string, fn: () => Promise<T>, opts: { timeoutMs?: number; staleMs?: number } = {}): Promise<T> {
+export async function withLockAsync<T>(lockDir: string, fn: () => Promise<T>, opts: { timeoutMs?: number } = {}): Promise<T> {
   const timeoutMs = opts.timeoutMs ?? 10_000;
-  const staleMs = opts.staleMs ?? 60_000;
   const start = Date.now();
+  const w = newWait();
   fs.mkdirSync(path.dirname(lockDir), { recursive: true });
-  while (true) {
-    try {
-      fs.mkdirSync(lockDir);
-      break;
-    } catch (e) {
-      if ((e as any).code !== 'EEXIST') throw e;
-      try {
-        const age = Date.now() - fs.statSync(lockDir).mtimeMs;
-        if (age > staleMs) {
-          fs.rmSync(lockDir, { recursive: true, force: true });
-          continue;
-        }
-      } catch {
-        continue;
-      }
-      if (Date.now() - start > timeoutMs) throw new ForgeError(`timed out waiting for lock ${lockDir}`);
-      await new Promise((r) => setTimeout(r, 50));
-    }
+  let token: string | null;
+  while ((token = attemptLock(lockDir, w)) === null) {
+    if (Date.now() - start > timeoutMs) throw lockTimeout(lockDir, w);
+    await new Promise((r) => setTimeout(r, 50));
   }
   try {
     return await fn();
   } finally {
-    fs.rmSync(lockDir, { recursive: true, force: true });
+    releaseLock(lockDir, token);
   }
+}
+
+/**
+ * One attempt at a lock to hold for a long time (`forge dash`'s daemon lock), with the death-proof
+ * break applied once. The holder is null-valued when the dir names none (a legacy or mid-write lock).
+ */
+export function tryLock(lockDir: string): { release: () => void } | { holder: { pid: number | null; host: string | null } } {
+  const w = newWait();
+  fs.mkdirSync(path.dirname(lockDir), { recursive: true });
+  const token = attemptLock(lockDir, w);
+  if (token === null) return { holder: { pid: w.holder?.pid ?? null, host: w.holder?.host ?? null } };
+  let released = false;
+  return {
+    release: () => {
+      if (released) return;
+      released = true;
+      releaseLock(lockDir, token);
+    },
+  };
 }
 
 export function slugify(text: string, maxWords = 6): string {

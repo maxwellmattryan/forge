@@ -492,8 +492,8 @@ function upServices(
     const attempt: { action: BackingUpEntry['action'] } = { action: 'none' };
     try {
       const go = () => ensure(root, runner, e, shared ? slug : job.id, shared ? null : job.id, (shared ? recs.shared : recs.job).ports[e.name] ?? {}, attempt);
-      // A pull can take minutes, so the shared lock waits and goes stale on that scale.
-      const action = shared ? withLock(path.join(paths(root).locks, 'backing-shared'), go, { timeoutMs: RUN_TIMEOUT_MS + 60_000, staleMs: RUN_TIMEOUT_MS + 120_000 }) : go();
+      // A pull can take minutes, so the shared lock waits on that scale.
+      const action = shared ? withLock(path.join(paths(root).locks, 'backing-shared'), go, { timeoutMs: RUN_TIMEOUT_MS + 60_000 }) : go();
       return { name: e.name, isolation: e.isolation, action, ok: true };
     } catch (err) {
       if (!(err instanceof DockerFailure) && !(err instanceof ForgeError)) throw err;

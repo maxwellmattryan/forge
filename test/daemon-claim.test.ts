@@ -1,43 +1,31 @@
+// How daemon sessions let go of jobs: a pool start expires every lease an earlier `forge dash`'s
+// sessions held (with the daemon lock taken, none of their children can still run) and requeues the
+// requests they claimed; the inbox hands a job to its own session by releasing the claim; and the
+// inbox scope never drives a pipeline.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync, spawn as nodeSpawn, spawnSync } from 'node:child_process';
+import { PassThrough } from 'node:stream';
+import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
 import { initWrite } from '../lib/commands/init.ts';
-import { daemonClaimOpts, inboxSessionIds, ownerYield } from '../lib/daemon-owner.ts';
-import { claimJob, createJob, jobDir, loadJob, readEvents, recordAgent } from '../lib/jobs.ts';
+import { createPool } from '../lib/daemon-pool.ts';
+import { claimJob, createJob, jobDir, leaseStatus, loadJob, readEvents } from '../lib/jobs.ts';
+import { claimRequest, enqueue, listRequests } from '../lib/requests.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const FAKE_BIN = path.resolve(import.meta.dirname, 'fixtures', 'bin', 'claude');
-const POSIX = { skip: process.platform === 'win32' && 'POSIX-only' };
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const uuid = () => crypto.randomUUID();
-
-const alive = (pid) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-/** A pid that belonged to a child which has exited and been reaped. */
-function deadPid(): number {
-  const r = spawnSync(process.execPath, ['-e', '0']);
-  return r.pid as number;
-}
 
 const daemonsDir = (dir) => path.join(dir, '.forge', 'runtime', 'daemons');
 function writeRecord(dir: string, scope: string, rec: Record<string, unknown>) {
   fs.mkdirSync(daemonsDir(dir), { recursive: true });
   fs.writeFileSync(path.join(daemonsDir(dir), `${scope}.json`), JSON.stringify({ resumable: true, serverPid: null, argv0: FAKE_BIN, startedAt: new Date().toISOString(), ...rec }));
 }
-
-const notes = (root, id) => readEvents(root, id).filter((e) => e.type === 'note').map((e) => e.text);
 
 /** Runs the CLI against a scratch repo; `env` adds to (or, with undefined, removes from) the environment. */
 function cliIn(dir) {
@@ -67,121 +55,80 @@ function initRepo() {
   };
 }
 
-test('dead recorded daemon owner yields', () => {
+/** In-memory claude children: nothing real is spawned or signalled. */
+function fakeSpawn() {
+  let n = 0;
+  const spawn: any = () => {
+    const c: any = new EventEmitter();
+    c.pid = 4_200_000 + ++n;
+    c.stdin = new PassThrough();
+    c.stdout = new PassThrough();
+    c.stderr = new PassThrough();
+    return c;
+  };
+  const killTree = (c: any) => setImmediate(() => c.emit('close', null, 'SIGTERM'));
+  return { spawn, killTree };
+}
+
+test('boot expires daemon leases', async () => {
   const repo = tempRepo();
   const root = repo.dir;
+  const cfg = defaults();
+  Object.assign(cfg.daemon, { enabled: true, command: 'claude {session} --plugin-dir {pluginRoot} --allowedTools {allowedTools}' });
+  const kit = fakeSpawn();
+  const pool = createPool(root, { ...kit, loadConfig: () => ({ config: cfg }), pollMs: 3_600_000, syncMs: 0, reconcileMs: 0 });
   try {
-    const id = createJob(root, defaults(), { title: 'Dead owner' }).id;
-    const old = uuid();
-    claimJob(root, id, old);
-    writeRecord(root, id, { sessionId: old, spawnSessionId: old, pid: deadPid() });
-    const next = uuid();
-    assert.throws(() => claimJob(root, id, next), (e: any) => e.exitCode === 3, 'without the yield check the fresh heartbeat still holds');
-    assert.equal(claimJob(root, id, next, false, daemonClaimOpts(root, id)).owner.session, next);
-    assert.deepEqual(notes(root, id), [`took over from session ${old}: not-running`]);
-    const types = readEvents(root, id).map((e) => e.type);
-    assert.ok(types.lastIndexOf('note') > types.lastIndexOf('claimed'), 'the note follows the claim');
+    // An earlier dash's records: a job session that moved on from s0 to s1, and the inbox.
+    const [s0, s1, inbox, human] = [uuid(), uuid(), uuid(), uuid()];
+    const [a, b, c] = ['A', 'B', 'C'].map((t) => createJob(root, defaults(), { title: `Job ${t}` }).id);
+    writeRecord(root, a, { sessionId: s1, spawnSessionId: s1, pastSessionIds: [s0], pid: null });
+    writeRecord(root, '_inbox', { sessionId: inbox, spawnSessionId: inbox, pastSessionIds: [], pid: null });
+    claimJob(root, a, s1);
+    claimJob(root, b, s0);
+    claimJob(root, c, human);
+    const ra = enqueue(root, null, { type: 'resume', job: a });
+    claimRequest(root, ra.id, s1);
+    const rInbox = enqueue(root, null, { type: 'next' });
+    claimRequest(root, rInbox.id, inbox);
+    const rc = enqueue(root, null, { type: 'resume', job: c });
+    claimRequest(root, rc.id, human);
+    for (const id of [a, b, c]) assert.equal(leaseStatus(loadJob(root, id)).status, 'live');
 
-    // A record with no child at all is not running either.
-    writeRecord(root, id, { sessionId: next, spawnSessionId: next, pid: null });
-    const third = uuid();
-    assert.equal(claimJob(root, id, third, false, daemonClaimOpts(root, id)).owner.session, third);
-    assert.equal(loadJob(root, id).runs.length, 3, 'each takeover starts a new run');
+    assert.equal(pool.start().wanted, true);
+    assert.equal(leaseStatus(loadJob(root, a)).status, 'expired', "the current id's lease");
+    assert.equal(leaseStatus(loadJob(root, b)).status, 'expired', "a past id's lease");
+    assert.equal(loadJob(root, a).lease.driver, s1, 'expiry keeps the driver and epoch');
+    assert.equal(leaseStatus(loadJob(root, c)).status, 'live', 'an interactive session in no record keeps its lease');
+    assert.ok(readEvents(root, a).some((e) => e.type === 'lease-expired' && e.reason === 'dash-start'));
+    const byId = new Map(listRequests(root).map((r) => [r.id, r]));
+    assert.deepEqual([byId.get(ra.id)?.status, byId.get(ra.id)?.requeues, byId.get(ra.id)?.session], ['pending', 1, undefined]);
+    assert.deepEqual([byId.get(rInbox.id)?.status, byId.get(rInbox.id)?.requeues], ['pending', 1]);
+    assert.deepEqual([byId.get(rc.id)?.status, byId.get(rc.id)?.session], ['in-progress', human], "the interactive session's claim stays");
   } finally {
+    await pool.close();
     repo.cleanup();
   }
 });
 
-test('session that changed uuid reclaims its job', () => {
-  const repo = tempRepo();
-  const root = repo.dir;
-  try {
-    const id = createJob(root, defaults(), { title: 'Moved on' }).id;
-    const old = uuid();
-    const current = uuid();
-    claimJob(root, id, old);
-    recordAgent(root, id, { role: 'builder', phase: 'start' }, defaults());
-    // The record now holds another id; whether its child lives doesn't matter.
-    writeRecord(root, id, { sessionId: current, spawnSessionId: current, pastSessionIds: [uuid(), old], pid: process.pid });
-    assert.throws(() => claimJob(root, id, current), /an agent is still running/);
-    assert.equal(ownerYield(root, id, loadJob(root, id).owner, { isLive: () => true }), 'moved-on');
-    assert.equal(claimJob(root, id, current, false, daemonClaimOpts(root, id)).owner.session, current);
-    assert.deepEqual(notes(root, id), [`took over from session ${old}: moved-on`]);
-
-    // The id the current child was spawned with counts as past once init reported another.
-    const spawned = uuid();
-    const reported = uuid();
-    claimJob(root, id, spawned, true);
-    writeRecord(root, id, { sessionId: reported, spawnSessionId: spawned, pid: process.pid });
-    assert.equal(ownerYield(root, id, loadJob(root, id).owner, { isLive: () => true }), 'moved-on');
-    // A non-uuid past entry never matches.
-    claimJob(root, id, 'not-a-uuid', true);
-    writeRecord(root, id, { sessionId: uuid(), pastSessionIds: ['not-a-uuid'], pid: null });
-    assert.equal(ownerYield(root, id, loadJob(root, id).owner), null);
-  } finally {
-    repo.cleanup();
-  }
-});
-
-test('inbox owner yields only to the job\'s own session', POSIX, async () => {
+test("the inbox hands a job to the job's own session by releasing its claim", () => {
   const repo = initRepo();
   const root = repo.dir;
   const cli = cliIn(root);
-  const inboxSid = uuid();
-  // A provably live inbox child: the recorded claude executable running with the recorded session id.
-  const child = nodeSpawn(FAKE_BIN, ['--session-id', inboxSid], { detached: true, stdio: ['pipe', 'ignore', 'ignore'] });
   try {
     const id = createJob(root, defaults(), { title: 'Handoff' }).id;
-    const other = createJob(root, defaults(), { title: 'Other' }).id;
-    const end = Date.now() + 3000;
-    while (!alive(child.pid) && Date.now() < end) await sleep(10);
-    await sleep(100);
-    writeRecord(root, '_inbox', { sessionId: inboxSid, spawnSessionId: inboxSid, pastSessionIds: [], pid: child.pid, serverPid: process.pid });
-    assert.deepEqual(inboxSessionIds(root), [inboxSid]);
+    const inboxSid = uuid();
+    writeRecord(root, '_inbox', { sessionId: inboxSid, spawnSessionId: inboxSid, pastSessionIds: [], pid: null });
     claimJob(root, id, inboxSid);
-    assert.equal(ownerYield(root, id, loadJob(root, id).owner), null, 'the live inbox child holds the job against everyone but its session');
-
     const trust = { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(root) };
     const jobSid = uuid();
-    const human = cli({ FORGE_DAEMON: undefined, FORGE_DAEMON_SCOPE: undefined }, 'job', 'claim', id, '--session', jobSid);
-    assert.equal(human.code, 3, human.out);
-    const wrongScope = cli({ ...trust, FORGE_DAEMON_SCOPE: other }, 'job', 'claim', id, '--session', jobSid);
-    assert.equal(wrongScope.code, 3, wrongScope.out);
-    assert.equal(loadJob(root, id).owner.session, inboxSid);
-
+    // While the inbox's lease is live, nobody else takes the job without --force.
+    assert.equal(cli({ ...trust, FORGE_DAEMON_SCOPE: id }, 'job', 'claim', id, '--session', jobSid).code, 3);
+    const handoff = cli({ ...trust, FORGE_DAEMON_SCOPE: '_inbox' }, 'requests', 'add', 'resume', '--job', id);
+    assert.equal(handoff.json().released, true, handoff.out);
+    assert.deepEqual([loadJob(root, id).lease.driver, loadJob(root, id).lease.epoch], [null, 1]);
     const mine = cli({ ...trust, FORGE_DAEMON_SCOPE: id }, 'job', 'claim', id, '--session', jobSid);
     assert.equal(mine.ok, true, mine.out);
-    assert.equal(mine.json().owner.session, jobSid);
-    assert.deepEqual(notes(root, id), [`took over from session ${inboxSid}: inbox-handoff`]);
-  } finally {
-    try {
-      process.kill(-child.pid, 'SIGKILL');
-    } catch {}
-    repo.cleanup();
-  }
-});
-
-test('live or unrecorded owners are still refused', () => {
-  const repo = tempRepo();
-  const root = repo.dir;
-  try {
-    const id = createJob(root, defaults(), { title: 'Live owner' }).id;
-    const interactive = uuid();
-    claimJob(root, id, interactive);
-    writeRecord(root, id, { sessionId: uuid(), pastSessionIds: [uuid()], pid: null });
-    assert.throws(() => claimJob(root, id, uuid(), false, daemonClaimOpts(root, id)), (e: any) => e.exitCode === 3, 'a session in no record keeps the time-based rule');
-
-    const daemon = uuid();
-    claimJob(root, id, daemon, true);
-    writeRecord(root, id, { sessionId: daemon, spawnSessionId: daemon, pid: process.pid });
-    const live = { yields: (o) => ownerYield(root, id, o, { isLive: () => true }) };
-    assert.throws(() => claimJob(root, id, uuid(), false, live), (e: any) => e.exitCode === 3, 'a recorded owner whose child is proven live keeps the job');
-    // A second record naming the same id as past doesn't outvote the live current one.
-    writeRecord(root, '_inbox', { sessionId: uuid(), pastSessionIds: [daemon], pid: null });
-    assert.throws(() => claimJob(root, id, uuid(), false, live), (e: any) => e.exitCode === 3);
-    const forced = uuid();
-    assert.equal(claimJob(root, id, forced, true, live).owner.session, forced, '--force still takes over');
-    assert.deepEqual(notes(root, id), [], 'a forced takeover logs no yield');
+    assert.deepEqual([mine.json().lease.driver, mine.json().epoch], [jobSid, 2]);
   } finally {
     repo.cleanup();
   }

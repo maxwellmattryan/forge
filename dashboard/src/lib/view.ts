@@ -119,24 +119,23 @@ export const needsHuman = (j: JobLike): boolean => j.state === 'waiting' && j.wa
 export interface ResumeModel {
   show: boolean;
   enabled: boolean;
-  note: 'live' | 'agent' | 'stale' | 'gone' | null;
+  note: 'live' | 'expired' | null;
 }
 
 /**
  * Resume is for an open, non-eval job nobody is driving: queued or failed, or any non-waiting job
- * whose owner is stale or provably gone (waiting jobs keep their gate buttons). A live owner
- * disables it, since the job's session would refuse the claim; the server refuses it too (409).
- * The exception is a live owner that is the job's own daemon session, which takes the resume itself.
+ * whose lease expired (waiting jobs keep their gate buttons). Another driver's live lease disables
+ * it, since the job's session would refuse the claim; the server refuses it too (409). The
+ * exception is a live lease held by the job's own pool session, which takes the resume itself.
  */
 export function resumeModel(j: Pick<JobLike, 'state' | 'kind'> & { ownerStatus?: OwnerStatus | null }): ResumeModel {
   const status = j.ownerStatus?.status ?? 'none';
   const hidden: ResumeModel = { show: false, enabled: false, note: null };
   if (j.kind === 'eval' || j.state === 'done' || j.state === 'cancelled' || j.state === 'waiting') return hidden;
-  const idle = status === 'stale' || status === 'dead';
-  if (!(j.state === 'queued' || j.state === 'failed' || idle)) return hidden;
-  // The job's own daemon session takes the resume itself, so its live claim doesn't block it.
+  if (!(j.state === 'queued' || j.state === 'failed' || status === 'expired')) return hidden;
+  // The job's own pool session takes the resume itself, so its live lease doesn't block it.
   if (status === 'live' && j.ownerStatus?.jobSession) return { show: true, enabled: true, note: null };
-  const note = status === 'live' ? (j.ownerStatus?.agentRunning ? 'agent' : 'live') : status === 'stale' ? 'stale' : status === 'dead' ? 'gone' : null;
+  const note = status === 'live' ? 'live' : status === 'expired' ? 'expired' : null;
   return { show: true, enabled: status !== 'live', note };
 }
 
@@ -266,7 +265,6 @@ export function navCounts(jobs: JobLike[]): { active: number; needs: number } {
   return { active: jobs.filter(isOpen).length, needs: jobs.filter((j) => needsHuman(j) || j.state === 'failed').length };
 }
 
-const live = (o: { heartbeat?: string | null; since?: string | null }, now: number) => now - Date.parse(s(o.heartbeat ?? o.since)) < 30 * 60000;
 
 // ---------- inbox ----------
 
@@ -419,17 +417,26 @@ export const runningAgents = (jobs: StateJob[]): RunningAgent[] =>
 
 export interface SessionRow {
   session: string;
-  host?: string;
-  since?: string;
-  heartbeat?: string;
+  since: string | null;
+  /** The latest renewal across its jobs. */
+  renewedAt: string | null;
   jobs: StateJob[];
   live: boolean;
 }
 
+const leaseLive = (l: { driver?: string | null; expiresAt?: string | null } | null | undefined, now: number): boolean => Boolean(l?.driver) && Date.parse(s(l?.expiresAt)) > now;
+
+/** The sessions driving jobs, keyed on each job's lease driver while that lease is live. */
 export function agentSessions(jobs: StateJob[], now: number): SessionRow[] {
-  const sessions: Record<string, Omit<SessionRow, 'live'>> = {};
-  for (const j of jobs) if (j.owner) (sessions[j.owner.session] ??= { ...j.owner, jobs: [] }).jobs.push(j);
-  return Object.values(sessions).map((x) => ({ ...x, live: live(x, now) }));
+  const sessions: Record<string, SessionRow> = {};
+  for (const j of jobs) {
+    const l = j.lease;
+    if (!leaseLive(l, now) || !l.driver) continue;
+    const row = (sessions[l.driver] ??= { session: l.driver, since: l.since, renewedAt: null, jobs: [], live: true });
+    row.jobs.push(j);
+    if (l.renewedAt && s(l.renewedAt) > s(row.renewedAt)) row.renewedAt = l.renewedAt;
+  }
+  return Object.values(sessions);
 }
 
 // ---------- analytics ----------

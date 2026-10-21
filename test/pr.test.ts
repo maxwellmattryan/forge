@@ -402,7 +402,7 @@ test('syncPr routes a conflicting PR to integrate under pr.conflicts: fix', { sk
     const j = loadJob(root, id);
     assert.deepEqual([j.stage, j.state, j.waitingOn], ['integrate', 'running', null]);
     assert.equal(j.pr?.integrateFor, SHA_A);
-    assert.equal(j.owner, null, 'sync claims nothing');
+    assert.equal(j.lease.driver, null, 'sync claims nothing');
     assert.equal(j.reason, 'forge sync: PR #7 conflicts with its base (pr.conflicts: fix)');
     assert.equal(lastSynced(root, id).integrate, true);
   } finally {
@@ -500,10 +500,10 @@ test('syncPr respects a live claim and never routes a running or finished job', 
     const root = h.repo.dir;
     h.config.pr.conflicts = 'fix';
     let id = h.scenario({ mergeable: 'CONFLICTING', head: SHA_A, pushedSha: SHA_A, at: PARKED, owner: 'session-1' });
-    const owner = loadJob(root, id).owner;
+    const lease = loadJob(root, id).lease;
     assert.ok(!('integrate' in syncPr(root, h.config, id)));
     assert.deepEqual(where(root, id), ['pr', 'waiting', 'conflicts'], 'a live owner blocks routing');
-    assert.deepEqual(loadJob(root, id).owner, owner, 'the owner is unchanged');
+    assert.deepEqual(loadJob(root, id).lease, lease, 'the lease is unchanged');
 
     h.behind(2);
     id = h.scenario({ head: SHA_A, pushedSha: SHA_A, at: PARKED, owner: 'session-1' });
@@ -512,11 +512,11 @@ test('syncPr respects a live claim and never routes a running or finished job', 
 
     id = h.scenario({ head: SHA_A, pushedSha: SHA_A, at: PARKED, owner: 'session-1' });
     const old = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-    updateJob(root, id, (j) => Object.assign(j.owner!, { since: old, heartbeat: old }));
-    const stale = loadJob(root, id).owner;
-    assert.equal(syncPr(root, h.config, id).integrate, true, 'a stale owner does not block');
+    updateJob(root, id, (j) => Object.assign(j.lease, { since: old, renewedAt: old, expiresAt: old }));
+    const stale = loadJob(root, id).lease;
+    assert.equal(syncPr(root, h.config, id).integrate, true, 'an expired lease does not block');
     assert.deepEqual(where(root, id), ['integrate', 'running', null]);
-    assert.deepEqual(loadJob(root, id).owner, stale, 'sync claims nothing, even from a stale owner');
+    assert.deepEqual(loadJob(root, id).lease, stale, 'sync claims nothing, even from an expired lease');
 
     for (const state of ['running', 'failed', 'cancelled']) {
       id = h.scenario({ head: SHA_A, pushedSha: SHA_A, at: { stage: 'pr', state } });
@@ -691,12 +691,15 @@ test('forge sync lists routed jobs under integrating', { skip: process.platform 
     const id = h.scenario({ head: SHA_A, pushedSha: SHA_A, at: PARKED });
     const first = await syncAll(root, h.config);
     assert.deepEqual(first.integrating, [id]);
-    assert.deepEqual(Object.keys(first).sort(), ['integrating', 'requests', 'results', 'synced']);
+    assert.deepEqual(Object.keys(first).sort(), ['integrating', 'reconcile', 'requests', 'results', 'synced']);
     assert.equal(first.synced, 1);
     assert.equal((first.results[0] as any).behindBy, 2);
     const second = await syncAll(root, h.config);
     assert.deepEqual(second.integrating, [], 'a job already at integrate is not routed again');
-    assert.equal(second.requests, 0);
+    // Routed to integrate and running with no driver, the job got the reconciler's one resume, and only one.
+    assert.deepEqual((first.reconcile as any).resumed, [id]);
+    assert.deepEqual((second.reconcile as any).resumed, []);
+    assert.equal(second.requests, 1);
   } finally {
     h.done();
   }

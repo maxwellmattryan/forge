@@ -386,7 +386,7 @@ test('help: overview, group, command', () => {
   const group = helpCli('help', 'job');
   assert.equal(group.status, 0);
   assert.equal(helpCli('job', '--help').stdout, group.stdout);
-  assert.ok(group.stdout.includes('forge job advance <id> --session S [--max N]'));
+  assert.ok(group.stdout.includes('forge job advance <id> --session S [--epoch N] [--max N]'));
   assert.ok(group.stdout.includes('Run forge help job <subcommand> for flags and exit codes.'));
 
   const step = helpCli('help', 'job', 'step');

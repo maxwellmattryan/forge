@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { paths, exists } from './paths.ts';
-import type { ForgeRequest } from './types.ts';
+import type { ForgeRequest, JobLease } from './types.ts';
 import { ForgeError, now, readJson, shortId, withLock, writeJsonAtomic } from './util.ts';
 
 export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume', 'sync', 'eval-run', 'retro', 'gate'] as const;
@@ -105,7 +105,10 @@ function requestFile(root: string, id: string): string {
 }
 
 /** A claim older than this with no ack is presumed abandoned (its session died) and can be retaken. */
-const CLAIM_STALE_MS = 30 * 60 * 1000;
+export const CLAIM_STALE_MS = 30 * 60 * 1000;
+
+/** The result a request gets when its session ends under it a second time: it is not tried a third. */
+export const REQUEUE_REJECTED = 'its session ended twice while handling it';
 
 const lockDir = (root: string): string => path.join(paths(root).locks, 'requests');
 
@@ -127,6 +130,49 @@ export function claimRequest(root: string, id: string, session: string, force = 
     writeJsonAtomic(file, rec);
     return rec;
   });
+}
+
+/**
+ * Returns `in-progress` requests whose session is gone to `pending`, so the next session picks them
+ * up with no person pressing Resume. A request's session is gone when (a) it routes to a job whose
+ * lease that session holds and the lease has expired, (b) the caller saw that session exit
+ * (`exited`: the supervisor on a child's exit, the pool at boot), or (c) neither lease rule covers
+ * it and its claim is older than CLAIM_STALE_MS (inbox, office and job-less requests, or a job
+ * another session drives). A request requeued once before is rejected instead, so one that kills
+ * its session can't loop. `leaseOf` reads a job's lease (lib/jobs.ts), which this module must not
+ * import; `note` logs on the request's job after the lock is released.
+ */
+export function requeueOrphans(
+  root: string,
+  opts: { leaseOf: (jobId: string) => JobLease | null; at?: number; exited?: readonly string[]; note?: (job: string, text: string) => void },
+): { requeued: ForgeRequest[]; rejected: ForgeRequest[] } {
+  const at = opts.at ?? Date.now();
+  const exited = new Set(opts.exited ?? []);
+  const requeued: ForgeRequest[] = [];
+  const rejected: ForgeRequest[] = [];
+  if (!listRequests(root, { status: 'in-progress' }).length) return { requeued, rejected };
+  withLock(lockDir(root), () => {
+    for (const rec of listRequests(root, { status: 'in-progress' })) {
+      if (!REQUEST_ID.test(String(rec.id))) continue;
+      const scope = requestScope(root, rec);
+      const lease = scope === INBOX_SCOPE || scope === OFFICE_SCOPE ? null : opts.leaseOf(scope);
+      const leased = Boolean(lease?.driver && rec.session && lease.driver === rec.session);
+      const expired = leased && !(Date.parse(lease!.expiresAt ?? '') > at);
+      const claimed = Date.parse(rec.updatedAt ?? rec.createdAt);
+      const stale = !leased && !(at - claimed < CLAIM_STALE_MS);
+      if (!expired && !stale && !(rec.session && exited.has(rec.session))) continue;
+      const again = (Number.isSafeInteger(rec.requeues) ? rec.requeues! : 0) >= 1;
+      const next: ForgeRequest = again
+        ? { ...rec, status: 'rejected', result: REQUEUE_REJECTED, updatedAt: new Date(at).toISOString() }
+        : { ...rec, status: 'pending', requeues: (Number.isSafeInteger(rec.requeues) ? rec.requeues! : 0) + 1, updatedAt: new Date(at).toISOString() };
+      delete next.session;
+      writeJsonAtomic(requestFile(root, rec.id), next);
+      (again ? rejected : requeued).push(next);
+    }
+  });
+  for (const r of requeued) if (validJobId(r.job)) opts.note?.(r.job, `request ${r.id} (${r.type}) is pending again: the session handling it ended`);
+  for (const r of rejected) if (validJobId(r.job)) opts.note?.(r.job, `request ${r.id} (${r.type}) rejected: ${REQUEUE_REJECTED}`);
+  return { requeued, rejected };
 }
 
 export function ackRequest(root: string, id: string, update: { status: 'done' | 'rejected' | 'in-progress'; result?: string }): ForgeRequest {

@@ -1075,7 +1075,7 @@ test('/api/state exposes the session pool', async () => {
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 32,'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, 33,'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });
 
@@ -1262,7 +1262,7 @@ test('GET /api/about reports versions', async () => {
     assert.equal(r.status, 200);
     const a = JSON.parse(r.text);
     assert.equal(a.forgeVersion, JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version);
-    assert.equal(a.apiVersion, 32);
+    assert.equal(a.apiVersion, 33);
     assert.equal(a.pluginRoot, PLUGIN_ROOT);
     assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
     assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);
@@ -1520,7 +1520,7 @@ test('state exposes office session and gateOwner', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 32);
+    assert.equal(st.apiVersion, 33);
     assert.equal(st.daemons.foreman, true);
     assert.equal(st.daemons.office.scope, '_office');
     assert.equal(st.daemons.office.running, false);
@@ -1587,51 +1587,47 @@ test('job detail lists the job\'s requests', async () => {
 
 // ---- Who holds a job: ownerStatus in /api/state and the job detail, and the resume guard.
 
-const FAKE_CLAUDE = path.resolve(import.meta.dirname, 'fixtures', 'bin', 'claude');
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60 * 1000).toISOString();
 
-/** A seeded job with `owner` (a session id and heartbeat age in minutes) and optional agents. */
-function ownedJob(dir: string, id: string, owner: { session: string; minutes: number } | null, agents: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
+/**
+ * A seeded job with a lease: `session` drove it, renewed `minutes` ago, and the lease runs out
+ * `expiresIn` minutes from now (negative: expired). Null seeds no driver.
+ */
+function ownedJob(dir: string, id: string, owner: { session: string; minutes: number; expiresIn?: number } | null, agents: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
   seedJob(dir, id);
   const file = path.join(dir, '.forge', 'jobs', id, 'job.json');
-  const at = owner ? minutesAgo(owner.minutes) : null;
-  const o = owner ? { session: owner.session, host: 'h', since: minutesAgo(120), heartbeat: at } : null;
-  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), owner: o, agents, ...extra }));
+  const lease = owner
+    ? { driver: owner.session, epoch: 1, since: minutesAgo(120), renewedAt: minutesAgo(owner.minutes), expiresAt: minutesAgo(-(owner.expiresIn ?? 30 - owner.minutes)) }
+    : { driver: null, epoch: 0, since: null, renewedAt: null, expiresAt: null };
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), lease, agents, ...extra }));
   return id;
-}
-
-/** A daemon session record for `scope` whose child has exited, so its session holds nothing. */
-function deadRecord(dir: string, scope: string, sessionId: string) {
-  const d = path.join(dir, '.forge', 'runtime', 'daemons');
-  fs.mkdirSync(d, { recursive: true });
-  const pid = spawnSync(process.execPath, ['-e', '0']).pid;
-  fs.writeFileSync(path.join(d, `${scope}.json`), JSON.stringify({ resumable: true, serverPid: null, argv0: FAKE_CLAUDE, startedAt: new Date().toISOString(), sessionId, spawnSessionId: sessionId, pid }));
 }
 
 test('owner status in /api/state and job detail', async () => {
   const repo = tempRepo();
-  const dead = '0b6c3c55-6a39-4c34-9d0d-5d1b2c7a9e10';
   ownedJob(repo.dir, 'j-none', null);
   ownedJob(repo.dir, 'j-live', { session: 'sess-live', minutes: 1 });
-  ownedJob(repo.dir, 'j-agent', { session: 'sess-agent', minutes: 45 }, { builder: { runs: 1, status: 'running', startedAt: minutesAgo(5) } });
-  ownedJob(repo.dir, 'j-stale', { session: 'sess-stale', minutes: 45 });
-  ownedJob(repo.dir, 'j-dead', { session: dead, minutes: 1 });
-  deadRecord(repo.dir, 'j-dead', dead);
+  // agent start renewed it 45 minutes ago for 2 h.
+  ownedJob(repo.dir, 'j-agent', { session: 'sess-agent', minutes: 45, expiresIn: 75 }, { builder: { runs: 1, status: 'running', startedAt: minutesAgo(45) } });
+  ownedJob(repo.dir, 'j-expired', { session: 'sess-expired', minutes: 45 });
   const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 32);
+    assert.equal(st.apiVersion, 33);
     const byId = Object.fromEntries(st.jobs.map((j) => [j.id, j.ownerStatus]));
-    assert.deepEqual(Object.fromEntries(Object.entries(byId).map(([k, v]: [string, any]) => [k, v.status])), { 'j-none': 'none', 'j-live': 'live', 'j-agent': 'live', 'j-stale': 'stale', 'j-dead': 'live' }, 'the time rule only: never dead');
-    assert.deepEqual(byId['j-none'], { status: 'none', session: null, since: null, heartbeat: null, agentRunning: false, reason: null, jobSession: false });
-    assert.equal(byId['j-agent'].agentRunning, true);
+    assert.deepEqual(Object.fromEntries(Object.entries(byId).map(([k, v]: [string, any]) => [k, v.status])), { 'j-none': 'none', 'j-live': 'live', 'j-agent': 'live', 'j-expired': 'expired' }, 'the lease alone decides');
+    assert.deepEqual(byId['j-none'], { status: 'none', session: null, since: null, renewedAt: null, expiresAt: null, epoch: 0, jobSession: false });
     assert.equal(byId['j-live'].session, 'sess-live');
+    assert.equal(byId['j-live'].epoch, 1);
+    assert.equal(st.jobs.find((j) => j.id === 'j-live').lease.driver, 'sess-live', 'the job carries its lease, not an owner');
+    assert.equal('owner' in st.jobs.find((j) => j.id === 'j-live'), false);
     const detail = (id) => hit(port, { path: `/api/jobs/${id}` }).then((r) => JSON.parse(r.text).job.ownerStatus);
-    assert.deepEqual([(await detail('j-dead')).status, (await detail('j-dead')).reason], ['dead', 'not-running'], 'the detail adds the daemon proof');
     assert.equal((await detail('j-live')).status, 'live');
-    assert.equal((await detail('j-stale')).status, 'stale');
+    assert.equal((await detail('j-agent')).status, 'live');
+    assert.equal((await detail('j-expired')).status, 'expired');
     assert.equal((await detail('j-none')).status, 'none');
+    assert.equal((await detail('j-live')).jobSession, false, 'no pool session runs it');
   } finally {
     await close();
     repo.cleanup();
@@ -1640,13 +1636,12 @@ test('owner status in /api/state and job detail', async () => {
 
 test('POST resume refuses a live owner and queues otherwise', async () => {
   const repo = tempRepo();
-  const dead = '7d1e9a52-2f0b-4b1e-8c3a-1f4e5d6c7b8a';
   ownedJob(repo.dir, 'j-live', { session: 'sess-live', minutes: 1 });
-  ownedJob(repo.dir, 'j-agent', { session: 'sess-agent', minutes: 45 }, { builder: { runs: 1, status: 'running', startedAt: minutesAgo(5) } });
+  ownedJob(repo.dir, 'j-agent', { session: 'sess-agent', minutes: 45, expiresIn: 75 }, { builder: { runs: 1, status: 'running', startedAt: minutesAgo(45) } });
   ownedJob(repo.dir, 'j-none', null);
-  ownedJob(repo.dir, 'j-stale', { session: 'sess-stale', minutes: 45 });
-  ownedJob(repo.dir, 'j-dead', { session: dead, minutes: 1 });
-  deadRecord(repo.dir, 'j-dead', dead);
+  ownedJob(repo.dir, 'j-expired', { session: 'sess-expired', minutes: 45 });
+  // The supervisor expired it when its session's child exited, a minute after its last renewal.
+  ownedJob(repo.dir, 'j-exited', { session: '7d1e9a52-2f0b-4b1e-8c3a-1f4e5d6c7b8a', minutes: 1, expiresIn: 0 });
   const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
   const port = Number(new URL(url).port);
   const queued = async () => JSON.parse((await hit(port, { path: '/api/requests' })).text).length;
@@ -1656,8 +1651,8 @@ test('POST resume refuses a live owner and queues otherwise', async () => {
     assert.equal((await postJson(port, '/api/requests', { type: 'resume', job: 'j-live' }, { origin: 'http://evil.example' })).status, 403);
 
     const refused: [string, Record<string, unknown>, RegExp][] = [
-      ['heartbeat', { type: 'resume', job: 'j-live', text: null, args: {} }, /^job j-live is held by session sess-live \(claimed \S+, last active \S+\); resume it from that session or wait until it stops$/],
-      ['agent', { type: 'resume', job: 'j-agent', text: null, args: {} }, /^job j-agent is held by session sess-agent \(claimed \S+; an agent is still running\); resume it from that session or wait until it stops$/],
+      ['live lease', { type: 'resume', job: 'j-live', text: null, args: {} }, /^job j-live is held by session sess-live \(claimed \S+, lease renewed \S+, until \S+\); resume it from that session or wait until its lease expires$/],
+      ['agent lease', { type: 'resume', job: 'j-agent', text: null, args: {} }, /^job j-agent is held by session sess-agent \(claimed \S+, lease renewed \S+, until \S+\); resume it from that session or wait until its lease expires$/],
       ['force', { type: 'resume', job: 'j-live', args: { force: true } }, /sess-live/],
       ['intake', { type: 'resume', job: 'j-live', args: { intake: 'new' } }, /sess-live/],
     ];
@@ -1668,7 +1663,7 @@ test('POST resume refuses a live owner and queues otherwise', async () => {
     }
     assert.equal(await queued(), 0, 'nothing queued for a live owner');
 
-    for (const job of ['j-none', 'j-stale', 'j-dead']) {
+    for (const job of ['j-none', 'j-expired', 'j-exited']) {
       const r = await postJson(port, '/api/requests', { type: 'resume', job, text: null, args: {} });
       assert.equal(r.status, 200, `${job}: ${r.text}`);
       assert.equal(JSON.parse(r.text).job, job);
@@ -1708,37 +1703,42 @@ test("resume text never reaches a daemon session's stdin, argv or env", async ()
   }
 });
 
-test("a resume reaches the job's own live daemon session", { skip: process.platform === 'win32' && 'POSIX-only' }, async () => {
+test("a resume reaches the job's own live daemon session", async () => {
   const repo = tempRepo();
-  const sid = '3c2b1a09-8f7e-4d6c-9b5a-4f3e2d1c0b9a';
-  ownedJob(repo.dir, 'j-own', { session: sid, minutes: 1 });
-  ownedJob(repo.dir, 'j-other', { session: sid, minutes: 1 });
-  // A provably live child: the recorded claude executable running with the recorded session id.
-  const child = spawn(FAKE_CLAUDE, ['--session-id', sid], { detached: true, stdio: ['pipe', 'ignore', 'ignore'] });
-  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
+  ownedJob(repo.dir, 'j-own', null);
+  ownedJob(repo.dir, 'j-other', null);
+  const kit = fakeChildren();
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: kit.opts });
   const port = Number(new URL(url).port);
   try {
-    await new Promise((r) => setTimeout(r, 200));
-    const d = path.join(repo.dir, '.forge', 'runtime', 'daemons');
-    fs.mkdirSync(d, { recursive: true });
-    fs.writeFileSync(path.join(d, 'j-own.json'), JSON.stringify({ resumable: true, serverPid: process.pid, argv0: FAKE_CLAUDE, startedAt: new Date().toISOString(), sessionId: sid, spawnSessionId: sid, pid: child.pid }));
+    // The first resume starts j-own's pool session; that session then claims the job as itself.
+    assert.equal((await postJson(port, '/api/requests', { type: 'resume', job: 'j-own', text: null, args: {} })).status, 200);
+    await until(() => kit.of('j-own').length === 1);
+    const sid = JSON.parse((await hit(port, { path: '/api/state' })).text).daemons.jobs['j-own'].sessionId;
+    assert.match(sid, /^[0-9a-f-]{36}$/);
+    const lease = (id: string) => {
+      const file = path.join(repo.dir, '.forge', 'jobs', id, 'job.json');
+      const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+      j.lease = { driver: sid, epoch: 1, since: minutesAgo(1), renewedAt: minutesAgo(1), expiresAt: minutesAgo(-29) };
+      fs.writeFileSync(file, JSON.stringify(j));
+    };
+    lease('j-own');
+    lease('j-other');
     const own = JSON.parse((await hit(port, { path: '/api/jobs/j-own' })).text).job.ownerStatus;
-    assert.deepEqual([own.status, own.jobSession], ['live', true]);
+    assert.deepEqual([own.status, own.jobSession], ['live', true], "the pool says its session for j-own runs as the driver");
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text).jobs.find((j) => j.id === 'j-own').ownerStatus;
-    assert.equal(st.jobSession, false, '/api/state never runs the proof');
+    assert.equal(st.jobSession, false, '/api/state never asks');
     const r = await postJson(port, '/api/requests', { type: 'resume', job: 'j-own', text: null, args: {} });
     assert.equal(r.status, 200, r.text);
-    // The same session owning another job is that job's live foreign owner.
+    // The same session driving another job is that job's live foreign driver.
     const other = await postJson(port, '/api/requests', { type: 'resume', job: 'j-other', text: null, args: {} });
     assert.equal(other.status, 409, other.text);
     assert.equal(JSON.parse((await hit(port, { path: '/api/jobs/j-other' })).text).job.ownerStatus.jobSession, false);
-    // The detail runs `ps`, so other sites may not request it.
+    // The detail stays a same-origin read.
     assert.equal((await hit(port, { path: '/api/jobs/j-own', headers: { 'sec-fetch-site': 'cross-site' } })).status, 403);
     assert.equal((await hit(port, { path: '/api/jobs/j-own', headers: { origin: 'http://evil.example' } })).status, 403);
   } finally {
-    try {
-      process.kill(-child.pid!, 'SIGKILL');
-    } catch {}
     await close();
     repo.cleanup();
   }
@@ -1769,7 +1769,7 @@ test('/api/state and job detail carry effort', async () => {
   try {
     const port = Number(new URL(srv.url).port);
     const s = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(s.apiVersion, 32);
+    assert.equal(s.apiVersion, 33);
     assert.equal(s.config.effort, 'medium');
     const row = (id) => s.jobs.find((j) => j.id === id);
     assert.equal(row(plain).effort, null, 'a v3 job reads as inherit');
@@ -1975,7 +1975,7 @@ test('state carries lastHuman', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 32);
+    assert.equal(st.apiVersion, 33);
     const by = Object.fromEntries(st.jobs.map((j) => [j.id, j.lastHuman]));
     assert.deepEqual(by, {
       [acted]: { ts: '2026-03-01T00:00:01.000Z', type: 'budget-ack', action: null, actor: { login: 'bob', source: 'env' } },
@@ -1999,7 +1999,7 @@ test('state carries repo budget', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 32);
+    assert.equal(st.apiVersion, 33);
     assert.equal(st.budget.month, new Date().toISOString().slice(0, 7));
     assert.deepEqual(st.budget.spent, { dayUsd: 12, monthUsd: 12, monthTokens: 12 });
     assert.deepEqual(st.budget.exceeded, ['usdPerMonth']);

@@ -9,15 +9,16 @@ import path from 'node:path';
 import { resolveEffort, trustDigest } from './config.ts';
 import { PERMISSION_MODES, TRUST_CHANGED, UUID, commandPermissionMode, createSession, otherOwner, readInfo, reapOrphans, sessionFiles, sessionOptions } from './daemon.ts';
 import type { DaemonOptions, Session, SessionContext, SessionEvent } from './daemon.ts';
+import { daemonSessionIds } from './daemon-owner.ts';
 import { configForJob } from './eval-overlay.ts';
-import { ownerStatusWithProof } from './daemon-owner.ts';
-import { maybeEnqueueGate } from './foreman.ts';
-import { loadJob, logEvent, logHumanEvent, readEvents, repoAuditFile, setJob } from './jobs.ts';
-import { progressMark, strandedAction, strandedAfterTurn } from './stranded.ts';
+import { expireLease, listJobs, loadJob, logHumanEvent, repoAuditFile, requeueOrphanedRequests } from './jobs.ts';
 import { PLUGIN_ROOT } from './paths.ts';
+import { RECONCILE_MS, daemonLockDir, reconcile } from './reconcile.ts';
+import type { SessionFacts } from './reconcile.ts';
+import { tryLock } from './util.ts';
 import { repoBudgetStatus } from './repo-budget.ts';
 import { daemonPlatformProblem } from './platform.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, enqueue, listRequests, requestScope, validScope } from './requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, listRequests, requestScope, validScope } from './requests.ts';
 import type { Config, RepoBudgetStatus, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, Job, PermissionDecision } from './types.ts';
 
 /** The pool's own state: state() below. The server adds `clients` to make a DaemonPoolState. */
@@ -48,8 +49,6 @@ export interface DaemonPool {
 const FINISHED = ['done', 'cancelled', 'failed'];
 /** How long a tick reuses the repo budget status. */
 const REPO_BUDGET_MEMO_MS = 10_000;
-/** The resume the pool queues after a turn left its job running and undriven: a fixed text, like every daemon turn. */
-const STRANDED_TEXT = 'Your last turn ended with this job still running and nothing queued to drive it. Run the step loop from where it stands; if it cannot go on, park it on a gate rather than stopping.';
 /** How often a wanted pool runs `forge sync`, so CI results and PR feedback reach the office unasked. */
 export const SYNC_MS = 120_000;
 /** A sync that runs longer than this is killed; the next interval tries again. */
@@ -110,6 +109,7 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
   const o = sessionOptions(opts);
   const pollMs = opts.pollMs ?? 2000;
   const syncMs = opts.syncMs ?? SYNC_MS;
+  const reconcileMs = opts.reconcileMs ?? RECONCILE_MS;
   const runSync = opts.runSync ?? ((r: string) => runSyncChild(r, o.env));
   const platform = opts.platform ?? process.platform;
   reapOrphans(root, { graceMs: o.graceMs });
@@ -133,6 +133,8 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
   let trusted: string | null = null;
   let pollTimer: NodeJS.Timeout | null = null;
   let syncTimer: NodeJS.Timeout | null = null;
+  let reconcileTimer: NodeJS.Timeout | null = null;
+  let lastReconcileError: string | null = null;
   let syncing = false;
   let lastSyncError: string | null = null;
   let closed = false;
@@ -140,6 +142,12 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
   let inboxEager = false;
   let startReason = 'start';
   const sessions = new Map<string, Session>();
+  /** `<locks>/daemon`, held from a start until stop, close or exit: one `forge dash` drives a repo. */
+  let daemonLock: { release: () => void } | null = null;
+  const releaseDaemonLock = () => {
+    daemonLock?.release();
+    daemonLock = null;
+  };
   /**
    * The repo budget status, reused for up to REPO_BUDGET_MEMO_MS: the ledger stats every job's events.
    * An acknowledgement (the audit log grows) or a changed `budget:` block recomputes it at once.
@@ -187,6 +195,12 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
     fatal: (message) => poolStop(message, 'fatal'),
     emit,
     onResult,
+    onExit(scope) {
+      if (closed) return;
+      // The exit requeued what the child claimed and expired its lease: judge its job now, then hand out the work.
+      if (!shared(scope)) runReconcile(scope);
+      tick();
+    },
     poke: () => tick(),
     permissionMode: (scope) => modes.get(scope) ?? null,
     permissionModeRefused(scope, mode, live) {
@@ -287,9 +301,32 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
         void s.kill('stop', true, 'job-finished');
         return;
       }
-      if (state === 'running') checkStranded(scope, s);
+      if (state === 'running') runReconcile(scope);
     }
     tick();
+  }
+
+  /** Every job session's facts, by job id: what judge (lib/reconcile.ts) reads beside job.json and the requests. */
+  function sessionFacts(): Map<string, SessionFacts> {
+    return new Map(jobSessions().map((s) => [s.scope, s.facts()]));
+  }
+
+  /**
+   * One reconciler pass (lib/reconcile.ts), for every job or only `only`. Never throws: a failed
+   * pass is logged once per distinct failure and retried at the next timer.
+   */
+  function runReconcile(only?: string): void {
+    if (closed || !fs.existsSync(root)) return;
+    try {
+      const r = reconcile(root, config(), { facts: sessionFacts(), ...(only !== undefined ? { only } : {}) });
+      for (const id of r.resumed) sessions.get(id)?.logEvent('reconcile', { action: 'resume' });
+      for (const id of r.escalated) sessions.get(id)?.logEvent('reconcile', { action: 'escalate' });
+      lastReconcileError = null;
+    } catch (e) {
+      const message = `reconcile failed: ${(e as Error).message}`;
+      if (message !== lastReconcileError) inbox.logEvent('error', { message });
+      lastReconcileError = message;
+    }
   }
 
   function tick(): void {
@@ -349,11 +386,11 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       }
       for (const s of jobSessions()) if (s.running) s.refreshKept();
       // Each waiting job gets the slot of an idle session (oldest result first), unless one is already being freed.
-      // A session whose job has agents running, or that just finished a turn or an agent, keeps its slot.
+      // A session whose job has agents running keeps its slot.
       const short = waiters.filter((w) => w.s.waiting).length - jobSessions().filter((s) => s.status === 'stopping').length;
       if (short > 0) {
         const idle = jobSessions()
-          .filter((s) => s.status === 'idle' && s.keptBy(o.slotGraceMs) === null)
+          .filter((s) => s.status === 'idle' && s.keptBy() === null)
           .sort((a, b) => (a.lastResultAt ?? '').localeCompare(b.lastResultAt ?? ''));
         for (const s of idle.slice(0, short)) void s.kill('idle-stop', true, 'slot');
       }
@@ -390,40 +427,27 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       });
   }
 
-  /** Per job: the progress mark when the pool last resumed it for a stranded turn end. */
-  const strandedResumes = new Map<string, string | null>();
-
   /**
-   * A job session's turn ended (lib/stranded.ts): if it left the job running with nothing to drive it,
-   * queue one resume; if the resumed turn ends the same way with no progress, park the job on
-   * escalation so the foreman (or a human) takes it, rather than leave it stranded.
+   * No earlier `forge dash`'s child can still run once this one holds the daemon lock and has
+   * reaped orphans, so every lease one of their ids holds is expired and every request they
+   * claimed requeued. A lease held by an interactive session (in no record) is left alone.
    */
-  function checkStranded(scope: string, s: Session | undefined): void {
+  function expireBootLeases(): void {
+    const ids = daemonSessionIds(root);
+    if (!ids.length) return;
+    for (const j of listJobs(root)) {
+      if (!j.lease.driver || !ids.includes(j.lease.driver)) continue;
+      try {
+        const session = expireLease(root, j.id, ids, 'dash-start');
+        if (session) inbox.logEvent('lease-expired', { job: j.id, session, reason: 'dash-start' });
+      } catch (e) {
+        inbox.logEvent('error', { message: `expiring ${j.id}'s lease: ${(e as Error).message}` });
+      }
+    }
     try {
-      const job = loadJob(root, scope);
-      if (job.state !== 'running') return void strandedResumes.delete(scope);
-      // The turn is over, so a request still in progress was this turn's: only a pending one is queued work.
-      const requested = listRequests(root, { status: 'pending' }).some((r) => requestScope(root, r) === scope);
-      const owner = ownerStatusWithProof(root, job, { env: process.env });
-      if (!strandedAfterTurn({ job, requested, agents: s?.keptBy(0) === 'agents', owner })) return;
-      const mark = progressMark(readEvents(root, scope));
-      if (strandedAction(strandedResumes.get(scope), mark) === 'resume') {
-        enqueue(root, null, { type: 'resume', job: scope, text: STRANDED_TEXT, from: 'daemon:supervisor' });
-        strandedResumes.set(scope, mark);
-        s?.logEvent('stranded', { action: 'resume', stage: job.stage });
-        return;
-      }
-      strandedResumes.delete(scope);
-      const reason = `stranded at ${job.stage}: two turns ended with the job running and nothing driving it`;
-      // Re-read under the lock: a job that parked or moved meanwhile is left alone.
-      const after = setJob(root, scope, { derive: (j) => (j.state === 'running' && j.stage === job.stage ? { state: 'waiting', waitingOn: 'escalation', reason } : null) });
-      if (after.state === 'waiting' && after.reason === reason) {
-        logEvent(root, scope, 'stranded', { action: 'escalate', stage: job.stage });
-        s?.logEvent('stranded', { action: 'escalate', stage: job.stage });
-        maybeEnqueueGate(root, config(), job, after);
-      }
+      requeueOrphanedRequests(root, { exited: ids });
     } catch (e) {
-      s?.logEvent('error', { message: `checking for a stranded job: ${(e as Error).message}` });
+      inbox.logEvent('error', { message: `requeueing claimed requests: ${(e as Error).message}` });
     }
   }
 
@@ -474,11 +498,29 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       // Before reading config, so a change in between fails the spawn's comparison instead of being blessed.
       const snapshot = trustDigest(root);
       config();
+      const fresh = !daemonLock;
+      if (!daemonLock) {
+        // The lock, not the records, decides: two dashes started together both see no other owner in them.
+        const got = tryLock(daemonLockDir(root));
+        if ('holder' in got) {
+          wanted = false;
+          lastError = `another forge dash (pid ${got.holder.pid ?? 'unknown'}) owns the daemon`;
+          return state();
+        }
+        daemonLock = got;
+      }
+      // Still asked, after the lock: an older Forge's dash takes no lock but records itself.
       const owner = otherOwner(root);
       if (owner !== null) {
+        releaseDaemonLock();
         wanted = false;
         lastError = `another forge dash (pid ${owner}) owns the daemon`;
         return state();
+      }
+      // Only on taking the lock with none of this pool's children alive: then no session in any record still runs.
+      if (fresh && ![...sessions.values()].some((s) => s.running || s.status === 'stopping')) {
+        reapOrphans(root, { graceMs: o.graceMs });
+        expireBootLeases();
       }
       wanted = true;
       lastError = null;
@@ -493,6 +535,12 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
         syncTimer = setInterval(periodicSync, syncMs);
         syncTimer.unref?.();
       }
+      if (!reconcileTimer && reconcileMs > 0) {
+        reconcileTimer = setInterval(() => {
+          if (wanted && !closed) runReconcile();
+        }, reconcileMs);
+        reconcileTimer.unref?.();
+      }
       inboxEager = true;
       startReason = reason;
       tick();
@@ -503,6 +551,8 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       inboxEager = false;
       for (const s of sessions.values()) s.setWaiting(false);
       await Promise.all([...sessions.values()].map((s) => s.kill('stop', false, reason)));
+      // Unless a start came in while the sessions stopped.
+      if (!wanted) releaseDaemonLock();
       return state();
     },
     startSession(scope) {
@@ -567,14 +617,18 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       pollTimer = null;
       if (syncTimer) clearInterval(syncTimer);
       syncTimer = null;
+      if (reconcileTimer) clearInterval(reconcileTimer);
+      reconcileTimer = null;
       wanted = false;
       closed = true;
       await Promise.all([...sessions.values()].map((s) => s.close()));
+      releaseDaemonLock();
       subscribers.clear();
     },
     /** Last resort from a process `exit` handler: synchronous, so it can't wait for the grace period. */
     killSync() {
       for (const s of sessions.values()) s.killSync();
+      releaseDaemonLock();
     },
   };
 }

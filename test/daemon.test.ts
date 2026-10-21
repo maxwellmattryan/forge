@@ -116,7 +116,7 @@ const turnsIn = (child) => child.written.split(TURN_LINE).length - 1;
 
 /** A pool over in-memory children that never polls or syncs on its own. */
 function kitPool(dir, kit, cfg: any = config(), extra = {}) {
-  return createPool(dir, { spawn: kit.spawn, killTree: kit.killTree, loadConfig: () => ({ config: cfg }), pollMs: 3_600_000, slotGraceMs: 0, syncMs: 0, ...extra });
+  return createPool(dir, { spawn: kit.spawn, killTree: kit.killTree, loadConfig: () => ({ config: cfg }), pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, ...extra });
 }
 
 test('AC5: command template to argv', async () => {
@@ -1837,7 +1837,7 @@ test('maxConcurrent caps job sessions and frees idle slots for waiting jobs', as
 function ownBy(root, id, session) {
   const at = new Date().toISOString();
   updateJob(root, id, (j) => {
-    j.owner = { session, host: 'test-host', since: at, heartbeat: at };
+    j.lease = { driver: session, epoch: (j.lease?.epoch ?? 0) + 1, since: at, renewedAt: at, expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() };
   });
 }
 const agentStart = (root, id, role) => recordAgent(root, id, { role, phase: 'start' }, defaults());
@@ -1914,32 +1914,23 @@ test('a waiting job keeps waiting while every slot drives agents', async () => {
   }
 });
 
-test('a session keeps its slot for a grace after its last result', async () => {
-  assert.equal(sessionOptions().slotGraceMs, 30_000);
+test('an idle session with no running agents gives its slot up at once: there is no grace', async () => {
+  assert.equal('slotGraceMs' in sessionOptions(), false);
   const repo = tempRepo();
   const kit = fakeKit();
-  const d = kitPool(repo.dir, kit, config({ maxConcurrent: 1 }), { slotGraceMs: 1000 });
+  const d = kitPool(repo.dir, kit, config({ maxConcurrent: 1 }));
   try {
     const [a, b] = ['A', 'B'].map((t) => createJob(repo.dir, defaults(), { title: `Job ${t}` }).id);
     await enqueueInOrder(repo.dir, [{ type: 'resume', job: a }, { type: 'resume', job: b }]);
     d.start();
     await settle();
-    const resultAt = Date.now();
+    assert.equal(d.sessionState(b).waiting, true, 'B waits while A works');
+    // Its result's own tick frees the slot: nothing holds A once it is idle.
     kit.last(a).line({ type: 'result' });
-    await waitFor(() => d.sessionState(a).status === 'idle', 2000, 'A idle');
-    d.poke();
-    await sleep(20);
-    if (Date.now() - resultAt < 800) {
-      assert.equal(kit.last(a).exited, false, 'inside the grace');
-      assert.equal(d.sessionState(b).waiting, true);
-    }
-    await sleep(Math.max(0, resultAt + 1050 - Date.now()));
-    d.poke();
-    await waitFor(() => kit.last(b), 2000, 'B to get the slot after the grace');
+    await waitFor(() => kit.last(b), 2000, 'B to get the slot straight after A went idle');
     const stop = eventsIn(logOf(repo.dir, a), 'idle-stop');
     assert.equal(stop.length, 1);
     assert.equal(stop[0].reason, 'slot');
-    assert.ok(Date.parse(stop[0].at) - resultAt >= 1000, 'never inside the grace');
   } finally {
     await d.close();
     repo.cleanup();

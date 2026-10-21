@@ -72,7 +72,7 @@ const checkoutLock = (root: string): string => path.join(paths(root).locks, 'che
 
 /** Every focus switch and checkout undo runs under this lock; a concurrent one fails fast. */
 export function withCheckoutLock<T>(root: string, fn: () => Promise<T>): Promise<T> {
-  return withLockAsync(checkoutLock(root), fn, { timeoutMs: 2000, staleMs: 10 * 60_000 });
+  return withLockAsync(checkoutLock(root), fn, { timeoutMs: 2000 });
 }
 
 const isLink = (s: CheckoutStep): s is { link: string; to: string } => typeof (s as any)?.link === 'string';

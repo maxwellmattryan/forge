@@ -5,8 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
-import { claimJob, createJob, loadJob } from '../lib/jobs.ts';
-import { ackRequest, claimRequest, enqueue, listRequests } from '../lib/requests.ts';
+import { claimJob, createJob, loadJob, readEvents, requeueOrphanedRequests, updateJob } from '../lib/jobs.ts';
+import { REQUEUE_REJECTED, ackRequest, claimRequest, enqueue, listRequests, requeueOrphans } from '../lib/requests.ts';
 
 /** Runs the CLI against a scratch repo; `env` adds to (or, with undefined, removes from) the environment. */
 function cliIn(dir) {
@@ -214,13 +214,13 @@ describe('the request inbox', { concurrency: 4 }, () => {
       const own = (await cli(human, 'requests', 'add', 'resume', '--job', x, '--intake', 'run', '--session', s1)).json();
       assert.equal(own.released, true);
       assert.equal(own.type, 'resume');
-      assert.equal(loadJob(root, x).owner, null, 'the owner naming itself lets go');
+      assert.equal(loadJob(root, x).lease.driver, null, 'the owner naming itself lets go');
       assert.ok(loadJob(root, x).runs.at(-1).endedAt);
 
       claimJob(root, x, s2);
       assert.equal((await cli(human, 'requests', 'add', 'resume', '--job', x, '--session', s3)).json().released, false);
       assert.equal((await cli(human, 'requests', 'add', 'resume', '--job', x)).json().released, false);
-      assert.equal(loadJob(root, x).owner.session, s2, 'another session never releases the claim');
+      assert.equal(loadJob(root, x).lease.driver, s2, 'another session never releases the claim');
 
       // The inbox hands off a job one of its sessions (current or past) claimed, without --session.
       fs.mkdirSync(path.join(root, '.forge', 'runtime', 'daemons'), { recursive: true });
@@ -230,12 +230,12 @@ describe('the request inbox', { concurrency: 4 }, () => {
       const handed = (await cli(inbox, 'requests', 'add', 'resume', '--job', x, '--intake', 'run')).json();
       assert.equal(handed.released, true);
       assert.equal(handed.from, 'daemon:_inbox');
-      assert.equal(loadJob(root, x).owner, null);
+      assert.equal(loadJob(root, x).lease.driver, null);
 
       claimJob(root, x, jobSid);
       assert.equal((await cli(inbox, 'requests', 'add', 'resume', '--job', x)).json().released, false, "the inbox doesn't release a job session's claim");
       assert.equal((await cli({ ...trust, FORGE_DAEMON_SCOPE: x }, 'requests', 'add', 'resume', '--job', x)).json().released, false, 'a job scope without --session keeps the claim');
-      assert.equal(loadJob(root, x).owner.session, jobSid);
+      assert.equal(loadJob(root, x).lease.driver, jobSid);
 
       const missing = await cli(human, 'requests', 'add', 'resume', '--job', 'no-such-job', '--session', s1);
       assert.equal(missing.ok, true, missing.out);
@@ -244,4 +244,52 @@ describe('the request inbox', { concurrency: 4 }, () => {
       repo.cleanup();
     }
   });
+});
+
+test('requeue follows the lease', async () => {
+  const repo = tempRepo();
+  const root = repo.dir;
+  const byId = (id: string) => listRequests(root).find((r) => r.id === id)!;
+  const expire = (id: string) => updateJob(root, id, (j) => (j.lease.expiresAt = new Date(Date.now() - 1000).toISOString()));
+  try {
+    const job = createJob(root, defaults(), { title: 'Leased' }).id;
+    claimJob(root, job, 'S');
+    const r = enqueue(root, null, { type: 'resume', job });
+    claimRequest(root, r.id, 'S');
+    // A live lease of the claiming session keeps the request in progress, however long ago it was claimed.
+    assert.deepEqual(requeueOrphanedRequests(root, { at: Date.now() + 10 * 60_000 }).requeued, []);
+    assert.equal(byId(r.id).status, 'in-progress');
+
+    // (a) its lease expired: back to pending, once, with a note on the job.
+    expire(job);
+    assert.deepEqual(requeueOrphanedRequests(root).requeued.map((x) => x.id), [r.id]);
+    assert.deepEqual([byId(r.id).status, byId(r.id).requeues, byId(r.id).session], ['pending', 1, undefined]);
+    assert.ok(readEvents(root, job).some((e) => e.type === 'note' && String(e.text).includes(`request ${r.id} (resume) is pending again`)));
+
+    // Orphaned a second time: rejected with the fixed result, not requeued again.
+    claimJob(root, job, 'T');
+    claimRequest(root, r.id, 'T');
+    const second = requeueOrphanedRequests(root, { exited: ['T'] });
+    assert.deepEqual([second.requeued, second.rejected.map((x) => x.id)], [[], [r.id]]);
+    assert.deepEqual([byId(r.id).status, byId(r.id).result], ['rejected', REQUEUE_REJECTED]);
+
+    // (b) a session seen exiting, and (c) a job-less claim past 30 minutes.
+    const inbox = enqueue(root, null, { type: 'next' });
+    claimRequest(root, inbox.id, 'I');
+    assert.deepEqual(requeueOrphans(root, { leaseOf: () => null }).requeued, [], 'a fresh job-less claim stays');
+    assert.deepEqual(requeueOrphans(root, { leaseOf: () => null, at: Date.now() + 31 * 60_000 }).requeued.map((x) => x.id), [inbox.id]);
+    claimRequest(root, inbox.id, 'J');
+    assert.deepEqual(requeueOrphans(root, { leaseOf: () => null, exited: ['J'] }).rejected.map((x) => x.id), [inbox.id]);
+
+    // `forge requests` requeues before it lists, so an interactive drain sees the request again.
+    const other = createJob(root, defaults(), { title: 'Other' }).id;
+    claimJob(root, other, 'U');
+    const o = enqueue(root, null, { type: 'resume', job: other });
+    claimRequest(root, o.id, 'U');
+    expire(other);
+    const listed = await forgeAsync(root, ['requests']);
+    assert.ok(JSON.parse(listed.stdout).some((x: any) => x.id === o.id && x.status === 'pending'), listed.stderr);
+  } finally {
+    repo.cleanup();
+  }
 });

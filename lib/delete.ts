@@ -8,7 +8,7 @@ import { currentActor } from './actor.ts';
 // The tracker mirror lives with the tracker commands; nothing there imports this module back.
 import { mirrorToTracker } from './commands/tracker.ts';
 import { exists } from './paths.ts';
-import { isActive, jobDir, listJobs, ownerStatus } from './jobs.ts';
+import { isActive, jobDir, leaseStatus, listJobs } from './jobs.ts';
 import { ackRequest, listRequests } from './requests.ts';
 import { appendRetentionLog, daemonRunning, readableJob } from './retention.ts';
 import { sessionFiles } from './daemon.ts';
@@ -23,7 +23,7 @@ import { ForgeError, withLock } from './util.ts';
 export function deleteRefusal(root: string, job: Job, live: Job[], opts: { force?: boolean; stopsDaemon?: boolean } = {}): string | null {
   if (job.kind === 'eval') return 'eval jobs stay with their run; delete the run instead';
   if (job.pr?.number) return `it has PR #${job.pr.number}; cancel it and archive it instead (forge job archive)`;
-  const owner = ownerStatus(job);
+  const owner = leaseStatus(job);
   if (owner.status === 'live' && !opts.force) return `owned by live session ${owner.session}; stop that session or pass --force`;
   if (!opts.stopsDaemon && daemonRunning(root, job.id)) return 'a dashboard session is running it; stop it in the dashboard first';
   const kids = (Array.isArray(job.children) ? job.children : []).filter((k) => live.some((o) => o.id === k));
@@ -75,8 +75,8 @@ export async function deleteJob(root: string, config: Config, id: string, opts: 
     // Re-read inside the lock: a session may have claimed it while the worktree came down.
     const cur = readableJob(root, id);
     if (typeof cur === 'string') throw new ForgeError(`cannot delete ${id}: ${cur}`, 1);
-    const owner = ownerStatus(cur.job);
-    if (owner.status === 'live' && !opts.force && owner.session !== job.owner?.session) throw new ForgeError(`cannot delete ${id}: claimed by live session ${owner.session} meanwhile`, 1);
+    const owner = leaseStatus(cur.job);
+    if (owner.status === 'live' && !opts.force && owner.session !== job.lease.driver) throw new ForgeError(`cannot delete ${id}: claimed by live session ${owner.session} meanwhile`, 1);
     fs.rmSync(dir, { recursive: true, force: true });
   });
   const actor = opts.actor ?? currentActor(root);
