@@ -4,6 +4,7 @@ import { createJob, isActive, leaseStatus, listJobs, loadJob, logEvent, readEven
 import * as pr from '../pr.ts';
 import { measureOutcomes } from '../outcome.ts';
 import { queueScores } from '../scoring.ts';
+import { refreshRequest } from '../request-refresh.ts';
 import { listRequests } from '../requests.ts';
 import { checkRepoBudget, isRepoHold, repoBudgetBlock } from '../repo-budget.ts';
 import { applyRetention } from '../retention.ts';
@@ -262,7 +263,10 @@ export async function nextCmd(root: string, config: Config, flags: Record<string
   const warned = (id: string) => {
     if (status.reason) logEvent(root, id, 'repo-budget-warn', { reason: status.reason });
   };
-  const resumed = session ? resumeQueued(root, session) : null;
+  const claimed = session ? resumeQueued(root, session) : null;
+  // A queued job's issue may have been edited since intake; its title can change with it.
+  const refresh = claimed ? await refreshRequest(root, config, claimed.id, 'claim') : null;
+  const resumed = claimed && refresh?.refreshed ? loadJob(root, claimed.id) : claimed;
   if (resumed) {
     warned(resumed.id);
     let blocked: Blocked[] = [];
@@ -282,6 +286,7 @@ export async function nextCmd(root: string, config: Config, flags: Record<string
       stage: resumed.stage,
       state: resumed.state,
       resumed: true,
+      ...(refresh?.refreshed ? { requestRefreshed: true } : {}),
       ...(blocked.length ? { blocked } : {}),
       ...warn,
       ...(skipped.length ? { skippedRepos: skipped } : {}),
@@ -329,7 +334,7 @@ export async function startFromRef(root: string, config: Config, tracker: Tracke
   if (existing) return { id: existing.id, existing: true, stage: existing.stage, state: existing.state };
   const stored = kind === 'github' ? (parseIssueRef(itemRef, { tracker: kind, slug }) ?? itemRef) : itemRef;
   const issues = [{ tracker: kind, ref: stored, url: typeof item.url === 'string' ? item.url : null }];
-  const job = createJob(root, config, { title: item.title, issues, body: item.body ?? '', splitMode: opts.splitMode });
+  const job = createJob(root, config, { title: item.title, issues, body: item.body ?? '', splitMode: opts.splitMode, origin: 'issue' });
   const claim = tracker.claim(ctx, item.ref, job);
   if (!claim.ok) {
     finishEnvironment(root, config, job, setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` }));
@@ -362,7 +367,7 @@ async function startFromMemberRef(
   // Only the digits reach gh as the issue argument; -R is the configured slug.
   const item = tracker.get(ctx, member.n);
   if (!item) throw new ForgeError(`no github item "${ref}"`);
-  const job = createJob(root, config, { title: item.title, issues: [{ tracker: 'github', ref, url: isSafeUrl(item.url) ? item.url : null }], body: item.body ?? '', splitMode: opts.splitMode });
+  const job = createJob(root, config, { title: item.title, issues: [{ tracker: 'github', ref, url: isSafeUrl(item.url) ? item.url : null }], body: item.body ?? '', splitMode: opts.splitMode, origin: 'issue' });
   recordJobRepo(root, config, job.id, member.name, false);
   const claim = tracker.claim(ctx, member.n, loadJob(root, job.id));
   if (!claim.ok) {
