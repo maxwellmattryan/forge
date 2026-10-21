@@ -7,9 +7,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { isDeepStrictEqual } from 'node:util';
 import { findAttribution } from '../lib/attribution.ts';
 import { tempRepo } from './helpers.ts';
-import { credentialRefs, excessPermissions, loadWorkflow, persistedCredentials, secretLeaks, unpinnedActions } from './workflow-lint.ts';
+import { credentialRefs, dependencyCaches, excessPermissions, forbiddenTriggers, loadWorkflow, persistedCredentials, runExpressions, secretLeaks, triggersOf, unpinnedActions } from './workflow-lint.ts';
 import * as stampModule from '../dashboard/build-stamp.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -35,8 +36,32 @@ const mutate = (fn: (wf: any) => void): any => {
 };
 const flags = (problems: string[], what: string) => assert.ok(problems.length > 0, `the checker flags: ${what}`);
 
-test('only a push to main reaches the write token, and only the release job holds it', () => {
-  assert.deepEqual(Object.keys(WF.on), ['push'], 'a PR, a manual run or another workflow must never reach the write token');
+const RELEASE_IF = "needs.detect.outputs.release == 'true'";
+
+/** Which refs reach the write token, and what must pass first. */
+function gateProblems(wf: any): string[] {
+  // A PR, a manual run or another workflow's completion must never reach the write token.
+  const out = forbiddenTriggers(wf);
+  if (!isDeepStrictEqual(triggersOf(wf), ['push'])) out.push(`only a push may run the release, got ${triggersOf(wf).join(', ')}`);
+  // Any other branch (a job branch, say) would tag and publish with the write token.
+  if (!isDeepStrictEqual(wf?.on?.push, { branches: ['main'] })) out.push('the push must be limited to branches: [main]');
+  const release = wf?.jobs?.release;
+  const needs = Array.isArray(release?.needs) ? release.needs : [release?.needs];
+  for (const job of ['detect', 'verify']) if (!needs.includes(job)) out.push(`the release job must need ${job}`);
+  // An always() or a looser test would publish after a failed or skipped verify.
+  if (release?.if !== RELEASE_IF) out.push(`the release job must run only if ${RELEASE_IF}`);
+  return out;
+}
+
+test('only a push to main reaches the write token, after verify, and only the release job holds it', () => {
+  assert.deepEqual(gateProblems(WF), []);
+  flags(gateProblems(mutate((wf) => { delete wf.on.push.branches; })), 'branches: [main] removed');
+  flags(gateProblems(mutate((wf) => { wf.on.push.branches = ['main', 'forge/*']; })), 'a second branch');
+  flags(gateProblems(mutate((wf) => { wf.on.pull_request_target = null; })), 'pull_request_target');
+  flags(gateProblems(mutate((wf) => { wf.on.workflow_dispatch = null; })), 'a manual run');
+  flags(gateProblems(mutate((wf) => { wf.jobs.release.needs = ['detect']; })), 'verify dropped from needs');
+  flags(gateProblems(mutate((wf) => { wf.jobs.release.if = `always() && ${RELEASE_IF}`; })), 'a release after a failed verify');
+
   assert.deepEqual(excessPermissions(WF, ALLOWED), []);
   flags(excessPermissions(mutate((wf) => { wf.permissions = { contents: 'write' }; }), ALLOWED), 'contents: write at the top level');
   flags(excessPermissions(mutate((wf) => { wf.jobs.release.permissions.packages = 'write'; }), ALLOWED), 'packages: write');
@@ -50,6 +75,8 @@ test('every action is pinned, and the token reaches only the steps that call gh'
   assert.deepEqual(unpinnedActions(WF), [], 'the local ./.github/workflows/ci.yml call needs no pin');
   assert.deepEqual(persistedCredentials(WF), []);
   assert.deepEqual(secretLeaks(WF), []);
+  assert.deepEqual(runExpressions(WF), [], 'values reach run scripts only through step env');
+  assert.deepEqual(dependencyCaches(WF), []);
   // Not vacuous: the tag and publish steps hold the token, in their own env.
   const refs = credentialRefs(WF);
   assert.ok(refs.length >= 1, 'release.yml holds a credential ref');
@@ -65,6 +92,11 @@ test('every action is pinned, and the token reaches only the steps that call gh'
     s.run = s.run.replace('gh release create', 'GH_TOKEN=${{ github.token }} gh release create');
   })), 'the token interpolated into run');
   flags(secretLeaks(mutate((wf) => { wf.jobs.detect.outputs.extra = '${{ github.token }}'; })), 'the token in a job output');
+  flags(runExpressions(mutate((wf) => {
+    const s = stepRunning(wf, 'release', (r) => r.startsWith('gh release create'));
+    s.run = `echo "\${{ github.event.head_commit.message }}"\n${s.run}`;
+  })), 'the commit message interpolated into the release job');
+  flags(dependencyCaches(mutate((wf) => { delete wf.jobs.release.steps[1].with['package-manager-cache']; })), 'setup-node caching in the release job');
 });
 
 /** A scratch repo whose commits each set package.json's version. */

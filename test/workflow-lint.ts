@@ -30,8 +30,12 @@ const DIGEST_PINNED = /^docker:\/\/[^@\s]+@sha256:[0-9a-f]{64}$/;
 export function unpinnedActions(wf: any): string[] {
   const out: string[] = [];
   const check = (where: string, uses: unknown) => {
-    if (typeof uses === 'string' && uses.startsWith('./')) return;
-    if (typeof uses === 'string' && uses.startsWith('docker://') ? DIGEST_PINNED.test(uses) : typeof uses === 'string' && SHA_PINNED.test(uses)) return;
+    const pinned = (u: string): boolean => {
+      if (u.startsWith('./')) return true;
+      if (u.startsWith('docker://')) return DIGEST_PINNED.test(u);
+      return SHA_PINNED.test(u);
+    };
+    if (typeof uses === 'string' && pinned(uses)) return;
     out.push(`${where}: not pinned to a full commit SHA: ${String(uses)}`);
   };
   for (const [id, job] of jobsOf(wf)) {
@@ -117,6 +121,56 @@ export function secretLeaks(wf: any): string[] {
     .map((r) => `${r.where}: ${r.ref} must sit only in the env or with of the step that uses it`);
   // `secrets: inherit` (or a map) on a reusable-workflow call hands every secret to the called workflow.
   for (const [id, job] of jobsOf(wf)) if ('secrets' in job) out.push(`job ${id}: must not pass secrets to a reusable workflow`);
+  return out;
+}
+
+/** The events a workflow runs on, whichever of the string, list or map forms `on` takes. */
+export function triggersOf(wf: any): string[] {
+  const on = wf?.on;
+  if (typeof on === 'string') return [on];
+  if (Array.isArray(on)) return on.filter((e): e is string => typeof e === 'string');
+  return isMap(on) ? Object.keys(on) : [];
+}
+
+// Both run with the base repo's write token and secrets on behalf of code from a fork.
+const FORK_TRIGGERS = ['pull_request_target', 'workflow_run'];
+
+/** The fork triggers a workflow runs on. A privileged workflow also allowlists its own triggers. */
+export function forbiddenTriggers(wf: any): string[] {
+  const on = triggersOf(wf);
+  return FORK_TRIGGERS.filter((e) => on.includes(e)).map((e) => `the workflow must not run on ${e}`);
+}
+
+/**
+ * `run:` scripts that interpolate an expression. GitHub pastes the value into the script text before
+ * the shell reads it, so a branch name, commit message or input becomes code; pass it through the
+ * step's env and quote "$VAR" instead.
+ */
+export function runExpressions(wf: any): string[] {
+  const out: string[] = [];
+  for (const [id, job] of jobsOf(wf)) {
+    stepsOf(job).forEach((s, i) => {
+      if (typeof s.run === 'string' && s.run.includes('${{')) out.push(`${label(id, s, i)}: run must not interpolate an expression`);
+    });
+  }
+  return out;
+}
+
+/**
+ * Dependency caches a workflow restores. A cache written by one run is read by the next, so a PR run
+ * could plant modules a later push or release run executes. setup-node turns its package-manager cache
+ * on by itself unless the step sets `package-manager-cache: false`.
+ */
+export function dependencyCaches(wf: any): string[] {
+  const out: string[] = [];
+  for (const [id, job] of jobsOf(wf)) {
+    stepsOf(job).forEach((s, i) => {
+      if (typeof s.uses !== 'string') return;
+      if (/^actions\/cache(?:\/\w+)?@/.test(s.uses)) out.push(`${label(id, s, i)}: must not restore a cache`);
+      if (s.uses.startsWith('actions/setup-node@') && (s.with?.cache !== undefined || s.with?.['package-manager-cache'] !== false))
+        out.push(`${label(id, s, i)}: setup-node must set package-manager-cache: false and no cache`);
+    });
+  }
   return out;
 }
 

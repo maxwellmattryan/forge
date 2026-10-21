@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parse } from '../lib/yaml.ts';
-import { credentialRefs, excessPermissions, loadWorkflow, persistedCredentials, secretLeaks, unpinnedActions } from './workflow-lint.ts';
+import { credentialRefs, dependencyCaches, excessPermissions, forbiddenTriggers, loadWorkflow, persistedCredentials, runExpressions, secretLeaks, unpinnedActions } from './workflow-lint.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -38,9 +38,7 @@ const label = (job: string, step: Step) => `${job} › ${step?.name ?? step?.use
 
 /** The ways a step can make a red run read green, or reach the steps after it. */
 function gateBypasses(wf: any): string[] {
-  const out: string[] = [];
-  // Both hand fork code a write token and secrets.
-  for (const event of ['pull_request_target', 'workflow_run']) if (wf?.on && typeof wf.on === 'object' && event in wf.on) out.push(`the workflow must not run on ${event}`);
+  const out: string[] = [...forbiddenTriggers(wf), ...runExpressions(wf)];
   for (const scope of [wf, ...jobsOf(wf).map(([, j]) => j)]) {
     for (const k of Object.keys(scope?.env ?? {})) if (ENV_REACH.test(k)) out.push(`env ${k} reaches every step`);
   }
@@ -57,7 +55,6 @@ function gateBypasses(wf: any): string[] {
       for (const k of Object.keys(step.env ?? {})) if (ENV_REACH.test(k)) out.push(`${at}: env ${k}`);
       if (run === null) continue;
       for (const [re, what] of MASKS) if (re.test(run)) out.push(`${at}: run must not mask a failure with ${what}`);
-      if (run.includes('${{')) out.push(`${at}: run must not interpolate an expression`);
       if (ENV_REACH.test(run)) out.push(`${at}: run must not set the environment of later steps`);
     }
   }
@@ -144,7 +141,14 @@ const workflow = (job: string, top = 'permissions:\n  contents: read\n') =>
 const steps = (...lines: string[]) => `    steps:\n${lines.map((l) => `      ${l}`).join('\n')}\n`;
 
 test('workflow-lint reports each bypass and accepts each safe form', () => {
-  const all = (wf: any) => [...unpinnedActions(wf), ...excessPermissions(wf, ALLOWED), ...secretLeaks(wf)];
+  const all = (wf: any) => [
+    ...unpinnedActions(wf),
+    ...excessPermissions(wf, ALLOWED),
+    ...secretLeaks(wf),
+    ...forbiddenTriggers(wf),
+    ...runExpressions(wf),
+    ...dependencyCaches(wf),
+  ];
   const reported: [string, any][] = [
     ['uses: actions/checkout@v4', workflow(steps('- uses: actions/checkout@v4'))],
     ['uses: actions/checkout@main', workflow(steps('- uses: actions/checkout@main'))],
@@ -163,6 +167,12 @@ test('workflow-lint reports each bypass and accepts each safe form', () => {
     ['run: gh api -H "x: ${{ github.token }}"', workflow(steps('- run: gh api -H "x: ${{ github.token }}"'))],
     ["the token through an index in run", workflow(steps("- run: echo ${{ github['token'] }}"))],
     ['toJSON(secrets) in run', workflow(steps('- run: echo ${{ toJSON(secrets) }}'))],
+    ['run: echo "${{ github.event.head_commit.message }}"', workflow(steps('- run: echo "${{ github.event.head_commit.message }}"'))],
+    ['on: pull_request_target', parse(`on:\n  pull_request_target:\npermissions:\n  contents: read\njobs:\n  j:\n    runs-on: ubuntu-latest\n${steps('- run: make')}`)],
+    ['on: [push, workflow_run]', parse(`on: [push, workflow_run]\npermissions:\n  contents: read\njobs:\n  j:\n    runs-on: ubuntu-latest\n${steps('- run: make')}`)],
+    ['uses: actions/cache@<40-hex>', workflow(steps(`- uses: actions/cache@${SHA}`))],
+    ['setup-node without package-manager-cache: false', workflow(steps(`- uses: actions/setup-node@${SHA}`, '  with:', '    node-version: 22'))],
+    ['setup-node with cache: npm', workflow(steps(`- uses: actions/setup-node@${SHA}`, '  with:', '    cache: npm', '    package-manager-cache: false'))],
   ];
   for (const [what, wf] of reported) assertFlags(all(wf), what);
   // A job with no block is named, not just covered by the missing top level.
@@ -176,6 +186,8 @@ test('workflow-lint reports each bypass and accepts each safe form', () => {
     ['step-level env: { GH_TOKEN: ${{ github.token }} }', workflow(steps('- env:', '    GH_TOKEN: ${{ github.token }}', '  run: gh release list'))],
     ['a token in a step with', workflow(steps(`- uses: actions/checkout@${SHA}`, '  with:', '    token: ${{ secrets.X }}'))],
     ['a job write the allowed map names', workflow(`    permissions:\n      contents: write\n${steps('- run: make')}`)],
+    ['an expression passed through step env and quoted', workflow(steps('- env:', '    MSG: ${{ github.event.head_commit.message }}', '  run: echo "$MSG"'))],
+    ['setup-node with package-manager-cache: false', workflow(steps(`- uses: actions/setup-node@${SHA}`, '  with:', '    package-manager-cache: false'))],
   ];
   for (const [what, wf] of accepted) {
     const problems = what === 'a job write the allowed map names' ? excessPermissions(wf, { j: { contents: 'write' } }) : all(wf);
@@ -190,6 +202,10 @@ test('ci.yml pins every action, keeps a read-only token, holds no credential and
   assert.deepEqual(excessPermissions(WF, ALLOWED), []);
   assert.deepEqual(secretLeaks(WF), []);
   assert.deepEqual(persistedCredentials(WF), []);
+  // PR code runs here: a cache it writes would be restored into the next push run.
+  assert.deepEqual(dependencyCaches(WF), []);
+  assertFlags(dependencyCaches(mutate((wf) => { delete wf.jobs.audit.steps.find((s: Step) => String(s.uses).startsWith('actions/setup-node@')).with['package-manager-cache']; })), 'package-manager-cache unset');
+  assertFlags(dependencyCaches(mutate((wf) => { wf.jobs.verify.steps.splice(2, 0, { uses: `actions/cache@${SHA}`, with: { path: 'node_modules', key: 'k' } }); })), 'an actions/cache step');
   assertFlags(unpinnedActions(mutate((wf) => { wf.jobs.verify.steps[0].uses = 'actions/checkout@v7'; })), 'a pin rewritten to @v7');
   assertFlags(excessPermissions(mutate((wf) => { wf.permissions.contents = 'write'; }), ALLOWED), 'contents: write');
   assertFlags(excessPermissions(mutate((wf) => { wf.jobs.verify.permissions = 'write-all'; }), ALLOWED), 'job-level write-all');
@@ -219,6 +235,25 @@ test('no trigger, env or step can make a red run read green', () => {
     const step = stepRunning(wf, 'verify', (r) => r === 'npm run build:dashboard');
     step.run = `echo "NODE_OPTIONS=--test-only" >> "$GITHUB_ENV"\n${step.run}`;
   })), 'a run writing GITHUB_ENV');
+});
+
+const RUNTIME_AUDIT = 'npm audit --omit=dev';
+/** The runtime audit must exist and fail the run: gateBypasses exempts only the report-only full audit. */
+function runtimeAuditProblems(wf: any): string[] {
+  const audits = jobsOf(wf).flatMap(([, job]) => stepsOf(job)).filter((s) => runOf(s)?.trim() === RUNTIME_AUDIT);
+  if (audits.length === 0) return [`no step runs exactly ${RUNTIME_AUDIT}`];
+  return audits.filter((s) => 'continue-on-error' in s).map(() => `${RUNTIME_AUDIT} must not set continue-on-error`);
+}
+
+test('the runtime dependency audit blocks', () => {
+  assert.deepEqual(runtimeAuditProblems(WF), []);
+  assert.deepEqual(gateBypasses(WF), []);
+  const setAudit = (fn: (s: Step) => void) => mutate((wf) => fn(stepRunning(wf, 'audit', (r) => r.trim() === RUNTIME_AUDIT)));
+  assertFlags(runtimeAuditProblems(mutate((wf) => { wf.jobs.audit.steps = wf.jobs.audit.steps.filter((s: Step) => runOf(s)?.trim() !== RUNTIME_AUDIT); })), 'the runtime audit removed');
+  assertFlags(runtimeAuditProblems(setAudit((s) => { s.run = `${RUNTIME_AUDIT} --audit-level=critical`; })), 'a weakened runtime audit');
+  assertFlags(runtimeAuditProblems(setAudit((s) => { s['continue-on-error'] = true; })), 'continue-on-error on the runtime audit');
+  assertFlags(gateBypasses(setAudit((s) => { s['continue-on-error'] = true; })), 'continue-on-error on the runtime audit');
+  assertFlags(gateBypasses(setAudit((s) => { s.run = `${RUNTIME_AUDIT} || true`; })), 'a masked runtime audit');
 });
 
 test('ci runs the AGENTS.md verify list in the same order and nothing else', () => {
