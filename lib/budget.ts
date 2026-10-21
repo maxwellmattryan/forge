@@ -35,7 +35,7 @@ export function jobBudgetOf(config: Config): DaemonJobBudget {
  * pipeline.budget with the job's overrides on top. With the daemon on, a job whose limits set no
  * spend key (none non-null in config, none present in its own overrides) gets daemon.jobBudget's
  * non-null keys, so an unattended job never loops without a spend ceiling. Every budget check, the
- * supervisor's hold and the dashboard (dashboard/src/lib/budget.ts) read limits through this rule.
+ * supervisor's hold and the repo budget read limits through this rule, and the dashboard mirrors it.
  */
 export function effectiveLimits(config: Config, job: Pick<Job, 'budget'>): BudgetLimits {
   const own = job.budget?.limits ?? {};
