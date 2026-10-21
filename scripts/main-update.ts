@@ -1,11 +1,8 @@
-// The two things .github/workflows/main-update.yml takes from the repo, run in a full checkout:
+// The commit `npm run release` pushes to main (scripts/release.ts), also runnable by hand:
 //   node scripts/main-update.ts commit --main <sha> --develop <sha> --dist <dir>
 //     prints the sha of one new commit: develop's tree plus the built dashboard/dist/, parents [main, develop]
-//   node scripts/main-update.ts body --main <sha> --develop <sha> --run-url <url> [--dist <dir>]
-//     prints `title=<title>`, then the main-update PR body
-// The publish job holds a write token, so the dist (built by another job, with node_modules) is checked
-// here before any of it reaches a commit, and repo text reaches the PR only as a body file
-// (docs/RELEASES.md "Releasing"). Built-ins only: the publish job runs no npm.
+// The dist comes from main-update.yml's build in CI, with node_modules, so it is checked here before any
+// of it reaches a commit (docs/RELEASES.md "Releasing"). Built-ins only.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,14 +13,11 @@ import { distHash, sourceHash, STAMP } from '../dashboard/build-stamp.mjs';
 export const ASSET = /^assets\/[\w.-]+\.(js|css|woff2)$/;
 const SHA = /^[0-9a-f]{40}$/;
 const SEMVER = /^\d+\.\d+\.\d+$/;
-const RUN_URL = /^https:\/\/[\w.-]+\/[\w.-]+\/[\w.-]+\/actions\/runs\/\d+(?:\/attempts\/\d+)?$/;
 const FIXED = ['index.html', 'manifest.json', STAMP];
-const BOT = { name: 'github-actions[bot]', email: '41898282+github-actions[bot]@users.noreply.github.com' };
-// Subjects of the bot's own commits as a squash merge would leave them on main.
-const BOT_SUBJECTS = ['Update main to develop', 'Release '];
-const MAX_LISTED = 50;
+// Subjects of release commits, and of the main-update PRs that came before them, as a squash leaves them on main.
+const RELEASE_SUBJECTS = ['Update main to develop', 'Release '];
 
-class Refusal extends Error {}
+export class Refusal extends Error {}
 
 /** Every file name the manifest points at (file, css[] and assets[] of each entry). */
 export function manifestFiles(distDir: string): Set<string> {
@@ -110,13 +104,13 @@ function developVersion(develop: string): string {
   return v;
 }
 
-/** `Release <v>` while v<v> has no tag, else `Update main to develop <sha7>`. */
+/** `Release <v>`, refused once v<v> is tagged: main moves only to release a new version. */
 function title(develop: string): string {
   const v = developVersion(develop);
-  // Any rev-parse failure reads as "no tag", so this needs the tags in the checkout: publish's
-  // checkout sets fetch-depth: 0, which fetches them. A shallow, tagless one would title every PR a release.
+  // Any rev-parse failure reads as "no tag", so this needs the tags in the checkout (release.ts fetches them).
   const tagged = spawnSync('git', ['rev-parse', '-q', '--verify', `refs/tags/v${v}`], { encoding: 'utf8' }).status === 0;
-  return tagged ? `Update main to develop ${develop.slice(0, 7)}` : `Release ${v}`;
+  if (tagged) throw new Refusal(`v${v} is already tagged: bump the version on develop to release again`);
+  return `Release ${v}`;
 }
 
 /** sourceHash of develop's dashboard/ and package-lock.json, read from its tree rather than the checkout. */
@@ -146,7 +140,7 @@ function developSourceHash(develop: string): string {
   }
 }
 
-function commit(main: string, develop: string, dist: string): string {
+export function mainCommit(main: string, develop: string, dist: string): string {
   requireCommit(main, '--main');
   requireCommit(develop, '--develop');
   const tracked = git(['ls-tree', '-r', '--name-only', '-z', '--full-tree', develop, '--', 'dashboard/dist']);
@@ -176,8 +170,8 @@ function commit(main: string, develop: string, dist: string): string {
     }
     const tree = git(['write-tree'], { env }).trim();
     if (!SHA.test(tree)) throw new Refusal(`git write-tree printed ${JSON.stringify(tree)}`);
-    const id = { GIT_AUTHOR_NAME: BOT.name, GIT_AUTHOR_EMAIL: BOT.email, GIT_COMMITTER_NAME: BOT.name, GIT_COMMITTER_EMAIL: BOT.email };
-    const sha = git(['commit-tree', '--no-gpg-sign', tree, '-p', main, '-p', develop, '-F', '-'], { env: { ...env, ...id }, input: `${subject}\n` }).trim();
+    // Authored by whoever runs the release, from their git config: they push it.
+    const sha = git(['commit-tree', '--no-gpg-sign', tree, '-p', main, '-p', develop, '-F', '-'], { env, input: `${subject}\n` }).trim();
     if (!SHA.test(sha)) throw new Refusal(`git commit-tree printed ${JSON.stringify(sha)}`);
     return sha;
   } finally {
@@ -185,56 +179,39 @@ function commit(main: string, develop: string, dist: string): string {
   }
 }
 
-/** One line of outside text, safe to list: no control characters, bounded length. */
-const oneLine = (s: string) => {
+/** One line of commit text, safe to print: no control characters, bounded length. */
+export const oneLine = (s: string) => {
   const flat = s.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
   return flat.length > 200 ? `${flat.slice(0, 199)}…` : flat;
 };
 
-function body(main: string, develop: string, runUrl: string, dist: string | undefined): string {
+/**
+ * Non-merge commits on main's first-parent line since its last merge (the last release), that develop
+ * doesn't have and that aren't release commits: hotfixes a release undoes unless they were ported.
+ */
+export function mainOnlyCommits(main: string, develop: string): { sha: string; subject: string }[] {
   requireCommit(main, '--main');
   requireCommit(develop, '--develop');
-  const t = title(develop);
-  const count = dist === undefined ? null : checkedDistFiles(path.resolve(dist)).length;
-  // Non-merge commits on main that develop doesn't have: hotfixes this PR would undo unless ported.
-  const log = git(['log', '--no-merges', '--format=%h%x09%s', main, '--not', develop, '--']);
-  const mainOnly = log
+  const last = git(['log', '--first-parent', '--merges', '-1', '--format=%H', main]).trim();
+  const range = last ? [`${last}..${main}`] : [main];
+  const log = git(['log', '--first-parent', '--no-merges', '--format=%h%x09%s', ...range, '--not', develop, '--']);
+  return log
     .split('\n')
     .filter(Boolean)
     .map((l) => {
       const tab = l.indexOf('\t');
-      return { sha: l.slice(0, tab), subject: l.slice(tab + 1) };
+      return { sha: l.slice(0, tab).replace(/[^0-9a-f]/g, ''), subject: oneLine(l.slice(tab + 1)) };
     })
-    .filter((c) => !BOT_SUBJECTS.some((p) => c.subject.startsWith(p)));
-  const lines = [
-    `title=${t}`,
-    `Updates \`main\` to \`develop\` at ${develop}, plus the dashboard CI built from it (\`dashboard/dist/\`).`,
-    '',
-    `- develop: ${develop}`,
-    `- workflow run: ${runUrl}`,
-    ...(count === null ? [] : [`- dashboard/dist files: ${count}`]),
-    '',
-    'Merge with a merge commit ("Create a merge commit"), so `main` keeps develop\'s history. Each push to `develop` replaces this PR\'s head commit, and merging takes the head the PR shows.',
-    '',
-    '## Main-only commits',
-    '',
-  ];
-  if (!mainOnly.length) lines.push('No main-only commits.');
-  else {
-    lines.push('These commits are on `main` but not on `develop`. This PR undoes them unless they were ported to `develop`:', '');
-    for (const c of mainOnly.slice(0, MAX_LISTED)) lines.push(`- \`${c.sha.replace(/[^0-9a-f]/g, '')}\` ${oneLine(c.subject)}`);
-    if (mainOnly.length > MAX_LISTED) lines.push(`- and ${mainOnly.length - MAX_LISTED} more`);
-  }
-  return `${lines.join('\n')}\n`;
+    .filter((c) => !RELEASE_SUBJECTS.some((p) => c.subject.startsWith(p)));
 }
 
 /** `--name value` pairs, each named flag exactly once; unknown, repeated or missing flags exit 2. */
-function flags(args: string[], required: string[], optional: string[] = []): Record<string, string> {
+function flags(args: string[], required: string[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (let i = 0; i < args.length; i += 2) {
     const [k, v] = [args[i], args[i + 1]];
     const name = k.startsWith('--') ? k.slice(2) : '';
-    if (!name || ![...required, ...optional].includes(name) || name in out || v === undefined) usage();
+    if (!name || !required.includes(name) || name in out || v === undefined) usage();
     out[name] = v;
   }
   for (const k of required) if (!(k in out)) usage();
@@ -242,20 +219,16 @@ function flags(args: string[], required: string[], optional: string[] = []): Rec
 }
 
 function usage(): never {
-  process.stderr.write('usage: node scripts/main-update.ts commit --main <sha> --develop <sha> --dist <dir>\n       node scripts/main-update.ts body --main <sha> --develop <sha> --run-url <url> [--dist <dir>]\n');
+  process.stderr.write('usage: node scripts/main-update.ts commit --main <sha> --develop <sha> --dist <dir>\n');
   process.exit(2);
 }
 
 function main(argv: string[]): void {
   const [cmd, ...rest] = argv;
-  const f = cmd === 'commit' ? flags(rest, ['main', 'develop', 'dist']) : cmd === 'body' ? flags(rest, ['main', 'develop', 'run-url'], ['dist']) : usage();
+  const f = cmd === 'commit' ? flags(rest, ['main', 'develop', 'dist']) : usage();
   // Checked before any git call, so `-rf` or `--output=x` never reaches git's argv as an option.
   for (const k of ['main', 'develop']) if (!SHA.test(f[k])) throw new Refusal(`--${k} must be a 40-character lowercase hex sha, got ${JSON.stringify(f[k])}`);
-  if (cmd === 'commit') process.stdout.write(`${commit(f.main, f.develop, f.dist)}\n`);
-  else {
-    if (!RUN_URL.test(f['run-url'])) throw new Refusal(`--run-url must be a workflow run URL, got ${JSON.stringify(f['run-url'])}`);
-    process.stdout.write(body(f.main, f.develop, f['run-url'], f.dist));
-  }
+  process.stdout.write(`${mainCommit(f.main, f.develop, f.dist)}\n`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

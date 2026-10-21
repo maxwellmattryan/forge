@@ -1,9 +1,7 @@
 # Forge's own gate: the "Verify before claiming it works" list in AGENTS.md, in the same order.
 # test/ci-workflow.test.ts fails when the two drift, so edit both together. It runs on Linux only.
-# release.yml and main-update.yml call this whole workflow (workflow_call) before they tag a release or
-# open the main-update PR. main-update.yml also starts it on ci/main-update (workflow_dispatch), because a
-# PR or push made with GITHUB_TOKEN starts no pull_request run, and the PR head needs its checks
-# (docs/RELEASES.md, docs/CI.md).
+# release.yml calls this whole workflow (workflow_call) before it tags a release, and `npm run release`
+# waits for its push run on the release commit before it pushes main (docs/RELEASES.md, docs/CI.md).
 name: CI
 
 on:
@@ -105,13 +103,12 @@ jobs:
           package-manager-cache: false
       - name: Check release metadata
         env:
-          # The PR's base, or the pushed or dispatched branch: develop never tracks dashboard/dist, main
-          # and the main-update PR head must.
+          # The PR's base, or the pushed or dispatched branch: develop never tracks dashboard/dist, main must.
           REF: ${{ github.base_ref || github.ref_name }}
         run: |
           case "$REF" in
             develop) npm run release:check -- --dist absent ;;
-            main | ci/main-update) npm run release:check -- --dist present ;;
+            main) npm run release:check -- --dist present ;;
             *) npm run release:check ;;
           esac
 

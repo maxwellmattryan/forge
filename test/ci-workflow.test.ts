@@ -36,8 +36,8 @@ const JOBS = ['audit', 'release-check', 'verify'];
 const JOB_KEYS = ['name', 'needs', 'runs-on', 'timeout-minutes', 'strategy', 'steps'];
 // Only the release check waits, and only on verify: it adds nothing when the suite is red.
 const NEEDS: Record<string, string> = { 'release-check': 'verify' };
-// release.yml and main-update.yml call this workflow whole; inputs or secrets on the call would let a caller reshape
-// the gate. main-update.yml dispatches it on ci/main-update with no inputs, and the token here stays read-only.
+// release.yml calls this workflow whole; inputs or secrets on the call would let a caller reshape the gate. A manual
+// dispatch passes no inputs either, and the token here stays read-only.
 const TRIGGERS = ['pull_request', 'push', 'workflow_call', 'workflow_dispatch'];
 const STEP_KEYS = ['name', 'uses', 'with', 'run', 'env', 'continue-on-error'];
 const ACTIONS = ['actions/checkout', 'actions/setup-node'];
@@ -48,12 +48,12 @@ const TEST_CMD = 'node --test "test/*.test.ts"';
 const SHARDED_TEST_CMD = 'node --test --test-shard="$TEST_SHARD" "test/*.test.ts"';
 // FORGE_REQUIRE_DIST turns the real-build tests' skip into a run (test/dist.ts): the step before built it.
 const TEST_ENV = { TEST_SHARD: '${{ matrix.shard }}', FORGE_REQUIRE_DIST: '1' };
-// develop never tracks dashboard/dist; main and the main-update PR head must. The ref reaches the script through env.
+// develop never tracks dashboard/dist; main must. The ref reaches the script through env.
 const REF_EXPR = '${{ github.base_ref || github.ref_name }}';
 const RELEASE_CHECK_RUN = [
   'case "$REF" in',
   '  develop) npm run release:check -- --dist absent ;;',
-  '  main | ci/main-update) npm run release:check -- --dist present ;;',
+  '  main) npm run release:check -- --dist present ;;',
   '  *) npm run release:check ;;',
   'esac',
 ].join('\n');
@@ -329,7 +329,7 @@ test('workflow triggers on pull_request, pushes to develop and main, workflow_ca
   assert.equal(WF.name, 'CI');
   assert.deepEqual(triggerProblems(WF, TEXT), []);
   assert.deepEqual(WF.on.push, { branches: ['develop', 'main'] });
-  assert.equal(WF.on.workflow_dispatch, null, 'main-update.yml dispatches it with nothing passed in');
+  assert.equal(WF.on.workflow_dispatch, null, 'a manual dispatch passes nothing in');
   assertFlags(triggerProblems(mutate((wf) => { wf.on.push.branches = ['main']; }), TEXT), 'develop dropped from push');
   assertFlags(triggerProblems(mutate((wf) => { wf.on.push.branches = ['develop', 'main', 'release']; }), TEXT), 'a third push branch');
   assertFlags(triggerProblems(mutate((wf) => { wf.on.workflow_dispatch = { inputs: { ref: { type: 'string' } } }; }), TEXT), 'workflow_dispatch with inputs');
@@ -547,8 +547,7 @@ test('the release check picks --dist from the PR base or the branch', POSIX, () 
     };
     assert.equal(ran('develop'), 'run release:check -- --dist absent');
     assert.equal(ran('main'), 'run release:check -- --dist present');
-    assert.equal(ran('ci/main-update'), 'run release:check -- --dist present');
-    for (const other of ['forge/309-x', 'develop2', 'main/x', '']) assert.equal(ran(other), 'run release:check', JSON.stringify(other));
+    for (const other of ['ci/main-update', 'forge/309-x', 'develop2', 'main/x', '']) assert.equal(ran(other), 'run release:check', JSON.stringify(other));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

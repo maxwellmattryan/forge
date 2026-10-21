@@ -108,7 +108,7 @@ test('releaseProblems passes a clean release checkout and names each problem', P
 });
 
 test('dist mode absent/present/default', POSIX, () => {
-  const ABSENT = /^dashboard\/dist is tracked: develop never commits the build \(CI adds it in the main-update PR\)$/;
+  const ABSENT = /^dashboard\/dist is tracked: develop never commits the build \(CI builds it for the main update\)$/;
   const PRESENT = /^dashboard\/dist is not committed: main needs the built dashboard$/;
   // The fixture tracks a stamped dist, as main does.
   const main = fixture();
