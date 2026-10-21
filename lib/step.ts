@@ -69,6 +69,8 @@ export const RULES = [
   // Downstream verification: add a changed library's linked consumers as verify-only repos (DS1).
   // Appended, though it runs before the stage rules, as IDs are stable.
   'DS1',
+  // A sampled merged job's post-merge score run: wait, spawn the judge, record. Appended, as IDs are stable.
+  'JS1', 'JS2', 'JS3',
   // No rule matched: a state step can't advance, parked visibly instead of looping.
   'X1',
 ] as const;
@@ -142,6 +144,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     scope: exists(at('scope.md')),
     issueCandidates: exists(at('issue-candidates.md')),
     evalJudge: exists(at('eval-judge.md')),
+    score: exists(at('score.md')),
   };
   const present = Object.values(paths).filter((v): v is string => typeof v === 'string' && exists(v));
   // The only I/O for the rework brief's review inputs, so step itself stays pure.
@@ -559,7 +562,7 @@ function outputFor(x: StepInput, role: string): string | undefined {
     return x.job.stage === 'integrate' ? p(x, 'integrationReview') : path.join(x.jobDir, 'review', `round-${x.job.round}`, reviewFileName(lens));
   }
   if (role === 'verifier') return path.join(x.jobDir, 'verify', `round-${x.job.round}-verifier-answers.md`);
-  const fixed: Record<string, string> = { planner: 'plan.md', 'spec-writer': 'spec.md', designer: 'design.md', approver: 'decision.md', judge: 'eval-judge.md' };
+  const fixed: Record<string, string> = { planner: 'plan.md', 'spec-writer': 'spec.md', designer: 'design.md', approver: 'decision.md', judge: x.job.kind === 'eval' ? 'eval-judge.md' : 'score.md' };
   return fixed[role] ? path.join(x.jobDir, fixed[role]) : undefined;
 }
 
@@ -801,10 +804,23 @@ function blockedRole(x: StepInput): string | null {
   return role && ['lost', 'failed'].includes(String(a(role)?.status)) ? role : null;
 }
 
+/**
+ * JS1-JS3: a done job's queued post-merge score run. Only a judge started after the queue counts,
+ * so an older judge record never stands in for it; record then makes the score terminal.
+ */
+function scoreRun(x: StepInput): StepAction {
+  const j = x.job;
+  const judge = agent(x, 'judge');
+  if (!after(judge?.startedAt, j.score!.queuedAt)) return spawn(x, 'JS2', 'judge');
+  if (judge!.status === 'running') return wait(x, 'JS1', 'agents');
+  return run(x, 'JS3', ['job', 'score', 'record', j.id], "record the judge's post-merge score");
+}
+
 function decide(x: StepInput): StepAction {
   const j = x.job;
 
   // Global
+  if (j.state === 'done' && j.kind !== 'eval' && j.score?.status === 'queued') return scoreRun(x);
   if (j.state === 'done' || j.state === 'cancelled' || j.stage === 'done') {
     const tell = j.state === 'cancelled' ? `${j.id} is cancelled` : j.pr?.url ? `${j.id} is done: ${safe(j.pr.url, SAFE_URL, `PR #${Number(j.pr.number) || '?'}`)}` : `${j.id} finished on branch ${safe(j.branch, SAFE_REF, 'its branch')}`;
     return done(x, 'G1', tell);

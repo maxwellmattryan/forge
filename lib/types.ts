@@ -496,7 +496,7 @@ export interface StepInput {
 }
 
 /** The job files StepInput.files records. */
-export type StepFile = 'request' | 'plan' | 'spec' | 'design' | 'mockup' | 'build' | 'tasks' | 'questions' | 'feedback' | 'prFeedback' | 'runbook' | 'decision' | 'scope' | 'issueCandidates' | 'evalJudge';
+export type StepFile = 'request' | 'plan' | 'spec' | 'design' | 'mockup' | 'build' | 'tasks' | 'questions' | 'feedback' | 'prFeedback' | 'runbook' | 'decision' | 'scope' | 'issueCandidates' | 'evalJudge' | 'score';
 
 /** One member repo an agent proposed for a job (lib/repo-proposals.ts), as repo-proposals.json lists it. */
 export interface RepoProposal {
