@@ -27,7 +27,7 @@
   import ThreadPanel from './ThreadPanel.svelte';
   import Icon from './Icon.svelte';
   import type { IconName } from '../lib/icons.ts';
-  import { budgetPanel } from '../lib/budget.ts';
+  import { budgetPanel, unattendedDefault } from '../lib/budget.ts';
   import { effortChip } from '../lib/effort.ts';
   import { protectedSummary } from '../lib/protected.ts';
   import { STAGE_LABEL } from '../lib/labels.ts';
@@ -270,7 +270,7 @@
               </table>
             </div></div>
           {/if}
-          {@html budgetPanel(j, S.data?.config?.pipeline?.budget)}
+          {@html budgetPanel(j, S.data?.config?.pipeline?.budget, { jobDefault: unattendedDefault(S.data?.config) })}
           {#if usageRows.length}
             <div class="plate flat"><div class="overflow-x-auto">
               <table class="tbl">

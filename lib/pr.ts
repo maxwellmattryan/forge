@@ -976,20 +976,86 @@ export function ciFeedback(n: number | string, head: string): string {
   ].join('\n');
 }
 
+/** Check names allowed into a reason, an event or a tell: the PR's own workflows choose them. */
+const CHECK_NAME = /^[A-Za-z0-9 ._/-]{1,60}$/;
+const MAX_CHECK_NAMES = 5;
+
+/**
+ * The failing checks' names (`name`, else `context`), trimmed, at most 5 that match CHECK_NAME;
+ * `more` counts the ones dropped or beyond 5. Same failing set as summarizeChecks.
+ */
+export function failingCheckNames(rollup: unknown): { names: string[]; more: number } {
+  const names: string[] = [];
+  let more = 0;
+  for (const c of Array.isArray(rollup) ? rollup : []) {
+    if (!FAILING_STATES.includes(checkState(c))) continue;
+    const raw = typeof c?.name === 'string' && c.name ? c.name : typeof c?.context === 'string' ? c.context : '';
+    const name = raw.trim();
+    if (names.length < MAX_CHECK_NAMES && CHECK_NAME.test(name)) names.push(name);
+    else more++;
+  }
+  return { names, more };
+}
+
+/** `lint, test and 2 more`, or `3 checks` when no name survived. */
+export function checksText(f: { names: string[]; more: number }): string {
+  if (!f.names.length) return `${f.more} checks`;
+  return f.names.join(', ') + (f.more ? ` and ${f.more} more` : '');
+}
+
+/** How every CI rework cap reason starts; prReviewTell keys on it. */
+export const CI_CAP_PREFIX = 'CI rework cap:';
+
+/** Consecutive CI reworks: the foreman's `rework` events with a `ciHead` since a person's latest event. */
+export function ciReworkStreak(events: JobEvent[]): number {
+  let n = 0;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.type !== 'human') continue;
+    if (!isForemanActor(e)) break;
+    if (e.action === 'rework' && typeof e.ciHead === 'string') n++;
+  }
+  return n;
+}
+
 /**
  * Failing checks on a parked PR the foreman would decide are a rework, not a judgement: sync records
  * it as the foreman's and queues the job's session, so no office turn sits between a red check and
  * the fix. Once per PR head, like the gate it stands in for; a reserved match goes through the gate.
  * Any head counts, a GitHub "Update branch" included: `forge job round` pulls it into the worktree.
+ * After `pr.maxCiReworks` in a row with no person's event between, a red head starts nothing: the
+ * reason says so, a `ci-rework-capped` event is logged once per head, and the caller queues no gate.
  */
-function startCiRework(root: string, config: Config, job: Job): boolean {
+function startCiRework(root: string, config: Config, job: Job, failing: { names: string[]; more: number } = { names: [], more: 0 }): 'started' | 'capped' | false {
   if (config.daemon?.enabled !== true || !foremanEnabled(config) || !decides(config).includes('pr-feedback')) return false;
   const head = job.pr?.headOid;
   if (job.pr?.checks?.state !== 'failing' || typeof head !== 'string' || !isSha(head)) return false;
   const parked = (j: Pick<Job, 'stage' | 'state' | 'waitingOn'>) => j.stage === 'pr' && j.state === 'waiting' && j.waitingOn === 'pr-review';
-  if (!parked(job) || reservedFor(root, config, job, 'pr-feedback', [], { action: 'rework' }) !== null) return false;
-  if (readEvents(root, job.id).some((e) => e.type === 'human' && e.action === 'rework' && e.ciHead === head)) return false;
+  // The cap's own reason names CI, which the default foreman.reserved lists; it is Forge's fixed text,
+  // so it must not hold the rework a person's reset allows again.
+  const judged = typeof job.reason === 'string' && job.reason.startsWith(CI_CAP_PREFIX) ? { ...job, reason: null } : job;
+  if (!parked(job) || reservedFor(root, config, judged, 'pr-feedback', [], { action: 'rework' }) !== null) return false;
+  const events = readEvents(root, job.id);
+  if (events.some((e) => e.type === 'human' && e.action === 'rework' && e.ciHead === head)) return false;
   const n = safePrNumber(job.pr?.number) ?? '?';
+  const max = Number.isInteger(config.pr?.maxCiReworks) && config.pr.maxCiReworks >= 0 ? config.pr.maxCiReworks : 3;
+  const count = ciReworkStreak(events);
+  if (count >= max) {
+    if (events.some((e) => e.type === 'ci-rework-capped' && e.head === head)) return 'capped';
+    const reason = `${CI_CAP_PREFIX} ${count} CI reworks in a row, checks still failing on PR #${n}: ${checksText(failing)}. A human decides`;
+    let capped = false;
+    setJob(root, job.id, {
+      derive: (j) => {
+        if (!parked(j) || j.pr?.headOid !== head) return null;
+        capped = true;
+        return { reason };
+      },
+    });
+    // Moved under us: still at the cap, so still no gate; the next sync records it if it parks again.
+    if (!capped) return 'capped';
+    logEvent(root, job.id, 'ci-rework-capped', { head, count, max, checks: failing.names });
+    return 'capped';
+  }
   let started = false;
   setJob(root, job.id, {
     derive: (j) => {
@@ -1004,7 +1070,7 @@ function startCiRework(root: string, config: Config, job: Job): boolean {
   logHumanEvent(root, job.id, 'human', { action: 'rework', note: `checks failing on PR #${n} at ${head.slice(0, 12)}`, ciHead: head }, FOREMAN_ACTOR);
   if (!listRequests(root, { status: 'pending' }).some((r) => r.type === 'resume' && r.job === job.id))
     enqueue(root, config, { type: 'resume', job: job.id, text: 'forge sync: checks are failing on the PR; fix them', from: 'sync' });
-  return true;
+  return 'started';
 }
 
 const REOPEN_REASON = 'forge sync: dependencies merged: open the deferred PRs';
@@ -1147,7 +1213,8 @@ function syncPrDetailed(root: string, config: Config, id: string, opts: { route?
   if (route) {
     const after = loadJob(root, id);
     maybeEnqueueGate(root, config, job, after);
-    if (!startCiRework(root, config, after)) enqueuePrFeedbackGate(root, config, after, trustedFeedback(feedback));
+    // At the CI rework cap no gate is queued either, so the foreman can't rework that head through the office.
+    if (startCiRework(root, config, after, failingCheckNames(pr.statusCheckRollup)) === false) enqueuePrFeedbackGate(root, config, after, trustedFeedback(feedback));
   }
   return { result: integrate ? { id, pr: synced, integrate: true } : reopen ? { id, pr: synced, reopen: true } : { id, pr: synced }, members };
 }
@@ -1167,13 +1234,16 @@ function measureOnMerge(root: string, config: Config, job: Job, headRefOid: unkn
   return { ...d, base, head, measuredAt: now(), ...(d.reason === 'missing commits' ? { attempts } : {}) };
 }
 
+const FAILING_STATES = ['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE'];
+const checkState = (c: any): string => String(c?.conclusion || c?.state || c?.status || '').toUpperCase();
+
 // gh's statusCheckRollup: raw input.
 function summarizeChecks(rollup: any[]): PrChecks {
   let passing = 0, failing = 0, pending = 0;
   for (const c of rollup) {
-    const s = String(c.conclusion || c.state || c.status || '').toUpperCase();
+    const s = checkState(c);
     if (['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(s)) passing++;
-    else if (['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE'].includes(s)) failing++;
+    else if (FAILING_STATES.includes(s)) failing++;
     else pending++;
   }
   const state = failing ? 'failing' : pending ? 'pending' : rollup.length ? 'passing' : 'none';

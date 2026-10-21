@@ -14,10 +14,10 @@ import type { RoleContext } from './brief.ts';
 import { autoMerge, lensAlwaysOnRework, lensNeedsApp, resolveEffort, resolveModel } from './config.ts';
 import { environmentState } from './environment-record.ts';
 import { configForJob } from './eval-overlay.ts';
-import { latestSecurityVerdict } from './foreman.ts';
+import { latestSecurityVerdict, pastTotalCeiling, totalRoundCeiling } from './foreman.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
-import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
+import { isForemanActor, jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
 import { memberRepos } from './job-repos.ts';
 import { deferralStatus, readDeferrals, releaseGates, releaseIndex, resolveInterim } from './interim.ts';
 import { LENS_NAME, isLens, lensRepoAllowed, reviewFileName, splitLens } from './lens.ts';
@@ -76,6 +76,12 @@ export const RULES = [
   // A resumed job whose environment a park stopped: start it again (E1). Appended, though it runs
   // right after G4, as IDs are stable.
   'E1',
+  // A pull of the PR's remote branch conflicted after the last verify: park on a human (PR11).
+  // Appended, as IDs are stable.
+  'PR11',
+  // A build round past the total-round ceiling that no person reopened parks for a human (B7, run
+  // before B2). Appended, as IDs are stable.
+  'B7',
   // No rule matched: a state step can't advance, parked visibly instead of looping.
   'X1',
 ] as const;
@@ -90,6 +96,7 @@ const NEEDS_INPUT = /\bNEEDS-INPUT\b/i;
 const SAFE_ELEMENT = /^[A-Za-z0-9 ._:/@=,+\-[\]"]*$/;
 const BARE_ELEMENT = /^[A-Za-z0-9._:/@=,+-]+$/;
 const SAFE_URL = /^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9._/-]+$/;
+const CI_CAP_REASON = /^CI rework cap: [A-Za-z0-9 ._/,:#?-]{1,600}$/;
 
 /** Events loadStepInput keeps; everything else in events.jsonl is noise to step. */
 const STEP_EVENTS = new Set([
@@ -97,7 +104,7 @@ const STEP_EVENTS = new Set([
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
   'protected-path', 'repo-proposed', 'pr-deferred', 'canary-published', 'interim-released', 'interim-bumped', 'pr-ready', 'downstream-checked', 'job-repo-added',
-  'job-repo-removed',
+  'job-repo-removed', 'pr-head-pulled',
 ]);
 const MERGE_EVENTS = ['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed'];
 
@@ -737,6 +744,8 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
     case 'escalation':
       return `${id} escalated (${reason}): see ${escalationFile(x)}. /forge approve ${id} or /forge rework ${id} <note>`;
     case 'rounds-exhausted':
+      if (pastTotalCeiling(x.config, j))
+        return `${id} reached the total-round ceiling (${totalRoundCeiling(x.config, j)} rounds): only a human may clear it. /forge approve ${id} to ship, or /forge rework ${id} <note>`;
       return `${id} used all ${j.maxRounds} rounds. /forge approve ${id} to ship, or /forge rework ${id} <note>`;
     case 'infra':
       return `${id} waits on runbook steps before merge: ${p(x, 'runbook')}. /forge continue ${id} when done`;
@@ -769,6 +778,9 @@ function prReviewTell(x: StepInput): string {
   const j = x.job;
   const lines = [`${j.id} PR ${safe(j.pr?.url, SAFE_URL, `#${Number(j.pr?.number) || '?'}`)} waits on review`];
   if (prLinkNote(j, x.config).unlinked) lines.push(`${j.id} has no linked issue: \`forge job link ${j.id} <ref>\` or \`--none\``);
+  // The reason's check names passed lib/pr.ts CHECK_NAME; this pattern holds it to that class again.
+  if (j.reason?.startsWith('CI rework cap:'))
+    lines.push(`${j.id}: ${safe(j.reason, CI_CAP_REASON, 'CI rework cap reached')}. /forge rework ${j.id} <note> once a human has looked`);
   return lines.join('\n');
 }
 
@@ -1077,12 +1089,21 @@ function build(x: StepInput): StepAction {
   const lv = lastVerify(x);
   if (j.round === 0 || j.verdicts[String(j.round)] || after(rework?.ts, lastEvent(x, (e) => e.type === 'round')?.ts)) return run(x, 'B1', ['job', 'round', j.id], 'start the next build round');
   // A rework that came after the previous round started is the one that opened this round (B1), so the whole round is exempt. Comparing with the builder's start lost the exemption once the builder ran.
+  const previousRound = x.events.filter((e) => e.type === 'round').at(-2)?.ts;
+  // The total-round ceiling counts every round, whoever opened it: past it only a person's rework or
+  // revise-spec since the previous round started opens this one. The foreman's (CI reworks included) never does.
+  const personRework = lastEvent(x, (e) => e.type === 'human' && (e.action === 'rework' || e.action === 'revise-spec') && !isForemanActor(e));
+  if (pastTotalCeiling(x.config, j) && !after(personRework?.ts, previousRound)) {
+    const ceiling = totalRoundCeiling(x.config, j);
+    if (j.kind === 'eval') return set(x, 'B6', { stage: 'decide', state: 'running', reason: `eval: round ${j.round} exceeds the total-round ceiling ${ceiling}` }, 'an eval job has no human to clear rounds-exhausted: grade it');
+    return park(x, 'B7', 'rounds-exhausted', `round ${j.round} exceeds the total-round ceiling ${ceiling}: only a human clears it`);
+  }
   // Security always has to pass: while the latest security review isn't PASS, rounds run past
   // maxRounds, up to twice it, before the park (where the foreman may only rework or revise).
   const security = latestSecurityVerdict(j);
   const securityOpen = j.kind !== 'eval' && security !== null && security !== 'PASS';
   const limit = securityOpen ? j.maxRounds * 2 : j.maxRounds;
-  if (j.round > limit && !after(rework?.ts, x.events.filter((e) => e.type === 'round').at(-2)?.ts)) {
+  if (j.round > limit && !after(rework?.ts, previousRound)) {
     if (j.kind === 'eval') return set(x, 'B6', { stage: 'decide', state: 'running', reason: `eval: round ${j.round} exceeds maxRounds ${j.maxRounds}` }, 'an eval job has no human to clear rounds-exhausted: grade it');
     return park(x, 'B2', 'rounds-exhausted', securityOpen ? `round ${j.round} exceeds twice maxRounds ${j.maxRounds} with the security review not PASS` : `round ${j.round} exceeds maxRounds ${j.maxRounds}`);
   }
@@ -1231,7 +1252,7 @@ function decideStage(x: StepInput): StepAction {
   const ap = agent(x, 'approver');
   // B6 sent a rounds-exhausted eval job here: the approver would only ESCALATE a branch that never
   // passed review, and skipping it keeps escalationRate an approver-only metric.
-  const exhausted = j.kind === 'eval' && j.round > j.maxRounds;
+  const exhausted = j.kind === 'eval' && (j.round > j.maxRounds || pastTotalCeiling(x.config, j));
   if (!exhausted) {
     if (!startedIn(ap, j.round) || !ended(ap)) return spawn(x, 'DC1', 'approver');
     const m = missingOutput(x, 'approver');
@@ -1381,9 +1402,14 @@ function pr(x: StepInput): StepAction {
   if (bump) return bump;
   const last = j.verifyRuns.at(-1);
   if (!last?.ok) return run(x, 'PR2', ['verify', j.id], 'pr open needs a verified HEAD');
-  // pr open merged a PR branch that moved on the remote: the merged HEAD is not the one verified.
-  const pulled = lastEvent(x, (e) => e.type === 'pr-head-pulled' && e.pulled !== 'conflicts');
-  if (after(pulled?.ts, last.at)) return run(x, 'PR2', ['verify', j.id], 'the PR branch moved on the remote and was merged in: verify the merged HEAD');
+  // pr open pulled a PR branch that moved on the remote: a merged HEAD is not the one verified, and a
+  // conflicting one needs a person (integrate merges the base, not the PR's remote branch).
+  const pulled = lastEvent(x, (e) => e.type === 'pr-head-pulled');
+  if (after(pulled?.ts, last.at)) {
+    if (pulled!.pulled === 'conflicts')
+      return park(x, 'PR11', 'human', `the PR branch moved on the remote and conflicts with the job HEAD: a human merges it in the worktree, then runs forge verify ${j.id}`);
+    return run(x, 'PR2', ['verify', j.id], 'the PR branch moved on the remote and was merged in: verify the merged HEAD');
+  }
   // The last open attempt: a deferral counts, so PR3 doesn't run pr open again on the same verify.
   const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated' || e.type === 'pr-deferred');
   if (!after(opened?.ts, last.at)) return run(x, 'PR3', ['pr', 'open', j.id], 'push and open or update the PR');

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { budgetRows, budgetWorst, budgetChip, budgetCell, budgetPanel, BUDGET_KEYS } from '../dashboard/src/lib/budget.ts';
+import { budgetRows, budgetWorst, budgetChip, budgetCell, budgetPanel, unattendedDefault, BUDGET_KEYS } from '../dashboard/src/lib/budget.ts';
+import { effectiveLimits } from '../lib/budget.ts';
+import { defaults } from '../lib/config.ts';
 
 const row = (rows, key) => rows.find((r) => r.key === key);
 const job = (over = {}): any => ({ state: 'running', round: 1, usage: { totalTokens: 0, estCostUsd: 0, byRole: {} }, verifyRetries: {}, budget: { limits: {}, ack: {}, lastCheck: null }, ...over });
@@ -20,6 +22,31 @@ test('budgetRows: limits come from the job override, then config, then null', ()
   assert.equal(row(rows, 'minutes').limit, 30);
   assert.equal(row(rows, 'changedLines').limit, null);
   for (const r of budgetRows(j, undefined)) if (r.key !== 'tokens' && r.key !== 'usd') assert.equal(r.limit, null, 'missing config means null');
+});
+
+test('budgetRows applies the unattended default like effectiveLimits', () => {
+  const on = { daemon: { enabled: true, jobBudget: { tokens: 600000000, usd: 150, minutes: null } } };
+  const fill = unattendedDefault(on);
+  const pipeline = defaults().pipeline.budget;
+  const limitsOf = (rows) => Object.fromEntries(rows.map((r) => [r.key, r.limit]));
+  for (const [label, j, cfg] of [
+    ['no spend limit', job(), pipeline],
+    ['a config spend limit', job(), { ...pipeline, minutes: 30 }],
+    ['a job spend override', job({ budget: { limits: { usd: 9 }, ack: {}, lastCheck: null } }), pipeline],
+    ['an explicit null override', job({ budget: { limits: { tokens: null }, ack: {}, lastCheck: null } }), pipeline],
+  ] as const) {
+    const config: any = { ...defaults(), daemon: { ...defaults().daemon, enabled: true }, pipeline: { ...defaults().pipeline, budget: cfg } };
+    assert.deepEqual(limitsOf(budgetRows(j, cfg, fill)), effectiveLimits(config, j), label);
+  }
+  const rows = budgetRows(job(), pipeline, fill);
+  assert.equal(row(rows, 'tokens').limit, 600000000);
+  assert.equal(row(rows, 'usd').limit, 150);
+  assert.equal(row(rows, 'minutes').limit, null);
+  assert.equal(unattendedDefault({ daemon: { enabled: false, jobBudget: on.daemon.jobBudget } }), null, 'daemon off');
+  assert.equal(unattendedDefault({ daemon: { enabled: true, jobBudget: null } }), null, 'turned off');
+  assert.equal(unattendedDefault(undefined), null);
+  assert.equal(row(budgetRows(job(), pipeline), 'usd').limit, null, 'no default passed: unchanged');
+  assert.match(budgetCell(job({ usage: { totalTokens: 0, estCostUsd: 140, byRole: {} } }), pipeline, fill), /budget 93%/);
 });
 
 test('budgetRows: used values come from live job fields', () => {

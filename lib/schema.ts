@@ -11,7 +11,7 @@ import type { EventActor, Job, JobAgent, JobEvent, JobIssue, JobOutcome, JobRepo
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from './backing-config.ts';
 
-export const CONFIG_SCHEMA_VERSION = 26;
+export const CONFIG_SCHEMA_VERSION = 27;
 export const JOB_SCHEMA_VERSION = 16;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
@@ -20,7 +20,7 @@ export const ARCHIVE_SCHEMA_VERSION = 1;
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 31;
+export const API_VERSION = 32;
 
 /**
  * Where an event's `actor` came from: lib/actor.ts resolves env, gh, git, os and dashboard; the
@@ -223,6 +223,10 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v26 adds scoring (sample 0 and model null by default, so off), so no v25 config changes; the
   // bump lets older Forges refuse a config whose score sampling they would ignore.
   25: (c) => c,
+  // v27 adds pipeline.maxTotalRounds (null), pr.maxCiReworks (3) and daemon.jobBudget, all filled
+  // from defaults, so no v26 config changes; the bump lets older Forges refuse a config whose loop
+  // bounds they would ignore.
+  26: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {

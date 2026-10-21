@@ -3,7 +3,7 @@
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 31;
+export const API_VERSION = 32;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -428,8 +428,13 @@ export interface PipelineConfig {
   specApproval: 'always' | 'large' | 'never';
   design: 'none' | 'reference' | 'mockup';
   maxRounds: number;
+  /** The total-round ceiling (B7); null means twice the job's maxRounds. */
+  maxTotalRounds: number | null;
   budget: BudgetLimits;
 }
+
+/** daemon.jobBudget: the spend limits an unattended job with none of its own gets (lib/budget.ts effectiveLimits). */
+export type DaemonJobBudget = { tokens?: number | null; usd?: number | null; minutes?: number | null } | null;
 
 /** Session supervisor status: state() in lib/daemon.ts. */
 export type DaemonStatus = 'off' | 'idle' | 'busy' | 'stopping';
@@ -610,7 +615,7 @@ export interface ApiState {
     panel: string[];
     pipeline: PipelineConfig;
     models: Record<string, string>;
-    daemon: { enabled: boolean };
+    daemon: { enabled: boolean; jobBudget: DaemonJobBudget };
     /** runtime.effort when it is valid, else null. */
     effort: Effort | null;
   };

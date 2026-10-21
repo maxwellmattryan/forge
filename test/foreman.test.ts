@@ -9,9 +9,10 @@ import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
 import { TRUST_ENV, autoMerge, defaults, loadConfig, trustDigest, validateConfig } from '../lib/config.ts';
 import { FIELDS } from '../lib/config-fields.ts';
-import { INVALID_RESERVED, SECURITY_CHANGES, SECURITY_UNCLEAR, gateClass, gateOwner, latestSecurityVerdict, reservedFor, reservedMatch } from '../lib/foreman.ts';
+import { INVALID_RESERVED, SECURITY_CHANGES, SECURITY_UNCLEAR, TOTAL_CEILING, gateClass, gateOwner, latestSecurityVerdict, reservedFor, reservedMatch } from '../lib/foreman.ts';
 import { createJob, jobDir, loadJob, logEvent, readEvents, setJob } from '../lib/jobs.ts';
-import { syncPr, trustedFeedback } from '../lib/pr.ts';
+import { checksText, failingCheckNames, syncPr, trustedFeedback } from '../lib/pr.ts';
+import { loadStepInput, step } from '../lib/step.ts';
 import { OFFICE_SCOPE, ackRequest, enqueue, listRequests, requestScope } from '../lib/requests.ts';
 import { CONFIG_SCHEMA_VERSION, EFFORT_ROLES, OFFICE_GATES, migrateConfig } from '../lib/schema.ts';
 import { computeStats } from '../lib/stats.ts';
@@ -63,11 +64,11 @@ function scratch(edit: (c: any) => void = () => {}) {
 const WAIT_SPEC = { stage: 'spec' as const, state: 'waiting' as const, waitingOn: 'spec-approval' as const, reason: 'spec ready' };
 
 test('config v4 migrates to v7 with foreman defaults off', () => {
-  assert.equal(CONFIG_SCHEMA_VERSION, 26);
+  assert.equal(CONFIG_SCHEMA_VERSION, 27);
   const v4 = { schemaVersion: 4, git: { base: 'trunk' }, runtime: { models: { builder: 'sonnet' } } };
   const { config, from } = migrateConfig(structuredClone(v4));
   assert.equal(from, 4);
-  assert.deepEqual(config, { ...v4, schemaVersion: 26, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
+  assert.deepEqual(config, { ...v4, schemaVersion: 27, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
   const d = defaults();
   // repo-proposal widens the repos a job pushes to and release publishes, so the default leaves both with a human.
   assert.deepEqual(d.foreman, { enabled: false, decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal' && g !== 'release'), reserved: d.foreman.reserved, ship: 'propose' });
@@ -483,6 +484,46 @@ describe('foreman CLI', { concurrency: 4 }, () => {
     }
   });
 
+  test('foreman is refused past the total-round ceiling', async () => {
+    const s = scratch();
+    try {
+      // maxRounds 2: the ceiling is 4, and round 5 is past it.
+      const id = s.job('Ceiling', { stage: 'build', state: 'running', fields: { round: 5, maxRounds: 2 } });
+      const r = await s.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 5 exceeds the total-round ceiling 4: only a human clears it');
+      assert.equal(r.code, 0, r.out);
+      assert.deepEqual(s.gates(id), [], 'no foreman gate is queued past the ceiling');
+      assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'human');
+      assert.equal(reservedFor(s.root, s.config(), loadJob(s.root, id), 'rounds-exhausted', [], { action: 'rework' }), TOTAL_CEILING);
+      for (const action of ['approve', 'rework', 'revise-spec']) {
+        const before = s.snapshot(id);
+        const refused = await s.cli(OFFICE_SCOPE, 'job', 'human', id, action, '--actor', 'foreman', '--note', 'one more try');
+        assert.equal(refused.code, 1, `${action}: ${refused.out}`);
+        assert.match(refused.out, /--actor foreman refused: .*total-round ceiling/, action);
+        assert.equal(s.snapshot(id), before, `${action}: nothing written`);
+      }
+      // A person may still open one more round.
+      const person = await s.cli(undefined, 'job', 'human', id, 'rework', '--note', 'try the other approach');
+      assert.equal(person.code, 0, person.out);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('foreman still decides rounds-exhausted within the ceiling', async () => {
+    const s = scratch();
+    try {
+      const id = s.job('Within', { stage: 'build', state: 'running', fields: { round: 3, maxRounds: 2 } });
+      const r = await s.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 3 exceeds maxRounds 2');
+      assert.equal(r.code, 0, r.out);
+      assert.equal(s.gates(id).length, 1);
+      assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'foreman');
+      const ok = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'approve', '--actor', 'foreman', '--note', 'cosmetic findings only');
+      assert.equal(ok.code, 0, ok.out);
+    } finally {
+      s.cleanup();
+    }
+  });
+
   test('office scope cannot drive, claim or merge', async () => {
     const s = scratch();
     try {
@@ -647,6 +688,161 @@ esac
     if (saved.FAKE_HEAD_OID === undefined) delete process.env.FAKE_HEAD_OID;
     else process.env.FAKE_HEAD_OID = saved.FAKE_HEAD_OID;
     fs.rmSync(bin, { recursive: true, force: true });
+    s.cleanup();
+  }
+});
+
+/**
+ * A scratch repo with the daemon and foreman on, and a fake `gh` whose `pr view` prints the file
+ * `pr(head, rollup)` wrote, so check names need no shell quoting. Mutates process.env.PATH.
+ */
+function ciScratch(edit: (c: any) => void = () => {}) {
+  const s = scratch((c) => {
+    c.tracker.github = { ...(c.tracker.github ?? {}), repo: 'o/r' };
+    edit(c);
+  });
+  const bin = path.join(s.root, '..', `fakebin-${path.basename(s.root)}`);
+  const prFile = path.join(bin, 'pr.json');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(
+    path.join(bin, 'gh'),
+    `#!/bin/sh
+case "$1 $2" in
+  "pr view") cat "${prFile}" ;;
+  "repo view") echo o/r ;;
+  "api graphql") printf '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[]},"reviewThreads":{"nodes":[]}}}}}' ;;
+esac
+`,
+    { mode: 0o755 },
+  );
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${savedPath}`;
+  const pr = (head: string, rollup: unknown[]) =>
+    fs.writeFileSync(prFile, JSON.stringify({ number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', isDraft: false, headRefOid: head, mergeable: 'MERGEABLE', mergeStateStatus: 'UNSTABLE', reviewDecision: null, statusCheckRollup: rollup, mergedAt: null, closedAt: null, headRefName: 'forge/x', baseRefName: 'main' }));
+  const base = s.config();
+  const config = { ...base, daemon: { ...base.daemon, enabled: true } };
+  const parked = { stage: 'pr' as const, state: 'waiting' as const, waitingOn: 'pr-review' as const, fields: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } };
+  const capped = (id: string) => readEvents(s.root, id).filter((e) => e.type === 'ci-rework-capped');
+  const ciReworks = (id: string) => readEvents(s.root, id).filter((e) => e.type === 'human' && e.action === 'rework' && e.ciHead);
+  const sync = (id: string, head: string, rollup: unknown[] = RED) => {
+    pr(head, rollup);
+    syncPr(s.root, config, id);
+    return loadJob(s.root, id);
+  };
+  const backToReview = (id: string) => setJob(s.root, id, { stage: 'pr', state: 'waiting', waitingOn: 'pr-review' });
+  const cleanup = () => {
+    process.env.PATH = savedPath;
+    fs.rmSync(bin, { recursive: true, force: true });
+    s.cleanup();
+  };
+  return { ...s, config, parked, capped, ciReworks, sync, backToReview, cleanup };
+}
+
+const RED = [
+  { name: 'lint', conclusion: 'FAILURE', status: 'COMPLETED' },
+  { name: 'unit tests', conclusion: 'FAILURE', status: 'COMPLETED' },
+  { name: 'build', conclusion: 'SUCCESS', status: 'COMPLETED' },
+];
+const sha = (c: string) => c.repeat(40);
+
+test('CI rework cap parks the next red head for a human', { skip: process.platform === 'win32' }, async () => {
+  const s = ciScratch((c) => (c.pr.maxCiReworks = 2));
+  try {
+    const id = s.job('Red CI', s.parked);
+    assert.equal(s.sync(id, sha('a')).stage, 'build', 'the first CI rework starts');
+    s.backToReview(id);
+    assert.equal(s.sync(id, sha('b')).stage, 'build', 'the second CI rework starts');
+    s.backToReview(id);
+    const resumes = listRequests(s.root).filter((q) => q.type === 'resume' && q.job === id).length;
+    const job = s.sync(id, sha('c'));
+    assert.deepEqual([job.stage, job.state, job.waitingOn], ['pr', 'waiting', 'pr-review']);
+    assert.equal(job.reason, 'CI rework cap: 2 CI reworks in a row, checks still failing on PR #7: lint, unit tests. A human decides');
+    assert.equal(s.ciReworks(id).length, 2, 'no third rework');
+    const ev = s.capped(id);
+    assert.equal(ev.length, 1);
+    assert.deepEqual([ev[0].head, ev[0].count, ev[0].max, ev[0].checks], [sha('c'), 2, 2, ['lint', 'unit tests']]);
+    assert.deepEqual(s.gates(id), [], 'no pr-feedback gate for the capped head');
+    assert.equal(gateOwner(s.root, s.config, job), 'human');
+    assert.equal(listRequests(s.root).filter((q) => q.type === 'resume' && q.job === id).length, resumes, 'no resume queued');
+    s.sync(id, sha('c'));
+    assert.equal(s.capped(id).length, 1, 'logged once per head');
+    assert.deepEqual(s.gates(id), []);
+    const before = s.snapshot(id);
+    const refused = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'rework', '--actor', 'foreman', '--note', 'fix the checks');
+    assert.equal(refused.code, 1, refused.out);
+    assert.match(refused.out, /no queued pr-feedback gate request/);
+    assert.equal(s.snapshot(id), before);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test("a person's action resets the CI rework count", { skip: process.platform === 'win32' }, () => {
+  const s = ciScratch((c) => (c.pr.maxCiReworks = 1));
+  try {
+    const id = s.job('Reset', s.parked);
+    assert.equal(s.sync(id, sha('a')).stage, 'build');
+    s.backToReview(id);
+    assert.match(String(s.sync(id, sha('b')).reason), /^CI rework cap: 1 CI reworks in a row/);
+    // A foreman decision is no reset; a person's event of any action is.
+    logEvent(s.root, id, 'human', { action: 'approve', note: 'office', actor: { login: null, source: 'foreman' } });
+    assert.equal(s.sync(id, sha('c')).stage, 'pr', "the foreman's own event keeps the count");
+    logEvent(s.root, id, 'human', { action: 'approve', note: 'looked at it', actor: { login: 'alice', source: 'cli' } });
+    // The cap's reason names CI, which the default foreman.reserved lists: it must not hold the rework.
+    assert.ok(s.config.foreman.reserved.includes('CI'));
+    const job = s.sync(id, sha('d'));
+    assert.equal(job.stage, 'build', 'the next red head reworks again');
+    assert.equal(s.ciReworks(id).at(-1)?.ciHead, sha('d'));
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('maxCiReworks 0 leaves every red head to a human', { skip: process.platform === 'win32' }, () => {
+  const s = ciScratch((c) => (c.pr.maxCiReworks = 0));
+  try {
+    const id = s.job('Never', s.parked);
+    const job = s.sync(id, sha('a'));
+    assert.deepEqual([job.stage, job.waitingOn], ['pr', 'pr-review']);
+    assert.equal(job.reason, 'CI rework cap: 0 CI reworks in a row, checks still failing on PR #7: lint, unit tests. A human decides');
+    assert.equal(s.ciReworks(id).length, 0);
+    assert.deepEqual(s.gates(id), []);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('CI rework cap drops unsafe check names', { skip: process.platform === 'win32' }, () => {
+  const s = ciScratch((c) => (c.pr.maxCiReworks = 0));
+  try {
+    const bad = ['a`b', '$(id)', 'x\ny', 'q"uote', "it's"];
+    const long = 'z'.repeat(10_000);
+    const rollup = [
+      { name: 'lint', conclusion: 'FAILURE' },
+      ...bad.map((name) => ({ name, conclusion: 'FAILURE' })),
+      ...['ok-1', 'ok 2', 'ok/3', 'ok.4', 'ok_5'].map((name) => ({ name, conclusion: 'FAILURE' })),
+      { context: '  ci/status  ', state: 'ERROR' },
+      { name: long, conclusion: 'TIMED_OUT' },
+      { name: 'passing', conclusion: 'SUCCESS' },
+    ];
+    const started = Date.now();
+    assert.deepEqual(failingCheckNames(rollup), { names: ['lint', 'ok-1', 'ok 2', 'ok/3', 'ok.4'], more: 8 });
+    assert.ok(Date.now() - started < 200, 'a 10k-character name is checked in linear time');
+    assert.deepEqual(failingCheckNames([{ name: '`', conclusion: 'FAILURE' }]), { names: [], more: 1 });
+    assert.equal(checksText({ names: [], more: 3 }), '3 checks');
+    assert.equal(checksText({ names: ['context fallback'], more: 0 }), 'context fallback');
+    assert.deepEqual(failingCheckNames([{ context: ' ci/status ', state: 'ERROR' }]).names, ['ci/status'], 'context when there is no name');
+    const id = s.job('Hostile', s.parked);
+    const job = s.sync(id, sha('a'), rollup);
+    assert.equal(job.reason, 'CI rework cap: 0 CI reworks in a row, checks still failing on PR #7: lint, ok-1, ok 2, ok/3, ok.4 and 8 more. A human decides');
+    const tell = String((step(loadStepInput(s.root, s.config, id)) as any).tell);
+    assert.match(tell, /CI rework cap: 0 CI reworks in a row/);
+    const event = JSON.stringify(s.capped(id));
+    for (const text of [String(job.reason), event, tell]) {
+      for (const b of [...bad, long]) assert.ok(!text.includes(b), `${JSON.stringify(b.slice(0, 20))} leaked into ${text.slice(0, 80)}`);
+    }
+    assert.ok(!/[`$"'\n]/.test(String(job.reason)), 'no quote, backtick, dollar or newline in the reason');
+  } finally {
     s.cleanup();
   }
 });

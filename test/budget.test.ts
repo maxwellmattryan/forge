@@ -5,8 +5,9 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/config.ts';
-import { createJob, jobDir, loadJob, readEvents, setJob } from '../lib/jobs.ts';
-import { budgetCmd, enforceBudget, exceededKeys, formatReason } from '../lib/budget.ts';
+import { createJob, jobDir, loadJob, readEvents, setJob, updateJob } from '../lib/jobs.ts';
+import { budgetCmd, effectiveLimits, enforceBudget, exceededKeys, formatReason } from '../lib/budget.ts';
+import { heldByBudget } from '../lib/daemon.ts';
 import { jobCmd } from '../lib/commands/job.ts';
 import { migrate } from '../lib/commands/init.ts';
 import { API_VERSION, BUDGET_KEYS, JOB_SCHEMA_VERSION, WAITING_ON } from '../lib/schema.ts';
@@ -41,10 +42,10 @@ test('AC1/AC2/AC16: defaults, validation, waitingOn and versions', async () => {
   assert.deepEqual(budgetProblems({ tokens: null, usd: 2.5, verifyRetries: 0 }), []);
   assert.ok(WAITING_ON.includes('budget'));
   assert.equal(JOB_SCHEMA_VERSION, 16);
-  assert.equal(API_VERSION, 31);
+  assert.equal(API_VERSION, 32);
   assert.equal(WAITING_ON.at(-1), 'human', 'v8 adds the human gate last');
   assert.deepEqual(BUDGET_KEYS, ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries']);
-  assert.equal(DASH_API_VERSION, 31);
+  assert.equal(DASH_API_VERSION, 32);
   assert.equal(DASH_API_VERSION, API_VERSION);
   assert.equal(WAIT_LABEL.budget, 'Budget exceeded');
   assert.equal(WAIT_LABEL.human, 'Human check');
@@ -56,6 +57,55 @@ test('AC1/AC2/AC16: defaults, validation, waitingOn and versions', async () => {
     await jobCmd(root, defaults(), 'set', [id], { state: 'waiting', 'waiting-on': 'human', reason: 'x' });
     assert.equal(loadJob(root, id).waitingOn, 'human');
     assert.equal(loadJob(root, id).reason, 'x');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('daemon.jobBudget applies only to unattended jobs with no spend limit', () => {
+  const unattended = (edit: (c: any) => void = () => {}) => {
+    const c: any = defaults();
+    c.daemon.enabled = true;
+    edit(c);
+    return c;
+  };
+  const none = { budget: { limits: {}, ack: {}, lastCheck: null } } as any;
+  const limits = effectiveLimits(unattended(), none);
+  assert.equal(limits.tokens, 600000000);
+  assert.equal(limits.usd, 150);
+  assert.equal(limits.minutes, null);
+  assert.equal(limits.verifyRetries, 2, 'the other keys are untouched');
+  // Any spend key set anywhere: the default is not applied at all.
+  for (const key of ['tokens', 'usd', 'minutes']) {
+    const viaConfig = effectiveLimits(unattended((c) => (c.pipeline.budget[key] = 5)), none);
+    assert.deepEqual([viaConfig.tokens, viaConfig.usd, viaConfig.minutes], ['tokens', 'usd', 'minutes'].map((k) => (k === key ? 5 : null)), `pipeline.budget.${key}`);
+    const viaJob = effectiveLimits(unattended(), { budget: { limits: { [key]: 7 } } } as any);
+    assert.deepEqual([viaJob.tokens, viaJob.usd, viaJob.minutes], ['tokens', 'usd', 'minutes'].map((k) => (k === key ? 7 : null)), `job.budget.limits.${key}`);
+  }
+  // A person's explicit null override says unlimited, so it is a setting too.
+  assert.equal(effectiveLimits(unattended(), { budget: { limits: { usd: null } } } as any).tokens, null);
+  assert.equal(effectiveLimits(defaults(), none).tokens, null, 'daemon off: no default');
+  assert.equal(effectiveLimits(unattended((c) => (c.daemon.jobBudget = null)), none).usd, null, 'jobBudget null: off');
+  const partial = effectiveLimits(unattended((c) => (c.daemon.jobBudget = { tokens: null, usd: 20, minutes: 90 })), none);
+  assert.deepEqual([partial.tokens, partial.usd, partial.minutes], [null, 20, 90]);
+  assert.equal(effectiveLimits(unattended((c) => (c.daemon.jobBudget = { usd: 'lots' })), none).usd, null, 'a bad value fills nothing');
+});
+
+test('heldByBudget honours the default unattended budget', () => {
+  const { repo, root, id } = setup();
+  try {
+    const on: any = defaults();
+    on.daemon.enabled = true;
+    updateJob(root, id, (j) => {
+      j.usage.totalTokens = 700000000;
+    });
+    // Over the default only: the stop came from daemon.jobBudget.
+    assert.deepEqual(enforceBudget(root, on, id, 'agent-end')?.exceeded.map((e) => e.key), ['tokens']);
+    assert.equal(loadJob(root, id).waitingOn, 'budget');
+    assert.equal(heldByBudget(root, on, { type: 'resume', job: id }), true);
+    assert.equal(heldByBudget(root, defaults(), { type: 'resume', job: id }), false, 'daemon off: no default, nothing exceeded');
+    budgetCmd(root, on, id, { set: ['tokens=800000000'] });
+    assert.equal(heldByBudget(root, on, { type: 'resume', job: id }), false, 'raising it releases the hold');
   } finally {
     repo.cleanup();
   }
