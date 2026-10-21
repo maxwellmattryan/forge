@@ -10,6 +10,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { forgeAsync, repoTemplate, waitFor } from './helpers.ts';
 import { startServer, textFrame } from '../lib/server.ts';
+import { recordKnown } from '../lib/known-secrets.ts';
 import { parseMemUsage, parsePercent } from '../lib/environment.ts';
 import { parseDevProbe, pidAlive } from '../lib/worktree.ts';
 import * as yaml from '../lib/yaml.ts';
@@ -602,6 +603,33 @@ test('log streams', { timeout: 90_000 }, async () => {
     const pid = await waitFor(() => (fs.existsSync(pidsFile) ? Number(fs.readFileSync(pidsFile, 'utf8').trim()) : 0), { what: 'docker logs started' });
     second.close();
     await waitFor(() => !pidAlive(pid), { what: 'docker logs killed' });
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test('log streams redact known values', { timeout: 90_000 }, async () => {
+  const s = await scratch();
+  try {
+    const a = await s.job('Alpha');
+    await s.f('worktree', 'create', a);
+    const secret = 'hunter2-very-secret-value';
+    recordKnown(s.root, a, { DB_PASSWORD: secret });
+    fs.mkdirSync(s.jobPath(a, 'logs'), { recursive: true });
+    fs.writeFileSync(s.jobPath(a, 'logs', 'dev.log'), `listening with ${secret}\nplain line\n`);
+    const dev = await s.logs(a, 'dev');
+    assert.equal(dev.status, 200);
+    await waitFor(() => dev.lines().length >= 2, { what: 'dev lines' });
+    assert.ok(dev.lines().every((l) => !l.includes(secret)), JSON.stringify(dev.lines()));
+    assert.ok(dev.lines().includes('plain line'));
+    dev.close();
+
+    s.patchContainer(`forge-${a}-postgres`, { logs: [`postgres://u:${secret}@db/x`], errLogs: [`bad password ${secret}`] });
+    const box = await s.logs(a, 'backing:postgres');
+    assert.equal(box.status, 200);
+    await waitFor(() => box.lines().length >= 2, { what: 'container lines' });
+    assert.ok(box.lines().every((l) => !l.includes(secret)), JSON.stringify(box.lines()));
+    box.close();
   } finally {
     await s.cleanup();
   }

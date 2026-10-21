@@ -717,13 +717,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     const t = found ? openTranscript(found.hit, projects) : null;
     if (!found || !t) return jsonStatus(res, 404, { error: NO_TRANSCRIPT });
     const fd = t.fd;
-    // Read per pump: a value a sink resolves while the stream is open is redacted from then on.
-    let cached: { at: number; values: string[] } | null = null;
-    const known = (): string[] => {
-      // Re-read at most once a second, not per line: a tail of the transcript is hundreds of lines.
-      if (!cached || Date.now() - cached.at > 1000) cached = { at: Date.now(), values: knownValues(root, id, loadConfig(root).config) };
-      return cached.values;
-    };
+    const known = knownReader(id);
     sseHead(res);
     res.write('retry: 3000\n\n');
     clients.set(res, `transcript:${id}:${found.role ?? 'owner'}`);
@@ -733,7 +727,6 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       t.size,
       req.headers['last-event-id'],
       (offset, line) => {
-        // Known values are read per line: one a sink resolves while the stream is open is redacted from then on.
         if (line.trim()) res.write(lineFrame(offset, redactKnown(line, known())));
       },
       (offset, bytes) => res.write(lineFrame(offset, JSON.stringify({ type: 'forge-truncated', originalType: null, bytes } satisfies ForgeTruncatedLine))),
@@ -747,6 +740,18 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       fs.closeSync(fd);
     });
     startPing();
+  }
+
+  /**
+   * A reader of a job's known values for one open stream: a value a sink resolves while the stream is
+   * open is redacted from then on. Re-read at most once a second, since a tail is hundreds of lines.
+   */
+  function knownReader(id: string): () => string[] {
+    let cached: { at: number; values: string[] } | null = null;
+    return () => {
+      if (!cached || Date.now() - cached.at > 1000) cached = { at: Date.now(), values: knownValues(root, id, loadConfig(root).config) };
+      return cached.values;
+    };
   }
 
   /** The job behind an environment route, or null after answering 404. */
@@ -869,6 +874,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       const opened = openDevLog(root, id);
       if (typeof opened === 'string') return jsonStatus(res, 404, { error: 'no dev log' });
       const fd = opened.fd;
+      const known = knownReader(id);
       sseHead(res);
       res.write('retry: 3000\n\n');
       clients.set(res, scope);
@@ -877,7 +883,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         fd,
         opened.size,
         req.headers['last-event-id'],
-        (offset, line) => res.write(textFrame(offset, line)),
+        (offset, line) => res.write(textFrame(offset, redactKnown(line, known()))),
         (offset, bytes) => res.write(textFrame(offset, `… a line of ${bytes} bytes was skipped`)),
       );
       const recycle = setTimeout(() => res.end(), opts.sseMaxAgeMs ?? SSE_MAX_AGE_MS);
@@ -903,6 +909,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     sseHead(res);
     res.write('retry: 3000\n\n');
     clients.set(res, scope);
+    const known = knownReader(id);
     const child = spawn('docker', ['logs', '--follow', '--tail', '200', '--', container!], { stdio: ['ignore', 'pipe', 'pipe'] });
     let ended = false;
     const lines = (pipe: NodeJS.ReadableStream) => {
@@ -912,19 +919,20 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         partial += c;
         let nl = partial.indexOf('\n');
         while (nl !== -1) {
-          res.write(textFrame(null, partial.slice(0, nl)));
+          res.write(textFrame(null, redactKnown(partial.slice(0, nl), known())));
           partial = partial.slice(nl + 1);
           nl = partial.indexOf('\n');
         }
         // One endless line is sent in pieces rather than held.
         if (partial.length > SSE_MAX_LINE) {
-          res.write(textFrame(null, partial));
+          // Redacted whole, before it is cut into pieces, so a value can't straddle two of them.
+          res.write(textFrame(null, redactKnown(partial, known())));
           partial = '';
         }
         if (res.writableLength > SSE_SLOW_CLIENT_BYTES) res.end();
       });
       pipe.on('end', () => {
-        if (partial && !ended) res.write(textFrame(null, partial));
+        if (partial && !ended) res.write(textFrame(null, redactKnown(partial, known())));
         partial = '';
       });
     };
