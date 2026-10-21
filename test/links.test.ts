@@ -11,7 +11,6 @@ import { forgeAsync, scratchGitConfig, tempRepo } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/config.ts';
 import { memberWorktreePath } from '../lib/job-repos.ts';
 import { applyLinks, cargoShim, cmakeArgs, cmakeShim, declaredLinks, linkLeakPaths, npmShim, pathPrelude, renderCargoConfig, resolveLinks, restoreLockfiles, sameMode, snapshotLockfiles, writeIfChanged } from '../lib/links.ts';
-import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import type { Config, Job } from '../lib/types.ts';
 import * as yaml from '../lib/yaml.ts';
 
@@ -38,12 +37,8 @@ const COMPONENTS = [
 ];
 
 describe('links: config shape', { concurrency: 4 }, () => {
-  test('a v11 config migrates to v12 unchanged', async () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
+  test('forge migrate keeps components and their links', async () => {
     const v11 = { schemaVersion: 11, repos: structuredClone(REPOS), components: structuredClone(COMPONENTS) };
-    const { config, from } = migrateConfig(structuredClone(v11));
-    assert.equal(from, 11);
-    assert.deepEqual(config, { ...v11, schemaVersion: 28, downstream: { enabled: true, max: 5, skip: [] } });
     const repo = tempRepo();
     cleanups.push(repo.cleanup);
     const cfg = path.join(repo.dir, '.forge', 'config.yml');

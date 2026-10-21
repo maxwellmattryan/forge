@@ -7,7 +7,6 @@ import path from 'node:path';
 import { checkoutProblems, resolveTarget } from '../lib/checkout-config.ts';
 import { defaults, loadConfig } from '../lib/config.ts';
 import { tempRepo } from './helpers.ts';
-import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 
 const base = { commands: { install: 'make install', uninstall: 'make uninstall', gone: null }, components: [{ name: 'ui', path: 'ui', kind: 'app', commands: { deploy: 'x' } }] };
 const problems = (checkout: unknown) => checkoutProblems({ ...base, checkout });
@@ -71,12 +70,7 @@ describe('checkout config', { concurrency: 4 }, () => {
     assert.deepEqual(checkoutProblems(defaults()), []);
   });
 
-  test('a previous-version config migrates', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
-    const v14 = { schemaVersion: 14, git: { base: 'trunk' }, components: [], repos: [], downstream: { enabled: true, max: 5, skip: [] } };
-    const { config, from } = migrateConfig(structuredClone(v14));
-    assert.equal(from, 14);
-    assert.deepEqual(config, { ...v14, schemaVersion: 28 }, 'nothing but schemaVersion changes');
+  test('a v14 config loads with no checkout steps', () => {
     const repo = tempRepo();
     try {
       const cfg = path.join(repo.dir, '.forge', 'config.yml');

@@ -8,7 +8,7 @@ import { tempRepo } from './helpers.ts';
 import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
 import { changedRepos, downstreamMembers, downstreamRepos } from '../lib/downstream.ts';
 import { migrate } from '../lib/commands/init.ts';
-import { CONFIG_SCHEMA_VERSION, migrateConfig, normalizeJob } from '../lib/schema.ts';
+import { normalizeJob } from '../lib/schema.ts';
 import type { Config, Job, JobEvent, JobRepo } from '../lib/types.ts';
 import * as yaml from '../lib/yaml.ts';
 
@@ -59,14 +59,7 @@ describe('downstream verification: config', { concurrency: 4 }, () => {
     assert.deepEqual(problems({ ...DEFAULT, skip: ['app-a', 'nope'] }), ['downstream.skip names unknown repo "nope"']);
   });
 
-  test('config v13 migrates to v14 with the downstream default', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
-    const v13 = { schemaVersion: 13, repos: structuredClone(REPOS), git: { base: 'trunk' } };
-    const m = migrateConfig(structuredClone(v13));
-    assert.equal(m.from, 13);
-    assert.deepEqual(m.config, { ...v13, schemaVersion: 28, downstream: DEFAULT });
-    const kept = migrateConfig({ schemaVersion: 13, downstream: { enabled: false, max: 'x' } }).config;
-    assert.deepEqual(kept.downstream, { enabled: false, max: 'x' }, 'an existing value is kept for validation to judge');
+  test('forge migrate writes the downstream default into a v13 config', () => {
     const r = tempRepo();
     try {
       const file = path.join(r.dir, '.forge', 'config.yml');

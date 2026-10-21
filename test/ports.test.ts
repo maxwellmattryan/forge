@@ -106,7 +106,7 @@ describe('job ports', { concurrency: 4 }, () => {
     assert.equal(job.port, s.config.ports.base);
   });
 
-  test('a v13 job keeps its port', () => {
+  test('a pre-ports job keeps its port when its worktree is created', () => {
     const s = scratch();
     const id = createJob(s.dir, s.config, { title: 'Old' }).id;
     const want = s.config.ports.base + 3;
@@ -115,7 +115,6 @@ describe('job ports', { concurrency: 4 }, () => {
     fs.writeFileSync(s.jobFile(id), JSON.stringify({ ...raw, schemaVersion: 13, port: want }));
     const loaded = loadJob(s.dir, id);
     assert.equal(loaded.schemaVersion, 17);
-    assert.deepEqual(loaded.ports, {}, 'read as not allocated');
     assert.equal(loaded.port, want);
     assert.ok(createWorktree(s.dir, s.config, id).created);
     assert.deepEqual(loadJob(s.dir, id).ports, { dev: want }, 'port becomes the first entry');

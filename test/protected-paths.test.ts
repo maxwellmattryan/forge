@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
 import { hitLine, matchEntry, matchPolicy, policyProblems, policyRules, UNCHECKED_LINK } from '../lib/protected.ts';
-import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate, tempRepo } from './helpers.ts';
 
@@ -37,14 +37,6 @@ describe('the policy', () => {
     } finally {
       repo.cleanup();
     }
-  });
-
-  test('config v5 migrates to v7 unchanged', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
-    const v5 = { schemaVersion: 5, git: { base: 'trunk' }, approver: { alwaysEscalate: ['x'] } };
-    const { config, from } = migrateConfig(structuredClone(v5));
-    assert.equal(from, 5);
-    assert.deepEqual(config, { ...v5, schemaVersion: 28, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
   });
 
   test('invalid policy shapes are reported', () => {

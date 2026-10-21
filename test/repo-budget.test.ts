@@ -5,7 +5,6 @@ import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, loadConfig, trustDigest, validateConfig } from '../lib/config.ts';
 import { CONFIG_DISCLOSURE, FIELDS } from '../lib/config-fields.ts';
-import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import * as yaml from '../lib/yaml.ts';
 import { budgetRepo, spend } from './repo-budget-fixture.ts';
 import { budgetCmd } from '../lib/budget.ts';
@@ -35,12 +34,8 @@ test('config defaults and validation', () => {
   assert.deepEqual(problems(null), ['budget must be a map (got null)']);
 });
 
-test('config v8 migrates to v9 unchanged', () => {
-  assert.equal(CONFIG_SCHEMA_VERSION, 28);
+test('a v8 config loads with the budget defaults', () => {
   const v8 = { schemaVersion: 8, git: { base: 'trunk' }, notify: { webhooks: [], command: null } };
-  const { config, from } = migrateConfig(structuredClone(v8));
-  assert.equal(from, 8);
-  assert.deepEqual(config, { ...v8, schemaVersion: 28, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
   const repo = tempRepo();
   try {
     fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });

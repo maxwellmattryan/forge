@@ -8,8 +8,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
-import { createJob, jobDir, loadJob, readEvents } from '../lib/jobs.ts';
-import { JOB_SCHEMA_VERSION, WAITING_ON } from '../lib/schema.ts';
+import { jobDir, loadJob, readEvents } from '../lib/jobs.ts';
+import { WAITING_ON } from '../lib/schema.ts';
 import { WAITING_ON as DASH_WAITING_ON } from '../dashboard/src/lib/types.ts';
 import { issueLinkStatus, prLinkNote, queryTerms } from '../lib/issue-link.ts';
 import { searchTracker } from '../lib/tracker-link.ts';
@@ -50,23 +50,10 @@ async function setup(kind = 'local', backlog?: string, adapter?: string) {
   return { repo, root, cli, raw, newJob, backlog: () => fs.readFileSync(backlogFile, 'utf8') };
 }
 
-test('reads a schema v3 job as current, with noIssue', () => {
-  const repo = tempRepo();
-  try {
-    const job = createJob(repo.dir, defaults(), { title: 'Old one' });
-    const file = path.join(jobDir(repo.dir, job.id), 'job.json');
-    const v3 = JSON.parse(fs.readFileSync(file, 'utf8'));
-    delete v3.noIssue;
-    fs.writeFileSync(file, JSON.stringify({ ...v3, schemaVersion: 3 }));
-    const loaded = loadJob(repo.dir, job.id);
-    assert.equal(loaded.schemaVersion, JOB_SCHEMA_VERSION);
-    assert.equal(loaded.noIssue, null);
-    assert.ok(WAITING_ON.includes('issue-link'));
-    assert.ok(DASH_WAITING_ON.includes('issue-link'));
-    assert.equal(WAITING_ON.indexOf('issue-link'), WAITING_ON.indexOf('split-approval') + 1);
-  } finally {
-    repo.cleanup();
-  }
+test('issue-link is a waiting gate right after split-approval', () => {
+  assert.ok(WAITING_ON.includes('issue-link'));
+  assert.ok(DASH_WAITING_ON.includes('issue-link'));
+  assert.equal(WAITING_ON.indexOf('issue-link'), WAITING_ON.indexOf('split-approval') + 1);
 });
 
 test('issueLinkStatus covers every case', () => {

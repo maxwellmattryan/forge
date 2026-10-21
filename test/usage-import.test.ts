@@ -5,9 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { defaults } from '../lib/config.ts';
-import { createJob, jobDir, loadJob } from '../lib/jobs.ts';
-import { JOB_SCHEMA_VERSION } from '../lib/schema.ts';
+import { loadJob } from '../lib/jobs.ts';
 import { importClaudeCodeTranscript } from '../lib/usage.ts';
 import { projectSlug } from '../lib/transcripts.ts';
 
@@ -114,26 +112,5 @@ test('imports via session lookup', () => {
     assert.equal(importClaudeCodeTranscript(AGENT, { projectsDir, root, job: elsewhere })!.transcript, path.join(decoy, `agent-${AGENT}.jsonl`));
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('v3 and v4 jobs gain an import cursor at each ended agent', () => {
-  const repo = tempRepo();
-  try {
-    const job = createJob(repo.dir, defaults(), { title: 'Old' });
-    const file = path.join(jobDir(repo.dir, job.id), 'job.json');
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-    raw.schemaVersion = 3;
-    raw.agents = {
-      builder: { runs: 1, status: 'done', agentId: AGENT, endedAt: '2026-10-01T10:02:00.000Z' },
-      'reviewer:code': { runs: 1, status: 'running', agentId: null, endedAt: null },
-    };
-    fs.writeFileSync(file, JSON.stringify(raw));
-    const loaded = loadJob(repo.dir, job.id);
-    assert.equal(loaded.schemaVersion, JOB_SCHEMA_VERSION);
-    assert.deepEqual(loaded.agents.builder.importedThrough, { [AGENT]: '2026-10-01T10:02:00.000Z' });
-    assert.equal(loaded.agents['reviewer:code'].importedThrough, undefined);
-  } finally {
-    repo.cleanup();
   }
 });

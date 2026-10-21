@@ -8,7 +8,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
 import { createJob, jobDir, loadJob, readEvents } from '../lib/jobs.ts';
-import { JOB_SCHEMA_VERSION, normalizeJob } from '../lib/schema.ts';
+import { JOB_SCHEMA_VERSION } from '../lib/schema.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
@@ -55,7 +55,7 @@ function snapshot(dir: string): Record<string, string> {
   return out;
 }
 
-test('reads a v5 job', () => {
+test('forge migrate rewrites a v5 job with splitMode and effort null', () => {
   const s = scratch();
   try {
     assert.equal(JOB_SCHEMA_VERSION, 17);
@@ -73,8 +73,6 @@ test('reads a v5 job', () => {
     assert.equal(loaded.effort, null);
     assert.deepEqual(loaded.agents, raw.agents, 'agents are otherwise unchanged');
     assert.deepEqual(loaded.verifyRuns, raw.verifyRuns, 'verify runs are otherwise unchanged');
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 5 }).splitMode, null);
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 18 })._unsupported, true);
 
     const migrated = s.f('migrate');
     assert.ok(migrated.changed.includes(path.relative(s.root, file)));

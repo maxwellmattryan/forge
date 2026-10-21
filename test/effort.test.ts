@@ -60,7 +60,7 @@ test('effort levels, default and resolution', () => {
   for (const bad of ['ultra', '', ' high', 'HIGH', 1, null, undefined, {}, ['high']]) assert.equal(validEffort(bad), null, JSON.stringify(bad));
 });
 
-test('reads a v6 job', () => {
+test('forge migrate rewrites a v6 job with effort null; a stored effort outside the list loads as null', () => {
   const s = scratch();
   try {
     assert.equal(JOB_SCHEMA_VERSION, 17);
@@ -73,13 +73,6 @@ test('reads a v6 job', () => {
     const loaded = loadJob(s.root, job.id);
     assert.equal(loaded.schemaVersion, 17);
     assert.equal(loaded.effort, null);
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 6 }).effort, null);
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 6, effort: 'low' }).effort, 'low', 'a v6 job that somehow has a valid level keeps it');
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 18 })._unsupported, true);
-    // v7 → v8 only adds the `human` gate: a v7 job loads unchanged.
-    const v7 = normalizeJob({ id: 'x', schemaVersion: 7, effort: 'high', state: 'waiting', waitingOn: 'escalation', reason: 'r' });
-    assert.equal(v7.schemaVersion, 17);
-    assert.deepEqual([v7.effort, v7.state, v7.waitingOn, v7.reason, v7._unsupported], ['high', 'waiting', 'escalation', 'r', undefined]);
 
     const migrated = s.f('migrate');
     assert.ok(migrated.changed.includes(path.relative(s.root, file)));
@@ -342,7 +335,7 @@ test('rework bumps the builder one level', () => {
   assert.deepEqual(resolveEffort(fallback, { round: 2 }), { level: 'low', source: 'config' }, 'a session (no role) is never bumped');
 });
 
-test('reads a v8 job', () => {
+test('forge migrate rewrites a v8 job with complexity null; an invalid complexity reads as null', () => {
   const s = scratch();
   try {
     const job = createJob(s.root, defaults(), { title: 'Old v8' });
@@ -354,7 +347,6 @@ test('reads a v8 job', () => {
     const loaded = loadJob(s.root, job.id);
     assert.equal(loaded.schemaVersion, 17);
     assert.equal(loaded.complexity, null);
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 8, complexity: 'extreme' }).complexity, null);
     assert.equal(normalizeJob({ id: 'x', schemaVersion: 9, complexity: 'extreme' }).complexity, null);
     assert.equal(normalizeJob({ id: 'x', schemaVersion: 9, complexity: 'medium' }).complexity, 'medium');
     const migrated = s.f('migrate');
@@ -365,7 +357,7 @@ test('reads a v8 job', () => {
   }
 });
 
-test('reads a v3 config', () => {
+test('a v3 config loads with unset efforts', () => {
   const s = scratch();
   try {
     assert.equal(CONFIG_SCHEMA_VERSION, 28);

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { TRUST_ENV, daemonProblems, defaults, loadConfig, trustDigest, validateConfig } from '../lib/config.ts';
-import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 import { migrate } from '../lib/commands/init.ts';
 import * as yaml from '../lib/yaml.ts';
 
@@ -47,7 +47,7 @@ test('AC1: defaults carry the daemon block and no dashboard.launcher', () => {
   assert.deepEqual(yaml.parse(yaml.stringify({ daemon: d.daemon })).daemon, d.daemon);
 });
 
-test('AC2: v1 dashboard.launcher migrates to daemon.command', () => {
+test('AC2: a v1 launcher config loads and migrates with the launcher as daemon.command, reported not run', () => {
   const repo = tempRepo();
   const cfg = path.join(repo.dir, '.forge', 'config.yml');
   const write = (text) => {
@@ -71,14 +71,6 @@ test('AC2: v1 dashboard.launcher migrates to daemon.command', () => {
     assert.equal(loaded.config.daemon.command, DEFAULT_COMMAND);
     assert.equal('launcher' in loaded.config.dashboard, false);
     assert.deepEqual(validateConfig(loaded.config, repo.dir), []);
-
-    write('schemaVersion: 1\ndashboard:\n  launcher: "my-claude {session}"\ndaemon:\n  command: kept {session}\n');
-    assert.equal(loadConfig(repo.dir).config.daemon.command, 'kept {session}', 'an existing daemon.command wins');
-
-    write('schemaVersion: 1\ngit:\n  base: main\n');
-    const raw = yaml.parse(fs.readFileSync(cfg, 'utf8'));
-    assert.equal('dashboard' in raw, false);
-    assert.equal('dashboard' in migrateConfig(raw).config, false, 'no dashboard key is invented');
 
     write('schemaVersion: 1\ndashboard:\n  port: 7400\n  launcher: \'claude -p "{prompt}"\'\n');
     assert.deepEqual(migrate(repo.dir).changed, ['.forge/config.yml']);

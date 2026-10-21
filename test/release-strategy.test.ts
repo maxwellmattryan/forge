@@ -16,7 +16,6 @@ import { redactedConfig } from '../lib/config-fields.ts';
 import { doctor } from '../lib/doctor.ts';
 import { releaseChecks } from '../lib/member-repos.ts';
 import { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_PUBLISH, RELEASE_REGISTRIES, RELEASE_VERSIONINGS, commandProgram, releaseMechanismCheck } from '../lib/release-strategy.ts';
-import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import { deepMerge, findOnPath } from '../lib/util.ts';
 import * as yaml from '../lib/yaml.ts';
 
@@ -114,23 +113,6 @@ describe('release strategy config', { concurrency: 4 }, () => {
     assert.deepEqual(root({ mechanism: 'cargo-release', command: null }), []);
     assert.deepEqual(root({ mechanism: 'tag', command: 'npm run release' }), []);
     assert.deepEqual(member({ mechanism: 'tag', command: 'npm run release' }), []);
-  });
-
-  test('v15 config migrates to v16 unchanged', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
-    const v15 = { schemaVersion: 15, release: { interim: 'canary' }, components: [], repos: [], checkout: [], downstream: { enabled: true, max: 5, skip: [] } };
-    const { config, from } = migrateConfig(structuredClone(v15));
-    assert.equal(from, 15);
-    assert.deepEqual(config, { ...v15, schemaVersion: 28 });
-    assert.deepEqual(validateConfig({ ...defaults(), schemaVersion: 29 }, process.cwd()), ['config schemaVersion 29 is newer than this Forge (28); update the plugin']);
-  });
-
-  test('a v16 config migrates to v17 unchanged', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
-    const v16 = { schemaVersion: 16, release: { interim: 'canary', mechanism: 'tag', command: 'git tag v1' }, components: [], repos: [{ ...LIB, release: { mechanism: 'changesets' } }], checkout: [], downstream: { enabled: true, max: 5, skip: [] } };
-    const { config, from } = migrateConfig(structuredClone(v16));
-    assert.equal(from, 16);
-    assert.deepEqual(config, { ...v16, schemaVersion: 28 });
   });
 
   test('release.publish validates', () => {

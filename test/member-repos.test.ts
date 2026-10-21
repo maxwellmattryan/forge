@@ -12,7 +12,6 @@ import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
 import { doctor } from '../lib/doctor.ts';
 import { initWrite, migrate } from '../lib/commands/init.ts';
 import { memberRepoChecks, readLocalConfig, remotesMatch, repoProblems, resolveMemberPath, sameDir, shellWord } from '../lib/member-repos.ts';
-import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import { deepMerge } from '../lib/util.ts';
 import * as yaml from '../lib/yaml.ts';
 
@@ -58,21 +57,8 @@ function project() {
 }
 
 describe('member repos config', { concurrency: 4 }, () => {
-  test('a v10 config migrates to 11 with empty repos', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
+  test('a v10 config loads and migrates with empty repos', () => {
     assert.deepEqual(defaults().repos, []);
-    const v10 = { schemaVersion: 10, tracker: { kind: 'none' }, components: [] };
-    const m = migrateConfig(structuredClone(v10));
-    assert.equal(m.from, 10);
-    assert.deepEqual(m.config, { ...v10, repos: [], schemaVersion: 28, downstream: { enabled: true, max: 5, skip: [] } });
-    assert.deepEqual(validateConfig(deepMerge(defaults(), m.config), process.cwd()), []);
-    const kept = migrateConfig({ schemaVersion: 10, repos: 'nope' }).config;
-    assert.equal(kept.repos, 'nope', 'an existing repos value is kept for validation to judge');
-    const folded = migrateConfig({ schemaVersion: 10, services: [{ name: 'api', path: 'api' }] }).config;
-    assert.deepEqual(folded.components, [{ name: 'api', path: 'api', kind: 'service', dependsOn: [] }]);
-    assert.equal('services' in folded, false);
-    assert.deepEqual(folded.repos, []);
-
     const r = tempRepo();
     try {
       fs.mkdirSync(path.join(r.dir, '.forge'));
@@ -82,6 +68,7 @@ describe('member repos config', { concurrency: 4 }, () => {
       assert.equal(loaded.migratedFrom, 10);
       assert.deepEqual(loaded.config.repos, []);
       assert.equal(loaded.config.schemaVersion, 28);
+      assert.deepEqual(validateConfig(loaded.config, r.dir), []);
       migrate(r.dir);
       const onDisk = yaml.parse(fs.readFileSync(file, 'utf8'));
       assert.equal(onDisk.schemaVersion, 28);

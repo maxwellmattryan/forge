@@ -133,7 +133,7 @@ test('validateConfig accepts groups and names each bad verify entry', () => {
   assert.deepEqual(problems([['lint', 'nope']]), ['verify step "nope" is not a key in commands']);
 });
 
-test('a v2 config reads as v3 and grouped verify round-trips', () => {
+test('forge migrate rewrites a v1 or v2 config, and grouped verify round-trips through init', () => {
   const repo = tempRepo();
   const cfg = path.join(repo.dir, '.forge', 'config.yml');
   fs.mkdirSync(path.dirname(cfg), { recursive: true });

@@ -8,7 +8,6 @@ import { forgeAsync, tempRepo } from './helpers.ts';
 import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
 import { commandSources } from '../lib/integrity.ts';
 import { createJob, jobDir, updateJob } from '../lib/jobs.ts';
-import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import { buildCycles, jobComponent, servicesToComponents } from '../lib/components.ts';
 import { commandTemplate, createWorktree } from '../lib/worktree.ts';
 import * as yaml from '../lib/yaml.ts';
@@ -17,12 +16,7 @@ const SERVICE = { name: 'api', path: 'svc/api', commands: { test: 't' }, owners:
 const COMPONENT = { ...SERVICE, kind: 'service', dependsOn: [] };
 
 describe('components migration', { concurrency: 4 }, () => {
-  test('migration maps services to service components', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
-    const { config, from } = migrateConfig({ schemaVersion: 9, services: [structuredClone(SERVICE)] });
-    assert.equal(from, 9);
-    assert.deepEqual(config, { schemaVersion: 28, components: [COMPONENT], repos: [], downstream: { enabled: true, max: 5, skip: [] } });
-    assert.equal('services' in config, false);
+  test('servicesToComponents is pure and keeps a bad entry for validation', () => {
     assert.deepEqual(servicesToComponents({ services: [{ name: 'web' }, { name: 'x', path: '' }] }).components, [
       { name: 'web', path: '.', kind: 'service', dependsOn: [] },
       { name: 'x', path: '.', kind: 'service', dependsOn: [] },
@@ -34,11 +28,9 @@ describe('components migration', { concurrency: 4 }, () => {
     assert.equal(servicesToComponents(both), both);
     // A bad entry is kept for validation to name.
     assert.deepEqual(servicesToComponents({ services: ['nope'] }).components, ['nope']);
-    // An unversioned config that still says services folds the same way.
-    assert.deepEqual(migrateConfig({ services: [structuredClone(SERVICE)] }).config.components, [COMPONENT]);
   });
 
-  test('a v8 services config loads and migrates to components', async () => {
+  test('forge migrate rewrites a services config as components', async () => {
     const repo = tempRepo();
     try {
       const cfg = path.join(repo.dir, '.forge', 'config.yml');

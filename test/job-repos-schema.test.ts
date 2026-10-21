@@ -14,7 +14,7 @@ after(() => cleanups.forEach((c) => c()));
 const PR = { number: 7, url: 'https://github.com/o/app/pull/7', state: 'OPEN', isDraft: false, lastSyncedAt: '2026-10-01T00:00:00.000Z', pushedSha: 'a'.repeat(40) };
 
 describe('job repos: schema', { concurrency: 4 }, () => {
-  test('v11 jobs in every stage migrate to one root repo and keep every field', () => {
+  test('a v11 job in every stage keeps every field and reads back unchanged after a write', () => {
     assert.equal(JOB_SCHEMA_VERSION, 17);
     const repo = tempRepo();
     cleanups.push(repo.cleanup);
@@ -34,21 +34,16 @@ describe('job repos: schema', { concurrency: 4 }, () => {
       fs.writeFileSync(file, JSON.stringify(v11));
       const loaded = loadJob(repo.dir, job.id);
       assert.equal(loaded.schemaVersion, 17, stage);
-      const { repos, schemaVersion: _v, interim, ports, outcome, score, ...rest } = loaded;
-      assert.equal(interim, null, `${stage}: v13 adds no override`);
-      assert.deepEqual(ports, {}, `${stage}: v14 adds no ports until the next worktree create`);
-      assert.equal(outcome, null, `${stage}: v15 adds no outcome until the next sync`);
-      assert.equal(score, null, `${stage}: v16 adds no score until a sync queues one`);
+      // The fields later versions added are the job v11+ rows' concern (test/schema.test.ts).
+      const { repos: _rr, schemaVersion: _v, interim: _ii, ports: _pp, outcome: _oo, score: _ss, ...rest } = loaded;
       const { schemaVersion: _w, ...before } = v11;
       assert.deepEqual(rest, before, `${stage}: every v11 field is unchanged`);
-      assert.deepEqual(repos, [{ repo: null, worktree: v11.worktree, branch: v11.branch, base: v11.base, pr: v11.pr, verifyOnly: false, interim: null }], stage);
       // Written back as v14 and read again, it is the same job.
       updateJob(repo.dir, job.id, () => {});
       const { updatedAt: _a, ...again } = loadJob(repo.dir, job.id);
       const { updatedAt: _b, ...first } = loaded;
       assert.deepEqual(again, first, `${stage}: a v14 file reads back unchanged`);
     }
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 18 })._unsupported, true, 'a newer file is still refused');
   });
 
   test('repos[0] mirrors the top-level fields and member branches are derived', () => {
@@ -91,12 +86,8 @@ describe('job repos: schema', { concurrency: 4 }, () => {
     for (const r of [undefined, null, 'x', {}, 5]) assert.equal(normalizeJob({ ...base, repos: r }).repos.length, 1, String(r));
   });
 
-  test('v12 job gains interim null and repos[0] mirrors the root override', () => {
+  test('repos[0] mirrors the root interim override; an invalid stored value reads as null', () => {
     const v12 = { id: 'x', schemaVersion: 12, branch: 'forge/x', base: 'main', repos: [{}, { repo: 'lib', worktree: null, base: 'main', pr: null, verifyOnly: false }] };
-    const j = normalizeJob(v12);
-    assert.equal(j.schemaVersion, 17);
-    assert.equal(j.interim, null);
-    assert.deepEqual(j.repos.map((r) => r.interim), [null, null]);
     const set = normalizeJob({ ...v12, schemaVersion: 13, interim: 'sequential', repos: [{ interim: 'canary' }, { ...v12.repos[1], interim: 'git-ref' }] });
     assert.deepEqual([set.interim, set.repos[0].interim, set.repos[1].interim], ['sequential', 'sequential', 'git-ref'], 'repos[0] mirrors the top-level override, never its own stored value');
     const bogus = normalizeJob({ ...v12, schemaVersion: 13, interim: 'bogus', repos: [{}, { ...v12.repos[1], interim: 'bogus' }] });
