@@ -816,7 +816,7 @@ export interface EvalResult {
   /** Wall time when no agent was running. */
   orchestratorMinutes?: number | null;
   reviewerRuns?: number;
-  /** round > maxRounds at grade time: B6 sent it to decide. Absent on results graded before it. */
+  /** round > maxRounds at grade time: B6b sent it to decide. Absent on results graded before it. */
   roundsExhausted?: boolean;
 }
 

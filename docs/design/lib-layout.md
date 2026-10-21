@@ -92,6 +92,8 @@ Each split is its own PR and changes no behaviour. The existing tests, unchanged
 
 ### step.ts (1,422 lines) → `pipeline/step/`
 
+The split landed as `lib/step/` (issue #347): ordered rule tables per stage, with `lib/step.ts` kept as re-exports; the proposal below is the earlier plan.
+
 | File | Contents | ≈ lines |
 |---|---|---|
 | `decide.ts` | `RULES`, `RuleId`, `step()`, `decide()`, `blockedRole()` | 180 |

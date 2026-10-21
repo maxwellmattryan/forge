@@ -20,7 +20,7 @@ export const PROPOSALS_MD = 'repo-proposals.md';
 export const PROPOSALS_JSON = 'repo-proposals.json';
 export const REASON_MAX = 200;
 const NOTE_MAX = 2000;
-/** The reason prefix of the RP1 park (lib/step.ts) that tells this `human` wait apart from the others. */
+/** The reason prefix of the RP1 park (lib/step/gates.ts) that tells this `human` wait apart from the others. */
 export const PARK_PREFIX = 'repo proposal:';
 export const DECISION_ACTIONS = { approve: 'approve-repos', reject: 'reject-repos' } as const;
 
