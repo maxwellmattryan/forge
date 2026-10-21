@@ -1,5 +1,6 @@
 // The GitHub hover card's one open card, its hover-intent timers and the answers fetched so far, like toast.svelte.ts
-// for the toast: GitHubCard.svelte feeds it document events and renders it, and lib/github.ts holds the rules.
+// for the toast: GitHubCard.svelte feeds it document events and renders it, and lib/github.ts holds the rules. The card
+// describes any link to a github.com page, or an element carrying `data-gh-href` (a board card's PR chip).
 import { fetchGitHubPreview } from './app.svelte.ts';
 import { CLIENT_TTL, CLOSE_DELAY, OPEN_DELAY, cardKey, cardResult, leftBoth } from './github.ts';
 import type { GitHubPreviewResponse } from './types.ts';
@@ -8,8 +9,8 @@ import type { GitHubPreviewResponse } from './types.ts';
 export const CARD_ID = 'gh-card';
 
 class CardState {
-  /** The link the card describes; null while it is closed. */
-  link = $state.raw<HTMLAnchorElement | null>(null);
+  /** The link (or `data-gh-href` element) the card describes; null while it is closed. */
+  link = $state.raw<HTMLElement | null>(null);
   /** The page, as lib/github.ts previewable() spells it. */
   url = $state('');
   /** The answer; null while it loads. */
@@ -22,7 +23,7 @@ const answers = new Map<string, { at: number; value: Promise<GitHubPreviewRespon
 let openTimer: ReturnType<typeof setTimeout> | undefined;
 let closeTimer: ReturnType<typeof setTimeout> | undefined;
 /** A link the pointer or focus rests on, waiting out OPEN_DELAY. */
-let pending: HTMLAnchorElement | null = null;
+let pending: HTMLElement | null = null;
 /** The open link's own aria-describedby, put back when the card leaves it. */
 let ownDescribedBy: string | null = null;
 
@@ -45,7 +46,7 @@ function release(): void {
   ownDescribedBy = null;
 }
 
-function show(a: HTMLAnchorElement, url: string): void {
+function show(a: HTMLElement, url: string): void {
   pending = null;
   release();
   ghCard.link = a;
@@ -62,7 +63,7 @@ function show(a: HTMLAnchorElement, url: string): void {
  * The pointer or keyboard focus came to a GitHub link: fetch now, show after OPEN_DELAY. With a card already showing it
  * swaps at once, so running the pointer down a column of links reads each without waiting.
  */
-export function linkIntent(a: HTMLAnchorElement, url: string): void {
+export function linkIntent(a: HTMLElement, url: string): void {
   clearTimeout(closeTimer);
   if (ghCard.link === a || pending === a) return;
   clearTimeout(openTimer);

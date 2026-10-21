@@ -47,7 +47,7 @@ Inside the verify stage, after the round's last verify passed (`forge job step` 
    - a `verifiers` event with `phase: run`.
 
    When nothing matches, it writes the PASS report straight away instead, with a `phase: record` event, and the job moves on to review.
-2. **The verifier agent** (VF2, `forge:verifier`, tools `Read` and `Write` only) reads the input and writes `verify/round-<n>-verifier-answers.md`, one line per verifier: `- <name>: YES` or `- <name>: NO — <path>:<line> <reason>`. It answers NO only for a concrete violation it can point to, and YES when unsure: the panel still reads the whole change. An agent that ends without the file gets one retry.
+2. **The verifier agent** (VF2, `forge:verifier`, tools `Read` and `Write` only) reads the input and writes `verify/round-<n>-verifier-answers.md`, one line per verifier: `- <name>: YES` or `- <name>: NO — <path>:<line> <reason>`. It answers NO only for a concrete violation it can point to, and YES when unsure: the panel still reads the whole change. An agent that ends without the file gets one retry (VF2b).
 3. **`forge verifiers record <id>`** (VF3) writes `verify/round-<n>-verifiers.md` in the review file format:
    ```
    VERDICT: PASS | CHANGES
@@ -69,7 +69,7 @@ Inside the verify stage, after the round's last verify passed (`forge job step` 
 
 The verdict comes from the same counting a reviewer's file gets: `CHANGES` when a Findings line carries a severity in `review.blockOn` (default `[blocker, major]`), else `PASS`. So a `mode: block`, `severity: minor` failure is reported but doesn't block under the default policy, exactly like a reviewer's minor finding. Warnings never block.
 
-**On CHANGES** the failure is a failed verify attempt of the same round, bound to the same commit: `record` appends `{ ok: false, failure: 'verifiers', file: 'verify/round-<n>-verifiers.md' }` to the job's verify runs, sets the round's verify to `FAIL` and counts a verify retry. The job goes back to build (V3), and the builder's brief says `Rework: verifiers` with the report as its input. The rework stays in the same round, so `pipeline.maxRounds` isn't spent on it, but `pipeline.budget.verifyRetries` bounds a verifier the builder keeps failing. A PR can't open on that commit, since its last verify run failed. After the fix, verify runs again and then the verifiers run again.
+**On CHANGES** the failure is a failed verify attempt of the same round, bound to the same commit: `record` appends `{ ok: false, failure: 'verifiers', file: 'verify/round-<n>-verifiers.md' }` to the job's verify runs, sets the round's verify to `FAIL` and counts a verify retry. The job goes back to build (V3b), and the builder's brief says `Rework: verifiers` with the report as its input. The rework stays in the same round, so `pipeline.maxRounds` isn't spent on it, but `pipeline.budget.verifyRetries` bounds a verifier the builder keeps failing. A PR can't open on that commit, since its last verify run failed. After the fix, verify runs again and then the verifiers run again.
 
 **On PASS** the job goes to review (or to `pr` for a PR rework under `review.onPrFeedback: none`). Reviewers and the approver get the report in their inputs, so warnings reach the panel.
 

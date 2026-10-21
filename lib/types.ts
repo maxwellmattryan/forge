@@ -378,14 +378,14 @@ export interface Progress {
 /** A job as loadJob and normalizeJob return it: normalizeJob marks one written by a newer Forge. */
 export type LoadedJob = Job & { _unsupported?: true };
 
-// ---------- forge job step (lib/step.ts; not /api shapes) ----------
+// ---------- forge job step (lib/step/; not /api shapes) ----------
 
 /** What a `wait` waits on: a gate, or the agents still running. */
 export type StepWaitingOn = WaitingOn | 'agents';
 
 interface StepBase {
   id: string;
-  /** The rule in lib/step.ts RULES that chose this action. */
+  /** The rule in lib/step/rules.ts RULES that chose this action. */
   rule: string;
 }
 
@@ -453,7 +453,7 @@ export interface StepVerdicts {
   reviewers: Record<string, { verdict: string }>;
 }
 
-/** Everything `step` decides from, read once by loadStepInput in lib/step.ts. */
+/** Everything `step` decides from, read once by loadStepInput in lib/step/input.ts. */
 export interface StepInput {
   job: Job;
   config: Config;
@@ -498,6 +498,12 @@ export interface StepInput {
   verifiers: number;
   /** The job's and the project's backing port records, for the brief's Backing services line; absent without backing entries. */
   backing?: { job: BackingRecord; shared: BackingRecord };
+  /** loadStepInput's clock, ISO: step reads no other (the repo-budget tell names its period from it). */
+  now: string;
+  /** jobEndpoints' components, for a reviewer brief's Endpoints line; empty without `commands.dev`. */
+  endpoints: { name: string; url: string }[];
+  /** trustedMemberWorktree per member repo, never job.json's `worktree`: a reviewer brief's Lens repo line. */
+  memberWorktrees: Record<string, string | null>;
 }
 
 /** The job files StepInput.files records. */
@@ -1703,7 +1709,7 @@ export interface EvalResult {
   /** Wall time when no agent was running. */
   orchestratorMinutes?: number | null;
   reviewerRuns?: number;
-  /** round > maxRounds at grade time: B6 sent it to decide. Absent on results graded before it. */
+  /** round > maxRounds at grade time: B6b sent it to decide. Absent on results graded before it. */
   roundsExhausted?: boolean;
 }
 

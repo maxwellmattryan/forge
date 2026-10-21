@@ -72,7 +72,7 @@ describe('a job driven by step alone', { concurrency: 4 }, () => {
       r = await advance();
       assert.equal(r.out.action, 'wait', JSON.stringify(r.out));
       assert.equal(r.out.waitingOn, 'human');
-      assert.equal(r.out.ran[0].rule, 'SC1');
+      assert.equal(r.out.ran[0].rule, 'SC1b');
       assert.match(r.out.tell, new RegExp(`^${id} stopped on a possible secret \\(secret scan blocked verify round 1\\)`));
       let job = loadJob(s.root, id);
       assert.deepEqual([job.stage, job.state, job.waitingOn, job.reason], ['verify', 'waiting', 'human', 'secret scan blocked verify round 1']);
@@ -83,7 +83,7 @@ describe('a job driven by step alone', { concurrency: 4 }, () => {
       assert.equal(r.status, 1, 'the scan ran again and failed');
       assert.deepEqual(r.out.ran.map((x: any) => x.rule), ['SC2']);
       r = await advance();
-      assert.deepEqual(r.out.ran.map((x: any) => x.rule), ['SC1']);
+      assert.deepEqual(r.out.ran.map((x: any) => x.rule), ['SC1b']);
       assert.equal(r.out.waitingOn, 'human', JSON.stringify(r.out));
 
       // The human rewrites the branch without the key, approves, and the next advance re-verifies.

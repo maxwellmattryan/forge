@@ -1,4 +1,4 @@
-// A job's repo proposals as the dashboard shows them: the RP1 park (lib/step.ts) that tells this `human` wait
+// A job's repo proposals as the dashboard shows them: the RP1 park (lib/step/gates.ts) that tells this `human` wait
 // apart, the rows of repo-proposals.json (agent-written job state, so parsed defensively and rendered as text),
 // and the POST that decides them (lib/server.ts). Plain TS, so test/dashboard-repo-proposals.test.ts can pin it.
 import type { Job, PostJobReposBody, PostJobReposResponse, RepoProposal } from './types.ts';
