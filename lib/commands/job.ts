@@ -37,6 +37,7 @@ import { modelFor, resolveEffort } from '../config.ts';
 import { ForgeError, coerce, getPath, run } from '../util.ts';
 import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './args.ts';
 import { mirrorToTracker, startFromRef } from './tracker.ts';
+import { refreshRequest } from '../request-refresh.ts';
 import { TeardownRefusal, archiveJob, archiveOlder, prune } from '../retention.ts';
 import { deleteJob } from '../delete.ts';
 import { finishEnvironment, finishEnvironmentStopOnly } from '../environment-lifecycle.ts';
@@ -146,7 +147,7 @@ const JOB: HelpGroup = {
     {
       command: 'job claim',
       args: '<id> --session S [--force] [--epoch N]',
-      summary: "take the job's lease for a session (30 minutes, renewed by its own step, advance, agent and worktree commands); a new driver gets the next epoch, which the result returns as `epoch` for every later --epoch",
+      summary: "take the job's lease for a session (30 minutes, renewed by its own step, advance, agent and worktree commands); a new driver gets the next epoch, which the result returns as `epoch` for every later --epoch. For a job started from its issue, before any plan.md or spec.md exists, it also re-reads request.md from that issue, best effort (`requestRefreshed: true` when it changed)",
       flags: [
         ['--session S', 'the claiming session (required)'],
         ['--force', 'take it from a live lease, or claim it with dependencies not done'],
@@ -155,6 +156,12 @@ const JOB: HelpGroup = {
       exits: [[1, 'no such job, or the office daemon session ran it'], [3, 'another session holds a live lease (owned), or the lease moved past --epoch (stale_epoch)'], [4, 'dependencies pending, or the repo budget holds new work']],
     },
     { command: 'job release', args: '<id>', summary: "drop the job's driver (its epoch stays)", exits: [NO_JOB] },
+    {
+      command: 'job refresh-request',
+      args: '<id>',
+      summary: "re-read request.md and the title from the job's primary issue, so a queued job picks up an edited issue; the id, links, claim and dependsOn stay",
+      exits: [[1, 'no such job, a finished job, plan.md or spec.md already written, an agent running, no linked issue, an issue outside this repo and its member repos\' trackers, or no such tracker item (gh failing reads as none)']],
+    },
     {
       command: 'job repo',
       args: 'add <id> <name> [--verify-only] | remove <id> <name> | propose <id> <name> --reason R | downstream <id> | interim <id> (<name> | --root) canary|git-ref|local|sequential|inherit',
@@ -653,14 +660,17 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       const opts = { ...(force ? { actor: currentActor(root) } : {}), ...(fence ? { fence } : {}) };
       const { job, overridden } = claimRespectingDeps(root, jobId, session, force, opts);
       if (budgetNote && !budgetNote.held) logEvent(root, job.id, 'repo-budget-warn', { reason: budgetNote.reason });
+      const refresh = await refreshRequest(root, config, job.id, 'claim');
       // The epoch is what the driver passes as --epoch to every later step and advance.
-      return { id: job.id, lease: job.lease, epoch: job.lease.epoch, ...(overridden.length ? { dependenciesOverridden: overridden } : {}), ...(budgetNote ? { repoBudget: budgetNote } : {}) };
+      return { id: job.id, lease: job.lease, epoch: job.lease.epoch, ...(overridden.length ? { dependenciesOverridden: overridden } : {}), ...(budgetNote ? { repoBudget: budgetNote } : {}), ...(refresh.refreshed ? { requestRefreshed: true } : {}) };
     }
     case 'release': {
       const jobId = requireJob(root, id).id;
       releaseJob(root, jobId);
       return { id: jobId, released: true };
     }
+    case 'refresh-request':
+      return refreshRequest(root, config, requireJob(root, id).id, 'cli');
     case 'note':
       logEvent(root, requireJob(root, id).id, 'note', { text: rest.slice(1).join(' ') || bodyFrom(flags) });
       return { ok: true };
