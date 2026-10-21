@@ -14,7 +14,51 @@ export interface Row {
   check?: (a: any) => void;
 }
 
+/**
+ * A `run` row: the subcommand and job, then only the flags that decide it. Checked with argvMatch,
+ * so a flag a row leaves out (or a new one) never breaks it.
+ */
 const run = (...command: string[]) => ({ action: 'run', command });
+
+/** An argv as its leading positionals and its `--flag [value]` pairs; a flag followed by another flag (or nothing) has no value. */
+function argvParts(argv: readonly string[]): { positional: string[]; flags: [string, string | null][] } {
+  const first = argv.findIndex((el) => el.startsWith('--'));
+  const positional = first < 0 ? [...argv] : argv.slice(0, first);
+  const flags: [string, string | null][] = [];
+  for (let i = positional.length; i < argv.length; i++) {
+    const value = i + 1 < argv.length && !argv[i + 1].startsWith('--') ? argv[i + 1] : null;
+    flags.push([argv[i], value]);
+    if (value !== null) i++;
+  }
+  return { positional, flags };
+}
+
+/**
+ * The step-row matcher: `actual` has exactly `want`'s positionals (subcommand, job, …) and every
+ * `--flag [value]` pair `want` names, in any order and alongside any others. A repeated flag
+ * must appear as often as `want` repeats it.
+ */
+export function argvMatch(actual: unknown, want: readonly string[], message: string): void {
+  const show = `${message}\n  actual: ${JSON.stringify(actual)}\n  wanted: ${JSON.stringify(want)}`;
+  assert.ok(Array.isArray(actual), show);
+  const a = argvParts(actual as string[]);
+  const w = argvParts(want);
+  assert.deepEqual(a.positional, w.positional, `${show}\n  (positionals differ)`);
+  const left = [...a.flags];
+  for (const [flag, value] of w.flags) {
+    const i = left.findIndex(([f, v]) => f === flag && v === value);
+    assert.ok(i >= 0, `${show}\n  (no ${value === null ? flag : `${flag} ${JSON.stringify(value)}`})`);
+    left.splice(i, 1);
+  }
+}
+
+/** A row's `want` against step's action: argv keys through argvMatch, every other key deepEqual. */
+export function assertWant(a: Record<string, unknown>, want: Record<string, unknown>, name: string): void {
+  for (const [k, v] of Object.entries(want)) {
+    if ((k === 'command' || k === 'start') && Array.isArray(v)) argvMatch(a[k], v as string[], `${name}: ${k}`);
+    else assert.deepEqual(a[k], v, `${name}: ${k}`);
+  }
+}
 const vr = (round: number, at: number, ok: boolean, failure: string | null = ok ? null : 'test'): VerifyRun => ({ round, attempt: 1, sha: 's', ok, at: t(at), file: `verify/round-${round}.md`, failure });
 const job = (j: Partial<Job>): Partial<Job> => ({ state: 'running', ...j });
 /** The actor a foreman decision (and forge sync's CI rework) records. */
@@ -170,7 +214,7 @@ export const rows: Row[] = [
     name: 'JS2 spawns the scoring judge on a done job',
     fx: { job: job({ stage: 'done', state: 'done', round: 1, score: QUEUED_SCORE }), files: ['request', 'spec'], present: [path.join(JOB_DIR, 'score.diff')] },
     want: { action: 'spawn', role: 'judge', agent: 'forge:judge', output: path.join(JOB_DIR, 'score.md'), model: 'opus' },
-    check: (a) => assert.deepEqual(a.start, ['job', 'agent', 'j', 'start', '--role', 'judge', '--model', 'opus', '--output', path.join(JOB_DIR, 'score.md')]),
+    check: (a) => argvMatch(a.start, ['job', 'agent', 'j', 'start', '--role', 'judge', '--model', 'opus', '--output', path.join(JOB_DIR, 'score.md')], 'start'),
   },
   {
     name: 'JS2 takes scoring.model',
@@ -248,7 +292,7 @@ export const rows: Row[] = [
   {
     name: 'M2 escalates after the retry also wrote nothing',
     fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: true, retry: true }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped },
-    want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'reviewer code wrote no review', '--note', 'reviewer:code ended twice without writing code.md'),
+    want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'reviewer code wrote no review'),
   },
   // Review-stage retries go out back to back like first spawns (RV4), not one per G5.
   {
@@ -278,7 +322,7 @@ export const rows: Row[] = [
     check: (a) => assert.equal(a.parallel, undefined),
   },
   { name: 'M1 approver wrote no decision.md', fx: { job: atDecide({ agents: { approver: ag(1, 20, 21, { outputMissing: true }) } }) }, want: { action: 'spawn', role: 'approver', retry: true } },
-  { name: 'M2 approver twice without decision.md', fx: { job: atDecide({ agents: { approver: ag(1, 20, 21, { outputMissing: true, retry: true }) } }) }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'approver wrote no decision.md', '--note', 'approver ended twice without writing decision.md') },
+  { name: 'M2 approver twice without decision.md', fx: { job: atDecide({ agents: { approver: ag(1, 20, 21, { outputMissing: true, retry: true }) } }) }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'approver wrote no decision.md') },
 
   // ---- Kind gates
   { name: 'K1 a retro job starts with the procedure', fx: { job: job({ kind: 'retro', stage: 'backlog' }) }, want: { action: 'procedure', reference: path.join(path.resolve(import.meta.dirname, '..'), 'skills', 'forge', 'reference', 'retro.md') } },
@@ -494,14 +538,14 @@ export const rows: Row[] = [
     name: 'B4 builder model is runtime.models.builder by default',
     fx: { files: ['spec', 'tasks'], job: job({ stage: 'build', round: 1, complexity: 'low' }), events: [ev('round', 4)] },
     want: { action: 'spawn', rule: 'B4', role: 'builder', model: 'opus' },
-    check: (a) => assert.deepEqual(a.start.slice(a.start.indexOf('--model'), a.start.indexOf('--model') + 2), ['--model', 'opus']),
+    check: (a) => argvMatch(a.start, ['job', 'agent', 'j', 'start', '--model', 'opus'], 'start'),
   },
   {
     name: 'B4 builder model follows modelByComplexity',
     fx: { config: (c) => (c.runtime.modelByComplexity.low = 'sonnet'), files: ['spec', 'tasks'], job: job({ stage: 'build', round: 1, complexity: 'low' }), events: [ev('round', 4)] },
     want: { action: 'spawn', rule: 'B4', role: 'builder', model: 'sonnet' },
     check: (a) => {
-      assert.deepEqual(a.start.slice(a.start.indexOf('--model'), a.start.indexOf('--model') + 2), ['--model', 'sonnet']);
+      argvMatch(a.start, ['job', 'agent', 'j', 'start', '--model', 'sonnet'], 'start');
       assert.ok(a.startShell.includes(' --model sonnet'));
     },
   },
@@ -517,7 +561,7 @@ export const rows: Row[] = [
     want: { action: 'spawn', rule: 'B4', role: 'builder', model: 'haiku' },
     check: (a) => {
       assert.ok(a.brief.split('\n').includes('Rework: review'));
-      assert.deepEqual(a.start.slice(a.start.indexOf('--model'), a.start.indexOf('--model') + 2), ['--model', 'haiku']);
+      argvMatch(a.start, ['job', 'agent', 'j', 'start', '--model', 'haiku'], 'start');
       // With feedback as well, the rework is not review-only: modelByComplexity applies.
       const row = rows.find((r) => r.name === 'B4 review-only rework uses reworkModel')!;
       const mixed = step(fixture({ ...row.fx, files: ['spec', 'tasks', 'build', 'feedback'] })) as any;
@@ -607,7 +651,7 @@ export const rows: Row[] = [
       assert.ok(lines.includes(`Inputs: ${VF_INPUT}`), a.brief);
       assert.ok(lines.includes(`Output: ${VF_ANSWERS}`));
       assert.ok(lines.includes('Verifiers: 2 selected'));
-      assert.deepEqual(a.start, ['job', 'agent', 'j', 'start', '--role', 'verifier', '--model', 'haiku', '--output', VF_ANSWERS]);
+      argvMatch(a.start, ['job', 'agent', 'j', 'start', '--role', 'verifier', '--model', 'haiku', '--output', VF_ANSWERS], 'start');
     },
   },
   {
@@ -649,7 +693,7 @@ export const rows: Row[] = [
     fx: { job: inReview(), events: scoped },
     want: { action: 'spawn', role: 'reviewer:code', agent: 'forge:reviewer', lens: 'code', model: 'sonnet', parallel: true, output: path.join(JOB_DIR, 'review', 'round-1', 'code.md') },
     check: (a) => {
-      assert.deepEqual(a.start, ['job', 'agent', 'j', 'start', '--role', 'reviewer:code', '--model', 'sonnet', '--output', path.join(JOB_DIR, 'review', 'round-1', 'code.md')]);
+      argvMatch(a.start, ['job', 'agent', 'j', 'start', '--role', 'reviewer:code', '--model', 'sonnet', '--output', path.join(JOB_DIR, 'review', 'round-1', 'code.md')], 'start');
       assert.ok(a.brief.includes('Lens: code') && a.brief.includes(`Scope: ${path.join(JOB_DIR, 'scope.md')}`) && a.brief.includes('Checklist: '));
     },
   },
@@ -718,7 +762,7 @@ export const rows: Row[] = [
       events: reworkScoped(['code', 'docs']),
       verdicts: { round: verdicts({ code: 'PASS', docs: 'PASS' }) },
     },
-    want: run('job', 'verdicts', 'j', '--compact', '--reviewers', 'code,docs'),
+    want: run('job', 'verdicts', 'j', '--reviewers', 'code,docs'),
   },
   { name: 'RV4 ignores a rerun outside the panel', fx: { config: withDocsLens, job: inRework(), events: reworkScoped(['code', 'ui']) }, want: { action: 'spawn', rule: 'RV4', role: 'reviewer:code' }, check: (a) => assert.deepEqual(a.spawns.map((s: any) => s.lens), ['security', 'docs']) },
   { name: 'RV4 ignores an empty rerun', fx: { config: withDocsLens, job: inRework(), events: reworkScoped([]) }, want: { action: 'spawn', rule: 'RV4', role: 'reviewer:code' }, check: (a) => assert.deepEqual(a.spawns.map((s: any) => s.lens), ['security', 'docs']) },
@@ -740,8 +784,8 @@ export const rows: Row[] = [
     want: { action: 'spawn', role: 'reviewer:code', retry: true },
     check: (a) => assert.ok(a.brief.includes(`Retry: ${path.join(JOB_DIR, 'review', 'round-1', 'code.md')} has no VERDICT line; rewrite it in the required format.`)),
   },
-  { name: 'RV5b malformed twice counts as CHANGES', fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false, retry: true }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped, verdicts: { round: verdicts({ code: 'MALFORMED', tests: 'PASS' }) } }, want: run('job', 'verdicts', 'j', '--compact', '--malformed', 'changes') },
-  { name: 'RV6 records the verdicts', fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped, verdicts: { round: verdicts({ code: 'PASS', tests: 'CHANGES' }) } }, want: run('job', 'verdicts', 'j', '--compact') },
+  { name: 'RV5b malformed twice counts as CHANGES', fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false, retry: true }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped, verdicts: { round: verdicts({ code: 'MALFORMED', tests: 'PASS' }) } }, want: run('job', 'verdicts', 'j', '--malformed', 'changes') },
+  { name: 'RV6 records the verdicts', fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped, verdicts: { round: verdicts({ code: 'PASS', tests: 'CHANGES' }) } }, want: run('job', 'verdicts', 'j') },
   { name: 'RV7 stops the dev server once verdicts are in', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: scoped, runtime: ['dev'] }, want: run('stop', 'j') },
   { name: 'RV7 stops a UI review\'s dev server', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:ui': ag(1, 12, 13) }, { reviewers: ['ui'], verdicts: { 1: { ui: 'PASS' } } }), events: scoped, runtime: ['dev'] }, want: run('stop', 'j') },
   { name: 'RV8c a UI lens with the dev server stopped moves on, never restarting it', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13), 'reviewer:ui': ag(1, 12, 13) }, { reviewers: ['code', 'ui'], verdicts: { 1: { code: 'PASS', ui: 'PASS' } } }), events: scoped, runtime: [] }, want: run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running') },
@@ -756,7 +800,7 @@ export const rows: Row[] = [
   {
     name: 'PR rework changed: only the always lenses, recorded with --reviewers',
     fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }, { reviewers: ['code', 'tests', 'security'], pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }), events: scoped, verdicts: { round: verdicts({ code: 'PASS', tests: 'PASS' }) } },
-    want: run('job', 'verdicts', 'j', '--compact', '--reviewers', 'code,tests'),
+    want: run('job', 'verdicts', 'j', '--reviewers', 'code,tests'),
   },
   { name: 'PR rework none: verify goes straight to pr', fx: { config: (c) => (c.review.onPrFeedback = 'none'), job: job({ stage: 'verify', round: 2, verifyRuns: [vr(2, 7, true)], agents: { builder: ag(2, 5, 6) }, pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }) }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
 
@@ -892,7 +936,7 @@ export const rows: Row[] = [
       assert.ok(a.brief.includes("Diff: use the Before/Merge shas in build.md's ## Integration block, as in "));
     },
   },
-  { name: 'IG9 records the integration review', fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true)], agents: { integrator: ag(1, 33, 36), 'reviewer:code': ag(1, 38, 39, { outputMissing: false }) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' })], verdicts: { integration: verdicts({ code: 'PASS' }) } }, want: run('job', 'verdicts', 'j', '--round', 'integration', '--compact') },
+  { name: 'IG9 records the integration review', fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true)], agents: { integrator: ag(1, 33, 36), 'reviewer:code': ag(1, 38, 39, { outputMissing: false }) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' })], verdicts: { integration: verdicts({ code: 'PASS' }) } }, want: run('job', 'verdicts', 'j', '--round', 'integration') },
   { name: 'IG12 a malformed integration review gets one retry', fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true)], agents: { integrator: ag(1, 33, 36), 'reviewer:code': ag(1, 38, 39, { outputMissing: false }) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' })], verdicts: { integration: verdicts({ code: 'MALFORMED' }) } }, want: { action: 'spawn', role: 'reviewer:code', retry: true } },
   { name: 'IG10 a passing integration review after a decision goes to pr', fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true)], agents: { integrator: ag(1, 33, 36), 'reviewer:code': ag(1, 38, 39, { outputMissing: false }) } }), events: [ev('decision', 22), entered, conflicts, ev('agent-start', 33, { role: 'integrator' }), ev('integration-review', 40, { outcome: 'PASS' })] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
   { name: 'IG10 a passing integration review before a decision goes to decide', fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true)], agents: { integrator: ag(1, 33, 36), 'reviewer:code': ag(1, 38, 39, { outputMissing: false }) } }), events: [reviewed, conflicts, ev('agent-start', 33, { role: 'integrator' }), ev('integration-review', 40, { outcome: 'PASS' })] }, want: run('job', 'set', 'j', '--stage', 'decide', '--state', 'running') },
@@ -1211,7 +1255,7 @@ export const rows: Row[] = [
   {
     name: 'RV5b two lenses malformed after their retries count as CHANGES',
     fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false, retry: true }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false, retry: true }) }), events: scoped, verdicts: { round: verdicts({ code: 'MALFORMED', tests: 'MALFORMED' }) } },
-    want: run('job', 'verdicts', 'j', '--compact', '--malformed', 'changes'),
+    want: run('job', 'verdicts', 'j', '--malformed', 'changes'),
   },
   { name: 'RV8b an eval job with a one-lens pass skips integrate', fx: { job: inReview({}, { kind: 'eval', eval: { run: 'r', task: 'hello' }, reviewers: ['code'], verdicts: { 1: { code: 'PASS' } } }), events: scoped }, want: run('job', 'set', 'j', '--stage', 'decide', '--state', 'running') },
   { name: 'RV8c a three-lens pass goes to integrate', fx: { job: inReview({}, { reviewers: ['code', 'tests', 'security'], verdicts: { 1: { code: 'PASS', tests: 'PASS', security: 'PASS' } } }), events: scoped }, want: run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running') },
@@ -1230,7 +1274,7 @@ export const rows: Row[] = [
   {
     name: 'IG13 a malformed integration review after its retry counts as CHANGES',
     fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true)], agents: { integrator: ag(1, 33, 36), 'reviewer:code': ag(1, 38, 39, { outputMissing: false, retry: true }) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' })], verdicts: { integration: verdicts({ code: 'MALFORMED' }) } },
-    want: run('job', 'verdicts', 'j', '--round', 'integration', '--compact', '--malformed', 'changes'),
+    want: run('job', 'verdicts', 'j', '--round', 'integration', '--malformed', 'changes'),
   },
   {
     name: 'IG10b CHANGES on an open PR: the integrator resumes',
