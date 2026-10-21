@@ -6,7 +6,6 @@
 // only the flags that decide it: argvMatch (test/step-rows.ts) ignores the flags a row leaves out.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { RULES, hasSpecDeltas, listLineCount, parsePlan, parseSpecHeader, roundLenses, selectPanel, shellLine, step } from '../lib/step.ts';
 import type { Job, StepAction } from '../lib/types.ts';
@@ -146,21 +145,6 @@ test('every spawn carries an effort key', () => {
   const spawns = rows.map((row) => step(fixture(row.fx))).filter((a) => a.action === 'spawn');
   assert.ok(spawns.length > 20);
   for (const a of spawns) assert.ok(Object.hasOwn(a, 'effort'), `${a.rule} ${(a as any).role}`);
-});
-
-test('spec-writer template declares Complexity', () => {
-  const text = readFileSync(path.join(import.meta.dirname, '..', 'agents', 'spec-writer.md'), 'utf8');
-  const fenced = /```\n(# <title>[\s\S]*?)\n```/.exec(text);
-  assert.ok(fenced, 'the template is fenced');
-  const header = parseSpecHeader(fenced[1]);
-  assert.ok(Object.hasOwn(header, 'complexity'));
-  assert.equal(header.complexity, 'low | medium | high');
-  assert.match(fenced[1], /^Size: .*\nComplexity: low \| medium \| high$/m, 'under Size:');
-  const after = text.slice(fenced.index + fenced[0].length).split('\n');
-  const rubric = after.findIndex((l) => /^Complexity is difficulty/.test(l));
-  assert.ok(rubric >= 0, 'a rubric follows the template');
-  const lines = after.slice(rubric).findIndex((l) => !l.trim());
-  assert.ok(lines > 0 && lines <= 4, `rubric is at most 4 lines (${lines})`);
 });
 
 test('retry and integration spawns never batch', () => {

@@ -11,6 +11,7 @@ import type { DockerRunner } from '../lib/backing.ts';
 import { loadConfig } from '../lib/config.ts';
 import { environmentState, environmentsFile, readEnvironments } from '../lib/environment-record.ts';
 import { ensureEnvironment, pickVictims, stopEnvironment } from '../lib/environment-lifecycle.ts';
+import { forgeJson } from '../lib/environment.ts';
 import { setFocus } from '../lib/focus.ts';
 import { createJob, loadJob, readEvents, setJob } from '../lib/jobs.ts';
 import { syncPr } from '../lib/pr.ts';
@@ -242,4 +243,27 @@ test('stop signals no pid that runtime.json should not name', { skip: process.pl
   } finally {
     process.kill = kill;
   }
+});
+
+test('forgeJson kills a child that runs long or floods its output, and reports a spawn failure', async () => {
+  const r = template();
+  const late = await forgeJson(r.dir, ['status'], 1);
+  assert.equal(late.exitCode, null);
+  assert.match(late.error ?? '', /^timed out after/);
+
+  // The flood comes from a preload, so no CLI command has to print 4 MiB.
+  const options = process.env.NODE_OPTIONS;
+  process.env.NODE_OPTIONS = `${options ?? ''} --import=${JSON.stringify(`data:text/javascript,process.stdout.write('x'.repeat(5*1024*1024))`)}`.trim();
+  try {
+    const flood = await forgeJson(r.dir, ['status'], 60_000);
+    assert.equal(flood.exitCode, null);
+    assert.equal(flood.error, 'output too large');
+  } finally {
+    if (options === undefined) delete process.env.NODE_OPTIONS;
+    else process.env.NODE_OPTIONS = options;
+  }
+
+  const gone = await forgeJson(path.join(r.dir, 'no-such-dir'), ['status'], 60_000);
+  assert.equal(gone.exitCode, null);
+  assert.ok(gone.error, 'a spawn error is reported');
 });

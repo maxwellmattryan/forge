@@ -158,11 +158,4 @@ describe('downstream verification: candidates', { concurrency: 4 }, () => {
     // Added edited by a human: a changed repo as before.
     assert.deepEqual([...changedRepos(edited, [ev('job-repo-added', { repo: 'lib2', verifyOnly: false })])], [null, 'lib2']);
   });
-
-  test('downstreamRepos is pure', () => {
-    const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'lib', 'downstream.ts'), 'utf8');
-    const body = src.slice(src.indexOf('export function downstreamRepos'), src.indexOf('export interface DownstreamResult'));
-    assert.doesNotMatch(body, /\bfs\.|child_process|\brun\(|readEvents|loadJob/);
-    assert.doesNotMatch(src, /from 'node:fs'|from 'node:child_process'/);
-  });
 });

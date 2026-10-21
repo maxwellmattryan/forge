@@ -129,10 +129,10 @@ test('triage agent runs on haiku without a config key', () => {
     const row = roster(repo.dir, cfg).agents.find((a) => a.role === 'triage');
     assert.ok(row);
     assert.equal(row.model, 'haiku');
+    // Triage reads tracker text, so its tool list is a security property no public function exposes
+    // (docs/TESTING.md exception): the frontmatter is the only place it lives.
     const text = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'agents', 'triage.md'), 'utf8');
     const front = text.match(/^---\n([\s\S]*?)\n---\n/)![1];
-    assert.match(front, /^name: triage$/m);
-    assert.match(front, /^model: haiku$/m);
     assert.match(front, /^disallowedTools: Bash, Edit, NotebookEdit$/m);
     assert.match(front, /^tools: Read, Write$/m, 'an allowlist: no WebFetch, WebSearch, Glob or Grep');
   } finally {

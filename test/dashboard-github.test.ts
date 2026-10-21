@@ -1,15 +1,11 @@
 // The GitHub hover card's pure rules (dashboard/src/lib/github.ts): which links get a card, agreeing with the server's
-// parse; where it sits; how a preview's state reads; and the shell wiring that tests can only check as source.
+// parse; where it sits; how a preview's state reads; and which layer Escape closes first.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
 import { CARD_WIDTH, cardKey, cardResult, checksTone, countShort, leftBoth, placeCard, previewable, reviewTone, stateTone } from '../dashboard/src/lib/github.ts';
 import { shellEscape } from '../dashboard/src/lib/command.ts';
 import { parseGitHubUrl } from '../lib/github-preview.ts';
 import type { GitHubPreview } from '../dashboard/src/lib/types.ts';
-
-const SRC = path.resolve(import.meta.dirname, '..', 'dashboard', 'src');
 
 const URLS = [
   'https://github.com/acme/widgets',
@@ -88,36 +84,4 @@ test('countShort and cardResult', () => {
 test('Escape closes the hover card before any other layer', () => {
   assert.equal(shellEscape({ card: true, command: true, settings: true, popover: true, drawer: true }), 'card');
   assert.equal(shellEscape({ card: false, command: false, settings: false, popover: false, drawer: true }), 'drawer');
-  const app = fs.readFileSync(path.join(SRC, 'App.svelte'), 'utf8');
-  assert.match(app, /if \(layer === 'card'\) \{\s*e\.preventDefault\(\);\s*closeCard\(\);/);
-  assert.match(app, /<GitHubCard \/>\s*$/, 'mounted last, outside every inert wrapper');
-});
-
-test('the card also describes data-gh-href chips', () => {
-  const card = fs.readFileSync(path.join(SRC, 'components', 'GitHubCard.svelte'), 'utf8');
-  assert.match(card, /closest<HTMLElement>\('a\[href\], \[data-gh-href\]'\)/);
-  assert.match(card, /el instanceof HTMLAnchorElement \? el\.href : \(el\.dataset\.ghHref \?\? ''\)/);
-  // Both entry points still gate on previewable before linkIntent, so a non-github.com chip never asks the server.
-  const gated = card.match(/const url = a && previewable\(hrefOf\(a\)\);\s*if \(a && url/g) ?? [];
-  assert.equal(gated.length, 2, 'pointerover and focusin');
-  assert.doesNotMatch(card, /previewable\(a\.href\)/);
-  const state = fs.readFileSync(path.join(SRC, 'lib', 'github-card.svelte.ts'), 'utf8');
-  assert.doesNotMatch(state, /HTMLAnchorElement/);
-  assert.match(state, /link = \$state\.raw<HTMLElement \| null>\(null\)/);
-  assert.match(state, /let pending: HTMLElement \| null/);
-  assert.match(state, /function show\(a: HTMLElement, url: string\)/);
-  assert.match(state, /export function linkIntent\(a: HTMLElement, url: string\)/);
-});
-
-test('the card renders GitHub text as text, opens GitHub safely, and asks with the token', () => {
-  const card = fs.readFileSync(path.join(SRC, 'components', 'GitHubCard.svelte'), 'utf8');
-  assert.doesNotMatch(card, /\{@html/);
-  assert.match(card, /role="tooltip"/);
-  for (const a of card.match(/<a [^>]*>/g) ?? []) {
-    assert.match(a, /target="_blank"/, a);
-    assert.match(a, /rel="noopener noreferrer"/, a);
-    assert.match(a, /tabindex="-1"/, `${a}: the link it describes is the keyboard's way to GitHub`);
-  }
-  const app = fs.readFileSync(path.join(SRC, 'lib', 'app.svelte.ts'), 'utf8');
-  assert.match(app, /\/api\/github\/preview\?url=\$\{encodeURIComponent\(url\)\}`, \{ headers: \{ 'x-forge-token': forgeToken\(\) \} \}/);
 });

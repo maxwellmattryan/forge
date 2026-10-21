@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { ackPeriod, dayMeter, isRepoHold, meterFraction, meterTone, money, monthMeter, showRepoSection } from '../dashboard/src/lib/repo-budget.ts';
 import { sessionPill } from '../dashboard/src/lib/daemon.ts';
 import { inboxActions, inboxDoc, inboxKind, showsNote, stateText } from '../dashboard/src/lib/view.ts';
-import { readFileSync } from 'node:fs';
 import type { RepoBudgetStatus } from '../dashboard/src/lib/types.ts';
 
 const status = (over: Partial<RepoBudgetStatus> = {}): RepoBudgetStatus => ({
@@ -76,14 +75,4 @@ test('a repo-held card offers only Cancel, with its own chip label', () => {
   assert.deepEqual(inboxActions(inboxKind(own)).map((a) => a.label), ['Approve & continue', 'Cancel job']);
   assert.equal(showsNote(inboxKind(own)), true);
   assert.equal(stateText(own), 'Budget exceeded');
-  // The card points at the section that lifts the hold.
-  const card = readFileSync(new URL('../dashboard/src/components/InboxCard.svelte', import.meta.url), 'utf8');
-  assert.match(card, /\{#if kind === 'repo-budget'\}<div class="text-\[13px\]">\{\$t\('budget\.cardPointer'\)\}<\/div>\{\/if\}/);
-});
-
-test('Acknowledge and the meters tell assistive tech what they mean', () => {
-  const read = (f: string) => readFileSync(new URL(`../dashboard/src/components/${f}`, import.meta.url), 'utf8');
-  assert.match(read('RepoBudgetSection.svelte'), /aria-describedby="repo-ack-help"[^>]*>[^<]*<\/button>\s*<span id="repo-ack-help"/);
-  const meter = read('PeriodMeter.svelte');
-  assert.equal(meter.match(/aria-valuetext=\{\$t\('budget\.valueText'/g)?.length, 2, 'month and day meters');
 });

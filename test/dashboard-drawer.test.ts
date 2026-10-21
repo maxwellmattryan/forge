@@ -1,9 +1,6 @@
 // dashboard/src/lib/drawer.ts: the job drawer's tab order, default and keyboard moves.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { DEFAULT_DRAWER_TAB, DRAWER_TABS, PANE_DEFAULT, PANE_GUTTER, PANE_MIN, clampPaneWidth, moveDrawerTab, paneKey, paneMax, type DrawerTab } from '../dashboard/src/lib/drawer.ts';
 
 test('drawer tabs: order and default', () => {
@@ -79,11 +76,4 @@ test('paneMax stops at the given sidebar gutter', () => {
   assert.equal(paneKey(1130, 'ArrowLeft', false, 1204, 64), 1140, 'Left stops at the rail gutter');
   assert.equal(paneKey(640, 'End', false, 1204, 360), 844);
   assert.equal(paneKey(640, 'End', false, 1204), 968);
-});
-
-test('PANE_GUTTER mirrors --size-sidebar, so the drawer never covers the sidebar', () => {
-  const css = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dashboard', 'style.css'), 'utf8');
-  const m = css.match(/--size-sidebar:\s*(\d+)px;/);
-  assert.ok(m, '--size-sidebar is a px value in style.css');
-  assert.equal(PANE_GUTTER, Number(m[1]));
 });

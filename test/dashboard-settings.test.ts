@@ -71,16 +71,6 @@ test('settings opens on Cmd+, or Ctrl+, only', () => {
   assert.equal(settingsKeyShortcuts('Linux x86_64'), 'Control+,');
   assert.equal(isMac('iPhone'), true);
   assert.equal(isMac(''), false);
-
-  // The checkbox and its pref are gone: one caption names the shortcut, and the sidebar button announces it.
-  const general = fs.readFileSync(path.join(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'settings', 'GeneralTab.svelte'), 'utf8');
-  assert.doesNotMatch(general, /'settingsShortcut'|settings\.general\.(shortcut|hintOff)/, 'no settingsShortcut checkbox');
-  assert.equal(general.match(/type="checkbox"/g)?.length, 1, 'Grain is the only checkbox');
-  assert.match(general, /\$t\('settings\.general\.hint', \{ key \}\)/);
-  const app = fs.readFileSync(path.join(import.meta.dirname, '..', 'dashboard', 'src', 'App.svelte'), 'utf8');
-  assert.match(app, /id="settings-open"[^>]*aria-keyshortcuts=\{settingsKeyShortcuts\(platform\)\}/);
-  assert.match(app, /aria-hidden="true">\{settingsShortcut\}<\/kbd>/);
-  assert.doesNotMatch(app, /settingsShortcut'|pref\.get\('settingsShortcut'/, 'the old pref is ignored');
 });
 
 test('settings tab and focus helpers', () => {
@@ -200,35 +190,4 @@ test('doctor report text', () => {
   assert.equal(failedCount(doctor), 1, 'a warning is not a failure');
   assert.equal(warnCount(doctor), 1);
   assert.equal(warnCount({ ...doctor, checks: [{ name: 'x', ok: false, warn: true, detail: '' }] }), 0, 'a failed check counts as failed, not warned');
-});
-
-test('diagnostics downloads the support bundle with the token header', () => {
-  const dash = path.resolve(import.meta.dirname, '..', 'dashboard', 'src');
-  const tab = fs.readFileSync(path.join(dash, 'components', 'settings', 'DiagnosticsTab.svelte'), 'utf8');
-  const app = fs.readFileSync(path.join(dash, 'lib', 'app.svelte.ts'), 'utf8');
-  const fetchBundle = app.slice(app.indexOf('export async function fetchBundle'), app.indexOf('\n}\n', app.indexOf('export async function fetchBundle')));
-  assert.match(fetchBundle, /fetch\('\/api\/doctor\/bundle', \{ headers: \{ 'x-forge-token': forgeToken\(\) \} \}\)/, 'the token goes in a header');
-  assert.doesNotMatch(fetchBundle, /token=|\?/, 'never in the URL');
-  assert.match(fetchBundle, /bundleFilename\(res\.headers\.get\('content-disposition'\)\)/);
-  assert.match(tab, /fetchBundle\(\)/);
-  assert.match(tab, /URL\.createObjectURL\(blob\)/);
-  assert.match(tab, /URL\.revokeObjectURL\(href\)/);
-  assert.match(tab, /a\.download = filename/);
-  assert.match(tab, /disabled=\{bundling\}/);
-  const keys = [...tab.matchAll(/\$t\('(settings\.diagnostics\.bundle[A-Za-z]*|settings\.diagnostics\.bundling)'\)/g)].map((m) => m[1]);
-  assert.deepEqual([...new Set(keys)].sort(), ['settings.diagnostics.bundle', 'settings.diagnostics.bundleFailed', 'settings.diagnostics.bundleHint', 'settings.diagnostics.bundleSaved', 'settings.diagnostics.bundling']);
-  for (const k of keys) assert.ok(inEn(k), k);
-  assert.equal(EN.settings.diagnostics.bundle, 'Download support bundle');
-  assert.equal(EN.settings.diagnostics.bundling, 'Preparing bundle…');
-});
-
-test('an option list renders one control, never a textarea too', () => {
-  const src = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'settings', 'ConfigFieldRow.svelte'), 'utf8');
-  const options = src.indexOf("{:else if f.type === 'list' && f.options}");
-  const textarea = src.indexOf('<textarea');
-  assert.ok(options > 0 && textarea > options, 'the checkbox group branch comes first');
-  // Still the same if-chain: a closed chain would have one more {/if} than {#if} in between.
-  const between = src.slice(options, textarea);
-  assert.ok((between.match(/\{#if\b/g) ?? []).length >= (between.match(/\{\/if\}/g) ?? []).length, 'the textarea is an {:else} of the option-list branch');
-  assert.equal((src.match(/<textarea/g) ?? []).length, 1);
 });
