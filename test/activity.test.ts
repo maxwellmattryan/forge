@@ -6,7 +6,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { tempRepo, waitFor } from './helpers.ts';
-import { attachActivityLog, formatActivity, jobEventLine, requestLine, requestLogger, sessionTracker, tailJobEvents } from '../lib/activity.ts';
+import { attachActivityLog, formatActivity, jobEventLine, jobEventParts, requestLine, requestLogger, sessionTracker, tailJobEvents } from '../lib/activity.ts';
 import { distAllowlist, startServer } from '../lib/server.ts';
 import { FIXTURE_DIST } from './dist.ts';
 
@@ -60,6 +60,41 @@ describe('activity log', { concurrency: 4 }, () => {
     assert.equal(requestLine({ method: 'GET', path: '/api/nope', status: 404, ms: 3, sse: false }, { at: AT, color: false }), '[09:05:07] http GET /api/nope 404 3ms');
   });
 
+  test('colours each subject, status and state, and strips back to the plain line', () => {
+    const on: string[] = [];
+    const off: string[] = [];
+    const tracks = [sessionTracker((l) => on.push(l), { color: true, now: () => AT }), sessionTracker((l) => off.push(l), { color: false, now: () => AT })];
+    const emit = (scope: string, over: Record<string, unknown>) => tracks.forEach((t) => t({ kind: 'state', scope, state: state({ scope, ...over }) }));
+    for (const scope of ['_inbox', '_office', '31-alpha', '32-beta', 'constructor']) {
+      emit(scope, {});
+      emit(scope, { running: true, status: 'idle', pid: 9 });
+    }
+    emit('31-alpha', { running: true, status: 'idle', pid: 9, lastError: 'boom' });
+    assert.deepEqual(on.map(strip), off);
+    assert.ok(on[0].includes('\x1b[1;34m_inbox\x1b[0m'), on[0]);
+    assert.ok(on[1].includes('\x1b[1;35m_office\x1b[0m'), on[1]);
+    assert.ok(on[0].includes('\x1b[32mspawned\x1b[0m') && on[0].includes('\x1b[2m (pid 9)\x1b[0m'), on[0]);
+    const hue = (l: string, subject: string) => new RegExp(`\\x1b\\[([0-9;]+)m${subject}\\x1b`).exec(l)?.[1];
+    const alpha = hue(on[2], '31-alpha');
+    assert.ok(alpha && !['1;34', '1;35'].includes(alpha), 'jobs never take the inbox or office colour');
+    assert.notEqual(hue(on[3], '32-beta'), alpha, 'jobs seen in turn get different colours');
+    assert.ok(hue(on[4], 'constructor'), 'an id that names an Object property still gets a colour');
+    assert.ok(on[5].includes('\x1b[31merror: boom\x1b[0m'), on[5]);
+    // A job's events take the colour its session lines have.
+    const job = formatActivity('job', jobEventParts('31-alpha', { v: 1, ts: '', type: 'transition', from: { stage: 'build', state: 'running' } as any, to: { stage: 'verify', state: 'failed' } as any, reason: 'red' }), { at: AT, color: true });
+    assert.equal(hue(job, '31-alpha'), alpha);
+    assert.ok(job.includes('\x1b[31mverify/failed\x1b[0m') && job.includes('\x1b[2mbuild/running\x1b[0m'), job);
+    assert.equal(strip(job), '[09:05:07] job 31-alpha build/running → verify/failed (red)');
+    // Requests: the status by its class, a slow one's time in yellow.
+    const req = (status: number, ms = 3) => requestLine({ method: 'GET', path: '/api/x', status, ms, sse: false }, { at: AT, color: true })!;
+    assert.ok(req(200).includes('\x1b[32m200\x1b[0m') && req(200).includes('\x1b[2m 3ms\x1b[0m'), req(200));
+    assert.ok(req(304).includes('\x1b[36m304\x1b[0m'), req(304));
+    assert.ok(req(404).includes('\x1b[33m404\x1b[0m') && !req(404).includes('\x1b[31m'), req(404));
+    assert.ok(req(500).includes('\x1b[31m /api/x \x1b[0m\x1b[31m500\x1b[0m'), req(500));
+    assert.ok(req(200, 1500).includes('\x1b[33m 1500ms\x1b[0m'), req(200, 1500));
+    assert.equal(strip(req(500)), '[09:05:07] http GET /api/x 500 3ms');
+  });
+
   test('escapes control characters and caps long text', () => {
     const hostile = 'a\x1b]52;c;ZXZpbA==\x07b\rforged\nnext‮evil';
     const lines: string[] = [];
@@ -86,6 +121,11 @@ describe('activity log', { concurrency: 4 }, () => {
     // The cap applies before paint, so the closing codes survive.
     const red = formatActivity('session', 'y'.repeat(5000), { at: AT, color: true, error: true });
     assert.ok(red.endsWith('…\x1b[0m'));
+    // The cap counts every part's text, and the cut part keeps its closing code.
+    const parts = jobEventParts('7-demo', { v: 1, ts: '', type: 'agent-end', role: 'builder', summary: 'z'.repeat(5000) });
+    const capped = formatActivity('job', parts, { at: AT, color: true });
+    assert.ok(capped.endsWith('…\x1b[0m'), capped.slice(-20));
+    assert.equal(strip(capped).slice('[09:05:07] job '.length).length, 300);
   });
 
   test('session events print only transitions', () => {

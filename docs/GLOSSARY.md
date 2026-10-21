@@ -62,7 +62,8 @@ Planned in M007; a row with a config key is implemented.
 | **job database** | One job's own database and login role on a shared Postgres backing service, cloned from a template database and dropped when the job's worktree is removed. | `backing[].database` |
 | **template database** | The database a shared Postgres backing service's migrate and seed commands build once per template hash, which every job database is cloned from. | `backing[].database` |
 | **config sink** | Where Forge writes a component's configuration for an environment (environment variables, a `.env` file, a JSON, YAML or TOML file, or a project script), chosen per component and never assumed. | `components[].config` |
-| **secret reference** | A pointer to a secret held elsewhere (an environment variable name, a keychain entry, a secret manager path) that Forge resolves at run time and never writes into job files, prompts or logs. | planned (M007) |
+| **secret reference** | A named pointer to a secret held elsewhere (an environment variable, a keychain entry, a 1Password item, a git-ignored file) that a config sink names as `{secret.NAME}` and Forge resolves only when the sink renders, never writing it into job files, briefs or logs. | `secrets` |
+| **known value** | A secret value a job's sinks have resolved, or one of its job database passwords: Forge replaces it with `[redacted]` wherever it writes or serves text, and the secret scanner refuses to publish it. | `secrets` |
 
 ## Profiles
 

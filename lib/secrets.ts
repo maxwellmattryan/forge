@@ -1,13 +1,15 @@
 // The secret scanner: Forge refuses to publish a likely credential. It runs wherever Forge sends
 // something off the machine (verify's branch scan, `forge git commit`, `forge pr open`, tracker
 // writes) and reports what agents write into the job dir. Findings never hold the value: the
-// excerpt is masked and the fingerprint is its sha256. docs/CONFIG.md "Secret scanning".
+// excerpt is masked and the fingerprint is its sha256 (a known value's is neither: see scanUnit).
+// docs/CONFIG.md "Secret scanning".
 // Must not import worktree.ts, pr.ts or commands/: worktree.ts and pr.ts import this module.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PINNED_DIFF_OPTS, PINNED_GIT_CONFIG, parseDiffLines } from './integrity.ts';
 import { defaultAgentOutput, jobDir, logEvent } from './jobs.ts';
+import { MIN_SECRET, knownValues } from './known-secrets.ts';
 import { queueNotify } from './notify.ts';
 import { inSpec, realHistoryEnv, resolveBase } from './scope.ts';
 import type { CompactSecrets, Config, Job, SecretAllowlist, SecretFinding, SecretKind, SecretScan, TextUnit } from './types.ts';
@@ -27,12 +29,17 @@ export const SECRET_KINDS = [
   'bearer-token',
   'url-credential',
   'high-entropy',
+  // An exact occurrence of a job's known value (lib/known-secrets.ts): never a false positive.
+  'known-secret',
 ] as const;
 
 export type SecretMode = 'block' | 'warn';
 
 /** The mode from the main checkout's config: anything but `warn` blocks, so a typo fails closed. */
 export const secretMode = (config: Pick<Config, 'verifySecrets'>): SecretMode => (config.verifySecrets === 'warn' ? 'warn' : 'block');
+
+/** Whether findings stop a gate under `mode`: any under `block`, a known value under either. */
+export const secretsBlock = (findings: Pick<SecretFinding, 'kind'>[], mode: SecretMode): boolean => (mode === 'block' ? findings.length > 0 : findings.some((f) => f.kind === 'known-secret'));
 
 export const ALLOWLIST_FILE = '.forge/secrets-allow.txt';
 const MAX_ALLOWLIST = 1024 * 1024;
@@ -170,12 +177,17 @@ interface Span {
  * Every match in one unit. Spans already claimed by an earlier kind are skipped, so `sk-ant-` is
  * only ever `anthropic-key` and a provider match is never also `high-entropy`.
  */
-function findSpans(unit: TextUnit, config: Pick<Config, 'worktrees'> | null): Span[] {
+function findSpans(unit: TextUnit, config: Pick<Config, 'worktrees'> | null, known: readonly string[] = []): Span[] {
   const out: Span[] = [];
   const overlaps = (s: number, e: number) => out.some((t) => s < t.end && t.start < e);
   const add = (kind: SecretKind, value: string, start: number, end: number, lineOffset: number) => {
     out.push({ kind, value, start, end, lineOffset });
   };
+  // First, so a known value is reported as what it is rather than as a provider pattern.
+  for (const v of known) {
+    if (v.length < MIN_SECRET) continue;
+    for (let at = unit.text.indexOf(v); at >= 0; at = unit.text.indexOf(v, at + v.length)) if (!overlaps(at, at + v.length)) add('known-secret', v, at, at + v.length, at);
+  }
   for (const p of PATTERNS) {
     for (const m of unit.text.matchAll(p.re)) {
       const idx = m.indices!;
@@ -208,14 +220,20 @@ function findSpans(unit: TextUnit, config: Pick<Config, 'worktrees'> | null): Sp
   return out;
 }
 
-/** Findings in one unit: the spans, masked and fingerprinted. */
-function scanUnit(unit: TextUnit, config: Pick<Config, 'worktrees'> | null): RawFinding[] {
-  return findSpans(unit, config).map((s) => ({
+// A known value may be an 8-character dev password, so its plain sha256 or prefix could be brute-
+// forced from an event or a report. Its id is keyed by this process's random key: it only dedupes.
+const KNOWN_KEY = crypto.randomBytes(32);
+export const KNOWN_EXCERPT = '<known>';
+const knownPrint = (value: string): string => `known:${crypto.createHmac('sha256', KNOWN_KEY).update(value, 'utf8').digest('hex').slice(0, 12)}`;
+
+/** Findings in one unit: the spans, masked and fingerprinted; a known value shows nothing of itself. */
+function scanUnit(unit: TextUnit, config: Pick<Config, 'worktrees'> | null, known: readonly string[]): RawFinding[] {
+  return findSpans(unit, config, known).map((s) => ({
     kind: s.kind,
     path: unit.path,
     line: lineAt(unit, s.lineOffset),
-    excerpt: mask(s.value),
-    fingerprint: fingerprint(s.value),
+    excerpt: s.kind === 'known-secret' ? KNOWN_EXCERPT : mask(s.value),
+    fingerprint: s.kind === 'known-secret' ? knownPrint(s.value) : fingerprint(s.value),
     commit: unit.commit,
     file: unit.file,
   }));
@@ -237,12 +255,15 @@ export function highEntropy(value: string, line: string): boolean {
   return entropy(value) >= 4.3 && /[A-Z]/.test(value) && /[a-z]/.test(value) && /[0-9]/.test(value);
 }
 
-/** Every finding in the units, the same (path, fingerprint) reported once, at its first unit. */
-export function scanUnits(units: TextUnit[], opts: { config: Pick<Config, 'worktrees'> | null }): RawFinding[] {
+/**
+ * Every finding in the units, the same (path, fingerprint) reported once, at its first unit. `known`
+ * (a job's known values) adds a `known-secret` finding for each exact occurrence.
+ */
+export function scanUnits(units: TextUnit[], opts: { config: Pick<Config, 'worktrees'> | null; known?: readonly string[] }): RawFinding[] {
   const seen = new Set<string>();
   const out: RawFinding[] = [];
   for (const u of units) {
-    for (const f of scanUnit(u, opts.config)) {
+    for (const f of scanUnit(u, opts.config, opts.known ?? [])) {
       const key = `${f.path}\0${f.fingerprint}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -358,6 +379,11 @@ export function applyAllowlist(findings: RawFinding[], allow: SecretAllowlist): 
   const out: SecretFinding[] = [];
   const allowed: SecretFinding[] = [];
   for (const { file, ...f } of findings) {
+    // A declared secret is never a false positive, so nothing allows one.
+    if (f.kind === 'known-secret') {
+      out.push(f);
+      continue;
+    }
     const byPrint = allow.prints.get(f.fingerprint);
     const byGlob = file ? allow.globs.find((g) => inSpec(f.path, [g.glob]))?.line : undefined;
     const line = byPrint ?? byGlob;
@@ -439,7 +465,7 @@ export function scanBranch(root: string, config: Config, job: Pick<Job, 'id' | '
     if (opts.staged) addDiff(git([...PINNED_GIT_CONFIG, 'diff', '--cached', ...PINNED_DIFF_OPTS, '--text', '-U0', '--']), 'staged');
     scan.scanned.commits = shas.length + merges.length;
     scan.scanned.files = files.size;
-    raw.push(...scanUnits(units, { config }));
+    raw.push(...scanUnits(units, { config, known: knownValues(root, job.id, config) }));
   } catch (e) {
     scan.error = String((e as Error).message).split('\n')[0].slice(0, 300);
   }
@@ -492,7 +518,7 @@ export function scanPaths(root: string, config: Config, globs: string[]): Secret
  * Whole files about to leave the machine as they are (a package export, not a diff): base content
  * ships too, so a key already on the default branch counts. Files over 2 MiB are counted as skipped.
  */
-export function scanFiles(root: string, config: Config, files: { path: string; body: Buffer }[]): SecretScan {
+export function scanFiles(root: string, config: Config, files: { path: string; body: Buffer }[], opts: { id?: string } = {}): SecretScan {
   const allow = loadAllowlist(root);
   const scan = emptyScan(allow);
   const units: TextUnit[] = [];
@@ -504,7 +530,7 @@ export function scanFiles(root: string, config: Config, files: { path: string; b
     units.push({ path: f.path, line: 1, text: f.body.toString('utf8'), file: true, commit: null });
     scan.scanned.files++;
   }
-  return { ...scan, ...applyAllowlist(scanUnits(units, { config }), allow) };
+  return { ...scan, ...applyAllowlist(scanUnits(units, { config, known: opts.id ? knownValues(root, opts.id, config) : [] }), allow) };
 }
 
 /** Files a role writes besides its recorded output. */
@@ -569,7 +595,9 @@ const where = (f: SecretFinding): string => (f.path.startsWith('(') ? `${f.path}
 export function refusalMessage(what: string, findings: SecretFinding[]): string {
   const f = findings[0];
   const more = findings.length > 1 ? `, and ${findings.length - 1} more` : '';
-  return `possible secret in ${what}: ${f.kind} at ${clean(where(f))} (${f.excerpt}, ${f.fingerprint})${more}. Forge won't send it: remove it, or have a human add the fingerprint to ${ALLOWLIST_FILE} in the main checkout.`;
+  // A known value's id is per process and never allowlisted, so the allowlist hint would mislead.
+  const fix = f.kind === 'known-secret' ? 'remove it: a declared secret is never allowlisted' : `remove it, or have a human add the fingerprint to ${ALLOWLIST_FILE} in the main checkout`;
+  return `possible secret in ${what}: ${f.kind} at ${clean(where(f))} (${f.excerpt}, ${f.fingerprint})${more}. Forge won't send it: ${fix}.`;
 }
 
 /**
@@ -578,7 +606,7 @@ export function refusalMessage(what: string, findings: SecretFinding[]): string 
  */
 export function refuseSecrets(root: string, config: Config, units: TextUnit[], opts: { what: string; id?: string; gate?: string }): void {
   const allow = loadAllowlist(root);
-  const { findings, allowed } = applyAllowlist(scanUnits(units, { config }), allow);
+  const { findings, allowed } = applyAllowlist(scanUnits(units, { config, known: opts.id ? knownValues(root, opts.id, config) : [] }), allow);
   if (!findings.length) return;
   if (opts.id && opts.gate) logSecrets(root, opts.id, opts.gate, { ...emptyScan(allow), findings, allowed }, { blocked: true });
   throw new ForgeError(refusalMessage(opts.what, findings), 'secret_found', opts.id ? `forge secrets scan ${opts.id}` : null);
@@ -614,14 +642,15 @@ const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' 
 
 /** The verify step's verdict for this scan under `mode`. */
 export function secretsOk(scan: Pick<SecretScan, 'findings' | 'error'>, mode: SecretMode): boolean {
-  return mode === 'warn' || (!scan.error && scan.findings.length === 0);
+  if (secretsBlock(scan.findings, mode)) return false;
+  return mode === 'warn' || !scan.error;
 }
 
 export function secretsHeading(scan: Pick<SecretScan, 'findings' | 'error'>, mode: SecretMode): string {
   if (scan.error) return `ERROR (${fence(scan.error)})`;
   const n = scan.findings.length;
   if (!n) return 'ok';
-  return `${mode === 'block' ? 'FAILED' : 'WARN'} (${plural(n, 'finding')})`;
+  return `${secretsBlock(scan.findings, mode) ? 'FAILED' : 'WARN'} (${plural(n, 'finding')})`;
 }
 
 /** One finding as a report line: kind, place, commit, masked excerpt, fingerprint. */

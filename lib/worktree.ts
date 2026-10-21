@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { backingDown, backingEnv, backingUp, hasJobBacking, jobDbPasswords, portsLock } from './backing.ts';
+import { backingDown, backingEnv, backingUp, hasJobBacking, portsLock } from './backing.ts';
 import type { DatabaseOpts } from './backing.ts';
-import { redact } from './backing-db.ts';
+import { knownValues, redactKnown, removeKnown } from './known-secrets.ts';
 import { enforceBudget } from './budget.ts';
 import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
 import { isOwnWorktreePath, loadConfig, verifyGroups, worktreeRoot } from './config.ts';
@@ -180,11 +180,11 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   }
   const setupLog: { cmd: string; ok: boolean; tail: string }[] = [];
   const setupPort = commandPort(config, job, jobComponent(config, job));
-  // Setup sees the job database's url; its stored tail never holds the password.
-  const passwords = jobDbPasswords(root, id, config);
+  // Setup sees the job database's url; its stored tail never holds the password or another known value.
+  const known = knownValues(root, id, config);
   for (const cmd of config.worktrees.setup ?? []) {
     const res = shell(fill(cmd, vars(root, config, job, dir, setupPort, cmd)), dir, jobEnv(root, config, job, dir, setupPort));
-    setupLog.push({ cmd, ok: res.ok, tail: redact(tail(res.output, 15), passwords) });
+    setupLog.push({ cmd, ok: res.ok, tail: redactKnown(tail(res.output, 15), known) });
     if (!res.ok) {
       logEvent(root, id, 'worktree-setup-failed', { cmd });
       return { path: dir, created: true, port, ports, ...stacked, ...backing, setup: setupLog, ok: false };
@@ -555,6 +555,8 @@ interface PreparedCommand {
   links: AppliedLinks | null;
   /** The component's config sinks rendered for this command, when it has any. */
   config?: SinkSummary;
+  /** Known values to redact from the log and tail: this render's secrets and the job's recorded ones. */
+  redact: string[];
 }
 
 /** The env and PATH prelude of a consumer repo's links, rendered fresh for this command. */
@@ -584,7 +586,8 @@ function prepareCommand(root: string, config: Config, id: string, name: string, 
   if (applied) logEvent(root, id, 'config-sinks', applied.summary);
   // Sink env sits over the inherited environment and under the links' (names are disjoint by validation).
   const env = { ...jobEnv(root, config, job, job.worktree, port), ...applied?.env };
-  return { cmd, cwd, ...withLinks(root, config, job, null, env), ...(applied ? { config: applied.summary } : {}) };
+  const redact = [...new Set([...(applied?.values ?? []), ...knownValues(root, id, config)])];
+  return { cmd, cwd, ...withLinks(root, config, job, null, env), ...(applied ? { config: applied.summary } : {}), redact };
 }
 
 /**
@@ -599,7 +602,7 @@ function prepareMemberCommand(root: string, config: Config, id: string, name: st
   const port = commandPort(config, job, component);
   const cmd = fillCommand(name, component.commands![name]!, memberVars(root, config, job, member, worktree, port), opts.args ?? []);
   touchJob(root, id);
-  return { cmd, cwd: path.join(worktree, component.path), ...withLinks(root, config, job, repo, jobEnv(root, config, job, worktree, port)), repo };
+  return { cmd, cwd: path.join(worktree, component.path), ...withLinks(root, config, job, repo, jobEnv(root, config, job, worktree, port)), repo, redact: knownValues(root, id, config) };
 }
 
 /** The one component of member `repo` that defines `name`, null when none does; several is refused. */
@@ -623,8 +626,10 @@ function recordCommand(root: string, id: string, name: string, p: PreparedComman
   fs.mkdirSync(logDir, { recursive: true });
   const logFile = path.join(logDir, `${opts.label ?? (p.repo ? `${p.repo}-${name}` : name)}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
   const linksLine = p.links?.binDir ? `(links ${p.links.binDir})\n` : '';
-  fs.writeFileSync(logFile, `$ ${p.cmd}\n(cwd ${p.cwd})\n${linksLine}\n${res.output}\n\n[exit ${res.status}]\n`);
-  const result: CommandResult = { name, cmd: p.cmd, ok: res.ok, exit: res.status, durationMs: Date.now() - started, log: path.relative(jobDir(root, id), logFile), tail: tail(res.output, opts.tail ?? 40) };
+  // The command saw the secrets; what Forge keeps of its output never holds one verbatim.
+  const output = redactKnown(res.output, p.redact);
+  fs.writeFileSync(logFile, `$ ${p.cmd}\n(cwd ${p.cwd})\n${linksLine}\n${output}\n\n[exit ${res.status}]\n`);
+  const result: CommandResult = { name, cmd: p.cmd, ok: res.ok, exit: res.status, durationMs: Date.now() - started, log: path.relative(jobDir(root, id), logFile), tail: tail(output, opts.tail ?? 40) };
   if (p.links?.labels.length) result.links = p.links.labels;
   if (restored.length) result.restored = restored;
   if (p.config) result.config = p.config;
@@ -1249,6 +1254,8 @@ export async function removeWorktree(
   const removedRoot = await removeRootWorktree(root, id, opts);
   const config = loadConfig(root).config;
   const res = { ...removedRoot, ...rootBackingDown(root, config, id) };
+  // Beside backing-db.json, which rootBackingDown removes: the values go with the worktree.
+  removeKnown(root, id);
   const job = loadJob(root, id);
   const members = memberRepos(job);
   if (!members.length) return res;

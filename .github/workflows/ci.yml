@@ -157,6 +157,8 @@ jobs:
             test/verify-groups.test.ts: runs command templates through sh
             test/verifiers-cli.test.ts: runs command templates through sh
             test/config-sinks-run.test.ts: runs command templates through sh
+            test/secret-sources.test.ts: spawns fake op, security and secret-tool, sh scripts
+            test/secret-refs-e2e.test.ts: runs command templates through sh
             test/job-repos.test.ts: runs command templates through sh
             test/job-repos-pr.test.ts: spawns a fake gh, a sh script
             test/member-intake.test.ts: spawns a fake gh, a sh script

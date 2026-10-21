@@ -13,6 +13,7 @@ import { effectiveLimits, exceededKeys, measureBudget } from './budget.ts';
 import { configForJob } from './eval-overlay.ts';
 import { TRUST_ENV, daemonProblems, defaults, loadConfig as defaultLoadConfig, trackerSymlinks, trustDigest } from './config.ts';
 import { RUNNING_AGENT_MAX_MS, loadJob, markAgentsLost } from './jobs.ts';
+import { redactKnown, scopeKnownValues } from './known-secrets.ts';
 import { queueNotify } from './notify.ts';
 import type { QueueNotify } from './notify.ts';
 import { PLUGIN_ROOT, paths } from './paths.ts';
@@ -58,11 +59,16 @@ export interface DaemonOptions {
   platform?: NodeJS.Platform;
   /** Where a daemon stop is announced (lib/notify.ts queueNotify). */
   notify?: QueueNotify;
+  /** The known values a scope's log lines are redacted with (lib/known-secrets.ts scopeKnownValues). */
+  redactor?: Redactor;
   /** How often the pool runs `forge sync` while it is wanted; 0 never does. */
   syncMs?: number;
   /** Runs one `forge sync`; resolves with null on success or the failure's message. */
   runSync?: (root: string) => Promise<string | null>;
 }
+
+/** The known values to redact from one scope's session log. */
+export type Redactor = (root: string, scope: string, config: Config) => readonly string[];
 
 /** DaemonOptions with every default filled in. */
 export interface SessionOptions {
@@ -80,6 +86,7 @@ export interface SessionOptions {
   openLog: (file: string) => LogSink;
   readConfig: (root: string, opts?: { text?: string | null }) => { config: Config };
   notify: QueueNotify;
+  redactor: Redactor;
 }
 
 export function sessionOptions(opts: DaemonOptions = {}): SessionOptions {
@@ -101,6 +108,7 @@ export function sessionOptions(opts: DaemonOptions = {}): SessionOptions {
     openLog: opts.openLog ?? ((file: string) => fs.createWriteStream(file, { fd: openAppend(file) })),
     readConfig: opts.loadConfig ?? defaultLoadConfig,
     notify: opts.notify ?? queueNotify,
+    redactor: opts.redactor ?? scopeKnownValues,
   };
 }
 
@@ -880,7 +888,12 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   }
 
   /** Appends one line to the session log and the replay ring; returns the sink's write() result. */
-  function logLine(line: string): boolean {
+  function logLine(raw: string): boolean {
+    // Before the offset is taken: the ring, the SSE frame and the file all carry the same redacted bytes.
+    let line = raw;
+    try {
+      line = redactKnown(raw, o.redactor(root, scope, ctx.config()));
+    } catch {}
     const s = logSink();
     const offset = pos;
     const ok = s.write(line + '\n');

@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import { worktreeRoot } from './config.ts';
+import { MIN_SECRET, allKnownValues } from './known-secrets.ts';
 import { secretSpans } from './secrets.ts';
 import type { Config, RedactCounts } from './types.ts';
 import { run } from './util.ts';
@@ -16,6 +17,8 @@ export interface RedactContext {
   config: Pick<Config, 'worktrees'> | null;
   /** The configured worktrees root, which may sit outside both the repo and home. */
   worktrees?: string | null;
+  /** Every job's known values (lib/known-secrets.ts), replaced before any pattern runs. */
+  known?: string[];
 }
 
 const MIN_IDENTITY = 3;
@@ -78,7 +81,22 @@ export function redactContext(root: string, config: Config | null, home = os.hom
   try {
     if (config) worktrees = worktreeRoot(root, config);
   } catch {}
-  return { root, home, identities, config: config ? { worktrees: config.worktrees } : null, worktrees };
+  let known: string[] = [];
+  try {
+    if (config) known = allKnownValues(root, config);
+  } catch {}
+  return { root, home, identities, config: config ? { worktrees: config.worktrees } : null, worktrees, known };
+}
+
+/** Each known value, raw and JSON-escaped, longest first. */
+function knownForms(values: readonly string[]): string[] {
+  const out = new Set<string>();
+  for (const v of values) {
+    if (v.length < MIN_SECRET) continue;
+    out.add(v);
+    out.add(JSON.stringify(v).slice(1, -1));
+  }
+  return [...out].sort((a, b) => b.length - a.length);
 }
 
 /** Replaces each match of `re` outside existing tokens; `re` must be global. */
@@ -104,10 +122,17 @@ export function redactText(text: string, ctx: RedactContext): { text: string; co
   const counts: RedactCounts = { secrets: 0, paths: 0, emails: 0, logins: 0 };
   let s = text;
 
+  // Known values first: they are exact, and a pattern pass could split one and leave a piece behind.
+  for (const v of knownForms(ctx.known ?? [])) {
+    const parts = s.split(v);
+    counts.secrets += parts.length - 1;
+    s = parts.join('<secret:known>');
+  }
+
   // Spans never overlap, so replacing from the last keeps the earlier offsets valid.
   const spans = secretSpans(s, ctx.config).sort((a, b) => b.start - a.start);
   for (const sp of spans) s = s.slice(0, sp.start) + `<secret:${sp.kind}>` + s.slice(sp.end);
-  counts.secrets = spans.length;
+  counts.secrets += spans.length;
 
   // Longest first across all three: the worktrees root may sit inside the repo, or beside it as `<repo>.worktrees`.
   const forms = [

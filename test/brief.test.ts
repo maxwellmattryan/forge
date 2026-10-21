@@ -165,6 +165,23 @@ test('builder brief lists rework inputs and the infra policy', () => {
   assert.ok(!brief(fixture({ files: ['tasks'] }), 'builder', { rework: ['verify'] }).includes('Reference:'));
 });
 
+test('secrets line lists names and source kinds only', () => {
+  const secrets = {
+    DB_PASSWORD: { env: 'MYAPP_DB_PASSWORD' },
+    STRIPE_KEY: { keychain: { service: 'myapp-dev', account: 'stripe' } },
+    API_TOKEN: { op: 'op://Dev/myapp/token' },
+    LOCAL_KEY: { file: '.secrets/dev.env', key: 'LOCAL_KEY_VALUE' },
+  };
+  const line = 'Secrets: DB_PASSWORD (env), STRIPE_KEY (keychain), API_TOKEN (op), LOCAL_KEY (file) · values reach commands only through config sinks ({secret.NAME}); never print, log, copy or commit them';
+  const f = fixture({ files: ['spec', 'tasks'], job: { round: 2 }, config: (c) => void (c.secrets = secrets as any) });
+  const briefs = [brief(f, 'builder'), brief(f, 'builder', { rework: ['review'], reworkReviews: [] }), brief(f, 'reviewer:code', { lens: 'code' }), brief(f, 'reviewer:security', { lens: 'security' })];
+  for (const b of briefs) {
+    assert.equal(b.split('\n').filter((l) => l === line).length, 1, b);
+    for (const leak of ['MYAPP_DB_PASSWORD', 'myapp-dev', 'stripe', 'op://', '.secrets/dev.env', 'LOCAL_KEY_VALUE']) assert.ok(!b.includes(leak), `${leak} in:\n${b}`);
+  }
+  for (const b of [brief(fixture({ files: ['spec', 'tasks'] }), 'builder'), brief(fixture({}), 'reviewer:code', { lens: 'code' })]) assert.ok(!b.includes('Secrets:'), b);
+});
+
 test('builder brief for an answer only keeps the full inputs', () => {
   const f = fixture({ files: ['spec', 'tasks', 'questions'], job: { round: 2 } });
   const b = brief(f, 'builder', { rework: ['answer'] });

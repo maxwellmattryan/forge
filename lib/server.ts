@@ -5,6 +5,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { daemonProblems, loadConfig, resolveEffort, validateConfig } from './config.ts';
+import { allKnownValues, isPrivateJobFile, isPrivateName, knownValues, redactDeep, redactKnown, scopeKnownValues } from './known-secrets.ts';
 import { ConfigSetError, FIELDS } from './config-fields.ts';
 import { dashboardActor } from './actor.ts';
 import { setConfigValue } from './config-set.ts';
@@ -337,15 +338,20 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (m[2] === '/transcript/events') return transcriptEvents(req, res, id, url);
         const rel = url.searchParams.get('path') ?? '';
         const file = safeJoin(jobDir(root, id), rel);
-        if (file && m[2] === '/file' && IMAGE_TYPES[path.extname(file).toLowerCase()]) return sendImage(res, jobDir(root, id), file);
-        if (!file || !exists(file) || !TEXT_EXT.has(path.extname(file))) return send(res, 404, 'text/plain', 'not found');
+        // Private job files hold credentials: not served under any path that names them or links to them.
+        if (!file || isPrivateJobFile(file)) return send(res, 404, 'text/plain', 'not found');
+        if (m[2] === '/file' && IMAGE_TYPES[path.extname(file).toLowerCase()]) return sendImage(res, jobDir(root, id), file);
+        if (!exists(file) || !TEXT_EXT.has(path.extname(file))) return send(res, 404, 'text/plain', 'not found');
+        // Background logs are written by the child itself, so known values are taken out here.
+        const known = knownValues(root, id, loadConfig(root).config);
         if (m[2] === '/raw') {
           res.setHeader('Content-Security-Policy', RAW_CSP);
-          return send(res, 200, 'text/html; charset=utf-8', fs.readFileSync(file));
+          const raw = fs.readFileSync(file);
+          return send(res, 200, 'text/html; charset=utf-8', known.length ? redactKnown(raw.toString('utf8'), known) : raw);
         }
         const size = fs.statSync(file).size;
         const text = size > MAX_FILE ? `…truncated (${size} bytes); showing the last 2 MB…\n` + readTail(file, MAX_FILE) : readText(file);
-        return send(res, 200, 'text/plain; charset=utf-8', text);
+        return send(res, 200, 'text/plain; charset=utf-8', redactKnown(text, known));
       }
       if (req.method === 'POST' && p === '/api/requests') {
         if (guardPost(req, res, token)) return;
@@ -626,10 +632,12 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     // Syntax only, so the logs of deleted jobs stay viewable.
     if (!validScope(scope)) return jsonStatus(res, 400, { error: 'session must be "_inbox", "_office" or a job id' });
     if (clients.size >= MAX_SSE_CLIENTS) return send(res, 503, 'text/plain', 'too many event streams');
+    // Before the headers: an unreadable config then fails the request instead of a half-open stream.
+    const known = scopeKnownValues(root, scope, loadConfig(root).config);
     sseHead(res);
     res.write('retry: 3000\n\n');
     clients.set(res, scope);
-    res.write(stateFrame(pool ? pool.sessionState(scope) : offSessionState(root, scope)));
+    res.write(stateFrame(pool ? pool.sessionState(scope) : offSessionState(root, scope), known));
     const last = Number(req.headers['last-event-id']);
     for (const r of pool?.recent(scope, req.headers['last-event-id'] === undefined || !Number.isFinite(last) ? undefined : last) ?? []) res.write(lineFrame(r.offset, r.line));
     const recycle = setTimeout(() => res.end(), opts.sseMaxAgeMs ?? SSE_MAX_AGE_MS);
@@ -685,7 +693,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     const t = found ? openTranscript(found.hit, projects) : null;
     if (!found || !t) return jsonStatus(res, 404, { error: NO_TRANSCRIPT });
     try {
-      const page = readLogPage(t.fd, t.size, 0, { before });
+      const page = redactPage(readLogPage(t.fd, t.size, 0, { before }), knownValues(root, id, loadConfig(root).config));
       return json(res, { job: id, source: found.source, role: found.role, ...page } satisfies TranscriptPage);
     } catch {
       return jsonStatus(res, 404, { error: NO_TRANSCRIPT });
@@ -709,6 +717,13 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     const t = found ? openTranscript(found.hit, projects) : null;
     if (!found || !t) return jsonStatus(res, 404, { error: NO_TRANSCRIPT });
     const fd = t.fd;
+    // Read per pump: a value a sink resolves while the stream is open is redacted from then on.
+    let cached: { at: number; values: string[] } | null = null;
+    const known = (): string[] => {
+      // Re-read at most once a second, not per line: a tail of the transcript is hundreds of lines.
+      if (!cached || Date.now() - cached.at > 1000) cached = { at: Date.now(), values: knownValues(root, id, loadConfig(root).config) };
+      return cached.values;
+    };
     sseHead(res);
     res.write('retry: 3000\n\n');
     clients.set(res, `transcript:${id}:${found.role ?? 'owner'}`);
@@ -718,7 +733,8 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       t.size,
       req.headers['last-event-id'],
       (offset, line) => {
-        if (line.trim()) res.write(lineFrame(offset, line));
+        // Known values are read per line: one a sink resolves while the stream is open is redacted from then on.
+        if (line.trim()) res.write(lineFrame(offset, redactKnown(line, known())));
       },
       (offset, bytes) => res.write(lineFrame(offset, JSON.stringify({ type: 'forge-truncated', originalType: null, bytes } satisfies ForgeTruncatedLine))),
     );
@@ -961,6 +977,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     const before = rawBefore === null || rawBefore === '' ? null : Number(rawBefore);
     if (before !== null && !(Number.isSafeInteger(before) && before >= 0)) return jsonStatus(res, 400, { error: 'before must be a log offset' });
     const f = sessionFiles(root, scope);
+    const known = scopeKnownValues(root, scope, loadConfig(root).config);
     const empty: DaemonLogPage = { scope, lines: [], start: 0, end: 0, more: false };
     const opened: number[] = [];
     const open = (file: string) => {
@@ -975,7 +992,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         const prev = open(`${f.log}.1`);
         if (prev === 'missing') return json(res, empty);
         if (prev === 'refused') return jsonStatus(res, 404, { error: 'no session log' });
-        const page = readLogPage(prev.fd, prev.size, Math.max(0, logBase - prev.size), { before });
+        const page = redactPage(readLogPage(prev.fd, prev.size, Math.max(0, logBase - prev.size), { before }), known);
         return json(res, { scope, ...page } satisfies DaemonLogPage);
       }
       const cur = open(f.log);
@@ -987,7 +1004,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (typeof prev !== 'string' && prev.size > 0) page.more = true;
         else if (cur === 'missing') return json(res, empty);
       }
-      return json(res, { scope, ...page } satisfies DaemonLogPage);
+      return json(res, { scope, ...redactPage(page, known) } satisfies DaemonLogPage);
     } catch {
       return jsonStatus(res, 404, { error: 'no session log' });
     } finally {
@@ -1036,7 +1053,16 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       const d = createPool(root, opts.daemon);
       pool = d;
       // Each stream gets only its own session's lines and state.
-      d.subscribe((e) => broadcast(clients, e.kind === 'line' ? lineFrame(e.offset, e.line) : stateFrame(e.state), SSE_SLOW_CLIENT_BYTES, e.scope));
+      d.subscribe((e) => {
+        let frame: string;
+        try {
+          frame = e.kind === 'line' ? lineFrame(e.offset, e.line) : stateFrame(e.state, scopeKnownValues(root, e.scope, loadConfig(root).config));
+        } catch {
+          // Unreadable config: a state frame that can't be redacted is dropped, never sent raw.
+          return;
+        }
+        broadcast(clients, frame, SSE_SLOW_CLIENT_BYTES, e.scope);
+      });
       try {
         const { config } = loadConfig(root);
         // A dev dashboard often runs in a fresh clone of a repo that commits daemon.enabled: true,
@@ -1222,8 +1248,14 @@ function sameOrigin(origin: string, host: string | undefined): boolean {
   }
 }
 
-function stateFrame(st: DaemonSessionState): string {
-  return `event: state\ndata: ${JSON.stringify(st)}\n\n`;
+/** A log or transcript page with known values taken out of each line; offsets stay the file's. */
+function redactPage<P extends { lines: { offset: number; line: string }[] }>(page: P, known: readonly string[]): P {
+  return known.length ? { ...page, lines: page.lines.map((l) => ({ ...l, line: redactKnown(l.line, known) })) } : page;
+}
+
+/** A session's state as an SSE frame; its permission inputs and errors can quote a known value, so they are redacted like /api/state. */
+export function stateFrame(st: DaemonSessionState, known: readonly string[]): string {
+  return `event: state\ndata: ${JSON.stringify(redactDeep(st, known))}\n\n`;
 }
 
 /**
@@ -1353,7 +1385,8 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
     // The time rule only, so polling never spawns `ps`; the job detail adds the daemon proofs.
     return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: ownerStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events), endpoints: endpointsFor(root, config, j) };
   });
-  return {
+  // Every string leaf: titles, events and activity lines can all carry what a command printed.
+  return redactDeep<ApiState>({
     apiVersion: API_VERSION,
     forgeVersion: forgeVersion(),
     repo: { name: paths(root).repoName },
@@ -1375,7 +1408,7 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
     focus: currentFocus(root),
     budget,
     now: new Date().toISOString(),
-  };
+  }, allKnownValues(root, config));
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
@@ -1482,7 +1515,7 @@ function jobDetail(root: string, id: string, projects: string): JobDetail {
       if (e.name.startsWith('.')) continue;
       const full = path.join(d, e.name);
       if (e.isDirectory() && depth < 3) walk(full, depth + 1);
-      else if (e.isFile() && TEXT_EXT.has(path.extname(e.name)) && !['job.json', 'events.jsonl', 'runtime.json'].includes(e.name))
+      else if (e.isFile() && TEXT_EXT.has(path.extname(e.name)) && !['job.json', 'events.jsonl', 'runtime.json'].includes(e.name) && !isPrivateName(e.name))
         files.push(path.relative(dir, full));
     }
   };
@@ -1500,7 +1533,7 @@ function jobDetail(root: string, id: string, projects: string): JobDetail {
   const createdIssues = Array.isArray(created?.issues) ? (created.issues as unknown[]) : [];
   const createdSource = created?.source as { ref?: unknown } | null | undefined;
   const fromTracker = createdIssues.some((i) => Boolean(i && typeof i === 'object' && (i as { ref?: unknown }).ref)) || Boolean(createdSource?.ref);
-  return {
+  return redactDeep<JobDetail>({
     job: { ...job, progress: progress(root, id), ownerStatus: ownerStatusWithProof(root, job, { env: jobSessionEnv(job.id) }) },
     events: events.slice(-400),
     files,
@@ -1510,7 +1543,7 @@ function jobDetail(root: string, id: string, projects: string): JobDetail {
     requestFromTracker: fromTracker,
     agents: roundAgents(root, job, events, projects),
     ownerTranscript: ((o) => (o ? { session: o.session } : null))(interactiveOwner(root, job, projects)),
-  };
+  }, knownValues(root, id, loadConfig(root).config));
 }
 
 /** request.md without its `# title` line, for the Thread's opening message; null when empty. */
