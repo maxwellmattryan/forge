@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { approvedBy, findPr, mergeAction, hasCiWorkflows, mergePr, prText, syncPr, syncTransition } from '../lib/pr.ts';
+import { approvedBy, findPr, mergeAction, hasCiWorkflows, mergePr, prText, pullPrHead, syncPr, syncTransition } from '../lib/pr.ts';
 import type { MemberPrState } from '../lib/pr.ts';
 import { stripAttribution } from '../lib/attribution.ts';
 import { defaults } from '../lib/config.ts';
@@ -809,6 +809,70 @@ test('pr body closes or refs each issue', () => {
     const none = createJob(repo.dir, config, { title: 'No issue' });
     assert.deepEqual(lines(config, none.id), []);
   } finally {
+    repo.cleanup();
+  }
+});
+
+test('pullPrHead brings the PR branch head into the worktree before a rework round', () => {
+  const repo = tempRepo();
+  const remote = `${repo.dir}.remote.git`;
+  const other = `${repo.dir}.other`;
+  const wt = `${repo.dir}.wt`;
+  const git = (cwd: string, ...args: string[]) => String(spawnSync('git', args, { cwd, encoding: 'utf8' }).stdout).trim();
+  const commit = (cwd: string, file: string, text: string) => {
+    fs.writeFileSync(path.join(cwd, file), text);
+    git(cwd, 'add', file);
+    git(cwd, '-c', 'user.email=t@example.com', '-c', 'user.name=T', 'commit', '-qm', `edit ${file}`);
+  };
+  try {
+    spawnSync('git', ['init', '-q', '--bare', remote]);
+    repo.git('remote', 'add', 'origin', remote);
+    repo.git('push', '-q', 'origin', 'main');
+    repo.git('worktree', 'add', '-q', '-b', 'forge/x', wt);
+    commit(wt, 'a.txt', 'job\n');
+    git(wt, 'push', '-q', 'origin', 'forge/x');
+    spawnSync('git', ['clone', '-q', '-b', 'forge/x', remote, other]);
+    const config = defaults();
+    const id = createJob(repo.dir, config, { title: 'Pull' }).id;
+    updateJob(repo.dir, id, (j) => {
+      j.worktree = wt;
+      j.branch = 'forge/x';
+      j.pr = { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } as JobPr;
+    });
+    const pull = () => pullPrHead(repo.dir, config, loadJob(repo.dir, id));
+
+    assert.equal(pull()?.pulled, 'none', 'nothing new on the remote');
+    // GitHub's "Update branch": the remote moved, the worktree did not.
+    commit(other, 'b.txt', 'update branch\n');
+    git(other, 'push', '-q', 'origin', 'forge/x');
+    assert.deepEqual(pull(), { pulled: 'fast-forward', head: git(other, 'rev-parse', 'HEAD') });
+    assert.equal(git(wt, 'rev-parse', 'HEAD'), git(other, 'rev-parse', 'HEAD'));
+    // Both moved, on different files: a merge.
+    commit(other, 'c.txt', 'remote\n');
+    git(other, 'push', '-q', 'origin', 'forge/x');
+    commit(wt, 'd.txt', 'local\n');
+    assert.equal(pull()?.pulled, 'merge');
+    assert.equal(fs.readFileSync(path.join(wt, 'c.txt'), 'utf8'), 'remote\n');
+    // Both moved on the same line: the merge is aborted and the worktree left clean.
+    git(other, 'pull', '-q', '--no-rebase', 'origin', 'forge/x');
+    commit(other, 'a.txt', 'theirs\n');
+    git(other, 'push', '-q', 'origin', 'forge/x');
+    commit(wt, 'a.txt', 'ours\n');
+    const before = git(wt, 'rev-parse', 'HEAD');
+    assert.equal(pull()?.pulled, 'conflicts');
+    assert.equal(git(wt, 'rev-parse', 'HEAD'), before);
+    assert.equal(git(wt, 'status', '--porcelain'), '');
+    assert.deepEqual(readEvents(repo.dir, id).filter((e) => e.type === 'pr-head-pulled').map((e) => e.pulled), ['fast-forward', 'merge', 'conflicts']);
+    // No open PR, or a dirty worktree: nothing is touched.
+    fs.writeFileSync(path.join(wt, 'dirty.txt'), 'x');
+    assert.equal(pull(), null);
+    fs.rmSync(path.join(wt, 'dirty.txt'));
+    updateJob(repo.dir, id, (j) => {
+      j.pr = { ...j.pr!, state: 'MERGED' };
+    });
+    assert.equal(pull(), null);
+  } finally {
+    for (const d of [remote, other, wt]) fs.rmSync(d, { recursive: true, force: true });
     repo.cleanup();
   }
 });

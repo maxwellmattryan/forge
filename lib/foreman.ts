@@ -184,16 +184,36 @@ export function latestSecurityVerdict(job: Pick<Job, 'verdicts'>): string | null
   return null;
 }
 
-/**
- * reservedMatch over reservedTexts (and extra texts such as the note), with an unreadable decision.md
- * reserved. A latest security review that isn't PASS (CHANGES, MALFORMED, anything else) keeps any gate
- * with a human, whatever the texts say: security posture is never the foreman's call.
- */
-export function reservedFor(root: string, config: Config, job: Pick<Job, 'id' | 'reason' | 'verdicts'>, gate: GateClass | null, extra: (string | null | undefined)[] = []): string | null {
+/** The foreman actions that send a job back to fix a security finding rather than accept it. */
+export const SECURITY_MITIGATIONS: readonly string[] = ['rework', 'revise-spec', 'revise-split', 'reject-repos'];
+
+/** SECURITY_CHANGES or SECURITY_UNCLEAR while the latest security review isn't PASS, else null. */
+export function securityHold(job: Pick<Job, 'verdicts'>): string | null {
   const security = latestSecurityVerdict(job);
   if (security === 'CHANGES') return SECURITY_CHANGES;
   // A security review Forge couldn't read (MALFORMED) is no proof the posture is fine.
   if (security !== null && security !== 'PASS') return SECURITY_UNCLEAR;
+  return null;
+}
+
+/**
+ * reservedMatch over reservedTexts (and extra texts such as the note), with an unreadable decision.md
+ * reserved. A latest security review that isn't PASS (CHANGES, MALFORMED, anything else) holds what
+ * would accept it: the foreman may still mitigate (rework or revise to fix the findings), never approve
+ * past them: security always has to pass. With `action`, that action is judged; without, the gate is
+ * held when it has no mitigation.
+ */
+export function reservedFor(
+  root: string,
+  config: Config,
+  job: Pick<Job, 'id' | 'reason' | 'verdicts'>,
+  gate: GateClass | null,
+  extra: (string | null | undefined)[] = [],
+  opts: { action?: string } = {},
+): string | null {
+  const hold = securityHold(job);
+  const mitigates = opts.action !== undefined ? SECURITY_MITIGATIONS.includes(opts.action) : gate !== null && ACTIONS_BY_GATE[gate].some((a) => SECURITY_MITIGATIONS.includes(a));
+  if (hold && !mitigates) return hold;
   const texts = reservedTexts(root, job, gate);
   if (texts.includes(INVALID_RESERVED_TEXT)) return '(unreadable decision.md)';
   return reservedMatch(config, [...texts, ...extra]);
@@ -299,7 +319,7 @@ export function checkForemanDecision(
   // pr-feedback is the foreman's only once sync armed it for this head (trusted feedback or failing
   // checks): a queued gate request keyed by the PR's current head sha must exist.
   if (gate === 'pr-feedback' && !queuedPrFeedbackGate(root, job)) refuse(`no queued pr-feedback gate request for ${job.id}'s current PR head`);
-  const reserved = reservedFor(root, config, job, gate, [note]);
+  const reserved = reservedFor(root, config, job, gate, [note], { action });
   if (reserved) refuse(`reserved (${reserved}): left for a human`);
   return gate!;
 }

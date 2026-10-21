@@ -14,6 +14,7 @@ import type { RoleContext } from './brief.ts';
 import { autoMerge, lensAlwaysOnRework, lensNeedsApp, resolveEffort, resolveModel } from './config.ts';
 import { environmentState } from './environment-record.ts';
 import { configForJob } from './eval-overlay.ts';
+import { latestSecurityVerdict } from './foreman.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
@@ -1060,9 +1061,14 @@ function build(x: StepInput): StepAction {
   const lv = lastVerify(x);
   if (j.round === 0 || j.verdicts[String(j.round)] || after(rework?.ts, lastEvent(x, (e) => e.type === 'round')?.ts)) return run(x, 'B1', ['job', 'round', j.id], 'start the next build round');
   // A rework that came after the previous round started is the one that opened this round (B1), so the whole round is exempt. Comparing with the builder's start lost the exemption once the builder ran.
-  if (j.round > j.maxRounds && !after(rework?.ts, x.events.filter((e) => e.type === 'round').at(-2)?.ts)) {
+  // Security always has to pass: while the latest security review isn't PASS, rounds run past
+  // maxRounds, up to twice it, before the park (where the foreman may only rework or revise).
+  const security = latestSecurityVerdict(j);
+  const securityOpen = j.kind !== 'eval' && security !== null && security !== 'PASS';
+  const limit = securityOpen ? j.maxRounds * 2 : j.maxRounds;
+  if (j.round > limit && !after(rework?.ts, x.events.filter((e) => e.type === 'round').at(-2)?.ts)) {
     if (j.kind === 'eval') return set(x, 'B6', { stage: 'decide', state: 'running', reason: `eval: round ${j.round} exceeds maxRounds ${j.maxRounds}` }, 'an eval job has no human to clear rounds-exhausted: grade it');
-    return park(x, 'B2', 'rounds-exhausted', `round ${j.round} exceeds maxRounds ${j.maxRounds}`);
+    return park(x, 'B2', 'rounds-exhausted', securityOpen ? `round ${j.round} exceeds twice maxRounds ${j.maxRounds} with the security review not PASS` : `round ${j.round} exceeds maxRounds ${j.maxRounds}`);
   }
   if (endedIn(b, j.round)) {
     const n = needsInput(x, 'builder');
