@@ -12,6 +12,7 @@ import { readJobRecord, readSharedRecord } from './backing.ts';
 import { jobPathMap, renderBrief, roleBrief } from './brief.ts';
 import type { RoleContext } from './brief.ts';
 import { autoMerge, lensAlwaysOnRework, lensNeedsApp, resolveEffort, resolveModel } from './config.ts';
+import { environmentState } from './environment-record.ts';
 import { configForJob } from './eval-overlay.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
@@ -69,6 +70,9 @@ export const RULES = [
   // Downstream verification: add a changed library's linked consumers as verify-only repos (DS1).
   // Appended, though it runs before the stage rules, as IDs are stable.
   'DS1',
+  // A resumed job whose environment a park stopped: start it again (E1). Appended, though it runs
+  // right after G4, as IDs are stable.
+  'E1',
   // No rule matched: a state step can't advance, parked visibly instead of looping.
   'X1',
 ] as const;
@@ -193,6 +197,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     },
     acs: acCoverage(read('spec.md'), read('build.md')),
     runtime,
+    environment: environmentState(root, job.id),
     events,
     evalTask,
     checklists: lensChecklists(root, config, job, names),
@@ -538,6 +543,8 @@ const toStage = (x: StepInput, rule: RuleId, stage: string, why: string, extra: 
 const park = (x: StepInput, rule: RuleId, waitingOn: WaitingOn, reason: string, note?: string) =>
   set(x, rule, { state: 'waiting', waitingOn, reason, note }, `wait on ${waitingOn}`);
 
+/** A parked job still holding something to stop: a running environment record or a background process. */
+const parkedRunning = (x: StepInput): boolean => x.environment === 'running' || x.runtime.length > 0;
 const runningRoles = (x: StepInput) => Object.keys(x.job.agents).filter((r) => x.job.agents[r].status === 'running').sort();
 
 function wait(x: StepInput, rule: RuleId, waitingOn: StepWaitingOn, tell?: string): StepWait {
@@ -812,13 +819,17 @@ function decide(x: StepInput): StepAction {
   if (j.state === 'failed') return done(x, 'G2', `${j.id} failed: ${j.reason ?? 'no reason recorded'}`);
   if (j.state === 'waiting' && j.waitingOn === 'pr-review') {
     if (j.owner) return run(x, 'G3', ['job', 'release', j.id], 'the PR waits on human review; let the claim go');
-    if (x.runtime.length) return run(x, 'G3', ['stop', j.id], 'stop background processes while the PR waits');
+    if (parkedRunning(x)) return run(x, 'G3', ['environment', 'stop', j.id], 'stop the environment while the PR waits');
     return wait(x, 'G3', 'pr-review', prReviewTell(x));
   }
   if (j.state === 'waiting' || j.state === 'blocked') {
+    if (parkedRunning(x)) return run(x, 'G4', ['environment', 'stop', j.id], 'the job is parked: stop its environment');
     const on: WaitingOn = j.state === 'blocked' ? 'external' : (j.waitingOn ?? 'external');
     return wait(x, 'G4', on, gateTell(x, on));
   }
+  // Only a job whose environment Forge stopped: one never started has no entry and starts on demand.
+  if (j.state === 'running' && x.environment === 'stopped' && ['build', 'verify', 'review'].includes(j.stage))
+    return run(x, 'E1', ['environment', 'up', j.id], 'a park stopped the environment', 'the job resumed: start its environment');
   if (runningRoles(x).length && !(j.stage === 'review' && (nextLenses(x).length || retryLens(x)))) return wait(x, 'G5', 'agents');
   const blocked = blockedRole(x);
   if (blocked) return spawn(x, 'L1', blocked);

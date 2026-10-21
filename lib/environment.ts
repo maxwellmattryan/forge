@@ -3,6 +3,7 @@
 // reached only through the CLI as an async child (forgeJson) or one argv-only `docker stats` call, so no
 // dashboard request waits on lib/backing.ts's synchronous docker calls. runtime.json and logs/ are in the
 // job dir, which the job's agents can write: both are read without following links or blocking on FIFOs.
+// Starting, stopping and tearing an environment down is lib/environment-lifecycle.ts.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';

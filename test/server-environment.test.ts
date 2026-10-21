@@ -720,6 +720,9 @@ test('backing actions run the CLI without blocking the server', { timeout: 120_0
     assert.equal(stop.json.environment.backing[0].state, 'stopped');
     assert.ok(s.argv().some((x) => x.join(' ') === `stop --time 10 -- ${pg}`));
     assert.equal(s.dockerState().containers[Object.keys(s.dockerState().containers).find((n) => n.endsWith('-redis'))!].running, true, 'shared untouched');
+    // The environment record follows the card, so environments.maxRunning counts what it started.
+    const recordState = () => JSON.parse(fs.readFileSync(path.join(s.root, '.forge', 'runtime', 'environments.json'), 'utf8')).jobs[a]?.state;
+    assert.equal(recordState(), 'stopped', 'Stop marks the record stopped');
 
     // A slow docker start: the server keeps answering while the CLI child waits.
     s.setDocker({ delayMs: 2500 });
@@ -734,6 +737,9 @@ test('backing actions run the CLI without blocking the server', { timeout: 120_0
     assert.equal(start.status, 200, start.text);
     assert.equal(start.json.ok, true);
     assert.equal(start.json.environment.backing[0].state, 'running');
+    assert.equal(recordState(), 'running', 'Start is an ensure up');
+    const ups = fs.readFileSync(path.join(s.root, '.forge', 'jobs', a, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.type === 'environment-up');
+    assert.equal(ups.at(-1).trigger, 'cli');
     s.setDocker({ delayMs: 0 });
 
     fs.writeFileSync(process.env.FAKE_DOCKER_LOG!, '');
@@ -744,6 +750,7 @@ test('backing actions run the CLI without blocking the server', { timeout: 120_0
     const startAt = calls.findIndex((x) => x === 'start' || x === 'run');
     assert.ok(stopAt !== -1 && startAt > stopAt, `stop before start: ${calls.join(',')}`);
     assert.equal(restart.json.environment.backing[0].state, 'running');
+    assert.equal(recordState(), 'running', 'Restart ends running');
 
     // A Docker failure is ok: false with the reason.
     s.setDocker({ daemon: 'down' });
