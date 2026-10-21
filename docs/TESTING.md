@@ -18,10 +18,10 @@ A new entry needs a reason a public function or the CLI's JSON can't hold the in
 To see whether the rule holds, compare a window of job merges on `develop` with the baseline in the PR that added this file. Run from a checkout of `develop`; set `BASE` to the commit the window starts after.
 
 ```bash
-# The jobs: first-parent merges whose subject ends in (#<n>), without release commits.
+# The jobs: first-parent merges whose subject ends in (#<n>), without release commits ("Release 0.18.7 …").
 # This takes the next 10 after BASE. For the last 30, drop --reverse and "$BASE".. and use head -30.
 git log --first-parent --reverse --format='%H %s' "$BASE"..develop \
-  | grep -E '\(#[0-9]+\)$' | grep -vE '^[0-9a-f]+ Release ' | head -10 > jobs.txt
+  | grep -E '\(#[0-9]+\)$' | grep -vE '^[0-9a-f]+ Release v?[0-9]+\.[0-9]+\.[0-9]+' | head -10 > jobs.txt
 
 while read -r sha _; do
   added=$(git show --format= -U0 "$sha" -- 'test/*.test.ts' | grep -cE '^\+\s*(test|it)\(')
