@@ -3,7 +3,7 @@
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 30;
+export const API_VERSION = 31;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -89,6 +89,21 @@ export interface JobOutcome {
   measuredAt: string;
   attempts: number;
   reason?: string;
+}
+
+/** A sampled merged job's post-merge judge score: queueScores and recordScore in lib/scoring.ts. */
+export interface JobScore {
+  status: 'queued' | 'held' | 'scored' | 'failed';
+  /** null when held */
+  queuedAt: string | null;
+  /** 0-5, one decimal at most; only when scored */
+  value: number | null;
+  outOf: 5;
+  /** when held, scored or failed was set */
+  recordedAt: string | null;
+  judgeModel: string | null;
+  builderModel: string | null;
+  reason?: 'budget exceeded' | 'repo budget' | 'no score.md' | 'malformed score.md';
 }
 
 /** A job's pull request: findPr, openPr and syncPr in lib/pr.ts; sync-only fields are optional. */
@@ -327,6 +342,8 @@ export interface Job {
   repos: JobRepo[];
   /** The merged root PR's post-merge outcome, written by `forge sync` (lib/outcome.ts); null until measured. */
   outcome: JobOutcome | null;
+  /** The post-merge judge score of a sampled merged job (lib/scoring.ts); null until forge sync queues one. */
+  score: JobScore | null;
 }
 
 /** A changed path an escalate rule matched; `rule` is 1-based and `blob` is null for a deletion. */

@@ -24,6 +24,7 @@ import { isLens, lensRepoAllowed, reviewedRepoNames } from '../lens.ts';
 import { resolveLinks } from '../links.ts';
 import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
 import { daemonScope } from '../requests.ts';
+import { recordScore } from '../scoring.ts';
 import { jobPanel } from '../panel.ts';
 import { jobScope } from '../scope.ts';
 import { loadStepInput, step } from '../step.ts';
@@ -296,6 +297,12 @@ const JOB: HelpGroup = {
       exits: [[1, 'no such job, or no reviewers selected']],
     },
     { command: 'job decision', args: '<id>', summary: "read decision.md and record the approver's decision", exits: [NO_JOB] },
+    {
+      command: 'job score',
+      args: 'record <id>',
+      summary: "record the post-merge judge's score from score.md (first non-empty line `SCORE: <0-5>/5`) on a job whose score run forge sync queued; a missing or malformed file records the run as failed",
+      exits: [[1, 'unknown job, nothing queued, or missing/malformed score.md']],
+    },
     { command: 'job progress', args: '<id>', summary: 'tasks done and total in tasks.md', exits: [NO_JOB] },
     { command: 'job paths', args: '<id>', summary: "absolute paths of the job's files, for agent briefs", exits: [NO_JOB] },
     {
@@ -415,6 +422,8 @@ const LOCKED_FIELDS: Record<string, string> = {
   repos: 'forge job repo add|remove',
   // What its PRs point at, and what may be published, is too.
   interim: 'forge job repo interim',
+  // A hand-set `queued` score would spend a judge run nobody sampled.
+  score: 'forge sync or forge job score record',
 };
 
 // Kinds step routes differently: a retro job's review panel is fixed at code and docs, and an eval
@@ -906,6 +915,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return jobPanel(root, config, req(id, 'job id'));
     case 'acs':
       return jobAcs(root, req(id, 'job id'));
+    case 'score': {
+      if (rest[0] !== 'record' || rest.length !== 2) throw usageError(JOB, 'score');
+      return recordScore(root, rest[1]);
+    }
     case 'findings': {
       const jobId = requireJob(root, id).id;
       return { id: jobId, ...jobFindings(root, jobId) };

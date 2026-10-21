@@ -6,13 +6,13 @@ import { isInterimStrategy, servicesToComponents } from './components.ts';
 import { isSha } from './delta.ts';
 import { isSafeUrl, isStoredRef, sameIssue } from './issue-ref.ts';
 import { REPO_NAME, isSafeBranch } from './member-repos.ts';
-import type { EventActor, Job, JobAgent, JobEvent, JobIssue, JobOutcome, JobRepo, JobRepoPr, LoadedJob } from './types.ts';
+import type { EventActor, Job, JobAgent, JobEvent, JobIssue, JobOutcome, JobRepo, JobRepoPr, JobScore, LoadedJob } from './types.ts';
 
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from './backing-config.ts';
 
-export const CONFIG_SCHEMA_VERSION = 24;
-export const JOB_SCHEMA_VERSION = 15;
+export const CONFIG_SCHEMA_VERSION = 25;
+export const JOB_SCHEMA_VERSION = 16;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
 export const ARCHIVE_SCHEMA_VERSION = 1;
@@ -20,7 +20,7 @@ export const ARCHIVE_SCHEMA_VERSION = 1;
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 30;
+export const API_VERSION = 31;
 
 /**
  * Where an event's `actor` came from: lib/actor.ts resolves env, gh, git, os and dashboard; the
@@ -217,6 +217,9 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v24 adds outcomes.windowDays (14 by default), so no v23 config changes; the bump lets older
   // Forges refuse a config whose outcome window they would ignore.
   23: (c) => c,
+  // v25 adds scoring (sample 0 and model null by default, so off), so no v24 config changes; the
+  // bump lets older Forges refuse a config whose score sampling they would ignore.
+  24: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
@@ -277,7 +280,49 @@ const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
   // v15 adds the merged PR's post-merge outcome, which forge sync measures. A v14 job has none yet,
   // and the next sync measures it, so a long-merged job gets a final outcome straight away.
   14: (j) => ({ ...j, outcome: j.outcome ?? null }),
+  // v16 adds the post-merge score (lib/scoring.ts). A v15 job has none; the next sync queues one
+  // only when the job is sampled and merged inside the lookback.
+  15: (j) => ({ ...j, score: j.score ?? null }),
 };
+
+const SCORE_STATUSES = ['queued', 'held', 'scored', 'failed'] as const;
+const SCORE_REASONS = ['budget exceeded', 'repo budget', 'no score.md', 'malformed score.md'] as const;
+const isScoreModel = (v: unknown): v is string => typeof v === 'string' && v.length <= 200 && MODEL_RE.test(v);
+
+/**
+ * A stored score, or null when any field is malformed. job.json is writable outside the CLI and
+ * the score feeds stats and the retro: only the keys Forge writes are kept, in the shapes it writes.
+ */
+export function cleanScore(raw: unknown): JobScore | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const s = raw as Record<string, unknown>;
+  if (!(SCORE_STATUSES as readonly unknown[]).includes(s.status)) return null;
+  if (s.outOf !== 5) return null;
+  const timeOrNull = (v: unknown) => v === null || isTime(v);
+  if (!timeOrNull(s.queuedAt) || !timeOrNull(s.recordedAt)) return null;
+  if (s.value !== null) {
+    const v = s.value;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 5 || Math.round(v * 10) !== v * 10) return null;
+  }
+  if (s.judgeModel !== null && !isScoreModel(s.judgeModel)) return null;
+  if (s.builderModel !== null && !isScoreModel(s.builderModel)) return null;
+  if (s.reason !== undefined && !(SCORE_REASONS as readonly unknown[]).includes(s.reason)) return null;
+  const status = s.status as JobScore['status'];
+  // Each status carries what Forge writes for it: a value only when scored, a queue time unless held.
+  if ((status === 'scored') !== (s.value !== null)) return null;
+  if (status !== 'held' && s.queuedAt === null) return null;
+  if (status !== 'queued' && s.recordedAt === null) return null;
+  return {
+    status,
+    queuedAt: s.queuedAt as string | null,
+    value: s.value as number | null,
+    outOf: 5,
+    recordedAt: s.recordedAt as string | null,
+    judgeModel: s.judgeModel as string | null,
+    builderModel: s.builderModel as string | null,
+    ...(s.reason !== undefined ? { reason: s.reason as NonNullable<JobScore['reason']> } : {}),
+  };
+}
 
 const MAX_FOLLOW_UP_REFS = 20;
 /** A follow-up ref as an outcome stores it: `owner/repo#n`. */
@@ -477,13 +522,18 @@ export const FINISHED_STATES = ['done', 'cancelled'] as const;
  * rework), and nothing records that agent's end afterwards, so without this the dashboard shows it
  * running forever and the claim and daemon slot wait on it.
  */
-export function endFinishedJobAgents(agents: Record<string, JobAgent>, state: string, at: string | null): { agents: Record<string, JobAgent>; roles: string[] } {
+export function endFinishedJobAgents(agents: Record<string, JobAgent>, state: string, at: string | null, keep: readonly string[] = []): { agents: Record<string, JobAgent>; roles: string[] } {
   if (!(FINISHED_STATES as readonly string[]).includes(state)) return { agents, roles: [] };
-  const roles = Object.keys(agents).filter((role) => agents[role]?.status === 'running');
+  const roles = Object.keys(agents).filter((role) => agents[role]?.status === 'running' && !keep.includes(role));
   if (!roles.length) return { agents, roles };
   const out = { ...agents };
   for (const role of roles) out[role] = { ...out[role], status: 'lost', endedAt: at, summary: `lost: the job was ${state} while it ran` };
   return { agents: out, roles };
+}
+
+/** The roles a finished job may still run: the judge of a done job's queued post-merge score run (JS1-JS3). */
+export function finishedJobRoles(job: { state?: unknown; kind?: unknown; score?: unknown }): string[] {
+  return job.state === 'done' && job.kind !== 'eval' && (job.score as JobScore | null | undefined)?.status === 'queued' ? ['judge'] : [];
 }
 
 /**
@@ -501,6 +551,7 @@ export function normalizeJob(raw: any): LoadedJob {
   // A current-version file may still carry `source` (a hand edit, or a write that raced the
   // upgrade): folded the same way, then dropped, so no reader can see both.
   const { source: legacySource, ...rest } = job;
+  const score = cleanScore(job.score);
   return {
     ...rest,
     schemaVersion: JOB_SCHEMA_VERSION,
@@ -535,7 +586,7 @@ export function normalizeJob(raw: any): LoadedJob {
     pr: job.pr ?? null,
     owner: job.owner ?? null,
     // Repairs jobs a Forge before endFinishedJobAgents finished with an agent still marked running.
-    agents: endFinishedJobAgents(job.agents ?? {}, job.state ?? 'queued', job.finishedAt ?? job.updatedAt ?? null).agents,
+    agents: endFinishedJobAgents(job.agents ?? {}, job.state ?? 'queued', job.finishedAt ?? job.updatedAt ?? null, finishedJobRoles({ state: job.state, kind: job.kind ?? 'feature', score })).agents,
     usage: job.usage ?? { totalTokens: 0, byRole: {}, byModel: {}, estCostUsd: 0, exact: false },
     runs: job.runs ?? [],
     createdAt: job.createdAt ?? null,
@@ -552,6 +603,7 @@ export function normalizeJob(raw: any): LoadedJob {
     interim: interimOrNull(job.interim),
     repos: cleanRepos({ branch: job.branch ?? null, base: job.base ?? null, worktree: job.worktree ?? null, pr: job.pr ?? null, interim: job.interim, repos: job.repos }),
     outcome: cleanOutcome(job.outcome),
+    score,
   };
 }
 

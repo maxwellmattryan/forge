@@ -5,7 +5,7 @@ import { paths, exists } from './paths.ts';
 import { currentActor } from './actor.ts';
 import { clearFocusIf } from './focus.ts';
 import { knownRecordValues, redactDeep } from './known-secrets.ts';
-import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, endFinishedJobAgents, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
+import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, endFinishedJobAgents, finishedJobRoles, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
 import { idPrefix } from './issue-ref.ts';
 import { localRepoSlug } from './repo-slug.ts';
 import type { AgentUsage, Config, Effort, EventActor, Job, JobAgent, JobIssue, JobChange, JobOwner, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
@@ -292,7 +292,7 @@ export function setJob(
     for (const [k, v] of Object.entries(c.fields ?? {})) setPath(j, k, v);
     if (['done', 'cancelled'].includes(j.state) && !j.finishedAt) j.finishedAt = now();
     // In the same write as the state, so no reader sees a finished job with an agent still running.
-    const ended = endFinishedJobAgents(j.agents, j.state, now());
+    const ended = endFinishedJobAgents(j.agents, j.state, now(), finishedJobRoles(j));
     j.agents = ended.agents;
     lost = ended.roles;
     // In the same locked write, so no session can claim between the change and the release.

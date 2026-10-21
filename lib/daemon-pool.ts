@@ -268,11 +268,15 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
   function onResult(scope: string): void {
     if (!shared(scope) && !closed) {
       let state: string | null = null;
+      // A done job's post-merge score run (JS1-JS3) still needs its session.
+      let scoring = false;
       try {
-        state = loadJob(root, scope).state;
+        const job = loadJob(root, scope);
+        state = job.state;
+        scoring = job.score?.status === 'queued';
       } catch {}
       const s = sessions.get(scope);
-      if (s && (state === null || FINISHED.includes(state)) && !listRequests(root, { status: 'pending' }).some((r) => requestScope(root, r) === scope)) {
+      if (s && (state === null || FINISHED.includes(state)) && !scoring && !listRequests(root, { status: 'pending' }).some((r) => requestScope(root, r) === scope)) {
         s.logEvent('finished', { state: state ?? 'missing' });
         // Its kill pokes the pool once the slot is free.
         void s.kill('stop', true, 'job-finished');

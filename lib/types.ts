@@ -92,6 +92,21 @@ export interface JobOutcome {
   reason?: string;
 }
 
+/** A sampled merged job's post-merge judge score: queueScores and recordScore in lib/scoring.ts. */
+export interface JobScore {
+  status: 'queued' | 'held' | 'scored' | 'failed';
+  /** null when held */
+  queuedAt: string | null;
+  /** 0-5, one decimal at most; only when scored */
+  value: number | null;
+  outOf: 5;
+  /** when held, scored or failed was set */
+  recordedAt: string | null;
+  judgeModel: string | null;
+  builderModel: string | null;
+  reason?: 'budget exceeded' | 'repo budget' | 'no score.md' | 'malformed score.md';
+}
+
 /** A job's pull request: findPr, openPr and syncPr in lib/pr.ts; sync-only fields are optional. */
 export interface JobPr {
   number: number;
@@ -318,6 +333,8 @@ export interface Job {
   repos: JobRepo[];
   /** The merged root PR's post-merge outcome, written by `forge sync` (lib/outcome.ts); null until measured. */
   outcome: JobOutcome | null;
+  /** The post-merge judge score of a sampled merged job (lib/scoring.ts); null until forge sync queues one. */
+  score: JobScore | null;
 }
 
 /** One `policy.protectedPaths` rule: docs/CONFIG.md "Protected paths". */
@@ -943,6 +960,8 @@ export interface Config {
   retention: { jobsDays: number | null; logsDays: number | null; logMaxBytes: number | null };
   /** How long after a merge `forge sync` watches a job's outcome: docs/CONFIG.md "Outcomes". */
   outcomes: { windowDays: number };
+  /** The share of merged jobs that get one post-merge judge run, and its model: docs/CONFIG.md "Scoring". */
+  scoring: { sample: number; model: string | null };
   /** Where Forge pushes gate, PR, failure and budget notifications: docs/CONFIG.md "Notifications". */
   notify: { webhooks: NotifyWebhook[]; command: string | null };
   /** Repo-wide spend caps per UTC day and month: docs/CONFIG.md "Repo budget". */

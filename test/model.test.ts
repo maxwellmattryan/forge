@@ -96,11 +96,11 @@ test('invalid builder model overrides are reported by validate', () => {
 });
 
 test('v20 config migrates to v21', () => {
-  assert.equal(CONFIG_SCHEMA_VERSION, 24);
+  assert.equal(CONFIG_SCHEMA_VERSION, 25);
   const v20 = { schemaVersion: 20, tracker: { kind: 'none' }, runtime: { models: { builder: 'opus' } }, review: { onPrFeedback: 'full' } };
   const m = migrateConfig(structuredClone(v20));
   assert.equal(m.from, 20);
-  assert.deepEqual(m.config, { ...v20, schemaVersion: 24 }, 'nothing but schemaVersion changes');
+  assert.deepEqual(m.config, { ...v20, schemaVersion: 25 }, 'nothing but schemaVersion changes');
   const repo = tempRepo();
   try {
     const file = path.join(repo.dir, '.forge', 'config.yml');
@@ -108,7 +108,7 @@ test('v20 config migrates to v21', () => {
     fs.writeFileSync(file, 'schemaVersion: 20\ntracker:\n  kind: none\n');
     const loaded = loadConfig(repo.dir);
     assert.equal(loaded.migratedFrom, 20);
-    assert.equal(loaded.config.schemaVersion, 24);
+    assert.equal(loaded.config.schemaVersion, 25);
     assert.deepEqual(loaded.config.runtime.modelByComplexity, { low: null, medium: null, high: null });
     assert.equal(loaded.config.runtime.reworkModel, null);
     assert.equal(loaded.config.review.onRework, 'narrow');
