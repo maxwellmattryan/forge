@@ -68,8 +68,14 @@ runtime:
     assistant: high
     retro: high
     judge: high
-  effortByComplexity: { low: low, medium: medium, high: high }
-  modelByComplexity: { low: sonnet, medium: null, high: null }
+  effortByComplexity:
+    low: low
+    medium: medium
+    high: high
+  modelByComplexity:
+    low: sonnet
+    medium: null
+    high: null
   reworkModel: sonnet
   models:
     orchestrator: inherit
