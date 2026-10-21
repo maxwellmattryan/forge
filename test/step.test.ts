@@ -948,6 +948,9 @@ const rows: Row[] = [
   // ---- PR
   { name: 'PR1 pr.enabled false finishes on the branch', fx: { config: (c) => (c.pr.enabled = false), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }) }, want: { ...run('job', 'set', 'j', '--stage', 'done', '--state', 'done'), tell: 'j finished on branch forge/j' } },
   { name: 'PR2 an unverified HEAD is verified first', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, false)] }) }, want: run('verify', 'j') },
+  { name: 'PR2 a PR branch merged in after verify is verified again', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-head-pulled', 12, { pulled: 'fast-forward', head: 'a'.repeat(40) })] }, want: run('verify', 'j') },
+  { name: 'PR3 a pull the last verify already covered opens the PR', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 14, true)] }), events: [ev('pr-head-pulled', 12, { pulled: 'merge', head: 'a'.repeat(40) })] }, want: run('pr', 'open', 'j') },
+  { name: 'PR3 an aborted conflicting pull does not re-verify', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-head-pulled', 12, { pulled: 'conflicts', head: 'a'.repeat(40) })] }, want: run('pr', 'open', 'j') },
   { name: 'PR3 opens the PR', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }) }, want: run('pr', 'open', 'j') },
 
   // ---- Protected paths (PP1, PP2)

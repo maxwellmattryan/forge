@@ -1381,6 +1381,9 @@ function pr(x: StepInput): StepAction {
   if (bump) return bump;
   const last = j.verifyRuns.at(-1);
   if (!last?.ok) return run(x, 'PR2', ['verify', j.id], 'pr open needs a verified HEAD');
+  // pr open merged a PR branch that moved on the remote: the merged HEAD is not the one verified.
+  const pulled = lastEvent(x, (e) => e.type === 'pr-head-pulled' && e.pulled !== 'conflicts');
+  if (after(pulled?.ts, last.at)) return run(x, 'PR2', ['verify', j.id], 'the PR branch moved on the remote and was merged in: verify the merged HEAD');
   // The last open attempt: a deferral counts, so PR3 doesn't run pr open again on the same verify.
   const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated' || e.type === 'pr-deferred');
   if (!after(opened?.ts, last.at)) return run(x, 'PR3', ['pr', 'open', j.id], 'push and open or update the PR');
