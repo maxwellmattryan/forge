@@ -63,6 +63,14 @@ runtime:
   maxParallelJobs: 2
   diversity: false
   effort: medium
+  efforts:
+    spec-writer: high
+    assistant: high
+    retro: high
+    judge: high
+  effortByComplexity: { low: low, medium: medium, high: high }
+  modelByComplexity: { low: sonnet, medium: null, high: null }
+  reworkModel: sonnet
   models:
     orchestrator: inherit
     planner: opus
@@ -75,6 +83,7 @@ runtime:
     integrator: sonnet
     retro: opus
     judge: opus
+    verifier: haiku
 tracker:
   kind: github
   local:
@@ -120,6 +129,7 @@ review:
       checklist: .forge/reviewers/code.md
     - name: security
       model: opus
+      effort: high
       when: lib/server.ts, lib/pr.ts, lib/trackers/*, hooks/*, anything that ingests tracker/PR/web text, runs shell commands, or touches the dashboard's Host/Origin/token checks
       paths:
         - lib/server.ts
@@ -143,6 +153,8 @@ review:
         - lib/worktree.ts
         - dashboard/src/lib/markdown.ts
     - name: docs
+      model: haiku
+      effort: low
       when: "the diff adds, removes or renames a CLI command, flag or JSON output field, a config key or an /api shape, or changes orchestrator behaviour in skills/forge/**"
       paths:
         - README.md
@@ -154,6 +166,7 @@ review:
         - lib/config-fields.ts
     - name: design
       model: opus
+      effort: high
       checklist: .forge/reviewers/design.md
       when: "user-visible dashboard changes: dashboard/src/**, dashboard/style.css, dashboard/index.html, design/** (themes, phone width, flows, copy, keyboard, contrast)"
       paths:
