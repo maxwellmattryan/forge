@@ -76,6 +76,7 @@ test('pluginHash covers prompts, checklists, the skill, step and brief only', ()
     'skills/forge/SKILL.md': 'skill',
     'skills/forge/reference/evals.md': 'evals',
     'lib/step.ts': 'step',
+    'lib/step/stages/build.ts': 'build stage',
     'lib/brief.ts': 'brief',
     'lib/evals.ts': 'evals engine',
     'README.md': 'readme',
@@ -96,7 +97,7 @@ test('pluginHash covers prompts, checklists, the skill, step and brief only', ()
       undo();
       assert.equal(pluginHash(root), h0, `${label}: undone`);
     };
-    for (const rel of ['agents/builder.md', 'reviewers/code.md', 'skills/forge/SKILL.md', 'skills/forge/reference/evals.md', 'lib/step.ts', 'lib/brief.ts'])
+    for (const rel of ['agents/builder.md', 'reviewers/code.md', 'skills/forge/SKILL.md', 'skills/forge/reference/evals.md', 'lib/step.ts', 'lib/step/stages/build.ts', 'lib/brief.ts'])
       changes(`edit ${rel}`, () => put(rel, 'changed'), () => put(rel, files[rel]), true);
     changes('add an agent', () => put('agents/new.md', 'new'), () => fs.rmSync(path.join(root, 'agents/new.md')), true);
     changes('add a skill file', () => put('skills/forge/reference/deep/x.md', 'x'), () => fs.rmSync(path.join(root, 'skills/forge/reference/deep'), { recursive: true }), true);

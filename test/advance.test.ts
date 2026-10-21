@@ -433,8 +433,10 @@ test('advance stops when another session takes the job mid-call', async () => {
 });
 
 test('only the commands step emits run in-process', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'lib', 'step.ts'), 'utf8');
-  const groups = new Set([...src.matchAll(/\brun\(x, '[A-Z0-9]+', \['([a-z]+)'/g)].map((m) => m[1]));
+  const dir = path.join(ROOT, 'lib', 'step');
+  const files = (fs.readdirSync(dir, { recursive: true }) as string[]).filter((f) => f.endsWith('.ts'));
+  const src = files.map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
+  const groups = new Set([...src.matchAll(/\brun\(\w+, '[A-Za-z0-9]+', \['([a-z]+)'/g)].map((m) => m[1]));
   assert.ok(groups.size >= 5, `found ${[...groups].join(',')}`);
   groups.add('job');
   for (const g of groups) assert.equal(runnableInProcess([g, 'x']), true, g);
