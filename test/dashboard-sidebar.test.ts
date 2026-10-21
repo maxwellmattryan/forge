@@ -1,19 +1,12 @@
 // The sidebar's width, its icon-only rail and the separator's keys (dashboard/src/lib/sidebar.ts).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, SIDEBAR_RAIL, clampSidebarWidth, railTipPlace, readSidebar, sidebarDrag, sidebarKey, sidebarShown } from '../dashboard/src/lib/sidebar.ts';
 import { PANE_GUTTER } from '../dashboard/src/lib/drawer.ts';
-
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 test('clampSidebarWidth falls back and clamps', () => {
   assert.deepEqual([SIDEBAR_MIN, SIDEBAR_MAX, SIDEBAR_DEFAULT, SIDEBAR_RAIL], [184, 360, 236, 64]);
   assert.equal(SIDEBAR_DEFAULT, PANE_GUTTER, 'the default is the drawer gutter');
-  const css = fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8');
-  assert.equal(Number(/--size-sidebar:\s*(\d+)px/.exec(css)?.[1]), SIDEBAR_DEFAULT, 'and --size-sidebar in style.css');
   for (const bad of [NaN, Infinity, -Infinity]) assert.equal(clampSidebarWidth(bad), 236, String(bad));
   assert.equal(clampSidebarWidth(100), 184);
   assert.equal(clampSidebarWidth(184), 184);

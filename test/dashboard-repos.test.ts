@@ -1,7 +1,6 @@
 // The drawer's Repos table and the job card's member PR chips (dashboard/src/lib/repos.ts).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import { jobRepoRows, memberPrs } from '../dashboard/src/lib/repos.ts';
 import { prChipModel } from '../dashboard/src/lib/view.ts';
 
@@ -29,19 +28,4 @@ test('repo rows and member PR chips', () => {
   assert.equal(prChipModel(root.pr)?.text, '#11', 'the root chip is unchanged');
   assert.deepEqual(memberPrs({ repos: [root, lib, docs] }).map((m) => [m.repo, m.pr.number]), [['lib', 7]]);
   assert.deepEqual(memberPrs({ repos: [root] }), []);
-});
-
-test('the Repos table is named by its heading and scrolls whole at phone width', () => {
-  const src = fs.readFileSync(new URL('../dashboard/src/components/RepoSection.svelte', import.meta.url), 'utf8');
-  const h3 = src.match(/<h3 id=\{(\w+)\}[^>]*>/);
-  assert.ok(h3, 'the heading has an id');
-  const table = src.match(/<table class="([^"]*)" aria-labelledby=\{(\w+)\}>/);
-  assert.ok(table, 'the table is labelled');
-  assert.equal(table[2], h3[1], 'by the heading');
-  assert.match(table[1], /\bmin-w-\[36rem\]/, 'with a minimum width inside its scroller');
-  assert.match(src, /<div class="overflow-x-auto">\s*<table /);
-  assert.match(src, /<td class="mono whitespace-nowrap">\{#if row\.verifyOnly\}/, 'the branch stays on one line');
-  assert.match(src, /<td class="mono break-all min-w-\[16rem\] selectable">\{row\.worktree/, 'the worktree keeps a readable width');
-  const card = fs.readFileSync(new URL('../dashboard/src/components/JobCard.svelte', import.meta.url), 'utf8');
-  assert.match(card, /\{#each memberPrs\(j\) as mp \(mp\.repo\)\}/, 'the member chip loop does not shadow the card model m');
 });

@@ -705,7 +705,7 @@ test('actorLabel and lastActed', () => {
   assert.equal(V.actorLabel(ev({ login: null, source: 'foreman' })), null, 'the foreman keeps its chip and shows no login');
   assert.equal(V.actorLabel({ v: 2, ts: 't', type: 'agent-end' }), null);
   assert.equal(V.actorLabel(null), null);
-  // Markup is returned as text; Svelte's {…} escapes it, and no {@html} renders an actor (dashboard-svelte.test.ts).
+  // Markup is returned as text; Svelte's {…} escapes it, and no {@html} renders an actor (dashboard-invariants.test.ts).
   assert.equal(V.actorLabel(ev({ login: '<img src=x onerror=alert(1)>', source: 'env' }))!.login, '<img src=x onerror=alert(1)>');
 
   assert.equal(V.lastActed({ lastHuman: null }), null);

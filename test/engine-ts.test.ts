@@ -82,7 +82,7 @@ function filesUnder(rel: string): string[] {
 }
 
 // Parsed rather than matched: a regex cannot tell an import from the same text inside a string (the Svelte
-// fixtures in dashboard-svelte.test.ts hold import lines that are data, not code).
+// fixtures in dashboard-invariants.test.ts hold import lines that are data, not code).
 function relativeSpecifiers(ts: any, file: string, text: string): string[] {
   const kind = file.endsWith('.ts') ? ts.ScriptKind.TS : ts.ScriptKind.JS;
   const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kind);

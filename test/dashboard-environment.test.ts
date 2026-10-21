@@ -2,8 +2,6 @@
 // and cap, the Project page's Running environments rows, and the fetch wrappers behind them.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
 import {
   LOG_CAP,
   actionToast,
@@ -71,11 +69,6 @@ test('docker down and the Logs toggle', () => {
     (['running', 'stopped', 'missing', 'unknown'] as const).map((state) => logHint({ state })),
     [null, null, 'logsMissing', 'logsUnknown'],
   );
-});
-
-test('a Running environments row opens the job on its Details tab', () => {
-  const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'dashboard', 'src', 'views', 'Project.svelte'), 'utf8');
-  assert.match(src, /openDrawer\(id, null, 'details'\)/);
 });
 
 test('action toasts', () => {
