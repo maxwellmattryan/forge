@@ -10,7 +10,7 @@
   let grain = $state(currentGrain());
   const key = settingsShortcutLabel(typeof navigator === 'undefined' ? '' : navigator.platform);
   const codes = Object.keys(CATALOGS);
-  const labels = $derived<Record<ThemeChoice, string>>({ forge: $t('settings.general.forge'), ash: $t('settings.general.ash'), temper: $t('settings.general.temper'), system: $t('settings.general.system') });
+  const labels = $derived<Record<ThemeChoice, string>>({ forge: $t('settings.general.forge'), ash: $t('settings.general.ash'), temper: $t('settings.general.temper'), crucible: $t('settings.general.crucible'), patina: $t('settings.general.patina'), obsidian: $t('settings.general.obsidian'), system: $t('settings.general.system') });
 
   function languageName(code: string): string {
     try {
@@ -32,7 +32,7 @@
     <div class="grid grid-cols-1 sm:grid-cols-[150px_1fr] gap-x-5 gap-y-3 sm:items-center">
       <div id="settings-theme-label">{$t('settings.general.theme')}</div>
       <div role="radiogroup" aria-labelledby="settings-theme-label" class="seg flex-wrap gap-y-2 self-start">
-        {#each THEME_CHOICES as c (c)}<label class={choice === c ? 'btn sm sel' : 'btn sm'}><input type="radio" class="sr-only" name="settings-theme" value={c} checked={choice === c} onchange={() => pick(c)} />{labels[c]}</label>{/each}
+        {#each THEME_CHOICES as c (c)}<label class={choice === c ? 'btn sm sel' : 'btn sm'}><input type="radio" class="sr-only" name="settings-theme" value={c} checked={choice === c} onchange={() => pick(c)} />{#if c !== 'system'}<span data-theme={c} class="swatch" aria-hidden="true"><span></span><span></span><span></span></span>{/if}{labels[c]}</label>{/each}
       </div>
       <div id="settings-grain-label">{$t('settings.general.grain')}</div>
       <label class="field"><input type="checkbox" class="check" checked={grain} aria-labelledby="settings-grain-label" aria-describedby="settings-grain-hint" onchange={(e) => { grain = e.currentTarget.checked; setGrain(grain); }} /><span id="settings-grain-hint" class="muted">{$t('settings.general.grainHint')}</span></label>

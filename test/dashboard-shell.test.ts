@@ -397,9 +397,17 @@ test('checkboxes are drawn and the theme seg keeps its radiogroup', () => {
   assert.equal(radios.length, 1, 'one radio, repeated over THEME_CHOICES');
   assert.equal(unquote(radios[0].attrs.find((a) => a.name === 'name')?.value), 'settings-theme', "Settings.svelte's focus trap groups radios by name");
   assert.match(general, /\{#each THEME_CHOICES as c \(c\)\}/);
-  assert.equal(THEME_CHOICES.length, 4, 'three themes and System');
-  assert.deepEqual([...THEME_CHOICES], ['forge', 'ash', 'temper', 'system']);
+  assert.equal(THEME_CHOICES.length, 7, 'six themes and System');
+  assert.deepEqual([...THEME_CHOICES], ['forge', 'ash', 'temper', 'crucible', 'patina', 'obsidian', 'system']);
   for (const c of THEME_CHOICES) assert.match(general, new RegExp(`${c}: \\$t\\('settings\\.general\\.${c}'\\)`), `the ${c} choice has a label`);
+  // Each theme segment but System shows a decorative swatch drawn in that theme's own tokens: the wrapper carries its
+  // data-theme, so the variables resolve locally. The label stays the segment's accessible name.
+  const each = /\{#each THEME_CHOICES as c \(c\)\}([\s\S]*?)\{\/each\}/.exec(general)?.[1] ?? '';
+  assert.match(each, /\{#if c !== 'system'\}<span data-theme=\{c\} class="swatch" aria-hidden="true">(<span><\/span>){3}<\/span>\{\/if\}\{labels\[c\]\}/, 'the swatch sits inside the each, before the label, skipped for system');
+  const swatches = all.filter((t) => t.attrs.some((a) => a.name === 'class' && unquote(a.value) === 'swatch'));
+  assert.equal(swatches.length, 1, 'one swatch, repeated over the themes');
+  assert.equal(unquote(swatches[0].attrs.find((a) => a.name === 'aria-hidden')?.value), 'true', 'the swatch is decorative');
+  assert.match(fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8'), /@utility swatch \{[\s\S]*?var\(--bg\)[\s\S]*?var\(--gleam\)[\s\S]*?var\(--ember\)[\s\S]*?\n\}/, 'the swatch draws ground, gleam and ember from tokens');
   // One Grain row replaces Grid and Paper. The theme and the grain go through lib/theme.ts, which owns <html>'s attributes and their prefs.
   assert.match(general, /<div id="settings-grain-label">\{\$t\('settings\.general\.grain'\)\}<\/div>/);
   assert.match(general, /aria-labelledby="settings-grain-label" aria-describedby="settings-grain-hint"/);
@@ -653,7 +661,7 @@ test('text never sits on the bare ground', () => {
   for (const rel of files) assert.deepEqual(onGround(rel, read(rel), checked), [], `${rel} keeps its text on a surface`);
   const agents = fs.readFileSync(path.join(ROOT, 'dashboard', 'AGENTS.md'), 'utf8');
   assert.ok(agents.includes('**Text never sits on the grain.**') && agents.includes('a `plate` (not `plate open`'), 'dashboard/AGENTS.md states the rule with plate and plate open');
-  for (const s of ['`dashboard/style.css`', 'Check the forge, ash and temper themes', 'Grain']) assert.ok(agents.includes(s), `dashboard/AGENTS.md names ${s}`);
+  for (const s of ['`dashboard/style.css`', 'Check the forge, ash, temper, crucible, patina and obsidian themes', 'Grain']) assert.ok(agents.includes(s), `dashboard/AGENTS.md names ${s}`);
   assert.ok(fs.readFileSync(path.join(ROOT, 'AGENTS.md'), 'utf8').includes('](dashboard/AGENTS.md)'), 'AGENTS.md links dashboard/AGENTS.md');
 });
 
