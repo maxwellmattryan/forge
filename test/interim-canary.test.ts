@@ -114,7 +114,7 @@ describe('interim strategies: canary', { concurrency: 4 }, () => {
     assert.match(s.command.join(' '), /--waiting-on human/);
     json(await c.run(s.command));
     json(await c.run(['pr', 'sync', c.id]));
-    assert.equal(json(await c.run(['job', 'step', c.id])).rule, 'G4', 'parked on the human');
+    assert.equal(json(await c.run(['job', 'step', c.id])).rule, 'G4b', 'parked on the human');
     // A hand-set override changes nothing either: it only defers.
     json(await c.run(['job', 'repo', 'interim', c.id, 'lib', 'canary']));
     json(await c.run(['verify', c.id]));

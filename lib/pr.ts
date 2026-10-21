@@ -180,7 +180,7 @@ export function openPr(
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree`);
   // A PR branch moved on GitHub (an "Update branch", a person's push) would reject the push as
   // non-fast-forward. Merge it in rather than force over it, and send the job back through verify for
-  // the merged HEAD: step PR2 re-verifies after a pr-head-pulled event.
+  // the merged HEAD: step PR2b re-verifies after a pr-head-pulled event.
   const pulled = pullPrHead(root, config, job);
   if (pulled?.pulled === 'conflicts')
     throw new ForgeError(`PR branch ${job.branch} moved on ${config.git.remote} (${pulled.head.slice(0, 12)}) and conflicts with ${id}'s HEAD; the merge was aborted, so resolve it in the worktree and run forge verify ${id}`, 'failed');

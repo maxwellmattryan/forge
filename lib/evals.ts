@@ -72,6 +72,7 @@ const PLUGIN_DIRS: { dir: string; recursive: boolean; md: boolean }[] = [
   { dir: 'agents', recursive: false, md: true },
   { dir: 'reviewers', recursive: false, md: true },
   { dir: 'skills/forge', recursive: true, md: false },
+  { dir: 'lib/step', recursive: true, md: false },
 ];
 const PLUGIN_FILES = ['lib/step.ts', 'lib/brief.ts'];
 

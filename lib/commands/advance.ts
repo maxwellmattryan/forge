@@ -11,7 +11,7 @@ import { num, req, str } from './args.ts';
 import type { AdvanceRan, CliContext, Dispatch, Dispatched, Job } from '../types.ts';
 
 /**
- * The command groups advance runs: every group lib/step.ts emits. Anything else (config writes,
+ * The command groups advance runs: every group lib/step/ emits. Anything else (config writes,
  * commands that print for themselves, trackers, a nested advance) stays a separate call.
  */
 export const ADVANCE_GROUPS = ['job', 'worktree', 'pr', 'verify', 'verifiers', 'integrate', 'run', 'stop', 'environment', 'eval'] as const;

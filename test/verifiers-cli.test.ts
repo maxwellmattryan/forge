@@ -177,7 +177,7 @@ describe('forge verifiers', { concurrency: 4 }, () => {
       assert.deepEqual(ev[0].results, []);
       await s.f('job', 'set', j.id, '--stage', 'verify', '--state', 'running');
       const step = await s.f('job', 'step', j.id);
-      assert.equal(step.rule, 'V2', JSON.stringify(step));
+      assert.equal(step.rule, 'V2b', JSON.stringify(step));
       assert.deepEqual(step.command, ['job', 'set', j.id, '--stage', 'review', '--state', 'running']);
     } finally {
       s.cleanup();
@@ -211,7 +211,7 @@ describe('forge verifiers', { concurrency: 4 }, () => {
           assert.equal(job.verify[1], 'FAIL');
           assert.equal(job.verifyRetries['1'], 1);
           const v3 = await s.f('job', 'step', j.id);
-          assert.equal(v3.rule, 'V3');
+          assert.equal(v3.rule, 'V3b');
           await s.f(...(v3.command as string[]));
           const b4 = await s.f('job', 'step', j.id);
           assert.equal(b4.rule, 'B4');
@@ -227,7 +227,7 @@ describe('forge verifiers', { concurrency: 4 }, () => {
           assert.equal(job.verifyRuns.length, 1, 'no verify run appended');
           assert.equal(job.verify[1], 'PASS');
           const v2 = await s.f('job', 'step', j.id);
-          assert.equal(v2.rule, 'V2');
+          assert.equal(v2.rule, 'V2b');
           assert.deepEqual(v2.command, ['job', 'set', j.id, '--stage', 'review', '--state', 'running']);
         }
         const recEv = verifierEvents(s.root, j.id).at(-1)!;
@@ -262,7 +262,7 @@ describe('forge verifiers', { concurrency: 4 }, () => {
       const file = path.join(j.dir, 'events.jsonl');
       const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
       fs.writeFileSync(file, lines.filter((l) => !(JSON.parse(l).type === 'verifiers' && JSON.parse(l).phase === 'record')).join('\n') + '\n');
-      assert.equal((await s.f('job', 'step', j.id)).rule, 'V3', 'the job goes back to build, never to review');
+      assert.equal((await s.f('job', 'step', j.id)).rule, 'V3b', 'the job goes back to build, never to review');
     } finally {
       s.cleanup();
     }

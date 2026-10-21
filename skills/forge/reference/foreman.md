@@ -16,7 +16,7 @@
 | Gate | approve | revise | rework |
 |---|---|---|---|
 | spec-approval | `forge job human <job> approve-spec` → `forge job set <job> --state running` | `forge job human <job> revise-spec` → `forge job set <job> --stage spec --state running` | = revise |
-| split-approval | `forge job human <job> approve-split` → `forge job set <job> --stage plan --state running` (step P2 then returns `split.md`) | `forge job human <job> revise-split` → `forge job set <job> --stage plan --state running` | = revise |
+| split-approval | `forge job human <job> approve-split` → `forge job set <job> --stage plan --state running` (step P2b then returns `split.md`) | `forge job human <job> revise-split` → `forge job set <job> --stage plan --state running` | = revise |
 | escalation, rounds-exhausted | `forge job human <job> approve` → `forge job set <job> --stage integrate --state running` (`--stage decide` when the stage is already `integrate`) | `forge job human <job> revise-spec` → `forge job set <job> --stage spec --state running` | `forge job human <job> rework` → `forge job set <job> --stage build --state running` |
 | conflicts | `forge job human <job> approve` → `forge job set <job> --stage integrate --state running` | = escalate | = approve |
 | repo-proposal | `forge job human <job> approve-repos --repo <repos>` → `forge job set <job> --state running` | `forge job human <job> reject-repos --repo <repos>` → `forge job set <job> --state running` | = revise |

@@ -218,7 +218,7 @@ test('advance stops at the first failed run and prints no command output', POSIX
     const again = s.raw('job', 'advance', id, '--session', 'S');
     assert.equal(again.status, 0, again.stderr);
     const b = oneJsonLine(again.stdout);
-    assert.deepEqual(b.ran.map((e: any) => e.rule), ['V3']);
+    assert.deepEqual(b.ran.map((e: any) => e.rule), ['V3b']);
     assert.equal(b.action, 'spawn');
     assert.equal(b.rule, 'B4');
     assert.equal(b.role, 'builder');
@@ -390,7 +390,7 @@ test('advance continues past releasing its own claim and refreshes the heartbeat
     assert.equal(r.status, 0, r.stderr);
     const a = oneJsonLine(r.stdout);
     assert.equal(a.action, 'wait');
-    assert.equal(a.rule, 'G3');
+    assert.equal(a.rule, 'G3c');
     assert.deepEqual(a.ran.map((e: any) => [e.rule, e.command, e.ok]), [['G3', ['job', 'release', id], true]]);
     assert.equal(loadJob(s.root, id).lease.driver, null);
 
@@ -433,8 +433,10 @@ test('advance stops when another session takes the job mid-call', async () => {
 });
 
 test('only the commands step emits run in-process', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'lib', 'step.ts'), 'utf8');
-  const groups = new Set([...src.matchAll(/\brun\(x, '[A-Z0-9]+', \['([a-z]+)'/g)].map((m) => m[1]));
+  const dir = path.join(ROOT, 'lib', 'step');
+  const files = (fs.readdirSync(dir, { recursive: true }) as string[]).filter((f) => f.endsWith('.ts'));
+  const src = files.map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
+  const groups = new Set([...src.matchAll(/\brun\([\w.]+, '[A-Za-z0-9]+', \['([a-z]+)'/g)].map((m) => m[1]));
   assert.ok(groups.size >= 5, `found ${[...groups].join(',')}`);
   groups.add('job');
   for (const g of groups) assert.equal(runnableInProcess([g, 'x']), true, g);
