@@ -1,6 +1,6 @@
 // The issue's acceptance, end to end on one scratch repo: a declared secret reaches the component's
 // process through an env sink, and never the builder brief, a log, an event or /api/state. Commands
-// run through sh, so this file is in WINDOWS_SKIP.
+// run through sh.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
