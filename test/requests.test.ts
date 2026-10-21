@@ -52,8 +52,6 @@ describe('the request inbox', { concurrency: 4 }, () => {
       assert.deepEqual(fs.readdirSync(dir), ['requests']);
       assert.deepEqual(fs.readdirSync(path.join(dir, 'requests')), [`${rec.id}.json`]);
       assert.equal(fs.existsSync(path.join(repo.dir, 'launched-marker')), false);
-      const src = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'lib', 'requests.ts'), 'utf8');
-      assert.equal(src.includes('child_process'), false);
     } finally {
       repo.cleanup();
     }

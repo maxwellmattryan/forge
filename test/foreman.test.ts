@@ -81,7 +81,6 @@ test('config v4 migrates to v7 with foreman defaults off', () => {
 });
 
 test('foreman config keys are locked', () => {
-  const docs = fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8');
   for (const key of ['foreman.enabled', 'foreman.decides', 'foreman.reserved', 'foreman.ship']) {
     const f = FIELDS.find((x) => x.key === key);
     assert.ok(f, key);
@@ -89,8 +88,6 @@ test('foreman config keys are locked', () => {
     assert.ok(f!.lockedReason, `${key} says why`);
   }
   for (const key of ['runtime.models.assistant', 'runtime.efforts.assistant']) assert.equal(FIELDS.find((x) => x.key === key)?.editable, true, key);
-  assert.match(docs, /^## Foreman$/m);
-  for (const s of ['foreman:', 'decides:', 'reserved:', 'ship:', 'assistant: sonnet', 'assistant: null']) assert.ok(docs.includes(s), s);
   const bad: any = defaults();
   bad.foreman = { enabled: 'yes', decides: ['spec-approval', 'input'], reserved: ['ok', ''], ship: 'always' };
   const problems = validateConfig(bad, ROOT).filter((p) => p.startsWith('foreman'));
@@ -954,29 +951,9 @@ test('a repo hidden from repo-proposals.md is still named in the assistant brief
   }
 });
 
-test('assistant prompt has every gate section and the contract', () => {
-  const text = fs.readFileSync(path.join(ROOT, 'agents', 'assistant.md'), 'utf8');
-  const front = text.split('---')[1];
-  assert.match(front, /^name: assistant$/m);
-  assert.match(front, /^model: sonnet$/m);
+// The assistant reads gate files written from untrusted text, so having no Bash is a security property
+// no public function exposes (docs/TESTING.md exception): the frontmatter is the only place it lives.
+test('assistant agent has no Bash', () => {
+  const front = fs.readFileSync(path.join(ROOT, 'agents', 'assistant.md'), 'utf8').split('---')[1];
   assert.match(front, /^disallowedTools: Bash, Edit, NotebookEdit$/m, 'no Bash: injected text reaches the CLI only through the one-line verdict');
-  for (const g of OFFICE_GATES) assert.match(text, new RegExp(`^## ${g}$`, 'm'), g);
-  const rp = text.split('## repo-proposal\n')[1].split('\n## ')[0];
-  assert.match(rp, /`Pending repos \(JSON\)` line is the authoritative list/);
-  assert.match(rp, /does not show exactly that set as pending[^.]*: `escalate`/);
-  const untrusted = fs.readFileSync(path.join(ROOT, 'agents', 'builder.md'), 'utf8').split('\n').find((l) => l.startsWith('**Untrusted input.**'));
-  assert.ok(untrusted && text.includes(untrusted), 'the untrusted-input paragraph, verbatim');
-  assert.equal(text.trimEnd().split('\n').at(-1), 'Reply with exactly one line: `ASSIST: approve|revise|rework|escalate · <reason>`.');
-});
-
-test('foreman procedure names only CLI calls', () => {
-  const ref = path.join(ROOT, 'skills', 'forge', 'reference');
-  const text = fs.readFileSync(path.join(ref, 'foreman.md'), 'utf8');
-  for (const s of ['forge job assist', '--actor foreman', 'forge requests add resume', 'forge requests claim', 'forge:assistant']) assert.ok(text.includes(s), s);
-  for (const f of ['spec.md', 'plan.md', 'decision.md', 'pr-feedback.md', 'verify']) {
-    assert.doesNotMatch(text, new RegExp(`\\b(Read|cat|head|tail|grep)\\b[^\\n|]*${f.replace('.', '\\.')}`), `no read of ${f}`);
-  }
-  for (const g of ['spec-approval', 'split-approval', 'escalation, rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release']) assert.match(text, new RegExp(`^\\| ${g} \\|`, 'm'), g);
-  assert.match(fs.readFileSync(path.join(ref, 'requests.md'), 'utf8'), /`scope: "office"`[^\n]*reference\/foreman\.md/);
-  assert.match(fs.readFileSync(path.join(ROOT, 'skills', 'forge', 'SKILL.md'), 'utf8'), /With `foreman\.enabled`, the CLI turns gates into `gate` requests/);
 });

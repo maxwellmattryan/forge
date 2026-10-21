@@ -32,15 +32,22 @@ const ROLES: [string, RoleContext][] = [
   ['builder', { rework: ['verifiers'] }],
 ];
 
+/** The value of the brief line that starts with `label`. */
+function field(brief: string, label: string): string {
+  const line = brief.split('\n').find((l) => l.startsWith(label));
+  assert.ok(line !== undefined, `missing a "${label}" line in\n${brief}`);
+  return line.slice(label.length);
+}
+
 function assertShape(brief: string, role: string) {
   const lines = brief.split('\n');
   assert.ok(lines.length <= 25, `${role}: ${lines.length} lines`);
-  LABELS.forEach((label, i) => assert.ok(lines[i].startsWith(label), `${role}: line ${i + 1} is ${label}`));
-  assert.ok(path.isAbsolute(lines[3].slice('Worktree: '.length)), `${role}: worktree is absolute`);
-  for (const p of lines[7].slice('Output: '.length).split(', ')) assert.ok(path.isAbsolute(p), `${role}: output ${p} is absolute`);
-  const inputs = lines[6].slice('Inputs: '.length);
+  for (const label of LABELS) field(brief, label);
+  assert.ok(path.isAbsolute(field(brief, 'Worktree: ')), `${role}: worktree is absolute`);
+  for (const p of field(brief, 'Output: ').split(', ')) assert.ok(path.isAbsolute(p), `${role}: output ${p} is absolute`);
+  const inputs = field(brief, 'Inputs: ');
   if (inputs !== 'none') for (const p of inputs.split(', ')) assert.ok(path.isAbsolute(p), `${role}: input ${p} is absolute`);
-  assert.match(lines[8], /^Effort: (low|medium|high|xhigh|max|inherit)$/, `${role}: effort line`);
+  assert.match(field(brief, 'Effort: '), /^(low|medium|high|xhigh|max|inherit)$/, `${role}: effort line`);
   assert.equal(lines.at(-1), REPLY_LINE, `${role}: ends with the reply contract`);
 }
 
@@ -109,8 +116,8 @@ test('briefs carry paths, never contents', () => {
 const brief = (input: StepInput, role: string, ctx: RoleContext = {}) => renderBrief(input, roleBrief(input, role, ctx));
 const has = (b: string, line: string) => assert.ok(b.split('\n').includes(line), `missing line "${line}" in\n${b}`);
 
-test('every brief names the effective effort right after Output', () => {
-  const at = (b: string) => b.split('\n')[8];
+test('every brief names the effective effort', () => {
+  const at = (b: string) => `Effort: ${field(b, 'Effort: ')}`;
   const high = fixture({ config: (c) => (c.runtime.effort = 'medium'), job: { effort: 'high' } });
   assert.equal(at(brief(high, 'builder')), 'Effort: high', "the job's own level wins");
   assert.equal(at(brief(fixture({ config: (c) => (c.runtime.effort = 'medium') }), 'reviewer:code', { lens: 'code' })), 'Effort: medium', 'else runtime.effort');
@@ -153,13 +160,13 @@ test('builder brief lists rework inputs and the infra policy', () => {
   const b = brief(f, 'builder', { rework: ['review', 'feedback'], reworkReviews: [code] });
   const lines = b.split('\n');
   has(b, `Inputs: ${[code, path.join(JOB_DIR, 'feedback.md'), path.join(JOB_DIR, 'tasks.md'), path.join(JOB_DIR, 'build.md')].join(', ')}`);
-  for (const p of lines[6].slice('Inputs: '.length).split(', ')) assert.ok(path.isAbsolute(p));
+  for (const p of field(b, 'Inputs: ').split(', ')) assert.ok(path.isAbsolute(p));
   const at = lines.indexOf('Rework: review, feedback');
   assert.ok(at > 0);
   assert.equal(lines[at + 1], 'Rework scope: address only the findings in the inputs above and change nothing they do not name; append "## Round 2" to build.md with Findings addressed and the full AC table.');
   assert.equal(lines[at + 2], `Reference: ${path.join(JOB_DIR, 'spec.md')}, ${path.join(JOB_DIR, 'design.md')}`);
   assert.equal(lines[at + 3], 'Infra: mode plan-only · allowed ["terraform plan"]');
-  assert.ok(!lines[6].includes(path.join(JOB_DIR, 'spec.md')));
+  assert.ok(!field(b, 'Inputs: ').includes(path.join(JOB_DIR, 'spec.md')));
   assert.ok(!brief(f, 'builder').includes('Rework:'));
   // No reference file present: the line is left out.
   assert.ok(!brief(fixture({ files: ['tasks'] }), 'builder', { rework: ['verify'] }).includes('Reference:'));
@@ -454,32 +461,6 @@ test('planner and spec-writer briefs carry the repo graph', () => {
   has(brief(onJob, 'planner'), line.replace('"onJob":false', '"onJob":true'));
 });
 
-test('planner and spec-writer prompts propose repos through the CLI', () => {
-  for (const role of ['planner', 'spec-writer']) {
-    const text = fs.readFileSync(path.join(import.meta.dirname, '..', 'agents', `${role}.md`), 'utf8');
-    assert.ok(text.includes('forge job repo propose <job> <repo> --reason'), `${role}: the propose command`);
-    assert.ok(text.includes('Propose only names from that line'), `${role}: names from the Project repos line`);
-    assert.ok(text.includes('never re-propose a rejected repo'), `${role}: no re-proposal`);
-    assert.ok(text.includes('Never approve or reject a proposal yourself'), `${role}: never decides`);
-  }
-});
-
-test('builder prompt states the token rules', () => {
-  const text = fs.readFileSync(path.join(import.meta.dirname, '..', 'agents', 'builder.md'), 'utf8');
-  const rules = [
-    'Read a file whole, once',
-    "Don't re-read it in repeated `sed -n`, `head` or `cat` slices",
-    'Change files only with Edit or Write, never with `python3`, `sed`, `perl` or heredoc rewrites',
-    'Batch independent reads and commands into one message',
-    'Combine checks into one command',
-    "Use browser tools only for the ACs on your brief's `UI proof:` line",
-    'Read pages as text (`get_page_text`, `read_page`) before you take any screenshot',
-    "Take each UI AC's screenshots once, at the end of its phase",
-  ];
-  for (const r of rules) assert.ok(text.includes(r), `missing: ${r}`);
-  assert.match(text.trim().split('\n').at(-1)!, /NEEDS-INPUT|runbook yes/, 'the reply contract stays last');
-});
-
 test('builder brief names the UI proof ACs or none', () => {
   const ui = 'UI proof: AC3, AC7 · browser tools only for these ACs; read pages as text before any screenshot; screenshot each once, at the end of its phase';
   const none = 'UI proof: none · no AC needs a rendered UI, so do not use browser tools';
@@ -516,13 +497,13 @@ test('briefs carry the instructions line only with instruction files', () => {
       assert.ok(!b.includes('Instructions:'), 'scoring judge: no instructions line');
       continue;
     }
-    assert.equal(b.split('\n')[9], line, `${role}: right after Effort`);
+    has(b, line);
     assert.ok(!brief(without, role, ctx).includes('Instructions:'), `${role}: no line without instruction files`);
   }
   // The eval judge keeps the line.
   const evalWith = fixture({ files: ['spec', 'request'], job: { kind: 'eval', eval: { run: 'r', task: 't' } } });
   evalWith.paths = { ...evalWith.paths, instructions: ['/repo.worktrees/j/AGENTS.md'] };
-  assert.equal(brief(evalWith, 'judge').split('\n')[9], line, 'eval judge: right after Effort');
+  has(brief(evalWith, 'judge'), line);
   const evalWithout = fixture({ files: ['spec', 'request'], job: { kind: 'eval', eval: { run: 'r', task: 't' } } });
   evalWithout.paths = { ...evalWithout.paths, instructions: [] };
   assert.ok(!brief(evalWithout, 'judge').includes('Instructions:'), 'eval judge: no line without instruction files');

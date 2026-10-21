@@ -1,4 +1,4 @@
-// The engine's TypeScript toolchain: configs, package scripts, the converted modules and the hook.
+// The engine's TypeScript toolchain: compiler flags, package scripts, imports and the hook.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -10,38 +10,12 @@ import { tempRepo } from './helpers.ts';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const readJson = (rel: string): any => JSON.parse(fs.readFileSync(path.join(ROOT, rel), 'utf8'));
 
-const FOUNDATION = ['util', 'paths', 'yaml', 'schema', 'config', 'jobs', 'attribution', 'roster', 'requests'];
-const DOMAIN = ['worktree', 'scope', 'integrity', 'acs', 'delta', 'deps', 'budget', 'e2e', 'evals', 'retro', 'stats', 'usage', 'detect', 'pr'];
-const DOMAIN_TESTS = ['acs', 'budget', 'delta', 'deps', 'detect', 'integrity', 'pr', 'scope', 'verify-e2e', 'background'];
-const SURFACE = ['cli', 'server', 'daemon', 'commands/args', 'commands/dash', 'commands/eval', 'commands/git', 'commands/init', 'commands/job', 'commands/requests', 'commands/status', 'commands/tracker', 'trackers/github', 'trackers/index', 'trackers/local', 'trackers/status'];
-
+// The compiler flags are the invariant (strict types; only syntax Node's type stripping can erase),
+// and no public function exposes them, so this reads tsconfig.json (docs/TESTING.md exception).
 test('engine tsconfig is strict and erasable-only', () => {
-  assert.deepEqual(readJson('tsconfig.json'), {
-    compilerOptions: {
-      strict: true,
-      noEmit: true,
-      verbatimModuleSyntax: true,
-      erasableSyntaxOnly: true,
-      allowImportingTsExtensions: true,
-      isolatedModules: true,
-      module: 'nodenext',
-      moduleResolution: 'nodenext',
-      target: 'es2023',
-      lib: ['es2023'],
-      types: ['node'],
-      skipLibCheck: true,
-    },
-    include: ['lib/**/*', 'hooks/**/*', 'scripts/**/*', 'test/types-parity.ts'],
-  });
-});
-
-test('test tsconfig extends the engine config with strict off', () => {
-  // dom: the dashboard suites import dashboard/src/lib helpers, which use browser globals.
-  assert.deepEqual(readJson('test/tsconfig.json'), {
-    extends: '../tsconfig.json',
-    compilerOptions: { strict: false, lib: ['es2023', 'dom'] },
-    include: ['**/*'],
-  });
+  const { compilerOptions } = readJson('tsconfig.json');
+  assert.equal(compilerOptions.strict, true);
+  assert.equal(compilerOptions.erasableSyntaxOnly, true);
 });
 
 test('package.json: Node >= 22.18, typecheck and test scripts', () => {
@@ -73,19 +47,8 @@ test('incremental typecheck caches stay out of git', () => {
   }
 });
 
-test('foundation modules are TypeScript and lib/types.ts is type-only', () => {
-  for (const m of FOUNDATION) {
-    assert.ok(fs.existsSync(path.join(ROOT, 'lib', `${m}.ts`)), `lib/${m}.ts exists`);
-    assert.ok(!fs.existsSync(path.join(ROOT, 'lib', `${m}.mjs`)), `lib/${m}.mjs is gone`);
-  }
-  assert.ok(fs.existsSync(path.join(ROOT, 'hooks', 'no-ai-attribution.ts')));
-  assert.ok(!fs.existsSync(path.join(ROOT, 'hooks', 'no-ai-attribution.mjs')));
-
+test('lib/types.ts is type-only', () => {
   const src = fs.readFileSync(path.join(ROOT, 'lib', 'types.ts'), 'utf8');
-  const imports = src.split('\n').filter((l) => /^\s*import\b/.test(l));
-  assert.ok(imports.length > 0);
-  for (const l of imports) assert.match(l, /^import type /, `type-only import: ${l}`);
-  assert.doesNotMatch(src, /^\s*export\s+(const|let|var|function|class|enum|default|namespace)\b/m);
   // What Node would run after stripping types: nothing but the module marker.
   const ts = createRequire(path.join(ROOT, 'package.json'))('typescript');
   const out = ts.transpileModule(src, {
@@ -95,48 +58,8 @@ test('foundation modules are TypeScript and lib/types.ts is type-only', () => {
   assert.equal(out.replace(/export\s*\{\s*\};?/g, '').trim(), '');
 });
 
-test('domain modules and their tests are TypeScript', () => {
-  for (const m of DOMAIN) {
-    assert.ok(fs.existsSync(path.join(ROOT, 'lib', `${m}.ts`)), `lib/${m}.ts exists`);
-    assert.ok(!fs.existsSync(path.join(ROOT, 'lib', `${m}.mjs`)), `lib/${m}.mjs is gone`);
-  }
-  for (const t of DOMAIN_TESTS) {
-    assert.ok(fs.existsSync(path.join(ROOT, 'test', `${t}.test.ts`)), `test/${t}.test.ts exists`);
-    assert.ok(!fs.existsSync(path.join(ROOT, 'test', `${t}.test.mjs`)), `test/${t}.test.mjs is gone`);
-  }
-});
-
-test('surface modules and every test are TypeScript', async () => {
-  for (const m of SURFACE) {
-    assert.ok(fs.existsSync(path.join(ROOT, 'lib', `${m}.ts`)), `lib/${m}.ts exists`);
-    if (m !== 'trackers/status') assert.ok(!fs.existsSync(path.join(ROOT, 'lib', `${m}.mjs`)), `lib/${m}.mjs is gone`);
-  }
-  // bin/forge is extensionless, so it is never matched here; status.mjs is the one re-export kept for adapters.
-  const js: string[] = [];
-  const walk = (dir: string) => {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, e.name);
-      if (e.isDirectory()) walk(full);
-      else if (/\.(mjs|js)$/.test(e.name)) js.push(path.relative(ROOT, full));
-    }
-  };
-  walk(path.join(ROOT, 'lib'));
-  walk(path.join(ROOT, 'hooks'));
-  assert.deepEqual(js, [path.join('lib', 'trackers', 'status.mjs')]);
-
-  const top = fs.readdirSync(path.join(ROOT, 'test'));
-  assert.deepEqual(top.filter((f) => f.endsWith('.mjs')), [], 'no .mjs outside test/fixtures/');
-  const tests = top.filter((f) => /\.test\./.test(f));
-  assert.ok(tests.length > 0);
-  for (const f of tests) assert.ok(f.endsWith('.test.ts'), `${f} ends in .test.ts, so npm test runs it`);
-  assert.ok(fs.existsSync(path.join(ROOT, 'test', 'helpers.ts')));
-
-  const bin = fs.readFileSync(path.join(ROOT, 'bin', 'forge'), 'utf8');
-  assert.match(bin, /^#!\/usr\/bin\/env node\n/);
-  // A dynamic import, so the start-up cache's load hook is registered before lib/ loads.
-  assert.ok(bin.includes("await import('../lib/cli.ts')"), 'bin/forge imports lib/cli.ts');
-  assert.deepEqual(fs.readdirSync(path.join(ROOT, 'bin')), ['forge'], 'bin/forge is the only file in bin/');
-
+// Custom tracker adapters still import status.mjs; it must stay the same functions as status.ts.
+test('the status.mjs re-export is lib/trackers/status.ts', async () => {
   const shim = await import('../lib/trackers/status.mjs');
   const real = await import('../lib/trackers/status.ts');
   assert.deepEqual(Object.keys(shim).sort(), ['STATUS_KEYS', 'statusKey']);

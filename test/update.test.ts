@@ -491,10 +491,4 @@ test('AC12: help lists update', () => {
   } finally {
     s.cleanup();
   }
-  const read = (f: string) => fs.readFileSync(path.join(REPO, f), 'utf8');
-  assert.match(read('README.md'), /\| `forge update/);
-  assert.match(read('docs/ARCHITECTURE.md'), /^## Updating$/m);
-  const skill = read('skills/forge/SKILL.md');
-  assert.match(skill.match(/^argument-hint:.*$/m)?.[0] ?? '', /\bupdate\b/);
-  assert.match(skill, /^\| `update` \|/m);
 });

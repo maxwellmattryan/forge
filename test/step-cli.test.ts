@@ -103,41 +103,7 @@ test('job step is deterministic', () => {
   }
 });
 
-const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
-const section = (text: string, heading: string) => {
-  const start = text.indexOf(heading);
-  assert.ok(start >= 0, `missing ${heading}`);
-  const end = text.indexOf('\n## ', start + heading.length);
-  return end > start ? text.slice(start, end) : text.slice(start);
-};
-
-test('SKILL.md is the loop', () => {
-  const skill = read('skills/forge/SKILL.md');
-  assert.ok(Buffer.byteLength(skill) <= 6000, `SKILL.md is ${Buffer.byteLength(skill)} bytes`);
-  assert.ok(skill.includes('forge job step <id>'));
-  for (const gone of ['--waiting-on spec-approval', 'Split mode: <mode>', '--malformed changes', 'forge job acs', 'dev --background', 'forge job round', 'exhausted', 'Pick the review panel'])
-    assert.ok(!skill.includes(gone), `SKILL.md still states "${gone}"`);
-  for (const ref of ['commands.md', 'requests.md', 'split.md']) {
-    assert.ok(fs.existsSync(path.join(ROOT, 'skills', 'forge', 'reference', ref)), `reference/${ref} exists`);
-    assert.ok(skill.includes(`reference/${ref}`), `SKILL.md names reference/${ref}`);
-  }
-  // The frontmatter is pinned: name, description and argument-hint (approve takes an issue link; triage takes a limit).
-  assert.match(skill, /^---\nname: forge\ndescription: Run Forge, a software factory\./);
-  assert.match(skill, /\nargument-hint: "<feature> \| next \[n\] \| triage \[n\] \| issue <ref> \| continue <job\|#pr> \| approve <job> \[<ref>\|new\|none\] \[note\] \| revise\|answer\|rework\|cancel <job> \[note\] \| status \| sync \| dash \| init \| retro \| eval … \| requests \| doctor \| update"\n---\n/);
-});
-
-test('docs mention job step', () => {
-  const readme = read('README.md');
-  assert.ok(readme.includes('| `forge job step <id> [--session S] [--epoch N]` |'), 'README command table');
-  assert.match(section(readme, '## How it works'), /The CLI decides each step/);
-  const arch = read('docs/ARCHITECTURE.md');
-  assert.ok(section(arch, '## Why a CLI does the bookkeeping').includes('forge job step <id>'));
-  assert.ok(section(arch, '## Data and versioning').includes('Job schema v6'));
-  assert.ok(section(read('docs/PROTOCOL.md'), '## The minimum contract').includes('forge job step <id>'));
-  const config = read('docs/CONFIG.md');
-  assert.ok(config.includes('longer than 600 characters') && config.includes('re-runs the `always: true` lenses'));
-  for (const ref of ['pr-lifecycle.md', 'evals.md', 'retro.md']) assert.ok(read(`skills/forge/reference/${ref}`).includes('step loop'), `${ref} drives with the step loop`);
-  assert.ok(read('skills/forge/reference/infra.md').includes('`forge job step`'));
+test('the CLI usage and help name job step', () => {
   const s = scratch();
   try {
     const usage = s.raw('job');
