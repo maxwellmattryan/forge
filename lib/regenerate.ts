@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { globProblem } from './config.ts';
 import { exists, resolveWorktreePaths } from './paths.ts';
-import { inSpec } from './scope.ts';
+import { inSpec } from './glob.ts';
 import type { Config, Job } from './types.ts';
 import { run } from './util.ts';
 import { commandTemplate, runCommand } from './worktree.ts';

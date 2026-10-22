@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { configForJob } from './eval-overlay.ts';
-import { STATUS_ARGV } from './integrity.ts';
+import { STATUS_ARGV } from './git-pins.ts';
 import { jobDir, loadJob, logEvent, readEvents, setJob } from './jobs.ts';
 import { exists } from './paths.ts';
 import { readMemberPanel } from './member-panel.ts';

@@ -7,11 +7,13 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PINNED_DIFF_OPTS, PINNED_GIT_CONFIG, parseDiffLines } from './integrity.ts';
+import { PINNED_GIT_CONFIG } from './git-pins.ts';
+import { inSpec } from './glob.ts';
+import { PINNED_DIFF_OPTS, parseDiffLines } from './integrity.ts';
 import { defaultAgentOutput, jobDir, logEvent } from './jobs.ts';
 import { MIN_SECRET, knownValues } from './known-secrets.ts';
 import { queueNotify } from './notify.ts';
-import { inSpec, realHistoryEnv, resolveBase } from './scope.ts';
+import { realHistoryEnv, resolveBase } from './scope.ts';
 import type { CompactSecrets, Config, Job, SecretAllowlist, SecretFinding, SecretKind, SecretScan, TextUnit } from './types.ts';
 import { ForgeError, run } from './util.ts';
 

@@ -6,7 +6,7 @@ import { defaults, stringifyConfig, validateConfig } from '../config.ts';
 import { configLock } from '../config-set.ts';
 import { listJobs, jobDir } from '../jobs.ts';
 import { paths, exists, PLUGIN_ROOT } from '../paths.ts';
-import { matchPolicy } from '../protected.ts';
+import { matchPolicy } from '../policy-check.ts';
 import { modelOverlap } from '../roster.ts';
 import { migrateConfig, normalizeJob, serializeJob } from '../schema.ts';
 import { ForgeError, deepMerge, readJson, readText, withLock, writeJsonAtomic } from '../util.ts';

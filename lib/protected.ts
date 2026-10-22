@@ -8,23 +8,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { policyProblems } from './policy-check.ts';
-import { PINNED_GIT_CONFIG } from './integrity.ts';
+import { betterMatch, matchPolicy, matchWith, policyRules } from './policy-check.ts';
+import type { PolicyMatch } from './policy-check.ts';
+import { PINNED_GIT_CONFIG } from './git-pins.ts';
+import { globToRegExp } from './glob.ts';
 import { isForemanActor, jobDir, loadJob, logEvent, updateJob } from './jobs.ts';
-import { globToRegExp, inSpec, resolveBase } from './scope.ts';
+import { resolveBase } from './scope.ts';
 import type { Config, Job, JobEvent, ProtectedHit, ProtectedPaths, ProtectedRule } from './types.ts';
 import { ForgeError, now, run, writeTextAtomic } from './util.ts';
 
 export type ProtectedAction = ProtectedRule['action'];
 export type ProtectedGate = ProtectedPaths['gate'];
-
-/** A rule that matched a path: `rule` is 1-based, `glob` is the configured glob that matched. */
-export interface PolicyMatch {
-  rule: number;
-  glob: string;
-  action: ProtectedAction;
-  reason: string;
-}
 
 /** One `git diff --raw` entry: with `--no-renames`, a rename is a delete plus an add. */
 export interface DiffEntry {
@@ -59,41 +53,7 @@ const REASON_PATH = /^[A-Za-z0-9._:/@+-]+$/;
 
 const isMap = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-// ---------- the policy ----------
-
-export { policyProblems };
-
-/** The rules to enforce. An invalid policy fails closed: every gate refuses until a human fixes it. */
-export function policyRules(config: Config): ProtectedRule[] {
-  const problems = policyProblems(config);
-  if (problems.length) throw new ForgeError(`invalid policy in .forge/config.yml, so Forge refuses to check protected paths: ${problems.join('; ')}`, 'config_invalid');
-  return (config.policy?.protectedPaths ?? []) as ProtectedRule[];
-}
-
-/** refuse beats escalate; within one action the lowest rule number wins. */
-function better(a: PolicyMatch | null, b: PolicyMatch | null): PolicyMatch | null {
-  if (!a || !b) return a ?? b;
-  if (a.action !== b.action) return a.action === 'refuse' ? a : b;
-  return a.rule <= b.rule ? a : b;
-}
-
-function matchWith(rules: ProtectedRule[], test: (glob: string) => boolean): PolicyMatch | null {
-  let best: PolicyMatch | null = null;
-  rules.forEach((r, i) => {
-    for (const glob of r.paths) {
-      if (!test(glob.toLowerCase())) continue;
-      best = better(best, { rule: i + 1, glob, action: r.action, reason: r.reason });
-      break;
-    }
-  });
-  return best;
-}
-
-/** The rule a path falls under, or null. Case-insensitive, so `.GitHub/Workflows/x.yml` still counts. */
-export function matchPolicy(file: string, rules: ProtectedRule[]): PolicyMatch | null {
-  const p = file.toLowerCase();
-  return matchWith(rules, (g) => inSpec(p, [g]));
-}
+// ---------- links ----------
 
 /**
  * Whether `dir` could stand in for a directory a glob reaches into: a symlink named `.github`
@@ -145,13 +105,13 @@ export function matchEntry(entry: DiffEntry, rules: ProtectedRule[], readBlob: (
   for (const [mode, blob] of sides) {
     if (!LINK_MODES.has(mode)) continue;
     const p = entry.path.toLowerCase();
-    best = better(best, matchWith(rules, (g) => leadsInto(p, g)));
+    best = betterMatch(best, matchWith(rules, (g) => leadsInto(p, g)));
     if (mode === '120000') {
       const target = linkTarget(entry.path, blob, cwd, readBlob);
-      if (target === false) best = better(best, UNCHECKED_LINK);
+      if (target === false) best = betterMatch(best, UNCHECKED_LINK);
       if (target === null || target === false) continue;
       const t = target.toLowerCase();
-      best = better(best, better(matchPolicy(target, rules), matchWith(rules, (g) => leadsInto(t, g))));
+      best = betterMatch(best, betterMatch(matchPolicy(target, rules), matchWith(rules, (g) => leadsInto(t, g))));
     }
   }
   return best;

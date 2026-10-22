@@ -2,7 +2,8 @@
 // browser suite is too slow to run on every backend-only change.
 // Must not import worktree.ts (it imports this module).
 import { verifySteps } from './config.ts';
-import { inSpec, resolveBase } from './scope.ts';
+import { inSpec } from './glob.ts';
+import { resolveBase } from './scope.ts';
 import type { Config, Job } from './types.ts';
 import { run } from './util.ts';
 

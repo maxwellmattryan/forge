@@ -4,7 +4,7 @@ import path from 'node:path';
 import { lensAlwaysOnRework } from '../config.ts';
 import { LENS_NAME, isLens, lensRepoAllowed, reviewFileName, splitLens } from '../lens.ts';
 import type { MemberLens } from '../member-panel.ts';
-import { inSpec } from '../scope.ts';
+import { inSpec } from '../glob.ts';
 import type { Config, Job, PanelEntry, StepInput } from '../types.ts';
 import { after } from './facts.ts';
 

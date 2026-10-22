@@ -11,7 +11,7 @@ import { LEDGER_BY, ledgerRows, spendLedger } from './spend.ts';
 import type { LedgerBy } from './spend.ts';
 import { LENS_NAME } from './lens.ts';
 import { agentRoles } from './provenance.ts';
-import { inSpec } from './scope.ts';
+import { inSpec } from './glob.ts';
 import { whenTokens } from './step/panel.ts';
 import type { Config, Job, JobEvent, PromptCohort, PromptStats, ReviewerStats, Stats, UsageRow, VerifierStats } from './types.ts';
 import { ForgeError } from './util.ts';

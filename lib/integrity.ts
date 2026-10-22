@@ -5,6 +5,7 @@
 // It also reports local link overrides (lib/links.ts) that reached a commit.
 import fs from 'node:fs';
 import path from 'node:path';
+import { PINNED_GIT_CONFIG } from './git-pins.ts';
 import { jobDir } from './jobs.ts';
 import { linkLeakPaths } from './links.ts';
 import { exists } from './paths.ts';
@@ -16,13 +17,6 @@ export const DEFAULT_TEST_PATTERN = '(^|/)(tests?|__tests__|spec|specs)/|[._-](t
 
 const JSON_LIST_LIMIT = 10;
 
-// Repo config is writable from the job's worktree, so pin everything the diff parsers depend on:
-// quoting, prefixes, drivers, colour, hunk merging, blank-context rendering, relative paths and
-// submodule visibility. Callers add `--text`, which defeats `-diff`/`binary` attributes that would
-// hide added lines. Shared with the secret scanner (lib/secrets.ts), which reads the same diffs.
-export const PINNED_GIT_CONFIG: readonly string[] = ['-c', 'core.quotepath=off', '-c', 'diff.interHunkContext=0', '-c', 'diff.suppressBlankEmpty=false', '-c', 'diff.relative=false'];
-// fsmonitor, untracked-file and submodule settings are repo config the worktree can write, and each can hide changes.
-export const STATUS_ARGV: readonly string[] = ['-c', 'core.fsmonitor=false', 'status', '--porcelain', '--untracked-files=normal', '--ignore-submodules=none'];
 export const PINNED_DIFF_OPTS: readonly string[] = ['--no-ext-diff', '--no-textconv', '--no-color', '--no-relative', '--ignore-submodules=none', '--inter-hunk-context=0', '--src-prefix=a/', '--dst-prefix=b/', '-M'];
 
 /** A test file the diff deleted, or made stop running: an entry of IntegrityReport.deleted. */

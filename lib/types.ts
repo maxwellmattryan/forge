@@ -636,7 +636,7 @@ export interface SecretAllowlist {
 /** One valid `.forge/verifiers/<name>.md`: loadVerifiers in lib/verifiers.ts. */
 export interface Verifier {
   name: string;
-  /** Globs matched with inSpec (lib/scope.ts). */
+  /** Globs matched with inSpec (lib/glob.ts). */
   paths: string[];
   severity: 'blocker' | 'major' | 'minor';
   mode: 'warn' | 'block';

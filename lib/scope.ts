@@ -2,13 +2,14 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { PINNED_GIT_CONFIG, STATUS_ARGV } from './integrity.ts';
+import { PINNED_GIT_CONFIG, STATUS_ARGV } from './git-pins.ts';
+import { inSpec } from './glob.ts';
 import { loadJob, jobDir, logEvent } from './jobs.ts';
 import { memberWorktree } from './job-repos.ts';
 import { reviewedRepoNames } from './lens.ts';
 import { exists } from './paths.ts';
 import type { Config, Job } from './types.ts';
-import { matchPolicy, policyRules } from './protected.ts';
+import { matchPolicy, policyRules } from './policy-check.ts';
 import { ForgeError, now, run } from './util.ts';
 
 const LIST_LIMIT = 20;
@@ -121,35 +122,6 @@ export function approachPaths(specText: string): string[] {
     for (const e of expandBraces(t)) if (e) out.add(e);
   }
   return [...out];
-}
-
-/** `**` crosses directories, `*` and `?` do not; anchored to the whole string. */
-export function globToRegExp(glob: string): RegExp {
-  const body = glob
-    .split('**/')
-    .map((part) =>
-      part
-        .split('**')
-        .map((p) => p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]'))
-        .join('.*'),
-    )
-    .join('(?:.*/)?');
-  return new RegExp(`^${body}$`);
-}
-
-/** Whether a changed file is covered by any token named in the spec. */
-export function inSpec(file: string, tokens: string[]): boolean {
-  const base = path.posix.basename(file);
-  return tokens.some((t) => {
-    if (file === t) return true;
-    if (t.endsWith('/') ? file.startsWith(t) : file.startsWith(`${t}/`)) return true;
-    if (t.includes('*') || t.includes('?')) {
-      const re = globToRegExp(t.replace(/\/$/, ''));
-      // A slash-free glob (`*.test.mjs`) is read like a bare filename and matched against the basename too.
-      return re.test(file) || (!t.includes('/') && re.test(base));
-    }
-    return !t.includes('/') && base === t;
-  });
 }
 
 const git = (cwd: string, args: string[]): string => run('git', args, { cwd }).stdout.trim();
