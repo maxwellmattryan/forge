@@ -47,15 +47,17 @@ test('incremental typecheck caches stay out of git', () => {
   }
 });
 
-test('lib/types.ts is type-only', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'lib', 'types.ts'), 'utf8');
-  // What Node would run after stripping types: nothing but the module marker.
+test('lib/types.ts and lib/api-types.ts are type-only', () => {
   const ts = createRequire(path.join(ROOT, 'package.json'))('typescript');
-  const out = ts.transpileModule(src, {
-    fileName: 'types.ts',
-    compilerOptions: { removeComments: true, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext, verbatimModuleSyntax: true },
-  }).outputText;
-  assert.equal(out.replace(/export\s*\{\s*\};?/g, '').trim(), '');
+  for (const name of ['types.ts', 'api-types.ts']) {
+    const src = fs.readFileSync(path.join(ROOT, 'lib', name), 'utf8');
+    // What Node would run after stripping types: nothing but the module marker.
+    const out = ts.transpileModule(src, {
+      fileName: name,
+      compilerOptions: { removeComments: true, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext, verbatimModuleSyntax: true },
+    }).outputText;
+    assert.equal(out.replace(/export\s*\{\s*\};?/g, '').trim(), '', name);
+  }
 });
 
 // Custom tracker adapters still import status.mjs; it must stay the same functions as status.ts.

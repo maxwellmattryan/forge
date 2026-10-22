@@ -10,7 +10,6 @@ import { forgeAsync, tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
 import { jobDir, loadJob, readEvents } from '../lib/jobs.ts';
 import { WAITING_ON } from '../lib/schema.ts';
-import { WAITING_ON as DASH_WAITING_ON } from '../dashboard/src/lib/types.ts';
 import { issueLinkStatus, prLinkNote, queryTerms } from '../lib/issue-link.ts';
 import { searchTracker } from '../lib/tracker-link.ts';
 import github, { inRepo, quote } from '../lib/trackers/github.ts';
@@ -52,7 +51,6 @@ async function setup(kind = 'local', backlog?: string, adapter?: string) {
 
 test('issue-link is a waiting gate right after split-approval', () => {
   assert.ok(WAITING_ON.includes('issue-link'));
-  assert.ok(DASH_WAITING_ON.includes('issue-link'));
   assert.equal(WAITING_ON.indexOf('issue-link'), WAITING_ON.indexOf('split-approval') + 1);
 });
 

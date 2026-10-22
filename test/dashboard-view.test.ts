@@ -6,7 +6,7 @@ import * as V from '../dashboard/src/lib/view.ts';
 import { PARK_LABEL, WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
 import { cleanRef, parseCandidates, secretItems, secretLine, threadAction, threadItems, threadMarks, threadOpening } from '../dashboard/src/lib/thread.ts';
 import { dur, tokensShort } from '../dashboard/src/lib/util.ts';
-import { STAGES, STATES, WAITING_ON } from '../dashboard/src/lib/types.ts';
+import { STAGES, STATES, WAITING_ON } from '../lib/schema.ts';
 import { DEP_REASON } from '../lib/deps.ts';
 
 // Per waiting kind: its buttons as `type` (`*` primary, `!` needs a note), whether it has a textarea, and the doc
