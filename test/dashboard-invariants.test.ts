@@ -25,7 +25,7 @@ const readSrc = (rel: string) => fs.readFileSync(path.join(SRC, rel), 'utf8');
 
 // ---------- 1. raw HTML and URLs: only the escape-first builders and safeUrl ----------
 // Svelte's {…} interpolation escapes by construction; these keep raw HTML confined to the escape-first builders
-// (md, budget*, screenshotsPanel), whose own suites pin their escaping.
+// (md, budget*, screenshotsPanel), whose escaping dashboard-markdown, dashboard-budget and dashboard-ui-lib › screenshots pin.
 
 /** Every .ts and .svelte file under dashboard/src, as paths relative to dashboard/. */
 const sources = () =>

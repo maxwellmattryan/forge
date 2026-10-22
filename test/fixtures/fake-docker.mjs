@@ -1,6 +1,6 @@
 // A model of the docker CLI subset lib/backing.ts uses: containers with labels and running state,
-// volumes with labels, and the daemon up or down. backing.test.ts calls handle() in-process; the
-// docker-bin/docker shim runs main() with state in $FAKE_DOCKER_STATE and argv appended to $FAKE_DOCKER_LOG.
+// volumes with labels, and the daemon up or down. The unit tests (backing.test.ts, environment.test.ts)
+// call handle() in-process; for the integration tests (test/integration/) the docker-bin/docker shim runs main() with state in $FAKE_DOCKER_STATE and argv appended to $FAKE_DOCKER_LOG.
 import fs from 'node:fs';
 
 /**

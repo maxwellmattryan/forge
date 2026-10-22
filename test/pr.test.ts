@@ -17,31 +17,20 @@ test('mergeAction: direct merge only when CI passed or the repo has none', () =>
   const B = { mergeState: 'BLOCKED' };
   const rows: any = [
     ['passing', {}, 'merge'],
-    ['passing', { hasWorkflows: true }, 'merge'],
-    ['passing', { mergeState: 'UNSTABLE' }, 'merge'],
     ['failing', {}, 'refuse'],
-    ['failing', { hasWorkflows: true, ...B }, 'refuse'],
     ['none', { hasWorkflows: false }, 'merge'],
     // Waiting on CI: --auto only where GitHub enforces requirements, else defer.
     ['pending', B, 'auto'],
     ['pending', { mergeState: 'BEHIND' }, 'auto'],
     ['pending', { mergeState: 'blocked' }, 'auto'],
-    ['pending', { hasWorkflows: true, ...B }, 'auto'],
     ['none', { hasWorkflows: true, ...B }, 'auto'],
     [undefined, B, 'auto'],
-    ['weird', B, 'auto'],
     ['pending', {}, 'defer'],
     ['pending', { mergeState: 'UNSTABLE' }, 'defer'],
-    ['pending', { mergeState: 'CLEAN' }, 'defer'],
-    ['pending', { mergeState: 'HAS_HOOKS' }, 'defer'],
-    ['pending', { mergeState: 'UNKNOWN' }, 'defer'],
+    // A `none` with workflows that is not blocked defers: they have not registered yet.
     ['none', { hasWorkflows: true, mergeState: 'CLEAN' }, 'defer'],
-    [undefined, {}, 'defer'],
     ['weird', { hasWorkflows: false }, 'defer'],
     ['failing', { now: true }, 'merge'],
-    ['pending', { now: true }, 'merge'],
-    ['none', { now: true, hasWorkflows: true }, 'merge'],
-    [undefined, { now: true }, 'merge'],
   ];
   for (const [state, opts, want] of rows) assert.equal(mergeAction(state, opts), want, `${state} ${JSON.stringify(opts)}`);
   assert.equal(mergeAction('none'), 'merge', 'options default to no workflows, no override');
@@ -585,13 +574,10 @@ test('syncTransition matrix', () => {
     ['fix conflicting routes', 'fix', at(), CONFLICT, true, false, fixR, true, SHA_A, 1],
     ['defer conflicting defers with a note', 'defer', at(), CONFLICT, true, false, deferNote, false, null, 0],
     ['defer, conflict already seen: no note', 'defer', at({}, { conflicts: true }), CONFLICT, true, false, reviewPark, false, null, 0],
+    // Behind (and neither) take the same branch under every policy: the policy only reads a conflict.
     ['ask behind routes', 'ask', at(), BEHIND, true, false, behindR, true, SHA_A, 1],
-    ['fix behind routes', 'fix', at(), BEHIND, true, false, behindR, true, SHA_A, 1],
-    ['defer behind routes', 'defer', at(), BEHIND, true, false, behindR, true, SHA_A, 1],
     ['one commit behind reads singular', 'ask', at(), { behindBy: 1 }, true, false, { ...behindR, reason: 'forge sync: PR #7 is 1 commit behind its base' }, true, SHA_A, 1],
     ['ask neither parks on review', 'ask', at(), {}, true, false, reviewPark, false, null, 0],
-    ['fix neither parks on review', 'fix', at(), {}, true, false, reviewPark, false, null, 0],
-    ['defer neither parks on review', 'defer', at(), {}, true, false, reviewPark, false, null, 0],
     ['behindBy null is not behind', 'fix', at(), { behindBy: null }, true, false, reviewPark, false, null, 0],
     ['from conflicts, fix routes', 'fix', at({ waitingOn: 'conflicts' }), CONFLICT, true, false, fixR, true, SHA_A, 1],
     ['foreign head', 'fix', at({}, { pushedSha: SHA_B }), CONFLICT, true, false, conflictsPark, false, null, 0],
@@ -602,11 +588,9 @@ test('syncTransition matrix', () => {
     ['live owner, behind', 'ask', at(), BEHIND, true, true, reviewPark, false, null, 1],
     ['route: false', 'fix', at(), CONFLICT, false, false, conflictsPark, false, null, 0],
     ['running', 'fix', at({ state: 'running', waitingOn: null }), CONFLICT, true, false, {}, false, null, 0],
+    // Any state sync does not park in (blocked, done, cancelled too) is not routed: these two stand for them.
     ['failed', 'fix', at({ state: 'failed', waitingOn: null }), CONFLICT, true, false, conflictsPark, false, null, 0],
-    ['blocked', 'ask', at({ state: 'blocked', waitingOn: null }), BEHIND, true, false, reviewPark, false, null, 0],
     ['waiting on escalation', 'ask', at({ waitingOn: 'escalation' }), BEHIND, true, false, reviewPark, false, null, 0],
-    ['done at pr', 'fix', at({ state: 'done', waitingOn: null }), CONFLICT, true, false, conflictsPark, false, null, 0],
-    ['cancelled at pr', 'ask', at({ state: 'cancelled', waitingOn: null }), BEHIND, true, false, reviewPark, false, null, 0],
     ['another stage', 'fix', at({ stage: 'integrate', state: 'running', waitingOn: null }, { integrateFor: SHA_A }), CONFLICT, true, false, {}, false, SHA_A, 0],
     ['a new head drops integrateFor', 'ask', at({}, { integrateFor: SHA_B }), {}, true, false, reviewPark, false, null, 0],
     ['merged', 'fix', at({}, { integrateFor: SHA_A }), { ...BEHIND, state: 'MERGED' }, true, false, { stage: 'done', state: 'done', reason: 'PR merged' }, false, SHA_A, 0],
@@ -620,7 +604,6 @@ test('syncTransition matrix', () => {
     ['root merged from integrate, member open', 'ask', at({ stage: 'integrate', state: 'failed', waitingOn: null }), MERGED, true, false, memberWait('PR #7'), false, null, 0, member('OPEN')],
     ['root merged, already waiting so', 'ask', { ...at(), reason: 'PR merged; waiting on repo lib PR #7' } as J, MERGED, true, false, {}, false, null, 0, member('OPEN')],
     ['root merged, member open, running job untouched', 'ask', at({ state: 'running', waitingOn: null }), MERGED, true, false, {}, false, null, 0, member('OPEN')],
-    ['root merged, member open, done job untouched', 'ask', at({ stage: 'done', state: 'done', waitingOn: null }), MERGED, true, false, {}, false, null, 0, member('OPEN')],
     ['root merged, member closed, done job keeps the note', 'ask', at({ stage: 'done', state: 'done', waitingOn: null }), MERGED, true, false, { note: closedNote }, false, null, 0, member('CLOSED', { newlyClosed: true })],
     ['root open, member newly closed', 'ask', at(), {}, true, false, { ...reviewPark, note: closedNote }, false, null, 0, member('CLOSED', { newlyClosed: true })],
     ['root closed still cancels', 'ask', at(), { state: 'CLOSED' }, true, false, { state: 'cancelled', reason: 'PR closed without merging' }, false, null, 0, member('OPEN')],

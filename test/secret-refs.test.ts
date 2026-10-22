@@ -1,28 +1,20 @@
-// Secret references (docs/CONFIG.md "Secret references"): validation, `forge secrets list|check` and
-// the doctor check. Platform-neutral: nothing here runs a shell script.
+// Secret references (docs/CONFIG.md "Secret references"): their validation, and each source
+// (lib/secret-refs.ts) resolved in-process through a fake tool on PATH or a fixture, every failure
+// closed without the value. The fakes are sh scripts; the CLI and doctor tests are in
+// test/integration/cli/secrets.test.ts.
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { forgeAsync, repoTemplate } from './helpers.ts';
+import { execFileSync } from 'node:child_process';
+import { fakeBin, repoTemplate } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/config.ts';
-import { secretsCheck } from '../lib/doctor.ts';
 import { declaredSecrets, secretRefProblems } from '../lib/secret-refs-config.ts';
-import * as yaml from '../lib/yaml.ts';
+import { clearSecretMemo, dotenvValue, resolveSecret } from '../lib/secret-refs.ts';
 
 const has = (problems: string[], re: RegExp) => assert.ok(problems.some((p) => re.test(p)), `${re} not in:\n${problems.join('\n')}`);
-
-const template = repoTemplate((dir) => {
-  fs.mkdirSync(path.join(dir, '.forge'), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.forge', '.gitignore'), 'jobs/\nlocks/\nruntime/\n');
-});
-
-function scratch(secrets: unknown) {
-  const repo = template();
-  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ tracker: { kind: 'none' }, pr: { enabled: false }, secrets }));
-  return repo;
-}
 
 describe('secret references', { concurrency: 4 }, () => {
   test('validation reports each malformed secret entry', () => {
@@ -92,61 +84,123 @@ describe('secret references', { concurrency: 4 }, () => {
     // With no secrets declared at all, any reference is undeclared.
     has(validateConfig({ ...defaults(), components: [component({ DB: '{secret.DB_PASS}' })] }, process.cwd()), /names undeclared secret \{secret\.DB_PASS\}/);
   });
+});
 
-  test('secrets list and check', async () => {
-    const value = `v-${crypto.randomBytes(8).toString('hex')}`;
-    const repo = scratch({ GOOD: { env: 'FORGE_TEST_SECRET_GOOD' }, MISSING: { env: 'FORGE_TEST_SECRET_MISSING' }, API: { op: 'op://v/i/f' } });
-    try {
-      const env = { FORGE_TEST_SECRET_GOOD: value, FORGE_TEST_SECRET_MISSING: undefined };
-      const list = await forgeAsync(repo.dir, ['secrets', 'list'], env);
-      assert.equal(list.status, 0, list.stderr);
-      assert.deepEqual(JSON.parse(list.stdout), { secrets: [{ name: 'GOOD', source: 'env' }, { name: 'MISSING', source: 'env' }, { name: 'API', source: 'op' }] });
-      const ok = await forgeAsync(repo.dir, ['secrets', 'check', 'GOOD'], env);
-      assert.equal(ok.status, 0, ok.stderr);
-      assert.deepEqual(JSON.parse(ok.stdout), { secrets: [{ name: 'GOOD', source: 'env', ok: true }] });
-      const all = await forgeAsync(repo.dir, ['secrets', 'check', 'GOOD', 'MISSING'], env);
-      assert.equal(all.status, 1);
-      assert.deepEqual(JSON.parse(all.stdout).secrets[1], { name: 'MISSING', source: 'env', ok: false, error: 'secret MISSING (env): FORGE_TEST_SECRET_MISSING is not set' });
-      for (const r of [list, ok, all]) {
-        assert.doesNotMatch(r.stdout + r.stderr, new RegExp(value));
-        assert.doesNotMatch(r.stdout, /length|"len"/);
-      }
-      const unknown = await forgeAsync(repo.dir, ['secrets', 'check', 'NOPE'], env);
-      assert.equal(unknown.status, 2);
-      assert.match(unknown.stderr, /not a declared secret: "NOPE"/);
-    } finally {
+const template = repoTemplate((dir) => {
+  fs.writeFileSync(path.join(dir, '.gitignore'), '.secrets/\n');
+  fs.writeFileSync(path.join(dir, 'tracked.env'), 'K=tracked-value-123\n');
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' });
+  execFileSync('git', ['commit', '-qm', 'fixtures'], { cwd: dir, stdio: 'pipe' });
+});
+
+/** A scratch repo, a dir outside it, and fake tools (fakeBin) that record their argv and print a value (or fail). */
+function scratch() {
+  const repo = template();
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-secret-outside-')));
+  const fakes: string[] = [];
+  const fake = (name: string, body: string) => {
+    const b = fakeBin(name, body);
+    fakes.push(b.dir);
+    return b;
+  };
+  return {
+    root: repo.dir,
+    outside,
+    fake,
+    env: (extra: Record<string, string> = {}) => ({ ...process.env, PATH: [...fakes, process.env.PATH].join(path.delimiter), ...extra }),
+    cleanup() {
       repo.cleanup();
+      fs.rmSync(outside, { recursive: true, force: true });
+    },
+  };
+}
+
+const val = () => `val-${crypto.randomBytes(8).toString('hex')}`;
+
+describe('secret sources', { concurrency: 4 }, () => {
+  test('resolves each source', () => {
+    const x = scratch();
+    try {
+      clearSecretMemo();
+      const v = { env: val(), sec: val(), tool: val(), op: val(), file: val(), key: val() };
+      const security = x.fake('security', `printf '%s\\n' '${v.sec}'`);
+      const secretTool = x.fake('secret-tool', `printf '%s' '${v.tool}'`);
+      const op = x.fake('op', `printf '%s\\r\\n' '${v.op}'`);
+      fs.mkdirSync(path.join(x.root, '.secrets'));
+      fs.writeFileSync(path.join(x.root, '.secrets', 'whole'), `${v.file}\n`);
+      fs.writeFileSync(path.join(x.root, '.secrets', 'dev.env'), `# comment\n\nOTHER=x\nexport LOCAL_KEY="${v.key}"\nQ='single quoted'\n`);
+      const config = {
+        secrets: {
+          E: { env: 'FORGE_TEST_SRC_E' },
+          MAC: { keychain: { service: 'svc', account: 'acct' } },
+          LIN: { keychain: { service: 'svc', account: 'acct' } },
+          OP: { op: 'op://v/i/f' },
+          WHOLE: { file: '.secrets/whole' },
+          KEYED: { file: '.secrets/dev.env', key: 'LOCAL_KEY' },
+        },
+      } as any;
+      const env = x.env({ FORGE_TEST_SRC_E: `${v.env}\n` });
+      assert.equal(resolveSecret(x.root, config, 'E', { env }), v.env);
+      assert.equal(resolveSecret(x.root, config, 'MAC', { env, platform: 'darwin' }), v.sec);
+      assert.equal(resolveSecret(x.root, config, 'LIN', { env, platform: 'linux' }), v.tool);
+      assert.equal(resolveSecret(x.root, config, 'OP', { env }), v.op);
+      assert.equal(resolveSecret(x.root, config, 'WHOLE', { env }), v.file);
+      assert.equal(resolveSecret(x.root, config, 'KEYED', { env }), v.key);
+      assert.deepEqual(security.calls(), [['find-generic-password', '-s', 'svc', '-a', 'acct', '-w']]);
+      assert.deepEqual(secretTool.calls(), [['lookup', 'service', 'svc', 'account', 'acct']]);
+      assert.deepEqual(op.calls(), [['read', 'op://v/i/f']]);
+      // Once per process: a second read hits the memo, not the tool.
+      assert.equal(resolveSecret(x.root, config, 'OP', { env }), v.op);
+      assert.equal(op.calls().length, 1);
+      assert.equal(dotenvValue("export Q='single quoted'\n", 'Q'), 'single quoted');
+      assert.equal(dotenvValue('A=1\n', 'B'), null);
+    } finally {
+      x.cleanup();
     }
   });
 
-  test('doctor never reads a value', async () => {
-    const repo = scratch({ API: { op: 'op://v/i/f' }, UNSET: { env: 'FORGE_TEST_SECRET_UNSET' }, KC: { keychain: { service: 'svc' } } });
-    const bin = path.join(repo.dir, '..', `${path.basename(repo.dir)}-bin`);
+  test('fails closed without the value in the error', () => {
+    const x = scratch();
     try {
-      fs.mkdirSync(bin);
-      const calls = path.join(bin, 'calls');
-      for (const tool of ['op', 'security', 'secret-tool']) {
-        fs.writeFileSync(path.join(bin, tool), `#!/bin/sh\necho "$0 $*" >> ${JSON.stringify(calls)}\necho value-from-${tool}\n`, { mode: 0o755 });
-      }
-      const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}`, FORGE_TEST_SECRET_UNSET: undefined };
-      const config = { ...defaults(), secrets: { API: { op: 'op://v/i/f' }, UNSET: { env: 'FORGE_TEST_SECRET_UNSET' }, KC: { keychain: { service: 'svc' } } } } as any;
-      const c = secretsCheck(repo.dir, config, { env, platform: 'win32' })!;
-      assert.equal(c.name, 'secrets');
-      assert.equal(c.ok, true);
-      assert.equal(c.warn, true);
-      assert.match(c.detail, /^3 declared; /);
-      assert.match(c.detail, /UNSET \(env\): FORGE_TEST_SECRET_UNSET is not set/);
-      assert.match(c.detail, /KC \(keychain\): not supported on win32/);
-      assert.equal(secretsCheck(repo.dir, defaults()), null);
-      const r = await forgeAsync(repo.dir, ['doctor'], env);
-      const report = JSON.parse(r.stdout);
-      const check = report.checks.find((x: any) => x.name === 'secrets');
-      assert.match(check.detail, /^3 declared/);
-      assert.doesNotMatch(r.stdout, /value-from-/);
-      assert.equal(fs.existsSync(calls), false, 'no source tool was run');
+      clearSecretMemo();
+      const v = val();
+      const fails = (config: any, name: string, re: RegExp, opts: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv } = {}) => {
+        assert.throws(
+          () => resolveSecret(x.root, config, name, { env: x.env(), ...opts }),
+          (e: Error) => {
+            assert.match(e.message, re);
+            assert.ok(e.message.includes(name), e.message);
+            assert.ok(!e.message.includes(v), `the value leaked: ${e.message}`);
+            return true;
+          },
+        );
+      };
+      fails({ secrets: { E: { env: 'FORGE_TEST_SRC_UNSET' } } }, 'E', /^secret E \(env\): FORGE_TEST_SRC_UNSET is not set$/);
+      const op = x.fake('op', `printf '%s\\n' '${v}'\necho 'first line' >&2\necho '[ERROR] item not found' >&2\nexit 1`);
+      fails({ secrets: { OP: { op: 'op://v/i/f' } } }, 'OP', /^secret OP \(op\) failed: op exited 1: \[ERROR\] item not found$/);
+      // A missing tool: PATH holds only the fake op, and no real secret-tool.
+      fails({ secrets: { LIN: { keychain: { service: 'svc' } } } }, 'LIN', /^secret LIN \(keychain\) failed: secret-tool could not run/, { platform: 'linux', env: { PATH: op.dir } });
+      fails({ secrets: { KC: { keychain: { service: 'svc' } } } }, 'KC', /^secret KC: the keychain source is not supported on win32$/, { platform: 'win32' });
+      fails({ secrets: { SHORT: { env: 'FORGE_TEST_SRC_SHORT' } } }, 'SHORT', /^secret SHORT \(env\) resolved to fewer than 8 characters; Forge can't redact a value that short$/, { env: { FORGE_TEST_SRC_SHORT: 'abc\n' } });
+      fails({ secrets: { EMPTY: { env: 'FORGE_TEST_SRC_EMPTY' } } }, 'EMPTY', /resolved to fewer than 8 characters/, { env: { FORGE_TEST_SRC_EMPTY: '' } });
+      // Files: tracked, not ignored, a symlink, a hard link, outside the root.
+      fails({ secrets: { T: { file: 'tracked.env', key: 'K' } } }, 'T', /^secret T \(file\): tracked\.env must be git-ignored and untracked$/);
+      fs.writeFileSync(path.join(x.root, 'loose.env'), `${v}\n`);
+      fails({ secrets: { L: { file: 'loose.env' } } }, 'L', /^secret L \(file\): loose\.env must be git-ignored and untracked$/);
+      fs.mkdirSync(path.join(x.root, '.secrets'));
+      const outside = path.join(x.outside, 'outside.env');
+      fs.writeFileSync(outside, `${v}\n`);
+      fs.symlinkSync(outside, path.join(x.root, '.secrets', 'link'));
+      fails({ secrets: { S: { file: '.secrets/link' } } }, 'S', /^secret S \(file\): \.secrets\/link is a symlink$/);
+      fs.linkSync(outside, path.join(x.root, '.secrets', 'hard'));
+      fails({ secrets: { H: { file: '.secrets/hard' } } }, 'H', /^secret H \(file\): \.secrets\/hard is a hard link$/);
+      // A parent symlink out of the root, and a path with `..`.
+      fs.symlinkSync(x.outside, path.join(x.root, '.secrets', 'dir'));
+      fails({ secrets: { P: { file: '.secrets/dir/outside.env' } } }, 'P', /^secret P \(file\): \.secrets\/dir\/outside\.env resolves outside the repo$/);
+      fails({ secrets: { U: { file: '../outside.env' } } }, 'U', /^secret U is invalid: secrets\.U\.file must be a relative path inside the repo/);
+      fails({ secrets: {} }, 'NOPE', /^secret NOPE is not declared in secrets$/);
     } finally {
-      repo.cleanup();
-      fs.rmSync(bin, { recursive: true, force: true });
+      x.cleanup();
     }
   });
 });

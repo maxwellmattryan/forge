@@ -1,22 +1,24 @@
-// Focus (issue #177): `forge focus` moves a pointer in the root repo's .forge/runtime/focus.json,
-// starts and stops nothing, and lets go when the focused job finishes.
-import test, { describe } from 'node:test';
+// Focus (issue #177) in-process: lib/focus.ts reads the pointer in .forge/runtime/focus.json without
+// following, blocking or writing, and focusJob starts and stops nothing. `forge focus` itself is
+// test/integration/cli/focus.test.ts, and the dashboard's focus routes test/integration/server/focus.test.ts.
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFile, spawnSync } from 'node:child_process';
-import { forgeAsync, repoTemplate } from './helpers.ts';
-import { TRUST_ENV, trustDigest } from '../lib/config.ts';
-import { focusJob } from '../lib/focus-actions.ts';
-
-const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
+import { spawnSync } from 'node:child_process';
+import { forgeAsync, forgeSync, repoTemplate } from './helpers.ts';
+import { loadConfig } from '../lib/config.ts';
+import { focusFile, readFocusRecord, readSmallJson, resolveFocus } from '../lib/focus.ts';
+import { currentFocus, focusJob } from '../lib/focus-actions.ts';
+import { createJob, setJob } from '../lib/jobs.ts';
+import { archiveJob } from '../lib/retention.ts';
 
 const template = repoTemplate((dir) => {
   const answers = path.join(dir, '.answers.json');
   // `sleep 30` stands in for a dev server: a live process group on the job's port, nothing more.
   const base = 20000 + Math.floor(Math.random() * 20000);
   fs.writeFileSync(answers, JSON.stringify({ tracker: { kind: 'local' }, pr: { enabled: false }, ports: { base, span: 10 }, commands: { dev: 'sleep 30' }, worktrees: { root: '../{repo}.wt' } }));
-  const r = spawnSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, encoding: 'utf8', env: { ...process.env, FORGE_ROOT: dir } });
+  const r = forgeSync(dir, ['init', 'write', '--answers', answers]);
   if (r.status !== 0) throw new Error(r.stderr);
   fs.rmSync(answers);
 });
@@ -28,228 +30,70 @@ function scratch() {
     if (r.status !== 0) throw new Error(`forge ${args.join(' ')} exited ${r.status}: ${r.stderr}${r.stdout}`);
     return JSON.parse(r.stdout);
   };
-  /** The CLI's --json error for a call that must fail. */
-  const fail = async (args: string[], env: NodeJS.ProcessEnv = {}) => {
-    const r = await forgeAsync(repo.dir, ['--json', ...args], env);
-    assert.notEqual(r.status, 0, `forge ${args.join(' ')} should fail: ${r.stdout}`);
-    return { status: r.status, ...JSON.parse(r.stdout).error };
-  };
   const job = async (title: string) => (await f('job', 'new', '--title', title, '--ref', title.toLowerCase().replace(/ /g, '-'))).id as string;
-  const focusFile = path.join(repo.dir, '.forge', 'runtime', 'focus.json');
-  const events = (id: string) =>
-    fs
-      .readFileSync(path.join(repo.dir, '.forge', 'jobs', id, 'events.jsonl'), 'utf8')
-      .split('\n')
-      .filter(Boolean)
-      .map((l) => JSON.parse(l));
-  const focusEvents = (id: string) => events(id).filter((e) => e.type === 'focus' || e.type === 'unfocus');
   const cleanup = () => {
     repo.cleanup();
     fs.rmSync(`${repo.dir}.wt`, { recursive: true, force: true });
   };
-  return { root: repo.dir, f, fail, job, focusFile, events, focusEvents, cleanup };
+  return { root: repo.dir, f, job, cleanup };
 }
 
-describe('forge focus', { concurrency: 4 }, () => {
-  test('focus is recorded in the root repo, also from a worktree', async () => {
-    const s = scratch();
-    try {
-      const a = await s.job('Alpha');
-      const b = await s.job('Beta');
-      const wt = (await s.f('worktree', 'create', a)).path;
-      const set = await s.f('focus', a);
-      assert.equal(set.focus.id, a);
-      assert.equal(set.focus.title, 'Alpha');
-      assert.equal(set.previous, null);
-      const rec = JSON.parse(fs.readFileSync(s.focusFile, 'utf8'));
-      assert.equal(rec.v, 1);
-      assert.equal(rec.job, a);
-      assert.ok(!Number.isNaN(Date.parse(rec.since)));
-      assert.deepEqual(await s.f('focus'), { focus: { id: a, title: 'Alpha', since: rec.since } });
+test('a planted or stale focus record reads as none, in-process', () => {
+  const repo = template();
+  try {
+    const root = repo.dir;
+    const config = loadConfig(root).config;
+    const a = createJob(root, config, { title: 'Alpha' }).id;
+    const archived = createJob(root, config, { title: 'Archived' }).id;
+    setJob(root, archived, { state: 'done' });
+    archiveJob(root, archived, 'cli', { config });
+    assert.equal(fs.existsSync(path.join(root, '.forge', 'jobs', archived)), false);
 
-      // From inside the worktree, with no FORGE_ROOT: mainRoot() finds the same file.
-      const { FORGE_ROOT: _r, ...env } = process.env;
-      const inWt = (...args: string[]) =>
-        new Promise<any>((resolve, reject) =>
-          execFile(process.execPath, [BIN, ...args], { cwd: wt, env, encoding: 'utf8' }, (err, stdout) => (err ? reject(err) : resolve(JSON.parse(stdout)))),
-        );
-      assert.equal((await inWt('focus')).focus.id, a);
-      const moved = await inWt('focus', b);
-      assert.equal(moved.focus.id, b);
-      assert.equal(moved.previous, a);
-      assert.equal(JSON.parse(fs.readFileSync(s.focusFile, 'utf8')).job, b, 'the root repo record moved');
-      assert.equal(fs.existsSync(path.join(wt, '.forge', 'runtime', 'focus.json')), false, 'nothing was written in the worktree');
-    } finally {
-      s.cleanup();
+    const file = focusFile(root);
+    const runtime = path.dirname(file);
+    const locks = path.join(root, '.forge', 'locks');
+    fs.mkdirSync(runtime, { recursive: true });
+    const good = JSON.stringify({ v: 1, job: a, since: '2026-01-01T00:00:00.000Z' });
+    const target = path.join(root, 'elsewhere.json');
+    fs.writeFileSync(target, good);
+    // Windows has no FIFOs, and planting a symlink there needs a privilege CI runners lack.
+    const posixOnly: [string, () => void][] = [
+      ['a symlink', () => fs.symlinkSync(target, file)],
+      ['a FIFO', () => assert.equal(spawnSync('mkfifo', [file]).status, 0)],
+    ];
+    // Each plant and the read that refuses it: readSmallJson for what is not a small JSON object,
+    // readFocusRecord for a bad id, resolveFocus (through currentFocus's job lookup) for a job that is gone.
+    const plants: [string, () => void, 'json' | 'record' | 'resolve'][] = [
+      ...(process.platform === 'win32' ? [] : posixOnly.map(([what, plant]) => [what, plant, 'json'] as [string, () => void, 'json'])),
+      ['a file over 64 KiB', () => fs.writeFileSync(file, JSON.stringify({ v: 1, job: a, since: 'x', pad: 'x'.repeat(65 * 1024) })), 'json'],
+      ['invalid JSON', () => fs.writeFileSync(file, '{"job": '), 'json'],
+      ['an invalid id', () => fs.writeFileSync(file, JSON.stringify({ v: 1, job: '../../etc', since: 'x' })), 'record'],
+      ['a missing job', () => fs.writeFileSync(file, JSON.stringify({ v: 1, job: 'never-was', since: 'x' })), 'resolve'],
+      ['an archived job', () => fs.writeFileSync(file, JSON.stringify({ v: 1, job: archived, since: 'x' })), 'resolve'],
+    ];
+    for (const [what, plant, refusedBy] of plants) {
+      fs.rmSync(file, { force: true });
+      plant();
+      const stat = () => (fs.existsSync(file) ? fs.lstatSync(file) : null);
+      const before = stat();
+      const runtimeBefore = fs.readdirSync(runtime).sort();
+      const locksBefore = fs.existsSync(locks) ? fs.readdirSync(locks).sort() : [];
+      if (refusedBy === 'json') assert.equal(readSmallJson(file), null, what);
+      else assert.notEqual(readSmallJson(file), null, what);
+      if (refusedBy !== 'resolve') assert.equal(readFocusRecord(root), null, what);
+      else assert.notEqual(readFocusRecord(root), null, what);
+      assert.equal(currentFocus(root), null, what);
+      const after = stat();
+      assert.equal(after?.mtimeMs, before?.mtimeMs, `${what}: the read wrote nothing`);
+      assert.equal(after?.ino, before?.ino, what);
+      assert.deepEqual(fs.readdirSync(runtime).sort(), runtimeBefore, `${what}: nothing written beside it`);
+      assert.deepEqual(fs.existsSync(locks) ? fs.readdirSync(locks).sort() : [], locksBefore, `${what}: no lock taken`);
     }
-  });
-
-  test('clear and empty read', async () => {
-    const s = scratch();
-    try {
-      assert.deepEqual(await s.f('focus'), { focus: null });
-      assert.deepEqual(await s.f('focus', '--clear'), { focus: null, previous: null }, 'clearing nothing succeeds');
-      const a = await s.job('Alpha');
-      await s.f('focus', a);
-      assert.deepEqual(await s.f('focus', '--clear'), { focus: null, previous: a });
-      assert.equal(fs.existsSync(s.focusFile), false);
-      assert.deepEqual(await s.f('focus'), { focus: null });
-    } finally {
-      s.cleanup();
-    }
-  });
-
-  test('focus refusals', async () => {
-    const s = scratch();
-    try {
-      const a = await s.job('Alpha');
-      const done = await s.job('Finished');
-      const gone = await s.job('Dropped');
-      await s.f('job', 'set', done, '--state', 'done');
-      await s.f('job', 'set', gone, '--state', 'cancelled');
-
-      const unknown = await s.fail(['focus', 'no-such-job']);
-      assert.equal(unknown.code, 'not_found');
-      assert.equal(unknown.status, 1);
-      for (const [id, state] of [
-        [done, 'done'],
-        [gone, 'cancelled'],
-      ]) {
-        const e = await s.fail(['focus', id]);
-        assert.equal(e.code, 'usage');
-        assert.equal(e.message, `job ${id} is ${state}; only an active job can be focused`);
-      }
-      for (const bad of ['../x', '-rf', 'a b']) assert.equal((await s.fail(['focus', '--', bad])).code, 'usage', bad);
-      assert.equal((await s.fail(['focus', a, '--clear'])).code, 'usage', 'an id and --clear');
-      assert.equal((await s.fail(['focus', '--clear', a])).code, 'usage', '--clear before the id');
-      assert.equal(fs.existsSync(s.focusFile), false, 'no refusal wrote a record');
-
-      await s.f('focus', a);
-      const daemon = { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(s.root) };
-      const other = await s.job('Other');
-      for (const args of [['focus', other], ['focus', '--clear']]) {
-        const e = await s.fail(args, daemon);
-        assert.match(e.message, /daemon session may not/, args.join(' '));
-      }
-      const read = await forgeAsync(s.root, ['focus'], daemon);
-      assert.equal(read.status, 0, read.stderr);
-      assert.equal(JSON.parse(read.stdout).focus.id, a, 'a daemon session may read focus, and it did not move');
-    } finally {
-      s.cleanup();
-    }
-  });
-
-  test('finishing or cancelling the focused job clears focus', async () => {
-    const s = scratch();
-    try {
-      for (const state of ['done', 'cancelled']) {
-        const id = await s.job(`Ends ${state}`);
-        await s.f('focus', id);
-        await s.f('job', 'set', id, '--state', state);
-        assert.deepEqual(await s.f('focus'), { focus: null }, state);
-        assert.equal(fs.existsSync(s.focusFile), false, state);
-        const last = s.events(id).at(-1);
-        assert.equal(last.type, 'unfocus');
-        assert.equal(last.reason, 'finished');
-        assert.equal(last.actor, undefined, 'finishing is not a human focus action');
-      }
-      const kept = await s.job('Kept');
-      const other = await s.job('Other');
-      await s.f('focus', kept);
-      await s.f('job', 'set', other, '--state', 'done');
-      assert.equal((await s.f('focus')).focus.id, kept, "another job finishing leaves this job's focus alone");
-      assert.equal(s.focusEvents(other).length, 0);
-      await s.f('job', 'set', kept, '--state', 'waiting', '--waiting-on', 'human');
-      assert.equal((await s.f('focus')).focus.id, kept, 'a non-terminal change keeps focus');
-    } finally {
-      s.cleanup();
-    }
-  });
-
-  test('a planted or stale focus record reads as none', { timeout: 30_000 }, async () => {
-    const s = scratch();
-    try {
-      const a = await s.job('Alpha');
-      const archived = await s.job('Archived');
-      await s.f('job', 'set', archived, '--state', 'done');
-      await s.f('job', 'archive', archived);
-      assert.equal(fs.existsSync(path.join(s.root, '.forge', 'jobs', archived)), false);
-      const runtime = path.dirname(s.focusFile);
-      const locks = path.join(s.root, '.forge', 'locks');
-      fs.mkdirSync(runtime, { recursive: true });
-      const good = JSON.stringify({ v: 1, job: a, since: '2026-01-01T00:00:00.000Z' });
-      const target = path.join(s.root, 'elsewhere.json');
-      fs.writeFileSync(target, good);
-      // Windows has no FIFOs, and planting a symlink there needs a privilege CI runners lack.
-      const posixOnly: [string, () => void][] = [
-        ['a symlink', () => fs.symlinkSync(target, s.focusFile)],
-        ['a FIFO', () => assert.equal(spawnSync('mkfifo', [s.focusFile]).status, 0)],
-      ];
-      const plants: [string, () => void][] = [
-        ...(process.platform === 'win32' ? [] : posixOnly),
-        ['a file over 64 KiB', () => fs.writeFileSync(s.focusFile, JSON.stringify({ v: 1, job: a, since: 'x', pad: 'x'.repeat(65 * 1024) }))],
-        ['invalid JSON', () => fs.writeFileSync(s.focusFile, '{"job": ')],
-        ['an invalid id', () => fs.writeFileSync(s.focusFile, JSON.stringify({ v: 1, job: '../../etc', since: 'x' }))],
-        ['a missing job', () => fs.writeFileSync(s.focusFile, JSON.stringify({ v: 1, job: 'never-was', since: 'x' }))],
-        ['an archived job', () => fs.writeFileSync(s.focusFile, JSON.stringify({ v: 1, job: archived, since: 'x' }))],
-      ];
-      for (const [what, plant] of plants) {
-        fs.rmSync(s.focusFile, { force: true });
-        plant();
-        const stat = () => (fs.existsSync(s.focusFile) ? fs.lstatSync(s.focusFile) : null);
-        const before = stat();
-        const runtimeBefore = fs.readdirSync(runtime).sort();
-        const locksBefore = fs.existsSync(locks) ? fs.readdirSync(locks).sort() : [];
-        const r = await forgeAsync(s.root, ['focus']);
-        assert.equal(r.status, 0, `${what}: ${r.stderr}`);
-        assert.deepEqual(JSON.parse(r.stdout), { focus: null }, what);
-        const after = stat();
-        assert.equal(after?.mtimeMs, before?.mtimeMs, `${what}: the read wrote nothing`);
-        assert.equal(after?.ino, before?.ino, what);
-        assert.deepEqual(fs.readdirSync(runtime).sort(), runtimeBefore, `${what}: nothing written beside it`);
-        assert.deepEqual(fs.existsSync(locks) ? fs.readdirSync(locks).sort() : [], locksBefore, `${what}: no lock taken`);
-      }
-      assert.equal(fs.readFileSync(target, 'utf8'), good, 'the link target is untouched');
-    } finally {
-      s.cleanup();
-    }
-  });
-
-  test('focus events and audit rows', async () => {
-    const s = scratch();
-    try {
-      const a = await s.job('Alpha');
-      const b = await s.job('Beta');
-      await s.f('focus', a);
-      await s.f('focus', b);
-      const again = await s.f('focus', b);
-      assert.equal(again.previous, b, 're-focusing reports itself as previous');
-      await s.f('focus', '--clear');
-
-      const pick = (e: any) => ({ type: e.type, from: e.from, reason: e.reason, actor: e.actor?.source ?? null });
-      assert.deepEqual(s.focusEvents(a).map(pick), [
-        { type: 'focus', from: 'cli', reason: undefined, actor: 'env' },
-        { type: 'unfocus', from: undefined, reason: 'switched', actor: null },
-      ]);
-      assert.deepEqual(s.focusEvents(b).map(pick), [
-        { type: 'focus', from: 'cli', reason: undefined, actor: 'env' },
-        { type: 'unfocus', from: undefined, reason: 'cleared', actor: 'env' },
-      ], 're-focusing the focused job logged nothing');
-      assert.equal(s.focusEvents(b)[0].actor.login, 'forge-test');
-
-      const audit = await s.f('job', 'audit', b);
-      assert.deepEqual(
-        audit.rows.filter((r: any) => r.action === 'focus' || r.action === 'unfocus').map((r: any) => [r.action, r.detail, r.actor.source]),
-        [
-          ['focus', 'cli', 'env'],
-          ['unfocus', 'cleared', 'env'],
-        ],
-      );
-      assert.equal((await s.f('job', 'audit', a)).rows.filter((r: any) => r.action === 'unfocus').length, 0, 'a switch away is not a human row');
-    } finally {
-      s.cleanup();
-    }
-  });
+    assert.equal(fs.readFileSync(target, 'utf8'), good, 'the link target is untouched');
+    assert.equal(resolveFocus(null, () => assert.fail('no lookup without a record')), null);
+  } finally {
+    repo.cleanup();
+  }
 });
 
 // The stub dev server is `sleep 30` through sh, and the liveness check signals a process group: both POSIX.

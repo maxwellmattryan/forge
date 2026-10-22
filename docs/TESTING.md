@@ -2,6 +2,22 @@
 
 A job adds a test per new behaviour, not per acceptance criterion. Extend the nearest existing test or table first, and add a test file only for a new module. A test checks lasting behaviour through a module's public functions or the CLI's JSON. It never checks one job's output, the wording of prompts or docs, markup or class names, or that a removed thing is gone. Several acceptance criteria may share one proof, and an existing test, a command or a manual step is a proof too. Never delete, skip or weaken a test to get green.
 
+## Layout
+A feature has one unit file and one integration (or e2e) file per entry point, so there is one place to find and extend each behaviour. `npm test` runs `test/**/*.test.ts`; each layer also has its own script, and together the three run exactly what `npm test` runs.
+
+| Folder | What goes there | Script |
+|---|---|---|
+| `test/` | **Unit**: one module's functions called in-process, with fakes injected, in a file named after the module or feature (`test/backing.test.ts`). | `npm run test:unit` |
+| `test/integration/<entry>/` | **Integration**: one entry point with outside systems faked. The entries are `cli` (spawns `bin/forge`), `server` (HTTP against `lib/server.ts`) and `pool` (`createPool`/`createSession` with a stub `claude`). | `npm run test:integration` |
+| `test/e2e/<flow>/` | **E2E**: a scratch-repo flow across layers, such as `release` or `pipeline`. | `npm run test:e2e` |
+| `test/support/` | **Support**: the shared helpers, `forgeSync` and `BIN` (`cli.ts`), `fakeBin` (`fake-bin.ts`) and `fakeGh` (`fake-gh.ts`). | - |
+
+- Tests import support helpers only through `test/helpers.ts`, which re-exports them. Its import side effects pin git config, `SHELL`, `FORGE_MODE` and `NODE_OPTIONS` for every spawn.
+- Start the CLI with `forgeAsync` or `forgeSync`, never with a `bin/forge` path of your own. Fake `gh` with `fakeGh` (or `test/job-repos-fixture.ts`'s `prProject` for its stateful per-repo fake), and any other tool with `fakeBin`.
+- Build scratch repos from one `repoTemplate` per distinct init, not with `tempRepo()` plus `forge init write` in every test.
+- Put an assertion at the cheapest layer that proves it: a pure check belongs in the unit file, unless it sits in a test that still needs its server or CLI.
+- A file under `test/integration/` or `test/e2e/` imports `../../../lib/…` and `../../helpers.ts`, and builds `import.meta.dirname` paths for that depth.
+
 ## Allowed source-text tests
 A test may read source, Svelte, CSS or Markdown text only to hold one of these invariants. Any other source-text test is a `minor` finding for the `tests` lens.
 
