@@ -28,7 +28,7 @@ The rest of this file is reference: read a section when your change touches it.
 - `hooks/`: plugin hooks (`hooks.json`, the no-AI-attribution PreToolUse hook, and the SessionStart `plugin-path.ts` hook that puts the plugin's `bin/` first on PATH)
 - `skills/forge/`: the orchestrator (`SKILL.md`) and on-demand procedures (`reference/`)
 - `agents/`: one prompt per role · `reviewers/`: lens checklists · `templates/`: files `init` seeds into `.forge/` (`templates/release-gate/`: the seeded CI check, plain JS for consumer repos that the tests run, outside the engine's TypeScript)
-- `docs/`: user docs · `test/`: `node:test` suites
+- `docs/`: user docs · `test/`: `node:test` suites; unit files in `test/`, `test/integration/<cli|server|pool>/`, `test/e2e/<flow>/`, and shared helpers in `test/support/`, imported through `test/helpers.ts` ([docs/TESTING.md › Layout](docs/TESTING.md#layout))
 - `scripts/`: dev-only TypeScript run through npm, type-checked with the engine (`docs-commands.ts` is `npm run docs:commands`, `dev.ts` is `npm run dev`, `dev-claude.ts` is `npm run dev:claude`, `release.ts` is `npm run release`, `release-check.ts` is `npm run release:check`, `release-plan.ts` is what `release.yml` runs to detect a release and write its notes, `coverage.ts` is `npm run coverage` (docs/TESTING.md › Coverage), and `main-update.ts` builds and checks the main-update commit `release.ts` pushes)
 - `.github/workflows/ci.yml`: CI, the verify list below on every PR, every push to `develop` and `main`, and on dispatch
 - `.github/workflows/main-update.yml`: on a push to `develop`, builds the dashboard with a read-only token and uploads it as the artifact `npm run release` puts on `main` (docs/RELEASES.md)
@@ -72,7 +72,7 @@ npm ci                                  # once: the dashboard's build toolchain 
 npm run typecheck                       # tsc --noEmit: the engine (tsconfig.json) and its tests (test/tsconfig.json)
 npm run check:dashboard                 # svelte-check: strict TS over dashboard/src (.ts and .svelte), warnings fail
 npm run build:dashboard                 # the build's own tests skip without it; it is gitignored, never commit it
-node --test "test/*.test.ts"            # not `node --test test/`: Node 22 treats a directory arg as a module
+node --test "test/**/*.test.ts"         # not `node --test test/`: Node 22 treats a directory arg as a module
 for f in bin/forge lib/trackers/status.mjs dashboard/*.mjs; do node --check "$f"; done   # the JS files tsc does not check
 claude plugin validate . --strict
 ```
