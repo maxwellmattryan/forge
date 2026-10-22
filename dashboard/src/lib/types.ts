@@ -3,7 +3,7 @@
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 33;
+export const API_VERSION = 34;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -151,6 +151,17 @@ export interface EventActor {
 }
 /** Who owns a waiting job's gate: gateOwner in lib/foreman.ts; null when the job waits on nothing or the foreman is off. */
 export type GateOwner = 'foreman' | 'human' | null;
+/** A gate class the foreman may decide: OFFICE_GATES in lib/schema.ts. */
+export type GateClass = 'spec-approval' | 'split-approval' | 'escalation' | 'rounds-exhausted' | 'conflicts' | 'pr-feedback' | 'repo-proposal' | 'release';
+/** Why the Foreman left a gate for a person: HANDOFF_CLASSES in lib/schema.ts. */
+export type HandoffClass = 'reserved' | 'escalated' | 'refused';
+/** A Foreman hand-off still standing at the job's current park: foremanHandoff in lib/foreman.ts. */
+export interface ForemanHandoff {
+  gate: GateClass;
+  class: HandoffClass;
+  reason: string;
+  at: string;
+}
 
 /** `none` without a driver; `expired` with one whose expiresAt has passed. */
 export type OwnerStatusKind = 'none' | 'live' | 'expired';
@@ -582,7 +593,7 @@ export interface LastHuman {
   actor: EventActor;
 }
 
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null; endpoints: Endpoint[] };
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null; endpoints: Endpoint[]; foremanHandoff: ForemanHandoff | null };
 
 /** Request types the inbox accepts: REQUEST_TYPES in lib/requests.ts. */
 export type RequestType = 'next' | 'run' | 'approve' | 'revise-spec' | 'rework' | 'answer' | 'cancel' | 'resume' | 'sync' | 'eval-run' | 'retro' | 'gate';

@@ -375,7 +375,14 @@
     "foreman": "Foreman deciding",
     "human": "Human-owned",
     "foremanTitle": "The foreman decides this gate through an assistant sub-agent",
-    "humanTitle": "This gate stays with a human: a reserved topic, or a gate the foreman does not decide"
+    "humanTitle": "This gate stays with a human: a reserved topic, or a gate the foreman does not decide",
+    "leftForHuman": "Left for a human",
+    "leftForHumanTitle": "The Foreman looked at this gate and left it for a person",
+    "handoff": {
+      "reserved": "Foreman left this for a human (reserved): {reason}",
+      "escalated": "Foreman left this for a human (escalated): {reason}",
+      "refused": "Foreman left this for a human (decision refused): {reason}"
+    }
   },
   "pipeline": {
     "title": "Pipeline",

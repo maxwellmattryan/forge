@@ -84,6 +84,7 @@ Some of these words already mean something in Forge. They keep those meanings:
 - "Model profiles" in [CONFIG.md](CONFIG.md) are `runtime.models` presets from `/forge init`. "Profile" alone means the glossary's profile.
 - A job's `dependsOn` is a job dependency. "Dependency" alone means a component edge.
 - "Environment" alone never means environment variables (say "environment variables"), and "focus" never means a test's focus marker or keyboard focus.
+- "Hand-off" alone means a session handing a job to another with `forge requests add resume`; the Foreman's always carries the name ("Foreman hand-off").
 
 ## Existing terms
 
@@ -95,6 +96,7 @@ The new words build on these, which exist today.
 | **output mode** | How a `forge` call prints: `human` (rendered text for a person at a terminal) or `agent` (compact JSON, the CLI's contract), chosen by `--json`, `--mode`, `FORGE_MODE`, then whether stdout is a terminal (docs/CLI.md "Output mode"). | - |
 | **activity log** | The timestamped lines a foreground `forge dash` prints after its banner in human mode, of three kinds: `session` (session transitions), `http` (requests worth noting) and `job` (newly appended job events); `--quiet` and agent mode leave only the banner (docs/CLI.md "Output mode"). | - |
 | **Foreman** | The office session that decides gates for jobs under `foreman.decides`. | `foreman.decides` |
+| **Foreman hand-off** | The Foreman leaving a gate it was asked to decide for a person (a reserved topic or class, the assistant escalating, or the CLI refusing its decision), recorded with `forge job handoff` and shown as *left for a human* (`foremanHandoff`) until a decision answers that park or the job parks again. | `foreman.reserved` |
 | **lease** | A job's one claim on who drives it (`lease` in job.json: `driver`, `epoch`, `since`, `renewedAt`, `expiresAt`): taken by `forge job claim`, renewed only by the driver's own activity, expired by the supervisor when the driver's session exits, and `live` until `expiresAt` passes; nobody else may claim a live lease without `--force`. | - |
 | **epoch** | The lease's counter, one higher at every change of driver and never lower; a driver passes the epoch its claim returned as `--epoch`, and a write with an older one is refused (`stale_epoch`), so a session that was taken over can't write after it. | - |
 | **reconciler** | The pass (lib/reconcile.ts) that finds `running` jobs nothing drives (no request routed to them, no busy session, no live lease) and resumes each once, then parks it on `escalation` if it made no progress since; `forge dash` runs it every 30 s and `forge sync` runs it when no dash does (it replaces what was called a stranded job). | `daemon.turnTimeoutMinutes` |

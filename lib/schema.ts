@@ -20,7 +20,7 @@ export const ARCHIVE_SCHEMA_VERSION = 1;
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 33;
+export const API_VERSION = 34;
 
 /**
  * Where an event's `actor` came from: lib/actor.ts resolves env, gh, git, os and dashboard; the
@@ -101,6 +101,9 @@ export const EFFORT_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'r
  * plan awaiting approval (lib/release-approval.ts), which no job waits on.
  */
 export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release'] as const;
+
+/** Why the Foreman left a gate for a person (`forge job handoff --class`): a reserved topic or class, the assistant escalated, or the CLI refused its decision. */
+export const HANDOFF_CLASSES = ['reserved', 'escalated', 'refused'] as const;
 
 /**
  * A foreman.reserved entry read as a class reservation: the class for exactly `gate:<class>`

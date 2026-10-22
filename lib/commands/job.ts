@@ -6,7 +6,7 @@ import { jobFindings } from '../findings.ts';
 import { assistantBrief, jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
 import { OFFICE_REFUSAL, inInboxOrOffice, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
-import { OFFICE_JOB_COMMANDS, checkForemanDecision, classReservation, checkOfficeSetFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor, securityHold } from '../foreman.ts';
+import { OFFICE_JOB_COMMANDS, checkForemanDecision, classReservation, checkOfficeSetFor, cleanHandoffReason, foremanHandoffFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor, securityHold } from '../foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
 import { AGENT_LEASE_MS, agentOutputMissing, attachAgent, checkFence, claimJob, createJob, leaseStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, renewLease, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, updateJob, jobDir, readEvents } from '../jobs.ts';
 import type { Fence } from '../jobs.ts';
@@ -23,7 +23,7 @@ import { releaseGates } from '../interim.ts';
 import { RELEASE_APPROVAL, checkReleaseDecision, pendingReleaseHash } from '../release-approval.ts';
 import { isLens, lensRepoAllowed, reviewedRepoNames } from '../lens.ts';
 import { resolveLinks } from '../links.ts';
-import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
+import { COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, OFFICE_GATES } from '../schema.ts';
 import { daemonScope } from '../requests.ts';
 import { recordScore } from '../scoring.ts';
 import { jobPanel } from '../panel.ts';
@@ -224,6 +224,16 @@ const JOB: HelpGroup = {
       summary: "the office session's forge:assistant spawn for a gate: model, effort and a brief of paths only, and for repo-proposal the pending repos to pass as --repo; stale when the job no longer waits there. Read-only",
       flags: [['--gate G', `the gate class: ${OFFICE_GATES.join(', ')}`]],
       exits: [[1, 'no such job, an unknown gate, or a daemon session other than the office']],
+    },
+    {
+      command: 'job handoff',
+      args: '<id> --class reserved|escalated|refused --reason R',
+      summary: 'record a Foreman hand-off: the office leaves the gate the job waits at for a person (office session only)',
+      flags: [
+        ['--class C', 'why: reserved (a reserved topic or class), escalated (the assistant escalated) or refused (the CLI refused the decision)'],
+        ['--reason R', 'one line for the person, at most 200 characters once control characters are removed (required)'],
+      ],
+      exits: [[1, 'not the office daemon session, no such job, a job not waiting on a gate the Foreman decides, an unknown --class, or an empty --reason']],
     },
     {
       command: 'job agent',
@@ -729,6 +739,21 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       logHumanEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null) }, actor);
       return { ok: true, ...(link !== undefined ? { link: linked } : {}) };
     }
+    case 'handoff': {
+      // Office-only, like a foreman decision: a job session misled by request text can't hide a gate
+      // behind a fake "left for a human". Every check runs before the one write.
+      if (!inOffice()) throw new ForgeError('only the office daemon session records a Foreman hand-off', 1);
+      const job = requireJob(root, id);
+      // The gate is the one the job waits at now, never passed in.
+      const gate = gateClassFor(root, job);
+      if (!gate) throw new ForgeError(`job ${job.id} is not waiting on a gate the Foreman decides`, 1);
+      const cls = flags.class;
+      if (!(HANDOFF_CLASSES as readonly unknown[]).includes(cls)) throw new ForgeError(`--class must be one of ${HANDOFF_CLASSES.join(', ')}`, 1);
+      const reason = cleanHandoffReason(flags.reason);
+      if (!reason) throw new ForgeError('forge job handoff needs --reason "<why it is left for a human>"', 1);
+      logHumanEvent(root, job.id, 'foreman-handoff', { gate, class: cls, reason }, FOREMAN_ACTOR);
+      return { ok: true, foremanHandoff: foremanHandoffFor(root, loadJob(root, job.id)) };
+    }
     case 'repo': {
       // Computed from config and events, never named: the one way a job's own session adds a repo, and only verify-only.
       if (rest[0] === 'downstream') {
@@ -1048,6 +1073,7 @@ export function compactJob(root: string, job: Job): Record<string, unknown> {
     state: job.state,
     waitingOn: job.waitingOn,
     reason: job.reason,
+    foremanHandoff: foremanHandoffFor(root, job),
     round: job.round,
     maxRounds: job.maxRounds,
     reviewers: job.reviewers,

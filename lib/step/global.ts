@@ -3,6 +3,7 @@
 import type { StepInput, WaitingOn } from '../types.ts';
 import { SAFE_REF } from '../util.ts';
 import { SAFE_URL, done, procedure, run, safe, spawn, toStage, wait } from './actions.ts';
+import { ANSWERED } from './answered.ts';
 import { after, agent, ended, parkedRunning, pendingVerifiers, runningRoles } from './facts.ts';
 import type { Facts } from './facts.ts';
 import { gateTell, prReviewTell } from './gates.ts';
@@ -67,6 +68,8 @@ export const GLOBAL: Table = {
       },
     },
     { id: 'G2', when: ({ x }) => x.job.state === 'failed', then: ({ x }) => done(x, 'G2', `${x.job.id} failed: ${x.job.reason ?? 'no reason recorded'}`) },
+    // A park a logged decision answered moves on before any wait, environment stop or claim release.
+    ...ANSWERED,
     { id: 'G3', when: (c) => prReview(c) && Boolean(c.x.job.lease.driver), then: ({ x }) => run(x, 'G3', ['job', 'release', x.job.id], 'the PR waits on human review; let the claim go') },
     { id: 'G3b', when: (c) => prReview(c) && parkedRunning(c.x), then: ({ x }) => run(x, 'G3b', ['environment', 'stop', x.job.id], 'stop the environment while the PR waits') },
     { id: 'G3c', when: prReview, then: ({ x }) => wait(x, 'G3c', 'pr-review', prReviewTell(x)) },

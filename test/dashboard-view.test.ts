@@ -673,6 +673,14 @@ test('foreman event line and gate owner badge', () => {
   for (const none of [null, undefined, 'robot', 1]) assert.equal(V.gateOwnerBadge(none), null, String(none));
 });
 
+test('handoffNote reads a Foreman hand-off', () => {
+  const h = { gate: 'escalation', class: 'reserved', reason: 'touches <img onerror=x>', at: 't' };
+  assert.deepEqual(V.handoffNote(h), { cls: 'reserved', reason: 'touches <img onerror=x>' });
+  for (const cls of ['escalated', 'refused']) assert.equal(V.handoffNote({ ...h, class: cls })?.cls, cls);
+  for (const bad of [null, undefined, 'reserved', 1, [], { ...h, class: 'bored' }, { ...h, class: undefined }, { ...h, reason: 7 }, { ...h, reason: null }])
+    assert.equal(V.handoffNote(bad), null, JSON.stringify(bad));
+});
+
 test('secretPark: secret parks and still blocked after approve', () => {
   const approve = { ts: '2026-10-19T10:00:00Z', type: 'human', action: 'approve', actor: { login: 'alice', source: 'gh' } } as any;
   const park = (ts: string): any => ({ v: 1, ts, type: 'transition', from: { stage: 'pr', state: 'running', waitingOn: null }, to: { stage: 'pr', state: 'waiting', waitingOn: 'human' } });
