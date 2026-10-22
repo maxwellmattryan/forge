@@ -6,21 +6,21 @@ import { isInterimStrategy, servicesToComponents } from './components.ts';
 import { isSha } from './delta.ts';
 import { isSafeUrl, isStoredRef, sameIssue } from './issue-ref.ts';
 import { REPO_NAME, isSafeBranch } from './member-repos.ts';
-import type { EventActor, Job, JobAgent, JobEvent, JobIssue, JobOutcome, JobRepo, JobRepoPr, JobScore, LoadedJob } from './types.ts';
+import type { EventActor, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcome, JobRepo, JobRepoPr, JobScore, LoadedJob } from './types.ts';
 
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from './backing-config.ts';
 
-export const CONFIG_SCHEMA_VERSION = 26;
-export const JOB_SCHEMA_VERSION = 16;
-export const EVENT_SCHEMA_VERSION = 2;
+export const CONFIG_SCHEMA_VERSION = 29;
+export const JOB_SCHEMA_VERSION = 17;
+export const EVENT_SCHEMA_VERSION = 3;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
 export const ARCHIVE_SCHEMA_VERSION = 1;
 /**
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 31;
+export const API_VERSION = 35;
 
 /**
  * Where an event's `actor` came from: lib/actor.ts resolves env, gh, git, os and dashboard; the
@@ -101,6 +101,9 @@ export const EFFORT_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'r
  * plan awaiting approval (lib/release-approval.ts), which no job waits on.
  */
 export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release'] as const;
+
+/** Why the Foreman left a gate for a person (`forge job handoff --class`): a reserved topic or class, the assistant escalated, or the CLI refused its decision. */
+export const HANDOFF_CLASSES = ['reserved', 'escalated', 'refused'] as const;
 
 /**
  * A foreman.reserved entry read as a class reservation: the class for exactly `gate:<class>`
@@ -223,6 +226,17 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v26 adds scoring (sample 0 and model null by default, so off), so no v25 config changes; the
   // bump lets older Forges refuse a config whose score sampling they would ignore.
   25: (c) => c,
+  // v27 adds pipeline.maxTotalRounds (null), pr.maxCiReworks (3) and daemon.jobBudget, all filled
+  // from defaults, so no v26 config changes; the bump lets older Forges refuse a config whose loop
+  // bounds they would ignore.
+  26: (c) => c,
+  // v28 adds daemon.turnTimeoutMinutes (60), filled from defaults, so no v27 config changes; the
+  // bump lets older Forges refuse a config whose turn limit they would ignore.
+  27: (c) => c,
+  // v29 adds improve.experiments (minJobs 5, maxJobs 10) and evals.recall.paths, filled from
+  // defaults, so no v28 config changes; the bump lets older Forges refuse a config whose experiment
+  // thresholds and recall gate they would ignore.
+  28: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
@@ -286,7 +300,40 @@ const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
   // v16 adds the post-merge score (lib/scoring.ts). A v15 job has none; the next sync queues one
   // only when the job is sampled and merged inside the lookback.
   15: (j) => ({ ...j, score: j.score ?? null }),
+  // v17 replaces the heartbeat `owner` with a fenced `lease`. A v16 owner keeps driving: it becomes
+  // epoch 1, renewed at its heartbeat and live for the 30 minutes the heartbeat rule gave it.
+  16: (j) => {
+    const { owner, ...rest } = j;
+    return { ...rest, lease: j.lease ?? ownerToLease(owner) };
+  },
 };
+
+/** No driver, epoch 0: a new job's lease. */
+export const noLease = (): JobLease => ({ driver: null, epoch: 0, since: null, renewedAt: null, expiresAt: null });
+
+/** A v16 `{ session, host, since, heartbeat }` owner as a lease. Frozen at v16's 30-minute rule, whatever LEASE_MS becomes. */
+function ownerToLease(owner: any): JobLease {
+  if (!owner || typeof owner !== 'object' || typeof owner.session !== 'string' || !owner.session) return noLease();
+  const renewedAt = typeof owner.heartbeat === 'string' ? owner.heartbeat : typeof owner.since === 'string' ? owner.since : null;
+  const t = renewedAt ? Date.parse(renewedAt) : NaN;
+  // An unparseable heartbeat keeps the driver but reads as expired.
+  return { driver: owner.session, epoch: 1, since: typeof owner.since === 'string' ? owner.since : null, renewedAt, expiresAt: Number.isFinite(t) ? new Date(t + 30 * 60_000).toISOString() : null };
+}
+
+const isoOrNull = (v: unknown): string | null => (typeof v === 'string' && v.length <= 64 && Number.isFinite(Date.parse(v)) ? v : null);
+
+/**
+ * A stored lease in its exact shape. job.json is writable outside the CLI, so a missing, partial or
+ * malformed one reads field by field: a bad driver is none, a bad epoch 0, a bad time null (an
+ * unreadable expiry reads as expired, never as live).
+ */
+export function cleanLease(raw: unknown): JobLease {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return noLease();
+  const l = raw as Record<string, unknown>;
+  const driver = typeof l.driver === 'string' && l.driver && l.driver.length <= 200 ? l.driver : null;
+  const epoch = Number.isSafeInteger(l.epoch) && (l.epoch as number) >= 0 ? (l.epoch as number) : 0;
+  return { driver, epoch, since: isoOrNull(l.since), renewedAt: isoOrNull(l.renewedAt), expiresAt: isoOrNull(l.expiresAt) };
+}
 
 const SCORE_STATUSES = ['queued', 'held', 'scored', 'failed'] as const;
 const SCORE_REASONS = ['budget exceeded', 'repo budget', 'no score.md', 'malformed score.md'] as const;
@@ -553,7 +600,8 @@ export function normalizeJob(raw: any): LoadedJob {
   }
   // A current-version file may still carry `source` (a hand edit, or a write that raced the
   // upgrade): folded the same way, then dropped, so no reader can see both.
-  const { source: legacySource, ...rest } = job;
+  // `owner` likewise: a current-version file carrying one (and no lease) reads it as the migration would.
+  const { source: legacySource, owner: legacyOwner, ...rest } = job;
   const score = cleanScore(job.score);
   return {
     ...rest,
@@ -587,7 +635,7 @@ export function normalizeJob(raw: any): LoadedJob {
     budget: { limits: {}, ack: {}, lastCheck: null, ...(job.budget ?? {}) },
     decision: job.decision ?? null,
     pr: job.pr ?? null,
-    owner: job.owner ?? null,
+    lease: job.lease === undefined && legacyOwner ? ownerToLease(legacyOwner) : cleanLease(job.lease),
     // Repairs jobs a Forge before endFinishedJobAgents finished with an agent still marked running.
     agents: endFinishedJobAgents(job.agents ?? {}, job.state ?? 'queued', job.finishedAt ?? job.updatedAt ?? null, finishedJobRoles({ state: job.state, kind: job.kind ?? 'feature', score })).agents,
     usage: job.usage ?? { totalTokens: 0, byRole: {}, byModel: {}, estCostUsd: 0, exact: false },
@@ -657,6 +705,9 @@ const EVENT_MIGRATIONS: Record<number, (e: any) => any> = {
     if (e.actor === undefined || e.actor === 'human') return { ...e, actor: { login: null, source: 'unknown' } };
     return e;
   },
+  // v3 adds pluginHash, promptHash and configHash to agent-start (lib/provenance.ts); a v2 start
+  // simply has none, and readers treat it as unrecorded.
+  2: (e) => e,
 };
 
 /**

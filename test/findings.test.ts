@@ -8,6 +8,7 @@ import { defaults } from '../lib/config.ts';
 import { createJob, jobDir, setJob } from '../lib/jobs.ts';
 import { cleanPath, parseAddressed, parseReviewFindings, summariseFindings } from '../lib/findings.ts';
 import { prepareRetro } from '../lib/retro.ts';
+import { utcMonday } from '../lib/stats.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
@@ -53,17 +54,18 @@ test('parseReviewFindings normalises locations', () => {
     '```',
     '-[minor]lib/tight.ts:9',
   ].join('\n');
+  // The line is the digits right after the first `:`; `~176` has none.
   assert.deepEqual(parseReviewFindings(text), [
-    { severity: 'major', path: 'lib/x.ts' },
-    { severity: 'minor', path: 'lib/x.ts' },
-    { severity: 'nit', path: 'lib/x.ts' },
-    { severity: 'blocker', path: 'lib/x.ts' },
-    { severity: 'minor', path: 'lib/pr.mjs' },
-    { severity: 'minor', path: 'docs/A.md' },
-    { severity: 'nit', path: 'README.md' },
-    { severity: 'nit', path: null },
-    { severity: 'major', path: 'lib/y.ts' },
-    { severity: 'minor', path: 'lib/tight.ts' },
+    { severity: 'major', path: 'lib/x.ts', line: 42 },
+    { severity: 'minor', path: 'lib/x.ts', line: 42 },
+    { severity: 'nit', path: 'lib/x.ts', line: null },
+    { severity: 'blocker', path: 'lib/x.ts', line: 281 },
+    { severity: 'minor', path: 'lib/pr.mjs', line: 211 },
+    { severity: 'minor', path: 'docs/A.md', line: 87 },
+    { severity: 'nit', path: 'README.md', line: null },
+    { severity: 'nit', path: null, line: null },
+    { severity: 'major', path: 'lib/y.ts', line: 3 },
+    { severity: 'minor', path: 'lib/tight.ts', line: 9 },
   ]);
   assert.equal(cleanPath('—'), null);
   assert.equal(cleanPath(''), null);
@@ -164,6 +166,8 @@ test('disagree counts as disputed, fixed as fixed', () => {
   assert.ok(!JSON.stringify(r).includes('sanitised'));
 });
 
+// Forge counts the builder's "Findings addressed" lines, so the format the prompt teaches must be the
+// one parseAddressed reads; no public function holds the prompt (docs/TESTING.md exception).
 test('builder prompt example parses', () => {
   const prompt = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'agents', 'builder.md'), 'utf8');
   const examples: string[] = [];
@@ -201,7 +205,10 @@ describe('forge job findings (CLI)', { concurrency: 4 }, () => {
       assert.deepEqual(JSON.parse(res.stdout), {
         id: job.id,
         rounds: [{ round: 1, raised: 4, fixed: 2, disputed: 1 }, { round: 2, raised: 1, fixed: 0, disputed: 0 }],
-        byLens: { code: { raised: 4, fixed: 2, disputed: 0, recurring: 1 }, security: { raised: 1, fixed: 0, disputed: 1, recurring: 0 } },
+        byLens: {
+          code: { raised: 4, fixed: 2, disputed: 0, recurring: 1, severity: { blocker: 0, major: 1, minor: 2, nit: 1 } },
+          security: { raised: 1, fixed: 0, disputed: 1, recurring: 0, severity: { blocker: 0, major: 0, minor: 1, nit: 0 } },
+        },
         totals: { raised: 5, fixed: 2, disputed: 1, recurring: 1 },
         recurring: [{ lens: 'code', path: 'lib/stats.ts', rounds: [1, 2] }],
         disputed: [{ round: 1, lens: 'security', severity: 'minor', path: 'lib/retro.ts' }],
@@ -285,8 +292,17 @@ test('stats counts disputes and recurrences per lens', async () => {
     const json = await forgeAsync(r.dir, ['stats', '--json']);
     assert.equal(json.status, 0, json.stderr);
     const stats = JSON.parse(json.stdout);
-    assert.deepEqual(stats.reviewers.code, { reviews: 5, changes: 4, blockers: 0, findings: 6, fixed: 4, disputes: 1, recurring: 2, changeRate: 0.8, disputeRate: 0.2 });
-    assert.deepEqual(stats.reviewers.security, { reviews: 2, changes: 1, blockers: 0, findings: 1, fixed: 0, disputes: 1, recurring: 0, changeRate: 0.5, disputeRate: 1 });
+    // No merged job, so no miss denominator; severities come from the review files.
+    const week = utcMonday(a.createdAt);
+    const recall = { missChecked: 0, missed: 0, missRate: null };
+    assert.deepEqual(stats.reviewers.code, {
+      reviews: 5, changes: 4, blockers: 0, findings: 6, fixed: 4, disputes: 1, recurring: 2, changeRate: 0.8, disputeRate: 0.2,
+      ...recall, blockerMajor: 3, severityKnown: 6, blockerMajorShare: 0.5, severityTrend: [{ week, findings: 6, blockerMajor: 3, share: 0.5 }],
+    });
+    assert.deepEqual(stats.reviewers.security, {
+      reviews: 2, changes: 1, blockers: 0, findings: 1, fixed: 0, disputes: 1, recurring: 0, changeRate: 0.5, disputeRate: 1,
+      ...recall, blockerMajor: 0, severityKnown: 1, blockerMajorShare: 0, severityTrend: [{ week, findings: 1, blockerMajor: 0, share: 0 }],
+    });
     assert.equal(stats.reviewers.docs.disputeRate, null);
     assert.equal(stats.reviewers.docs.findings, 0);
     assert.equal(stats.reviewers.verify, undefined, 'an answer line naming verify is no reviewer');
@@ -359,8 +375,8 @@ test('qualified lenses: review files and answer lines', () => {
       assert.equal(res.status, 0, res.stderr);
       const out = JSON.parse(res.stdout);
       assert.deepEqual(out.byLens, {
-        'lib:realtime': { raised: 1, fixed: 1, disputed: 0, recurring: 0 },
-        'lib.v2:code': { raised: 1, fixed: 0, disputed: 1, recurring: 0 },
+        'lib:realtime': { raised: 1, fixed: 1, disputed: 0, recurring: 0, severity: { blocker: 0, major: 1, minor: 0, nit: 0 } },
+        'lib.v2:code': { raised: 1, fixed: 0, disputed: 1, recurring: 0, severity: { blocker: 0, major: 0, minor: 1, nit: 0 } },
       });
       assert.deepEqual(out.disputed, [{ round: 1, lens: 'lib.v2:code', severity: 'minor', path: 'lib.v2/a.rs' }]);
       r.cleanup();

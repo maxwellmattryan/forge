@@ -5,7 +5,7 @@ import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/config.ts';
 import { FIELDS } from '../lib/config-fields.ts';
-import { CONFIG_SCHEMA_VERSION, JOB_SCHEMA_VERSION, cleanOutcome, migrateConfig, normalizeJob } from '../lib/schema.ts';
+import { JOB_SCHEMA_VERSION, cleanOutcome, normalizeJob } from '../lib/schema.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const SHA = 'a'.repeat(40);
@@ -25,13 +25,8 @@ const good = () => ({
 });
 
 describe('outcome schema', { concurrency: 4 }, () => {
-  test('v14 job reads with outcome null', () => {
-    assert.equal(JOB_SCHEMA_VERSION, 16);
-    const v14 = normalizeJob({ schemaVersion: 14, id: 'old', state: 'done', pr: { number: 1, state: 'MERGED' } });
-    assert.equal(v14.schemaVersion, 16);
-    assert.equal(v14.outcome, null);
-    assert.equal(normalizeJob({ schemaVersion: 1, id: 'older' }).outcome, null, 'a v1 job walks every migration to outcome null');
-    const kept = normalizeJob({ schemaVersion: 15, id: 'new', outcome: good() });
+  test('a stored outcome survives normalisation', () => {
+    const kept = normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION,id: 'new', outcome: good() });
     assert.deepEqual(kept.outcome, good());
   });
 
@@ -57,7 +52,7 @@ describe('outcome schema', { concurrency: 4 }, () => {
       const o = good();
       mutate(o);
       assert.equal(cleanOutcome(o), null, what);
-      assert.equal(normalizeJob({ schemaVersion: 15, id: 'x', outcome: o }).outcome, null, `${what} through normalizeJob`);
+      assert.equal(normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION,id: 'x', outcome: o }).outcome, null, `${what} through normalizeJob`);
     }
     for (const raw of [null, undefined, 'final', [], 3]) assert.equal(cleanOutcome(raw), null, String(raw));
     const refs = good() as any;
@@ -76,16 +71,6 @@ describe('outcome schema', { concurrency: 4 }, () => {
       churn: null,
       reason: 'missing merge commit',
     });
-  });
-
-  test('previous config migrates to the outcomes version', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 26);
-    const v23 = { schemaVersion: 23, tracker: { kind: 'none' }, secrets: {}, outcomes: { windowDays: 7 } };
-    const m = migrateConfig(structuredClone(v23));
-    assert.equal(m.from, 23);
-    assert.deepEqual(m.config, { ...v23, schemaVersion: 26 }, 'nothing but schemaVersion changes');
-    assert.deepEqual(migrateConfig({ schemaVersion: 23 }).config, { schemaVersion: 26 }, 'no outcomes key is added: defaults fill it');
-    assert.equal(migrateConfig({ schemaVersion: 27 }).from, 27, 'a newer config is left for validation to refuse');
   });
 
   test('windowDays validation', async () => {

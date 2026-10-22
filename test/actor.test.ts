@@ -7,11 +7,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
-import { ACTOR_CACHE_TTL_MS, resolveActor } from '../lib/actor.ts';
+import { ACTOR_CACHE_TTL_MS, currentActor, resolveActor } from '../lib/actor.ts';
 import type { ActorDeps } from '../lib/actor.ts';
 import { defaults } from '../lib/config.ts';
 import { createJob, jobDir, readEvents, setJob } from '../lib/jobs.ts';
-import { normalizeEvent, sanitizeLogin } from '../lib/schema.ts';
+import { EVENT_SCHEMA_VERSION, normalizeEvent, sanitizeLogin } from '../lib/schema.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const DAY = ACTOR_CACHE_TTL_MS;
@@ -41,6 +41,27 @@ function deps(vals: { env?: NodeJS.ProcessEnv; gh?: string | null; git?: string 
   };
   return { d, calls };
 }
+
+// First in the file: currentActor memoises per process, so it must run before anything resolves an actor.
+test('currentActor falls back to the repo git email when gh has no login', () => {
+  const r = repo();
+  const keys = ['HOME', 'GH_CONFIG_DIR', 'GH_TOKEN', 'GITHUB_TOKEN', 'GH_HOST', 'GH_ENTERPRISE_TOKEN', 'FORGE_ACTOR', 'FORGE_DAEMON'];
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  const home = tmpDir();
+  for (const k of keys) delete process.env[k];
+  // An empty home and gh config dir leave gh, if installed, logged out, so the git email answers.
+  process.env.HOME = home;
+  process.env.GH_CONFIG_DIR = path.join(home, 'gh');
+  try {
+    assert.equal(currentActor(r.dir).source, 'git');
+  } finally {
+    for (const k of keys) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
 
 test('resolution order', () => {
   const all = { gh: 'octo', git: 'me@example.com', os: 'maxine' };
@@ -173,7 +194,7 @@ describe('the CLI', { concurrency: 4 }, () => {
       const res = await forgeAsync(r.dir, ['job', 'human', id, 'approve', '--note', 'x'], { FORGE_ACTOR: 'alice' });
       assert.equal(res.status, 0, res.stderr);
       const line = fs.readFileSync(path.join(jobDir(r.dir, id), 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1);
-      assert.deepEqual({ ...line, ts: undefined }, { v: 2, ts: undefined, type: 'human', action: 'approve', note: 'x', actor: { login: 'alice', source: 'env' } });
+      assert.deepEqual({ ...line, ts: undefined }, { v: EVENT_SCHEMA_VERSION, ts: undefined, type: 'human', action: 'approve', note: 'x', actor: { login: 'alice', source: 'env' } });
     } finally {
       r.cleanup();
     }

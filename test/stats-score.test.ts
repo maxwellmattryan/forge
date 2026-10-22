@@ -74,7 +74,7 @@ describe('score reporting', { concurrency: 4 }, () => {
     try {
       const runs = path.join(r.dir, '.forge', 'evals', 'runs');
       fs.mkdirSync(runs, { recursive: true });
-      const run = (id: string, startedAt: string) => fs.writeFileSync(path.join(runs, `${id}.json`), JSON.stringify({ schemaVersion: 1, id, label: null, forgeVersion: '0.18.6', configHash: 'abcdef0123', models: {}, startedAt, finishedAt: null, status: 'done', tasks: [] }));
+      const run = (id: string, startedAt: string) => fs.writeFileSync(path.join(runs, `${id}.json`), JSON.stringify({ schemaVersion: 1, id, label: null, forgeVersion: '0.18.6', configHash: 'abcdef0123', models: {}, startedAt, finishedAt: null, status: 'done', tasks: [] })); // old-version fixture: an eval run record, not config or job
       run('a', '2026-10-15T00:00:00.000Z');
       run('b', '2026-11-15T00:00:00.000Z');
       assert.equal(REAL_SCORE_WINDOW_DAYS, 14);

@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { forgeAsync, tempRepo, waitFor } from './helpers.ts';
 import * as yaml from '../lib/yaml.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 import { backgroundArgs } from '../lib/commands/dash.ts';
 
 const POSIX = { skip: process.platform === 'win32' && 'POSIX-only' };
@@ -22,7 +23,7 @@ function setup() {
   const marker = path.join(stubDir, 'ran');
   fs.writeFileSync(path.join(stubDir, 'claude'), `#!/bin/sh\ntouch '${marker}'\nexec cat >/dev/null\n`, { mode: 0o755 });
   fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
-  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 2, daemon: { enabled: true, command: 'claude {session}' } }));
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, daemon: { enabled: true, command: 'claude {session}' } }));
   const { ANTHROPIC_API_KEY: _k, CLAUDE_API_KEY: _c, ...rest } = process.env;
   const env = { ...rest, FORGE_ROOT: repo.dir, NO_COLOR: '1', PATH: `${stubDir}${path.delimiter}${process.env.PATH}` };
   const procs: ChildProcess[] = [];

@@ -5,10 +5,11 @@ import { jobAcs } from '../acs.ts';
 import { jobFindings } from '../findings.ts';
 import { assistantBrief, jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
-import { OFFICE_REFUSAL, daemonClaimOpts, inInboxOrOffice, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
-import { OFFICE_JOB_COMMANDS, checkForemanDecision, classReservation, checkOfficeSetFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor, securityHold } from '../foreman.ts';
+import { OFFICE_REFUSAL, inInboxOrOffice, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
+import { OFFICE_JOB_COMMANDS, checkForemanDecision, classReservation, checkOfficeSetFor, cleanHandoffReason, foremanHandoffFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor, securityHold } from '../foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
-import { agentOutputMissing, attachAgent, claimJob, createJob, ownerStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir, readEvents } from '../jobs.ts';
+import { AGENT_LEASE_MS, agentOutputMissing, attachAgent, checkFence, claimJob, createJob, leaseStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, renewLease, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, updateJob, jobDir, readEvents } from '../jobs.ts';
+import type { Fence } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
 import { issueLinkStatus } from '../issue-link.ts';
 import { checkIssueRef, isSafeUrl, issueUrl } from '../issue-ref.ts';
@@ -22,7 +23,7 @@ import { releaseGates } from '../interim.ts';
 import { RELEASE_APPROVAL, checkReleaseDecision, pendingReleaseHash } from '../release-approval.ts';
 import { isLens, lensRepoAllowed, reviewedRepoNames } from '../lens.ts';
 import { resolveLinks } from '../links.ts';
-import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
+import { COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, OFFICE_GATES } from '../schema.ts';
 import { daemonScope } from '../requests.ts';
 import { recordScore } from '../scoring.ts';
 import { jobPanel } from '../panel.ts';
@@ -36,6 +37,7 @@ import { modelFor, resolveEffort } from '../config.ts';
 import { ForgeError, coerce, getPath, run } from '../util.ts';
 import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './args.ts';
 import { mirrorToTracker, startFromRef } from './tracker.ts';
+import { refreshRequest } from '../request-refresh.ts';
 import { TeardownRefusal, archiveJob, archiveOlder, prune } from '../retention.ts';
 import { deleteJob } from '../delete.ts';
 import { finishEnvironment, finishEnvironmentStopOnly } from '../environment-lifecycle.ts';
@@ -126,8 +128,12 @@ const JOB: HelpGroup = {
         ['--reason R', 'why, shown with the state'],
         ['--note N', 'a note logged with the change'],
         ['--field key=value', 'set a field (values are JSON or plain words; repeatable)'],
+        ['--epoch N', "the driver's epoch: refused (stale_epoch) before any write once another session took the job over"],
       ],
-      exits: [[1, 'no such job, a field set only by another command, a list field that is not a JSON array of strings, or an unknown or cyclic dependency']],
+      exits: [
+        [1, 'no such job, a field set only by another command, a list field that is not a JSON array of strings, or an unknown or cyclic dependency'],
+        [3, 'stale_epoch: the lease moved past --epoch'],
+      ],
     },
     {
       command: 'job effort',
@@ -140,15 +146,22 @@ const JOB: HelpGroup = {
     },
     {
       command: 'job claim',
-      args: '<id> --session S [--force]',
-      summary: 'claim a job for a session',
+      args: '<id> --session S [--force] [--epoch N]',
+      summary: "take the job's lease for a session (30 minutes, renewed by its own step, advance, agent and worktree commands); a new driver gets the next epoch, which the result returns as `epoch` for every later --epoch. For a job started from its issue, before any plan.md or spec.md exists, it also re-reads request.md from that issue, best effort (`requestRefreshed: true` when it changed)",
       flags: [
         ['--session S', 'the claiming session (required)'],
-        ['--force', 'take it from a live owner, or claim it with dependencies not done'],
+        ['--force', 'take it from a live lease, or claim it with dependencies not done'],
+        ['--epoch N', 'a re-claim by the driver holding epoch N; refused (stale_epoch) once the job moved on'],
       ],
-      exits: [[1, 'no such job, or the office daemon session ran it'], [3, 'another live session holds the job'], [4, 'dependencies pending, or the repo budget holds new work']],
+      exits: [[1, 'no such job, or the office daemon session ran it'], [3, 'another session holds a live lease (owned), or the lease moved past --epoch (stale_epoch)'], [4, 'dependencies pending, or the repo budget holds new work']],
     },
-    { command: 'job release', args: '<id>', summary: "drop the job's owner", exits: [NO_JOB] },
+    { command: 'job release', args: '<id>', summary: "drop the job's driver (its epoch stays)", exits: [NO_JOB] },
+    {
+      command: 'job refresh-request',
+      args: '<id>',
+      summary: "re-read request.md and the title from the job's primary issue, so a queued job picks up an edited issue; the id, links, claim and dependsOn stay",
+      exits: [[1, 'no such job, a finished job, plan.md or spec.md already written, an agent running, no linked issue, an issue outside this repo and its member repos\' trackers, or no such tracker item (gh failing reads as none)']],
+    },
     {
       command: 'job repo',
       args: 'add <id> <name> [--verify-only] | remove <id> <name> | propose <id> <name> --reason R | downstream <id> | interim <id> (<name> | --root) canary|git-ref|local|sequential|inherit',
@@ -213,6 +226,16 @@ const JOB: HelpGroup = {
       exits: [[1, 'no such job, an unknown gate, or a daemon session other than the office']],
     },
     {
+      command: 'job handoff',
+      args: '<id> --class reserved|escalated|refused --reason R',
+      summary: 'record a Foreman hand-off: the office leaves the gate the job waits at for a person (office session only)',
+      flags: [
+        ['--class C', 'why: reserved (a reserved topic or class), escalated (the assistant escalated) or refused (the CLI refused the decision)'],
+        ['--reason R', 'one line for the person, at most 200 characters once control characters are removed (required)'],
+      ],
+      exits: [[1, 'not the office daemon session, no such job, a job not waiting on a gate the Foreman decides, an unknown --class, or an empty --reason']],
+    },
+    {
       command: 'job agent',
       args: '<id> start|end|attach --role R [options]',
       summary: "record an agent starting or ending, with its usage; end also scans what the agent wrote for likely secrets (a secret-found event and secrets: <n>, never a refusal); attach records a running agent's --agent-id so the dashboard can follow its transcript",
@@ -228,8 +251,12 @@ const JOB: HelpGroup = {
         ['--tool-uses N', 'with end: tool calls made'],
         ['--duration-ms N', 'with end: wall time'],
         ['--import', "with end and --agent-id: read usage from the agent's Claude Code transcript"],
+        ['--epoch N', "with start and end: the driver's epoch, refused (stale_epoch) before any write once another session took the job over"],
       ],
-      exits: [[1, 'no such job, an --output outside the job dir, the inbox or office session starting an agent, or attach on a role that is not running']],
+      exits: [
+        [1, 'no such job, an --output outside the job dir, the inbox or office session starting an agent, or attach on a role that is not running'],
+        [3, 'stale_epoch: the lease moved past --epoch'],
+      ],
     },
     { command: 'job round', args: '<id>', summary: 'start the next review round, unless the budget is spent', exits: [NO_JOB] },
     {
@@ -344,23 +371,27 @@ const JOB: HelpGroup = {
     },
     {
       command: 'job step',
-      args: '<id> [--session S]',
-      summary: "the job's next action (`spawn` with a ready agent brief, `run`, `wait`, `procedure` or `done`); read-only, the same state always gives the same answer, except that `--session <owner>` refreshes that session's claim heartbeat",
-      flags: [['--session S', "refresh session S's claim heartbeat, when S owns the job"]],
-      exits: [NO_JOB],
+      args: '<id> [--session S] [--epoch N]',
+      summary: "the job's next action (`spawn` with a ready agent brief, `run`, `wait`, `procedure` or `done`); read-only, the same state always gives the same answer, except that `--session <driver>` renews that session's lease",
+      flags: [
+        ['--session S', "renew session S's lease, when S drives the job"],
+        ['--epoch N', 'the epoch your claim returned: refused (exit 3, stale_epoch) once another session took the job over'],
+      ],
+      exits: [NO_JOB, [3, 'stale_epoch: the lease moved past --epoch, or to another driver']],
       readme: true,
     },
     {
       command: 'job advance',
-      args: '<id> --session S [--max N]',
+      args: '<id> --session S [--epoch N] [--max N]',
       summary: "runs step's `run` actions in-process (at most N, default 20) and returns the next `spawn`, `wait`, `procedure` or `done` with `ran`, one line per command it ran; refuses (exit 3) a job session S does not hold, and stops at the first failed command (exit 1)",
       flags: [
         ['--session S', 'the session driving the job (required)'],
+        ['--epoch N', 'the epoch your claim returned, checked at entry and after every command it runs (stale_epoch)'],
         ['--max N', 'run at most N commands (default 20)'],
       ],
       exits: [
         [1, 'no such job, or a command it ran failed (the result says which)'],
-        [3, 'session S does not hold the job'],
+        [3, 'session S does not hold the job, or (stale_epoch) another session took it over'],
       ],
       readme: true,
     },
@@ -410,6 +441,7 @@ const LOCKED_FIELDS: Record<string, string> = {
   worktree: 'forge worktree create|remove',
   port: 'forge worktree create|remove',
   owner: 'forge job claim|release',
+  lease: 'forge job claim|release',
   runs: 'forge job claim|release',
   source: 'forge job link',
   issues: 'forge job link',
@@ -467,6 +499,12 @@ function newJobIssues(root: string, config: Config, flags: Record<string, any>):
   return { issues, noIssue: wantsNone ? { reason: reason ?? null } : null };
 }
 
+/** `--epoch N` as a fence, with `session` when the call names one; undefined without the flag. Parsed before any write. */
+export function epochFence(flags: Record<string, any>, session?: string): Fence | undefined {
+  const epoch = num(flags.epoch, '--epoch', { integer: true });
+  return epoch === undefined ? undefined : { epoch, ...(session !== undefined ? { session } : {}) };
+}
+
 // setPath walks these into Object.prototype.
 const PROTO_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -511,7 +549,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         return { ...created, repoBudget: repoBudgetBlock(status) };
       }
       // A split child starts unowned: the session claims each child only when it runs it.
-      if (session && !flags.parent) claimJob(root, job.id, session, false, daemonClaimOpts(root, job.id));
+      if (session && !flags.parent) claimJob(root, job.id, session, false);
       if (!limited) return created;
       logEvent(root, job.id, 'repo-budget-warn', { reason: status.reason });
       return { ...created, repoBudget: repoBudgetBlock(status) };
@@ -542,7 +580,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     }
     case 'list': {
       const jobs = listJobs(root).filter((j) => (flags.all ? true : isActive(j)));
-      return jobs.map((j) => ({ id: j.id, title: j.title, stage: j.stage, state: j.state, waitingOn: j.waitingOn, round: j.round, pr: j.pr?.number ?? null, owner: j.owner?.session ?? null, effort: j.effort }));
+      return jobs.map((j) => ({ id: j.id, title: j.title, stage: j.stage, state: j.state, waitingOn: j.waitingOn, round: j.round, pr: j.pr?.number ?? null, owner: j.lease.driver, effort: j.effort }));
     }
     case 'show': {
       const job = loadJob(root, req(id, 'job id'));
@@ -582,6 +620,8 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       if ('kind' in fields && Object.hasOwn(OWNED_KINDS, String(fields.kind))) throw new ForgeError(`--field kind=${fields.kind} is not settable; use ${OWNED_KINDS[String(fields.kind)]}`);
       // Checked before anything is written, so a bad list leaves job.json untouched.
       const before = loadJob(root, jobId);
+      // Nor the other way: a retro set to `feature` would hand its spec gate to the foreman.
+      if ('kind' in fields && Object.hasOwn(OWNED_KINDS, String(before.kind))) throw new ForgeError(`job ${jobId} is a ${before.kind} job; its kind is not settable`);
       const waitingOn = flags['waiting-on'] === undefined ? undefined : flags['waiting-on'] === 'none' ? null : flags['waiting-on'];
       if (inOffice()) checkOfficeSetFor(root, before, { stage: flags.stage, state: flags.state, waitingOn, reason: flags.reason, fields });
       if ('dependsOn' in fields) fields.dependsOn = validateDependsOn(root, jobId, fields.dependsOn);
@@ -592,6 +632,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         reason: flags.reason,
         note,
         fields,
+        fence: epochFence(flags),
       });
       if ('dependsOn' in fields) {
         refreshDependencyWait(root, job.id);
@@ -609,11 +650,14 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       refuseInOffice(`it never claims ${jobId}`);
       const force = Boolean(flags.force);
       const session = req(str(flags.session, '--session'), '--session');
+      const fence = epochFence(flags, session);
+      // Before the budget check, which may park the job: a stale driver writes nothing.
+      if (fence) checkFence(root, jobId, fence);
       const status = checkRepoBudget(root, config);
       let budgetNote: { held: boolean; reason: string | null } | null = null;
       if (status.reason) {
         const cur = loadJob(root, jobId);
-        const own = ownerStatus(cur);
+        const own = leaseStatus(cur);
         const agentRunning = Object.values(cur.agents ?? {}).some((a) => a?.status === 'running');
         const foreignOwner = own.status === 'live' && own.session !== session;
         const limited = !repoBudgetExempt(root, cur, status) && !TERMINAL_STATES.includes(cur.state) && !agentRunning && !foreignOwner;
@@ -625,16 +669,20 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         if ((limited && cur.state !== 'waiting') || agentRunning) budgetNote = repoBudgetBlock(status);
       }
       // Only a forced takeover is a person's decision; a plain claim is the pipeline's own.
-      const opts = { ...daemonClaimOpts(root, jobId), ...(force ? { actor: currentActor(root) } : {}) };
+      const opts = { ...(force ? { actor: currentActor(root) } : {}), ...(fence ? { fence } : {}) };
       const { job, overridden } = claimRespectingDeps(root, jobId, session, force, opts);
       if (budgetNote && !budgetNote.held) logEvent(root, job.id, 'repo-budget-warn', { reason: budgetNote.reason });
-      return { id: job.id, owner: job.owner, ...(overridden.length ? { dependenciesOverridden: overridden } : {}), ...(budgetNote ? { repoBudget: budgetNote } : {}) };
+      const refresh = await refreshRequest(root, config, job.id, 'claim');
+      // The epoch is what the driver passes as --epoch to every later step and advance.
+      return { id: job.id, lease: job.lease, epoch: job.lease.epoch, ...(overridden.length ? { dependenciesOverridden: overridden } : {}), ...(budgetNote ? { repoBudget: budgetNote } : {}), ...(refresh.refreshed ? { requestRefreshed: true } : {}) };
     }
     case 'release': {
       const jobId = requireJob(root, id).id;
       releaseJob(root, jobId);
       return { id: jobId, released: true };
     }
+    case 'refresh-request':
+      return refreshRequest(root, config, requireJob(root, id).id, 'cli');
     case 'note':
       logEvent(root, requireJob(root, id).id, 'note', { text: rest.slice(1).join(' ') || bodyFrom(flags) });
       return { ok: true };
@@ -692,6 +740,21 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, [link], actor);
       logHumanEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null) }, actor);
       return { ok: true, ...(link !== undefined ? { link: linked } : {}) };
+    }
+    case 'handoff': {
+      // Office-only, like a foreman decision: a job session misled by request text can't hide a gate
+      // behind a fake "left for a human". Every check runs before the one write.
+      if (!inOffice()) throw new ForgeError('only the office daemon session records a Foreman hand-off', 1);
+      const job = requireJob(root, id);
+      // The gate is the one the job waits at now, never passed in.
+      const gate = gateClassFor(root, job);
+      if (!gate) throw new ForgeError(`job ${job.id} is not waiting on a gate the Foreman decides`, 1);
+      const cls = flags.class;
+      if (!(HANDOFF_CLASSES as readonly unknown[]).includes(cls)) throw new ForgeError(`--class must be one of ${HANDOFF_CLASSES.join(', ')}`, 1);
+      const reason = cleanHandoffReason(flags.reason);
+      if (!reason) throw new ForgeError('forge job handoff needs --reason "<why it is left for a human>"', 1);
+      logHumanEvent(root, job.id, 'foreman-handoff', { gate, class: cls, reason }, FOREMAN_ACTOR);
+      return { ok: true, foremanHandoff: foremanHandoffFor(root, loadJob(root, job.id)) };
     }
     case 'repo': {
       // Computed from config and events, never named: the one way a job's own session adds a repo, and only verify-only.
@@ -770,6 +833,9 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       const durationMs = num(flags['duration-ms'], '--duration-ms');
       // `end` stays allowed, so a stray start can still be closed.
       if (phase === 'start') refuseInboxDrive(jobId);
+      // Before the output dir, the secret scan's event and the import: a stale driver leaves no trace.
+      const fence = epochFence(flags);
+      if (fence) checkFence(root, jobId, fence);
       let usage: (AgentUsage & { transcript?: string; through?: string | null }) | undefined;
       let since: string | null = null;
       let output: string | null = null;
@@ -813,7 +879,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
           ...(outputMissing !== null ? { outputMissing } : {}),
         },
         config,
+        fence,
       );
+      // The driver's agents are its activity: a start keeps the lease for the longest agent run, an end for the usual span.
+      renewLease(root, jobId, { ttl: phase === 'start' ? AGENT_LEASE_MS : undefined });
       const a = job.agents[role];
       const budget = phase === 'end' ? enforceBudget(root, config, job.id, 'agent-end') : null;
       return { role, status: a.status, model: a.model, usage: usage ? { tokens: usage.totalTokens, exact: Boolean(usage.exact), ...(since && usage.transcript ? { since } : {}) } : null, jobTokens: job.usage.totalTokens, jobCostUsd: job.usage.estCostUsd, ...(outputMissing !== null ? { outputMissing } : {}), ...(secrets ? { secrets } : {}), ...(budget ? { budget } : {}) };
@@ -941,9 +1010,11 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     }
     case 'step': {
       const jobId = loadJob(root, req(id, 'job id')).id;
-      // The loop's heartbeat: only the owner's own step refreshes its claim, and nothing else changes.
+      // The loop's renewal: only the driver's own step renews its lease, and nothing else changes.
       const session = str(flags.session, '--session');
-      if (session !== undefined) touchJob(root, jobId, session);
+      const fence = epochFence(flags, session);
+      if (session !== undefined) renewLease(root, jobId, { session, fence });
+      else if (fence) checkFence(root, jobId, fence);
       return step(loadStepInput(root, config, jobId));
     }
     default:
@@ -1004,6 +1075,7 @@ export function compactJob(root: string, job: Job): Record<string, unknown> {
     state: job.state,
     waitingOn: job.waitingOn,
     reason: job.reason,
+    foremanHandoff: foremanHandoffFor(root, job),
     round: job.round,
     maxRounds: job.maxRounds,
     reviewers: job.reviewers,
@@ -1020,7 +1092,7 @@ export function compactJob(root: string, job: Job): Record<string, unknown> {
     issues: job.issues,
     noIssue: job.noIssue,
     effort: job.effort,
-    owner: job.owner?.session ?? null,
+    owner: job.lease.driver,
     progress: progress(root, job.id),
     tokens: job.usage.totalTokens,
     estCostUsd: job.usage.estCostUsd,

@@ -67,9 +67,9 @@ export const jobStep: Renderer = (d, o) => {
 };
 
 export const jobClaim: Renderer = (d, o) => {
-  if (!has(d, 'id', 'owner') || !has(d.owner, 'session')) return null;
+  if (!has(d, 'id', 'lease') || !has(d.lease, 'driver', 'epoch', 'expiresAt')) return null;
   const p = paint(o.color);
-  const out = [`claimed ${txt(d.id)} for session ${short(d.owner.session, 8)} on ${txt(d.owner.host)}`];
+  const out = [`claimed ${txt(d.id)} for session ${short(d.lease.driver, 8)} at epoch ${txt(d.lease.epoch)}, lease until ${txt(d.lease.expiresAt)}`];
   if (Array.isArray(d.dependenciesOverridden) && d.dependenciesOverridden.length) out.push(`overrode dependencies: ${list(d.dependenciesOverridden)}`);
   if (has(d.repoBudget, 'reason')) out.push(marked('warn', [{ text: `repo budget: ${hang(String(d.repoBudget.reason ?? '-'), 2)}` }], p));
   return out.join('\n');

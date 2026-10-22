@@ -14,6 +14,8 @@ export type Severity = (typeof SEVERITIES)[number];
 export interface RaisedFinding {
   severity: Severity;
   path: string | null;
+  /** The digits after the location token's first `:` (`lib/x.ts:42` → 42), else null. */
+  line: number | null;
 }
 
 /** One builder answer line, attributed to the review round it answers. */
@@ -34,7 +36,11 @@ interface Counts {
 /** CLI output of `forge job findings`, without the id. */
 export interface JobFindings {
   rounds: (Counts & { round: number })[];
-  byLens: Record<string, Counts & { recurring: number }>;
+  /**
+   * `severity`: the lens's raised findings by severity, present once it raised one. Archive records
+   * written before it carry none, and stats leaves those out of its severity counts.
+   */
+  byLens: Record<string, Counts & { recurring: number; severity?: Record<Severity, number> }>;
   totals: Counts & { recurring: number };
   recurring: { lens: string; path: string; rounds: number[] }[];
   disputed: { round: number; lens: string; severity: Severity; path: string | null }[];
@@ -78,9 +84,17 @@ export function parseReviewFindings(text: string): RaisedFinding[] {
     const m = REVIEW_LINE.exec(line);
     if (!m) continue;
     const first = m[2].trim().split(/\s+/)[0] ?? '';
-    out.push({ severity: m[1].toLowerCase() as Severity, path: first ? cleanPath(first) : null });
+    out.push({ severity: m[1].toLowerCase() as Severity, path: first ? cleanPath(first) : null, line: first ? lineOf(first) : null });
   }
   return out;
+}
+
+/** The line of a location token: the digits right after its first `:`, as cleanPath reads the path before it. */
+function lineOf(token: string): number | null {
+  const p = String(token).replace(/[`*()]/g, '');
+  const colon = p.indexOf(':');
+  const m = colon < 0 ? null : /^\d{1,9}/.exec(p.slice(colon + 1));
+  return m ? Number(m[0]) : null;
 }
 
 /**
@@ -144,7 +158,9 @@ export function summariseFindings(raised: Map<number, { lens: string; severity: 
     const c = roundOf(r);
     for (const f of findings) {
       c.raised++;
-      lensOf(f.lens).raised++;
+      const l = lensOf(f.lens);
+      l.raised++;
+      (l.severity ??= { blocker: 0, major: 0, minor: 0, nit: 0 })[f.severity]++;
       if (f.path === null) continue;
       const key = JSON.stringify([f.lens, f.path]);
       let entry = seenAt.get(key);

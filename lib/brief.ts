@@ -2,10 +2,9 @@
 // text an agent wrote (after reading tracker or PR text) is never re-injected into another prompt.
 import path from 'node:path';
 import { backingLine } from './backing.ts';
-import { jobEndpoints } from './endpoints.ts';
 import { autoMerge, lensNeedsApp, resolveEffort } from './config.ts';
 import { jobDir, reviewDir } from './jobs.ts';
-import { memberEntry, memberRepos, trustedMemberWorktree } from './job-repos.ts';
+import { memberEntry, memberRepos } from './job-repos.ts';
 import { downstreamMembers } from './downstream.ts';
 import { releaseGates, resolveInterim } from './interim.ts';
 import { isLens, reviewFileName, reviewedRepoNames, splitLens } from './lens.ts';
@@ -14,6 +13,7 @@ import { repoGraph } from './project.ts';
 import { paths, exists } from './paths.ts';
 import { releaseFiles } from './release-plan.ts';
 import { SECRET_NAME, secretSourceOf } from './secret-refs-config.ts';
+import { recallLine } from './step/recall.ts';
 import type { Config, GateClass, Job, JobEvent, StepInput } from './types.ts';
 
 /**
@@ -272,12 +272,12 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
       const lensRepo = splitLens(lens)?.repo;
       const member = lensRepo ? memberEntry(j, lensRepo) : null;
       if (member) {
-        // The computed path, not job.json's: the session can write job.json, and verdicts trusts the same value.
-        const wt = trustedMemberWorktree(input.root, c, j, member.repo) ?? 'none';
+        // loadStepInput's computed path, not job.json's: the session can write job.json, and verdicts trusts the same value.
+        const wt = input.memberWorktrees[member.repo] ?? 'none';
         extra.push(`Lens repo: ${member.repo} · worktree ${wt} · base ${member.base ?? 'none'}`);
       }
       if (lensNeedsApp(c, lens) && c.commands.dev) {
-        const eps = jobEndpoints(input.root, c, j).components;
+        const eps = input.endpoints;
         extra.push(`Endpoints: ${eps.length ? eps.map((e) => `${e.name} ${e.url}`).join('; ') : `dev http://localhost:${c.ports.base}`}`);
       }
       extra.push(...backingLines, ...secretLines);
@@ -302,6 +302,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
           `Merge: auto ${autoMerge(c)} · autoWhen ${JSON.stringify(c.merge.autoWhen ?? [])}`,
           protectedLine(j),
           releaseGateLine(c, j, input.events),
+          recallLine(input),
           ...(reworkPanel ? [reworkPanel] : []),
           infra,
           `Scope: ${p('scope')}`,

@@ -77,7 +77,9 @@ function scratch() {
   const dir = jobDir(root, job.id);
   updateJob(root, job.id, (j) => {
     j.worktree = `${root}.wt/${job.id}`;
-    j.owner = { session: 's-1', host: os.hostname(), since: '2026-10-16T09:00:00.000Z', heartbeat: '2026-10-16T09:00:00.000Z' };
+    j.lease = { driver: 's-1', epoch: 1, since: '2026-10-16T09:00:00.000Z', renewedAt: '2026-10-16T09:00:00.000Z', expiresAt: '2026-10-16T09:30:00.000Z' };
+    // The lease records no host, but a hand-edited or foreign key in job.json still can; the bundle must redact it.
+    (j as any).host = os.hostname();
   });
   logEvent(root, job.id, 'probe', { detail: `${home}/.config/x`, who: EMAIL, by: `@${LOGIN}`, summary: EVENT_MARKER });
   fs.writeFileSync(path.join(dir, 'spec.md'), `# Spec\n${SPEC_MARKER}\nkey ${TOKEN}\nmail ${EMAIL}\n`);
@@ -152,7 +154,7 @@ describe('forge doctor --bundle', { concurrency: 4 }, () => {
       assert.ok(res.redactions.secrets >= 1 && res.redactions.paths >= 1 && res.redactions.emails >= 1 && res.redactions.logins >= 1, JSON.stringify(res.redactions));
       assert.equal(fs.statSync(res.file).mode & 0o777, 0o600);
       assertNoLeak(s, m, HOSTS);
-      const host = JSON.parse(m.get(`jobs/${s.job.id}/job.json`)!).owner.host;
+      const host = JSON.parse(m.get(`jobs/${s.job.id}/job.json`)!).host;
       if (HOSTS.length) assert.match(host, /^(<login>|<secret:[a-z-]+>)$/);
     } finally {
       s.cleanup();

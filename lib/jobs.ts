@@ -1,27 +1,34 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { paths, exists } from './paths.ts';
 import { currentActor } from './actor.ts';
 import { clearFocusIf } from './focus.ts';
 import { knownRecordValues, redactDeep } from './known-secrets.ts';
-import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, endFinishedJobAgents, finishedJobRoles, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
+import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, endFinishedJobAgents, finishedJobRoles, noLease, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
 import { idPrefix } from './issue-ref.ts';
 import { localRepoSlug } from './repo-slug.ts';
-import type { AgentUsage, Config, Effort, EventActor, Job, JobAgent, JobIssue, JobChange, JobOwner, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
+import type { AgentUsage, Config, Effort, EventActor, ForgeRequest, Job, JobAgent, JobIssue, JobChange, JobLease, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
 import { queueNotify, transitionEvents } from './notify.ts';
 import { estimateCost } from './usage.ts';
 import { reviewFileName } from './lens.ts';
+import { requeueOrphans } from './requests.ts';
+import { configForJob } from './eval-overlay.ts';
+import { configHash, pluginHash, promptHash } from './provenance.ts';
 import { ForgeError, assertSafeRef, now, readJson, readText, setPath, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
 
-/** A session that has not touched its job for this long is presumed dead and can be taken over. */
-const OWNER_STALE_MS = 30 * 60 * 1000;
+/** How long a claim or the driver's own activity keeps a lease live. */
+export const LEASE_MS = 30 * 60 * 1000;
 /**
- * An agent still marked running keeps its session's claim alive this long after it started,
- * so a long builder with no CLI writes is not mistaken for a dead session. The ceiling keeps a
- * crashed session from holding a job forever.
+ * How long `forge job agent start` keeps it live: a long builder makes no CLI writes of its own
+ * driver's, and this is the ceiling, so a crashed session can't hold a job forever.
  */
-export const RUNNING_AGENT_MAX_MS = 2 * 60 * 60 * 1000;
+export const AGENT_LEASE_MS = 2 * 60 * 60 * 1000;
+
+/** A fenced write: refused (stale_epoch) unless the lease is still at `epoch` and, with `session`, still that driver's. */
+export interface Fence {
+  epoch: number;
+  session?: string;
+}
 
 export function jobDir(root: string, id: string): string {
   if (!/^[a-z0-9][a-z0-9._-]*$/i.test(id)) throw new ForgeError(`invalid job id "${id}"`);
@@ -42,14 +49,16 @@ export function loadJob(root: string, id: string): LoadedJob {
 }
 
 /**
- * All job.json writes go through here: locked, atomic, timestamped. It never refreshes the
- * owner's heartbeat (see touchJob): a write by sync, another session or the dashboard says
- * nothing about whether the owner is still alive.
+ * All job.json writes go through here: locked, atomic, timestamped. It never renews the lease (see
+ * renewLease): a write by sync, another session or the dashboard says nothing about whether the
+ * driver is still alive. With `fence`, the epoch check runs inside the same lock, before `mutate`,
+ * so a stale driver's write never lands.
  */
-export function updateJob(root: string, id: string, mutate: (job: LoadedJob) => void): LoadedJob {
+export function updateJob(root: string, id: string, mutate: (job: LoadedJob) => void, fence?: Fence): LoadedJob {
   const dir = jobDir(root, id);
   return withLock(path.join(dir, '.lock'), () => {
     const job = loadJob(root, id);
+    if (fence) assertEpoch(job, fence.epoch, fence.session);
     mutate(job);
     job.updatedAt = now();
     writeJsonAtomic(path.join(dir, 'job.json'), serializeJob(job));
@@ -58,18 +67,49 @@ export function updateJob(root: string, id: string, mutate: (job: LoadedJob) => 
 }
 
 /**
- * The owner's own activity: refreshes its heartbeat. With `session`, only when that session is
- * the owner; anyone else writes nothing. Without it, refreshes whoever owns the job (the worktree
- * commands, which only the driving session's agents run). Returns whether it refreshed.
+ * Refuses a write on behalf of a driver that was taken over: the lease moved past `epoch`, or (with
+ * `session`) another session drives it now. Exit 3, code stale_epoch.
  */
-export function touchJob(root: string, id: string, session?: string): boolean {
-  const skip = new Error('not the owner');
+export function assertEpoch(job: Pick<Job, 'id' | 'lease'>, epoch: number, session?: string): void {
+  const l = job.lease;
+  if (l.epoch === epoch && (session === undefined || l.driver === session)) return;
+  throw new ForgeError(`job ${job.id} was taken over (lease epoch ${l.epoch}, you hold ${epoch}); stop driving it`, 'stale_epoch');
+}
+
+/** assertEpoch under the job lock, for a fenced command whose first write is not job.json's. */
+export function checkFence(root: string, id: string, fence: Fence): void {
+  withLock(path.join(jobDir(root, id), '.lock'), () => assertEpoch(loadJob(root, id), fence.epoch, fence.session));
+}
+
+/** The later of an ISO time and a ms time, as ISO; an unreadable ISO loses. */
+const later = (iso: string | null, ms: number): string => {
+  const t = iso ? Date.parse(iso) : NaN;
+  return new Date(Number.isFinite(t) && t > ms ? t : ms).toISOString();
+};
+
+/**
+ * The driver's own activity extends its lease to at least `ttl` from now. With `session`, only
+ * while that session is the driver, even past expiry (nobody took over); without it (the worktree
+ * commands and agent records, which carry no session), only a live lease, so an orphan agent can't
+ * revive a dead driver's. Anything else writes nothing. Returns whether it renewed.
+ */
+export function renewLease(root: string, id: string, opts: { session?: string; ttl?: number; fence?: Fence } = {}): boolean {
+  const skip = new Error('not renewed');
   try {
-    updateJob(root, id, (j) => {
-      // Thrown rather than returned, so a foreign touch leaves job.json byte-identical.
-      if (!j.owner || (session !== undefined && j.owner.session !== session)) throw skip;
-      j.owner.heartbeat = now();
-    });
+    updateJob(
+      root,
+      id,
+      (j) => {
+        const l = j.lease;
+        // Thrown rather than returned, so a foreign renewal leaves job.json byte-identical.
+        if (!l.driver) throw skip;
+        if (opts.session !== undefined ? l.driver !== opts.session : leaseStatus(j).status !== 'live') throw skip;
+        const t = Date.now();
+        l.renewedAt = new Date(t).toISOString();
+        l.expiresAt = later(l.expiresAt, t + (opts.ttl ?? LEASE_MS));
+      },
+      opts.fence,
+    );
   } catch (e) {
     if (e === skip) return false;
     throw e;
@@ -78,16 +118,62 @@ export function touchJob(root: string, id: string, session?: string): boolean {
 }
 
 /**
- * Whether the owner still counts as driving the job, by time alone: its heartbeat is under
- * OWNER_STALE_MS old, or an agent has been marked running for under RUNNING_AGENT_MAX_MS.
- * claimJob refuses a `live` owner; lib/daemon-owner.ts adds the `dead` proofs.
+ * Ends the lease of a driver whose process is gone (a pool session's child exited): expiresAt
+ * becomes now, the driver and epoch stay, so the driver itself may still renew if it comes back and
+ * anyone else may claim. Only when the driver is one of `ids`. Returns the driver it expired, or null.
  */
-export function ownerStatus(job: Pick<Job, 'owner' | 'agents'>, at = Date.now()): OwnerStatus {
-  const o = job.owner;
-  if (!o) return { status: 'none', session: null, since: null, heartbeat: null, agentRunning: false, reason: null, jobSession: false };
-  const heartbeatFresh = at - Date.parse(o.heartbeat ?? o.since) < OWNER_STALE_MS;
-  const agentRunning = Object.values(job.agents ?? {}).some((a: JobAgent) => a.status === 'running' && Boolean(a.startedAt) && at - Date.parse(a.startedAt!) < RUNNING_AGENT_MAX_MS);
-  return { status: heartbeatFresh || agentRunning ? 'live' : 'stale', session: o.session, since: o.since ?? null, heartbeat: o.heartbeat ?? null, agentRunning, reason: null, jobSession: false };
+export function expireLease(root: string, id: string, ids: readonly string[], reason: string): string | null {
+  const skip = new Error('not expired');
+  let session: string | null = null;
+  try {
+    updateJob(root, id, (j) => {
+      const l = j.lease;
+      if (!l.driver || !ids.includes(l.driver) || leaseStatus(j).status !== 'live') throw skip;
+      session = l.driver;
+      l.expiresAt = now();
+    });
+  } catch (e) {
+    if (e === skip) return null;
+    throw e;
+  }
+  logEvent(root, id, 'lease-expired', { session, reason });
+  return session;
+}
+
+/** requeueOrphans with leases read from job.json and its notes logged on each request's job. */
+export function requeueOrphanedRequests(
+  root: string,
+  opts: { at?: number; exited?: readonly string[]; busy?: readonly string[]; byAge?: boolean } = {},
+): { requeued: ForgeRequest[]; rejected: ForgeRequest[] } {
+  return requeueOrphans(root, {
+    ...opts,
+    leaseOf: (id) => {
+      try {
+        return loadJob(root, id).lease;
+      } catch {
+        return null;
+      }
+    },
+    note: (id, text) => {
+      try {
+        logEvent(root, id, 'note', { text });
+      } catch {
+        // The job went away since the request was written; the request file still says what happened.
+      }
+    },
+  });
+}
+
+/**
+ * Whether a job's lease still holds, by its own expiry alone: `live` with a driver whose expiresAt
+ * is ahead of `at`, `expired` with one whose is not, `none` without. claimJob refuses only `live`.
+ */
+export function leaseStatus(job: Pick<Job, 'lease'>, at = Date.now()): OwnerStatus {
+  const l = job.lease ?? noLease();
+  const base = { since: l.since, renewedAt: l.renewedAt, expiresAt: l.expiresAt, epoch: l.epoch, jobSession: false };
+  if (!l.driver) return { status: 'none', session: null, ...base };
+  const exp = l.expiresAt ? Date.parse(l.expiresAt) : NaN;
+  return { status: Number.isFinite(exp) && exp > at ? 'live' : 'expired', session: l.driver, ...base };
 }
 
 export function logEvent(root: string, id: string, type: string, data: Record<string, any> = {}): void {
@@ -264,10 +350,10 @@ function checkChange(change: JobChange): void {
 export function setJob(
   root: string,
   id: string,
-  change: JobChange & { release?: boolean; derive?: (j: LoadedJob) => JobChange | null },
+  change: JobChange & { release?: boolean; derive?: (j: LoadedJob) => JobChange | null; fence?: Fence },
 ): LoadedJob {
   checkChange(change);
-  const { derive, release, ...base } = change;
+  const { derive, release, fence, ...base } = change;
   let before: TransitionSide | null = null;
   let released = false;
   let lost: string[] = [];
@@ -296,13 +382,13 @@ export function setJob(
     j.agents = ended.agents;
     lost = ended.roles;
     // In the same locked write, so no session can claim between the change and the release.
-    if (release && j.owner) {
+    if (release && j.lease.driver) {
       const run = j.runs[j.runs.length - 1];
       if (run && !run.endedAt) run.endedAt = now();
-      j.owner = null;
+      dropDriver(j);
       released = true;
     }
-  });
+  }, fence);
   const b = before as any;
   if (b.stage !== job.stage || b.state !== job.state || b.waitingOn !== job.waitingOn) {
     const to = { stage: job.stage, state: job.state, waitingOn: job.waitingOn };
@@ -323,47 +409,61 @@ export function setJob(
   return job;
 }
 
-/** How claimJob learns that a live-looking owner has let go (lib/daemon-owner.ts): a reason, or null. */
 export interface ClaimOpts {
-  yields?: (owner: JobOwner) => string | null;
   /** Set only for a human's `--force` takeover, which the `claimed` event then records. */
   actor?: EventActor;
+  fence?: Fence;
+}
+
+/** Nobody drives the job; the epoch stays, so it only ever grows. */
+function dropDriver(j: Job): void {
+  j.lease = { ...j.lease, driver: null, expiresAt: null };
 }
 
 /**
- * Prevents two sessions from driving the same job at once while letting a new session
- * take over a job whose previous session died, or whose owner `opts.yields` proves has let go.
+ * One driver per job: a live lease held by another session refuses (exit 3) unless `force`; none,
+ * an expired one or the caller's own is taken. A change of driver starts a new epoch, which fences
+ * every later write of the one replaced; a re-claim keeps it.
  */
 export function claimJob(root: string, id: string, session: string, force = false, opts: ClaimOpts = {}): LoadedJob {
-  let yielded: { from: string; reason: string } | null = null;
-  const job = updateJob(root, id, (j) => {
-    const o = j.owner;
-    const { status, agentRunning } = ownerStatus(j);
-    if (o && o.session !== session && status === 'live' && !force) {
-      // Asked inside the lock, so the owner it judges is the one being replaced.
-      const reason = opts.yields?.(o) ?? null;
-      if (!reason) throw new ForgeError(`job ${id} is being driven by session ${o.session} (${agentRunning ? 'an agent is still running' : `last active ${o.heartbeat}`}); pass --force to take over`, 3);
-      yielded = { from: o.session, reason };
-    }
-    j.owner = { session, host: os.hostname(), since: o?.session === session ? o.since : now(), heartbeat: now() };
-    if (!o || o.session !== session) j.runs.push({ session, startedAt: now() });
-  });
-  logEvent(root, id, 'claimed', { session, ...(opts.actor ? { actor: opts.actor } : {}) });
-  const y = yielded as { from: string; reason: string } | null;
-  if (y) logEvent(root, id, 'note', { text: `took over from session ${y.from}: ${y.reason}` });
+  let took: { from: string; why: string } | null = null;
+  const job = updateJob(
+    root,
+    id,
+    (j) => {
+      const l = j.lease;
+      const { status } = leaseStatus(j);
+      if (l.driver && l.driver !== session && status === 'live' && !force)
+        throw new ForgeError(`job ${id} is being driven by session ${l.driver} (lease renewed ${l.renewedAt ?? 'never'}, expires ${l.expiresAt}); pass --force to take over`, 'owned');
+      const t = Date.now();
+      if (l.driver !== session) {
+        if (l.driver) took = { from: l.driver, why: status === 'live' ? 'forced' : 'lease expired' };
+        l.driver = session;
+        l.epoch += 1;
+        l.since = new Date(t).toISOString();
+        j.runs.push({ session, startedAt: now() });
+      }
+      l.renewedAt = new Date(t).toISOString();
+      l.expiresAt = later(l.expiresAt, t + LEASE_MS);
+    },
+    opts.fence,
+  );
+  logEvent(root, id, 'claimed', { session, epoch: job.lease.epoch, ...(opts.actor ? { actor: opts.actor } : {}) });
+  const y = took as { from: string; why: string } | null;
+  if (y) logEvent(root, id, 'note', { text: `took over from session ${y.from} (${y.why})` });
   return job;
 }
 
-/** Clears the owner; with `onlyIf`, only when it approves the owner (checked inside the lock). Returns whether it did. */
-export function releaseJob(root: string, id: string, onlyIf?: (owner: JobOwner | null) => boolean): boolean {
-  const keep = new Error('owner kept');
+/** Drops the driver; with `onlyIf`, only when it approves the lease (checked inside the lock). Returns whether it did. */
+export function releaseJob(root: string, id: string, onlyIf?: (lease: JobLease) => boolean): boolean {
+  const keep = new Error('lease kept');
   try {
     updateJob(root, id, (j) => {
       // Thrown rather than returned, so a kept claim leaves job.json untouched.
-      if (onlyIf && !onlyIf(j.owner)) throw keep;
+      if (onlyIf && !onlyIf(j.lease)) throw keep;
       const run = j.runs[j.runs.length - 1];
       if (run && !run.endedAt) run.endedAt = now();
-      j.owner = null;
+      dropDriver(j);
     });
   } catch (e) {
     if (e === keep) return false;
@@ -371,6 +471,26 @@ export function releaseJob(root: string, id: string, onlyIf?: (owner: JobOwner |
   }
   logEvent(root, id, 'released');
   return true;
+}
+
+/**
+ * What an agent start ran on: the plugin, the role's prompt as the roster hashes it, and the repo
+ * layer with the job's effective config. `forge stats --by prompt` groups jobs by these.
+ */
+function startProvenance(root: string, config: Config, job: Job, role: string): Pick<JobEvent, 'pluginHash' | 'promptHash' | 'configHash'> {
+  // Best-effort, each on its own: a hash that throws is null, and never fails the agent start.
+  const tryHash = (fn: () => string | null): string | null => {
+    try {
+      return fn();
+    } catch {
+      return null;
+    }
+  };
+  return {
+    pluginHash: tryHash(() => pluginHash()),
+    promptHash: tryHash(() => promptHash(root, config, role)),
+    configHash: tryHash(() => configHash(root, configForJob(root, config, job))),
+  };
 }
 
 export function recordAgent(
@@ -393,6 +513,7 @@ export function recordAgent(
     outputMissing?: boolean;
   },
   config: Config,
+  fence?: Fence,
 ): LoadedJob {
   const job = updateJob(root, id, (j) => {
     const a = (j.agents[rec.role] ??= { runs: 0 });
@@ -417,7 +538,7 @@ export function recordAgent(
       if (rec.agentId && rec.importedThrough) (a.importedThrough ??= {})[rec.agentId] = rec.importedThrough;
       if (rec.outputMissing !== undefined) a.outputMissing = rec.outputMissing;
     }
-  });
+  }, fence);
   logEvent(root, id, `agent-${rec.phase}`, {
     role: rec.role,
     model: rec.model ?? job.agents[rec.role]?.model,
@@ -425,7 +546,7 @@ export function recordAgent(
     status: rec.status,
     summary: rec.summary,
     usage: rec.usage,
-    ...(rec.phase === 'start' ? { output: rec.output ?? undefined, retry: rec.retry || undefined } : {}),
+    ...(rec.phase === 'start' ? { output: rec.output ?? undefined, retry: rec.retry || undefined, ...startProvenance(root, config, job, rec.role) } : {}),
     ...(rec.outputMissing !== undefined ? { outputMissing: rec.outputMissing } : {}),
   });
   return job;
@@ -448,14 +569,14 @@ export function attachAgent(root: string, id: string, role: string, agentId: str
  * Ends each role still marked running with status `lost`, as `forge job agent <id> end --role
  * <role> --status lost` would, minus the transcript import and budget check: a lost agent carries
  * no usage. Each role is re-read first, so one another writer ended meanwhile keeps its status, and
- * with `owner`, so is one whose job another session has claimed since.
+ * with `driver`, so is one whose job another session has claimed since.
  * Returns the roles it ended.
  */
-export function markAgentsLost(root: string, id: string, roles: string[], summary: string, config: Config, owner?: string): string[] {
+export function markAgentsLost(root: string, id: string, roles: string[], summary: string, config: Config, driver?: string): string[] {
   const ended: string[] = [];
   for (const role of roles) {
     const job = loadJob(root, id);
-    if (owner !== undefined && job.owner?.session !== owner) break;
+    if (driver !== undefined && job.lease.driver !== driver) break;
     const a = job.agents[role];
     if (a?.status !== 'running') continue;
     const outputMissing = agentOutputMissing(root, id, role, a, undefined);

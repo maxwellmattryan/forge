@@ -46,10 +46,10 @@ With `--json`:
 - **Success**: stdout is exactly one JSON value plus a newline. Results that are strings print JSON-encoded (`forge worktree path <id> --json` prints `"/path/to/worktree"`). `forge status --json` prints one row per job, `[]` when nothing is active, with the same `--all` filter:
 
   ```json
-  [{"id":"add-login","stage":"build","state":"running","waitingOn":null,"round":1,"tasks":{"done":3,"total":7},"pr":null,"session":"9b2f…"}]
+  [{"id":"add-login","stage":"build","state":"running","waitingOn":null,"round":1,"tasks":{"done":3,"total":7},"pr":null,"session":"9b2f…","foremanHandoff":null}]
   ```
 
-  `pr` is the PR number or `null`, and `session` the owner's full session id or `null`. `forge stats --json` prints the full stats object, and `forge help … --json` the help tables (see Help).
+  `pr` is the PR number or `null`, `session` the owner's full session id or `null`, and `foremanHandoff` the Foreman hand-off standing at the job's park or `null` (see Foreman decisions). `forge stats --json` prints the full stats object, and `forge help … --json` the help tables (see Help).
 - **Errors**: stdout gets exactly one line and stderr nothing (`FORGE_DEBUG` still writes the stack to stderr):
 
   ```json
@@ -85,7 +85,7 @@ Like `forge version`, it needs no repo and no `.forge/`. The commit is self-repo
 | ok | 0 | the command did what it was asked |
 | failed | 1 | the command ran and failed, or refused by policy: verify failed, a merge refused, a field only another command sets, a path outside the worktree, no such job |
 | usage | 2 | Forge could not parse the call: an unknown command or subcommand, a missing argument, a flag with no value or given twice, a value that is not a number, JSON or one of the listed words. Also a missing or unparseable `.forge/config.yml`, or not inside a git repository |
-| owned | 3 | the job or request is held by another live session, or a tracker claim was lost to another job |
+| owned | 3 | the job or request is held by another live session, or a tracker claim was lost to another job; also `stale_epoch`, a fenced write from a session that was taken over |
 | blocked | 4 | the job's dependencies are not done, or the repo budget (`budget:`) holds new work: `forge job claim` parked the job, or `forge job from-ref` started nothing |
 | external | 5 | a tool Forge runs failed to start or exited non-zero: git, gh, claude, docker |
 
@@ -116,6 +116,7 @@ Every error carries one of these codes, and the code fixes the exit.
 | `not_a_repo` | 2 | not inside a git repository, and `FORGE_ROOT` is unset |
 | `config_invalid` | 2 | `.forge/config.yml` cannot be parsed, or `forge init write` would write an invalid one |
 | `owned` | 3 | another live session holds the job or request, or a tracker claim was lost |
+| `stale_epoch` | 3 | a write fenced with `--epoch N` (`forge job step\|advance\|set\|claim\|agent start\|end`) found the job's lease at another epoch, or another driver, because another session took the job over: the caller must stop driving it. The check runs under the job lock before any write, so `job.json` is unchanged |
 | `blocked` | 4 | the job's dependencies are not done (`--force` claims anyway), or the repo budget holds new work (the message is the `repo budget: …` reason; a human runs `forge budget ack`) |
 | `external` | 5 | git, gh or claude failed to start or exited non-zero |
 
@@ -217,11 +218,25 @@ The log file gains a `(links <bin dir>)` line after `(cwd …)`. Background comm
 
 `forge job assist <id> --gate <class>` is read-only and returns `{gate, stale, reserved, model, effort, subagent, brief}`: the `forge:assistant` spawn for that gate, with a brief of paths only. `stale: true` means the job no longer waits on that gate, and `reserved` is re-checked at call time. An unknown `--gate` exits 1, and so does a daemon session other than the office. `forge requests add gate` always exits 1: only `forge job set` and `forge pr sync` write gate requests.
 
+A recorded decision moves the job by itself: the next `forge job step` on a job whose current park a `human` event answers returns that gate's follow-up `forge job set` (rules GA1–GA11, ARCHITECTURE.md "Job model" › Answered gates), so `forge job human` followed by `forge requests add resume --job <id>` is enough from any session.
+
+`forge job handoff <id> --class reserved|escalated|refused --reason "<text>"` records a **Foreman hand-off**: the office left the gate the job waits at for a person (a reserved topic or class, the assistant escalated, or the CLI refused its decision). Its checks run in this order and all before any write: the office daemon session (anywhere else it exits 1 with `only the office daemon session records a Foreman hand-off`), the job exists, the job waits on a gate the Foreman decides (otherwise exit 1, `job <id> is not waiting on a gate the Foreman decides`; the gate is taken from the job, never passed in), `--class` is one of the three, and `--reason` keeps some text once control characters and backticks are removed and it is cut to 200 characters (otherwise exit 1). It then logs one `foreman-handoff` event `{gate, class, reason, actor: {login: null, source: "foreman"}}` and prints `{"ok": true, "foremanHandoff": {"gate", "class", "reason", "at"}}`.
+
+`forge status --json` rows and `forge job show` carry `foremanHandoff`: that `{gate, class, reason, at}` while the job still waits on the gate it was handed off at, with no newer transition and no `human` event (anyone's decision) since, and `null` otherwise. It is derived from events on read; job.json has no such field. `forge status` marks such a job `waiting:<gate> (left for a human)` in its agent-mode table, and adds a `handoff` column (`<class>: <reason>`) in human mode.
+
 ## Merging
 
 `forge pr merge <id> [--repo NAME | --root] [--now]` syncs first, then merges one PR at a time with exactly one `gh pr merge` call each: directly when checks pass or the repo has no CI, queued with `--auto` while checks are pending only when GitHub holds the PR and no protected-paths policy applies, deferred otherwise, and refused when checks fail. A single-repo job has one PR, and the result is `{ merged, autoMerge, action, checks, mergeState?, error? }` with `action` one of `already-merged`, `merged`, `auto`, `deferred`, `refused`, `failed`.
 
 A job with a member repo that gets a PR merges its PRs in the order of the components' `dependsOn` (docs/ARCHITECTURE.md "Job repos"): a PR is merged, or queued with `--auto`, only when every PR it depends on is MERGED by this call's own sync. The walk goes on after a direct merge and stops at the first PR it queues, defers, refuses or fails to merge, so a consumer is never queued while a dependency is unmerged. `--repo NAME` merges only that member's PR and `--root` only the root's; either is refused while a PR it depends on is not merged, has no PR, or could not be read. The result adds `repo` (the PR acted on last, null for the root), `parts` (one `{ repo, number, action, checks, mergeState?, error? }` per PR acted on, in order) and, on an order refusal, `reason`: `order` when a dependency PR is not merged, `cycle` when the components' `dependsOn` form a cycle between the job's repos, which refuses every merge of the job. Both exit 1 with no `gh pr merge` call and log `pr-merge-refused` with that `reason`. `merged` is true only when every PR of the job is MERGED. `--now` bypasses CI and the head pin for each PR it merges, never the order. `--repo` with `--root`, `--repo` naming no PR member, and `--root` with a value (`--root <id>` swallows the id) exit 1.
+
+## Leases and fencing
+
+`forge job claim <id> --session S` prints `{ id, lease, epoch }`: the job's lease (`{ driver, epoch, since, renewedAt, expiresAt }`, docs/ARCHITECTURE.md "Job model" › Ownership) and the epoch to fence later writes with. A new driver gets the next epoch; a re-claim by the same driver keeps it, so re-claiming always returns the epoch to use. `--epoch N` is accepted by `forge job step`, `forge job advance`, `forge job set`, `forge job claim` and `forge job agent start|end`; with it, the command is refused before it writes anything when the lease is no longer at epoch N or (with `--session S`) S no longer drives the job: exit 3, code `stale_epoch`, and the caller must stop driving the job. Without `--epoch`, nothing is fenced and `forge job advance` keeps its driver check. `N` must be a non-negative integer (else `usage`). Before `plan.md` or `spec.md` exists, a claim of a job started from its issue also re-reads `request.md` from that issue, best effort, and adds `requestRefreshed: true` when it changed; `forge next --claim` does the same for the job it resumes (docs/TRACKERS.md "Edited issues").
+
+`forge requests` (list) first returns to `pending` any `in-progress` request whose session is gone (its job's lease, held by that session, expired; or, for a request no lease covers, its claim is over 30 minutes old), adding `requeues`; one orphaned a second time is `rejected` with `its session ended twice while handling it`.
+
+`forge sync` ends with the reconciler's pass (docs/ARCHITECTURE.md "Daemon" › Reconciler) and reports it as `reconcile`: `{ resumed, escalated, requeued }` (job ids resumed or parked on `escalation` for having nothing to drive them, and request ids returned to pending), or the string `"skipped (forge dash owns it)"` while a live `forge dash` holds the daemon lock and reconciles on its own (sync reads the lock, never takes it), or `{ error }` when the pass failed; the rest of the sync has run either way.
 
 ## Next
 
@@ -289,7 +304,27 @@ The result gains `scoring: { queued: [ids], held: [ids] }` when either list is n
 
 While the repo is held, `forge next` prints `{ "held": true, "repoBudget": { "held", "reason" } }` and exits 0, `forge job new` creates the job parked on `budget` (its result adds `repoBudget`), and `forge job claim` and `forge job from-ref` exit 4. Under `onExceeded: warn` they proceed and add `repoBudget` with `held: false`.
 
-`forge stats --csv [--since DATE] [--by job|role|model|day]` prints the same spend as RFC 4180 CSV with CRLF line ends: the key column(s) (`job,kind,title` for `--by job`, the default; else `role`, `model` or `day`), then `runs,tokens,input,output,cache_read,cache_write,usd` (`usd` with 4 decimals), sorted by key. `--since` (YYYY-MM-DD or a full ISO timestamp) keeps events at or after it. Every job counts, evals and retros included, so the totals match `forge budget`. Cells go through the same formula guard as `forge audit --csv`. `--csv` with `--json`, `--by` without `--csv`, or an unknown `--by` exits 2.
+`forge stats --csv [--since DATE] [--by job|role|model|day]` prints the same spend as RFC 4180 CSV with CRLF line ends: the key column(s) (`job,kind,title` for `--by job`, the default; else `role`, `model` or `day`), then `runs,tokens,input,output,cache_read,cache_write,usd` (`usd` with 4 decimals), sorted by key. `--since` (YYYY-MM-DD or a full ISO timestamp) keeps events at or after it. Every job counts, evals and retros included, so the totals match `forge budget`. Cells go through the same formula guard as `forge audit --csv`. `--csv` with `--json`, `--by` (other than `prompt`) without `--csv`, or an unknown `--by` exits 2.
+
+## Prompt cohorts
+
+Every `agent-start` event (event schema v3) carries `pluginHash` (10 hex), `promptHash` (12 hex, the role's hash as `forge roster` reports it; for `reviewer:<lens>` the first 12 hex of `sha256(<reviewer promptHash> \0 <lens checklistHash or "">)`; null for a role with no `agents/<role>.md`) and `configHash` (10 hex; null when the job's config overlay is invalid). Each is null when it can't be computed, and never fails the start. `pluginHash` hashes regular files only, never through a symlink: a listed directory reached through a link hashes as a marker with the link's target, and the walk stops (with a marker) after 5000 entries or 32 MiB. Older events have none.
+
+`forge stats --by prompt [--role R] [--since DATE] [--include-evals]` prints `{ by: "prompt", role, since, cohorts, unrecorded, mixed }`. A job's cohort is the `promptHash` on its last hashed `agent-start` for `R` (default `builder`). Each cohort is `{ promptHash, jobs, jobIds, firstAt, lastAt, pluginHashes, configHashes, stats }`: the first 20 job ids, the first and last of those starts, at most 5 distinct plugin and config hashes, and a full `forge stats --json` object over the cohort's jobs only; oldest `firstAt` first. `mixed` counts jobs whose starts for `R` carried more than one hash, `unrecorded` jobs with none. Archived jobs count. A `--role` that is neither an `agents/*.md` role nor `reviewer:<lens>`, and `--by prompt` with `--csv`, exit 2 (`usage`).
+
+## Experiments
+
+`forge experiment evaluate [<job>] [--dry-run]` settles `.forge/notes/experiments.md` (docs/IMPROVEMENT.md "Settling experiments"): the job worktree's ledger with `<job>`, else the repo's. It prints `{ file, dryRun, written, entries }`, one entry per ledger item: `{ id, metric, direction, baseline, baselineN, jobsAfter, n, value, method, interval, verdict, status, reason }`. `verdict` is `kept`, `reverted`, `inconclusive`, `pending`, or `settled` for an entry that was not open; `status` is the entry's status segment after the run (with `--dry-run`, what the run would write); `reason` names why an entry was closed at once or left open (`status segment is not "status open"`, `no id`, `no date`). It writes only that one file, atomically, and nothing under `.forge/` in the root it reads jobs from. Exit 1: no such job, the job has no worktree, or the ledger (or `.forge` or `.forge/notes` above it) is a link, not a regular file or over 1 MiB.
+
+`forge experiment check [<job>]` prints `{ ok, problems: [{ file, entry, problem }] }` (`entry`: the item's first 80 characters, made safe for one line) and exits 1 when `ok` is false. With `<job>` it compares each notes file at the worktree's HEAD with the merge base; without one it audits the repo's files on disk. A notes file over 1 MiB, on either side, is the only problem reported (`over 1 MiB; not checked`, with an empty `entry`): nothing is parsed. Verify runs the same check at the verified sha as its `notes` step when the committed diff touches `.forge/notes/learnings.md`, `.forge/notes/experiments.md` or a role addendum; at most 20 problems are listed in its report. When the base can't be resolved, the step fails if any of those files at the verified sha differs from the main checkout's HEAD, and is absent otherwise.
+
+## Recall evals
+
+`forge eval recall list` prints `{ fixtures: [{ name, title, lenses, defects, clean }], problems: [] }` for the main checkout's `.forge/evals/recall/` (docs/IMPROVEMENT.md "Reviewer recall evals"); an invalid fixture exits 1 with each fixture and problem named.
+
+`forge eval recall start [--job <id>]` prints `{ run, dir, promptRoot, pluginHash, head, reviews }`, one `{ fixture, lens, agent: "forge:reviewer", model, output, brief }` per fixture and lens. The run id is `YYYYMMDD-HHMMSS[-<job id>]`; with `--job` the run lives in the job dir and logs a `recall` event `{ phase: "start", run, pluginHash, head }`. Exit 1: an invalid fixture, no fixture, or no such job.
+
+`forge eval recall record <run> [--tokens N]` prints `{ run, summary, base }`. `summary` is `{ byLens, total, minutes, tokens }`, each grade `{ planted, caught, recall, cleanReviews, falsePositives, precision, reviews, malformed }` (ratios null at a 0 denominator). With a job it logs `recall { phase: "record", run, pluginHash, head, summary, base }`, `base` being the newest done run without a job on the job's base branch (`{ run, head, summary }` or null); without one the record is copied to `.forge/evals/recall/runs/<run>.json`. A run id that ends in a job id is looked up in that job's dir only. Exit 1: no such run, the run is already recorded, or it has no review file; exit 2 for a malformed run id or `--tokens`.
 
 ## Support bundle
 

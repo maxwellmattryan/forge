@@ -6,10 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { claimJob, jobDir, loadJob, readEvents } from '../lib/jobs.ts';
+import { claimJob, jobDir, loadJob, readEvents, setJob } from '../lib/jobs.ts';
 import { loadConfig } from '../lib/config.ts';
 import { dispatch } from '../lib/cli.ts';
-import { advance, runnableInProcess, summarize } from '../lib/commands/advance.ts';
+import { listRequests } from '../lib/requests.ts';
+import { advance, parkRepeatedFailure, runnableInProcess, summarize } from '../lib/commands/advance.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const BIN = path.join(ROOT, 'bin', 'forge');
@@ -145,6 +146,52 @@ test('the same command failing twice with no progress parks the job on escalatio
   }
 });
 
+/** A running build job and a ctx whose foreman decides escalations, so a park would queue a gate. */
+function failingJob(s: ReturnType<typeof scratch>) {
+  const { id } = s.f('job', 'new', '--title', 'Twice');
+  s.f('job', 'set', id, '--stage', 'build', '--state', 'running');
+  const config = loadConfig(s.root).config;
+  const ctx = { root: s.root, config: { ...config, foreman: { ...config.foreman, enabled: true, decides: ['escalation'] } } } as any;
+  const gates = () => listRequests(s.root).filter((r) => r.type === 'gate' && r.job === id);
+  return { id, ctx, gates };
+}
+
+test('parkRepeatedFailure parks a running job on the second identical failure', POSIX, () => {
+  const s = scratch();
+  try {
+    const { id, ctx, gates } = failingJob(s);
+    assert.equal(parkRepeatedFailure(ctx, id, 'V1', ['verify', id], 'boom'), false, 'one failure is retried');
+    assert.equal(parkRepeatedFailure(ctx, id, 'V1', ['verify', id], 'boom'), true);
+    const job = loadJob(s.root, id);
+    assert.equal(job.state, 'waiting');
+    assert.equal(job.waitingOn, 'escalation');
+    assert.equal(gates().length, 1);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('parkRepeatedFailure leaves a job whose state changed after the read', POSIX, () => {
+  const s = scratch();
+  try {
+    const { id, ctx, gates } = failingJob(s);
+    assert.equal(parkRepeatedFailure(ctx, id, 'V1', ['verify', id], 'boom'), false);
+    const parked = parkRepeatedFailure(ctx, id, 'V1', ['verify', id], 'boom', {
+      beforePark: () => setJob(s.root, id, { state: 'waiting', waitingOn: 'human', reason: 'a person took it' }),
+    });
+    assert.equal(parked, false);
+    const job = loadJob(s.root, id);
+    assert.equal(job.state, 'waiting');
+    assert.equal(job.waitingOn, 'human');
+    assert.equal(job.reason, 'a person took it');
+    const toEscalation = readEvents(s.root, id).filter((e) => e.type === 'transition' && (e.to as any)?.waitingOn === 'escalation');
+    assert.deepEqual(toEscalation, []);
+    assert.deepEqual(gates(), []);
+  } finally {
+    s.cleanup();
+  }
+});
+
 test('advance stops at the first failed run and prints no command output', POSIX, () => {
   const s = scratch({ commands: { build: 'true', lint: 'true', test: 'for i in 1 2 3 4 5; do echo TAIL-MARKER; done; exit 1' } });
   try {
@@ -171,7 +218,7 @@ test('advance stops at the first failed run and prints no command output', POSIX
     const again = s.raw('job', 'advance', id, '--session', 'S');
     assert.equal(again.status, 0, again.stderr);
     const b = oneJsonLine(again.stdout);
-    assert.deepEqual(b.ran.map((e: any) => e.rule), ['V3']);
+    assert.deepEqual(b.ran.map((e: any) => e.rule), ['V3b']);
     assert.equal(b.action, 'spawn');
     assert.equal(b.rule, 'B4');
     assert.equal(b.role, 'builder');
@@ -343,16 +390,16 @@ test('advance continues past releasing its own claim and refreshes the heartbeat
     assert.equal(r.status, 0, r.stderr);
     const a = oneJsonLine(r.stdout);
     assert.equal(a.action, 'wait');
-    assert.equal(a.rule, 'G3');
+    assert.equal(a.rule, 'G3c');
     assert.deepEqual(a.ran.map((e: any) => [e.rule, e.command, e.ok]), [['G3', ['job', 'release', id], true]]);
-    assert.equal(loadJob(s.root, id).owner, null);
+    assert.equal(loadJob(s.root, id).lease.driver, null);
 
     const kept = s.f('job', 'new', '--title', 'Still held', '--session', 'S').id;
-    const before = loadJob(s.root, kept).owner!.heartbeat!;
+    const before = loadJob(s.root, kept).lease.renewedAt!;
     await sleep(20);
     const k = s.raw('job', 'advance', kept, '--session', 'S', '--max', '0');
     assert.equal(k.status, 0, k.stderr);
-    const after = loadJob(s.root, kept).owner!.heartbeat!;
+    const after = loadJob(s.root, kept).lease.renewedAt!;
     assert.ok(Date.parse(after) > Date.parse(before), `${after} is later than ${before}`);
   } finally {
     s.cleanup();
@@ -379,15 +426,17 @@ test('advance stops when another session takes the job mid-call', async () => {
     assert.equal(d.owner, 'B');
     assert.equal(d.ran.length, 1);
     assert.equal(calls, 1);
-    assert.equal(loadJob(s.root, id).owner!.session, 'B');
+    assert.equal(loadJob(s.root, id).lease.driver, 'B');
   } finally {
     s.cleanup();
   }
 });
 
 test('only the commands step emits run in-process', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'lib', 'step.ts'), 'utf8');
-  const groups = new Set([...src.matchAll(/\brun\(x, '[A-Z0-9]+', \['([a-z]+)'/g)].map((m) => m[1]));
+  const dir = path.join(ROOT, 'lib', 'step');
+  const files = (fs.readdirSync(dir, { recursive: true }) as string[]).filter((f) => f.endsWith('.ts'));
+  const src = files.map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
+  const groups = new Set([...src.matchAll(/\brun\([\w.]+, '[A-Za-z0-9]+', \['([a-z]+)'/g)].map((m) => m[1]));
   assert.ok(groups.size >= 5, `found ${[...groups].join(',')}`);
   groups.add('job');
   for (const g of groups) assert.equal(runnableInProcess([g, 'x']), true, g);
@@ -436,12 +485,12 @@ test('job usage and help list advance', () => {
   try {
     const bogus = s.raw('job', 'bogus');
     assert.equal(bogus.status, 2);
-    assert.match(bogus.stderr, /usage: forge job [^\n]*\|advance\b/);
-    assert.match(bogus.stderr, /usage: forge job [^\n]*\|acs/);
+    assert.match(bogus.stderr, /usage: forge job (?:[^\n]*\|)?advance\b/);
+    assert.match(bogus.stderr, /usage: forge job (?:[^\n]*\|)?acs\b/);
     assert.match(bogus.stderr, /usage: forge job [a-z|-]*\|step\b/);
     const help = s.raw('help', 'job');
     assert.equal(help.status, 0);
-    assert.ok(help.stdout.includes('forge job advance <id> --session S [--max N]'));
+    assert.ok(help.stdout.includes('forge job advance <id> --session S [--epoch N] [--max N]'));
   } finally {
     s.cleanup();
   }

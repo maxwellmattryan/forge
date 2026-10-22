@@ -1,0 +1,17 @@
+diff --git a/lib/commands/budget.ts b/lib/commands/budget.ts
+--- a/lib/commands/budget.ts
++++ b/lib/commands/budget.ts
+@@ -20,4 +20,6 @@ export function budgetCmd(root: string, config: Config, sub: string | undefined,
+   if (sub === 'set') {
+     const key = req(flags.key, '--key');
++    // A negative cap is a typo, not a policy: refuse it as a usage error (exit 2).
++    if (Number(flags.value) < 0) throw new ForgeError('--value must be at least 0', 'usage');
+     return setBudget(root, config, key, flags.value);
+   }
+diff --git a/docs/CLI.md b/docs/CLI.md
+--- a/docs/CLI.md
++++ b/docs/CLI.md
+@@ -310,1 +310,3 @@ Caps the repo's spend.
+ | `forge budget set --key K --value V` | sets one cap |
++
++A negative `--value` is refused with exit 1 (`failed`), and the cap is left as it was.

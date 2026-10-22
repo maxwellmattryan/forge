@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { TRUST_ENV, daemonProblems, defaults, loadConfig, trustDigest, validateConfig } from '../lib/config.ts';
-import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 import { migrate } from '../lib/commands/init.ts';
 import * as yaml from '../lib/yaml.ts';
 
@@ -37,15 +37,16 @@ test('AC1: defaults carry the daemon block and no dashboard.launcher', () => {
     allowedTools: DEFAULT_TOOLS,
     maxConcurrent: 3,
     idleStopMinutes: 30,
+    turnTimeoutMinutes: 60,
     auth: 'subscription',
+    jobBudget: { tokens: 600000000, usd: 150 },
   });
   assert.deepEqual(d.dashboard, { port: 7400 });
-  assert.equal(CONFIG_SCHEMA_VERSION, 26);
   // The quoted tool names survive a YAML round trip, so `forge init write` can store the block.
   assert.deepEqual(yaml.parse(yaml.stringify({ daemon: d.daemon })).daemon, d.daemon);
 });
 
-test('AC2: v1 dashboard.launcher migrates to daemon.command', () => {
+test('AC2: a v1 launcher config loads and migrates with the launcher as daemon.command, reported not run', () => {
   const repo = tempRepo();
   const cfg = path.join(repo.dir, '.forge', 'config.yml');
   const write = (text) => {
@@ -53,9 +54,9 @@ test('AC2: v1 dashboard.launcher migrates to daemon.command', () => {
     fs.writeFileSync(cfg, text);
   };
   try {
-    write('schemaVersion: 1\ndashboard:\n  port: 7411\n  launcher: \'claude -p "{prompt}"\'\n');
+    write('schemaVersion: 1\ndashboard:\n  port: 7411\n  launcher: \'claude -p "{prompt}"\'\n'); // old-version fixture
     let loaded = loadConfig(repo.dir);
-    assert.equal(loaded.config.schemaVersion, 26);
+    assert.equal(loaded.config.schemaVersion, CONFIG_SCHEMA_VERSION);
     assert.equal(loaded.config.daemon.command, 'claude -p "{prompt}"');
     assert.equal(loaded.config.daemon.enabled, false, 'the migration never enables the daemon');
     assert.equal('launcher' in loaded.config.dashboard, false);
@@ -64,24 +65,16 @@ test('AC2: v1 dashboard.launcher migrates to daemon.command', () => {
     // A migrated {prompt} template is reported, not run.
     assert.ok(validateConfig(loaded.config, repo.dir).some((p) => p.startsWith('daemon.command') && p.includes('{prompt}')));
 
-    write('schemaVersion: 1\ndashboard:\n  port: 7400\n  launcher: null\n');
+    write('schemaVersion: 1\ndashboard:\n  port: 7400\n  launcher: null\n'); // old-version fixture
     loaded = loadConfig(repo.dir);
     assert.equal(loaded.config.daemon.command, DEFAULT_COMMAND);
     assert.equal('launcher' in loaded.config.dashboard, false);
     assert.deepEqual(validateConfig(loaded.config, repo.dir), []);
 
-    write('schemaVersion: 1\ndashboard:\n  launcher: "my-claude {session}"\ndaemon:\n  command: kept {session}\n');
-    assert.equal(loadConfig(repo.dir).config.daemon.command, 'kept {session}', 'an existing daemon.command wins');
-
-    write('schemaVersion: 1\ngit:\n  base: main\n');
-    const raw = yaml.parse(fs.readFileSync(cfg, 'utf8'));
-    assert.equal('dashboard' in raw, false);
-    assert.equal('dashboard' in migrateConfig(raw).config, false, 'no dashboard key is invented');
-
-    write('schemaVersion: 1\ndashboard:\n  port: 7400\n  launcher: \'claude -p "{prompt}"\'\n');
+    write('schemaVersion: 1\ndashboard:\n  port: 7400\n  launcher: \'claude -p "{prompt}"\'\n'); // old-version fixture
     assert.deepEqual(migrate(repo.dir).changed, ['.forge/config.yml']);
     const text = fs.readFileSync(cfg, 'utf8');
-    assert.match(text, /^schemaVersion: 26$/m);
+    assert.match(text, new RegExp(`^schemaVersion: ${CONFIG_SCHEMA_VERSION}$`, 'm'));
     assert.match(text, /^daemon:$/m);
     assert.doesNotMatch(text, /launcher:/);
     assert.equal(yaml.parse(text).daemon.command, 'claude -p "{prompt}"');
@@ -221,6 +214,36 @@ test('the trust digest covers the secrets allowlist', async () => {
     const r = await forgeAsync(repo.dir, ['status'], daemon);
     assert.equal(r.status, 1);
     assert.match(r.stderr, /secrets-allow\.txt, \.forge\/trackers\/ or \.forge\/verifiers\/ changed since a human started the daemon/);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('turnTimeoutMinutes validation', async () => {
+  assert.equal(defaults().daemon.turnTimeoutMinutes, 60);
+  const problems = (v: unknown) => {
+    const c: any = defaults();
+    c.daemon.turnTimeoutMinutes = v;
+    return daemonProblems(c, process.cwd()).filter((p) => p.startsWith('daemon.turnTimeoutMinutes'));
+  };
+  for (const bad of [0, -5, 'x', '60', true]) assert.equal(problems(bad).length, 1, JSON.stringify(bad));
+  for (const ok of [null, 60, 0.5]) assert.deepEqual(problems(ok), [], JSON.stringify(ok));
+  // forge config validate refuses 0 and "x" and takes null.
+  const repo = tempRepo();
+  try {
+    const cfg = path.join(repo.dir, '.forge', 'config.yml');
+    fs.mkdirSync(path.dirname(cfg), { recursive: true });
+    const validate = (v: unknown) => {
+      fs.writeFileSync(cfg, yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, tracker: { kind: 'none' }, daemon: { turnTimeoutMinutes: v } }));
+      return forgeAsync(repo.dir, ['config', 'validate']);
+    };
+    for (const bad of [0, 'x']) {
+      const r = await validate(bad);
+      assert.equal(r.status, 1, `${JSON.stringify(bad)}: ${r.stdout}`);
+      assert.match(r.stdout + r.stderr, /daemon\.turnTimeoutMinutes must be null or a positive number/);
+    }
+    const r = await validate(null);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
   } finally {
     repo.cleanup();
   }

@@ -10,11 +10,13 @@ import { enforceBudget } from './budget.ts';
 import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
 import { isOwnWorktreePath, loadConfig, verifyGroups, worktreeRoot } from './config.ts';
 import { e2ePlan } from './e2e.ts';
+import { checkNotes, checkedNotes } from './experiments.ts';
+import { committedChanges, realHistoryEnv, resolveBase } from './scope.ts';
 import { configForJob } from './eval-overlay.ts';
 import { stackSource } from './deps.ts';
 import { STATUS_ARGV, blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.ts';
 import type { CompactIntegrity, IntegrityReport } from './integrity.ts';
-import { loadJob, logEvent, readEvents, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
+import { loadJob, logEvent, readEvents, renewLease, setJob, updateJob, jobDir } from './jobs.ts';
 import { changedRepos, downstreamMembers } from './downstream.ts';
 import { exists, resolveFrom } from './paths.ts';
 import { posixShell } from './platform.ts';
@@ -32,7 +34,7 @@ import { applyLinks, consumerLockfiles, pathPrelude, resolveLinks, restoreLockfi
 import type { AppliedLinks, LockSnapshot } from './links.ts';
 import { memberClone, memberEntry, memberRepos, memberWorktree, memberWorktreePath, trustedMemberWorktree } from './job-repos.ts';
 import type { BackingDownResult, BackingUpEntry, ComponentConfig, CompactSecrets, Config, EventActor, Job, JobRepo, SecretScan, VerifyRun, VerifyRunRepo } from './types.ts';
-import { ForgeError, assertSafeRef, fill, now, readJson, run, shellArgs, tail, withLock, withLockAsync, writeJsonAtomic } from './util.ts';
+import { ForgeError, assertSafeRef, fill, now, pidAlive, readJson, run, shellArgs, tail, withLock, withLockAsync, writeJsonAtomic } from './util.ts';
 import { readSmallJson } from './focus.ts';
 
 /** One member repo's part of `forge worktree create`: createMemberWorktrees. */
@@ -578,13 +580,13 @@ function prepareCommand(root: string, config: Config, id: string, name: string, 
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   const cwd = component?.path ? path.join(job.worktree, component.path) : job.worktree;
   const port = commandPort(config, job, component);
-  // Before touchJob: refused arguments leave no trace, not even a heartbeat.
+  // Before renewLease: refused arguments leave no trace, not even a renewal.
   const v = vars(root, config, job, job.worktree, port, template);
   const cmd = fillCommand(name, template, v, opts.args ?? []);
-  // After the arguments and before the heartbeat: a refused sink leaves no trace either.
+  // After the arguments and before the renewal: a refused sink leaves no trace either.
   const applied = component ? applySinks(root, config, job, component, { env: jobEnv(root, config, job, job.worktree, port), fillCmd: (t) => fill(t, v) }) : null;
-  // Agents run commands all through a build; each one proves the session is alive.
-  touchJob(root, id);
+  // Agents run commands all through a build; each one renews a live lease (never a dead one).
+  renewLease(root, id);
   if (applied) logEvent(root, id, 'config-sinks', applied.summary);
   // Sink env sits over the inherited environment and under the links' (names are disjoint by validation).
   const env = { ...jobEnv(root, config, job, job.worktree, port), ...applied?.env };
@@ -603,7 +605,7 @@ function prepareMemberCommand(root: string, config: Config, id: string, name: st
   if (!component) throw new ForgeError(`no component of repo ${repo} defines a "${name}" command (components[].commands.${name} with repo: ${repo})`);
   const port = commandPort(config, job, component);
   const cmd = fillCommand(name, component.commands![name]!, memberVars(root, config, job, member, worktree, port), opts.args ?? []);
-  touchJob(root, id);
+  renewLease(root, id);
   return { cmd, cwd: path.join(worktree, component.path), ...withLinks(root, config, job, repo, jobEnv(root, config, job, worktree, port)), repo, redact: knownValues(root, id, config) };
 }
 
@@ -767,6 +769,9 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   if (!protectedStep.ok) protectedStep.tail = prot.error ?? prot.refused.slice(0, 20).map((h) => `${h.path}: rule ${h.rule} (${h.glob}): ${h.reason}`).join('\n');
   else if (prot.escalated.length) protectedStep.reason = `${prot.escalated.length} protected paths need a human`;
   results.push(protectedStep);
+  // Not a gate: a notes problem fails the round, but the configured commands still run.
+  const notes = notesStep(root, config, job, sha);
+  if (notes) results.push(notes);
   // Like protected, a pin that can't be written stops every configured step, the members' too.
   const interimStep: VerifyStep = { name: 'interim', ok: interim.ok, exit: null };
   if (!interim.ok) interimStep.tail = interim.problems.join('\n');
@@ -887,6 +892,44 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
 }
 
 
+/**
+ * The `notes` step: when the committed diff (merge base..`sha`) touches a learnings, ledger or
+ * addendum file, `forge experiment check` over the committed content at `sha`, never the working
+ * tree; absent when no notes file changed. Without a merge base, a notes file at `sha` that differs
+ * from the main checkout's HEAD may hold a hand-written status, so the step fails; when none differs
+ * there is nothing to check. A check that fails once it applies fails the step.
+ */
+function notesStep(root: string, config: Config, job: Job, sha: string): VerifyStep | null {
+  const started = Date.now();
+  const wt = job.worktree!;
+  const failed = (tail: string): VerifyStep => ({ name: 'notes', ok: false, exit: null, durationMs: Date.now() - started, tail });
+  let changed: Set<string>;
+  try {
+    changed = new Set(committedChanges(wt, resolveBase(wt, config, job, sha).mergeBase, sha));
+  } catch (e) {
+    let differs: string[];
+    try {
+      const main = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], { cwd: root, env: realHistoryEnv() }).stdout.trim();
+      if (!/^[0-9a-f]{40}$/.test(main)) throw new ForgeError('the main checkout has no HEAD commit');
+      const touched = new Set(committedChanges(wt, main, sha));
+      differs = checkedNotes().filter((f) => touched.has(f));
+    } catch {
+      differs = ['the notes files'];
+    }
+    if (!differs.length) return null;
+    return failed(`could not resolve the base (${(e as Error).message.slice(0, 200)}), and ${differs.join(', ')} differ from the main checkout's HEAD`);
+  }
+  if (!checkedNotes().some((f) => changed.has(f))) return null;
+  try {
+    const r = checkNotes(root, config, job, sha);
+    const step: VerifyStep = { name: 'notes', ok: r.ok, exit: null, durationMs: Date.now() - started };
+    if (!r.ok) step.tail = r.problems.slice(0, 20).map((p) => `${p.file}: ${p.problem}${p.entry ? ` (${p.entry})` : ''}`).join('\n');
+    return step;
+  } catch (e) {
+    return failed(`could not check the notes layer: ${(e as Error).message}`);
+  }
+}
+
 /** One member repo's verify: its record, its steps for the report, and its scan and integrity report. */
 interface MemberVerify {
   rec: VerifyRunRepo;
@@ -996,6 +1039,11 @@ function renderSteps(lines: string[], results: VerifyStep[], secrets: SecretScan
       else lines.push('## environment: FAILED', '', "The job's backing services did not start (docs/CONFIG.md \"Backing services\"); no configured step ran:", '', '```', String(r.tail), '```', '');
       continue;
     }
+    if (r.name === 'notes' && !('cmd' in r)) {
+      if (r.ok) lines.push('## notes: ok', '', 'Every changed notes entry is measurable, and only `forge experiment evaluate` settled a ledger entry.', '');
+      else lines.push('## notes: FAILED', '', 'The notes layer (docs/IMPROVEMENT.md "The notes check") refuses these entries; the configured steps still ran:', '', ...String(r.tail).split('\n').map((l) => `- ${l}`), '');
+      continue;
+    }
     if (r.name === 'interim') {
       if (r.ok) lines.push('## interim: ok', '', r.reason ?? 'Every git-ref and canary pin, and every release bump, is current.', '');
       else lines.push('## interim: FAILED', '', 'Interim pins or release bumps (docs/CONFIG.md "Interim strategies") could not be written; no configured step ran:', '', ...String(r.tail).split('\n').map((l) => `- ${l}`), '');
@@ -1057,7 +1105,7 @@ export async function startBackground(
   // The server needs its backing services: a failed start exits 5 before any process starts.
   const env = ensureEnvironment(root, config, job, 'run');
   if (!env.ok) throw new ForgeError(`the job's environment did not start: ${env.error}`, 5);
-  touchJob(root, id);
+  renewLease(root, id);
   const port = commandPort(config, job, jobComponent(config, job));
   const dir = jobDir(root, id);
   const pidFile = path.join(dir, 'runtime.json');
@@ -1097,20 +1145,8 @@ export async function startBackground(
   return { pid: rec.pid, port, log: rec.log, reused: rec.reused, listening };
 }
 
-/**
- * The process group first (the shell's children keep it alive), then the pid. EPERM counts as
- * dead too: a process we may not signal is not ours, so the pid was reused.
- */
-export function pidAlive(pid: unknown): boolean {
-  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return false;
-  for (const target of [-pid, pid]) {
-    try {
-      process.kill(target, 0);
-      return true;
-    } catch {}
-  }
-  return false;
-}
+// Moved to util.ts so the lock can use it; kept here for its many importers.
+export { pidAlive };
 
 /** How far the process's start time may be from runtime.json's `startedAt` (ps reports whole seconds). */
 const DEV_START_SLACK_MS = 30_000;

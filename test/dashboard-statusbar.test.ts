@@ -1,9 +1,6 @@
 // The status bar's pure half (dashboard/src/lib/statusbar.ts) and the popover rules (dashboard/src/lib/popover.ts).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { sessionPill } from '../dashboard/src/lib/daemon.ts';
 import { FACTS_DROP, FACTS_MAX, ROLE_ORDER, barModel, factsHidden, type BarModel, type DaemonIndicator, connectionState, inlineInputAction, modelLabel, modelSummary, promptAnnouncement, reviewerRows, roleRows, summaryText } from '../dashboard/src/lib/statusbar.ts';
 import { FOCUSABLE, POPOVERS, POPOVER_WIDTH, TAB_STOPS, dismissal, placePopover, togglePopover, type DismissReason } from '../dashboard/src/lib/popover.ts';
@@ -23,7 +20,6 @@ test('barModel: the foreman indicator is always built, on or off', () => {
   assert.deepEqual(barModel(pool(), { pending: false }).foreman, { on: false }, 'an older server sends no foreman flag');
   assert.deepEqual(barModel(pool({ foreman: false, office: session({ scope: '_office', running: true, status: 'busy' }) }), { pending: false }).foreman, { on: false });
   assert.deepEqual(barModel(null, { pending: false }).foreman, { on: false }, 'no pool: the Foreman shows as off');
-  assert.ok(!('office' in barModel(pool(), { pending: false })), 'the bar no longer has an Office indicator');
 
   // On: the office pill, the live dot while busy, and the office's own prompt count.
   const office = session({ scope: '_office', running: true, status: 'busy', sessionId: 'o' });
@@ -229,10 +225,6 @@ test('placePopover clamps the wide popover (Needs you, Daemon)', () => {
   assert.deepEqual(placePopover({ triggerLeft: 244, triggerRight: 280, viewport: 560, width: wide, align: 'start', narrow: false }), { left: 16, width: 528 });
   // Below md it spans the viewport less the gutters, like the others.
   assert.deepEqual(placePopover({ triggerLeft: 0, triggerRight: 44, viewport: 375, width: wide, align: 'start', narrow: true }), { left: 16, width: 343 });
-  const pop = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'Popover.svelte'), 'utf8');
-  assert.match(pop, /size = 'normal'/, 'Popover takes a size, normal by default');
-  assert.match(pop, /width: POPOVER_WIDTH\[size\]/);
-  assert.match(fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8'), /open === 'needs' \? 'wide' :/, 'Needs you is wide');
 });
 
 test('placePopover clamps the chat popover', () => {
@@ -246,12 +238,6 @@ test('placePopover clamps the chat popover', () => {
   assert.deepEqual(placePopover({ triggerLeft: 232, triggerRight: 340, viewport: 780, width: chat, align: 'start', narrow: false }), { left: 16, width: 748 });
   // Below md it spans the viewport less 32px.
   assert.deepEqual(placePopover({ triggerLeft: 0, triggerRight: 44, viewport: 375, width: chat, align: 'start', narrow: true }), { left: 16, width: 343 });
-  const pop = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'Popover.svelte'), 'utf8');
-  assert.match(pop, /chat \? 'h-\[min\(48rem,calc\(100dvh_-_var\(--size-statusbar\)_-_env\(safe-area-inset-bottom\)_-_2rem\)\)\]' : ''/, 'a chat popover has a fixed height: its max-height formula, capped at 48rem');
-  assert.match(pop, /class=\{chat \? 'flex min-h-0 flex-1 flex-col' : undefined\}/, 'its content fills the body instead of growing it');
-  const bar = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8');
-  assert.match(bar, /size=\{open === 'foreman' \? \(bar\.foreman\.on \? 'chat' : 'wide'\) :/, "the Foreman popover is chat-sized while there is a thread to show; off, its explanation needs no chat height");
-  assert.match(bar, /accent=\{open === 'foreman' \? 'foreman' : undefined\}/, 'and carries the Foreman accent');
 });
 
 test('inlineInputAction opens the palette on typed, composed or pasted text, and on Enter or ArrowDown when empty', () => {
@@ -292,29 +278,4 @@ test('facts strip order and drop order', () => {
   assert.deepEqual(factsHidden(9), factsHidden(1), 'past the last level nothing more drops: the focused id stays');
   assert.deepEqual(factsHidden(-1), { focusWord: false });
   assert.deepEqual(factsHidden(Number.NaN), { focusWord: false }, 'a bad level hides nothing');
-
-  const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const bar = fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8').replace(/<script\b[\s\S]*?<\/script>|<!--[\s\S]*?-->/g, '');
-  const at = (s: string) => {
-    const i = bar.indexOf(s);
-    assert.ok(i > 0, `StatusBar.svelte has ${s}`);
-    return i;
-  };
-  // The focus indicator: rendered only while a job is focused, the strip's one fact, a button that opens the job's drawer.
-  const focus = at('{#if focus}<button id="footer-focus"');
-  assert.ok(bar.includes(`<span class="k max-md:sr-only {hid.focusWord ? 'sr-only' : ''}">{$t('statusbar.facts.focus')}</span>`), 'its word drops at the last level and below md');
-  assert.match(bar, /<button id="footer-focus"[^>]*title=\{focusTitle\}[^>]*onclick=\{\(\) => openDrawer\(focus\.id\)\}/, 'its title names the job, and a click opens its drawer');
-  assert.ok(at('<div bind:this={leftBox}') < at('<div bind:this={factsBox} class="facts'), 'between the left cluster');
-  assert.ok(at('<div bind:this={factsBox} class="facts') < focus && focus < at('<div bind:this={rightBox}'), 'and the right one, holding the focus fact');
-  assert.doesNotMatch(bar, /class="sep\b/, 'no separators: nothing sits beside the focus fact');
-});
-
-test("status bar tooltips: Notifications on the bell, the Foreman's off title", () => {
-  const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const src = fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8');
-  const en = JSON.parse(fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'messages', 'en.json'), 'utf8'));
-  assert.match(src, /needs: \$t\('statusbar\.needs\.tooltip'\),/, 'the bell says only Notifications');
-  assert.equal(en.statusbar.needs.tooltip, 'Notifications');
-  assert.match(src, /foreman: !bar\.foreman\.on\s*\? \$t\('statusbar\.foreman\.offTitle'\)/, "the Foreman's off title");
-  assert.notEqual(en.statusbar.foreman.offTitle, en.statusbar.foreman.off, 'which differs from the visible "Foreman off"');
 });

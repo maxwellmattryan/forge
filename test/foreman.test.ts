@@ -6,14 +6,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { forgeAsync, repoTemplate } from './helpers.ts';
+import { forgeAsync, forgeInProcess, repoTemplate } from './helpers.ts';
 import { TRUST_ENV, autoMerge, defaults, loadConfig, trustDigest, validateConfig } from '../lib/config.ts';
 import { FIELDS } from '../lib/config-fields.ts';
-import { INVALID_RESERVED, SECURITY_CHANGES, SECURITY_UNCLEAR, gateClass, gateOwner, latestSecurityVerdict, reservedFor, reservedMatch } from '../lib/foreman.ts';
+import { INVALID_RESERVED, RETRO_SPEC_HOLD, SECURITY_CHANGES, SECURITY_UNCLEAR, TOTAL_CEILING, checkForemanDecision, checkOfficeSetFor, gateClass, gateOwner, latestSecurityVerdict, maybeEnqueueGate, reservedFor, reservedMatch } from '../lib/foreman.ts';
+import { ForgeError } from '../lib/util.ts';
 import { createJob, jobDir, loadJob, logEvent, readEvents, setJob } from '../lib/jobs.ts';
-import { syncPr, trustedFeedback } from '../lib/pr.ts';
+import { checksText, failingCheckNames, syncPr, trustedFeedback } from '../lib/pr.ts';
+import { loadStepInput, step } from '../lib/step.ts';
 import { OFFICE_SCOPE, ackRequest, enqueue, listRequests, requestScope } from '../lib/requests.ts';
-import { CONFIG_SCHEMA_VERSION, EFFORT_ROLES, OFFICE_GATES, migrateConfig } from '../lib/schema.ts';
+import { EFFORT_ROLES, EVENT_SCHEMA_VERSION, OFFICE_GATES } from '../lib/schema.ts';
 import { computeStats } from '../lib/stats.ts';
 import { roleBrief } from '../lib/brief.ts';
 import * as yaml from '../lib/yaml.ts';
@@ -57,17 +59,22 @@ function scratch(edit: (c: any) => void = () => {}) {
   };
   const gates = (id?: string) => listRequests(root).filter((q) => q.type === 'gate' && (!id || q.job === id));
   const snapshot = (id: string) => ['job.json', 'events.jsonl'].map((f) => fs.readFileSync(path.join(jobDir(root, id), f), 'utf8')).join('\0');
-  return { root, cli, job, gates, snapshot, cleanup: r.cleanup, config: () => loadConfig(root).config };
+  const config = () => loadConfig(root).config;
+  /**
+   * The checks `forge job human <id> <action> --actor foreman` runs before any write, from `scope`
+   * (undefined: outside the daemon), asserted to refuse with exit 1 and `why`.
+   */
+  const refusedDecision = (id: string, scope: string | undefined, action: string, note: string | undefined, why: RegExp, label: string, flags: { link?: unknown; reason?: unknown } = {}) =>
+    assert.throws(() => checkForemanDecision(root, config(), loadJob(root, id), action, note, flags, scopeEnv(scope)), (e: unknown) => e instanceof ForgeError && e.exitCode === 1 && why.test(e.message), label);
+  return { root, cli, job, gates, snapshot, refusedDecision, cleanup: r.cleanup, config };
 }
+
+/** The env of a daemon session in `scope`, for the functions that take one; undefined: no daemon. */
+const scopeEnv = (scope?: string): NodeJS.ProcessEnv => (scope ? { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: scope } : {});
 
 const WAIT_SPEC = { stage: 'spec' as const, state: 'waiting' as const, waitingOn: 'spec-approval' as const, reason: 'spec ready' };
 
-test('config v4 migrates to v7 with foreman defaults off', () => {
-  assert.equal(CONFIG_SCHEMA_VERSION, 26);
-  const v4 = { schemaVersion: 4, git: { base: 'trunk' }, runtime: { models: { builder: 'sonnet' } } };
-  const { config, from } = migrateConfig(structuredClone(v4));
-  assert.equal(from, 4);
-  assert.deepEqual(config, { ...v4, schemaVersion: 26, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
+test('foreman defaults are off and leave repo-proposal and release with a human', () => {
   const d = defaults();
   // repo-proposal widens the repos a job pushes to and release publishes, so the default leaves both with a human.
   assert.deepEqual(d.foreman, { enabled: false, decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal' && g !== 'release'), reserved: d.foreman.reserved, ship: 'propose' });
@@ -80,7 +87,6 @@ test('config v4 migrates to v7 with foreman defaults off', () => {
 });
 
 test('foreman config keys are locked', () => {
-  const docs = fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8');
   for (const key of ['foreman.enabled', 'foreman.decides', 'foreman.reserved', 'foreman.ship']) {
     const f = FIELDS.find((x) => x.key === key);
     assert.ok(f, key);
@@ -88,8 +94,6 @@ test('foreman config keys are locked', () => {
     assert.ok(f!.lockedReason, `${key} says why`);
   }
   for (const key of ['runtime.models.assistant', 'runtime.efforts.assistant']) assert.equal(FIELDS.find((x) => x.key === key)?.editable, true, key);
-  assert.match(docs, /^## Foreman$/m);
-  for (const s of ['foreman:', 'decides:', 'reserved:', 'ship:', 'assistant: sonnet', 'assistant: null']) assert.ok(docs.includes(s), s);
   const bad: any = defaults();
   bad.foreman = { enabled: 'yes', decides: ['spec-approval', 'input'], reserved: ['ok', ''], ship: 'always' };
   const problems = validateConfig(bad, ROOT).filter((p) => p.startsWith('foreman'));
@@ -171,7 +175,7 @@ describe('foreman CLI', { concurrency: 4 }, () => {
       const ev = readEvents(s.root, id).filter((e) => e.type === 'human');
       assert.equal(ev.length, 1);
       assert.deepEqual(ev[0].actor, { login: 'forge-test', source: 'env' });
-      assert.equal(ev[0].v, 2);
+      assert.equal(ev[0].v, EVENT_SCHEMA_VERSION);
       assert.equal(ev[0].note, 'x');
       const bad = await s.cli(undefined, 'job', 'human', id, 'rework', '--actor', 'robot');
       assert.notEqual(bad.code, 0);
@@ -187,8 +191,10 @@ describe('foreman CLI', { concurrency: 4 }, () => {
     const s = scratch();
     try {
       const id = s.job('Park', { stage: 'spec', state: 'running' });
-      const park = () => s.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready');
-      const r = await park();
+      const parkArgs = ['job', 'set', id, '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready'];
+      // The first park through the CLI, the repeats in-process.
+      const park = async () => (await forgeInProcess(s.root, parkArgs)).status;
+      const r = await s.cli(undefined, ...parkArgs);
       assert.equal(r.code, 0, r.out);
       let g = s.gates(id);
       assert.equal(g.length, 1);
@@ -199,14 +205,14 @@ describe('foreman CLI', { concurrency: 4 }, () => {
       assert.equal(requestScope(s.root, g[0]), OFFICE_SCOPE);
       assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'foreman');
       // The same park again, and a re-park after leaving the gate: no second request while the first is pending.
-      assert.equal((await park()).code, 0);
-      assert.equal((await s.cli(undefined, 'job', 'set', id, '--state', 'running')).code, 0);
-      assert.equal((await park()).code, 0);
+      assert.equal(await park(), 0);
+      assert.equal((await forgeInProcess(s.root, ['job', 'set', id, '--state', 'running'])).status, 0);
+      assert.equal(await park(), 0);
       g = s.gates(id);
       assert.equal(g.length, 1, 'still one');
       // A gate the foreman never decides writes nothing.
       const input = s.job('Input', { stage: 'build', state: 'running' });
-      assert.equal((await s.cli(undefined, 'job', 'set', input, '--state', 'waiting', '--waiting-on', 'input')).code, 0);
+      assert.equal((await forgeInProcess(s.root, ['job', 'set', input, '--state', 'waiting', '--waiting-on', 'input'])).status, 0);
       assert.deepEqual(s.gates(input), []);
     } finally {
       s.cleanup();
@@ -214,17 +220,27 @@ describe('foreman CLI', { concurrency: 4 }, () => {
   });
 
   test('no gate request with the foreman off or the class not decided', async () => {
-    for (const edit of [(c: any) => (c.foreman.enabled = false), (c: any) => (c.foreman.decides = ['escalation'])]) {
-      const s = scratch(edit);
-      try {
-        const id = s.job('Off', { stage: 'spec', state: 'running' });
-        const r = await s.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'spec-approval');
-        assert.equal(r.code, 0, r.out);
-        assert.deepEqual(s.gates(), []);
-        assert.equal('gateRequest' in r.json(), false);
-      } finally {
-        s.cleanup();
-      }
+    // The foreman off: one park through the CLI, whose JSON has no gateRequest.
+    const off = scratch((c) => (c.foreman.enabled = false));
+    try {
+      const id = off.job('Off', { stage: 'spec', state: 'running' });
+      const r = await off.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'spec-approval');
+      assert.equal(r.code, 0, r.out);
+      assert.deepEqual(off.gates(), []);
+      assert.equal('gateRequest' in r.json(), false);
+    } finally {
+      off.cleanup();
+    }
+    // The class not decided: the park's own enqueue step.
+    const s = scratch((c) => (c.foreman.decides = ['escalation']));
+    try {
+      const id = s.job('Undecided', { stage: 'spec', state: 'running' });
+      const before = loadJob(s.root, id);
+      const after = setJob(s.root, id, { state: 'waiting', waitingOn: 'spec-approval' });
+      assert.equal(maybeEnqueueGate(s.root, s.config(), before, after), null);
+      assert.deepEqual(s.gates(), []);
+    } finally {
+      s.cleanup();
     }
   });
 
@@ -240,12 +256,12 @@ describe('foreman CLI', { concurrency: 4 }, () => {
       // decision.md's Why section counts for escalations.
       const id2 = s.job('Decision', { stage: 'decide', state: 'running' });
       fs.writeFileSync(path.join(jobDir(s.root, id2), 'decision.md'), 'ESCALATE: risky\n\n## Why\n- changes the OAuth callback\n## For the human\n- check it\n');
-      await s.cli(undefined, 'job', 'set', id2, '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'approver escalated: see decision.md');
+      assert.equal((await forgeInProcess(s.root, ['job', 'set', id2, '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'approver escalated: see decision.md'])).status, 0);
       assert.equal(s.gates(id2)[0].args.reserved, 'oauth');
       // An unreadable foreman.reserved: every gate is reserved.
       configure(s.root, (c) => (c.foreman.reserved = 'credentials'));
       const id3 = s.job('Invalid', { stage: 'spec', state: 'running' });
-      await s.cli(undefined, 'job', 'set', id3, '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready');
+      assert.equal((await forgeInProcess(s.root, ['job', 'set', id3, '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready'])).status, 0);
       assert.equal(s.gates(id3)[0].args.reserved, INVALID_RESERVED);
       assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id3)), 'human');
     } finally {
@@ -294,11 +310,11 @@ describe('foreman CLI', { concurrency: 4 }, () => {
       assert.equal(r.code, 0, r.out);
       assert.equal(r.json().stale, true);
       for (const gate of ['input', 'pr-review', '../x']) {
-        const bad = await s.cli(undefined, 'job', 'assist', id, '--gate', gate);
-        assert.equal(bad.code, 1, gate);
-        assert.match(bad.out, /--gate must be one of/);
+        const bad = await forgeInProcess(s.root, ['job', 'assist', id, '--gate', gate]);
+        assert.equal(bad.status, 1, gate);
+        assert.match(String(bad.error?.message), /--gate must be one of/);
       }
-      assert.equal((await s.cli(undefined, 'job', 'assist', id)).code, 1, 'no --gate');
+      assert.equal((await forgeInProcess(s.root, ['job', 'assist', id])).status, 1, 'no --gate');
     } finally {
       s.cleanup();
     }
@@ -321,45 +337,112 @@ describe('foreman CLI', { concurrency: 4 }, () => {
     }
   });
 
+  test('a Foreman hand-off is recorded only by the office, on a parked gate', async () => {
+    const s = scratch();
+    try {
+      const esc = s.job('Handoff', { stage: 'decide', state: 'waiting', waitingOn: 'escalation', reason: 'approver escalated: naming' });
+      const refused = async (id: string, scope: string | undefined, args: string[], why: RegExp, label: string) => {
+        const before = s.snapshot(id);
+        const r = await s.cli(scope, 'job', 'handoff', id, ...args);
+        assert.notEqual(r.code, 0, `${label}: ${r.out}`);
+        assert.match(r.out, why, label);
+        assert.equal(s.snapshot(id), before, `${label}: job.json and events.jsonl untouched`);
+        return r;
+      };
+      const ok = ['--class', 'escalated', '--reason', 'needs a person'];
+      for (const [scope, label] of [[undefined, 'outside the daemon'], [esc, 'from the job session'], ['_inbox', 'from the inbox']] as const)
+        assert.equal((await refused(esc, scope, ok, /only the office daemon session records a Foreman hand-off/, label)).code, 1);
+      const running = s.job('Running', { stage: 'build', state: 'running' });
+      assert.equal((await refused(running, OFFICE_SCOPE, ok, /is not waiting on a gate the Foreman decides/, 'not waiting')).code, 1);
+      const input = s.job('Input', { stage: 'build', state: 'waiting', waitingOn: 'input' });
+      assert.equal((await refused(input, OFFICE_SCOPE, ok, /is not waiting on a gate the Foreman decides/, 'not a Foreman gate')).code, 1);
+      await refused(esc, OFFICE_SCOPE, ['--class', 'bored', '--reason', 'x'], /--class must be one of reserved, escalated, refused/, 'unknown class');
+      await refused(esc, OFFICE_SCOPE, ['--reason', 'x'], /--class must be one of/, 'no class');
+      await refused(esc, OFFICE_SCOPE, ['--class', 'reserved', '--reason', ' \u0007 '], /needs --reason/, 'a reason with nothing printable');
+      await refused(esc, OFFICE_SCOPE, ['--class', 'reserved'], /needs --reason/, 'no reason');
+
+      const long = `touches\u0007 the auth flow ${'x'.repeat(300)}`;
+      const r = await s.cli(OFFICE_SCOPE, 'job', 'handoff', esc, '--class', 'reserved', '--reason', long);
+      assert.equal(r.code, 0, r.out);
+      const want = `touches the auth flow ${'x'.repeat(300)}`.slice(0, 200);
+      const events = readEvents(s.root, esc).filter((e) => e.type === 'foreman-handoff');
+      assert.equal(events.length, 1);
+      assert.deepEqual([events[0].gate, events[0].class, events[0].reason, events[0].actor], ['escalation', 'reserved', want, { login: null, source: 'foreman' }]);
+      assert.deepEqual(r.json(), { ok: true, foremanHandoff: { gate: 'escalation', class: 'reserved', reason: want, at: events[0].ts } });
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('a Foreman hand-off shows on status and show, and clears on a later decision or park', async () => {
+    const s = scratch();
+    try {
+      const park = { stage: 'decide' as const, state: 'waiting' as const, waitingOn: 'escalation' as const, reason: 'approver escalated: naming' };
+      const decided = s.job('Decided', park);
+      const reparked = s.job('Reparked', park);
+      for (const id of [decided, reparked]) assert.equal((await s.cli(OFFICE_SCOPE, 'job', 'handoff', id, '--class', 'escalated', '--reason', 'unsure about the API')).code, 0);
+      const rows = async () => Object.fromEntries((await s.cli(undefined, 'status', '--json')).json().map((row: any) => [row.id, row.foremanHandoff]));
+      const show = async (id: string) => (await s.cli(undefined, 'job', 'show', id)).json().foremanHandoff;
+      const at = readEvents(s.root, decided).findLast((e) => e.type === 'foreman-handoff')!.ts;
+      assert.deepEqual((await rows())[decided], { gate: 'escalation', class: 'escalated', reason: 'unsure about the API', at });
+      assert.deepEqual(await show(decided), { gate: 'escalation', class: 'escalated', reason: 'unsure about the API', at });
+
+      // A later decision at that park, the Foreman's included, clears it.
+      assert.equal((await s.cli(OFFICE_SCOPE, 'job', 'human', decided, 'approve', '--actor', 'foreman', '--note', 'naming only')).code, 0);
+      assert.equal((await rows())[decided], null);
+      assert.equal(await show(decided), null);
+
+      // So does a new park.
+      setJob(s.root, reparked, { stage: 'decide', state: 'running' });
+      setJob(s.root, reparked, { state: 'waiting', waitingOn: 'escalation', reason: 'approver escalated: again' });
+      assert.equal((await rows())[reparked], null);
+      assert.equal(await show(reparked), null);
+    } finally {
+      s.cleanup();
+    }
+  });
+
   test('foreman authority is enforced by the CLI', async () => {
     const s = scratch((c) => (c.foreman.decides = ['spec-approval', 'escalation']));
     try {
-      const refused = async (id: string, scope: string | undefined, args: string[], why: RegExp, label: string) => {
-        const before = s.snapshot(id);
-        const r = await s.cli(scope, 'job', 'human', id, ...args);
-        assert.equal(r.code, 1, `${label}: ${r.out}`);
-        assert.match(r.out, why, label);
-        assert.equal(s.snapshot(id), before, `${label}: job.json and events.jsonl untouched`);
-      };
       const spec = s.job('Spec', WAIT_SPEC);
-      const foreman = ['--actor', 'foreman', '--note', 'ok'];
-      await refused(spec, undefined, ['approve-spec', ...foreman], /only the office daemon session/, 'outside _office');
-      await refused(spec, spec, ['approve-spec', ...foreman], /only the office daemon session/, 'from a job session');
-      await refused(spec, '_inbox', ['approve-spec', ...foreman], /only the office daemon session/, 'from the inbox');
-      await refused(spec, OFFICE_SCOPE, ['approve-spec', '--note', 'ok'], /only with --actor foreman/, 'in _office without --actor');
-      await refused(spec, OFFICE_SCOPE, ['approve-spec', '--actor', 'human', '--note', 'ok'], /only with --actor foreman/, 'in _office with --actor human');
+      // Through the CLI: a foreman decision outside _office, and a plain one inside it, are refused before any write.
+      const before = s.snapshot(spec);
+      const outside = await s.cli(undefined, 'job', 'human', spec, 'approve-spec', '--actor', 'foreman', '--note', 'ok');
+      assert.equal(outside.code, 1, outside.out);
+      assert.match(outside.out, /only the office daemon session/);
+      assert.equal(s.snapshot(spec), before, 'outside _office: job.json and events.jsonl untouched');
+      const plain = await s.cli(OFFICE_SCOPE, 'job', 'human', spec, 'approve-spec', '--note', 'ok');
+      assert.equal(plain.code, 1, plain.out);
+      assert.match(plain.out, /only with --actor foreman/);
+      assert.equal(s.snapshot(spec), before, 'in _office without --actor: nothing written');
+      // The rest are the checks `job human --actor foreman` runs before writing, called directly.
+      const refused = (id: string, scope: string | undefined, action: string, note: string | undefined, why: RegExp, label: string, flags = {}) => s.refusedDecision(id, scope, action, note, why, label, flags);
+      refused(spec, spec, 'approve-spec', 'ok', /only the office daemon session/, 'from a job session');
+      refused(spec, '_inbox', 'approve-spec', 'ok', /only the office daemon session/, 'from the inbox');
       const running = s.job('Running', { stage: 'build', state: 'running' });
-      await refused(running, OFFICE_SCOPE, ['rework', ...foreman], /not waiting on a gate the foreman decides/, 'not waiting');
+      refused(running, OFFICE_SCOPE, 'rework', 'ok', /not waiting on a gate the foreman decides/, 'not waiting');
       const split = s.job('Split', { stage: 'plan', state: 'waiting', waitingOn: 'split-approval' });
-      await refused(split, OFFICE_SCOPE, ['approve-split', ...foreman], /split-approval is not in foreman.decides/, 'class missing from decides');
+      refused(split, OFFICE_SCOPE, 'approve-split', 'ok', /split-approval is not in foreman.decides/, 'class missing from decides');
       const input = s.job('Input', { stage: 'build', state: 'waiting', waitingOn: 'input' });
-      await refused(input, OFFICE_SCOPE, ['answer', ...foreman], /not waiting on a gate the foreman decides/, 'a gate the foreman never decides');
+      refused(input, OFFICE_SCOPE, 'answer', 'ok', /not waiting on a gate the foreman decides/, 'a gate the foreman never decides');
       const reason = s.job('Reason', { stage: 'decide', state: 'waiting', waitingOn: 'escalation', reason: 'approver escalated: new auth flow' });
-      await refused(reason, OFFICE_SCOPE, ['approve', ...foreman], /reserved \(auth\)/, 'reason matches');
+      refused(reason, OFFICE_SCOPE, 'approve', 'ok', /reserved \(auth\)/, 'reason matches');
       const dec = s.job('Dec', { stage: 'decide', state: 'waiting', waitingOn: 'escalation', reason: 'approver escalated: see decision.md' });
       fs.writeFileSync(path.join(jobDir(s.root, dec), 'decision.md'), 'ESCALATE: x\n\n## Risk\n- secrets here do not count\n## For the human\n- check the GitHub Actions workflow\n');
-      await refused(dec, OFFICE_SCOPE, ['approve', ...foreman], /reserved \(workflow\)|reserved \(GitHub Actions\)/, 'decision.md matches');
+      refused(dec, OFFICE_SCOPE, 'approve', 'ok', /reserved \(workflow\)|reserved \(GitHub Actions\)/, 'decision.md matches');
       const clean = s.job('Clean', { stage: 'decide', state: 'waiting', waitingOn: 'escalation', reason: 'approver escalated: naming' });
-      await refused(clean, OFFICE_SCOPE, ['approve', '--actor', 'foreman', '--note', 'fine, only the password field label'], /reserved \(password\)/, 'note matches');
-      await refused(spec, OFFICE_SCOPE, ['approve', ...foreman], /approve is not a spec-approval action/, 'off-class action');
-      await refused(spec, OFFICE_SCOPE, ['answer', ...foreman], /answer is not a spec-approval action/, 'answer');
-      await refused(spec, OFFICE_SCOPE, ['approve-spec', ...foreman, '--link', 'none'], /linking an issue stays a human call/, '--link');
-      await refused(spec, OFFICE_SCOPE, ['approve-spec', '--actor', 'foreman'], /needs --note/, 'no note');
+      refused(clean, OFFICE_SCOPE, 'approve', 'fine, only the password field label', /reserved \(password\)/, 'note matches');
+      refused(spec, OFFICE_SCOPE, 'approve', 'ok', /approve is not a spec-approval action/, 'off-class action');
+      refused(spec, OFFICE_SCOPE, 'answer', 'ok', /answer is not a spec-approval action/, 'answer');
+      refused(spec, OFFICE_SCOPE, 'approve-spec', 'ok', /linking an issue stays a human call/, '--link', { link: 'none' });
+      refused(spec, OFFICE_SCOPE, 'approve-spec', undefined, /needs --note/, 'no note');
       // A decision.md that can't be read safely counts as reserved.
       const link = s.job('Link', { stage: 'decide', state: 'waiting', waitingOn: 'escalation', reason: 'approver escalated: naming' });
       fs.symlinkSync(path.join(s.root, 'README.md'), path.join(jobDir(s.root, link), 'decision.md'));
-      await refused(link, OFFICE_SCOPE, ['approve', ...foreman], /unreadable decision.md/, 'symlinked decision.md');
+      refused(link, OFFICE_SCOPE, 'approve', 'ok', /unreadable decision.md/, 'symlinked decision.md');
       // And the clean escalation goes through.
+      const foreman = ['--actor', 'foreman', '--note', 'ok'];
       const ok = await s.cli(OFFICE_SCOPE, 'job', 'human', clean, 'approve', ...foreman);
       assert.equal(ok.code, 0, ok.out);
     } finally {
@@ -370,34 +453,33 @@ describe('foreman CLI', { concurrency: 4 }, () => {
   test('office job set carries out only a recorded foreman decision', async () => {
     const s = scratch();
     try {
-      const refused = async (id: string, args: string[], why: RegExp, label: string) => {
-        const before = s.snapshot(id);
-        const r = await s.cli(OFFICE_SCOPE, 'job', ...args);
-        assert.equal(r.code, 1, `${label}: ${r.out}`);
-        assert.match(r.out, why, label);
-        assert.equal(s.snapshot(id), before, `${label}: nothing written`);
-      };
       const id = s.job('Set', WAIT_SPEC);
-      await refused(id, ['set', id, '--state', 'running'], /no foreman decision recorded/, 'no decision');
+      // Through the CLI once: an office `job set` with no decision recorded, refused before any write.
+      const before = s.snapshot(id);
+      const none = await s.cli(OFFICE_SCOPE, 'job', 'set', id, '--state', 'running');
+      assert.equal(none.code, 1, none.out);
+      assert.match(none.out, /no foreman decision recorded/);
+      assert.equal(s.snapshot(id), before, 'nothing written');
+      // The rest are the check an office `job set` runs before its write, called directly.
+      const refused = (jobId: string, change: Parameters<typeof checkOfficeSetFor>[2], why: RegExp, label: string) =>
+        assert.throws(() => checkOfficeSetFor(s.root, loadJob(s.root, jobId), change), (e: unknown) => e instanceof ForgeError && e.exitCode === 1 && why.test(e.message), label);
       logEvent(s.root, id, 'human', { action: 'approve-spec', note: 'a person', actor: 'human' });
-      await refused(id, ['set', id, '--state', 'running'], /no foreman decision recorded/, "a human's decision is not the foreman's");
+      refused(id, { state: 'running' }, /no foreman decision recorded/, "a human's decision is not the foreman's");
       assert.equal((await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'approve-spec', '--actor', 'foreman', '--note', 'ok')).code, 0);
-      await refused(id, ['set', id, '--stage', 'build', '--state', 'running'], /approve-spec moves the job to/, 'a stage outside the table');
-      await refused(id, ['set', id, '--state', 'running', '--field', 'complexity=low'], /no --field/, '--field');
-      await refused(id, ['set', id, '--state', 'running', '--reason', 'x'], /no --waiting-on or --reason/, '--reason');
-      await refused(id, ['set', id, '--state', 'done'], /only --state running/, 'another state');
+      refused(id, { stage: 'build', state: 'running' }, /approve-spec moves the job to/, 'a stage outside the table');
+      refused(id, { state: 'running', fields: { complexity: 'low' } }, /no --field/, '--field');
+      refused(id, { state: 'running', reason: 'x' }, /no --waiting-on or --reason/, '--reason');
+      refused(id, { state: 'done' }, /only --state running/, 'another state');
       const ok = await s.cli(OFFICE_SCOPE, 'job', 'set', id, '--state', 'running');
       assert.equal(ok.code, 0, ok.out);
-      await refused(id, ['set', id, '--stage', 'build', '--state', 'running'], /is not waiting on a gate/, 'once carried out, nothing more');
+      refused(id, { stage: 'build', state: 'running' }, /is not waiting on a gate/, 'once carried out, nothing more');
       // A decision from before the current park doesn't count.
       const old = s.job('Old', { stage: 'build', state: 'running' });
       logEvent(s.root, old, 'human', { action: 'rework', note: 'x', actor: 'foreman' });
       await new Promise((r) => setTimeout(r, 5));
       setJob(s.root, old, { state: 'waiting', waitingOn: 'escalation', reason: 'again' });
-      await refused(old, ['set', old, '--stage', 'build', '--state', 'running'], /no foreman decision recorded/, 'a decision older than the park');
-      // Outside the allowlist, job subcommands are refused in the office.
-      for (const args of [['release', id], ['round', id], ['link', id, '--none'], ['effort', id, 'low'], ['verdicts', id], ['decision', id], ['paths', id]])
-        await refused(id, args, /the office session decides gates and does not drive jobs/, args[0]);
+      refused(old, { stage: 'build', state: 'running' }, /no foreman decision recorded/, 'a decision older than the park');
+      // The job subcommands outside the office allowlist: 'office scope refusals, in-process' below.
     } finally {
       s.cleanup();
     }
@@ -439,22 +521,15 @@ describe('foreman CLI', { concurrency: 4 }, () => {
       const head = 'a'.repeat(40);
       const pr = { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', headOid: head, checks: { state: 'failing', passing: 0, failing: 1, pending: 0 } };
       const id = s.job('Feedback', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', fields: { pr } });
-      const rework = () => s.cli(OFFICE_SCOPE, 'job', 'human', id, 'rework', '--actor', 'foreman', '--note', 'fix the failing test');
-      const refused = async (label: string) => {
-        const before = s.snapshot(id);
-        const r = await rework();
-        assert.equal(r.code, 1, `${label}: ${r.out}`);
-        assert.match(r.out, /no queued pr-feedback gate request for .*current PR head/, label);
-        assert.equal(s.snapshot(id), before, `${label}: nothing written`);
-      };
-      await refused('no gate request at all');
+      const refused = (label: string) => s.refusedDecision(id, OFFICE_SCOPE, 'rework', 'fix the failing test', /no queued pr-feedback gate request for .*current PR head/, label);
+      refused('no gate request at all');
       enqueue(s.root, null, { type: 'gate', job: id, args: { gate: 'pr-feedback', key: 'b'.repeat(40), reserved: null }, from: 'forge' });
-      await refused('a gate for an older head');
+      refused('a gate for an older head');
       const done = enqueue(s.root, null, { type: 'gate', job: id, args: { gate: 'pr-feedback', key: head, reserved: null }, from: 'forge' });
       ackRequest(s.root, done.id, { status: 'done', result: 'no action: addressed' });
-      await refused('a gate for this head that was already handled');
+      refused('a gate for this head that was already handled');
       enqueue(s.root, null, { type: 'gate', job: id, args: { gate: 'pr-feedback', key: head, reserved: null }, from: 'forge' });
-      const ok = await rework();
+      const ok = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'rework', '--actor', 'foreman', '--note', 'fix the failing test');
       assert.equal(ok.code, 0, ok.out);
       assert.deepEqual(readEvents(s.root, id).filter((e) => e.type === 'human').map((e) => [e.action, e.actor]), [['rework', { login: null, source: 'foreman' }]]);
     } finally {
@@ -483,33 +558,128 @@ describe('foreman CLI', { concurrency: 4 }, () => {
     }
   });
 
-  test('office scope cannot drive, claim or merge', async () => {
+  test('foreman is refused past the total-round ceiling', async () => {
     const s = scratch();
     try {
-      const id = s.job('Drive', { stage: 'build', state: 'running' });
-      const before = s.snapshot(id);
-      for (const args of [
-        ['worktree', 'create', id],
-        ['job', 'agent', id, 'start', '--role', 'builder'],
-        ['job', 'advance', id, '--session', 'office'],
-        ['job', 'claim', id, '--session', 'office'],
-        ['pr', 'merge', id],
-      ]) {
-        const r = await s.cli(OFFICE_SCOPE, ...args);
-        assert.equal(r.code, 1, `${args.join(' ')}: ${r.out}`);
-        assert.match(r.out, /the office session decides gates and does not drive jobs/, args.join(' '));
-      }
-      assert.equal(s.snapshot(id), before);
-      for (const scope of [undefined, OFFICE_SCOPE]) {
-        const g = await s.cli(scope, 'requests', 'add', 'gate', '--job', id);
-        assert.equal(g.code, 1, g.out);
-        assert.match(g.out, /gate requests are written only by/);
-      }
-      assert.deepEqual(s.gates(), []);
+      // maxRounds 2: the ceiling is 4, and round 5 is past it.
+      const id = s.job('Ceiling', { stage: 'build', state: 'running', fields: { round: 5, maxRounds: 2 } });
+      const r = await s.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 5 exceeds the total-round ceiling 4: only a human clears it');
+      assert.equal(r.code, 0, r.out);
+      assert.deepEqual(s.gates(id), [], 'no foreman gate is queued past the ceiling');
+      assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'human');
+      assert.equal(reservedFor(s.root, s.config(), loadJob(s.root, id), 'rounds-exhausted', [], { action: 'rework' }), TOTAL_CEILING);
+      for (const action of ['approve', 'rework', 'revise-spec']) s.refusedDecision(id, OFFICE_SCOPE, action, 'one more try', /--actor foreman refused: .*total-round ceiling/, action);
+      // A person may still open one more round.
+      const person = await s.cli(undefined, 'job', 'human', id, 'rework', '--note', 'try the other approach');
+      assert.equal(person.code, 0, person.out);
     } finally {
       s.cleanup();
     }
   });
+
+  test('foreman still decides rounds-exhausted within the ceiling', async () => {
+    const s = scratch();
+    try {
+      const id = s.job('Within', { stage: 'build', state: 'running', fields: { round: 3, maxRounds: 2 } });
+      const r = await s.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 3 exceeds maxRounds 2');
+      assert.equal(r.code, 0, r.out);
+      assert.equal(s.gates(id).length, 1);
+      assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'foreman');
+      const ok = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'approve', '--actor', 'foreman', '--note', 'cosmetic findings only');
+      assert.equal(ok.code, 0, ok.out);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test("a retro's spec gate is never the foreman's", async () => {
+    const s = scratch();
+    try {
+      assert.ok(s.config().foreman.decides.includes('spec-approval'));
+      const id = createJob(s.root, defaults(), { title: 'Retro', kind: 'retro' }).id;
+      setJob(s.root, id, { stage: 'spec', state: 'running' });
+      const park = await s.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready');
+      assert.equal(park.code, 0, park.out);
+      assert.deepEqual(s.gates(id), [], 'no gate request reaches the office');
+      assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'human');
+      assert.equal(reservedFor(s.root, s.config(), loadJob(s.root, id), 'spec-approval'), RETRO_SPEC_HOLD);
+      for (const action of ['approve-spec', 'revise-spec']) {
+        const before = s.snapshot(id);
+        const refused = await s.cli(OFFICE_SCOPE, 'job', 'human', id, action, '--actor', 'foreman', '--note', 'looks fine');
+        assert.equal(refused.code, 1, `${action}: ${refused.out}`);
+        assert.match(refused.out, /--actor foreman refused: reserved \(retro spec: a human approves/, action);
+        assert.equal(s.snapshot(id), before, `${action}: nothing written`);
+      }
+      // Nor can its kind change to make the gate the foreman's.
+      const kind = await s.cli(undefined, 'job', 'set', id, '--field', 'kind=feature');
+      assert.equal(kind.code, 1, kind.out);
+      assert.match(kind.out, /is a retro job; its kind is not settable/);
+      assert.equal(loadJob(s.root, id).kind, 'retro');
+      // A person approves it as usual.
+      const person = await s.cli(undefined, 'job', 'human', id, 'approve-spec', '--note', 'ok');
+      assert.equal(person.code, 0, person.out);
+      // An ordinary job's spec gate is still the foreman's.
+      const plain = s.job('Plain', { stage: 'spec', state: 'running' });
+      assert.equal((await s.cli(undefined, 'job', 'set', plain, '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready')).code, 0);
+      assert.equal(s.gates(plain).length, 1);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('office scope cannot drive, claim or merge', async () => {
+    const s = scratch();
+    try {
+      // Through the CLI once; the other drive commands are in 'office scope refusals, in-process' below.
+      const id = s.job('Drive', { stage: 'build', state: 'running' });
+      const before = s.snapshot(id);
+      const r = await s.cli(OFFICE_SCOPE, 'worktree', 'create', id);
+      assert.equal(r.code, 1, r.out);
+      assert.match(r.out, /the office session decides gates and does not drive jobs/);
+      assert.equal(s.snapshot(id), before);
+    } finally {
+      s.cleanup();
+    }
+  });
+});
+
+// Sets FORGE_DAEMON and FORGE_DAEMON_SCOPE on process.env for each call, so it runs on its own,
+// outside the concurrent block: the guards below read process.env themselves.
+test('office scope refusals, in-process', async () => {
+  const s = scratch();
+  try {
+    const office = { env: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: OFFICE_SCOPE } };
+    const refused = async (args: string[], why: RegExp, env = office) => {
+      const r = await forgeInProcess(s.root, args, env);
+      assert.equal(r.status, 1, `${args.join(' ')}: ${JSON.stringify(r)}`);
+      assert.match(String(r.error?.message), why, args.join(' '));
+    };
+    const id = s.job('Drive', { stage: 'build', state: 'running' });
+    const before = s.snapshot(id);
+    const drive = /the office session decides gates and does not drive jobs/;
+    for (const args of [
+      ['worktree', 'create', id],
+      ['job', 'agent', id, 'start', '--role', 'builder'],
+      ['job', 'advance', id, '--session', 'office'],
+      ['job', 'claim', id, '--session', 'office'],
+      ['pr', 'merge', id],
+    ])
+      await refused(args, drive);
+    // Outside the allowlist, job subcommands are refused in the office.
+    for (const args of [['release', id], ['round', id], ['link', id, '--none'], ['effort', id, 'low'], ['verdicts', id], ['decision', id], ['paths', id]]) await refused(['job', ...args], drive);
+    assert.equal(s.snapshot(id), before);
+    // Gate requests come only from the CLI's park and sync paths, in or outside the office.
+    for (const env of [{ env: { FORGE_DAEMON: undefined, FORGE_DAEMON_SCOPE: undefined } }, office]) await refused(['requests', 'add', 'gate', '--job', id], /gate requests are written only by/, env);
+    assert.deepEqual(s.gates(), []);
+    // The office records decisions only as the foreman.
+    const spec = s.job('Spec', WAIT_SPEC);
+    const specBefore = s.snapshot(spec);
+    await refused(['job', 'human', spec, 'approve-spec', '--actor', 'human', '--note', 'ok'], /only with --actor foreman/);
+    assert.equal(s.snapshot(spec), specBefore);
+    assert.equal(process.env.FORGE_DAEMON, undefined, 'the env is restored');
+  } finally {
+    s.cleanup();
+  }
 });
 
 // Mutates process.env (PATH, the stub's answers), so it runs on its own, outside the concurrent block.
@@ -651,6 +821,161 @@ esac
   }
 });
 
+/**
+ * A scratch repo with the daemon and foreman on, and a fake `gh` whose `pr view` prints the file
+ * `pr(head, rollup)` wrote, so check names need no shell quoting. Mutates process.env.PATH.
+ */
+function ciScratch(edit: (c: any) => void = () => {}) {
+  const s = scratch((c) => {
+    c.tracker.github = { ...(c.tracker.github ?? {}), repo: 'o/r' };
+    edit(c);
+  });
+  const bin = path.join(s.root, '..', `fakebin-${path.basename(s.root)}`);
+  const prFile = path.join(bin, 'pr.json');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(
+    path.join(bin, 'gh'),
+    `#!/bin/sh
+case "$1 $2" in
+  "pr view") cat "${prFile}" ;;
+  "repo view") echo o/r ;;
+  "api graphql") printf '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[]},"reviewThreads":{"nodes":[]}}}}}' ;;
+esac
+`,
+    { mode: 0o755 },
+  );
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${savedPath}`;
+  const pr = (head: string, rollup: unknown[]) =>
+    fs.writeFileSync(prFile, JSON.stringify({ number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', isDraft: false, headRefOid: head, mergeable: 'MERGEABLE', mergeStateStatus: 'UNSTABLE', reviewDecision: null, statusCheckRollup: rollup, mergedAt: null, closedAt: null, headRefName: 'forge/x', baseRefName: 'main' }));
+  const base = s.config();
+  const config = { ...base, daemon: { ...base.daemon, enabled: true } };
+  const parked = { stage: 'pr' as const, state: 'waiting' as const, waitingOn: 'pr-review' as const, fields: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } };
+  const capped = (id: string) => readEvents(s.root, id).filter((e) => e.type === 'ci-rework-capped');
+  const ciReworks = (id: string) => readEvents(s.root, id).filter((e) => e.type === 'human' && e.action === 'rework' && e.ciHead);
+  const sync = (id: string, head: string, rollup: unknown[] = RED) => {
+    pr(head, rollup);
+    syncPr(s.root, config, id);
+    return loadJob(s.root, id);
+  };
+  const backToReview = (id: string) => setJob(s.root, id, { stage: 'pr', state: 'waiting', waitingOn: 'pr-review' });
+  const cleanup = () => {
+    process.env.PATH = savedPath;
+    fs.rmSync(bin, { recursive: true, force: true });
+    s.cleanup();
+  };
+  return { ...s, config, parked, capped, ciReworks, sync, backToReview, cleanup };
+}
+
+const RED = [
+  { name: 'lint', conclusion: 'FAILURE', status: 'COMPLETED' },
+  { name: 'unit tests', conclusion: 'FAILURE', status: 'COMPLETED' },
+  { name: 'build', conclusion: 'SUCCESS', status: 'COMPLETED' },
+];
+const sha = (c: string) => c.repeat(40);
+
+test('CI rework cap parks the next red head for a human', { skip: process.platform === 'win32' }, async () => {
+  const s = ciScratch((c) => (c.pr.maxCiReworks = 2));
+  try {
+    const id = s.job('Red CI', s.parked);
+    assert.equal(s.sync(id, sha('a')).stage, 'build', 'the first CI rework starts');
+    s.backToReview(id);
+    assert.equal(s.sync(id, sha('b')).stage, 'build', 'the second CI rework starts');
+    s.backToReview(id);
+    const resumes = listRequests(s.root).filter((q) => q.type === 'resume' && q.job === id).length;
+    const job = s.sync(id, sha('c'));
+    assert.deepEqual([job.stage, job.state, job.waitingOn], ['pr', 'waiting', 'pr-review']);
+    assert.equal(job.reason, 'CI rework cap: 2 CI reworks in a row, checks still failing on PR #7: lint, unit tests. A human decides');
+    assert.equal(s.ciReworks(id).length, 2, 'no third rework');
+    const ev = s.capped(id);
+    assert.equal(ev.length, 1);
+    assert.deepEqual([ev[0].head, ev[0].count, ev[0].max, ev[0].checks], [sha('c'), 2, 2, ['lint', 'unit tests']]);
+    assert.deepEqual(s.gates(id), [], 'no pr-feedback gate for the capped head');
+    assert.equal(gateOwner(s.root, s.config, job), 'human');
+    assert.equal(listRequests(s.root).filter((q) => q.type === 'resume' && q.job === id).length, resumes, 'no resume queued');
+    s.sync(id, sha('c'));
+    assert.equal(s.capped(id).length, 1, 'logged once per head');
+    assert.deepEqual(s.gates(id), []);
+    const before = s.snapshot(id);
+    const refused = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'rework', '--actor', 'foreman', '--note', 'fix the checks');
+    assert.equal(refused.code, 1, refused.out);
+    assert.match(refused.out, /no queued pr-feedback gate request/);
+    assert.equal(s.snapshot(id), before);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test("a person's action resets the CI rework count", { skip: process.platform === 'win32' }, () => {
+  const s = ciScratch((c) => (c.pr.maxCiReworks = 1));
+  try {
+    const id = s.job('Reset', s.parked);
+    assert.equal(s.sync(id, sha('a')).stage, 'build');
+    s.backToReview(id);
+    assert.match(String(s.sync(id, sha('b')).reason), /^CI rework cap: 1 CI reworks in a row/);
+    // A foreman decision is no reset; a person's event of any action is.
+    logEvent(s.root, id, 'human', { action: 'approve', note: 'office', actor: { login: null, source: 'foreman' } });
+    assert.equal(s.sync(id, sha('c')).stage, 'pr', "the foreman's own event keeps the count");
+    logEvent(s.root, id, 'human', { action: 'approve', note: 'looked at it', actor: { login: 'alice', source: 'cli' } });
+    // The cap's reason names CI, which the default foreman.reserved lists: it must not hold the rework.
+    assert.ok(s.config.foreman.reserved.includes('CI'));
+    const job = s.sync(id, sha('d'));
+    assert.equal(job.stage, 'build', 'the next red head reworks again');
+    assert.equal(s.ciReworks(id).at(-1)?.ciHead, sha('d'));
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('maxCiReworks 0 leaves every red head to a human', { skip: process.platform === 'win32' }, () => {
+  const s = ciScratch((c) => (c.pr.maxCiReworks = 0));
+  try {
+    const id = s.job('Never', s.parked);
+    const job = s.sync(id, sha('a'));
+    assert.deepEqual([job.stage, job.waitingOn], ['pr', 'pr-review']);
+    assert.equal(job.reason, 'CI rework cap: 0 CI reworks in a row, checks still failing on PR #7: lint, unit tests. A human decides');
+    assert.equal(s.ciReworks(id).length, 0);
+    assert.deepEqual(s.gates(id), []);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('CI rework cap drops unsafe check names', { skip: process.platform === 'win32' }, () => {
+  const s = ciScratch((c) => (c.pr.maxCiReworks = 0));
+  try {
+    const bad = ['a`b', '$(id)', 'x\ny', 'q"uote', "it's"];
+    const long = 'z'.repeat(10_000);
+    const rollup = [
+      { name: 'lint', conclusion: 'FAILURE' },
+      ...bad.map((name) => ({ name, conclusion: 'FAILURE' })),
+      ...['ok-1', 'ok 2', 'ok/3', 'ok.4', 'ok_5'].map((name) => ({ name, conclusion: 'FAILURE' })),
+      { context: '  ci/status  ', state: 'ERROR' },
+      { name: long, conclusion: 'TIMED_OUT' },
+      { name: 'passing', conclusion: 'SUCCESS' },
+    ];
+    const started = Date.now();
+    assert.deepEqual(failingCheckNames(rollup), { names: ['lint', 'ok-1', 'ok 2', 'ok/3', 'ok.4'], more: 8 });
+    assert.ok(Date.now() - started < 200, 'a 10k-character name is checked in linear time');
+    assert.deepEqual(failingCheckNames([{ name: '`', conclusion: 'FAILURE' }]), { names: [], more: 1 });
+    assert.equal(checksText({ names: [], more: 3 }), '3 checks');
+    assert.equal(checksText({ names: ['context fallback'], more: 0 }), 'context fallback');
+    assert.deepEqual(failingCheckNames([{ context: ' ci/status ', state: 'ERROR' }]).names, ['ci/status'], 'context when there is no name');
+    const id = s.job('Hostile', s.parked);
+    const job = s.sync(id, sha('a'), rollup);
+    assert.equal(job.reason, 'CI rework cap: 0 CI reworks in a row, checks still failing on PR #7: lint, ok-1, ok 2, ok/3, ok.4 and 8 more. A human decides');
+    const tell = String((step(loadStepInput(s.root, s.config, id)) as any).tell);
+    assert.match(tell, /CI rework cap: 0 CI reworks in a row/);
+    const event = JSON.stringify(s.capped(id));
+    for (const text of [String(job.reason), event, tell]) {
+      for (const b of [...bad, long]) assert.ok(!text.includes(b), `${JSON.stringify(b.slice(0, 20))} leaked into ${text.slice(0, 80)}`);
+    }
+    assert.ok(!/[`$"'\n]/.test(String(job.reason)), 'no quote, backtick, dollar or newline in the reason');
+  } finally {
+    s.cleanup();
+  }
+});
+
 test('repo-proposal is a derived gate class the foreman decides only when allowed', async () => {
   const parked = { state: 'waiting', waitingOn: 'human', reason: 'repo proposal: lib', repos: [] } as any;
   const proposed = [{ v: 2, ts: 't1', type: 'repo-proposed', repo: 'lib', reason: 'core API' }];
@@ -758,29 +1083,9 @@ test('a repo hidden from repo-proposals.md is still named in the assistant brief
   }
 });
 
-test('assistant prompt has every gate section and the contract', () => {
-  const text = fs.readFileSync(path.join(ROOT, 'agents', 'assistant.md'), 'utf8');
-  const front = text.split('---')[1];
-  assert.match(front, /^name: assistant$/m);
-  assert.match(front, /^model: sonnet$/m);
+// The assistant reads gate files written from untrusted text, so having no Bash is a security property
+// no public function exposes (docs/TESTING.md exception): the frontmatter is the only place it lives.
+test('assistant agent has no Bash', () => {
+  const front = fs.readFileSync(path.join(ROOT, 'agents', 'assistant.md'), 'utf8').split('---')[1];
   assert.match(front, /^disallowedTools: Bash, Edit, NotebookEdit$/m, 'no Bash: injected text reaches the CLI only through the one-line verdict');
-  for (const g of OFFICE_GATES) assert.match(text, new RegExp(`^## ${g}$`, 'm'), g);
-  const rp = text.split('## repo-proposal\n')[1].split('\n## ')[0];
-  assert.match(rp, /`Pending repos \(JSON\)` line is the authoritative list/);
-  assert.match(rp, /does not show exactly that set as pending[^.]*: `escalate`/);
-  const untrusted = fs.readFileSync(path.join(ROOT, 'agents', 'builder.md'), 'utf8').split('\n').find((l) => l.startsWith('**Untrusted input.**'));
-  assert.ok(untrusted && text.includes(untrusted), 'the untrusted-input paragraph, verbatim');
-  assert.equal(text.trimEnd().split('\n').at(-1), 'Reply with exactly one line: `ASSIST: approve|revise|rework|escalate · <reason>`.');
-});
-
-test('foreman procedure names only CLI calls', () => {
-  const ref = path.join(ROOT, 'skills', 'forge', 'reference');
-  const text = fs.readFileSync(path.join(ref, 'foreman.md'), 'utf8');
-  for (const s of ['forge job assist', '--actor foreman', 'forge requests add resume', 'forge requests claim', 'forge:assistant']) assert.ok(text.includes(s), s);
-  for (const f of ['spec.md', 'plan.md', 'decision.md', 'pr-feedback.md', 'verify']) {
-    assert.doesNotMatch(text, new RegExp(`\\b(Read|cat|head|tail|grep)\\b[^\\n|]*${f.replace('.', '\\.')}`), `no read of ${f}`);
-  }
-  for (const g of ['spec-approval', 'split-approval', 'escalation, rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release']) assert.match(text, new RegExp(`^\\| ${g} \\|`, 'm'), g);
-  assert.match(fs.readFileSync(path.join(ref, 'requests.md'), 'utf8'), /`scope: "office"`[^\n]*reference\/foreman\.md/);
-  assert.match(fs.readFileSync(path.join(ROOT, 'skills', 'forge', 'SKILL.md'), 'utf8'), /With `foreman\.enabled`, the CLI turns gates into `gate` requests/);
 });

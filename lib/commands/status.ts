@@ -1,4 +1,5 @@
 // Human-readable summaries: `forge status` and the text form of `forge stats`.
+import { foremanHandoffFor } from '../foreman.ts';
 import { isActive, listJobs, progress } from '../jobs.ts';
 import type { HelpGroup, Job, Stats, StatusRow } from '../types.ts';
 
@@ -14,13 +15,14 @@ export const HELP: HelpGroup[] = [
     commands: [
       {
         command: 'stats',
-        args: '[--since DATE] [--include-evals] [--json] | --csv [--since DATE] [--by job|role|model|day]',
-        summary: 'pipeline metrics: review and verify first-pass rates, per-lens change and dispute rates, recurring findings, escalations, time to PR, tokens and cost (a text summary, or the full object with --json)',
+        args: '[--since DATE] [--include-evals] [--json] | --by prompt [--role R] [--since DATE] [--include-evals] | --csv [--since DATE] [--by job|role|model|day]',
+        summary: 'pipeline metrics: review and verify first-pass rates, per-lens change, dispute and miss rates, recurring findings, escalations, time to PR, tokens and cost (a text summary, or the full object with --json); --by prompt groups jobs into prompt cohorts',
         flags: [
           ['--since DATE', 'only jobs created on or after DATE'],
           ['--include-evals', 'count eval jobs too (--csv always counts every job)'],
           ['--csv', 'spend as RFC 4180 CSV with CRLF line ends: key columns, then runs,tokens,input,output,cache_read,cache_write,usd; with it, --since keeps events at or after DATE'],
-          ['--by K', 'with --csv: one row per job (default, keyed job,kind,title), role, model or day'],
+          ['--by K', 'with --csv: one row per job (default, keyed job,kind,title), role, model or day; `prompt` (JSON only): one cohort per prompt hash the role last started on, each with its own stats'],
+          ['--role R', 'with --by prompt: the agents/*.md role or reviewer:<lens> whose starts key the cohorts (default builder)'],
         ],
         docs: ['Repo budget', 'docs/CLI.md#repo-budget'],
       },
@@ -37,14 +39,15 @@ const activeJobs = (root: string, all: boolean): Job[] => listJobs(root).filter(
 
 function statusRow(root: string, j: Job): StatusRow {
   const p = progress(root, j.id);
-  return { id: j.id, stage: j.stage, state: j.state, waitingOn: j.waitingOn, round: j.round, tasks: { done: p.done, total: p.total }, pr: j.pr?.number ?? null, session: j.owner?.session ?? null };
+  // foremanHandoffFor reads events only for a waiting job.
+  return { id: j.id, stage: j.stage, state: j.state, waitingOn: j.waitingOn, round: j.round, tasks: { done: p.done, total: p.total }, pr: j.pr?.number ?? null, session: j.lease.driver, foremanHandoff: foremanHandoffFor(root, j) };
 }
 
 export function statusTable(root: string, all: boolean): string {
   const jobs = statusRows(root, all);
   if (!jobs.length) return 'no active jobs';
   const rows = jobs.map((j) => {
-    const st = j.state === 'waiting' ? `waiting:${j.waitingOn}` : j.state;
+    const st = j.state === 'waiting' ? `waiting:${j.waitingOn}${j.foremanHandoff ? ' (left for a human)' : ''}` : j.state;
     return [j.id, j.stage, st, j.round ? `r${j.round}` : '-', j.tasks.total ? `${j.tasks.done}/${j.tasks.total}` : '-', j.pr ? `#${j.pr}` : '-', j.session?.slice(0, 8) ?? '-'];
   });
   const head = ['job', 'stage', 'state', 'round', 'tasks', 'pr', 'session'];
@@ -52,12 +55,15 @@ export function statusTable(root: string, all: boolean): string {
   return [head, ...rows].map((r) => r.map((c, i) => String(c).padEnd(widths[i])).join('  ').trimEnd()).join('\n');
 }
 
-/** A status row plus the job's reason: what human mode's `forge status` renders. */
-export type StatusView = StatusRow & { reason: string | null };
+/** A status row plus the job's reason and its Foreman hand-off as one line: what human mode's `forge status` renders. */
+export type StatusView = Omit<StatusRow, 'foremanHandoff'> & { reason: string | null; handoff: string | null };
 
-/** `forge status` in human mode: statusRows with each job's reason. */
+/** `forge status` in human mode: statusRows with each job's reason and `<class>: <reason>` for a hand-off. */
 export function statusView(root: string, all: boolean): StatusView[] {
-  return activeJobs(root, all).map((j) => ({ ...statusRow(root, j), reason: j.reason ?? null }));
+  return activeJobs(root, all).map((j) => {
+    const { foremanHandoff: h, ...row } = statusRow(root, j);
+    return { ...row, reason: j.reason ?? null, handoff: h ? `${h.class}: ${h.reason}` : null };
+  });
 }
 
 /** The stats summary's lines by section, with one [name, text] entry per reviewer and verifier. */
@@ -86,7 +92,8 @@ export function statsSections(s: Stats): StatsSections {
     ],
     speed: [`median to PR ${s.speed.medianMinutesToPr ?? '—'} min · median to done ${s.speed.medianMinutesToDone ?? '—'} min`],
     cost: [`tokens ${s.cost.totalTokens.toLocaleString()} · est. API cost $${s.cost.estCostUsd} · per job $${s.cost.avgCostPerJobUsd ?? '—'} · usage coverage ${s.cost.reportingCoverage.withUsage}/${s.cost.reportingCoverage.agentRuns} (exact ${s.cost.reportingCoverage.exact})`],
-    reviewers: Object.entries(s.reviewers).map(([k, v]) => [k, `${pct(v.changeRate)} changes, ${pct(v.disputeRate)} disputed`]),
+    // An older stats.json (or /api/stats) has no miss rate.
+    reviewers: Object.entries(s.reviewers).map(([k, v]) => [k, `${pct(v.changeRate)} changes, ${pct(v.disputeRate)} disputed, ${pct(v.missRate ?? null)} missed`]),
     // An older stats.json (or /api/stats) has no verifiers.
     verifiers: Object.entries(s.verifiers ?? {}).map(([k, v]) => [k, `${pct(v.hitRate)} hit over ${v.runs} runs, ${v.blocks} blocked`]),
   };

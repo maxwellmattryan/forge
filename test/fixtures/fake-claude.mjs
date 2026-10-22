@@ -13,8 +13,14 @@
 //   FAKE_CLAUDE_ASK           per turn: a can_use_tool control_request for this Bash command, held until its control_response;
 //                             the result then says what the answer was
 //   FAKE_CLAUDE_REFUSE_MODE   answer a set_permission_mode to this mode with an error, as claude does for a mode it can't enter
+//   FAKE_CLAUDE_DRIVE         per turn, as a job session's orchestrator: claim the first request in scope and the job with
+//                             `forge`, start a builder agent, log {drove}, and never send the turn's result
+//   FAKE_CLAUDE_FORK          with --resume: init reports a new session id, as a resume that forks the conversation does
+//   FAKE_CLAUDE_NO_RESULT     never send a turn's result (a turn that hangs)
 // Like claude 2.1.299: init reports --permission-mode (manual read as default), and a set_permission_mode control_request is
 // answered with a control_response, then a system/status event carrying the new mode.
+import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import readline from 'node:readline';
 
@@ -34,7 +40,7 @@ if (env.FAKE_CLAUDE_IGNORE_TERM) process.on('SIGTERM', () => {});
 log({ argv, scope });
 
 const resume = flag('--resume');
-const session = resume ?? flag('--session-id') ?? 'no-session';
+const session = resume && env.FAKE_CLAUDE_FORK ? crypto.randomUUID() : (resume ?? flag('--session-id') ?? 'no-session');
 // Exits use exitCode, never process.exit(): stdout to a pipe is asynchronous on macOS, so an
 // explicit exit could drop the last line.
 if (env.FAKE_CLAUDE_EXIT_SCOPE) {
@@ -83,6 +89,8 @@ function serve() {
     first = false;
     out({ type: 'assistant', session_id: session, message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] } });
     turn++;
+    if (env.FAKE_CLAUDE_DRIVE) return drive(session);
+    if (env.FAKE_CLAUDE_NO_RESULT) return;
     if (env.FAKE_CLAUDE_SUBAGENT) subagent(out, session, turn);
     const cost = env.FAKE_CLAUDE_SUBAGENT ? { total_cost_usd: 0.25, num_turns: 3, duration_ms: 1200 } : {};
     const failed = env.FAKE_CLAUDE_RESULT_ERROR ? { is_error: true, result: env.FAKE_CLAUDE_RESULT_ERROR } : { is_error: false };
@@ -110,6 +118,20 @@ function serve() {
   });
   // Without IGNORE_EOF the process ends on its own once stdin closes and pending results are out.
   if (env.FAKE_CLAUDE_IGNORE_EOF) setInterval(() => {}, 1 << 30);
+}
+
+/** A job session's orchestrator, cut short: the claims and agent start a turn makes before it would wait on the builder. */
+function drive(/** @type {string} */ session) {
+  const forge = (/** @type {string[]} */ ...args) => JSON.parse(execFileSync('forge', args, { encoding: 'utf8', env: { ...env, FORGE_MODE: 'agent' } }));
+  try {
+    const [req] = forge('requests');
+    if (req) forge('requests', 'claim', req.id, '--session', session);
+    const claimed = forge('job', 'claim', scope, '--session', session);
+    forge('job', 'agent', scope, 'start', '--role', 'builder');
+    log({ drove: { session, request: req?.id ?? null, epoch: claimed.epoch } });
+  } catch (e) {
+    log({ droveError: String(/** @type {any} */ (e)?.stderr ?? e) });
+  }
 }
 
 /** What a real orchestrator turn looks like when it spawns a builder: the shape the session log groups. */

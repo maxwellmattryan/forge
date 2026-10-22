@@ -3,7 +3,7 @@
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 31;
+export const API_VERSION = 35;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -130,16 +130,17 @@ export interface JobPr {
   integrateFor?: string;
 }
 
-/** The session driving a job: claimJob in lib/jobs.ts. */
-export interface JobOwner {
-  session: string;
-  host: string;
-  since: string;
-  heartbeat: string;
+/** The fenced claim on a job: claimJob, renewLease, expireLease and releaseJob in lib/jobs.ts. */
+export interface JobLease {
+  /** The driving session; null when nobody holds the job. */
+  driver: string | null;
+  epoch: number;
+  /** When this driver first claimed it. */
+  since: string | null;
+  renewedAt: string | null;
+  /** Live while in the future; the supervisor sets it to now when the driver's process exits. */
+  expiresAt: string | null;
 }
-
-/** Why a daemon owner provably let go of a job: ownerYield in lib/daemon-owner.ts. */
-export type YieldReason = 'moved-on' | 'not-running' | 'inbox-handoff';
 
 /** Where an event's actor came from: ACTOR_SOURCES in lib/schema.ts. */
 export type ActorSource = 'env' | 'gh' | 'git' | 'os' | 'dashboard' | 'foreman' | 'unknown';
@@ -150,24 +151,33 @@ export interface EventActor {
 }
 /** Who owns a waiting job's gate: gateOwner in lib/foreman.ts; null when the job waits on nothing or the foreman is off. */
 export type GateOwner = 'foreman' | 'human' | null;
+/** A gate class the foreman may decide: OFFICE_GATES in lib/schema.ts. */
+export type GateClass = 'spec-approval' | 'split-approval' | 'escalation' | 'rounds-exhausted' | 'conflicts' | 'pr-feedback' | 'repo-proposal' | 'release';
+/** Why the Foreman left a gate for a person: HANDOFF_CLASSES in lib/schema.ts. */
+export type HandoffClass = 'reserved' | 'escalated' | 'refused';
+/** A Foreman hand-off still standing at the job's current park: foremanHandoff in lib/foreman.ts. */
+export interface ForemanHandoff {
+  gate: GateClass;
+  class: HandoffClass;
+  reason: string;
+  at: string;
+}
 
-/** `dead` only in the job detail, which adds the daemon-record proof; /api/state gives the rest. */
-export type OwnerStatusKind = 'none' | 'live' | 'stale' | 'dead';
+/** `none` without a driver; `expired` with one whose expiresAt has passed. */
+export type OwnerStatusKind = 'none' | 'live' | 'expired';
 
-/** Whether a job's owner still drives it: ownerStatus in lib/jobs.ts, ownerStatusWithProof in lib/daemon-owner.ts. */
+/** Whether a job's lease still holds: leaseStatus in lib/jobs.ts. */
 export interface OwnerStatus {
   status: OwnerStatusKind;
   session: string | null;
   since: string | null;
-  heartbeat: string | null;
-  /** An agent has been marked running for under 2 hours. */
-  agentRunning: boolean;
-  /** Set only with status `dead`. */
-  reason: YieldReason | null;
+  renewedAt: string | null;
+  expiresAt: string | null;
+  epoch: number;
   /**
-   * The owner is this job's own daemon session, recorded and running: a `resume` reaches that
-   * session, which claims as itself, so a live owner doesn't block it. Proven only in the job
-   * detail and the resume guard; false in /api/state.
+   * The driver is this job's own pool session and it runs: a `resume` reaches that session, which
+   * claims as itself, so its live lease doesn't block it. Set only in the job detail and the resume
+   * guard, from the pool; false in /api/state.
    */
   jobSession: boolean;
 }
@@ -320,7 +330,7 @@ export interface Job {
   budget: JobBudget;
   decision: string | null;
   pr: JobPr | null;
-  owner: JobOwner | null;
+  lease: JobLease;
   agents: Record<string, JobAgent>;
   usage: JobUsage;
   runs: JobRun[];
@@ -416,6 +426,12 @@ export interface JobEvent {
   note?: string | null;
   /** On human-action events (lib/actor.ts): who acted, best effort and unauthenticated. */
   actor?: EventActor;
+  /** agent-start since event v3 (lib/provenance.ts): the running plugin's 10-hex hash. */
+  pluginHash?: string | null;
+  /** agent-start since event v3: the role's 12-hex hash as `forge roster` reports it; null for a role with no agent file. */
+  promptHash?: string | null;
+  /** agent-start since event v3: the 10-hex hash of the repo layer and the job's effective config; null when the config could not be built. */
+  configHash?: string | null;
   [key: string]: unknown;
 }
 
@@ -428,8 +444,13 @@ export interface PipelineConfig {
   specApproval: 'always' | 'large' | 'never';
   design: 'none' | 'reference' | 'mockup';
   maxRounds: number;
+  /** The total-round ceiling (B7); null means twice the job's maxRounds. */
+  maxTotalRounds: number | null;
   budget: BudgetLimits;
 }
+
+/** daemon.jobBudget: the spend limits an unattended job with none of its own gets (lib/budget.ts effectiveLimits). */
+export type DaemonJobBudget = { tokens?: number | null; usd?: number | null; minutes?: number | null } | null;
 
 /** Session supervisor status: state() in lib/daemon.ts. */
 export type DaemonStatus = 'off' | 'idle' | 'busy' | 'stopping';
@@ -578,7 +599,7 @@ export interface LastHuman {
   actor: EventActor;
 }
 
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null; endpoints: Endpoint[] };
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null; endpoints: Endpoint[]; foremanHandoff: ForemanHandoff | null };
 
 /** Request types the inbox accepts: REQUEST_TYPES in lib/requests.ts. */
 export type RequestType = 'next' | 'run' | 'approve' | 'revise-spec' | 'rework' | 'answer' | 'cancel' | 'resume' | 'sync' | 'eval-run' | 'retro' | 'gate';
@@ -596,6 +617,8 @@ export interface ForgeRequest {
   session?: string;
   updatedAt?: string;
   result?: string | null;
+  /** How often requeueOrphans returned it to pending after its session ended; a second time rejects it. */
+  requeues?: number;
 }
 
 /** GET /api/state: state() in lib/server.ts. */
@@ -610,7 +633,7 @@ export interface ApiState {
     panel: string[];
     pipeline: PipelineConfig;
     models: Record<string, string>;
-    daemon: { enabled: boolean };
+    daemon: { enabled: boolean; jobBudget: DaemonJobBudget };
     /** runtime.effort when it is valid, else null. */
     effort: Effort | null;
   };
@@ -703,6 +726,20 @@ export interface ReviewerStats {
   disputeRate: number | null;
   /** (lens, path) pairs this lens raised in two consecutive rounds of one job. */
   recurring: number;
+  /** Merged jobs this lens reviewed whose escape status is known: a measured human delta or a final outcome. */
+  missChecked: number;
+  /** Of those, jobs with an escape this lens covered: a revert or follow-up, or a human-delta file in its paths, `when` or `always`. */
+  missed: number;
+  /** missed / missChecked; null when none is known. */
+  missRate: number | null;
+  /** Blocker and major findings, where the findings record carries severities. */
+  blockerMajor: number;
+  /** All findings where the record carries severities: blockerMajor's denominator. */
+  severityKnown: number;
+  /** blockerMajor / severityKnown; null at 0. */
+  blockerMajorShare: number | null;
+  /** By the UTC Monday of each job's createdAt, oldest first, the last 12 weeks with findings. */
+  severityTrend: { week: string; findings: number; blockerMajor: number; share: number | null }[];
 }
 
 /** One verifier's record: computeStats in lib/stats.ts, from `verifiers` record events. */
@@ -810,7 +847,7 @@ export interface EvalResult {
   /** Wall time when no agent was running. */
   orchestratorMinutes?: number | null;
   reviewerRuns?: number;
-  /** round > maxRounds at grade time: B6 sent it to decide. Absent on results graded before it. */
+  /** round > maxRounds at grade time: B6b sent it to decide. Absent on results graded before it. */
   roundsExhausted?: boolean;
 }
 

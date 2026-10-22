@@ -45,7 +45,7 @@ function runsRoot(runs: Record<string, any>) {
 }
 
 const v1Run = (id: string, tasks: any[], extra: Record<string, any> = {}) => ({
-  schemaVersion: 1,
+  schemaVersion: 1, // old-version fixture: an eval run record, not a config or job
   id,
   label: null,
   forgeVersion: '0.16.0',
@@ -76,6 +76,7 @@ test('pluginHash covers prompts, checklists, the skill, step and brief only', ()
     'skills/forge/SKILL.md': 'skill',
     'skills/forge/reference/evals.md': 'evals',
     'lib/step.ts': 'step',
+    'lib/step/stages/build.ts': 'build stage',
     'lib/brief.ts': 'brief',
     'lib/evals.ts': 'evals engine',
     'README.md': 'readme',
@@ -96,7 +97,7 @@ test('pluginHash covers prompts, checklists, the skill, step and brief only', ()
       undo();
       assert.equal(pluginHash(root), h0, `${label}: undone`);
     };
-    for (const rel of ['agents/builder.md', 'reviewers/code.md', 'skills/forge/SKILL.md', 'skills/forge/reference/evals.md', 'lib/step.ts', 'lib/brief.ts'])
+    for (const rel of ['agents/builder.md', 'reviewers/code.md', 'skills/forge/SKILL.md', 'skills/forge/reference/evals.md', 'lib/step.ts', 'lib/step/stages/build.ts', 'lib/brief.ts'])
       changes(`edit ${rel}`, () => put(rel, 'changed'), () => put(rel, files[rel]), true);
     changes('add an agent', () => put('agents/new.md', 'new'), () => fs.rmSync(path.join(root, 'agents/new.md')), true);
     changes('add a skill file', () => put('skills/forge/reference/deep/x.md', 'x'), () => fs.rmSync(path.join(root, 'skills/forge/reference/deep'), { recursive: true }), true);
@@ -251,12 +252,12 @@ test('compare aggregates repeats and shows the count behind each delta', () => {
     entry('t', result({ minutes: 10, stages: { build: 4 } }), 1),
     entry('t', result({ minutes: 20, check: { ran: true, pass: false, tail: 'x' }, stages: { build: 6, review: 2 } }), 2),
     entry('v', result({ minutes: 5 }), 1),
-  ], { schemaVersion: 2, repeat: 2, pluginHash: '0123456789', overlay: { 'pipeline.maxRounds': 5 } });
+  ], { schemaVersion: 2, repeat: 2, pluginHash: '0123456789', overlay: { 'pipeline.maxRounds': 5 } }); // old-version fixture: an eval run record
   const b = v1Run('b', [
     entry('t', result({ minutes: 30, stages: { build: 8 } }), 1),
     entry('t', result({ minutes: 40, check: { ran: false, pass: null, tail: null } }), 2),
     entry('u', null, 1),
-  ], { schemaVersion: 2, repeat: 2, pluginHash: '9876543210', overlay: {} });
+  ], { schemaVersion: 2, repeat: 2, pluginHash: '9876543210', overlay: {} }); // old-version fixture: an eval run record
   const r = runsRoot({ a, b });
   try {
     const c = compareRuns(r.root, 'a', 'b');

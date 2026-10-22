@@ -31,24 +31,6 @@ const noGh = () => {
   return c;
 };
 
-test('SUPPORT.md exists and README Install and the bug form link it', () => {
-  const support = read('docs/SUPPORT.md');
-  for (const tier of ['**supported**', '**supported with notes**', '**unsupported**']) assert.ok(support.includes(tier), tier);
-  for (const meaning of ['tested in CI on every PR', 'best effort', 'refused where it is known to break']) assert.ok(support.includes(meaning), meaning);
-  for (const version of ['Node ≥ 22.18', '22.18.0 and the latest 24', 'git ≥ 2.38', 'gh ≥ 2.40']) assert.ok(support.includes(version), version);
-  assert.match(support, /never under `\/mnt\/`/);
-  assert.match(support, /\*\*Refused\*\*: the daemon .* and `forge update`/);
-  assert.match(support, /POSIX `sh`/);
-  assert.match(support, /Git Bash/);
-  assert.equal(SUPPORT_URL, 'https://github.com/maxwellmattryan/forge/blob/main/docs/SUPPORT.md');
-
-  const readme = read('README.md');
-  const install = readme.slice(readme.indexOf('\n## Install\n'), readme.indexOf('\n## ', readme.indexOf('\n## Install\n') + 1));
-  assert.ok(install.includes('[docs/SUPPORT.md](docs/SUPPORT.md)'), 'README Install links SUPPORT.md');
-  assert.ok(install.includes('git ≥ 2.38') && install.includes('gh` ≥ 2.40'), 'README Install states the git and gh minimums');
-  assert.ok(read('.github/ISSUE_TEMPLATE/bug_report.yml').includes(SUPPORT_URL), 'the bug form links SUPPORT.md');
-});
-
 test('platformTier classifies each platform', () => {
   assert.equal(platformTier(DARWIN), 'supported');
   assert.equal(platformTier(host('linux', 'Linux version 6.8.0-45-generic (buildd@lcy02) (gcc 13.2.0) #45-Ubuntu SMP')), 'supported');
@@ -288,7 +270,6 @@ test('posixShell resolves sh per platform', () => {
   // where.exe itself is spawned by absolute path, so one planted in the repo never runs.
   assert.equal(whereExe({ SystemRoot: 'D:\\WINDOWS' }), 'D:\\WINDOWS\\System32\\where.exe');
   assert.equal(whereExe({}), 'C:\\Windows\\System32\\where.exe');
-  assert.ok(!/\bexecFileSync\('where'/.test(read('lib/platform.ts')), 'no bare where spawn');
 
   // Not on PATH: Git for Windows' own location under %ProgramFiles%.
   const seen: string[] = [];
@@ -310,11 +291,6 @@ test('posixShell resolves sh per platform', () => {
       return true;
     },
   );
-
-  // Every template site goes through the resolver.
-  for (const f of ['lib/worktree.ts', 'lib/evals.ts']) assert.doesNotMatch(read(f), /SHELL \|\| '\/bin\/sh'/, f);
-  assert.equal(read('lib/worktree.ts').match(/posixShell\(\)/g)?.length, 3, 'shell(), shellAsync() and forge run --background');
-  assert.equal(read('lib/evals.ts').match(/posixShell\(\)/g)?.length, 1, 'eval grading');
 });
 
 test('scratch repos never convert line endings', () => {

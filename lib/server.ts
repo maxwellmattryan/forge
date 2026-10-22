@@ -22,8 +22,8 @@ import { InactiveJobError, currentFocus, focusJob } from './focus-actions.ts';
 import { recordEnvironmentStopped } from './environment-lifecycle.ts';
 import { createPreviewer, ghRunner, parseGitHubUrl } from './github-preview.ts';
 import type { GhRunner } from './github-preview.ts';
-import { daemonSessionIds, jobSessionEnv, ownerStatusWithProof } from './daemon-owner.ts';
-import { RUNNING_AGENT_MAX_MS, createJob, isActive, listJobs, loadJob, ownerStatus, progress, readEvents, jobDir, requestBody, setJob, setJobEffort } from './jobs.ts';
+import { daemonSessionIds } from './daemon-owner.ts';
+import { AGENT_LEASE_MS, createJob, isActive, leaseStatus, listJobs, loadJob, progress, readEvents, jobDir, requestBody, setJob, setJobEffort } from './jobs.ts';
 import { deleteJob, deleteRefusal } from './delete.ts';
 import { decideRepoProposals, isRepoProposalPark } from './repo-proposals.ts';
 import { REPO_NAME } from './member-repos.ts';
@@ -33,9 +33,10 @@ import { API_VERSION, CONFIG_SCHEMA_VERSION, EFFORTS, EVENT_SCHEMA_VERSION, JOB_
 import { computeStats } from './stats.ts';
 import { projectGraph } from './project.ts';
 import { RepoBudgetAckError, ackRepoBudget, repoBudgetStatus, validPeriod } from './repo-budget.ts';
+import { jobBudgetOf } from './budget.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from './evals.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, enqueue, listRequests, validJobId, validScope } from './requests.ts';
-import { gateOwner } from './foreman.ts';
+import { foremanHandoff, gateOwner } from './foreman.ts';
 import { loadTracker } from './trackers/index.ts';
 import { roster } from './roster.ts';
 import { readTriageCache } from './triage.ts';
@@ -242,6 +243,15 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   let pool: DaemonPool | null = null;
   let ping: NodeJS.Timeout | null = null;
   const poolState = (): DaemonPoolState => ({ ...(pool ? pool.state() : idlePoolState(root)), clients: clients.size });
+  /**
+   * The lease's driver is this job's own pool session and that session runs: a resume reaches exactly
+   * it, so its live lease doesn't hold the resume. Asked of the pool, never of ps or the session records.
+   */
+  const ownPoolSession = (job: Pick<LoadedJob, 'id' | 'lease'>): boolean => {
+    if (!pool || !job.lease.driver) return false;
+    const s = pool.sessionState(job.id);
+    return s.running && s.sessionId === job.lease.driver;
+  };
   // Polls come every few seconds and the ledger stats every job's events, so the status is reused for 5 s.
   // write: false, so a GET never writes .forge/runtime/.
   let budgetCache: { at: number; data: RepoBudgetStatus } | null = null;
@@ -269,7 +279,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       if (req.method === 'GET' && p === '/api/state') return json(res, state(root, poolState(), projects, budget()));
       if (req.method === 'GET' && p === '/api/events') return events(req, res, url);
       if (req.method === 'GET' && p === '/api/daemons/log') return sessionLog(req, res, url);
-      if (req.method === 'GET' && p === '/api/stats') return json(res, computeStats(root, { since: url.searchParams.get('since') ?? undefined }));
+      if (req.method === 'GET' && p === '/api/stats') return json(res, computeStats(root, { since: url.searchParams.get('since') ?? undefined, config: loadConfig(root).config }));
       if (req.method === 'GET' && p === '/api/evals') return json(res, { tasks: listTasks(root).map(({ dir: _d, request: _r, ...t }) => t), runs: listRuns(root) } satisfies EvalsResponse);
       if (req.method === 'GET' && p === '/api/evals/compare') return json(res, compareRuns(root, url.searchParams.get('a') ?? '', url.searchParams.get('b') ?? ''));
       if (req.method === 'GET' && p === '/api/requests') return json(res, listRequests(root));
@@ -333,8 +343,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       const m = p.match(/^\/api\/jobs\/([A-Za-z0-9._-]+)(\/file|\/raw|\/transcript|\/transcript\/events)?$/);
       if (req.method === 'GET' && m) {
         const id = m[1];
-        // The detail's owner proof can spawn `ps`, so other sites may not trigger it (as for the log routes).
-        if (!m[2]) return readGuard(req, res) ? undefined : json(res, jobDetail(root, id, projects));
+        if (!m[2]) return readGuard(req, res) ? undefined : json(res, jobDetail(root, id, projects, ownPoolSession));
         if (m[2] === '/transcript') return transcriptPage(req, res, id, url);
         if (m[2] === '/transcript/events') return transcriptEvents(req, res, id, url);
         const rel = url.searchParams.get('path') ?? '';
@@ -363,7 +372,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (body.type === 'gate') return jsonStatus(res, 400, { error: 'gate requests are written only by forge job set and forge pr sync' });
         const problem = requestArgsProblem(body, loadConfig(root).config.tracker.kind);
         if (problem) return jsonStatus(res, 400, { error: problem });
-        const held = resumeHeld(root, body);
+        const held = resumeHeld(root, body, ownPoolSession);
         if (held) return jsonStatus(res, 409, { error: held });
         const { config } = loadConfig(root);
         const rec = enqueue(root, config, { type: body.type, job: body.job, text: body.text, args: body.args, from: 'dashboard' });
@@ -538,7 +547,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (!decided.pending.length && isRepoProposalPark(loadJob(root, id))) {
           setJob(root, id, { state: 'running' });
           // A live session that holds the job picks the decision up at its next step.
-          if (resumeHeld(root, { type: 'resume', job: id }) === null) {
+          if (resumeHeld(root, { type: 'resume', job: id }, ownPoolSession) === null) {
             enqueue(root, null, { type: 'resume', job: id, from: 'dashboard' });
             pool?.poke();
             resumed = true;
@@ -1122,11 +1131,11 @@ function hasSlugText(title: string): boolean {
 }
 
 /**
- * POST /api/requests: why a resume would only bounce off a live owner, or null. Advisory: the job
- * session's own claim (inside the job lock) decides. Any `args` are ignored here, so `force` or
- * `intake` cannot switch it off. A bad or unknown id is left to enqueue and the inbox.
+ * POST /api/requests: why a resume would only bounce off another driver's live lease, or null.
+ * Advisory: the job session's own claim (inside the job lock) decides. Any `args` are ignored here,
+ * so `force` or `intake` cannot switch it off. A bad or unknown id is left to enqueue and the inbox.
  */
-function resumeHeld(root: string, body: Record<string, any>): string | null {
+function resumeHeld(root: string, body: Record<string, any>, ownPoolSession: (job: LoadedJob) => boolean): string | null {
   if (body.type !== 'resume' || !validJobId(body.job) || !exists(path.join(jobDir(root, body.job), 'job.json'))) return null;
   let job: LoadedJob;
   try {
@@ -1135,10 +1144,9 @@ function resumeHeld(root: string, body: Record<string, any>): string | null {
     // A job.json from a newer Forge or a broken one: the inbox reports it, as for an unknown id.
     return null;
   }
-  const o = ownerStatusWithProof(root, job, { env: jobSessionEnv(job.id) });
-  if (o.status !== 'live' || o.jobSession) return null;
-  const held = o.agentRunning ? `claimed ${o.since}; an agent is still running` : `claimed ${o.since}, last active ${o.heartbeat}`;
-  return `job ${job.id} is held by session ${o.session} (${held}); resume it from that session or wait until it stops`;
+  const o = leaseStatus(job);
+  if (o.status !== 'live' || ownPoolSession(job)) return null;
+  return `job ${job.id} is held by session ${o.session} (claimed ${o.since}, lease renewed ${o.renewedAt}, until ${o.expiresAt}); resume it from that session or wait until its lease expires`;
 }
 
 /** POST /api/requests: the args a request type may carry beyond what enqueue checks. Null when fine. */
@@ -1397,8 +1405,7 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
   const jobs = listJobs(root).map((j) => {
     const events = readEvents(root, j.id);
     const last = events[events.length - 1] ?? null;
-    // The time rule only, so polling never spawns `ps`; the job detail adds the daemon proofs.
-    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: ownerStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events), endpoints: endpointsFor(root, config, j) };
+    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: leaseStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events), endpoints: endpointsFor(root, config, j), foremanHandoff: foremanHandoff(j, events) };
   });
   // Every string leaf: titles, events and activity lines can all carry what a command printed.
   return redactDeep<ApiState>({
@@ -1412,7 +1419,7 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
       panel: config.review.panel.map((r) => r.name),
       pipeline: config.pipeline,
       models: config.runtime.models,
-      daemon: { enabled: config.daemon?.enabled === true },
+      daemon: { enabled: config.daemon?.enabled === true, jobBudget: jobBudgetOf(config) },
       // Validated, so an invalid runtime.effort reads as none here while validate and doctor report it.
       effort: resolveEffort(config).level,
     },
@@ -1464,13 +1471,13 @@ const startMs = (s: string | null | undefined): number => (s ? Date.parse(s) : N
 const newestFirst = (a: { startedAt?: string | null }, b: { startedAt?: string | null }): number => (startMs(b.startedAt) || 0) - (startMs(a.startedAt) || 0);
 
 /**
- * One line per running agent (under ownerStatus's 2 h ceiling), newest first, each with what its
+ * One line per running agent (under agent start's 2 h lease), newest first, each with what its
  * transcript says it did last. The tail read is bounded and cached, so the 2 s poll stays cheap.
  */
 function jobActivity(root: string, job: LoadedJob, projects: string, at = Date.now()): AgentActivity[] {
   const out: AgentActivity[] = [];
   for (const [role, a] of Object.entries(job.agents ?? {})) {
-    if (a?.status !== 'running' || !(at - startMs(a.startedAt) < RUNNING_AGENT_MAX_MS)) continue;
+    if (a?.status !== 'running' || !(at - startMs(a.startedAt) < AGENT_LEASE_MS)) continue;
     const hit = agentTranscript(root, job, role, { projects });
     out.push({ role, model: a.model ?? null, startedAt: a.startedAt ?? null, last: hit ? cachedActivity(hit, projects, { worktree: job.worktree, root }) : null });
   }
@@ -1503,7 +1510,7 @@ function roundAgents(root: string, job: LoadedJob, events: JobEvent[], projects:
 
 /** The owner's transcript when the owner is an interactive session: in no daemon session record. */
 function interactiveOwner(root: string, job: LoadedJob, projects: string): (TranscriptHit & { session: string }) | null {
-  const sid = job.owner?.session;
+  const sid = job.lease.driver;
   if (typeof sid !== 'string' || !UUID.test(sid) || daemonSessionIds(root).includes(sid)) return null;
   const hit = ownerTranscript(root, job, { projects });
   return hit ? { ...hit, session: sid } : null;
@@ -1521,7 +1528,7 @@ function validCap(n: unknown): number | null {
   return typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 16 ? n : null;
 }
 
-function jobDetail(root: string, id: string, projects: string): JobDetail {
+function jobDetail(root: string, id: string, projects: string, ownPoolSession: (job: LoadedJob) => boolean): JobDetail {
   const job = loadJob(root, id);
   const dir = jobDir(root, id);
   const files: string[] = [];
@@ -1549,7 +1556,7 @@ function jobDetail(root: string, id: string, projects: string): JobDetail {
   const createdSource = created?.source as { ref?: unknown } | null | undefined;
   const fromTracker = createdIssues.some((i) => Boolean(i && typeof i === 'object' && (i as { ref?: unknown }).ref)) || Boolean(createdSource?.ref);
   return redactDeep<JobDetail>({
-    job: { ...job, progress: progress(root, id), ownerStatus: ownerStatusWithProof(root, job, { env: jobSessionEnv(job.id) }) },
+    job: { ...job, progress: progress(root, id), ownerStatus: { ...leaseStatus(job), jobSession: ownPoolSession(job) } },
     events: events.slice(-400),
     files,
     screenshots: listScreenshots(dir),

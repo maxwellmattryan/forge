@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/config.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 import { initWrite } from '../lib/commands/init.ts';
 import { modelFamily, modelOverlap, roster } from '../lib/roster.ts';
 
@@ -83,7 +84,7 @@ test('init write warns; validate rejects non-boolean diversity', () => {
     assert.throws(() => initWrite(repo.dir, { runtime: { diversity: 1 } }, true), /runtime\.diversity must be true or false/);
 
     // The CLI path: `forge config validate` exits 1 and names the key.
-    fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), 'schemaVersion: 1\nruntime:\n  diversity: "yes"\n');
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\nruntime:\n  diversity: "yes"\n`);
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
     const r = spawnSync(process.execPath, [bin, 'config', 'validate'], { cwd: repo.dir, encoding: 'utf8', env: { ...process.env, FORGE_ROOT: repo.dir } });
     assert.equal(r.status, 1);
@@ -128,10 +129,10 @@ test('triage agent runs on haiku without a config key', () => {
     const row = roster(repo.dir, cfg).agents.find((a) => a.role === 'triage');
     assert.ok(row);
     assert.equal(row.model, 'haiku');
+    // Triage reads tracker text, so its tool list is a security property no public function exposes
+    // (docs/TESTING.md exception): the frontmatter is the only place it lives.
     const text = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'agents', 'triage.md'), 'utf8');
     const front = text.match(/^---\n([\s\S]*?)\n---\n/)![1];
-    assert.match(front, /^name: triage$/m);
-    assert.match(front, /^model: haiku$/m);
     assert.match(front, /^disallowedTools: Bash, Edit, NotebookEdit$/m);
     assert.match(front, /^tools: Read, Write$/m, 'an allowlist: no WebFetch, WebSearch, Glob or Grep');
   } finally {

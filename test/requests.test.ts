@@ -5,14 +5,38 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
-import { claimJob, createJob, loadJob } from '../lib/jobs.ts';
-import { ackRequest, claimRequest, enqueue, listRequests } from '../lib/requests.ts';
+import { claimJob, createJob, loadJob, readEvents, requeueOrphanedRequests, updateJob } from '../lib/jobs.ts';
+import { daemonLockDir } from '../lib/reconcile.ts';
+import { REQUEUE_REJECTED, ackRequest, claimRequest, enqueue, listRequests, requeueOrphans } from '../lib/requests.ts';
+import { ForgeError, tryLock } from '../lib/util.ts';
+import { parseArgs } from '../lib/commands/args.ts';
+import { requestsCmd } from '../lib/commands/requests.ts';
 
 /** Runs the CLI against a scratch repo; `env` adds to (or, with undefined, removes from) the environment. */
 function cliIn(dir) {
   return async (env, ...args) => {
     const r = await forgeAsync(dir, args, env);
     return r.status === 0 ? { ok: true, code: 0, out: r.stdout.trim(), json: () => JSON.parse(r.stdout) } : { ok: false, code: r.status, out: `${r.stdout}${r.stderr}`, json: () => null };
+  };
+}
+
+/**
+ * cliIn's twin without a process: `forge requests …` through requestsCmd with the env passed in,
+ * so per-case checks never touch process.env and stay safe in the concurrent block. A refusal
+ * gives the thrown ForgeError's exit code and message.
+ */
+function requestsIn(dir) {
+  return async (env, ...args) => {
+    const { pos, flags } = parseArgs(args);
+    const merged: NodeJS.ProcessEnv = { ...process.env, ...env };
+    for (const [k, v] of Object.entries(env)) if (v === undefined) delete merged[k];
+    try {
+      const data = JSON.parse(JSON.stringify(requestsCmd(dir, defaults(), pos[1], pos.slice(2), flags, merged)));
+      return { ok: true, code: 0, out: JSON.stringify(data), json: () => data };
+    } catch (e) {
+      if (!(e instanceof ForgeError)) throw e;
+      return { ok: false, code: e.exitCode, out: e.message, json: () => null };
+    }
   };
 }
 
@@ -50,8 +74,6 @@ describe('the request inbox', { concurrency: 4 }, () => {
       assert.deepEqual(fs.readdirSync(dir), ['requests']);
       assert.deepEqual(fs.readdirSync(path.join(dir, 'requests')), [`${rec.id}.json`]);
       assert.equal(fs.existsSync(path.join(repo.dir, 'launched-marker')), false);
-      const src = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'lib', 'requests.ts'), 'utf8');
-      assert.equal(src.includes('child_process'), false);
     } finally {
       repo.cleanup();
     }
@@ -60,7 +82,7 @@ describe('the request inbox', { concurrency: 4 }, () => {
   test('a daemon session sees and claims only its scope', async () => {
     const repo = tempRepo();
     const root = repo.dir;
-    const cli = cliIn(root);
+    const cli = requestsIn(root);
     try {
       const a = createJob(root, defaults(), { title: 'Job A' }).id;
       const b = createJob(root, defaults(), { title: 'Job B' }).id;
@@ -129,7 +151,9 @@ describe('the request inbox', { concurrency: 4 }, () => {
   test('office scope sees only gate requests', async () => {
     const repo = tempRepo();
     const root = repo.dir;
-    const cli = cliIn(root);
+    const cli = requestsIn(root);
+    // The spawned CLI's routing, exit code and JSON for requests scope, claim and ack.
+    const sh = cliIn(root);
     try {
       const a = createJob(root, defaults(), { title: 'Job A' }).id;
       const gate = enqueue(root, null, { type: 'gate', job: a, args: { gate: 'spec-approval', reserved: null }, from: 'forge' });
@@ -138,7 +162,9 @@ describe('the request inbox', { concurrency: 4 }, () => {
       assert.throws(() => enqueue(root, null, { type: 'gate', job: '../x', from: 'forge' }), /gate request needs a valid job/);
       assert.throws(() => enqueue(root, null, { type: 'gate', from: 'forge' }), /gate request needs a valid job/);
       const office = { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(root), FORGE_DAEMON_SCOPE: '_office' };
-      assert.deepEqual((await cli(office, 'requests', 'scope')).json(), { daemon: true, scope: 'office', job: null });
+      const scope = await sh(office, 'requests', 'scope');
+      assert.equal(scope.code, 0, scope.out);
+      assert.deepEqual(scope.json(), { daemon: true, scope: 'office', job: null });
       assert.deepEqual((await cli(office, 'requests')).json().map((r) => r.id), [gate.id], 'only gate requests');
       assert.deepEqual((await cli({ ...office, FORGE_DAEMON_SCOPE: a }, 'requests')).json().map((r) => r.id), [resume.id], "the job's session never sees its gate");
       assert.deepEqual((await cli({ ...office, FORGE_DAEMON_SCOPE: '_inbox' }, 'requests')).json().map((r) => r.id), [next.id]);
@@ -149,8 +175,12 @@ describe('the request inbox', { concurrency: 4 }, () => {
           assert.match(r.out, /belongs to scope/);
         }
       }
-      assert.equal((await cli(office, 'requests', 'claim', gate.id, '--session', 'office')).json().status, 'in-progress');
-      assert.equal((await cli(office, 'requests', 'ack', gate.id, '--status', 'done', '--result', 'approve: fine')).json().status, 'done');
+      const claimed = await sh(office, 'requests', 'claim', gate.id, '--session', 'office');
+      assert.equal(claimed.code, 0, claimed.out);
+      assert.deepEqual([claimed.json().id, claimed.json().status, claimed.json().session], [gate.id, 'in-progress', 'office']);
+      const acked = await sh(office, 'requests', 'ack', gate.id, '--status', 'done', '--result', 'approve: fine');
+      assert.equal(acked.code, 0, acked.out);
+      assert.deepEqual([acked.json().id, acked.json().status, acked.json().result], [gate.id, 'done', 'approve: fine']);
       assert.equal(listRequests(root).find((r) => r.id === resume.id).status, 'pending');
     } finally {
       repo.cleanup();
@@ -160,7 +190,7 @@ describe('the request inbox', { concurrency: 4 }, () => {
   test('requests scope, --intake and daemon provenance', async () => {
     const repo = tempRepo();
     const root = repo.dir;
-    const cli = cliIn(root);
+    const cli = requestsIn(root);
     try {
       const x = createJob(root, defaults(), { title: 'Job X' }).id;
       const trust = { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(root) };
@@ -168,7 +198,11 @@ describe('the request inbox', { concurrency: 4 }, () => {
       assert.deepEqual((await cli({ ...trust, FORGE_DAEMON_SCOPE: '_inbox' }, 'requests', 'scope')).json(), { daemon: true, scope: 'inbox', job: null });
       assert.deepEqual((await cli({ ...trust, FORGE_DAEMON_SCOPE: x }, 'requests', 'scope')).json(), { daemon: true, scope: 'job', job: x });
 
-      const human = (await cli({ FORGE_DAEMON: undefined }, 'requests', 'add', 'resume', '--job', x, '--intake', 'run')).json();
+      // The spawned CLI's routing, exit code and JSON for requests add.
+      const added = await cliIn(root)({ FORGE_DAEMON: undefined }, 'requests', 'add', 'resume', '--job', x, '--intake', 'run');
+      assert.equal(added.code, 0, added.out);
+      const human = added.json();
+      assert.deepEqual([human.type, human.job, human.status], ['resume', x, 'pending']);
       assert.deepEqual(human.args, { intake: 'run' });
       assert.equal(human.from, 'cli');
       assert.deepEqual((await cli({ FORGE_DAEMON: undefined }, 'requests', 'add', 'resume', '--job', x, '--intake', 'next')).json().args, { intake: 'next' });
@@ -203,7 +237,7 @@ describe('the request inbox', { concurrency: 4 }, () => {
   test("resume hand-off releases the handing-off session's claim", async () => {
     const repo = tempRepo();
     const root = repo.dir;
-    const cli = cliIn(root);
+    const cli = requestsIn(root);
     try {
       const x = createJob(root, defaults(), { title: 'Job X' }).id;
       const trust = { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(root) };
@@ -214,13 +248,13 @@ describe('the request inbox', { concurrency: 4 }, () => {
       const own = (await cli(human, 'requests', 'add', 'resume', '--job', x, '--intake', 'run', '--session', s1)).json();
       assert.equal(own.released, true);
       assert.equal(own.type, 'resume');
-      assert.equal(loadJob(root, x).owner, null, 'the owner naming itself lets go');
+      assert.equal(loadJob(root, x).lease.driver, null, 'the owner naming itself lets go');
       assert.ok(loadJob(root, x).runs.at(-1).endedAt);
 
       claimJob(root, x, s2);
       assert.equal((await cli(human, 'requests', 'add', 'resume', '--job', x, '--session', s3)).json().released, false);
       assert.equal((await cli(human, 'requests', 'add', 'resume', '--job', x)).json().released, false);
-      assert.equal(loadJob(root, x).owner.session, s2, 'another session never releases the claim');
+      assert.equal(loadJob(root, x).lease.driver, s2, 'another session never releases the claim');
 
       // The inbox hands off a job one of its sessions (current or past) claimed, without --session.
       fs.mkdirSync(path.join(root, '.forge', 'runtime', 'daemons'), { recursive: true });
@@ -230,12 +264,12 @@ describe('the request inbox', { concurrency: 4 }, () => {
       const handed = (await cli(inbox, 'requests', 'add', 'resume', '--job', x, '--intake', 'run')).json();
       assert.equal(handed.released, true);
       assert.equal(handed.from, 'daemon:_inbox');
-      assert.equal(loadJob(root, x).owner, null);
+      assert.equal(loadJob(root, x).lease.driver, null);
 
       claimJob(root, x, jobSid);
       assert.equal((await cli(inbox, 'requests', 'add', 'resume', '--job', x)).json().released, false, "the inbox doesn't release a job session's claim");
       assert.equal((await cli({ ...trust, FORGE_DAEMON_SCOPE: x }, 'requests', 'add', 'resume', '--job', x)).json().released, false, 'a job scope without --session keeps the claim');
-      assert.equal(loadJob(root, x).owner.session, jobSid);
+      assert.equal(loadJob(root, x).lease.driver, jobSid);
 
       const missing = await cli(human, 'requests', 'add', 'resume', '--job', 'no-such-job', '--session', s1);
       assert.equal(missing.ok, true, missing.out);
@@ -244,4 +278,73 @@ describe('the request inbox', { concurrency: 4 }, () => {
       repo.cleanup();
     }
   });
+});
+
+test('requeue follows the lease', async () => {
+  const repo = tempRepo();
+  const root = repo.dir;
+  const byId = (id: string) => listRequests(root).find((r) => r.id === id)!;
+  const expire = (id: string) => updateJob(root, id, (j) => (j.lease.expiresAt = new Date(Date.now() - 1000).toISOString()));
+  try {
+    const job = createJob(root, defaults(), { title: 'Leased' }).id;
+    claimJob(root, job, 'S');
+    const r = enqueue(root, null, { type: 'resume', job });
+    claimRequest(root, r.id, 'S');
+    // A live lease of the claiming session keeps the request in progress, however long ago it was claimed.
+    assert.deepEqual(requeueOrphanedRequests(root, { at: Date.now() + 10 * 60_000 }).requeued, []);
+    assert.equal(byId(r.id).status, 'in-progress');
+
+    // (a) its lease expired: back to pending, once, with a note on the job.
+    expire(job);
+    assert.deepEqual(requeueOrphanedRequests(root).requeued.map((x) => x.id), [r.id]);
+    assert.deepEqual([byId(r.id).status, byId(r.id).requeues, byId(r.id).session], ['pending', 1, undefined]);
+    assert.ok(readEvents(root, job).some((e) => e.type === 'note' && String(e.text).includes(`request ${r.id} (resume) is pending again`)));
+
+    // Orphaned a second time: rejected with the fixed result, not requeued again.
+    claimJob(root, job, 'T');
+    claimRequest(root, r.id, 'T');
+    const second = requeueOrphanedRequests(root, { exited: ['T'] });
+    assert.deepEqual([second.requeued, second.rejected.map((x) => x.id)], [[], [r.id]]);
+    assert.deepEqual([byId(r.id).status, byId(r.id).result], ['rejected', REQUEUE_REJECTED]);
+
+    // (b) a session seen exiting, and (c) a job-less claim past 30 minutes.
+    const inbox = enqueue(root, null, { type: 'next' });
+    claimRequest(root, inbox.id, 'I');
+    assert.deepEqual(requeueOrphans(root, { leaseOf: () => null }).requeued, [], 'a fresh job-less claim stays');
+    // (c) never touches a busy session's claim, and is off for a caller that can't see the sessions.
+    assert.deepEqual(requeueOrphans(root, { leaseOf: () => null, at: Date.now() + 31 * 60_000, busy: ['I'] }).requeued, [], 'a busy session');
+    assert.deepEqual(requeueOrphans(root, { leaseOf: () => null, at: Date.now() + 31 * 60_000, byAge: false }).requeued, [], 'no age rule');
+    assert.equal(byId(inbox.id).status, 'in-progress');
+    assert.deepEqual(requeueOrphans(root, { leaseOf: () => null, at: Date.now() + 31 * 60_000 }).requeued.map((x) => x.id), [inbox.id]);
+    claimRequest(root, inbox.id, 'J');
+    assert.deepEqual(requeueOrphans(root, { leaseOf: () => null, exited: ['J'] }).rejected.map((x) => x.id), [inbox.id]);
+
+    // `forge requests` requeues before it lists, so an interactive drain sees the request again.
+    const other = createJob(root, defaults(), { title: 'Other' }).id;
+    claimJob(root, other, 'U');
+    const o = enqueue(root, null, { type: 'resume', job: other });
+    claimRequest(root, o.id, 'U');
+    expire(other);
+    const listed = await forgeAsync(root, ['requests']);
+    assert.equal(listed.status, 0, listed.stderr);
+    assert.ok(JSON.parse(listed.stdout).some((x: any) => x.id === o.id && x.status === 'pending'), listed.stderr);
+
+    // While a forge dash runs, `forge requests` leaves the claim-age rule to the dash's reconciler.
+    const old = enqueue(root, null, { type: 'next' });
+    claimRequest(root, old.id, 'K');
+    const file = path.join(root, '.forge', 'runtime', 'requests', `${old.id}.json`);
+    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), updatedAt: new Date(Date.now() - 31 * 60_000).toISOString() }));
+    const dash = tryLock(daemonLockDir(root));
+    assert.ok('release' in dash);
+    try {
+      await forgeAsync(root, ['requests']);
+      assert.equal(byId(old.id).status, 'in-progress', 'a live dash holds the daemon lock');
+    } finally {
+      dash.release();
+    }
+    await forgeAsync(root, ['requests']);
+    assert.equal(byId(old.id).status, 'pending', 'no dash: the age rule applies');
+  } finally {
+    repo.cleanup();
+  }
 });

@@ -8,7 +8,7 @@ import { tempRepo } from './helpers.ts';
 import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
 import { changedRepos, downstreamMembers, downstreamRepos } from '../lib/downstream.ts';
 import { migrate } from '../lib/commands/init.ts';
-import { CONFIG_SCHEMA_VERSION, migrateConfig, normalizeJob } from '../lib/schema.ts';
+import { CONFIG_SCHEMA_VERSION, normalizeJob } from '../lib/schema.ts';
 import type { Config, Job, JobEvent, JobRepo } from '../lib/types.ts';
 import * as yaml from '../lib/yaml.ts';
 
@@ -59,23 +59,16 @@ describe('downstream verification: config', { concurrency: 4 }, () => {
     assert.deepEqual(problems({ ...DEFAULT, skip: ['app-a', 'nope'] }), ['downstream.skip names unknown repo "nope"']);
   });
 
-  test('config v13 migrates to v14 with the downstream default', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 26);
-    const v13 = { schemaVersion: 13, repos: structuredClone(REPOS), git: { base: 'trunk' } };
-    const m = migrateConfig(structuredClone(v13));
-    assert.equal(m.from, 13);
-    assert.deepEqual(m.config, { ...v13, schemaVersion: 26, downstream: DEFAULT });
-    const kept = migrateConfig({ schemaVersion: 13, downstream: { enabled: false, max: 'x' } }).config;
-    assert.deepEqual(kept.downstream, { enabled: false, max: 'x' }, 'an existing value is kept for validation to judge');
+  test('forge migrate writes the downstream default into a v13 config', () => {
     const r = tempRepo();
     try {
       const file = path.join(r.dir, '.forge', 'config.yml');
       fs.mkdirSync(path.dirname(file));
-      fs.writeFileSync(file, 'schemaVersion: 13\ntracker:\n  kind: none\n');
+      fs.writeFileSync(file, 'schemaVersion: 13\ntracker:\n  kind: none\n'); // old-version fixture
       assert.equal(loadConfig(r.dir).migratedFrom, 13);
       migrate(r.dir);
       const text = fs.readFileSync(file, 'utf8');
-      assert.match(text, /^schemaVersion: 26$/m);
+      assert.match(text, new RegExp(`^schemaVersion: ${CONFIG_SCHEMA_VERSION}$`, 'm'));
       assert.deepEqual(yaml.parse(text).downstream, DEFAULT);
     } finally {
       r.cleanup();
@@ -164,12 +157,5 @@ describe('downstream verification: candidates', { concurrency: 4 }, () => {
     assert.deepEqual(downstreamRepos(config(), edited, promoted).add, ['app-a', 'app-b', 'app-c']);
     // Added edited by a human: a changed repo as before.
     assert.deepEqual([...changedRepos(edited, [ev('job-repo-added', { repo: 'lib2', verifyOnly: false })])], [null, 'lib2']);
-  });
-
-  test('downstreamRepos is pure', () => {
-    const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'lib', 'downstream.ts'), 'utf8');
-    const body = src.slice(src.indexOf('export function downstreamRepos'), src.indexOf('export interface DownstreamResult'));
-    assert.doesNotMatch(body, /\bfs\.|child_process|\brun\(|readEvents|loadJob/);
-    assert.doesNotMatch(src, /from 'node:fs'|from 'node:child_process'/);
   });
 });

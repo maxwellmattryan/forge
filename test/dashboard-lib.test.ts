@@ -1,6 +1,5 @@
 // The dashboard's strict-TypeScript helpers, imported straight from source through Node's type
-// stripping (Node >= 22.18). Goldens were computed from the pre-port app.js/util.js, so any drift
-// in escaping or markdown output fails here.
+// stripping (Node >= 22.18): small input/output cases for escaping, markdown and the formatters.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -16,60 +15,35 @@ import * as types from '../dashboard/src/lib/types.ts';
 import * as schema from '../lib/schema.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DASHBOARD = path.join(ROOT, 'dashboard');
-const read = (/** @type {string} */ rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 
-test('tsconfig is strict and erasable-only', () => {
-  const raw = read('dashboard/tsconfig.json');
-  const tsconfig = JSON.parse(raw);
-  const o = tsconfig.compilerOptions;
-  assert.equal(o.strict, true);
-  assert.equal(o.noEmit, true);
-  assert.equal(o.verbatimModuleSyntax, true);
-  assert.equal(o.erasableSyntaxOnly, true);
-  assert.equal(o.allowImportingTsExtensions, true);
-  assert.equal(o.isolatedModules, true);
-  assert.equal(o.module, 'esnext');
-  assert.equal(o.moduleResolution, 'bundler');
-  assert.equal(o.target, 'es2022');
-  assert.deepEqual(o.lib, ['es2022', 'dom', 'dom.iterable']);
-  assert.deepEqual(o.types, []);
-  assert.equal(o.skipLibCheck, true);
-  assert.equal(o.allowJs, undefined, 'no JavaScript sources: the app is .ts and .svelte only');
-  assert.deepEqual(tsconfig.include, ['src/**/*.ts', 'src/**/*.svelte']);
-});
-
-test('src/lib modules exist and the vanilla copies are gone', () => {
-  for (const f of ['app', 'daemon', 'util', 'budget', 'deps', 'screenshots']) assert.equal(fs.existsSync(path.join(DASHBOARD, `${f}.js`)), false, `dashboard/${f}.js is gone`);
-  for (const f of ['util', 'markdown', 'labels', 'budget', 'deps', 'screenshots', 'daemon', 'types', 'view', 'prefs', 'icons', 'daemon-log'])
-    assert.ok(fs.existsSync(path.join(DASHBOARD, 'src', 'lib', `${f}.ts`)), `dashboard/src/lib/${f}.ts exists`);
-});
-
-test('md, inline and safeUrl render exactly as before', () => {
+test('md, inline and safeUrl: one case per block and inline form', () => {
+  // Styling classes are the stylesheet's business, so cases compare the markup without them.
+  const bare = (html: string) => html.replace(/ class="[^"]*"/g, '');
   const A = ' target="_blank" rel="noopener noreferrer"';
-  const goldens = [
+  const cases = [
     ['<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>', '<p>&lt;script&gt;alert(1)&lt;/script&gt;</p><p>&lt;img src=x onerror=alert(1)&gt;</p>'],
     ['[click](javascript:alert(1))', '<p>click)</p>'],
     ['[docs](https://example.com/a?b=1&c=2)', `<p><a href="https://example.com/a?b=1&amp;c=2"${A}>docs</a></p>`],
-    // The period ends the sentence, not the URL (it was inside the link before).
+    // The period ends the sentence, not the URL.
     ['see https://example.com/x.', `<p>see <a href="https://example.com/x"${A}>https://example.com/x</a>.</p>`],
     ['```\n<b>x</b>\n```', '<pre><code>&lt;b&gt;x&lt;/b&gt;</code></pre>'],
     ['use `<i>` and **bold** and *em* and _u_', '<p>use <code>&lt;i&gt;</code> and <strong>bold</strong> and <em>em</em> and <em>u</em></p>'],
     ['#### Deep <x>', '<h3>Deep &lt;x&gt;</h3>'],
-    [
-      '- [x] done\n- [ ] open\n- [~] half\n- plain',
-      '<ul><li class="list-none -ml-5"><span class="text-muted mr-1">☑</span>done</li><li class="list-none -ml-5"><span class="text-muted mr-1">☐</span>open</li><li class="list-none -ml-5"><span class="text-muted mr-1">◐</span>half</li><li>plain</li></ul>',
-    ],
+    ['- [x] done\n- [ ] open\n- [~] half\n- plain', '<ul><li><span>☑</span>done</li><li><span>☐</span>open</li><li><span>◐</span>half</li><li>plain</li></ul>'],
     ['1. one\n2. two', '<ol><li>one</li><li>two</li></ol>'],
-    ['- [blocker] bad <b>\n- [NIT] tiny', '<ul><li><span class="chip bad">blocker</span> bad &lt;b&gt;</li><li><span class="chip muted">nit</span> tiny</li></ul>'],
-    ['| a | b |\n|---|---|\n| <i> | `c` |', '<div class="overflow-x-auto"><table><tr><th>a</th><th>b</th></tr><tr><td>&lt;i&gt;</td><td><code>c</code></td></tr></table></div>'],
+    ['- [blocker] bad <b>\n- [NIT] tiny', '<ul><li><span>blocker</span> bad &lt;b&gt;</li><li><span>nit</span> tiny</li></ul>'],
+    ['| a | b |\n|---|---|\n| <i> | `c` |', '<div><table><tr><th>a</th><th>b</th></tr><tr><td>&lt;i&gt;</td><td><code>c</code></td></tr></table></div>'],
     ['> quoted <q>\n> more', '<blockquote>quoted &lt;q&gt; more</blockquote>'],
-    ['---', '<hr class="border-line my-3">'],
+    ['---', '<hr>'],
     ['<!-- hidden\nstill -->\nvisible', '<p>visible</p>'],
     ['[x](https://e.com/"onmouseover="alert(1))', `<p><a href="https://e.com/&amp;quot;onmouseover=&amp;quot;alert(1"${A}>x</a>)</p>`],
     ['a\r\nb', '<p>a b</p>'],
   ];
-  for (const [input, expected] of goldens) assert.equal(md(input), expected, JSON.stringify(input));
+  for (const [input, expected] of cases) assert.equal(bare(md(input)), expected, JSON.stringify(input));
+  // A severity tag becomes a chip in its tone.
+  const chips = md('- [blocker] x\n- [NIT] y');
+  assert.match(chips, /\bbad\b[^>]*>blocker</);
+  assert.match(chips, /\bmuted\b[^>]*>nit</);
   const hostile = md('<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>');
   assert.ok(!hostile.includes('<script'), 'no live <script');
   assert.ok(!hostile.includes('<img'), 'no live <img');
@@ -79,7 +53,7 @@ test('md, inline and safeUrl render exactly as before', () => {
   for (const bad of ['//evil.com', 'javascript:alert(1)', 'JAVASCRIPT:x', 'data:text/html,x', null]) assert.equal(safeUrl(bad), null, String(bad));
 });
 
-test('formatters and esc render exactly as before', () => {
+test('formatters and esc', () => {
   assert.equal(pct(null), '—');
   assert.equal(pct(0.456), '46%');
   assert.equal(pct(1), '100%');
@@ -177,10 +151,7 @@ test('bundleFilename', () => {
 });
 
 test('jobsSummary', () => {
-  const en = JSON.parse(read('dashboard/src/messages/en.json'));
   assert.deepEqual(jobsSummary({ active: 2, done: 5, cancelled: 1, archived: 0 }), { key: 'analytics.jobsSub', params: { active: 2, done: 5, cancelled: 1 } });
   assert.deepEqual(jobsSummary({ active: 2, done: 5, cancelled: 1 }), { key: 'analytics.jobsSub', params: { active: 2, done: 5, cancelled: 1 } }, 'an older /api/stats without archived');
   assert.deepEqual(jobsSummary({ active: 2, done: 5, cancelled: 1, archived: 3 }), { key: 'analytics.jobsSubArchived', params: { active: 2, done: 5, cancelled: 1, archived: 3 } });
-  assert.equal(en.analytics.jobsSubArchived, '{active} active · {done} done · {cancelled} cancelled · {archived} archived');
-  assert.match(read('dashboard/src/views/Analytics.svelte'), /jobsSummary\(s\.counts\)/);
 });

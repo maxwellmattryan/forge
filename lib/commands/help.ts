@@ -16,6 +16,7 @@ import { HELP as DAEMON } from './daemon.ts';
 import { HELP as DASH } from './dash.ts';
 import { HELP as DOCTOR } from './doctor.ts';
 import { HELP as EVAL } from './eval.ts';
+import { HELP as EXPERIMENT } from './experiment.ts';
 import { HELP as FOCUS } from './focus.ts';
 import { HELP as GIT } from './git.ts';
 import { HELP as INIT } from './init.ts';
@@ -209,15 +210,19 @@ export const CORE: HelpGroup[] = [
   },
 ];
 
-const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
-const ORDER = ['status', 'next', 'job', 'worktree', 'backing', 'environment', 'run', 'stop', 'focus', 'verify', 'verifiers', 'secrets', 'integrate', 'git', 'pr', 'release', 'sync', 'tracker', 'stats', 'budget', 'audit', 'roster', 'retro', 'eval', 'requests', 'daemon', 'notify', 'init', 'migrate', 'config', 'doctor', 'dash', 'version', 'update', 'help'];
+const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...EXPERIMENT, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
+const byName = (a: string, b: string): number => a.localeCompare(b, 'en');
+const flagKey = (f: string): string => f.replace(/^[-\s]+/, '');
 
-/** Every command group, in the order the overview lists them. */
-export const GROUPS: HelpGroup[] = ORDER.map((name) => {
-  const g = ALL.find((x) => x.name === name);
-  if (!g) throw new Error(`no help table for forge ${name}`);
-  return g;
-});
+/** Every command group, alphabetical like its subcommands and flags, so a name is found without reading the lot. */
+export const GROUPS: HelpGroup[] = [...ALL]
+  .sort((a, b) => byName(a.name, b.name))
+  .map((g) => ({
+    ...g,
+    commands: [...g.commands]
+      .sort((a, b) => byName(a.command, b.command))
+      .map((c) => (c.flags ? { ...c, flags: [...c.flags].sort(([a], [b]) => byName(flagKey(a), flagKey(b))) } : c)),
+  }));
 
 /** Flags every command takes. */
 export const GLOBAL_FLAGS: [string, string][] = [

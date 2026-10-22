@@ -7,10 +7,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isForemanActor, jobDir, readEvents } from './jobs.ts';
 import { OFFICE_SCOPE, daemonScope, enqueue, listRequests } from './requests.ts';
-import { OFFICE_GATES, reservedGateEntry } from './schema.ts';
+import { HANDOFF_CLASSES, OFFICE_GATES, reservedGateEntry } from './schema.ts';
 import { isRepoProposalPark, pendingRepoProposals, repoProposals } from './repo-proposals.ts';
-import { ForgeError } from './util.ts';
-import type { Config, ForgeRequest, GateClass, GateOwner, Job, JobEvent } from './types.ts';
+import { ForgeError, safeText } from './util.ts';
+import type { Config, ForemanHandoff, ForgeRequest, GateClass, GateOwner, HandoffClass, Job, JobEvent } from './types.ts';
 
 export { OFFICE_GATES } from './schema.ts';
 
@@ -184,6 +184,28 @@ export function latestSecurityVerdict(job: Pick<Job, 'verdicts'>): string | null
   return null;
 }
 
+/** The total-round ceiling: pipeline.maxTotalRounds, or twice the job's maxRounds when it is null. */
+export function totalRoundCeiling(config: Config, job: Partial<Pick<Job, 'maxRounds'>>): number {
+  const set = config?.pipeline?.maxTotalRounds;
+  return typeof set === 'number' && Number.isInteger(set) && set >= 1 ? set : 2 * (Number(job.maxRounds) || 0);
+}
+
+/** The job's round is past the total-round ceiling, whoever opened its rounds. */
+export function pastTotalCeiling(config: Config, job: Partial<Pick<Job, 'round' | 'maxRounds'>>): boolean {
+  return typeof job.round === 'number' && job.round > totalRoundCeiling(config, job);
+}
+
+/**
+ * What reservedFor returns at a retro job's spec gate, whatever the action and whatever foreman.decides
+ * says: a retro rewrites the instructions every agent, the office's included, runs on.
+ */
+export const RETRO_SPEC_HOLD = "retro spec: a human approves Forge's own improvements";
+
+const isRetroSpec = (job: Partial<Pick<Job, 'kind'>>, gate: GateClass | null): boolean => job.kind === 'retro' && gate === 'spec-approval';
+
+/** What reservedFor returns at a rounds-exhausted park past the total-round ceiling, whatever the action. */
+export const TOTAL_CEILING = '(total-round ceiling: only a human clears it)';
+
 /** The foreman actions that send a job back to fix a security finding rather than accept it. */
 export const SECURITY_MITIGATIONS: readonly string[] = ['rework', 'revise-spec', 'revise-split', 'reject-repos'];
 
@@ -201,16 +223,19 @@ export function securityHold(job: Pick<Job, 'verdicts'>): string | null {
  * reserved. A latest security review that isn't PASS (CHANGES, MALFORMED, anything else) holds what
  * would accept it: the foreman may still mitigate (rework or revise to fix the findings), never approve
  * past them: security always has to pass. With `action`, that action is judged; without, the gate is
- * held when it has no mitigation.
+ * held when it has no mitigation. A rounds-exhausted park past the total-round ceiling is held for
+ * every action: only a person opens another round there.
  */
 export function reservedFor(
   root: string,
   config: Config,
-  job: Pick<Job, 'id' | 'reason' | 'verdicts'>,
+  job: Pick<Job, 'id' | 'reason' | 'verdicts'> & Partial<Pick<Job, 'round' | 'maxRounds' | 'waitingOn' | 'kind'>>,
   gate: GateClass | null,
   extra: (string | null | undefined)[] = [],
   opts: { action?: string } = {},
 ): string | null {
+  if (isRetroSpec(job, gate)) return RETRO_SPEC_HOLD;
+  if (gate === 'rounds-exhausted' && pastTotalCeiling(config, job)) return TOTAL_CEILING;
   const hold = securityHold(job);
   const mitigates = opts.action !== undefined ? SECURITY_MITIGATIONS.includes(opts.action) : gate !== null && ACTIONS_BY_GATE[gate].some((a) => SECURITY_MITIGATIONS.includes(a));
   if (hold && !mitigates) return hold;
@@ -255,7 +280,10 @@ export function maybeEnqueueGate(root: string, config: Config, before: Pick<Job,
   const gate = gateClassFor(root, after);
   if (!gate || gate === 'pr-feedback' || !decides(config).includes(gate)) return null;
   if (before.state === 'waiting' && before.waitingOn === after.waitingOn) return null;
-  const open = listRequests(root).some((r) => isGateRequest(r, after.id, gate) && (r.status === 'pending' || r.status === 'in-progress'));
+  // Past the total-round ceiling, and at a retro's spec, the gate is a person's alone: no request for the office to read.
+  if (gate === 'rounds-exhausted' && pastTotalCeiling(config, after)) return null;
+  if (isRetroSpec(after, gate)) return null;
+  const open =listRequests(root).some((r) => isGateRequest(r, after.id, gate) && (r.status === 'pending' || r.status === 'in-progress'));
   if (open) return null;
   const reserved = reservedFor(root, config, after, gate);
   return enqueue(root, config, { type: 'gate', job: after.id, args: { gate, reserved }, from: 'forge' });
@@ -340,7 +368,39 @@ export const SET_AFTER: Record<string, readonly (string | undefined)[]> = {
 };
 
 /** Only these `forge job` subcommands run in the office session: it reads, decides and notes, nothing more. */
-export const OFFICE_JOB_COMMANDS: readonly string[] = ['assist', 'human', 'set', 'note', 'show', 'get', 'list', 'step'];
+export const OFFICE_JOB_COMMANDS: readonly string[] = ['assist', 'human', 'set', 'note', 'handoff', 'show', 'get', 'list', 'step'];
+
+/** The longest hand-off reason kept, after safeText. */
+export const HANDOFF_REASON_MAX = 200;
+
+/** The reason as `forge job handoff` stores it: control characters and backticks removed, trimmed, at most 200 characters. */
+export const cleanHandoffReason = (reason: unknown): string => (typeof reason === 'string' ? safeText(reason, HANDOFF_REASON_MAX).trim() : '');
+
+const isHandoffClass = (c: unknown): c is HandoffClass => (HANDOFF_CLASSES as readonly unknown[]).includes(c);
+
+/**
+ * The Foreman hand-off standing at the job's current park, derived from events (job.json has no field
+ * for it): the latest `foreman-handoff` for the gate class the job waits on, logged after its last
+ * transition, with no `human` event (any actor or action) after it. Null when the job isn't waiting
+ * on a Foreman gate, was never handed off there, parked again since or was decided since, or when the
+ * event's class or reason doesn't validate (events.jsonl is appendable, so it is checked on read too).
+ */
+export function foremanHandoff(job: Pick<Job, 'state' | 'waitingOn' | 'reason' | 'repos'>, events: JobEvent[]): ForemanHandoff | null {
+  const gate = gateClass(job, events);
+  if (!gate) return null;
+  const park = events.findLastIndex((e) => e.type === 'transition');
+  const at = events.findLastIndex((e, i) => i > park && e.type === 'foreman-handoff' && e.gate === gate);
+  if (at < 0 || events.some((e, i) => i > at && e.type === 'human')) return null;
+  const e = events[at];
+  const reason = cleanHandoffReason(e.reason);
+  if (!isHandoffClass(e.class) || !reason || typeof e.ts !== 'string') return null;
+  return { gate, class: e.class, reason, at: e.ts };
+}
+
+/** foremanHandoff with the job's events read from disk, only for a waiting job. */
+export function foremanHandoffFor(root: string, job: Pick<Job, 'id' | 'state' | 'waitingOn' | 'reason' | 'repos'>): ForemanHandoff | null {
+  return job.state === 'waiting' ? foremanHandoff(job, readEvents(root, job.id)) : null;
+}
 
 /**
  * In the office, `forge job set` only carries out a foreman decision: the job still waits, its latest

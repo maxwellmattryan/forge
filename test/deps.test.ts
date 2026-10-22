@@ -85,7 +85,7 @@ test('unmet dependencies park a queued job and refuse its claim until done (AC4â
     const refused = s.raw('job', 'claim', b, '--session', 's1');
     assert.equal(refused.status, 4);
     assert.match(refused.stderr, /job b waits on dependencies not done: a \(backlog\/queued\); pass --force/);
-    assert.equal(s.job(b).owner, null);
+    assert.equal(s.job(b).lease.driver, null);
 
     s.f('job', 'set', a, '--stage', 'build', '--state', 'running');
     s.raw('job', 'claim', b, '--session', 's1');
@@ -93,7 +93,7 @@ test('unmet dependencies park a queued job and refuse its claim until done (AC4â
 
     s.f('job', 'set', a, '--state', 'done');
     const claimed = s.f('job', 'claim', b, '--session', 's1');
-    assert.equal(claimed.owner.session, 's1');
+    assert.equal(claimed.lease.driver, 's1');
     assert.equal(claimed.dependenciesOverridden, undefined);
     assert.equal(s.job(b).state, 'queued');
     assert.equal(s.job(b).waitingOn, null);
@@ -105,7 +105,7 @@ test('unmet dependencies park a queued job and refuse its claim until done (AC4â
     s.f('job', 'set', d, '--field', 'dependsOn=["c"]');
     const forced = s.f('job', 'claim', d, '--session', 's1', '--force');
     assert.deepEqual(forced.dependenciesOverridden, ['c']);
-    assert.equal(s.job(d).owner.session, 's1');
+    assert.equal(s.job(d).lease.driver, 's1');
 
     // A cancelled dependency blocks too.
     s.f('job', 'set', c, '--state', 'cancelled');

@@ -22,10 +22,10 @@
     {#if m.resume.show}
       {@const r = m.resume}
       {@const o = job.ownerStatus}
-      {@const values = { session: o?.session ?? '', since: ago(o?.since), active: ago(o?.heartbeat) }}
+      {@const values = { session: o?.session ?? '', since: ago(o?.since), renewed: ago(o?.renewedAt), expired: ago(o?.expiresAt) }}
       <div class="flex flex-wrap items-center gap-2">
         <button class="btn primary" disabled={!r.enabled} aria-describedby={r.note ? `dock-owner-note-${job.id}` : undefined} onclick={() => req({ type: 'resume', job: job.id })}>{$t('drawer.resume')}</button>
-        {#if r.note}<span id="dock-owner-note-{job.id}" class="min-w-0 text-sm text-muted wrap-anywhere">{r.note === 'live' ? $t('drawer.ownerLive', values) : r.note === 'agent' ? $t('drawer.ownerAgent', values) : r.note === 'stale' ? $t('drawer.ownerStale', values) : $t('drawer.ownerGone', values)}</span>{/if}
+        {#if r.note}<span id="dock-owner-note-{job.id}" class="min-w-0 text-sm text-muted wrap-anywhere">{r.note === 'live' ? $t('drawer.ownerLive', values) : $t('drawer.ownerExpired', values)}</span>{/if}
       </div>
     {/if}
     {#if m.actionable}{#key job.id}<JobActions {job} noteId="dock-note-{job.id}" />{/key}{/if}

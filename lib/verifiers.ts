@@ -523,7 +523,7 @@ export function verifiersRecord(root: string, base: Config, id: string): Verifie
   const r = renderReport({ round: job.round, sha: lv.sha, model: modelOf(config), at: now(), loaded: set.verifiers.length, results, problems: set.problems, blockOn: config.review.blockOn });
   writeTextAtomic(at(f.report), r.text);
   // The failing verify run goes in before the record event: a crash between the two writes then
-  // leaves a failed verify (back to the builder), never a CHANGES record under a passing run (V2).
+  // leaves a failed verify (back to the builder), never a CHANGES record under a passing run (V2b).
   if (r.outcome === 'CHANGES') {
     let rec: VerifyRun | null = null;
     updateJob(root, job.id, (j) => {

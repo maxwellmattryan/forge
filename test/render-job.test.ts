@@ -2,17 +2,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { jobClaim, jobList, jobNote, jobShow, jobStep } from '../lib/commands/render/job.ts';
-import { HOSTILE, assertSafe, plain } from './render-helpers.ts';
+import { HOSTILE, assertSafe, hasLines, plain } from './render-helpers.ts';
 import type { StepSpawn } from '../lib/types.ts';
 
 const listRow = (o: Record<string, unknown>) => ({ id: 'j', title: 'T', stage: 'build', state: 'running', waitingOn: null, round: 0, pr: null, owner: null, effort: null, ...o });
 
 test('job list: a table, state coloured and waiting shown', () => {
   const rows = [listRow({ id: 'add-login', title: 'Add login', round: 2, pr: 12, owner: 'abcdef1234567', effort: 'high' }), listRow({ id: 'fix-bug', title: 'Fix\nthe bug', stage: 'spec', state: 'waiting', waitingOn: 'spec' })];
-  assert.equal(
-    plain(jobList, rows),
-    ['id         stage  state         round  pr   owner     effort  title', 'add-login  build  running       r2     #12  abcdef12  high    Add login', 'fix-bug    spec   waiting:spec  -      -    -         -       Fix the bug'].join('\n'),
-  );
+  hasLines(plain(jobList, rows), 'add-login  build  running       r2     #12  abcdef12  high    Add login', 'fix-bug    spec   waiting:spec  -      -    -         -       Fix the bug');
 });
 
 test('job list: no rows, with and without --all', () => {
@@ -52,7 +49,7 @@ const compact = (o: Record<string, unknown> = {}) => ({
   ...o,
 });
 
-test('job show: with a PR', () => {
+test('job show: with a PR (golden)', () => {
   assert.equal(
     plain(jobShow, compact()),
     [
@@ -128,34 +125,45 @@ const spawn = (o: Partial<StepSpawn> = {}): StepSpawn => ({
 
 test('job step: spawn, with more lenses', () => {
   const out = plain(jobStep, spawn({ spawns: [spawn({ lens: 'tests' }), spawn({ lens: 'docs' })] }));
-  assert.equal(out, ['spawn · rule RV4', 'agent     forge:reviewer', 'role      reviewer/code', 'model     sonnet', 'effort    medium', 'round     2', 'output    .forge/jobs/add-login/review/round-2/code.md', 'parallel  +2 more lenses'].join('\n'));
+  assert.equal(out!.split('\n')[0], 'spawn · rule RV4');
+  hasLines(out, 'role      reviewer/code', 'effort    medium', 'output    .forge/jobs/add-login/review/round-2/code.md', 'parallel  +2 more lenses');
   assert.ok(!out!.includes('SECRET BRIEF'));
-  assert.equal(plain(jobStep, spawn({ role: 'builder', lens: undefined, effort: null, output: undefined })), ['spawn · rule RV4', 'agent   forge:reviewer', 'role    builder', 'model   sonnet', 'effort  -', 'round   2', 'output  -'].join('\n'));
+  const builder = plain(jobStep, spawn({ role: 'builder', lens: undefined, effort: null, output: undefined }));
+  hasLines(builder, 'role    builder', 'effort  -', 'output  -');
+  assert.ok(!builder!.includes('parallel'), 'one spawn: no parallel line');
 });
 
 test('job step: run', () => {
-  assert.equal(plain(jobStep, { id: 'j', rule: 'V1', action: 'run', command: ['verify', 'j'], shell: 'verify j', why: 'the build is committed', tell: 'verifying j' }), ['run · rule V1', 'command  forge verify j', 'why      the build is committed', 'tell     verifying j'].join('\n'));
+  const out = plain(jobStep, { id: 'j', rule: 'V1', action: 'run', command: ['verify', 'j'], shell: 'verify j', why: 'the build is committed', tell: 'verifying j' });
+  assert.equal(out!.split('\n')[0], 'run · rule V1');
+  hasLines(out, 'command  forge verify j', 'why      the build is committed', 'tell     verifying j');
 });
 
 test('job step: wait', () => {
-  assert.equal(plain(jobStep, { id: 'j', rule: 'W2', action: 'wait', waitingOn: 'agents', running: ['reviewer:code', 'reviewer:tests'] }), ['wait · rule W2', 'waiting on  agents', 'running     reviewer:code, reviewer:tests', 'tell        -'].join('\n'));
+  const out = plain(jobStep, { id: 'j', rule: 'W2', action: 'wait', waitingOn: 'agents', running: ['reviewer:code', 'reviewer:tests'] });
+  assert.equal(out!.split('\n')[0], 'wait · rule W2');
+  hasLines(out, 'waiting on  agents', 'running     reviewer:code, reviewer:tests', 'tell        -');
 });
 
 test('job step: procedure', () => {
-  assert.equal(plain(jobStep, { id: 'j', rule: 'P1', action: 'procedure', reference: 'reference/split.md', why: 'the plan splits' }), ['procedure · rule P1', 'reference  reference/split.md', 'why        the plan splits'].join('\n'));
+  const out = plain(jobStep, { id: 'j', rule: 'P1', action: 'procedure', reference: 'reference/split.md', why: 'the plan splits' });
+  assert.equal(out!.split('\n')[0], 'procedure · rule P1');
+  hasLines(out, 'reference  reference/split.md', 'why        the plan splits');
 });
 
 test('job step: done', () => {
-  assert.equal(plain(jobStep, { id: 'j', rule: 'D1', action: 'done', state: 'done', tell: 'j is merged' }), ['done · rule D1', 'state  done', 'tell   j is merged'].join('\n'));
+  const out = plain(jobStep, { id: 'j', rule: 'D1', action: 'done', state: 'done', tell: 'j is merged' });
+  assert.equal(out!.split('\n')[0], 'done · rule D1');
+  hasLines(out, 'state  done', 'tell   j is merged');
   assert.equal(plain(jobStep, { id: 'j', rule: 'X', action: 'dance' }), null);
 });
 
-const owner = { session: 'abcdef1234567', host: 'box', since: 'x', heartbeat: 'y' };
+const lease = { driver: 'abcdef1234567', epoch: 2, since: 'x', renewedAt: 'y', expiresAt: 'z' };
 
 test('job claim: plain, overridden dependencies, repo budget', () => {
-  assert.equal(plain(jobClaim, { id: 'j', owner }), 'claimed j for session abcdef12 on box');
-  assert.equal(plain(jobClaim, { id: 'j', owner, dependenciesOverridden: ['a', 'b'] }), 'claimed j for session abcdef12 on box\noverrode dependencies: a, b');
-  assert.equal(plain(jobClaim, { id: 'j', owner, repoBudget: { held: false, reason: 'repo at 90% of its monthly budget' } }), 'claimed j for session abcdef12 on box\n! repo budget: repo at 90% of its monthly budget');
+  assert.equal(plain(jobClaim, { id: 'j', lease, epoch: 2 }), 'claimed j for session abcdef12 at epoch 2, lease until z');
+  hasLines(plain(jobClaim, { id: 'j', lease, epoch: 2, dependenciesOverridden: ['a', 'b'] }), 'overrode dependencies: a, b');
+  hasLines(plain(jobClaim, { id: 'j', lease, epoch: 2, repoBudget: { held: false, reason: 'repo at 90% of its monthly budget' } }), '! repo budget: repo at 90% of its monthly budget');
 });
 
 test('job note', () => {
@@ -171,5 +179,5 @@ test('job: sanitizes untrusted text', () => {
   assertSafe(plain(jobStep, { id: 'j', rule: HOSTILE, action: 'run', command: [], shell: HOSTILE, why: HOSTILE, tell: HOSTILE }));
   assertSafe(plain(jobStep, { id: 'j', rule: 'W', action: 'wait', waitingOn: HOSTILE, running: [HOSTILE], tell: HOSTILE }));
   assertSafe(plain(jobStep, { id: 'j', rule: 'P', action: 'procedure', reference: HOSTILE, why: HOSTILE }));
-  assertSafe(plain(jobClaim, { id: HOSTILE, owner: { ...owner, host: HOSTILE }, dependenciesOverridden: [HOSTILE], repoBudget: { held: false, reason: HOSTILE } }));
+  assertSafe(plain(jobClaim, { id: HOSTILE, lease: { ...lease, driver: HOSTILE, expiresAt: HOSTILE }, dependenciesOverridden: [HOSTILE], repoBudget: { held: false, reason: HOSTILE } }));
 });

@@ -1,6 +1,6 @@
 // The dashboard's view logic, ported as-is from the pre-Svelte app.js so node:test can pin it: components hold only markup.
 // Plain functions and constants, no DOM access.
-import type { EvalCompare, Job, JobEvent, JobPr, LastHuman, OwnerStatus, Progress, RequestType, Stage, StateJob, WaitingOn } from './types.ts';
+import type { EvalCompare, HandoffClass, Job, JobEvent, JobPr, LastHuman, OwnerStatus, Progress, RequestType, Stage, StateJob, WaitingOn } from './types.ts';
 import { PARK_LABEL, REPO_HOLD_LABEL, STAGE_LABEL, WAIT_LABEL } from './labels.ts';
 import { isRepoHold } from './repo-budget.ts';
 import { isRepoProposal } from './repo-proposals.ts';
@@ -119,24 +119,23 @@ export const needsHuman = (j: JobLike): boolean => j.state === 'waiting' && j.wa
 export interface ResumeModel {
   show: boolean;
   enabled: boolean;
-  note: 'live' | 'agent' | 'stale' | 'gone' | null;
+  note: 'live' | 'expired' | null;
 }
 
 /**
  * Resume is for an open, non-eval job nobody is driving: queued or failed, or any non-waiting job
- * whose owner is stale or provably gone (waiting jobs keep their gate buttons). A live owner
- * disables it, since the job's session would refuse the claim; the server refuses it too (409).
- * The exception is a live owner that is the job's own daemon session, which takes the resume itself.
+ * whose lease expired (waiting jobs keep their gate buttons). Another driver's live lease disables
+ * it, since the job's session would refuse the claim; the server refuses it too (409). The
+ * exception is a live lease held by the job's own pool session, which takes the resume itself.
  */
 export function resumeModel(j: Pick<JobLike, 'state' | 'kind'> & { ownerStatus?: OwnerStatus | null }): ResumeModel {
   const status = j.ownerStatus?.status ?? 'none';
   const hidden: ResumeModel = { show: false, enabled: false, note: null };
   if (j.kind === 'eval' || j.state === 'done' || j.state === 'cancelled' || j.state === 'waiting') return hidden;
-  const idle = status === 'stale' || status === 'dead';
-  if (!(j.state === 'queued' || j.state === 'failed' || idle)) return hidden;
-  // The job's own daemon session takes the resume itself, so its live claim doesn't block it.
+  if (!(j.state === 'queued' || j.state === 'failed' || status === 'expired')) return hidden;
+  // The job's own pool session takes the resume itself, so its live lease doesn't block it.
   if (status === 'live' && j.ownerStatus?.jobSession) return { show: true, enabled: true, note: null };
-  const note = status === 'live' ? (j.ownerStatus?.agentRunning ? 'agent' : 'live') : status === 'stale' ? 'stale' : status === 'dead' ? 'gone' : null;
+  const note = status === 'live' ? 'live' : status === 'expired' ? 'expired' : null;
   return { show: true, enabled: status !== 'live', note };
 }
 
@@ -266,7 +265,6 @@ export function navCounts(jobs: JobLike[]): { active: number; needs: number } {
   return { active: jobs.filter(isOpen).length, needs: jobs.filter((j) => needsHuman(j) || j.state === 'failed').length };
 }
 
-const live = (o: { heartbeat?: string | null; since?: string | null }, now: number) => now - Date.parse(s(o.heartbeat ?? o.since)) < 30 * 60000;
 
 // ---------- inbox ----------
 
@@ -292,7 +290,7 @@ export function inboxDoc(kind: InboxKind, job: JobLike): string | null {
   return docs[s(kind)] ?? null;
 }
 
-/** SP5's reason in lib/step.ts for a job with no issue yet: its spec gate also picks the issue. */
+/** SP5's reason in lib/step/stages/spec.ts for a job with no issue yet: its spec gate also picks the issue. */
 export const UNLINKED_SPEC_REASON = 'spec ready, issue unlinked';
 
 /** A spec gate that still needs an issue: the chooser stands in for the plain Approve. Re-checks issues and noIssue, so a job linked while it waits gets the plain card. */
@@ -419,17 +417,26 @@ export const runningAgents = (jobs: StateJob[]): RunningAgent[] =>
 
 export interface SessionRow {
   session: string;
-  host?: string;
-  since?: string;
-  heartbeat?: string;
+  since: string | null;
+  /** The latest renewal across its jobs. */
+  renewedAt: string | null;
   jobs: StateJob[];
   live: boolean;
 }
 
+const leaseLive = (l: { driver?: string | null; expiresAt?: string | null } | null | undefined, now: number): boolean => Boolean(l?.driver) && Date.parse(s(l?.expiresAt)) > now;
+
+/** The sessions driving jobs, keyed on each job's lease driver while that lease is live. */
 export function agentSessions(jobs: StateJob[], now: number): SessionRow[] {
-  const sessions: Record<string, Omit<SessionRow, 'live'>> = {};
-  for (const j of jobs) if (j.owner) (sessions[j.owner.session] ??= { ...j.owner, jobs: [] }).jobs.push(j);
-  return Object.values(sessions).map((x) => ({ ...x, live: live(x, now) }));
+  const sessions: Record<string, SessionRow> = {};
+  for (const j of jobs) {
+    const l = j.lease;
+    if (!leaseLive(l, now) || !l.driver) continue;
+    const row = (sessions[l.driver] ??= { session: l.driver, since: l.since, renewedAt: null, jobs: [], live: true });
+    row.jobs.push(j);
+    if (l.renewedAt && s(l.renewedAt) > s(row.renewedAt)) row.renewedAt = l.renewedAt;
+  }
+  return Object.values(sessions);
 }
 
 // ---------- analytics ----------
@@ -579,6 +586,16 @@ export function gateOwnerBadge(owner: unknown): { foreman: boolean; tone: 'live'
   if (owner === 'foreman') return { foreman: true, tone: 'live' };
   if (owner === 'human') return { foreman: false, tone: 'you' };
   return null;
+}
+
+const HANDOFF_CLASSES: readonly HandoffClass[] = ['reserved', 'escalated', 'refused'];
+
+/** A job's Foreman hand-off as the card shows it; null for none, an older server or a malformed value. */
+export function handoffNote(h: unknown): { cls: HandoffClass; reason: string } | null {
+  if (!h || typeof h !== 'object') return null;
+  const { class: cls, reason } = h as { class?: unknown; reason?: unknown };
+  if (!HANDOFF_CLASSES.includes(cls as HandoffClass) || typeof reason !== 'string') return null;
+  return { cls: cls as HandoffClass, reason };
 }
 
 /** Rounds of the drawer's verify/verdict matrix and the reviewer columns, or null when there is nothing to show. */

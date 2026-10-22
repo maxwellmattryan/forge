@@ -105,6 +105,7 @@ export const FIELDS: ConfigField[] = [
   field('pipeline.specApproval', 'pipeline', 'Spec approval', 'Which specs wait for a human before the build starts.', { type: 'enum', options: ['always', 'large', 'never'] }),
   field('pipeline.design', 'pipeline', 'Design', 'Whether UI jobs get a design reference or a mockup first.', { type: 'enum', options: ['none', 'reference', 'mockup'] }),
   field('pipeline.maxRounds', 'pipeline', 'Max rounds', 'Build and review rounds before asking a human.', { type: 'integer', min: 1, max: 20 }),
+  field('pipeline.maxTotalRounds', 'pipeline', 'Total-round ceiling', 'Rounds of any kind, reworks by a human, the foreman or CI included, before each further round needs a person. Empty means twice max rounds.', { type: 'integer', min: 1, nullable: true }),
   budget('tokens', 'Token budget', 'Per-job limit on total tokens.', 'integer'),
   budget('usd', 'Cost budget (USD)', 'Per-job limit on estimated cost.', 'number'),
   budget('minutes', 'Minutes budget', 'Per-job limit on agent run time, never human waits.', 'number'),
@@ -136,6 +137,7 @@ export const FIELDS: ConfigField[] = [
   field('review.onPrFeedback', 'review', 'On PR feedback', 'Which lenses re-run after PR feedback.', { type: 'enum', options: ['changed', 'full', 'none'] }),
   field('review.onRework', 'review', 'On rework', 'Rounds 2 and later: narrow re-runs the always lenses, the ones that asked for changes and the ones whose paths the fix touched; full re-runs every lens.', { type: 'enum', options: ['narrow', 'full'] }),
   field('pr.integrationReview', 'review', 'Integration review', 'After a conflict fix: always review, or skip when only docs or generated files conflicted.', { type: 'enum', options: ['always', 'code-only'] }),
+  field('pr.maxCiReworks', 'review', 'CI rework cap', 'CI reworks forge sync starts in a row on a red PR before the next red head waits for a person. 0 sends every red head to a person.', { type: 'integer', min: 0, max: 20 }),
   field('review.panel', 'review', 'Panel', 'The review lenses: built-in names or .forge/reviewers/<name>.md.', { type: 'object', locked: 'lenses name checklist files and models' }),
 
   ...Object.keys(base.runtime.models).map((role) =>
@@ -188,6 +190,9 @@ export const FIELDS: ConfigField[] = [
   field('daemon.maxConcurrent', 'daemon', 'Max concurrent', 'Job sessions the daemon runs at once, besides the inbox.', { type: 'integer', min: 1, max: 16, locked: 'caps unattended job sessions' }),
   field('daemon.auth', 'daemon', 'Billing', 'What daemon sessions run on: your Claude login (subscription), or an ANTHROPIC_API_KEY exported where forge dash starts (api-key). Subscription drops the key from their environment.', { type: 'enum', options: ['subscription', 'api-key'] }),
   field('daemon.idleStopMinutes', 'daemon', 'Idle stop (minutes)', 'Stop an idle session after this long; new work resumes it. Empty means never.', { type: 'number', min: 0, minExclusive: true, nullable: true }),
+  field('daemon.turnTimeoutMinutes', 'daemon', 'Turn timeout (minutes)', 'Stop a turn still running after this long; its work goes back to the inbox and the session starts again. Empty means no limit.', { type: 'number', min: 0, minExclusive: true, nullable: true }),
+  field('daemon.jobBudget.tokens', 'daemon', 'Unattended job tokens', 'With the daemon on, the token limit of a job whose budget sets no tokens, usd or minutes limit.', { type: 'integer', min: 0, nullable: true, locked: 'caps unattended spend' }),
+  field('daemon.jobBudget.usd', 'daemon', 'Unattended job cost (USD)', 'With the daemon on, the cost limit of a job whose budget sets no tokens, usd or minutes limit.', { type: 'number', min: 0, nullable: true, locked: 'caps unattended spend' }),
   // Locked: each one widens or narrows what an unattended session decides for a human.
   field('retention.logsDays', 'daemon', 'Delete session logs after (days)', 'forge sync and forge dash delete daemon session logs this many days old whose session is not running. Empty keeps them forever.', { type: 'integer', min: 1, max: 3650, nullable: true, locked: 'deletes session logs' }),
   field('retention.logMaxBytes', 'daemon', 'Rotate session logs at (bytes)', 'Rotate a session log to <scope>.log.1 as soon as it reaches this size, keeping one older generation. Empty rotates only at spawn, past 20 MiB.', { type: 'integer', min: 1048576, max: 1073741824, nullable: true }),

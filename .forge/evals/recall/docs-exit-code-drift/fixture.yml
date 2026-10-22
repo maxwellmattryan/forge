@@ -1,0 +1,7 @@
+title: the docs give a refusal the wrong exit code
+lenses: [docs]
+defects:
+  - id: negative-cap-exit-code
+    lens: docs
+    path: docs/CLI.md
+    line: 312

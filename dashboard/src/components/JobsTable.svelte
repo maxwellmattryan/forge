@@ -5,7 +5,7 @@
   import VerdictChip from './VerdictChip.svelte';
   import PrChip from './PrChip.svelte';
   import StageStepper from './StageStepper.svelte';
-  import { budgetCell } from '../lib/budget.ts';
+  import { budgetCell, unattendedDefault } from '../lib/budget.ts';
   import { ago, num, usd } from '../lib/util.ts';
   import { cardModel, prChipModel, sortByRank } from '../lib/view.ts';
   import { S, openDrawer } from '../lib/app.svelte.ts';
@@ -32,7 +32,7 @@
           <td class="num">{j.progress?.total ? `${j.progress.done}/${j.progress.total}` : '—'}</td>
           <td><div class="flex flex-wrap gap-1">{#each m.lenses ?? [] as l, i (i)}<VerdictChip name={l.name} verdict={l.verdict} />{/each}</div></td>
           <td>{#if prChipModel(j.pr)}<PrChip pr={j.pr} />{:else}—{/if}</td>
-          <td class="r num">{num(j.usage?.totalTokens)}</td><td class="r num">{usd(j.usage?.estCostUsd)}</td><td class="whitespace-nowrap">{@html budgetCell(j, S.data?.config?.pipeline?.budget)}</td>
+          <td class="r num">{num(j.usage?.totalTokens)}</td><td class="r num">{usd(j.usage?.estCostUsd)}</td><td class="whitespace-nowrap">{@html budgetCell(j, S.data?.config?.pipeline?.budget, unattendedDefault(S.data?.config))}</td>
           <td class="text-muted whitespace-nowrap">{ago(j.updatedAt, ticker.now)}</td>
         </tr>
       {/each}

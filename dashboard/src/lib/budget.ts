@@ -2,7 +2,7 @@
 // effectiveLimits/measureBudget/exceededKeys in lib/budget.ts (the dashboard cannot import lib/).
 // No DOM access, so node:test can import it.
 import { esc, num, usd, ago, toneChip } from './util.ts';
-import type { BudgetKey, BudgetLimits, Job } from './types.ts';
+import type { BudgetKey, BudgetLimits, DaemonJobBudget, Job } from './types.ts';
 
 export const BUDGET_KEYS = ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries'] as const satisfies readonly BudgetKey[];
 export const BUDGET_LABELS = { tokens: 'Tokens', usd: 'Est. cost', minutes: 'Agent minutes', changedLines: 'Changed lines', verifyRetries: 'Verify retries' };
@@ -34,13 +34,26 @@ export interface BudgetRow {
 /** job.json can be hand-edited, so despite the type every field is read through obj()/fin(). */
 type JobInput = Job | null | undefined;
 
-export function budgetRows(job: JobInput, configBudget: BudgetLimits | null | undefined): BudgetRow[] {
+/** The keys daemon.jobBudget fills: lib/budget.ts SPEND_KEYS. */
+const SPEND_KEYS = ['tokens', 'usd', 'minutes'] as const;
+
+/** /api/state's daemon.jobBudget when the daemon is on, else null: what budgetRows fills a job with no spend limit from. */
+export function unattendedDefault(config: { daemon?: { enabled?: boolean; jobBudget?: DaemonJobBudget } } | null | undefined): DaemonJobBudget {
+  const d = config?.daemon;
+  return d?.enabled === true && d.jobBudget && typeof d.jobBudget === 'object' ? d.jobBudget : null;
+}
+
+export function budgetRows(job: JobInput, configBudget: BudgetLimits | null | undefined, jobDefault: DaemonJobBudget = null): BudgetRow[] {
   const j = obj(job);
   const b = obj(j.budget);
   const usage = obj(j.usage);
   const overrides = obj(b.limits);
-  const cfg = obj(configBudget);
   const ack = obj(b.ack);
+  // effectiveLimits' rule: with no spend key set in config or present in the job's overrides, the
+  // unattended default fills them.
+  const fill = obj(jobDefault);
+  const unset = SPEND_KEYS.every((k) => fin(obj(configBudget)[k]) === null && !Object.hasOwn(overrides, k));
+  const cfg = jobDefault && unset ? { ...obj(configBudget), ...Object.fromEntries(SPEND_KEYS.filter((k) => fin(fill[k]) !== null).map((k) => [k, fill[k]])) } : obj(configBudget);
   // byModel holds the same runs as byRole, so only byRole is summed.
   const ms = Object.values(obj(usage.byRole)).reduce((n: number, r) => n + (fin(obj(r).durationMs) ?? 0), 0);
   const used: Record<string, number | null> = {
@@ -72,18 +85,18 @@ export function budgetWorst(rows: BudgetRow[]): BudgetRow | null {
 
 const quiet = (job: JobInput) => ['done', 'cancelled'].includes(job?.state as string) || (job?.state === 'waiting' && job?.waitingOn === 'budget');
 
-export function budgetChip(job: JobInput, configBudget: BudgetLimits | null | undefined): string {
+export function budgetChip(job: JobInput, configBudget: BudgetLimits | null | undefined, jobDefault: DaemonJobBudget = null): string {
   if (quiet(job)) return '';
-  const w = budgetWorst(budgetRows(job, configBudget));
+  const w = budgetWorst(budgetRows(job, configBudget, jobDefault));
   if (!w || (w.tone !== 'warn' && w.tone !== 'bad')) return '';
   const text = w.tone === 'bad' ? 'over budget' : `budget ${Math.round((w.fraction as number) * 100)}%`;
   return `<span title="${esc(`${w.label} ${fmt(w.key, w.counted)}/${fmt(w.key, w.limit)}`)}">${toneChip(w.tone, text)}</span>`;
 }
 
-export function budgetCell(job: JobInput, configBudget: BudgetLimits | null | undefined): string {
-  const chip = budgetChip(job, configBudget);
+export function budgetCell(job: JobInput, configBudget: BudgetLimits | null | undefined, jobDefault: DaemonJobBudget = null): string {
+  const chip = budgetChip(job, configBudget, jobDefault);
   if (chip) return chip;
-  const w = budgetWorst(budgetRows(job, configBudget));
+  const w = budgetWorst(budgetRows(job, configBudget, jobDefault));
   if (!w) return '—';
   const f = w.fraction as number;
   return `<span class="text-muted tabular-nums">${esc(Number.isFinite(f) ? `${Math.round(f * 100)}%` : 'over')}</span>`;
@@ -102,8 +115,8 @@ function rowHtml(r: BudgetRow): string {
   return `<div class="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[10rem_minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-3 gap-y-1 py-1"><div class="label">${esc(r.label)}</div><div class="text-sm tabular-nums text-right md:text-left break-words ${r.tone === 'bad' ? 'text-bad' : ''}">${value}</div>${bar}</div>`;
 }
 
-export function budgetPanel(job: JobInput, configBudget: BudgetLimits | null | undefined, { compact = false }: { compact?: boolean } = {}): string {
-  const rows = `<div class="flex flex-col">${budgetRows(job, configBudget).map(rowHtml).join('')}</div>`;
+export function budgetPanel(job: JobInput, configBudget: BudgetLimits | null | undefined, { compact = false, jobDefault = null }: { compact?: boolean; jobDefault?: DaemonJobBudget } = {}): string {
+  const rows = `<div class="flex flex-col">${budgetRows(job, configBudget, jobDefault).map(rowHtml).join('')}</div>`;
   if (compact) return rows;
   const lc = obj(obj(obj(job).budget).lastCheck);
   const checked = Object.keys(lc).length

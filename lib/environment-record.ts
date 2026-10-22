@@ -1,6 +1,6 @@
 // The environment record (docs/CONFIG.md "Backing services" › Lifecycle): what Forge last did to
 // each job's environment, `running` or `stopped`, with when it was last used. Only the CLI writes it,
-// under one lock. It is file I/O only, no Docker, so lib/step.ts can read it. The runtime dir is
+// under one lock. It is file I/O only, no Docker, so lib/step/input.ts can read it. The runtime dir is
 // agent-writable, so the read follows no link or FIFO, and a hand-written entry can only ever cause
 // a stop (never a removal) or lose a job its place: a future `usedAt` reads as now.
 import fs from 'node:fs';

@@ -1,7 +1,8 @@
 import { parseOverlay } from '../eval-overlay.ts';
 import * as evals from '../evals.ts';
+import * as recall from '../recall.ts';
 import { ForgeError } from '../util.ts';
-import { bodyFrom, list, req, usageError } from './args.ts';
+import { bodyFrom, list, num, req, requireJob, usageError } from './args.ts';
 import type { Config, HelpGroup } from '../types.ts';
 
 const EVAL: HelpGroup = {
@@ -63,8 +64,50 @@ const EVAL: HelpGroup = {
     { command: 'eval runs', args: '', summary: 'the runs, with their summaries' },
     { command: 'eval report', args: '<run>', summary: 'one run in full', exits: [[1, 'no such run']] },
     { command: 'eval compare', args: '<runA> <runB>', summary: 'two runs side by side: stamps, deltas with sample counts, per task', exits: [[1, 'no such run']] },
+    {
+      command: 'eval recall list',
+      args: '',
+      summary: "the main checkout's reviewer recall fixtures (.forge/evals/recall/<name>/): lenses, planted defects, clean or not",
+      exits: [[1, 'a fixture is invalid (the message names it and the problem)']],
+      docs: ['Reviewer recall evals', 'docs/IMPROVEMENT.md#reviewer-recall-evals'],
+    },
+    {
+      command: 'eval recall start',
+      args: '[--job <id>]',
+      summary:
+        "start a recall run: copy each fixture's diff and return one forge:reviewer brief per fixture and lens, under the job worktree's (or repo's) own agents/reviewer.md when it has one, else the installed plugin's",
+      flags: [['--job <id>', "grade this job's prompts: the run lives in its job dir and logs a recall event"]],
+      exits: [[1, 'a fixture is invalid, there is none, or no such job']],
+      docs: ['Reviewer recall evals', 'docs/IMPROVEMENT.md#reviewer-recall-evals'],
+    },
+    {
+      command: 'eval recall record',
+      args: '<run> [--tokens N]',
+      summary: 'grade every review of a run: recall (planted defects caught) and precision (clean fixtures left alone) per lens, against the last base-branch run',
+      flags: [['--tokens N', "the run's tokens, recorded as given"]],
+      exits: [[1, 'no such run, the run is already recorded, or no review file exists']],
+      docs: ['Reviewer recall evals', 'docs/IMPROVEMENT.md#reviewer-recall-evals'],
+    },
   ],
 };
+
+/** `forge eval recall list|start|record`. */
+function recallCmd(root: string, config: Config, sub: string | undefined, rest: string[], flags: Record<string, any>): unknown {
+  const usage = () => usageError(EVAL, sub ? `recall ${sub}` : undefined);
+  switch (`recall ${sub}`) {
+    case 'recall list':
+      if (rest.length) throw usage();
+      return recall.listRecall(root);
+    case 'recall start':
+      if (rest.length) throw usage();
+      return recall.startRecall(root, config, flags.job === undefined ? null : requireJob(root, flags.job));
+    case 'recall record':
+      if (rest.length !== 1) throw usage();
+      return recall.recordRecall(root, config, rest[0], { tokens: num(flags.tokens, '--tokens', { integer: true }) ?? null });
+    default:
+      throw usage();
+  }
+}
 
 export const HELP: HelpGroup[] = [EVAL];
 
@@ -128,6 +171,7 @@ export async function evalCmd(root: string, config: Config, sub: string | undefi
     case 'compare':
       return evals.compareRuns(root, req(rest[0], 'run A'), req(rest[1], 'run B'));
     default:
+      if (sub === 'recall') return recallCmd(root, config, rest[0], rest.slice(1), flags);
       throw usageError(EVAL);
   }
 }

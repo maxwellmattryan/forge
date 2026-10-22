@@ -14,46 +14,28 @@ import { THEMES, THEME_CHOICES, SYSTEM_DARK, normalizeTheme, setTheme, currentTh
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+// One row per literal id, for the index.html bootstrap; the light flag only matters on the
+// fall-through (null, unknown, wrong case, system), which keeps both. The `unset` loop below covers
+// the other wrong-case chosen ids.
 const CASES: [string | null, boolean, string][] = [
-  ['forge', false, 'forge'],
   ['forge', true, 'forge'],
   ['ash', false, 'ash'],
-  ['ash', true, 'ash'],
-  ['temper', false, 'temper'],
   ['temper', true, 'temper'],
-  ['crucible', false, 'crucible'],
   ['crucible', true, 'crucible'],
-  ['patina', false, 'patina'],
   ['patina', true, 'patina'],
-  ['obsidian', false, 'obsidian'],
   ['obsidian', true, 'obsidian'],
-  ['cyanotype', false, 'forge'],
   ['cyanotype', true, 'forge'],
-  ['nightprint', false, 'forge'],
   ['nightprint', true, 'forge'],
-  ['dark', false, 'forge'],
   ['dark', true, 'forge'],
   ['vellum', false, 'ash'],
-  ['vellum', true, 'ash'],
   ['light', false, 'ash'],
-  ['light', true, 'ash'],
   [null, false, 'forge'],
   [null, true, 'ash'],
-  ['bogus', false, 'forge'],
   ['bogus', true, 'ash'],
   ['', false, 'forge'],
-  ['', true, 'ash'],
   ['Forge', true, 'ash'],
-  ['Temper', false, 'forge'],
   ['Temper', true, 'ash'],
-  ['Crucible', false, 'forge'],
-  ['Crucible', true, 'ash'],
-  ['PATINA', false, 'forge'],
-  ['PATINA', true, 'ash'],
-  ['Obsidian', false, 'forge'],
-  ['Obsidian', true, 'ash'],
   ['system', false, 'forge'],
-  ['system', true, 'ash'],
 ];
 
 test('normalizeTheme maps legacy and new ids', () => {
@@ -96,7 +78,6 @@ for (const [name, file, opts] of [
   test(`${name} inline script agrees with normalizeTheme`, opts, () => {
     const html = fs.readFileSync(file, 'utf8');
     assert.match(html, /<html lang="en" data-theme="forge">/, `${name} defaults to forge before the script runs`);
-    assert.doesNotMatch(html, /data-(grid|paper)|dataset\.(grid|paper)/, `${name} sets no Drafting drawing attribute`);
     for (const [saved, light, want] of CASES) {
       for (const grain of DRAWING_VALUES) {
         for (const paper of DRAWING_VALUES) {

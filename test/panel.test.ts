@@ -1,7 +1,11 @@
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { defaults, panelPathsProblems, validateConfig } from '../lib/config.ts';
-import { choosePanel, selectPanel } from '../lib/step.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { defaults, lensNeedsApp, panelPathsProblems, reviewerChecklist, validateConfig } from '../lib/config.ts';
+import { PLUGIN_ROOT } from '../lib/paths.ts';
+import { choosePanel, reworkPanel, selectPanel } from '../lib/step.ts';
 import type { Config } from '../lib/types.ts';
 
 const ROOT = process.cwd();
@@ -172,4 +176,97 @@ test('review.panel pathsOnly validation', () => {
   assert.deepEqual(problems({ pathsOnly: true }), ['review.panel "security".pathsOnly needs non-empty paths: a pathsOnly lens with none would never run']);
   assert.deepEqual(problems({ pathsOnly: true, paths: [] }), ['review.panel "security".pathsOnly needs non-empty paths: a pathsOnly lens with none would never run']);
   assert.deepEqual(problems({ pathsOnly: 'yes', paths: ['lib/**'] }), ['review.panel "security".pathsOnly must be true or false (got "yes")']);
+});
+
+const needsAppProblems = (problems: string[]) => problems.filter((p) => p.includes('needsApp'));
+
+test('needsApp must be a boolean', () => {
+  const cfg = defaults();
+  cfg.review.panel.push({ name: 'ui', needsApp: 'yes' as any });
+  assert.deepEqual(needsAppProblems(validateConfig(cfg, ROOT)), ['review.panel "ui".needsApp must be true or false (got "yes")']);
+
+  for (const needsApp of [undefined, true, false]) {
+    const ok = defaults();
+    ok.review.panel.push(needsApp === undefined ? { name: 'ui' } : { name: 'ui', needsApp });
+    assert.deepEqual(needsAppProblems(validateConfig(ok, ROOT)), [], `needsApp ${needsApp}`);
+  }
+});
+
+test('the design lens has a plugin checklist', () => {
+  const file = path.join(PLUGIN_ROOT, 'reviewers', 'design.md');
+  // An empty dir: this repo's own .forge/reviewers/design.md would shadow the plugin's.
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-panel-')));
+  try {
+    const cfg = defaults();
+    cfg.review.panel.push({ name: 'design' });
+    assert.deepEqual(validateConfig(cfg, dir).filter((p) => p.includes('design')), []);
+    assert.equal(reviewerChecklist(dir, 'design'), file);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('lensNeedsApp defaults by name and honours the panel entry', () => {
+  const cfg = defaults();
+  for (const lens of ['ui', 'ux', 'accessibility', 'design']) assert.equal(lensNeedsApp(cfg, lens), true, `${lens} with no entry`);
+  assert.equal(lensNeedsApp(cfg, 'code'), false);
+  assert.equal(lensNeedsApp(cfg, 'visual-qa'), false);
+
+  cfg.review.panel.push({ name: 'design' }, { name: 'ui', needsApp: false }, { name: 'visual-qa', needsApp: true });
+  assert.equal(lensNeedsApp(cfg, 'design'), true, 'an entry with no key keeps the name default');
+  assert.equal(lensNeedsApp(cfg, 'ui'), false);
+  assert.equal(lensNeedsApp(cfg, 'visual-qa'), true);
+});
+
+// The rework panel's pure decision (review.onRework: narrow); test/integration/cli/panel.test.ts
+// runs it through `forge job panel`.
+const REWORK_PANEL = [
+  { name: 'code', always: true },
+  // Opts out of security's always-on-rework name default, so these tests can watch a passed lens
+  // narrow; the shipped default is held by "the shipped default panel re-runs security".
+  { name: 'security', paths: ['lib/server.ts', 'lib/trackers/**'], alwaysOnRework: false },
+  { name: 'docs', paths: ['docs/**'] },
+  { name: 'design', paths: ['*.svelte'] },
+];
+const REWORK_LENSES = ['code', 'security', 'docs'];
+const MIXED: Record<string, any> = { code: 'PASS', security: 'PASS', docs: 'CHANGES' };
+
+describe('rework panel', () => {
+  test('the shipped default panel re-runs security on every rework round', () => {
+    // defaults()'s security entry has no paths, so only its name default brings it back.
+    const config = defaults();
+    config.review.panel = [...defaults().review.panel, { name: 'docs' }];
+    assert.equal(config.review.panel.find((p) => p.name === 'security')?.paths, undefined, 'the shipped security lens has no paths');
+    const lenses = ['code', 'tests', 'security', 'docs'];
+    const job = { round: 2, verdicts: { 1: { code: 'PASS', tests: 'CHANGES', security: 'PASS', docs: 'PASS' } }, pr: null, kind: 'feature' as const } as any;
+    // A fix for a tests finding that also adds a process call in the server.
+    const r = reworkPanel({ job, config, lenses, changedSince: ['test/a.test.ts', 'lib/server.ts'], members: 0 });
+    assert.deepEqual(r, { rerun: ['code', 'tests', 'security'], reasons: { code: ['always'], tests: ['always', 'changes requested in round 1'], security: ['always on rework'] }, skipped: ['docs'] });
+    // Round 3 too: a pass in round 2 never lets it drop.
+    const r3 = reworkPanel({ job: { ...job, round: 3, verdicts: { ...job.verdicts, 2: { code: 'PASS', tests: 'CHANGES', security: 'PASS' } } }, config, lenses, changedSince: ['README.md'], members: 0 });
+    assert.deepEqual(r3?.rerun, ['code', 'tests', 'security']);
+    // An explicit opt-out narrows it like any other passed lens.
+    config.review.panel = config.review.panel.map((p) => (p.name === 'security' ? { ...p, alwaysOnRework: false } : p));
+    assert.deepEqual(reworkPanel({ job, config, lenses, changedSince: ['lib/server.ts'], members: 0 })?.skipped, ['security', 'docs']);
+  });
+
+  test('review.panel alwaysOnRework validation', () => {
+    const config = defaults();
+    const problems = (v: unknown) => {
+      config.review.panel = [{ name: 'code', always: true }, { name: 'security', alwaysOnRework: v } as any];
+      return validateConfig(config, ROOT).filter((p) => p.includes('alwaysOnRework'));
+    };
+    assert.deepEqual(problems(true), []);
+    assert.deepEqual(problems(false), []);
+    assert.deepEqual(problems('yes'), ['review.panel "security".alwaysOnRework must be true or false (got "yes")']);
+  });
+
+  test('a lens carried from an earlier round keeps its pass', () => {
+    const config = defaults();
+    config.review.panel = REWORK_PANEL;
+    // Round 2 re-ran only code and docs; round 3 must not treat security as new.
+    const job = { round: 3, verdicts: { 1: MIXED, 2: { code: 'PASS', docs: 'CHANGES' } }, pr: null, kind: 'feature' as const } as any;
+    const r = reworkPanel({ job, config, lenses: REWORK_LENSES, changedSince: ['README.md'], members: 0 });
+    assert.deepEqual(r, { rerun: ['code', 'docs'], reasons: { code: ['always'], docs: ['changes requested in round 2'] }, skipped: ['security'] });
+  });
 });

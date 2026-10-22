@@ -4,8 +4,10 @@ import path from 'node:path';
 import { acCoverage } from '../lib/acs.ts';
 import { jobPathMap } from '../lib/brief.ts';
 import { defaults } from '../lib/config.ts';
+import { jobEndpoints } from '../lib/endpoints.ts';
 import { normalizeJob } from '../lib/schema.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
+import { recallGate } from '../lib/step/input.ts';
 import type { Config, Job, JobAgent, JobEvent, StepFile, StepInput } from '../lib/types.ts';
 
 export const ROOT = '/repo';
@@ -46,7 +48,24 @@ export interface FixtureOpts {
   memberWorktreesMissing?: boolean;
   /** Extra existing paths (dirs such as review/round-1). */
   present?: string[];
+  /** loadStepInput's clock; the real one by default, so the budget rows' tells name today. */
+  now?: string;
+  /** The job's endpoints; jobEndpoints' components by default when commands.dev is set. */
+  endpoints?: StepInput['endpoints'];
+  /** trustedMemberWorktree per member repo; none by default. */
+  memberWorktrees?: StepInput['memberWorktrees'];
+  /** The keys still over budget at a budget park (loadStepInput's budgetExceeded); null by default. */
+  budgetExceeded?: StepInput['budgetExceeded'];
+  /**
+   * What loadRecall read for the decide gate: the committed files (null: git failed), whether the main
+   * checkout has fixtures (yes by default), whether one of them fails to load (no by default) and the
+   * worktree's pluginHash (RECALL_HASH by default). Without it, recall is null, as for a repo with no fixtures.
+   */
+  recall?: { changed: string[] | null; fixtures?: boolean; invalid?: boolean; pluginHash?: string };
 }
+
+/** The worktree's pluginHash in recall rows. */
+export const RECALL_HASH = 'abcdef0123';
 
 const FILE_NAMES: Record<StepFile, string> = {
   request: 'request.md',
@@ -108,6 +127,11 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     evalTask: o.evalTask ?? null,
     checklists: Object.fromEntries(config.review.panel.map((p) => [p.name, path.join(PLUGIN_ROOT, 'reviewers', `${p.name}.md`)])),
     integrationTouched: o.integrationTouched ?? null,
+    recall: o.recall ? recallGate(job, config, { worktree: o.worktree !== false, fixtures: o.recall.fixtures ?? true, changed: o.recall.changed, pluginHash: o.recall.pluginHash ?? RECALL_HASH, invalid: o.recall.invalid }) : null,
     verifiers: o.verifiers ?? 0,
+    now: o.now ?? new Date().toISOString(),
+    endpoints: o.endpoints ?? (config.commands.dev ? jobEndpoints(ROOT, config, job).components.map((e) => ({ name: e.name, url: e.url })) : []),
+    memberWorktrees: o.memberWorktrees ?? {},
+    budgetExceeded: o.budgetExceeded ?? null,
   };
 }

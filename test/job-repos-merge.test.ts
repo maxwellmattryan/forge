@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { dependsOn, prProject, ready } from './job-repos-fixture.ts';
 import type { PrProject } from './job-repos-fixture.ts';
+import { forgeInProcess } from './helpers.ts';
 import { loadJob } from '../lib/jobs.ts';
 import { SIBLINGS_END, SIBLINGS_START, spliceSiblings } from '../lib/pr.ts';
 
@@ -208,7 +209,7 @@ describe('linked PRs: sync across repos', { concurrency: 4, skip }, () => {
 /**
  * Makes the fake gh report each PR's head as the commit forge pr open pushed, with `checks`, and
  * records both repos' releases: these edges are the default `local`, whose release gate would
- * otherwise hold every consumer (test/interim-pr.test.ts covers that gate).
+ * otherwise hold every consumer (test/e2e/release/pr.test.ts covers that gate).
  */
 function pin(p: PrProject, id: string, checks: 'passing' | 'pending' | 'failing' | null = 'passing') {
   const events = path.join(p.root, '.forge', 'jobs', id, 'events.jsonl');
@@ -239,32 +240,6 @@ describe('linked PRs: graph-ordered merges', { concurrency: 4, skip }, () => {
     const merged = p.events(j.id).filter((e) => e.type === 'pr-merged');
     assert.deepEqual(merged.map((e) => [e.repo, e.number, e.target]), [['lib', 7, undefined], [undefined, 11, undefined]]);
     assert.ok(!('repo' in merged[1]), 'root events carry no repo');
-  });
-
-  test('a consumer before its dependency is refused, --now included', async () => {
-    const p = await prProject(cleanups);
-    dependsOn(p, 'app-on-lib');
-    const j = await opened(p);
-    pin(p, j.id);
-    for (const flags of [['--root'], ['--root', '--now'], ['--now', '--root']]) {
-      const r = await p.pr(['merge', j.id, ...flags]);
-      assert.equal(r.status, 1, `${flags}: ${r.stderr}`);
-      const out = json(r);
-      assert.deepEqual([out.merged, out.action, out.reason, out.repo], [false, 'refused', 'order', null], String(flags));
-      assert.match(out.error, /depends on repo lib PR #7, which is not merged yet/);
-    }
-    assert.deepEqual(merges(p), [], 'no gh pr merge call');
-    const refused = p.events(j.id).filter((e) => e.type === 'pr-merge-refused');
-    assert.deepEqual(refused.map((e) => [e.reason, e.number, e.target, e.waitingFor]), Array(3).fill(['order', 11, true, 'repo lib PR #7']));
-    assert.deepEqual(p.events(j.id).filter((e) => e.type === 'pr-merge-bypass'), [], '--now never bypasses order');
-
-    // The reverse edge: lib depends on the root, so --repo lib waits for the open root PR.
-    dependsOn(p, 'lib-on-app');
-    const r = await p.pr(['merge', j.id, '--repo', 'lib', '--now']);
-    assert.equal(r.status, 1, r.stderr);
-    assert.deepEqual([json(r).reason, json(r).repo], ['order', 'lib']);
-    assert.match(json(r).error, /^repo lib PR #7 depends on the root PR #11, which is not merged yet/);
-    assert.deepEqual(merges(p), []);
   });
 
   test('auto-merge is never queued on a consumer', async () => {
@@ -404,26 +379,60 @@ describe('linked PRs: graph-ordered merges', { concurrency: 4, skip }, () => {
     assert.match(merges(p)[0], new RegExp(`^pr merge 7 -R o/lib --squash --match-head-commit ${'b'.repeat(40)}$`));
   });
 
-  test('pr merge target flags are strict', async () => {
-    const p = await prProject(cleanups);
-    const j = await opened(p);
-    const v = await ready(p, { verifyOnly: true });
-    pin(p, j.id);
-    const cases: [string[], RegExp][] = [
-      [['merge', j.id, '--repo', 'nope'], new RegExp(`job ${j.id} has no member repo nope`)],
-      [['merge', j.id, '--repo', '../lib'], /--repo needs one member repo name/],
-      [['merge', j.id, '--repo', '--root'], /--repo needs one member repo name/],
-      [['merge', j.id, '--repo', 'lib', '--root'], /pass --repo or --root, not both/],
-      [['merge', '--root', j.id], /--root takes no value/],
-      [['merge', v.id, '--repo', 'lib'], /repo lib is verify-only/],
-    ];
-    for (const [args, want] of cases) {
-      const r = await p.pr(args);
-      assert.equal(r.status, 1, `${args.join(' ')}: ${r.stderr}`);
-      assert.match(r.stderr, want, args.join(' '));
-    }
-    assert.deepEqual(merges(p), []);
-  });
+});
+
+// The per-case checks below run in-process with the fake gh on PATH, which changes process.env for
+// each call, so they sit outside every concurrent block. Each test's setup still spawns the CLI.
+test('a consumer before its dependency is refused, --now included', { skip }, async () => {
+  const p = await prProject(cleanups);
+  dependsOn(p, 'app-on-lib');
+  const j = await opened(p);
+  pin(p, j.id);
+  for (const flags of [['--root'], ['--root', '--now'], ['--now', '--root']]) {
+    const r = await forgeInProcess(p.root, ['pr', 'merge', j.id, ...flags], { env: p.env });
+    assert.equal(r.status, 1, `${flags}: ${JSON.stringify(r.error)}`);
+    const out = r.data as any;
+    assert.deepEqual([out.merged, out.action, out.reason, out.repo], [false, 'refused', 'order', null], String(flags));
+    assert.match(out.error, /depends on repo lib PR #7, which is not merged yet/);
+  }
+  assert.deepEqual(merges(p), [], 'no gh pr merge call');
+  const refused = p.events(j.id).filter((e) => e.type === 'pr-merge-refused');
+  assert.deepEqual(refused.map((e) => [e.reason, e.number, e.target, e.waitingFor]), Array(3).fill(['order', 11, true, 'repo lib PR #7']));
+  assert.deepEqual(p.events(j.id).filter((e) => e.type === 'pr-merge-bypass'), [], '--now never bypasses order');
+
+  // The reverse edge: lib depends on the root, so --repo lib waits for the open root PR. The CLI's
+  // own exit and JSON for an order refusal.
+  dependsOn(p, 'lib-on-app');
+  const r = await p.pr(['merge', j.id, '--repo', 'lib', '--now']);
+  assert.equal(r.status, 1, r.stderr);
+  assert.deepEqual([json(r).reason, json(r).repo], ['order', 'lib']);
+  assert.match(json(r).error, /^repo lib PR #7 depends on the root PR #11, which is not merged yet/);
+  assert.deepEqual(merges(p), []);
+});
+
+test('pr merge target flags are strict', { skip }, async () => {
+  const p = await prProject(cleanups);
+  const j = await opened(p);
+  const v = await ready(p, { verifyOnly: true });
+  pin(p, j.id);
+  const cases: [string[], RegExp][] = [
+    [['merge', j.id, '--repo', 'nope'], new RegExp(`job ${j.id} has no member repo nope`)],
+    [['merge', j.id, '--repo', '../lib'], /--repo needs one member repo name/],
+    [['merge', j.id, '--repo', '--root'], /--repo needs one member repo name/],
+    [['merge', j.id, '--repo', 'lib', '--root'], /pass --repo or --root, not both/],
+    [['merge', '--root', j.id], /--root takes no value/],
+    [['merge', v.id, '--repo', 'lib'], /repo lib is verify-only/],
+  ];
+  for (const [args, want] of cases) {
+    const r = await forgeInProcess(p.root, ['pr', ...args], { env: p.env });
+    assert.equal(r.status, 1, `${args.join(' ')}: ${JSON.stringify(r.data)}`);
+    assert.match(r.error?.message ?? '', want, args.join(' '));
+  }
+  // The CLI's own report of a refused target: exit 1, the message on stderr.
+  const cli = await p.pr(['merge', j.id, '--repo', 'nope']);
+  assert.equal(cli.status, 1, cli.stderr);
+  assert.match(cli.stderr, new RegExp(`job ${j.id} has no member repo nope`));
+  assert.deepEqual(merges(p), []);
 });
 
 test('spliceSiblings replaces only the first marked section', () => {

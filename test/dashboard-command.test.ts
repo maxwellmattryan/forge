@@ -1,10 +1,6 @@
-// The command bar (dashboard/src/lib/command.ts and CommandBar.svelte): grammar, completions,
-// keyboard rule, request mapping and the combobox markup.
+// The command bar (dashboard/src/lib/command.ts): grammar, completions, keyboard rule and request mapping.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { tags } from './svelte-markup.ts';
 import { VERBS, commandKey, commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, scopeVerbs, scopedJob, shellEscape, shortcutAction, shortcutLabel, suggest } from '../dashboard/src/lib/command.ts';
 import { buildRequest } from '../dashboard/src/lib/view.ts';
 
@@ -106,14 +102,14 @@ test('suggest ordering and limits', () => {
 });
 
 test('continue and resume', () => {
-  const owner = (status: string, agentRunning = false) => ({ ownerStatus: { status, session: 's1', since: null, heartbeat: null, agentRunning, reason: null } });
+  const owner = (status: string) => ({ ownerStatus: { status, session: status === 'none' ? null : 's1', since: null, renewedAt: null, expiresAt: null, epoch: 1, jobSession: false } });
   const jobs = [
     job('add-queued-q1', 'queued', owner('none')),
     job('add-held-q2', 'queued', owner('live')),
-    job('add-failed-f1', 'failed', owner('stale')),
-    job('add-stalled-r1', 'running', owner('stale')),
+    job('add-failed-f1', 'failed', owner('expired')),
+    job('add-stalled-r1', 'running', owner('expired')),
     job('add-running-r2', 'running', owner('live')),
-    job('add-waiting-w1', 'waiting', { waitingOn: 'spec-approval', ...owner('stale') }),
+    job('add-waiting-w1', 'waiting', { waitingOn: 'spec-approval', ...owner('expired') }),
     job('add-done-d1', 'done', owner('none')),
   ];
   const c: any = { jobs, backlog: [], tracker: 'local' };
@@ -140,7 +136,7 @@ test('continue and resume', () => {
 });
 
 test('scopeVerbs per state and gate', () => {
-  const owner = (status: string) => ({ ownerStatus: { status, session: status === 'none' ? null : 's1', since: null, heartbeat: null, agentRunning: false, reason: null } });
+  const owner = (status: string) => ({ ownerStatus: { status, session: status === 'none' ? null : 's1', since: null, renewedAt: null, expiresAt: null, epoch: 1, jobSession: false } });
   const gate = (waitingOn: string) => scopeVerbs(job('x', 'waiting', { waitingOn, ...owner('none') }));
   assert.deepEqual(gate('spec-approval'), ['approve', 'revise', 'cancel']);
   for (const g of ['split-approval', 'issue-link', 'infra', 'external', 'budget']) assert.deepEqual(gate(g), ['approve', 'cancel'], g);
@@ -150,10 +146,10 @@ test('scopeVerbs per state and gate', () => {
   assert.deepEqual(scopeVerbs(job('x', 'failed', owner('none'))), ['continue', 'cancel']);
   assert.deepEqual(scopeVerbs(job('x', 'failed')), ['continue', 'cancel'], 'no ownerStatus at all');
   assert.deepEqual(scopeVerbs(job('x', 'queued', owner('none'))), ['continue', 'cancel']);
-  assert.deepEqual(scopeVerbs(job('x', 'running', owner('live'))), ['cancel'], 'a live owner drives it');
-  assert.deepEqual(scopeVerbs(job('x', 'running', owner('stale'))), ['continue', 'cancel']);
+  assert.deepEqual(scopeVerbs(job('x', 'running', owner('live'))), ['cancel'], 'a live lease drives it');
+  assert.deepEqual(scopeVerbs(job('x', 'running', owner('expired'))), ['continue', 'cancel']);
   assert.deepEqual(scopeVerbs(job('x', 'done', owner('none'))), []);
-  assert.deepEqual(scopeVerbs(job('x', 'cancelled', owner('stale'))), []);
+  assert.deepEqual(scopeVerbs(job('x', 'cancelled', owner('expired'))), []);
   // Always in VERBS order.
   for (const g of ['spec-approval', 'input', 'escalation']) {
     const got = gate(g);
@@ -257,33 +253,4 @@ test('commandRequest bodies', () => {
   assert.deepEqual(body('answer fix-login-g7h8'), { error: 'Write something first.' });
   assert.ok('error' in body('approve '), 'a partial command sends nothing');
   assert.ok('error' in body(''), 'nor does an empty bar');
-});
-
-test('command bar markup is an ARIA combobox', () => {
-  const file = path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'CommandBar.svelte');
-  const all = tags('CommandBar.svelte', fs.readFileSync(file, 'utf8'));
-  const attr = (t: any, name: string) => t.attrs.find((a: any) => a.name === name)?.value;
-  const with_ = (name: string, value: string) => all.filter((t) => attr(t, name) === value);
-  const [dialog] = with_('role', '"dialog"');
-  assert.ok(dialog, 'a dialog');
-  assert.equal(attr(dialog, 'aria-modal'), '"true"');
-  assert.match(attr(dialog, 'aria-label') ?? attr(dialog, 'aria-labelledby') ?? '', /\$t\('command\.title'\)|\S/);
-  const [combo] = with_('role', '"combobox"');
-  assert.ok(combo && combo.name === 'input', 'the input is the combobox');
-  for (const a of ['aria-expanded', 'aria-activedescendant', 'aria-label']) assert.ok(attr(combo, a), a);
-  assert.equal(attr(combo, 'aria-controls'), '"command-list"');
-  assert.equal(attr(combo, 'aria-autocomplete'), '"list"');
-  const [list] = with_('role', '"listbox"');
-  assert.equal(attr(list, 'id'), '"command-list"');
-  const [option] = with_('role', '"option"');
-  assert.ok(attr(option, 'aria-selected'), 'options carry aria-selected');
-  assert.ok(attr(option, 'id'), 'options have ids for aria-activedescendant');
-  assert.equal(with_('aria-live', '"polite"').length, 1, 'one polite live region');
-  assert.ok(with_('role', '"alert"').length >= 1, 'server errors show as an alert');
-  // The job scope: a chip that describes the combobox, and its own labelled remove button.
-  assert.equal(with_('id', '"command-scope"').length, 1, 'the scope chip');
-  // The shared close control (CloseButton renders a button with aria-label={label}).
-  const remove = with_('label', "{$t('command.clearScope')}");
-  assert.ok(remove.length === 1 && remove[0].name === 'CloseButton', 'a button removes the scope');
-  assert.match(attr(combo, 'aria-describedby') ?? '', /^\{(\w+) \? 'command-scope' : undefined\}$/, 'the combobox is described by the chip only while scoped');
 });

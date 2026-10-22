@@ -2,7 +2,7 @@
 // this file never runs. The dashboard's src/lib/types.ts carries a copy of the API shapes, kept
 // equal by test/types-parity.ts, until the dashboard imports this file. Unions that have a runtime
 // list are derived from that list, never retyped.
-import type { ACTOR_SOURCES, BACKING_DB_ENGINES, BACKING_ISOLATIONS, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
+import type { ACTOR_SOURCES, BACKING_DB_ENGINES, BACKING_ISOLATIONS, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, HANDOFF_CLASSES, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
 import type { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES, LINK_ECOSYSTEMS } from './components.ts';
 import type { SINK_FORMATS, SINK_MODES } from './config-sinks.ts';
@@ -131,34 +131,37 @@ export interface JobPr {
   integrateFor?: string;
 }
 
-/** The session driving a job: claimJob in lib/jobs.ts. */
-export interface JobOwner {
-  session: string;
-  host: string;
-  since: string;
-  heartbeat: string;
+/**
+ * The fenced claim on a job: claimJob, renewLease, expireLease and releaseJob in lib/jobs.ts. `epoch`
+ * grows by one at every change of driver and never goes back, so a write fenced with an older one is
+ * a driver that was taken over.
+ */
+export interface JobLease {
+  /** The driving session; null when nobody holds the job. */
+  driver: string | null;
+  epoch: number;
+  /** When this driver first claimed it. */
+  since: string | null;
+  renewedAt: string | null;
+  /** Live while in the future; the supervisor sets it to now when the driver's process exits. */
+  expiresAt: string | null;
 }
 
-/** Why a daemon owner provably let go of a job: ownerYield in lib/daemon-owner.ts. */
-export type YieldReason = 'moved-on' | 'not-running' | 'inbox-handoff';
+/** `none` without a driver; `expired` with one whose expiresAt has passed. */
+export type OwnerStatusKind = 'none' | 'live' | 'expired';
 
-/** `dead` only with a daemon-record proof (ownerStatusWithProof); the time rule alone gives the rest. */
-export type OwnerStatusKind = 'none' | 'live' | 'stale' | 'dead';
-
-/** Whether a job's owner still drives it: ownerStatus in lib/jobs.ts, ownerStatusWithProof in lib/daemon-owner.ts. */
+/** Whether a job's lease still holds: leaseStatus in lib/jobs.ts. */
 export interface OwnerStatus {
   status: OwnerStatusKind;
   session: string | null;
   since: string | null;
-  heartbeat: string | null;
-  /** An agent has been marked running for under 2 hours. */
-  agentRunning: boolean;
-  /** Set only with status `dead`. */
-  reason: YieldReason | null;
+  renewedAt: string | null;
+  expiresAt: string | null;
+  epoch: number;
   /**
-   * The owner is this job's own daemon session, recorded and running: a `resume` reaches that
-   * session, which claims as itself, so a live owner doesn't block it. Proven only in the job
-   * detail and the resume guard; false in /api/state.
+   * The driver is this job's own pool session and it runs: a `resume` reaches that session, which
+   * claims as itself, so its live lease doesn't block it. Set only in the job detail and the resume
+   * guard, from the pool; false in /api/state.
    */
   jobSession: boolean;
 }
@@ -311,7 +314,7 @@ export interface Job {
   budget: JobBudget;
   decision: string | null;
   pr: JobPr | null;
-  owner: JobOwner | null;
+  lease: JobLease;
   agents: Record<string, JobAgent>;
   usage: JobUsage;
   runs: JobRun[];
@@ -375,14 +378,14 @@ export interface Progress {
 /** A job as loadJob and normalizeJob return it: normalizeJob marks one written by a newer Forge. */
 export type LoadedJob = Job & { _unsupported?: true };
 
-// ---------- forge job step (lib/step.ts; not /api shapes) ----------
+// ---------- forge job step (lib/step/; not /api shapes) ----------
 
 /** What a `wait` waits on: a gate, or the agents still running. */
 export type StepWaitingOn = WaitingOn | 'agents';
 
 interface StepBase {
   id: string;
-  /** The rule in lib/step.ts RULES that chose this action. */
+  /** The rule in lib/step/rules.ts RULES that chose this action. */
   rule: string;
 }
 
@@ -450,7 +453,7 @@ export interface StepVerdicts {
   reviewers: Record<string, { verdict: string }>;
 }
 
-/** Everything `step` decides from, read once by loadStepInput in lib/step.ts. */
+/** Everything `step` decides from, read once by loadStepInput in lib/step/input.ts. */
 export interface StepInput {
   job: Job;
   config: Config;
@@ -491,10 +494,26 @@ export interface StepInput {
    * (lib/scope.ts integrationTouched), keyed by the sides that event recorded; null when unknown.
    */
   integrationTouched: { head: string; upstream: string; sha: string; files: string[] | null } | null;
+  /**
+   * The decide gate's recall eval (lib/step/input.ts loadRecall): whether the committed diff touches
+   * evals.recall.paths, and the worktree's pluginHash a recorded run must match. `invalidFixtures`
+   * when the gate is required but a main-checkout fixture does not load, so `start` cannot run and
+   * RC2 parks at once. Null outside decide, for an eval job, without a worktree, or when the main
+   * checkout has no recall fixture.
+   */
+  recall: { required: boolean; pluginHash: string | null; invalidFixtures?: true } | null;
   /** How many `.forge/verifiers/*.md` entries the main checkout has: 0 keeps the verify stage as it was. */
   verifiers: number;
   /** The job's and the project's backing port records, for the brief's Backing services line; absent without backing entries. */
   backing?: { job: BackingRecord; shared: BackingRecord };
+  /** loadStepInput's clock, ISO: step reads no other (the repo-budget tell names its period from it). */
+  now: string;
+  /** jobEndpoints' components, for a reviewer brief's Endpoints line; empty without `commands.dev`. */
+  endpoints: { name: string; url: string }[];
+  /** trustedMemberWorktree per member repo, never job.json's `worktree`: a reviewer brief's Lens repo line. */
+  memberWorktrees: Record<string, string | null>;
+  /** While the job waits on `budget`: the keys still over their limit after acks (`forge job budget`'s stillExceeded); null otherwise. */
+  budgetExceeded: string[] | null;
 }
 
 /** The job files StepInput.files records. */
@@ -565,6 +584,12 @@ export interface JobEvent {
   note?: string | null;
   /** On human-action events (lib/actor.ts): who acted, best effort and unauthenticated. */
   actor?: EventActor;
+  /** agent-start since event v3 (lib/provenance.ts): the running plugin's 10-hex hash. */
+  pluginHash?: string | null;
+  /** agent-start since event v3: the role's 12-hex hash as `forge roster` reports it; null for a role with no agent file. */
+  promptHash?: string | null;
+  /** agent-start since event v3: the 10-hex hash of the repo layer and the job's effective config; null when the config could not be built. */
+  configHash?: string | null;
   [key: string]: unknown;
 }
 
@@ -908,6 +933,8 @@ export interface Config {
     conflicts: 'ask' | 'fix' | 'defer';
     updateStrategy: 'merge' | 'rebase';
     integrationReview: 'always' | 'code-only';
+    /** Consecutive CI reworks forge sync starts before a red head waits for a person. */
+    maxCiReworks: number;
   };
   merge: {
     auto: boolean;
@@ -938,8 +965,10 @@ export interface Config {
     /** Overrides for lib/pricing.json: { models: { <id>: {input, output, cacheRead, cacheWrite} }, aliases: {…} }. */
     pricing: Record<string, unknown>;
   };
-  improve: { retroEvery: number; maxLearnings: number };
-  evals: { testPattern: string | null };
+  /** experiments: how many after-jobs `forge experiment evaluate` needs to decide an entry (minJobs) and when it closes one undecided (maxJobs). */
+  improve: { retroEvery: number; maxLearnings: number; experiments: { minJobs: number; maxJobs: number } };
+  /** recall.paths: committed paths (inSpec tokens) that make the decide gate ask for a recall eval. */
+  evals: { testPattern: string | null; recall: { paths: string[] } };
   dashboard: { port: number };
   daemon: {
     enabled: boolean;
@@ -947,7 +976,10 @@ export interface Config {
     allowedTools: string[];
     maxConcurrent: number;
     idleStopMinutes: number | null;
+    /** A turn busy past this is stopped and its work requeued; null: no limit. */
+    turnTimeoutMinutes: number | null;
     auth: DaemonAuth;
+    jobBudget: DaemonJobBudget;
   };
   /** The office session's authority: docs/CONFIG.md "Foreman". */
   foreman: {
@@ -1028,6 +1060,15 @@ export interface NotifyWebhook {
 
 /** A gate class the foreman may decide: OFFICE_GATES in lib/schema.ts. */
 export type GateClass = (typeof OFFICE_GATES)[number];
+/** Why the Foreman left a gate for a person: HANDOFF_CLASSES in lib/schema.ts. */
+export type HandoffClass = (typeof HANDOFF_CLASSES)[number];
+/** A Foreman hand-off still standing at the job's current park: foremanHandoff in lib/foreman.ts. */
+export interface ForemanHandoff {
+  gate: GateClass;
+  class: HandoffClass;
+  reason: string;
+  at: string;
+}
 /** foreman.ship: FOREMAN_SHIP in lib/schema.ts. */
 export type ForemanShip = (typeof FOREMAN_SHIP)[number];
 /** Where an event's actor came from: ACTOR_SOURCES in lib/schema.ts. */
@@ -1262,6 +1303,8 @@ export interface ForgeRequest {
   session?: string;
   updatedAt?: string;
   result?: string | null;
+  /** How often requeueOrphans returned it to pending after its session ended; a second time rejects it. */
+  requeues?: number;
 }
 
 // ---------- tracker contract ----------
@@ -1322,8 +1365,13 @@ export interface PipelineConfig {
   specApproval: 'always' | 'large' | 'never';
   design: 'none' | 'reference' | 'mockup';
   maxRounds: number;
+  /** The total-round ceiling (B7); null means twice the job's maxRounds. */
+  maxTotalRounds: number | null;
   budget: BudgetLimits;
 }
+
+/** daemon.jobBudget: the spend limits an unattended job with none of its own gets (lib/budget.ts effectiveLimits). */
+export type DaemonJobBudget = { tokens?: number | null; usd?: number | null; minutes?: number | null } | null;
 
 /** Session supervisor status: state() in lib/daemon.ts. */
 export type DaemonStatus = 'off' | 'idle' | 'busy' | 'stopping';
@@ -1483,7 +1531,7 @@ export interface LastHuman {
   actor: EventActor;
 }
 
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null; endpoints: Endpoint[] };
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null; endpoints: Endpoint[]; foremanHandoff: ForemanHandoff | null };
 
 /** GET /api/state: state() in lib/server.ts. */
 export interface ApiState {
@@ -1497,7 +1545,7 @@ export interface ApiState {
     panel: string[];
     pipeline: PipelineConfig;
     models: Record<string, string>;
-    daemon: { enabled: boolean };
+    daemon: { enabled: boolean; jobBudget: DaemonJobBudget };
     /** runtime.effort when it is valid, else null. */
     effort: Effort | null;
   };
@@ -1561,6 +1609,20 @@ export interface ReviewerStats {
   disputeRate: number | null;
   /** (lens, path) pairs this lens raised in two consecutive rounds of one job. */
   recurring: number;
+  /** Merged jobs this lens reviewed whose escape status is known: a measured human delta or a final outcome. */
+  missChecked: number;
+  /** Of those, jobs with an escape this lens covered: a revert or follow-up, or a human-delta file in its paths, `when` or `always`. */
+  missed: number;
+  /** missed / missChecked; null when none is known. */
+  missRate: number | null;
+  /** Blocker and major findings, where the findings record carries severities. */
+  blockerMajor: number;
+  /** All findings where the record carries severities: blockerMajor's denominator. */
+  severityKnown: number;
+  /** blockerMajor / severityKnown; null at 0. */
+  blockerMajorShare: number | null;
+  /** By the UTC Monday of each job's createdAt, oldest first, the last 12 weeks with findings. */
+  severityTrend: { week: string; findings: number; blockerMajor: number; share: number | null }[];
 }
 
 /** One verifier's record: computeStats in lib/stats.ts, from `verifiers` record events. */
@@ -1575,6 +1637,35 @@ export interface VerifierStats {
   blocks: number;
   /** fails / runs; null at 0 runs. */
   hitRate: number | null;
+}
+
+/** One prompt cohort of `forge stats --by prompt` (statsByPrompt in lib/stats.ts). */
+export interface PromptCohort {
+  promptHash: string;
+  jobs: number;
+  /** The first 20, oldest keyed start first. */
+  jobIds: string[];
+  /** The earliest and latest keyed start of the cohort's jobs. */
+  firstAt: string;
+  lastAt: string;
+  /** At most 5 each, in run order. */
+  pluginHashes: string[];
+  configHashes: string[];
+  /** The full metrics over this cohort's jobs only. */
+  stats: Stats;
+}
+
+/** `forge stats --by prompt`: jobs keyed by the promptHash on their role's last hashed agent-start. */
+export interface PromptStats {
+  by: 'prompt';
+  role: string;
+  since: string | null;
+  /** Oldest firstAt first. */
+  cohorts: PromptCohort[];
+  /** Jobs with no hashed start for the role. */
+  unrecorded: number;
+  /** Jobs whose starts for the role carry more than one hash. */
+  mixed: number;
 }
 
 /** GET /api/stats: computeStats in lib/stats.ts. */
@@ -1647,7 +1738,45 @@ export interface ExperimentEntry {
   metric: string | null;
   direction: 'up' | 'down' | null;
   baseline: number | null;
+  /** The baseline's sample size: the denominator of a `0.344 (11/32)` baseline, else null. */
+  baselineN: number | null;
   status: string | null;
+}
+
+/** One `forge experiment evaluate` result (lib/experiments.ts). */
+export interface ExperimentResult {
+  id: string | null;
+  metric: string | null;
+  direction: 'up' | 'down' | null;
+  baseline: number | null;
+  baselineN: number | null;
+  /** Done or cancelled non-eval, non-retro jobs created after the entry's date; null when nothing was computed. */
+  jobsAfter: number | null;
+  /** After-jobs with a value for the metric. */
+  n: number | null;
+  /** The mean of the per-job values. */
+  value: number | null;
+  method: 'two-proportion' | 'wilson' | 'bootstrap' | null;
+  /** The difference from the baseline, [lo, hi], rounded to 3 decimals. */
+  interval: [number, number] | null;
+  verdict: 'kept' | 'reverted' | 'inconclusive' | 'pending' | 'settled';
+  /** The entry's status segment after the run (with --dry-run: what the run would leave). */
+  status: string | null;
+  reason: string | null;
+}
+
+/** `forge experiment evaluate`: the target ledger and every entry's result. */
+export interface ExperimentEvaluation {
+  file: string;
+  dryRun: boolean;
+  written: number;
+  entries: ExperimentResult[];
+}
+
+/** `forge experiment check`: problems in the notes layer. */
+export interface NotesCheck {
+  ok: boolean;
+  problems: { file: string; entry: string; problem: string }[];
 }
 
 /** An eval task as served: loadTask in lib/evals.ts minus `dir` and `request`. */
@@ -1688,7 +1817,7 @@ export interface EvalResult {
   /** Wall time when no agent was running. */
   orchestratorMinutes?: number | null;
   reviewerRuns?: number;
-  /** round > maxRounds at grade time: B6 sent it to decide. Absent on results graded before it. */
+  /** round > maxRounds at grade time: B6b sent it to decide. Absent on results graded before it. */
   roundsExhausted?: boolean;
 }
 
@@ -2422,6 +2551,8 @@ export interface StatusRow {
   pr: number | null;
   /** The owner's full session id. */
   session: string | null;
+  /** The Foreman left the gate the job waits at for a person; null otherwise. */
+  foremanHandoff: ForemanHandoff | null;
 }
 
 /** One `forge <command>` in the help tables (`HELP` beside each command module). */
