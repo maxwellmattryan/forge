@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { defaults, validateConfig } from '../lib/config.ts';
-import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
+import { defaults, validateConfig } from '../lib/core/config/load.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
 import { initWrite } from '../lib/commands/init.ts';
 import { modelFamily, modelOverlap, roster } from '../lib/roster.ts';
 

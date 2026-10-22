@@ -4,11 +4,11 @@
 import path from 'node:path';
 import { renderBrief, roleBrief } from '../brief.ts';
 import type { RoleContext } from '../brief.ts';
-import { resolveEffort, resolveModel } from '../config.ts';
-import { reviewFileName } from '../lens.ts';
+import { resolveEffort, resolveModel } from '../core/config/load.ts';
+import { reviewFileName } from '../core/job/lens.ts';
 import { AGENT_ID } from '../transcripts.ts';
-import type { JobEvent, StepDone, StepInput, StepProcedure, StepRun, StepSpawn, StepWait, StepWaitingOn, WaitingOn } from '../types.ts';
-import { ForgeError } from '../util.ts';
+import type { JobEvent, StepDone, StepInput, StepProcedure, StepRun, StepSpawn, StepWait, StepWaitingOn, WaitingOn } from '../core/types.ts';
+import { ForgeError } from '../core/errors.ts';
 import { after, afterIdx, agent, human, isPrRework, lastIdx, lastVerify, orNull, p, pendingVerifiers, ref, runningRoles, splitMode } from './facts.ts';
 import { reworkReviewFiles } from './panel.ts';
 import type { RuleId } from './rules.ts';

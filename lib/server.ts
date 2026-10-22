@@ -5,39 +5,39 @@ import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
-import { daemonProblems, loadConfig, resolveEffort, validateConfig } from './config.ts';
+import { daemonProblems, loadConfig, resolveEffort, validateConfig } from './core/config/load.ts';
 import { allKnownValues, isPrivateJobFile, isPrivateName, knownValues, redactDeep, redactKnown, scopeKnownValues } from './known-secrets.ts';
-import { ConfigSetError, FIELDS } from './config-fields.ts';
+import { ConfigSetError, FIELDS } from './core/config/fields.ts';
 import { dashboardActor } from './actor.ts';
-import { setConfigValue } from './config-set.ts';
+import { setConfigValue } from './core/config/set.ts';
 import { PERMISSION_MODES } from './daemon.ts';
-import { UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from './daemon-files.ts';
+import { UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from './core/job/session-files.ts';
 import type { DaemonOptions } from './daemon.ts';
 import { createPool } from './daemon-pool.ts';
 import type { DaemonPool, PoolState } from './daemon-pool.ts';
 import { buildBundle, bundleFileName } from './bundle.ts';
 import { doctor } from './doctor.ts';
 import { containedWorktree, editorArgv, openEditor } from './editor.ts';
-import { readSmallJson } from './focus.ts';
+import { readSmallJson } from './core/job/focus.ts';
 import { CheckoutError } from './checkout.ts';
 import { InactiveJobError, currentFocus, focusJob } from './focus-actions.ts';
 import { recordEnvironmentStopped } from './environment-lifecycle.ts';
 import { createPreviewer, ghRunner, parseGitHubUrl } from './github-preview.ts';
 import type { GhRunner } from './github-preview.ts';
 import { daemonSessionIds } from './daemon-owner.ts';
-import { AGENT_LEASE_MS, createJob, isActive, leaseStatus, listJobs, loadJob, progress, readEvents, jobDir, requestBody, setJob, setJobEffort } from './jobs.ts';
+import { AGENT_LEASE_MS, createJob, isActive, leaseStatus, listJobs, loadJob, progress, readEvents, jobDir, requestBody, setJob, setJobEffort } from './core/job/store.ts';
 import { deleteJob, deleteRefusal } from './delete.ts';
 import { decideRepoProposals, isRepoProposalPark } from './repo-proposals.ts';
 import { REPO_NAME } from './member-repos.ts';
-import { parseIssueRef } from './issue-ref.ts';
-import { paths, exists, BUILD_DASHBOARD, DEV_DIST_DIR, PLUGIN_ROOT } from './paths.ts';
-import { API_VERSION, CONFIG_SCHEMA_VERSION, EFFORTS, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
+import { parseIssueRef } from './core/job/issue-ref.ts';
+import { paths, exists, BUILD_DASHBOARD, DEV_DIST_DIR, PLUGIN_ROOT } from './core/paths.ts';
+import { API_VERSION, CONFIG_SCHEMA_VERSION, EFFORTS, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './core/job/schema.ts';
 import { computeStats } from './stats.ts';
 import { projectGraph } from './project.ts';
 import { RepoBudgetAckError, ackRepoBudget, repoBudgetStatus, validPeriod } from './repo-budget.ts';
 import { jobBudgetOf } from './budget.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from './evals.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, enqueue, listRequests, validJobId, validScope } from './requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, enqueue, listRequests, validJobId, validScope } from './core/job/requests.ts';
 import { foremanHandoff, gateOwner } from './foreman.ts';
 import { loadTracker } from './trackers/index.ts';
 import { roster } from './roster.ts';
@@ -46,15 +46,17 @@ import { deriveTitle, normalizeTitle } from './title.ts';
 import { agentTranscript, cachedActivity, claudeProjectsDir, openTranscript, ownerTranscript } from './transcripts.ts';
 import type { TranscriptHit } from './transcripts.ts';
 import { redactContext, redactText } from './redact.ts';
-import { getPath, isMap } from './shape.ts';
-import { ForgeError, pidAlive, readJson, readText } from './util.ts';
+import { getPath, isMap } from './core/shape.ts';
+import { ForgeError } from './core/errors.ts';
+import { pidAlive } from './core/os/process.ts';
+import { readJson, readText } from './core/os/fs.ts';
 import { versionInfo } from './version.ts';
 import { commandTemplate, startBackground, stopDevProven } from './worktree.ts';
 import { jobEndpoints } from './endpoints.ts';
 import { containerName, entriesOrNone, isManaged, projectSlug } from './backing.ts';
 import { dockerSpawn } from './docker.ts';
 import { DOCKER_NAME, environmentsSnapshot, forgeJson, jobEnvironment, openConfinedLog, openDevLog } from './environment.ts';
-import { zip } from './zip.ts';
+import { zip } from './core/format/zip.ts';
 import type {
   AboutResponse,
   AgentActivity,
@@ -99,7 +101,7 @@ import type {
   RequestInfo,
   TranscriptPage,
   VersionInfo,
-} from './types.ts';
+} from './core/types.ts';
 
 /** startServer's options. `distDir` is a test seam like `sseMaxAgeMs`. */
 export interface ServerOptions {

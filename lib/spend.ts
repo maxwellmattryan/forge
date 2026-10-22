@@ -6,12 +6,12 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { archiveDir, hasLiveJob, readArchived } from './archive.ts';
-import { jobDir, listJobs, parseEventLines } from './jobs.ts';
-import { paths } from './paths.ts';
+import { archiveDir, hasLiveJob, readArchived } from './core/job/archive.ts';
+import { jobDir, listJobs, parseEventLines } from './core/job/store.ts';
+import { paths } from './core/paths.ts';
 import { estimateCost, pricing } from './pricing.ts';
-import type { Config, JobEvent, SpendBucket } from './types.ts';
-import { writeJsonAtomic } from './util.ts';
+import type { Config, JobEvent, SpendBucket } from './core/types.ts';
+import { writeJsonAtomic } from './core/os/fs.ts';
 
 export const SPEND_CACHE_VERSION = 1;
 const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;

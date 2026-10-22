@@ -229,7 +229,7 @@ improve:
 evals:                       # a run's variant is an overlay, never an edit here (see "Eval overlays" below)
   testPattern: null          # regex for test files: mining PRs into eval tasks, and verify's integrity report (null: a built-in default)
   recall:
-    paths: [agents/, reviewers/, lib/brief.ts]   # committed paths (spec-path tokens) that make decide ask for a reviewer recall eval, when the main checkout has fixtures
+    paths: [agents/, reviewers/, lib/engine/pipeline/brief.ts]   # committed paths (spec-path tokens) that make decide ask for a reviewer recall eval, when the main checkout has fixtures
 
 dashboard:
   port: 7400

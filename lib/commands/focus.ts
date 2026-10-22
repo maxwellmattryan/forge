@@ -2,8 +2,8 @@
 // `checkout` steps (lib/checkout.ts), then the focused job's backing services; it starts and stops
 // no background process (lib/focus.ts, lib/focus-actions.ts).
 import { currentFocus, focusJob } from '../focus-actions.ts';
-import type { Config, EnvironmentUpResult, FocusResponse, HelpGroup } from '../types.ts';
-import { ForgeError } from '../util.ts';
+import type { Config, EnvironmentUpResult, FocusResponse, HelpGroup } from '../core/types.ts';
+import { ForgeError } from '../core/errors.ts';
 
 const FOCUS: HelpGroup = {
   name: 'focus',

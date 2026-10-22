@@ -8,6 +8,6 @@
 /lib/daemon-pool.ts @maxwellmattryan
 /hooks/** @maxwellmattryan
 /lib/attribution.ts @maxwellmattryan
-/lib/config-fields.ts @maxwellmattryan
+/lib/core/config/fields.ts @maxwellmattryan
 /.github/** @maxwellmattryan
-/lib/schema.ts @maxwellmattryan
+/lib/core/job/schema.ts @maxwellmattryan

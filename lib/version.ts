@@ -2,12 +2,12 @@
 // audited and rolled back (docs/RELEASES.md "Provenance and pinning").
 import fs from 'node:fs';
 import path from 'node:path';
-import { PLUGIN_ROOT } from './paths.ts';
+import { PLUGIN_ROOT } from './core/paths.ts';
 import { detectInstall } from './update.ts';
 import { ghJson } from './gh.ts';
 import { git, gitEnv } from './git.ts';
-import { readJson } from './util.ts';
-import type { DoctorCheck, InstallInfo, InstalledAs, VersionInfo } from './types.ts';
+import { readJson } from './core/os/fs.ts';
+import type { DoctorCheck, InstallInfo, InstalledAs, VersionInfo } from './core/types.ts';
 
 /** At the plugin root; `git archive` stamps it through `.gitattributes` `export-subst`. */
 const COMMIT_FILE = 'COMMIT';

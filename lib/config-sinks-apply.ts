@@ -9,18 +9,19 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { isOwnWorktreePath } from './config.ts';
-import { renderEnvFile, renderMerge, renderTemplate, resolveString, sinkProblems } from './config-sinks.ts';
-import type { ExprContext } from './config-sinks.ts';
+import { isOwnWorktreePath } from './core/config/load.ts';
+import { renderEnvFile, renderMerge, renderTemplate, resolveString, sinkProblems } from './core/config/sinks.ts';
+import type { ExprContext } from './core/config/sinks.ts';
 import { git } from './git.ts';
-import { jobDir } from './jobs.ts';
+import { jobDir } from './core/job/store.ts';
 import { recordKnown, redactKnown } from './known-secrets.ts';
 import { writeIfChanged } from './links.ts';
-import { posixShell } from './platform.ts';
+import { posixShell } from './core/os/platform.ts';
 import { resolveSecret } from './secret-refs.ts';
-import { declaredSecrets } from './secret-refs-config.ts';
-import type { ComponentConfig, Config, ConfigSink, Job } from './types.ts';
-import { ForgeError, run } from './util.ts';
+import { declaredSecrets } from './core/config/validators/secret-refs.ts';
+import type { ComponentConfig, Config, ConfigSink, Job } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
+import { run } from './core/os/process.ts';
 
 /** What a `forge run` result and the `config-sinks` event carry: names, paths and a count, never values. */
 export interface SinkSummary {

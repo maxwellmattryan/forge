@@ -5,12 +5,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeSync, repoTemplate } from './helpers.ts';
-import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
+import { defaults, loadConfig, validateConfig } from '../lib/core/config/load.ts';
 import { bootstrap, checkNotes, evaluateExperiments, mulberry32, newcombe, seedFor, validMetricPath, validWrittenStatus, wilson } from '../lib/experiments.ts';
-import { createJob, loadJob, setJob } from '../lib/jobs.ts';
+import { createJob, loadJob, setJob } from '../lib/core/job/store.ts';
 import { parseExperiments } from '../lib/learnings.ts';
 import { createWorktree, verify } from '../lib/worktree.ts';
-import type { Config } from '../lib/types.ts';
+import type { Config } from '../lib/core/types.ts';
 
 const template = repoTemplate((dir) => {
   const answers = path.join(dir, '.answers.json');
@@ -370,7 +370,7 @@ test('experiment and recall config is validated', () => {
     return validateConfig(c, process.cwd()).filter((p) => p.startsWith('improve.') || p.startsWith('evals.'));
   };
   const d = defaults();
-  assert.deepEqual([d.improve.experiments, d.evals.recall], [{ minJobs: 5, maxJobs: 10 }, { paths: ['agents/', 'reviewers/', 'lib/brief.ts'] }]);
+  assert.deepEqual([d.improve.experiments, d.evals.recall], [{ minJobs: 5, maxJobs: 10 }, { paths: ['agents/', 'reviewers/', 'lib/engine/pipeline/brief.ts'] }]);
   assert.deepEqual(problems(() => {}), []);
   assert.deepEqual(problems((c) => (c.improve.experiments = { minJobs: 3, maxJobs: 3 })), []);
   for (const [label, edit] of [

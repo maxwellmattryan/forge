@@ -5,14 +5,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { configForJob } from './eval-overlay.ts';
 import { STATUS_ARGV, git, historyEnv } from './git.ts';
-import { jobDir, loadJob, logEvent, readEvents, setJob } from './jobs.ts';
-import { exists } from './paths.ts';
+import { jobDir, loadJob, logEvent, readEvents, setJob } from './core/job/store.ts';
+import { exists } from './core/paths.ts';
 import { readMemberPanel } from './member-panel.ts';
 import { approachPaths, committedChanges, resolveBase, reviewedRepoDiffs } from './scope.ts';
 import type { RepoScope } from './scope.ts';
 import { choosePanel, parseSpecHeader, reworkPanel } from './step.ts';
-import type { Config } from './types.ts';
-import { ForgeError } from './util.ts';
+import type { Config } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
 
 /** What `forge job panel` prints: jobPanel. */
 export interface PanelReport {

@@ -8,14 +8,14 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { git as runGit, historyEnv } from './git.ts';
-import { inSpec } from './glob.ts';
+import { inSpec } from './core/glob.ts';
 import { PINNED_DIFF_OPTS, parseDiffLines } from './integrity.ts';
-import { defaultAgentOutput, jobDir, logEvent } from './jobs.ts';
+import { defaultAgentOutput, jobDir, logEvent } from './core/job/store.ts';
 import { MIN_SECRET, knownValues } from './known-secrets.ts';
 import { queueNotify } from './notify.ts';
 import { resolveBase } from './scope.ts';
-import type { CompactSecrets, Config, Job, SecretAllowlist, SecretFinding, SecretKind, SecretScan, TextUnit } from './types.ts';
-import { ForgeError } from './util.ts';
+import type { CompactSecrets, Config, Job, SecretAllowlist, SecretFinding, SecretKind, SecretScan, TextUnit } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
 
 export const SECRET_KINDS = [
   'private-key',

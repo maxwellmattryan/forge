@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EFFORT_CASES } from './effort-cases.ts';
 import { effectiveEffort, effortChip, effortTone, postJobEffort, restartPending } from '../dashboard/src/lib/effort.ts';
-import { defaults, resolveEffort } from '../lib/config.ts';
+import { defaults, resolveEffort } from '../lib/core/config/load.ts';
 
 test("effectiveEffort matches the engine's precedence", () => {
   for (const c of EFFORT_CASES) {

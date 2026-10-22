@@ -2,18 +2,20 @@
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import readline from 'node:readline/promises';
-import { paths, PLUGIN_ROOT } from '../paths.ts';
+import { paths, PLUGIN_ROOT } from '../core/paths.ts';
 import { currentActor } from '../actor.ts';
-import { setConfigValue } from '../config-set.ts';
+import { setConfigValue } from '../core/config/set.ts';
 import { apiKeyVars, reapOrphans } from '../daemon.ts';
-import { daemonPlatformProblem } from '../platform.ts';
-import { getPath } from '../shape.ts';
-import { ForgeError, pidAlive, readJson, readText, sleepSync, writeJsonAtomic } from '../util.ts';
-import * as yaml from '../yaml.ts';
+import { daemonPlatformProblem } from '../core/os/platform.ts';
+import { getPath } from '../core/shape.ts';
+import { ForgeError } from '../core/errors.ts';
+import { pidAlive, sleepSync } from '../core/os/process.ts';
+import { readJson, readText, writeJsonAtomic } from '../core/os/fs.ts';
+import * as yaml from '../core/format/yaml.ts';
 import { out, outputMode } from './args.ts';
 import { colorEnabled } from './render.ts';
 import type { RunningServer } from '../server.ts';
-import type { Config, HelpGroup } from '../types.ts';
+import type { Config, HelpGroup } from '../core/types.ts';
 
 export const HELP: HelpGroup[] = [
   {

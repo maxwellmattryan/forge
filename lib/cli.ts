@@ -4,20 +4,21 @@
 // agent mode. Human mode, for a person at a terminal, renders the same results as text; main()
 // resolves the mode once per process (docs/CLI.md "Output mode").
 // Command groups live in lib/commands/; this file only routes.
-import { daemonTrust, loadConfig } from './config.ts';
+import { daemonTrust, loadConfig } from './core/config/load.ts';
 import { refuseInOffice, refuseInboxDrive } from './daemon-owner.ts';
-import { NEED_INIT } from './config-set.ts';
+import { NEED_INIT } from './core/config/set.ts';
 import { detect } from './detect.ts';
 import { stopBackground } from './environment-lifecycle.ts';
 import { git } from './git.ts';
-import { loadJob } from './jobs.ts';
+import { loadJob } from './core/job/store.ts';
 import { trustedMemberWorktree } from './job-repos.ts';
-import { mainRoot } from './paths.ts';
+import { mainRoot } from './core/paths.ts';
 import * as pr from './pr.ts';
 import { prepareRetro, retroDue } from './retro.ts';
 import { roster } from './roster.ts';
 import { computeStats, statsByPromptCmd, statsCsv } from './stats.ts';
-import { ForgeError, readJson } from './util.ts';
+import { ForgeError } from './core/errors.ts';
+import { readJson } from './core/os/fs.ts';
 import * as wt from './worktree.ts';
 import { advanceCmd } from './commands/advance.ts';
 import { auditCmd } from './commands/audit.ts';
@@ -47,7 +48,7 @@ import { statsText, statusRows, statusTable, statusView } from './commands/statu
 import { nextCmd, syncAll, trackerCmd } from './commands/tracker.ts';
 import { updateCmd } from './commands/update.ts';
 import { versionCmd } from './commands/version.ts';
-import type { CliContext, Dispatched } from './types.ts';
+import type { CliContext, Dispatched } from './core/types.ts';
 
 export { reportError } from './commands/help.ts';
 

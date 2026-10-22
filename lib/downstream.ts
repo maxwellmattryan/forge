@@ -5,16 +5,16 @@
 // which a daemon session adds a repo, and it can add only a verify-only one, which never pushes.
 
 import path from 'node:path';
-import { verifySteps } from './config.ts';
+import { verifySteps } from './core/config/load.ts';
 import { addJobRepo, memberClone, memberRepos } from './job-repos.ts';
-import { loadJob, logEvent, readEvents } from './jobs.ts';
+import { loadJob, logEvent, readEvents } from './core/job/store.ts';
 import { declaredLinks } from './links.ts';
 import { REPO_NAME } from './member-repos.ts';
 import { projectGraph } from './project.ts';
-import { daemonScope } from './requests.ts';
-import { isMap } from './shape.ts';
-import type { Config, Job, JobEvent } from './types.ts';
-import { ForgeError } from './util.ts';
+import { daemonScope } from './core/job/requests.ts';
+import { isMap } from './core/shape.ts';
+import type { Config, Job, JobEvent } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
 
 export interface DownstreamSkip {
   repo: string;

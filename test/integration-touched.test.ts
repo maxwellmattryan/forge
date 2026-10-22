@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { defaults } from '../lib/config.ts';
+import { defaults } from '../lib/core/config/load.ts';
 import { integrationTouched } from '../lib/scope.ts';
 import { loadIntegrationTouched } from '../lib/step.ts';
 

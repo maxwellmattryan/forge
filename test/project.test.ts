@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { projectGraph, repoGraph } from '../lib/project.ts';
-import { componentProblems } from '../lib/components.ts';
+import { componentProblems } from '../lib/core/config/components.ts';
 
 const g = (components: unknown) => projectGraph({ components } as any);
 

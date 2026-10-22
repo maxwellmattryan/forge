@@ -9,10 +9,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, forgeSync, repoTemplate } from '../../helpers.ts';
-import { defaults, loadConfig, stringifyConfig, validateConfig } from '../../../lib/config.ts';
-import { createJob, jobDir, loadJob, readEvents, setJob, updateJob } from '../../../lib/jobs.ts';
-import { CONFIG_SCHEMA_VERSION } from '../../../lib/schema.ts';
-import { deepMerge } from '../../../lib/shape.ts';
+import { defaults, loadConfig, stringifyConfig, validateConfig } from '../../../lib/core/config/load.ts';
+import { createJob, jobDir, loadJob, readEvents, setJob, updateJob } from '../../../lib/core/job/store.ts';
+import { CONFIG_SCHEMA_VERSION } from '../../../lib/core/job/schema.ts';
+import { deepMerge } from '../../../lib/core/shape.ts';
 import { createWorktree } from '../../../lib/worktree.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..', '..');

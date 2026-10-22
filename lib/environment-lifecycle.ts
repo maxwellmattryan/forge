@@ -9,12 +9,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { backingDown, backingStop, backingUp, isManaged } from './backing.ts';
 import type { DockerRunner } from './backing.ts';
-import { readFocusRecord, readSmallJson } from './focus.ts';
+import { readFocusRecord, readSmallJson } from './core/job/focus.ts';
 import { readEnvironments, updateEnvironments } from './environment-record.ts';
-import { isActive, jobDir, logEvent } from './jobs.ts';
-import type { BackingDownResult, BackingUpEntry, Config, EnvironmentDownResult, EnvironmentFinishStopResult, EnvironmentRecord, EnvironmentDownTrigger, EnvironmentStopResult, EnvironmentStopTrigger, EnvironmentUpResult, EnvironmentUpTrigger, Job } from './types.ts';
+import { isActive, jobDir, logEvent } from './core/job/store.ts';
+import type { BackingDownResult, BackingUpEntry, Config, EnvironmentDownResult, EnvironmentFinishStopResult, EnvironmentRecord, EnvironmentDownTrigger, EnvironmentStopResult, EnvironmentStopTrigger, EnvironmentUpResult, EnvironmentUpTrigger, Job } from './core/types.ts';
 import { databaseCommands } from './job-command.ts';
-import { now, readJson, writeJsonAtomic } from './util.ts';
+import { readJson, writeJsonAtomic } from './core/os/fs.ts';
+import { now } from './core/utils.ts';
 
 const message = (e: unknown): string => String((e as Error)?.message ?? e).slice(0, 500);
 

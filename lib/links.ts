@@ -8,13 +8,13 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { LINK_ECOSYSTEMS, isInsidePath, isLinkName, isLinkSource, isManifestPath } from './components.ts';
-import { isOwnWorktreePath, worktreeRoot } from './config.ts';
+import { LINK_ECOSYSTEMS, isInsidePath, isLinkName, isLinkSource, isManifestPath } from './core/config/components.ts';
+import { isOwnWorktreePath, worktreeRoot } from './core/config/load.ts';
 import { git } from './git.ts';
 import { memberEntry, memberWorktreePath, trustedMemberWorktree } from './job-repos.ts';
-import { linkDir } from './paths.ts';
-import { isMap } from './shape.ts';
-import type { Config, Job, LinkEcosystem } from './types.ts';
+import { linkDir } from './core/paths.ts';
+import { isMap } from './core/shape.ts';
+import type { Config, Job, LinkEcosystem } from './core/types.ts';
 
 /** A well-formed link from config: declaredLinks. A null repo is the root repo. */
 export interface DeclaredLink {

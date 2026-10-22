@@ -2,19 +2,19 @@
 // text an agent wrote (after reading tracker or PR text) is never re-injected into another prompt.
 import path from 'node:path';
 import { backingLine } from './backing.ts';
-import { autoMerge, lensNeedsApp, resolveEffort } from './config.ts';
-import { jobDir, reviewDir } from './jobs.ts';
+import { autoMerge, lensNeedsApp, resolveEffort } from './core/config/load.ts';
+import { jobDir, reviewDir } from './core/job/store.ts';
 import { memberEntry, memberRepos } from './job-repos.ts';
 import { downstreamMembers } from './downstream.ts';
 import { releaseGates, resolveInterim } from './interim.ts';
-import { isLens, reviewFileName, reviewedRepoNames, splitLens } from './lens.ts';
+import { isLens, reviewFileName, reviewedRepoNames, splitLens } from './core/job/lens.ts';
 import { lensChecklists } from './member-panel.ts';
 import { repoGraph } from './project.ts';
-import { paths, exists } from './paths.ts';
+import { paths, exists } from './core/paths.ts';
 import { releaseFiles } from './release-plan.ts';
-import { SECRET_NAME, secretSourceOf } from './secret-refs-config.ts';
+import { SECRET_NAME, secretSourceOf } from './core/config/validators/secret-refs.ts';
 import { recallLine } from './step/recall.ts';
-import type { Config, GateClass, Job, JobEvent, StepInput } from './types.ts';
+import type { Config, GateClass, Job, JobEvent, StepInput } from './core/types.ts';
 
 /**
  * Absolute paths an agent prompt needs, keyed as `forge job paths` prints them. Reads (which

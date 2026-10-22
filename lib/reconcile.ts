@@ -6,11 +6,12 @@
 // for the foreman or a person. docs/ARCHITECTURE.md "Reconciler".
 import path from 'node:path';
 import { maybeEnqueueGate } from './foreman.ts';
-import { leaseStatus, listJobs, loadJob, logEvent, readEvents, requeueOrphanedRequests, setJob } from './jobs.ts';
-import { paths } from './paths.ts';
-import { enqueue, listRequests, requestScope, validJobId } from './requests.ts';
-import { lockHeld, readJson, withLock, writeJsonAtomic } from './util.ts';
-import type { Config, ForgeRequest, Job, JobEvent, LoadedJob } from './types.ts';
+import { leaseStatus, listJobs, loadJob, logEvent, readEvents, requeueOrphanedRequests, setJob } from './core/job/store.ts';
+import { paths } from './core/paths.ts';
+import { enqueue, listRequests, requestScope, validJobId } from './core/job/requests.ts';
+import { readJson, writeJsonAtomic } from './core/os/fs.ts';
+import { lockHeld, withLock } from './core/os/lock.ts';
+import type { Config, ForgeRequest, Job, JobEvent, LoadedJob } from './core/types.ts';
 
 /** Event types that mean the pipeline moved; renewals, syncs, notes and failures don't count. */
 const PROGRESS_EVENTS: ReadonlySet<string> = new Set(['transition', 'round', 'verify', 'agent-start', 'agent-end', 'human', 'integrated', 'integration-review', 'pr-opened', 'pr-updated', 'pr-head-pulled', 'verdicts']);

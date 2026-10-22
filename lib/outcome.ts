@@ -5,13 +5,13 @@
 // GitHub titles, bodies and labels are untrusted: they are only compared, never stored, logged or
 // rendered. What is stored is integers, shas that pass isSha, and refs rebuilt from the configured
 // slug and an integer.
-import { listArchived } from './archive.ts';
+import { listArchived } from './core/job/archive.ts';
 import { fetchCommit, isSha } from './delta.ts';
-import { listJobs, logEvent, setJob } from './jobs.ts';
+import { listJobs, logEvent, setJob } from './core/job/store.ts';
 import { isSafeBranch, isSafeRemote } from './member-repos.ts';
 import { repoSlug } from './pr.ts';
-import { OUTCOME_REF } from './schema.ts';
-import type { Config, Job, JobOutcome } from './types.ts';
+import { OUTCOME_REF } from './core/job/schema.ts';
+import type { Config, Job, JobOutcome } from './core/types.ts';
 import { gh } from './gh.ts';
 import { git } from './git.ts';
 

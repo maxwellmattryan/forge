@@ -7,13 +7,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, forgeInProcess, forgeSync, repoTemplate, tempRepo } from './helpers.ts';
-import { defaults } from '../lib/config.ts';
-import { jobDir, loadJob, readEvents } from '../lib/jobs.ts';
-import { JOB_SCHEMA_VERSION, normalizeJob } from '../lib/schema.ts';
-import { checkIssueRef, nativeRef, parseIssueRef } from '../lib/issue-ref.ts';
+import { defaults } from '../lib/core/config/load.ts';
+import { jobDir, loadJob, readEvents } from '../lib/core/job/store.ts';
+import { JOB_SCHEMA_VERSION, normalizeJob } from '../lib/core/job/schema.ts';
+import { checkIssueRef, nativeRef, parseIssueRef } from '../lib/core/job/issue-ref.ts';
 import { localRepoSlug } from '../lib/repo-slug.ts';
 import { startFromRef } from '../lib/commands/tracker.ts';
-import type { Tracker } from '../lib/types.ts';
+import type { Tracker } from '../lib/core/types.ts';
 
 const ACME_ADAPTER = `export default { name: 'acme', list: () => [], get: () => null, claim: () => ({ ok: true }), update() {}, comment() {}, create: () => ({ ref: 'A-1' }), close() {} };\n`;
 

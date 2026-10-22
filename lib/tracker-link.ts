@@ -5,13 +5,16 @@
 // lib/issue-ref.ts.
 import fs from 'node:fs';
 import path from 'node:path';
-import { issueLinkStatus, queryTerms, scoreItems, searchTerms } from './issue-link.ts';
-import { checkIssueRef, isSafeUrl, issueUrl, linkedIssues, nativeRef, sameIssue } from './issue-ref.ts';
+import { issueLinkStatus, queryTerms, scoreItems, searchTerms } from './core/job/issue-link.ts';
+import { checkIssueRef, isSafeUrl, issueUrl, linkedIssues, nativeRef, sameIssue } from './core/job/issue-ref.ts';
 import { githubHost, localRepoSlug } from './repo-slug.ts';
-import type { IssueLinkStatus, ScoredItem } from './issue-link.ts';
-import { isActive, jobDir, listJobs, loadJob, logEvent, logHumanEvent, requestBody, updateJob } from './jobs.ts';
-import { ForgeError, fenced, now, writeJsonAtomic } from './util.ts';
-import type { Config, EventActor, Job, JobIssue, LoadedJob, Tracker } from './types.ts';
+import type { IssueLinkStatus, ScoredItem } from './core/job/issue-link.ts';
+import { isActive, jobDir, listJobs, loadJob, logEvent, logHumanEvent, requestBody, updateJob } from './core/job/store.ts';
+import { ForgeError } from './core/errors.ts';
+import { writeJsonAtomic } from './core/os/fs.ts';
+import { fenced } from './core/text.ts';
+import { now } from './core/utils.ts';
+import type { Config, EventActor, Job, JobIssue, LoadedJob, Tracker } from './core/types.ts';
 
 /** The fallback for adapters without search(): never more than this many items are scored. */
 const FALLBACK_LIST = 200;

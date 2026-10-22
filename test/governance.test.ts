@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { parse } from '../lib/yaml.ts';
+import { parse } from '../lib/core/format/yaml.ts';
 import { findAttribution } from '../lib/attribution.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');

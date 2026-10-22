@@ -1,6 +1,6 @@
 // Intake (backlog): find an issue, create the worktree, adopt a PR, then plan or spec.
-import { issueLinkStatus } from '../../issue-link.ts';
-import type { StepInput } from '../../types.ts';
+import { issueLinkStatus } from '../../core/job/issue-link.ts';
+import type { StepInput } from '../../core/types.ts';
 import { procedure, run, set, toStage } from '../actions.ts';
 import { lastEvent } from '../facts.ts';
 import { PLAN_AUTO_CHARS, PLAN_AUTO_LINES } from '../input.ts';

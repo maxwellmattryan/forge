@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { envFor } from '../lib/job-command.ts';
 import { sessionEnv } from '../lib/daemon.ts';
-import { TRUST_ENV, trustDigest } from '../lib/config.ts';
+import { TRUST_ENV, trustDigest } from '../lib/core/config/load.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const job = { id: 'j1', branch: 'forge/j1', base: 'main' } as any;

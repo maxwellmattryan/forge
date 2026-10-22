@@ -2,14 +2,14 @@
 // job event, printed in the foreground in human mode only (docs/CLI.md "Output mode").
 import fs from 'node:fs';
 import path from 'node:path';
-import { paths } from './paths.ts';
-import { parseEventLines } from './jobs.ts';
-import { validJobId } from './requests.ts';
-import { paint, sanitize, sgr } from './ansi.ts';
-import type { Paint, Style } from './ansi.ts';
+import { paths } from './core/paths.ts';
+import { parseEventLines } from './core/job/store.ts';
+import { validJobId } from './core/job/requests.ts';
+import { paint, sanitize, sgr } from './core/format/ansi.ts';
+import type { Paint, Style } from './core/format/ansi.ts';
 import type { SessionEvent } from './daemon.ts';
 import type { RunningServer } from './server.ts';
-import type { DaemonSessionState, JobEvent, RequestInfo } from './types.ts';
+import type { DaemonSessionState, JobEvent, RequestInfo } from './core/types.ts';
 
 export type ActivityKind = 'session' | 'http' | 'job';
 export type ActivityOpts = { color: boolean; now?: () => Date };

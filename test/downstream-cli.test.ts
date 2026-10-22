@@ -5,8 +5,8 @@ import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { TRUST_ENV, trustDigest } from '../lib/config.ts';
-import { loadJob, updateJob } from '../lib/jobs.ts';
+import { TRUST_ENV, trustDigest } from '../lib/core/config/load.ts';
+import { loadJob, updateJob } from '../lib/core/job/store.ts';
 import { downstreamProject } from './downstream-fixture.ts';
 import type { DownstreamProject } from './downstream-fixture.ts';
 

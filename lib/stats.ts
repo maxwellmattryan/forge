@@ -1,20 +1,20 @@
 // Forge metrics. They describe Forge's behaviour, not the codebase's quality, which is
 // what makes them comparable across every repo Forge runs in and gives the retro loop
 // something stable to improve against.
-import { listArchived } from './archive.ts';
+import { listArchived } from './core/job/archive.ts';
 import { judgeAutonomy } from './autonomy.ts';
 import { jobFindings } from './findings.ts';
 import type { JobFindings } from './findings.ts';
-import { isForemanActor, listJobs, readEvents } from './jobs.ts';
+import { isForemanActor, listJobs, readEvents } from './core/job/store.ts';
 import { csvCell, parseAuditDate } from './audit.ts';
 import { LEDGER_BY, ledgerRows, spendLedger } from './spend.ts';
 import type { LedgerBy } from './spend.ts';
-import { LENS_NAME } from './lens.ts';
+import { LENS_NAME } from './core/job/lens.ts';
 import { agentRoles } from './provenance.ts';
-import { inSpec } from './glob.ts';
+import { inSpec } from './core/glob.ts';
 import { whenTokens } from './step/panel.ts';
-import type { Config, Job, JobEvent, PromptCohort, PromptStats, ReviewerStats, Stats, UsageRow, VerifierStats } from './types.ts';
-import { ForgeError } from './util.ts';
+import type { Config, Job, JobEvent, PromptCohort, PromptStats, ReviewerStats, Stats, UsageRow, VerifierStats } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
 
 /** One job stats reads: live (its files on disk) or archived (its record), with the same accessors. */
 export interface StatsSource {

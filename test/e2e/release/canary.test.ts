@@ -12,9 +12,9 @@ import path from 'node:path';
 import { LIB_COMMANDS, dependsOn, prProject, ready } from '../../job-repos-fixture.ts';
 import type { PrProject } from '../../job-repos-fixture.ts';
 import { fakeBin } from '../../helpers.ts';
-import { TRUST_ENV, trustDigest } from '../../../lib/config.ts';
+import { TRUST_ENV, trustDigest } from '../../../lib/core/config/load.ts';
 import { RELEASE_DAEMON_REFUSAL } from '../../../lib/interim-apply.ts';
-import { loadJob } from '../../../lib/jobs.ts';
+import { loadJob } from '../../../lib/core/job/store.ts';
 import { token } from '../../secret-fixtures.ts';
 
 const cleanups: (() => void)[] = [];

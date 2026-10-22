@@ -5,7 +5,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadJob } from '../lib/jobs.ts';
+import { loadJob } from '../lib/core/job/store.ts';
 import { pendingRepoProposals, repoProposals } from '../lib/repo-proposals.ts';
 import { ev } from './step-fixture.ts';
 import { dir, project } from './repo-proposals-fixture.ts';

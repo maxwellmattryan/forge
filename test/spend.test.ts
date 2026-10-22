@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { createJob } from '../lib/jobs.ts';
+import { createJob } from '../lib/core/job/store.ts';
 import { dollarConfig, spend } from './repo-budget-fixture.ts';
-import { ARCHIVE_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from '../lib/schema.ts';
+import { ARCHIVE_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
 import { SPEND_CACHE_VERSION, periodTotals, spendCounters, spendFile, spendLedger } from '../lib/spend.ts';
 
 function archive(root: string, id: string, rec: Record<string, unknown>): void {

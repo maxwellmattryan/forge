@@ -2,18 +2,20 @@
 // context on judgement rather than on trawling job folders.
 import fs from 'node:fs';
 import path from 'node:path';
-import { isForemanActor, listJobs, readEvents, jobDir } from './jobs.ts';
-import { listArchived } from './archive.ts';
+import { isForemanActor, listJobs, readEvents, jobDir } from './core/job/store.ts';
+import { listArchived } from './core/job/archive.ts';
 import { listRuns } from './evals.ts';
 import { jobFindings } from './findings.ts';
-import { reviewFileName } from './lens.ts';
+import { reviewFileName } from './core/job/lens.ts';
 import { evaluateExperiments } from './experiments.ts';
 import { expiredLearnings, metricValue, parseNoteEntries, readExperiments } from './learnings.ts';
-import { paths, exists } from './paths.ts';
-import { enqueue, listRequests } from './requests.ts';
+import { paths, exists } from './core/paths.ts';
+import { enqueue, listRequests } from './core/job/requests.ts';
 import { computeStats } from './stats.ts';
-import type { Config, ExperimentEntry, ExperimentResult, HumanDelta, LearningEntry, LoadedJob, ReviewerStats, Stats } from './types.ts';
-import { readText, safeText, withLock, writeJsonAtomic } from './util.ts';
+import type { Config, ExperimentEntry, ExperimentResult, HumanDelta, LearningEntry, LoadedJob, ReviewerStats, Stats } from './core/types.ts';
+import { readText, writeJsonAtomic } from './core/os/fs.ts';
+import { withLock } from './core/os/lock.ts';
+import { safeText } from './core/text.ts';
 
 /** Live and archived jobs: the retro cadence counts jobs that retention has since archived. */
 const allJobs = (root: string): LoadedJob[] => [...listJobs(root), ...listArchived(root).map((a) => a.job)];

@@ -8,11 +8,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { SESSION_PINS, git, pinArgs } from './git.ts';
-import { loadJob, logEvent, updateJob } from './jobs.ts';
+import { loadJob, logEvent, updateJob } from './core/job/store.ts';
 import { memberCheck, readLocalConfig, resolveMemberPath } from './member-repos.ts';
-import { exists, linkDir, resolveFrom } from './paths.ts';
-import type { Config, Job, JobRepo, MemberRepoConfig } from './types.ts';
-import { ForgeError, assertSafeRef } from './util.ts';
+import { exists, linkDir, resolveFrom } from './core/paths.ts';
+import type { Config, Job, JobRepo, MemberRepoConfig } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
+import { assertSafeRef } from './core/text.ts';
 
 /** A member entry: `repo` is always a name. */
 export type MemberJobRepo = JobRepo & { repo: string };

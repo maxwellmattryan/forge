@@ -4,11 +4,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
-import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
-import { claimJob, createJob, loadJob, readEvents, requeueOrphanedRequests, updateJob } from '../lib/jobs.ts';
+import { TRUST_ENV, defaults, trustDigest } from '../lib/core/config/load.ts';
+import { claimJob, createJob, loadJob, readEvents, requeueOrphanedRequests, updateJob } from '../lib/core/job/store.ts';
 import { daemonLockDir } from '../lib/reconcile.ts';
-import { REQUEUE_REJECTED, ackRequest, claimRequest, enqueue, listRequests, requeueOrphans } from '../lib/requests.ts';
-import { ForgeError, tryLock } from '../lib/util.ts';
+import { REQUEUE_REJECTED, ackRequest, claimRequest, enqueue, listRequests, requeueOrphans } from '../lib/core/job/requests.ts';
+import { ForgeError } from '../lib/core/errors.ts';
+import { tryLock } from '../lib/core/os/lock.ts';
 import { parseArgs } from '../lib/commands/args.ts';
 import { requestsCmd } from '../lib/commands/requests.ts';
 

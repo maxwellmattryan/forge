@@ -11,14 +11,14 @@ import { execFileSync } from 'node:child_process';
 import { repoTemplate } from '../../helpers.ts';
 import { FIXTURE_DIST } from '../../dist.ts';
 import { startServer, stateFrame } from '../../../lib/server.ts';
-import type { DaemonSessionState } from '../../../lib/types.ts';
-import { defaults } from '../../../lib/config.ts';
-import { sessionFiles } from '../../../lib/daemon-files.ts';
-import { attachAgent, claimJob, createJob, jobDir, recordAgent } from '../../../lib/jobs.ts';
+import type { DaemonSessionState } from '../../../lib/core/types.ts';
+import { defaults } from '../../../lib/core/config/load.ts';
+import { sessionFiles } from '../../../lib/core/job/session-files.ts';
+import { attachAgent, claimJob, createJob, jobDir, recordAgent } from '../../../lib/core/job/store.ts';
 import { recordKnown } from '../../../lib/known-secrets.ts';
 import { fingerprint, mask, refuseSecrets, textUnit } from '../../../lib/secrets.ts';
 import { projectSlug } from '../../../lib/transcripts.ts';
-import { hasBinary } from '../../../lib/util.ts';
+import { hasBinary } from '../../../lib/core/os/process.ts';
 
 const OWNER = '11111111-2222-4333-8444-555555555555';
 

@@ -4,9 +4,9 @@
 // file, and gives up on that component or edge rather than failing detection.
 import fs from 'node:fs';
 import path from 'node:path';
-import { isMap } from './shape.ts';
-import type { ComponentConfig, ComponentKind } from './types.ts';
-import { SAFE_REF } from './util.ts';
+import { isMap } from './core/shape.ts';
+import type { ComponentConfig, ComponentKind } from './core/types.ts';
+import { SAFE_REF } from './core/text.ts';
 
 /** What detect already worked out about the root: the package manager, UI packages and root manifests. */
 export interface ComponentDetectInput {

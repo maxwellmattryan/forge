@@ -4,9 +4,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { HEADING, unfenced } from './acs.ts';
-import { jobDir } from './jobs.ts';
-import { lensFromReviewFile } from './lens.ts';
-import type { SEVERITIES } from './schema.ts';
+import { jobDir } from './core/job/store.ts';
+import { lensFromReviewFile } from './core/job/lens.ts';
+import type { SEVERITIES } from './core/job/schema.ts';
 
 export type Severity = (typeof SEVERITIES)[number];
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deepMerge, getPath, setPath } from '../lib/shape.ts';
-import { ForgeError } from '../lib/util.ts';
+import { deepMerge, getPath, setPath } from '../lib/core/shape.ts';
+import { ForgeError } from '../lib/core/errors.ts';
 
 const refused = (label: string, key: string) => (e: unknown) =>
   e instanceof ForgeError && e.code === 'usage' && e.message === `${label} key ${JSON.stringify(key)} is not allowed`;

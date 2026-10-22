@@ -5,9 +5,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
-import { exists } from '../lib/paths.ts';
+import { exists } from '../lib/core/paths.ts';
 import { step } from '../lib/step.ts';
-import type { StepInput } from '../lib/types.ts';
+import type { StepInput } from '../lib/core/types.ts';
 import { fixture } from './step-fixture.ts';
 import { job, rows } from './step-rows.ts';
 

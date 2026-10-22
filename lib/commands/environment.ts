@@ -5,11 +5,12 @@ import { currentFocus } from '../focus-actions.ts';
 import { refuseInboxDrive } from '../daemon-owner.ts';
 import { ensureEnvironment, stopEnvironment, teardownEnvironment } from '../environment-lifecycle.ts';
 import { liveJob, readEnvironments } from '../environment-record.ts';
-import { isActive, loadJob } from '../jobs.ts';
-import { validJobId } from '../requests.ts';
-import { ForgeError, assertSafeRef } from '../util.ts';
+import { isActive, loadJob } from '../core/job/store.ts';
+import { validJobId } from '../core/job/requests.ts';
+import { ForgeError } from '../core/errors.ts';
+import { assertSafeRef } from '../core/text.ts';
 import { usageError } from './args.ts';
-import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
+import type { CliContext, Dispatched, HelpGroup } from '../core/types.ts';
 
 const DOCS: [string, string] = ['Backing services', 'docs/CONFIG.md#backing-services'];
 const REFUSED: [1, string] = [1, 'an invalid job id or no such job, or the inbox or office daemon session ran it'];

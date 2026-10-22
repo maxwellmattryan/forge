@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { defaults, loadConfig, panelPathsProblems, validateConfig } from '../lib/config.ts';
+import { defaults, loadConfig, panelPathsProblems, validateConfig } from '../lib/core/config/load.ts';
 import { detect } from '../lib/detect.ts';
 import { MAX_MANIFEST_BYTES, detectComponents } from '../lib/detect-components.ts';
 

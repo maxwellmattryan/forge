@@ -2,7 +2,7 @@
 // foreign ones on every job read and link, so it must never wait on `gh` or the network.
 // lib/pr.ts keeps its gh-backed repoSlug for the operations that call gh anyway.
 import { git } from './git.ts';
-import type { Config } from './types.ts';
+import type { Config } from './core/types.ts';
 
 /** One `owner` or `name` segment of a GitHub `owner/name`. */
 export const SEG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;

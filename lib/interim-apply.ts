@@ -11,11 +11,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { attributionForbidden, scrubBranch } from './attribution.ts';
-import { isInsidePath } from './components.ts';
-import { isOwnWorktreePath } from './config.ts';
+import { isInsidePath } from './core/config/components.ts';
+import { isOwnWorktreePath } from './core/config/load.ts';
 import { STATUS_ARGV, git as runGit, gitEnv, gitSpawnSync, historyEnv } from './git.ts';
 import { memberConfig, memberEntry, trustedMemberWorktree } from './job-repos.ts';
-import { loadJob, logEvent, readEvents, setJob, updateJob } from './jobs.ts';
+import { loadJob, logEvent, readEvents, setJob, updateJob } from './core/job/store.ts';
 import {
   FULL_SHA,
   INTERIM_STRATEGIES,
@@ -45,10 +45,12 @@ import {
 import type { CargoPin, InterimEdge, PinResult } from './interim.ts';
 import { isSafeRemote, readLocalConfig, resolveMemberPath } from './member-repos.ts';
 import type { RepoKey } from './repo-order.ts';
-import { enqueue, listRequests } from './requests.ts';
+import { enqueue, listRequests } from './core/job/requests.ts';
 import { logSecrets, refusalMessage, scanBranch, scanFiles, secretMode, secretsBlock } from './secrets.ts';
-import type { Config, InterimStrategy, Job, JobEvent, WaitingOn } from './types.ts';
-import { ForgeError, SAFE_REF, findOnPath, run } from './util.ts';
+import type { Config, InterimStrategy, Job, JobEvent, WaitingOn } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
+import { findOnPath, run } from './core/os/process.ts';
+import { SAFE_REF } from './core/text.ts';
 
 const PIN_STRATEGIES = new Set(['git-ref', 'canary']);
 

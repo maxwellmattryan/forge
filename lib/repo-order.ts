@@ -4,8 +4,8 @@
 
 import { memberRepos } from './job-repos.ts';
 import { projectGraph } from './project.ts';
-import { isMap } from './shape.ts';
-import type { Config, Job } from './types.ts';
+import { isMap } from './core/shape.ts';
+import type { Config, Job } from './core/types.ts';
 
 /** A job repo: a member's name, or null for the root (as `JobRepo.repo`). */
 export type RepoKey = string | null;

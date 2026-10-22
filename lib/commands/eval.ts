@@ -2,9 +2,9 @@
 import { parseOverlay } from '../eval-overlay.ts';
 import * as evals from '../evals.ts';
 import * as recall from '../recall.ts';
-import { ForgeError } from '../util.ts';
+import { ForgeError } from '../core/errors.ts';
 import { bodyFrom, list, num, req, requireJob, usageError } from './args.ts';
-import type { Config, HelpGroup } from '../types.ts';
+import type { Config, HelpGroup } from '../core/types.ts';
 
 const EVAL: HelpGroup = {
   name: 'eval',

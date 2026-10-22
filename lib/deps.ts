@@ -2,13 +2,13 @@
 // branches and retargeting. Imports only jobs/paths/util/git and archive.ts (which imports no more):
 // worktree.ts imports this module, and pr.ts imports worktree.ts, so anything more would be a cycle.
 import path from 'node:path';
-import { readArchived } from './archive.ts';
+import { readArchived } from './core/job/archive.ts';
 import { git } from './git.ts';
-import { claimJob, isActive, jobDir, listJobs, loadJob, logEvent, setJob } from './jobs.ts';
-import type { ClaimOpts } from './jobs.ts';
-import { exists } from './paths.ts';
-import type { Config, Job, LoadedJob } from './types.ts';
-import { ForgeError } from './util.ts';
+import { claimJob, isActive, jobDir, listJobs, loadJob, logEvent, setJob } from './core/job/store.ts';
+import type { ClaimOpts } from './core/job/store.ts';
+import { exists } from './core/paths.ts';
+import type { Config, Job, LoadedJob } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
 
 export const DEP_REASON = 'dependencies not done: ';
 

@@ -1,5 +1,5 @@
 // `forge backing status` in human mode.
-import { isMap } from '../../shape.ts';
+import { isMap } from '../../core/shape.ts';
 import { has, paint, table, txt } from './kit.ts';
 import type { Paint, Renderer, Val } from './kit.ts';
 

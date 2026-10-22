@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
-import { defaults } from '../lib/config.ts';
-import { claimJob, createJob, loadJob, readEvents, roundVerdicts, setJob, recordAgent, progress, parseDecision, AGENT_LEASE_MS, renewLease, jobDir } from '../lib/jobs.ts';
+import { defaults } from '../lib/core/config/load.ts';
+import { claimJob, createJob, loadJob, readEvents, roundVerdicts, setJob, recordAgent, progress, parseDecision, AGENT_LEASE_MS, renewLease, jobDir } from '../lib/core/job/store.ts';
 import { computeStats } from '../lib/stats.ts';
-import { EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, normalizeEvent, normalizeJob } from '../lib/schema.ts';
-import { sleepSync } from '../lib/util.ts';
+import { EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, normalizeEvent, normalizeJob } from '../lib/core/job/schema.ts';
+import { sleepSync } from '../lib/core/os/process.ts';
 
 test('job lifecycle: ids, transitions, claims, usage, verdict policy', () => {
   const repo = tempRepo();

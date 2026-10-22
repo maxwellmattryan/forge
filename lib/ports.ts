@@ -1,10 +1,10 @@
 // Job ports: one stable port per port-bearing component (lib/endpoints.ts turns them into
 // placeholders and env), chosen with the worktree under the same lock as backing ports.
 import { takenPorts } from './backing.ts';
-import { jobComponent } from './components.ts';
-import { isActive, listJobs } from './jobs.ts';
-import type { Config, Job } from './types.ts';
-import { ForgeError } from './util.ts';
+import { jobComponent } from './core/config/components.ts';
+import { isActive, listJobs } from './core/job/store.ts';
+import type { Config, Job } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
 
 /**
  * The names a job holds a port under, in config order, with the job's own component first so

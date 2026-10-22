@@ -1,9 +1,9 @@
 // `forge job acs`: which spec acceptance criteria the builder's latest AC table proves.
 // Computed on demand from spec.md and build.md; nothing is persisted, so it can never go stale.
 import path from 'node:path';
-import { loadJob, jobDir } from './jobs.ts';
-import { exists } from './paths.ts';
-import { readText } from './util.ts';
+import { loadJob, jobDir } from './core/job/store.ts';
+import { exists } from './core/paths.ts';
+import { readText } from './core/os/fs.ts';
 
 const FENCE = /^\s*(```|~~~)/;
 // Linear on purpose: spec.md and build.md carry agent- and tracker-authored text, and a lazy group

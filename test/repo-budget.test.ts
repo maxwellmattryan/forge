@@ -3,19 +3,19 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
-import { TRUST_ENV, defaults, loadConfig, trustDigest, validateConfig } from '../lib/config.ts';
-import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
-import { CONFIG_DISCLOSURE, FIELDS } from '../lib/config-fields.ts';
-import * as yaml from '../lib/yaml.ts';
+import { TRUST_ENV, defaults, loadConfig, trustDigest, validateConfig } from '../lib/core/config/load.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
+import { CONFIG_DISCLOSURE, FIELDS } from '../lib/core/config/fields.ts';
+import * as yaml from '../lib/core/format/yaml.ts';
 import { budgetRepo, spend } from './repo-budget-fixture.ts';
 import { budgetCmd } from '../lib/budget.ts';
 import { jobCmd } from '../lib/commands/job.ts';
 import { nextCmd } from '../lib/commands/tracker.ts';
-import { claimJob, createJob, loadJob, parseEventLines, readEvents, recordAgent, repoAuditFile, setJob, updateJob } from '../lib/jobs.ts';
+import { claimJob, createJob, loadJob, parseEventLines, readEvents, recordAgent, repoAuditFile, setJob, updateJob } from '../lib/core/job/store.ts';
 import { transitionEvents } from '../lib/notify.ts';
 import { parkForRepoBudget, releaseRepoHolds, repoBudgetStatus } from '../lib/repo-budget.ts';
-import { listRequests } from '../lib/requests.ts';
-import type { Config } from '../lib/types.ts';
+import { listRequests } from '../lib/core/job/requests.ts';
+import type { Config } from '../lib/core/types.ts';
 
 const problems = (budget: unknown) => {
   const c: any = defaults();

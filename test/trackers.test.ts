@@ -5,12 +5,12 @@ import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { loadTracker } from '../lib/trackers/index.ts';
 import { token } from './secret-fixtures.ts';
-import { defaults } from '../lib/config.ts';
-import { createJob, setJob } from '../lib/jobs.ts';
+import { defaults } from '../lib/core/config/load.ts';
+import { createJob, setJob } from '../lib/core/job/store.ts';
 import local from '../lib/trackers/local.ts';
-import { statusKey } from '../lib/trackers/status.ts';
+import { statusKey } from '../lib/api/tracker.ts';
 import { statusMap } from '../lib/trackers/github.ts';
-import { scoreItems, searchTerms } from '../lib/issue-link.ts';
+import { scoreItems, searchTerms } from '../lib/core/job/issue-link.ts';
 import { execFileSync } from 'node:child_process';
 
 test('local backlog: create, list, claim, update, close', () => {
@@ -296,7 +296,7 @@ test('mirror and approval comment act on each native issue', async () => {
   try {
     const { commentApproval } = await import('../lib/commands/tracker.ts');
     const { mirrorToTracker } = await import('../lib/trackers/mirror.ts');
-    const { logEvent, loadJob } = await import('../lib/jobs.ts');
+    const { logEvent, loadJob } = await import('../lib/core/job/store.ts');
     const calls: string[] = [];
     (globalThis as any).__issueRefsCalls = calls;
     fs.mkdirSync(path.join(repo.dir, '.forge', 'trackers'), { recursive: true });
@@ -325,7 +325,7 @@ export default { name: 'acme', list: () => [], get: () => null, claim: () => ({ 
     await commentApproval(repo.dir, config, loadJob(repo.dir, a.id));
     await commentApproval(repo.dir, config, loadJob(repo.dir, a.id));
     assert.deepEqual(calls.splice(0), ['comment A-1', 'comment A-2'], 'each native issue, once');
-    const { readEvents } = await import('../lib/jobs.ts');
+    const { readEvents } = await import('../lib/core/job/store.ts');
     const ev = readEvents(repo.dir, a.id).filter((e) => e.type === 'tracker-approval-comment') as any[];
     assert.deepEqual(ev.map((e) => [e.refs, e.pr]), [[['A-1', 'A-2'], 7]]);
   } finally {

@@ -1,12 +1,12 @@
 // A job's state mirrored onto its linked issues, each in its own repo's tracker. Below the CLI
 // layer, so `forge job delete` (lib/delete.ts) and the tracker commands share it.
-import { isActive, listJobs, logEvent } from '../jobs.ts';
-import { linkedIssues, nativeRef, sameIssue } from '../issue-ref.ts';
+import { isActive, listJobs, logEvent } from '../core/job/store.ts';
+import { linkedIssues, nativeRef, sameIssue } from '../core/job/issue-ref.ts';
 import { localRepoSlug } from '../repo-slug.ts';
 import { loadTracker, memberTracker } from './index.ts';
 import { matchMember, memberTrackerConfig, memberTrackers } from '../member-trackers.ts';
 import type { MemberTracker } from '../member-trackers.ts';
-import type { Config, Job, JobIssue } from '../types.ts';
+import type { Config, Job, JobIssue } from '../core/types.ts';
 
 /** The job's linked issues a member repo's tracker owns, each with its member and number. */
 export function memberIssues(root: string, config: Config, job: Job, slug: string | null): { issue: JobIssue; member: MemberTracker & { n: string } }[] {

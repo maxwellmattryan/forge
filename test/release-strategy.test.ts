@@ -11,15 +11,15 @@ import path from 'node:path';
 import { forgeAsync, repoTemplate, tempRepo } from './helpers.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
-import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
-import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
-import { redactedConfig } from '../lib/config-fields.ts';
+import { defaults, loadConfig, validateConfig } from '../lib/core/config/load.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
+import { redactedConfig } from '../lib/core/config/fields.ts';
 import { doctor } from '../lib/doctor.ts';
 import { releaseChecks } from '../lib/member-repos.ts';
-import { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_PUBLISH, RELEASE_REGISTRIES, RELEASE_VERSIONINGS, commandProgram, releaseMechanismCheck } from '../lib/release-strategy.ts';
-import { deepMerge } from '../lib/shape.ts';
-import { findOnPath } from '../lib/util.ts';
-import * as yaml from '../lib/yaml.ts';
+import { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_PUBLISH, RELEASE_REGISTRIES, RELEASE_VERSIONINGS, commandProgram, releaseMechanismCheck } from '../lib/core/config/release-strategy.ts';
+import { deepMerge } from '../lib/core/shape.ts';
+import { findOnPath } from '../lib/core/os/process.ts';
+import * as yaml from '../lib/core/format/yaml.ts';
 
 const WIN = process.platform === 'win32';
 const POSIX_ONLY = WIN && 'Windows has no executable bit: any regular file with a PATHEXT extension runs';

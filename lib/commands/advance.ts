@@ -3,12 +3,13 @@
 // bookkeeping costs the orchestrator one call instead of a turn per command. `step` stays pure.
 import { refuseInboxDrive } from '../daemon-owner.ts';
 import { maybeEnqueueGate } from '../foreman.ts';
-import { assertEpoch, leaseStatus, loadJob, logEvent, readEvents, renewLease, setJob } from '../jobs.ts';
+import { assertEpoch, leaseStatus, loadJob, logEvent, readEvents, renewLease, setJob } from '../core/job/store.ts';
 import { progressMark } from '../reconcile.ts';
 import { loadStepInput, step } from '../step.ts';
-import { ForgeError, safeText } from '../util.ts';
+import { ForgeError } from '../core/errors.ts';
+import { safeText } from '../core/text.ts';
 import { num, req, str } from './args.ts';
-import type { AdvanceRan, CliContext, Dispatch, Dispatched, Job } from '../types.ts';
+import type { AdvanceRan, CliContext, Dispatch, Dispatched, Job } from '../core/types.ts';
 
 /**
  * The command groups advance runs: every group lib/step/ emits. Anything else (config writes,

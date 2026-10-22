@@ -14,7 +14,7 @@ In the general form any repo can declare, [CONFIG.md "Release strategy"](CONFIG.
 | `/api/state` and the other `/api/*` endpoints | Removing or renaming a field. Every shape change, additive or not, bumps `API_VERSION`, and a dashboard refuses data from a newer server. |
 | The `job.json`, config and event schemas | Dropping a migration, so an older job or config no longer loads, or changing what a field means. New versions migrate older files on read. |
 | Config keys | Removing or renaming a key, or changing what a default does. A key is deprecated first (see Deprecation). |
-| The agent/skill contract | `/forge` arguments, `forge:<role>` agent names, agents' reply contracts, job file names and spec headers, review lens names, and the tracker adapter contract with `lib/trackers/status.mjs`. |
+| The agent/skill contract | `/forge` arguments, `forge:<role>` agent names, agents' reply contracts, job file names and spec headers, review lens names, and the tracker adapter contract in `lib/api/tracker.ts` (`lib/trackers/status.ts` and `status.mjs` re-export it, deprecated, and are removed one minor release after the move ships). |
 
 ## Support
 

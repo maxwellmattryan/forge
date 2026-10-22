@@ -7,11 +7,11 @@ import { tempRepo } from './helpers.ts';
 import { approvedBy, findPr, mergeAction, hasCiWorkflows, mergePr, prText, pullPrHead, syncPr, syncTransition } from '../lib/pr.ts';
 import type { MemberPrState } from '../lib/pr.ts';
 import { stripAttribution } from '../lib/attribution.ts';
-import { defaults } from '../lib/config.ts';
-import { claimJob, createJob, loadJob, logEvent, setJob, readEvents, updateJob } from '../lib/jobs.ts';
-import { listRequests } from '../lib/requests.ts';
+import { defaults } from '../lib/core/config/load.ts';
+import { claimJob, createJob, loadJob, logEvent, setJob, readEvents, updateJob } from '../lib/core/job/store.ts';
+import { listRequests } from '../lib/core/job/requests.ts';
 import { syncAll } from '../lib/commands/tracker.ts';
-import type { Job, JobPr } from '../lib/types.ts';
+import type { Job, JobPr } from '../lib/core/types.ts';
 
 test('mergeAction: direct merge only when CI passed or the repo has none', () => {
   const B = { mergeState: 'BLOCKED' };

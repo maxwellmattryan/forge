@@ -3,8 +3,8 @@
 // build `usage:` errors, the README command table and the `--json` error hint.
 import path from 'node:path';
 import { forgeVersion } from '../evals.ts';
-import { PLUGIN_ROOT } from '../paths.ts';
-import { ERROR_CODES, ForgeError } from '../util.ts';
+import { PLUGIN_ROOT } from '../core/paths.ts';
+import { ERROR_CODES, ForgeError } from '../core/errors.ts';
 import { jsonFlag, lenientOutputMode, out, parseArgs, usageError } from './args.ts';
 import { colorEnabled, renderError } from './render.ts';
 import { HELP as AUDIT } from './audit.ts';
@@ -29,7 +29,7 @@ import { HELP as STATUS } from './status.ts';
 import { HELP as TRACKER } from './tracker.ts';
 import { HELP as UPDATE } from './update.ts';
 import { HELP as VERIFIERS } from './verifiers.ts';
-import type { CliError, CommandHelp, HelpGroup } from '../types.ts';
+import type { CliError, CommandHelp, HelpGroup } from '../core/types.ts';
 
 const NO_JOB: [1, string] = [1, 'no such job'];
 const GIT_FAILED: [5, string] = [5, 'git failed'];

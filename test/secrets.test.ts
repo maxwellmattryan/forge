@@ -6,12 +6,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { applyAllowlist, diffUnits, entropyOff, fingerprint, isPlaceholder, loadAllowlist, mask, parseAllowlist, refuseSecrets, scanBranch, scanPaths, scanUnits, secretsBlock, secretsOk, textUnit } from '../lib/secrets.ts';
-import { defaults } from '../lib/config.ts';
-import { createJob, jobDir } from '../lib/jobs.ts';
+import { defaults } from '../lib/core/config/load.ts';
+import { createJob, jobDir } from '../lib/core/job/store.ts';
 import { recordKnown } from '../lib/known-secrets.ts';
 import { tempRepo } from './helpers.ts';
 import { ALNUM, DIGITS, LOWER, UPPER, base64Of, hexOf, inContext, pem, pick, token } from './secret-fixtures.ts';
-import type { TextUnit } from '../lib/types.ts';
+import type { TextUnit } from '../lib/core/types.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const unit = (text: string, p = 'src/app.ts', file = true): TextUnit => ({ path: p, line: 1, text, file, commit: null });

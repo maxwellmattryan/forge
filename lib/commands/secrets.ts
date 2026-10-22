@@ -1,16 +1,16 @@
 // `forge secrets scan`: what the secret scanner (lib/secrets.ts) finds in a job's branch and PR
 // text, or in the main checkout's tracked files. This module, not lib/secrets.ts, imports lib/pr.ts:
 // pr.ts imports the scanner.
-import { loadJob } from '../jobs.ts';
-import { exists } from '../paths.ts';
+import { loadJob } from '../core/job/store.ts';
+import { exists } from '../core/paths.ts';
 import { prText } from '../pr.ts';
 import { applyAllowlist, findingLine, scanBranch, scanPaths, scanUnits, textUnit } from '../secrets.ts';
 import { knownValues } from '../known-secrets.ts';
 import { checkSecret } from '../secret-refs.ts';
-import { secretSourceOf } from '../secret-refs-config.ts';
-import { ForgeError } from '../util.ts';
+import { secretSourceOf } from '../core/config/validators/secret-refs.ts';
+import { ForgeError } from '../core/errors.ts';
 import { list, usageError } from './args.ts';
-import type { CliContext, Config, Dispatched, HelpGroup, SecretScan } from '../types.ts';
+import type { CliContext, Config, Dispatched, HelpGroup, SecretScan } from '../core/types.ts';
 
 const SECRETS: HelpGroup = {
   name: 'secrets',

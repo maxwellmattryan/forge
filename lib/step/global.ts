@@ -1,7 +1,7 @@
 // The rows that run before any stage: finished jobs, parks, running agents, lost runs, and the
 // retro kind's own start.
-import type { StepInput, WaitingOn } from '../types.ts';
-import { SAFE_REF } from '../util.ts';
+import type { StepInput, WaitingOn } from '../core/types.ts';
+import { SAFE_REF } from '../core/text.ts';
 import { SAFE_URL, done, procedure, run, safe, spawn, toStage, wait } from './actions.ts';
 import { ANSWERED } from './answered.ts';
 import { after, agent, ended, parkedRunning, pendingVerifiers, runningRoles } from './facts.ts';

@@ -1,23 +1,24 @@
 // `forge doctor` and GET /api/doctor: is this machine and repo ready for Forge?
 import fs from 'node:fs';
 import path from 'node:path';
-import { validateConfig, worktreeRoot } from './config.ts';
+import { validateConfig, worktreeRoot } from './core/config/load.ts';
 import { dockerCheck } from './backing.ts';
 import { apiKeyVars } from './daemon.ts';
-import { deprecationChecks } from './deprecations.ts';
+import { deprecationChecks } from './core/config/deprecations.ts';
 import { memberRepoChecks, releaseChecks, repoProblems } from './member-repos.ts';
-import { isActive, listJobs } from './jobs.ts';
+import { isActive, listJobs } from './core/job/store.ts';
 import { notifyChecks } from './notify.ts';
-import { paths, exists, BUILD_DASHBOARD, PLUGIN_ROOT } from './paths.ts';
+import { paths, exists, BUILD_DASHBOARD, PLUGIN_ROOT } from './core/paths.ts';
 import { dirBytes } from './retention.ts';
 import { secretAvailability } from './secret-refs.ts';
 import type { ResolveOptions } from './secret-refs.ts';
-import { SUPPORT_URL, hostInfo, platformTier, posixShell, tierDetail, versionAtLeast } from './platform.ts';
-import type { HostInfo } from './platform.ts';
-import type { Config, DoctorCheck, DoctorReport } from './types.ts';
+import { SUPPORT_URL, hostInfo, platformTier, posixShell, tierDetail, versionAtLeast } from './core/os/platform.ts';
+import type { HostInfo } from './core/os/platform.ts';
+import type { Config, DoctorCheck, DoctorReport } from './core/types.ts';
 import { gh } from './gh.ts';
 import { git } from './git.ts';
-import { hasBinary, readText } from './util.ts';
+import { hasBinary } from './core/os/process.ts';
+import { readText } from './core/os/fs.ts';
 import { latestReleaseCheck } from './version.ts';
 
 /** package.json `engines`: Node 22.18 is the first with type stripping on by default. */

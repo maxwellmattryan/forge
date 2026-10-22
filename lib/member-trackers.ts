@@ -4,9 +4,9 @@
 // when its `owner/name` equals a configured member's slug. Every member runs the built-in GitHub
 // adapter with a config derived from the root's, so the root's ready labels and label prefix apply
 // and its GitHub Project never does.
-import { splitQualified } from './issue-ref.ts';
+import { splitQualified } from './core/job/issue-ref.ts';
 import { SEG, githubHost, localRepoSlug, slugFromRemote } from './repo-slug.ts';
-import type { Config } from './types.ts';
+import type { Config } from './core/types.ts';
 
 export interface MemberTracker {
   /** The config `repos` entry's name. */

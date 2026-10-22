@@ -8,23 +8,28 @@ import path from 'node:path';
 import { DEFAULT_TEST_PATTERN } from './integrity.ts';
 import { applyOverlay } from './eval-overlay.ts';
 import { aggregateTasks, delta, jobTiming, stageStats, stat, taskPass, TASK_METRICS } from './eval-stats.ts';
-import { listArchived } from './archive.ts';
-import { createJob, listJobs, loadJob, logEvent, readEvents, setJob, jobDir } from './jobs.ts';
+import { listArchived } from './core/job/archive.ts';
+import { createJob, listJobs, loadJob, logEvent, readEvents, setJob, jobDir } from './core/job/store.ts';
 import { mergeTime } from './scoring.ts';
 import { configHash, pluginHash } from './provenance.ts';
-import { paths, exists, PLUGIN_ROOT } from './paths.ts';
-import { posixShell } from './platform.ts';
+import { paths, exists, PLUGIN_ROOT } from './core/paths.ts';
+import { posixShell } from './core/os/platform.ts';
 import { createWorktree } from './worktree.ts';
-import { ForgeError, assertSafeRef, fill, now, readJson, readText, run, slugify, tail, withLock, writeJsonAtomic } from './util.ts';
+import { ForgeError } from './core/errors.ts';
+import { run } from './core/os/process.ts';
+import { readJson, readText, writeJsonAtomic } from './core/os/fs.ts';
+import { withLock } from './core/os/lock.ts';
+import { assertSafeRef, fill, slugify, tail } from './core/text.ts';
+import { now } from './core/utils.ts';
 import { gh, ghJson } from './gh.ts';
 // applyHiddenPatch keeps a local `git` bound to the eval clone.
 import { git as runGit, gitEnv } from './git.ts';
 import { commandPort, endpointPlaceholders, jobEndpoints } from './endpoints.ts';
-import { jobComponent } from './components.ts';
+import { jobComponent } from './core/config/components.ts';
 import { repoSlug } from './pr.ts';
 import { firstVerifyRun } from './stats.ts';
-import * as yaml from './yaml.ts';
-import type { Config, EvalCompare, EvalCompareSide, EvalDelta, EvalOverlay, EvalResult, EvalRun, EvalSummary, EvalTask, EvalTaskMetric, Job, RealJobScores } from './types.ts';
+import * as yaml from './core/format/yaml.ts';
+import type { Config, EvalCompare, EvalCompareSide, EvalDelta, EvalOverlay, EvalResult, EvalRun, EvalSummary, EvalTask, EvalTaskMetric, Job, RealJobScores } from './core/types.ts';
 
 /** An eval task as loadTask reads it: the served EvalTask plus its directory and request text. */
 export type LoadedTask = EvalTask & { dir: string; request: string };

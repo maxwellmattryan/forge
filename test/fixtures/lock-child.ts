@@ -2,7 +2,8 @@
 // `exit <tag>` around a short sleep to <log>, and prints a timeout to stderr with exit 1.
 // Usage: node lock-child.ts <lockDir> <log> <tag> [timeoutMs] [holdMs]
 import fs from 'node:fs';
-import { sleepSync, withLock } from '../../lib/util.ts';
+import { sleepSync } from '../../lib/core/os/process.ts';
+import { withLock } from '../../lib/core/os/lock.ts';
 
 const [lockDir, log, tag, timeout = '20000', hold = '150'] = process.argv.slice(2);
 try {

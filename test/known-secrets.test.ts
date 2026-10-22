@@ -8,11 +8,11 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
 import { applySinks } from '../lib/config-sinks-apply.ts';
-import { loadConfig } from '../lib/config.ts';
-import { createJob, jobDir, loadJob } from '../lib/jobs.ts';
+import { loadConfig } from '../lib/core/config/load.ts';
+import { createJob, jobDir, loadJob } from '../lib/core/job/store.ts';
 import { PRIVATE_JOB_FILES, knownFile, knownRecordValues, knownValues, recordKnown, redactDeep, redactKnown } from '../lib/known-secrets.ts';
 import { createWorktree } from '../lib/worktree.ts';
-import * as yaml from '../lib/yaml.ts';
+import * as yaml from '../lib/core/format/yaml.ts';
 
 const template = repoTemplate((dir) => {
   fs.mkdirSync(path.join(dir, 'api'), { recursive: true });

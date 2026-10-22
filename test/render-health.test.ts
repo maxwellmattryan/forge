@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { configGet, configShow, configValidate } from '../lib/commands/render/config.ts';
 import { doctor } from '../lib/commands/render/doctor.ts';
 import { sync } from '../lib/commands/render/sync.ts';
-import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
 import { HOSTILE, assertSafe, hasLines, plain } from './render-helpers.ts';
 
 test('doctor: summary, then problems, warnings and ok, each in check order (golden)', () => {

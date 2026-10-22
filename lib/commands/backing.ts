@@ -2,12 +2,13 @@
 // "Backing services"). worktree create and remove do the same bring-up and teardown on their own.
 import { backingDown, backingDownShared, backingStatus, backingStop, backingUp } from '../backing.ts';
 import { refuseInboxDrive, refuseInboxOrOffice } from '../daemon-owner.ts';
-import { loadJob } from '../jobs.ts';
-import { validJobId } from '../requests.ts';
+import { loadJob } from '../core/job/store.ts';
+import { validJobId } from '../core/job/requests.ts';
 import { databaseCommands } from '../job-command.ts';
-import { ForgeError, assertSafeRef } from '../util.ts';
+import { ForgeError } from '../core/errors.ts';
+import { assertSafeRef } from '../core/text.ts';
 import { usageError } from './args.ts';
-import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
+import type { CliContext, Dispatched, HelpGroup } from '../core/types.ts';
 
 const DOCS: [string, string] = ['Backing services', 'docs/CONFIG.md#backing-services'];
 const DOCKER_FAILED: [5, string] = [5, "Docker missing, its daemon stopped, a docker command failed, or a same-named container that is not this job's"];

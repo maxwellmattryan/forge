@@ -9,7 +9,7 @@ import { SETTINGS_TABS, moveTab, settingsKey, settingsKeyShortcuts, settingsShor
 import { isMac } from '../dashboard/src/lib/command.ts';
 import { changedKeys, draftOf, fieldsFor, formatValue, invalidKeys, parseDraft } from '../dashboard/src/lib/config-form.ts';
 import { doctorReport, failedCount, warnCount } from '../dashboard/src/lib/diagnostics.ts';
-import { FIELDS } from '../lib/config-fields.ts';
+import { FIELDS } from '../lib/core/config/fields.ts';
 
 const EN = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'messages', 'en.json'), 'utf8'));
 const inEn = (key: string) => typeof key.split('.').reduce((o: any, k) => o?.[k], EN) === 'string';

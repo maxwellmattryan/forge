@@ -6,14 +6,14 @@ import path from 'node:path';
 import { currentActor } from './actor.ts';
 import { CheckoutError, applyCheckout, failureLine, readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
 import type { CheckoutReport, StepRunner } from './checkout.ts';
-import { loadConfig } from './config.ts';
+import { loadConfig } from './core/config/load.ts';
 import { containedWorktree } from './editor.ts';
-import { isActive, jobDir, loadJob, logEvent, logHumanEvent } from './jobs.ts';
-import { readFocusRecord, resolveFocus, setFocus } from './focus.ts';
-import { validJobId } from './requests.ts';
+import { isActive, jobDir, loadJob, logEvent, logHumanEvent } from './core/job/store.ts';
+import { readFocusRecord, resolveFocus, setFocus } from './core/job/focus.ts';
+import { validJobId } from './core/job/requests.ts';
 import { ensureEnvironment } from './environment-lifecycle.ts';
-import type { Config, EnvironmentUpResult, EventActor, FocusResponse, Job } from './types.ts';
-import { ForgeError } from './util.ts';
+import type { Config, EnvironmentUpResult, EventActor, FocusResponse, Job } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
 import { runCommandAsync } from './worktree.ts';
 
 /** Refused because the job is done or cancelled: a `usage` error the server answers with 409. */

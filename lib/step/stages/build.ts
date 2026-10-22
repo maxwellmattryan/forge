@@ -1,7 +1,7 @@
 // Build: open a round, hold it to the round limits, run the builder, then verify.
 import { latestSecurityVerdict, pastTotalCeiling, totalRoundCeiling } from '../../foreman.ts';
-import { isForemanActor } from '../../jobs.ts';
-import type { JobAgent, JobEvent, VerifyRun } from '../../types.ts';
+import { isForemanActor } from '../../core/job/store.ts';
+import type { JobAgent, JobEvent, VerifyRun } from '../../core/types.ts';
 import { park, run, set, spawn, toStage } from '../actions.ts';
 import { after, afterIdx, agent, endedIn, lastIdx, lastVerify, startedIn } from '../facts.ts';
 import { needsInputRows } from '../generic.ts';

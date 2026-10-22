@@ -8,8 +8,8 @@ import { forgeAsync, forgeInProcess, repoTemplate } from './helpers.ts';
 import { csvCell, jobAudit, parseAuditDate, toCsv } from '../lib/audit.ts';
 import { auditCmd } from '../lib/commands/audit.ts';
 import { parseArgs } from '../lib/commands/args.ts';
-import { defaults } from '../lib/config.ts';
-import { createJob, jobDir, repoAuditFile, updateJob } from '../lib/jobs.ts';
+import { defaults } from '../lib/core/config/load.ts';
+import { createJob, jobDir, repoAuditFile, updateJob } from '../lib/core/job/store.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 

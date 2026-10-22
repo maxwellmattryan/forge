@@ -6,22 +6,23 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { redactedConfig } from './config-fields.ts';
-import { worktreeRoot } from './config.ts';
-import { daemonsDir, openRead, tailLines } from './daemon-files.ts';
+import { redactedConfig } from './core/config/fields.ts';
+import { worktreeRoot } from './core/config/load.ts';
+import { daemonsDir, openRead, tailLines } from './core/job/session-files.ts';
 import { doctor } from './doctor.ts';
 import { forgeVersion } from './evals.ts';
 import { git, historyEnv } from './git.ts';
 import { PINNED_DIFF_OPTS } from './integrity.ts';
-import { isActive, jobDir, listJobs, loadJob } from './jobs.ts';
+import { isActive, jobDir, listJobs, loadJob } from './core/job/store.ts';
 import { isPrivateName } from './known-secrets.ts';
 import { addCounts, daemonSkeleton, omitProse, omitted, redactContext, redactText } from './redact.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from './requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from './core/job/requests.ts';
 import { resolveBase } from './scope.ts';
 import { loadStepInput, step } from './step.ts';
-import type { BundleManifest, BundleSkip, Config, Job, RedactCounts } from './types.ts';
-import { ForgeError, hasBinary, run } from './util.ts';
-import type { ZipEntry } from './zip.ts';
+import type { BundleManifest, BundleSkip, Config, Job, RedactCounts } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
+import { hasBinary, run } from './core/os/process.ts';
+import type { ZipEntry } from './core/format/zip.ts';
 
 const ENTRY_CAP = 2 * 1024 * 1024;
 /** How much of a file is read before prose is dropped: the skeleton is far smaller than the stream. */

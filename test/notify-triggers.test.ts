@@ -6,11 +6,11 @@ import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate, waitFor } from './helpers.ts';
 import { hookServer } from './notify-server.ts';
 import type { HookServer } from './notify-server.ts';
-import { createJob, loadJob, readEvents, setJob } from '../lib/jobs.ts';
-import { loadConfig } from '../lib/config.ts';
+import { createJob, loadJob, readEvents, setJob } from '../lib/core/job/store.ts';
+import { loadConfig } from '../lib/core/config/load.ts';
 import { REASONS, queueNotify } from '../lib/notify.ts';
 import { logSecrets } from '../lib/secrets.ts';
-import * as yaml from '../lib/yaml.ts';
+import * as yaml from '../lib/core/format/yaml.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();

@@ -11,7 +11,7 @@ import { PP1 } from '../lib/step/gates.ts';
 import { M1, M2, N1, N1b, N2, X1 } from '../lib/step/generic.ts';
 import { firstMatch, flatRows } from '../lib/step/rules.ts';
 import type { Ctx, Row, Rule } from '../lib/step/rules.ts';
-import type { StepInput } from '../lib/types.ts';
+import type { StepInput } from '../lib/core/types.ts';
 import { fixture } from './step-fixture.ts';
 import { rows } from './step-rows.ts';
 

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { loadJob } from '../lib/jobs.ts';
+import { loadJob } from '../lib/core/job/store.ts';
 import { importClaudeCodeTranscript } from '../lib/usage.ts';
 import { projectSlug } from '../lib/transcripts.ts';
 

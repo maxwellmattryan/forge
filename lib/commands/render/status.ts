@@ -3,7 +3,7 @@ import { age, has, paint, section, blocks, stateSeg, table, txt } from './kit.ts
 import type { Renderer, Val } from './kit.ts';
 import { statsSections } from '../status.ts';
 import type { StatusView } from '../status.ts';
-import type { ForgeRequest, Stats } from '../../types.ts';
+import type { ForgeRequest, Stats } from '../../core/types.ts';
 
 const isRows = (d: unknown, ...keys: string[]): d is Record<string, any>[] => Array.isArray(d) && d.every((r) => has(r, ...keys));
 

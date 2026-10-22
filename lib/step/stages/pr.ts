@@ -1,9 +1,9 @@
 // PR: verify, open or update the PR, follow interim deferrals and releases, merge or wait on review.
-import { autoMerge } from '../../config.ts';
+import { autoMerge } from '../../core/config/load.ts';
 import { deferralStatus, readDeferrals, releaseGates, releaseIndex, resolveInterim } from '../../interim.ts';
 import { memberRepos } from '../../job-repos.ts';
-import type { JobEvent, StepInput, VerifyRun } from '../../types.ts';
-import { SAFE_REF } from '../../util.ts';
+import type { JobEvent, StepInput, VerifyRun } from '../../core/types.ts';
+import { SAFE_REF } from '../../core/text.ts';
 import { SAFE_ELEMENT, park, run, safe, set, toStage } from '../actions.ts';
 import { after, human, lastEvent, lastIdx } from '../facts.ts';
 import { inStage } from '../rules.ts';

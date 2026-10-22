@@ -3,11 +3,11 @@
 // emails, then logins. Every replacement token is free of `"` and `\`, so JSON stays parseable.
 import fs from 'node:fs';
 import os from 'node:os';
-import { worktreeRoot } from './config.ts';
+import { worktreeRoot } from './core/config/load.ts';
 import { git } from './git.ts';
 import { MIN_SECRET, allKnownValues } from './known-secrets.ts';
 import { secretSpans } from './secrets.ts';
-import type { Config, RedactCounts } from './types.ts';
+import type { Config, RedactCounts } from './core/types.ts';
 
 export interface RedactContext {
   root: string;

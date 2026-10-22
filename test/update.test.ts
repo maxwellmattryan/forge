@@ -6,8 +6,8 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { DAEMON_REFUSAL, detectInstall, updateForge } from '../lib/update.ts';
-import { SUPPORT_URL, WINDOWS_UPDATE_REFUSAL } from '../lib/platform.ts';
-import { ForgeError } from '../lib/util.ts';
+import { SUPPORT_URL, WINDOWS_UPDATE_REFUSAL } from '../lib/core/os/platform.ts';
+import { ForgeError } from '../lib/core/errors.ts';
 
 const REPO = path.resolve(import.meta.dirname, '..');
 const BIN = path.join(REPO, 'bin', 'forge');

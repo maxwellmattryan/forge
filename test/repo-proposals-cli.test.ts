@@ -5,7 +5,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadJob, updateJob } from '../lib/jobs.ts';
+import { loadJob, updateJob } from '../lib/core/job/store.ts';
 import type { TwoRepo } from './job-repos-fixture.ts';
 import { daemonEnv, fails, project, read, snapshot } from './repo-proposals-fixture.ts';
 

@@ -6,12 +6,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import * as b from '../lib/backing.ts';
-import { loadConfig } from '../lib/config.ts';
-import { createJob, jobDir, loadJob, readEvents, setJob } from '../lib/jobs.ts';
+import { loadConfig } from '../lib/core/config/load.ts';
+import { createJob, jobDir, loadJob, readEvents, setJob } from '../lib/core/job/store.ts';
 import { allocatePorts, portBearing } from '../lib/ports.ts';
-import { JOB_SCHEMA_VERSION, cleanPorts, normalizeJob } from '../lib/schema.ts';
+import { JOB_SCHEMA_VERSION, cleanPorts, normalizeJob } from '../lib/core/job/schema.ts';
 import { createWorktree } from '../lib/worktree.ts';
-import * as yaml from '../lib/yaml.ts';
+import * as yaml from '../lib/core/format/yaml.ts';
 import { forgeAsync, repoTemplate } from './helpers.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');

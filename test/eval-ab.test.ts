@@ -6,8 +6,8 @@ import path from 'node:path';
 import { evalScratch, forgeAsync } from './helpers.ts';
 import { aggregateTasks, jobTiming, stat } from '../lib/eval-stats.ts';
 import { compareRuns, listRuns, pluginHash, summarize } from '../lib/evals.ts';
-import { loadJob } from '../lib/jobs.ts';
-import { PLUGIN_ROOT } from '../lib/paths.ts';
+import { loadJob } from '../lib/core/job/store.ts';
+import { PLUGIN_ROOT } from '../lib/core/paths.ts';
 
 const T0 = Date.parse('2026-01-01T00:00:00.000Z');
 const at = (min: number) => new Date(T0 + min * 60_000).toISOString();

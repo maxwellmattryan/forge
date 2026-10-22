@@ -5,8 +5,8 @@ import { spawnSync } from 'node:child_process';
 import type { SpawnSyncOptions, SpawnSyncReturns } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { run } from './util.ts';
-import type { RunResult } from './util.ts';
+import { run } from './core/os/process.ts';
+import type { RunResult } from './core/os/process.ts';
 
 /**
  * Config pinned on every git call. Repo and worktree config are writable from a job's worktree:

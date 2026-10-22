@@ -3,13 +3,15 @@
 import path from 'node:path';
 import { backingEnv } from './backing.ts';
 import type { DatabaseOpts } from './backing.ts';
-import { jobComponent } from './components.ts';
-import { isOwnWorktreePath, worktreeRoot } from './config.ts';
+import { jobComponent } from './core/config/components.ts';
+import { isOwnWorktreePath, worktreeRoot } from './core/config/load.ts';
 import { commandPort, endpointEnv, endpointPlaceholders, jobEndpoints } from './endpoints.ts';
-import { exists } from './paths.ts';
-import { posixShell } from './platform.ts';
-import type { Config, Job } from './types.ts';
-import { ForgeError, assertSafeRef, fill, run } from './util.ts';
+import { exists } from './core/paths.ts';
+import { posixShell } from './core/os/platform.ts';
+import type { Config, Job } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
+import { run } from './core/os/process.ts';
+import { assertSafeRef, fill } from './core/text.ts';
 
 // Placeholders fill a shell command, and job.json can be edited outside the CLI, so these are
 // checked here at the sink rather than trusted from createJob.

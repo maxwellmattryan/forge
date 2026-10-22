@@ -4,10 +4,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { git as runGit, gitEnv } from './git.ts';
-import { mainRoot, paths, PLUGIN_ROOT } from './paths.ts';
-import { WINDOWS_UPDATE_REFUSAL } from './platform.ts';
-import { ForgeError, pidAlive, readJson, run, tail } from './util.ts';
-import type { InstallInfo, UpdateCheck, UpdateDashboard, UpdateResult } from './types.ts';
+import { mainRoot, paths, PLUGIN_ROOT } from './core/paths.ts';
+import { WINDOWS_UPDATE_REFUSAL } from './core/os/platform.ts';
+import { ForgeError } from './core/errors.ts';
+import { pidAlive, run } from './core/os/process.ts';
+import { readJson } from './core/os/fs.ts';
+import { tail } from './core/text.ts';
+import type { InstallInfo, UpdateCheck, UpdateDashboard, UpdateResult } from './core/types.ts';
 
 // No leading `-`: these names come from the install's path and become argv for `claude`.
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;

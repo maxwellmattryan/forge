@@ -1,6 +1,6 @@
 // `forge run <job> <command> [--repo R] [--tail N] [-- <args…>]` and `forge run <job> <command> --background`.
-import type { Config, Dispatched } from '../types.ts';
-import { ForgeError } from '../util.ts';
+import type { Config, Dispatched } from '../core/types.ts';
+import { ForgeError } from '../core/errors.ts';
 import * as wt from '../worktree.ts';
 import { num, parseArgs, req } from './args.ts';
 

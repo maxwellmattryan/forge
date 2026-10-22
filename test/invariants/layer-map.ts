@@ -12,15 +12,8 @@ export type Layer = (typeof LAYERS)[number];
  * whole folder; an exact file key wins over a folder key.
  */
 export const FLAT_LAYERS: Record<Layer, string[]> = {
-  api: ['api-types.ts', 'constants.ts', 'trackers/status.mjs', 'trackers/status.ts'],
-  core: [
-    'ansi.ts', 'archive.ts', 'backing-config.ts', 'checkout-config.ts', 'components.ts', 'config-defaults.ts',
-    'config-fields.ts', 'config-models.ts', 'config-set.ts', 'config-sinks.ts', 'config-trust.ts',
-    'config-validate.ts', 'config.ts', 'daemon-files.ts', 'deprecations.ts', 'endpoints-config.ts', 'focus.ts',
-    'glob.ts', 'issue-link.ts', 'issue-ref.ts', 'job-fields.ts', 'jobs.ts', 'lens.ts', 'notify-config.ts',
-    'paths.ts', 'platform.ts', 'policy-check.ts', 'release-strategy.ts', 'requests.ts', 'schema.ts',
-    'secret-refs-config.ts', 'shape.ts', 'types.ts', 'util.ts', 'yaml.ts', 'zip.ts',
-  ],
+  api: ['trackers/status.mjs', 'trackers/status.ts'],
+  core: [],
   integrations: [
     'actor.ts', 'docker.ts', 'gh.ts', 'git.ts', 'github-preview.ts', 'pricing.ts', 'repo-slug.ts',
     'trackers/github.ts', 'trackers/local.ts', 'transcripts.ts',
@@ -50,30 +43,30 @@ export const FLAT_LAYERS: Record<Layer, string[]> = {
  * entry's comment names its kind and docs/design/lib-layout.md › Today's upward edges what removes it.
  */
 export const ALLOWED_EDGES: string[] = [
-  'config-validate.ts → member-repos.ts', // core reads engine: member repo validators
+  'api/tracker.ts → core/types.ts', // api type-imports core: the types split
+  'core/config/validate.ts → member-repos.ts', // core reads engine: member repo validators
+  'core/job/lens.ts → member-repos.ts', // core reads engine: member repo validators
+  'core/job/schema.ts → delta.ts', // core reads engine: value validators the normalisers use
+  'core/job/schema.ts → member-repos.ts', // core reads engine: value validators the normalisers use
+  'core/job/store.ts → actor.ts', // core reaches integrations: the job store
+  'core/job/store.ts → eval-overlay.ts', // core reads engine: the job store
+  'core/job/store.ts → known-secrets.ts', // core reads engine: the job store
+  'core/job/store.ts → pricing.ts', // core reaches integrations: the job store
+  'core/job/store.ts → provenance.ts', // core reads engine: the job store
+  'core/job/store.ts → repo-slug.ts', // core reaches integrations: the job store
+  'core/paths.ts → git.ts', // core reaches integrations: the main checkout's root
+  'core/types.ts → acs.ts', // core type-imports engine: the types split
+  'core/types.ts → findings.ts', // core type-imports engine: the types split
+  'core/types.ts → secrets.ts', // core type-imports engine: the types split
   'doctor.ts → daemon.ts', // engine reaches office: the session's API-key variables
   'doctor.ts → notify.ts', // engine reaches office: notify transport
-  'jobs.ts → actor.ts', // core reaches integrations: the job store
-  'jobs.ts → eval-overlay.ts', // core reads engine: the job store
-  'jobs.ts → known-secrets.ts', // core reads engine: the job store
-  'jobs.ts → pricing.ts', // core reaches integrations: the job store
-  'jobs.ts → provenance.ts', // core reads engine: the job store
-  'jobs.ts → repo-slug.ts', // core reaches integrations: the job store
-  'lens.ts → member-repos.ts', // core reads engine: member repo validators
-  'paths.ts → git.ts', // core reaches integrations: the main checkout's root
   'pr.ts → foreman.ts', // engine reaches office: the Foreman's gate classes
   'pr.ts → notify.ts', // engine reaches office: notify transport
   'release-approval.ts → foreman.ts', // engine reaches office: the Foreman's gate classes
-  'schema.ts → delta.ts', // core reads engine: value validators the normalisers use
-  'schema.ts → member-repos.ts', // core reads engine: value validators the normalisers use
   'secrets.ts → notify.ts', // engine reaches office: notify transport
   'step/gates.ts → foreman.ts', // engine reaches office: the Foreman's round ceilings
   'step/stages/build.ts → foreman.ts', // engine reaches office: the Foreman's round ceilings
   'step/stages/decide.ts → foreman.ts', // engine reaches office: the Foreman's round ceilings
   'trackers/github.ts → attribution.ts', // integrations reach engine: tracker security wrappers
   'trackers/github.ts → pr.ts', // integrations reach engine: repoSlug
-  'trackers/status.ts → types.ts', // api type-imports core: the types split
-  'types.ts → acs.ts', // core type-imports engine: the types split
-  'types.ts → findings.ts', // core type-imports engine: the types split
-  'types.ts → secrets.ts', // core type-imports engine: the types split
 ];

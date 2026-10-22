@@ -4,7 +4,7 @@
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { PLUGIN_ROOT } from '../lib/paths.ts';
+import { PLUGIN_ROOT } from '../lib/core/paths.ts';
 
 /** The claude call for `argv`: the checkout as the plugin dir, its bin/ first on PATH. */
 export function claudePlan(argv: string[], env: NodeJS.ProcessEnv = process.env): { command: 'claude'; args: string[]; cwd: string; env: NodeJS.ProcessEnv } {

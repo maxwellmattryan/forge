@@ -4,12 +4,12 @@
 // trusts release.json, the request inbox or events.jsonl alone: every check recomputes the plan
 // (freshPlan) and re-reads the policy, at approval time and again at run time.
 // docs/RELEASES.md "Releasing a project", docs/ARCHITECTURE.md "Foreman".
-import { isForemanActor, loadJob, logEvent, readEvents } from './jobs.ts';
+import { isForemanActor, loadJob, logEvent, readEvents } from './core/job/store.ts';
 import { classReservation, decides, foremanEnabled, inOffice, reservedFor } from './foreman.ts';
 import { assertNoSymlinks, freshPlan, readPlanFile, readState, releaseFiles, type ReleasePlan } from './release-plan.ts';
-import { enqueue, listRequests } from './requests.ts';
-import { ForgeError } from './util.ts';
-import type { Config, ForgeRequest, JobEvent } from './types.ts';
+import { enqueue, listRequests } from './core/job/requests.ts';
+import { ForgeError } from './core/errors.ts';
+import type { Config, ForgeRequest, JobEvent } from './core/types.ts';
 
 const RELEASE_PLANNED = 'release-planned';
 export const RELEASE_APPROVAL = 'release-approval';

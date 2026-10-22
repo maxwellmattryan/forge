@@ -6,10 +6,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { defaults, trustDigest, validateConfig } from '../lib/config.ts';
-import { paths } from '../lib/paths.ts';
+import { defaults, trustDigest, validateConfig } from '../lib/core/config/load.ts';
+import { paths } from '../lib/core/paths.ts';
 import { loadTracker } from '../lib/trackers/index.ts';
-import { ForgeError } from '../lib/util.ts';
+import { ForgeError } from '../lib/core/errors.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 

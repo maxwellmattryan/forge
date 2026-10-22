@@ -1,5 +1,5 @@
 // `forge sync` in human mode.
-import { isMap } from '../../shape.ts';
+import { isMap } from '../../core/shape.ts';
 import { blocks, has, hang, list, paint, section, txt } from './kit.ts';
 import type { Paint, Renderer } from './kit.ts';
 

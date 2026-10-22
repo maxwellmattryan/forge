@@ -2,17 +2,19 @@
 // `forge doctor` lives in lib/doctor.ts, which the dashboard's /api/doctor shares.
 import fs from 'node:fs';
 import path from 'node:path';
-import { defaults, stringifyConfig, validateConfig } from '../config.ts';
-import { configLock } from '../config-set.ts';
-import { listJobs, jobDir } from '../jobs.ts';
-import { paths, exists, PLUGIN_ROOT } from '../paths.ts';
-import { matchPolicy } from '../policy-check.ts';
+import { defaults, stringifyConfig, validateConfig } from '../core/config/load.ts';
+import { configLock } from '../core/config/set.ts';
+import { listJobs, jobDir } from '../core/job/store.ts';
+import { paths, exists, PLUGIN_ROOT } from '../core/paths.ts';
+import { matchPolicy } from '../core/config/validators/policy-check.ts';
 import { modelOverlap } from '../roster.ts';
-import { migrateConfig, normalizeJob, serializeJob } from '../schema.ts';
-import { deepMerge } from '../shape.ts';
-import { ForgeError, readJson, readText, withLock, writeJsonAtomic } from '../util.ts';
-import * as yaml from '../yaml.ts';
-import type { HelpGroup } from '../types.ts';
+import { migrateConfig, normalizeJob, serializeJob } from '../core/job/schema.ts';
+import { deepMerge } from '../core/shape.ts';
+import { ForgeError } from '../core/errors.ts';
+import { readJson, readText, writeJsonAtomic } from '../core/os/fs.ts';
+import { withLock } from '../core/os/lock.ts';
+import * as yaml from '../core/format/yaml.ts';
+import type { HelpGroup } from '../core/types.ts';
 
 export const HELP: HelpGroup[] = [
   {

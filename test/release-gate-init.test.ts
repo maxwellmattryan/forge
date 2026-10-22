@@ -5,10 +5,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { RELEASE_GATE_RULE, RELEASE_GATE_WARNING, initWrite } from '../lib/commands/init.ts';
-import { matchPolicy } from '../lib/policy-check.ts';
-import type { ProtectedRule } from '../lib/types.ts';
-import { PLUGIN_ROOT } from '../lib/paths.ts';
-import * as yaml from '../lib/yaml.ts';
+import { matchPolicy } from '../lib/core/config/validators/policy-check.ts';
+import type { ProtectedRule } from '../lib/core/types.ts';
+import { PLUGIN_ROOT } from '../lib/core/paths.ts';
+import * as yaml from '../lib/core/format/yaml.ts';
 import { tempRepo } from './helpers.ts';
 
 const SCRIPT = path.join('.forge', 'ci', 'release-gate.mjs');

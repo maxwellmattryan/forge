@@ -6,9 +6,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { tempRepo, waitFor } from './helpers.ts';
-import { loadConfig } from '../lib/config.ts';
-import { createJob, jobDir, readEvents, updateJob } from '../lib/jobs.ts';
-import { shellArgs } from '../lib/util.ts';
+import { loadConfig } from '../lib/core/config/load.ts';
+import { createJob, jobDir, readEvents, updateJob } from '../lib/core/job/store.ts';
+import { shellArgs } from '../lib/core/text.ts';
 import { createWorktree } from '../lib/worktree.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');

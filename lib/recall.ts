@@ -4,17 +4,19 @@
 // only, so a branch can never edit the test it is graded by.
 import fs from 'node:fs';
 import path from 'node:path';
-import { modelFor, reviewerChecklist } from './config.ts';
+import { modelFor, reviewerChecklist } from './core/config/load.ts';
 import { parseReviewFindings } from './findings.ts';
 import { git } from './git.ts';
 import type { RaisedFinding } from './findings.ts';
-import { jobDir, loadJob, logEvent, parseReview, readEvents } from './jobs.ts';
-import { LENS_NAME } from './lens.ts';
-import { paths, PLUGIN_ROOT } from './paths.ts';
+import { jobDir, loadJob, logEvent, parseReview, readEvents } from './core/job/store.ts';
+import { LENS_NAME } from './core/job/lens.ts';
+import { paths, PLUGIN_ROOT } from './core/paths.ts';
 import { pluginHash } from './provenance.ts';
-import type { Config, Job } from './types.ts';
-import { ForgeError, now, writeJsonAtomic } from './util.ts';
-import * as yaml from './yaml.ts';
+import type { Config, Job } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
+import { writeJsonAtomic } from './core/os/fs.ts';
+import { now } from './core/utils.ts';
+import * as yaml from './core/format/yaml.ts';
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const RUN_ID = /^\d{8}-\d{6}(-[a-z0-9-]{1,80})?$/;

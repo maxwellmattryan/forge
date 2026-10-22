@@ -8,8 +8,8 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { forgeAsync, tempRepo, waitFor } from './helpers.ts';
-import * as yaml from '../lib/yaml.ts';
-import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
+import * as yaml from '../lib/core/format/yaml.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
 import { backgroundArgs } from '../lib/commands/dash.ts';
 
 const POSIX = { skip: process.platform === 'win32' && 'POSIX-only' };

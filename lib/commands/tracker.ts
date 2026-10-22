@@ -1,17 +1,17 @@
 // Tracker commands, starting jobs from tracker refs, and `forge sync` (PRs + trackers for every job).
 import { DEP_REASON, claimRespectingDeps, refreshDependencyWait, retargetPlan, unmetDependencies } from '../deps.ts';
-import { createJob, isActive, leaseStatus, listJobs, loadJob, logEvent, readEvents, setJob, claimJob } from '../jobs.ts';
+import { createJob, isActive, leaseStatus, listJobs, loadJob, logEvent, readEvents, setJob, claimJob } from '../core/job/store.ts';
 import * as pr from '../pr.ts';
 import { measureOutcomes } from '../outcome.ts';
 import { queueScores } from '../scoring.ts';
 import { refreshRequest } from '../request-refresh.ts';
-import { listRequests } from '../requests.ts';
+import { listRequests } from '../core/job/requests.ts';
 import { checkRepoBudget, isRepoHold, repoBudgetBlock } from '../repo-budget.ts';
 import { applyRetention } from '../retention.ts';
 import { queueRetro } from '../retro.ts';
 import { finishEnvironment } from '../environment-lifecycle.ts';
-import { searchTerms } from '../issue-link.ts';
-import { checkIssueRef, isSafeUrl, nativeRef, nativeRefs, parseIssueRef, primaryIssue, sameIssue } from '../issue-ref.ts';
+import { searchTerms } from '../core/job/issue-link.ts';
+import { checkIssueRef, isSafeUrl, nativeRef, nativeRefs, parseIssueRef, primaryIssue, sameIssue } from '../core/job/issue-ref.ts';
 import { localRepoSlug } from '../repo-slug.ts';
 import { isLinkedJob, jobRepoOrder, nextMergeable } from '../repo-order.ts';
 import type { PrStateKey, RepoKey } from '../repo-order.ts';
@@ -25,10 +25,10 @@ import type { MemberTracker } from '../member-trackers.ts';
 import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '../triage.ts';
 import { dashRunning, reconcile } from '../reconcile.ts';
 import type { ReconcileResult } from '../reconcile.ts';
-import { ForgeError } from '../util.ts';
+import { ForgeError } from '../core/errors.ts';
 import * as wt from '../worktree.ts';
 import { bodyFrom, list, num, req, str, usageError } from './args.ts';
-import type { Config, HelpGroup, Job, JobPr, Tracker, TrackerItem } from '../types.ts';
+import type { Config, HelpGroup, Job, JobPr, Tracker, TrackerItem } from '../core/types.ts';
 
 const TRACKER_EXITS: [1 | 5, string][] = [
   [1, 'the tracker refused the call, no such item or job, or a likely secret in the text Forge would send (code secret_found)'],

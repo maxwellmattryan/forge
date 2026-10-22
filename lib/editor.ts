@@ -4,9 +4,10 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { isOwnWorktreePath, worktreeRoot } from './config.ts';
-import type { Config, Job } from './types.ts';
-import { ForgeError, splitWords } from './util.ts';
+import { isOwnWorktreePath, worktreeRoot } from './core/config/load.ts';
+import type { Config, Job } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
+import { splitWords } from './core/text.ts';
 
 /**
  * FORGE_EDITOR from the human's own environment (trusted like $EDITOR), else `code`, split into

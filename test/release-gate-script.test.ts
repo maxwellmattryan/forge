@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { canaryVersion, pinCargo, pinCmake, pinNpm } from '../lib/interim.ts';
-import { PLUGIN_ROOT } from '../lib/paths.ts';
+import { PLUGIN_ROOT } from '../lib/core/paths.ts';
 import { scratchGitConfig } from './helpers.ts';
 
 const SCRIPT = path.join(PLUGIN_ROOT, 'templates', 'release-gate', 'release-gate.mjs');

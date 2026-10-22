@@ -8,8 +8,8 @@ import { spawnSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
 import { focusJob } from '../lib/focus-actions.ts';
 import { checkoutFile, readCheckoutRecord } from '../lib/checkout.ts';
-import { loadConfig } from '../lib/config.ts';
-import * as yaml from '../lib/yaml.ts';
+import { loadConfig } from '../lib/core/config/load.ts';
+import * as yaml from '../lib/core/format/yaml.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const POSIX = process.platform === 'win32' && 'POSIX symlinks and shell commands';

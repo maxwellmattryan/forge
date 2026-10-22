@@ -7,8 +7,8 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { TRUST_ENV, trustDigest } from '../lib/config.ts';
-import { loadJob } from '../lib/jobs.ts';
+import { TRUST_ENV, trustDigest } from '../lib/core/config/load.ts';
+import { loadJob } from '../lib/core/job/store.ts';
 import { type TwoRepo, dependsOn, twoRepo } from './job-repos-fixture.ts';
 
 const posix = process.platform === 'win32' ? 'the stubs are sh scripts and forge release run refuses native Windows' : false;

@@ -9,18 +9,20 @@
 // (default .github/project-config.yml); projects need a token with the "project" scope.
 import fs from 'node:fs';
 import path from 'node:path';
-import { paths, resolveFrom, exists } from '../paths.ts';
-import { ForgeError, readJson, withLock, writeJsonAtomic } from '../util.ts';
+import { paths, resolveFrom, exists } from '../core/paths.ts';
+import { ForgeError } from '../core/errors.ts';
+import { readJson, writeJsonAtomic } from '../core/os/fs.ts';
+import { withLock } from '../core/os/lock.ts';
 import { gh, ghJson } from '../gh.ts';
-import * as yaml from '../yaml.ts';
+import * as yaml from '../core/format/yaml.ts';
 import { repoSlug } from '../pr.ts';
-import { listJobs, isActive } from '../jobs.ts';
-import { statusKey, STATUS_KEYS } from './status.ts';
-import { queryTerms } from '../issue-link.ts';
-import { nativeRef } from '../issue-ref.ts';
+import { listJobs, isActive } from '../core/job/store.ts';
+import { statusKey, STATUS_KEYS } from '../api/tracker.ts';
+import { queryTerms } from '../core/job/issue-link.ts';
+import { nativeRef } from '../core/job/issue-ref.ts';
 import { localRepoSlug } from '../repo-slug.ts';
 import { attributionForbidden, stripAttribution } from '../attribution.ts';
-import type { LoadedJob, Tracker, TrackerCtx, TrackerItem } from '../types.ts';
+import type { LoadedJob, Tracker, TrackerCtx, TrackerItem } from '../core/types.ts';
 
 /** A GitHub Project (v2) and its status field, from config or the project-config file: projectCoords. */
 export interface ProjectCoords {

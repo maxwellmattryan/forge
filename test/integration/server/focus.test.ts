@@ -12,9 +12,9 @@ import { fakeBin, forgeAsync, forgeSync, repoTemplate, waitFor } from '../../hel
 import { startServer } from '../../../lib/server.ts';
 import { FIXTURE_DIST } from '../../dist.ts';
 import { editorArgv } from '../../../lib/editor.ts';
-import { pidAlive } from '../../../lib/util.ts';
-import { API_VERSION } from '../../../lib/schema.ts';
-import * as yaml from '../../../lib/yaml.ts';
+import { pidAlive } from '../../../lib/core/os/process.ts';
+import { API_VERSION } from '../../../lib/core/job/schema.ts';
+import * as yaml from '../../../lib/core/format/yaml.ts';
 
 // The stub editor records each call's argv; the latest call is the one a POST spawned.
 const editor = fakeBin('stub-editor');

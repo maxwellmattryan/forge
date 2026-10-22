@@ -7,8 +7,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
 import { forgeInProcess, repoTemplate } from './helpers.ts';
-import { ConfigSetError } from '../lib/config-fields.ts';
-import { DEFAULT_CODE, ERROR_CODES, ForgeError, run } from '../lib/util.ts';
+import { ConfigSetError } from '../lib/core/config/fields.ts';
+import { DEFAULT_CODE, ERROR_CODES, ForgeError } from '../lib/core/errors.ts';
+import { run } from '../lib/core/os/process.ts';
 import { GROUPS, README_END, README_START, findHelp, readmeTable, syncReadme, toCliError } from '../lib/commands/help.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');

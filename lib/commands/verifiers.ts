@@ -4,7 +4,7 @@
 import path from 'node:path';
 import { loadVerifiers, verifiersRecord, verifiersRun } from '../verifiers.ts';
 import { usageError } from './args.ts';
-import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
+import type { CliContext, Dispatched, HelpGroup } from '../core/types.ts';
 
 const VERIFIERS: HelpGroup = {
   name: 'verifiers',

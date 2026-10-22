@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { agentTranscriptById, claudeProjectsDir, openTranscript } from './transcripts.ts';
 import type { TranscriptHit } from './transcripts.ts';
-import type { AgentUsage, Job } from './types.ts';
+import type { AgentUsage, Job } from './core/types.ts';
 
 /**
  * What importClaudeCodeTranscript returns: AgentUsage's transcript fields, all set, plus the file

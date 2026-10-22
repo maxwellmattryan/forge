@@ -5,11 +5,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { forgeSync, tempRepo } from './helpers.ts';
-import { defaults } from '../lib/config.ts';
-import { createJob, jobDir, readEvents, recordAgent, setJob } from '../lib/jobs.ts';
+import { defaults } from '../lib/core/config/load.ts';
+import { createJob, jobDir, readEvents, recordAgent, setJob } from '../lib/core/job/store.ts';
 import { pluginHash } from '../lib/provenance.ts';
-import { ARCHIVE_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from '../lib/schema.ts';
-import type { Config } from '../lib/types.ts';
+import { ARCHIVE_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
+import type { Config } from '../lib/core/types.ts';
 
 const json = (r: { stdout: string }) => JSON.parse(r.stdout);
 

@@ -7,11 +7,11 @@ import path from 'node:path';
 import { tempRepo } from './helpers.ts';
 import { INSTRUCTIONS_LINE, REPLY_LINE, assistantBrief, jobPathMap, renderBrief, roleBrief } from '../lib/brief.ts';
 import type { RoleContext } from '../lib/brief.ts';
-import { defaults } from '../lib/config.ts';
-import { createJob, jobDir, updateJob } from '../lib/jobs.ts';
-import { WAITING_ON, normalizeJob } from '../lib/schema.ts';
+import { defaults } from '../lib/core/config/load.ts';
+import { createJob, jobDir, updateJob } from '../lib/core/job/store.ts';
+import { WAITING_ON, normalizeJob } from '../lib/core/job/schema.ts';
 import { gateTell, loadStepInput, step } from '../lib/step.ts';
-import type { Stage, StepFile, StepInput, VerifyRun } from '../lib/types.ts';
+import type { Stage, StepFile, StepInput, VerifyRun } from '../lib/core/types.ts';
 import { JOB_DIR, ag, ev, fixture } from './step-fixture.ts';
 
 const SENTINEL = 'ZZSENTINEL-7f3a';

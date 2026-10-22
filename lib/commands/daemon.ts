@@ -2,15 +2,17 @@
 // so they work with or without a running `forge dash` and never talk to its server.
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadConfig } from '../config.ts';
-import { openRead, readInfo, sessionFiles, sessionRecords, tailLines } from '../daemon-files.ts';
+import { loadConfig } from '../core/config/load.ts';
+import { openRead, readInfo, sessionFiles, sessionRecords, tailLines } from '../core/job/session-files.ts';
 import { redactKnown, scopeKnownValues } from '../known-secrets.ts';
-import { paths } from '../paths.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '../requests.ts';
+import { paths } from '../core/paths.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '../core/job/requests.ts';
 import { sessionAgents } from '../session-agents.ts';
-import { ForgeError, pidAlive, readJson } from '../util.ts';
+import { ForgeError } from '../core/errors.ts';
+import { pidAlive } from '../core/os/process.ts';
+import { readJson } from '../core/os/fs.ts';
 import { usageError } from './args.ts';
-import type { HelpGroup } from '../types.ts';
+import type { HelpGroup } from '../core/types.ts';
 
 const DAEMON: HelpGroup = {
   name: 'daemon',

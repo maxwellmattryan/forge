@@ -8,10 +8,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { BIN, cliEnv, forgeAsync, forgeSync, repoTemplate, waitFor as waitUntil } from '../../helpers.ts';
-import { TRUST_ENV, defaults, trustDigest } from '../../../lib/config.ts';
+import { TRUST_ENV, defaults, trustDigest } from '../../../lib/core/config/load.ts';
 import { initWrite } from '../../../lib/commands/init.ts';
 import { createPool } from '../../../lib/daemon-pool.ts';
-import { claimJob, createJob, jobDir, loadJob, recordAgent, updateJob } from '../../../lib/jobs.ts';
+import { claimJob, createJob, jobDir, loadJob, recordAgent, updateJob } from '../../../lib/core/job/store.ts';
 
 const FAKE = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'fake-claude.mjs');
 // Named claude, because daemon.command must run claude; it runs fake-claude.mjs.

@@ -4,13 +4,13 @@
 // trust check. The overlay changes which verify steps run, budgets, models and the review panel, so
 // it is an allowlist checked when the run starts and again on every load: a hand-edited job.json
 // fails closed instead of running whatever it names.
-import { panelPathsProblems, pathsOnlyProblems, reviewerChecklist, validateConfig, verifyShapeProblems, verifySteps } from './config.ts';
-import { FIELDS, MODEL_RE, parseCliValue, stringProblem, validateFieldValue } from './config-fields.ts';
-import { EFFORTS } from './schema.ts';
-import type { Config, EvalOverlay, Job } from './types.ts';
-import { isMap, setPath, show } from './shape.ts';
-import { ForgeError } from './util.ts';
-import * as yaml from './yaml.ts';
+import { panelPathsProblems, pathsOnlyProblems, reviewerChecklist, validateConfig, verifyShapeProblems, verifySteps } from './core/config/load.ts';
+import { FIELDS, MODEL_RE, parseCliValue, stringProblem, validateFieldValue } from './core/config/fields.ts';
+import { EFFORTS } from './core/job/schema.ts';
+import type { Config, EvalOverlay, Job } from './core/types.ts';
+import { isMap, setPath, show } from './core/shape.ts';
+import { ForgeError } from './core/errors.ts';
+import * as yaml from './core/format/yaml.ts';
 
 export type { EvalOverlay };
 

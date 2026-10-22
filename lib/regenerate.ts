@@ -5,12 +5,12 @@
 // worktree, and every git call that takes paths reads them literally, after `--` or from stdin.
 import fs from 'node:fs';
 import path from 'node:path';
-import { globProblem } from './config.ts';
+import { globProblem } from './core/config/load.ts';
 import { git } from './git.ts';
-import { exists, resolveWorktreePaths } from './paths.ts';
-import { inSpec } from './glob.ts';
-import type { Config, Job } from './types.ts';
-import type { RunResult } from './util.ts';
+import { exists, resolveWorktreePaths } from './core/paths.ts';
+import { inSpec } from './core/glob.ts';
+import type { Config, Job } from './core/types.ts';
+import type { RunResult } from './core/os/process.ts';
 import { commandTemplate, runCommand } from './worktree.ts';
 
 export type Strategy = 'merge' | 'rebase';

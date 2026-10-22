@@ -6,12 +6,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { git as runGit, historyEnv } from './git.ts';
-import { jobDir } from './jobs.ts';
+import { jobDir } from './core/job/store.ts';
 import { linkLeakPaths } from './links.ts';
-import { exists } from './paths.ts';
+import { exists } from './core/paths.ts';
 import { approachPaths, approachSection, resolveBase } from './scope.ts';
-import type { Config, Job } from './types.ts';
-import { ForgeError } from './util.ts';
+import type { Config, Job } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
 
 export const DEFAULT_TEST_PATTERN = '(^|/)(tests?|__tests__|spec|specs)/|[._-](test|spec)s?\\.[A-Za-z0-9]+$|_test\\.(go|py|rs)$|(^|/)test_[^/]+\\.py$';
 

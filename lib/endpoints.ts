@@ -3,11 +3,11 @@
 // and the FORGE_PORT_<C> / FORGE_ENDPOINT_<C> variables configured commands get, as the briefs and
 // the dashboard list them, and as the config sinks of #196 will read them.
 import { entriesOrNone, envPrefix, readJobRecord, readSharedRecord } from './backing.ts';
-import { isManaged } from './backing-config.ts';
+import { isManaged } from './core/config/validators/backing.ts';
 import { dbEntries, readDbRecord } from './backing-db.ts';
-import { envName, placeholderProblems } from './endpoints-config.ts';
+import { envName, placeholderProblems } from './core/config/validators/endpoints.ts';
 import { portBearing } from './ports.ts';
-import type { ComponentConfig, Config, Job } from './types.ts';
+import type { ComponentConfig, Config, Job } from './core/types.ts';
 
 // The config-time half lives in endpoints-config.ts, a leaf module config.ts can import without
 // a cycle through backing.ts and jobs.ts; both names stay reachable from here.

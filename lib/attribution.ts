@@ -2,8 +2,8 @@
 // issues, comments, releases) credits an AI: the human who runs Forge is the author. Messages
 // may still *mention* AI tools; only signatures, trailers and "generated with" footers are removed.
 import { git, gitEnv } from './git.ts';
-import type { Config } from './types.ts';
-import { ForgeError } from './util.ts';
+import type { Config } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
 
 const AI = '(claude|anthropic|openai|chatgpt|gpt-?\\d|copilot|gemini|codex|cursor|devin|aider|windsurf|ai assistant|ai agent)';
 

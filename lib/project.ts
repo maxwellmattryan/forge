@@ -2,11 +2,11 @@
 // dependsOn edges. Config is hand-edited, so every entry is checked here and a bad one is dropped
 // (validation reports it, and `problems` counts what it reports) rather than thrown on.
 
-import type { Config, DependencyType, ProjectComponent, ProjectEdge, ProjectResponse } from './types.ts';
-import { COMPONENT_KINDS, DEPENDENCY_TYPES, componentProblems } from './components.ts';
+import type { Config, DependencyType, ProjectComponent, ProjectEdge, ProjectResponse } from './core/types.ts';
+import { COMPONENT_KINDS, DEPENDENCY_TYPES, componentProblems } from './core/config/components.ts';
 import { REPO_NAME } from './member-repos.ts';
-import { isMap } from './shape.ts';
-import { SAFE_REF } from './util.ts';
+import { isMap } from './core/shape.ts';
+import { SAFE_REF } from './core/text.ts';
 
 const trimmed = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);

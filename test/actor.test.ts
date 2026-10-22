@@ -9,9 +9,9 @@ import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
 import { ACTOR_CACHE_TTL_MS, currentActor, resolveActor } from '../lib/actor.ts';
 import type { ActorDeps } from '../lib/actor.ts';
-import { defaults } from '../lib/config.ts';
-import { createJob, jobDir, readEvents, setJob } from '../lib/jobs.ts';
-import { EVENT_SCHEMA_VERSION, normalizeEvent, sanitizeLogin } from '../lib/schema.ts';
+import { defaults } from '../lib/core/config/load.ts';
+import { createJob, jobDir, readEvents, setJob } from '../lib/core/job/store.ts';
+import { EVENT_SCHEMA_VERSION, normalizeEvent, sanitizeLogin } from '../lib/core/job/schema.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const DAY = ACTOR_CACHE_TTL_MS;

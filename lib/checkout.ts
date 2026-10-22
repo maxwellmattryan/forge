@@ -6,15 +6,17 @@
 // callers inject the command runner.
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveTarget } from './checkout-config.ts';
-import { worktreeRoot } from './config.ts';
+import { resolveTarget } from './core/config/validators/checkout.ts';
+import { worktreeRoot } from './core/config/load.ts';
 import { containedWorktree } from './editor.ts';
-import { readSmallJson } from './focus.ts';
-import { jobDir, loadJob, logEvent } from './jobs.ts';
-import { paths } from './paths.ts';
-import { validJobId } from './requests.ts';
-import type { CheckoutStep, CheckoutStepResult, Config, Job } from './types.ts';
-import { ForgeError, withLockAsync, writeJsonAtomic } from './util.ts';
+import { readSmallJson } from './core/job/focus.ts';
+import { jobDir, loadJob, logEvent } from './core/job/store.ts';
+import { paths } from './core/paths.ts';
+import { validJobId } from './core/job/requests.ts';
+import type { CheckoutStep, CheckoutStepResult, Config, Job } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
+import { writeJsonAtomic } from './core/os/fs.ts';
+import { withLockAsync } from './core/os/lock.ts';
 
 /** What a step needs from `forge run`'s result (lib/worktree.ts CommandResult). */
 export interface StepRun {

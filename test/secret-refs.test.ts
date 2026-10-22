@@ -10,8 +10,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fakeBin, repoTemplate } from './helpers.ts';
-import { defaults, validateConfig } from '../lib/config.ts';
-import { declaredSecrets, secretRefProblems } from '../lib/secret-refs-config.ts';
+import { defaults, validateConfig } from '../lib/core/config/load.ts';
+import { declaredSecrets, secretRefProblems } from '../lib/core/config/validators/secret-refs.ts';
 import { clearSecretMemo, dotenvValue, resolveSecret } from '../lib/secret-refs.ts';
 
 const has = (problems: string[], re: RegExp) => assert.ok(problems.some((p) => re.test(p)), `${re} not in:\n${problems.join('\n')}`);

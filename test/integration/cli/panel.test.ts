@@ -13,11 +13,11 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { evalTaskYml, forgeAsync, forgeSync, repoTemplate, scratchGitConfig } from '../../helpers.ts';
-import { defaults, loadConfig } from '../../../lib/config.ts';
-import { jobDir, loadJob, logEvent, readEvents, updateJob } from '../../../lib/jobs.ts';
+import { defaults, loadConfig } from '../../../lib/core/config/load.ts';
+import { jobDir, loadJob, logEvent, readEvents, updateJob } from '../../../lib/core/job/store.ts';
 import { jobPanel } from '../../../lib/panel.ts';
 import { reworkPanel } from '../../../lib/step.ts';
-import type { Config } from '../../../lib/types.ts';
+import type { Config } from '../../../lib/core/types.ts';
 
 const write = (dir: string, rel: string, text = 'x\n') => {
   fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });

@@ -4,14 +4,15 @@
 // the contract and a change goes through revise.
 import fs from 'node:fs';
 import path from 'node:path';
-import { jobDir, loadJob, logEvent, readEvents, requestBody, updateJob } from './jobs.ts';
-import { nativeRef, primaryIssue } from './issue-ref.ts';
+import { jobDir, loadJob, logEvent, readEvents, requestBody, updateJob } from './core/job/store.ts';
+import { nativeRef, primaryIssue } from './core/job/issue-ref.ts';
 import { memberForRef, memberTrackerConfig } from './member-trackers.ts';
 import { localRepoSlug } from './repo-slug.ts';
 import { loadTracker, memberTracker } from './trackers/index.ts';
 import { issueAuthorAssociation, trustedAssociation } from './trackers/github.ts';
-import { ForgeError, writeTextAtomic } from './util.ts';
-import type { Config, Job, Tracker, TrackerCtx, TrackerItem } from './types.ts';
+import { ForgeError } from './core/errors.ts';
+import { writeTextAtomic } from './core/os/fs.ts';
+import type { Config, Job, Tracker, TrackerCtx, TrackerItem } from './core/types.ts';
 
 export type RefreshTrigger = 'cli' | 'claim';
 

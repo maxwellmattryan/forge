@@ -4,12 +4,13 @@
 // so a CLI call that writes none never spawns gh or git.
 import os from 'node:os';
 import path from 'node:path';
-import { paths } from './paths.ts';
-import { sanitizeLogin } from './schema.ts';
-import type { EventActor } from './types.ts';
+import { paths } from './core/paths.ts';
+import { sanitizeLogin } from './core/job/schema.ts';
+import type { EventActor } from './core/types.ts';
 import { gh } from './gh.ts';
 import { git } from './git.ts';
-import { hasBinary, readJson, writeJsonAtomic } from './util.ts';
+import { hasBinary } from './core/os/process.ts';
+import { readJson, writeJsonAtomic } from './core/os/fs.ts';
 
 /** How long a gh login stays cached in .forge/runtime/actor.json. */
 export const ACTOR_CACHE_TTL_MS = 24 * 60 * 60 * 1000;

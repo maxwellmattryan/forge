@@ -1,8 +1,8 @@
 // What a job session's agents say about keeping it. Apart from daemon.ts so `forge daemon status`
 // reads it without loading the supervisor.
-import { AGENT_LEASE_MS, loadJob } from './jobs.ts';
-import { INBOX_SCOPE, validJobId } from './requests.ts';
-import type { JobAgent } from './types.ts';
+import { AGENT_LEASE_MS, loadJob } from './core/job/store.ts';
+import { INBOX_SCOPE, validJobId } from './core/job/requests.ts';
+import type { JobAgent } from './core/types.ts';
 
 /** What a job session's agents say about keeping it: sessionAgents. */
 export interface SessionAgents {

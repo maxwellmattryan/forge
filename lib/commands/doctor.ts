@@ -5,11 +5,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { buildBundle, bundleFileName } from '../bundle.ts';
 import { doctor } from '../doctor.ts';
-import { validJobId } from '../requests.ts';
-import { ForgeError } from '../util.ts';
-import { zip } from '../zip.ts';
+import { validJobId } from '../core/job/requests.ts';
+import { ForgeError } from '../core/errors.ts';
+import { zip } from '../core/format/zip.ts';
 import { str } from './args.ts';
-import type { BundleEntry, BundleResult, CliContext, Dispatched, HelpGroup } from '../types.ts';
+import type { BundleEntry, BundleResult, CliContext, Dispatched, HelpGroup } from '../core/types.ts';
 
 const DOCTOR: HelpGroup = {
   name: 'doctor',

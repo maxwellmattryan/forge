@@ -8,17 +8,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { entriesOrNone, isManaged } from './backing.ts';
-import { readLogPage } from './daemon-files.ts';
+import { readLogPage } from './core/job/session-files.ts';
 import { dockerRunAsync } from './docker.ts';
 import type { DockerStateName } from './docker.ts';
 import { jobEndpoints } from './endpoints.ts';
-import { readSmallJson } from './focus.ts';
+import { readSmallJson } from './core/job/focus.ts';
 import { currentFocus } from './focus-actions.ts';
-import { isActive, jobDir, listJobs } from './jobs.ts';
-import { PLUGIN_ROOT } from './paths.ts';
-import { pidAlive } from './util.ts';
+import { isActive, jobDir, listJobs } from './core/job/store.ts';
+import { PLUGIN_ROOT } from './core/paths.ts';
+import { pidAlive } from './core/os/process.ts';
 import { commandTemplate, portAnswers } from './worktree.ts';
-import type { Config, EnvironmentDev, EnvironmentRow, EnvironmentService, EnvironmentsResponse, EnvironmentUsage, JobEnvironmentResponse, LoadedJob } from './types.ts';
+import type { Config, EnvironmentDev, EnvironmentRow, EnvironmentService, EnvironmentsResponse, EnvironmentUsage, JobEnvironmentResponse, LoadedJob } from './core/types.ts';
 
 /** The most a CLI child may print: a status of every container fits many times over. */
 const MAX_CLI_OUTPUT = 4 * 1024 * 1024;

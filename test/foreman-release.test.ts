@@ -8,10 +8,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { TRUST_ENV, defaults, foremanProblems, loadConfig, trustDigest } from '../lib/config.ts';
+import { TRUST_ENV, defaults, foremanProblems, loadConfig, trustDigest } from '../lib/core/config/load.ts';
 import { ACTIONS_BY_GATE, INVALID_RESERVED, classReservation, decides, reservedMatch } from '../lib/foreman.ts';
-import { OFFICE_SCOPE, INBOX_SCOPE, ackRequest, listRequests } from '../lib/requests.ts';
-import { OFFICE_GATES } from '../lib/schema.ts';
+import { OFFICE_SCOPE, INBOX_SCOPE, ackRequest, listRequests } from '../lib/core/job/requests.ts';
+import { OFFICE_GATES } from '../lib/core/job/schema.ts';
 import { type TwoRepo, dependsOn, twoRepo } from './job-repos-fixture.ts';
 
 const posix = process.platform === 'win32' ? 'the stubs are sh scripts and forge release run refuses native Windows' : false;

@@ -13,9 +13,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { logRelease } from './interim-apply.ts';
 import { isReleaseVersion, resolveInterim } from './interim.ts';
-import { loadJob } from './jobs.ts';
-import { paths } from './paths.ts';
-import { SUPPORT_URL, posixShell } from './platform.ts';
+import { loadJob } from './core/job/store.ts';
+import { paths } from './core/paths.ts';
+import { SUPPORT_URL, posixShell } from './core/os/platform.ts';
 import {
   type CheckKind,
   type GitReader,
@@ -43,8 +43,11 @@ import {
 } from './release-plan.ts';
 import { foremanReleaseApproval, releaseApprovalStatus } from './release-approval.ts';
 import type { RepoKey } from './repo-order.ts';
-import type { Config } from './types.ts';
-import { ForgeError, findOnPath, now, pidAlive, run, writeJsonAtomic } from './util.ts';
+import type { Config } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
+import { findOnPath, pidAlive, run } from './core/os/process.ts';
+import { writeJsonAtomic } from './core/os/fs.ts';
+import { now } from './core/utils.ts';
 
 const RUN_DAEMON_REFUSAL = 'forge release run runs release and publish commands, which a daemon session may not do; a human runs it in their own session';
 const RUN_WINDOWS_REFUSAL = `forge release run is not supported on native Windows; run it under WSL2: ${SUPPORT_URL}`;

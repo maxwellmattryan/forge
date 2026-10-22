@@ -3,12 +3,12 @@
 import path from 'node:path';
 import { acCoverage } from '../lib/acs.ts';
 import { jobPathMap } from '../lib/brief.ts';
-import { defaults } from '../lib/config.ts';
+import { defaults } from '../lib/core/config/load.ts';
 import { jobEndpoints } from '../lib/endpoints.ts';
-import { normalizeJob } from '../lib/schema.ts';
-import { PLUGIN_ROOT } from '../lib/paths.ts';
+import { normalizeJob } from '../lib/core/job/schema.ts';
+import { PLUGIN_ROOT } from '../lib/core/paths.ts';
 import { recallGate } from '../lib/step/input.ts';
-import type { Config, Job, JobAgent, JobEvent, StepFile, StepInput } from '../lib/types.ts';
+import type { Config, Job, JobAgent, JobEvent, StepFile, StepInput } from '../lib/core/types.ts';
 
 export const ROOT = '/repo';
 export const JOB_DIR = path.join(ROOT, '.forge', 'jobs', 'j');

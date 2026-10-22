@@ -5,12 +5,13 @@
 // own budget, so rewriting a reason never frees a per-job stop. docs/CONFIG.md "Repo budget".
 import { effectiveLimits, exceededKeys, measureBudget } from './budget.ts';
 import { configForJob } from './eval-overlay.ts';
-import { isActive, listJobs, loadJob, logEvent, logRepoEvent, parseEventLines, readEvents, repoAuditFile, setJob } from './jobs.ts';
-import { enqueue, listRequests } from './requests.ts';
-import { REPO_BUDGET_KEYS } from './schema.ts';
+import { isActive, listJobs, loadJob, logEvent, logRepoEvent, parseEventLines, readEvents, repoAuditFile, setJob } from './core/job/store.ts';
+import { enqueue, listRequests } from './core/job/requests.ts';
+import { REPO_BUDGET_KEYS } from './core/job/schema.ts';
 import { periodTotals, spendLedger } from './spend.ts';
-import type { Config, EventActor, Job, RepoBudgetConfig, RepoBudgetKey, RepoBudgetStatus } from './types.ts';
-import { ForgeError, readText } from './util.ts';
+import type { Config, EventActor, Job, RepoBudgetConfig, RepoBudgetKey, RepoBudgetStatus } from './core/types.ts';
+import { ForgeError } from './core/errors.ts';
+import { readText } from './core/os/fs.ts';
 
 const REPO_HOLD_PREFIX = 'repo budget:';
 const RELEASE_REASON = 'repo budget released';

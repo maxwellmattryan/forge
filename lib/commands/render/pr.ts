@@ -1,6 +1,6 @@
 // `forge pr open|sync|merge` in human mode.
 import { cell } from '../render.ts';
-import { isMap } from '../../shape.ts';
+import { isMap } from '../../core/shape.ts';
 import { blocks, fields, has, hang, line, marked, paint, section, table, txt } from './kit.ts';
 import type { Paint, Renderer, Val } from './kit.ts';
 import type { MergeResult } from '../../pr.ts';

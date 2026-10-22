@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { defaults } from '../lib/config.ts';
+import { defaults } from '../lib/core/config/load.ts';
 import { blockingLines, commandSources, compactIntegrity, countTestDecls, deletionSanctions, devDepsSection, hiddenChanges, integrityError, isConfigPath, markerHits, packageJsonDetail, parseDiffLines, renameDropsTest, renameSanctions, renderIntegrity, testIntegrity } from '../lib/integrity.ts';
 
 const commitAll = (cwd, msg) => {

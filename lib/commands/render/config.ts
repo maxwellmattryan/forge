@@ -1,5 +1,5 @@
 // `forge config show|get|validate` in human mode.
-import { isMap } from '../../shape.ts';
+import { isMap } from '../../core/shape.ts';
 import { blocks, has, hang, line, marked, paint, txt } from './kit.ts';
 import type { Renderer } from './kit.ts';
 

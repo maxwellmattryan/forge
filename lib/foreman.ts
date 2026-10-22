@@ -5,14 +5,15 @@
 // docs/ARCHITECTURE.md "Foreman".
 import fs from 'node:fs';
 import path from 'node:path';
-import { isForemanActor, jobDir, readEvents } from './jobs.ts';
-import { OFFICE_SCOPE, daemonScope, enqueue, listRequests } from './requests.ts';
-import { HANDOFF_CLASSES, OFFICE_GATES, reservedGateEntry } from './schema.ts';
+import { isForemanActor, jobDir, readEvents } from './core/job/store.ts';
+import { OFFICE_SCOPE, daemonScope, enqueue, listRequests } from './core/job/requests.ts';
+import { HANDOFF_CLASSES, OFFICE_GATES, reservedGateEntry } from './core/job/schema.ts';
 import { isRepoProposalPark, pendingRepoProposals, repoProposals } from './repo-proposals.ts';
-import { ForgeError, safeText } from './util.ts';
-import type { Config, ForemanHandoff, ForgeRequest, GateClass, GateOwner, HandoffClass, Job, JobEvent } from './types.ts';
+import { ForgeError } from './core/errors.ts';
+import { safeText } from './core/text.ts';
+import type { Config, ForemanHandoff, ForgeRequest, GateClass, GateOwner, HandoffClass, Job, JobEvent } from './core/types.ts';
 
-export { OFFICE_GATES } from './schema.ts';
+export { OFFICE_GATES } from './core/job/schema.ts';
 
 /** The `forge job human` actions each gate class takes from the foreman. */
 export const ACTIONS_BY_GATE: Record<GateClass, readonly string[]> = {

@@ -1,9 +1,9 @@
 // Human output mode (docs/CLI.md "Output mode"): the generic renderer for results and errors.
 // Pure on purpose: callers pass whether colour is on, so tests need no TTY and no process.env.
-import { paint, sanitize } from '../ansi.ts';
-import type { Paint, Style } from '../ansi.ts';
-import { isMap } from '../shape.ts';
-import type { CliError } from '../types.ts';
+import { paint, sanitize } from '../core/format/ansi.ts';
+import type { Paint, Style } from '../core/format/ansi.ts';
+import { isMap } from '../core/shape.ts';
+import type { CliError } from '../core/types.ts';
 
 /** Colour only on a terminal, and never when NO_COLOR is set to anything (https://no-color.org). */
 export function colorEnabled(isTTY: boolean, env: NodeJS.ProcessEnv): boolean {

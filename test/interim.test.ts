@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { defaults, validateConfig } from '../lib/config.ts';
+import { defaults, validateConfig } from '../lib/core/config/load.ts';
 import { declaredLinks } from '../lib/links.ts';
 import {
   BLOCK_BEGIN,
@@ -33,8 +33,8 @@ import {
   strategyOf,
 } from '../lib/interim.ts';
 import { isPackageManagerConfig, writeManifest } from '../lib/interim-apply.ts';
-import { PLUGIN_ROOT } from '../lib/paths.ts';
-import type { Config, Job } from '../lib/types.ts';
+import { PLUGIN_ROOT } from '../lib/core/paths.ts';
+import type { Config, Job } from '../lib/core/types.ts';
 import { repoTemplate } from './helpers.ts';
 
 const SHA = '0123456789abcdef0123456789abcdef01234567';

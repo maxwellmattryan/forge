@@ -9,16 +9,16 @@ import { attributionForbidden, findAttribution } from '../attribution.ts';
 import { sessionEnv } from '../daemon.ts';
 import { git as runGit, gitEnv, gitSpawnSync, historyEnv } from '../git.ts';
 import { PINNED_DIFF_OPTS } from '../integrity.ts';
-import { jobDir, loadJob } from '../jobs.ts';
+import { jobDir, loadJob } from '../core/job/store.ts';
 import { memberWorktree } from '../job-repos.ts';
-import { policyRules } from '../policy-check.ts';
+import { policyRules } from '../core/config/validators/policy-check.ts';
 import { blobReader, checkProtected, comparisonPoint, diffEntries, logEscalated, logRefused, prefixHits, recordProtected, refusalText } from '../protected.ts';
-import { resolveWorktreePaths } from '../paths.ts';
+import { resolveWorktreePaths } from '../core/paths.ts';
 import { knownValues } from '../known-secrets.ts';
 import { applyAllowlist, diffUnits, loadAllowlist, logSecrets, refusalMessage, refuseSecrets, scanUnits, secretMode, secretsBlock, textUnit } from '../secrets.ts';
-import { ForgeError } from '../util.ts';
+import { ForgeError } from '../core/errors.ts';
 import { usageError } from './args.ts';
-import type { CommandHelp, Config, HelpGroup, Job, ProtectedHit } from '../types.ts';
+import type { CommandHelp, Config, HelpGroup, Job, ProtectedHit } from '../core/types.ts';
 
 // Re-exported: callers (and tests) imported it from here before it moved to lib/paths.ts.
 export { resolveWorktreePaths };
