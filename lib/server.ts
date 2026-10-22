@@ -44,7 +44,8 @@ import { deriveTitle, normalizeTitle } from './title.ts';
 import { agentTranscript, cachedActivity, claudeProjectsDir, openTranscript, ownerTranscript } from './transcripts.ts';
 import type { TranscriptHit } from './transcripts.ts';
 import { redactContext, redactText } from './redact.ts';
-import { ForgeError, getPath, pidAlive, readJson, readText } from './util.ts';
+import { getPath, isMap } from './shape.ts';
+import { ForgeError, pidAlive, readJson, readText } from './util.ts';
 import { versionInfo } from './version.ts';
 import { commandTemplate, startBackground, stopDevProven } from './worktree.ts';
 import { jobEndpoints } from './endpoints.ts';
@@ -510,7 +511,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         const id = dm[1];
         if (!validJobId(id) || !exists(path.join(jobDir(root, id), 'job.json'))) return jsonStatus(res, 404, { error: validJobId(id) ? `no job ${id}` : 'no such job' });
         // The id typed back: a stray or replayed click never deletes a job the human did not name.
-        if (!isObject(parsed.body) || parsed.body.confirm !== id) return jsonStatus(res, 400, { error: 'body must be {"confirm": "<the job id>"}' });
+        if (!isMap(parsed.body) || parsed.body.confirm !== id) return jsonStatus(res, 400, { error: 'body must be {"confirm": "<the job id>"}' });
         const { config } = loadConfig(root);
         // The job's own dashboard session is the one thing the delete may stop, and only once nothing else refuses it.
         const refusal = deleteRefusal(root, loadJob(root, id), listJobs(root), { stopsDaemon: true });
@@ -531,7 +532,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         const id = rm[1];
         if (!validJobId(id) || !exists(path.join(jobDir(root, id), 'job.json'))) return jsonStatus(res, 404, { error: validJobId(id) ? `no job ${id}` : 'no such job' });
         const body = parsed.body;
-        if (!isObject(body) || (body.decision !== 'approve' && body.decision !== 'reject')) return jsonStatus(res, 400, { error: 'body must be {"decision": "approve"|"reject", "repos": [names], "note"?: string}' });
+        if (!isMap(body) || (body.decision !== 'approve' && body.decision !== 'reject')) return jsonStatus(res, 400, { error: 'body must be {"decision": "approve"|"reject", "repos": [names], "note"?: string}' });
         const repos = body.repos;
         if (!Array.isArray(repos) || !repos.length || repos.length > REPO_LIST_MAX || !repos.every((r) => typeof r === 'string' && REPO_NAME.test(r))) return jsonStatus(res, 400, { error: `repos must be a list of 1 to ${REPO_LIST_MAX} repo names: the proposals you decide` });
         const note = body.note;
@@ -561,7 +562,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         const parsed = await readJsonBody(req);
         if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
         const body = parsed.body;
-        const raw = isObject(body) && Object.hasOwn(body, 'job') ? body.job : undefined;
+        const raw = isMap(body) && Object.hasOwn(body, 'job') ? body.job : undefined;
         const job = typeof raw === 'string' ? raw : null;
         if (raw !== null && job === null) return jsonStatus(res, 400, { error: 'body must be {"job": "<id>"} or {"job": null}' });
         if (job !== null && !validJobId(job)) return jsonStatus(res, 400, { error: 'invalid job id' });
@@ -581,7 +582,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
         const id = jm[1];
         if (!validJobId(id) || !exists(path.join(jobDir(root, id), 'job.json'))) return jsonStatus(res, 404, { error: validJobId(id) ? `no job ${id}` : 'no such job' });
-        if (!isObject(parsed.body)) return jsonStatus(res, 400, { error: 'body must be a JSON object' });
+        if (!isMap(parsed.body)) return jsonStatus(res, 400, { error: 'body must be a JSON object' });
         const job = loadJob(root, id);
         const { config } = loadConfig(root);
         return jm[2] === 'run' ? runDev(res, config, job, parsed.body) : editor(res, config, job);
@@ -812,8 +813,8 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     const job = environmentJob(res, id);
     if (!job) return;
     const body = parsed.body;
-    const keys = isObject(body) ? Object.keys(body).sort().join(',') : '';
-    if (!isObject(body) || keys !== 'action,target' || (body.target !== 'dev' && body.target !== 'backing') || !ENV_ACTIONS.includes(body.action as EnvironmentAction))
+    const keys = isMap(body) ? Object.keys(body).sort().join(',') : '';
+    if (!isMap(body) || keys !== 'action,target' || (body.target !== 'dev' && body.target !== 'backing') || !ENV_ACTIONS.includes(body.action as EnvironmentAction))
       return jsonStatus(res, 400, { error: 'body must be {"target": "dev"|"backing", "action": "start"|"stop"|"restart"}' });
     const target = body.target as EnvironmentTarget;
     const action = body.action as EnvironmentAction;
@@ -1434,8 +1435,6 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
   }, allKnownValues(root, config));
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
-
 /**
  * A job's dev endpoint: an active job with a worktree, a valid port and a dev command configured.
  * `live` reads runtime.json without following a link or blocking on a FIFO (the job dir is
@@ -1449,7 +1448,7 @@ function endpointsFor(root: string, config: Config, j: LoadedJob): Endpoint[] {
   let served = typeof dev === 'string' && dev.trim() ? ep.components.find((c) => c.port === j.port) : undefined;
   const liveNow = (): boolean => {
     const rec = readSmallJson(path.join(jobDir(root, j.id), 'runtime.json'))?.dev;
-    const pid = isObject(rec) ? rec.pid : undefined;
+    const pid = isMap(rec) ? rec.pid : undefined;
     return pidAlive(pid);
   };
   const rows: Endpoint[] = ep.components.map((c) => {

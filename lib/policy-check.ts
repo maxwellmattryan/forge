@@ -1,12 +1,12 @@
 // Config-time validation of the glob lists and the protected-paths policy, and the matcher that
-// applies it. Imports only leaf modules (glob.ts, util.ts), so config.ts can use it without a cycle.
+// applies it. Imports only leaf modules (glob.ts, shape.ts, util.ts), so config.ts can use it without a cycle.
 import path from 'node:path';
 import { inSpec } from './glob.ts';
 import type { Config, ProtectedRule } from './types.ts';
+import { isMap } from './shape.ts';
 import { ForgeError } from './util.ts';
 
 const REASON_MAX = 200;
-const isMap = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /**
  * Why a `worktrees.generated` entry can't be used, or null. The entries become git pathspecs and
@@ -22,8 +22,9 @@ export function globProblem(g: unknown, key = 'worktrees.generated'): string | n
 }
 
 /** Every problem with `policy`, for validateConfig; an empty list means the policy is usable. */
-export function policyProblems(c: any): string[] {
-  const pol = c?.policy;
+export function policyProblems(c: unknown): string[] {
+  const cfg: Record<string, any> = isMap(c) ? c : {};
+  const pol = cfg.policy;
   if (pol === undefined) return [];
   if (!isMap(pol)) return [`policy must be a map (got ${JSON.stringify(pol)})`];
   const list = pol.protectedPaths;

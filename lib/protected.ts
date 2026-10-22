@@ -12,6 +12,7 @@ import { git, gitSpawnSync, historyEnv } from './git.ts';
 import { globToRegExp } from './glob.ts';
 import { isForemanActor, jobDir, loadJob, logEvent, updateJob } from './jobs.ts';
 import { resolveBase } from './scope.ts';
+import { isMap } from './shape.ts';
 import type { Config, Job, JobEvent, ProtectedHit, ProtectedPaths, ProtectedRule } from './types.ts';
 import { ForgeError, now, writeTextAtomic } from './util.ts';
 
@@ -49,7 +50,6 @@ const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 /** Paths printed in the PP1 reason: shellLine's safe class (with `:` for a member repo's `<repo>:<path>`), never an option. */
 const REASON_PATH = /^[A-Za-z0-9._:/@+-]+$/;
 
-const isMap = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 // ---------- links ----------
 

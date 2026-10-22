@@ -12,7 +12,8 @@ import { notifyProblems } from './notify-config.ts';
 import { globProblem, policyProblems } from './policy-check.ts';
 import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, MODEL_RE, OFFICE_GATES, REPO_BUDGET_MODES, migrateConfig, reservedGateEntry } from './schema.ts';
 import type { Config, Effort, EffortRole, EffortSource, LoadedConfig, VerifyEntry } from './types.ts';
-import { ForgeError, deepMerge, isClaudeExecutable, readText, splitWords } from './util.ts';
+import { deepMerge, isMap } from './shape.ts';
+import { ForgeError, isClaudeExecutable, readText, splitWords } from './util.ts';
 export { globProblem };
 import * as yaml from './yaml.ts';
 
@@ -430,7 +431,12 @@ export function loadConfig(root: string, opts: { text?: string | null } = {}): L
     throw new ForgeError(`${p.config}: ${(e as Error).message}`, 'config_invalid');
   }
   const migrated = migrateConfig(raw);
-  const config = deepMerge(base, migrated.config);
+  let config: Config;
+  try {
+    config = deepMerge(base, migrated.config);
+  } catch (e) {
+    throw new ForgeError(`${p.config}: ${(e as Error).message}`, 'config_invalid');
+  }
   if (Array.isArray(migrated.config?.review?.panel)) config.review.panel = migrated.config.review.panel;
   return { config, initialized: true, path: p.config, migratedFrom: migrated.from };
 }
@@ -659,7 +665,6 @@ export function modelProblems(c: any): string[] {
 function effortProblems(c: any): string[] {
   const problems: string[] = [];
   const levels = `${EFFORTS.join(' | ')}, or null`;
-  const isMap = (v: unknown) => v !== null && typeof v === 'object' && !Array.isArray(v);
   const map = (key: string, keys: readonly string[], unknownKey: (k: string) => string) => {
     const m = c.runtime?.[key];
     if (m === undefined || m === null) return;

@@ -10,6 +10,7 @@ import { git as runGit } from './git.ts';
 import { paths, resolveFrom } from './paths.ts';
 import { releaseMechanismCheck, strategyProblems } from './release-strategy.ts';
 import { SEG, githubHost, slugFromRemote } from './repo-slug.ts';
+import { isMap, show } from './shape.ts';
 import type { Config, DoctorCheck } from './types.ts';
 import { SAFE_REF, readText, safeText } from './util.ts';
 import * as yaml from './yaml.ts';
@@ -19,8 +20,6 @@ const REMOTE_MAX = 2000;
 // A local.yml is a few lines; anything this big is a mistake, and reading it all would stall doctor.
 const LOCAL_MAX_BYTES = 256 * 1024;
 
-const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
-const show = (v: unknown): string => (v === undefined ? 'nothing' : (JSON.stringify(v) ?? String(v)).slice(0, 120));
 
 /** A branch name git accepts and that cannot read as an option or a range. */
 export function isSafeBranch(b: unknown): b is string {
@@ -51,24 +50,26 @@ export function releaseProblems(r: unknown, at: string, optional = false): strin
 }
 
 /** `downstream`: a map with enabled (boolean), max (integer 0–50) and skip (names of `repos` entries). */
-export function downstreamProblems(c: any): string[] {
-  const d = c?.downstream;
+export function downstreamProblems(c: unknown): string[] {
+  const cfg: Record<string, any> = isMap(c) ? c : {};
+  const d = cfg.downstream;
   if (!isMap(d)) return [`downstream must be a map (got ${show(d)})`];
   const problems: string[] = [];
   if (typeof d.enabled !== 'boolean') problems.push(`downstream.enabled must be true or false (got ${show(d.enabled)})`);
   if (!Number.isInteger(d.max) || d.max < 0 || d.max > 50) problems.push(`downstream.max must be an integer from 0 to 50 (got ${show(d.max)})`);
   if (!Array.isArray(d.skip) || d.skip.some((x: unknown) => typeof x !== 'string')) problems.push(`downstream.skip must be a list of repos names (got ${show(d.skip)})`);
   else {
-    const names = new Set((Array.isArray(c.repos) ? c.repos : []).map((r: any) => (isMap(r) ? r.name : undefined)));
+    const names = new Set((Array.isArray(cfg.repos) ? cfg.repos : []).map((r: any) => (isMap(r) ? r.name : undefined)));
     for (const x of d.skip) if (!names.has(x)) problems.push(`downstream.skip names unknown repo ${JSON.stringify(x).slice(0, 110)}`);
   }
   return problems;
 }
 
 /** Every problem with `repos` and with a component's `repo` naming one, in the form validateConfig reports. */
-export function repoProblems(c: any, root: string): string[] {
+export function repoProblems(c: unknown, root: string): string[] {
+  const cfg: Record<string, any> = isMap(c) ? c : {};
   const problems: string[] = [];
-  const list = c?.repos;
+  const list = cfg.repos;
   const names = new Set<string>();
   if (list !== undefined && !Array.isArray(list)) problems.push(`repos must be a list (got ${show(list)})`);
   else if (Array.isArray(list)) {
@@ -99,8 +100,8 @@ export function repoProblems(c: any, root: string): string[] {
   }
   // A list that is not a list is already reported; naming every component's repo unknown would bury it.
   if (list !== undefined && !Array.isArray(list)) return problems;
-  if (!Array.isArray(c?.components)) return problems;
-  c.components.forEach((e: unknown, i: number) => {
+  if (!Array.isArray(cfg.components)) return problems;
+  cfg.components.forEach((e: unknown, i: number) => {
     if (!isMap(e) || typeof e.repo !== 'string' || names.has(e.repo)) return;
     const at = typeof e.name === 'string' && SAFE_REF.test(e.name) ? `components "${e.name}"` : `components[${i}]`;
     problems.push(`${at}.repo names unknown repo ${JSON.stringify(e.repo)}`);

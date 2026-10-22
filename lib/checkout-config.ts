@@ -3,9 +3,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { isInsidePath } from './components.ts';
-
-const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
-const show = (v: unknown): string => (v === undefined ? 'nothing' : (JSON.stringify(v) ?? String(v)).slice(0, 120));
+import { isMap, show } from './shape.ts';
 
 /** A step's `to` as an absolute path: a leading `~/` is the home directory, then path.resolve. */
 export function resolveTarget(to: string): string {
@@ -37,12 +35,13 @@ function commandNames(c: any): Set<string> {
 }
 
 /** Every problem with `checkout`, in the form validateConfig reports. */
-export function checkoutProblems(c: any): string[] {
-  const list = c?.checkout;
+export function checkoutProblems(c: unknown): string[] {
+  const cfg: Record<string, any> = isMap(c) ? c : {};
+  const list = cfg.checkout;
   if (list === undefined) return [];
   if (!Array.isArray(list)) return [`checkout must be a list (got ${show(list)})`];
   const problems: string[] = [];
-  const commands = commandNames(c);
+  const commands = commandNames(cfg);
   const seen = new Map<string, number>();
   list.forEach((e: unknown, i: number) => {
     const at = `checkout[${i}]`;

@@ -1,9 +1,10 @@
 // `forge config show|get|validate` in human mode.
-import { blocks, has, hang, isObj, line, marked, paint, txt } from './kit.ts';
+import { isMap } from '../../shape.ts';
+import { blocks, has, hang, line, marked, paint, txt } from './kit.ts';
 import type { Renderer } from './kit.ts';
 
 const isScalar = (v: unknown): boolean => v === null || v === undefined || ['string', 'number', 'boolean'].includes(typeof v);
-const isEmpty = (v: unknown): boolean => (Array.isArray(v) && !v.length) || (isObj(v) && !Object.keys(v).length);
+const isEmpty = (v: unknown): boolean => (Array.isArray(v) && !v.length) || (isMap(v) && !Object.keys(v).length);
 /** Printed on its key's own line: scalars, empties and lists of scalars. */
 const inline = (v: unknown): boolean => isScalar(v) || isEmpty(v) || (Array.isArray(v) && v.every(isScalar));
 
@@ -22,11 +23,11 @@ function outline(o: Record<string, unknown>): string[] {
     const v = o[k];
     const name = txt(k);
     if (inline(v)) out.push(line([{ text: name }, { text: ' '.repeat(w + 2 - name.length) }, { text: value(v) }]));
-    else if (isObj(v)) out.push(name, ...outline(v).map((l) => `  ${l}`));
+    else if (isMap(v)) out.push(name, ...outline(v).map((l) => `  ${l}`));
     else {
       out.push(name);
       for (const item of v as unknown[]) {
-        const body = isObj(item) ? outline(item) : [value(item)];
+        const body = isMap(item) ? outline(item) : [value(item)];
         out.push(...body.map((l, i) => `${i ? '    ' : '  - '}${l}`));
       }
     }
@@ -35,13 +36,13 @@ function outline(o: Record<string, unknown>): string[] {
 }
 
 const tree: Renderer = (d, o) => {
-  if (!isObj(d)) return null;
+  if (!isMap(d)) return null;
   const p = paint(o.color);
   return blocks(
     ...Object.entries(d).map(([k, v]) => {
       if (inline(v)) return line([{ text: txt(k), style: p.bold }, { text: '  ' }, { text: value(v) }]);
       // A list of objects is outlined as if it were a key's value, without that key's line.
-      const body = isObj(v) ? outline(v) : outline({ '': v }).slice(1).map((l) => l.slice(2));
+      const body = isMap(v) ? outline(v) : outline({ '': v }).slice(1).map((l) => l.slice(2));
       return [p.bold(txt(k)), ...body.map((l) => `  ${l}`)].join('\n');
     }),
   );

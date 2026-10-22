@@ -4,6 +4,7 @@
 // file, and gives up on that component or edge rather than failing detection.
 import fs from 'node:fs';
 import path from 'node:path';
+import { isMap } from './shape.ts';
 import type { ComponentConfig, ComponentKind } from './types.ts';
 import { SAFE_REF } from './util.ts';
 
@@ -15,7 +16,6 @@ export interface ComponentDetectInput {
   cargo: string;
 }
 
-const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
 /** Manifests are small; a larger file is skipped so a hostile one can't make detection slow. */
 export const MAX_MANIFEST_BYTES = 1024 * 1024;

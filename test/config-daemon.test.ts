@@ -79,6 +79,11 @@ test('AC2: a v1 launcher config loads and migrates with the launcher as daemon.c
     assert.doesNotMatch(text, /launcher:/);
     assert.equal(yaml.parse(text).daemon.command, 'claude -p "{prompt}"');
     assert.equal(yaml.parse(text).daemon.enabled, undefined);
+
+    // A prototype key in config.yml is refused like a parse error, and never merged.
+    write(`schemaVersion: ${CONFIG_SCHEMA_VERSION}\ndaemon:\n  constructor:\n    prototype:\n      polluted: 1\n`);
+    assert.throws(() => loadConfig(repo.dir), (e: any) => e.code === 'config_invalid' && e.message === `${cfg}: merge source key "constructor" is not allowed`);
+    assert.equal(({} as any).polluted, undefined);
   } finally {
     repo.cleanup();
   }

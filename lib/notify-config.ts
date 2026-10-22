@@ -1,6 +1,7 @@
 // notify.* validation, apart from lib/notify.ts so lib/config.ts can import it without pulling in
 // the delivery code (which imports lib/jobs.ts, which imports lib/config.ts).
 import { NOTIFY_EVENTS, NOTIFY_FORMATS } from './schema.ts';
+import { isMap } from './shape.ts';
 import type { Config, NotifyWebhook } from './types.ts';
 
 /** The {placeholders} notify.command may use; each becomes a quoted reference to its environment variable (lib/notify.ts commandSource). */
@@ -66,8 +67,9 @@ export function commandProblem(command: unknown): string | null {
 }
 
 /** notify.*: shape problems for forge config validate and forge doctor. */
-export function notifyProblems(c: any): string[] {
-  const n = c?.notify;
+export function notifyProblems(c: unknown): string[] {
+  const cfg: Record<string, any> = isMap(c) ? c : {};
+  const n = cfg.notify;
   if (n === undefined) return [];
   if (n === null || typeof n !== 'object' || Array.isArray(n)) return ['notify must be a map with webhooks and command'];
   const problems: string[] = [];

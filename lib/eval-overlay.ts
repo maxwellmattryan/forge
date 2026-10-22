@@ -8,7 +8,8 @@ import { panelPathsProblems, pathsOnlyProblems, reviewerChecklist, validateConfi
 import { FIELDS, MODEL_RE, parseCliValue, stringProblem, validateFieldValue } from './config-fields.ts';
 import { EFFORTS } from './schema.ts';
 import type { Config, EvalOverlay, Job } from './types.ts';
-import { ForgeError, setPath } from './util.ts';
+import { isMap, setPath, show } from './shape.ts';
+import { ForgeError } from './util.ts';
 import * as yaml from './yaml.ts';
 
 export type { EvalOverlay };
@@ -39,13 +40,12 @@ const PANEL_KEYS = new Set(['name', 'always', 'when', 'model', 'effort', 'needsA
 // A lens name becomes a checklist file name, so it is one plain path segment.
 const LENS_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
-const isPlainObject = (v: unknown): v is Record<string, unknown> =>
-  v !== null && typeof v === 'object' && !Array.isArray(v) && [Object.prototype, null].includes(Object.getPrototypeOf(v));
-
-const show = (v: unknown): string => (JSON.stringify(v) ?? String(v)).slice(0, 80);
+// lib/yaml.ts reads a `__proto__:` key as the parsed map's prototype, which Object.keys never shows,
+// so a map whose prototype isn't a plain one is refused rather than checked key by key.
+const plainMap = (v: unknown): v is Record<string, any> => isMap(v) && [Object.prototype, null].includes(Object.getPrototypeOf(v));
 
 function keyProblem(key: string): string | null {
-  return ALLOWED.has(key) ? null : `${show(key)} can't be overlaid; allowed: ${ALLOWLIST}`;
+  return ALLOWED.has(key) ? null : `${show(key, 80)} can't be overlaid; allowed: ${ALLOWLIST}`;
 }
 
 /** Parses `--set key=value` pairs into typed values; throws a ForgeError naming the first bad key. */
@@ -53,14 +53,14 @@ export function parseOverlay(root: string, config: Config, sets: string[]): Eval
   const overlay: EvalOverlay = Object.create(null);
   for (const kv of sets) {
     const eq = kv.indexOf('=');
-    if (eq < 1) throw new ForgeError(`--set expects key=value, got ${show(kv)}`);
+    if (eq < 1) throw new ForgeError(`--set expects key=value, got ${show(kv, 80)}`);
     const key = kv.slice(0, eq).trim();
     const raw = kv.slice(eq + 1).trim();
     const refused = keyProblem(key);
     if (refused) throw new ForgeError(`--set ${refused}`);
     if (Object.hasOwn(overlay, key)) throw new ForgeError(`--set ${key} is given more than once`);
     if (LIST_KEYS.includes(key)) {
-      const bad = () => new ForgeError(`--set ${key} must be a list like [a, b] (got ${show(raw)})`);
+      const bad = () => new ForgeError(`--set ${key} must be a list like [a, b] (got ${show(raw, 80)})`);
       if (!raw.startsWith('[')) throw bad();
       try {
         overlay[key] = yaml.parseScalar(raw, 0);
@@ -79,27 +79,27 @@ export function parseOverlay(root: string, config: Config, sets: string[]): Eval
 }
 
 function panelProblems(root: string, panel: unknown): string[] {
-  if (!Array.isArray(panel) || !panel.length) return [`review.panel overlay needs at least one reviewer (got ${show(panel)})`];
+  if (!Array.isArray(panel) || !panel.length) return [`review.panel overlay needs at least one reviewer (got ${show(panel, 80)})`];
   const problems: string[] = [];
   panel.forEach((r: unknown, i) => {
     const at = `review.panel entry ${i + 1}`;
-    if (!isPlainObject(r)) return void problems.push(`${at} must be a map (got ${show(r)})`);
-    for (const k of Object.keys(r)) if (!PANEL_KEYS.has(k)) problems.push(`${at}: ${show(k)} is not allowed in an overlay (allowed: ${[...PANEL_KEYS].join(', ')})`);
-    if (typeof r.name !== 'string' || !LENS_NAME.test(r.name)) problems.push(`${at}: name must be a lens name (got ${show(r.name)})`);
+    if (!plainMap(r)) return void problems.push(`${at} must be a map (got ${show(r, 80)})`);
+    for (const k of Object.keys(r)) if (!PANEL_KEYS.has(k)) problems.push(`${at}: ${show(k, 80)} is not allowed in an overlay (allowed: ${[...PANEL_KEYS].join(', ')})`);
+    if (typeof r.name !== 'string' || !LENS_NAME.test(r.name)) problems.push(`${at}: name must be a lens name (got ${show(r.name, 80)})`);
     else if (!reviewerChecklist(root, r.name)) problems.push(`${at}: reviewer "${r.name}" has no checklist (looked in .forge/reviewers/ and the plugin's reviewers/)`);
     for (const k of ['always', 'needsApp', 'alwaysOnRework'])
-      if (r[k] !== undefined && typeof r[k] !== 'boolean') problems.push(`${at}: ${k} must be true or false (got ${show(r[k])})`);
+      if (r[k] !== undefined && typeof r[k] !== 'boolean') problems.push(`${at}: ${k} must be true or false (got ${show(r[k], 80)})`);
     if (r.when !== undefined) {
-      if (typeof r.when !== 'string') problems.push(`${at}: when must be text (got ${show(r.when)})`);
+      if (typeof r.when !== 'string') problems.push(`${at}: when must be text (got ${show(r.when, 80)})`);
       else {
         const p = stringProblem({ key: 'review.panel' }, r.when, `${at}: when`);
         if (p) problems.push(p);
       }
     }
     if (r.model !== undefined && (typeof r.model !== 'string' || r.model.length > 200 || !MODEL_RE.test(r.model)))
-      problems.push(`${at}: model must be a model alias or id: letters, digits and . _ : - [ ] (got ${show(r.model)})`);
+      problems.push(`${at}: model must be a model alias or id: letters, digits and . _ : - [ ] (got ${show(r.model, 80)})`);
     if (r.effort !== undefined && r.effort !== null && !(EFFORTS as readonly unknown[]).includes(r.effort))
-      problems.push(`${at}: effort must be one of ${EFFORTS.join(' | ')} (got ${show(r.effort)})`);
+      problems.push(`${at}: effort must be one of ${EFFORTS.join(' | ')} (got ${show(r.effort, 80)})`);
     if (r.paths !== undefined) problems.push(...panelPathsProblems(typeof r.name === 'string' ? r.name : `entry ${i + 1}`, r.paths).map((p) => `${at}: ${p}`));
     problems.push(...pathsOnlyProblems(r).map((p) => `${at}: ${p}`));
   });
@@ -107,7 +107,7 @@ function panelProblems(root: string, panel: unknown): string[] {
 }
 
 function verifyOverlayProblems(base: Config, verify: unknown): string[] {
-  if (!Array.isArray(verify) || !verify.length) return [`verify overlay needs at least one step (got ${show(verify)})`];
+  if (!Array.isArray(verify) || !verify.length) return [`verify overlay needs at least one step (got ${show(verify, 80)})`];
   const shape = verifyShapeProblems(verify);
   if (shape.length) return shape;
   const commands: Record<string, unknown> = base.commands && typeof base.commands === 'object' ? base.commands : {};
@@ -119,7 +119,7 @@ function verifyOverlayProblems(base: Config, verify: unknown): string[] {
  * that skipped the start-time checks fails closed. An empty list means it is usable.
  */
 export function overlayProblems(root: string, base: Config, overlay: unknown): string[] {
-  if (!isPlainObject(overlay)) return [`the overlay must be a map of config keys (got ${show(overlay)})`];
+  if (!plainMap(overlay)) return [`the overlay must be a map of config keys (got ${show(overlay, 80)})`];
   const problems: string[] = [];
   for (const [key, value] of Object.entries(overlay)) {
     const refused = keyProblem(key);
@@ -153,7 +153,7 @@ export function configForJob(root: string, config: Config, job: Pick<Job, 'id' |
   if (job.kind !== 'eval') return config;
   const overlay: unknown = job.eval?.overlay;
   if (overlay === undefined || overlay === null) return config;
-  if (isPlainObject(overlay) && !Object.keys(overlay).length) return config;
+  if (plainMap(overlay) && !Object.keys(overlay).length) return config;
   const [problem] = overlayProblems(root, config, overlay);
   if (problem) throw new ForgeError(`eval job ${job.id} has an invalid config overlay: ${problem}`);
   return applyOverlay(config, overlay as EvalOverlay);

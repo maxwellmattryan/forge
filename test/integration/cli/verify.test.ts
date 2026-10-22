@@ -12,7 +12,7 @@ import { forgeAsync, forgeSync, repoTemplate } from '../../helpers.ts';
 import { defaults, loadConfig, stringifyConfig, validateConfig } from '../../../lib/config.ts';
 import { createJob, jobDir, loadJob, readEvents, setJob, updateJob } from '../../../lib/jobs.ts';
 import { CONFIG_SCHEMA_VERSION } from '../../../lib/schema.ts';
-import { deepMerge } from '../../../lib/util.ts';
+import { deepMerge } from '../../../lib/shape.ts';
 import { createWorktree } from '../../../lib/worktree.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..', '..');

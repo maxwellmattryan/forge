@@ -1,6 +1,7 @@
 // `forge verify` in human mode.
 import { cell } from '../render.ts';
-import { blocks, duration, fields, has, isObj, line, marked, paint, section, short, txt, under } from './kit.ts';
+import { isMap } from '../../shape.ts';
+import { blocks, duration, fields, has, line, marked, paint, section, short, txt, under } from './kit.ts';
 import type { Paint, Renderer, Seg, Val } from './kit.ts';
 import type { VerifyResult, VerifyStep } from '../../worktree.ts';
 
@@ -16,7 +17,7 @@ function step(s: Omit<VerifyStep, 'tail'>, failure: VerifyStep | undefined, p: P
 
 /** A gate: its mark, then the rest of its object as the generic one-line JSON. */
 function gate(v: unknown, p: Paint): Val {
-  if (!isObj(v)) return null;
+  if (!isMap(v)) return null;
   const ok = 'ok' in v ? v.ok === true : !v.stopped;
   const { ok: _ok, ...rest } = v;
   const segs: Seg[] = [{ text: ok ? '✓' : '✗', style: ok ? p.green : p.red }];
@@ -32,7 +33,7 @@ export const verify: Renderer = (d, o) => {
   const steps = r.steps.map((s) => step(s, r.failure, p));
   // A failure that is not one of the listed steps (a gate verify added) still shows its tail.
   if (r.failure && !r.steps.some((s) => s.name === r.failure!.name && !s.ok)) steps.push(step({ ...r.failure, ok: false }, r.failure, p));
-  const listed = (v: unknown): string[] => (Array.isArray(v) ? v.filter(isObj).map((x: Record<string, any>) => [marked(x.ok === true, [{ text: txt(x.repo) }], p), x.failure ? under(String(x.failure), 2) : ''].filter(Boolean).join('\n')) : []);
+  const listed = (v: unknown): string[] => (Array.isArray(v) ? v.filter(isMap).map((x: Record<string, any>) => [marked(x.ok === true, [{ text: txt(x.repo) }], p), x.failure ? under(String(x.failure), 2) : ''].filter(Boolean).join('\n')) : []);
   return blocks(
     head,
     section('Steps', steps, p),

@@ -3,11 +3,12 @@
 // is indented, so untrusted text can't drive the terminal or forge a column-0 line of Forge's own.
 import { paint, sanitize } from '../../ansi.ts';
 import type { Paint, Style } from '../../ansi.ts';
-import { isPlainObject, line, pad } from '../render.ts';
+import { isMap } from '../../shape.ts';
+import { line, pad } from '../render.ts';
 import type { Seg } from '../render.ts';
 
 export type { Paint, Seg };
-export { isPlainObject, line, paint };
+export { line, paint };
 
 /** What a renderer is told: colour, the clock for relative ages, and whether `--all` was given. */
 export interface RenderOpts {
@@ -22,7 +23,7 @@ export type Renderer = (data: unknown, opts: RenderOpts) => string | null;
 /** A value a renderer prints: strings are sanitised here, a Seg's text is already safe. */
 export type Val = string | number | boolean | null | undefined | Seg | Seg[];
 
-const isSeg = (v: unknown): v is Seg => isPlainObject(v) && typeof v.text === 'string';
+const isSeg = (v: unknown): v is Seg => isMap(v) && typeof v.text === 'string';
 
 /** Untrusted text on one line: sanitised, newlines turned into spaces, `-` for null. */
 export function txt(v: unknown): string {
@@ -129,7 +130,7 @@ export function duration(ms: number): string {
 
 /** `<name> <port>` pairs, comma separated. */
 export function ports(v: unknown): string {
-  if (!isPlainObject(v) || !Object.keys(v).length) return '-';
+  if (!isMap(v) || !Object.keys(v).length) return '-';
   return Object.entries(v).map(([k, n]) => `${txt(k)} ${txt(n)}`).join(', ');
 }
 
@@ -140,5 +141,4 @@ export function list(v: unknown): string {
 
 export const short = (v: unknown, n: number): string => (typeof v === 'string' && v ? txt(v.slice(0, n)) : '-');
 
-export const isObj = isPlainObject;
-export const has = (v: unknown, ...keys: string[]): v is Record<string, any> => isPlainObject(v) && keys.every((k) => k in v);
+export const has = (v: unknown, ...keys: string[]): v is Record<string, any> => isMap(v) && keys.every((k) => k in v);

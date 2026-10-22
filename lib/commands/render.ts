@@ -2,6 +2,7 @@
 // Pure on purpose: callers pass whether colour is on, so tests need no TTY and no process.env.
 import { paint, sanitize } from '../ansi.ts';
 import type { Paint, Style } from '../ansi.ts';
+import { isMap } from '../shape.ts';
 import type { CliError } from '../types.ts';
 
 /** Colour only on a terminal, and never when NO_COLOR is set to anything (https://no-color.org). */
@@ -13,7 +14,6 @@ type Scalar = string | number | boolean | null | undefined;
 /** A piece of an output line: its plain text and the style it is painted with, if any. */
 export type Seg = { text: string; style?: Style };
 
-export const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isScalar = (v: unknown): v is Scalar => v === null || v === undefined || ['string', 'number', 'boolean'].includes(typeof v);
 
 /** One value as a segment: object values, table cells and items of a plain list. */
@@ -23,7 +23,7 @@ export function cell(v: unknown, p: Paint): Seg {
   if (typeof v === 'boolean') return { text: String(v), style: v ? p.green : p.red };
   if (typeof v === 'number') return { text: String(v) };
   if (Array.isArray(v) && !v.length) return { text: '-' };
-  if (isPlainObject(v) && !Object.keys(v).length) return { text: '-' };
+  if (isMap(v) && !Object.keys(v).length) return { text: '-' };
   if (Array.isArray(v) && v.every(isScalar)) return { text: v.map((x) => cell(x, p).text).join(', ') };
   // Nothing is hidden or truncated: a person sees everything --json would show, on one line.
   return { text: sanitize(JSON.stringify(v) ?? String(v)) };
@@ -82,10 +82,10 @@ export function render(data: unknown, opts: { color: boolean }): string {
   if (typeof data === 'string') return data;
   if (Array.isArray(data)) {
     if (!data.length) return '(none)';
-    if (data.every(isPlainObject)) return renderTable(data, p);
+    if (data.every(isMap)) return renderTable(data, p);
     return data.map((v) => line([cell(v, p)])).join('\n');
   }
-  if (isPlainObject(data)) return renderObject(data, p);
+  if (isMap(data)) return renderObject(data, p);
   return line([cell(data, p)]);
 }
 

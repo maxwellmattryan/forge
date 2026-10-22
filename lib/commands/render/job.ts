@@ -1,5 +1,6 @@
 // `forge job list|show|step|claim|note` in human mode.
-import { blocks, fields, has, hang, isObj, line, list, mark, marked, paint, ports, section, short, stateSeg, table, txt } from './kit.ts';
+import { isMap } from '../../shape.ts';
+import { blocks, fields, has, hang, line, list, mark, marked, paint, ports, section, short, stateSeg, table, txt } from './kit.ts';
 import type { Paint, Renderer, Val } from './kit.ts';
 import type { StepAction, StepSpawn } from '../../types.ts';
 
@@ -11,7 +12,7 @@ export const jobList: Renderer = (d, o) => {
   return table(['id', 'stage', 'state', 'round', 'pr', 'owner', 'effort', 'title'], rows, p);
 };
 
-const verdicts = (v: unknown): string => (isObj(v) && Object.keys(v).length ? Object.entries(v).map(([k, x]) => `${txt(k)} ${txt(x)}`).join(', ') : '-');
+const verdicts = (v: unknown): string => (isMap(v) && Object.keys(v).length ? Object.entries(v).map(([k, x]) => `${txt(k)} ${txt(x)}`).join(', ') : '-');
 
 function verified(v: unknown, p: Paint): Val {
   if (!has(v, 'ok', 'round', 'attempt')) return null;

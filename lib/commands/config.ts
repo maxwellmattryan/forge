@@ -4,7 +4,8 @@ import { fieldFor, parseCliValue } from '../config-fields.ts';
 import { currentActor } from '../actor.ts';
 import { NEED_INIT, setConfigValue } from '../config-set.ts';
 import type { Config, HelpGroup } from '../types.ts';
-import { ForgeError, getPath } from '../util.ts';
+import { getPath } from '../shape.ts';
+import { ForgeError } from '../util.ts';
 import { out, req, usageError } from './args.ts';
 
 const CONFIG: HelpGroup = {

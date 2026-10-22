@@ -552,33 +552,6 @@ export function shortId(): string {
   return Math.random().toString(36).slice(2, 6);
 }
 
-export function deepMerge<T extends Record<string, any>>(target: T, src: Record<string, any>): T {
-  if (!src || typeof src !== 'object') return target;
-  for (const [k, v] of Object.entries(src)) {
-    if (v && typeof v === 'object' && !Array.isArray(v) && target[k] && typeof target[k] === 'object' && !Array.isArray(target[k])) {
-      deepMerge(target[k], v);
-    } else {
-      (target as Record<string, any>)[k] = v;
-    }
-  }
-  return target;
-}
-
-export function getPath(obj: any, dotted: string): any {
-  if (!dotted) return obj;
-  return dotted.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
-}
-
-export function setPath(obj: any, dotted: string, value: any): void {
-  const keys = dotted.split('.');
-  let o = obj;
-  for (const k of keys.slice(0, -1)) {
-    if (o[k] == null || typeof o[k] !== 'object') o[k] = {};
-    o = o[k];
-  }
-  o[keys[keys.length - 1]] = value;
-}
-
 /**
  * Interprets CLI values so `--field round=2` stores a number, not "2". A `[`/`{` value that is not
  * JSON is almost always one whose quotes the shell stripped, so it fails rather than being stored

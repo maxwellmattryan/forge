@@ -17,7 +17,8 @@ import { redactedConfig } from '../lib/config-fields.ts';
 import { doctor } from '../lib/doctor.ts';
 import { releaseChecks } from '../lib/member-repos.ts';
 import { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_PUBLISH, RELEASE_REGISTRIES, RELEASE_VERSIONINGS, commandProgram, releaseMechanismCheck } from '../lib/release-strategy.ts';
-import { deepMerge, findOnPath } from '../lib/util.ts';
+import { deepMerge } from '../lib/shape.ts';
+import { findOnPath } from '../lib/util.ts';
 import * as yaml from '../lib/yaml.ts';
 
 const WIN = process.platform === 'win32';

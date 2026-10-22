@@ -13,7 +13,8 @@ import { reviewFileName } from './lens.ts';
 import { requeueOrphans } from './requests.ts';
 import { configForJob } from './eval-overlay.ts';
 import { configHash, pluginHash, promptHash } from './provenance.ts';
-import { ForgeError, assertSafeRef, now, readJson, readText, setPath, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
+import { setPath } from './shape.ts';
+import { ForgeError, assertSafeRef, now, readJson, readText, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
 
 /** How long a claim or the driver's own activity keeps a lease live. */
 export const LEASE_MS = 30 * 60 * 1000;

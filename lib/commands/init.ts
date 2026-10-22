@@ -9,7 +9,8 @@ import { paths, exists, PLUGIN_ROOT } from '../paths.ts';
 import { matchPolicy } from '../policy-check.ts';
 import { modelOverlap } from '../roster.ts';
 import { migrateConfig, normalizeJob, serializeJob } from '../schema.ts';
-import { ForgeError, deepMerge, readJson, readText, withLock, writeJsonAtomic } from '../util.ts';
+import { deepMerge } from '../shape.ts';
+import { ForgeError, readJson, readText, withLock, writeJsonAtomic } from '../util.ts';
 import * as yaml from '../yaml.ts';
 import type { HelpGroup } from '../types.ts';
 
