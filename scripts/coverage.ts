@@ -21,7 +21,7 @@ const run = spawnSync(process.execPath, [
   ...INCLUDE.map((glob) => `--test-coverage-include=${glob}`),
   '--test-reporter=spec', '--test-reporter-destination=stdout',
   '--test-reporter=lcov', `--test-reporter-destination=${lcov}`,
-  'test/*.test.ts',
+  'test/**/*.test.ts',
 ], { cwd: root, stdio: 'inherit' });
 
 interface FileCoverage { file: string; hit: number; found: number }

@@ -3,8 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { BIN, type CliResult } from './support/cli.ts';
 
-const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
+// Tests import the shared helpers from here, never from test/support/ directly: this module's
+// import side effects (below) are what pin git config, SHELL, FORGE_MODE and NODE_OPTIONS.
+export { BIN, cliEnv, forgeSync, type CliResult } from './support/cli.ts';
+export { fakeBin } from './support/fake-bin.ts';
+export { fakeGh, type GhReply } from './support/fake-gh.ts';
 
 /**
  * Repo-local settings every scratch repo needs. A user's global `commit.gpgsign` would otherwise
@@ -99,13 +104,6 @@ export function repoTemplate(init: (dir: string) => void): () => ReturnType<type
     const git = (...args) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' });
     return { dir, git, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
   };
-}
-
-/** What forgeAsync resolves to: the exit status (null when killed) and both streams. */
-export interface CliResult {
-  status: number | null;
-  stdout: string;
-  stderr: string;
 }
 
 /**

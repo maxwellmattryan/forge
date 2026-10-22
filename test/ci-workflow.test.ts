@@ -17,8 +17,8 @@ const POSIX = { skip: process.platform === 'win32' && 'POSIX-only' };
 const VALIDATE = 'claude plugin validate . --strict';
 const CLI_INSTALL = /^npm install -g @anthropic-ai\/claude-code(?:@\S*)?$/;
 const CLI_PINNED = /^npm install -g @anthropic-ai\/claude-code@\d+\.\d+\.\d+$/;
-const TEST_CMD = 'node --test "test/*.test.ts"';
-const SHARDED_TEST_CMD = 'node --test --test-shard="$TEST_SHARD" "test/*.test.ts"';
+const TEST_CMD = 'node --test "test/**/*.test.ts"';
+const SHARDED_TEST_CMD = 'node --test --test-shard="$TEST_SHARD" "test/**/*.test.ts"';
 // `|| true`, `|| :`, `|| exit 0` and `set +e` turn a failing command into a passing step.
 const MASKS: [RegExp, string][] = [
   [/\|\|\s*(?:true|:)(?![\w-])/, '|| true / || :'],
@@ -263,7 +263,7 @@ test('ci runs the AGENTS.md verify list in the same order and nothing else', () 
     'npm run typecheck',
     'npm run check:dashboard',
     'npm run build:dashboard',
-    'node --test "test/*.test.ts"',
+    'node --test "test/**/*.test.ts"',
     'for f in bin/forge lib/trackers/status.mjs dashboard/*.mjs; do node --check "$f"; done',
     VALIDATE,
   ]);

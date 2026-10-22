@@ -21,7 +21,7 @@ test('engine tsconfig is strict and erasable-only', () => {
 test('package.json: Node >= 22.18, typecheck and test scripts', () => {
   const pkg = readJson('package.json');
   assert.deepEqual(pkg.engines, { node: '>=22.18' });
-  assert.equal(pkg.scripts.test, 'node --test "test/*.test.ts"');
+  assert.equal(pkg.scripts.test, 'node --test "test/**/*.test.ts"');
   assert.equal(
     pkg.scripts.typecheck,
     'tsc -p tsconfig.json --incremental --tsBuildInfoFile node_modules/.cache/forge/tsc-engine.tsbuildinfo && tsc -p test/tsconfig.json --incremental --tsBuildInfoFile node_modules/.cache/forge/tsc-test.tsbuildinfo',

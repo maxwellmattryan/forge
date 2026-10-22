@@ -1,5 +1,6 @@
 // A job's environment in-process (issue #198): lib/environment.ts and lib/environment-record.ts
 // against the in-memory docker fake (test/fixtures/fake-docker.mjs), injected with setDockerRunner.
+// The CLI and the dashboard routes over them are test/integration/{cli,server}/environment.test.ts.
 // These tests change process.env (a fake gh on PATH), so none runs concurrently.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,20 +12,20 @@ import type { DockerRunner } from '../lib/backing.ts';
 import { loadConfig } from '../lib/config.ts';
 import { environmentState, environmentsFile, readEnvironments } from '../lib/environment-record.ts';
 import { ensureEnvironment, pickVictims, stopEnvironment } from '../lib/environment-lifecycle.ts';
-import { forgeJson } from '../lib/environment.ts';
+import { forgeJson, openConfinedLog, openDevLog } from '../lib/environment.ts';
 import { setFocus } from '../lib/focus.ts';
 import { createJob, loadJob, readEvents, setJob } from '../lib/jobs.ts';
 import { syncPr } from '../lib/pr.ts';
 import { emptyState, handle } from './fixtures/fake-docker.mjs';
-import { repoTemplate } from './helpers.ts';
+import { fakeGh, forgeSync, repoTemplate } from './helpers.ts';
 
-const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const PG = { name: 'postgres', isolation: 'per-job', image: 'postgres:16', ports: [5432], volumes: ['/var/lib/postgresql/data'] };
 
 const template = repoTemplate((dir) => {
   const answers = path.join(dir, '.answers.json');
   fs.writeFileSync(answers, JSON.stringify({ commands: { test: 'true' }, worktrees: { root: '../{repo}.wt' }, tracker: { kind: 'none' } }));
-  execFileSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, env: { ...process.env, FORGE_ROOT: dir }, stdio: 'pipe' });
+  const init = forgeSync(dir, ['init', 'write', '--answers', answers]);
+  if (init.status !== 0) throw new Error(init.stderr);
   fs.rmSync(answers);
   const file = path.join(dir, '.forge', 'config.yml');
   fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^backing: \[\]$/m, `backing: ${JSON.stringify([PG])}`));
@@ -44,14 +45,9 @@ function fakeDocker() {
   return { state, calls, runner };
 }
 
-// A stand-in `gh` that answers `pr view` with $FAKE_PR_STATE, as test/pr.test.ts's does.
-const FAKE_GH = `#!/bin/sh
-case "$1 $2" in
-  "pr view") printf '{"number":7,"url":"https://github.com/o/r/pull/7","state":"%s","isDraft":false,"headRefOid":"abc123","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"","statusCheckRollup":[],"mergedAt":null,"closedAt":null,"headRefName":"forge/x","baseRefName":"main"}' "$FAKE_PR_STATE" ;;
-  "repo view") echo o/r ;;
-  "api graphql") echo '{"data":{"repository":{"pullRequest":{}}}}' ;;
-esac
-`;
+/** `gh pr view`'s answer for PR 7 in `state`. */
+const prView = (state: string) =>
+  JSON.stringify({ number: 7, url: 'https://github.com/o/r/pull/7', state, isDraft: false, headRefOid: 'abc123', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: '', statusCheckRollup: [], mergedAt: null, closedAt: null, headRefName: 'forge/x', baseRefName: 'main' });
 
 /** Writes the environment record by hand: `jobs` maps id → [state, usedAt]. */
 function seedRecord(root: string, jobs: Record<string, [string, string]>) {
@@ -183,14 +179,12 @@ test('tampered record never protects a job or reaches docker', { skip: process.p
 
 test('pr sync done and cancelled tear down', { skip: process.platform === 'win32' }, () => {
   const r = template();
-  const bin = path.join(r.dir, '..', `fakebin-${path.basename(r.dir)}`);
-  fs.mkdirSync(bin);
-  fs.writeFileSync(path.join(bin, 'gh'), FAKE_GH, { mode: 0o755 });
+  const gh = fakeGh({ 'repo view': 'o/r\n', 'api graphql': '{"data":{"repository":{"pullRequest":{}}}}' });
   const saved = { ...process.env };
   const docker = fakeDocker();
   const prev = setDockerRunner(docker.runner);
   try {
-    process.env.PATH = `${bin}${path.delimiter}${saved.PATH}`;
+    process.env.PATH = gh.env.PATH;
     const config = loadConfig(r.dir).config;
     config.tracker.github.repo = 'o/r';
     for (const [prState, finished] of [['MERGED', 'done'], ['CLOSED', 'cancelled']] as const) {
@@ -199,7 +193,7 @@ test('pr sync done and cancelled tear down', { skip: process.platform === 'win32
       assert.ok(up.every((s) => s.ok), JSON.stringify(up));
       setJob(r.dir, job.id, { fields: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } });
       assert.ok(docker.state.containers[`forge-${job.id}-postgres`]);
-      process.env.FAKE_PR_STATE = prState;
+      gh.set('pr view', prView(prState));
       syncPr(r.dir, config, job.id);
       assert.equal(loadJob(r.dir, job.id).state, finished);
       assert.equal(docker.state.containers[`forge-${job.id}-postgres`], undefined, `${prState}: container removed`);
@@ -216,7 +210,6 @@ test('pr sync done and cancelled tear down', { skip: process.platform === 'win32
     setDockerRunner(prev);
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
     Object.assign(process.env, saved);
-    fs.rmSync(bin, { recursive: true, force: true });
     r.cleanup();
   }
 });
@@ -242,6 +235,44 @@ test('stop signals no pid that runtime.json should not name', { skip: process.pl
     assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {}, 'the file is still cleared');
   } finally {
     process.kill = kill;
+    r.cleanup();
+  }
+});
+
+// The dashboard reads logs/dev.log on every poll and stream, and the job's agents can write the job dir.
+test('dev logs open confined and no-follow', { skip: process.platform === 'win32' && 'POSIX symlinks and FIFOs' }, () => {
+  const r = template();
+  try {
+    const j = createJob(r.dir, loadConfig(r.dir).config, { title: 'dev log' });
+    const logs = path.join(r.dir, '.forge', 'jobs', j.id, 'logs');
+    const log = path.join(logs, 'dev.log');
+    const secret = path.join(r.dir, 'secret.txt');
+    fs.writeFileSync(secret, 'top secret\n');
+    assert.equal(openDevLog(r.dir, j.id), 'missing', 'no logs dir');
+    fs.mkdirSync(logs);
+    assert.equal(openDevLog(r.dir, j.id), 'missing', 'no dev.log');
+
+    fs.writeFileSync(log, 'real line\n');
+    const opened = openDevLog(r.dir, j.id);
+    assert.ok(typeof opened === 'object', String(opened));
+    assert.equal(opened.size, 'real line\n'.length);
+    fs.closeSync(opened.fd);
+
+    fs.rmSync(log);
+    fs.symlinkSync(secret, log);
+    assert.equal(openDevLog(r.dir, j.id), 'refused', 'a symlinked dev.log');
+    assert.equal(openConfinedLog(r.dir, logs, log), 'refused', 'the same link through openConfinedLog');
+    fs.rmSync(log);
+    execFileSync('mkfifo', [log]);
+    assert.equal(openDevLog(r.dir, j.id), 'refused', 'a FIFO is refused without blocking');
+
+    fs.rmSync(logs, { recursive: true });
+    const elsewhere = fs.mkdtempSync(path.join(r.dir, 'elsewhere-'));
+    fs.writeFileSync(path.join(elsewhere, 'dev.log'), 'top secret\n');
+    fs.symlinkSync(elsewhere, logs);
+    assert.equal(openDevLog(r.dir, j.id), 'refused', 'a symlinked logs dir');
+  } finally {
+    r.cleanup();
   }
 });
 
