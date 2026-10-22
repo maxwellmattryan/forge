@@ -415,6 +415,15 @@ export function planRelease(root: string, config: Config, selection: ReleaseSele
   return { ...plan, hash: planHash(plan) };
 }
 
+/** The plan as it is now, against release.json and state.json; a mismatch is refused as stale. */
+export function freshPlan(root: string, config: Config, file: ReleasePlan, state: ReleaseState | null, opts: PlanOptions = {}): ReleasePlan {
+  const now = planRelease(root, config, file.selection, opts);
+  // planHash(file) catches a release.json edited without updating its hash.
+  const old = [file.hash, planHash(file), state?.planHash].find((h) => h !== undefined && h !== now.hash);
+  if (old !== undefined) throw new ForgeError(`the release plan no longer matches config and the repos (plan ${String(old).slice(0, 12)}, now ${now.hash.slice(0, 12)}); run forge release plan`);
+  return now;
+}
+
 const CHECK_TEXT: Record<CheckKind, (r: ReleaseRepo, base: string, remote: string) => string> = {
   ready: (_r, base, remote) => `the clone is on ${base} with nothing uncommitted, and HEAD equals ${remote}/${base} after a fetch.`,
   clean: () => '`git status` shows nothing uncommitted.',

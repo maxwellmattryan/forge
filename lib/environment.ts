@@ -14,7 +14,8 @@ import { readSmallJson } from './focus.ts';
 import { currentFocus } from './focus-actions.ts';
 import { isActive, jobDir, listJobs } from './jobs.ts';
 import { PLUGIN_ROOT } from './paths.ts';
-import { commandTemplate, pidAlive, portAnswers } from './worktree.ts';
+import { pidAlive } from './util.ts';
+import { commandTemplate, portAnswers } from './worktree.ts';
 import type { Config, EnvironmentDev, EnvironmentRow, EnvironmentService, EnvironmentsResponse, EnvironmentUsage, JobEnvironmentResponse, LoadedJob } from './types.ts';
 
 /** The most a CLI child may print: a status of every container fits many times over. */

@@ -13,8 +13,8 @@ import { readFocusRecord, readSmallJson } from './focus.ts';
 import { readEnvironments, updateEnvironments } from './environment-record.ts';
 import { isActive, jobDir, logEvent } from './jobs.ts';
 import type { BackingDownResult, BackingUpEntry, Config, EnvironmentDownResult, EnvironmentFinishStopResult, EnvironmentRecord, EnvironmentDownTrigger, EnvironmentStopResult, EnvironmentStopTrigger, EnvironmentUpResult, EnvironmentUpTrigger, Job } from './types.ts';
-import { now } from './util.ts';
-import { databaseCommands, stopBackground } from './worktree.ts';
+import { databaseCommands } from './job-command.ts';
+import { now, readJson, writeJsonAtomic } from './util.ts';
 
 const message = (e: unknown): string => String((e as Error)?.message ?? e).slice(0, 500);
 
@@ -32,6 +32,30 @@ function record(root: string, fn: Parameters<typeof updateEnvironments>[1]): str
 function runtimeNames(root: string, id: string): string[] {
   const rt = readSmallJson(path.join(jobDir(root, id), 'runtime.json'));
   return rt ? Object.keys(rt).filter((k) => rt[k] && typeof rt[k] === 'object') : [];
+}
+
+export function stopBackground(root: string, id: string): string[] {
+  const pidFile = path.join(jobDir(root, id), 'runtime.json');
+  const rt = readJson(pidFile, {});
+  const stopped: string[] = [];
+  for (const [name, info] of Object.entries(rt)) {
+    // runtime.json is in the job dir, which the job's agents can write, and this runs unattended on
+    // every park: pid 1 would make kill(-1) signal every process the user may signal.
+    const pid = (info as any)?.pid;
+    if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) continue;
+    try {
+      process.kill(-pid, 'SIGTERM');
+      stopped.push(name);
+    } catch {
+      try {
+        process.kill(pid, 'SIGTERM');
+        stopped.push(name);
+      } catch {}
+    }
+  }
+  writeJsonAtomic(pidFile, {});
+  if (stopped.length) logEvent(root, id, 'background-stop', { names: stopped });
+  return stopped;
 }
 
 /** stopBackground only when runtime.json lists something, so a job with no process writes nothing. */

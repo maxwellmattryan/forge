@@ -12,7 +12,7 @@ import { fakeBin, forgeAsync, forgeSync, repoTemplate, waitFor } from '../../hel
 import { startServer } from '../../../lib/server.ts';
 import { FIXTURE_DIST } from '../../dist.ts';
 import { editorArgv } from '../../../lib/editor.ts';
-import { pidAlive } from '../../../lib/worktree.ts';
+import { pidAlive } from '../../../lib/util.ts';
 import { API_VERSION } from '../../../lib/schema.ts';
 import * as yaml from '../../../lib/yaml.ts';
 

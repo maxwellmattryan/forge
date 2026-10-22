@@ -5,8 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { mainRoot, paths, PLUGIN_ROOT } from './paths.ts';
 import { WINDOWS_UPDATE_REFUSAL } from './platform.ts';
-import { ForgeError, readJson, run, tail } from './util.ts';
-import { pidAlive } from './worktree.ts';
+import { ForgeError, pidAlive, readJson, run, tail } from './util.ts';
 import type { InstallInfo, UpdateCheck, UpdateDashboard, UpdateResult } from './types.ts';
 
 // No leading `-`: these names come from the install's path and become argv for `claude`.

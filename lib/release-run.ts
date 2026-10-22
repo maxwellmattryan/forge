@@ -22,13 +22,13 @@ import {
   type PlanOptions,
   type ReleasePlan,
   type ReleaseRepo,
-  type ReleaseState,
   type ReleaseStep,
   type StepState,
   RELEASE_FILE_VERSION,
   assertNoSymlinks,
   cloneGit,
   doneCount,
+  freshPlan,
   planHash,
   planRelease,
   planSteps,
@@ -44,8 +44,7 @@ import {
 import { foremanReleaseApproval, releaseApprovalStatus } from './release-approval.ts';
 import type { RepoKey } from './repo-order.ts';
 import type { Config } from './types.ts';
-import { ForgeError, findOnPath, now, run, writeJsonAtomic } from './util.ts';
-import { pidAlive } from './worktree.ts';
+import { ForgeError, findOnPath, now, pidAlive, run, writeJsonAtomic } from './util.ts';
 
 export const RUN_DAEMON_REFUSAL = 'forge release run runs release and publish commands, which a daemon session may not do; a human runs it in their own session';
 export const RUN_WINDOWS_REFUSAL = `forge release run is not supported on native Windows; run it under WSL2: ${SUPPORT_URL}`;
@@ -102,15 +101,6 @@ export interface RunOptions extends PlanOptions {
 export function refuseRun(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): void {
   if (env.FORGE_DAEMON === '1') throw new ForgeError(RUN_DAEMON_REFUSAL);
   if (platform === 'win32') throw new ForgeError(RUN_WINDOWS_REFUSAL);
-}
-
-/** The plan as it is now, against release.json and state.json; a mismatch is refused as stale. */
-export function freshPlan(root: string, config: Config, file: ReleasePlan, state: ReleaseState | null, opts: PlanOptions = {}): ReleasePlan {
-  const now = planRelease(root, config, file.selection, opts);
-  // planHash(file) catches a release.json edited without updating its hash.
-  const old = [file.hash, planHash(file), state?.planHash].find((h) => h !== undefined && h !== now.hash);
-  if (old !== undefined) throw new ForgeError(`the release plan no longer matches config and the repos (plan ${String(old).slice(0, 12)}, now ${now.hash.slice(0, 12)}); run forge release plan`);
-  return now;
 }
 
 /** `.forge/locks/release/`, taken with mkdir; a dead owner's (or an ownerless stale) lock is taken over once. */

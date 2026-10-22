@@ -6,8 +6,7 @@
 // docs/RELEASES.md "Releasing a project", docs/ARCHITECTURE.md "Foreman".
 import { isForemanActor, loadJob, logEvent, readEvents } from './jobs.ts';
 import { classReservation, decides, foremanEnabled, inOffice, reservedFor } from './foreman.ts';
-import { assertNoSymlinks, readPlanFile, readState, releaseFiles, type ReleasePlan } from './release-plan.ts';
-import { freshPlan } from './release-run.ts';
+import { assertNoSymlinks, freshPlan, readPlanFile, readState, releaseFiles, type ReleasePlan } from './release-plan.ts';
 import { enqueue, listRequests } from './requests.ts';
 import { ForgeError } from './util.ts';
 import type { Config, ForgeRequest, JobEvent } from './types.ts';
