@@ -4,7 +4,7 @@ import { execFile, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { lockHeld, readLockHolder, tryLock, withLock } from '../lib/util.ts';
+import { lockHeld, pidAlive, readLockHolder, tryLock, withLock } from '../lib/util.ts';
 
 const CHILD = path.resolve(import.meta.dirname, 'fixtures', 'lock-child.ts');
 
@@ -21,6 +21,13 @@ function deadPid(): number {
 }
 
 const startedAt = () => new Date(Date.now() - process.uptime() * 1000).toISOString();
+
+test('pidAlive is false for pids that are not a real process id', () => {
+  // Pid 1 always exists, and its group signal would be kill(-1): every process this user may signal.
+  for (const pid of [0, 1, -1, -process.pid, 1.5, Number.NaN, '123', null, undefined]) assert.equal(pidAlive(pid), false, String(pid));
+  assert.equal(pidAlive(process.pid), true);
+  assert.equal(pidAlive(deadPid()), false);
+});
 
 function plant(lock: string, holder: Record<string, unknown> | string | null, opts: { mtimeAgoMs?: number; breaking?: boolean } = {}): void {
   fs.mkdirSync(lock, { recursive: true });
