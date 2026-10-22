@@ -8,16 +8,15 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { forgeAsync, repoTemplate, waitFor } from './helpers.ts';
-import { startServer, textFrame } from '../lib/server.ts';
-import { recordKnown } from '../lib/known-secrets.ts';
-import { parseMemUsage, parsePercent } from '../lib/environment.ts';
-import { parseDevProbe, pidAlive } from '../lib/worktree.ts';
-import * as yaml from '../lib/yaml.ts';
+import { forgeAsync, forgeSync, repoTemplate, waitFor } from '../../helpers.ts';
+import { startServer, textFrame } from '../../../lib/server.ts';
+import { recordKnown } from '../../../lib/known-secrets.ts';
+import { parseMemUsage, parsePercent } from '../../../lib/environment.ts';
+import { parseDevProbe, pidAlive } from '../../../lib/worktree.ts';
+import * as yaml from '../../../lib/yaml.ts';
 
-const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
-const DEV_SERVER = path.resolve(import.meta.dirname, 'fixtures', 'dev-server.mjs');
-const DOCKER_BIN = path.resolve(import.meta.dirname, 'fixtures', 'docker-bin');
+const DEV_SERVER = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'dev-server.mjs');
+const DOCKER_BIN = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'docker-bin');
 process.env.PATH = `${DOCKER_BIN}${path.delimiter}${process.env.PATH}`;
 const BACKING = [
   { name: 'postgres', isolation: 'per-job', image: 'postgres:16', ports: [5432] },
@@ -30,7 +29,7 @@ const template = repoTemplate((dir) => {
   const answers = path.join(dir, '.answers.json');
   const base = 20000 + Math.floor(Math.random() * 20000);
   fs.writeFileSync(answers, JSON.stringify({ tracker: { kind: 'local' }, pr: { enabled: false }, ports: { base, span: 10 }, commands: { dev: `node '${DEV_SERVER}' {port}` }, worktrees: { root: '../{repo}.wt' } }));
-  const r = spawnSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, encoding: 'utf8', env: { ...process.env, FORGE_ROOT: dir } });
+  const r = forgeSync(dir, ['init', 'write', '--answers', answers]);
   if (r.status !== 0) throw new Error(r.stderr);
   fs.rmSync(answers);
   const cfg = path.join(dir, '.forge', 'config.yml');
@@ -283,16 +282,7 @@ test('dev states', { timeout: 90_000 }, async () => {
     );
     assert.equal(e.backing[0].container, pg);
     assert.deepEqual(Object.keys(e.backing[0].ports), ['5432']);
-    s.patchContainer(`forge-${b}-postgres`, { health: 'unhealthy' });
-    await new Promise((r) => setTimeout(r, 2100));
-    assert.equal((await s.env(b)).backing[0].health, 'unhealthy');
-
-    // A container with another job's labels reads unknown too, but Docker is up: the card must not say otherwise.
-    s.patchContainer(`forge-${b}-postgres`, { labels: { ...s.dockerState().containers[`forge-${b}-postgres`].labels, 'forge.job': 'someone-else' } });
-    await new Promise((r) => setTimeout(r, 2100));
-    const foreign = await s.env(b);
-    assert.equal(foreign.backing[0].state, 'unknown');
-    assert.equal(foreign.docker, 'ok');
+    // Health and a foreign-labelled container are backingStatus's, in-process: backing.test.ts › "status reports container health".
 
     // Docker stopped: managed rows read unknown, and the server says why.
     s.setDocker({ daemon: 'down' });
@@ -457,32 +447,13 @@ test('dev log reads are confined and no-follow', { timeout: 90_000 }, async () =
     s.plant(a, { pid: DEAD_PID(), startedAt: new Date().toISOString(), log: secret });
     assert.deepEqual((await s.env(a)).dev.tail, ['real line']);
 
-    const wait = () => new Promise((r) => setTimeout(r, 2100));
+    // The route opens through openDevLog: a symlinked dev.log is not served. Every other plant (a
+    // symlinked logs dir, a FIFO) is environment.test.ts › "dev logs open confined and no-follow".
     fs.rmSync(path.join(logs, 'dev.log'));
     fs.symlinkSync(secret, path.join(logs, 'dev.log'));
-    await wait();
-    assert.deepEqual((await s.env(a)).dev.tail, [], 'symlinked dev.log');
-    let st = await s.logs(a, 'dev');
+    const st = await s.logs(a, 'dev');
     assert.equal(st.status, 404);
-
-    fs.rmSync(logs, { recursive: true });
-    const elsewhere = fs.mkdtempSync(path.join(s.root, 'elsewhere-'));
-    fs.writeFileSync(path.join(elsewhere, 'dev.log'), 'top secret\n');
-    fs.symlinkSync(elsewhere, logs);
-    await wait();
-    assert.deepEqual((await s.env(a)).dev.tail, [], 'symlinked logs dir');
-    st = await s.logs(a, 'dev');
-    assert.equal(st.status, 404);
-
-    if (posix) {
-      fs.rmSync(logs);
-      fs.mkdirSync(logs);
-      assert.equal(spawnSync('mkfifo', [path.join(logs, 'dev.log')]).status, 0);
-      await wait();
-      assert.deepEqual((await s.env(a)).dev.tail, [], 'a FIFO does not hang');
-      st = await s.logs(a, 'dev');
-      assert.equal(st.status, 404);
-    }
+    st.close();
   } finally {
     await s.cleanup();
   }

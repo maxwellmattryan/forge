@@ -1,4 +1,4 @@
 #!/usr/bin/env node
-// A fake docker for test/backing-cli.test.ts: fake-docker.mjs. Kept in its own directory so putting
+// A fake docker for the tests under test/integration/: fake-docker.mjs. Kept in its own directory so putting
 // it first on PATH never shadows anything else.
 import('../fake-docker.mjs').then((m) => m.main(process.argv.slice(2)));

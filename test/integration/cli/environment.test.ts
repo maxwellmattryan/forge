@@ -6,12 +6,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { TRUST_ENV, trustDigest } from '../lib/config.ts';
-import { pidAlive } from '../lib/worktree.ts';
-import { forgeAsync, repoTemplate, waitFor } from './helpers.ts';
+import { TRUST_ENV, trustDigest } from '../../../lib/config.ts';
+import { pidAlive } from '../../../lib/worktree.ts';
+import { forgeAsync, forgeSync, repoTemplate, waitFor } from '../../helpers.ts';
 
-const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
-const DOCKER_BIN = path.resolve(import.meta.dirname, 'fixtures', 'docker-bin');
+const DOCKER_BIN = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'docker-bin');
 // Joined at runtime: the installed secret scan reads `{user}:{password}@` as a url credential.
 const DB_URL = ['postgres://{user}', '{password}@{host}:{port}/{database}'].join(':');
 const BACKING = [
@@ -24,7 +23,8 @@ const templateWith = (backing: unknown[]) =>
   repoTemplate((dir) => {
     const answers = path.join(dir, '.answers.json');
     fs.writeFileSync(answers, JSON.stringify({ commands: { test: 'true', dev: 'sleep 60' }, verify: ['test'], worktrees: { root: '../{repo}.wt' }, tracker: { kind: 'none' } }));
-    execFileSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, env: { ...process.env, FORGE_ROOT: dir }, stdio: 'pipe' });
+    const init = forgeSync(dir, ['init', 'write', '--answers', answers]);
+    if (init.status !== 0) throw new Error(init.stderr);
     fs.rmSync(answers);
     const file = path.join(dir, '.forge', 'config.yml');
     fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^backing: \[\]$/m, `backing: ${JSON.stringify(backing)}`));
@@ -126,8 +126,7 @@ describe('environment teardown', { concurrency: 4 }, () => {
       assert.equal(set.json.state, 'cancelled');
       assert.equal(set.json.environment.ok, false);
       assert.match(set.json.environment.error, /daemon is not reachable/);
-      assert.ok(fs.existsSync(path.join(s.jobDir(id), 'backing.json')), 'kept for a retry');
-      assert.ok(fs.existsSync(path.join(s.jobDir(id), 'backing-db.json')), 'kept for a retry');
+      // That a failed teardown keeps the records is backing.test.ts › "teardown removes only this job's containers…".
       const failed = s.events(id).find((e) => e.type === 'environment-down');
       assert.equal(failed.ok, false);
       assert.match(failed.error, /daemon is not reachable/);
@@ -137,9 +136,6 @@ describe('environment teardown', { concurrency: 4 }, () => {
       assert.equal(down.status, 0, down.stderr);
       assert.equal(down.json.ok, true);
       assert.deepEqual(down.json.removed, [`forge-${id}-postgres`]);
-      assert.deepEqual(down.json.volumes, [`forge-${id}-postgres-0`]);
-      assert.equal(down.json.databases.length, 1);
-      assert.ok(!fs.existsSync(path.join(s.jobDir(id), 'backing.json')));
       assert.equal(s.events(id).filter((e) => e.type === 'environment-down').at(-1).trigger, 'cli');
     } finally {
       s.cleanup();
@@ -251,10 +247,7 @@ describe('environment teardown', { concurrency: 4 }, () => {
       const server = Object.keys(s.state().pg)[0];
       const shared = Object.keys(s.state().containers).find((n) => n.endsWith('-pg'))!;
       assert.equal(s.record().jobs[id].state, 'running', 'worktree create marks it running');
-      // Another job's same-named container whose labels are not this checkout's.
-      const other = await s.newJob('Not mine');
-      const foreign = `forge-${other}-postgres`;
-      s.setState({ containers: { ...s.state().containers, [foreign]: { running: true, labels: { 'forge.root': 'someone-else', 'forge.backing': 'postgres', 'forge.isolation': 'per-job', 'forge.job': other } } } });
+      // A foreign-labelled container is never stopped: backing.test.ts › "backingStop stops only this job's containers".
       s.clearArgv();
 
       const stop = await s.cli(['environment', 'stop', id]);
@@ -274,12 +267,6 @@ describe('environment teardown', { concurrency: 4 }, () => {
       assert.equal(ev.length, 1);
       assert.equal(ev[0].trigger, 'cli');
       assert.equal(ev[0].ok, true);
-
-      // A planted same-named container without this job's labels is never stopped.
-      const planted = await s.cli(['environment', 'stop', other]);
-      assert.equal(planted.status, 0, planted.stderr);
-      assert.deepEqual(planted.json.stopped, []);
-      assert.equal(s.state().containers[foreign].running, true);
     } finally {
       s.cleanup();
     }

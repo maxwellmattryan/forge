@@ -6,8 +6,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { forgeAsync, tempRepo } from './helpers.ts';
-import { loadJob, readEvents } from '../lib/jobs.ts';
+import { forgeAsync, forgeSync, repoTemplate } from '../../helpers.ts';
+import { loadJob, readEvents } from '../../../lib/jobs.ts';
 
 const gitIn = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' }).toString();
 const commitAll = (cwd: string, msg: string) => {
@@ -20,10 +20,18 @@ const write = (dir: string, rel: string, text: string) => {
 };
 const verifier = (paths: string, more = '', question = 'Is the change fine?') => `---\npaths: ${paths}\n${more}---\n${question}\n`;
 
+const template = repoTemplate((dir) => {
+  const answers = path.join(dir, '.answers.json');
+  fs.writeFileSync(answers, JSON.stringify({ tracker: { kind: 'none' }, pr: { enabled: false }, commands: { test: 'true' }, verify: ['test'], worktrees: { root: '../{repo}.wt' } }));
+  const init = forgeSync(dir, ['init', 'write', '--answers', answers]);
+  assert.equal(init.status, 0, init.stderr);
+  fs.rmSync(answers);
+  commitAll(dir, 'forge init');
+});
+
 async function scratch(mainFiles: Record<string, string> = {}) {
-  const repo = tempRepo();
+  const repo = template();
   const root = repo.dir;
-  const answersFile = path.join(root, '..', `answers-${path.basename(root)}.json`);
   const raw = (...args: string[]) => forgeAsync(root, args);
   const f = async (...args: string[]) => {
     const r = await raw(...args);
@@ -34,10 +42,8 @@ async function scratch(mainFiles: Record<string, string> = {}) {
       return r.stdout.trim();
     }
   };
-  fs.writeFileSync(answersFile, JSON.stringify({ tracker: { kind: 'none' }, pr: { enabled: false }, commands: { test: 'true' }, verify: ['test'], worktrees: { root: `../${path.basename(root)}.wt` } }));
-  await f('init', 'write', '--answers', answersFile);
   for (const [rel, text] of Object.entries(mainFiles)) write(root, rel, text);
-  commitAll(root, 'base');
+  if (Object.keys(mainFiles).length) commitAll(root, 'base');
   /** Verifiers in the main checkout's .forge/verifiers/, uncommitted like a maintainer's local edit. */
   const verifiers = (files: Record<string, string>) => {
     for (const [name, text] of Object.entries(files)) write(root, path.join('.forge', 'verifiers', name), text);
@@ -55,8 +61,7 @@ async function scratch(mainFiles: Record<string, string> = {}) {
   };
   const cleanup = () => {
     repo.cleanup();
-    fs.rmSync(path.join(root, '..', `${path.basename(root)}.wt`), { recursive: true, force: true });
-    fs.rmSync(answersFile, { force: true });
+    fs.rmSync(`${root}.wt`, { recursive: true, force: true });
   };
   return { root, f, raw, verifiers, job, cleanup };
 }
@@ -335,17 +340,15 @@ describe('forge verifiers', { concurrency: 4 }, () => {
     }
   });
 
+  // What list parses and which files are problems: test/verifiers.test.ts › "loadVerifiers: defaults and problems".
   test('list reports verifiers and problems', async () => {
     const s = await scratch();
     try {
       const empty = await s.f('verifiers', 'list');
       assert.deepEqual(empty, { dir: path.join('.forge', 'verifiers'), verifiers: [], problems: [] });
-      s.verifiers({ 'help-rows.md': verifier('[lib/commands/**]', 'mode: block\n', 'Does every new command have a HELP row?\n\nRationale.'), 'Bad.md': verifier('[x]'), 'nit.md': verifier('[x]', 'severity: nit\n') });
-      const r = await s.raw('verifiers', 'list');
-      assert.equal(r.status, 0, r.stderr);
-      const list = JSON.parse(r.stdout);
-      assert.deepEqual(list.verifiers, [{ name: 'help-rows', paths: ['lib/commands/**'], severity: 'major', mode: 'block', question: 'Does every new command have a HELP row?' }]);
-      assert.deepEqual(list.problems.map((p: any) => p.file), ['Bad.md', 'nit.md']);
+      s.verifiers({ 'help-rows.md': verifier('[lib/commands/**]', 'mode: block\n') });
+      const list = await s.f('verifiers', 'list');
+      assert.deepEqual(list.verifiers, [{ name: 'help-rows', paths: ['lib/commands/**'], severity: 'major', mode: 'block', question: 'Is the change fine?' }]);
       const { id } = await s.f('job', 'new', '--title', 'no verify');
       const run = await s.raw('verifiers', 'run', id);
       assert.equal(run.status, 1);

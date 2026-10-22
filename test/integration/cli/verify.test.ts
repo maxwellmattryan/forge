@@ -1,20 +1,21 @@
-// `verify` groups (config schemaVersion 3): the steps of a list entry run at the same time, the next
-// entry waits for all of them, results keep config order, and verify refuses a config it can't read.
-import test, { after } from 'node:test';
+// `forge verify` through the CLI. Groups (config schemaVersion 3): the steps of a list entry run at
+// the same time, the next entry waits for all of them, results keep config order, and verify
+// refuses a config it can't read. And e2e: when verify appends commands.e2e and how it reports it.
+// The pure decisions (verify list shape, e2ePlan) are in test/verify.test.ts.
+import test, { after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync, spawnSync } from 'node:child_process';
-import { tempRepo } from './helpers.ts';
-import { defaults, loadConfig, stringifyConfig, validateConfig } from '../lib/config.ts';
-import { createJob, jobDir, loadJob, readEvents, updateJob } from '../lib/jobs.ts';
-import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
-import { deepMerge } from '../lib/util.ts';
-import { createWorktree } from '../lib/worktree.ts';
+import { execFileSync } from 'node:child_process';
+import { forgeAsync, forgeSync, repoTemplate } from '../../helpers.ts';
+import { defaults, loadConfig, stringifyConfig, validateConfig } from '../../../lib/config.ts';
+import { createJob, jobDir, loadJob, readEvents, setJob, updateJob } from '../../../lib/jobs.ts';
+import { CONFIG_SCHEMA_VERSION } from '../../../lib/schema.ts';
+import { deepMerge } from '../../../lib/util.ts';
+import { createWorktree } from '../../../lib/worktree.ts';
 
-const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
-const ROOT = path.resolve(import.meta.dirname, '..');
+const ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
 
 /**
  * One verify step: `node rv.mjs <markers> <events> <me> [--needs X,Y] [--meet A,B] [--after X] [--fail] [--within MS]`.
@@ -56,29 +57,46 @@ function writeAnswers(root: string, answers: unknown): string {
   return file;
 }
 
+/** `forge init write` with `answers` in `dir`. */
+function initWrite(dir: string, answers: unknown, ...flags: string[]) {
+  const file = writeAnswers(dir, answers);
+  try {
+    const r = forgeSync(dir, ['init', 'write', '--answers', file, ...flags]);
+    assert.equal(r.status, 0, r.stderr);
+  } finally {
+    fs.rmSync(file, { force: true });
+  }
+}
+
+const commitAll = (cwd: string, msg: string) => {
+  execFileSync('git', ['add', '-A'], { cwd });
+  execFileSync('git', ['commit', '-qm', msg], { cwd });
+};
+
+/** A git repo with one commit and no Forge config, for the tests that write their own. */
+const bareRepo = repoTemplate(() => {});
+
+const GROUPS_BASE = { tracker: { kind: 'none' }, worktrees: { root: '../{repo}.wt' } };
+const groupsRepo = repoTemplate((dir) => {
+  fs.writeFileSync(path.join(dir, 'rv.mjs'), RV);
+  initWrite(dir, GROUPS_BASE);
+  commitAll(dir, 'forge + rv');
+});
+
 /** One scratch repo for the file, with Forge initialised and rv.mjs committed; each case gets its own job. */
 function scratch() {
-  const repo = tempRepo();
+  const repo = groupsRepo();
   const root = repo.dir;
   const markers = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-rv-')));
-  const env = { ...process.env, FORGE_ROOT: root };
-  const raw = (...args: string[]) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8', env });
   const step = (me: string, flags = '') => `node rv.mjs '${markers}/{job}' '{root}/.forge/jobs/{job}/events.jsonl' ${me}${flags ? ` ${flags}` : ''}`;
-  const base = { tracker: { kind: 'none' }, worktrees: { root: `../${path.basename(root)}.wt` } };
   const cfgFile = path.join(root, '.forge', 'config.yml');
-  fs.writeFileSync(path.join(root, 'rv.mjs'), RV);
-  const answers = writeAnswers(root, base);
-  const init = raw('init', 'write', '--answers', answers);
-  assert.equal(init.status, 0, init.stderr);
-  execFileSync('git', ['add', '-A'], { cwd: root });
-  execFileSync('git', ['commit', '-qm', 'forge + rv'], { cwd: root });
   return {
     root,
     cfgFile,
     step,
     /** Writes config.yml from defaults plus `answers`, unvalidated: some cases are invalid on purpose. */
     configure(answers: Record<string, any>) {
-      const config: any = deepMerge(deepMerge(defaults(), structuredClone(base)), structuredClone(answers));
+      const config: any = deepMerge(deepMerge(defaults(), structuredClone(GROUPS_BASE)), structuredClone(answers));
       if (answers.verify) config.verify = answers.verify;
       fs.writeFileSync(cfgFile, stringifyConfig(config));
     },
@@ -92,7 +110,7 @@ function scratch() {
       return { id, dir: jobDir(root, id), wt: wt.path };
     },
     verify(id: string, extraEnv: NodeJS.ProcessEnv = {}) {
-      const r = spawnSync(process.execPath, [BIN, 'verify', id], { cwd: root, encoding: 'utf8', env: { ...env, ...extraEnv } });
+      const r = forgeSync(root, ['verify', id], extraEnv);
       let out: any = null;
       try {
         out = JSON.parse(r.stdout);
@@ -107,7 +125,6 @@ function scratch() {
       repo.cleanup();
       fs.rmSync(`${root}.wt`, { recursive: true, force: true });
       fs.rmSync(markers, { recursive: true, force: true });
-      fs.rmSync(answers, { force: true });
     },
   };
 }
@@ -116,29 +133,10 @@ let shared: ReturnType<typeof scratch> | null = null;
 const s = () => (shared ??= scratch());
 after(() => shared?.cleanup());
 
-test('validateConfig accepts groups and names each bad verify entry', () => {
-  const problems = (verify: unknown) => {
-    const c: any = defaults();
-    c.verify = verify;
-    return validateConfig(c, ROOT).filter((p) => p.startsWith('verify '));
-  };
-  assert.deepEqual(problems(defaults().verify), []);
-  assert.deepEqual(problems(['build', 'lint', 'test']), []);
-  assert.deepEqual(problems(['build', ['lint', 'test']]), []);
-  assert.deepEqual(problems('build'), ['verify must be a list of step names or lists of step names (got "build")']);
-  assert.deepEqual(problems([[]]), ['verify entry 1 must be a step name or a non-empty list of step names (got [])']);
-  assert.deepEqual(problems([3]), ['verify entry 1 must be a step name or a non-empty list of step names (got 3)']);
-  assert.deepEqual(problems([['lint', ['test']]]), ['verify entry 1 must be a step name or a non-empty list of step names (got ["lint",["test"]])']);
-  assert.deepEqual(problems(['lint', ['lint', 'test']]), ['verify step "lint" is listed more than once']);
-  assert.deepEqual(problems([['lint', 'nope']]), ['verify step "nope" is not a key in commands']);
-});
-
 test('forge migrate rewrites a v1 or v2 config, and grouped verify round-trips through init', () => {
-  const repo = tempRepo();
+  const repo = bareRepo();
   const cfg = path.join(repo.dir, '.forge', 'config.yml');
   fs.mkdirSync(path.dirname(cfg), { recursive: true });
-  const env = { ...process.env, FORGE_ROOT: repo.dir };
-  const answers = writeAnswers(repo.dir, { verify: ['build', ['lint', 'test'], 'e2e'] });
   try {
     for (const v of [1, 2]) {
       fs.writeFileSync(cfg, `schemaVersion: ${v}\nverify:\n  - build\n  - lint\n`);
@@ -147,21 +145,19 @@ test('forge migrate rewrites a v1 or v2 config, and grouped verify round-trips t
       assert.deepEqual(loaded.config.verify, ['build', 'lint'], `v${v}: verify unchanged`);
       assert.equal(loaded.migratedFrom, v);
     }
-    const m = spawnSync(process.execPath, [BIN, 'migrate'], { cwd: repo.dir, encoding: 'utf8', env });
+    const m = forgeSync(repo.dir, ['migrate']);
     assert.equal(m.status, 0, m.stderr);
     assert.deepEqual(JSON.parse(m.stdout).changed, ['.forge/config.yml']);
     assert.match(fs.readFileSync(cfg, 'utf8'), new RegExp(`^schemaVersion: ${CONFIG_SCHEMA_VERSION}$`, 'm'));
     assert.deepEqual(loadConfig(repo.dir).config.verify, ['build', 'lint']);
 
     fs.rmSync(cfg);
-    const w = spawnSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: repo.dir, encoding: 'utf8', env });
-    assert.equal(w.status, 0, w.stderr);
+    initWrite(repo.dir, { verify: ['build', ['lint', 'test'], 'e2e'] });
     const loaded = loadConfig(repo.dir);
     assert.deepEqual(loaded.config.verify, ['build', ['lint', 'test'], 'e2e']);
     assert.equal(loaded.config.schemaVersion, CONFIG_SCHEMA_VERSION);
     assert.equal(loaded.migratedFrom, undefined);
   } finally {
-    fs.rmSync(answers, { force: true });
     repo.cleanup();
   }
 });
@@ -331,4 +327,195 @@ test("this repo's config groups lint, typecheck and test after build", () => {
   // Named files when `forge run <job> test -- <files>` passes them, the whole suite otherwise; the
   // `#` after `$` is not a YAML comment.
     assert.equal(config.commands.test, `set -- {args}; [ $# -gt 0 ] || set -- 'test/**/*.test.ts'; node --test "$@"`);
+});
+
+const write = (dir: string, rel: string, text = 'x\n') => {
+  fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+  fs.writeFileSync(path.join(dir, rel), text);
+};
+
+const E2E_BASE = { commands: { test: 'true', e2e: 'echo E2E-RAN' }, verify: ['test'], worktrees: { root: '../{repo}.wt' } };
+const e2eRepo = repoTemplate((dir) => {
+  initWrite(dir, E2E_BASE);
+  commitAll(dir, 'forge init');
+});
+
+/** A scratch repo with Forge initialised; each case gets its own job so verify attempts don't mix. */
+async function e2eScratch() {
+  const repo = e2eRepo();
+  const raw = (...args: string[]) => forgeAsync(repo.dir, args);
+  const f = async (...args: string[]) => {
+    const r = await raw(...args);
+    if (r.status !== 0) throw new Error(`forge ${args.join(' ')} exited ${r.status}: ${r.stderr}${r.stdout}`);
+    try {
+      return JSON.parse(r.stdout);
+    } catch {
+      return r.stdout.trim();
+    }
+  };
+  /** Rewrites the config from the base answers plus overrides. */
+  const configure = async (extra: Record<string, any> = {}) => {
+    const answers: Record<string, any> = structuredClone(E2E_BASE);
+    for (const [k, v] of Object.entries(extra)) answers[k] = typeof v === 'object' && v && !Array.isArray(v) ? { ...answers[k], ...v } : v;
+    const file = writeAnswers(repo.dir, answers);
+    try {
+      await f('init', 'write', '--answers', file, '--force');
+    } finally {
+      fs.rmSync(file, { force: true });
+    }
+  };
+  /** A job whose branch commits the given files; returns its id, worktree and job dir. */
+  const job = async (files: string[]) => {
+    const j = await f('job', 'new', '--title', `e2e ${files.join(' ')}`);
+    const wt = (await f('worktree', 'create', j.id)).path;
+    for (const rel of files) write(wt, rel);
+    commitAll(wt, 'job work');
+    await f('job', 'round', j.id);
+    return { id: j.id, wt, dir: path.join(repo.dir, j.dir) };
+  };
+  const verify = async (id: string) => {
+    const r = await raw('verify', id);
+    return { status: r.status, out: JSON.parse(r.stdout), stderr: r.stderr };
+  };
+  const roundMd = (dir: string) => fs.readFileSync(path.join(dir, 'verify', 'round-1.md'), 'utf8');
+  const e2eLogs = (dir: string) => (fs.existsSync(path.join(dir, 'logs')) ? fs.readdirSync(path.join(dir, 'logs')).filter((x) => /^verify-e2e-.*\.log$/.test(x)) : []);
+  const cleanup = () => {
+    repo.cleanup();
+    fs.rmSync(`${repo.dir}.wt`, { recursive: true, force: true });
+  };
+  return { repo, f, raw, configure, job, verify, roundMd, e2eLogs, cleanup };
+}
+
+// Each test has its own scratch repo, so they run side by side.
+describe('verify runs e2e', { concurrency: 4 }, () => {
+  test('e2e runs for UI diffs and is skipped otherwise', async () => {
+    const s = await e2eScratch();
+    try {
+      const ui = await s.job(['web/app.css']);
+      let r = await s.verify(ui.id);
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(r.out.ok, true);
+      const e2e = r.out.steps.find((x: any) => x.name === 'e2e');
+      assert.equal(e2e.ok, true);
+      assert.ok(!e2e.skipped);
+      assert.ok(e2e.reason.startsWith('UI paths changed: web/app.css'), e2e.reason);
+      assert.deepEqual(r.out.steps.map((x: any) => x.name), ['secrets', 'protected', 'test', 'e2e']);
+      const md = s.roundMd(ui.dir);
+      assert.ok(md.startsWith('VERIFY: PASS'));
+      assert.match(md, /## e2e: ok/);
+      assert.match(md, /Trigger: UI paths changed: web\/app\.css/);
+      const logs = s.e2eLogs(ui.dir);
+      assert.equal(logs.length, 1);
+      assert.match(fs.readFileSync(path.join(ui.dir, 'logs', logs[0]), 'utf8'), /E2E-RAN/);
+
+      // More than three UI files: the reason lists three and counts the rest.
+      const many = await s.job(['a.html', 'b.css', 'c.tsx', 'd.vue', 'e.svelte']);
+      r = await s.verify(many.id);
+      assert.equal(r.out.steps.find((x: any) => x.name === 'e2e').reason, 'UI paths changed: a.html, b.css, c.tsx (+2 more)');
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  // The other decisions (no command, listed in verify, custom paths) are rows of
+  // test/verify.test.ts › "e2ePlan: when always/never, no command, listed in verify, custom paths".
+  test('e2e skipped without UI paths, run when always, left out when never', async () => {
+    const s = await e2eScratch();
+    try {
+      const lib = await s.job(['lib/x.mjs']);
+      let r = await s.verify(lib.id);
+      assert.equal(r.status, 0);
+      assert.deepEqual(r.out.steps.find((x: any) => x.name === 'e2e'), { name: 'e2e', ok: true, skipped: true, reason: 'no UI paths changed' });
+      assert.match(s.roundMd(lib.dir), /## e2e: skipped \(no UI paths changed\)/);
+      assert.doesNotMatch(s.roundMd(lib.dir), /Trigger:/);
+      assert.equal(s.e2eLogs(lib.dir).length, 0);
+
+      await s.configure({ verifyE2e: { when: 'always' } });
+      r = await s.verify(lib.id);
+      const e2e = r.out.steps.find((x: any) => x.name === 'e2e');
+      assert.equal(e2e.skipped, undefined);
+      assert.equal(e2e.reason, 'verifyE2e.when: always');
+      assert.match(s.roundMd(lib.dir), /Trigger: verifyE2e\.when: always/);
+      assert.equal(s.e2eLogs(lib.dir).length, 1);
+
+      const ui = await s.job(['web/app.css']);
+      await s.configure({ verifyE2e: { when: 'never' } });
+      r = await s.verify(ui.id);
+      assert.equal(r.out.steps.find((x: any) => x.name === 'e2e'), undefined);
+      // Word-bounded: commit shas in the report are hex and can contain "e2e" (e.g. 9e2eed0).
+      assert.doesNotMatch(s.roundMd(ui.dir), /\be2e\b/);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('e2e failure fails verify; unresolvable base runs it', async () => {
+    const s = await e2eScratch();
+    try {
+      await s.configure({ commands: { e2e: 'false' } });
+      const ui = await s.job(['web/app.css']);
+      const r = await s.verify(ui.id);
+      assert.equal(r.status, 1);
+      assert.equal(r.out.ok, false);
+      assert.equal(r.out.failure.name, 'e2e');
+      assert.equal(r.out.failure.exit, 1);
+      assert.equal(await s.f('job', 'get', ui.id, 'verify.1'), 'FAIL');
+      assert.equal(await s.f('job', 'get', ui.id, 'verifyRetries.1'), 1);
+      const md = s.roundMd(ui.dir);
+      assert.ok(md.startsWith('VERIFY: FAIL'));
+      assert.match(md, /## e2e: FAILED \(exit 1\)/);
+
+      // An unresolvable base also stops the secret scan, which fails verify under the default
+      // `block`; under `warn` it passes with an error, so the e2e decision is still reached.
+      // The protected-paths check reads it too and fails closed, so the policy is off here.
+      await s.configure({ verifySecrets: 'warn', policy: { protectedPaths: [] } });
+      const lib = await s.job(['lib/x.mjs']);
+      setJob(s.repo.dir, lib.id, { fields: { base: 'no-such-branch' } });
+      const b = await s.verify(lib.id);
+      assert.equal(b.status, 0);
+      const e2e = b.out.steps.find((x: any) => x.name === 'e2e');
+      assert.equal(e2e.ok, true);
+      assert.equal(e2e.reason, 'base not found; ran to be safe');
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  // The validateConfig half is test/verify.test.ts › "verifyE2e config validation".
+  test('verifyE2e config defaults and validation', async () => {
+    const repo = bareRepo();
+    const cfgFile = path.join(repo.dir, '.forge', 'config.yml');
+    const forge = (...args: string[]) => forgeAsync(repo.dir, args);
+    try {
+      fs.mkdirSync(path.dirname(cfgFile), { recursive: true });
+      fs.writeFileSync(cfgFile, `schemaVersion: ${CONFIG_SCHEMA_VERSION}\n`);
+      assert.equal((await forge('config', 'get', 'verifyE2e.when')).stdout.trim(), 'ui');
+      assert.equal((await forge('config', 'validate')).status, 0);
+
+      fs.writeFileSync(cfgFile, `schemaVersion: ${CONFIG_SCHEMA_VERSION}\nverifyE2e:\n  when: sometimes\n`);
+      let r = await forge('config', 'validate');
+      assert.equal(r.status, 1);
+      assert.match(r.stdout, /verifyE2e\.when must be one of ui \| always \| never/);
+
+      fs.writeFileSync(cfgFile, `schemaVersion: ${CONFIG_SCHEMA_VERSION}\nverifyE2e:\n  paths: "*.css"\n`);
+      r = await forge('config', 'validate');
+      assert.equal(r.status, 1);
+      assert.match(r.stdout, /verifyE2e\.paths must be a list of non-empty strings/);
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  // The other `forge job paths` tests (review-files, scope, verdicts) each check their own entry;
+  // screenshots is verify's UI proof, so its entry is checked here.
+  test('job paths exposes screenshots', async () => {
+    const s = await e2eScratch();
+    try {
+      const j = await s.f('job', 'new', '--title', 'paths');
+      assert.equal((await s.f('job', 'paths', j.id)).screenshots, path.join(s.repo.dir, j.dir, 'screenshots'));
+      assert.equal(fs.existsSync(path.join(s.repo.dir, j.dir, 'screenshots')), false, 'a path only; agents create it');
+    } finally {
+      s.cleanup();
+    }
+  });
 });

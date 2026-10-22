@@ -8,29 +8,25 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { forgeAsync, repoTemplate, waitFor } from './helpers.ts';
-import { startServer } from '../lib/server.ts';
-import { FIXTURE_DIST } from './dist.ts';
-import { editorArgv } from '../lib/editor.ts';
-import { pidAlive } from '../lib/worktree.ts';
-import { API_VERSION } from '../lib/schema.ts';
-import * as yaml from '../lib/yaml.ts';
+import { fakeBin, forgeAsync, forgeSync, repoTemplate, waitFor } from '../../helpers.ts';
+import { startServer } from '../../../lib/server.ts';
+import { FIXTURE_DIST } from '../../dist.ts';
+import { editorArgv } from '../../../lib/editor.ts';
+import { pidAlive } from '../../../lib/worktree.ts';
+import { API_VERSION } from '../../../lib/schema.ts';
+import * as yaml from '../../../lib/yaml.ts';
 
-const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
-
-// The stub editor records its argv, one NUL-terminated word each, beside itself.
-const STUB_DIR = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-editor-')));
-const ARGV_FILE = path.join(STUB_DIR, 'argv.bin');
-fs.writeFileSync(path.join(STUB_DIR, 'stub-editor'), `#!/bin/sh\nfor a in "$@"; do printf '%s\\0' "$a"; done > '${ARGV_FILE}.tmp' && mv '${ARGV_FILE}.tmp' '${ARGV_FILE}'\n`, { mode: 0o755 });
-process.env.PATH = `${STUB_DIR}${path.delimiter}${process.env.PATH}`;
-process.on('exit', () => fs.rmSync(STUB_DIR, { recursive: true, force: true }));
-const recordedArgv = () => (fs.existsSync(ARGV_FILE) ? fs.readFileSync(ARGV_FILE, 'utf8').split('\0').slice(0, -1) : null);
+// The stub editor records each call's argv; the latest call is the one a POST spawned.
+const editor = fakeBin('stub-editor');
+process.env.PATH = `${editor.dir}${path.delimiter}${process.env.PATH}`;
+const clearArgv = () => fs.rmSync(editor.log, { force: true });
+const recordedArgv = () => editor.calls().at(-1) ?? null;
 
 const template = repoTemplate((dir) => {
   const answers = path.join(dir, '.answers.json');
   const base = 20000 + Math.floor(Math.random() * 20000);
   fs.writeFileSync(answers, JSON.stringify({ tracker: { kind: 'local' }, pr: { enabled: false }, ports: { base, span: 10 }, commands: { dev: 'sleep 30' }, worktrees: { root: '../{repo}.wt' } }));
-  const r = spawnSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, encoding: 'utf8', env: { ...process.env, FORGE_ROOT: dir } });
+  const r = forgeSync(dir, ['init', 'write', '--answers', answers]);
   if (r.status !== 0) throw new Error(r.stderr);
   fs.rmSync(answers);
 });
@@ -201,16 +197,13 @@ test('POST /api/focus', async () => {
     const b = await s.job('Beta');
     const done = await s.job('Done');
     await s.f('job', 'set', done, '--state', 'done');
+    // One body per branch of the route's checks; the other bad ids are "focus refusals" in test/integration/cli/focus.test.ts.
     const refusals: [number, unknown][] = [
       [400, []],
-      [400, 'null'],
-      [400, '"x"'],
       [400, '{not json'],
       [400, {}],
       [400, { job: 5 }],
-      [400, { job: true }],
       [400, { job: '../x' }],
-      [400, { job: '-rf' }],
       [404, { job: 'no-such-job' }],
       [409, { job: done }],
     ];
@@ -233,15 +226,9 @@ test('POST /api/focus', async () => {
     assert.deepEqual(body, { focus: null, previous: b });
     assert.equal((await s.state()).focus, null);
 
-    const focusOf = (id: string) => s.events(id).filter((e) => e.type === 'focus' || e.type === 'unfocus');
-    assert.deepEqual(focusOf(a).map((e) => [e.type, e.from ?? e.reason, e.actor?.source ?? null]), [
-      ['focus', 'dashboard', 'dashboard'],
-      ['unfocus', 'switched', null],
-    ]);
-    assert.deepEqual(focusOf(b).map((e) => [e.type, e.from ?? e.reason, e.actor?.source ?? null]), [
-      ['focus', 'dashboard', 'dashboard'],
-      ['unfocus', 'cleared', 'dashboard'],
-    ]);
+    // The switched and cleared events are "focus events and audit rows" in test/integration/cli/focus.test.ts.
+    const focused = s.events(a).find((e) => e.type === 'focus');
+    assert.deepEqual([focused.from, focused.actor?.source], ['dashboard', 'dashboard']);
   } finally {
     await s.cleanup();
   }
@@ -341,7 +328,7 @@ test('POST editor spawns a fixed argv at the contained worktree only', { timeout
 
     process.env.FORGE_EDITOR = `stub-editor --wait ; $(touch ${pwned}) 'two words'`;
     assert.deepEqual(editorArgv(process.env), ['stub-editor', '--wait', ';', '$(touch', `${pwned})`, 'two words']);
-    fs.rmSync(ARGV_FILE, { force: true });
+    clearArgv();
     const r = await s.post(`/api/jobs/${a}/editor`, {});
     assert.equal(r.status, 200, r.text);
     assert.deepEqual(JSON.parse(r.text), { ok: true, editor: 'stub-editor' });
@@ -373,7 +360,7 @@ test('POST editor spawns a fixed argv at the contained worktree only', { timeout
       ['a path through a $(…) directory', `${sneaky}/..`],
     ];
     for (const [what, worktree] of outside) {
-      fs.rmSync(ARGV_FILE, { force: true });
+      clearArgv();
       s.patchJob(a, { worktree });
       const res = await s.post(`/api/jobs/${a}/editor`, {});
       assert.equal(res.status, 409, `${what}: ${res.text}`);
@@ -413,7 +400,7 @@ test('new POSTs hold the token, Origin and JSON guard', { timeout: 60_000 }, asy
     const a = await s.job('Alpha');
     await s.f('worktree', 'create', a);
     process.env.FORGE_EDITOR = 'stub-editor';
-    fs.rmSync(ARGV_FILE, { force: true });
+    clearArgv();
     const good = { 'x-forge-token': /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(s.port, { path: '/' })).text)![1], origin: `http://127.0.0.1:${s.port}`, 'content-type': 'application/json' };
     const { 'x-forge-token': _t, ...noToken } = good;
     const { origin: _o, ...noOrigin } = good;
