@@ -2,11 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { forgeSync, tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
-import { createJob, jobDir, readEvents, setJob } from '../lib/jobs.ts';
+import { createJob, jobDir, readEvents, recordAgent, setJob } from '../lib/jobs.ts';
+import { pluginHash } from '../lib/provenance.ts';
 import { ARCHIVE_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from '../lib/schema.ts';
+import type { Config } from '../lib/types.ts';
 
 const json = (r: { stdout: string }) => JSON.parse(r.stdout);
 
@@ -44,6 +47,59 @@ test('agent-start records the plugin, prompt and config hashes', () => {
     assert.equal(again[1].promptHash, json(f('roster')).agents.find((a: any) => a.role === 'builder').promptHash);
   } finally {
     repo.cleanup();
+  }
+});
+
+test('agent-start provenance is best effort: a hash that throws is null, and the start is still recorded', () => {
+  const repo = tempRepo();
+  try {
+    const config = defaults();
+    const { id } = createJob(repo.dir, config, { title: 'Broken panel' });
+    // A panel that is not a list makes the lens checklist lookup throw.
+    const broken = { ...config, review: { ...config.review, panel: {} } } as unknown as Config;
+    recordAgent(repo.dir, id, { role: 'reviewer:code', phase: 'start' }, broken);
+    const [start] = readEvents(repo.dir, id).filter((e) => e.type === 'agent-start');
+    assert.equal(start.promptHash, null);
+    assert.match(String(start.pluginHash), /^[0-9a-f]{10}$/, 'the other hashes are still recorded');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('pluginHash never follows a linked plugin directory, and caps its walk', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-plugin-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-outside-'));
+  const put = (rel: string, text: string) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  };
+  try {
+    put('agents/builder.md', 'builder');
+    put('skills/forge/SKILL.md', 'skill');
+    put('lib/step/order.ts', 'order');
+    put('lib/brief.ts', 'brief');
+    fs.writeFileSync(path.join(outside, 'x.md'), 'outside');
+    const real = pluginHash(root);
+    // A listed directory, or one above a listed path, that is a link: a marker, and its target is never read.
+    for (const rel of ['lib/step', 'skills/forge', 'skills', 'lib', 'agents']) {
+      const moved = path.join(root, `${rel}.moved`);
+      fs.renameSync(path.join(root, rel), moved);
+      fs.symlinkSync(outside, path.join(root, rel));
+      const linked = pluginHash(root);
+      assert.notEqual(linked, real, `${rel}: the link changes the hash`);
+      fs.writeFileSync(path.join(outside, 'x.md'), `edited under ${rel}`);
+      assert.equal(pluginHash(root), linked, `${rel}: nothing outside the root is hashed`);
+      fs.rmSync(path.join(root, rel));
+      fs.renameSync(moved, path.join(root, rel));
+      assert.equal(pluginHash(root), real, `${rel}: undone`);
+    }
+    // The walk stops at its caps, and the hash says it stopped.
+    assert.equal(pluginHash(root, { entries: 100, bytes: 1024 }), real, 'under the caps nothing changes');
+    assert.notEqual(pluginHash(root, { entries: 1, bytes: 1024 }), real, 'past the entry cap');
+    assert.notEqual(pluginHash(root, { entries: 100, bytes: 3 }), real, 'past the byte cap');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
   }
 });
 

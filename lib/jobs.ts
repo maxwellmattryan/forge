@@ -478,11 +478,19 @@ export function releaseJob(root: string, id: string, onlyIf?: (lease: JobLease) 
  * layer with the job's effective config. `forge stats --by prompt` groups jobs by these.
  */
 function startProvenance(root: string, config: Config, job: Job, role: string): Pick<JobEvent, 'pluginHash' | 'promptHash' | 'configHash'> {
-  let cfg: string | null = null;
-  try {
-    cfg = configHash(root, configForJob(root, config, job));
-  } catch {}
-  return { pluginHash: pluginHash(), promptHash: promptHash(root, config, role), configHash: cfg };
+  // Best-effort, each on its own: a hash that throws is null, and never fails the agent start.
+  const tryHash = (fn: () => string | null): string | null => {
+    try {
+      return fn();
+    } catch {
+      return null;
+    }
+  };
+  return {
+    pluginHash: tryHash(() => pluginHash()),
+    promptHash: tryHash(() => promptHash(root, config, role)),
+    configHash: tryHash(() => configHash(root, configForJob(root, config, job))),
+  };
 }
 
 export function recordAgent(

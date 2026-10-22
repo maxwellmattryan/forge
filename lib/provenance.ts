@@ -19,12 +19,17 @@ const PLUGIN_DIRS: { dir: string; recursive: boolean; md: boolean }[] = [
 ];
 const PLUGIN_FILES = ['lib/step.ts', 'lib/brief.ts'];
 
-/** A regular file's bytes, or null: a link or FIFO swapped in since the listing is not read. */
-export function regularFile(file: string): Buffer | null {
+/**
+ * A regular file's bytes when it is at most `max` bytes, `over` past it, else null: a link or FIFO
+ * swapped in since the listing is not read.
+ */
+function cappedFile(file: string, max: number): Buffer | 'over' | null {
   let fd: number | undefined;
   try {
     fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
-    return fs.fstatSync(fd).isFile() ? fs.readFileSync(fd) : null;
+    const st = fs.fstatSync(fd);
+    if (!st.isFile()) return null;
+    return st.size > max ? 'over' : fs.readFileSync(fd);
   } catch {
     return null;
   } finally {
@@ -35,15 +40,49 @@ export function regularFile(file: string): Buffer | null {
 let installedHash: string | null = null;
 
 /**
+ * pluginHash's caps. It runs on a job's worktree at decide, and a branch can commit any tree: the
+ * walk stops after this many directory entries or bytes read, and the hash says it stopped.
+ */
+export const PLUGIN_WALK_LIMITS = { entries: 5000, bytes: 32 * 1024 * 1024 };
+
+/**
  * A content hash of the plugin's prompts, checklists, skill, step and brief, so two dev builds
- * with the same version string tell apart. Regular files only (no symlinks); the plugin's own path
- * is never part of it, since run records can be committed and it would leak a home directory.
+ * with the same version string tell apart. Regular files only (a symlinked file is skipped). A
+ * listed directory or file reached through a symlink (itself or a directory above it) is never
+ * followed: it hashes as a link marker with its target, so a branch can't point the walk outside
+ * the checkout, and replacing a directory with a link still changes the hash. The plugin's own
+ * path is never part of it, since run records can be committed and it would leak a home directory.
  * The running plugin's hash is computed once per process: every agent start stamps it.
  */
-export function pluginHash(pluginRoot: string = PLUGIN_ROOT): string {
-  const own = path.resolve(pluginRoot) === path.resolve(PLUGIN_ROOT);
+export function pluginHash(pluginRoot: string = PLUGIN_ROOT, limits: { entries: number; bytes: number } = PLUGIN_WALK_LIMITS): string {
+  const own = path.resolve(pluginRoot) === path.resolve(PLUGIN_ROOT) && limits === PLUGIN_WALK_LIMITS;
   if (own && installedHash) return installedHash;
   const rels: string[] = [];
+  const links = new Map<string, string>();
+  let visited = 0;
+  let truncated = false;
+  /** Whether `rel` is reached without a symlink, recording the first link on the way when not. */
+  const real = (rel: string): boolean => {
+    const segs = rel.split('/');
+    for (let i = 1; i <= segs.length; i++) {
+      const sub = segs.slice(0, i).join('/');
+      let st: fs.Stats;
+      try {
+        st = fs.lstatSync(path.join(pluginRoot, sub));
+      } catch {
+        return false;
+      }
+      if (st.isSymbolicLink()) {
+        let target = '';
+        try {
+          target = fs.readlinkSync(path.join(pluginRoot, sub));
+        } catch {}
+        links.set(sub, target);
+        return false;
+      }
+    }
+    return true;
+  };
   const list = (rel: string, recursive: boolean, md: boolean) => {
     let entries: fs.Dirent[];
     try {
@@ -52,24 +91,43 @@ export function pluginHash(pluginRoot: string = PLUGIN_ROOT): string {
       return;
     }
     for (const e of entries) {
+      if (truncated) return;
+      if (++visited > limits.entries) {
+        truncated = true;
+        return;
+      }
       const r = `${rel}/${e.name}`;
+      // A Dirent is lstat's view: a linked entry is neither a file nor a directory here.
       if (e.isFile() && (!md || e.name.endsWith('.md'))) rels.push(r);
       else if (e.isDirectory() && recursive) list(r, recursive, md);
     }
   };
-  for (const d of PLUGIN_DIRS) list(d.dir, d.recursive, d.md);
+  for (const d of PLUGIN_DIRS) if (real(d.dir)) list(d.dir, d.recursive, d.md);
   for (const f of PLUGIN_FILES) {
     try {
-      if (fs.lstatSync(path.join(pluginRoot, f)).isFile()) rels.push(f);
+      if (real(f) && fs.lstatSync(path.join(pluginRoot, f)).isFile()) rels.push(f);
     } catch {}
   }
   const h = crypto.createHash('sha256');
-  // Framed like trustDigest, so no two file sets hash alike by moving bytes between names.
-  for (const rel of rels.sort()) {
-    const data = regularFile(path.join(pluginRoot, rel));
+  // Framed like trustDigest, so no two file sets hash alike by moving bytes between names. A link's
+  // frame has a word where a file's has its length, and a path holds no NUL, so neither reads as the other.
+  const items = [...rels.map((rel) => ({ rel, link: null as string | null })), ...[...links].map(([rel, link]) => ({ rel, link }))];
+  let budget = limits.bytes;
+  for (const { rel, link } of items.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0))) {
+    if (link !== null) {
+      h.update(`${rel}\0link\0${link}\0`);
+      continue;
+    }
+    const data = cappedFile(path.join(pluginRoot, rel), budget);
+    if (data === 'over') {
+      truncated = true;
+      break;
+    }
     if (data === null) continue;
+    budget -= data.byteLength;
     h.update(`${rel}\0${data.byteLength}\0`).update(data);
   }
+  if (truncated) h.update('\0truncated\0');
   const digest = h.digest('hex').slice(0, 10);
   if (own) installedHash = digest;
   return digest;
