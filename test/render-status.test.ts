@@ -7,7 +7,7 @@ import { HOSTILE, NOW, assertSafe, hasLines, plain } from './render-helpers.ts';
 import type { StatusView } from '../lib/commands/status.ts';
 import type { ForgeRequest, ReviewerStats, Stats } from '../lib/types.ts';
 
-const row = (o: Partial<StatusView>): StatusView => ({ id: 'j', stage: 'build', state: 'running', waitingOn: null, round: 0, tasks: { done: 0, total: 0 }, pr: null, session: null, reason: null, ...o });
+const row = (o: Partial<StatusView>): StatusView => ({ id: 'j', stage: 'build', state: 'running', waitingOn: null, round: 0, tasks: { done: 0, total: 0 }, pr: null, session: null, reason: null, handoff: null, ...o });
 const ROWS = [
   row({ id: 'add-login', state: 'running', round: 2, tasks: { done: 3, total: 5 }, pr: 12, session: 'abcdef1234567' }),
   row({ id: 'fix-bug', stage: 'spec', state: 'waiting', waitingOn: 'input' }),
@@ -23,6 +23,18 @@ test('status: the agent table\'s columns and widths (golden)', () => {
 test('status: a reason column when some row has a reason', () => {
   const rows = [ROWS[0], { ...ROWS[1], reason: 'needs\napproval' }];
   hasLines(plain(status, rows), 'job        stage  state          round  tasks  pr   session   reason', 'add-login  build  running        r2     3/5    #12  abcdef12  -', 'fix-bug    spec   waiting:input  -      -      -    -         needs approval');
+});
+
+test('status: a handoff column when some job was left for a human', () => {
+  const rows = [ROWS[0], { ...ROWS[1], waitingOn: 'escalation' as const, handoff: 'reserved: touches auth' }];
+  assert.equal(
+    plain(status, rows),
+    [
+      'job        stage  state               round  tasks  pr   session   handoff',
+      'add-login  build  running             r2     3/5    #12  abcdef12  -',
+      'fix-bug    spec   waiting:escalation  -      -      -    -         reserved: touches auth',
+    ].join('\n'),
+  );
 });
 
 test('status: no rows', () => {
@@ -133,7 +145,7 @@ test('requests: no rows, with and without --all', () => {
 });
 
 test('status, stats and requests: sanitizes untrusted text', () => {
-  assertSafe(plain(status, [row({ id: HOSTILE, stage: HOSTILE as any, state: HOSTILE as any, session: HOSTILE, reason: HOSTILE })]));
+  assertSafe(plain(status, [row({ id: HOSTILE, stage: HOSTILE as any, state: HOSTILE as any, session: HOSTILE, reason: HOSTILE, handoff: HOSTILE })]));
   assertSafe(plain(stats, { ...STATS, reviewers: { [HOSTILE]: reviewer(0, 0) }, verifiers: { [HOSTILE]: { runs: 1, fails: 0, unanswered: 0, blocks: 0, hitRate: 0 } } }));
   assertSafe(plain(requests, [reqs({ id: HOSTILE, type: HOSTILE as any, job: HOSTILE, from: HOSTILE, status: HOSTILE as any, text: HOSTILE })]));
 });

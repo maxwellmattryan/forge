@@ -202,6 +202,16 @@ const ppPark = (parkAt: number, approveAt: number, human: Record<string, unknown
   tr(approveAt + 1, { stage: 'decide', state: 'waiting', waitingOn: 'human' }, { stage: 'decide' }),
 ];
 
+/** A person's (or, with `more.actor`, the foreman's) `forge job human <action>` at minute n. */
+const said = (action: string, n: number, more: Record<string, unknown> = {}) => ev('human', n, { action, note: 'ok', actor: { login: 'alice', source: 'env' }, ...more });
+/** The job parked on `waitingOn` in `stage` at minute 10, then `action` was logged at 12. */
+const answeredAt = (stage: string, waitingOn: string, action: string, more: Partial<Job> = {}, human: Record<string, unknown> = {}): FixtureOpts => ({
+  job: job({ stage: stage as Job['stage'], state: 'waiting', waitingOn: waitingOn as Job['waitingOn'], reason: 'r', round: 1, ...more }),
+  events: [tr(10, { stage }, { stage, state: 'waiting', waitingOn }), said(action, 12, human)],
+});
+/** The follow-up `job set j [--stage <stage>] --state running`. */
+const setRunning = (stage?: string) => run('job', 'set', 'j', ...(stage ? ['--stage', stage] : []), '--state', 'running');
+
 export const rows: Row[] = [
   // ---- Global
   { name: 'G1 a done job is done', fx: { job: job({ stage: 'done', state: 'done' }) }, want: { action: 'done', state: 'done' } },
@@ -261,6 +271,55 @@ export const rows: Row[] = [
   { name: 'G4b an escalation names the decision', fx: { job: job({ stage: 'decide', state: 'waiting', waitingOn: 'escalation', reason: 'approver escalated: see decision.md' }) }, want: { action: 'wait', waitingOn: 'escalation', tell: `j escalated (approver escalated: see decision.md): see ${path.join(JOB_DIR, 'decision.md')}. /forge approve j or /forge rework j <note>` } },
   { name: 'G4b spec approval names the spec and mockup', fx: { files: ['spec', 'mockup'], job: job({ stage: 'spec', state: 'waiting', waitingOn: 'spec-approval' }) }, want: { action: 'wait', waitingOn: 'spec-approval', tell: `j spec ready: ${path.join(JOB_DIR, 'spec.md')} · mockup ${path.join(JOB_DIR, 'mockup.html')}. /forge approve j or /forge revise j <note>` } },
   { name: 'G4b running agents are listed at a gate', fx: { job: job({ stage: 'review', state: 'waiting', waitingOn: 'budget', agents: { 'reviewer:tests': ag(1, 1) } }) }, want: { action: 'wait', waitingOn: 'budget', running: ['reviewer:tests'] } },
+  // ---- Answered gates: a decision logged at the current park runs its follow-up job set.
+  { name: 'GA1 an approved spec resumes in its stage', fx: answeredAt('spec', 'spec-approval', 'approve-spec'), want: setRunning() },
+  { name: 'GA2 an approved escalation in decide ships', fx: answeredAt('decide', 'escalation', 'approve'), want: setRunning('integrate') },
+  { name: "GA2 the foreman's approve at rounds-exhausted in review ships", fx: answeredAt('review', 'rounds-exhausted', 'approve', {}, { actor: FOREMAN }), want: setRunning('integrate') },
+  { name: 'GA2 answers before G4 stops a running environment', fx: { ...answeredAt('decide', 'escalation', 'approve'), environment: 'running' }, want: setRunning('integrate') },
+  { name: 'GA2b an approved escalation in integrate decides again', fx: answeredAt('integrate', 'escalation', 'approve'), want: setRunning('decide') },
+  { name: 'GA3 approved runbook steps go to integrate', fx: answeredAt('decide', 'infra', 'approve'), want: setRunning('integrate') },
+  { name: 'GA4 approved conflicts go to the integrator', fx: answeredAt('integrate', 'conflicts', 'approve'), want: setRunning('integrate') },
+  { name: 'GA4 a rework on conflicts is an approve', fx: answeredAt('integrate', 'conflicts', 'rework'), want: setRunning('integrate') },
+  { name: 'GA5 an approved issue link resumes', fx: answeredAt('backlog', 'issue-link', 'approve'), want: setRunning() },
+  { name: 'GA6 an approve on a human park resumes', fx: answeredAt('decide', 'human', 'approve', { reason: 'protected paths: package-lock.json' }), want: setRunning() },
+  { name: 'GA6b a repo decision resumes the proposal park', fx: answeredAt('spec', 'human', 'reject-repos', { reason: 'repo proposal: lib' }), want: setRunning() },
+  { name: 'GA7 an approve at a budget park with nothing still over resumes', fx: { ...answeredAt('build', 'budget', 'approve', { reason: 'budget exceeded: usd 12.00/10.00' }), budgetExceeded: [] }, want: setRunning() },
+  { name: 'GA8 a rework on an escalation in build builds again', fx: answeredAt('build', 'escalation', 'rework'), want: setRunning('build') },
+  { name: 'GA8 the latest decision at a park wins over an earlier approve', fx: { ...answeredAt('decide', 'escalation', 'approve'), events: [tr(10, { stage: 'decide' }, { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }), said('approve', 12), said('rework', 13)] }, want: setRunning('build') },
+  {
+    name: 'GA8 a rework on an open PR moves to build before G3',
+    fx: answeredAt('pr', 'pr-review', 'rework', { pr: OPEN_PR, lease: { driver: 's', epoch: 1, since: t(0), renewedAt: t(0), expiresAt: t(30) } }),
+    want: setRunning('build'),
+  },
+  { name: 'GA9 a revised spec goes back to spec', fx: answeredAt('spec', 'spec-approval', 'revise-spec'), want: setRunning('spec') },
+  { name: 'GA9 a revise on an escalation before build goes back to spec', fx: answeredAt('spec', 'escalation', 'revise-spec'), want: setRunning('spec') },
+  { name: 'GA10 an approved split plans again', fx: answeredAt('plan', 'split-approval', 'approve-split'), want: setRunning('plan') },
+  { name: 'GA10 a rejected split plans again', fx: answeredAt('plan', 'split-approval', 'revise-split'), want: setRunning('plan') },
+  { name: 'GA11 an answer resumes the agent that asked', fx: answeredAt('spec', 'input', 'answer'), want: setRunning() },
+  { name: 'G4b … not an answer: answer at an escalation park', fx: answeredAt('decide', 'escalation', 'answer'), want: { action: 'wait', waitingOn: 'escalation' } },
+  { name: 'G4b … not an answer: approve at an escalation in spec', fx: answeredAt('spec', 'escalation', 'approve'), want: { action: 'wait', waitingOn: 'escalation' } },
+  { name: 'G4b … not an answer: rework at a split-approval park', fx: answeredAt('plan', 'split-approval', 'rework'), want: { action: 'wait', waitingOn: 'split-approval' } },
+  {
+    name: 'G4b … not an answer: a decision logged before the park',
+    fx: { ...answeredAt('decide', 'escalation', 'approve'), events: [said('approve', 8), tr(10, { stage: 'decide' }, { stage: 'decide', state: 'waiting', waitingOn: 'escalation' })] },
+    want: { action: 'wait', waitingOn: 'escalation' },
+  },
+  { name: 'G4b … not an answer: a waiting job whose events hold no transition', fx: { ...answeredAt('decide', 'escalation', 'approve'), events: [said('approve', 12)] }, want: { action: 'wait', waitingOn: 'escalation' } },
+  {
+    name: 'G4b … not an answer: an approve at a budget park does not answer a later escalation',
+    fx: {
+      ...answeredAt('decide', 'escalation', 'approve'),
+      events: [tr(10, { stage: 'decide' }, { stage: 'decide', state: 'waiting', waitingOn: 'budget' }), said('approve', 11), tr(12, { stage: 'decide', state: 'waiting', waitingOn: 'budget' }, { stage: 'decide', state: 'waiting', waitingOn: 'escalation' })],
+    },
+    want: { action: 'wait', waitingOn: 'escalation' },
+  },
+  {
+    name: 'G4b … not an answer: notes, budget acks and hand-offs never answer',
+    fx: { ...answeredAt('decide', 'escalation', 'approve'), events: [tr(10, { stage: 'decide' }, { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }), ev('note', 11, { text: 'approve' }), ev('budget-ack', 12, { keys: ['usd'] }), ev('release-approval', 13, { action: 'approve' }), ev('foreman-handoff', 14, { gate: 'escalation', class: 'escalated', reason: 'x' })] },
+    want: { action: 'wait', waitingOn: 'escalation' },
+  },
+  { name: 'G4b budget still exceeded', fx: { ...answeredAt('build', 'budget', 'approve', { reason: 'budget exceeded: usd 12.00/10.00' }), budgetExceeded: ['usd'] }, want: { action: 'wait', waitingOn: 'budget', tell: 'j over budget: budget exceeded: usd 12.00/10.00. /forge approve j to acknowledge, or raise it: forge job budget j --set usd=…' } },
+  { name: 'G4b … not an answer: approve at a repo budget hold', fx: { ...answeredAt('build', 'budget', 'approve', { reason: 'repo budget: $5.00 of $5.00 today' }), budgetExceeded: [] }, want: { action: 'wait', waitingOn: 'budget' } },
   { name: 'G5 waits on running agents', fx: { job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5) } }) }, want: { action: 'wait', waitingOn: 'agents', running: ['builder'] } },
   { name: 'L1 respawns a lost builder without resume', fx: { files: ['spec'], job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5, 6, { status: 'lost' }) } }), events: [ev('round', 4)] }, want: { action: 'spawn', role: 'builder' }, check: (a) => assert.equal(a.resume, undefined) },
   { name: 'L1 respawns a failed approver', fx: { job: atDecide({ agents: { approver: ag(1, 20, 21, { status: 'failed' }) } }) }, want: { action: 'spawn', role: 'approver' } },

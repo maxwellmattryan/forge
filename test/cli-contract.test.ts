@@ -201,8 +201,8 @@ test('--json success output is one JSON value', POSIX, () => {
     const id = s.json(['job', 'new', '--title', 'Status row', '--ref', 'status-row', '--session', 'session-abcdefghij']).id;
     assert.equal(id, 'status-row');
     const rows = s.json(['status', '--json']);
-    assert.deepEqual(rows, [{ id, stage: 'backlog', state: 'queued', waitingOn: null, round: 0, tasks: { done: 0, total: 0 }, pr: null, session: 'session-abcdefghij' }]);
-    assert.deepEqual(Object.keys(rows[0]), ['id', 'stage', 'state', 'waitingOn', 'round', 'tasks', 'pr', 'session']);
+    assert.deepEqual(rows, [{ id, stage: 'backlog', state: 'queued', waitingOn: null, round: 0, tasks: { done: 0, total: 0 }, pr: null, session: 'session-abcdefghij', foremanHandoff: null }]);
+    assert.deepEqual(Object.keys(rows[0]), ['id', 'stage', 'state', 'waitingOn', 'round', 'tasks', 'pr', 'session', 'foremanHandoff']);
     // Without --json, the same padded table as before (the session cut to 8 characters).
     assert.equal(s.cli(['status']).stdout, ['job         stage    state   round  tasks  pr  session', 'status-row  backlog  queued  -      -      -   session-'].join('\n') + '\n');
 
@@ -471,7 +471,7 @@ test('help covers every routed command', () => {
     s.init();
     const r = s.cli(['job', 'bogus']);
     assert.equal(r.status, 2);
-    assert.ok(r.stderr.includes('usage: forge job acs|advance|agent|archive|assist|audit|budget|claim|decision|delete|effort|findings|from-ref|get|human|interim|link|links|list|new|note|panel|paths|progress|prune|refresh-request|release|repo|round|scope|score|set|show|step|verdicts; run `forge help job`'), r.stderr);
+    assert.ok(r.stderr.includes('usage: forge job acs|advance|agent|archive|assist|audit|budget|claim|decision|delete|effort|findings|from-ref|get|handoff|human|interim|link|links|list|new|note|panel|paths|progress|prune|refresh-request|release|repo|round|scope|score|set|show|step|verdicts; run `forge help job`'), r.stderr);
   } finally {
     s.cleanup();
   }
@@ -610,12 +610,12 @@ test('CLI JSON keys are stable', POSIX, () => {
     // Renaming or dropping one of these keys is a breaking change (docs/CLI.md "Stability").
     assert.deepEqual(keyPaths(s.json(['job', 'list'])), ['[].effort', '[].id', '[].owner', '[].pr', '[].round', '[].stage', '[].state', '[].title', '[].waitingOn']);
     assert.deepEqual(keyPaths(s.json(['job', 'show', id]), ['lastVerdicts', 'ports']), [
-      'base', 'branch', 'decision', 'effort', 'estCostUsd', 'id', 'issues', 'issues[].ref', 'issues[].tracker', 'issues[].url', 'kind', 'lastVerdicts', 'maxRounds', 'noIssue', 'owner', 'port', 'ports', 'pr', 'progress', 'progress.done', 'progress.total',
+      'base', 'branch', 'decision', 'effort', 'estCostUsd', 'foremanHandoff', 'id', 'issues', 'issues[].ref', 'issues[].tracker', 'issues[].url', 'kind', 'lastVerdicts', 'maxRounds', 'noIssue', 'owner', 'port', 'ports', 'pr', 'progress', 'progress.done', 'progress.total',
       'reason', 'reviewers', 'round', 'stage', 'state', 'title', 'tokens', 'verified', 'verified.attempt',
       'verified.ok', 'verified.round', 'verified.sha', 'verify', 'waitingOn', 'worktree',
     ]);
     assert.deepEqual(keyPaths(s.json(['job', 'step', id])), ['action', 'command', 'id', 'rule', 'shell', 'why']);
-    assert.deepEqual(keyPaths(s.json(['status', '--json'])), ['[].id', '[].pr', '[].round', '[].session', '[].stage', '[].state', '[].tasks', '[].tasks.done', '[].tasks.total', '[].waitingOn']);
+    assert.deepEqual(keyPaths(s.json(['status', '--json'])), ['[].foremanHandoff', '[].id', '[].pr', '[].round', '[].session', '[].stage', '[].state', '[].tasks', '[].tasks.done', '[].tasks.total', '[].waitingOn']);
     assert.deepEqual(keyPaths(verify), [
       'attempt', 'file', 'integrity', 'integrity.base', 'integrity.blocking', 'integrity.configEdits', 'integrity.deletedTests', 'integrity.findings', 'integrity.linkOverrides', 'integrity.mode', 'integrity.more',
       'integrity.ok', 'integrity.renamedTests', 'integrity.skipMarkers', 'integrity.testCount', 'integrity.testCount.after', 'integrity.testCount.before', 'integrity.testCount.delta',

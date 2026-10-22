@@ -9,7 +9,7 @@ A job can outlive a session. A PR can stay open for days, collect review comment
 
 Then `forge job claim <id> --session ${CLAUDE_SESSION_ID}` (keep its `epoch` for `--epoch`) and `forge worktree create <id>` (a no-op when it exists, and it tracks the remote branch when not local).
 
-A job waiting on `infra` needs no PR reading: the human's runbook steps are done, so `forge job human <id> approve --note "steps done"`, `forge job set <id> --stage integrate --state running`, and run the step loop.
+A job waiting on `infra` needs no PR reading: the human's runbook steps are done, so `forge job human <id> approve --note "steps done"` and run the step loop (step sends it to integrate).
 
 ## Read the situation
 ```bash

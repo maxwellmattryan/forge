@@ -1,6 +1,6 @@
 // The dashboard's view logic, ported as-is from the pre-Svelte app.js so node:test can pin it: components hold only markup.
 // Plain functions and constants, no DOM access.
-import type { EvalCompare, Job, JobEvent, JobPr, LastHuman, OwnerStatus, Progress, RequestType, Stage, StateJob, WaitingOn } from './types.ts';
+import type { EvalCompare, HandoffClass, Job, JobEvent, JobPr, LastHuman, OwnerStatus, Progress, RequestType, Stage, StateJob, WaitingOn } from './types.ts';
 import { PARK_LABEL, REPO_HOLD_LABEL, STAGE_LABEL, WAIT_LABEL } from './labels.ts';
 import { isRepoHold } from './repo-budget.ts';
 import { isRepoProposal } from './repo-proposals.ts';
@@ -586,6 +586,16 @@ export function gateOwnerBadge(owner: unknown): { foreman: boolean; tone: 'live'
   if (owner === 'foreman') return { foreman: true, tone: 'live' };
   if (owner === 'human') return { foreman: false, tone: 'you' };
   return null;
+}
+
+const HANDOFF_CLASSES: readonly HandoffClass[] = ['reserved', 'escalated', 'refused'];
+
+/** A job's Foreman hand-off as the card shows it; null for none, an older server or a malformed value. */
+export function handoffNote(h: unknown): { cls: HandoffClass; reason: string } | null {
+  if (!h || typeof h !== 'object') return null;
+  const { class: cls, reason } = h as { class?: unknown; reason?: unknown };
+  if (!HANDOFF_CLASSES.includes(cls as HandoffClass) || typeof reason !== 'string') return null;
+  return { cls: cls as HandoffClass, reason };
 }
 
 /** Rounds of the drawer's verify/verdict matrix and the reviewer columns, or null when there is nothing to show. */

@@ -13,7 +13,9 @@ export const status: Renderer = (d, o) => {
   const p = paint(o.color);
   const rows = d as StatusView[];
   const withReason = rows.some((r) => r.reason);
-  const head = ['job', 'stage', 'state', 'round', 'tasks', 'pr', 'session', ...(withReason ? ['reason'] : [])];
+  // An older row (or one from another caller) has no handoff key: no column.
+  const withHandoff = rows.some((r) => r.handoff);
+  const head = ['job', 'stage', 'state', 'round', 'tasks', 'pr', 'session', ...(withReason ? ['reason'] : []), ...(withHandoff ? ['handoff'] : [])];
   const body = rows.map((j): Val[] => [
     txt(j.id),
     txt(j.stage),
@@ -23,6 +25,7 @@ export const status: Renderer = (d, o) => {
     j.pr ? `#${txt(j.pr)}` : '-',
     j.session ? txt(String(j.session).slice(0, 8)) : '-',
     ...(withReason ? [txt(j.reason)] : []),
+    ...(withHandoff ? [txt(j.handoff)] : []),
   ]);
   return table(head, body, p);
 };

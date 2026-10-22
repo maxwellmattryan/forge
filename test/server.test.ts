@@ -1532,6 +1532,15 @@ test('state exposes office session and gateOwner', async () => {
   seed('j-spec', { state: 'waiting', waitingOn: 'spec-approval', reason: 'spec ready' });
   seed('j-auth', { stage: 'decide', state: 'waiting', waitingOn: 'escalation', reason: 'approver escalated: auth change' });
   seed('j-input', { stage: 'build', state: 'waiting', waitingOn: 'input' });
+  // The office left j-auth's escalation for a person after it parked.
+  const handedOffAt = '2026-03-01T00:00:02.000Z';
+  fs.writeFileSync(
+    path.join(repo.dir, '.forge', 'jobs', 'j-auth', 'events.jsonl'),
+    [
+      { v: 2, ts: '2026-03-01T00:00:01.000Z', type: 'transition', from: { stage: 'decide', state: 'running', waitingOn: null }, to: { stage: 'decide', state: 'waiting', waitingOn: 'escalation' } },
+      { v: 2, ts: handedOffAt, type: 'foreman-handoff', gate: 'escalation', class: 'reserved', reason: 'reserved (auth)', actor: { login: null, source: 'foreman' } },
+    ].map((e) => JSON.stringify(e) + '\n').join(''),
+  );
   const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
   const port = Number(new URL(url).port);
   try {
@@ -1542,6 +1551,8 @@ test('state exposes office session and gateOwner', async () => {
     assert.equal(st.daemons.office.running, false);
     const owners = Object.fromEntries(st.jobs.map((j) => [j.id, j.gateOwner]));
     assert.deepEqual(owners, { 'j-run': null, 'j-spec': 'foreman', 'j-auth': 'human', 'j-input': 'human' });
+    const handoffs = Object.fromEntries(st.jobs.map((j) => [j.id, j.foremanHandoff]));
+    assert.deepEqual(handoffs, { 'j-run': null, 'j-spec': null, 'j-auth': { gate: 'escalation', class: 'reserved', reason: 'reserved (auth)', at: handedOffAt }, 'j-input': null });
     fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, foreman: { enabled: false } }));
     const off = JSON.parse((await hit(port, { path: '/api/state' })).text);
     assert.equal(off.daemons.foreman, false);
