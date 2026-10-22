@@ -1,6 +1,6 @@
 # Forge configuration. Every key is documented in docs/CONFIG.md of the Forge plugin.
 # Re-run `/forge init` to change answers interactively, or edit this file directly.
-schemaVersion: 3
+schemaVersion: 29
 project:
   name: Forge
   description: "Claude Code plugin that runs a software factory: jobs in worktrees, agent roster, PR/tracker sync, dashboard, evals and retros. The repo is also its own plugin marketplace."
@@ -25,7 +25,8 @@ worktrees:
   cargo:
     sharedTarget: false
     targetDir: null
-  generated: ["dashboard/dist/**"]
+  generated:
+    - dashboard/dist/**
   generatedBy: dist
 commands:
   setup: npm ci
@@ -39,7 +40,10 @@ commands:
   dist: npm run build:dashboard
 verify:
   - build
-  - [lint, typecheck, test]
+  -
+    - lint
+    - typecheck
+    - test
 verifyE2e:
   when: ui
   paths:
@@ -60,7 +64,7 @@ ports:
 runtime:
   provider: anthropic
   host: claude-code
-  maxParallelJobs: 2
+  maxParallelJobs: 4
   diversity: false
   effort: medium
   efforts:
@@ -161,7 +165,7 @@ review:
     - name: docs
       model: haiku
       effort: low
-      when: "the diff adds, removes or renames a CLI command, flag or JSON output field, a config key or an /api shape, or changes orchestrator behaviour in skills/forge/**"
+      when: the diff adds, removes or renames a CLI command, flag or JSON output field, a config key or an /api shape, or changes orchestrator behaviour in skills/forge/**
       paths:
         - README.md
         - docs/**
@@ -221,26 +225,31 @@ components:
     kind: library
     notes: "The forge command: bin/forge, lib/cli.ts (routing only) and lib/commands/ (one module per group, each with its HELP table). Used by humans, by the dashboard and by agents, so command names, flags, exit codes and JSON output are a public contract. Keep README's CLI table (npm run docs:commands) and docs/CLI.md in sync."
     dependsOn:
-      - { component: library, type: build }
+      - component: library
+        type: build
   - name: dashboard
     path: .
     kind: app
     notes: "The web UI: dashboard/ (Svelte 5 in src/, style.css, index.html). Built into dashboard/dist/, which forge dash serves; dist/ is gitignored on develop, so never commit or hand-edit it (only release and hotfix commits on main commit it). dashboard/src/lib/types.ts mirrors the /api shapes that lib/server.ts serves."
     dependsOn:
-      - { component: cli, type: runtime }
-      - { component: library, type: runtime }
+      - component: cli
+        type: runtime
+      - component: library
+        type: runtime
   - name: plugin
     path: .
     kind: library
     notes: "The Claude Code plugin: skills/forge/, agents/, reviewers/, templates/, hooks/ and .claude-plugin/ (the plugin manifest and marketplace). Prompts are product: short, imperative, one-line reply contract."
     dependsOn:
-      - { component: cli, type: runtime }
+      - component: cli
+        type: runtime
   - name: docs
     path: .
     kind: library
-    notes: "README.md and docs/*.md. Keep in sync with CLI behaviour; use the terms in docs/GLOSSARY.md."
+    notes: README.md and docs/*.md. Keep in sync with CLI behaviour; use the terms in docs/GLOSSARY.md.
     dependsOn:
-      - { component: cli, type: runtime }
+      - component: cli
+        type: runtime
 infra:
   mode: agent
   allowed:
@@ -301,5 +310,11 @@ foreman:
     - pr-feedback
     - repo-proposal
     - release
-  reserved: []
+  reserved:
+    - gate:release
   ship: merge
+repos: []
+downstream:
+  enabled: true
+  max: 5
+  skip: []
