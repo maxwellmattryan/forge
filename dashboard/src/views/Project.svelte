@@ -11,7 +11,8 @@
   import { BACKING_KEY, edgeKey, highlight, jobOptions, layoutProject, type GraphNode } from '../lib/project-graph.ts';
   import { t } from '../lib/locale.ts';
 
-  let { data }: { data: ApiState } = $props();
+  // App renders a view only once S.data is loaded.
+  const data = $derived(S.data as ApiState);
   const g = $derived(S.project);
   // Running environments (GET /api/environments, loaded with the page's 15 s view poll). Read-only: the controls live in
   // each job's Environment card.

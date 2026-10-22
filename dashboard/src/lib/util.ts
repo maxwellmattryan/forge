@@ -43,7 +43,7 @@ export const dur = (ms: number | null | undefined): string => {
   const s = Math.round((ms % 60000) / 1000);
   return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m ${s}s`;
 };
-/** The .chip modifier per tone (outline and text in the tone colour, no fill), shared by toneChip and chips that need extra attributes. */
+/** The .chip modifier per tone (outline and text in the tone colour, no fill), which Chip.svelte adds after `chip`. */
 export const TONE_CLASS: Record<string, string> = {
   ok: 'ok',
   bad: 'bad',
@@ -54,7 +54,6 @@ export const TONE_CLASS: Record<string, string> = {
   live: 'live',
   you: 'you',
 };
-export const toneChip = (tone: string, text: unknown): string => `<span class="chip ${TONE_CLASS[tone]}">${esc(text)}</span>`;
 /** fetch that throws the response text (or status text) on a non-2xx and parses JSON bodies. */
 export async function api<T = unknown>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(path, opts);

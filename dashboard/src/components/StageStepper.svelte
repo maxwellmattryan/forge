@@ -3,7 +3,7 @@
      While the job is running (`active`), the current step carries a gleam ring that draws on and unwinds (motion-safe;
      under reduced motion a still, closed ring). A screen reader hears one label, e.g. "Stage 5 of 9: Verify". -->
 <script lang="ts">
-  import { stepPosition, type StageStep } from '../lib/view.ts';
+  import { stepPosition, type StageStep } from '../lib/board.ts';
   import { t } from '../lib/locale.ts';
 
   let { steps, stage, active = false }: { steps: StageStep[]; stage: string; active?: boolean } = $props();

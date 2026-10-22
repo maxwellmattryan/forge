@@ -23,7 +23,7 @@
   import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_RAIL, sidebarDrag, sidebarKey, sidebarShown } from './lib/sidebar.ts';
   import { hideTip, railTipOn } from './lib/rail-tip.svelte.ts';
   import { startClock } from './lib/clock.svelte.ts';
-  import type { ViewId } from './lib/view.ts';
+  import type { ViewId } from './lib/nav.ts';
   import { inlineInputAction, type InlineInputEvent } from './lib/statusbar.ts';
   import { t } from './lib/locale.ts';
   import { settingsKey, settingsKeyShortcuts, settingsShortcutLabel } from './lib/settings.ts';
@@ -296,12 +296,12 @@
       {:else}
         {#if S.error}<Banner msg={S.error} />{/if}
         {#if !S.data.initialized}<Banner msg={$t('app.noConfig')} />{/if}
-        {#if S.view === 'pipeline'}<Pipeline data={S.data} />
+        {#if S.view === 'pipeline'}<Pipeline />
         {:else if S.view === 'backlog'}<Backlog />
-        {:else if S.view === 'agents'}<Agents data={S.data} />
-        {:else if S.view === 'analytics'}<Analytics data={S.data} />
-        {:else if S.view === 'project'}<Project data={S.data} />
-        {:else}<Evals data={S.data} />{/if}
+        {:else if S.view === 'agents'}<Agents />
+        {:else if S.view === 'analytics'}<Analytics />
+        {:else if S.view === 'project'}<Project />
+        {:else}<Evals />{/if}
       {/if}
     </div>
   </main>

@@ -7,12 +7,13 @@ import { TIP_DELAY_MS, placeTip } from '../dashboard/src/lib/tooltip.ts';
 import { keepFocus, placeMenu } from '../dashboard/src/lib/menu.ts';
 import { toastPlacement } from '../dashboard/src/lib/toast-place.ts';
 import { TINT, logSender, threadSender, type Sender } from '../dashboard/src/lib/sender.ts';
-import type { ItemKind } from '../dashboard/src/lib/session-log.ts';
+import type { ItemKind } from '../dashboard/src/lib/session-parse.ts';
 import type { ThreadFrom } from '../dashboard/src/lib/thread.ts';
 import { PROTECTED_ROWS, protectedSummary, showParkReason } from '../dashboard/src/lib/protected.ts';
 import type { ProtectedHit, ProtectedPaths } from '../dashboard/src/lib/types.ts';
 import { activityLine, newestActivity, ownerLiveness, roundAgents, sortedActivity } from '../dashboard/src/lib/agent-activity.ts';
-import { screenshotsPanel } from '../dashboard/src/lib/screenshots.ts';
+import { screenshotTiles } from '../dashboard/src/lib/screenshots.ts';
+import { safeUrl } from '../dashboard/src/lib/markdown.ts';
 import { dockModel } from '../dashboard/src/lib/dock.ts';
 
 describe('tooltip', () => {
@@ -255,28 +256,22 @@ describe('agent-activity', () => {
 });
 
 describe('screenshots', () => {
-  test('escapes names and builds encoded URLs', () => {
-    assert.equal(screenshotsPanel('job-1', []), '');
-    assert.equal(screenshotsPanel('job-1', undefined), '');
+  test('builds encoded same-origin URLs and raw names', () => {
+    assert.deepEqual(screenshotTiles('job-1', []), []);
+    assert.deepEqual(screenshotTiles('job-1', undefined), []);
 
     const evil = 'screenshots/"><img src=x onerror=alert(1)>.png';
-    const html = screenshotsPanel('job-1', [evil, 'screenshots/nested/ac18-drawer-375.png']);
-    assert.doesNotMatch(html, /<img src=x/);
-    assert.doesNotMatch(html, /onerror=alert\(1\)>/);
-    const url = `/api/jobs/job-1/file?path=${encodeURIComponent(evil)}`;
-    assert.ok(html.includes(`href="${url}"`), 'link uses the encoded URL');
-    assert.ok(html.includes(`src="${url}"`), 'image uses the encoded URL');
-    assert.ok(html.includes('alt="&quot;&gt;&lt;img src=x onerror=alert(1)&gt;.png"'), 'alt is the escaped name without screenshots/');
-    assert.match(html, /^<div class="plate p-4 flex flex-col gap-3"><div /);
-    assert.match(html, /<a class="plate clickable block min-w-0 p-1"/, 'each tile is a clickable plate');
-    assert.match(html, /<h3 class="h section">Screenshots<\/h3><span class="label">2<\/span>/);
-    assert.equal((html.match(/target="_blank" rel="noopener"/g) ?? []).length, 2);
-    assert.equal((html.match(/loading="lazy"/g) ?? []).length, 2);
-    assert.match(html, /grid-cols-2 md:grid-cols-3/);
-    assert.match(html, />nested\/ac18-drawer-375\.png</);
+    const tiles = screenshotTiles('job-1', [evil, 'screenshots/nested/ac18-drawer-375.png']);
+    assert.deepEqual(tiles, [
+      { url: `/api/jobs/job-1/file?path=${encodeURIComponent(evil)}`, name: '"><img src=x onerror=alert(1)>.png' },
+      { url: `/api/jobs/job-1/file?path=${encodeURIComponent('screenshots/nested/ac18-drawer-375.png')}`, name: 'nested/ac18-drawer-375.png' },
+    ], 'the name is raw text without screenshots/: Svelte escapes it');
+    assert.doesNotMatch(tiles[0].url, /["<> ]/, 'the path is percent-encoded');
 
-    // The job id is encoded too.
-    assert.ok(screenshotsPanel('a"b', ['screenshots/a.png']).includes('/api/jobs/a%22b/file?path=screenshots%2Fa.png'));
+    // The job id is encoded too, and every URL stays same-origin through safeUrl.
+    const quoted = screenshotTiles('a"b', ['screenshots/a.png']);
+    assert.equal(quoted[0].url, '/api/jobs/a%22b/file?path=screenshots%2Fa.png');
+    for (const t of [...tiles, ...quoted]) assert.equal(safeUrl(t.url), t.url, t.url);
   });
 });
 

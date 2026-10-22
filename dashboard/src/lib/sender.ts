@@ -1,6 +1,6 @@
 // Who a Thread message or a session log line comes from, and the faint tint that shows it at a glance. Pure, so node:test
 // can pin it. The tint is never the only cue: the Thread names the sender and the log tags each line.
-import type { ItemKind } from './session-log.ts';
+import type { ItemKind } from './session-parse.ts';
 import type { ThreadFrom } from './thread.ts';
 
 /** you: a person (the dashboard or the tracker); cli: the CLI, the supervisor and plumbing; agent: Claude; forge: Forge itself. */

@@ -3,7 +3,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { S } from '../lib/app.svelte.ts';
-  import { VIEWS, navCounts, type ViewId } from '../lib/view.ts';
+  import { VIEWS, navCounts, type ViewId } from '../lib/nav.ts';
   import { railTipOn } from '../lib/rail-tip.svelte.ts';
   import { t } from '../lib/locale.ts';
 

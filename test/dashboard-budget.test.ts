@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { budgetRows, budgetWorst, budgetChip, budgetCell, budgetPanel, unattendedDefault, BUDGET_KEYS } from '../dashboard/src/lib/budget.ts';
+import { budgetRows, budgetWorst, budgetChipModel, budgetCellModel, budgetPanelModel, unattendedDefault, BUDGET_KEYS } from '../dashboard/src/lib/budget.ts';
 import { effectiveLimits } from '../lib/budget.ts';
 import { defaults } from '../lib/config.ts';
 
@@ -46,7 +46,8 @@ test('budgetRows applies the unattended default like effectiveLimits', () => {
   assert.equal(unattendedDefault({ daemon: { enabled: true, jobBudget: null } }), null, 'turned off');
   assert.equal(unattendedDefault(undefined), null);
   assert.equal(row(budgetRows(job(), pipeline), 'usd').limit, null, 'no default passed: unchanged');
-  assert.match(budgetCell(job({ usage: { totalTokens: 0, estCostUsd: 140, byRole: {} } }), pipeline, fill), /budget 93%/);
+  const cell = budgetCellModel(job({ usage: { totalTokens: 0, estCostUsd: 140, byRole: {} } }), pipeline, fill);
+  assert.equal(cell.kind === 'chip' && cell.chip.text, 'budget 93%');
 });
 
 test('budgetRows: used values come from live job fields', () => {
@@ -99,26 +100,33 @@ test('budgetRows: tone thresholds and a zero limit', () => {
   assert.equal(tone(101, 100).tone, 'bad');
 });
 
-test('budgetRows and the HTML helpers tolerate old and partial jobs', () => {
+test('budgetRows and the view models tolerate old and partial jobs', () => {
   for (const j of [{}, { state: 'running' }, { budget: null, usage: null }, { usage: { byRole: {} } }, null, undefined] as any) {
     for (const cfg of [undefined, null, {}, { tokens: 10 }]) {
       const rows = budgetRows(j, cfg);
       assert.equal(rows.length, 5);
-      assert.equal(typeof budgetPanel(j, cfg), 'string');
-      assert.equal(typeof budgetPanel(j, cfg, { compact: true }), 'string');
-      assert.equal(typeof budgetChip(j, cfg), 'string');
-      assert.equal(typeof budgetCell(j, cfg), 'string');
+      const panel = budgetPanelModel(j, cfg);
+      assert.equal(panel.rows.length, 5);
+      assert.equal(typeof panel.checked, 'string');
+      assert.deepEqual(budgetPanelModel(j, cfg, { compact: true }).checked, null);
+      const chip = budgetChipModel(j, cfg);
+      assert.ok(chip === null || typeof chip.text === 'string');
+      assert.ok(['chip', 'text', 'none'].includes(budgetCellModel(j, cfg).kind));
     }
   }
   assert.equal(budgetWorst(budgetRows({} as any, undefined)), null);
-  assert.equal(budgetCell({} as any, undefined), '—');
+  assert.deepEqual(budgetCellModel({} as any, undefined), { kind: 'none' });
 });
 
-test('budgetPanel: one row per key, header, and everything escaped', () => {
-  const plain = budgetPanel(job(), { tokens: 1000 });
-  assert.match(plain, /not checked yet/);
-  for (const label of ['Tokens', 'Est. cost', 'Agent minutes', 'Changed lines', 'Verify retries (round 1)']) assert.ok(plain.includes(label), label);
-  assert.equal(budgetPanel(job(), {}, { compact: true }).includes('not checked yet'), false);
+test('budgetPanel model: one row per key, the checked line, raw text', () => {
+  const plain = budgetPanelModel(job(), { tokens: 1000 });
+  assert.equal(plain.checked, 'not checked yet');
+  assert.deepEqual(plain.rows.map((r) => r.key), [...BUDGET_KEYS]);
+  assert.deepEqual(plain.rows.map((r) => r.label), ['Tokens', 'Est. cost', 'Agent minutes', 'Changed lines', 'Verify retries (round 1)']);
+  for (const r of plain.rows) assert.deepEqual(Object.keys(r).sort(), ['bad', 'bar', 'key', 'label', 'note', 'value']);
+  assert.equal(budgetPanelModel(job(), {}, { compact: true }).checked, null, 'compact has no header');
+  const at = new Date(Date.now() - 3 * 60000).toISOString();
+  assert.equal(budgetPanelModel(job({ budget: { limits: {}, ack: {}, lastCheck: { at, checkpoint: 'build', used: {} } } }), {}).checked, 'checked 3m ago · build');
   const evil = job({
     budget: {
       limits: { tokens: '<script>' },
@@ -126,36 +134,40 @@ test('budgetPanel: one row per key, header, and everything escaped', () => {
       lastCheck: { at: '<img src=x onerror=alert(1)>', checkpoint: '<img src=x onerror=alert(1)>', used: { changedLines: '<script>' } },
     },
   });
-  const html = budgetPanel(evil, { usd: '<b>' } as any);
-  assert.equal(html.includes('<img'), false);
-  assert.equal(html.includes('<script'), false);
-  assert.ok(html.includes('&lt;img'));
+  const m = budgetPanelModel(evil, { usd: '<b>' } as any);
+  assert.equal(m.checked, 'checked — · <img src=x onerror=alert(1)>', 'raw text, never HTML: Svelte escapes it');
+  assert.ok(m.rows.every((r) => !r.label.includes('&')));
+  const tokens = m.rows.find((r) => r.key === 'tokens')!;
+  assert.deepEqual([tokens.note, tokens.bar], ['· unlimited', null], 'a non-numeric limit reads as unlimited');
+  assert.equal(m.rows.find((r) => r.key === 'usd')!.note, '· unlimited', 'a non-numeric config limit too');
   assert.equal(row(budgetRows(evil, {}), 'tokens').limit, null, 'non-numeric limit is treated as unlimited');
 });
 
-test('budgetPanel: shows counted / limit, the ack and the bar tone', () => {
+test('budgetPanel model: counted / limit, the ack and the bar tone', () => {
   const j = job({ usage: { totalTokens: 900, estCostUsd: 0, byRole: {} }, budget: { limits: {}, ack: { tokens: { used: 100, round: 1 } }, lastCheck: null } });
-  const html = budgetPanel(j, { tokens: 1000 });
-  assert.ok(html.includes(`${(800).toLocaleString()} / ${(1000).toLocaleString()}`));
-  assert.ok(html.includes('acknowledged'));
-  assert.ok(html.includes('<div class="fill warn" style="width:80%">'), 'a track > fill bar in the row tone');
-  assert.ok(html.startsWith('<div class="plate p-4 flex flex-col gap-2"><div '), 'a plate, its heading row first');
-  assert.ok(html.includes('<h3 class="h section">Budget</h3>'));
-  assert.ok(html.includes('<div class="col-span-2 md:col-span-1 track">'));
-  assert.ok(budgetPanel(job(), {}).includes('unlimited'));
-  assert.ok(budgetPanel(job(), { changedLines: 10 }).includes('not measured yet'));
+  const tokens = budgetPanelModel(j, { tokens: 1000 }).rows[0];
+  assert.deepEqual(tokens, { key: 'tokens', label: 'Tokens', value: `${(800).toLocaleString()} / ${(1000).toLocaleString()}`, note: `· ${(100).toLocaleString()} acknowledged`, bad: false, bar: { tone: 'warn', width: 80 } });
+  const over = budgetPanelModel(job({ usage: { totalTokens: 1500, estCostUsd: 0, byRole: {} } }), { tokens: 1000 }).rows[0];
+  assert.deepEqual([over.bad, over.bar], [true, { tone: 'bad', width: 100 }], 'the width is clamped to 100');
+  const ok = budgetPanelModel(job(), { tokens: 1000 }).rows[0];
+  assert.deepEqual([ok.note, ok.bad, ok.bar], [null, false, { tone: 'ok', width: 0 }]);
+  const unlimited = budgetPanelModel(job(), {}).rows[1];
+  assert.deepEqual([unlimited.value, unlimited.note, unlimited.bar], ['$0.000', '· unlimited', null]);
+  const unmeasured = budgetPanelModel(job(), { changedLines: 10 }).rows[3];
+  assert.deepEqual([unmeasured.value, unmeasured.note, unmeasured.bar], ['— / 10', 'not measured yet', null]);
 });
 
 test('budgetChip: warn and bad only, never for done, cancelled or waiting:budget jobs', () => {
   const at = (used, extra = {}) => job({ usage: { totalTokens: used, estCostUsd: 0, byRole: {} }, ...extra });
-  assert.equal(budgetChip(at(790), { tokens: 1000 }), '');
-  assert.match(budgetChip(at(850), { tokens: 1000 }), />budget 85%</);
-  assert.match(budgetChip(at(850), { tokens: 1000 }), /title="Tokens 850\/1,?000"/);
-  assert.match(budgetChip(at(1500), { tokens: 1000 }), />over budget</);
-  assert.equal(budgetChip(at(1500, { state: 'done' }), { tokens: 1000 }), '');
-  assert.equal(budgetChip(at(1500, { state: 'cancelled' }), { tokens: 1000 }), '');
-  assert.equal(budgetChip(at(1500, { state: 'waiting', waitingOn: 'budget' }), { tokens: 1000 }), '');
-  assert.ok(budgetChip(at(1500, { state: 'waiting', waitingOn: 'input' }), { tokens: 1000 }).includes('over budget'));
-  assert.match(budgetCell(at(500), { tokens: 1000 }), />50%</);
-  assert.match(budgetCell(at(1500, { state: 'waiting', waitingOn: 'budget' }), { tokens: 1000 }), />150%</);
+  assert.equal(budgetChipModel(at(790), { tokens: 1000 }), null);
+  assert.deepEqual(budgetChipModel(at(850), { tokens: 1000 }), { tone: 'warn', text: 'budget 85%', title: `Tokens 850/${(1000).toLocaleString()}` });
+  assert.deepEqual(budgetChipModel(at(1500), { tokens: 1000 }), { tone: 'bad', text: 'over budget', title: `Tokens ${(1500).toLocaleString()}/${(1000).toLocaleString()}` });
+  assert.equal(budgetChipModel(at(1500, { state: 'done' }), { tokens: 1000 }), null);
+  assert.equal(budgetChipModel(at(1500, { state: 'cancelled' }), { tokens: 1000 }), null);
+  assert.equal(budgetChipModel(at(1500, { state: 'waiting', waitingOn: 'budget' }), { tokens: 1000 }), null);
+  assert.equal(budgetChipModel(at(1500, { state: 'waiting', waitingOn: 'input' }), { tokens: 1000 })?.text, 'over budget');
+  assert.deepEqual(budgetCellModel(at(850), { tokens: 1000 }), { kind: 'chip', chip: budgetChipModel(at(850), { tokens: 1000 }) });
+  assert.deepEqual(budgetCellModel(at(500), { tokens: 1000 }), { kind: 'text', text: '50%' });
+  assert.deepEqual(budgetCellModel(at(1500, { state: 'waiting', waitingOn: 'budget' }), { tokens: 1000 }), { kind: 'text', text: '150%' });
+  assert.deepEqual(budgetCellModel(at(1, { state: 'waiting', waitingOn: 'budget' }), { tokens: 0 }), { kind: 'text', text: 'over' }, 'a zero limit that was exceeded');
 });

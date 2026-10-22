@@ -1,16 +1,18 @@
 <!-- Agents: running agents, orchestrator sessions, and the roster and review panel. -->
 <script lang="ts">
+  import Chip from '../components/Chip.svelte';
   import EffortChip from '../components/EffortChip.svelte';
   import Empty from '../components/Empty.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import { ago } from '../lib/util.ts';
   import { effortChip } from '../lib/effort.ts';
   import type { ApiState, Effort, EffortSource, RosterModelBy } from '../lib/types.ts';
-  import { agentSessions, runningAgents } from '../lib/view.ts';
+  import { agentSessions, runningAgents } from '../lib/agents.ts';
   import { S, openDrawer } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
 
-  let { data }: { data: ApiState } = $props();
+  // App renders a view only once S.data is loaded.
+  const data = $derived(S.data as ApiState);
   const running = $derived(runningAgents(data.jobs));
   const sessions = $derived(agentSessions(data.jobs, Date.now()));
   const r = $derived(S.roster);
@@ -40,7 +42,7 @@
     {#each running as a (`${a.job.id}/${a.role}`)}
       {@const effort = effortChip(a.job.effort, defaultEffort)}
       {@const last = a.job.activity?.find((x) => x.role === a.role)?.last?.text ?? null}
-      <button class="plate clickable p-3 text-left" onclick={() => openDrawer(a.job.id)}><div class="flex items-center justify-between gap-2"><span class="font-medium">{a.role}</span><span class="flex flex-wrap justify-end gap-1"><span class="chip gleam">{a.model ?? $t('agents.modelUnknown')}</span><EffortChip level={effort} /></span></div><div class="text-sm text-muted mt-1 line-clamp-1">{a.job.title}</div><div class="text-[11px] text-muted mt-1">{$t('agents.runningMeta', { round: a.round ?? '—', started: ago(a.startedAt) })}</div>{#if last}<div class="mono text-[11px] mt-1 truncate" title={last}>{last}</div>{/if}</button>
+      <button class="plate clickable p-3 text-left" onclick={() => openDrawer(a.job.id)}><div class="flex items-center justify-between gap-2"><span class="font-medium">{a.role}</span><span class="flex flex-wrap justify-end gap-1"><Chip tone="gleam" text={a.model ?? $t('agents.modelUnknown')} /><EffortChip level={effort} /></span></div><div class="text-sm text-muted mt-1 line-clamp-1">{a.job.title}</div><div class="text-[11px] text-muted mt-1">{$t('agents.runningMeta', { round: a.round ?? '—', started: ago(a.startedAt) })}</div>{#if last}<div class="mono text-[11px] mt-1 truncate" title={last}>{last}</div>{/if}</button>
     {/each}
   </div>
 {:else}
@@ -75,7 +77,7 @@
         {#each r.agents as a, i (i)}
           <tr>
             <td><div class="font-medium">{a.role}</div><div class="text-[11px] text-muted max-w-xl">{a.description}</div></td>
-            <td><span class="chip muted">{a.model}</span>{#if a.modelBy}{@render modelByLines(a.modelBy)}{/if}</td>
+            <td><Chip tone="muted" text={a.model} />{#if a.modelBy}{@render modelByLines(a.modelBy)}{/if}</td>
             <td>{@render effortCell(a.effort, a.effortSource)}</td>
             <td class="font-mono text-xs text-muted">{a.promptHash}</td>
             <td class="font-mono text-xs text-muted">{a.addendum ?? '—'}</td>
@@ -92,7 +94,7 @@
         {#each r.reviewers as v, i (i)}
           <tr>
             <td class="font-medium">{v.name}</td>
-            <td><span class="chip muted">{v.model}</span></td>
+            <td><Chip tone="muted" text={v.model} /></td>
             <td>{@render effortCell(v.effort, v.effortSource)}</td>
             <td class="text-muted">{v.always ? $t('agents.always') : (v.when ?? $t('agents.whenRelevant'))}</td>
             <td class="font-mono text-xs text-muted">{v.checklist ?? $t('agents.missing')}</td>

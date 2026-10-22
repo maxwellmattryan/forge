@@ -3,7 +3,7 @@
 // No DOM access, so node:test can import it; DepChips.svelte and DepSection.svelte render the links.
 // depLabel and depChipTitle shape the board card's chips; depHint stays as the drawer's title text.
 import type { Job } from './types.ts';
-import { cardRef } from './view.ts';
+import { cardRef } from './board.ts';
 
 /** job.json can be hand-edited, so fields are checked before use despite the type. */
 type JobLike = Partial<Job> | null | undefined;

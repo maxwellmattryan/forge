@@ -6,10 +6,10 @@
      repeat them; permission prompts are answered in the Needs-you popover. StatusBar owns the pool state and act(), so the indicator and this panel agree. Session errors
      and job titles are untrusted and render as text. -->
 <script lang="ts">
+  import Chip from '../Chip.svelte';
   import Icon from '../Icon.svelte';
   import IconButton from '../IconButton.svelte';
   import SessionLog from '../SessionLog.svelte';
-  import { TONE_CLASS } from '../../lib/util.ts';
   import { START_HINT, daemonRows, type Pill, type PoolModel } from '../../lib/daemon.ts';
   import { LOG_KEY } from '../../lib/daemon-log.ts';
   import { INBOX_SCOPE } from '../../lib/types.ts';
@@ -48,7 +48,7 @@
   }
 </script>
 
-{#snippet pill(p: Pill)}<span class="chip sm shrink-0 {TONE_CLASS[p.tone]}" title={p.title}>{p.label}</span>{/snippet}
+{#snippet pill(p: Pill)}<Chip tone={p.tone} extra="sm shrink-0" title={p.title} text={p.label} />{/snippet}
 
 {#snippet foremanRow()}
   <button class="plain foreman clickable flex w-full min-w-0 items-center gap-3 border px-2 py-1.5 text-left {foreman.on ? '' : 'off'}" onclick={openForeman}>
@@ -68,7 +68,7 @@
     <div class="border-t border-line"></div>
     <!-- gap-x-3 keeps the two facts apart without a separator that a wrap would leave dangling. -->
     <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <span class="chip sm {TONE_CLASS[model.pill.tone]}" title={model.pill.title}>{$t('daemon.pill', { label: model.pill.label })}</span>
+      <Chip tone={model.pill.tone} extra="sm" title={model.pill.title} text={$t('daemon.pill', { label: model.pill.label })} />
       <span class="mono muted num">{$t('daemon.live', { live: model.live, cap: model.cap })}</span>
       <span class="mono muted">{$t('statusbar.daemon.mode', { mode: named(poolMode) })}</span>
     </div>

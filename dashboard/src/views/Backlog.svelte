@@ -31,7 +31,7 @@
             {@const u = safeUrl(i.url)}
             <tr>
               <td class="font-mono text-xs">{#if u}<a href={u} target="_blank" rel="noopener" class="hover:text-gleam">{hash(i.ref)}{i.ref}</a>{:else}{i.ref}{/if}</td>
-              <td>{i.title}<div class="flex flex-wrap gap-1 mt-1">{#each i.labels ?? [] as l, k (k)}<span class="chip muted">{l}</span>{/each}</div></td>
+              <td>{i.title}<div class="flex flex-wrap gap-1 mt-1">{#each i.labels ?? [] as l, k (k)}<Chip tone="muted" text={l} />{/each}</div></td>
               <td>{i.status ?? '—'}</td>
               <td>
                 {#if readiness(i) === 'needs-info'}

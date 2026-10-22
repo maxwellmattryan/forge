@@ -3,7 +3,7 @@
 // EventSource and fetch. A hidden document, a closed drawer or an unshown tab never holds one of the
 // server's few SSE slots.
 import { MAX_ENTRIES, mergeEntry } from './session-log.ts';
-import type { Entry } from './session-log.ts';
+import type { Entry } from './session-parse.ts';
 import type { DaemonLogPage } from './types.ts';
 
 /** localStorage key for whether the Daemon popover's Inbox session log is on (statusbar/DaemonPanel.svelte reads and writes it). */
