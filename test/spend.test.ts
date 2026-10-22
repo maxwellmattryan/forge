@@ -5,7 +5,7 @@ import path from 'node:path';
 import { tempRepo } from './helpers.ts';
 import { createJob } from '../lib/jobs.ts';
 import { dollarConfig, spend } from './repo-budget-fixture.ts';
-import { ARCHIVE_SCHEMA_VERSION } from '../lib/schema.ts';
+import { ARCHIVE_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from '../lib/schema.ts';
 import { SPEND_CACHE_VERSION, periodTotals, spendCounters, spendFile, spendLedger } from '../lib/spend.ts';
 
 function archive(root: string, id: string, rec: Record<string, unknown>): void {
@@ -14,7 +14,7 @@ function archive(root: string, id: string, rec: Record<string, unknown>): void {
   fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify({ archiveVersion: ARCHIVE_SCHEMA_VERSION, id, archivedAt: '2026-10-20T00:00:00.000Z', trigger: 'cli', ...rec }));
 }
 
-const job = (id: string, extra: Record<string, unknown> = {}) => ({ schemaVersion: 10, id, title: id, kind: 'feature', state: 'done', stage: 'done', ...extra });
+const job = (id: string, extra: Record<string, unknown> = {}) => ({ schemaVersion: JOB_SCHEMA_VERSION, id, title: id, kind: 'feature', state: 'done', stage: 'done', ...extra });
 
 test('periods, archives and kinds', () => {
   const repo = tempRepo();

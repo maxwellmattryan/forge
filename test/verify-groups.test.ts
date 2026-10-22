@@ -133,25 +133,24 @@ test('validateConfig accepts groups and names each bad verify entry', () => {
   assert.deepEqual(problems([['lint', 'nope']]), ['verify step "nope" is not a key in commands']);
 });
 
-test('a v2 config reads as v3 and grouped verify round-trips', () => {
+test('forge migrate rewrites a v1 or v2 config, and grouped verify round-trips through init', () => {
   const repo = tempRepo();
   const cfg = path.join(repo.dir, '.forge', 'config.yml');
   fs.mkdirSync(path.dirname(cfg), { recursive: true });
   const env = { ...process.env, FORGE_ROOT: repo.dir };
   const answers = writeAnswers(repo.dir, { verify: ['build', ['lint', 'test'], 'e2e'] });
   try {
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
     for (const v of [1, 2]) {
       fs.writeFileSync(cfg, `schemaVersion: ${v}\nverify:\n  - build\n  - lint\n`);
       const loaded = loadConfig(repo.dir);
-      assert.equal(loaded.config.schemaVersion, 28, `v${v}`);
+      assert.equal(loaded.config.schemaVersion, CONFIG_SCHEMA_VERSION, `v${v}`);
       assert.deepEqual(loaded.config.verify, ['build', 'lint'], `v${v}: verify unchanged`);
       assert.equal(loaded.migratedFrom, v);
     }
     const m = spawnSync(process.execPath, [BIN, 'migrate'], { cwd: repo.dir, encoding: 'utf8', env });
     assert.equal(m.status, 0, m.stderr);
     assert.deepEqual(JSON.parse(m.stdout).changed, ['.forge/config.yml']);
-    assert.match(fs.readFileSync(cfg, 'utf8'), /^schemaVersion: 28$/m);
+    assert.match(fs.readFileSync(cfg, 'utf8'), new RegExp(`^schemaVersion: ${CONFIG_SCHEMA_VERSION}$`, 'm'));
     assert.deepEqual(loadConfig(repo.dir).config.verify, ['build', 'lint']);
 
     fs.rmSync(cfg);
@@ -159,7 +158,7 @@ test('a v2 config reads as v3 and grouped verify round-trips', () => {
     assert.equal(w.status, 0, w.stderr);
     const loaded = loadConfig(repo.dir);
     assert.deepEqual(loaded.config.verify, ['build', ['lint', 'test'], 'e2e']);
-    assert.equal(loaded.config.schemaVersion, 28);
+    assert.equal(loaded.config.schemaVersion, CONFIG_SCHEMA_VERSION);
     assert.equal(loaded.migratedFrom, undefined);
   } finally {
     fs.rmSync(answers, { force: true });
@@ -292,7 +291,10 @@ test('verify refuses a newer config and a malformed verify list without running 
   const withVerify = (lines: string) => good.replace(/^verify:\n(?: {2}- .*\n)+/m, `verify:\n${lines}`);
   assert.notEqual(withVerify('  - [test]\n'), good, 'the fixture has a verify block to replace');
   const cases: [string, string][] = [
-    [good.replace(/^schemaVersion: 28$/m, 'schemaVersion: 29'), 'forge: config schemaVersion 29 is newer than this Forge (28); update Forge before running verify'],
+    [
+      good.replace(new RegExp(`^schemaVersion: ${CONFIG_SCHEMA_VERSION}$`, 'm'), `schemaVersion: ${CONFIG_SCHEMA_VERSION + 1}`),
+      `forge: config schemaVersion ${CONFIG_SCHEMA_VERSION + 1} is newer than this Forge (${CONFIG_SCHEMA_VERSION}); update Forge before running verify`,
+    ],
     [withVerify('  - []\n'), 'forge: verify: verify entry 1 must be a step name or a non-empty list of step names (got [])'],
     [withVerify('  - test\n  - [test]\n'), 'forge: verify: verify step "test" is listed more than once'],
   ];
@@ -323,7 +325,7 @@ test('verify refuses a newer config and a malformed verify list without running 
 
 test("this repo's config groups lint, typecheck and test after build", () => {
   const { config } = loadConfig(ROOT);
-  assert.equal(config.schemaVersion, 28);
+  assert.equal(config.schemaVersion, CONFIG_SCHEMA_VERSION);
   assert.deepEqual(config.verify, ['build', ['lint', 'typecheck', 'test']]);
   assert.deepEqual(validateConfig(config, ROOT).filter((p) => p.startsWith('verify')), []);
   // Named files when `forge run <job> test -- <files>` passes them, the whole suite otherwise; the

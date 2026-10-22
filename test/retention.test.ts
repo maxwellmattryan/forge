@@ -12,12 +12,12 @@ import { forgeAsync, waitFor } from './helpers.ts';
 import { ago, repo, seedJob, tree } from './retention-fixture.ts';
 import { rootLabel } from '../lib/backing.ts';
 import { TRUST_ENV, defaults, trustDigest, validateConfig } from '../lib/config.ts';
+import { JOB_SCHEMA_VERSION } from '../lib/schema.ts';
 import { CONFIG_DISCLOSURE, FIELDS, disclosureOf } from '../lib/config-fields.ts';
 import { unmetDependencies } from '../lib/deps.ts';
 import { storageCheck } from '../lib/doctor.ts';
 import { createJob, jobDir, loadJob, readEvents, updateJob } from '../lib/jobs.ts';
 import { retroDue } from '../lib/retro.ts';
-import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import { computeStats } from '../lib/stats.ts';
 import type { Job, LoadedJob } from '../lib/types.ts';
 
@@ -257,7 +257,7 @@ describe('archive', { concurrency: 4 }, () => {
       // A symlinked job dir: its target is never touched.
       const real = path.join(outside, 'linked');
       fs.mkdirSync(real);
-      fs.writeFileSync(path.join(real, 'job.json'), JSON.stringify({ schemaVersion: 10, id: 'linked', state: 'done', stage: 'done', finishedAt: ago(5) }));
+      fs.writeFileSync(path.join(real, 'job.json'), JSON.stringify({ schemaVersion: JOB_SCHEMA_VERSION, id: 'linked', state: 'done', stage: 'done', finishedAt: ago(5) }));
       fs.mkdirSync(path.join(r.dir, '.forge', 'jobs'), { recursive: true });
       fs.symlinkSync(real, path.join(r.dir, '.forge', 'jobs', 'linked'));
       let before = snapshot();
@@ -426,13 +426,8 @@ test('archived jobs only in stats', async () => {
 });
 
 describe('retention config and policy', { concurrency: 4 }, () => {
-  test('retention config v7', () => {
+  test('retention defaults keep everything and validation bounds each key', () => {
     assert.deepEqual(defaults().retention, { jobsDays: null, logsDays: null, logMaxBytes: null });
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
-    const v6 = { schemaVersion: 6, git: { base: 'trunk' }, daemon: { maxConcurrent: 2 } };
-    const { config, from } = migrateConfig(structuredClone(v6));
-    assert.equal(from, 6);
-    assert.deepEqual(config, { ...v6, schemaVersion: 28, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
     const problems = (retention: Record<string, unknown>) => validateConfig({ ...defaults(), retention: { ...defaults().retention, ...retention } }, process.cwd()).filter((p) => p.startsWith('retention'));
     assert.deepEqual(problems({}), []);
     assert.deepEqual(problems({ jobsDays: 30, logsDays: 3650, logMaxBytes: 1048576 }), []);

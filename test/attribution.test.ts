@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { hasAttribution, stripAttribution, scrubBranch } from '../lib/attribution.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 
 const HOOK = path.resolve(import.meta.dirname, '..', 'hooks', 'no-ai-attribution.ts');
 
@@ -42,7 +43,7 @@ test('hook blocks publishing commands that carry attribution', () => {
     assert.equal(hook('echo "Co-Authored-By: Claude"', repo.dir).status, 0, 'non-publishing commands are untouched');
     assert.equal(hook(`gh pr create --body-file ${body}`, repo.dir, { FORGE_AI_ATTRIBUTION: 'allow' }).status, 0);
     fs.mkdirSync(path.join(repo.dir, '.forge'));
-    fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), 'schemaVersion: 1\naiAttribution: allow\n');
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\naiAttribution: allow\n`);
     assert.equal(hook(`gh pr create --body-file ${body}`, repo.dir).status, 0, 'a repo can opt out');
   } finally {
     repo.cleanup();

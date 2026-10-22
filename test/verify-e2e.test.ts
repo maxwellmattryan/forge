@@ -5,6 +5,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/config.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 import { setJob } from '../lib/jobs.ts';
 
 const commitAll = (cwd, msg) => {
@@ -186,16 +187,16 @@ describe('verify runs e2e', { concurrency: 4 }, () => {
     const forge = (...args) => forgeAsync(repo.dir, args);
     try {
       fs.mkdirSync(path.dirname(cfgFile), { recursive: true });
-      fs.writeFileSync(cfgFile, 'schemaVersion: 1\n');
+      fs.writeFileSync(cfgFile, `schemaVersion: ${CONFIG_SCHEMA_VERSION}\n`);
       assert.equal((await forge('config', 'get', 'verifyE2e.when')).stdout.trim(), 'ui');
       assert.equal((await forge('config', 'validate')).status, 0);
 
-      fs.writeFileSync(cfgFile, 'schemaVersion: 1\nverifyE2e:\n  when: sometimes\n');
+      fs.writeFileSync(cfgFile, `schemaVersion: ${CONFIG_SCHEMA_VERSION}\nverifyE2e:\n  when: sometimes\n`);
       let r = await forge('config', 'validate');
       assert.equal(r.status, 1);
       assert.match(r.stdout, /verifyE2e\.when must be one of ui \| always \| never/);
 
-      fs.writeFileSync(cfgFile, 'schemaVersion: 1\nverifyE2e:\n  paths: "*.css"\n');
+      fs.writeFileSync(cfgFile, `schemaVersion: ${CONFIG_SCHEMA_VERSION}\nverifyE2e:\n  paths: "*.css"\n`);
       r = await forge('config', 'validate');
       assert.equal(r.status, 1);
       assert.match(r.stdout, /verifyE2e\.paths must be a list of non-empty strings/);

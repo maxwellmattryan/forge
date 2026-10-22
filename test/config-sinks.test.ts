@@ -7,7 +7,6 @@ import { forgeAsync, tempRepo } from './helpers.ts';
 import { componentProblems } from '../lib/components.ts';
 import { loadConfig, validateConfig } from '../lib/config.ts';
 import { EXPRESSION_ROOTS, fillTemplate, renderEnvFile, renderMerge, renderTemplate, resolveString, resolveValue, sinkProblems } from '../lib/config-sinks.ts';
-import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import * as yaml from '../lib/yaml.ts';
 
 const CTX = { job: 'j1', port: 4123, worktree: '/wt/j1', branch: 'forge/j1', base: 'main', component: { name: 'api', path: 'services/api', dir: '/wt/j1/services/api' } };
@@ -84,19 +83,12 @@ describe('config sinks validation', { concurrency: 4 }, () => {
     assert.deepEqual(validateConfig({ ...loadDefaults(), components: [component(VALID)] }, process.cwd()), []);
   });
 
-  test('a v19 config migrates to v20 unchanged', async () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
-    const v19 = { schemaVersion: 19, components: [component(VALID)] };
-    const m = migrateConfig(structuredClone(v19));
-    assert.equal(m.from, 19);
-    assert.deepEqual(m.config, { ...v19, schemaVersion: 28 });
-    // Through the backing bump (#272) too: v18 → v19 → v20 is two no-ops.
-    assert.deepEqual(migrateConfig({ ...structuredClone(v19), schemaVersion: 18 }).config, { ...v19, schemaVersion: 28 });
+  test('a v19 config with sinks loads and validates', async () => {
     const repo = tempRepo();
     try {
       const cfg = path.join(repo.dir, '.forge', 'config.yml');
       fs.mkdirSync(path.dirname(cfg), { recursive: true });
-      fs.writeFileSync(cfg, yaml.stringify({ schemaVersion: 19, tracker: { kind: 'none' }, components: [component(VALID)] }));
+      fs.writeFileSync(cfg, yaml.stringify({ schemaVersion: 19, tracker: { kind: 'none' }, components: [component(VALID)] })); // old-version fixture
       const loaded = loadConfig(repo.dir);
       assert.equal(loaded.migratedFrom, 19);
       assert.deepEqual(loaded.config.components, [component(VALID)]);

@@ -50,7 +50,7 @@ empty:
 
 test('round-trips stringify output', () => {
   const value = {
-    schemaVersion: 1,
+    schemaVersion: 1, // old-version fixture: any number, this is parser input
     git: { base: 'develop', branchPrefix: 'forge/' },
     review: { panel: [{ name: 'code', always: true }, { name: 'security', model: 'opus', when: 'auth: tokens, sessions' }], blockOn: ['blocker', 'major'] },
     commands: { test: 'cargo test --workspace', dev: null },

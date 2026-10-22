@@ -7,6 +7,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { jobDir } from '../lib/jobs.ts';
+import { JOB_SCHEMA_VERSION } from '../lib/schema.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const BIN = path.join(ROOT, 'bin', 'forge');
@@ -77,7 +78,7 @@ test('job step prints one action and is read-only', () => {
     assert.equal(unknown.status, 1);
     assert.match(unknown.stderr, /no job "no-such-job"/);
     const file = path.join(dir, 'job.json');
-    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), schemaVersion: 99 }));
+    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), schemaVersion: JOB_SCHEMA_VERSION + 1 }));
     const newer = s.raw('job', 'step', id);
     assert.equal(newer.status, 1);
     assert.match(newer.stderr, /written by a newer Forge/);

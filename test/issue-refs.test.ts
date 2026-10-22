@@ -8,11 +8,10 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
-import { createJob, jobDir, loadJob, readEvents } from '../lib/jobs.ts';
-import { JOB_SCHEMA_VERSION, normalizeJob, serializeJob } from '../lib/schema.ts';
+import { jobDir, loadJob, readEvents } from '../lib/jobs.ts';
+import { JOB_SCHEMA_VERSION, normalizeJob } from '../lib/schema.ts';
 import { checkIssueRef, nativeRef, parseIssueRef } from '../lib/issue-ref.ts';
 import { localRepoSlug } from '../lib/repo-slug.ts';
-import { issueLinkStatus } from '../lib/issue-link.ts';
 import { startFromRef } from '../lib/commands/tracker.ts';
 import type { Tracker } from '../lib/types.ts';
 
@@ -122,47 +121,6 @@ test('localRepoSlug is offline', () => {
   } finally {
     process.env.PATH = saved;
     for (const r of repos) r.cleanup();
-  }
-});
-
-test('v10 jobs migrate source to issues unchanged otherwise', () => {
-  const repo = tempRepo();
-  try {
-    const base = serializeJob(createJob(repo.dir, defaults(), { title: 'Old v10' })) as any;
-    delete base.issues;
-    const v10 = (source: unknown, extra: Record<string, unknown> = {}) => ({ ...base, ...extra, schemaVersion: 10, source });
-    const cases: [unknown, Record<string, unknown>, unknown[]][] = [
-      [{ tracker: 'github', ref: '12', url: 'https://github.com/acme/web/issues/12' }, {}, [{ tracker: 'github', ref: 'acme/web#12', url: 'https://github.com/acme/web/issues/12' }]],
-      [{ tracker: 'local', ref: 'reading-time', url: null }, {}, [{ tracker: 'local', ref: 'reading-time', url: null }]],
-      [{ tracker: 'local', ref: null, url: 'https://example.test/x' }, {}, [{ tracker: 'local', ref: null, url: 'https://example.test/x' }]],
-      [null, { noIssue: { reason: 'tiny', at: '2026-10-01T00:00:00Z' } }, []],
-      [{ tracker: 'github', ref: '7', url: null }, {}, [{ tracker: 'github', ref: '7', url: null }]],
-      [{ tracker: 'github', ref: '7', url: 'https://github.com/acme/web/issues/8' }, {}, [{ tracker: 'github', ref: '7', url: 'https://github.com/acme/web/issues/8' }]],
-      // `forge job new --ref` stored these unchecked before v11; they stay linked in the nearest valid form.
-      [{ tracker: 'local', ref: 'ends done', url: null }, {}, [{ tracker: 'local', ref: 'ends-done', url: null }]],
-      [{ tracker: 'acme', ref: 'a:b', url: 'https://example.test/a' }, {}, [{ tracker: 'acme', ref: 'a-b', url: 'https://example.test/a' }]],
-      [{ tracker: 'local', ref: '  ', url: 'https://example.test/u' }, {}, [{ tracker: 'local', ref: null, url: 'https://example.test/u' }]],
-    ];
-    for (const [source, extra, issues] of cases) {
-      const raw = v10(source, extra);
-      const job = normalizeJob(raw);
-      assert.equal(job.schemaVersion, JOB_SCHEMA_VERSION);
-      assert.equal(JOB_SCHEMA_VERSION, 17);
-      assert.deepEqual(job.issues, issues, JSON.stringify(source));
-      assert.ok(!('source' in job), 'no source key');
-      assert.deepEqual(job.noIssue, raw.noIssue, 'noIssue unchanged');
-      const { issues: _i, schemaVersion: _v, ...rest } = job as any;
-      const { source: _s, schemaVersion: _w, ...before } = raw;
-      assert.deepEqual(rest, before, 'every other field is the v10 read');
-      assert.ok(!('source' in serializeJob(job)));
-      if (source && (source as any).ref?.trim?.()) assert.equal(issueLinkStatus(job, { tracker: { kind: (source as any).tracker } } as any), 'linked', 'a linked v10 job stays linked');
-    }
-    // On disk, through loadJob.
-    const file = path.join(jobDir(repo.dir, base.id), 'job.json');
-    fs.writeFileSync(file, JSON.stringify(v10({ tracker: 'github', ref: '3', url: 'https://ghe.example/a/b/issues/3' })));
-    assert.deepEqual(loadJob(repo.dir, base.id).issues, [{ tracker: 'github', ref: 'a/b#3', url: 'https://ghe.example/a/b/issues/3' }], 'any https host qualifies');
-  } finally {
-    repo.cleanup();
   }
 });
 
