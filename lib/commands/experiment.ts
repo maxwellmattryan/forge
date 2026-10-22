@@ -16,7 +16,7 @@ const EXPERIMENT: HelpGroup = {
         "settle each open .forge/notes/experiments.md entry: its metric over the done or cancelled jobs created after it, against its baseline; writes kept, reverted or inconclusive (the only writer of a ledger status), in the job worktree's ledger with <job>, else the repo's",
       flags: [['--dry-run', 'compute every verdict and write nothing']],
       exits: [[1, 'no such job, the job has no worktree, or the ledger is a link or unreadable']],
-      docs: ['Experiments', 'docs/IMPROVEMENT.md'],
+      docs: ['Settling experiments', 'docs/IMPROVEMENT.md#settling-experiments'],
       readme: true,
     },
     {
@@ -25,7 +25,7 @@ const EXPERIMENT: HelpGroup = {
       summary:
         "check the notes layer: new learnings and addenda carry experiment: and review-by:, new ledger entries are open with a stats-path metric, and only evaluate settles one; with <job>, what its branch adds or edits against the merge base, else a full audit of the repo's files",
       exits: [[1, 'a problem was found, no such job, or the job has no worktree']],
-      docs: ['Experiments', 'docs/IMPROVEMENT.md'],
+      docs: ['Settling experiments', 'docs/IMPROVEMENT.md#settling-experiments'],
       readme: true,
     },
   ],

@@ -220,11 +220,16 @@ usage:
   pricing: {}                # overrides for lib/pricing.json: { models: { <id>: {input, output, cacheRead, cacheWrite} }, aliases: {…} }
 
 improve:
-  retroEvery: 10             # suggest a retro after this many finished jobs
+  retroEvery: 10             # a retro is due after this many finished jobs (with the foreman on, forge sync queues it)
   maxLearnings: 30           # cap on .forge/notes/learnings.md entries
+  experiments:               # forge experiment evaluate (docs/IMPROVEMENT.md "Settling experiments")
+    minJobs: 5               # after-jobs with a value needed before an entry is decided; fewer is pending
+    maxJobs: 10              # after this many finished jobs an undecided entry is closed as inconclusive; at least minJobs
 
 evals:                       # a run's variant is an overlay, never an edit here (see "Eval overlays" below)
   testPattern: null          # regex for test files: mining PRs into eval tasks, and verify's integrity report (null: a built-in default)
+  recall:
+    paths: [agents/, reviewers/, lib/brief.ts]   # committed paths (spec-path tokens) that make decide ask for a reviewer recall eval, when the main checkout has fixtures
 
 dashboard:
   port: 7400

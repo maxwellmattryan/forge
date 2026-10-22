@@ -69,7 +69,7 @@ const EVAL: HelpGroup = {
       args: '',
       summary: "the main checkout's reviewer recall fixtures (.forge/evals/recall/<name>/): lenses, planted defects, clean or not",
       exits: [[1, 'a fixture is invalid (the message names it and the problem)']],
-      docs: ['Recall evals', 'docs/IMPROVEMENT.md'],
+      docs: ['Reviewer recall evals', 'docs/IMPROVEMENT.md#reviewer-recall-evals'],
     },
     {
       command: 'eval recall start',
@@ -78,7 +78,7 @@ const EVAL: HelpGroup = {
         "start a recall run: copy each fixture's diff and return one forge:reviewer brief per fixture and lens, under the job worktree's (or repo's) own agents/reviewer.md when it has one, else the installed plugin's",
       flags: [['--job <id>', "grade this job's prompts: the run lives in its job dir and logs a recall event"]],
       exits: [[1, 'a fixture is invalid, there is none, or no such job']],
-      docs: ['Recall evals', 'docs/IMPROVEMENT.md'],
+      docs: ['Reviewer recall evals', 'docs/IMPROVEMENT.md#reviewer-recall-evals'],
     },
     {
       command: 'eval recall record',
@@ -86,7 +86,7 @@ const EVAL: HelpGroup = {
       summary: 'grade every review of a run: recall (planted defects caught) and precision (clean fixtures left alone) per lens, against the last base-branch run',
       flags: [['--tokens N', "the run's tokens, recorded as given"]],
       exits: [[1, 'no such run, the run is already recorded, or no review file exists']],
-      docs: ['Recall evals', 'docs/IMPROVEMENT.md'],
+      docs: ['Reviewer recall evals', 'docs/IMPROVEMENT.md#reviewer-recall-evals'],
     },
   ],
 };
