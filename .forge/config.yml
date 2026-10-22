@@ -145,14 +145,12 @@ review:
         - lib/server/**
         - lib/engine/pr/**
         - lib/engine/trackers/**
-        - lib/integrations/github/tracker.ts
+        - lib/integrations/github/**
         - lib/integrations/backlog/**
         - lib/trackers/**
         - hooks/**
-        - lib/engine/guard/secrets.ts
-        - lib/office/session/**
-        - lib/office/pool.ts
-        - lib/office/owner.ts
+        - lib/engine/guard/**
+        - lib/office/**
         - lib/core/job/session-files.ts
         - lib/core/job/requests.ts
         - bin/forge
@@ -162,9 +160,7 @@ review:
         - lib/engine/pipeline/step.ts
         - lib/engine/pipeline/scope.ts
         - lib/engine/pipeline/panel.ts
-        - lib/engine/guard/integrity.ts
         - lib/cli/commands/job.ts
-        - lib/office/foreman.ts
         - lib/engine/evals/overlay.ts
         - lib/engine/workspace/worktree.ts
         - dashboard/src/lib/markdown.ts
