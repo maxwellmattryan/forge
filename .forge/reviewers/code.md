@@ -6,7 +6,7 @@
 - Logic errors, off-by-one, wrong conditions, unhandled error paths, null/undefined handling.
 - Concurrency: races, shared mutable state, missing awaits, lock ordering.
 - The change does what the spec's acceptance criteria say, and nothing unrequested.
-- Matches the codebase's existing patterns, naming and module boundaries (read neighbours before judging). AGENTS.md rules: zero runtime dependencies, the CLI is the only writer of state, every shape change bumps its version in `lib/core/job/schema.ts` with a migration, relative imports carry their real extension.
+- Matches the codebase's existing patterns, naming and module boundaries (read neighbours before judging). AGENTS.md rules: zero runtime dependencies, the CLI is the only writer of state, every shape change bumps its version in `lib/schema.ts` with a migration, relative imports carry their real extension.
 - Dead code, duplicated logic an existing helper already covers, leftover debug output; comments explain why, not what.
 
 ## Tests
