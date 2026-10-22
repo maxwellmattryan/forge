@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.19.0
+
+- Close the improvement loop: prompt provenance per job, experiment settlement, scheduled retros, reviewer recall evals (#406)
+- Test logic in-process; one CLI test per command (#405)
+- Gate answers move the job on their own, and a Foreman hand-off is visible (#404)
+- Merge overlapping test files and repeated table rows (#398)
+- Alphabetize commands
+- Fix some files
+- Tests import version constants, one migration table, no whole-output pins (#389)
+- Refresh a queued job's request from its edited issue (#381)
+- Fix gitignore
+- Reformat config
+- Tune per-role models and effort for speed and quality
+- Delete source-text tests; one dashboard invariants file and a coverage check (#373)
+- Split lib/step.ts into stage modules with explicit precedence and one ID per transition (#372)
+- Make the PR status badges clickable such that (#371)
+- Tests per behaviour, not per acceptance criterion (#369)
+- One liveness model: a job lease, a timer-driven reconciler and a lock that proves death (#362)
+- Bound every job loop: total-round ceiling, CI rework cap, default daemon budget (#355)
+- Versions: config schema 26 → 29, job schema 16 → 17, event schema 2 → 3, `API_VERSION` 31 → 35.
+
 ## 0.18.8
 
 - **Releasing Forge:** `npm run release -- patch|minor|X.Y.Z` cuts a release in one command. It bumps the versions, drafts the notes for you to edit, waits for CI and the dashboard build, and pushes `main`, which tags and publishes the Release. `main` now moves only at releases, so installs get released versions only, and the main-update PR is gone (docs/RELEASES.md).
