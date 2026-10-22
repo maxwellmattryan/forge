@@ -9,7 +9,7 @@ import { pendingRepoProposals } from '../repo-proposals.ts';
 import type { StepInput, VerifyRun, WaitingOn } from '../types.ts';
 import { SAFE_REF } from '../util.ts';
 import { SAFE_URL, park, run, safe, set, toStage } from './actions.ts';
-import { after, afterIdx, agent, human, lastEvent, lastIdx, orNull, p } from './facts.ts';
+import { after, afterIdx, agent, human, lastEvent, lastIdx, orNull, p, ref } from './facts.ts';
 import type { Ctx, Rule, RuleId, Table } from './rules.ts';
 
 const CI_CAP_REASON = /^CI rework cap: [A-Za-z0-9 ._/,:#?-]{1,600}$/;
@@ -75,6 +75,8 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
         return `${id} proposes repos (${reason}): ${path.join(x.jobDir, 'repo-proposals.md')}. Approve or reject in the dashboard, or in your own terminal: forge job human ${id} approve-repos|reject-repos --repo <names> --note …`;
       if (reason.startsWith('protected paths'))
         return `${id} changed protected paths (${reason}). Diff: ${path.join(x.jobDir, 'protected.diff')}. /forge approve ${id} once a human has reviewed them, or /forge rework ${id} <note>`;
+      if (reason.startsWith('recall eval'))
+        return `${id} changes reviewer prompts and has no recorded recall eval for them (${reason}). Run the recall eval (${ref(x, 'recall.md')}) once more, /forge approve ${id} to waive it, or /forge rework ${id} <note>`;
       if (reason.startsWith('secret scan'))
         return `${id} stopped on a possible secret (${reason}). Masked findings and fingerprints: forge secrets scan ${id}. Remove the value (rewrite the branch if it was committed) or add its fingerprint to .forge/secrets-allow.txt in the main checkout, then /forge approve ${id} to scan again, or /forge rework ${id} <note>`;
       return `${id} needs a human: ${reason}. /forge approve ${id} once it is resolved, or /forge rework ${id} <note>`;

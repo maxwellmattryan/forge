@@ -494,6 +494,12 @@ export interface StepInput {
    * (lib/scope.ts integrationTouched), keyed by the sides that event recorded; null when unknown.
    */
   integrationTouched: { head: string; upstream: string; sha: string; files: string[] | null } | null;
+  /**
+   * The decide gate's recall eval (lib/step/input.ts loadRecall): whether the committed diff touches
+   * evals.recall.paths, and the worktree's pluginHash a recorded run must match. Null outside decide,
+   * for an eval job, without a worktree, or when the main checkout has no recall fixture.
+   */
+  recall: { required: boolean; pluginHash: string | null } | null;
   /** How many `.forge/verifiers/*.md` entries the main checkout has: 0 keeps the verify stage as it was. */
   verifiers: number;
   /** The job's and the project's backing port records, for the brief's Backing services line; absent without backing entries. */

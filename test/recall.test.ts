@@ -5,7 +5,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeSync, repoTemplate } from './helpers.ts';
 import { loadConfig } from '../lib/config.ts';
-import { createJob, loadJob, readEvents } from '../lib/jobs.ts';
+import { createJob, loadJob, readEvents, setJob } from '../lib/jobs.ts';
+import { loadStepInput } from '../lib/step/input.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
 import { pluginHash } from '../lib/provenance.ts';
 import { loadFixtures, recallDir } from '../lib/recall.ts';
@@ -161,6 +162,35 @@ test('fixtures come from the main checkout only', () => {
     assert.deepEqual([...new Set(out.reviews.map((x: any) => x.fixture))], ['clean', 'pair']);
     const listed = json(forgeSync(s.dir, ['eval', 'recall', 'list']));
     assert.deepEqual(listed.fixtures.map((f: any) => [f.name, f.defects, f.clean]), [['clean', 0, true], ['pair', 5, false]]);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('the gate input fails closed', () => {
+  const s = scratch();
+  try {
+    const bare = jobWithWorktree(s);
+    setJob(s.dir, bare.id, { stage: 'decide' });
+    assert.equal(loadStepInput(s.dir, s.config, bare.id).recall, null, 'no fixtures in the main checkout: no gate');
+    seedFixtures(s);
+    const job = jobWithWorktree(s);
+    const wt = job.worktree!;
+    setJob(s.dir, job.id, { stage: 'decide' });
+    assert.deepEqual(loadStepInput(s.dir, s.config, job.id).recall, { required: false, pluginHash: pluginHash(wt) }, 'no gate path committed');
+    fs.mkdirSync(path.join(wt, 'agents'));
+    fs.writeFileSync(path.join(wt, 'agents', 'x.md'), 'a prompt\n');
+    execFileSync('git', ['add', '-A'], { cwd: wt, stdio: 'pipe' });
+    execFileSync('git', ['commit', '-qm', 'prompt'], { cwd: wt, stdio: 'pipe' });
+    assert.deepEqual(loadStepInput(s.dir, s.config, job.id).recall, { required: true, pluginHash: pluginHash(wt) });
+    // A base that can't be resolved reads as required, with no hash a record could match.
+    setJob(s.dir, job.id, { fields: { base: 'no-such-branch' } });
+    assert.deepEqual(loadStepInput(s.dir, s.config, job.id).recall, { required: true, pluginHash: null });
+    // Outside decide, or for an eval job, there is no gate at all.
+    setJob(s.dir, job.id, { stage: 'review', fields: { base: 'main' } });
+    assert.equal(loadStepInput(s.dir, s.config, job.id).recall, null);
+    setJob(s.dir, job.id, { stage: 'decide', fields: { kind: 'eval' } });
+    assert.equal(loadStepInput(s.dir, s.config, job.id).recall, null);
   } finally {
     s.cleanup();
   }

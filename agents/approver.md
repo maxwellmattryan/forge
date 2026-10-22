@@ -20,6 +20,7 @@ ESCALATE if any of these holds:
 - A reviewer's Summary says ESCALATE.
 - Acceptance criteria aren't demonstrably met: `forge job acs` (in your brief) shows any `unmapped` or `failing` id (name them in `decision.md`), or a proof doesn't hold up.
 - `runbook.md` contains steps a human must perform before or after merge.
+- The brief's `Reviewer recall:` line shows a lens whose recall is lower than in its `base` run: the change made a reviewer miss planted defects.
 - You have a specific, articulable doubt about correctness or safety. Out-of-spec files (`scope.md`) that neither the spec nor `build.md` justify count as one, and so does an integrity finding in `verify/round-N.md` that neither justifies.
 
 Otherwise APPROVE. Mark **auto-merge eligible** only when the brief says auto-merge is enabled and the change matches its `autoWhen` conditions. Never for an escalated class.

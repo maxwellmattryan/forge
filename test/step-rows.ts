@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { shellLine, step } from '../lib/step.ts';
 import type { Config, Job, StepInput, VerifyRun } from '../lib/types.ts';
-import { JOB_DIR, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
+import { PLUGIN_ROOT } from '../lib/paths.ts';
+import { JOB_DIR, RECALL_HASH, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
 import type { FixtureOpts } from './step-fixture.ts';
 
 export interface Row {
@@ -200,6 +201,29 @@ const ppPark = (parkAt: number, approveAt: number, human: Record<string, unknown
   ev('transition', parkAt, { from: { stage: 'decide', state: 'running', waitingOn: null }, to: { stage: 'decide', state: 'waiting', waitingOn: 'human' }, reason: 'protected paths: package-lock.json' }),
   ev('human', approveAt, { action: 'approve', ...human }),
   tr(approveAt + 1, { stage: 'decide', state: 'waiting', waitingOn: 'human' }, { stage: 'decide' }),
+];
+
+/** Decide before the approver has run. */
+const freshDecide = (more: Partial<Job> = {}): Partial<Job> => job({ stage: 'decide', round: 1, reviewers: ['code'], verdicts: { 1: { code: 'PASS' } }, ...more });
+const RECALL_MD = path.join(PLUGIN_ROOT, 'skills', 'forge', 'reference', 'recall.md');
+const RECALL_REASON = `recall eval: no recorded run for prompts ${RECALL_HASH}`;
+const recallStart = (n: number, hash = RECALL_HASH) => ev('recall', n, { phase: 'start', run: '20261020-101010-j', pluginHash: hash, head: 'a'.repeat(40) });
+const recallRecord = (n: number, hash = RECALL_HASH) =>
+  ev('recall', n, {
+    phase: 'record',
+    run: '20261020-101010-j',
+    pluginHash: hash,
+    head: 'a'.repeat(40),
+    summary: { byLens: { code: { planted: 2, caught: 1, recall: 0.5, precision: 1 } }, total: {} },
+    base: { run: '20261019-000000', head: 'b'.repeat(40), summary: { byLens: { code: { recall: 1, precision: 1 } } } },
+  });
+/** Two starts, the RC2 park at 32 (with `reason`), a person's approve at 33 (or `human`'s), and running again at 34. */
+const recallWaiver = (reason = RECALL_REASON, human: Record<string, unknown> = {}) => [
+  recallStart(30),
+  recallStart(31),
+  ev('transition', 32, { from: { stage: 'decide', state: 'running', waitingOn: null }, to: { stage: 'decide', state: 'waiting', waitingOn: 'human' }, reason }),
+  said('approve', 33, human),
+  tr(34, { stage: 'decide', state: 'waiting', waitingOn: 'human' }, { stage: 'decide' }),
 ];
 
 /** A person's (or, with `more.actor`, the foreman's) `forge job human <action>` at minute n. */
@@ -917,6 +941,37 @@ export const rows: Row[] = [
   { name: 'DC3 a budget acknowledgement does not clear a missing decision line', fx: { job: decidedLate(), events: budgetAck('APPROVE').slice(0, -1) }, want: { rule: 'DC3' } },
   { name: 'cleared gate: DC3 a human-cleared missing decision line goes on to DC9', fx: { job: decidedLate(), events: sentBack }, want: { rule: 'DC9' } },
   { name: 'DC10 an open PR in decide goes to pr', fx: { job: job({ stage: 'decide', round: 1, pr: OPEN_PR }) }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'DC10' } },
+  // ---- Recall eval before the approver (RC1, RC2)
+  { name: 'RC1 a diff touching agents/ runs the recall procedure', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] } }, want: { action: 'procedure', rule: 'RC1', reference: RECALL_MD } },
+  { name: 'RC1 a diff touching reviewers/code.md runs it', fx: { job: freshDecide(), recall: { changed: ['lib/x.ts', 'reviewers/code.md'] } }, want: { action: 'procedure', reference: RECALL_MD } },
+  { name: 'RC1 a diff touching lib/brief.ts runs it', fx: { job: freshDecide(), recall: { changed: ['lib/brief.ts'] } }, want: { action: 'procedure', reference: RECALL_MD } },
+  { name: 'RC1 one start for these prompts runs it again', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] }, events: [recallStart(30)] }, want: { action: 'procedure' } },
+  { name: 'RC1 a record for another hash', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] }, events: [recallStart(30, 'ffffffffff'), recallRecord(31, 'ffffffffff')] }, want: { action: 'procedure' } },
+  {
+    name: 'DC1 after a recall record for this hash',
+    fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] }, events: [recallStart(30), recallRecord(31)] },
+    want: { action: 'spawn', role: 'approver' },
+    check: (a) => {
+      const line = a.brief.split('\n').find((l: string) => l.startsWith('Reviewer recall: '));
+      assert.equal(line, `Reviewer recall: ${JSON.stringify({ run: '20261020-101010-j', head: 'a'.repeat(12), byLens: { code: { recall: 0.5, precision: 1 } }, base: { run: '20261019-000000', head: 'b'.repeat(12), byLens: { code: { recall: 1, precision: 1 } } } })}`);
+    },
+  },
+  { name: 'RC2 two starts with no record park on a human', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] }, events: [recallStart(30), recallStart(31)] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', RECALL_REASON), rule: 'RC2' } },
+  {
+    name: 'DC1 a human approve at the RC2 park waives the recall eval',
+    fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] }, events: recallWaiver() },
+    want: { action: 'spawn', role: 'approver' },
+    check: (a) => assert.ok(a.brief.split('\n').includes('Reviewer recall: waived by a human'), a.brief),
+  },
+  { name: "RC2 the foreman's approve does not waive it", fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] }, events: recallWaiver(RECALL_REASON, { actor: FOREMAN }) }, want: { rule: 'RC2' } },
+  { name: 'RC2 an approve at a park naming other prompts does not waive these', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] }, events: recallWaiver('recall eval: no recorded run for prompts ffffffffff') }, want: { rule: 'RC2' } },
+  { name: 'RC2 a git failure fails closed', fx: { job: freshDecide(), recall: { changed: null } }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'recall eval: no recorded run for prompts unknown'), rule: 'RC2' } },
+  {
+    name: 'DC1 brief: a diff with no reviewer prompts says none',
+    fx: { job: freshDecide(), recall: { changed: ['lib/step/order.ts'] } },
+    want: { action: 'spawn', role: 'approver' },
+    check: (a) => assert.ok(a.brief.split('\n').includes('Reviewer recall: none (the diff changes no reviewer prompts)'), a.brief),
+  },
   { name: 'DC5 an eval job with a PR record still grades, never DC10', fx: { job: atDecide({ kind: 'eval', eval: { run: 'r', task: 'hello' }, pr: OPEN_PR }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], evalTask: { rubric: null, reference: null } }, want: { rule: 'DC5' } },
 
   // ---- Integrate
@@ -1367,6 +1422,15 @@ export const rows: Row[] = [
   },
   { name: 'SC3b parks a refused pr open newer than the last update', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-updated', 11), ev('secret-found', 12, { gate: 'pr', blocked: true, count: 2 })] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'secret scan blocked pr open') },
   { name: 'PP2b a refusal after the last pr update goes back to build', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-updated', 11), ev('protected-path', 12, { gate: 'pr', action: 'refuse', blocked: true })] }, want: run('job', 'set', 'j', '--stage', 'build', '--state', 'running') },
+];
+
+/** RC1's negative cases: another rule decides, so they can't be `rows`; run by test/step.test.ts. */
+export const recallSkips: Row[] = [
+  { name: 'recall: lib/step/order.ts is no reviewer prompt', fx: { job: freshDecide(), recall: { changed: ['lib/step/order.ts'] } }, want: { action: 'spawn', rule: 'DC1' } },
+  { name: 'recall: docs/CLI.md is no reviewer prompt', fx: { job: freshDecide(), recall: { changed: ['docs/CLI.md'] } }, want: { action: 'spawn', rule: 'DC1' } },
+  { name: "recall: the repo's .forge/reviewers/code.md is not a gate path", fx: { job: freshDecide(), recall: { changed: ['.forge/reviewers/code.md'] } }, want: { action: 'spawn', rule: 'DC1' } },
+  { name: 'recall: no fixtures in the main checkout, no gate', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'], fixtures: false } }, want: { action: 'spawn', rule: 'DC1' } },
+  { name: 'recall: an eval job has no gate', fx: { job: freshDecide({ kind: 'eval', eval: { run: 'r', task: 'hello' } }), recall: { changed: ['agents/x.md'] }, evalTask: { rubric: null, reference: null } }, want: { action: 'spawn', rule: 'DC1' } },
 ];
 
 // Helpers the other step tests build their own rows from.

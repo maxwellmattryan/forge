@@ -1,7 +1,8 @@
 // Decide: the approver (or, for an eval, the judge and the grade) and the gates its decision opens.
 import { pastTotalCeiling } from '../../foreman.ts';
 import type { JobAgent, WaitingOn } from '../../types.ts';
-import { park, run, spawn, toStage } from '../actions.ts';
+import { park, procedure, run, spawn, toStage } from '../actions.ts';
+import { recallEvents, recallReason, recallRecorded, recallWaived } from '../recall.ts';
 import { after, afterIdx, agent, ended, gateApprovals, isPrRework, lastEvent, lastIdx, stageOf, startedIn, waitedSince } from '../facts.ts';
 import { PP1 } from '../gates.ts';
 import { missingOutputRows } from '../generic.ts';
@@ -35,12 +36,23 @@ function context(c: Ctx): DecideCtx {
 
 const evalJob = ({ x }: Ctx) => x.job.kind === 'eval';
 
+/** The diff changes reviewer prompts and no recall record matches them; a null hash never matches. */
+const recallOpen = ({ x }: Ctx) => Boolean(x.recall?.required) && !recallRecorded(x);
+
 export const DECIDE: Table<DecideCtx> = {
   name: 'decide',
   applies: inStage('decide'),
   context,
   rules: [
     { id: 'DC10', when: (c) => !evalJob(c) && isPrRework(c.x), then: ({ x }) => toStage(x, 'DC10', 'pr', 'the PR is open: nothing to decide') },
+    // The diff changes reviewer prompts: a recall eval for exactly these prompts comes before the
+    // approver. Two starts with no record park on a human, who runs it again or waives it.
+    {
+      id: 'RC1',
+      when: (c) => recallOpen(c) && c.x.recall!.pluginHash !== null && recallEvents(c.x, 'start').length < 2,
+      then: ({ x }) => procedure(x, 'RC1', 'recall.md', 'the diff changes reviewer prompts: run the recall eval on them before the approver'),
+    },
+    { id: 'RC2', when: (c) => recallOpen(c) && !recallWaived(c.x), then: ({ x }) => park(x, 'RC2', 'human', recallReason(x.recall!.pluginHash)) },
     { id: 'DC1', when: ({ x, ap, exhausted }) => !exhausted && (!startedIn(ap, x.job.round) || !ended(ap)), then: ({ x }) => spawn(x, 'DC1', 'approver') },
     missingOutputRows<DecideCtx>((c) => (c.exhausted ? null : 'approver')),
     {
