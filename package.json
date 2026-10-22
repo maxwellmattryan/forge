@@ -25,6 +25,7 @@
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\"",
     "test:unit": "node --test \"test/*.test.ts\"",
+    "test:integration": "node --test \"test/integration/**/*.test.ts\"",
     "test:e2e": "node --test \"test/e2e/**/*.test.ts\"",    "coverage": "node scripts/coverage.ts",
     "build:dashboard": "vite build --config dashboard/vite.config.mjs && node dashboard/build-stamp.mjs",
     "check:dashboard": "{ [ dashboard/.svelte-check/manifest.json -nt package-lock.json ] && [ dashboard/.svelte-check/manifest.json -nt dashboard/svelte.config.mjs ]; } || rm -rf dashboard/.svelte-check; svelte-check --workspace dashboard --tsconfig tsconfig.json --fail-on-warnings --incremental",

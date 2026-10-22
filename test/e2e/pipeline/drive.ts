@@ -1,14 +1,32 @@
-// The simulated orchestrator the step end-to-end suites share (issue #68): only `forge job step`
+// The simulated orchestrator the step end-to-end suite uses (issue #68): only `forge job step`
 // decides each move, spawns are played by writing each role's output files, and runs execute `command`.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { forgeAsync, tempRepo } from './helpers.ts';
-import { jobDir, loadJob, readEvents } from '../lib/jobs.ts';
+import { forgeAsync, forgeSync, repoTemplate } from '../../helpers.ts';
+import { jobDir, loadJob, readEvents } from '../../../lib/jobs.ts';
 
-export async function scratch(answers: Record<string, unknown>) {
-  const repo = tempRepo();
+/** What every scratch repo is initialised with; a test's own answers replace these keys whole. */
+const BASE = {
+  tracker: { kind: 'none' },
+  pr: { enabled: false },
+  commands: { build: 'true', lint: 'true', test: 'test -f hello.sh' },
+  worktrees: { root: '../{repo}.wt' },
+  pipeline: { specApproval: 'never' },
+};
+
+const template = repoTemplate((dir) => {
+  const answers = path.join(dir, '.answers.json');
+  fs.writeFileSync(answers, JSON.stringify(BASE));
+  const r = forgeSync(dir, ['init', 'write', '--answers', answers]);
+  if (r.status !== 0) throw new Error(`forge init write exited ${r.status}: ${r.stderr}${r.stdout}`);
+  fs.rmSync(answers);
+});
+
+/** A copy of the initialised template; `answers` (merged over BASE) re-initialise it with `init write --force`. */
+export async function scratch(answers: Record<string, unknown> = {}) {
+  const repo = template();
   const raw = (...args: string[]) => forgeAsync(repo.dir, args);
   const f = async (...args: string[]) => {
     const r = await raw(...args);
@@ -19,12 +37,11 @@ export async function scratch(answers: Record<string, unknown>) {
       return r.stdout.trim();
     }
   };
-  const answersFile = path.join(path.dirname(repo.dir), `answers-${path.basename(repo.dir)}.json`);
-  fs.writeFileSync(
-    answersFile,
-    JSON.stringify({ tracker: { kind: 'none' }, pr: { enabled: false }, commands: { build: 'true', lint: 'true', test: 'test -f hello.sh' }, worktrees: { root: `../${path.basename(repo.dir)}.wt` }, ...answers }),
-  );
-  await f('init', 'write', '--answers', answersFile);
+  const answersFile = `${repo.dir}.answers.json`;
+  if (Object.keys(answers).length) {
+    fs.writeFileSync(answersFile, JSON.stringify({ ...BASE, ...answers }));
+    await f('init', 'write', '--force', '--answers', answersFile);
+  }
   const cleanup = () => {
     repo.cleanup();
     fs.rmSync(`${repo.dir}.wt`, { recursive: true, force: true });
