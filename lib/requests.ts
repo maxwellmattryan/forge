@@ -8,18 +8,13 @@ import { paths, exists } from './paths.ts';
 import type { ForgeRequest, JobLease } from './types.ts';
 import { ForgeError, now, readJson, shortId, withLock, writeJsonAtomic } from './util.ts';
 
-export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume', 'sync', 'eval-run', 'retro', 'gate'] as const;
+import { INBOX_SCOPE, OFFICE_SCOPE, REQUEST_TYPES } from './constants.ts';
+
+export { INBOX_SCOPE, OFFICE_SCOPE, REQUEST_TYPES } from './constants.ts';
 
 /** Request types that act on one job, so they need one and route to that job's daemon session. */
 export const JOB_REQUEST_TYPES = ['approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume'] as const;
 
-/**
- * The daemon session for requests without a (valid, existing) job. Job ids start with an
- * alphanumeric, so it can never be one.
- */
-export const INBOX_SCOPE = '_inbox';
-/** The foreman's daemon session: it receives every `gate` request and never drives a job. */
-export const OFFICE_SCOPE = '_office';
 /** Carries a daemon session's scope into its environment; never stdin or argv. */
 export const SCOPE_ENV = 'FORGE_DAEMON_SCOPE';
 export const JOB_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;

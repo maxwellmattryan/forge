@@ -1,20 +1,20 @@
 // Components: the parts of a repo (`config.components`), what kind each is and what it depends on.
-// The lists live here rather than in schema.ts because schema.ts runs servicesToComponents as a
-// migration while it loads; schema.ts re-exports them beside its other runtime lists.
+// The lists the /api shapes derive from (COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES)
+// live in constants.ts and are re-exported here. LINK_ECOSYSTEMS stays here rather than in
+// schema.ts because schema.ts runs servicesToComponents as a migration while it loads; schema.ts
+// re-exports these beside its other runtime lists.
 
 import path from 'node:path';
 import type { ComponentConfig, Config, Job } from './types.ts';
 import { SAFE_REF, isInsidePath } from './util.ts';
 import { sinkProblems } from './config-sinks.ts';
 import { declaredSecrets } from './secret-refs-config.ts';
+import { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES } from './constants.ts';
 
 export { isInsidePath };
+export { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES } from './constants.ts';
 
-export const COMPONENT_KINDS = ['library', 'service', 'app'] as const;
-export const DEPENDENCY_TYPES = ['build', 'runtime'] as const;
 export const LINK_ECOSYSTEMS = ['cargo', 'cmake', 'npm'] as const;
-/** What a consumer's PR points at while its dependency is unmerged (lib/interim.ts, docs/CONFIG.md "Interim strategies"). */
-export const INTERIM_STRATEGIES = ['canary', 'git-ref', 'local', 'sequential'] as const;
 
 export const isInterimStrategy = (v: unknown): v is (typeof INTERIM_STRATEGIES)[number] => (INTERIM_STRATEGIES as readonly unknown[]).includes(v);
 

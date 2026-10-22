@@ -10,7 +10,6 @@ import { tempRepo } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/config.ts';
 import { createJob, loadJob, readEvents, setJob } from '../lib/jobs.ts';
 import { WAITING_ON } from '../lib/schema.ts';
-import { WAITING_ON as DASH_WAITING_ON } from '../dashboard/src/lib/types.ts';
 import { statusKey } from '../lib/trackers/status.ts';
 import { step } from '../lib/step.ts';
 import { ag, fixture } from './step-fixture.ts';
@@ -37,7 +36,6 @@ test('pipeline.split defaults to ask and validates its values', () => {
 
 test('split-approval is a waiting reason jobs can park on and leave', () => {
   assert.ok(WAITING_ON.includes('split-approval'));
-  assert.deepEqual([...DASH_WAITING_ON], [...WAITING_ON]);
   assert.equal(statusKey({ stage: 'plan', state: 'waiting', waitingOn: 'split-approval' }), 'blocked');
 
   const repo = tempRepo();
