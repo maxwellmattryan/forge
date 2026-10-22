@@ -5,9 +5,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { forgeAsync, repoTemplate } from './helpers.ts';
+import { forgeAsync, forgeInProcess, repoTemplate } from './helpers.ts';
+import { loadConfig } from '../lib/config.ts';
 import { UNTRUSTED_LINE } from '../lib/tracker-link.ts';
-import { readTriageCache } from '../lib/triage.ts';
+import { applyTriage, prepareTriage, readTriageCache } from '../lib/triage.ts';
+import { ForgeError } from '../lib/util.ts';
+import type { Tracker, TrackerItem } from '../lib/types.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const skip = process.platform === 'win32';
@@ -115,6 +118,27 @@ function setup(kind: 'local' | 'github' | 'none', opts: { backlog?: string; issu
   };
   return { root, cli, calls, writes, comments, ghState, setGh, batchDir, batches, verdicts, cache, triage, backlog: () => fs.readFileSync(backlogFile, 'utf8'), setBacklog: (t: string) => fs.writeFileSync(backlogFile, t), cleanup: repo.cleanup };
 }
+
+/** A tracker in-process: `list`/`get` serve the issues, and every write lands in `writes`. */
+function fakeTracker(issues: Issue[]) {
+  const items: TrackerItem[] = issues.map((i) => ({ ref: String(i.number), title: i.title, body: i.body, labels: [] }));
+  const writes: unknown[][] = [];
+  const tracker: Tracker = {
+    name: 'github',
+    list: () => items,
+    get: (_ctx, ref) => items.find((i) => i.ref === ref) ?? null,
+    claim: (_ctx, ref) => (writes.push(['claim', ref]), { ok: true }),
+    update: (_ctx, ref) => void writes.push(['update', ref]),
+    comment: (_ctx, ref, body) => void writes.push(['comment', ref, body]),
+    create: (_ctx, item) => (writes.push(['create', item.title]), { ref: '100' }),
+    close: (_ctx, ref) => void writes.push(['close', ref]),
+    setNeedsInfo: (_ctx, ref, note) => void writes.push(['setNeedsInfo', ref, note]),
+  };
+  return { tracker, writes };
+}
+
+/** applyTriage threw a ForgeError with this exit (and code, when given). */
+const refused = (exit: number, code?: string) => (e: unknown) => e instanceof ForgeError && e.exitCode === exit && (code === undefined || e.code === code);
 
 const NO_AC: Issue = { number: 1, title: 'Make search better', body: 'Search feels slow.' };
 const WITH_AC: Issue = { number: 2, title: 'Paginate the job list', body: 'Show 50 jobs per page.\n\nAcceptance criteria:\n- page 2 shows jobs 51-100' };
@@ -246,38 +270,54 @@ describe('readiness triage', { concurrency: 4, skip }, () => {
         return p.json.batch as string;
       };
       // Refused outright, with nothing applied: invalid JSON, over 256 KiB, a symlink, a directory.
-      const refusals: [string, (file: string) => void][] = [
-        ['invalid JSON', (f) => fs.writeFileSync(f, '{"items": [')],
-        ['over 256 KiB', (f) => fs.writeFileSync(f, JSON.stringify({ items: [{ ref: '1', missing: ['acceptance'], pad: 'x'.repeat(300 * 1024) }] }))],
-        [
-          'a symlink',
-          (f) => {
-            const target = path.join(s.root, 'elsewhere.json');
-            fs.writeFileSync(target, JSON.stringify({ items: [{ ref: '1', missing: ['acceptance'] }] }));
-            fs.symlinkSync(target, f);
-          },
-        ],
-        ['a directory', (f) => fs.mkdirSync(f)],
-      ];
-      for (const [what, make] of refusals) {
-        const batch = await prepare();
-        make(path.join(s.batchDir(batch), 'verdicts.json'));
-        const r = await s.cli('tracker', 'triage', '--apply', batch, '--json');
-        assert.equal(r.status, 1, what);
-        assert.deepEqual(s.writes(), [], `${what}: nothing applied`);
-        assert.deepEqual(s.cache(), {}, `${what}: nothing cached`);
+      // Each case runs in-process on its own fresh batch against a fake tracker.
+      const local = localRepo();
+      try {
+        const { config } = loadConfig(local.dir);
+        const refusals: [string, (file: string) => void][] = [
+          ['invalid JSON', (f) => fs.writeFileSync(f, '{"items": [')],
+          ['over 256 KiB', (f) => fs.writeFileSync(f, JSON.stringify({ items: [{ ref: '1', missing: ['acceptance'], pad: 'x'.repeat(300 * 1024) }] }))],
+          [
+            'a symlink',
+            (f) => {
+              const target = path.join(local.dir, 'elsewhere.json');
+              fs.writeFileSync(target, JSON.stringify({ items: [{ ref: '1', missing: ['acceptance'] }] }));
+              fs.symlinkSync(target, f);
+            },
+          ],
+          ['a directory', (f) => fs.mkdirSync(f)],
+        ];
+        const cases = [
+          ...refusals.map(([what, make]) => ({ what: `verdicts.json: ${what}`, file: 'verdicts.json', make })),
+          // items.json is agent-writable too: an oversized or symlinked one is refused the same way.
+          ...refusals.filter(([w]) => w === 'over 256 KiB' || w === 'a symlink').map(([what, make]) => ({ what: `items.json: ${what}`, file: 'items.json', make })),
+        ];
+        for (const c of cases) {
+          const { tracker, writes } = fakeTracker([NO_AC, WITH_AC]);
+          const p = prepareTriage(local.dir, config, tracker, { limit: 10, all: true });
+          assert.ok(p.batch, c.what);
+          const dir = path.join(local.dir, '.forge', 'runtime', 'triage', p.batch);
+          if (c.file === 'items.json') fs.writeFileSync(path.join(dir, 'verdicts.json'), JSON.stringify({ items: [{ ref: '1', missing: ['acceptance'] }] }));
+          fs.rmSync(path.join(dir, c.file), { force: true });
+          c.make(path.join(dir, c.file));
+          assert.throws(() => applyTriage(local.dir, config, tracker, p.batch!), refused(1), c.what);
+          assert.deepEqual(writes, [], `${c.what}: nothing applied`);
+          assert.equal(Object.keys(readTriageCache(local.dir)).length, 0, `${c.what}: nothing cached`);
+          // One batch at a time, so pruning never drops the next case's batch.
+          fs.rmSync(dir, { recursive: true, force: true });
+          fs.rmSync(path.join(local.dir, 'elsewhere.json'), { force: true });
+        }
+      } finally {
+        local.cleanup();
       }
-      // items.json is agent-writable too: an oversized or symlinked one is refused the same way.
-      for (const [what, make] of refusals.filter(([w]) => w === 'over 256 KiB' || w === 'a symlink')) {
-        const batch = await prepare();
-        s.verdicts(batch, [{ ref: '1', missing: ['acceptance'] }]);
-        const file = path.join(s.batchDir(batch), 'items.json');
-        fs.rmSync(file);
-        make(file);
-        const r = await s.cli('tracker', 'triage', '--apply', batch, '--json');
-        assert.equal(r.status, 1, `items.json: ${what}`);
-        assert.deepEqual(s.writes(), [], `items.json ${what}: nothing applied`);
-      }
+      // The CLI's own refusal: exit 1, the error as JSON, nothing written to gh.
+      const refusedBatch = await prepare();
+      fs.writeFileSync(path.join(s.batchDir(refusedBatch), 'verdicts.json'), '{"items": [');
+      const cliRefused = await s.cli('tracker', 'triage', '--apply', refusedBatch, '--json');
+      assert.equal(cliRefused.status, 1);
+      assert.ok(cliRefused.json.error, cliRefused.stdout);
+      assert.deepEqual(s.writes(), [], 'nothing applied');
+      assert.deepEqual(s.cache(), {}, 'nothing cached');
 
       const r = await s.triage(() => [
         { ref: '99', missing: ['outcome'], duplicateOf: null, note: 'SMUGGLED-99' },
@@ -334,16 +374,20 @@ describe('readiness triage', { concurrency: 4, skip }, () => {
   test('batch ids are validated', async () => {
     const s = setup('local', { backlog: BACKLOG });
     try {
+      const { config } = loadConfig(s.root);
+      const { tracker, writes } = fakeTracker([NO_AC]);
       for (const bad of ['../x', '20261016T000000Z-abcd/../..', '20261016T000000Z-ABCD', 'x']) {
-        const r = await s.cli('tracker', 'triage', '--apply', bad, '--json');
-        assert.equal(r.status, 2, bad);
-        assert.equal(r.json.error.code, 'usage');
+        assert.throws(() => applyTriage(s.root, config, tracker, bad), refused(2, 'usage'), bad);
       }
-      const missing = await s.cli('tracker', 'triage', '--apply', '20261016T000000Z-abcd', '--json');
-      assert.equal(missing.status, 1);
-      assert.equal(missing.json.error.code, 'not_found');
-      const both = await s.cli('tracker', 'triage', '--all', '--apply', '20261016T000000Z-abcd', '--json');
-      assert.equal(both.status, 2);
+      assert.throws(() => applyTriage(s.root, config, tracker, '20261016T000000Z-abcd'), refused(1, 'not_found'));
+      assert.deepEqual(writes, []);
+      assert.deepEqual(Object.keys(readTriageCache(s.root)), []);
+      const both = await forgeInProcess(s.root, ['tracker', 'triage', '--all', '--apply', '20261016T000000Z-abcd']);
+      assert.deepEqual({ status: both.status, code: both.error?.code }, { status: 2, code: 'usage' });
+      // The CLI's own report of a bad id.
+      const r = await s.cli('tracker', 'triage', '--apply', '../x', '--json');
+      assert.equal(r.status, 2);
+      assert.equal(r.json.error.code, 'usage');
       assert.deepEqual(s.batches(), []);
     } finally {
       s.cleanup();

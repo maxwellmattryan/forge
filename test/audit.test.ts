@@ -4,8 +4,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { forgeAsync, repoTemplate } from './helpers.ts';
-import { csvCell, parseAuditDate } from '../lib/audit.ts';
+import { forgeAsync, forgeInProcess, repoTemplate } from './helpers.ts';
+import { csvCell, jobAudit, parseAuditDate, toCsv } from '../lib/audit.ts';
+import { auditCmd } from '../lib/commands/audit.ts';
+import { parseArgs } from '../lib/commands/args.ts';
 import { defaults } from '../lib/config.ts';
 import { createJob, jobDir, repoAuditFile, updateJob } from '../lib/jobs.ts';
 
@@ -53,7 +55,8 @@ describe('audit', { concurrency: 4 }, () => {
       const res = await forgeAsync(r.dir, ['job', 'audit', id]);
       assert.equal(res.status, 0, res.stderr);
       const a = JSON.parse(res.stdout);
-      assert.deepEqual(await forgeAsync(r.dir, ['job', 'audit', id, '--json']).then((x) => JSON.parse(x.stdout)), a, '--json is the default');
+      assert.deepEqual((await forgeInProcess(r.dir, ['job', 'audit', id, '--json'])).data, a, '--json is the default');
+      assert.deepEqual(JSON.parse(JSON.stringify(jobAudit(r.dir, id))), a);
       assert.equal(a.id, id);
       assert.equal(a.title, 'Escalated');
       assert.deepEqual(a.pr, { number: 12, mergeMethod: 'squash', merged: true });
@@ -70,7 +73,7 @@ describe('audit', { concurrency: 4 }, () => {
         ],
         'actor rows, gate transitions and the PR, in order; agent and plain claim events are left out',
       );
-      const missing = await forgeAsync(r.dir, ['job', 'audit', 'no-such-job']);
+      const missing = await forgeInProcess(r.dir, ['job', 'audit', 'no-such-job']);
       assert.equal(missing.status, 1);
     } finally {
       r.cleanup();
@@ -87,9 +90,7 @@ describe('audit', { concurrency: 4 }, () => {
         { v: 2, ts: at(3, 3), type: 'pr-merged', repo: 'lib', number: 7, method: 'squash', checks: 'pending', bypass: true, actor: ALICE },
         { v: 2, ts: at(3, 4), type: 'pr-merge-failed', repo: 'lib', number: 7, error: 'x', actor: ALICE },
       ]);
-      const res = await forgeAsync(r.dir, ['job', 'audit', id]);
-      assert.equal(res.status, 0, res.stderr);
-      const a = JSON.parse(res.stdout);
+      const a = jobAudit(r.dir, id);
       assert.deepEqual(
         a.rows.map((x: any) => [x.action, x.detail]),
         [['pr-opened', '#11'], ['pr-auto-merge', 'lib #7'], ['pr-merge-bypass', 'lib #7 checks pending'], ['pr-merged', 'lib #7 squash'], ['pr-merge-failed', 'lib #7']],
@@ -116,9 +117,10 @@ describe('audit', { concurrency: 4 }, () => {
       assert.deepEqual(cells, ['"a, b"', '"say ""hi"""', '"line one\nline two"', `"'=HYPERLINK(""x"")"`, "'+1", "'-1", "'@SUM(A1)"]);
       for (const [v, want] of [['\tx', "'\tx"], ['\rx', `"'\rx"`], [null, ''], [12, '12'], ['plain', 'plain']] as const) assert.equal(csvCell(v), want, JSON.stringify(v));
 
-      const both = await forgeAsync(r.dir, ['job', 'audit', id, '--json', '--csv']);
+      const both = await forgeInProcess(r.dir, ['job', 'audit', id, '--json', '--csv']);
       assert.equal(both.status, 2, 'both formats is a usage error');
-      assert.equal((await forgeAsync(r.dir, ['audit', '--since', '2026-01-01', '--csv', '--json'])).status, 2);
+      assert.equal((await forgeInProcess(r.dir, ['audit', '--since', '2026-01-01', '--csv', '--json'])).status, 2);
+      assert.equal(toCsv(jobAudit(r.dir, id).rows, () => null), out, 'toCsv is what the CLI prints');
     } finally {
       r.cleanup();
     }
@@ -142,9 +144,8 @@ describe('audit', { concurrency: 4 }, () => {
           .map((e) => JSON.stringify(e))
           .join('\n') + '\n{broken\n',
       );
-      const res = await forgeAsync(r.dir, ['audit', '--since', '2026-01-01', '--until', '2026-03-02']);
-      assert.equal(res.status, 0, res.stderr);
-      const out = JSON.parse(res.stdout);
+      const audit = (...args: string[]) => auditCmd(r.dir, [], parseArgs(['audit', ...args]).flags);
+      const out = audit('--since', '2026-01-01', '--until', '2026-03-02') as any;
       assert.equal(out.since, '2026-01-01T00:00:00.000Z');
       assert.equal(out.until, '2026-03-02T00:00:00.000Z');
       const [first, second] = [a, b].sort();
@@ -165,18 +166,21 @@ describe('audit', { concurrency: 4 }, () => {
       );
       assert.equal(out.rows[0].detail, 'runtime.effort: null -> "high"');
       // until is exclusive and defaults to now.
-      const open = JSON.parse((await forgeAsync(r.dir, ['audit', '--since', at(5)])).stdout);
+      const open = audit('--since', at(5)) as any;
       assert.deepEqual(open.rows.map((x: any) => x.note), ['late']);
-      assert.equal((await forgeAsync(r.dir, ['audit', '--since', at(1, 2), '--until', at(5)])).stdout.includes('late'), false);
+      assert.equal(JSON.stringify(audit('--since', at(1, 2), '--until', at(5))).includes('late'), false);
 
       const csv = await forgeAsync(r.dir, ['audit', '--since', '2026-01-01', '--until', '2026-03-02', '--csv']);
       assert.equal(csv.status, 0, csv.stderr);
       const lines = csv.stdout.split('\r\n');
       assert.equal(lines[1], `${at(1, 2)},,carol,dashboard,config-set,,"runtime.effort: null -> ""high""",,`, 'a repo row has no job and no PR');
       assert.ok(lines.some((l) => l.startsWith(`${at(1, 9)},${a},`) && l.endsWith(',12,squash')), "a job row carries its job's PR and merge method");
+      assert.equal(audit('--since', '2026-01-01', '--until', '2026-03-02', '--csv'), csv.stdout, 'auditCmd is what the CLI prints');
 
-      for (const bad of [[], ['--since'], ['--since', 'yesterday'], ['--since', '2026-13-45'], ['--since', '2026-03-01T10:00'], ['--since', '2026-03-02', '--until', '2026-03-01'], ['--since', '2026-03-02', '--until', '2026-03-02'], ['--since', '2026-01-01', 'extra']])
-        assert.equal((await forgeAsync(r.dir, ['audit', ...bad])).status, 2, bad.join(' '));
+      for (const bad of [[], ['--since'], ['--since', 'yesterday'], ['--since', '2026-13-45'], ['--since', '2026-03-01T10:00'], ['--since', '2026-03-02', '--until', '2026-03-01'], ['--since', '2026-03-02', '--until', '2026-03-02'], ['--since', '2026-01-01', 'extra']]) {
+        const res = await forgeInProcess(r.dir, ['audit', ...bad]);
+        assert.deepEqual({ status: res.status, code: res.error?.code }, { status: 2, code: 'usage' }, bad.join(' '));
+      }
     } finally {
       r.cleanup();
     }
