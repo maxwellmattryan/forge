@@ -2,33 +2,56 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { forgeAsync, tempRepo } from './helpers.ts';
-import { TRUST_ENV, defaults, trustDigest, validateConfig } from '../lib/config.ts';
-import { CONFIG_DISCLOSURE, FIELDS, disclosureOf, redactedConfig, validateFieldValue } from '../lib/config-fields.ts';
+import { forgeAsync, repoTemplate, tempRepo } from './helpers.ts';
+import { TRUST_ENV, defaults, loadConfig, trustDigest, validateConfig } from '../lib/config.ts';
+import { CONFIG_DISCLOSURE, FIELDS, disclosureOf, fieldFor, parseCliValue, redactedConfig, validateFieldValue } from '../lib/config-fields.ts';
 import { COMPLEXITIES, EFFORT_ROLES, EFFORTS } from '../lib/schema.ts';
 import { setConfigValue } from '../lib/config-set.ts';
 import { applyOverlay, overlayProblems } from '../lib/eval-overlay.ts';
-import { getPath } from '../lib/util.ts';
+import { ForgeError, getPath } from '../lib/util.ts';
 import { setIn } from '../lib/yaml.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const ACTOR = () => ({ login: 'lib-caller', source: 'env' }) as const;
 const FIXTURE = fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'config-commented.yml'), 'utf8');
 
-/** A scratch repo with the commented fixture as its config (or none). */
+const template = repoTemplate((dir) => {
+  fs.mkdirSync(path.join(dir, '.forge'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), FIXTURE);
+});
+
+/**
+ * A scratch repo with the commented fixture as its config (or `text`, or none). `set` is the CLI's
+ * own write path in-process (`forge config set <key> <raw>` minus routing), `refused` checks that
+ * it throws what the CLI exits 1 with, names the key and leaves the file byte-identical.
+ */
 function scratch(text: string | null = FIXTURE) {
-  const repo = tempRepo();
+  const repo = template();
   const file = path.join(repo.dir, '.forge', 'config.yml');
-  if (text !== null) {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, text);
-  }
+  if (text === null) fs.rmSync(path.join(repo.dir, '.forge'), { recursive: true, force: true });
+  else if (text !== FIXTURE) fs.writeFileSync(file, text);
   const cli = async (env: Record<string, string>, ...args: string[]) => {
     const r = await forgeAsync(repo.dir, args, env);
     return r.status === 0 ? { code: 0, out: r.stdout.trim(), err: '' } : { code: r.status as number, out: r.stdout.trim(), err: r.stderr.trim() };
   };
   const forge = (...args: string[]) => cli({}, ...args);
-  return { repo, file, cli, forge, read: () => fs.readFileSync(file, 'utf8') };
+  const read = () => fs.readFileSync(file, 'utf8');
+  const set = (key: string, raw: string) => setConfigValue(repo.dir, key, parseCliValue(fieldFor(key), raw), ACTOR);
+  const refused = (key: string, raw: string, opts: { reason?: string; message?: RegExp | string } = {}) => {
+    const before = read();
+    assert.throws(() => set(key, raw), (e: any) => {
+      assert.ok(e instanceof ForgeError, `${key} ${raw}: a ForgeError (${e})`);
+      assert.equal(e.exitCode, 1, `${key} ${raw} exits 1`);
+      assert.ok(e.message.includes(key), `${key} ${raw}: the message names the key (${e.message})`);
+      if (opts.reason) assert.equal((e as { reason?: string }).reason, opts.reason, `${key} ${raw}`);
+      if (typeof opts.message === 'string') assert.ok(e.message.includes(opts.message), e.message);
+      else if (opts.message) assert.match(e.message, opts.message);
+      return true;
+    });
+    assert.equal(read(), before, `${key} ${raw} leaves the file byte-identical`);
+  };
+  const get = (key: string) => getPath(loadConfig(repo.dir).config, key);
+  return { repo, file, cli, forge, read, set, refused, get };
 }
 
 // Each test has its own scratch repo, so they run side by side.
@@ -38,7 +61,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     try {
       const r = await s.forge('config', 'set', 'pipeline.maxRounds', '5');
       assert.equal(r.code, 0, r.err);
-      assert.equal(r.out, '{"ok":true,"key":"pipeline.maxRounds","value":5,"previous":3,"changed":true}');
+      assert.deepEqual(JSON.parse(r.out), { ok: true, key: 'pipeline.maxRounds', value: 5, previous: 3, changed: true });
       const before = FIXTURE.split('\n');
       const after = s.read().split('\n');
       assert.equal(after.length, before.length, 'no line added or removed');
@@ -52,6 +75,11 @@ describe('forge config set and get', { concurrency: 4 }, () => {
   test('set validates values against the field schema', async () => {
     const s = scratch();
     try {
+      // The CLI's refusal: exit 1, the key on stderr, the file untouched.
+      const r = await s.forge('config', 'set', 'pipeline.maxRounds', '0');
+      assert.equal(r.code, 1);
+      assert.ok(r.err.includes('pipeline.maxRounds'), r.err);
+      assert.equal(s.read(), FIXTURE);
       const cases: [string, string][] = [
         ['pipeline.maxRounds', '0'],
         ['pipeline.maxRounds', 'x'],
@@ -72,15 +100,10 @@ describe('forge config set and get', { concurrency: 4 }, () => {
         ['tracker.github.labels.prefix', 'b'],
         ['tracker.github.labels.prefix', 'priority'],
         ['tracker.github.ready.milestone', 'a\u0001b'],
-        ['tracker.github.ready.milestone', 'v1\u202Egnp.exe'],
+        ['tracker.github.ready.milestone', 'v1‮gnp.exe'],
         ['tracker.github.ready.assignee', '-R'],
       ];
-      for (const [key, value] of cases) {
-        const r = await s.forge('config', 'set', key, value);
-        assert.equal(r.code, 1, `${key} ${value} exits 1`);
-        assert.ok(r.err.includes(key), `${key} ${value}: the message names the key (${r.err})`);
-        assert.equal(s.read(), FIXTURE, `${key} ${value} leaves the file byte-identical`);
-      }
+      for (const [key, value] of cases) s.refused(key, value);
       for (const [key, value, expected] of [
         ['daemon.idleStopMinutes', 'null', null],
         ['pipeline.budget.tokens', 'null', null],
@@ -90,9 +113,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
         ['review.blockOn', '[blocker, major]', ['blocker', 'major']],
         ['tracker.github.labels.prefix', 'ci/', 'ci/'],
       ] as const) {
-        const r = await s.forge('config', 'set', key, value);
-        assert.equal(r.code, 0, `${key} ${value}: ${r.err}`);
-        assert.deepEqual(JSON.parse(r.out).value, expected, key);
+        assert.deepEqual(s.set(key, value).value, expected, key);
       }
     } finally {
       s.repo.cleanup();
@@ -110,24 +131,17 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     assert.equal(f.default, null);
     const s = scratch();
     try {
-      const set = await s.forge('config', 'set', 'runtime.effort', 'xhigh');
-      assert.equal(set.code, 0, set.err);
-      assert.equal(set.out, '{"ok":true,"key":"runtime.effort","value":"xhigh","previous":null,"changed":true}');
+      assert.deepEqual(s.set('runtime.effort', 'xhigh'), { ok: true, key: 'runtime.effort', value: 'xhigh', previous: null, changed: true });
       const lines = s.read().split('\n');
       const at = lines.indexOf('  effort: xhigh');
       assert.ok(at > lines.indexOf('runtime:') && at < lines.indexOf('tracker:'), 'written under runtime:');
       assert.equal(lines.length, FIXTURE.split('\n').length + 1, 'one line added');
       assert.ok(s.read().includes('  diversity: false          # warn on shared model families\n'), 'comments kept');
       for (const level of EFFORTS) assert.equal(setConfigValue(s.repo.dir, 'runtime.effort', level, ACTOR).value, level);
-      const cleared = await s.forge('config', 'set', 'runtime.effort', 'null');
-      assert.equal(cleared.code, 0, cleared.err);
-      assert.equal(JSON.parse(cleared.out).value, null);
+      assert.equal(s.set('runtime.effort', 'null').value, null);
       assert.ok(s.read().includes('  effort: null\n'));
       const before = s.read();
-      const r = await s.forge('config', 'set', 'runtime.effort', 'ultra');
-      assert.equal(r.code, 1);
-      assert.ok(r.err.includes('runtime.effort must be one of low | medium | high | xhigh | max, or null (got "ultra")'), r.err);
-      assert.equal(s.read(), before, 'ultra leaves the file byte-identical');
+      s.refused('runtime.effort', 'ultra', { reason: 'invalid', message: 'runtime.effort must be one of low | medium | high | xhigh | max, or null (got "ultra")' });
       for (const bad of ['--add-dir=/', 'High', 'high --add-dir /', 3, true, ['high']]) {
         assert.throws(() => setConfigValue(s.repo.dir, 'runtime.effort', bad as any, ACTOR), (e: any) => e.reason === 'invalid' && e.message.startsWith('runtime.effort must be one of'), String(bad));
         assert.equal(s.read(), before, `${bad} leaves the file byte-identical`);
@@ -149,20 +163,12 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     assert.equal(FIELDS.find((x) => x.key === 'runtime.effortByComplexity.high')?.label, 'Effort for high complexity');
     const s = scratch();
     try {
-      const role = await s.forge('config', 'set', 'runtime.efforts.reviewer', 'medium');
-      assert.equal(role.code, 0, role.err);
-      assert.equal(JSON.parse(role.out).value, 'medium');
-      const byComplexity = await s.forge('config', 'set', 'runtime.effortByComplexity.high', 'xhigh');
-      assert.equal(byComplexity.code, 0, byComplexity.err);
-      const got = await s.forge('config', 'get', 'runtime.effortByComplexity.high');
-      assert.equal(got.out, 'xhigh');
-      assert.equal((await s.forge('config', 'get', 'runtime.efforts.reviewer')).out, 'medium');
-      const before = s.read();
-      const r = await s.forge('config', 'set', 'runtime.efforts.reviewer', 'ultra');
-      assert.equal(r.code, 1);
-      assert.ok(r.err.includes('runtime.efforts.reviewer must be one of low | medium | high | xhigh | max, or null (got "ultra")'), r.err);
-      assert.equal(s.read(), before, 'ultra leaves the file byte-identical');
-      assert.equal((await s.forge('config', 'set', 'runtime.efforts.orchestrator', 'high')).code, 1, 'no orchestrator key');
+      assert.equal(s.set('runtime.efforts.reviewer', 'medium').value, 'medium');
+      assert.equal(s.set('runtime.effortByComplexity.high', 'xhigh').changed, true);
+      assert.equal(s.get('runtime.effortByComplexity.high'), 'xhigh');
+      assert.equal(s.get('runtime.efforts.reviewer'), 'medium');
+      s.refused('runtime.efforts.reviewer', 'ultra', { message: 'runtime.efforts.reviewer must be one of low | medium | high | xhigh | max, or null (got "ultra")' });
+      s.refused('runtime.efforts.orchestrator', 'high', { reason: 'unknown' });
     } finally {
       s.repo.cleanup();
     }
@@ -180,16 +186,9 @@ describe('forge config set and get', { concurrency: 4 }, () => {
       const bad: any = defaults();
       bad.pr.integrationReview = 'sometimes';
       assert.ok(validateConfig(bad, s.repo.dir).some((p) => p.startsWith('pr.integrationReview must be one of always | code-only')), 'sometimes is reported');
-      const set = await s.forge('config', 'set', 'pr.integrationReview', 'always');
-      assert.equal(set.code, 0, set.err);
-      assert.equal(JSON.parse(set.out).value, 'always');
-      assert.equal((await s.forge('config', 'get', 'pr.integrationReview')).out, 'always');
-      const before = s.read();
-      const r = await s.forge('config', 'set', 'pr.integrationReview', 'maybe');
-      assert.equal(r.code, 1);
-      assert.match(r.err, /pr\.integrationReview/);
-      assert.equal(s.read(), before, 'maybe leaves the file byte-identical');
-      assert.throws(() => setConfigValue(s.repo.dir, 'pr.integrationReview', 'maybe', ACTOR), (e: any) => e.reason === 'invalid');
+      assert.equal(s.set('pr.integrationReview', 'always').value, 'always');
+      assert.equal(s.get('pr.integrationReview'), 'always');
+      s.refused('pr.integrationReview', 'maybe', { reason: 'invalid' });
     } finally {
       s.repo.cleanup();
     }
@@ -204,12 +203,10 @@ describe('forge config set and get', { concurrency: 4 }, () => {
       assert.equal(set.code, 0, set.err);
       const [first] = lines();
       assert.deepEqual({ ...first, ts: undefined }, { v: 2, ts: undefined, type: 'config-set', key: 'runtime.effort', previous: null, value: 'high', changed: true, actor: { login: 'alice', source: 'env' } });
-      const same = await s.cli({ FORGE_ACTOR: 'alice' }, 'config', 'set', 'runtime.effort', 'high');
-      assert.equal(same.code, 0, same.err);
-      assert.equal(lines().length, 1, 'an unchanged value appends nothing');
       let asked = 0;
-      setConfigValue(s.repo.dir, 'runtime.effort', 'high', () => (asked++, ACTOR()));
+      assert.equal(setConfigValue(s.repo.dir, 'runtime.effort', 'high', () => (asked++, ACTOR())).changed, false);
       assert.equal(asked, 0, 'an unchanged value never resolves the actor');
+      assert.equal(lines().length, 1, 'an unchanged value appends nothing');
       // The server passes dashboardActor; its route is covered in server.test.ts.
       setConfigValue(s.repo.dir, 'runtime.effort', 'low', () => ({ login: 'dash', source: 'dashboard' }));
       assert.deepEqual(lines().at(-1).actor, { login: 'dash', source: 'dashboard' });
@@ -236,15 +233,8 @@ describe('forge config set and get', { concurrency: 4 }, () => {
         ['verify', '[]'],
         ['review.panel', '[]'],
       ];
-      for (const [key, value] of locked) {
-        const r = await s.forge('config', 'set', key, value);
-        assert.equal(r.code, 1, key);
-        assert.match(r.err, /is not editable with forge config set/, key);
-        assert.equal(s.read(), FIXTURE, `${key}: file unchanged`);
-      }
-      const r = await s.forge('config', 'set', 'nope.key', '1');
-      assert.equal(r.code, 1);
-      assert.match(r.err, /unknown config key "nope\.key"/);
+      for (const [key, value] of locked) s.refused(key, value, { reason: 'locked', message: /is not editable with forge config set/ });
+      s.refused('nope.key', '1', { reason: 'unknown', message: /unknown config key "nope\.key"/ });
       assert.equal(s.read(), FIXTURE);
     } finally {
       s.repo.cleanup();
@@ -278,9 +268,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     assert.ok(untrusted.includes('policy.protectedPaths'), 'ARCHITECTURE.md "Untrusted input" names the policy');
     const s = scratch();
     try {
-      const r = await s.forge('config', 'set', 'policy.protectedPaths', '[]');
-      assert.notEqual(r.code, 0);
-      assert.match(r.err, /policy\.protectedPaths is not editable with forge config set \(names what Forge refuses to write\)/);
+      s.refused('policy.protectedPaths', '[]', { reason: 'locked', message: /policy\.protectedPaths is not editable with forge config set \(names what Forge refuses to write\)/ });
       assert.equal(s.read(), FIXTURE, 'the file is untouched');
     } finally {
       s.repo.cleanup();
@@ -297,9 +285,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     assert.ok(fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8').includes('verifySecrets: block'), 'docs/CONFIG.md names verifySecrets');
     const s = scratch();
     try {
-      const r = await s.forge('config', 'set', 'verifySecrets', 'warn');
-      assert.equal(r.code, 1);
-      assert.match(r.err, /verifySecrets is not editable with forge config set \(loosens a security gate\)/);
+      s.refused('verifySecrets', 'warn', { reason: 'locked', message: /verifySecrets is not editable with forge config set \(loosens a security gate\)/ });
       assert.equal(s.read(), FIXTURE, 'the file is untouched');
     } finally {
       s.repo.cleanup();
@@ -323,11 +309,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     assert.ok(!red.includes('SECRETPATH') && !red.includes('hooks.example.com') && !red.includes('page.sh'), 'a support bundle hides both');
     const s = scratch();
     try {
-      for (const [key, value] of [['notify.command', 'x'], ['notify.webhooks', '[]']]) {
-        const r = await s.forge('config', 'set', key, value);
-        assert.equal(r.code, 1, key);
-        assert.match(r.err, new RegExp(`${key.replace('.', '\\.')} is not editable`), key);
-      }
+      for (const [key, value] of [['notify.command', 'x'], ['notify.webhooks', '[]']]) s.refused(key, value, { reason: 'locked', message: new RegExp(`${key.replace('.', '\\.')} is not editable`) });
       assert.equal(s.read(), FIXTURE, 'the file is untouched');
     } finally {
       s.repo.cleanup();
@@ -351,9 +333,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     const s = scratch();
     try {
       for (const [key, value] of [['downstream.max', '0'], ['downstream.enabled', 'false'], ['downstream.skip', '[]']]) {
-        const r = await s.forge('config', 'set', key, value);
-        assert.equal(r.code, 1, key);
-        assert.match(r.err, new RegExp(`${key.replace('.', '\\.')} is not editable with forge config set \\(`), key);
+        s.refused(key, value, { reason: 'locked', message: new RegExp(`${key.replace('.', '\\.')} is not editable with forge config set \\(`) });
       }
       assert.throws(() => setConfigValue(s.repo.dir, 'downstream.max', 0, ACTOR), (e: any) => e.reason === 'locked');
       assert.equal(s.read(), FIXTURE, 'the file is untouched');
@@ -403,7 +383,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
   test('set inserts missing keys, skips no-ops and rewrites lists', async () => {
     const s = scratch();
     try {
-      assert.equal((await s.forge('config', 'set', 'pipeline.split', 'never')).code, 0);
+      assert.equal(s.set('pipeline.split', 'never').changed, true);
       const lines = s.read().split('\n');
       const at = lines.indexOf('  split: never');
       assert.ok(at > 0, 'inserted at the children indent');
@@ -415,25 +395,24 @@ describe('forge config set and get', { concurrency: 4 }, () => {
       // A fixed old mtime, so a rewrite can't hide inside the filesystem's timestamp granularity.
       fs.utimesSync(s.file, 1000, 1000);
       const mtime = fs.statSync(s.file).mtimeMs;
-      const r = await s.forge('config', 'set', 'pipeline.maxRounds', '3');
-      assert.equal(r.out, '{"ok":true,"key":"pipeline.maxRounds","value":3,"previous":3,"changed":false}');
+      assert.deepEqual(s.set('pipeline.maxRounds', '3'), { ok: true, key: 'pipeline.maxRounds', value: 3, previous: 3, changed: false });
       assert.equal(s.read(), before);
       assert.equal(fs.statSync(s.file).mtimeMs, mtime, 'a no-op never writes');
 
-      assert.equal((await s.forge('config', 'set', 'review.blockOn', '[blocker, major, nit]')).code, 0);
+      s.set('review.blockOn', '[blocker, major, nit]');
       assert.ok(s.read().includes('  # Severities that force another round.\n  blockOn:\n    - blocker\n    - major\n    - nit\n  panel:\n'), 'items rewritten in place at the same indent');
 
       // review.blockOn must keep blocker and major (feedback.md overrides AC5's `[]` example), so the
       // empty-list rewrite is shown on the same block list in memory, and on a block list the CLI may empty.
       assert.ok(setIn(s.read(), ['review', 'blockOn'], []).includes('  blockOn: []\n  panel:\n'));
-      assert.equal((await s.forge('config', 'set', 'review.blockOn', '[]')).code, 1, 'blockOn without blocker and major is refused');
+      s.refused('review.blockOn', '[]');
       fs.writeFileSync(s.file, s.read().replace('      labels: []            # all must match', '      labels:\n        - ready\n        - triaged'));
-      assert.equal((await s.forge('config', 'set', 'tracker.github.ready.labels', '[]')).code, 0);
+      assert.equal(s.set('tracker.github.ready.labels', '[]').changed, true);
       assert.ok(s.read().includes('    ready:\n      labels: []\n      milestone: null\n'));
-      assert.equal((await s.forge('config', 'set', 'tracker.github.ready.labels', 'urgent')).code, 1, 'a list needs list syntax');
-      assert.equal((await s.forge('config', 'set', 'tracker.github.ready.labels', '["a, b", c]')).code, 0);
+      s.refused('tracker.github.ready.labels', 'urgent');
+      s.set('tracker.github.ready.labels', '["a, b", c]');
       assert.ok(s.read().includes('      labels: ["a, b", c]\n'));
-      assert.equal((await s.forge('config', 'get', 'tracker.github.ready.labels')).out, '["a, b","c"]');
+      assert.deepEqual(s.get('tracker.github.ready.labels'), ['a, b', 'c']);
     } finally {
       s.repo.cleanup();
     }
@@ -444,9 +423,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     assert.notEqual(flow, FIXTURE);
     const s = scratch(flow);
     try {
-      const r = await s.forge('config', 'set', 'pipeline.maxRounds', '4');
-      assert.equal(r.code, 1);
-      assert.match(r.err, /flow map; edit it by hand/);
+      s.refused('pipeline.maxRounds', '4', { reason: 'unsupported-yaml', message: /flow map; edit it by hand/ });
       assert.equal(s.read(), flow, 'byte-identical');
     } finally {
       s.repo.cleanup();
@@ -457,10 +434,12 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     const broken = FIXTURE.replace('    - name: tests\n      always: true\n', '    - name: tests\n      always: true\n    - name: nonexistent-lens\n');
     const s = scratch(broken);
     try {
-      assert.match((await s.forge('config', 'validate')).out, /nonexistent-lens/, 'the fixture is broken as intended');
-      const r = await s.forge('config', 'set', 'pipeline.maxRounds', '4');
-      assert.equal(r.code, 0, r.err);
-      assert.equal(JSON.parse(r.out).changed, true);
+      const v = await s.forge('config', 'validate');
+      assert.equal(v.code, 1);
+      const report = JSON.parse(v.out);
+      assert.equal(report.ok, false);
+      assert.ok(report.problems.some((p: string) => p.includes('nonexistent-lens')), 'the fixture is broken as intended');
+      assert.equal(s.set('pipeline.maxRounds', '4').changed, true);
       assert.equal(s.read(), broken.replace('maxRounds: 3', 'maxRounds: 4'));
     } finally {
       s.repo.cleanup();
@@ -470,10 +449,13 @@ describe('forge config set and get', { concurrency: 4 }, () => {
   test('get reads back; set needs an initialized repo', async () => {
     const s = scratch();
     try {
-      assert.equal((await s.forge('config', 'set', 'pipeline.maxRounds', '7')).code, 0);
-      assert.equal((await s.forge('config', 'get', 'pipeline.maxRounds')).out, '7');
-      assert.equal((await s.forge('config', 'get', 'nope.key')).out, 'null');
+      s.set('pipeline.maxRounds', '7');
+      s.set('tracker.github.ready.labels', '["a, b", c]');
+      assert.equal(s.get('pipeline.maxRounds'), 7);
+      // `config get` prints `getPath(...) ?? null`, so an unknown key prints null.
+      assert.equal(s.get('nope.key'), undefined);
       assert.equal((await s.forge('config', 'get', 'tracker.github.labels.prefix')).out, 'forge:', 'strings print raw');
+      assert.deepEqual(JSON.parse((await s.forge('config', 'get', 'tracker.github.ready.labels')).out), ['a, b', 'c'], 'lists print JSON');
     } finally {
       s.repo.cleanup();
     }
@@ -539,27 +521,16 @@ test('builder model overrides and review.onRework are editable', async () => {
   const s = scratch();
   try {
     for (const [key, value] of [['runtime.modelByComplexity.low', 'sonnet'], ['runtime.reworkModel', 'sonnet'], ['review.onRework', 'full']]) {
-      const r = await s.forge('config', 'set', key, value);
-      assert.equal(r.code, 0, `${key}: ${r.err}`);
-      assert.equal(JSON.parse(r.out).value, value, key);
+      assert.equal(s.set(key, value).value, value, key);
     }
-    const before = s.read();
     for (const [key, value] of [['runtime.modelByComplexity.high', 'opus; rm -rf /'], ['runtime.reworkModel', 'opus --add-dir=/'], ['runtime.reworkModel', 'a'.repeat(201)], ['review.onRework', 'some']]) {
-      const r = await s.forge('config', 'set', key, value);
-      assert.equal(r.code, 1, `${key} ${value} exits 1`);
-      assert.ok(r.err.includes(key), r.err);
+      s.refused(key, value);
     }
-    assert.equal(s.read(), before, 'refused values leave the file byte-identical');
-    const cleared = await s.forge('config', 'set', 'runtime.reworkModel', 'null');
-    assert.equal(cleared.code, 0, cleared.err);
-    assert.equal(JSON.parse(cleared.out).value, null);
+    assert.equal(s.set('runtime.reworkModel', 'null').value, null);
     // An empty model means unset on the CLI, so set and `forge config validate` agree.
-    await s.forge('config', 'set', 'runtime.reworkModel', 'sonnet');
-    const emptied = await s.forge('config', 'set', 'runtime.reworkModel', '');
-    assert.equal(emptied.code, 0, emptied.err);
-    assert.equal(JSON.parse(emptied.out).value, null);
-    const valid = await s.forge('config', 'validate');
-    assert.equal(valid.code, 0, valid.err + valid.out);
+    s.set('runtime.reworkModel', 'sonnet');
+    assert.equal(s.set('runtime.reworkModel', '').value, null);
+    assert.deepEqual(validateConfig(loadConfig(s.repo.dir).config, s.repo.dir), []);
   } finally {
     s.repo.cleanup();
   }

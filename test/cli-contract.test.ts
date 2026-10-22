@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { tempRepo } from './helpers.ts';
+import { forgeInProcess, tempRepo } from './helpers.ts';
 import { ConfigSetError } from '../lib/config-fields.ts';
 import { DEFAULT_CODE, ERROR_CODES, ForgeError, run } from '../lib/util.ts';
 import { GROUPS, README_END, README_START, findHelp, readmeTable, syncReadme, toCliError } from '../lib/commands/help.ts';
@@ -221,6 +221,33 @@ test('--json success output is one JSON value', POSIX, () => {
     assert.equal(JSON.parse(a.stdout)[0].id, id);
     // --json takes no value: the word after it is still the command's.
     assert.equal(s.cli(['job', 'show', '--json', id]).status, 0);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('forgeInProcess matches the CLI\'s exit, error code and JSON', POSIX, async () => {
+  const s = scratch();
+  try {
+    s.init();
+    const id = s.json(['job', 'new', '--title', 'Parity']).id;
+    const show = await forgeInProcess(s.root, ['job', 'show', id]);
+    assert.equal(show.status, 0);
+    assert.equal(show.error, null);
+    assert.deepEqual(show.data, s.json(['job', 'show', id]));
+
+    const missing = await forgeInProcess(s.root, ['job', 'show', 'nope']);
+    const cliMissing = s.cli(['job', 'show', 'nope', '--json']);
+    assert.equal(missing.data, null);
+    assert.deepEqual({ status: missing.status, code: missing.error?.code }, { status: cliMissing.status, code: jsonError(cliMissing).code });
+    assert.deepEqual({ status: missing.status, code: missing.error?.code }, { status: 1, code: 'not_found' });
+
+    const claim = await forgeInProcess(s.root, ['job', 'claim', id]);
+    assert.deepEqual({ status: claim.status, code: claim.error?.code }, { status: 2, code: 'usage' });
+
+    // Commands main() routes or that print for themselves are refused before anything runs.
+    await assert.rejects(forgeInProcess(s.root, ['config', 'get', 'x']), /forgeAsync/);
+    await assert.rejects(forgeInProcess(s.root, ['job', 'list', '--mode', 'human']), /forgeAsync/);
   } finally {
     s.cleanup();
   }
