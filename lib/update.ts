@@ -3,6 +3,7 @@
 // marketplace's or upstream's head, never runs a build, and refuses anything that could lose work.
 import fs from 'node:fs';
 import path from 'node:path';
+import { git as runGit, gitEnv } from './git.ts';
 import { mainRoot, paths, PLUGIN_ROOT } from './paths.ts';
 import { WINDOWS_UPDATE_REFUSAL } from './platform.ts';
 import { ForgeError, pidAlive, readJson, run, tail } from './util.ts';
@@ -94,7 +95,7 @@ export function detectInstall(root: string, env: NodeJS.ProcessEnv = process.env
   const version = readVersion(real);
   const plugin = detectPlugin(real, version);
   if (plugin) return plugin;
-  const top = run('git', ['-C', real, 'rev-parse', '--show-toplevel'], { env, allowFail: true });
+  const top = runGit(undefined, ['-C', real, 'rev-parse', '--show-toplevel'], { env: gitEnv(env), allowFail: true });
   if (top.ok && realpath(top.stdout.trim()) === real) return { kind: 'git', root: real, version };
   return { kind: 'unknown', root: real, version };
 }
@@ -112,7 +113,7 @@ interface GitState {
 
 /** Read-only: `--no-optional-locks` keeps even `git status` from refreshing the index. */
 function gitState(root: string, env: NodeJS.ProcessEnv): GitState {
-  const git = (...args: string[]) => run('git', ['--no-optional-locks', '-C', root, ...args], { env, allowFail: true });
+  const git = (...args: string[]) => runGit(undefined, ['--no-optional-locks', '-C', root, ...args], { env: gitEnv(env), allowFail: true });
   const status = git('status', '--porcelain');
   if (!status.ok) return { blocked: `git status failed in ${root}: ${tail(status.stderr, 5)}` };
   if (status.stdout.trim()) return { blocked: `uncommitted changes in ${root}; commit or stash them, then run forge update again` };
@@ -125,7 +126,7 @@ function gitState(root: string, env: NodeJS.ProcessEnv): GitState {
 }
 
 function headSha(root: string, env: NodeJS.ProcessEnv): string {
-  return run('git', ['-C', root, 'rev-parse', '--short', 'HEAD'], { env, allowFail: true }).stdout.trim();
+  return runGit(undefined, ['-C', root, 'rev-parse', '--short', 'HEAD'], { env: gitEnv(env), allowFail: true }).stdout.trim();
 }
 
 function planCommands(info: InstallInfo): string[] {

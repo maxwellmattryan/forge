@@ -12,10 +12,10 @@ import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.t
 import { loadConfig, verifyGroups, worktreeRoot } from './config.ts';
 import { e2ePlan } from './e2e.ts';
 import { checkNotes, checkedNotes } from './experiments.ts';
-import { committedChanges, realHistoryEnv, resolveBase } from './scope.ts';
+import { committedChanges, resolveBase } from './scope.ts';
 import { configForJob } from './eval-overlay.ts';
 import { stackSource } from './deps.ts';
-import { STATUS_ARGV } from './git-pins.ts';
+import { STATUS_ARGV, git as runGit, historyEnv } from './git.ts';
 import { blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.ts';
 import type { CompactIntegrity, IntegrityReport } from './integrity.ts';
 import { loadJob, logEvent, readEvents, renewLease, setJob, updateJob, jobDir } from './jobs.ts';
@@ -36,7 +36,7 @@ import { applyLinks, consumerLockfiles, pathPrelude, resolveLinks, restoreLockfi
 import type { AppliedLinks, LockSnapshot } from './links.ts';
 import { memberClone, memberEntry, memberRepos, memberWorktree, memberWorktreePath, trustedMemberWorktree } from './job-repos.ts';
 import type { BackingDownResult, BackingUpEntry, ComponentConfig, CompactSecrets, Config, EventActor, Job, JobRepo, SecretScan, VerifyRun, VerifyRunRepo } from './types.ts';
-import { ForgeError, assertSafeRef, fill, now, pidAlive, readJson, run, shellArgs, tail, withLock, withLockAsync, writeJsonAtomic } from './util.ts';
+import { ForgeError, assertSafeRef, fill, killAndWaitAsync, now, pidAlive, readJson, run, shellArgs, tail, withLock, withLockAsync, writeJsonAtomic } from './util.ts';
 import { readSmallJson } from './focus.ts';
 
 /** One member repo's part of `forge worktree create`: createMemberWorktrees. */
@@ -118,8 +118,8 @@ export interface VerifyResult {
 }
 
 function branchState(root: string, branch: string, remote: string): { local: boolean; remote: boolean } {
-  const local = run('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: root, allowFail: true }).ok;
-  const remoteRef = run('git', ['rev-parse', '--verify', '--quiet', `refs/remotes/${remote}/${branch}`], { cwd: root, allowFail: true }).ok;
+  const local = runGit(root, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { allowFail: true }).ok;
+  const remoteRef = runGit(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${remote}/${branch}`], { allowFail: true }).ok;
   return { local, remote: remoteRef };
 }
 
@@ -144,14 +144,14 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   const dir = path.join(wtRoot, id);
   if (job.worktree && exists(job.worktree)) return { path: job.worktree, created: false, port: job.port, ports: job.ports };
   const remote = config.git.remote;
-  run('git', ['fetch', remote, '--prune'], { cwd: root, allowFail: true });
+  runGit(root, ['fetch', remote, '--prune'], { allowFail: true, write: true });
   // createJob always sets branch and base; the `!`s below rely on it.
   const st = opts.isolate ? null : branchState(root, job.branch!, remote);
   // A new branch stacks on the one dependency that has not merged yet. Checked before anything
   // is created, so a refusal leaves no worktree and no job changes behind.
   const stack = st && !st.local && !st.remote && !opts.from ? stackSource(root, config, job) : null;
   fs.mkdirSync(wtRoot, { recursive: true });
-  const defaultStart = () => opts.from ?? (run('git', ['rev-parse', '--verify', '--quiet', `${remote}/${job.base}`], { cwd: root, allowFail: true }).ok ? `${remote}/${job.base}` : job.base!);
+  const defaultStart = () => opts.from ?? (runGit(root, ['rev-parse', '--verify', '--quiet', `${remote}/${job.base}`], { allowFail: true }).ok ? `${remote}/${job.base}` : job.base!);
   if (opts.isolate || !st) {
     cloneIsolated(root, defaultStart(), dir, job.branch!, job.base!, opts.sparseExclude ?? []);
   } else {
@@ -220,12 +220,12 @@ function createMemberWorktrees(root: string, config: Config, id: string): Member
       checkRefs(job);
       const base = assertSafeRef(m.base, `repos ${m.repo} base`);
       if (exists(dir)) throw new ForgeError(`${dir} already exists; remove it or run: forge worktree remove ${id} --repo ${m.repo}`);
-      run('git', ['fetch', remote, '--prune'], { cwd: clone, allowFail: true });
+      runGit(clone, ['fetch', remote, '--prune'], { allowFail: true, write: true });
       // A worktree deleted by hand stays registered and would keep its branch "checked out".
-      run('git', ['worktree', 'prune'], { cwd: clone, allowFail: true });
+      runGit(clone, ['worktree', 'prune'], { allowFail: true, write: true });
       fs.mkdirSync(path.dirname(dir), { recursive: true });
-      const start = () => (run('git', ['rev-parse', '--verify', '--quiet', `${remote}/${base}`], { cwd: clone, allowFail: true }).ok ? `${remote}/${base}` : base);
-      if (m.verifyOnly) run('git', ['worktree', 'add', '--detach', dir, start()], { cwd: clone });
+      const start = () => (runGit(clone, ['rev-parse', '--verify', '--quiet', `${remote}/${base}`], { allowFail: true }).ok ? `${remote}/${base}` : base);
+      if (m.verifyOnly) runGit(clone, ['worktree', 'add', '--detach', dir, start()], { write: true });
       else addWorktree(clone, dir, job, remote, branchState(clone, job.branch!, remote), [], start);
       updateJob(root, id, (j) => {
         const e = memberEntry(j, m.repo);
@@ -252,20 +252,20 @@ function addWorktree(
   const checkoutArgs = sparseExclude.length ? ['--no-checkout'] : [];
   // createJob always sets branch.
   if (st.local) {
-    run('git', ['worktree', 'add', ...checkoutArgs, dir, job.branch!], { cwd: root });
+    runGit(root, ['worktree', 'add', ...checkoutArgs, dir, job.branch!], { write: true });
   } else if (st.remote) {
-    run('git', ['worktree', 'add', ...checkoutArgs, '--track', '-b', job.branch!, dir, `${remote}/${job.branch}`], { cwd: root });
+    runGit(root, ['worktree', 'add', ...checkoutArgs, '--track', '-b', job.branch!, dir, `${remote}/${job.branch}`], { write: true });
   } else {
-    run('git', ['worktree', 'add', ...checkoutArgs, '--no-track', '-b', job.branch!, dir, start()], { cwd: root });
+    runGit(root, ['worktree', 'add', ...checkoutArgs, '--no-track', '-b', job.branch!, dir, start()], { write: true });
   }
   if (sparseExclude.length) {
     sparseCheckout(dir, sparseExclude);
-    run('git', ['checkout'], { cwd: dir });
+    runGit(dir, ['checkout'], { write: true });
   }
 }
 
-function sparseCheckout(dir: string, exclude: string[], env?: NodeJS.ProcessEnv): void {
-  run('git', ['sparse-checkout', 'set', '--no-cone', '/*', ...exclude.map((p) => `!/${p.replace(/^\/+/, '')}`)], { cwd: dir, env });
+function sparseCheckout(dir: string, exclude: string[]): void {
+  runGit(dir, ['sparse-checkout', 'set', '--no-cone', '/*', ...exclude.map((p) => `!/${p.replace(/^\/+/, '')}`)], { write: true });
 }
 
 /**
@@ -274,27 +274,26 @@ function sparseCheckout(dir: string, exclude: string[], env?: NodeJS.ProcessEnv)
  * The base branch name points at it too, so `git diff <base>...HEAD` keeps working for reviewers.
  */
 function cloneIsolated(root: string, start: string, dir: string, branch: string, base: string, sparseExclude: string[]): void {
-  const resolved = run('git', ['rev-parse', '--verify', '--quiet', `${start}^{commit}`], { cwd: root, allowFail: true });
+  const resolved = runGit(root, ['rev-parse', '--verify', '--quiet', `${start}^{commit}`], { allowFail: true });
   if (!resolved.ok) throw new ForgeError(`eval base ${start} not found in the main checkout`);
   const sha = resolved.stdout.trim();
-  // An inherited GIT_DIR (e.g. Forge run from a git hook) would point these commands at another repository.
-  const env = { ...process.env };
-  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']) delete env[k];
-  const git = (args: string[], cwd = dir) => run('git', args, { cwd, env });
+  // Every call below builds the clone. The wrapper drops an inherited GIT_DIR (e.g. Forge run from a
+  // git hook), which would point them at another repository.
+  const git = (args: string[], cwd = dir) => runGit(cwd, args, { write: true });
   // Never reuse a leftover directory: cleanup on failure would delete whatever was in it.
   if (exists(dir)) throw new ForgeError(`${dir} already exists; remove it before starting the eval`);
   try {
     git(['init', '-q', dir], root);
     // Commits made in the clone need an identity; the main checkout's local config does not carry over.
     for (const key of ['user.name', 'user.email']) {
-      const v = run('git', ['config', '--get', key], { cwd: root, allowFail: true }).stdout.trim();
+      const v = runGit(root, ['config', '--get', key], { allowFail: true }).stdout.trim();
       if (v) git(['config', key, v]);
     }
     git(['fetch', '-q', '--depth', '1', '--no-tags', root, sha]);
     git(['update-ref', `refs/heads/${base}`, sha]);
     if (branch !== base) git(['update-ref', `refs/heads/${branch}`, sha]);
     git(['symbolic-ref', 'HEAD', `refs/heads/${branch}`]);
-    if (sparseExclude.length) sparseCheckout(dir, sparseExclude, env);
+    if (sparseExclude.length) sparseCheckout(dir, sparseExclude);
     git(['reset', '-q', '--hard']);
     // FETCH_HEAD records the main checkout's path.
     fs.rmSync(path.join(dir, '.git', 'FETCH_HEAD'), { force: true });
@@ -342,8 +341,8 @@ function globFiles(root: string, pattern: string): string[] {
         .join('(?:.*/)?') +
       '$',
   );
-  const listed = run('git', ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory'], { cwd: root, allowFail: true }).stdout;
-  const plain = run('git', ['ls-files', '--others', '--ignored', '--exclude-standard'], { cwd: root, allowFail: true }).stdout;
+  const listed = runGit(root, ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory'], { allowFail: true }).stdout;
+  const plain = runGit(root, ['ls-files', '--others', '--ignored', '--exclude-standard'], { allowFail: true }).stdout;
   const all = new Set([...listed.split('\n'), ...plain.split('\n')].map((s) => s.replace(/\/$/, '')).filter(Boolean));
   return [...all].filter((f) => re.test(f) && !/(^|\/)(node_modules|target|\.git)(\/|$)/.test(f));
 }
@@ -652,10 +651,9 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   // run records and checks those commits. Nothing at all for a job with only local or sequential
   // edges and no recorded release.
   const interim = refreshInterim(root, config, job);
-  const members = checkedMembers.map((wt) => ({ ...wt, head: run('git', ['rev-parse', 'HEAD'], { cwd: wt.worktree }).stdout.trim() }));
-  const sha = run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree }).stdout.trim();
-  const status = [...STATUS_ARGV];
-  const changed = run('git', status, { cwd: job.worktree }).stdout.trim();
+  const members = checkedMembers.map((wt) => ({ ...wt, head: runGit(wt.worktree, ['rev-parse', 'HEAD']).stdout.trim() }));
+  const sha = runGit(job.worktree, ['rev-parse', 'HEAD']).stdout.trim();
+  const changed = runGit(job.worktree, [...STATUS_ARGV]).stdout.trim();
   let hiddenError: string | null = null;
   let hidden = '';
   if (!changed) {
@@ -836,7 +834,7 @@ function notesStep(root: string, config: Config, job: Job, sha: string): VerifyS
   } catch (e) {
     let differs: string[];
     try {
-      const main = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], { cwd: root, env: realHistoryEnv() }).stdout.trim();
+      const main = runGit(root, ['rev-parse', '--verify', 'HEAD^{commit}'], { env: historyEnv() }).stdout.trim();
       if (!/^[0-9a-f]{40}$/.test(main)) throw new ForgeError('the main checkout has no HEAD commit');
       const touched = new Set(committedChanges(wt, main, sha));
       differs = checkedNotes().filter((f) => touched.has(f));
@@ -886,7 +884,7 @@ async function verifyMember(
   const view = { id: job.id, worktree: cwd, base: m.member.base };
   // The HEAD the root's protected check saw, so the run records the commit it checked.
   const sha = m.head;
-  const changed = run('git', [...STATUS_ARGV], { cwd }).stdout.trim();
+  const changed = runGit(cwd, [...STATUS_ARGV]).stdout.trim();
   let hiddenError: string | null = null;
   let hidden = '';
   if (!changed) {
@@ -991,7 +989,7 @@ function renderSteps(lines: string[], results: VerifyStep[], secrets: SecretScan
 export function verifiedHead(root: string, id: string): { head: string; last: VerifyRun | null; verified: boolean; heads?: Record<string, string> } {
   const job = loadJob(root, id);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree`);
-  const head = run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree }).stdout.trim();
+  const head = runGit(job.worktree, ['rev-parse', 'HEAD']).stdout.trim();
   const last = job.verifyRuns[job.verifyRuns.length - 1] ?? null;
   const verified = Boolean(last && last.ok && last.sha === head);
   const members = memberRepos(job);
@@ -1006,7 +1004,7 @@ export function verifiedHead(root: string, id: string): { head: string; last: Ve
       all = false;
       continue;
     }
-    heads[m.repo] = run('git', ['rev-parse', 'HEAD'], { cwd: wt }).stdout.trim();
+    heads[m.repo] = runGit(wt, ['rev-parse', 'HEAD']).stdout.trim();
     const rec = last?.repos?.find((r) => r.repo === m.repo);
     if (!rec || rec.sha !== heads[m.repo]) all = false;
   }
@@ -1156,22 +1154,14 @@ export async function stopDevProven(root: string, id: string, worktree: string, 
       clear();
       return { stopped: false };
     }
-    // pid 1 and our own pid always read alive (and pid 1 would make the group signal -1, everything we may signal).
+    // pid 1 is never a dev server Forge started (and its group signal would be -1), and our own pid always reads alive.
     if (pid === 1 || pid === process.pid) return { stopped: false, refused: pid };
     if (!pidAlive(pid)) {
       clear();
       return { stopped: false };
     }
     if (!ownDevProcess(worktree, rec)) return { stopped: false, refused: pid };
-    const signal = (sig: NodeJS.Signals) => {
-      try {
-        process.kill(-pid, sig);
-      } catch {}
-    };
-    signal('SIGTERM');
-    const deadline = Date.now() + DEV_STOP_WAIT_MS;
-    while (pidAlive(pid) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
-    if (pidAlive(pid)) signal('SIGKILL');
+    await killAndWaitAsync(pid, DEV_STOP_WAIT_MS);
     clear();
     logEvent(root, id, 'background-stop', { names: ['dev'], actor });
     return { stopped: true };
@@ -1252,11 +1242,11 @@ function removeMemberWorktree(root: string, config: Config, job: Job, name: stri
   let removed: string | null = null;
   if (m.worktree && m.worktree !== dir) throw new ForgeError(`repo ${name}: the stored worktree ${JSON.stringify(m.worktree).slice(0, 120)} is not this job's worktree ${dir}`);
   if (exists(dir)) {
-    run('git', ['worktree', 'remove', ...(opts.force ? ['--force'] : []), dir], { cwd: clone });
+    runGit(clone, ['worktree', 'remove', ...(opts.force ? ['--force'] : []), dir], { write: true });
     removed = dir;
   }
-  run('git', ['worktree', 'prune'], { cwd: clone, allowFail: true });
-  if (opts.deleteBranch && !m.verifyOnly) run('git', ['branch', '-D', assertSafeRef(job.branch, 'job.branch')], { cwd: clone, allowFail: true });
+  runGit(clone, ['worktree', 'prune'], { allowFail: true, write: true });
+  if (opts.deleteBranch && !m.verifyOnly) runGit(clone, ['branch', '-D', assertSafeRef(job.branch, 'job.branch')], { allowFail: true, write: true });
   updateJob(root, job.id, (j) => {
     const e = memberEntry(j, name);
     if (e) e.worktree = null;
@@ -1285,16 +1275,16 @@ async function removeRootWorktree(root: string, id: string, opts: { deleteBranch
     if (!job.eval || !insideDir(worktreeRoot(root, loadConfig(root).config), job.worktree!) || insideDir(job.worktree!, root) || realpath(job.worktree!) === realpath(root)) {
       throw new ForgeError(`refusing to delete ${job.worktree}: not an eval checkout inside the worktrees root`);
     }
-    if (!opts.force && run('git', ['status', '--porcelain'], { cwd: job.worktree! }).stdout.trim()) {
+    if (!opts.force && runGit(job.worktree!, ['status', '--porcelain']).stdout.trim()) {
       throw new ForgeError(`${job.worktree} has uncommitted changes; use --force to remove it anyway`);
     }
     fs.rmSync(job.worktree!, { recursive: true, force: true });
   } else if (job.worktree && exists(job.worktree)) {
-    run('git', ['worktree', 'remove', ...(opts.force ? ['--force'] : []), job.worktree], { cwd: root });
+    runGit(root, ['worktree', 'remove', ...(opts.force ? ['--force'] : []), job.worktree], { write: true });
   }
-  run('git', ['worktree', 'prune'], { cwd: root, allowFail: true });
+  runGit(root, ['worktree', 'prune'], { allowFail: true, write: true });
   // createJob always sets branch.
-  if (opts.deleteBranch && !standalone) run('git', ['branch', '-D', job.branch!], { cwd: root, allowFail: true });
+  if (opts.deleteBranch && !standalone) runGit(root, ['branch', '-D', job.branch!], { allowFail: true, write: true });
   setJob(root, id, { fields: { worktree: null } });
   logEvent(root, id, 'worktree-removed', { branchDeleted: Boolean(opts.deleteBranch) });
   return { removed: job.worktree };

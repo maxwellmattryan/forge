@@ -14,25 +14,20 @@ import type { DatabaseOpts } from './backing-db.ts';
 import { isActive, jobDir, listJobs, loadJob } from './jobs.ts';
 import { paths } from './paths.ts';
 import type { BackingDbRecord, BackingDownResult, BackingEntry, BackingHealth, BackingIsolation, BackingRecord, BackingUpEntry, Config, DockerResult, DockerRunner, DoctorCheck } from './types.ts';
-import { ForgeError, readJson, run, tail, withLock, writeJsonAtomic } from './util.ts';
+import { DOCKER_TIMEOUT_MS, dockerRun, dockerStateOf } from './docker.ts';
+import type { DockerStateName } from './docker.ts';
+import { ForgeError, readJson, tail, withLock, writeJsonAtomic } from './util.ts';
 
 export { backingProblems, isManaged, jobDbPasswords };
 export type { DatabaseOpts, DockerResult, DockerRunner };
 
-const TIMEOUT_MS = 30_000;
+const TIMEOUT_MS = DOCKER_TIMEOUT_MS;
 /** `docker run` pulls the image on demand. */
 const RUN_TIMEOUT_MS = 600_000;
 const DOCTOR_TIMEOUT_MS = 5_000;
 const BACKING_HOST = '127.0.0.1';
 
-/**
- * Always allowFail: run()'s throwing path puts the whole argv into the error message. A spawn error
- * (no status) whose message says ENOENT is a missing binary.
- */
-const defaultRunner: DockerRunner = (args, opts = {}) => {
-  const res = run('docker', args, { allowFail: true, timeoutMs: opts.timeoutMs ?? TIMEOUT_MS, input: opts.input });
-  return { ...res, missing: res.status === null && /ENOENT/.test(res.stderr) };
-};
+const defaultRunner: DockerRunner = dockerRun;
 
 let activeRunner: DockerRunner = defaultRunner;
 
@@ -297,21 +292,21 @@ export function backingLine(config: Config, jobRecord: BackingRecord | null, sha
 
 // ---------- docker ----------
 
-export type DockerState = { state: 'missing' | 'stopped' | 'ok'; version?: string };
+export type DockerState = { state: DockerStateName; version?: string };
 
 export function dockerState(runner: DockerRunner = activeRunner, timeoutMs = TIMEOUT_MS): DockerState {
   const r = runner(['version', '--format', '{{.Server.Version}}'], { timeoutMs });
-  if (r.missing) return { state: 'missing' };
-  if (!r.ok) return { state: 'stopped' };
-  return { state: 'ok', version: r.stdout.trim() };
+  const state = dockerStateOf(r);
+  return state === 'ok' ? { state, version: r.stdout.trim() } : { state };
 }
 
 const managedNames = (list: BackingEntry[]): string => list.filter(isManaged).map((e) => e.name).join(', ');
 
-function stateError(s: DockerState, list: BackingEntry[]): string {
+/** Docker missing or stopped as an error whose code says which, so callers never read the message. */
+function dockerError(s: DockerState, list: BackingEntry[]): ForgeError {
   return s.state === 'missing'
-    ? `docker not found on PATH: install Docker to run backing services ${managedNames(list)}`
-    : 'docker is installed but its daemon is not reachable: start Docker (e.g. Docker Desktop, colima start) and retry';
+    ? new ForgeError(`docker not found on PATH: install Docker to run backing services ${managedNames(list)}`, 'docker_missing')
+    : new ForgeError('docker is installed but its daemon is not reachable: start Docker (e.g. Docker Desktop, colima start) and retry', 'docker_stopped');
 }
 
 /** A failed docker call in plain words: the subcommand and the last 5 lines of its stderr, never the argv. */
@@ -449,7 +444,7 @@ export function backingUp(
   // Failed before any container was touched: every managed entry reports `none` with the reason.
   const unreached = (error: string) => list.map((e): BackingUpEntry => (isManaged(e) ? noDb({ name: e.name, isolation: e.isolation, action: 'none', ok: false, error }, e) : external(e)));
   const state = dockerState(runner);
-  if (state.state !== 'ok') return unreached(stateError(state, list));
+  if (state.state !== 'ok') return unreached(dockerError(state, list).message);
   let recs: ReturnType<typeof allocateBacking>;
   try {
     recs = allocateBacking(root, config, job);
@@ -530,7 +525,7 @@ export function backingDown(root: string, config: Config, id: string, runner: Do
   const result = (ok: boolean, error?: string): BackingDownResult => ({ removed, volumes, ...(withDbs ? { databases } : {}), ok, ...(error === undefined ? {} : { error }) });
   if (list.length || dbs.length) {
     const state = dockerState(runner);
-    if (state.state !== 'ok') return result(false, stateError(state, [...list, ...dbs]));
+    if (state.state !== 'ok') return result(false, dockerError(state, [...list, ...dbs]).message);
     try {
       for (const e of list) {
         const labels = ownLabels(root, e, id);
@@ -576,7 +571,7 @@ export function backingDownShared(root: string, config: Config, runner: DockerRu
   const removed: string[] = [];
   if (!list.length) return { removed };
   const state = dockerState(runner);
-  if (state.state !== 'ok') throw new ForgeError(stateError(state, list), 'external');
+  if (state.state !== 'ok') throw dockerError(state, list);
   const slug = projectSlug(root, config);
   try {
     for (const e of list) {
@@ -612,7 +607,7 @@ export function backingStop(root: string, config: Config, id: string, runner: Do
   const skipped: { name: string; reason: string }[] = [];
   if (!list.length) return { stopped, skipped, ok: true };
   const state = dockerState(runner);
-  if (state.state !== 'ok') return { stopped, skipped, ok: false, error: stateError(state, list) };
+  if (state.state !== 'ok') return { stopped, skipped, ok: false, error: dockerError(state, list).message };
   try {
     for (const e of list) {
       const name = containerName(id, e.name);
@@ -668,16 +663,17 @@ function parseLabels(s: unknown): Labels {
 }
 
 export function backingStatus(root: string, config: Config, id?: undefined, runner?: DockerRunner): { containers: BackingContainer[] };
-export function backingStatus(root: string, config: Config, id: string, runner?: DockerRunner): { job: string; services: BackingServiceStatus[] };
+export function backingStatus(root: string, config: Config, id: string, runner?: DockerRunner): { job: string; docker: DockerStateName | null; services: BackingServiceStatus[] };
 /**
- * With a job: each entry's container, state, ports and env names (never values); `unknown` when
- * Docker is unreachable. Without one: every container labelled with this root, and which are orphans.
+ * With a job: Docker's state (null when no entry is managed, so Docker was not asked) and each entry's
+ * container, state, ports and env names (never values); `unknown` when Docker is unreachable. Without
+ * one: every container labelled with this root, and which are orphans.
  */
 export function backingStatus(root: string, config: Config, id?: string, runner: DockerRunner = activeRunner): any {
   const list = entries(config);
   if (id === undefined) {
     const state = dockerState(runner);
-    if (state.state !== 'ok') throw new ForgeError(stateError(state, list), 'external');
+    if (state.state !== 'ok') throw dockerError(state, list);
     const r = runner(['ps', '-a', '--filter', `label=forge.root=${rootLabel(root)}`, '--format', '{{json .}}']);
     if (!r.ok) throw new ForgeError(failure('ps', r), 'external');
     const containers: BackingContainer[] = [];
@@ -727,7 +723,7 @@ export function backingStatus(root: string, config: Config, id?: string, runner:
     }
     return { name: e.name, isolation: e.isolation, container, state: st, health, host: BACKING_HOST, ports: rec.ports[e.name] ?? {}, env, ...database };
   });
-  return { job: id, services };
+  return { job: id, docker: state?.state ?? null, services };
 }
 
 /** A job that exists and is neither done nor cancelled. */

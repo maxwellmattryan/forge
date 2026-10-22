@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ForgeError, run } from './util.ts';
+import { git } from './git.ts';
+import { ForgeError } from './util.ts';
 
 /**
  * Forge state always lives in the primary checkout, even when the CLI runs inside a job
@@ -9,11 +10,11 @@ import { ForgeError, run } from './util.ts';
  */
 export function mainRoot(cwd: string = process.cwd()): string {
   if (process.env.FORGE_ROOT) return path.resolve(process.env.FORGE_ROOT);
-  const common = run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, allowFail: true });
+  const common = git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'], { allowFail: true });
   if (!common.ok) throw new ForgeError('not inside a git repository (set FORGE_ROOT to override)', 'not_a_repo');
   const dir = common.stdout.trim();
   if (path.basename(dir) === '.git') return path.dirname(dir);
-  const top = run('git', ['rev-parse', '--show-toplevel'], { cwd, allowFail: true });
+  const top = git(cwd, ['rev-parse', '--show-toplevel'], { allowFail: true });
   if (top.ok) return top.stdout.trim();
   throw new ForgeError(`cannot determine the main checkout from ${dir}`);
 }

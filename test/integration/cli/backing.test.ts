@@ -141,7 +141,8 @@ test('forge backing up|status|down', async () => {
 
     const status = await s.cli(['backing', 'status', id]);
     assert.equal(status.status, 0);
-    assert.deepEqual(Object.keys(status.json), ['job', 'services']);
+    assert.deepEqual(Object.keys(status.json), ['job', 'docker', 'services']);
+    assert.equal(status.json.docker, 'ok');
     assert.deepEqual(Object.keys(status.json.services[0]), ['name', 'isolation', 'container', 'state', 'health', 'host', 'ports', 'env']);
     assert.equal(status.json.services[0].state, 'running');
     const all = await s.cli(['backing', 'status']);

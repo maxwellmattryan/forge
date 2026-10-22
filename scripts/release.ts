@@ -15,6 +15,7 @@ import readline from 'node:readline/promises';
 import { spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { gitSync } from './git.ts';
 import { releaseProblems } from './release-check.ts';
 import { isReleaseSubject, mainCommit, mainOnlyCommits, oneLine, Refusal } from './main-update.ts';
 
@@ -145,8 +146,13 @@ function sh(cmd: string, args: string[], opts: { input?: string; inherit?: boole
   if (r.error || r.status !== 0) throw new Refusal(`${cmd} ${args.slice(0, 2).join(' ')} failed: ${(r.stderr || r.error?.message || `exit ${r.status}`).trim()}`);
   return opts.inherit ? '' : r.stdout;
 }
-const git = (...args: string[]) => sh('git', ['-c', 'core.quotepath=off', ...args]).trim();
-const ok = (cmd: string, args: string[]) => spawnSync(cmd, args, { cwd: ROOT, stdio: 'ignore' }).status === 0;
+function gitOut(args: string[], opts: { input?: string } = {}): string {
+  const r = gitSync(args, { cwd: ROOT, input: opts.input });
+  if (r.error || r.status !== 0) throw new Refusal(`git ${args.slice(0, 2).join(' ')} failed: ${(r.stderr || r.error?.message || `exit ${r.status}`).trim()}`);
+  return r.stdout;
+}
+const git = (...args: string[]) => gitOut(args).trim();
+const gitOk = (args: string[]) => gitSync(args, { cwd: ROOT, stdio: 'ignore' }).status === 0;
 const say = (s: string) => process.stderr.write(`${s}\n`);
 
 const readVersion = (text: string): string => {
@@ -154,7 +160,7 @@ const readVersion = (text: string): string => {
   if (typeof v !== 'string' || !SEMVER.test(v)) throw new Refusal(`package.json version ${JSON.stringify(v)} is not X.Y.Z`);
   return v;
 };
-const tagged = (v: string) => ok('git', ['rev-parse', '-q', '--verify', `refs/tags/v${v}`]);
+const tagged = (v: string) => gitOk(['rev-parse', '-q', '--verify', `refs/tags/v${v}`]);
 
 /** The newest vX.Y.Z tag, or null. */
 function lastTag(): string | null {
@@ -182,7 +188,7 @@ function prepare(current: string, next: string, notesFile: string | null): void 
   const since = lastTag();
   const subjects = git('log', '--first-parent', '--format=%s', ...(since ? [`${since}..HEAD`] : ['HEAD'])).split('\n').filter(Boolean);
   const schema = 'lib/schema.ts';
-  const before = since ? schemaVersions(sh('git', ['show', `${since}:${schema}`])) : {};
+  const before = since ? schemaVersions(gitOut(['show', `${since}:${schema}`])) : {};
   const after = schemaVersions(fs.readFileSync(path.join(ROOT, schema), 'utf8'));
   const changelogFile = path.join(ROOT, 'CHANGELOG.md');
   const changelog = fs.readFileSync(changelogFile, 'utf8');
@@ -204,11 +210,11 @@ function prepare(current: string, next: string, notesFile: string | null): void 
   fs.writeFileSync(changelogFile, insertSection(changelog, section));
   const problems = releaseProblems(ROOT, { dist: 'absent' }).filter((p) => !p.startsWith('the working tree is not clean'));
   if (problems.length) {
-    sh('git', ['checkout', '--', ...VERSION_FILES.map(([rel]) => rel), 'CHANGELOG.md']);
+    gitOut(['checkout', '--',...VERSION_FILES.map(([rel]) => rel), 'CHANGELOG.md']);
     throw new Refusal(`nothing was committed:\n${problems.join('\n')}`);
   }
-  sh('git', ['add', '--', ...VERSION_FILES.map(([rel]) => rel), 'CHANGELOG.md']);
-  sh('git', ['commit', '-q', '-F', '-'], { input: `Release ${next}\n` });
+  gitOut(['add', '--', ...VERSION_FILES.map(([rel]) => rel), 'CHANGELOG.md']);
+  gitOut(['commit', '-q', '-F', '-'], { input: `Release ${next}\n` });
   say(`committed Release ${next} on develop`);
 }
 
@@ -271,10 +277,10 @@ export function parseArgs(argv: string[]): Args | null {
 
 async function release(args: Args): Promise<void> {
   if (git('symbolic-ref', '--short', 'HEAD') !== 'develop') throw new Refusal('check out develop first');
-  const dirty = sh('git', ['status', '--porcelain', '--untracked-files=all']).trimEnd();
+  const dirty = gitOut(['status','--porcelain', '--untracked-files=all']).trimEnd();
   if (dirty) throw new Refusal(`the working tree is not clean:\n${dirty}`);
   say('fetching develop, main and the tags');
-  sh('git', ['fetch', '--quiet', '--tags', 'origin', '+refs/heads/develop:refs/remotes/origin/develop', '+refs/heads/main:refs/remotes/origin/main']);
+  gitOut(['fetch', '--quiet','--tags', 'origin', '+refs/heads/develop:refs/remotes/origin/develop', '+refs/heads/main:refs/remotes/origin/main']);
 
   let version = readVersion(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   if (args.want) {
@@ -292,9 +298,9 @@ async function release(args: Args): Promise<void> {
   const develop = git('rev-parse', 'HEAD');
   const remote = git('rev-parse', 'refs/remotes/origin/develop');
   if (develop !== remote) {
-    if (!ok('git', ['merge-base', '--is-ancestor', remote, develop])) throw new Refusal('origin/develop has commits this develop lacks: pull first');
+    if (!gitOk(['merge-base','--is-ancestor', remote, develop])) throw new Refusal('origin/develop has commits this develop lacks: pull first');
     await confirm(`Push ${git('rev-list', '--count', `${remote}..${develop}`)} commit(s) ending in Release ${version} to develop?`, args.yes);
-    sh('git', ['push', '--quiet', 'origin', `${develop}:refs/heads/develop`]);
+    gitOut(['push', '--quiet', 'origin', `${develop}:refs/heads/develop`]);
   }
 
   const repo = repoName();
@@ -316,7 +322,7 @@ async function release(args: Args): Promise<void> {
       if (!SHA.test(sha)) throw new Refusal(`the main commit is ${JSON.stringify(sha)}`);
       await confirm(`Push Release ${version} to main (${sha.slice(0, 7)}: develop ${develop.slice(0, 7)} plus the dashboard from ${build.html_url})?`, args.yes);
       try {
-        sh('git', ['push', '--quiet', 'origin', `${sha}:refs/heads/main`]);
+        gitOut(['push', '--quiet', 'origin', `${sha}:refs/heads/main`]);
       } catch (e) {
         throw new Refusal(`${(e as Error).message}\nIf GitHub refused a workflow file, your credential lacks the workflow scope (gh auth refresh -s workflow). If main moved, run npm run release again.`);
       }
@@ -326,7 +332,7 @@ async function release(args: Args): Promise<void> {
     }
   }
 
-  if (!ok('git', ['ls-remote', '--exit-code', '--tags', 'origin', `refs/tags/v${version}`])) await waitForRun(repo, 'release.yml', onMain, 'main');
+  if (!gitOk(['ls-remote','--exit-code', '--tags', 'origin', `refs/tags/v${version}`])) await waitForRun(repo, 'release.yml', onMain, 'main');
   const url = sh('gh', ['release', 'view', `v${version}`, '--repo', repo, '--json', 'url', '--jq', '.url']).trim();
   say(`released ${version}`);
   process.stdout.write(`${url}\n`);

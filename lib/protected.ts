@@ -5,17 +5,15 @@
 // No imports from worktree.ts or evals.ts: worktree.ts imports this module.
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { betterMatch, matchPolicy, matchWith, policyRules } from './policy-check.ts';
 import type { PolicyMatch } from './policy-check.ts';
-import { PINNED_GIT_CONFIG } from './git-pins.ts';
+import { git, gitSpawnSync, historyEnv } from './git.ts';
 import { globToRegExp } from './glob.ts';
 import { isForemanActor, jobDir, loadJob, logEvent, updateJob } from './jobs.ts';
 import { resolveBase } from './scope.ts';
 import type { Config, Job, JobEvent, ProtectedHit, ProtectedPaths, ProtectedRule } from './types.ts';
-import { ForgeError, now, run, writeTextAtomic } from './util.ts';
+import { ForgeError, now, writeTextAtomic } from './util.ts';
 
 export type ProtectedAction = ProtectedRule['action'];
 export type ProtectedGate = ProtectedPaths['gate'];
@@ -119,11 +117,6 @@ export function matchEntry(entry: DiffEntry, rules: ProtectedRule[], readBlob: (
 
 // ---------- git ----------
 
-/** realHistoryEnv over a given environment: replace objects and grafts can't reshape the diff. */
-export function historyEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  return { ...base, GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: path.join(os.devNull, 'forge-no-grafts') };
-}
-
 /** Options that pin every diff here against builder-writable config: no external diff, textconv, relative paths, renames or abbreviation. */
 const RAW_OPTS = ['--no-ext-diff', '--no-textconv', '--no-color', '--no-relative', '--ignore-submodules=none', '--raw', '-z', '--no-abbrev', '--no-renames'];
 const PATCH_OPTS = ['--no-ext-diff', '--no-textconv', '--no-color', '--no-relative', '--ignore-submodules=none', '--no-renames', '--src-prefix=a/', '--dst-prefix=b/'];
@@ -133,7 +126,7 @@ const PATCH_OPTS = ['--no-ext-diff', '--no-textconv', '--no-color', '--no-relati
  * MERGE_HEAD while a merge is in progress, so what the base brings in never counts against the job.
  */
 export function comparisonPoint(cwd: string, config: Config, job: Pick<Job, 'base'>, head = 'HEAD', env: NodeJS.ProcessEnv = historyEnv()): string {
-  const merging = run('git', ['rev-parse', '-q', '--verify', 'MERGE_HEAD^{commit}'], { cwd, env, allowFail: true });
+  const merging = git(cwd, ['rev-parse', '-q', '--verify', 'MERGE_HEAD^{commit}'], { env, allowFail: true });
   const tip = merging.ok ? merging.stdout.trim() : head;
   if (tip !== 'HEAD' && !FULL_SHA.test(tip)) throw new ForgeError(`${JSON.stringify(tip.slice(0, 80))} is not a commit id`);
   const m = resolveBase(cwd, config, job, tip).mergeBase;
@@ -160,14 +153,14 @@ export function diffEntries(cwd: string, from: string, to: string, env: NodeJS.P
   if (!FULL_SHA.test(from) && from !== 'HEAD') throw new ForgeError(`${JSON.stringify(from.slice(0, 80))} is not a commit id`);
   const range = to === 'index' ? ['--cached', from] : [from, to];
   if (to !== 'index' && to !== 'HEAD' && !FULL_SHA.test(to)) throw new ForgeError(`${JSON.stringify(to.slice(0, 80))} is not a commit id`);
-  return parseRawZ(run('git', [...PINNED_GIT_CONFIG, 'diff', ...RAW_OPTS, ...range, '--'], { cwd, env }).stdout);
+  return parseRawZ(git(cwd, ['diff', ...RAW_OPTS, ...range, '--'], { env }).stdout);
 }
 
 /** A blob's bytes, at most 4 KiB, for a link target. */
 export function blobReader(cwd: string, env: NodeJS.ProcessEnv): (sha: string) => string | null {
   return (sha) => {
     if (!FULL_SHA.test(sha)) return null;
-    const r = spawnSync('git', ['cat-file', 'blob', sha], { cwd, env, encoding: 'utf8', maxBuffer: LINK_MAX + 1 });
+    const r = gitSpawnSync(cwd, ['cat-file', 'blob', sha], { env, encoding: 'utf8', maxBuffer: LINK_MAX + 1 });
     return r.status === 0 && typeof r.stdout === 'string' ? r.stdout : null;
   };
 }
@@ -272,8 +265,7 @@ function writeSource(src: DiffSource, paths: string[], parts: Buffer[], size: nu
   const range = src.to === 'index' ? ['--cached', src.from] : [src.from, src.to];
   let note = '';
   for (const group of chunks(paths)) {
-    const r = spawnSync('git', ['--literal-pathspecs', ...PINNED_GIT_CONFIG, 'diff', ...PATCH_OPTS, ...range, '--', ...group], {
-      cwd: src.cwd,
+    const r = gitSpawnSync(src.cwd, ['--literal-pathspecs', 'diff', ...PATCH_OPTS, ...range, '--', ...group], {
       env: src.env,
       encoding: 'buffer',
       maxBuffer: DIFF_CAP * 2,

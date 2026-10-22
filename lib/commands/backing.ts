@@ -48,8 +48,8 @@ const BACKING: HelpGroup = {
       command: 'backing status',
       args: '[<id>]',
       summary:
-        "with a job: each service's container, state (unknown when Docker is unreachable), health (healthy, unhealthy or starting while running; null without a healthcheck), ports, job database (name and template) and the FORGE_BACKING_* names its commands see (never values); without: every container labelled with this checkout, with orphan: true for a per-job one whose job is unknown, done or cancelled",
-      exits: [[1, 'an invalid job id'], [5, 'Docker missing or its daemon stopped (without a job only)']],
+        "with a job: docker (ok, missing or stopped; null when no service is managed) and each service's container, state (unknown when Docker is unreachable), health (healthy, unhealthy or starting while running; null without a healthcheck), ports, job database (name and template) and the FORGE_BACKING_* names its commands see (never values); without: every container labelled with this checkout, with orphan: true for a per-job one whose job is unknown, done or cancelled",
+      exits: [[1, 'an invalid job id'], [5, 'Docker missing (code docker_missing) or its daemon stopped (docker_stopped), without a job only']],
       docs: DOCS,
       readme: true,
     },

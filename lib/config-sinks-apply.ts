@@ -12,9 +12,10 @@ import path from 'node:path';
 import { isOwnWorktreePath } from './config.ts';
 import { renderEnvFile, renderMerge, renderTemplate, resolveString, sinkProblems } from './config-sinks.ts';
 import type { ExprContext } from './config-sinks.ts';
+import { git } from './git.ts';
 import { jobDir } from './jobs.ts';
 import { recordKnown, redactKnown } from './known-secrets.ts';
-import { gitEnv, writeIfChanged } from './links.ts';
+import { writeIfChanged } from './links.ts';
 import { posixShell } from './platform.ts';
 import { resolveSecret } from './secret-refs.ts';
 import { declaredSecrets } from './secret-refs-config.ts';
@@ -138,7 +139,7 @@ export function applySinks(root: string, config: Config, job: Job, component: Co
     // would let an ignored logical path land on a tracked file. Tracked files are not ignored (no
     // --no-index), so one refusal covers both; `--` keeps the path from reading as an option.
     const realRel = posix(path.join(path.relative(worktreeReal, parentReal), path.basename(out.abs)));
-    const ignored = run('git', ['-c', 'core.quotepath=off', '-c', 'core.fsmonitor=false', 'check-ignore', '-q', '--', realRel], { cwd: worktreeReal, allowFail: true, env: gitEnv() });
+    const ignored = git(worktreeReal, ['check-ignore', '-q', '--', realRel], { allowFail: true });
     if (!ignored.ok) throw new ForgeError(`config sink path ${out.rel}${realRel === out.rel ? '' : ` (${realRel})`} must be git-ignored and untracked; add it to .gitignore`);
     writeIfChanged(out.abs, content, 0o600);
     summary.files.push(out.rel);

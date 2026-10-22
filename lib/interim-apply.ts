@@ -10,10 +10,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
 import { attributionForbidden, scrubBranch } from './attribution.ts';
 import { isInsidePath } from './components.ts';
 import { isOwnWorktreePath } from './config.ts';
+import { STATUS_ARGV, git as runGit, gitEnv, gitSpawnSync, historyEnv } from './git.ts';
 import { memberConfig, memberEntry, trustedMemberWorktree } from './job-repos.ts';
 import { loadJob, logEvent, readEvents, setJob, updateJob } from './jobs.ts';
 import {
@@ -44,23 +44,15 @@ import {
 } from './interim.ts';
 import type { CargoPin, InterimEdge, PinResult } from './interim.ts';
 import { isSafeRemote, readLocalConfig, resolveMemberPath } from './member-repos.ts';
-import { historyEnv } from './protected.ts';
 import type { RepoKey } from './repo-order.ts';
 import { enqueue, listRequests } from './requests.ts';
 import { logSecrets, refusalMessage, scanBranch, scanFiles, secretMode, secretsBlock } from './secrets.ts';
 import type { Config, InterimStrategy, Job, JobEvent, WaitingOn } from './types.ts';
 import { ForgeError, SAFE_REF, findOnPath, run } from './util.ts';
 
-const STATUS_ARGV = ['-c', 'core.fsmonitor=false', 'status', '--porcelain', '--untracked-files=normal', '--ignore-submodules=none'];
 const PIN_STRATEGIES = new Set(['git-ref', 'canary']);
 
-function gitEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']) delete env[k];
-  return env;
-}
-
-const git = (cwd: string, args: string[]) => run('git', args, { cwd, allowFail: true, env: gitEnv() });
+const git = (cwd: string, args: string[], o: { write?: boolean } = {}) => runGit(cwd, args, { allowFail: true, ...o });
 
 /** A job repo's worktree when it is the path Forge computes and exists, else null. */
 export function repoWorktree(root: string, config: Config, job: Pick<Job, 'id' | 'worktree' | 'repos'>, key: RepoKey): string | null {
@@ -430,12 +422,12 @@ function scrubLikePrOpen(config: Config, worktree: string, base: string | null):
   if (!base || !SAFE_REF.test(base) || !SAFE_REF.test(String(config.git.remote))) return;
   const remoteBase = `${config.git.remote}/${base}`;
   const from = git(worktree, ['rev-parse', '--verify', '--quiet', remoteBase]).ok ? remoteBase : base;
-  scrubBranch(worktree, from, 'HEAD', historyEnv(gitEnv()));
+  scrubBranch(worktree, from, 'HEAD', historyEnv());
 }
 
 const LOCKFILE_TIMEOUT_MS = 600_000;
 const LOCKFILES: Record<string, string> = { cargo: 'Cargo.lock', npm: 'package-lock.json' };
-const STATUS_Z = ['-c', 'core.fsmonitor=false', '-c', 'core.quotepath=off', 'status', '--porcelain', '-z', '--untracked-files=normal', '--ignore-submodules=none'];
+const STATUS_Z = ['status', '--porcelain', '-z', '--untracked-files=normal', '--ignore-submodules=none'];
 
 /** The tracked `name` in the manifest's directory or the nearest ancestor inside the repo, or null. */
 function trackedLockfile(wt: string, manifest: string, name: string): string | null {
@@ -555,7 +547,7 @@ export function refreshInterim(root: string, config: Config, job: Job): InterimR
     else problems.push(`${repoLabel(k)} has no worktree; run: forge worktree create ${job.id}`);
   }
   if (problems.length) return { active: true, ok: false, problems, commits };
-  if ([...worktrees.values()].some((wt) => git(wt, STATUS_ARGV).stdout.trim() !== '')) return { active: true, ok: true, problems, commits };
+  if ([...worktrees.values()].some((wt) => git(wt, [...STATUS_ARGV]).stdout.trim() !== '')) return { active: true, ok: true, problems, commits };
   // Only a pin's dependency is pushed at the sha it is pinned at; a release names a version instead.
   const deps = new Set(live.map((e) => e.dependency));
   const base = (k: RepoKey) => (k === null ? job.base : (memberEntry(job, k)?.base ?? null));
@@ -595,7 +587,7 @@ export function refreshInterim(root: string, config: Config, job: Job): InterimR
         const bump = mine.some((e) => releases.has(e) && (plan.edgeFiles.get(e) ?? []).some((f) => written.has(f)));
         const msg = [bump ? `forge: release bump for job ${job.id}` : `forge: interim pins for job ${job.id}`, '', ...plan.lines].join('\n');
         const paths = [...written, ...lock.locks];
-        const c = git(wt, ['-c', 'commit.gpgsign=false', 'commit', '--no-verify', '--quiet', '--only', '-m', msg, '--', ...paths]);
+        const c = git(wt, ['-c', 'commit.gpgsign=false', 'commit', '--no-verify', '--quiet', '--only', '-m', msg, '--', ...paths], { write: true });
         if (!c.ok) {
           problems.push(`could not commit the ${bump ? 'release bump' : 'pins'} in ${repoLabel(repo)} (git exited ${c.status})`);
           continue;
@@ -698,7 +690,7 @@ interface TreeEntry {
 /** The blobs of `rel` at `sha` from git objects only, symlinks included (the caller refuses them). Submodules are left out. */
 function treeEntries(cwd: string, sha: string, rel: string): TreeEntry[] {
   const spec = rel.replace(/\\/g, '/').replace(/\/+$/, '');
-  const ls = run('git', ['-c', 'core.quotepath=off', 'ls-tree', '-r', '-z', '--full-tree', sha, '--', ...(spec === '.' ? [] : [spec])], { cwd, env: gitEnv() });
+  const ls = runGit(cwd, ['ls-tree', '-r', '-z', '--full-tree', sha, '--', ...(spec === '.' ? [] : [spec])]);
   return ls.stdout.split('\0').filter(Boolean).flatMap((line) => {
     const m = /^(\d{6}) blob ([0-9a-f]{40,64})\t(.+)$/s.exec(line);
     return m ? [{ mode: m[1], blob: m[2], path: m[3] }] : [];
@@ -712,7 +704,7 @@ function treeEntries(cwd: string, sha: string, rel: string): TreeEntry[] {
  */
 function exportTree(cwd: string, entries: TreeEntry[], dir: string): { path: string; body: Buffer }[] {
   if (!entries.length) return [];
-  const batch = spawnSync('git', ['cat-file', '--batch'], { cwd, env: gitEnv(), input: entries.map((e) => e.blob).join('\n') + '\n', maxBuffer: 512 * 1024 * 1024 });
+  const batch = gitSpawnSync(cwd, ['cat-file', '--batch'], { input: entries.map((e) => e.blob).join('\n') + '\n', maxBuffer: 512 * 1024 * 1024 });
   if (batch.status !== 0 || !batch.stdout) throw new ForgeError(`git cat-file could not read the objects of the export`);
   const out = batch.stdout as Buffer;
   const written: { path: string; body: Buffer }[] = [];

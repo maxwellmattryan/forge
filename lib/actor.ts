@@ -7,11 +7,13 @@ import path from 'node:path';
 import { paths } from './paths.ts';
 import { sanitizeLogin } from './schema.ts';
 import type { EventActor } from './types.ts';
-import { hasBinary, readJson, run, writeJsonAtomic } from './util.ts';
+import { gh } from './gh.ts';
+import { git } from './git.ts';
+import { hasBinary, readJson, writeJsonAtomic } from './util.ts';
 
 /** How long a gh login stays cached in .forge/runtime/actor.json. */
 export const ACTOR_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const GH_TIMEOUT_MS = 5000;
+const ACTOR_GH_TIMEOUT_MS = 5000;
 
 export interface ActorDeps {
   env: NodeJS.ProcessEnv;
@@ -91,11 +93,11 @@ function realDeps(root: string): ActorDeps {
     env: process.env,
     gh: () => {
       if (!hasBinary('gh')) return null;
-      const r = run('gh', ['api', 'user', '--jq', '.login'], { cwd: root, allowFail: true, timeoutMs: GH_TIMEOUT_MS });
+      const r = gh(root, ['api', 'user', '--jq', '.login'], { allowFail: true, timeoutMs: ACTOR_GH_TIMEOUT_MS });
       return r.ok ? r.stdout.trim() : null;
     },
     gitEmail: () => {
-      const r = run('git', ['config', 'user.email'], { cwd: root, allowFail: true });
+      const r = git(root, ['config', 'user.email'], { allowFail: true });
       return r.ok ? r.stdout.trim() : null;
     },
     osUser: osUserName,

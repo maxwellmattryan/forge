@@ -4,10 +4,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import { worktreeRoot } from './config.ts';
+import { git } from './git.ts';
 import { MIN_SECRET, allKnownValues } from './known-secrets.ts';
 import { secretSpans } from './secrets.ts';
 import type { Config, RedactCounts } from './types.ts';
-import { run } from './util.ts';
 
 export interface RedactContext {
   root: string;
@@ -63,13 +63,13 @@ function hostNames(): string[] {
 /** Everything that names this user, their org or their machine: git and OS user names, the host name, remote owners and the configured ones. */
 export function redactContext(root: string, config: Config | null, home = os.homedir()): RedactContext {
   const ids: string[] = [];
-  const name = run('git', ['config', 'user.name'], { cwd: root, allowFail: true });
+  const name = git(root, ['config', 'user.name'], { allowFail: true });
   if (name.ok) ids.push(name.stdout.trim());
   try {
     ids.push(os.userInfo().username);
   } catch {}
   ids.push(...hostNames());
-  const remotes = run('git', ['remote', '-v'], { cwd: root, allowFail: true });
+  const remotes = git(root, ['remote', '-v'], { allowFail: true });
   if (remotes.ok) ids.push(...hostOwners(remotes.stdout));
   const gh = config?.tracker?.github;
   if (typeof gh?.repo === 'string') ids.push(gh.repo.split('/')[0]);

@@ -1,13 +1,14 @@
 // Dependencies between jobs (`job.dependsOn`): validation, parking, claim refusal, stacked
-// branches and retargeting. Imports only jobs/paths/util and archive.ts (which imports no more):
+// branches and retargeting. Imports only jobs/paths/util/git and archive.ts (which imports no more):
 // worktree.ts imports this module, and pr.ts imports worktree.ts, so anything more would be a cycle.
 import path from 'node:path';
 import { readArchived } from './archive.ts';
+import { git } from './git.ts';
 import { claimJob, isActive, jobDir, listJobs, loadJob, logEvent, setJob } from './jobs.ts';
 import type { ClaimOpts } from './jobs.ts';
 import { exists } from './paths.ts';
 import type { Config, Job, LoadedJob } from './types.ts';
-import { ForgeError, run } from './util.ts';
+import { ForgeError } from './util.ts';
 
 export const DEP_REASON = 'dependencies not done: ';
 
@@ -131,7 +132,7 @@ export function baseRef(root: string, config: Config, name: string): string {
   return refExists(root, `refs/remotes/${config.git.remote}/${name}`) ? `${config.git.remote}/${name}` : name;
 }
 
-const refExists = (root: string, ref: string): boolean => run('git', ['rev-parse', '--verify', '--quiet', ref], { cwd: root, allowFail: true }).ok;
+const refExists = (root: string, ref: string): boolean => git(root, ['rev-parse', '--verify', '--quiet', ref], { allowFail: true }).ok;
 
 /** The dependency's branch as a ref (remote first), or null when it exists nowhere. */
 function depBranchRef(root: string, config: Config, dep: Job): string | null {
@@ -149,7 +150,7 @@ function depBranchRef(root: string, config: Config, dep: Job): string | null {
 export function isMerged(root: string, config: Config, dep: Job, base: string): boolean {
   if (dep.pr?.state === 'MERGED') return true;
   const ref = depBranchRef(root, config, dep);
-  if (ref) return run('git', ['merge-base', '--is-ancestor', ref, base], { cwd: root, allowFail: true }).ok;
+  if (ref) return git(root, ['merge-base', '--is-ancestor', ref, base], { allowFail: true }).ok;
   return dep.state === 'done';
 }
 
@@ -189,7 +190,7 @@ export function retargetPlan(root: string, config: Config): { id: string; from: 
     }
   }
   if (!candidates.length) return [];
-  run('git', ['fetch', config.git.remote, '--prune'], { cwd: root, allowFail: true });
+  git(root, ['fetch', config.git.remote, '--prune'], { allowFail: true, write: true });
   const plan: { id: string; from: string; to: string; dependency: string }[] = [];
   for (const { job, dep } of candidates) {
     const to = dep.base && dep.base !== job.base ? dep.base : config.git.base;

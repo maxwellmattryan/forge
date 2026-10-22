@@ -8,15 +8,16 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { validateConfig } from './config.ts';
+import { git as runGit } from './git.ts';
 import { resolveInterim } from './interim.ts';
 import { loadJob } from './jobs.ts';
-import { memberCheck, readLocalConfig, resolveMemberPath, gitEnv, shellWord } from './member-repos.ts';
+import { memberCheck, readLocalConfig, resolveMemberPath, shellWord } from './member-repos.ts';
 import { paths } from './paths.ts';
 import { memberRepos } from './job-repos.ts';
 import { prRepos, repoOrder, type RepoKey } from './repo-order.ts';
 import { validJobId } from './requests.ts';
 import type { Config, ReleaseCadence, ReleaseMechanism, ReleaseRegistry, ReleaseStrategy } from './types.ts';
-import { ForgeError, assertSafeRef, fenced, now, run, safeText, writeJsonAtomic, writeTextAtomic } from './util.ts';
+import { ForgeError, assertSafeRef, fenced, now, safeText, writeJsonAtomic, writeTextAtomic } from './util.ts';
 
 /** The release.json and state.json format; a file of any other version is planned again, never read. */
 export const RELEASE_FILE_VERSION = 1;
@@ -116,9 +117,9 @@ export interface PlanOptions {
 const ROOT_LABEL = '(root)';
 const labelOf = (repo: RepoKey): string => repo ?? ROOT_LABEL;
 
-/** git in a clone with the fsmonitor off and no inherited GIT_DIR-style variables, as memberCheck runs it. */
+/** git in a clone through the shared wrapper (pins, no inherited GIT_DIR-style variables), as memberCheck runs it. */
 export const cloneGit: GitReader = (dir, args) => {
-  const r = run('git', ['-c', 'core.fsmonitor=false', ...args], { cwd: dir, allowFail: true, env: gitEnv() });
+  const r = runGit(dir, args, { allowFail: true });
   return { ok: r.ok, stdout: r.stdout };
 };
 

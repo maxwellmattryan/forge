@@ -11,13 +11,13 @@ import { worktreeRoot } from './config.ts';
 import { daemonsDir, openRead, tailLines } from './daemon-files.ts';
 import { doctor } from './doctor.ts';
 import { forgeVersion } from './evals.ts';
-import { PINNED_GIT_CONFIG } from './git-pins.ts';
+import { git, historyEnv } from './git.ts';
 import { PINNED_DIFF_OPTS } from './integrity.ts';
 import { isActive, jobDir, listJobs, loadJob } from './jobs.ts';
 import { isPrivateName } from './known-secrets.ts';
 import { addCounts, daemonSkeleton, omitProse, omitted, redactContext, redactText } from './redact.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from './requests.ts';
-import { realHistoryEnv, resolveBase } from './scope.ts';
+import { resolveBase } from './scope.ts';
 import { loadStepInput, step } from './step.ts';
 import type { BundleManifest, BundleSkip, Config, Job, RedactCounts } from './types.ts';
 import { ForgeError, hasBinary, run } from './util.ts';
@@ -226,7 +226,7 @@ function jobDiff(root: string, config: Config, job: Job): string | { skip: strin
   try {
     const { mergeBase } = resolveBase(wt, config, job);
     if (!SHA.test(mergeBase)) return { skip: 'no merge base' };
-    const r = run('git', [...PINNED_GIT_CONFIG, 'diff', ...PINNED_DIFF_OPTS, mergeBase, 'HEAD', '--'], { cwd: wt, env: realHistoryEnv(), allowFail: true });
+    const r = git(wt, ['diff', ...PINNED_DIFF_OPTS, mergeBase, 'HEAD', '--'], { env: historyEnv(), allowFail: true });
     return r.ok ? r.stdout : { skip: 'git diff failed' };
   } catch {
     return { skip: 'no merge base' };

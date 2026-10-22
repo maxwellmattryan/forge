@@ -14,7 +14,8 @@ import { paths } from './paths.ts';
 import { repoSlug } from './pr.ts';
 import { roster } from './roster.ts';
 import { UNTRUSTED_LINE, oneLine } from './tracker-link.ts';
-import { ForgeError, fenced, now, run, withLock, writeJsonAtomic, writeTextAtomic } from './util.ts';
+import { gh } from './gh.ts';
+import { ForgeError, fenced, now, withLock, writeJsonAtomic, writeTextAtomic } from './util.ts';
 import type { Config, Effort, Job, Tracker, TrackerCtx, TrackerItem, TriageMissing } from './types.ts';
 
 export const TRIAGE_MISSING = ['outcome', 'acceptance', 'scope', 'duplicate'] as const satisfies readonly TriageMissing[];
@@ -177,7 +178,7 @@ function openPrs(root: string, config: Config): { prs: 'ok' | 'unavailable' | 'o
   if (!config.pr.enabled) return { prs: 'off', list: [] };
   try {
     const slug = repoSlug(root, config);
-    const r = run('gh', ['pr', 'list', '-R', slug, '--state', 'open', '--json', 'number,title,url', '--limit', '100'], { cwd: root, allowFail: true });
+    const r = gh(root, ['pr', 'list', '-R', slug, '--state', 'open', '--json', 'number,title,url', '--limit', '100'], { allowFail: true });
     if (!r.ok) return { prs: 'unavailable', list: [] };
     const raw = JSON.parse(r.stdout);
     if (!Array.isArray(raw)) return { prs: 'unavailable', list: [] };

@@ -12,14 +12,14 @@ import { unfenced } from './acs.ts';
 import { enforceBudget } from './budget.ts';
 import { configForJob } from './eval-overlay.ts';
 import { cleanPath } from './findings.ts';
-import { PINNED_GIT_CONFIG } from './git-pins.ts';
+import { git, historyEnv } from './git.ts';
 import { inSpec } from './glob.ts';
 import { PINNED_DIFF_OPTS, unquote } from './integrity.ts';
 import { fileVerdict, jobDir, loadJob, logEvent, readEvents, updateJob } from './jobs.ts';
 import { exists, paths } from './paths.ts';
-import { realHistoryEnv, resolveBase } from './scope.ts';
+import { resolveBase } from './scope.ts';
 import type { Config, Job, JobEvent, Verifier, VerifierAnswer, VerifierProblem, VerifierSet, VerifiersRecord, VerifiersRun, VerifyRun } from './types.ts';
-import { ForgeError, fenced, now, readJson, run, writeJsonAtomic, writeTextAtomic } from './util.ts';
+import { ForgeError, fenced, now, readJson, writeJsonAtomic, writeTextAtomic } from './util.ts';
 import * as yaml from './yaml.ts';
 
 const VERIFIER_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -242,8 +242,8 @@ function diffFiles(cwd: string, config: Config, job: Pick<Job, 'base'>, sha: str
     throw new ForgeError(`git could not resolve the job's base: ${oneLine((e as Error).message, 300)}`, 'external');
   }
   if (!FULL_SHA.test(mergeBase)) throw new ForgeError(`git returned an unexpected merge-base ${jsonLine(mergeBase)}`, 'external');
-  const args = [...PINNED_GIT_CONFIG, 'diff', ...PINNED_DIFF_OPTS.filter((o) => o !== '-M'), '--no-renames', '--text', '-U3', mergeBase, sha, '--'];
-  const r = run('git', args, { cwd, env: realHistoryEnv(), allowFail: true });
+  const args = ['diff', ...PINNED_DIFF_OPTS.filter((o) => o !== '-M'), '--no-renames', '--text', '-U3', mergeBase, sha, '--'];
+  const r = git(cwd, args, { env: historyEnv(), allowFail: true });
   if (!r.ok) throw new ForgeError(`git diff failed: ${oneLine(r.stderr || r.stdout, 300)}`, 'external');
   return splitDiff(r.stdout);
 }

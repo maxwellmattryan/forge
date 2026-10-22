@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -50,6 +49,7 @@ import { versionInfo } from './version.ts';
 import { commandTemplate, startBackground, stopDevProven } from './worktree.ts';
 import { jobEndpoints } from './endpoints.ts';
 import { containerName, entriesOrNone, isManaged, projectSlug } from './backing.ts';
+import { dockerSpawn } from './docker.ts';
 import { DOCKER_NAME, environmentsSnapshot, forgeJson, jobEnvironment, openConfinedLog, openDevLog } from './environment.ts';
 import { zip } from './zip.ts';
 import type {
@@ -927,7 +927,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     res.write('retry: 3000\n\n');
     clients.set(res, scope);
     const known = knownReader(id);
-    const child = spawn('docker', ['logs', '--follow', '--tail', '200', '--', container!], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = dockerSpawn(['logs', '--follow', '--tail', '200', '--', container!]);
     let ended = false;
     const lines = (pipe: NodeJS.ReadableStream) => {
       let partial = '';
@@ -1450,8 +1450,7 @@ function endpointsFor(root: string, config: Config, j: LoadedJob): Endpoint[] {
   const liveNow = (): boolean => {
     const rec = readSmallJson(path.join(jobDir(root, j.id), 'runtime.json'))?.dev;
     const pid = isObject(rec) ? rec.pid : undefined;
-    // pid 1 would make pidAlive signal -1 (every process this user may signal) and always read live.
-    return typeof pid === 'number' && pid > 1 && pidAlive(pid);
+    return pidAlive(pid);
   };
   const rows: Endpoint[] = ep.components.map((c) => {
     const live = c === served ? liveNow() : null;

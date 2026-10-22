@@ -9,7 +9,7 @@ import { isHttpsUrl } from './schema.ts';
 import { isLinkedJob, jobRepoOrder, siblingLine } from './repo-order.ts';
 import type { PrStateKey, RepoKey } from './repo-order.ts';
 import { policyRules } from './policy-check.ts';
-import { checkBranch, historyEnv, logEscalated, protectedApproved, refusalText } from './protected.ts';
+import { checkBranch, logEscalated, protectedApproved, refusalText } from './protected.ts';
 import type { MemberBranch } from './protected.ts';
 import { decides, enqueuePrFeedbackGate, foremanEnabled, maybeEnqueueGate, reservedFor } from './foreman.ts';
 import { prLinkNote } from './issue-link.ts';
@@ -21,7 +21,10 @@ import { enqueue, listRequests } from './requests.ts';
 import { attributionForbidden, scrubBranch, stripAttribution } from './attribution.ts';
 import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from './delta.ts';
 import type { ActorSource, Config, HumanDelta, Job, JobChange, JobEvent, JobPr, JobRepoPr, PrChecks } from './types.ts';
-import { ForgeError, SAFE_REF, hasBinary, now, readText, run, safeText } from './util.ts';
+import { ForgeError, SAFE_REF, hasBinary, now, readText, safeText } from './util.ts';
+import type { RunResult } from './util.ts';
+import { git, gitEnv, historyEnv } from './git.ts';
+import { gh, ghGraphql, ghJson } from './gh.ts';
 import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, secretsBlock, textUnit } from './secrets.ts';
 import { cleanGenerated, generatedConfig, generatedPaths, partitionConflicts, rebuild, regenerateProblem, takeBaseSide } from './regenerate.ts';
 import type { Strategy } from './regenerate.ts';
@@ -72,24 +75,13 @@ export interface MergePart {
 
 export function repoSlug(root: string, config: Config): string {
   if (config.tracker?.github?.repo) return config.tracker.github.repo;
-  const r = run('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], { cwd: root, allowFail: true });
+  const r = gh(root, ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], { allowFail: true });
   if (r.ok && r.stdout.trim()) return r.stdout.trim();
   throw new ForgeError('cannot determine the GitHub repository; set tracker.github.repo or run `gh auth login`', 'external');
 }
 
 function requireGh(): void {
   if (!hasBinary('gh')) throw new ForgeError('the GitHub CLI (gh) is required for PR features; install it or set pr.enabled: false', 'external');
-}
-
-function gh(root: string, args: string[]): ReturnType<typeof run> {
-  return run('gh', args, { cwd: root });
-}
-
-// gh output: raw input.
-function graphql(root: string, query: string, vars: Record<string, string | number>): any {
-  const args = ['api', 'graphql', '-f', `query=${query}`];
-  for (const [k, v] of Object.entries(vars)) args.push(typeof v === 'number' ? '-F' : '-f', `${k}=${v}`);
-  return JSON.parse(gh(root, args).stdout).data;
 }
 
 const PR_FIELDS = 'number,url,state,isDraft,title,headRefName,baseRefName,mergedAt,closedAt,isCrossRepository,author';
@@ -106,7 +98,7 @@ export function findPr(root: string, config: Config, id: string): any {
   const slug = repoSlug(root, config);
   if (job.pr?.number) return refuseUnsafeRefs(root, id, view(root, slug, job.pr.number));
   // createJob always sets branch.
-  const byBranch = JSON.parse(gh(root, ['pr', 'list', '-R', slug, '--head', job.branch!, '--state', 'all', '--json', PR_FIELDS, '--limit', '5']).stdout);
+  const byBranch = ghJson(root, ['pr', 'list', '-R', slug, '--head', job.branch!, '--state', 'all', '--json', PR_FIELDS, '--limit', '5']);
   const sameRepo = byBranch.filter((p: any) => !p.isCrossRepository);
   let pr = sameRepo.find((p: any) => p.state === 'OPEN') ?? sameRepo[0] ?? null;
   // The primary issue of this repo: a foreign issue's closing PRs live in a repo Forge doesn't adopt from.
@@ -115,7 +107,7 @@ export function findPr(root: string, config: Config, id: string): any {
     .find((r) => r !== null && /^\d+$/.test(r));
   if (!pr && issueNum) {
     const [owner, name] = slug.split('/');
-    const data = graphql(
+    const data = ghGraphql(
       root,
       `query($owner:String!,$name:String!,$num:Int!){repository(owner:$owner,name:$name){issue(number:$num){closedByPullRequestsReferences(first:10,includeClosedPrs:true){nodes{number state headRefName isCrossRepository authorAssociation}}}}}`,
       { owner, name, num: Number(issueNum) },
@@ -156,7 +148,7 @@ function refuseUnsafeRefs(root: string, id: string, pr: any): any {
 
 // gh output: raw input.
 function view(root: string, slug: string, num: number): any {
-  return JSON.parse(gh(root, ['pr', 'view', String(num), '-R', slug, '--json', PR_FIELDS]).stdout);
+  return ghJson(root, ['pr', 'view', String(num), '-R', slug, '--json', PR_FIELDS]);
 }
 
 /** One member repo's part of `forge pr open`: openMemberPr. */
@@ -225,7 +217,7 @@ export function openPr(
   const checked = evidence.head;
   if (!FULL_SHA.test(checked)) throw new ForgeError(`HEAD of ${id} is not a commit id`);
   const slug = repoSlug(root, config);
-  const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${job.base}..${checked}`, '--'], { cwd: job.worktree, allowFail: true });
+  const ahead = git(job.worktree!, ['rev-list', '--count', `${config.git.remote}/${job.base}..${checked}`, '--'], { allowFail: true });
   if (ahead.ok && ahead.stdout.trim() === '0') throw new ForgeError(`branch ${job.branch} has no commits ahead of ${job.base}`);
   // Interim strategies, judged against the checked commits before anything is pushed.
   // A merged member is not re-checked, but a consumer may still pin it: its HEAD now stands in.
@@ -241,7 +233,7 @@ export function openPr(
     if (attributionForbidden(config)) {
       const remoteBase = `${config.git.remote}/${job.base}`;
       // createJob always sets base and branch; so below.
-      const base = run('git', ['rev-parse', '--verify', '--quiet', remoteBase], { cwd: job.worktree!, allowFail: true }).ok ? remoteBase : job.base!;
+      const base = git(job.worktree!, ['rev-parse', '--verify', '--quiet', remoteBase], { allowFail: true }).ok ? remoteBase : job.base!;
       // Rewrites messages only, from the checked commit: every tree stays the one that was checked.
       const scrub = scrubBranch(job.worktree!, base, checked, historyEnv());
       if (scrub.rewritten) {
@@ -288,7 +280,7 @@ export function openPr(
   if (isDraft) args.push('--draft');
   for (const l of config.pr.labels ?? []) args.push('--label', l);
   for (const r of config.pr.reviewers ?? []) args.push('--reviewer', r);
-  const url = gh(job.worktree, args).stdout.trim().split('\n').pop() ?? '';
+  const url = gh(job.worktree!, args).stdout.trim().split('\n').pop() ?? '';
   const number = Number(url.match(/\/pull\/(\d+)/)?.[1]);
   setJob(root, id, { fields: { pr: { number, url, state: 'OPEN', isDraft, openedAt: now(), lastSyncedAt: now(), pushedSha } } });
   logEvent(root, id, 'pr-opened', { number, url });
@@ -365,7 +357,7 @@ function freshMerged(root: string, config: Config, job: Job, key: RepoKey): bool
   let live: PrStateKey | null = null;
   try {
     const slug = key === null ? repoSlug(root, config) : memberSlug(config, key);
-    const view = JSON.parse(gh(root, ['pr', 'view', String(number), '-R', slug, '--json', 'state,headRefName,baseRefName']).stdout);
+    const view = ghJson(root, ['pr', 'view', String(number), '-R', slug, '--json', 'state,headRefName,baseRefName']);
     assertJobPr(view, job.branch, key === null ? job.base : (memberEntry(job, key)?.base ?? null), `PR #${number} in ${slug}`);
     live = PR_STATES.has(view?.state) ? (view.state as PrStateKey) : null;
   } catch {}
@@ -408,7 +400,7 @@ interface MemberPrPlan {
 function checkMemberPr(root: string, config: Config, job: Job, name: string, title: string, mode: 'block' | 'warn', verified: string | undefined): MemberPrPlan {
   const { member, worktree } = memberWorktree(root, config, job, name);
   const base = member.base!;
-  const checked = verified ?? run('git', ['rev-parse', 'HEAD'], { cwd: worktree }).stdout.trim();
+  const checked = verified ?? git(worktree, ['rev-parse', 'HEAD']).stdout.trim();
   if (!FULL_SHA.test(checked)) throw new ForgeError(`HEAD of repo ${name} is not a commit id`);
   const body = memberPrBody(root, config, job);
   refuseSecrets(root, config, [textUnit('(pr title)', title), textUnit(`(pr body of repo ${name})`, body)], { what: `the PR title or body of repo ${name}`, id: job.id, gate: 'pr' });
@@ -418,7 +410,7 @@ function checkMemberPr(root: string, config: Config, job: Job, name: string, tit
   logSecrets(root, job.id, 'pr', scan, { blocked: mode === 'block' });
   if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of repo ${name}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${job.id}`);
   if (secretsBlock(scan.findings, mode)) throw new ForgeError(refusalMessage(`the commits of repo ${name}`, scan.findings), 'secret_found', `forge secrets scan ${job.id}`);
-  const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${base}..${checked}`, '--'], { cwd: worktree, allowFail: true });
+  const ahead = git(worktree, ['rev-list', '--count', `${config.git.remote}/${base}..${checked}`, '--'], { allowFail: true });
   if (!ahead.ok || ahead.stdout.trim() === '0') throw new ForgeError(`repo ${name} has no commits ahead of ${base}; remove it (forge job repo remove) or re-add it with --verify-only`);
   return { repo: name, slug: memberSlug(config, name), worktree, base, checked, body };
 }
@@ -435,7 +427,7 @@ function openMemberPr(root: string, config: Config, job: Job, p: MemberPrPlan, t
     let rewritten = false;
     if (attributionForbidden(config)) {
       const remoteBase = `${remote}/${p.base}`;
-      const base = run('git', ['rev-parse', '--verify', '--quiet', remoteBase], { cwd: p.worktree, allowFail: true }).ok ? remoteBase : p.base;
+      const base = git(p.worktree, ['rev-parse', '--verify', '--quiet', remoteBase], { allowFail: true }).ok ? remoteBase : p.base;
       const scrub = scrubBranch(p.worktree, base, p.checked, historyEnv());
       if (scrub.rewritten) {
         rewritten = true;
@@ -488,7 +480,7 @@ function recordMemberPr(root: string, id: string, repo: string, make: (prev: Job
  * is refused, never adopted. gh output: raw input.
  */
 function memberPrByBranch(cwd: string, slug: string, branch: string, which: 'open' | 'any'): any {
-  const list = JSON.parse(gh(cwd, ['pr', 'list', '-R', slug, '--head', branch, '--state', which === 'open' ? 'open' : 'all', '--json', PR_FIELDS, '--limit', '5']).stdout);
+  const list = ghJson(cwd, ['pr', 'list', '-R', slug, '--head', branch, '--state', which === 'open' ? 'open' : 'all', '--json', PR_FIELDS, '--limit', '5']);
   if (!Array.isArray(list)) return null;
   const cross = list.find((x: any) => x?.isCrossRepository);
   if (cross) throw new ForgeError(`PR #${Number(cross.number)} on ${branch} in ${slug} comes from a fork; Forge only uses branches in ${slug}`);
@@ -552,7 +544,7 @@ function linkSiblingPrs(root: string, config: Config, id: string): void {
     try {
       const base = p.repo === null ? job.base : (memberEntry(job, p.repo)?.base ?? null);
       const read = (): string => {
-        const view = JSON.parse(gh(root, ['pr', 'view', String(p.number), '-R', p.slug, '--json', 'body,headRefName,baseRefName']).stdout);
+        const view = ghJson(root, ['pr', 'view', String(p.number), '-R', p.slug, '--json', 'body,headRefName,baseRefName']);
         assertJobPr(view, job.branch, base, `PR #${p.number} in ${p.slug}`);
         if (typeof view?.body !== 'string') throw new ForgeError('gh returned no body');
         return view.body;
@@ -645,7 +637,7 @@ function syncMemberPrs(root: string, config: Config, id: string): Map<string, Me
         number = safePrNumber(found.number);
         if (number === null) throw new ForgeError('unusable PR number');
       }
-      const pr = JSON.parse(gh(root, ['pr', 'view', String(number), '-R', slug, '--json', fields]).stdout);
+      const pr = ghJson(root, ['pr', 'view', String(number), '-R', slug, '--json', fields]);
       if (pr?.isCrossRepository) throw new ForgeError(`PR #${number} in ${slug} comes from a fork`);
       assertJobPr(pr, job.branch, m.base, `PR #${number} in ${slug}`);
       const fresh = {
@@ -740,16 +732,16 @@ function refreshBase(job: Job, config: Config, mode: 'block' | 'warn'): void {
   if (!SAFE_REF.test(String(job.base)) || !SAFE_REF.test(String(remote))) return fail('unsafe base or remote name');
   // Callers check the worktree first.
   const cwd = job.worktree!;
-  const url = run('git', ['remote', 'get-url', '--push', remote], { cwd, allowFail: true });
+  const url = git(cwd, ['remote', 'get-url', '--push', remote], { allowFail: true });
   const pushUrl = url.stdout.trim().split('\n')[0] ?? '';
   // A leading - would read as an option; the push would use the same value, so nothing is lost.
   if (!url.ok || !pushUrl || pushUrl.startsWith('-')) return fail(`no usable push URL for ${remote}`);
   // Needs no network. Neither URL is ever printed: a URL can carry credentials.
-  const resolved = run('git', ['ls-remote', '--get-url', '--', pushUrl], { cwd, allowFail: true });
+  const resolved = git(cwd, ['ls-remote', '--get-url', '--', pushUrl], { allowFail: true });
   if (!resolved.ok || (resolved.stdout.trim().split('\n')[0] ?? '').trim() !== pushUrl) {
     return fail(`${remote}'s push URL is rewritten again by url.*.insteadOf, so a fetch would reach another repository`, true);
   }
-  const fetched = run('git', ['-c', 'protocol.ext.allow=never', 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head', '--', pushUrl, `+refs/heads/${job.base}:refs/remotes/${remote}/${job.base}`], { cwd, allowFail: true });
+  const fetched = git(cwd, ['-c', 'protocol.ext.allow=never', 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head', '--', pushUrl, `+refs/heads/${job.base}:refs/remotes/${remote}/${job.base}`], { write: true, allowFail: true });
   // Only the exit status: git's stderr can quote the URL, and a URL can carry credentials.
   if (!fetched.ok) fail(`git fetch from ${remote}'s push URL exited ${fetched.status}`);
 }
@@ -759,7 +751,7 @@ function pushBranch(job: Job, config: Config, sha: string, opts: { force?: boole
   const args = ['push', '-u', config.git.remote, `${sha}:refs/heads/${job.branch}`];
   if (opts.force) args.splice(1, 0, '--force-with-lease');
   // Callers check the worktree first.
-  run('git', args, { cwd: job.worktree! });
+  git(job.worktree!, args, { write: true });
 }
 
 /**
@@ -948,18 +940,18 @@ export type PrHeadPull = { pulled: 'none' | 'fast-forward' | 'merge' | 'conflict
 export function pullPrHead(root: string, config: Config, job: Job): PrHeadPull {
   if (job.pr?.state !== 'OPEN' || !job.worktree || !exists(job.worktree) || !job.branch || !SAFE_REF.test(job.branch)) return null;
   const cwd = job.worktree;
-  if (run('git', ['status', '--porcelain'], { cwd }).stdout.trim()) return null;
+  if (git(cwd, ['status', '--porcelain']).stdout.trim()) return null;
   const tracking = `refs/remotes/${config.git.remote}/${job.branch}`;
-  if (!run('git', ['fetch', '--quiet', '--no-tags', config.git.remote, `+refs/heads/${job.branch}:${tracking}`], { cwd, allowFail: true }).ok) return null;
-  const head = run('git', ['rev-parse', '--verify', '--quiet', `${tracking}^{commit}`], { cwd, allowFail: true }).stdout.trim();
+  if (!git(cwd, ['fetch', '--quiet', '--no-tags', config.git.remote, `+refs/heads/${job.branch}:${tracking}`], { write: true, allowFail: true }).ok) return null;
+  const head = git(cwd, ['rev-parse', '--verify', '--quiet', `${tracking}^{commit}`], { allowFail: true }).stdout.trim();
   if (!isSha(head)) return null;
-  const ancestor = (a: string, b: string) => run('git', ['merge-base', '--is-ancestor', a, b], { cwd, allowFail: true }).ok;
+  const ancestor = (a: string, b: string) => git(cwd, ['merge-base', '--is-ancestor', a, b], { allowFail: true }).ok;
   let pulled: NonNullable<PrHeadPull>['pulled'];
   if (ancestor(head, 'HEAD')) pulled = 'none';
-  else if (ancestor('HEAD', head)) pulled = run('git', ['merge', '--ff-only', head], { cwd, allowFail: true }).ok ? 'fast-forward' : 'conflicts';
-  else if (run('git', ['merge', '--no-edit', head], { cwd, allowFail: true }).ok) pulled = 'merge';
+  else if (ancestor('HEAD', head)) pulled = git(cwd, ['merge', '--ff-only', head], { write: true, allowFail: true }).ok ? 'fast-forward' : 'conflicts';
+  else if (git(cwd, ['merge', '--no-edit', head], { write: true, allowFail: true }).ok) pulled = 'merge';
   else {
-    run('git', ['merge', '--abort'], { cwd, allowFail: true });
+    git(cwd, ['merge', '--abort'], { write: true, allowFail: true });
     pulled = 'conflicts';
   }
   if (pulled !== 'none') logEvent(root, job.id, 'pr-head-pulled', { head, pulled });
@@ -1146,9 +1138,9 @@ function syncPrDetailed(root: string, config: Config, id: string, opts: { route?
   const slug = repoSlug(root, config);
   const fields = 'number,url,state,isDraft,headRefOid,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,mergedAt,closedAt,headRefName,baseRefName';
   // findPr recorded the PR it found. gh output: raw input.
-  const pr = JSON.parse(gh(root, ['pr', 'view', String(job.pr!.number), '-R', slug, '--json', fields]).stdout);
-  run('git', ['fetch', config.git.remote, '--prune'], { cwd: root, allowFail: true });
-  const behind = run('git', ['rev-list', '--count', `${config.git.remote}/${pr.headRefName}..${config.git.remote}/${pr.baseRefName}`], { cwd: root, allowFail: true });
+  const pr = ghJson(root, ['pr', 'view', String(job.pr!.number), '-R', slug, '--json', fields]);
+  git(root, ['fetch', config.git.remote, '--prune'], { write: true, allowFail: true });
+  const behind = git(root, ['rev-list', '--count', `${config.git.remote}/${pr.headRefName}..${config.git.remote}/${pr.baseRefName}`], { allowFail: true });
   const feedback = fetchFeedback(root, slug, pr.number);
   writeFeedback(root, id, pr, feedback);
   const checks = summarizeChecks(pr.statusCheckRollup ?? []);
@@ -1252,7 +1244,7 @@ function summarizeChecks(rollup: any[]): PrChecks {
 
 function fetchFeedback(root: string, slug: string, num: number): PrFeedback {
   const [owner, name] = slug.split('/');
-  const data = graphql(
+  const data = ghGraphql(
     root,
     `query($owner:String!,$name:String!,$num:Int!){repository(owner:$owner,name:$name){pullRequest(number:$num){
       reviewThreads(first:100){nodes{isResolved isOutdated path line comments(first:20){nodes{author{login} authorAssociation body createdAt url}}}}
@@ -1322,10 +1314,10 @@ export type IntegrateContinueResult =
 
 /** Unmerged paths, NUL-separated so odd names arrive as they are rather than C-quoted. */
 function unmerged(cwd: string): string[] {
-  return run('git', ['diff', '--name-only', '--diff-filter=U', '-z'], { cwd, allowFail: true }).stdout.split('\0').filter(Boolean);
+  return git(cwd, ['diff', '--name-only', '--diff-filter=U', '-z'], { allowFail: true }).stdout.split('\0').filter(Boolean);
 }
 
-const gitPathIn = (cwd: string, p: string): string => path.resolve(cwd, run('git', ['rev-parse', '--git-path', p], { cwd }).stdout.trim());
+const gitPathIn = (cwd: string, p: string): string => path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', p]).stdout.trim());
 
 /**
  * A rebase continues only while its todo holds nothing but the picks `integrate` wrote: an `exec`
@@ -1342,14 +1334,14 @@ function assertPlainTodo(cwd: string, id: string): void {
 }
 
 /** Commits the merge or continues the rebase. A non-interactive editor: the session has no TTY, and a human's GIT_EDITOR could block. */
-function advance(cwd: string, strategy: Strategy, id: string): ReturnType<typeof run> {
-  const env = { ...process.env, GIT_EDITOR: 'true' };
-  if (strategy === 'merge') return run('git', ['commit', '--no-edit'], { cwd, env, allowFail: true });
+function advance(cwd: string, strategy: Strategy, id: string): RunResult {
+  const env = { ...gitEnv(), GIT_EDITOR: 'true' };
+  if (strategy === 'merge') return git(cwd, ['commit', '--no-edit'], { env, write: true, allowFail: true });
   assertPlainTodo(cwd, id);
-  return run('git', ['rebase', '--continue'], { cwd, env, allowFail: true });
+  return git(cwd, ['rebase', '--continue'], { env, write: true, allowFail: true });
 }
 
-const advanceFailed = (strategy: Strategy, r: ReturnType<typeof run>): ForgeError =>
+const advanceFailed = (strategy: Strategy, r: RunResult): ForgeError =>
   new ForgeError(`git ${strategy === 'rebase' ? 'rebase --continue' : 'commit --no-edit'} failed: ${(r.stderr || r.stdout).trim()}`, 'external');
 
 const sortedList = (paths: Iterable<string>): string[] => [...new Set(paths)].sort();
@@ -1368,23 +1360,23 @@ export function integrate(root: string, config: Config, id: string, opts: { stra
   const job = loadJob(root, id);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree`);
   const cwd = job.worktree;
-  const dirty = run('git', ['status', '--porcelain'], { cwd }).stdout.trim();
+  const dirty = git(cwd, ['status', '--porcelain']).stdout.trim();
   if (dirty) throw new ForgeError(`worktree for ${id} has uncommitted changes; the builder must commit first`);
-  run('git', ['fetch', config.git.remote], { cwd, allowFail: true });
+  git(cwd, ['fetch', config.git.remote], { write: true, allowFail: true });
   const remoteBase = `${config.git.remote}/${job.base}`;
   // createJob always sets base.
-  const upstream = run('git', ['rev-parse', '--verify', '--quiet', remoteBase], { cwd, allowFail: true }).ok ? remoteBase : job.base!;
-  const behind = Number(run('git', ['rev-list', '--count', `HEAD..${upstream}`], { cwd }).stdout.trim());
+  const upstream = git(cwd, ['rev-parse', '--verify', '--quiet', remoteBase], { allowFail: true }).ok ? remoteBase : job.base!;
+  const behind = Number(git(cwd, ['rev-list', '--count', `HEAD..${upstream}`]).stdout.trim());
   if (behind === 0) {
     logEvent(root, id, 'integrated', { behind: 0 });
     return { ok: true, behind: 0, strategy: null, rewritten: false };
   }
   const strategy: Strategy = opts.strategy ?? config.pr.updateStrategy;
   // The two sides, so step can later tell what the resolution changed beyond git's own merge of them.
-  const sides = { head: run('git', ['rev-parse', 'HEAD'], { cwd }).stdout.trim(), upstream: run('git', ['rev-parse', `${upstream}^{commit}`], { cwd }).stdout.trim() };
-  let attempt = strategy === 'rebase' ? run('git', ['rebase', upstream], { cwd, allowFail: true }) : run('git', ['merge', '--no-edit', upstream], { cwd, allowFail: true });
+  const sides = { head: git(cwd, ['rev-parse', 'HEAD']).stdout.trim(), upstream: git(cwd, ['rev-parse', `${upstream}^{commit}`]).stdout.trim() };
+  let attempt = strategy === 'rebase' ? git(cwd, ['rebase', upstream], { write: true, allowFail: true }) : git(cwd, ['merge', '--no-edit', upstream], { write: true, allowFail: true });
   const keep = Boolean(opts.keepConflicts);
-  const abort = () => run('git', [strategy, '--abort'], { cwd, allowFail: true });
+  const abort = () => git(cwd, [strategy, '--abort'], { write: true, allowFail: true });
   const gen = generatedConfig(config);
   // Generated paths this run rebuilt and committed (or, kept, staged for --continue to rebuild).
   const regenerated = new Set<string>();
@@ -1452,7 +1444,7 @@ export function integrateContinue(root: string, config: Config, id: string): Int
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree`);
   const cwd = job.worktree;
   const rebasing = exists(gitPathIn(cwd, 'rebase-merge')) || exists(gitPathIn(cwd, 'rebase-apply'));
-  const merging = !rebasing && run('git', ['rev-parse', '-q', '--verify', 'MERGE_HEAD'], { cwd, allowFail: true }).ok;
+  const merging = !rebasing && git(cwd, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'], { allowFail: true }).ok;
   if (!rebasing && !merging) throw new ForgeError(`no merge or rebase is in progress for ${id}`);
   const strategy: Strategy = rebasing ? 'rebase' : 'merge';
   const gen = generatedConfig(config);
@@ -1474,7 +1466,7 @@ export function integrateContinue(root: string, config: Config, id: string): Int
       if (part.other.length) return { ok: false, strategy, conflicts: part.other, inProgress: true, ...extra() };
     }
     if (usable) {
-      const staged = run('git', ['diff', '--cached', '--name-only', '--no-renames', '-z', 'HEAD'], { cwd }).stdout;
+      const staged = git(cwd, ['diff', '--cached', '--name-only', '--no-renames', '-z', 'HEAD']).stdout;
       const changed = generatedPaths(cwd, staged, usable.globs);
       if (changed.length) {
         const regenerateError = rebuild(root, config, job, usable);
@@ -1524,7 +1516,7 @@ export function mergeAction(
 export function hasCiWorkflows(root: string, ref?: string): boolean {
   const isWorkflow = (n: string) => /\.ya?ml$/.test(n);
   if (ref) {
-    const ls = run('git', ['ls-tree', '--name-only', ref, '.github/workflows/'], { cwd: root, allowFail: true });
+    const ls = git(root, ['ls-tree', '--name-only', ref, '.github/workflows/'], { allowFail: true });
     if (ls.ok) return ls.stdout.split('\n').some((n) => isWorkflow(n.trim()));
   }
   const dir = path.join(root, '.github', 'workflows');
@@ -1601,7 +1593,7 @@ function mergeOne(root: string, config: Config, id: string, t: MergeTarget, opts
   const by = now ? { actor: currentActor(root) } : {};
   // Logged before the call so a human override is on record even if the merge then fails.
   if (now) logEvent(root, id, 'pr-merge-bypass', { ...tag, number, checks, ...by });
-  const res = run('gh', args, { cwd: root, allowFail: true });
+  const res = gh(root, args, { allowFail: true });
   if (!res.ok) {
     const error = (res.stderr || res.stdout).trim();
     logEvent(root, id, 'pr-merge-failed', { ...tag, number, error, ...by });

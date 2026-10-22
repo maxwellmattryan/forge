@@ -10,7 +10,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { paths, resolveFrom, exists } from '../paths.ts';
-import { ForgeError, readJson, run, withLock, writeJsonAtomic } from '../util.ts';
+import { ForgeError, readJson, withLock, writeJsonAtomic } from '../util.ts';
+import { gh, ghJson } from '../gh.ts';
 import * as yaml from '../yaml.ts';
 import { repoSlug } from '../pr.ts';
 import { listJobs, isActive } from '../jobs.ts';
@@ -46,10 +47,6 @@ export function inRepo(url: unknown, slug: string): boolean {
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-function gh(ctx: Pick<TrackerCtx, 'root'>, args: string[], input?: string) {
-  return run('gh', args, { cwd: ctx.root, input });
-}
-
 const gcfg = (ctx: Pick<TrackerCtx, 'config'>) => ctx.config.tracker.github;
 
 /** People with write access: their comments are imported by default, and their issues refresh on claim. */
@@ -62,7 +59,7 @@ export const trustedAssociation = (association: string | null): boolean => assoc
  */
 export function issueAuthorAssociation(ctx: TrackerCtx, ref: string): string | null {
   if (!/^\d+$/.test(ref)) return null;
-  const r = run('gh', ['api', `repos/${repoSlug(ctx.root, ctx.config)}/issues/${ref}`, '--jq', '.author_association'], { cwd: ctx.root, allowFail: true });
+  const r = gh(ctx.root, ['api', `repos/${repoSlug(ctx.root, ctx.config)}/issues/${ref}`, '--jq', '.author_association'], { allowFail: true });
   const a = r.ok ? r.stdout.trim() : '';
   return /^[A-Z_]{1,40}$/.test(a) ? a : null;
 }
@@ -128,8 +125,8 @@ function projectIds(ctx: TrackerCtx) {
   const cache = readJson(cacheFile, {});
   const key = `${coords.owner}/${coords.number}/${coords.statusField}`;
   if (cache[key]) return { ...coords, ...cache[key] };
-  const proj = JSON.parse(gh(ctx, ['project', 'view', String(coords.number), '--owner', coords.owner, '--format', 'json']).stdout);
-  const fields = JSON.parse(gh(ctx, ['project', 'field-list', String(coords.number), '--owner', coords.owner, '--format', 'json', '--limit', '100']).stdout);
+  const proj = ghJson(ctx.root, ['project', 'view', String(coords.number), '--owner', coords.owner, '--format', 'json']);
+  const fields = ghJson(ctx.root, ['project', 'field-list', String(coords.number), '--owner', coords.owner, '--format', 'json', '--limit', '100']);
   const field = (fields.fields ?? []).find((f: any) => f.name === coords.statusField);
   if (!field) throw new ForgeError(`project ${coords.owner}/${coords.number} has no field "${coords.statusField}"`);
   const ids = { projectId: proj.id, fieldId: field.id, options: Object.fromEntries((field.options ?? []).map((o: any) => [o.name, o.id])) };
@@ -141,7 +138,7 @@ function projectIds(ctx: TrackerCtx) {
 function projectStatuses(ctx: TrackerCtx): Map<string, { status: string | null; priority: string | null }> {
   const coords = projectCoords(ctx);
   if (!coords) return new Map();
-  const res = JSON.parse(gh(ctx, ['project', 'item-list', String(coords.number), '--owner', coords.owner, '--format', 'json', '--limit', '1000']).stdout);
+  const res = ghJson(ctx.root, ['project', 'item-list', String(coords.number), '--owner', coords.owner, '--format', 'json', '--limit', '1000']);
   const fieldKey = coords.statusField.toLowerCase();
   const map = new Map<string, { status: string | null; priority: string | null }>();
   for (const it of res.items ?? []) if (it.content?.url) map.set(it.content.url, { status: it[fieldKey] ?? null, priority: it.priority ?? null });
@@ -192,7 +189,7 @@ const toItem = (i: any): TrackerItem => ({
 const needsLabel = (ctx: Pick<TrackerCtx, 'config'>): string => `${gcfg(ctx).labels.prefix}needs-info`;
 
 function myLogin(ctx: TrackerCtx): string {
-  return gh(ctx, ['api', 'user', '-q', '.login']).stdout.trim();
+  return gh(ctx.root, ['api', 'user', '-q', '.login']).stdout.trim();
 }
 
 function activeLocalJob(ctx: TrackerCtx, ref: string): LoadedJob | null {
@@ -211,7 +208,7 @@ export default {
       if (ready.assignee) args.push('--assignee', ready.assignee);
       if (ready.milestone) args.push('--milestone', ready.milestone);
     }
-    let items: TrackerItem[] = JSON.parse(gh(ctx, args).stdout).map(toItem);
+    let items: TrackerItem[] = ghJson(ctx.root, args).map(toItem);
     const useProject = projectCoords(ctx) && (ready.projectStatus || ['project', 'both'].includes(gcfg(ctx).statusSync));
     if (useProject) {
       try {
@@ -246,7 +243,7 @@ export default {
     const found = new Map<number, TrackerItem>();
     const searchOnce = (q: string) => {
       const args = ['issue', 'list', '-R', slug, '--state', 'open', '--search', q, '--json', 'number,title,url,labels,body', '--limit', String(SEARCH_FETCH)];
-      for (const i of JSON.parse(gh(ctx, args).stdout)) {
+      for (const i of ghJson(ctx.root, args)) {
         // Belt and braces: an item from anywhere but the configured repo is never a candidate.
         if (!inRepo(i?.url, slug) || found.has(i.number)) continue;
         found.set(i.number, { ...toItem(i), body: String(i.body ?? '') });
@@ -261,7 +258,7 @@ export default {
   },
   get(ctx, ref) {
     const slug = repoSlug(ctx.root, ctx.config);
-    const r = run('gh', ['issue', 'view', ref, '-R', slug, '--json', 'number,title,body,url,labels,assignees,comments,state,author'], { cwd: ctx.root, allowFail: true });
+    const r = gh(ctx.root, ['issue', 'view', ref, '-R', slug, '--json', 'number,title,body,url,labels,assignees,comments,state,author'], { allowFail: true });
     if (!r.ok) return null;
     const i = JSON.parse(r.stdout);
     const item = toItem(i);
@@ -289,13 +286,13 @@ export default {
       const other = activeLocalJob(ctx, ref);
       if (other && other.id !== job.id) return { ok: false, reason: `already claimed by local job ${other.id}` };
       const slug = repoSlug(ctx.root, ctx.config);
-      const issue = JSON.parse(gh(ctx, ['issue', 'view', ref, '-R', slug, '--json', 'assignees,state']).stdout);
+      const issue = ghJson(ctx.root, ['issue', 'view', ref, '-R', slug, '--json', 'assignees,state']);
       if (issue.state !== 'OPEN') return { ok: false, reason: 'issue is not open' };
       if (gcfg(ctx).claim.assign) {
         const me = myLogin(ctx);
         const others = (issue.assignees ?? []).map((a: any) => a.login).filter((l: string) => l !== me);
         if (others.length) return { ok: false, reason: `assigned to ${others.join(', ')}` };
-        gh(ctx, ['issue', 'edit', ref, '-R', slug, '--add-assignee', '@me']);
+        gh(ctx.root, ['issue', 'edit', ref, '-R', slug, '--add-assignee', '@me']);
       }
       this.update(ctx, ref, job);
       return { ok: true };
@@ -308,12 +305,12 @@ export default {
     const slug = repoSlug(ctx.root, ctx.config);
     if (sync === 'labels' || sync === 'both') {
       const prefix = gcfg(ctx).labels.prefix;
-      const issue = JSON.parse(gh(ctx, ['issue', 'view', ref, '-R', slug, '--json', 'labels']).stdout);
+      const issue = ghJson(ctx.root, ['issue', 'view', ref, '-R', slug, '--json', 'labels']);
       const stale = issue.labels.map((l: any) => l.name).filter((n: string) => n.startsWith(prefix) && n !== `${prefix}${key}`);
-      run('gh', ['label', 'create', `${prefix}${key}`, '-R', slug, '--color', '6E56CF', '--description', 'Forge status', '--force'], { cwd: ctx.root, allowFail: true });
+      gh(ctx.root, ['label', 'create', `${prefix}${key}`, '-R', slug, '--color', '6E56CF', '--description', 'Forge status', '--force'], { allowFail: true });
       const args = ['issue', 'edit', ref, '-R', slug, '--add-label', `${prefix}${key}`];
       for (const s of stale) args.push('--remove-label', s);
-      gh(ctx, args);
+      gh(ctx.root, args);
     }
     if (sync === 'project' || sync === 'both') {
       const ids = projectIds(ctx);
@@ -322,14 +319,14 @@ export default {
       const optionId = ids.options[target];
       if (!optionId) throw new ForgeError(`project field "${ids.statusField}" has no option "${target}"`);
       const url = `https://github.com/${slug}/issues/${ref}`;
-      const item = JSON.parse(gh(ctx, ['project', 'item-add', String(ids.number), '--owner', ids.owner, '--url', url, '--format', 'json']).stdout);
-      gh(ctx, ['project', 'item-edit', '--id', item.id, '--project-id', ids.projectId, '--field-id', ids.fieldId, '--single-select-option-id', optionId]);
+      const item = ghJson(ctx.root, ['project', 'item-add', String(ids.number), '--owner', ids.owner, '--url', url, '--format', 'json']);
+      gh(ctx.root, ['project', 'item-edit', '--id', item.id, '--project-id', ids.projectId, '--field-id', ids.fieldId, '--single-select-option-id', optionId]);
     }
   },
   comment(ctx, ref, body) {
     const slug = repoSlug(ctx.root, ctx.config);
     const text = attributionForbidden(ctx.config) ? stripAttribution(body) : body;
-    gh(ctx, ['issue', 'comment', ref, '-R', slug, '--body-file', '-'], `${text}\n\n<!-- forge -->`);
+    gh(ctx.root, ['issue', 'comment', ref, '-R', slug, '--body-file', '-'], { input: `${text}\n\n<!-- forge -->` });
   },
   create(ctx, item) {
     const slug = repoSlug(ctx.root, ctx.config);
@@ -337,7 +334,7 @@ export default {
     const body = attributionForbidden(ctx.config) ? stripAttribution(raw) : raw;
     const args = ['issue', 'create', '-R', slug, '--title', item.title, '--body-file', '-'];
     for (const l of item.labels ?? []) args.push('--label', l);
-    const url = gh(ctx, args, body || ' ').stdout.trim().split('\n').pop() ?? '';
+    const url = gh(ctx.root, args, { input: body || ' ' }).stdout.trim().split('\n').pop() ?? '';
     return { ref: url.match(/\/issues\/(\d+)/)?.[1] ?? url, url };
   },
   setNeedsInfo(ctx, ref, note) {
@@ -345,14 +342,14 @@ export default {
     const slug = repoSlug(ctx.root, ctx.config);
     const label = needsLabel(ctx);
     if (note === null) {
-      gh(ctx, ['issue', 'edit', ref, '-R', slug, '--remove-label', label]);
+      gh(ctx.root, ['issue', 'edit', ref, '-R', slug, '--remove-label', label]);
       return;
     }
-    run('gh', ['label', 'create', label, '-R', slug, '--color', 'D97706', '--description', 'Forge: needs more information', '--force'], { cwd: ctx.root, allowFail: true });
-    gh(ctx, ['issue', 'edit', ref, '-R', slug, '--add-label', label]);
+    gh(ctx.root, ['label', 'create', label, '-R', slug, '--color', 'D97706', '--description', 'Forge: needs more information', '--force'], { allowFail: true });
+    gh(ctx.root, ['issue', 'edit', ref, '-R', slug, '--add-label', label]);
   },
   close(ctx, ref, opts = {}) {
     const slug = repoSlug(ctx.root, ctx.config);
-    gh(ctx, ['issue', 'close', ref, '-R', slug, '--reason', opts.reason === 'not-planned' ? 'not planned' : 'completed']);
+    gh(ctx.root, ['issue', 'close', ref, '-R', slug, '--reason', opts.reason === 'not-planned' ? 'not planned' : 'completed']);
   },
 } satisfies Tracker;

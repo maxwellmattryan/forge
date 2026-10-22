@@ -2,11 +2,12 @@
 // it for every job) with per-job overrides on top. Checkpoints park an over-budget job at
 // waiting:budget; only a human raises or acknowledges it, and the orchestrator resumes it.
 import { configForJob } from './eval-overlay.ts';
+import { git } from './git.ts';
 import { loadJob, logEvent, logHumanEvent, setJob, updateJob } from './jobs.ts';
 import { exists } from './paths.ts';
 import { BUDGET_KEYS } from './schema.ts';
 import type { BudgetKey, BudgetLimits, BudgetUsed, Config, DaemonJobBudget, Job, JobBudget } from './types.ts';
-import { ForgeError, now, run } from './util.ts';
+import { ForgeError, now } from './util.ts';
 
 const TERMINAL = ['done', 'cancelled', 'failed'];
 
@@ -66,7 +67,7 @@ export function measureBudget(job: Job): BudgetUsed {
 /** Committed lines added + deleted against the base. */
 function changedLines(job: Job): number | null {
   if (!job.worktree || !job.base || !exists(job.worktree)) return null;
-  const r = run('git', ['diff', '--numstat', `${job.base}...HEAD`], { cwd: job.worktree, allowFail: true });
+  const r = git(job.worktree, ['diff', '--numstat', `${job.base}...HEAD`], { allowFail: true });
   if (!r.ok) return null;
   let n = 0;
   for (const line of r.stdout.split('\n')) {

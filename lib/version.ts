@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_ROOT } from './paths.ts';
 import { detectInstall } from './update.ts';
-import { readJson, run } from './util.ts';
+import { ghJson } from './gh.ts';
+import { git, gitEnv } from './git.ts';
+import { readJson } from './util.ts';
 import type { DoctorCheck, InstallInfo, InstalledAs, VersionInfo } from './types.ts';
 
 /** At the plugin root; `git archive` stamps it through `.gitattributes` `export-subst`. */
@@ -69,10 +71,10 @@ function pluginCommit(info: InstallInfo): string | null {
 /** HEAD, only when the root is its own git toplevel, never a repo the install happens to sit in. */
 function gitCommit(info: InstallInfo, env: NodeJS.ProcessEnv): string | null {
   if (info.kind !== 'git') {
-    const top = run('git', ['-C', info.root, 'rev-parse', '--show-toplevel'], { env, allowFail: true });
+    const top = git(undefined, ['-C', info.root, 'rev-parse', '--show-toplevel'], { env: gitEnv(env), allowFail: true });
     if (!top.ok || realpath(top.stdout.trim()) !== info.root) return null;
   }
-  const head = run('git', ['-C', info.root, 'rev-parse', '--verify', '--quiet', 'HEAD'], { env, allowFail: true });
+  const head = git(undefined, ['-C', info.root, 'rev-parse', '--verify', '--quiet', 'HEAD'], { env: gitEnv(env), allowFail: true });
   const sha = head.stdout.trim();
   return head.ok && SHA.test(sha) ? sha : null;
 }
@@ -142,13 +144,11 @@ export function latestReleaseCheck(opts: { root?: string; env?: NodeJS.ProcessEn
     if (!running || info.version.startsWith('v')) return null;
     const repo = releaseRepo(info.root, info);
     if (!repo) return null;
-    const r = run('gh', ['release', 'view', '--repo', repo, '--json', 'tagName'], {
+    const tag = ghJson(undefined, ['release', 'view', '--repo', repo, '--json', 'tagName'], {
       allowFail: true,
       timeoutMs: opts.timeoutMs ?? 5000,
       env: { ...env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' },
-    });
-    if (!r.ok) return null;
-    const tag = JSON.parse(r.stdout)?.tagName;
+    })?.tagName;
     const latest = semver(tag);
     if (!latest) return null;
     const v = info.version;

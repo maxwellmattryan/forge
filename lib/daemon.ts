@@ -23,7 +23,8 @@ import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, validJobId } from './requests.ts'
 import { repoBudgetExempt } from './repo-budget.ts';
 import { EFFORTS } from './schema.ts';
 import { sessionAgents } from './session-agents.ts';
-import { GIT_PINS, START_SLACK_MS, isClaudeExecutable, now, pidAlive, processStartMs, run, sleepSync, splitWords, writeJsonAtomic } from './util.ts';
+import { SESSION_PINS } from './git.ts';
+import { START_SLACK_MS, isClaudeExecutable, killAndWait, now, pidAlive, processStartMs, run, splitWords, writeJsonAtomic } from './util.ts';
 import type { Config, RepoBudgetStatus, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, Effort, EffortSource, EventActor, ForgeRequest, PermissionDecision } from './types.ts';
 
 /** What a session reports to its pool: a log line as it is written, or its new state after a change. */
@@ -451,11 +452,11 @@ export function sessionEnv(env: NodeJS.ProcessEnv, auth: DaemonAuth = 'subscript
   if (auth !== 'api-key') for (const k of API_KEY_VARS) delete out[k];
   const count = Number(env.GIT_CONFIG_COUNT ?? 0);
   const base = Number.isInteger(count) && count > 0 ? count : 0;
-  GIT_PINS.forEach(([key, value], i) => {
+  SESSION_PINS.forEach(([key, value], i) => {
     out[`GIT_CONFIG_KEY_${base + i}`] = key;
     out[`GIT_CONFIG_VALUE_${base + i}`] = value;
   });
-  out.GIT_CONFIG_COUNT = String(base + GIT_PINS.length);
+  out.GIT_CONFIG_COUNT = String(base + SESSION_PINS.length);
   return out;
 }
 
@@ -530,11 +531,6 @@ function defaultKillTree(child: DaemonChild, signal: NodeJS.Signals): void {
   }
 }
 
-function signalGroup(pid: number, signal: NodeJS.Signals): void {
-  try {
-    process.kill(-pid, signal);
-  } catch {}
-}
 
 function appendLine(file: string, line: unknown): void {
   let fd: number | undefined;
@@ -601,10 +597,7 @@ function reapOne(info: any, graceMs: number): number | null {
   if (!Number.isInteger(pid)) return null;
   const serverGone = !info.serverPid || info.serverPid === process.pid || !pidAlive(info.serverPid);
   if (!serverGone || !pidAlive(pid) || !isOurChild(info, pid)) return null;
-  signalGroup(pid, 'SIGTERM');
-  const deadline = Date.now() + graceMs;
-  while (pidAlive(pid) && Date.now() < deadline) sleepSync(50);
-  if (pidAlive(pid)) signalGroup(pid, 'SIGKILL');
+  killAndWait(pid, graceMs);
   return pid;
 }
 

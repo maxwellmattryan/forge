@@ -12,7 +12,8 @@ import { isSafeBranch, isSafeRemote } from './member-repos.ts';
 import { repoSlug } from './pr.ts';
 import { OUTCOME_REF } from './schema.ts';
 import type { Config, Job, JobOutcome } from './types.ts';
-import { run } from './util.ts';
+import { gh } from './gh.ts';
+import { git } from './git.ts';
 
 /** A read-only gh call: the default runs gh in the root, tests pass a fake. */
 export type GhFn = (args: string[]) => { ok: boolean; stdout: string };
@@ -39,7 +40,7 @@ const MAX_REFS = 20;
 const MAX_TEXT = 65_536;
 const DEFAULT_WINDOW_DAYS = 14;
 
-const defaultGh = (root: string): GhFn => (args) => run('gh', args, { cwd: root, allowFail: true });
+const defaultGh = (root: string): GhFn => (args) => gh(root, args, { allowFail: true });
 
 const isPositiveInt = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) > 0;
 const timeOf = (v: unknown): number | null => {
@@ -139,12 +140,12 @@ export function matchFollowUps(list: unknown, q: { slug: string; prNumber: numbe
   return refs;
 }
 
-const hasCommit = (cwd: string, sha: string): boolean => run('git', ['cat-file', '-e', `${sha}^{commit}`], { cwd, allowFail: true }).ok;
+const hasCommit = (cwd: string, sha: string): boolean => git(cwd, ['cat-file', '-e', `${sha}^{commit}`], { allowFail: true }).ok;
 
 /** The first commit on `ref` after `mergeSha`, inside [from, until], whose message says it reverts it. */
 export function findRevertCommit(cwd: string, ref: string, mergeSha: string, from: string, until: string): string | null {
   if (!isSha(mergeSha)) return null;
-  const r = run('git', ['log', '--format=%H', '-F', `--grep=This reverts commit ${mergeSha}`, `--since=${from}`, `--until=${until}`, `${mergeSha}..${ref}`, '--'], { cwd, allowFail: true });
+  const r = git(cwd, ['log', '--format=%H', '-F', `--grep=This reverts commit ${mergeSha}`, `--since=${from}`, `--until=${until}`, `${mergeSha}..${ref}`, '--'], { allowFail: true });
   if (!r.ok) return null;
   const shas = r.stdout.split('\n').map((s) => s.trim()).filter(isSha);
   // git log lists newest first.
@@ -157,14 +158,14 @@ export function findRevertCommit(cwd: string, ref: string, mergeSha: string, fro
  */
 export function measureChurn(cwd: string, ref: string, mergeSha: string, until: string, forge: ForgeCommits): JobOutcome['churn'] {
   if (!isSha(mergeSha)) return null;
-  const diff = run('git', ['-c', 'core.quotePath=false', 'diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '-z', `${mergeSha}^1`, mergeSha, '--'], { cwd, allowFail: true });
+  const diff = git(cwd, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '-z', `${mergeSha}^1`, mergeSha, '--'], { allowFail: true });
   if (!diff.ok) return null;
   const files = diff.stdout.split('\0').filter(Boolean).slice(0, MAX_JOB_FILES);
   if (!files.length) return { commits: 0, lines: 0, files: 0 };
-  const log = run(
-    'git',
-    ['--literal-pathspecs', '-c', 'core.quotePath=false', 'log', '--first-parent', '--no-renames', '--no-ext-diff', '--no-textconv', '--numstat', '-z', '--format=%x01%H%x02%s', `--until=${until}`, `${mergeSha}..${ref}`, '--', ...files],
-    { cwd, allowFail: true },
+  const log = git(
+    cwd,
+    ['--literal-pathspecs', 'log', '--first-parent', '--no-renames', '--no-ext-diff', '--no-textconv', '--numstat', '-z', '--format=%x01%H%x02%s', `--until=${until}`, `${mergeSha}..${ref}`, '--', ...files],
+    { allowFail: true },
   );
   if (!log.ok) return null;
   let commits = 0, lines = 0;
@@ -219,7 +220,7 @@ function baseRef(root: string, config: Config, job: Job): string | null {
   const remote = config.git.remote;
   if (isSafeRemote(remote) && isSafeBranch(remote)) {
     const tracking = `refs/remotes/${remote}/${base}`;
-    if (run('git', ['rev-parse', '--verify', '--quiet', `${tracking}^{commit}`, '--'], { cwd: root, allowFail: true }).ok) return tracking;
+    if (git(root, ['rev-parse', '--verify', '--quiet', `${tracking}^{commit}`, '--'], { allowFail: true }).ok) return tracking;
   }
   return `refs/heads/${base}`;
 }
@@ -337,7 +338,7 @@ export function measureOutcomes(root: string, config: Config, opts: { limit?: nu
     .sort((a, b) => Number(Boolean(a.outcome)) - Number(Boolean(b.outcome)) || String(a.outcome?.measuredAt ?? '').localeCompare(String(b.outcome?.measuredAt ?? '')) || a.id.localeCompare(b.id))
     .slice(0, opts.limit ?? PER_SYNC);
   if (!due.length) return { measured, finalized };
-  if (isSafeRemote(config.git.remote)) run('git', ['fetch', '--quiet', config.git.remote, '--prune'], { cwd: root, allowFail: true });
+  if (isSafeRemote(config.git.remote)) git(root, ['fetch', '--quiet', config.git.remote, '--prune'], { write: true, allowFail: true });
   const forge = forgeCommits(root);
   const gh = opts.gh ?? defaultGh(root);
   for (const job of due) {

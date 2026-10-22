@@ -15,7 +15,8 @@ import { repoSlug } from './pr.ts';
 import { repoBudgetStatus } from './repo-budget.ts';
 import { enqueue, listRequests } from './requests.ts';
 import type { Config, Job, JobScore } from './types.ts';
-import { ForgeError, run } from './util.ts';
+import { gh } from './gh.ts';
+import { ForgeError } from './util.ts';
 
 const DAY_MS = 86_400_000;
 /** Merges older than this are never queued: the bound on retrying a failed diff fetch. */
@@ -27,7 +28,7 @@ const TRUNCATED = `[forge: diff truncated at ${MAX_DIFF_BYTES} bytes]`;
 // One line, its parts separated by fixed tokens, so no two quantifiers can match the same characters.
 const SCORE_LINE = /^SCORE:\s*(\d(?:\.\d)?)\s*\/\s*5\s*$/;
 
-const defaultGh = (root: string): GhFn => (args) => run('gh', args, { cwd: root, allowFail: true });
+const defaultGh = (root: string): GhFn => (args) => gh(root, args, { allowFail: true });
 const isPositiveInt = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) > 0;
 const timeOf = (v: unknown): number | null => {
   if (typeof v !== 'string' || !v || v.length > 40) return null;

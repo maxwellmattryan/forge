@@ -8,7 +8,7 @@ import path from 'node:path';
  * The CLI's error codes and the exit each one fixes (docs/CLI.md "Error codes"). Scripts branch on
  * these, so renaming or removing one is a breaking change.
  */
-export const ERROR_CODES = { failed: 1, not_found: 1, internal: 1, secret_found: 1, protected_path: 1, interim_stale: 1, release_gate: 1, usage: 2, unknown_command: 2, not_initialized: 2, not_a_repo: 2, config_invalid: 2, owned: 3, stale_epoch: 3, blocked: 4, external: 5 } as const;
+export const ERROR_CODES = { failed: 1, not_found: 1, internal: 1, secret_found: 1, protected_path: 1, interim_stale: 1, release_gate: 1, usage: 2, unknown_command: 2, not_initialized: 2, not_a_repo: 2, config_invalid: 2, owned: 3, stale_epoch: 3, blocked: 4, external: 5, docker_missing: 5, docker_stopped: 5 } as const;
 export type ErrorCode = keyof typeof ERROR_CODES;
 export type ExitCode = (typeof ERROR_CODES)[ErrorCode];
 /** The code a bare exit number means, so `new ForgeError(msg, 3)` written before codes existed keeps working. */
@@ -52,46 +52,60 @@ export function assertSafeRef(value: unknown, field: string): string {
   throw new ForgeError(`${field} ${shown} is not a safe branch name: it must start with a letter or digit and use only A-Z a-z 0-9 . _ / - (at most 200 characters)`);
 }
 
-/**
- * Git config pinned for the session and everything it runs (subagents, `forge`, verify commands).
- * GIT_CONFIG_* entries outrank every config file, and the allowlist has no `git -c`, so a hook
- * or fsmonitor program the session writes into the repo (e.g. a `core.hooksPath` dir such as
- * `.githooks/`, which Claude Code doesn't protect the way it does `.git/`) never runs.
- * Drivers that only .git/config or ~/.gitconfig can define (filter, diff, merge) are left alone.
- */
-export const GIT_PINS = Object.freeze([
-  // The null device on every platform (\\.\nul on Windows), never a directory a hook could live in.
-  ['core.hooksPath', os.devNull],
-  ['core.fsmonitor', 'false'],
-]);
+/** What run() returns. `timedOut` is set only when `timeoutMs` ran out and the child was killed. */
+export interface RunResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  status: number | null;
+  timedOut?: true;
+}
+
+export interface RunOpts {
+  cwd?: string;
+  input?: string;
+  allowFail?: boolean;
+  env?: NodeJS.ProcessEnv;
+  timeoutMs?: number;
+  /** The arguments error messages name, when `args` starts with a wrapper's own options (lib/git.ts's pins). */
+  shownArgs?: string[];
+}
+
+/** `<cmd> <first arg> timed out after <n> s`, with the timeout rounded up to whole seconds. */
+export function timedOutMessage(cmd: string, args: readonly string[], timeoutMs: number): string {
+  return `${[cmd, args[0]].filter(Boolean).join(' ')} timed out after ${Math.ceil(timeoutMs / 1000)} s`;
+}
 
 /**
  * Runs a binary without a shell so arguments can never be reinterpreted.
  */
-export function run(
-  cmd: string,
-  args: string[],
-  opts: { cwd?: string; input?: string; allowFail?: boolean; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
-): { ok: boolean; stdout: string; stderr: string; status: number | null } {
+export function run(cmd: string, args: string[], opts: RunOpts = {}): RunResult {
+  const shown = opts.shownArgs ?? args;
   const res = spawnSync(cmd, args, {
     cwd: opts.cwd,
     input: opts.input,
     env: opts.env ?? process.env,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
-    // A timeout kills the child and sets res.error (ETIMEDOUT), so it takes the spawn-error path below.
     timeout: opts.timeoutMs,
   });
+  const code = (res.error as NodeJS.ErrnoException | undefined)?.code;
+  // A timeout kills the child and sets res.error (ETIMEDOUT); it is a hang, not a failure to start.
+  if (code === 'ETIMEDOUT' && opts.timeoutMs !== undefined) {
+    const message = timedOutMessage(cmd, shown, opts.timeoutMs);
+    if (opts.allowFail) return { ok: false, stdout: '', stderr: message, status: null, timedOut: true };
+    throw new ForgeError(message, 'external');
+  }
   // A child that exits before reading its `input` makes spawnSync report EPIPE beside the real exit
   // status (a race under load, not a failure to start): the exit status is the answer.
-  const unreadInput = res.error && (res.error as NodeJS.ErrnoException).code === 'EPIPE' && res.status !== null;
+  const unreadInput = code === 'EPIPE' && res.status !== null;
   if (res.error && !unreadInput) {
     if (opts.allowFail) return { ok: false, stdout: '', stderr: String(res.error.message), status: null };
     throw new ForgeError(`${cmd} failed to start: ${res.error.message}`, 'external');
   }
   const out = { ok: res.status === 0, stdout: res.stdout ?? '', stderr: res.stderr ?? '', status: res.status };
   if (!out.ok && !opts.allowFail) {
-    throw new ForgeError(`${cmd} ${args.join(' ')} exited ${res.status}: ${(out.stderr || out.stdout).trim()}`, 'external');
+    throw new ForgeError(`${cmd} ${shown.join(' ')} exited ${res.status}: ${(out.stderr || out.stdout).trim()}`, 'external');
   }
   return out;
 }
@@ -189,10 +203,11 @@ export function sleepSync(ms: number): void {
 
 /**
  * The process group first (the shell's children keep it alive), then the pid. EPERM counts as
- * dead too: a process we may not signal is not ours, so the pid was reused.
+ * dead too: a process we may not signal is not ours, so the pid was reused. Pid 1 is never a
+ * process Forge started, and its group signal would be kill(-1), every process we may signal.
  */
 export function pidAlive(pid: unknown): boolean {
-  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return false;
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1) return false;
   for (const target of [-pid, pid]) {
     try {
       process.kill(target, 0);
@@ -200,6 +215,29 @@ export function pidAlive(pid: unknown): boolean {
     } catch {}
   }
   return false;
+}
+
+function signalGroup(pid: number, signal: NodeJS.Signals): void {
+  if (!Number.isInteger(pid) || pid <= 1) return;
+  try {
+    process.kill(-pid, signal);
+  } catch {}
+}
+
+/** SIGTERM to `pid`'s group, up to `graceMs` for it to go, then SIGKILL to the group. */
+export function killAndWait(pid: number, graceMs: number): void {
+  signalGroup(pid, 'SIGTERM');
+  const deadline = Date.now() + graceMs;
+  while (pidAlive(pid) && Date.now() < deadline) sleepSync(50);
+  if (pidAlive(pid)) signalGroup(pid, 'SIGKILL');
+}
+
+/** killAndWait without blocking the event loop. */
+export async function killAndWaitAsync(pid: number, graceMs: number): Promise<void> {
+  signalGroup(pid, 'SIGTERM');
+  const deadline = Date.now() + graceMs;
+  while (pidAlive(pid) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+  if (pidAlive(pid)) signalGroup(pid, 'SIGKILL');
 }
 
 /**

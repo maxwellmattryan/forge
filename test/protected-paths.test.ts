@@ -619,11 +619,11 @@ describe('verify and pr open', { concurrency: 4 }, () => {
         { mode: 0o755 },
       );
       // A stand-in git: the first \`rev-list --count\` (after every check) commits a refuse path in the
-      // worktree, as a stale session or a leftover background process could.
+      // worktree, as a stale session or a leftover background process could. Forge's `-c` pins come first.
       const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
       fs.writeFileSync(
         path.join(bin, 'git'),
-        `#!/bin/sh\nif [ -n "$RACE_WT" ] && [ "$1" = rev-list ] && [ "$2" = --count ] && [ ! -e "$RACE_MARK" ]; then\n  : > "$RACE_MARK"\n  echo "# raced" >> "$RACE_WT/.forge/config.yml"\n  "${real}" -C "$RACE_WT" -c user.email=t@e.st -c user.name=T commit -qam raced\nfi\nexec "${real}" "$@"\n`,
+        `#!/bin/sh\ncase " $* " in *" rev-list --count "*) count=1 ;; *) count= ;; esac\nif [ -n "$RACE_WT" ] && [ -n "$count" ] && [ ! -e "$RACE_MARK" ]; then\n  : > "$RACE_MARK"\n  echo "# raced" >> "$RACE_WT/.forge/config.yml"\n  "${real}" -C "$RACE_WT" -c user.email=t@e.st -c user.name=T commit -qam raced\nfi\nexec "${real}" "$@"\n`,
         { mode: 0o755 },
       );
       execFileSync('git', ['init', '-q', '--bare', bare]);

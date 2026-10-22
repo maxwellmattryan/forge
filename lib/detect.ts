@@ -4,9 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { defaults } from './config.ts';
 import { cargoMembers as membersOf, detectComponents, npmWorkspaces } from './detect-components.ts';
+import { git as runGit } from './git.ts';
 import { exists } from './paths.ts';
 import type { ProtectedRule } from './types.ts';
-import { hasBinary, readText, run } from './util.ts';
+import { hasBinary, readText } from './util.ts';
 import * as yaml from './yaml.ts';
 
 /** .github/project-config.yml as read for init: its fields are raw YAML, or `error` when it does not parse. */
@@ -78,7 +79,7 @@ function protectedPathsFor(root: string): ProtectedRule[] {
 }
 
 export function detect(root: string): Detection {
-  const git = (args: string[]) => run('git', args, { cwd: root, allowFail: true });
+  const git = (args: string[]) => runGit(root, args, { allowFail: true });
   const remoteUrl = git(['remote', 'get-url', 'origin']).stdout.trim() || null;
   const ghSlug = remoteUrl?.match(/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/)?.[1] ?? null;
   const originHead = git(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).stdout.trim().replace(/^origin\//, '') || null;
