@@ -1,4 +1,4 @@
-// notify.* validation, apart from lib/notify.ts so lib/config.ts can import it without pulling in
+// notify.* validation, apart from lib/notify.ts so lib/config-validate.ts can import it without pulling in
 // the delivery code (which imports lib/jobs.ts, which imports lib/config.ts).
 import { NOTIFY_EVENTS, NOTIFY_FORMATS } from './schema.ts';
 import { isMap } from './shape.ts';

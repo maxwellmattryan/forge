@@ -1,4 +1,4 @@
-// checkout: validation, apart from lib/checkout.ts so lib/config.ts can import it without pulling in
+// checkout: validation, apart from lib/checkout.ts so lib/config-validate.ts can import it without pulling in
 // jobs.ts (which imports config.ts). Also the one rule for where a step's `to` points.
 import os from 'node:os';
 import path from 'node:path';

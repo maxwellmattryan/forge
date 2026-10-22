@@ -315,16 +315,16 @@ function readRegular(file: string, max: number, inside?: string): string | null 
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
     if (code === 'ENOENT' || code === 'ENOTDIR') return null;
-    throw new Error(code === 'ELOOP' || code === 'EMLINK' ? 'is a symlink' : `is unreadable (${code})`);
+    throw new ForgeError(code === 'ELOOP' || code === 'EMLINK' ? 'is a symlink' : `is unreadable (${code})`);
   }
   try {
     const st = fs.fstatSync(fd);
-    if (!st.isFile()) throw new Error('is not a regular file');
-    if (st.size > max) throw new Error(`is larger than ${max / 1024 / 1024} MiB`);
+    if (!st.isFile()) throw new ForgeError('is not a regular file');
+    if (st.size > max) throw new ForgeError(`is larger than ${max / 1024 / 1024} MiB`);
     if (inside) {
       const real = fs.realpathSync(file);
       const rel = path.relative(inside, real);
-      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throw new Error('resolves outside its directory');
+      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throw new ForgeError('resolves outside its directory');
     }
     const buf = Buffer.alloc(st.size);
     let off = 0;

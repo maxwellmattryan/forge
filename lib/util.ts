@@ -20,8 +20,8 @@ export class ForgeError extends Error {
   declare exitCode: ExitCode;
   /** A next command to run, shown under `--json`; null when the message says it all. */
   declare hint: string | null;
-  constructor(message: string, code: ErrorCode | ExitCode = 'failed', hint: string | null = null) {
-    super(message);
+  constructor(message: string, code: ErrorCode | ExitCode = 'failed', hint: string | null = null, options?: ErrorOptions) {
+    super(message, options);
     this.code = typeof code === 'number' ? (DEFAULT_CODE[code] ?? 'failed') : code;
     this.exitCode = ERROR_CODES[this.code];
     this.hint = hint;

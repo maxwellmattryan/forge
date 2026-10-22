@@ -212,11 +212,11 @@ function linkProblem(contained: string | null, step: { link: string }, to: strin
   }
   const rel = path.relative(contained, real);
   if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) return `source ${step.link} resolves outside the job's worktree`;
+  let isDir = false;
   try {
-    if (!fs.statSync(path.dirname(to)).isDirectory()) throw new Error();
-  } catch {
-    return `the parent directory of ${to} does not exist`;
-  }
+    isDir = fs.statSync(path.dirname(to)).isDirectory();
+  } catch {}
+  if (!isDir) return `the parent directory of ${to} does not exist`;
   if (lexists(to + ASIDE_SUFFIX)) return `${to}${ASIDE_SUFFIX} already exists; move it away first`;
   return null;
 }

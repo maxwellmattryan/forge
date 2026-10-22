@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { paths } from './paths.ts';
 import { validScope } from './requests.ts';
+import { ForgeError } from './util.ts';
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -13,7 +14,7 @@ export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
  * unvalidated one.
  */
 export function sessionFiles(root: string, scope: string): { dir: string; info: string; log: string } {
-  if (!validScope(scope)) throw new Error(`invalid daemon scope ${JSON.stringify(String(scope).slice(0, 80))}`);
+  if (!validScope(scope)) throw new ForgeError(`invalid daemon scope ${JSON.stringify(String(scope).slice(0, 80))}`, 'usage');
   const dir = daemonsDir(root);
   return { dir, info: path.join(dir, `${scope}.json`), log: path.join(dir, `${scope}.log`) };
 }
@@ -55,7 +56,7 @@ export function readInfo(file: string): any {
 export function openAppend(file: string): number {
   const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | NOFOLLOW | NONBLOCK, 0o644);
   try {
-    if (!fs.fstatSync(fd).isFile()) throw new Error(`${file} is not a regular file`);
+    if (!fs.fstatSync(fd).isFile()) throw new ForgeError(`${file} is not a regular file`);
   } catch (e) {
     fs.closeSync(fd);
     throw e;
@@ -67,7 +68,7 @@ export function openAppend(file: string): number {
 export function openRead(file: string): number {
   const fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK);
   try {
-    if (!fs.fstatSync(fd).isFile()) throw new Error(`${file} is not a regular file`);
+    if (!fs.fstatSync(fd).isFile()) throw new ForgeError(`${file} is not a regular file`);
   } catch (e) {
     fs.closeSync(fd);
     throw e;

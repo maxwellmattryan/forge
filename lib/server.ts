@@ -1708,14 +1708,17 @@ export function distAllowlist(distDir: string): Map<string, { file: string; type
 }
 
 function page(res: http.ServerResponse, token: string, distDir: string, notBuilt: string): void {
+  const notReady = () => {
+    res.setHeader('Cache-Control', 'no-store');
+    send(res, 503, 'text/plain', notBuilt);
+  };
+  // The page loads only manifest files, so it counts as built only when both exist.
+  if (!exists(path.join(distDir, 'manifest.json'))) return notReady();
   let html;
   try {
-    // The page loads only manifest files, so it counts as built only when both exist.
-    if (!exists(path.join(distDir, 'manifest.json'))) throw new Error('no manifest');
     html = fs.readFileSync(path.join(distDir, 'index.html'), 'utf8');
   } catch {
-    res.setHeader('Cache-Control', 'no-store');
-    return send(res, 503, 'text/plain', notBuilt);
+    return notReady();
   }
   res.setHeader('Cache-Control', 'no-store');
   send(res, 200, 'text/html; charset=utf-8', html.replace('__FORGE_TOKEN__', token));

@@ -348,7 +348,7 @@ export function syncReadme(readme: string): string {
 /** A `usage:` error for a group in these tables (lib/cli.ts routes some groups itself). */
 export function usage(name: string, sub?: string): ForgeError {
   const g = GROUPS.find((x) => x.name === name);
-  if (!g) throw new Error(`no help table for forge ${name}`);
+  if (!g) throw new ForgeError(`no help table for forge ${name}`, 'internal');
   return usageError(g, sub);
 }
 

@@ -246,7 +246,7 @@ export const PROMPT_TOOL = Object.freeze(['--permission-prompt-tool', 'stdio']);
 
 /**
  * The modes a human may switch one session to from the dashboard. `auto` is here but refused in
- * daemon.command (lib/config.ts SAFE_PERMISSION_MODES): a repo's config can't put every session on
+ * daemon.command (lib/config-trust.ts SAFE_PERMISSION_MODES): a repo's config can't put every session on
  * every machine in it, but a human watching the dashboard may put one session there, for as long
  * as that `forge dash` runs. `bypassPermissions` never: claude refuses it on a session launched
  * without --dangerously-skip-permissions anyway.

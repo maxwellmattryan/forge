@@ -5,7 +5,7 @@
 // config-sinks-apply.ts. No import from schema.ts: components.ts loads this while schema.ts loads it.
 
 import { PROTO_KEYS, deepMerge, isMap, show } from './shape.ts';
-import { isInsidePath } from './util.ts';
+import { ForgeError, isInsidePath } from './util.ts';
 import * as yaml from './yaml.ts';
 
 const SINK_KINDS = ['env', 'env-file', 'file', 'command'] as const;
@@ -191,12 +191,12 @@ function lookup(name: string, ctx: ExprContext): string | number | null {
   }
   const secret = secretOf(name);
   if (secret) {
-    if (!ctx.secret) throw new Error(`{${name}} needs a declared secret`);
+    if (!ctx.secret) throw new ForgeError(`{${name}} needs a declared secret`);
     return ctx.secret(secret);
   }
   const ns = reservedOf(name);
-  if (ns) throw new Error(`{${name}} needs ${RESERVED_FEATURES[ns]} (${RESERVED_NAMESPACES[ns]}), which this Forge does not support yet`);
-  throw new Error(`unknown expression {${name}}; known roots are ${EXPRESSION_ROOTS.map((r) => `{${r}}`).join(' ')}`);
+  if (ns) throw new ForgeError(`{${name}} needs ${RESERVED_FEATURES[ns]} (${RESERVED_NAMESPACES[ns]}), which this Forge does not support yet`);
+  throw new ForgeError(`unknown expression {${name}}; known roots are ${EXPRESSION_ROOTS.map((r) => `{${r}}`).join(' ')}`);
 }
 
 const asString = (v: string | number | null): string => (v === null ? '' : String(v));
@@ -243,7 +243,7 @@ export function renderEnvFile(values: Record<string, string>, ctx: ExprContext):
 function resolveValues(values: Record<string, SinkValue>, ctx: ExprContext): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(values)) {
-    if (PROTO_KEYS.has(k)) throw new Error(`config sink values key ${JSON.stringify(k)} is not allowed`);
+    if (PROTO_KEYS.has(k)) throw new ForgeError(`config sink values key ${JSON.stringify(k)} is not allowed`);
     out[k] = isMap(v) ? resolveValues(v, ctx) : typeof v === 'string' ? resolveValue(v, ctx) : v;
   }
   return out;
@@ -260,10 +260,10 @@ function parseBase(format: SinkFormat, text: string | null): Record<string, unkn
   try {
     parsed = format === 'json' ? JSON.parse(text) : yaml.parse(text);
   } catch (e) {
-    throw new Error(`the merge base does not parse as ${format}`, { cause: e });
+    throw new ForgeError(`the merge base does not parse as ${format}`, 'failed', null, { cause: e });
   }
   if (parsed === null || parsed === undefined) return {};
-  if (!isMap(parsed)) throw new Error(`the merge base is not a map`);
+  if (!isMap(parsed)) throw new ForgeError(`the merge base is not a map`);
   return parsed;
 }
 
@@ -272,7 +272,7 @@ function parseBase(format: SinkFormat, text: string | null): Record<string, unkn
  * with a trailing newline, yaml through lib/yaml.ts. toml is never merged (validation refuses it).
  */
 export function renderMerge(format: SinkFormat, baseText: string | null, values: Record<string, SinkValue>, ctx: ExprContext): string {
-  if (format === 'toml') throw new Error('toml supports mode template only');
+  if (format === 'toml') throw new ForgeError('toml supports mode template only');
   const merged = deepMerge(parseBase(format, baseText), resolveValues(values, ctx), { base: 'merge base', over: 'config sink values' });
   return format === 'json' ? `${JSON.stringify(merged, null, 2)}\n` : yaml.stringify(merged);
 }
@@ -284,7 +284,7 @@ export function renderTemplate(format: SinkFormat, text: string, ctx: ExprContex
     try {
       JSON.parse(filled);
     } catch {
-      throw new Error(`config sink template ${from} does not fill to valid JSON; check the quoting around its expressions`);
+      throw new ForgeError(`config sink template ${from} does not fill to valid JSON; check the quoting around its expressions`);
     }
   }
   return filled;

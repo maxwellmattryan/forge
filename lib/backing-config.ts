@@ -1,4 +1,4 @@
-// backing: validation, apart from lib/backing.ts so lib/config.ts and lib/schema.ts can import it
+// backing: validation, apart from lib/backing.ts so lib/config-validate.ts and lib/schema.ts can import it
 // without pulling in jobs.ts (which imports config.ts). Every value here reaches `docker` as an
 // argument or an env-file line, so the shapes are strict: no leading `-`, a fixed charset, no newlines.
 import { globProblem } from './policy-check.ts';
