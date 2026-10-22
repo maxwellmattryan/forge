@@ -4,6 +4,7 @@ Read this before you change anything under `dashboard/`. The root [AGENTS.md](..
 
 ## Rules
 - **`dashboard/style.css` is the source of truth for the dashboard's look** (the Smithy design system: its tokens and `@utility` classes; the icons live in `dashboard/src/lib/icons.ts`). New classes are `@utility`s there, colours come from the token variables, and fonts are vendored in `dashboard/fonts/`, never linked.
+- **Restraint: ornament on the frame, two type registers, one primary.** Only the frame takes the `hammered` texture: the sidebar brand plaque, the page header, the status bar and the drawer header; every other plate is plain panel. Controls (nav items, tabs, `btn` and so `seg`) are Barlow sentence case; labels and data (`label`, `stamp-line`, table headers, chips, ids) are mono uppercase. Buttons are primary (a flat gleam fill, at most one per view or dialog; in the drawer's action dock, the gate's accepting action), secondary (the plain `btn`) or `tertiary` (text only: close, cancel, show more); `ghost` is only for the status bar's indicators.
 - Each page is one component in `src/views/`. Put shared pieces in `components/` and logic you want tested in plain `src/lib/*.ts`, not in a growing view.
 - **Never commit the built dashboard.** `dist/` is gitignored and never hand-edited. Rebuild it with `npm run build:dashboard` before the tests: the ones that read the build (token contrast, remote assets, the index) skip without it, and CI runs them. CI builds `dist/` for the main update into `main` (the root [AGENTS.md](../AGENTS.md) › Publishing).
 
