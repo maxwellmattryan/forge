@@ -24,7 +24,7 @@ Does every new `forge` subcommand in this diff have a row in its group's HELP ta
 ```
 
 - **`<name>`** matches `^[a-z0-9][a-z0-9-]{0,63}$`.
-- **`paths`** (required): a non-empty list of globs, relative to the repo, not starting with `-`, `!` or `:`, with no `..` segment. A glob matches like the spec's Approach paths (`inSpec` in `lib/scope.ts`): an exact path, a directory prefix (`docs/`), `**`, `*` and `?`, and a slash-free glob (`'*.md'`, quoted because YAML reads a bare `*` as an alias) also matches the basename at any depth.
+- **`paths`** (required): a non-empty list of globs, relative to the repo, not starting with `-`, `!` or `:`, with no `..` segment. A glob matches like the spec's Approach paths (`inSpec` in `lib/glob.ts`): an exact path, a directory prefix (`docs/`), `**`, `*` and `?`, and a slash-free glob (`'*.md'`, quoted because YAML reads a bare `*` as an alias) also matches the basename at any depth.
 - **`severity`**: `blocker`, `major` (default) or `minor`.
 - **`mode`**: `warn` (default) or `block`.
 - **The body** (at most 2,000 characters): its first non-empty line is **the question** (at most 300 characters), and the rest is the rationale the model also reads. Phrase it so that **yes means the change is fine**.

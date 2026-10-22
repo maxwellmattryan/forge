@@ -33,6 +33,7 @@ Entries 1-4 and 7 live in one file, `test/dashboard-invariants.test.ts`.
 7. Segments, nav links and icon-only buttons stay accessible: "segments and nav expose their selected state", "every icon-only button has a tooltip and a label" and "the icon-button sweep finds a planted button without a tooltip". Tests can't render a `.svelte` component, so only its markup can hold this.
 8. The engine compiles strict and erasable-only: `test/engine-ts.test.ts` › "engine tsconfig is strict and erasable-only" reads `tsconfig.json`'s `strict` and `erasableSyntaxOnly`. No public function exposes the compiler flags.
 9. Agents that read untrusted text keep their tool limits: `test/foreman.test.ts` › "assistant agent has no Bash" and `test/roster.test.ts`'s triage check read the `disallowedTools` frontmatter of `agents/assistant.md` and `agents/triage.md`, which Claude Code enforces and no Forge function reads.
+10. `lib/` keeps its import layering: `test/lib-imports.test.ts` reads the import declarations of `lib/` sources; no public function exposes the module graph.
 
 A new entry needs a reason a public function or the CLI's JSON can't hold the invariant, and lands in this list in the same change.
 

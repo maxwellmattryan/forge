@@ -63,11 +63,11 @@ Paths that must not move, because they're public:
 
 The modules aren't strictly layered. A few low-level files reach upward, and the move makes that visible:
 
-- `job/store.ts` imports notify (`office/`), focus (`workspace/`), usage (`metrics/`), lens (`pipeline/`), issue-ref (`trackers/`) and slug (`project/`).
+- `job/store.ts` imports focus (`workspace/`), lens (`pipeline/`), issue-ref (`trackers/`) and slug (`project/`). It no longer imports notify or usage (#364): notify registers a transition hook with it (`onTransition`), and it prices usage through the `pricing.ts` leaf.
 - `job/schema.ts` and `config/load.ts` import the domain validators (`*-config.ts`). That's by design: validation lives next to its domain but stays out of the domain's runtime.
 - `retention` imports the session code and worktree, which is why it goes to `ops/` rather than `job/`.
 
-ESM handles these cycles. Fix them only if they hurt; don't fix them as part of the move. An import-boundary test can come later, once the modules have settled. The one boundary enforced from the start is "nothing outside `cli/` imports `cli/`".
+#364 broke the runtime import cycles before the move. `test/lib-imports.test.ts` holds both boundaries: `lib/` has no runtime import cycle, and nothing outside `commands/` and `cli.ts` imports `commands/`. The move updates its paths to `cli/`.
 
 ## Splitting types.ts
 
