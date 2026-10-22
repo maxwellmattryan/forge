@@ -11,7 +11,7 @@ import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.t
 import { isOwnWorktreePath, loadConfig, verifyGroups, worktreeRoot } from './config.ts';
 import { e2ePlan } from './e2e.ts';
 import { checkNotes, checkedNotes } from './experiments.ts';
-import { committedChanges, resolveBase } from './scope.ts';
+import { committedChanges, realHistoryEnv, resolveBase } from './scope.ts';
 import { configForJob } from './eval-overlay.ts';
 import { stackSource } from './deps.ts';
 import { STATUS_ARGV, blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.ts';
@@ -895,25 +895,38 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
 /**
  * The `notes` step: when the committed diff (merge base..`sha`) touches a learnings, ledger or
  * addendum file, `forge experiment check` over the committed content at `sha`, never the working
- * tree. Absent when no notes file changed, or when the base can't be resolved (the integrity report
- * already says so, as the protected step does); a check that fails once it applies fails the step.
+ * tree; absent when no notes file changed. Without a merge base, a notes file at `sha` that differs
+ * from the main checkout's HEAD may hold a hand-written status, so the step fails; when none differs
+ * there is nothing to check. A check that fails once it applies fails the step.
  */
 function notesStep(root: string, config: Config, job: Job, sha: string): VerifyStep | null {
   const started = Date.now();
+  const wt = job.worktree!;
+  const failed = (tail: string): VerifyStep => ({ name: 'notes', ok: false, exit: null, durationMs: Date.now() - started, tail });
   let changed: Set<string>;
   try {
-    changed = new Set(committedChanges(job.worktree!, resolveBase(job.worktree!, config, job, sha).mergeBase));
-  } catch {
-    return null;
+    changed = new Set(committedChanges(wt, resolveBase(wt, config, job, sha).mergeBase, sha));
+  } catch (e) {
+    let differs: string[];
+    try {
+      const main = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], { cwd: root, env: realHistoryEnv() }).stdout.trim();
+      if (!/^[0-9a-f]{40}$/.test(main)) throw new ForgeError('the main checkout has no HEAD commit');
+      const touched = new Set(committedChanges(wt, main, sha));
+      differs = checkedNotes().filter((f) => touched.has(f));
+    } catch {
+      differs = ['the notes files'];
+    }
+    if (!differs.length) return null;
+    return failed(`could not resolve the base (${(e as Error).message.slice(0, 200)}), and ${differs.join(', ')} differ from the main checkout's HEAD`);
   }
   if (!checkedNotes().some((f) => changed.has(f))) return null;
   try {
     const r = checkNotes(root, config, job, sha);
     const step: VerifyStep = { name: 'notes', ok: r.ok, exit: null, durationMs: Date.now() - started };
-    if (!r.ok) step.tail = r.problems.slice(0, 20).map((p) => `${p.file}: ${p.problem} (${p.entry})`).join('\n');
+    if (!r.ok) step.tail = r.problems.slice(0, 20).map((p) => `${p.file}: ${p.problem}${p.entry ? ` (${p.entry})` : ''}`).join('\n');
     return step;
   } catch (e) {
-    return { name: 'notes', ok: false, exit: null, durationMs: Date.now() - started, tail: `could not check the notes layer: ${(e as Error).message}` };
+    return failed(`could not check the notes layer: ${(e as Error).message}`);
   }
 }
 

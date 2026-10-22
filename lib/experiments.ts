@@ -271,12 +271,20 @@ export function ledgerFile(root: string, job: Pick<Job, 'id' | 'worktree'> | nul
   return file;
 }
 
-/** Writes through a fresh temp file in the same directory, then renames over the ledger. */
+/**
+ * Writes through a fresh temp file in the same directory, then renames over the ledger. Not
+ * writeTextAtomic: the ledger sits in a builder-written worktree, so the temp file is opened `wx`
+ * (a planted file or link at its path is refused), and no directory is created on the way.
+ */
 function writeAtomic(file: string, text: string): void {
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  // `wx` refuses a planted file or link at the temp path.
   fs.writeFileSync(tmp, text, { flag: 'wx' });
-  fs.renameSync(tmp, file);
+  try {
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    fs.rmSync(tmp, { force: true });
+    throw e;
+  }
 }
 
 /**
@@ -357,6 +365,8 @@ export const checkedNotes = (): string[] => [...noteFiles(), 'notes/experiments.
 /** The file at `rev`, as git stores it (no filters, no replace objects); null when it is absent there. */
 function atRev(cwd: string, rev: string, rel: string): string | null {
   const r = run('git', ['cat-file', 'blob', `${rev}:${rel}`], { cwd, env: realHistoryEnv(), allowFail: true });
+  // No exit status: git never finished (a blob past run's buffer, say), which is no proof of absence.
+  if (!r.ok && r.status === null) throw new ForgeError(`cannot read ${rel} at ${rev.slice(0, 12)}: ${r.stderr.slice(0, 200)}`, 'external');
   return r.ok ? r.stdout : null;
 }
 
@@ -369,6 +379,13 @@ const SHA = /^[0-9a-f]{40}$/;
  * change to an existing entry.
  */
 export function checkNotes(root: string, config: Config, job: Pick<Job, 'id' | 'worktree' | 'base'> | null, sha?: string): NotesCheck {
+  // Every file is read, and its size checked, before anything is parsed: past the cap it is reported, never parsed.
+  const over = new Set<string>();
+  const capped = (rel: string, size: number): boolean => {
+    if (size <= MAX_LEDGER_BYTES) return true;
+    over.add(rel);
+    return false;
+  };
   let read: (rel: string) => string | null;
   let readBase: ((rel: string) => string | null) | null = null;
   if (job) {
@@ -378,24 +395,32 @@ export function checkNotes(root: string, config: Config, job: Pick<Job, 'id' | '
     if (!SHA.test(head)) throw new ForgeError(`not a commit sha: ${JSON.stringify(head).slice(0, 60)}`);
     const mergeBase = resolveBase(wt, config, job, head).mergeBase;
     if (!SHA.test(mergeBase)) throw new ForgeError(`no merge base for job ${job.id}`, 'external');
-    read = (rel) => atRev(wt, head, rel);
-    readBase = (rel) => atRev(wt, mergeBase, rel);
+    const at = (rev: string) => (rel: string) => {
+      const text = atRev(wt, rev, rel);
+      return text !== null && capped(rel, Buffer.byteLength(text)) ? text : null;
+    };
+    read = at(head);
+    readBase = at(mergeBase);
   } else {
     read = (rel) => {
       const file = path.join(root, rel);
-      return exists(file) ? fs.readFileSync(file, 'utf8') : null;
+      return exists(file) && capped(rel, fs.statSync(file).size) ? fs.readFileSync(file, 'utf8') : null;
     };
   }
+  const rels = checkedNotes();
+  const cur = new Map(rels.map((rel) => [rel, read(rel)] as const));
+  const prev = readBase ? new Map(rels.map((rel) => [rel, readBase!(rel)] as const)) : null;
+  if (over.size) return { ok: false, problems: [...over].map((rel) => ({ file: rel, entry: '', problem: `over ${MAX_LEDGER_BYTES / (1024 * 1024)} MiB; not checked` })) };
   const problems: NotesCheck['problems'] = [];
   const ledgerRel = '.forge/notes/experiments.md';
-  const ledger = ledgerItems(read(ledgerRel) ?? '');
+  const ledger = ledgerItems(cur.get(ledgerRel) ?? '');
   const ids = new Set(ledger.map((i) => i.entry.id).filter(Boolean));
 
   // Learnings and addenda: an added or edited entry (every entry in an audit) carries both fields.
   for (const rel of noteFiles().map((f) => `.forge/${f}`)) {
-    const text = read(rel);
+    const text = cur.get(rel) ?? null;
     if (text === null) continue;
-    const before = readBase ? new Set(noteItems(readBase(rel) ?? '')) : null;
+    const before = prev ? new Set(noteItems(prev.get(rel) ?? '')) : null;
     for (const item of noteItems(text)) {
       if (before?.has(item)) continue;
       const [l] = parseLearnings(`- ${item}`);
@@ -416,14 +441,14 @@ export function checkNotes(root: string, config: Config, job: Pick<Job, 'id' | '
     if (seen.get(id) === 2) problems.push(problem(ledgerRel, item.text, `duplicate id ${id}`));
   }
   const base = new Map<string, LedgerItem>();
-  if (readBase) for (const item of ledgerItems(readBase(ledgerRel) ?? '')) if (item.entry.id && !base.has(item.entry.id)) base.set(item.entry.id, item);
+  if (prev) for (const item of ledgerItems(prev.get(ledgerRel) ?? '')) if (item.entry.id && !base.has(item.entry.id)) base.set(item.entry.id, item);
   const asNew = (item: LedgerItem) => {
     if (!item.entry.id) problems.push(problem(ledgerRel, item.text, 'missing id'));
     if (item.statusSegment !== 'status open') problems.push(problem(ledgerRel, item.text, 'status must be open'));
     for (const p of openProblems(item.entry)) problems.push(problem(ledgerRel, item.text, p));
   };
   for (const item of ledger) {
-    if (!readBase) {
+    if (!prev) {
       // An audit has no base: open entries are checked as new, the rest are history.
       if (item.entry.status === 'open') asNew(item);
       continue;

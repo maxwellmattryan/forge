@@ -203,6 +203,16 @@ test('an invalid metric is closed, reported and refused at verify', async () => 
     assert.match(report, /learnings\.md: missing experiment:/);
     assert.doesNotMatch(report, /Old rule|id prose/, 'unchanged entries are history');
 
+    // Without a merge base, notes that differ from the main checkout's HEAD fail the step; matching ones need none.
+    setJob(s.dir, bad.id, { fields: { base: 'no-such-branch' } });
+    const unresolved = await verify(s.dir, s.config, bad.id);
+    assert.equal(unresolved.steps.find((st) => st.name === 'notes')?.ok, false, JSON.stringify(unresolved.steps));
+    const tail = fs.readFileSync(path.join(s.dir, unresolved.file), 'utf8');
+    assert.match(tail, /could not resolve the base \(base no-such-branch not found\), and \.forge\/notes\/learnings\.md, \.forge\/notes\/experiments\.md differ from the main checkout's HEAD/);
+    setJob(s.dir, clean.id, { fields: { base: 'no-such-branch' } });
+    const matching = await verify(s.dir, s.config, clean.id);
+    assert.ok(!matching.steps.some((st) => st.name === 'notes'), JSON.stringify(matching.steps));
+
     // evaluate closes the prose entry at once, and the checker accepts that status.
     const r = evaluateExperiments(s.dir, s.config, { today: TODAY });
     assert.equal(r.entries[0].status, `status inconclusive (${TODAY}, metric is not a stats path)`);
@@ -216,6 +226,14 @@ test('an invalid metric is closed, reported and refused at verify', async () => 
     writeLedger(s.dir, [`- 2026-10-01 · id long · ${'· '.repeat(5_000)}metric ${'a.'.repeat(5_000)} (down) · baseline 1 · status open ${'('.repeat(5_000)}`]);
     checkNotes(s.dir, s.config, null);
     assert.ok(Date.now() - started < 2000, 'linear on hostile input');
+
+    // Past 1 MiB a notes file is reported, never parsed: committed on a branch, or on disk in an audit.
+    const over = { ok: false, problems: [{ file: '.forge/notes/experiments.md', entry: '', problem: 'over 1 MiB; not checked' }] };
+    const big = jobWorktree(s);
+    big.commit('.forge/notes/experiments.md', ledger + `- 2026-10-20 · id big · x · metric quality.avgRounds (down) · baseline 1 · evidence ${'x'.repeat(1024 * 1024)} · status open\n`);
+    assert.deepEqual(checkNotes(s.dir, s.config, big.job), over);
+    fs.copyFileSync(ledgerOf(big.wt), ledgerOf(s.dir));
+    assert.deepEqual(checkNotes(s.dir, s.config, null), over);
   } finally {
     s.cleanup();
   }
