@@ -30,7 +30,8 @@
   import { modelLabel } from '../lib/statusbar.ts';
   import { EFFORTS } from '../lib/types.ts';
   import type { Effort } from '../lib/types.ts';
-  import type { Entry, Filters, Item } from '../lib/session-log.ts';
+  import type { Filters } from '../lib/session-log.ts';
+  import type { Entry, Item } from '../lib/session-parse.ts';
   import { createSessionLog } from '../lib/daemon-log.ts';
   import { TINT, logSender } from '../lib/sender.ts';
   import type { SessionLogUrls } from '../lib/daemon-log.ts';

@@ -1,7 +1,8 @@
 // dashboard/src/lib/session-log.ts: a session's raw stream-json lines into turns, items and subagent groups.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_FILTERS, FOLLOW_SLACK, LONG_TEXT, MAX_ENTRIES, PREVIEW_CHARS, atBottom, buildSessionView, filtersActive, latestInitModel, mergeEntry, parseEntry, readFilters, taskText, toolSummary } from '../dashboard/src/lib/session-log.ts';
+import { DEFAULT_FILTERS, FOLLOW_SLACK, MAX_ENTRIES, atBottom, buildSessionView, filtersActive, latestInitModel, mergeEntry, readFilters } from '../dashboard/src/lib/session-log.ts';
+import { LONG_TEXT, PREVIEW_CHARS, parseEntry, taskText, toolSummary } from '../dashboard/src/lib/session-parse.ts';
 
 const XSS = '<script>alert(1)</script><img src=x onerror=alert(2)>';
 

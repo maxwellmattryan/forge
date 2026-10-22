@@ -7,7 +7,7 @@ import { TIP_DELAY_MS, placeTip } from '../dashboard/src/lib/tooltip.ts';
 import { keepFocus, placeMenu } from '../dashboard/src/lib/menu.ts';
 import { toastPlacement } from '../dashboard/src/lib/toast-place.ts';
 import { TINT, logSender, threadSender, type Sender } from '../dashboard/src/lib/sender.ts';
-import type { ItemKind } from '../dashboard/src/lib/session-log.ts';
+import type { ItemKind } from '../dashboard/src/lib/session-parse.ts';
 import type { ThreadFrom } from '../dashboard/src/lib/thread.ts';
 import { PROTECTED_ROWS, protectedSummary, showParkReason } from '../dashboard/src/lib/protected.ts';
 import type { ProtectedHit, ProtectedPaths } from '../dashboard/src/lib/types.ts';
