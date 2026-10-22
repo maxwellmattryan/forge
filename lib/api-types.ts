@@ -672,7 +672,7 @@ export interface DaemonPoolState {
   clients: number;
 }
 
-/** GET /api/daemons/log: readLogPage in lib/daemon.ts. Offsets are the SSE ids of the same lines. */
+/** GET /api/daemons/log: readLogPage in lib/daemon-files.ts. Offsets are the SSE ids of the same lines. */
 export interface DaemonLogPage {
   scope: string;
   lines: { offset: number; line: string }[];

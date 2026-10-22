@@ -8,10 +8,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { attributionForbidden, findAttribution } from '../attribution.ts';
 import { sessionEnv } from '../daemon.ts';
-import { PINNED_DIFF_OPTS, PINNED_GIT_CONFIG } from '../integrity.ts';
+import { PINNED_GIT_CONFIG } from '../git-pins.ts';
+import { PINNED_DIFF_OPTS } from '../integrity.ts';
 import { jobDir, loadJob } from '../jobs.ts';
 import { memberWorktree } from '../job-repos.ts';
-import { blobReader, checkProtected, comparisonPoint, diffEntries, historyEnv, logEscalated, logRefused, policyRules, prefixHits, recordProtected, refusalText } from '../protected.ts';
+import { policyRules } from '../policy-check.ts';
+import { blobReader, checkProtected, comparisonPoint, diffEntries, historyEnv, logEscalated, logRefused, prefixHits, recordProtected, refusalText } from '../protected.ts';
 import { resolveWorktreePaths } from '../paths.ts';
 import { knownValues } from '../known-secrets.ts';
 import { applyAllowlist, diffUnits, loadAllowlist, logSecrets, refusalMessage, refuseSecrets, scanUnits, secretMode, secretsBlock, textUnit } from '../secrets.ts';
@@ -22,7 +24,7 @@ import type { CommandHelp, Config, HelpGroup, Job, ProtectedHit } from '../types
 // Re-exported: callers (and tests) imported it from here before it moved to lib/paths.ts.
 export { resolveWorktreePaths };
 
-export const READ_SUBCOMMANDS: string[] = ['diff', 'log', 'show', 'range-diff'];
+const READ_SUBCOMMANDS: string[] = ['diff', 'log', 'show', 'range-diff'];
 
 const readHelp = (sub: string): CommandHelp => ({
   command: `git ${sub}`,
@@ -79,7 +81,7 @@ const REFUSED = /^--(output|ext-diff|textconv|open-files-in-pager)(=|$)/;
  * forced off (placed before `--`, after the caller's options, so they win).
  * `args` is `<subcommand> [options] [revisions] [-- paths]`.
  */
-export function gitReadArgv(args: string[]): string[] {
+function gitReadArgv(args: string[]): string[] {
   const [sub, ...rest] = args;
   if (!READ_SUBCOMMANDS.includes(sub)) throw new ForgeError(`forge git runs only ${READ_SUBCOMMANDS.join(', ')} (got ${JSON.stringify(sub ?? '')})`, 'usage');
   const dashdash = rest.indexOf('--');

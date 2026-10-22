@@ -18,7 +18,7 @@ import { ForgeError, fenced, now, run, withLock, writeJsonAtomic, writeTextAtomi
 import type { Config, Effort, Job, Tracker, TrackerCtx, TrackerItem, TriageMissing } from './types.ts';
 
 export const TRIAGE_MISSING = ['outcome', 'acceptance', 'scope', 'duplicate'] as const satisfies readonly TriageMissing[];
-export const BATCH_RE = /^\d{8}T\d{6}Z-[a-z0-9]{4}$/;
+const BATCH_RE = /^\d{8}T\d{6}Z-[a-z0-9]{4}$/;
 export const DEFAULT_LIMIT = 10;
 export const MAX_LIMIT = 50;
 const KEEP_BATCHES = 5;
@@ -83,7 +83,7 @@ const lockDir = (root: string): string => path.join(paths(root).locks, 'triage')
 const cacheKey = (tracker: Tracker, ref: string): string => `${tracker.name}:${ref}`;
 
 /** What an item's text is judged on: its title and body, as get() returns them. */
-export function itemHash(item: Pick<TrackerItem, 'title' | 'body'>): string {
+function itemHash(item: Pick<TrackerItem, 'title' | 'body'>): string {
   return crypto.createHash('sha256').update(`${item.title ?? ''}\0${item.body ?? ''}`).digest('hex').slice(0, 16);
 }
 
@@ -126,7 +126,7 @@ function writeCache(root: string, items: Record<string, TriageCacheEntry>): void
 }
 
 /** The comment a not-ready item gets: fixed text, one bullet per missing key. */
-export function commentBody(missing: readonly TriageMissing[], dupLabel: string | null, prefix: string): string {
+function commentBody(missing: readonly TriageMissing[], dupLabel: string | null, prefix: string): string {
   const lines: Record<TriageMissing, string> = {
     outcome: '- **Outcome**: what should be true when this is done.',
     acceptance: '- **Acceptance criteria or a reproduction**: how to tell it works; for a bug, the steps to reproduce it and the expected and actual behaviour.',
@@ -143,7 +143,7 @@ export function commentBody(missing: readonly TriageMissing[], dupLabel: string 
 }
 
 /** The one-line note the local backlog keeps under a needs-info item. */
-export function noteLine(missing: readonly TriageMissing[], dupLabel: string | null): string {
+function noteLine(missing: readonly TriageMissing[], dupLabel: string | null): string {
   const piece: Record<TriageMissing, string> = {
     outcome: 'a clear outcome',
     acceptance: 'acceptance criteria or a reproduction',

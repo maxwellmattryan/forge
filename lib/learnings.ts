@@ -253,5 +253,4 @@ export function learningSummary(text: string): { count: number; oldestReviewBy: 
   return { count: learnings.length, oldestReviewBy: oldest };
 }
 
-export const readLearnings = (root: string): LearningEntry[] => parseLearnings(readText(path.join(paths(root).notes, 'learnings.md')));
 export const readExperiments = (root: string): ExperimentEntry[] => parseExperiments(readText(path.join(paths(root).notes, 'experiments.md')));

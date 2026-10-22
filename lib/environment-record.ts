@@ -15,7 +15,7 @@ import { withLock, writeJsonAtomic } from './util.ts';
 const EPOCH = new Date(0).toISOString();
 
 export const environmentsFile = (root: string): string => path.join(paths(root).runtime, 'environments.json');
-export const environmentsLock = (root: string): string => path.join(paths(root).locks, 'environments');
+const environmentsLock = (root: string): string => path.join(paths(root).locks, 'environments');
 
 const empty = (): EnvironmentRecord => ({ v: 1, jobs: {} });
 

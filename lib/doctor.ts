@@ -19,13 +19,13 @@ import { hasBinary, readText, run } from './util.ts';
 import { latestReleaseCheck } from './version.ts';
 
 /** package.json `engines`: Node 22.18 is the first with type stripping on by default. */
-export function nodeSupported(version: string): boolean {
+function nodeSupported(version: string): boolean {
   const [major, minor] = version.split('.').map(Number);
   return major > 22 || (major === 22 && minor >= 18);
 }
 
 /** Past this, one of .forge/jobs, .forge/archive or .forge/runtime is worth pruning: 500 MiB. */
-export const STORAGE_WARN_BYTES = 524_288_000;
+const STORAGE_WARN_BYTES = 524_288_000;
 
 /** `139.2 MB`: binary units, one decimal past bytes. */
 export function formatBytes(n: number): string {

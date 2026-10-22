@@ -649,7 +649,7 @@ export function setRepoInterim(root: string, config: Config, id: string, key: Re
 
 // Publishing is outward-facing and runs on the human's npm credentials: a session misled by tracker
 // or PR text must never reach it.
-export const PUBLISH_DAEMON_REFUSAL = 'forge job interim publish publishes a package from this job, which a daemon session may not do; a human runs it in their own session';
+const PUBLISH_DAEMON_REFUSAL = 'forge job interim publish publishes a package from this job, which a daemon session may not do; a human runs it in their own session';
 
 /** One package publishCanary would publish or did. */
 export interface CanaryPackage {
@@ -758,7 +758,7 @@ function resumeJob(root: string, config: Config, id: string, reason: string, wai
 
 // Publishing runs on the human's npm credentials, so it needs a human at a terminal too: an agent's
 // Bash tool has no TTY on stdin. A speed bump against a misled session, not a sandbox.
-export const PUBLISH_TTY_REFUSAL = 'forge job interim publish --confirm needs a human at a terminal (stdin is not a TTY); run it yourself in your own shell';
+const PUBLISH_TTY_REFUSAL = 'forge job interim publish --confirm needs a human at a terminal (stdin is not a TTY); run it yourself in your own shell';
 
 /**
  * `forge job interim publish`: the only path in Forge that publishes anything. Refused in a daemon

@@ -7,7 +7,8 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveEffort, trustDigest } from './config.ts';
-import { PERMISSION_MODES, TRUST_CHANGED, UUID, commandPermissionMode, createSession, otherOwner, readInfo, reapOrphans, sessionFiles, sessionOptions } from './daemon.ts';
+import { PERMISSION_MODES, TRUST_CHANGED, commandPermissionMode, createSession, otherOwner, reapOrphans, sessionOptions } from './daemon.ts';
+import { UUID, readInfo, sessionFiles } from './daemon-files.ts';
 import type { DaemonOptions, Session, SessionContext, SessionEvent } from './daemon.ts';
 import { daemonSessionIds } from './daemon-owner.ts';
 import { configForJob } from './eval-overlay.ts';
@@ -50,7 +51,7 @@ const FINISHED = ['done', 'cancelled', 'failed'];
 /** How long a tick reuses the repo budget status. */
 const REPO_BUDGET_MEMO_MS = 10_000;
 /** How often a wanted pool runs `forge sync`, so CI results and PR feedback reach the office unasked. */
-export const SYNC_MS = 120_000;
+const SYNC_MS = 120_000;
 /** A sync that runs longer than this is killed; the next interval tries again. */
 const SYNC_TIMEOUT_MS = 10 * 60_000;
 
@@ -58,7 +59,7 @@ const SYNC_TIMEOUT_MS = 10 * 60_000;
  * One `forge sync` in a child process: it calls gh synchronously, which would stall every session's
  * pipe if it ran in the server. Outside any daemon scope, as the human who started `forge dash`.
  */
-export function runSyncChild(root: string, env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
+function runSyncChild(root: string, env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
   return new Promise((resolve) => {
     const childEnv: NodeJS.ProcessEnv = { ...env, FORGE_ROOT: root, FORGE_MODE: 'agent' };
     delete childEnv.FORGE_DAEMON;

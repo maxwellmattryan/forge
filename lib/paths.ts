@@ -18,10 +18,6 @@ export function mainRoot(cwd: string = process.cwd()): string {
   throw new ForgeError(`cannot determine the main checkout from ${dir}`);
 }
 
-export function forgeDir(cwd?: string): string {
-  return path.join(mainRoot(cwd), '.forge');
-}
-
 /** Where everything under `.forge/` lives for the checkout at `root`. */
 export interface ForgePaths {
   root: string;
@@ -65,6 +61,16 @@ export function paths(root: string): ForgePaths {
   };
 }
 
+export function jobDir(root: string, id: string): string {
+  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(id)) throw new ForgeError(`invalid job id "${id}"`);
+  return paths(root).job(id);
+}
+
+/** `<jobDir>/links/<key>`: the member name, or `_root` (a repo name cannot start with `_`). */
+export function linkDir(root: string, id: string, repo: string | null): string {
+  return path.join(jobDir(root, id), 'links', repo ?? '_root');
+}
+
 export function resolveFrom(root: string, p: string): string {
   return path.isAbsolute(p) ? p : path.resolve(root, p);
 }
@@ -91,7 +97,7 @@ export const DEV_DIST_DIR: string = path.join(PLUGIN_ROOT, 'node_modules', '.cac
 export const BUILD_DASHBOARD = 'npm ci && npm run build:dashboard';
 
 /** realpath of the deepest existing ancestor, with the rest re-appended: where `p` would land. */
-export function landing(p: string): string {
+function landing(p: string): string {
   let dir = p;
   const rest: string[] = [];
   while (!fs.existsSync(dir)) {

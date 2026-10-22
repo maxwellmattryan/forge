@@ -12,17 +12,19 @@ import path from 'node:path';
 import { effectiveLimits, exceededKeys, measureBudget } from './budget.ts';
 import { configForJob } from './eval-overlay.ts';
 import { TRUST_ENV, daemonProblems, defaults, loadConfig as defaultLoadConfig, trackerSymlinks, trustDigest } from './config.ts';
-import { AGENT_LEASE_MS, expireLease, loadJob, markAgentsLost, requeueOrphanedRequests } from './jobs.ts';
+import { UUID, logBaseOf, openAppend, readInfo, sessionFiles, sessionRecords } from './daemon-files.ts';
+import { expireLease, loadJob, markAgentsLost, requeueOrphanedRequests } from './jobs.ts';
 import type { SessionFacts } from './reconcile.ts';
 import { redactKnown, scopeKnownValues } from './known-secrets.ts';
 import { queueNotify } from './notify.ts';
 import type { QueueNotify } from './notify.ts';
 import { PLUGIN_ROOT, paths } from './paths.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, validJobId, validScope } from './requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, validJobId } from './requests.ts';
 import { repoBudgetExempt } from './repo-budget.ts';
 import { EFFORTS } from './schema.ts';
+import { sessionAgents } from './session-agents.ts';
 import { GIT_PINS, START_SLACK_MS, isClaudeExecutable, now, pidAlive, processStartMs, run, sleepSync, splitWords, writeJsonAtomic } from './util.ts';
-import type { Config, RepoBudgetStatus, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, Effort, EffortSource, EventActor, ForgeRequest, JobAgent, PermissionDecision } from './types.ts';
+import type { Config, RepoBudgetStatus, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, Effort, EffortSource, EventActor, ForgeRequest, PermissionDecision } from './types.ts';
 
 /** What a session reports to its pool: a log line as it is written, or its new state after a change. */
 export type SessionEvent = { kind: 'line'; scope: string; offset: number; line: string } | { kind: 'state'; scope: string; state: DaemonSessionState };
@@ -209,13 +211,13 @@ export const TURN = Object.freeze({
 export const TURN_LINE = JSON.stringify(TURN) + '\n';
 
 /** Request types that act on a job a budget stop may have parked. `approve` is the acknowledgement, so it is never held. */
-export const HOLD_TYPES: string[] = ['resume', 'rework', 'answer', 'revise-spec'];
+const HOLD_TYPES: string[] = ['resume', 'rework', 'answer', 'revise-spec'];
 
 /**
  * Request types the repo budget holds. Approving is no acknowledgement of a repo cap (only
  * `forge budget ack` is), so `approve` waits too; `cancel` never does.
  */
-export const REPO_HOLD_TYPES: string[] = [...HOLD_TYPES, 'approve'];
+const REPO_HOLD_TYPES: string[] = [...HOLD_TYPES, 'approve'];
 
 /**
  * Paths the session may never write, appended to every daemon command as --disallowedTools
@@ -307,7 +309,7 @@ export function modeReach(mode: string | null): number {
 }
 
 /** The control_request line asking claude to switch the session's permission mode. */
-export function modeRequest(requestId: string, mode: DaemonPermissionMode): string {
+function modeRequest(requestId: string, mode: DaemonPermissionMode): string {
   return JSON.stringify({ type: 'control_request', request_id: requestId, request: { subtype: 'set_permission_mode', mode } }) + '\n';
 }
 
@@ -370,7 +372,7 @@ export function ruleText(r: { toolName: string; ruleContent?: string }): string 
  * The control_response line answering a `can_use_tool` request. An allow echoes the input claude
  * sent, unchanged; a deny carries PERMISSION_DENIED. The human picks only the decision.
  */
-export function permissionResponse(requestId: string, decision: PermissionDecision, input: Record<string, unknown>, grant: SessionGrant): string {
+function permissionResponse(requestId: string, decision: PermissionDecision, input: Record<string, unknown>, grant: SessionGrant): string {
   let response: Record<string, unknown>;
   if (decision === 'deny') response = { behavior: 'deny', message: PERMISSION_DENIED };
   else {
@@ -412,7 +414,7 @@ export interface RateLimitInfo {
 }
 
 /** Reads `rate_limit_info` from a `rate_limit_event` line tolerantly; the shape is Claude Code's, not a contract. */
-export function parseRateLimit(info: unknown): RateLimitInfo | null {
+function parseRateLimit(info: unknown): RateLimitInfo | null {
   if (!info || typeof info !== 'object') return null;
   const r = info as Record<string, unknown>;
   if (typeof r.status !== 'string') return null;
@@ -422,15 +424,12 @@ export function parseRateLimit(info: unknown): RateLimitInfo | null {
   return { status: r.status, resetsAt };
 }
 
-// Defined in util.ts so member-checkout git (lib/job-repos.ts) shares it without loading the daemon.
-export { GIT_PINS };
-
 /**
  * Variables that make claude bill an API account instead of the Claude login. `forge dash` is
  * usually started from a shell that exports one for some other tool, and a headless session
  * never asks which to use.
  */
-export const API_KEY_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const;
+const API_KEY_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const;
 
 /** The API_KEY_VARS that are set (non-empty) in `env`. */
 export function apiKeyVars(env: NodeJS.ProcessEnv): string[] {
@@ -507,7 +506,7 @@ export function heldByBudget(root: string, config: Config, rec: { type: string; 
 }
 
 /** A request is held while the repo budget holds new work and its job is not exempt (retro, or forced past the cap this month). */
-export function heldByRepoBudget(root: string, repo: RepoBudgetStatus | null | undefined, rec: { type: string; job: string | null }): boolean {
+function heldByRepoBudget(root: string, repo: RepoBudgetStatus | null | undefined, rec: { type: string; job: string | null }): boolean {
   if (!repo?.held || !REPO_HOLD_TYPES.includes(rec?.type) || !validJobId(rec.job)) return false;
   let job;
   try {
@@ -516,64 +515,6 @@ export function heldByRepoBudget(root: string, repo: RepoBudgetStatus | null | u
     return false;
   }
   return !repoBudgetExempt(root, job, repo);
-}
-
-/** What a job session's agents say about keeping it: sessionAgents. */
-export interface SessionAgents {
-  /** Roles of its owned agents marked running, sorted. */
-  running: string[];
-  /** A running agent started under AGENT_LEASE_MS ago: the session keeps its slot and isn't idle-stopped. */
-  keeps: boolean;
-  /** The latest endedAt across its owned agents, whatever their status. */
-  lastEndAt: string | null;
-  /** `role@startedAt` of each running agent that keeps it, sorted: one agent run, across rounds. */
-  keeping: string[];
-}
-
-const noAgents = (): SessionAgents => ({ running: [], keeps: false, lastEndAt: null, keeping: [] });
-/**
- * How far ahead of now a job.json time may be and still count (clock skew between writers).
- * job.json is the session's own to write, so a time further ahead is ignored: a future startedAt
- * would otherwise dodge the AGENT_LEASE_MS ceiling, and a future endedAt would hold the idle window
- * open for as long as it says.
- */
-const CLOCK_SKEW_MS = 60_000;
-
-/**
- * The agents a job session drives: those in its job.json, only while the job's lease driver is this
- * session. Another driver's agents (a human's terminal session, say), the inbox, and a missing or
- * unreadable job all give none, so a session can never be kept, or have agents marked lost, on
- * the strength of agents it doesn't drive. A running agent keeps it only for AGENT_LEASE_MS
- * after its start, the lease agent start gives, so a phantom can't hold a slot forever.
- */
-export function sessionAgents(root: string, scope: string, sessionId: string | null, at = Date.now()): SessionAgents {
-  // The office's scope is not a job id either, so it never has agents to keep it.
-  if (scope === INBOX_SCOPE || !validJobId(scope) || !sessionId) return noAgents();
-  let job;
-  try {
-    job = loadJob(root, scope);
-  } catch {
-    return noAgents();
-  }
-  if (job.lease.driver !== sessionId) return noAgents();
-  const running: string[] = [];
-  const keeping: string[] = [];
-  let lastEnd = -Infinity;
-  let lastEndAt: string | null = null;
-  for (const [role, a] of Object.entries(job.agents ?? {}) as [string, JobAgent | undefined][]) {
-    if (a?.status === 'running') {
-      running.push(role);
-      const started = typeof a.startedAt === 'string' ? Date.parse(a.startedAt) : NaN;
-      if (Number.isFinite(started) && started <= at + CLOCK_SKEW_MS && at - started < AGENT_LEASE_MS) keeping.push(`${role}@${a.startedAt}`);
-    }
-    const endedAt = a?.endedAt;
-    const ended = typeof endedAt === 'string' ? Date.parse(endedAt) : NaN;
-    if (Number.isFinite(ended) && ended <= at + CLOCK_SKEW_MS && ended > lastEnd) {
-      lastEnd = ended;
-      lastEndAt = endedAt!;
-    }
-  }
-  return { running: running.sort(), keeps: keeping.length > 0, lastEndAt, keeping: keeping.sort() };
 }
 
 function defaultKillTree(child: DaemonChild, signal: NodeJS.Signals): void {
@@ -607,16 +548,15 @@ function appendLine(file: string, line: unknown): void {
   }
 }
 
-export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** How many replaced session ids a record remembers, so a job claimed by an old incarnation can be handed on. */
-export const MAX_PAST_SESSION_IDS = 20;
+const MAX_PAST_SESSION_IDS = 20;
 
 /**
  * The record after its session id becomes `next`: the old id (a uuid only, since the record is a
  * local file anyone with repo access can edit) joins `pastSessionIds`, deduped and capped. A record
  * runs one child at a time, so a past id names a session that has exited (lib/daemon-owner.ts).
  */
-export function withSessionId(info: any, next: string): any {
+function withSessionId(info: any, next: string): any {
   const kept = [...(Array.isArray(info.pastSessionIds) ? info.pastSessionIds : []), info.sessionId].filter((s: unknown): s is string => typeof s === 'string' && UUID.test(s) && s !== next);
   // Deduped keeping each id's latest position, so the cap drops the oldest.
   const past = kept.filter((s, i) => kept.lastIndexOf(s) === i);
@@ -647,107 +587,9 @@ export function isOurChild(info: any, pid: number): boolean {
   return ids.some((id) => words.some((w, i) => (w === '--session-id' || w === '--resume') && words[i + 1] === id));
 }
 
-/**
- * A scope's runtime files. The scope is checked first, so no path is ever built from an
- * unvalidated one.
- */
-export function sessionFiles(root: string, scope: string): { dir: string; info: string; log: string } {
-  if (!validScope(scope)) throw new Error(`invalid daemon scope ${JSON.stringify(String(scope).slice(0, 80))}`);
-  const dir = daemonsDir(root);
-  return { dir, info: path.join(dir, `${scope}.json`), log: path.join(dir, `${scope}.log`) };
-}
-
-export function daemonsDir(root: string): string {
-  return path.join(paths(root).runtime, 'daemons');
-}
-
-/** The one-session daemon's record, from before the pool: reaped, then never used again. */
-function legacyFiles(root: string): { info: string; log: string } {
-  const dir = paths(root).runtime;
-  return { info: path.join(dir, 'daemon.json'), log: path.join(dir, 'daemon.log') };
-}
-
-const MAX_RECORD = 64 * 1024;
-/** Open flags for runtime files something else may have planted: never follow a link, never block on a FIFO. */
-const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
-const NONBLOCK = fs.constants.O_NONBLOCK ?? 0;
-
-/**
- * A session record, or {} for anything else: a missing, corrupt, oversized or non-regular file
- * (a FIFO or symlink planted in the runtime dir must not hang or redirect the server). Read
- * through one descriptor opened without following links or blocking.
- */
-export function readInfo(file: string): any {
-  let fd: number | undefined;
-  try {
-    fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK);
-    const st = fs.fstatSync(fd);
-    if (!st.isFile() || st.size > MAX_RECORD) return {};
-    const v = JSON.parse(fs.readFileSync(fd, 'utf8'));
-    return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
-  } catch {
-    return {};
-  } finally {
-    if (fd !== undefined) fs.closeSync(fd);
-  }
-}
-
-/**
- * Opens a log for appending without following a planted symlink or blocking on a planted FIFO
- * (a write-only open of a FIFO with no reader would wait forever on the server's event loop; with
- * O_NONBLOCK it fails with ENXIO). Anything but a regular file is closed and refused.
- */
-export function openAppend(file: string): number {
-  const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | NOFOLLOW | NONBLOCK, 0o644);
-  try {
-    if (!fs.fstatSync(fd).isFile()) throw new Error(`${file} is not a regular file`);
-  } catch (e) {
-    fs.closeSync(fd);
-    throw e;
-  }
-  return fd;
-}
-
-/** Opens a log for reading without following a planted symlink or blocking on a FIFO; refuses non-files. */
-export function openRead(file: string): number {
-  const fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK);
-  try {
-    if (!fs.fstatSync(fd).isFile()) throw new Error(`${file} is not a regular file`);
-  } catch (e) {
-    fs.closeSync(fd);
-    throw e;
-  }
-  return fd;
-}
-
-/** The record is a local file anyone with repo access can edit: logBase must be a sane byte count. */
-export function logBaseOf(info: any): number {
-  const n = info?.logBase;
-  return Number.isSafeInteger(n) && n >= 0 ? n : 0;
-}
-
-/**
- * Every session record `forge dash` may have left: `daemons/<scope>.json` for valid scopes,
- * regular files only (a planted symlink is skipped), sorted by scope.
- */
-export function sessionRecords(root: string): { scope: string; info: string; log: string }[] {
-  const dir = daemonsDir(root);
-  let names: fs.Dirent[] = [];
-  try {
-    names = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  return names
-    .filter((e) => e.isFile() && e.name.endsWith('.json') && validScope(e.name.slice(0, -5)))
-    .map((e) => e.name.slice(0, -5))
-    .sort()
-    .map((scope) => ({ scope, ...sessionFiles(root, scope) }));
-}
-
-/** A live `forge dash` other than this process that recorded itself in any session record. */
+/** A live `forge dash` other than this process that recorded itself in any daemons/<scope>.json. */
 export function otherOwner(root: string): number | null {
-  for (const file of [legacyFiles(root).info, ...sessionRecords(root).map((r) => r.info)]) {
+  for (const file of sessionRecords(root).map((r) => r.info)) {
     const pid = readInfo(file).serverPid;
     if (Number.isInteger(pid) && pid !== process.pid && pidAlive(pid)) return pid;
   }
@@ -767,24 +609,15 @@ function reapOne(info: any, graceMs: number): number | null {
 }
 
 /**
- * Children left behind by a `forge dash` that died without stopping them. Each record (the legacy
- * daemon.json and every daemons/<scope>.json) is proven on its own: only when its server is gone,
- * its child is alive, and isOurChild proves it is the claude process the record describes, so a
- * reused or planted pid is never signalled.
+ * Children left behind by a `forge dash` that died without stopping them. Each daemons/<scope>.json
+ * record is proven on its own: only when its server is gone, its child is alive, and isOurChild
+ * proves it is the claude process the record describes, so a reused or planted pid is never
+ * signalled.
  */
 export function reapOrphans(root: string, opts: { graceMs?: number } = {}): { reaped: number[] } {
   const reaped: number[] = [];
   if (process.platform === 'win32') return { reaped };
   const graceMs = opts.graceMs ?? 5000;
-  const legacy = legacyFiles(root);
-  const old = readInfo(legacy.info);
-  const pid = reapOne(old, graceMs);
-  if (pid !== null) {
-    reaped.push(pid);
-    // daemon.log is never read again, so the note goes to the inbox log.
-    appendLine(sessionFiles(root, '_inbox').log, { type: 'forge-daemon', at: now(), event: 'reaped', pid, record: 'daemon.json' });
-    writeJsonAtomic(legacy.info, { ...old, pid: null });
-  }
   for (const r of sessionRecords(root)) {
     const info = readInfo(r.info);
     const p = reapOne(info, graceMs);
@@ -1741,98 +1574,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   };
 }
 
-/**
- * Reads complete lines of a session log backwards from `before` (an offset; default and
- * maximum: the end of the file), newest last, through an already-open descriptor. A page stops
- * at `maxBytes` of file or `maxLines` lines (always at least one line), a line over `lineCap`
- * bytes comes back as a forge-truncated marker at its real offset, and at most `scanBytes` are
- * read, so a huge file can't make one request expensive.
- */
-export function readLogPage(
-  fd: number,
-  size: number,
-  logBase: number,
-  opts: { before?: number | null; maxBytes?: number; maxLines?: number; lineCap?: number; scanBytes?: number } = {},
-): { lines: { offset: number; line: string }[]; start: number; end: number; more: boolean } {
-  const maxBytes = opts.maxBytes ?? 256 * 1024;
-  const maxLines = opts.maxLines ?? 1000;
-  const lineCap = opts.lineCap ?? 64 * 1024;
-  let budget = opts.scanBytes ?? 16 * 1024 * 1024;
-  let limit = size;
-  if (opts.before !== undefined && opts.before !== null) limit = Math.max(0, Math.min(size, opts.before - logBase));
-  const CHUNK = 64 * 1024;
-  let chunkStart = 0;
-  let chunk = Buffer.alloc(0);
-  const load = (i: number): boolean => {
-    const startAt = Math.max(0, i + 1 - CHUNK);
-    const len = i + 1 - startAt;
-    if (len > budget) return false;
-    budget -= len;
-    chunk = Buffer.alloc(len);
-    fs.readSync(fd, chunk, 0, len, startAt);
-    chunkStart = startAt;
-    return true;
-  };
-  const byteAt = (i: number): number | null => {
-    if (i < chunkStart || i >= chunkStart + chunk.length) if (!load(i)) return null;
-    return chunk[i - chunkStart];
-  };
-  /** Position of the last newline at or before i, -1 at the start of the file, null when out of budget. */
-  const prevNewline = (i: number): number | null => {
-    for (let j = i; j >= 0; j--) {
-      const b = byteAt(j);
-      if (b === null) return null;
-      if (b === 10) return j;
-    }
-    return -1;
-  };
-  // A trailing line still being written (no newline yet) is not complete.
-  let cursor = 0;
-  if (limit > 0) {
-    const nl = prevNewline(limit - 1);
-    cursor = nl === null ? 0 : nl + 1;
-  }
-  const end = logBase + cursor;
-  const lines: { offset: number; line: string }[] = [];
-  let covered = 0;
-  while (cursor > 0 && lines.length < maxLines) {
-    const nl = cursor >= 2 ? prevNewline(cursor - 2) : -1;
-    if (nl === null) break;
-    const lineStart = nl + 1;
-    const len = cursor - lineStart;
-    if (lines.length && covered + len > maxBytes) break;
-    const bytes = len - 1;
-    let text: string;
-    if (bytes > lineCap) {
-      const head = Buffer.alloc(Math.min(bytes, 256));
-      fs.readSync(fd, head, 0, head.length, lineStart);
-      const m = /^\{"type":"([^"\\]{1,64})"/.exec(head.toString('utf8'));
-      text = JSON.stringify({ type: 'forge-truncated', originalType: m ? m[1] : null, bytes });
-    } else {
-      const buf = Buffer.alloc(bytes);
-      if (bytes) fs.readSync(fd, buf, 0, bytes, lineStart);
-      text = buf.toString('utf8').replace(/\r$/, '');
-    }
-    if (text.trim()) lines.unshift({ offset: logBase + lineStart, line: text });
-    covered += len;
-    cursor = lineStart;
-  }
-  return { lines, start: logBase + cursor, end, more: cursor > 0 && lines.length > 0 };
-}
-
-/**
- * The last `n` complete lines behind an open descriptor, raw, and the byte position just after them.
- * Callers open the file themselves (openRead), so a path is never reopened between check and read.
- * `maxBytes` stops a page early (at least one line still comes back); a line over `lineCap` bytes
- * comes back as a forge-truncated marker.
- */
-export function tailLines(fd: number, n: number, opts: { maxBytes?: number; lineCap?: number } = {}): { lines: string[]; end: number } {
-  const size = fs.fstatSync(fd).size;
-  const page = readLogPage(fd, size, 0, { maxLines: n, maxBytes: opts.maxBytes ?? Infinity, lineCap: opts.lineCap ?? Infinity, scanBytes: 256 * 1024 * 1024 });
-  return { lines: page.lines.map((l) => l.line), end: page.end };
-}
-
-export function capLine(line: string): string {
+function capLine(line: string): string {
   const bytes = Buffer.byteLength(line);
   if (bytes <= RING_LINE_BYTES) return line;
   let originalType: unknown = null;
@@ -1847,7 +1589,7 @@ export function capLine(line: string): string {
  * than `max` is dropped up to its newline and reported through `onTooLong`; with no
  * `onTooLong` its first `max` bytes are kept instead.
  */
-export function splitter(max: number, onLine: (line: string) => void, onTooLong: ((bytes: number) => void) | null): (data: Buffer | string) => void {
+function splitter(max: number, onLine: (line: string) => void, onTooLong: ((bytes: number) => void) | null): (data: Buffer | string) => void {
   let parts: Buffer[] = [];
   let size = 0;
   let dropping = false;

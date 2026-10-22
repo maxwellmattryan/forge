@@ -43,7 +43,7 @@ let installedHash: string | null = null;
  * pluginHash's caps. It runs on a job's worktree at decide, and a branch can commit any tree: the
  * walk stops after this many directory entries or bytes read, and the hash says it stopped.
  */
-export const PLUGIN_WALK_LIMITS = { entries: 5000, bytes: 32 * 1024 * 1024 };
+const PLUGIN_WALK_LIMITS = { entries: 5000, bytes: 32 * 1024 * 1024 };
 
 /**
  * A content hash of the plugin's prompts, checklists, skill, step and brief, so two dev builds
@@ -149,7 +149,7 @@ export function configHash(root: string, config: Config): string {
 }
 
 /** The roster's 12-hex hash: parts joined by NUL. */
-export const shortHash = (...parts: string[]): string => crypto.createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 12);
+const shortHash = (...parts: string[]): string => crypto.createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 12);
 
 /** A prompt file's frontmatter and the body after it. */
 export function frontmatter(text: string): { meta: Record<string, string>; body: string } {

@@ -12,7 +12,7 @@ const SEG = '[A-Za-z0-9][A-Za-z0-9._-]{0,99}';
  * `owner/repo#12`, `group/sub/project#12`: two to five path segments and an issue number. Segments
  * are split by `/`, which no segment may contain, so matching stays linear.
  */
-export const QUALIFIED = new RegExp(`^${SEG}(?:/${SEG}){1,4}#[1-9][0-9]{0,9}$`);
+const QUALIFIED = new RegExp(`^${SEG}(?:/${SEG}){1,4}#[1-9][0-9]{0,9}$`);
 
 const MAX_REF = 200;
 const NUMBER = /^[1-9][0-9]{0,9}$/;
@@ -111,16 +111,6 @@ export function issueUrl(ref: string, host = 'github.com'): string | null {
   const q = splitQualified(ref);
   if (!q || q.path.split('/').length !== 2 || !/^[A-Za-z0-9.-]{1,253}$/.test(host)) return null;
   return `https://${host}/${q.path}/issues/${q.n}`;
-}
-
-/** How an issue is cited: `#N` for this repo's GitHub issues, else the ref as stored. */
-export function refLabel(issue: Pick<JobIssue, 'tracker' | 'ref'>, slug: string | null): string | null {
-  if (!issue.ref) return null;
-  if (issue.tracker === 'github') {
-    const n = nativeRef(issue, 'github', slug);
-    if (n) return `#${n}`;
-  }
-  return issue.ref;
 }
 
 /** Issues that name an item: a url-only entry never counts as linked. */

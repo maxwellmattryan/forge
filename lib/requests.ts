@@ -13,7 +13,7 @@ import { INBOX_SCOPE, OFFICE_SCOPE, REQUEST_TYPES } from './constants.ts';
 export { INBOX_SCOPE, OFFICE_SCOPE, REQUEST_TYPES } from './constants.ts';
 
 /** Request types that act on one job, so they need one and route to that job's daemon session. */
-export const JOB_REQUEST_TYPES = ['approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume'] as const;
+const JOB_REQUEST_TYPES = ['approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume'] as const;
 
 /** Carries a daemon session's scope into its environment; never stdin or argv. */
 export const SCOPE_ENV = 'FORGE_DAEMON_SCOPE';
@@ -92,7 +92,7 @@ export function listRequests(root: string, opts: { status?: string } = {}): Forg
 }
 
 /** enqueue's `<Date.now()>-<shortId()>`. Checked before any path is built from an id. */
-export const REQUEST_ID = /^\d+-[A-Za-z0-9]+$/;
+const REQUEST_ID = /^\d+-[A-Za-z0-9]+$/;
 
 function requestFile(root: string, id: string): string {
   if (typeof id !== 'string' || !REQUEST_ID.test(id)) throw new ForgeError(`invalid request id ${JSON.stringify(String(id).slice(0, 80))}`);
@@ -100,7 +100,7 @@ function requestFile(root: string, id: string): string {
 }
 
 /** A claim older than this with no ack is presumed abandoned (its session died) and can be retaken. */
-export const CLAIM_STALE_MS = 30 * 60 * 1000;
+const CLAIM_STALE_MS = 30 * 60 * 1000;
 
 /** The result a request gets when its session ends under it a second time: it is not tried a third. */
 export const REQUEUE_REJECTED = 'its session ended twice while handling it';

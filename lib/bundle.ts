@@ -8,10 +8,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { redactedConfig } from './config-fields.ts';
 import { worktreeRoot } from './config.ts';
-import { daemonsDir, openRead, tailLines } from './daemon.ts';
+import { daemonsDir, openRead, tailLines } from './daemon-files.ts';
 import { doctor } from './doctor.ts';
 import { forgeVersion } from './evals.ts';
-import { PINNED_DIFF_OPTS, PINNED_GIT_CONFIG } from './integrity.ts';
+import { PINNED_GIT_CONFIG } from './git-pins.ts';
+import { PINNED_DIFF_OPTS } from './integrity.ts';
 import { isActive, jobDir, listJobs, loadJob } from './jobs.ts';
 import { isPrivateName } from './known-secrets.ts';
 import { addCounts, daemonSkeleton, omitProse, omitted, redactContext, redactText } from './redact.ts';
@@ -22,7 +23,7 @@ import type { BundleManifest, BundleSkip, Config, Job, RedactCounts } from './ty
 import { ForgeError, hasBinary, run } from './util.ts';
 import type { ZipEntry } from './zip.ts';
 
-export const ENTRY_CAP = 2 * 1024 * 1024;
+const ENTRY_CAP = 2 * 1024 * 1024;
 /** How much of a file is read before prose is dropped: the skeleton is far smaller than the stream. */
 const READ_CAP = 16 * 1024 * 1024;
 const VERIFY_LINES = 200;
@@ -105,7 +106,7 @@ function openContained(base: string, rel: string): Opened {
 }
 
 /** The last `maxBytes` of a contained file, starting on a whole line when cut; a skip reason or null otherwise. */
-export function readContained(base: string, rel: string, maxBytes: number): string | { skip: string } | null {
+function readContained(base: string, rel: string, maxBytes: number): string | { skip: string } | null {
   const o = openContained(base, rel);
   if (o === null) return null;
   if ('skip' in o) return { skip: o.skip };

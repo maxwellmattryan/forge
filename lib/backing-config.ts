@@ -14,7 +14,7 @@ const DB_KEYS = new Set(['engine', 'migrate', 'seed', 'inputs']);
 const MAX_DB_COMMAND = 2000;
 const MAX_DB_INPUTS = 64;
 
-export const BACKING_NAME = /^[a-z][a-z0-9-]{0,31}$/;
+const BACKING_NAME = /^[a-z][a-z0-9-]{0,31}$/;
 const IMAGE = /^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,254}$/;
 const ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const VOLUME = /^\/[A-Za-z0-9._/-]*$/;

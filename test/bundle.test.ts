@@ -8,7 +8,7 @@ import zlib from 'node:zlib';
 import { forgeAsync, repoTemplate } from './helpers.ts';
 import { TRUST_ENV, loadConfig, trustDigest } from '../lib/config.ts';
 import { createJob, jobDir, logEvent, updateJob } from '../lib/jobs.ts';
-import { sessionFiles } from '../lib/daemon.ts';
+import { sessionFiles } from '../lib/daemon-files.ts';
 import { hasBinary } from '../lib/util.ts';
 import { setIn } from '../lib/yaml.ts';
 import { token } from './secret-fixtures.ts';

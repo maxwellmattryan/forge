@@ -7,7 +7,7 @@
 import { isInsidePath } from './util.ts';
 import * as yaml from './yaml.ts';
 
-export const SINK_KINDS = ['env', 'env-file', 'file', 'command'] as const;
+const SINK_KINDS = ['env', 'env-file', 'file', 'command'] as const;
 export const SINK_FORMATS = ['json', 'yaml', 'toml'] as const;
 export const SINK_MODES = ['template', 'merge'] as const;
 
@@ -17,7 +17,7 @@ export type SinkMode = (typeof SINK_MODES)[number];
 /** The job values an expression can name; `component.dir` is the absolute `<worktree>/<path>`. */
 export const EXPRESSION_ROOTS = ['job', 'port', 'worktree', 'branch', 'base', 'component.name', 'component.path', 'component.dir'] as const;
 /** Namespaces held for later features; naming one is a render error citing the issue. */
-export const RESERVED_NAMESPACES: Record<string, string> = { endpoint: '#195', backing: '#193' };
+const RESERVED_NAMESPACES: Record<string, string> = { endpoint: '#195', backing: '#193' };
 const RESERVED_FEATURES: Record<string, string> = { endpoint: 'endpoints', backing: 'backing services' };
 
 export interface ExprContext {

@@ -21,7 +21,9 @@ import { recordKnown } from '../../../lib/known-secrets.ts';
 import { loadStepInput, step } from '../../../lib/step.ts';
 import { PLUGIN_ROOT } from '../../../lib/paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, ackRequest, claimRequest, enqueue, listRequests, requestScope, validScope } from '../../../lib/requests.ts';
-import { DENY_TOOLS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, buildArgv, createSession, heldByBudget, parseTemplate, reapOrphans, sessionEnv, sessionFiles, PROMPT_INPUT_CHARS, sessionAgents, sessionOptions, LOST_SUMMARY } from '../../../lib/daemon.ts';
+import { DENY_TOOLS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, buildArgv, createSession, heldByBudget, parseTemplate, reapOrphans, sessionEnv, PROMPT_INPUT_CHARS, sessionOptions, LOST_SUMMARY } from '../../../lib/daemon.ts';
+import { sessionFiles } from '../../../lib/daemon-files.ts';
+import { sessionAgents } from '../../../lib/session-agents.ts';
 import type { SessionEvent } from '../../../lib/daemon.ts';
 import { createPool } from '../../../lib/daemon-pool.ts';
 import { REASONS, contextFor, deliver, queueNotify } from '../../../lib/notify.ts';
@@ -2198,7 +2200,7 @@ test('a FIFO planted as a session log never blocks the supervisor', { skip: proc
       import { EventEmitter } from 'node:events';
       import { PassThrough } from 'node:stream';
       import { defaults } from ${JSON.stringify(path.resolve(import.meta.dirname, '..', '..', '..', 'lib', 'config.ts'))};
-      import { openAppend } from ${JSON.stringify(path.resolve(import.meta.dirname, '..', '..', '..', 'lib', 'daemon.ts'))};
+      import { openAppend } from ${JSON.stringify(path.resolve(import.meta.dirname, '..', '..', '..', 'lib', 'daemon-files.ts'))};
       import { createPool } from ${JSON.stringify(path.resolve(import.meta.dirname, '..', '..', '..', 'lib', 'daemon-pool.ts'))};
       const root = process.argv[1];
       let refused = false;
@@ -2486,7 +2488,6 @@ test('per-session files, monotonic offsets and per-job resume', async () => {
 
 test('reaping proves every record separately', { skip: process.platform === 'win32' && 'POSIX-only' }, async () => {
   const repo = scratch();
-  const runtime = path.join(repo.dir, '.forge', 'runtime');
   fs.mkdirSync(daemonsDir(repo.dir), { recursive: true });
   const deadServer = 2 ** 22 + 12345;
   const procs = [];
@@ -2497,36 +2498,24 @@ test('reaping proves every record separately', { skip: process.platform === 'win
   };
   const record = (sid, pid) => ({ sessionId: sid, resumable: true, serverPid: deadServer, argv0: FAKE_BIN, startedAt: new Date().toISOString(), pid });
   try {
-    const [sl, sa, sb] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
-    const legacy = claude(sl);
+    const [sa, sb] = [crypto.randomUUID(), crypto.randomUUID()];
     const orphan = claude(sa);
     const bystander = nodeSpawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)', '--', '--session-id', sb], { detached: true, stdio: 'ignore' });
     procs.push(bystander);
-    await waitFor(() => [legacy, orphan, bystander].every((p) => alive(p.pid)), 2000, 'the processes');
+    await waitFor(() => [orphan, bystander].every((p) => alive(p.pid)), 2000, 'the processes');
     await sleep(100);
-    fs.writeFileSync(path.join(runtime, 'daemon.json'), JSON.stringify(record(sl, legacy.pid)));
     fs.writeFileSync(path.join(daemonsDir(repo.dir), 'job-a.json'), JSON.stringify(record(sa, orphan.pid)));
     // A planted record naming an unrelated live process.
     fs.writeFileSync(path.join(daemonsDir(repo.dir), 'job-b.json'), JSON.stringify(record(sb, bystander.pid)));
     // A record under an invalid scope name is never read.
     fs.writeFileSync(path.join(daemonsDir(repo.dir), '..x.json'), JSON.stringify(record(sa, orphan.pid)));
     const { reaped } = reapOrphans(repo.dir, { graceMs: 1000 });
-    assert.deepEqual(reaped.sort(), [legacy.pid, orphan.pid].sort());
-    await waitFor(() => !alive(legacy.pid) && !alive(orphan.pid), 3000, 'the proven orphans to exit');
+    assert.deepEqual(reaped, [orphan.pid]);
+    await waitFor(() => !alive(orphan.pid), 3000, 'the proven orphans to exit');
     assert.equal(alive(bystander.pid), true, 'the planted record is never signalled');
-    assert.equal(JSON.parse(fs.readFileSync(path.join(runtime, 'daemon.json'), 'utf8')).pid, null);
     assert.equal(infoOf(repo.dir, 'job-a').pid, null);
     assert.equal(eventsIn(logOf(repo.dir, 'job-a'), 'reaped')[0]?.pid, orphan.pid);
-    assert.equal(eventsIn(logOf(repo.dir, INBOX), 'reaped')[0]?.pid, legacy.pid, "the legacy record's reap is noted in the inbox log");
     assert.deepEqual(reapOrphans(repo.dir, { graceMs: 200 }), { reaped: [] }, 'nothing is reaped twice');
-
-    // The legacy record is never used for spawning: the inbox starts its own session.
-    const kit = fakeKit();
-    const d = kitPool(repo.dir, kit);
-    d.start();
-    assert.equal(kit.last(INBOX).args[0], '--session-id');
-    assert.notEqual(kit.last(INBOX).args[1], sl);
-    await d.close();
   } finally {
     for (const p of procs) {
       try {

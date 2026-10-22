@@ -175,7 +175,7 @@ export function addCounts(a: RedactCounts, b: RedactCounts): void {
 export const omitted = (s: string): string => `<omitted: ${s.length} chars>`;
 
 /** Keys whose string values are prose in the JSON Forge writes (job.json, events, step). */
-export const PROSE_KEYS: ReadonlySet<string> = new Set(['title', 'reason', 'summary', 'note', 'text', 'body', 'brief', 'prompt', 'message', 'output', 'comment', 'description', 'report']);
+const PROSE_KEYS: ReadonlySet<string> = new Set(['title', 'reason', 'summary', 'note', 'text', 'body', 'brief', 'prompt', 'message', 'output', 'comment', 'description', 'report']);
 
 /** A deny-list walk over shapes Forge owns: prose strings, at any depth, become `<omitted: n chars>`. */
 export function omitProse(value: unknown): unknown {
@@ -189,7 +189,7 @@ export function omitProse(value: unknown): unknown {
 }
 
 /** Keys whose string values a daemon log skeleton keeps: types, names, ids and states, never prose. */
-export const SKELETON_KEYS: ReadonlySet<string> = new Set([
+const SKELETON_KEYS: ReadonlySet<string> = new Set([
   'type',
   'subtype',
   'event',

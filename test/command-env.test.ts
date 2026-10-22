@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { envFor } from '../lib/worktree.ts';
+import { envFor } from '../lib/job-command.ts';
 import { sessionEnv } from '../lib/daemon.ts';
 import { TRUST_ENV, trustDigest } from '../lib/config.ts';
 

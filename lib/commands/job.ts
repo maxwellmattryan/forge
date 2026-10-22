@@ -31,12 +31,13 @@ import { jobScope } from '../scope.ts';
 import { loadStepInput, step } from '../step.ts';
 import { createAndLink, linkJob, markNoIssue, suggestLink, unlinkJob } from '../tracker-link.ts';
 import { loadTracker } from '../trackers/index.ts';
+import { mirrorToTracker } from '../trackers/mirror.ts';
 import { AGENT_ID } from '../transcripts.ts';
 import { importClaudeCodeTranscript } from '../usage.ts';
 import { modelFor, resolveEffort } from '../config.ts';
 import { ForgeError, coerce, getPath, run } from '../util.ts';
 import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './args.ts';
-import { mirrorToTracker, startFromRef } from './tracker.ts';
+import { startFromRef } from './tracker.ts';
 import { refreshRequest } from '../request-refresh.ts';
 import { TeardownRefusal, archiveJob, archiveOlder, prune } from '../retention.ts';
 import { deleteJob } from '../delete.ts';
@@ -500,7 +501,7 @@ function newJobIssues(root: string, config: Config, flags: Record<string, any>):
 }
 
 /** `--epoch N` as a fence, with `session` when the call names one; undefined without the flag. Parsed before any write. */
-export function epochFence(flags: Record<string, any>, session?: string): Fence | undefined {
+function epochFence(flags: Record<string, any>, session?: string): Fence | undefined {
   const epoch = num(flags.epoch, '--epoch', { integer: true });
   return epoch === undefined ? undefined : { epoch, ...(session !== undefined ? { session } : {}) };
 }

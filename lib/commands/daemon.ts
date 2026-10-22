@@ -3,12 +3,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig } from '../config.ts';
-import { openRead, readInfo, sessionAgents, sessionFiles, sessionRecords, tailLines } from '../daemon.ts';
+import { openRead, readInfo, sessionFiles, sessionRecords, tailLines } from '../daemon-files.ts';
 import { redactKnown, scopeKnownValues } from '../known-secrets.ts';
 import { paths } from '../paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '../requests.ts';
-import { ForgeError, readJson } from '../util.ts';
-import { pidAlive } from '../worktree.ts';
+import { sessionAgents } from '../session-agents.ts';
+import { ForgeError, pidAlive, readJson } from '../util.ts';
 import { usageError } from './args.ts';
 import type { HelpGroup } from '../types.ts';
 

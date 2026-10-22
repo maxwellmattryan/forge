@@ -85,7 +85,7 @@ function detail(e: JobEvent): string | null {
 }
 
 /** The audit rows one event yields: its actor row, gate rows for a transition, or a PR row. */
-export function eventRows(e: JobEvent, job: string | null): AuditRow[] {
+function eventRows(e: JobEvent, job: string | null): AuditRow[] {
   const row = (action: string, note: string | null, det: string | null = null): AuditRow => ({ ts: e.ts, job, actor: e.actor ?? null, action, note, detail: det });
   if (e.type === 'transition') {
     const from = side(e.from);
@@ -129,12 +129,12 @@ export function jobAudit(root: string, id: string): JobAudit {
 }
 
 /** The jobs `forge audit` reads: the live ones, then archived ones (listArchived skips an id that is still live). */
-export function auditJobIds(root: string): string[] {
+function auditJobIds(root: string): string[] {
   return [...new Set([...listJobs(root).map((j) => j.id), ...listArchived(root).map((a) => a.id)])];
 }
 
 /** Rows from .forge/runtime/audit.jsonl: human actions with no job, such as `forge config set`. */
-export function repoAuditRows(root: string): AuditRow[] {
+function repoAuditRows(root: string): AuditRow[] {
   return rowsOf(parseEventLines(readText(repoAuditFile(root))), null);
 }
 
@@ -175,7 +175,7 @@ export function parseAuditDate(s: unknown, flag: string): string {
   return new Date(t).toISOString();
 }
 
-export const CSV_HEADER = ['ts', 'job', 'actor', 'source', 'action', 'note', 'detail', 'pr', 'merge_method'] as const;
+const CSV_HEADER = ['ts', 'job', 'actor', 'source', 'action', 'note', 'detail', 'pr', 'merge_method'] as const;
 
 /**
  * One RFC 4180 field. A cell a spreadsheet would read as a formula gets a leading `'` first, so a

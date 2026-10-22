@@ -8,7 +8,8 @@ import { REPO_NAME } from './member-repos.ts';
 import { isHttpsUrl } from './schema.ts';
 import { isLinkedJob, jobRepoOrder, siblingLine } from './repo-order.ts';
 import type { PrStateKey, RepoKey } from './repo-order.ts';
-import { checkBranch, historyEnv, logEscalated, policyRules, protectedApproved, refusalText } from './protected.ts';
+import { policyRules } from './policy-check.ts';
+import { checkBranch, historyEnv, logEscalated, protectedApproved, refusalText } from './protected.ts';
 import type { MemberBranch } from './protected.ts';
 import { decides, enqueuePrFeedbackGate, foremanEnabled, maybeEnqueueGate, reservedFor } from './foreman.ts';
 import { prLinkNote } from './issue-link.ts';
@@ -381,7 +382,7 @@ function freshMerged(root: string, config: Config, job: Job, key: RepoKey): bool
  * A member repo's GitHub `owner/name`: its `tracker.repo` when the tracker is github, else read from
  * its remote url. Refused when neither gives one.
  */
-export function memberSlug(config: Config, name: string): string {
+function memberSlug(config: Config, name: string): string {
   const repo = memberConfig(config, name);
   if (repo.tracker?.kind === 'github' && typeof repo.tracker.repo === 'string' && repo.tracker.repo) return repo.tracker.repo;
   const slug = slugFromRemote(repo.remote, githubHost());
@@ -753,7 +754,7 @@ function refreshBase(job: Job, config: Config, mode: 'block' | 'warn'): void {
   if (!fetched.ok) fail(`git fetch from ${remote}'s push URL exited ${fetched.status}`);
 }
 
-export function pushBranch(job: Job, config: Config, sha: string, opts: { force?: boolean } = {}): void {
+function pushBranch(job: Job, config: Config, sha: string, opts: { force?: boolean } = {}): void {
   if (!FULL_SHA.test(sha)) throw new ForgeError(`refusing to push ${JSON.stringify(String(sha).slice(0, 80))}: not a commit id`);
   const args = ['push', '-u', config.git.remote, `${sha}:refs/heads/${job.branch}`];
   if (opts.force) args.splice(1, 0, '--force-with-lease');
@@ -833,7 +834,7 @@ function prBody(root: string, config: Config, job: Job): string {
  * that job) or pr.closeIssue is off, and `Source: <url>` for any other issue with a url. The refs come
  * from normalised job.json, so they match the stored grammar and carry no markdown.
  */
-export function issueReferences(root: string, config: Config, job: Job): string[] {
+function issueReferences(root: string, config: Config, job: Job): string[] {
   const issues = Array.isArray(job.issues) ? job.issues : [];
   if (!issues.length) return [];
   const slug = localRepoSlug(root, config);
@@ -966,7 +967,7 @@ export function pullPrHead(root: string, config: Config, job: Job): PrHeadPull {
 }
 
 /** The fixed feedback.md a CI rework gives the builder: no check name or log text, which the PR's own workflows control. */
-export function ciFeedback(n: number | string, head: string): string {
+function ciFeedback(n: number | string, head: string): string {
   return [
     `CI is failing on PR #${n} at ${head.slice(0, 12)}.`,
     '',
@@ -1003,10 +1004,10 @@ export function checksText(f: { names: string[]; more: number }): string {
 }
 
 /** How every CI rework cap reason starts; prReviewTell keys on it. */
-export const CI_CAP_PREFIX = 'CI rework cap:';
+const CI_CAP_PREFIX = 'CI rework cap:';
 
 /** Consecutive CI reworks: the foreman's `rework` events with a `ciHead` since a person's latest event. */
-export function ciReworkStreak(events: JobEvent[]): number {
+function ciReworkStreak(events: JobEvent[]): number {
   let n = 0;
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
@@ -1760,7 +1761,7 @@ function mergeLinked(root: string, config: Config, id: string, opts: { now: bool
 }
 
 /** Why a held consumer's PR stays a draft, and the command a human runs to clear it; for a bump-due one, the commands that bump it. */
-export function releaseGateMessage(id: string, gate: Pick<ReleaseGate, 'consumer' | 'dependency'> & Partial<Pick<ReleaseGate, 'gate' | 'version'>>): string {
+function releaseGateMessage(id: string, gate: Pick<ReleaseGate, 'consumer' | 'dependency'> & Partial<Pick<ReleaseGate, 'gate' | 'version'>>): string {
   if (gate.gate === 'bump-due')
     return `${repoLabel(gate.consumer)}'s manifests don't name ${repoLabel(gate.dependency)}'s released version ${gate.version} yet; run: forge verify ${id}, then forge pr open ${id}`;
   const dep = gate.dependency === null ? '--root' : gate.dependency;

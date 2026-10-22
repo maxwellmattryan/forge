@@ -8,7 +8,7 @@ import { readJson, run } from './util.ts';
 import type { DoctorCheck, InstallInfo, InstalledAs, VersionInfo } from './types.ts';
 
 /** At the plugin root; `git archive` stamps it through `.gitattributes` `export-subst`. */
-export const COMMIT_FILE = 'COMMIT';
+const COMMIT_FILE = 'COMMIT';
 export const SHA = /^[0-9a-f]{40}$/;
 
 const COMMIT_MAX_BYTES = 64;

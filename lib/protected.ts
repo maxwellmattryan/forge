@@ -8,23 +8,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { policyProblems } from './policy-check.ts';
-import { PINNED_GIT_CONFIG } from './integrity.ts';
+import { betterMatch, matchPolicy, matchWith, policyRules } from './policy-check.ts';
+import type { PolicyMatch } from './policy-check.ts';
+import { PINNED_GIT_CONFIG } from './git-pins.ts';
+import { globToRegExp } from './glob.ts';
 import { isForemanActor, jobDir, loadJob, logEvent, updateJob } from './jobs.ts';
-import { globToRegExp, inSpec, resolveBase } from './scope.ts';
+import { resolveBase } from './scope.ts';
 import type { Config, Job, JobEvent, ProtectedHit, ProtectedPaths, ProtectedRule } from './types.ts';
 import { ForgeError, now, run, writeTextAtomic } from './util.ts';
 
 export type ProtectedAction = ProtectedRule['action'];
 export type ProtectedGate = ProtectedPaths['gate'];
-
-/** A rule that matched a path: `rule` is 1-based, `glob` is the configured glob that matched. */
-export interface PolicyMatch {
-  rule: number;
-  glob: string;
-  action: ProtectedAction;
-  reason: string;
-}
 
 /** One `git diff --raw` entry: with `--no-renames`, a rename is a delete plus an add. */
 export interface DiffEntry {
@@ -43,11 +37,11 @@ export interface ProtectedCheck {
 }
 
 /** Hits kept on the job flag; `more` counts the rest. */
-export const MAX_HITS = 200;
+const MAX_HITS = 200;
 /** Paths named in an event, a brief or a JSON reply. */
 export const LIST_LIMIT = 20;
 /** protected.diff is capped here, with a note, so a lockfile rewrite can't fill the job dir. */
-export const DIFF_CAP = 1024 * 1024;
+const DIFF_CAP = 1024 * 1024;
 const LINK_MAX = 4096;
 /** Bytes of paths per `git diff` call when writing protected.diff, so argv stays bounded. */
 const ARGV_CHUNK = 64 * 1024;
@@ -59,41 +53,7 @@ const REASON_PATH = /^[A-Za-z0-9._:/@+-]+$/;
 
 const isMap = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-// ---------- the policy ----------
-
-export { policyProblems };
-
-/** The rules to enforce. An invalid policy fails closed: every gate refuses until a human fixes it. */
-export function policyRules(config: Config): ProtectedRule[] {
-  const problems = policyProblems(config);
-  if (problems.length) throw new ForgeError(`invalid policy in .forge/config.yml, so Forge refuses to check protected paths: ${problems.join('; ')}`, 'config_invalid');
-  return (config.policy?.protectedPaths ?? []) as ProtectedRule[];
-}
-
-/** refuse beats escalate; within one action the lowest rule number wins. */
-function better(a: PolicyMatch | null, b: PolicyMatch | null): PolicyMatch | null {
-  if (!a || !b) return a ?? b;
-  if (a.action !== b.action) return a.action === 'refuse' ? a : b;
-  return a.rule <= b.rule ? a : b;
-}
-
-function matchWith(rules: ProtectedRule[], test: (glob: string) => boolean): PolicyMatch | null {
-  let best: PolicyMatch | null = null;
-  rules.forEach((r, i) => {
-    for (const glob of r.paths) {
-      if (!test(glob.toLowerCase())) continue;
-      best = better(best, { rule: i + 1, glob, action: r.action, reason: r.reason });
-      break;
-    }
-  });
-  return best;
-}
-
-/** The rule a path falls under, or null. Case-insensitive, so `.GitHub/Workflows/x.yml` still counts. */
-export function matchPolicy(file: string, rules: ProtectedRule[]): PolicyMatch | null {
-  const p = file.toLowerCase();
-  return matchWith(rules, (g) => inSpec(p, [g]));
-}
+// ---------- links ----------
 
 /**
  * Whether `dir` could stand in for a directory a glob reaches into: a symlink named `.github`
@@ -145,13 +105,13 @@ export function matchEntry(entry: DiffEntry, rules: ProtectedRule[], readBlob: (
   for (const [mode, blob] of sides) {
     if (!LINK_MODES.has(mode)) continue;
     const p = entry.path.toLowerCase();
-    best = better(best, matchWith(rules, (g) => leadsInto(p, g)));
+    best = betterMatch(best, matchWith(rules, (g) => leadsInto(p, g)));
     if (mode === '120000') {
       const target = linkTarget(entry.path, blob, cwd, readBlob);
-      if (target === false) best = better(best, UNCHECKED_LINK);
+      if (target === false) best = betterMatch(best, UNCHECKED_LINK);
       if (target === null || target === false) continue;
       const t = target.toLowerCase();
-      best = better(best, better(matchPolicy(target, rules), matchWith(rules, (g) => leadsInto(t, g))));
+      best = betterMatch(best, betterMatch(matchPolicy(target, rules), matchWith(rules, (g) => leadsInto(t, g))));
     }
   }
   return best;
@@ -182,7 +142,7 @@ export function comparisonPoint(cwd: string, config: Config, job: Pick<Job, 'bas
 }
 
 /** Parses `git diff --raw -z --no-renames --no-abbrev`; unmerged entries are left for the add that resolves them. */
-export function parseRawZ(out: string): DiffEntry[] {
+function parseRawZ(out: string): DiffEntry[] {
   const parts = out.split('\0');
   const entries: DiffEntry[] = [];
   for (let i = 0; i + 1 < parts.length; i += 2) {
@@ -334,7 +294,7 @@ function writeSource(src: DiffSource, paths: string[], parts: Buffer[], size: nu
 }
 
 /** sha256 over every (path, blob) of S, so a change past the stored MAX_HITS still moves `at`. */
-export function protectedDigest(s: Pick<ProtectedHit, 'path' | 'blob'>[]): string {
+function protectedDigest(s: Pick<ProtectedHit, 'path' | 'blob'>[]): string {
   const h = createHash('sha256');
   for (const k of s.map((x) => `${x.path}\0${x.blob ?? ''}\0`).sort()) h.update(k);
   return h.digest('hex');
@@ -461,7 +421,7 @@ export interface MemberBranch {
 }
 
 /** `<repo>:<path>`: how a member repo's hit is named on the job flag, in events and in messages. */
-export function memberHitPath(repo: string, p: string): string {
+function memberHitPath(repo: string, p: string): string {
   return `${repo}:${p}`;
 }
 

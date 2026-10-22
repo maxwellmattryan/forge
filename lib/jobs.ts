@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { paths, exists } from './paths.ts';
+import { paths, exists, jobDir } from './paths.ts';
 import { currentActor } from './actor.ts';
 import { clearFocusIf } from './focus.ts';
 import { knownRecordValues, redactDeep } from './known-secrets.ts';
@@ -8,8 +8,7 @@ import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, 
 import { idPrefix } from './issue-ref.ts';
 import { localRepoSlug } from './repo-slug.ts';
 import type { AgentUsage, Config, Effort, EventActor, ForgeRequest, Job, JobAgent, JobIssue, JobChange, JobLease, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
-import { queueNotify, transitionEvents } from './notify.ts';
-import { estimateCost } from './usage.ts';
+import { estimateCost } from './pricing.ts';
 import { reviewFileName } from './lens.ts';
 import { requeueOrphans } from './requests.ts';
 import { configForJob } from './eval-overlay.ts';
@@ -30,10 +29,9 @@ export interface Fence {
   session?: string;
 }
 
-export function jobDir(root: string, id: string): string {
-  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(id)) throw new ForgeError(`invalid job id "${id}"`);
-  return paths(root).job(id);
-}
+// jobDir lives in paths.ts, a leaf, so low modules can use it without loading this one; most of lib/
+// still imports it from here, which loads nothing extra.
+export { jobDir } from './paths.ts';
 
 /** request.md without the `# title` line createJob writes, trimmed and uncapped; callers cap it. */
 export function requestBody(root: string, id: string): string {
@@ -342,6 +340,14 @@ function checkChange(change: JobChange): void {
     throw new ForgeError(`unknown waiting-on "${change.waitingOn}" (${WAITING_ON.join(', ')})`, 'usage');
 }
 
+/** Called once per stage, state or waitingOn change setJob makes; notify.ts registers here when it loads. */
+export type TransitionHook = (root: string, job: LoadedJob, from: TransitionSide, to: TransitionSide) => void;
+let transitionHook: TransitionHook | null = null;
+
+export function onTransition(hook: TransitionHook | null): void {
+  transitionHook = hook;
+}
+
 /**
  * `derive` decides part of the change from the job as stored at write time, inside the lock, so a
  * claim or edit that lands between a caller's load and its write is what the decision sees. Its
@@ -394,8 +400,10 @@ export function setJob(
     const to = { stage: job.stage, state: job.state, waitingOn: job.waitingOn };
     logEvent(root, id, 'transition', { from: b, to, reason: c.reason ?? undefined });
     // Once per state change: a repeated set with the same state and waitingOn logs no transition.
-    const n = transitionEvents(b, to, job);
-    if (n) queueNotify(root, n.events, { job: job.id, reason: n.reason });
+    // A hook must never fail the state change it observes.
+    try {
+      transitionHook?.(root, job, b, to);
+    } catch {}
   }
   for (const role of lost) {
     const a = job.agents[role];

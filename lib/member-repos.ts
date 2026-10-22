@@ -155,7 +155,7 @@ export function resolveMemberPath(root: string, p: string): string {
 }
 
 /** `u` without the userinfo of a `scheme://user:pass@host` url: it may carry a password or token. */
-export const stripUserinfo = (u: string): string => u.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@\s]*@/i, '$1');
+const stripUserinfo = (u: string): string => u.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@\s]*@/i, '$1');
 const plainUrl = (u: string): string => stripUserinfo(u.trim()).replace(/\/$/, '').replace(/\.git$/, '');
 
 /** Whether two remote urls name the same repo: equal up to a trailing `/` or `.git`, or the same GitHub `owner/name`. */

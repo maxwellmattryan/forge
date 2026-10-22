@@ -52,7 +52,7 @@ const UI_PACKAGES = ['svelte', '@sveltejs/kit', 'react', 'next', 'vue', 'nuxt', 
 const OUTPUT_DIRS = new Set(['dist', 'build', 'out']);
 
 /** Committed build output a build command likely regenerates: `dist|build|out` at the top level or one below. */
-export function generatedDirs(tracked: string[]): string[] {
+function generatedDirs(tracked: string[]): string[] {
   const out = new Set<string>();
   for (const f of tracked) {
     const parts = f.split('/');
@@ -72,7 +72,7 @@ const LOCKFILES: [string, string[]][] = [
 ];
 
 /** The default policy with the lockfile rule narrowed to the detected ecosystems, or dropped when none is. */
-export function protectedPathsFor(root: string): ProtectedRule[] {
+function protectedPathsFor(root: string): ProtectedRule[] {
   const locks = LOCKFILES.filter(([marker]) => has(root, marker)).flatMap(([, files]) => files);
   return defaults().policy.protectedPaths.flatMap((r) => (r.reason !== 'dependency lockfile' ? [r] : locks.length ? [{ ...r, paths: locks }] : []));
 }

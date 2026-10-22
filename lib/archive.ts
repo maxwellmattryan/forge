@@ -10,7 +10,7 @@ import { ARCHIVE_SCHEMA_VERSION, normalizeEvent, normalizeJob } from './schema.t
 import type { ArchivedJob, JobEvent, RetentionTrigger } from './types.ts';
 
 /** A record larger than this is not one Forge wrote; it is skipped rather than read. */
-export const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
+const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
 const TRIGGERS: readonly RetentionTrigger[] = ['cli', 'prune', 'policy'];
 const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
 const NONBLOCK = fs.constants.O_NONBLOCK ?? 0;

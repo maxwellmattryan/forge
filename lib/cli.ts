@@ -8,6 +8,7 @@ import { daemonTrust, loadConfig } from './config.ts';
 import { refuseInOffice, refuseInboxDrive } from './daemon-owner.ts';
 import { NEED_INIT } from './config-set.ts';
 import { detect } from './detect.ts';
+import { stopBackground } from './environment-lifecycle.ts';
 import { loadJob } from './jobs.ts';
 import { trustedMemberWorktree } from './job-repos.ts';
 import { mainRoot } from './paths.ts';
@@ -162,7 +163,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       needInit();
       return runCmd(root, config, argv);
     case 'stop':
-      return ok({ stopped: wt.stopBackground(root, req(sub, 'job id')) });
+      return ok({ stopped: stopBackground(root, req(sub, 'job id')) });
     case 'focus':
       needInit();
       return ok(await focusCmd(root, config, pos.slice(1), flags));

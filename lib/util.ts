@@ -30,6 +30,15 @@ export class ForgeError extends Error {
 
 export const now = (): string => new Date().toISOString();
 
+export const REDACTED = '[redacted]';
+
+/** `text` with every secret replaced by `[redacted]`. */
+export function redact(text: string, secrets: readonly string[]): string {
+  let out = text;
+  for (const s of secrets) if (s) out = out.split(s).join(REDACTED);
+  return out;
+}
+
 /**
  * A branch or job name that is safe as one shell word and as a git argument: no metacharacters,
  * no whitespace, and no leading `-` that git would read as an option.
@@ -198,7 +207,7 @@ export function pidAlive(pid: unknown): boolean {
  * for breaking locks: EPERM means a process exists that this one may not signal (another uid, or
  * one outside this sandbox), so it is never proof of death.
  */
-export function pidGone(pid: number): boolean {
+function pidGone(pid: number): boolean {
   for (const target of [-pid, pid]) {
     try {
       process.kill(target, 0);

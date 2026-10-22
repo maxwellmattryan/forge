@@ -18,7 +18,7 @@ export interface BudgetExceeded {
 }
 
 /** The limits daemon.jobBudget can fill: the spend keys. */
-export const SPEND_KEYS = ['tokens', 'usd', 'minutes'] as const;
+const SPEND_KEYS = ['tokens', 'usd', 'minutes'] as const;
 
 /** daemon.jobBudget with every key a finite number >= 0 or null, or null when it is off or not a map. */
 export function jobBudgetOf(config: Config): DaemonJobBudget {

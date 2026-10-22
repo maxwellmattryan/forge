@@ -8,9 +8,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadJob, logEvent, updateJob } from './jobs.ts';
-import { removeLinkDir } from './links.ts';
 import { memberCheck, readLocalConfig, resolveMemberPath } from './member-repos.ts';
-import { exists, resolveFrom } from './paths.ts';
+import { exists, linkDir, resolveFrom } from './paths.ts';
 import type { Config, Job, JobRepo, MemberRepoConfig } from './types.ts';
 import { ForgeError, GIT_PINS, assertSafeRef, run } from './util.ts';
 
@@ -208,7 +207,7 @@ export function removeJobRepo(root: string, id: string, name: string): { id: str
   updateJob(root, id, (j) => {
     j.repos = j.repos.filter((r, i) => i === 0 || r.repo !== name);
   });
-  removeLinkDir(root, id, name);
+  fs.rmSync(linkDir(root, id, name), { force: true, recursive: true });
   logEvent(root, id, 'job-repo-removed', { repo: name });
   return { id, repos: loadJob(root, id).repos };
 }

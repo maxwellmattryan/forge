@@ -62,7 +62,7 @@ export function measureHumanDelta(cwd: string, base: string | null | undefined, 
 }
 
 /** Whether this result may still change on a later sync (the commits were not found yet). */
-export const isRetryable = (d: Pick<HumanDelta, 'status' | 'reason' | 'attempts'> | null | undefined): boolean => d?.status === 'unavailable' && d.reason === 'missing commits' && (d.attempts ?? 1) < MAX_ATTEMPTS;
+const isRetryable = (d: Pick<HumanDelta, 'status' | 'reason' | 'attempts'> | null | undefined): boolean => d?.status === 'unavailable' && d.reason === 'missing commits' && (d.attempts ?? 1) < MAX_ATTEMPTS;
 
 /**
  * Measure on the first sync that sees the merge, and again only while the commits could not be

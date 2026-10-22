@@ -296,7 +296,7 @@ export function defaults(): Config {
 }
 
 /** budget.*: USD caps null or a number >= 0, tokensPerMonth null or an integer >= 0, onExceeded hold|warn. */
-export function repoBudgetProblems(c: any): string[] {
+function repoBudgetProblems(c: any): string[] {
   const b = c.budget;
   if (b === undefined) return [];
   if (b === null || typeof b !== 'object' || Array.isArray(b)) return [`budget must be a map (got ${JSON.stringify(b)})`];
@@ -317,10 +317,10 @@ export function repoBudgetProblems(c: any): string[] {
 /** retention.jobsDays and retention.logsDays: 1 day to 10 years. */
 export const RETENTION_DAYS = { min: 1, max: 3650 } as const;
 /** retention.logMaxBytes: 1 MiB to 1 GiB. */
-export const LOG_MAX_BYTES = { min: 1_048_576, max: 1_073_741_824 } as const;
+const LOG_MAX_BYTES = { min: 1_048_576, max: 1_073_741_824 } as const;
 
 /** retention.*: each key null or an integer in its range. */
-export function retentionProblems(c: any): string[] {
+function retentionProblems(c: any): string[] {
   const r = c.retention;
   if (r === undefined) return [];
   if (r === null || typeof r !== 'object' || Array.isArray(r)) return [`retention must be a map (got ${JSON.stringify(r)})`];
@@ -337,10 +337,10 @@ export function retentionProblems(c: any): string[] {
 }
 
 /** environments.maxRunning: running job environments at once. */
-export const MAX_RUNNING = { min: 1, max: 64 } as const;
+const MAX_RUNNING = { min: 1, max: 64 } as const;
 
 /** environments.*: maxRunning null or an integer from 1 to 64. */
-export function environmentsProblems(c: any): string[] {
+function environmentsProblems(c: any): string[] {
   const e = c.environments;
   if (e === undefined) return [];
   if (e === null || typeof e !== 'object' || Array.isArray(e)) return [`environments must be a map (got ${JSON.stringify(e)})`];
@@ -351,10 +351,10 @@ export function environmentsProblems(c: any): string[] {
 }
 
 /** outcomes.windowDays: a day to a year. */
-export const OUTCOME_WINDOW_DAYS = { min: 1, max: 365 } as const;
+const OUTCOME_WINDOW_DAYS = { min: 1, max: 365 } as const;
 
 /** outcomes.windowDays: an integer in its range. */
-export function outcomesProblems(c: any): string[] {
+function outcomesProblems(c: any): string[] {
   const o = c.outcomes;
   if (o === undefined) return [];
   if (o === null || typeof o !== 'object' || Array.isArray(o)) return [`outcomes must be a map (got ${JSON.stringify(o)})`];
@@ -365,7 +365,7 @@ export function outcomesProblems(c: any): string[] {
 }
 
 /** scoring.sample a number from 0 to 1, scoring.model null or a model MODEL_RE accepts. */
-export function scoringProblems(c: any): string[] {
+function scoringProblems(c: any): string[] {
   const s = c.scoring;
   if (s === undefined) return [];
   if (s === null || typeof s !== 'object' || Array.isArray(s)) return [`scoring must be a map (got ${JSON.stringify(s)})`];
@@ -378,7 +378,7 @@ export function scoringProblems(c: any): string[] {
 }
 
 /** foreman.reserved's default: topics that always stay with a human. */
-export const DEFAULT_RESERVED = [
+const DEFAULT_RESERVED = [
   'credential',
   'credentials',
   'secret',
@@ -519,7 +519,7 @@ export function validateConfig(c: any, root: string): string[] {
 }
 
 /** improve.experiments and evals.recall: the settlement thresholds and the recall gate's paths. */
-export function improveProblems(c: any): string[] {
+function improveProblems(c: any): string[] {
   const problems: string[] = [];
   const exp = c.improve?.experiments;
   const positive = (k: 'minJobs' | 'maxJobs') => {
@@ -592,7 +592,7 @@ export function verifyShapeProblems(verify: unknown): string[] {
 }
 
 /** Shape problems, then every step name (inside groups too) that is not a key in `commands`. */
-export function verifyProblems(c: any): string[] {
+function verifyProblems(c: any): string[] {
   const commands = c.commands && typeof c.commands === 'object' ? c.commands : {};
   const unknown = [...new Set(verifySteps(c.verify))].filter((n) => !Object.hasOwn(commands, n));
   return [...verifyShapeProblems(c.verify), ...unknown.map((n) => `verify step "${n}" is not a key in commands`)];
@@ -656,7 +656,7 @@ export function modelProblems(c: any): string[] {
  * none of them reaches a session's argv (sessions resolve with no role), and resolveEffort treats
  * an invalid value as unset anyway.
  */
-export function effortProblems(c: any): string[] {
+function effortProblems(c: any): string[] {
   const problems: string[] = [];
   const levels = `${EFFORTS.join(' | ')}, or null`;
   const isMap = (v: unknown) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -679,7 +679,7 @@ export function effortProblems(c: any): string[] {
 }
 
 /** `worktrees.generated` and `generatedBy`: each glob usable, and a configured command to rebuild them. */
-export function generatedProblems(c: any): string[] {
+function generatedProblems(c: any): string[] {
   const gen = c.worktrees?.generated;
   if (gen === undefined) return [];
   if (!Array.isArray(gen)) return [`worktrees.generated must be a list of paths or globs (got ${JSON.stringify(gen)})`];
@@ -1022,7 +1022,7 @@ export function validEffort(v: unknown): Effort | null {
 }
 
 /** One level above `level` in EFFORTS order; max stays max. */
-export function bumpEffort(level: Effort): Effort {
+function bumpEffort(level: Effort): Effort {
   return EFFORTS[Math.min(EFFORTS.indexOf(level) + 1, EFFORTS.length - 1)];
 }
 
