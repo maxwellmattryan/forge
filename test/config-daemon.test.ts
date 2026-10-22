@@ -127,6 +127,13 @@ test('AC3: daemon config validation', () => {
   one('leftover launcher', (c) => (c.dashboard.launcher = null), /^dashboard\.launcher/);
   assert.deepEqual(problems((c) => (c.daemon.idleStopMinutes = null)), [], 'null means never');
   assert.deepEqual(problems((c) => (c.daemon.idleStopMinutes = 0.5)), []);
+  // Validators take anything: a non-map config is one problem, and a non-map section input reads as {}.
+  for (const bad of [null, []]) {
+    const got = validateConfig(bad, process.cwd());
+    assert.equal(got.length, 1, JSON.stringify(got));
+    assert.match(got[0], /^config must be a map/);
+  }
+  assert.deepEqual(daemonProblems('x'), daemonProblems({}));
 });
 
 test('daemon.allowedTools refuses blanket git/gh, unscoped Bash and file-writing git forms', () => {
