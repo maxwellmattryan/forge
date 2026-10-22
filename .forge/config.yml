@@ -11,7 +11,7 @@ project:
     - dashboard
   instructions:
     - AGENTS.md
-  notes: "Zero runtime dependencies (Node >= 22.18 built-ins; the engine is TypeScript run by Node's type stripping, no build step). The CLI is the only writer of Forge state. Every job.json/event/config shape change bumps the version in lib/schema.ts with a migration, and API_VERSION when /api/state changes. Keep README.md, docs/*.md and skills/forge/** in sync with CLI behaviour. Never point the CLI at a real repo's .forge/ while developing: use a scratch repo or FORGE_ROOT. Never add AI attribution anywhere."
+  notes: "Zero runtime dependencies (Node >= 22.18 built-ins; the engine is TypeScript run by Node's type stripping, no build step). The CLI is the only writer of Forge state. Every job.json/event/config shape change bumps the version in lib/core/job/schema.ts with a migration, and API_VERSION when /api/state changes. Keep README.md, docs/*.md and skills/forge/** in sync with CLI behaviour. Never point the CLI at a real repo's .forge/ while developing: use a scratch repo or FORGE_ROOT. Never add AI attribution anywhere."
 git:
   base: develop
   remote: origin
@@ -32,7 +32,7 @@ commands:
   setup: npm ci
   build: npm run build:dashboard && test -z "$(git status --porcelain -- dashboard/dist)"
   test: set -- {args}; [ $# -gt 0 ] || set -- 'test/**/*.test.ts'; node --test "$@"
-  lint: for f in $(find lib lib/commands lib/trackers dashboard -maxdepth 1 -name '*.mjs') bin/forge; do node --check "$f" || exit 1; done && claude plugin validate . --strict
+  lint: for f in $(find lib/trackers dashboard -maxdepth 1 -name '*.mjs') bin/forge; do node --check "$f" || exit 1; done && claude plugin validate . --strict
   format: null
   typecheck: npm run check:dashboard && npm run typecheck
   dev: null
@@ -140,27 +140,33 @@ review:
     - name: security
       model: opus
       effort: high
-      when: lib/server.ts, lib/pr.ts, lib/trackers/*, hooks/*, anything that ingests tracker/PR/web text, runs shell commands, or touches the dashboard's Host/Origin/token checks
+      when: lib/server/**, lib/engine/pr/**, lib/engine/trackers/**, lib/integrations/github/**, lib/integrations/backlog/**, lib/trackers/*, hooks/*, anything that ingests tracker/PR/web text, runs shell commands, or touches the dashboard's Host/Origin/token checks
       paths:
-        - lib/server.ts
-        - lib/pr.ts
+        - lib/server/**
+        - lib/engine/pr/**
+        - lib/engine/trackers/**
+        - lib/integrations/github/tracker.ts
+        - lib/integrations/backlog/**
         - lib/trackers/**
         - hooks/**
-        - lib/secrets.ts
-        - lib/daemon*.ts
-        - lib/requests.ts
+        - lib/engine/guard/secrets.ts
+        - lib/office/session/**
+        - lib/office/pool.ts
+        - lib/office/owner.ts
+        - lib/core/job/session-files.ts
+        - lib/core/job/requests.ts
         - bin/forge
         - package.json
         - package-lock.json
         - .github/workflows/**
-        - lib/step.ts
-        - lib/scope.ts
-        - lib/panel.ts
-        - lib/integrity.ts
-        - lib/commands/job.ts
-        - lib/foreman.ts
-        - lib/eval-overlay.ts
-        - lib/worktree.ts
+        - lib/engine/pipeline/step.ts
+        - lib/engine/pipeline/scope.ts
+        - lib/engine/pipeline/panel.ts
+        - lib/engine/guard/integrity.ts
+        - lib/cli/commands/job.ts
+        - lib/office/foreman.ts
+        - lib/engine/evals/overlay.ts
+        - lib/engine/workspace/worktree.ts
         - dashboard/src/lib/markdown.ts
     - name: docs
       model: haiku
@@ -170,10 +176,10 @@ review:
         - README.md
         - docs/**
         - skills/forge/**
-        - lib/commands/**
-        - lib/schema.ts
-        - lib/config.ts
-        - lib/config-fields.ts
+        - lib/cli/commands/**
+        - lib/core/job/schema.ts
+        - lib/core/config/load.ts
+        - lib/core/config/fields.ts
     - name: design
       model: opus
       effort: high
@@ -194,7 +200,7 @@ approver:
 #    - a new runtime dependency (the repo has zero runtime dependencies by rule; exact-pinned devDependencies are fine)
 #    - public API or protocol breaking changes
 #    - anything touching credentials, auth or permissions
-#    - changes to the dashboard security posture in lib/server.ts (loopback Host check, token, Origin, JSON-only POSTs)
+#    - changes to the dashboard security posture in lib/server/ (loopback Host check, token, Origin, JSON-only POSTs)
 pr:
   enabled: true
   draft: false
@@ -219,18 +225,18 @@ components:
   - name: library
     path: .
     kind: library
-    notes: "The engine behind everything else: lib/ (jobs, step, brief, schema, config, worktree, pr, trackers/, stats, evals, server, daemon, ...) except the CLI layer. Strict TypeScript run by Node's type stripping, zero runtime dependencies. The only writer of Forge state: shapes live in lib/types.ts and lib/schema.ts, versioned with migrations."
+    notes: "The engine behind everything else: the lib layers below cli (api, core, integrations, engine, office, server) and lib/trackers/. Strict TypeScript run by Node's type stripping, zero runtime dependencies. The only writer of Forge state: shapes live in lib/core/types.ts and lib/core/job/schema.ts, versioned with migrations."
   - name: cli
     path: .
     kind: library
-    notes: "The forge command: bin/forge, lib/cli.ts (routing only) and lib/commands/ (one module per group, each with its HELP table). Used by humans, by the dashboard and by agents, so command names, flags, exit codes and JSON output are a public contract. Keep README's CLI table (npm run docs:commands) and docs/CLI.md in sync."
+    notes: "The forge command: bin/forge, lib/cli/main.ts (routing only) and lib/cli/commands/ (one module per group, each with its HELP table). Used by humans, by the dashboard and by agents, so command names, flags, exit codes and JSON output are a public contract. Keep README's CLI table (npm run docs:commands) and docs/CLI.md in sync."
     dependsOn:
       - component: library
         type: build
   - name: dashboard
     path: .
     kind: app
-    notes: "The web UI: dashboard/ (Svelte 5 in src/, style.css, index.html). Built into dashboard/dist/, which forge dash serves; dist/ is gitignored on develop, so never commit or hand-edit it (only release and hotfix commits on main commit it). dashboard/src/lib/types.ts mirrors the /api shapes that lib/server.ts serves."
+    notes: "The web UI: dashboard/ (Svelte 5 in src/, style.css, index.html). Built into dashboard/dist/, which forge dash serves; dist/ is gitignored on develop, so never commit or hand-edit it (only release and hotfix commits on main commit it). dashboard/src/lib/types.ts mirrors the /api shapes that lib/server/start.ts serves."
     dependsOn:
       - component: cli
         type: runtime
