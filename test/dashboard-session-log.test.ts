@@ -1,7 +1,7 @@
 // dashboard/src/lib/session-log.ts: a session's raw stream-json lines into turns, items and subagent groups.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_FILTERS, LONG_TEXT, MAX_ENTRIES, PREVIEW_CHARS, buildSessionView, filtersActive, latestInitModel, mergeEntry, parseEntry, readFilters, taskText, toolSummary } from '../dashboard/src/lib/session-log.ts';
+import { DEFAULT_FILTERS, FOLLOW_SLACK, LONG_TEXT, MAX_ENTRIES, PREVIEW_CHARS, atBottom, buildSessionView, filtersActive, latestInitModel, mergeEntry, parseEntry, readFilters, taskText, toolSummary } from '../dashboard/src/lib/session-log.ts';
 
 const XSS = '<script>alert(1)</script><img src=x onerror=alert(2)>';
 
@@ -391,4 +391,15 @@ test("latestInitModel returns the newest init line's model", () => {
   assert.equal(latestInitModel(entries([init('claude-opus-5-5'), init('claude-haiku-4-5', { parent_tool_use_id: 't_agent' })])), 'claude-opus-5-5');
   assert.equal(latestInitModel(entries([init(''), 'not json'])), null, 'an init with no model names none');
   assert.equal(latestInitModel(entries([init(XSS)])), XSS, 'session output passes through as data; SessionLog renders it as text');
+});
+
+test('atBottom: the 24 px slack and short content', () => {
+  assert.equal(FOLLOW_SLACK, 24);
+  assert.equal(atBottom(1000, 476, 500, 24), true, 'exactly 24 px from the bottom');
+  assert.equal(atBottom(1000, 475, 500, 24), false, '25 px from the bottom');
+  assert.equal(atBottom(1000, 500, 500, 24), true, 'at the bottom');
+  assert.equal(atBottom(300, 0, 500, 24), true, 'content shorter than the pane');
+  assert.equal(atBottom(1000, 476, 500), true, 'slack defaults to 24');
+  assert.equal(atBottom(1000, 475, 500), false);
+  assert.equal(atBottom(1000, 490, 500, 0), false, 'a custom slack');
 });

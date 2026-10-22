@@ -1,8 +1,10 @@
 // The inline markdown renderer against hostile text: issue bodies and PR comments render on the
 // origin that holds the POST token, so no input may put markup inside an attribute or nest anchors.
-import test from 'node:test';
+// Also: when a string may go through md() (md-view.ts), and the PR chip's link check (safeUrl).
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { md, inline } from '../dashboard/src/lib/markdown.ts';
+import { md, inline, safeUrl } from '../dashboard/src/lib/markdown.ts';
+import { MD_MAX, MD_SURFACES, MD_VIEWS, PROSE_KINDS, mdPrefKey, readMdView, renderable } from '../dashboard/src/lib/md-view.ts';
 
 const A = ' target="_blank" rel="noopener noreferrer"';
 
@@ -134,4 +136,36 @@ test('md memo returns identical output across eviction', () => {
   assert.equal(md(first), once, 'an evicted input renders the same again');
   assert.equal(md(null), md(''), 'null and undefined key as the empty string');
   assert.equal(md(undefined), '');
+});
+
+describe('md-view', () => {
+  // dashboard/src/lib/md-view.ts: the Rendered/Raw choice per surface and when a string may go through md().
+  test("readMdView reads only 'raw' as raw", () => {
+    for (const saved of [null, undefined, '', 'bogus', 'RAW', 'rendered', ' raw']) assert.equal(readMdView(saved), 'rendered', String(saved));
+    assert.equal(readMdView('raw'), 'raw');
+  });
+
+  test('surfaces, views, prose kinds and pref keys', () => {
+    assert.deepEqual(MD_SURFACES, ['files', 'thread', 'session']);
+    assert.deepEqual(MD_VIEWS, ['rendered', 'raw']);
+    assert.deepEqual(PROSE_KINDS, ['text', 'thinking']);
+    assert.equal(mdPrefKey('thread'), 'mdView.thread');
+    assert.deepEqual(MD_SURFACES.map(mdPrefKey), ['mdView.files', 'mdView.thread', 'mdView.session']);
+  });
+
+  test('renderable honours the view and the 20k cap', () => {
+    assert.equal(MD_MAX, 20000);
+    assert.equal(renderable('x'.repeat(20000), 'rendered'), true);
+    assert.equal(renderable('x'.repeat(20001), 'rendered'), false);
+    assert.equal(renderable('x', 'raw'), false);
+    assert.equal(renderable('', 'rendered'), true);
+  });
+});
+
+describe('pr-chip', () => {
+  // The PR chip only links to a url safeUrl accepts; its markup is not tested, since tests can't import .svelte.
+  // dashboard-lib.test.ts › "md, inline and safeUrl" holds javascript:, data:, protocol-relative, upper-case and null.
+  test('a PR chip links only to a safe url', () => {
+    for (const u of ['JaVaScRiPt:alert(1)', '', undefined]) assert.equal(safeUrl(u), null, String(u));
+  });
 });
