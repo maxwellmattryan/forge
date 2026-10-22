@@ -12,6 +12,8 @@ import { queueNotify, transitionEvents } from './notify.ts';
 import { estimateCost } from './usage.ts';
 import { reviewFileName } from './lens.ts';
 import { requeueOrphans } from './requests.ts';
+import { configForJob } from './eval-overlay.ts';
+import { configHash, pluginHash, promptHash } from './provenance.ts';
 import { ForgeError, assertSafeRef, now, readJson, readText, setPath, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
 
 /** How long a claim or the driver's own activity keeps a lease live. */
@@ -471,6 +473,26 @@ export function releaseJob(root: string, id: string, onlyIf?: (lease: JobLease) 
   return true;
 }
 
+/**
+ * What an agent start ran on: the plugin, the role's prompt as the roster hashes it, and the repo
+ * layer with the job's effective config. `forge stats --by prompt` groups jobs by these.
+ */
+function startProvenance(root: string, config: Config, job: Job, role: string): Pick<JobEvent, 'pluginHash' | 'promptHash' | 'configHash'> {
+  // Best-effort, each on its own: a hash that throws is null, and never fails the agent start.
+  const tryHash = (fn: () => string | null): string | null => {
+    try {
+      return fn();
+    } catch {
+      return null;
+    }
+  };
+  return {
+    pluginHash: tryHash(() => pluginHash()),
+    promptHash: tryHash(() => promptHash(root, config, role)),
+    configHash: tryHash(() => configHash(root, configForJob(root, config, job))),
+  };
+}
+
 export function recordAgent(
   root: string,
   id: string,
@@ -524,7 +546,7 @@ export function recordAgent(
     status: rec.status,
     summary: rec.summary,
     usage: rec.usage,
-    ...(rec.phase === 'start' ? { output: rec.output ?? undefined, retry: rec.retry || undefined } : {}),
+    ...(rec.phase === 'start' ? { output: rec.output ?? undefined, retry: rec.retry || undefined, ...startProvenance(root, config, job, rec.role) } : {}),
     ...(rec.outputMissing !== undefined ? { outputMissing: rec.outputMissing } : {}),
   });
   return job;

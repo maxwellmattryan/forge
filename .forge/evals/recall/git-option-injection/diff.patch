@@ -1,0 +1,13 @@
+diff --git a/lib/pr.ts b/lib/pr.ts
+--- a/lib/pr.ts
++++ b/lib/pr.ts
+@@ -40,2 +40,9 @@ export function prBase(root: string): string {
+   return base;
+ }
++
++/** The commits a PR adds over main, from the head branch gh reports for it. */
++export function prCommits(root: string, number: number): string[] {
++  const pr = JSON.parse(run('gh', ['pr', 'view', String(number), '--json', 'headRefName'], { cwd: root }).stdout);
++  const out = run('git', ['log', '--format=%H', 'origin/main', pr.headRefName], { cwd: root }).stdout;
++  return out.split('\n').filter(Boolean);
++}

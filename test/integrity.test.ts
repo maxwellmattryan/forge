@@ -142,7 +142,7 @@ test('testIntegrity: moving a skip is not a finding; an added #[ignore] is; an u
     assert.equal(r.ok, false, 'block fails on an error');
     assert.match(renderIntegrity(r), /^## integrity: error[\s\S]*no-such-branch/);
 
-    r = testIntegrity(repo.dir, { ...config, evals: { testPattern: '(' } }, job);
+    r = testIntegrity(repo.dir, { ...config, evals: { ...config.evals, testPattern: '(' } }, job);
     assert.match(r.error, /invalid evals\.testPattern/);
   } finally {
     repo.cleanup();

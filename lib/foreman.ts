@@ -195,6 +195,14 @@ export function pastTotalCeiling(config: Config, job: Partial<Pick<Job, 'round' 
   return typeof job.round === 'number' && job.round > totalRoundCeiling(config, job);
 }
 
+/**
+ * What reservedFor returns at a retro job's spec gate, whatever the action and whatever foreman.decides
+ * says: a retro rewrites the instructions every agent, the office's included, runs on.
+ */
+export const RETRO_SPEC_HOLD = "retro spec: a human approves Forge's own improvements";
+
+const isRetroSpec = (job: Partial<Pick<Job, 'kind'>>, gate: GateClass | null): boolean => job.kind === 'retro' && gate === 'spec-approval';
+
 /** What reservedFor returns at a rounds-exhausted park past the total-round ceiling, whatever the action. */
 export const TOTAL_CEILING = '(total-round ceiling: only a human clears it)';
 
@@ -221,11 +229,12 @@ export function securityHold(job: Pick<Job, 'verdicts'>): string | null {
 export function reservedFor(
   root: string,
   config: Config,
-  job: Pick<Job, 'id' | 'reason' | 'verdicts'> & Partial<Pick<Job, 'round' | 'maxRounds' | 'waitingOn'>>,
+  job: Pick<Job, 'id' | 'reason' | 'verdicts'> & Partial<Pick<Job, 'round' | 'maxRounds' | 'waitingOn' | 'kind'>>,
   gate: GateClass | null,
   extra: (string | null | undefined)[] = [],
   opts: { action?: string } = {},
 ): string | null {
+  if (isRetroSpec(job, gate)) return RETRO_SPEC_HOLD;
   if (gate === 'rounds-exhausted' && pastTotalCeiling(config, job)) return TOTAL_CEILING;
   const hold = securityHold(job);
   const mitigates = opts.action !== undefined ? SECURITY_MITIGATIONS.includes(opts.action) : gate !== null && ACTIONS_BY_GATE[gate].some((a) => SECURITY_MITIGATIONS.includes(a));
@@ -271,8 +280,9 @@ export function maybeEnqueueGate(root: string, config: Config, before: Pick<Job,
   const gate = gateClassFor(root, after);
   if (!gate || gate === 'pr-feedback' || !decides(config).includes(gate)) return null;
   if (before.state === 'waiting' && before.waitingOn === after.waitingOn) return null;
-  // Past the total-round ceiling the gate is a person's alone: no request for the office to read.
+  // Past the total-round ceiling, and at a retro's spec, the gate is a person's alone: no request for the office to read.
   if (gate === 'rounds-exhausted' && pastTotalCeiling(config, after)) return null;
+  if (isRetroSpec(after, gate)) return null;
   const open =listRequests(root).some((r) => isGateRequest(r, after.id, gate) && (r.status === 'pending' || r.status === 'in-progress'));
   if (open) return null;
   const reserved = reservedFor(root, config, after, gate);

@@ -9,13 +9,13 @@ import { execFileSync } from 'node:child_process';
 import { forgeAsync, forgeInProcess, repoTemplate } from './helpers.ts';
 import { TRUST_ENV, autoMerge, defaults, loadConfig, trustDigest, validateConfig } from '../lib/config.ts';
 import { FIELDS } from '../lib/config-fields.ts';
-import { INVALID_RESERVED, SECURITY_CHANGES, SECURITY_UNCLEAR, TOTAL_CEILING, checkForemanDecision, checkOfficeSetFor, gateClass, gateOwner, latestSecurityVerdict, maybeEnqueueGate, reservedFor, reservedMatch } from '../lib/foreman.ts';
+import { INVALID_RESERVED, RETRO_SPEC_HOLD, SECURITY_CHANGES, SECURITY_UNCLEAR, TOTAL_CEILING, checkForemanDecision, checkOfficeSetFor, gateClass, gateOwner, latestSecurityVerdict, maybeEnqueueGate, reservedFor, reservedMatch } from '../lib/foreman.ts';
 import { ForgeError } from '../lib/util.ts';
 import { createJob, jobDir, loadJob, logEvent, readEvents, setJob } from '../lib/jobs.ts';
 import { checksText, failingCheckNames, syncPr, trustedFeedback } from '../lib/pr.ts';
 import { loadStepInput, step } from '../lib/step.ts';
 import { OFFICE_SCOPE, ackRequest, enqueue, listRequests, requestScope } from '../lib/requests.ts';
-import { EFFORT_ROLES, OFFICE_GATES } from '../lib/schema.ts';
+import { EFFORT_ROLES, EVENT_SCHEMA_VERSION, OFFICE_GATES } from '../lib/schema.ts';
 import { computeStats } from '../lib/stats.ts';
 import { roleBrief } from '../lib/brief.ts';
 import * as yaml from '../lib/yaml.ts';
@@ -175,7 +175,7 @@ describe('foreman CLI', { concurrency: 4 }, () => {
       const ev = readEvents(s.root, id).filter((e) => e.type === 'human');
       assert.equal(ev.length, 1);
       assert.deepEqual(ev[0].actor, { login: 'forge-test', source: 'env' });
-      assert.equal(ev[0].v, 2);
+      assert.equal(ev[0].v, EVENT_SCHEMA_VERSION);
       assert.equal(ev[0].note, 'x');
       const bad = await s.cli(undefined, 'job', 'human', id, 'rework', '--actor', 'robot');
       assert.notEqual(bad.code, 0);
@@ -587,6 +587,41 @@ describe('foreman CLI', { concurrency: 4 }, () => {
       assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'foreman');
       const ok = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'approve', '--actor', 'foreman', '--note', 'cosmetic findings only');
       assert.equal(ok.code, 0, ok.out);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test("a retro's spec gate is never the foreman's", async () => {
+    const s = scratch();
+    try {
+      assert.ok(s.config().foreman.decides.includes('spec-approval'));
+      const id = createJob(s.root, defaults(), { title: 'Retro', kind: 'retro' }).id;
+      setJob(s.root, id, { stage: 'spec', state: 'running' });
+      const park = await s.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready');
+      assert.equal(park.code, 0, park.out);
+      assert.deepEqual(s.gates(id), [], 'no gate request reaches the office');
+      assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'human');
+      assert.equal(reservedFor(s.root, s.config(), loadJob(s.root, id), 'spec-approval'), RETRO_SPEC_HOLD);
+      for (const action of ['approve-spec', 'revise-spec']) {
+        const before = s.snapshot(id);
+        const refused = await s.cli(OFFICE_SCOPE, 'job', 'human', id, action, '--actor', 'foreman', '--note', 'looks fine');
+        assert.equal(refused.code, 1, `${action}: ${refused.out}`);
+        assert.match(refused.out, /--actor foreman refused: reserved \(retro spec: a human approves/, action);
+        assert.equal(s.snapshot(id), before, `${action}: nothing written`);
+      }
+      // Nor can its kind change to make the gate the foreman's.
+      const kind = await s.cli(undefined, 'job', 'set', id, '--field', 'kind=feature');
+      assert.equal(kind.code, 1, kind.out);
+      assert.match(kind.out, /is a retro job; its kind is not settable/);
+      assert.equal(loadJob(s.root, id).kind, 'retro');
+      // A person approves it as usual.
+      const person = await s.cli(undefined, 'job', 'human', id, 'approve-spec', '--note', 'ok');
+      assert.equal(person.code, 0, person.out);
+      // An ordinary job's spec gate is still the foreman's.
+      const plain = s.job('Plain', { stage: 'spec', state: 'running' });
+      assert.equal((await s.cli(undefined, 'job', 'set', plain, '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready')).code, 0);
+      assert.equal(s.gates(plain).length, 1);
     } finally {
       s.cleanup();
     }

@@ -13,7 +13,9 @@ import { jobEndpoints } from '../endpoints.ts';
 import { memberRepos, trustedMemberWorktree } from '../job-repos.ts';
 import { lensChecklists } from '../member-panel.ts';
 import { PLUGIN_ROOT, exists } from '../paths.ts';
-import { approachPaths, integrationTouched } from '../scope.ts';
+import { pluginHash } from '../provenance.ts';
+import { hasFixtures, loadFixtures } from '../recall.ts';
+import { approachPaths, committedChanges, inSpec, integrationTouched, resolveBase } from '../scope.ts';
 import type { Config, Job, JobEvent, StepFile, StepInput, StepVerdicts } from '../types.ts';
 import { readJson, readText } from '../util.ts';
 import { verifierCount } from '../verifiers.ts';
@@ -29,7 +31,7 @@ export const STEP_EVENTS = new Set([
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
   'protected-path', 'repo-proposed', 'pr-deferred', 'canary-published', 'interim-released', 'interim-bumped', 'pr-ready', 'downstream-checked', 'job-repo-added',
-  'job-repo-removed', 'pr-head-pulled',
+  'job-repo-removed', 'pr-head-pulled', 'recall',
 ]);
 
 /**
@@ -122,6 +124,8 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     evalTask,
     checklists: lensChecklists(root, config, job, names),
     integrationTouched: loadIntegrationTouched(job, config, events),
+    // Fixtures and the paths come from the main checkout and its config, never the branch's.
+    recall: loadRecall(root, config, job),
     // The main checkout's, never the worktree's: a branch can't switch the gate on or off.
     verifiers: verifierCount(root),
     ...(config.backing?.length ? { backing: { job: readJobRecord(root, job.id, config), shared: readSharedRecord(root, config) } } : {}),
@@ -141,6 +145,44 @@ export function loadIntegrationTouched(job: Job, config: Config, events: JobEven
   const ev = events.findLast((e) => e.type === 'integrate-conflicts');
   if (!last?.ok || !last.sha || !ev || typeof ev.head !== 'string' || typeof ev.upstream !== 'string') return null;
   return { head: ev.head, upstream: ev.upstream, sha: last.sha, files: integrationTouched(job.worktree, ev.head, ev.upstream, last.sha) };
+}
+
+/** The recall gate's paths when a config predates evals.recall. */
+export const RECALL_PATHS = ['agents/', 'reviewers/', 'lib/brief.ts'];
+
+/**
+ * The recall gate from what was read: null unless the job is a non-eval job in decide with a
+ * worktree and the main checkout has fixtures. `changed` null means git failed, which fails closed.
+ */
+export function recallGate(
+  job: Pick<Job, 'stage' | 'kind'>,
+  config: Config,
+  seen: { worktree: boolean; fixtures: boolean; changed: string[] | null; pluginHash: string | null; invalid?: boolean },
+): StepInput['recall'] {
+  if (job.stage !== 'decide' || job.kind === 'eval' || !seen.worktree || !seen.fixtures) return null;
+  if (seen.changed === null) return { required: true, pluginHash: null };
+  const tokens = config.evals?.recall?.paths ?? RECALL_PATHS;
+  const required = seen.changed.some((f) => inSpec(f, tokens));
+  return required && seen.invalid ? { required, pluginHash: seen.pluginHash, invalidFixtures: true } : { required, pluginHash: seen.pluginHash };
+}
+
+/** loadStepInput's recall read: the committed diff since the merge base, the worktree's pluginHash, and whether the fixtures load. */
+export function loadRecall(root: string, config: Config, job: Job): StepInput['recall'] {
+  const worktree = Boolean(job.worktree && exists(job.worktree));
+  // Nothing below runs unless the gate can apply: git and the hash cost a few ms on every step.
+  if (job.stage !== 'decide' || job.kind === 'eval' || !worktree || !hasFixtures(root)) return recallGate(job, config, { worktree, fixtures: false, changed: [], pluginHash: null });
+  let changed: string[] | null = null;
+  let hash: string | null = null;
+  try {
+    changed = committedChanges(job.worktree!, resolveBase(job.worktree!, config, job).mergeBase);
+    hash = pluginHash(job.worktree!);
+  } catch {
+    changed = null;
+    hash = null;
+  }
+  // A fixture that does not load makes `start` exit before it logs, so RC1 could never count two starts.
+  const invalid = changed !== null && loadFixtures(root).problems.length > 0;
+  return recallGate(job, config, { worktree, fixtures: true, changed, pluginHash: changed === null ? null : hash, invalid });
 }
 
 export function parsePlan(text: string): StepInput['plan'] {

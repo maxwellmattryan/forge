@@ -110,6 +110,7 @@ const CONFIG_ROWS: Row[] = [
     note: ONLY_VERSION,
   },
   { from: 27, input: { schemaVersion: 27, daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.turnTimeoutMinutes'], note: ONLY_VERSION },
+  { from: 28, input: { schemaVersion: 28, improve: { retroEvery: 5 }, evals: { testPattern: 'x' } }, fields: { improve: { retroEvery: 5 }, evals: { testPattern: 'x' } }, removed: ['improve.experiments', 'evals.recall'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -187,6 +188,13 @@ const EVENT_ROWS: Row[] = [
     input: { v: 1, ts: 't', type: 'human', action: 'approve', actor: 'foreman' },
     fields: { actor: FOREMAN, action: 'approve', type: 'human', ts: 't' },
     note: 'a legacy actor string becomes the { login, source } object',
+  },
+  {
+    from: 2,
+    input: { v: 2, ts: 't', type: 'agent-start', role: 'builder', model: 'opus', output: 'build.md', actor: { login: 'al', source: 'env' } },
+    fields: { type: 'agent-start', ts: 't', role: 'builder', model: 'opus', output: 'build.md', actor: { login: 'al', source: 'env' } },
+    removed: ['pluginHash', 'promptHash', 'configHash'],
+    note: 'an agent-start from before provenance keeps every field and gains no hash',
   },
 ];
 

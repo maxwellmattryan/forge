@@ -11,16 +11,16 @@ import type { EventActor, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcom
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from './backing-config.ts';
 
-export const CONFIG_SCHEMA_VERSION = 28;
+export const CONFIG_SCHEMA_VERSION = 29;
 export const JOB_SCHEMA_VERSION = 17;
-export const EVENT_SCHEMA_VERSION = 2;
+export const EVENT_SCHEMA_VERSION = 3;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
 export const ARCHIVE_SCHEMA_VERSION = 1;
 /**
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 34;
+export const API_VERSION = 35;
 
 /**
  * Where an event's `actor` came from: lib/actor.ts resolves env, gh, git, os and dashboard; the
@@ -233,6 +233,10 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v28 adds daemon.turnTimeoutMinutes (60), filled from defaults, so no v27 config changes; the
   // bump lets older Forges refuse a config whose turn limit they would ignore.
   27: (c) => c,
+  // v29 adds improve.experiments (minJobs 5, maxJobs 10) and evals.recall.paths, filled from
+  // defaults, so no v28 config changes; the bump lets older Forges refuse a config whose experiment
+  // thresholds and recall gate they would ignore.
+  28: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
@@ -701,6 +705,9 @@ const EVENT_MIGRATIONS: Record<number, (e: any) => any> = {
     if (e.actor === undefined || e.actor === 'human') return { ...e, actor: { login: null, source: 'unknown' } };
     return e;
   },
+  // v3 adds pluginHash, promptHash and configHash to agent-start (lib/provenance.ts); a v2 start
+  // simply has none, and readers treat it as unrecorded.
+  2: (e) => e,
 };
 
 /**

@@ -1016,6 +1016,28 @@ test('POST /api/daemon starts and stops one session', async () => {
   }
 });
 
+test('/api/stats returns per-lens recall', async () => {
+  const repo = tempRepo();
+  const id = seedJob(repo.dir, 'merged-job');
+  const file = path.join(repo.dir, '.forge', 'jobs', id, 'job.json');
+  const job = JSON.parse(fs.readFileSync(file, 'utf8'));
+  // Merged, reviewed by code (always on the default panel), and a person changed a file after the push.
+  const humanDelta = { status: 'measured', commits: 1, linesAdded: 1, linesDeleted: 0, lines: 1, fileCount: 1, files: ['lib/x.ts'] };
+  fs.writeFileSync(file, JSON.stringify({ ...job, state: 'done', verdicts: { 1: { code: 'CHANGES' } }, pr: { number: 1, state: 'MERGED', humanDelta } }));
+  fs.mkdirSync(path.join(repo.dir, '.forge', 'jobs', id, 'review', 'round-1'), { recursive: true });
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'jobs', id, 'review', 'round-1', 'code.md'), 'VERDICT: CHANGES\n\n- [blocker] lib/x.ts:1 — a\n- [minor] lib/y.ts — b\n');
+  const srv = await startServer(repo.dir, { port: 0 });
+  try {
+    const s = JSON.parse((await hit(Number(new URL(srv.url).port), { path: '/api/stats' })).text);
+    const code = s.reviewers.code;
+    assert.deepEqual([code.missed, code.missChecked, code.missRate, code.blockers, code.blockerMajorShare], [1, 1, 1, 1, 0.5]);
+    assert.equal(code.severityTrend.length, 1);
+  } finally {
+    await srv.close();
+    repo.cleanup();
+  }
+});
+
 test('/api/state exposes the session pool', async () => {
   const repo = tempRepo();
   const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'office', 'foreman', 'jobs', 'permissionMode', 'permissionModes', 'clients'];

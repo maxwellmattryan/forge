@@ -1,0 +1,7 @@
+title: a retry loop runs one attempt more than it allows
+lenses: [code]
+defects:
+  - id: retry-runs-one-extra
+    lens: code
+    path: lib/retry.ts
+    line: 6

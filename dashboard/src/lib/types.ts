@@ -3,7 +3,7 @@
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 34;
+export const API_VERSION = 35;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -426,6 +426,12 @@ export interface JobEvent {
   note?: string | null;
   /** On human-action events (lib/actor.ts): who acted, best effort and unauthenticated. */
   actor?: EventActor;
+  /** agent-start since event v3 (lib/provenance.ts): the running plugin's 10-hex hash. */
+  pluginHash?: string | null;
+  /** agent-start since event v3: the role's 12-hex hash as `forge roster` reports it; null for a role with no agent file. */
+  promptHash?: string | null;
+  /** agent-start since event v3: the 10-hex hash of the repo layer and the job's effective config; null when the config could not be built. */
+  configHash?: string | null;
   [key: string]: unknown;
 }
 
@@ -720,6 +726,20 @@ export interface ReviewerStats {
   disputeRate: number | null;
   /** (lens, path) pairs this lens raised in two consecutive rounds of one job. */
   recurring: number;
+  /** Merged jobs this lens reviewed whose escape status is known: a measured human delta or a final outcome. */
+  missChecked: number;
+  /** Of those, jobs with an escape this lens covered: a revert or follow-up, or a human-delta file in its paths, `when` or `always`. */
+  missed: number;
+  /** missed / missChecked; null when none is known. */
+  missRate: number | null;
+  /** Blocker and major findings, where the findings record carries severities. */
+  blockerMajor: number;
+  /** All findings where the record carries severities: blockerMajor's denominator. */
+  severityKnown: number;
+  /** blockerMajor / severityKnown; null at 0. */
+  blockerMajorShare: number | null;
+  /** By the UTC Monday of each job's createdAt, oldest first, the last 12 weeks with findings. */
+  severityTrend: { week: string; findings: number; blockerMajor: number; share: number | null }[];
 }
 
 /** One verifier's record: computeStats in lib/stats.ts, from `verifiers` record events. */

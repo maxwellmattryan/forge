@@ -10,7 +10,7 @@ import path from 'node:path';
 import { RULES, hasSpecDeltas, listLineCount, parsePlan, parseSpecHeader, roundLenses, selectPanel, shellLine, step } from '../lib/step.ts';
 import type { Job, StepAction } from '../lib/types.ts';
 import { fixture, verdicts } from './step-fixture.ts';
-import { DS_CHECKED, DS_VERIFY, OPEN_PR, PANEL_SET, SPEC_DONE, ag, argvMatch, assertWant, atIntegrate, dsConfig, entered, ev, inReview, job, panelled, rows, run, scoped, vr } from './step-rows.ts';
+import { DS_CHECKED, DS_VERIFY, OPEN_PR, PANEL_SET, SPEC_DONE, ag, argvMatch, assertWant, atIntegrate, dsConfig, entered, ev, inReview, job, panelled, recallSkips, rows, run, scoped, vr } from './step-rows.ts';
 import type { Row } from './step-rows.ts';
 
 // DS1's negative cases: another rule decides, so they can't be `rows`.
@@ -67,6 +67,23 @@ const rv9Skips: Row[] = [
   { name: 'RV9 skipped on a PR rework under changed', fx: { job: inReview({}, { pr: OPEN_PR }), events: [ev('scope', 11, { round: 1 })] }, want: { action: 'spawn', rule: 'RV4', role: 'reviewer:code' } },
   { name: 'RV9 skipped on a PR rework under none', fx: { config: (c) => (c.review.onPrFeedback = 'none'), job: inReview({}, { pr: OPEN_PR }) }, want: { rule: 'RV1' } },
 ];
+
+for (const row of recallSkips) {
+  test(row.name, () => {
+    const a = step(fixture(row.fx)) as any;
+    assert.ok(!['RC1', 'RC2'].includes(a.rule), `${row.name}: decided by ${a.rule}`);
+    assertWant(a, row.want, row.name);
+    // No gate at all is "not checked", never "none": that would claim the diff changes no reviewer prompts.
+    const line =
+      row.fx.job?.kind === 'eval'
+        ? 'Reviewer recall: not checked (an eval job)'
+        : row.fx.recall?.fixtures === false
+          ? 'Reviewer recall: not checked (no recall fixtures in the main checkout)'
+          : 'Reviewer recall: none (the diff changes no reviewer prompts)';
+    assert.ok(a.brief.split('\n').includes(line), `${line}\n${a.brief}`);
+    assertSafe(a, row.name);
+  });
+}
 
 for (const row of rv9Skips) {
   test(row.name, () => {

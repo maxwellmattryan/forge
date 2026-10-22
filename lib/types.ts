@@ -494,6 +494,14 @@ export interface StepInput {
    * (lib/scope.ts integrationTouched), keyed by the sides that event recorded; null when unknown.
    */
   integrationTouched: { head: string; upstream: string; sha: string; files: string[] | null } | null;
+  /**
+   * The decide gate's recall eval (lib/step/input.ts loadRecall): whether the committed diff touches
+   * evals.recall.paths, and the worktree's pluginHash a recorded run must match. `invalidFixtures`
+   * when the gate is required but a main-checkout fixture does not load, so `start` cannot run and
+   * RC2 parks at once. Null outside decide, for an eval job, without a worktree, or when the main
+   * checkout has no recall fixture.
+   */
+  recall: { required: boolean; pluginHash: string | null; invalidFixtures?: true } | null;
   /** How many `.forge/verifiers/*.md` entries the main checkout has: 0 keeps the verify stage as it was. */
   verifiers: number;
   /** The job's and the project's backing port records, for the brief's Backing services line; absent without backing entries. */
@@ -576,6 +584,12 @@ export interface JobEvent {
   note?: string | null;
   /** On human-action events (lib/actor.ts): who acted, best effort and unauthenticated. */
   actor?: EventActor;
+  /** agent-start since event v3 (lib/provenance.ts): the running plugin's 10-hex hash. */
+  pluginHash?: string | null;
+  /** agent-start since event v3: the role's 12-hex hash as `forge roster` reports it; null for a role with no agent file. */
+  promptHash?: string | null;
+  /** agent-start since event v3: the 10-hex hash of the repo layer and the job's effective config; null when the config could not be built. */
+  configHash?: string | null;
   [key: string]: unknown;
 }
 
@@ -951,8 +965,10 @@ export interface Config {
     /** Overrides for lib/pricing.json: { models: { <id>: {input, output, cacheRead, cacheWrite} }, aliases: {…} }. */
     pricing: Record<string, unknown>;
   };
-  improve: { retroEvery: number; maxLearnings: number };
-  evals: { testPattern: string | null };
+  /** experiments: how many after-jobs `forge experiment evaluate` needs to decide an entry (minJobs) and when it closes one undecided (maxJobs). */
+  improve: { retroEvery: number; maxLearnings: number; experiments: { minJobs: number; maxJobs: number } };
+  /** recall.paths: committed paths (inSpec tokens) that make the decide gate ask for a recall eval. */
+  evals: { testPattern: string | null; recall: { paths: string[] } };
   dashboard: { port: number };
   daemon: {
     enabled: boolean;
@@ -1593,6 +1609,20 @@ export interface ReviewerStats {
   disputeRate: number | null;
   /** (lens, path) pairs this lens raised in two consecutive rounds of one job. */
   recurring: number;
+  /** Merged jobs this lens reviewed whose escape status is known: a measured human delta or a final outcome. */
+  missChecked: number;
+  /** Of those, jobs with an escape this lens covered: a revert or follow-up, or a human-delta file in its paths, `when` or `always`. */
+  missed: number;
+  /** missed / missChecked; null when none is known. */
+  missRate: number | null;
+  /** Blocker and major findings, where the findings record carries severities. */
+  blockerMajor: number;
+  /** All findings where the record carries severities: blockerMajor's denominator. */
+  severityKnown: number;
+  /** blockerMajor / severityKnown; null at 0. */
+  blockerMajorShare: number | null;
+  /** By the UTC Monday of each job's createdAt, oldest first, the last 12 weeks with findings. */
+  severityTrend: { week: string; findings: number; blockerMajor: number; share: number | null }[];
 }
 
 /** One verifier's record: computeStats in lib/stats.ts, from `verifiers` record events. */
@@ -1607,6 +1637,35 @@ export interface VerifierStats {
   blocks: number;
   /** fails / runs; null at 0 runs. */
   hitRate: number | null;
+}
+
+/** One prompt cohort of `forge stats --by prompt` (statsByPrompt in lib/stats.ts). */
+export interface PromptCohort {
+  promptHash: string;
+  jobs: number;
+  /** The first 20, oldest keyed start first. */
+  jobIds: string[];
+  /** The earliest and latest keyed start of the cohort's jobs. */
+  firstAt: string;
+  lastAt: string;
+  /** At most 5 each, in run order. */
+  pluginHashes: string[];
+  configHashes: string[];
+  /** The full metrics over this cohort's jobs only. */
+  stats: Stats;
+}
+
+/** `forge stats --by prompt`: jobs keyed by the promptHash on their role's last hashed agent-start. */
+export interface PromptStats {
+  by: 'prompt';
+  role: string;
+  since: string | null;
+  /** Oldest firstAt first. */
+  cohorts: PromptCohort[];
+  /** Jobs with no hashed start for the role. */
+  unrecorded: number;
+  /** Jobs whose starts for the role carry more than one hash. */
+  mixed: number;
 }
 
 /** GET /api/stats: computeStats in lib/stats.ts. */
@@ -1679,7 +1738,45 @@ export interface ExperimentEntry {
   metric: string | null;
   direction: 'up' | 'down' | null;
   baseline: number | null;
+  /** The baseline's sample size: the denominator of a `0.344 (11/32)` baseline, else null. */
+  baselineN: number | null;
   status: string | null;
+}
+
+/** One `forge experiment evaluate` result (lib/experiments.ts). */
+export interface ExperimentResult {
+  id: string | null;
+  metric: string | null;
+  direction: 'up' | 'down' | null;
+  baseline: number | null;
+  baselineN: number | null;
+  /** Done or cancelled non-eval, non-retro jobs created after the entry's date; null when nothing was computed. */
+  jobsAfter: number | null;
+  /** After-jobs with a value for the metric. */
+  n: number | null;
+  /** The mean of the per-job values. */
+  value: number | null;
+  method: 'two-proportion' | 'wilson' | 'bootstrap' | null;
+  /** The difference from the baseline, [lo, hi], rounded to 3 decimals. */
+  interval: [number, number] | null;
+  verdict: 'kept' | 'reverted' | 'inconclusive' | 'pending' | 'settled';
+  /** The entry's status segment after the run (with --dry-run: what the run would leave). */
+  status: string | null;
+  reason: string | null;
+}
+
+/** `forge experiment evaluate`: the target ledger and every entry's result. */
+export interface ExperimentEvaluation {
+  file: string;
+  dryRun: boolean;
+  written: number;
+  entries: ExperimentResult[];
+}
+
+/** `forge experiment check`: problems in the notes layer. */
+export interface NotesCheck {
+  ok: boolean;
+  problems: { file: string; entry: string; problem: string }[];
 }
 
 /** An eval task as served: loadTask in lib/evals.ts minus `dir` and `request`. */

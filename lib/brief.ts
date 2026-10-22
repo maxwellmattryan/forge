@@ -13,6 +13,7 @@ import { repoGraph } from './project.ts';
 import { paths, exists } from './paths.ts';
 import { releaseFiles } from './release-plan.ts';
 import { SECRET_NAME, secretSourceOf } from './secret-refs-config.ts';
+import { recallLine } from './step/recall.ts';
 import type { Config, GateClass, Job, JobEvent, StepInput } from './types.ts';
 
 /**
@@ -301,6 +302,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
           `Merge: auto ${autoMerge(c)} · autoWhen ${JSON.stringify(c.merge.autoWhen ?? [])}`,
           protectedLine(j),
           releaseGateLine(c, j, input.events),
+          recallLine(input),
           ...(reworkPanel ? [reworkPanel] : []),
           infra,
           `Scope: ${p('scope')}`,

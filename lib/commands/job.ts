@@ -620,6 +620,8 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       if ('kind' in fields && Object.hasOwn(OWNED_KINDS, String(fields.kind))) throw new ForgeError(`--field kind=${fields.kind} is not settable; use ${OWNED_KINDS[String(fields.kind)]}`);
       // Checked before anything is written, so a bad list leaves job.json untouched.
       const before = loadJob(root, jobId);
+      // Nor the other way: a retro set to `feature` would hand its spec gate to the foreman.
+      if ('kind' in fields && Object.hasOwn(OWNED_KINDS, String(before.kind))) throw new ForgeError(`job ${jobId} is a ${before.kind} job; its kind is not settable`);
       const waitingOn = flags['waiting-on'] === undefined ? undefined : flags['waiting-on'] === 'none' ? null : flags['waiting-on'];
       if (inOffice()) checkOfficeSetFor(root, before, { stage: flags.stage, state: flags.state, waitingOn, reason: flags.reason, fields });
       if ('dependsOn' in fields) fields.dependsOn = validateDependsOn(root, jobId, fields.dependsOn);

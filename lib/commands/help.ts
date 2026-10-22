@@ -16,6 +16,7 @@ import { HELP as DAEMON } from './daemon.ts';
 import { HELP as DASH } from './dash.ts';
 import { HELP as DOCTOR } from './doctor.ts';
 import { HELP as EVAL } from './eval.ts';
+import { HELP as EXPERIMENT } from './experiment.ts';
 import { HELP as FOCUS } from './focus.ts';
 import { HELP as GIT } from './git.ts';
 import { HELP as INIT } from './init.ts';
@@ -209,7 +210,7 @@ export const CORE: HelpGroup[] = [
   },
 ];
 
-const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
+const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...EXPERIMENT, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
 const byName = (a: string, b: string): number => a.localeCompare(b, 'en');
 const flagKey = (f: string): string => f.replace(/^[-\s]+/, '');
 

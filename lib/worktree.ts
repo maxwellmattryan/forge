@@ -10,6 +10,8 @@ import { enforceBudget } from './budget.ts';
 import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
 import { isOwnWorktreePath, loadConfig, verifyGroups, worktreeRoot } from './config.ts';
 import { e2ePlan } from './e2e.ts';
+import { checkNotes, checkedNotes } from './experiments.ts';
+import { committedChanges, realHistoryEnv, resolveBase } from './scope.ts';
 import { configForJob } from './eval-overlay.ts';
 import { stackSource } from './deps.ts';
 import { STATUS_ARGV, blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.ts';
@@ -767,6 +769,9 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   if (!protectedStep.ok) protectedStep.tail = prot.error ?? prot.refused.slice(0, 20).map((h) => `${h.path}: rule ${h.rule} (${h.glob}): ${h.reason}`).join('\n');
   else if (prot.escalated.length) protectedStep.reason = `${prot.escalated.length} protected paths need a human`;
   results.push(protectedStep);
+  // Not a gate: a notes problem fails the round, but the configured commands still run.
+  const notes = notesStep(root, config, job, sha);
+  if (notes) results.push(notes);
   // Like protected, a pin that can't be written stops every configured step, the members' too.
   const interimStep: VerifyStep = { name: 'interim', ok: interim.ok, exit: null };
   if (!interim.ok) interimStep.tail = interim.problems.join('\n');
@@ -887,6 +892,44 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
 }
 
 
+/**
+ * The `notes` step: when the committed diff (merge base..`sha`) touches a learnings, ledger or
+ * addendum file, `forge experiment check` over the committed content at `sha`, never the working
+ * tree; absent when no notes file changed. Without a merge base, a notes file at `sha` that differs
+ * from the main checkout's HEAD may hold a hand-written status, so the step fails; when none differs
+ * there is nothing to check. A check that fails once it applies fails the step.
+ */
+function notesStep(root: string, config: Config, job: Job, sha: string): VerifyStep | null {
+  const started = Date.now();
+  const wt = job.worktree!;
+  const failed = (tail: string): VerifyStep => ({ name: 'notes', ok: false, exit: null, durationMs: Date.now() - started, tail });
+  let changed: Set<string>;
+  try {
+    changed = new Set(committedChanges(wt, resolveBase(wt, config, job, sha).mergeBase, sha));
+  } catch (e) {
+    let differs: string[];
+    try {
+      const main = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], { cwd: root, env: realHistoryEnv() }).stdout.trim();
+      if (!/^[0-9a-f]{40}$/.test(main)) throw new ForgeError('the main checkout has no HEAD commit');
+      const touched = new Set(committedChanges(wt, main, sha));
+      differs = checkedNotes().filter((f) => touched.has(f));
+    } catch {
+      differs = ['the notes files'];
+    }
+    if (!differs.length) return null;
+    return failed(`could not resolve the base (${(e as Error).message.slice(0, 200)}), and ${differs.join(', ')} differ from the main checkout's HEAD`);
+  }
+  if (!checkedNotes().some((f) => changed.has(f))) return null;
+  try {
+    const r = checkNotes(root, config, job, sha);
+    const step: VerifyStep = { name: 'notes', ok: r.ok, exit: null, durationMs: Date.now() - started };
+    if (!r.ok) step.tail = r.problems.slice(0, 20).map((p) => `${p.file}: ${p.problem}${p.entry ? ` (${p.entry})` : ''}`).join('\n');
+    return step;
+  } catch (e) {
+    return failed(`could not check the notes layer: ${(e as Error).message}`);
+  }
+}
+
 /** One member repo's verify: its record, its steps for the report, and its scan and integrity report. */
 interface MemberVerify {
   rec: VerifyRunRepo;
@@ -994,6 +1037,11 @@ function renderSteps(lines: string[], results: VerifyStep[], secrets: SecretScan
     if (r.name === 'environment' && !('cmd' in r)) {
       if (r.ok) lines.push('## environment: ok', '', "The job's backing services are up.", '');
       else lines.push('## environment: FAILED', '', "The job's backing services did not start (docs/CONFIG.md \"Backing services\"); no configured step ran:", '', '```', String(r.tail), '```', '');
+      continue;
+    }
+    if (r.name === 'notes' && !('cmd' in r)) {
+      if (r.ok) lines.push('## notes: ok', '', 'Every changed notes entry is measurable, and only `forge experiment evaluate` settled a ledger entry.', '');
+      else lines.push('## notes: FAILED', '', 'The notes layer (docs/IMPROVEMENT.md "The notes check") refuses these entries; the configured steps still ran:', '', ...String(r.tail).split('\n').map((l) => `- ${l}`), '');
       continue;
     }
     if (r.name === 'interim') {
