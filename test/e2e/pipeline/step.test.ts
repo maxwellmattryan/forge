@@ -16,7 +16,7 @@ function waitsOf(root: string, id: string): string[] {
   return (readEvents(root, id).filter((e) => e.type === 'transition') as any[]).filter((e) => e.to.state === 'waiting').map((e) => e.to.waitingOn);
 }
 
-describe('a job driven by step alone', { concurrency: 4 }, () => {
+describe('a job driven by step alone, and through the issue-link gates', { concurrency: 4 }, () => {
   test('a job runs to done on step alone', async () => {
     const s = await scratch();
     try {
@@ -155,9 +155,9 @@ describe('a job driven by step alone', { concurrency: 4 }, () => {
       s.cleanup();
     }
   });
-});
 
-describe('a job driven by step alone through the issue-link gates', { concurrency: 4 }, () => {
+  // The issue-link gates. In the same block as the tests above: two sequential blocks would wait
+  // for the slowest of the first before any of these started.
   test('one visit: an unlinked job links at the spec gate', async () => {
     const s = await scratch({ tracker: { kind: 'local' }, pipeline: { specApproval: 'always' } });
     try {

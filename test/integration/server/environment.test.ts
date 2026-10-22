@@ -8,7 +8,8 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { forgeAsync, forgeSync, repoTemplate, waitFor } from '../../helpers.ts';
+import { forgeInProcess, forgeSync, repoTemplate, waitFor } from '../../helpers.ts';
+import { FIXTURE_DIST } from '../../dist.ts';
 import { startServer, textFrame } from '../../../lib/server.ts';
 import { recordKnown } from '../../../lib/known-secrets.ts';
 import { parseMemUsage, parsePercent } from '../../../lib/environment.ts';
@@ -113,10 +114,12 @@ async function scratch(opts: { sseMaxAgeMs?: number } = {}) {
     setDocker({ containers: { ...st.containers, [name]: { ...st.containers[name], ...patch } } });
   };
   const argv = (): string[][] => (fs.existsSync(process.env.FAKE_DOCKER_LOG!) ? fs.readFileSync(process.env.FAKE_DOCKER_LOG!, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+  // Setup only (job new/set, worktree create, backing stop): these tests are about the server, and
+  // each command's own CLI test lives with it, so the setup runs in-process instead of spawning.
   const f = async (...args: string[]) => {
-    const r = await forgeAsync(root, args);
-    if (r.status !== 0) throw new Error(`forge ${args.join(' ')} exited ${r.status}: ${r.stderr}${r.stdout}`);
-    return JSON.parse(r.stdout);
+    const r = await forgeInProcess(root, args);
+    if (r.status !== 0) throw new Error(`forge ${args.join(' ')} exited ${r.status}: ${JSON.stringify(r.error ?? r.data)}`);
+    return r.data as any;
   };
   const job = async (title: string) => (await f('job', 'new', '--title', title, '--ref', title.toLowerCase().replace(/ /g, '-'))).id as string;
   const jobPath = (id: string, ...rest: string[]) => path.join(root, '.forge', 'jobs', id, ...rest);
@@ -128,7 +131,8 @@ async function scratch(opts: { sseMaxAgeMs?: number } = {}) {
       .split('\n')
       .filter(Boolean)
       .map((l) => JSON.parse(l));
-  const srv = await startServer(root, { port: 0, sseMaxAgeMs: opts.sseMaxAgeMs });
+  // The fixture dist carries the token page, so the file runs without a dashboard build.
+  const srv = await startServer(root, { port: 0, sseMaxAgeMs: opts.sseMaxAgeMs, distDir: FIXTURE_DIST });
   const port = Number(new URL(srv.url).port);
   const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)![1];
   const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
@@ -286,8 +290,11 @@ test('dev states', { timeout: 90_000 }, async () => {
 
     // Docker stopped: managed rows read unknown, and the server says why.
     s.setDocker({ daemon: 'down' });
-    await new Promise((r) => setTimeout(r, 2100));
-    const off = await s.env(a);
+    // Polls until the server's status cache lapses, rather than sleeping past it.
+    const off = await waitFor(async () => {
+      const e = await s.env(a);
+      return e.docker === 'stopped' ? e : null;
+    }, { what: 'the server sees Docker stopped' });
     assert.deepEqual(off.backing.map((x: any) => x.state), ['unknown', 'unknown', 'external']);
     assert.equal(off.docker, 'stopped');
 
@@ -784,8 +791,11 @@ test('project-wide environments', { timeout: 120_000 }, async () => {
     assert.equal(s.argv().length, before, 'a second call within 5 s spawns nothing');
 
     s.setDocker({ daemon: 'down' });
-    await new Promise((r) => setTimeout(r, 5100));
-    const off = JSON.parse((await s.get('/api/environments')).text);
+    // Polls until the 5 s cache lapses, rather than sleeping past it.
+    const off = await waitFor(async () => {
+      const e = JSON.parse((await s.get('/api/environments')).text);
+      return e.docker === 'stopped' ? e : null;
+    }, { what: 'the environments cache lapses', intervalMs: 250 });
     assert.equal(off.docker, 'stopped');
     assert.deepEqual(off.rows.map((x: any) => x.job), [a], 'dev rows still listed');
     assert.deepEqual(off.rows[0].containers, []);
