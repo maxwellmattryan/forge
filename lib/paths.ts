@@ -1,3 +1,5 @@
+// Where things live on disk: the main checkout's root, the `.forge/` layout, job dirs and the
+// plugin's own root.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

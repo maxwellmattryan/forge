@@ -1,3 +1,4 @@
+// Pull requests: open, update, sync, merge and adopt a job's PRs through gh, across its repos.
 import fs from 'node:fs';
 import path from 'node:path';
 import { FOREMAN_ACTOR, currentActor } from './actor.ts';

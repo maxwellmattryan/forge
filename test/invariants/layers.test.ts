@@ -1,0 +1,270 @@
+// lib/ keeps its layers: every file has one lib layer, imports point down the order in
+// test/invariants/layer-map.ts (docs/design/lib-layout.md) except the shrinking ALLOWED_EDGES, `api`
+// imports nothing outside `api`, no runtime import cycle exists, and only the CLI reaches
+// lib/commands/. No public function exposes the module graph, so this reads the import declarations
+// of lib/ sources (docs/TESTING.md › Allowed source-text tests, entry 10).
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import ts from 'typescript';
+import { ALLOWED_EDGES, FLAT_LAYERS, LAYERS } from './layer-map.ts';
+import type { Layer } from './layer-map.ts';
+
+const LIB = path.resolve(import.meta.dirname, '..', '..', 'lib');
+
+interface Edge { target: string; typeOnly: boolean; dynamic: boolean }
+
+/** Every module specifier `text` names, as Node loads them: imports, re-exports, side effects, `import()`. */
+function walk(file: string, text: string, add: (spec: string, typeOnly: boolean, dynamic: boolean) => void): void {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      add(node.moduleSpecifier.text, node.importClause?.isTypeOnly ?? false, false);
+    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+      add(node.moduleSpecifier.text, node.isTypeOnly, false);
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const [arg] = node.arguments;
+      if (arg && ts.isStringLiteralLike(arg)) add(arg.text, false, true);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+}
+
+/** The lib/ files `file` (a path relative to lib/) imports, as Node loads them. */
+function importsOf(file: string, text: string): Edge[] {
+  const edges: Edge[] = [];
+  walk(file, text, (spec, typeOnly, dynamic) => {
+    if (!spec.startsWith('.')) return;
+    const target = path.posix.normalize(path.posix.join(path.posix.dirname(file), spec));
+    if (target.startsWith('../') || target === '..') return;
+    edges.push({ target, typeOnly, dynamic });
+  });
+  return edges;
+}
+
+/** The non-relative specifiers `file` imports (Node built-ins, packages), type-only and dynamic included. */
+function externalsOf(file: string, text: string): string[] {
+  const found: string[] = [];
+  walk(file, text, (spec) => { if (!spec.startsWith('.')) found.push(spec); });
+  return found;
+}
+
+/** Strongly connected components of more than one node, plus self-loops; each one sorted. */
+function cycles(graph: Map<string, string[]>): string[][] {
+  // Tarjan's algorithm, iterative so a deep graph can't overflow the stack.
+  const index = new Map<string, number>();
+  const low = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  const found: string[][] = [];
+  let next = 0;
+  for (const start of graph.keys()) {
+    if (index.has(start)) continue;
+    const work: [string, number][] = [[start, 0]];
+    index.set(start, next); low.set(start, next); next++;
+    stack.push(start); onStack.add(start);
+    while (work.length) {
+      const frame = work[work.length - 1]!;
+      const [node, i] = frame;
+      const out = graph.get(node) ?? [];
+      if (i < out.length) {
+        frame[1]++;
+        const to = out[i]!;
+        if (!index.has(to)) {
+          index.set(to, next); low.set(to, next); next++;
+          stack.push(to); onStack.add(to);
+          work.push([to, 0]);
+        } else if (onStack.has(to)) {
+          low.set(node, Math.min(low.get(node)!, index.get(to)!));
+        }
+        continue;
+      }
+      work.pop();
+      if (work.length) {
+        const parent = work[work.length - 1]![0];
+        low.set(parent, Math.min(low.get(parent)!, low.get(node)!));
+      }
+      if (low.get(node) !== index.get(node)) continue;
+      const component: string[] = [];
+      let member: string;
+      do {
+        member = stack.pop()!;
+        onStack.delete(member);
+        component.push(member);
+      } while (member !== node);
+      if (component.length > 1 || out.includes(node)) found.push(component.sort());
+    }
+  }
+  return found;
+}
+
+type Flat = Record<Layer, string[]>;
+
+const rank = (layer: Layer): number => LAYERS.indexOf(layer);
+const pathLayer = (file: string): Layer | null => {
+  const first = file.split('/')[0]!;
+  return (LAYERS as readonly string[]).includes(first) && file.includes('/') ? first as Layer : null;
+};
+
+/** Every layer that claims `file`: its lib/<layer>/ path, then exact flat keys, then the longest folder keys. */
+function claims(file: string, flat: Flat): Layer[] {
+  const own = pathLayer(file);
+  const exact = LAYERS.flatMap((l) => flat[l].filter((k) => k === file).map(() => l));
+  const folders = LAYERS.flatMap((l) => flat[l].filter((k) => k.endsWith('/') && file.startsWith(k)).map((k) => ({ l, k })));
+  const longest = Math.max(0, ...folders.map((f) => f.k.length));
+  const byFolder = exact.length ? [] : folders.filter((f) => f.k.length === longest).map((f) => f.l);
+  return [...(own ? [own] : []), ...exact, ...byFolder];
+}
+
+/** The layer of a lib-relative path: its first segment when that names a layer, else the flat table. */
+function layerOf(file: string, flat: Flat): Layer | null {
+  return claims(file, flat)[0] ?? null;
+}
+
+/**
+ * Everything wrong with lib/'s layering: files with no layer or two, flat keys matching no file, upward
+ * edges not on `allowed`, `allowed` entries that are absent or no longer upward, and `api` files that
+ * import anything outside lib/. Each message names the file or the edge.
+ */
+function layerProblems(files: string[], edges: [string, string][], flat: Flat, allowed: string[], externals: [string, string][] = []): string[] {
+  const problems: string[] = [];
+  for (const file of files) {
+    const layers = claims(file, flat);
+    if (!layers.length) problems.push(`${file}: no layer (put it under lib/<layer>/ or in FLAT_LAYERS)`);
+    else if (layers.length > 1) problems.push(`${file}: listed twice (${layers.join(', ')})`);
+  }
+  for (const layer of LAYERS) {
+    for (const key of flat[layer]) {
+      const hit = key.endsWith('/') ? files.some((f) => f.startsWith(key)) : files.includes(key);
+      if (!hit) problems.push(`FLAT_LAYERS.${layer} '${key}' matches no file: drop it`);
+    }
+  }
+  const upward = new Set<string>();
+  for (const [from, to] of edges) {
+    const a = layerOf(from, flat);
+    const b = layerOf(to, flat);
+    if (a && b && rank(b) > rank(a)) upward.add(`${from} → ${to}`);
+  }
+  for (const edge of [...upward].sort()) {
+    if (!allowed.includes(edge)) problems.push(`${edge}: imports a higher layer`);
+  }
+  for (const entry of allowed) {
+    if (!upward.has(entry)) problems.push(`ALLOWED_EDGES '${entry}' is absent or no longer upward: drop it`);
+  }
+  for (const [file, spec] of externals) {
+    if (layerOf(file, flat) === 'api') problems.push(`${file} → ${spec}: api files import only api files`);
+  }
+  return problems;
+}
+
+let scanned: { edges: Map<string, Edge[]>; externals: Map<string, string[]> } | undefined;
+function scan(): { edges: Map<string, Edge[]>; externals: Map<string, string[]> } {
+  if (scanned) return scanned;
+  const files = (fs.readdirSync(LIB, { recursive: true }) as string[])
+    .map((f) => f.split(path.sep).join('/'))
+    .filter((f) => /\.(ts|mjs)$/.test(f))
+    .sort();
+  const texts = new Map(files.map((f) => [f, fs.readFileSync(path.join(LIB, f), 'utf8')]));
+  scanned = {
+    edges: new Map(files.map((f) => [f, importsOf(f, texts.get(f)!)])),
+    externals: new Map(files.map((f) => [f, externalsOf(f, texts.get(f)!)])),
+  };
+  return scanned;
+}
+const libEdges = (): Map<string, Edge[]> => scan().edges;
+
+test('every lib/ file has one layer', () => {
+  const problems = layerProblems([...libEdges().keys()], [], FLAT_LAYERS, []);
+  assert.deepEqual(problems, [], problems.join('\n'));
+});
+
+test('lib/ imports point down the layers', () => {
+  const { edges, externals } = scan();
+  const pairs = [...edges].flatMap(([file, list]) => list.map((e): [string, string] => [file, e.target]));
+  const outside = [...externals].flatMap(([file, specs]) => specs.map((s): [string, string] => [file, s]));
+  const problems = layerProblems([...edges.keys()], pairs, FLAT_LAYERS, ALLOWED_EDGES, outside);
+  assert.deepEqual(problems, [], problems.join('\n'));
+  assert.deepEqual(ALLOWED_EDGES, [...ALLOWED_EDGES].sort(), 'ALLOWED_EDGES stays sorted');
+});
+
+test('the layer check reads post-move paths and refuses planted violations', () => {
+  const flat: Flat = { api: [], core: [], integrations: [], engine: ['old/', 'old/keep.ts', 'gone.ts'], office: ['old/keep.ts'], server: [], cli: ['legacy.ts', 'commands/'] };
+  assert.equal(layerOf('engine/pipeline/a.ts', flat), 'engine');
+  assert.equal(layerOf('legacy.ts', flat), 'cli');
+  assert.equal(layerOf('commands/render/x.ts', flat), 'cli', 'a folder key covers nested files');
+  assert.equal(layerOf('loose.ts', flat), null);
+
+  const files = [
+    'api/a.ts', 'api/b.ts', 'api/c.ts', 'cli/commands/dash.ts', 'cli/y.ts', 'core/a.ts', 'core/d.ts', 'engine/c.ts',
+    'engine/pipeline/a.ts', 'legacy.ts', 'loose.ts', 'office/b.ts', 'old/keep.ts', 'server/start.ts', 'server/x.ts',
+  ];
+  const edges: [string, string][] = [
+    ['engine/pipeline/a.ts', 'office/b.ts'],
+    ['server/x.ts', 'cli/y.ts'],
+    ['cli/commands/dash.ts', 'server/start.ts'],
+    ['core/a.ts', 'api/b.ts'],
+    ['core/d.ts', 'engine/c.ts'],
+  ];
+  const allowed = ['core/d.ts → engine/c.ts', 'core/a.ts → api/b.ts', 'core/a.ts → gone.ts'];
+  const externals: [string, string][] = [
+    ...externalsOf('api/a.ts', "import fs from 'node:fs';").map((s): [string, string] => ['api/a.ts', s]),
+    ...externalsOf('api/c.ts', "import type { Stats } from 'node:fs';\nimport type { B } from './b.ts';").map((s): [string, string] => ['api/c.ts', s]),
+    ['engine/c.ts', 'node:fs'],
+  ];
+  assert.deepEqual(layerProblems(files, edges, flat, allowed, externals), [
+    'loose.ts: no layer (put it under lib/<layer>/ or in FLAT_LAYERS)',
+    'old/keep.ts: listed twice (engine, office)',
+    "FLAT_LAYERS.engine 'gone.ts' matches no file: drop it",
+    "FLAT_LAYERS.cli 'commands/' matches no file: drop it",
+    'engine/pipeline/a.ts → office/b.ts: imports a higher layer',
+    'server/x.ts → cli/y.ts: imports a higher layer',
+    "ALLOWED_EDGES 'core/a.ts → api/b.ts' is absent or no longer upward: drop it",
+    "ALLOWED_EDGES 'core/a.ts → gone.ts' is absent or no longer upward: drop it",
+    'api/a.ts → node:fs: api files import only api files',
+    'api/c.ts → node:fs: api files import only api files',
+  ]);
+});
+
+test('lib/ has no runtime import cycles', () => {
+  const graph = new Map([...libEdges()].map(([file, edges]) => [file, edges.filter((e) => !e.typeOnly).map((e) => e.target)]));
+  const found = cycles(graph);
+  assert.deepEqual(found, [], `import cycles in lib/:\n${found.map((c) => c.join(' → ')).join('\n')}`);
+});
+
+test('only commands/ and cli.ts import lib/commands/', () => {
+  const cli = (f: string): boolean => f === 'cli.ts' || f.startsWith('commands/');
+  const bad = [...libEdges()].flatMap(([file, edges]) =>
+    cli(file) ? [] : edges.filter((e) => e.target.startsWith('commands/')).map((e) => `${file} → ${e.target}`));
+  assert.deepEqual(bad, []);
+});
+
+test('the import scan reads what Node loads and finds a planted cycle', () => {
+  const fixture = [
+    "import x from './default.ts';",
+    "import { a, type B } from './mixed.ts';",
+    "import { type A } from './inline-type.ts';",
+    "export * from './star.ts';",
+    "export { a } from './named.ts';",
+    "import './side.ts';",
+    "const lazy = () => import('./lazy.ts');",
+    "import type { T } from './type-only.ts';",
+    "export type { U } from './type-export.ts';",
+    "import fs from 'node:fs';",
+    "import ts from 'typescript';",
+    "import up from '../../outside.ts';",
+  ].join('\n');
+  const edges = importsOf('sub/file.ts', fixture);
+  assert.deepEqual(edges.filter((e) => !e.typeOnly).map((e) => e.target), [
+    'sub/default.ts', 'sub/mixed.ts', 'sub/inline-type.ts', 'sub/star.ts', 'sub/named.ts', 'sub/side.ts', 'sub/lazy.ts',
+  ]);
+  assert.deepEqual(edges.filter((e) => e.typeOnly).map((e) => e.target), ['sub/type-only.ts', 'sub/type-export.ts']);
+  assert.deepEqual(edges.filter((e) => e.dynamic).map((e) => e.target), ['sub/lazy.ts']);
+  assert.deepEqual(importsOf('file.ts', "import y from '../lib-sibling.ts';"), [], 'targets outside lib/ are dropped');
+  assert.deepEqual(externalsOf('sub/file.ts', fixture), ['node:fs', 'typescript']);
+
+  assert.deepEqual(cycles(new Map([['a.ts', ['b.ts']], ['b.ts', ['c.ts']], ['c.ts', ['a.ts']], ['d.ts', ['a.ts']]])), [['a.ts', 'b.ts', 'c.ts']]);
+  assert.deepEqual(cycles(new Map([['self.ts', ['self.ts']], ['other.ts', []]])), [['self.ts']]);
+  assert.deepEqual(cycles(new Map([['a.ts', ['b.ts', 'c.ts']], ['b.ts', ['c.ts']], ['c.ts', []]])), []);
+});

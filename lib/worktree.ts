@@ -1,3 +1,5 @@
+// Job worktrees and what runs in them: create and remove worktrees, run configured commands,
+// `forge verify`, and the background dev server.
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';

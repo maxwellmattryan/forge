@@ -1,3 +1,5 @@
+// Shared leaf helpers: ForgeError and its exit codes, process runs, redaction, locks and small text
+// and file utilities. Imports only node:*, so every module can use it.
 import { execFileSync, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';

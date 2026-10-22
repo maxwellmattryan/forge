@@ -1,3 +1,5 @@
+// The tracker status contract: the handful of statuses a job's stage and state collapse to. Custom
+// adapters import it through status.mjs, so its exports are a stable API (docs/TRACKERS.md).
 import type { Job } from '../types.ts';
 
 /**

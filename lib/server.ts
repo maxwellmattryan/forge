@@ -1,3 +1,5 @@
+// The dashboard's HTTP server (`forge dash`): the `/api` endpoints, server-sent events and the
+// built dashboard, for loopback Hosts only, with token- and Origin-checked POSTs.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';

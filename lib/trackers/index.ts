@@ -1,3 +1,5 @@
+// The tracker loader: picks the built-in or repo-local adapter the config names and wraps it in the
+// secret checks every tracker write goes through.
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { daemonTrust } from '../config.ts';
