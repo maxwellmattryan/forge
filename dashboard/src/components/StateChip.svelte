@@ -10,4 +10,4 @@
   const tone = $derived(stateTone(job));
 </script>
 
-{#if tone === 'you'}<span class="chip you"><span aria-hidden="true">{$t('common.you')} ·</span> {stateText(job)}</span>{:else}<Chip {tone} text={stateText(job)} />{/if}
+{#if tone === 'you'}<Chip tone="you"><span aria-hidden="true">{$t('common.you')} ·</span> {stateText(job)}</Chip>{:else}<Chip {tone} text={stateText(job)} />{/if}

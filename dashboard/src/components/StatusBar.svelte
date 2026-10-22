@@ -16,6 +16,7 @@
      indicator is a glyph or a dot. -->
 <script lang="ts">
   import { tick, untrack } from 'svelte';
+  import Chip from './Chip.svelte';
   import Icon from './Icon.svelte';
   import LiveDot from './LiveDot.svelte';
   import Popover from './Popover.svelte';
@@ -258,7 +259,7 @@
              badge speak; its words are sr-only), so it adds no fit level. The badge counts decisions plus pool-wide
              permission prompts. -->
         <button bind:this={needsButton} class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="needs" aria-haspopup="dialog" aria-expanded={expanded('needs')} aria-controls={controls('needs')} onclick={(e) => openPopover('needs', e.currentTarget)}>
-          <span class="relative inline-flex {needsTotal > 0 ? 'text-fg' : 'text-muted'}"><Icon name="bell" />{#if needsTotal > 0}<span class="chip you badge num" aria-hidden="true">{needsTotal}</span>{/if}</span>
+          <span class="relative inline-flex {needsTotal > 0 ? 'text-fg' : 'text-muted'}"><Icon name="bell" />{#if needsTotal > 0}<Chip tone="you" extra="badge num" ariaHidden text={needsTotal} />{/if}</span>
           <span class="sr-only">{$t('statusbar.needs.name')}{#if needs > 0}{', '}{$t('statusbar.needs.count', { count: needs })}{/if}{#if bar.prompts > 0}{', '}{$t('permission.heading', { count: bar.prompts })}{/if}</span>
         </button>
         <!-- The supervisor: always shown, a ghost like the rest of the bar. Its state word is only in the sr-only text and title. -->

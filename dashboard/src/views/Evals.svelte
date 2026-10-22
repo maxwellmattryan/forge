@@ -91,7 +91,7 @@
             {@const u = safeUrl(task.source?.url)}
             <tr>
               <td><div class="font-medium">{task.title}</div><div class="font-mono text-[11px] text-muted">{task.name}</div></td>
-              <td>{#each task.tags ?? [] as g, i (i)}<span class="chip muted mr-1">{g}</span>{/each}</td>
+              <td>{#each task.tags ?? [] as g, i (i)}<Chip tone="muted" extra="mr-1" text={g} />{/each}</td>
               <td>{#if task.check?.patch || task.check?.files}<Chip tone="ok" text={$t('evals.yes')} />{:else}<Chip tone="muted" text={$t('evals.none')} />{/if}</td>
               <td>{#if task.rubric}<Chip tone="info" text={$t('evals.judgeChip')} />{:else}—{/if}</td>
               <td>{#if u}<a class="text-gleam" href={u} target="_blank" rel="noopener">{$t('evals.pr', { number: task.source?.pr })}</a>{:else}—{/if}</td>

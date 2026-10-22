@@ -3,6 +3,7 @@
      input, with the caret at the end. lib/command.ts holds the grammar and mapping. -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
+  import Chip from './Chip.svelte';
   import CloseButton from './CloseButton.svelte';
   import Icon from './Icon.svelte';
   import StateChip from './StateChip.svelte';
@@ -201,7 +202,7 @@
       <Icon name="command" class="shrink-0 text-muted" />
       {#if scoped}
         <!-- The chip is the combobox's description; removing the scope is its own labelled button, so the description reads the job. -->
-        <span id="command-scope" class="chip gleam sm min-w-0 max-w-[40%]" title={scoped.id}><span class="truncate">{$t('command.scope', { job: scoped.id })}</span></span>
+        <Chip id="command-scope" tone="gleam" extra="sm min-w-0 max-w-[40%]" title={scoped.id}><span class="truncate">{$t('command.scope', { job: scoped.id })}</span></Chip>
         <CloseButton size="sm" label={$t('command.clearScope')} onclick={removeScope} />
       {/if}
       <input

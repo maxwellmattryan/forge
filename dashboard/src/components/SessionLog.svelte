@@ -204,7 +204,7 @@
 {/snippet}
 
 {#snippet line(at: string | null, tone: string | null, tag: string, text: string)}
-  <div class="flex items-start gap-2 {TINT.cli} px-1.5 -mx-1.5 py-0.5">{@render when(at)}{#if tone && TONE_CLASS[tone]}<Chip {tone} text={tag} extra="shrink-0" />{:else}<span class="chip muted shrink-0">{tag}</span>{/if}<span class="min-w-0 whitespace-pre-wrap break-words">{text}</span></div>
+  <div class="flex items-start gap-2 {TINT.cli} px-1.5 -mx-1.5 py-0.5">{@render when(at)}<Chip tone={tone && TONE_CLASS[tone] ? tone : 'muted'} text={tag} extra="shrink-0" /><span class="min-w-0 whitespace-pre-wrap break-words">{text}</span></div>
 {/snippet}
 
 {#snippet result(r: NonNullable<Extract<Item, { kind: 'tool' }>['result']>)}
@@ -264,7 +264,7 @@
     {#if transcript}
       <span role="note" class="plain min-w-0 break-all px-2 py-1 text-xs text-muted">{transcript.label}</span>
     {:else}
-      <span role="status" class="chip sm {TONE_CLASS[pill.tone]}" title={pill.title}>{pill.label}</span>
+      <Chip role="status" tone={pill.tone} extra="sm" title={pill.title} text={pill.label} />
       <span class="text-xs text-muted">{$t('session.turns', { count: view.totals.turns })}</span>
       {#if view.totals.results}<span class="text-xs text-muted" title={$t('session.costTitle')}>{$t('session.cost', { cost: usd(view.totals.costUsd) })}</span>{/if}
       {#if scope === OFFICE_SCOPE}
