@@ -106,7 +106,7 @@ function ghHarness() {
     owner = undefined as string | undefined,
   } = {}) => {
     const job = createJob(repo.dir, config, { title: `job ${++n}`, issues: [{ tracker: config.tracker.kind, ref: `${n}`, url: null }] });
-    setJob(repo.dir, job.id, { fields: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', ...(pushedSha !== undefined ? { pushedSha } : {}) } } });
+    setJob(repo.dir, job.id, { owned: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', ...(pushedSha !== undefined ? { pushedSha } : {}) } } });
     if (at) setJob(repo.dir, job.id, at);
     if (owner) claimJob(repo.dir, job.id, owner);
     fs.writeFileSync(log, '');
@@ -346,7 +346,7 @@ test('findPr refuses to adopt a PR with an unsafe ref name', { skip: process.pla
       for (const linked of [true, false]) {
         const id = h.scenario();
         // Unlinked, the PR is found by branch (`gh pr list`) and would be adopted.
-        if (!linked) setJob(root, id, { fields: { pr: null } });
+        if (!linked) setJob(root, id, { owned: { pr: null } });
         Object.assign(process.env, { FAKE_HEAD_REF: '', FAKE_BASE_REF: '' }, env);
         const before = identity(id);
         assert.throws(() => findPr(root, h.config, id), new RegExp(`unsafe ${field}`));
@@ -360,7 +360,7 @@ test('findPr refuses to adopt a PR with an unsafe ref name', { skip: process.pla
     }
     Object.assign(process.env, { FAKE_HEAD_REF: '', FAKE_BASE_REF: '' });
     const id = h.scenario();
-    setJob(root, id, { fields: { pr: null } });
+    setJob(root, id, { owned: { pr: null } });
     assert.equal(findPr(root, h.config, id).headRefName, 'forge/x', 'safe refs are still adopted');
     assert.equal(loadJob(root, id).branch, 'forge/x');
     assert.ok(h.events(id).includes('pr-adopted'));
@@ -536,7 +536,7 @@ test('syncPr routes a head once and a new head clears integrateFor', { skip: pro
     assert.equal(loadJob(root, id).pr?.integrateFor, SHA_A, 'the routed head is kept');
 
     // Forge pushed a new head, which is still behind: routed again.
-    setJob(root, id, { fields: { 'pr.pushedSha': SHA_B } });
+    setJob(root, id, { owned: { 'pr.pushedSha': SHA_B } });
     process.env.FAKE_HEAD_OID = SHA_B;
     assert.equal(syncPr(root, h.config, id).integrate, true);
     assert.equal(loadJob(root, id).pr?.integrateFor, SHA_B);
@@ -647,7 +647,7 @@ test('a routed job is handed to the daemon once', { skip: process.platform === '
     assert.deepEqual([req.type, req.job, req.from, req.text], ['resume', id, 'sync', 'forge sync moved this job to integrate']);
 
     // Routed again on a new head while that request is still pending: no second request.
-    setJob(root, id, { ...PARKED, fields: { 'pr.pushedSha': SHA_B } });
+    setJob(root, id, { ...PARKED, owned: { 'pr.pushedSha': SHA_B } });
     process.env.FAKE_HEAD_OID = SHA_B;
     assert.equal(syncPr(root, h.config, id).integrate, true);
     assert.equal(resumes(id).length, 1);
@@ -764,7 +764,7 @@ test('sync comments the approver once on merge', { skip: process.platform === 'w
     assert.equal(readEvents(root, id).filter((e) => e.type === 'tracker-approval-comment').length, 1);
 
     // A later sync that sees the merge again posts nothing: the event is the guard.
-    setJob(root, id, { fields: { pr: { ...loadJob(root, id).pr!, state: 'OPEN' } } });
+    setJob(root, id, { owned: { pr: { ...loadJob(root, id).pr!, state: 'OPEN' } } });
     fs.writeFileSync(log, '');
     await syncAll(root, h.config);
     assert.deepEqual(comments(), []);

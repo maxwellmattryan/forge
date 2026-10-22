@@ -456,7 +456,8 @@ function gateJob(stage: JobChange['stage'], fields: Record<string, unknown> = {}
   const config = defaults();
   config.tracker.kind = 'none';
   const id = createJob(repo.dir, config, { title: 'Gate' }).id;
-  setJob(repo.dir, id, { stage, state: 'running', fields: { round: 1, ...fields } });
+  const { 'usage.estCostUsd': cost, ...rest } = fields;
+  setJob(repo.dir, id, { stage, state: 'running', owned: cost === undefined ? {} : { 'usage.estCostUsd': cost }, fields: { round: 1, ...rest } });
   return {
     id,
     root: repo.dir,

@@ -204,12 +204,12 @@ test('an invalid metric is closed, reported and refused at verify', async () => 
     assert.doesNotMatch(report, /Old rule|id prose/, 'unchanged entries are history');
 
     // Without a merge base, notes that differ from the main checkout's HEAD fail the step; matching ones need none.
-    setJob(s.dir, bad.id, { fields: { base: 'no-such-branch' } });
+    setJob(s.dir, bad.id, { owned: { base: 'no-such-branch' } });
     const unresolved = await verify(s.dir, s.config, bad.id);
     assert.equal(unresolved.steps.find((st) => st.name === 'notes')?.ok, false, JSON.stringify(unresolved.steps));
     const tail = fs.readFileSync(path.join(s.dir, unresolved.file), 'utf8');
     assert.match(tail, /could not resolve the base \(base no-such-branch not found\), and \.forge\/notes\/learnings\.md, \.forge\/notes\/experiments\.md differ from the main checkout's HEAD/);
-    setJob(s.dir, clean.id, { fields: { base: 'no-such-branch' } });
+    setJob(s.dir, clean.id, { owned: { base: 'no-such-branch' } });
     const matching = await verify(s.dir, s.config, clean.id);
     assert.ok(!matching.steps.some((st) => st.name === 'notes'), JSON.stringify(matching.steps));
 

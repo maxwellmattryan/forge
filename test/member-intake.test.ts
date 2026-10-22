@@ -39,7 +39,7 @@ const issue = (n: number, title = `Issue ${n}`, slug = 'o/lib') => ({ number: n,
 
 /** Escalated, approved by alice, with an open PR #11 the fake gh then reports merged. */
 function approvedAndMerged(p: Project, id: string): void {
-  setJob(p.root, id, { stage: 'pr', state: 'running', fields: { pr: { number: 11, url: 'https://github.com/o/app/pull/11', state: 'OPEN' } } });
+  setJob(p.root, id, { stage: 'pr', state: 'running', owned: { pr: { number: 11, url: 'https://github.com/o/app/pull/11', state: 'OPEN' } } });
   logEvent(p.root, id, 'transition', { from: { stage: 'decide', state: 'running', waitingOn: null }, to: { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }, reason: 'auth change' });
   logEvent(p.root, id, 'human', { action: 'approve', note: 'ok', actor: { login: 'alice', source: 'env' } });
   p.fake('app.pr', `forge/${id}`);

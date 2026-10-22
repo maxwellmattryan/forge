@@ -191,9 +191,9 @@ test('AC8/AC9: forge stats shows the delta, and retro signals list its files as 
     const config = defaults();
     const files = ['a.txt', 'evil`\nname\u2028\u0007\u0085.txt', 'x'.repeat(250), ...Array.from({ length: 22 }, (_, i) => `z${String(i).padStart(2, '0')}.txt`)];
     const nonEmpty = createJob(r.dir, config, { title: 'Human edited' });
-    setJob(r.dir, nonEmpty.id, { fields: { pr: { number: 1, state: 'MERGED', humanDelta: { status: 'measured', commits: 2, linesAdded: 5, linesDeleted: 3, lines: 8, fileCount: 25, files } } } });
+    setJob(r.dir, nonEmpty.id, { owned: { pr: { number: 1, state: 'MERGED', humanDelta: { status: 'measured', commits: 2, linesAdded: 5, linesDeleted: 3, lines: 8, fileCount: 25, files } } } });
     const zero = createJob(r.dir, config, { title: 'Untouched' });
-    setJob(r.dir, zero.id, { fields: { pr: { number: 2, state: 'MERGED', humanDelta: measured(0, 0) } } });
+    setJob(r.dir, zero.id, { owned: { pr: { number: 2, state: 'MERGED', humanDelta: measured(0, 0) } } });
 
     const text = forge('stats');
     assert.match(text, /human delta after push 50% · median 8 lines · measured 2\/2/);

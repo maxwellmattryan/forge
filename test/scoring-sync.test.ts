@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
-import { createJob, jobDir, loadJob, readEvents, setJob } from '../lib/jobs.ts';
+import { createJob, jobDir, loadJob, readEvents, setJob, updateJob } from '../lib/jobs.ts';
+import type { Job } from '../lib/types.ts';
 import { listRequests } from '../lib/requests.ts';
 import { MAX_DIFF_BYTES, capDiff, isSampled, queueScores } from '../lib/scoring.ts';
 import { syncAll } from '../lib/commands/tracker.ts';
@@ -44,7 +45,7 @@ function harness() {
   const merged = (mergedAt: string, extra: { kind?: string; title?: string } = {}) => {
     const job = createJob(repo.dir, config, { title: extra.title ?? `job ${++n}`, ...extra });
     const number = 100 + n;
-    setJob(repo.dir, job.id, { stage: 'done', state: 'done', fields: { pr: { number, url: `https://github.com/o/r/pull/${number}`, state: 'MERGED', isDraft: false, lastSyncedAt: mergedAt, mergedAt } } });
+    setJob(repo.dir, job.id, { stage: 'done', state: 'done', owned: { pr: { number, url: `https://github.com/o/r/pull/${number}`, state: 'MERGED', isDraft: false, lastSyncedAt: mergedAt, mergedAt } } });
     return job.id;
   };
   return {
@@ -120,7 +121,7 @@ test('over budget is held, not queued, not retried', async () => {
   try {
     h.config.pipeline.budget.tokens = 10;
     const over = h.merged(hoursAgo(2));
-    setJob(h.dir, over, { fields: { usage: { totalTokens: 100, byRole: {}, byModel: {}, estCostUsd: 0, exact: true } } });
+    setJob(h.dir, over, { owned: { usage: { totalTokens: 100, byRole: {}, byModel: {}, estCostUsd: 0, exact: true } } });
     const r = await syncAll(h.dir, h.config);
     assert.deepEqual(r.scoring, { queued: [], held: [over] });
     const s = loadJob(h.dir, over).score!;
@@ -159,10 +160,11 @@ test('lookback, kinds, diff failure and the per-sync cap', async () => {
       for (;;) {
         const id = h.merged(hoursAgo(hours), { title: `try ${++tries}` });
         if (isSampled(id, 0.5) === sampled) {
-          if (kind) setJob(h.dir, id, { fields: { kind } });
+          // Only `forge eval start` makes an eval job, so the fixture writes the kind below setJob.
+          if (kind) updateJob(h.dir, id, (j) => void (j.kind = kind as Job['kind']));
           return id;
         }
-        setJob(h.dir, id, { fields: { kind: 'eval' } });
+        updateJob(h.dir, id, (j) => void (j.kind = 'eval'));
       }
     };
     const old = pick(true, 8 * 24);

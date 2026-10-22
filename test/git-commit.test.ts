@@ -169,13 +169,13 @@ test('refuses wrong targets', () => {
     job.git('checkout', '-q', branch);
 
     const before = s.mainState();
-    setJob(s.root, job.id, { fields: { worktree: s.root } });
+    setJob(s.root, job.id, { owned: { worktree: s.root } });
     expectRefused(commit(job.id), /refuses to commit in the main checkout/);
     fs.mkdirSync(path.join(s.root, 'nested'));
-    setJob(s.root, job.id, { fields: { worktree: path.join(s.root, 'nested') } });
+    setJob(s.root, job.id, { owned: { worktree: path.join(s.root, 'nested') } });
     expectRefused(commit(job.id), /refuses to commit in the main checkout/);
     assert.deepEqual(s.mainState(), before);
-    setJob(s.root, job.id, { fields: { worktree: job.wt } });
+    setJob(s.root, job.id, { owned: { worktree: job.wt } });
 
     // A merge in progress points at forge integrate --continue.
     job.git('checkout', '-q', '-b', 'side');

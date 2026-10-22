@@ -191,7 +191,7 @@ test('pr sync done and cancelled tear down', { skip: process.platform === 'win32
       const job = createJob(r.dir, config, { title: `sync ${prState}` });
       const up = backingUp(r.dir, config, job, docker.runner);
       assert.ok(up.every((s) => s.ok), JSON.stringify(up));
-      setJob(r.dir, job.id, { fields: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } });
+      setJob(r.dir, job.id, { owned: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } });
       assert.ok(docker.state.containers[`forge-${job.id}-postgres`]);
       gh.set('pr view', prView(prState));
       syncPr(r.dir, config, job.id);

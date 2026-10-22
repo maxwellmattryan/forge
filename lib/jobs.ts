@@ -13,6 +13,7 @@ import { reviewFileName } from './lens.ts';
 import { requeueOrphans } from './requests.ts';
 import { configForJob } from './eval-overlay.ts';
 import { configHash, pluginHash, promptHash } from './provenance.ts';
+import { checkJobFields, checkOwnedFields } from './job-fields.ts';
 import { setPath } from './shape.ts';
 import { ForgeError, assertSafeRef, now, readJson, readText, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
 
@@ -375,6 +376,10 @@ export function setJob(
       checkChange(merged);
       c = merged;
     }
+    // On the change actually applied and the kind read inside the lock, before any mutation, so a
+    // refused field leaves job.json and events.jsonl untouched whoever called.
+    checkJobFields(c.fields ?? {}, j);
+    checkOwnedFields(c.owned ?? {});
     // stage, state and waitingOn were checked against their lists.
     if (c.stage) j.stage = c.stage as Stage;
     if (c.state) j.state = c.state as JobState;
@@ -382,6 +387,7 @@ export function setJob(
     if (c.waitingOn !== undefined) j.waitingOn = c.waitingOn as WaitingOn | null;
     if (c.reason !== undefined) j.reason = c.reason;
     if (j.state === 'waiting' && !j.waitingOn) throw new ForgeError('state "waiting" needs --waiting-on', 'usage');
+    for (const [k, v] of Object.entries(c.owned ?? {})) setPath(j, k, v);
     for (const [k, v] of Object.entries(c.fields ?? {})) setPath(j, k, v);
     if (['done', 'cancelled'].includes(j.state) && !j.finishedAt) j.finishedAt = now();
     // In the same write as the state, so no reader sees a finished job with an agent still running.
@@ -410,7 +416,8 @@ export function setJob(
     const a = job.agents[role];
     logEvent(root, id, 'agent-end', { role, model: a?.model ?? undefined, status: a?.status, summary: a?.summary });
   }
-  if (c.fields && Object.keys(c.fields).length) logEvent(root, id, 'fields', { fields: c.fields });
+  const written = { ...c.owned, ...c.fields };
+  if (Object.keys(written).length) logEvent(root, id, 'fields', { fields: written });
   if (c.note) logEvent(root, id, 'note', { text: c.note });
   if (released) logEvent(root, id, 'released');
   // A finished job lets go of focus. No actor: whatever finished it, this is not a human's focus action.

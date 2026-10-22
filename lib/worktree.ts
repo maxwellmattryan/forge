@@ -161,7 +161,7 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   const stacked = stack ? { stackedOn: stack.dependency, base: stack.base } : {};
   if (stack) {
     job.base = stack.base;
-    setJob(root, id, { fields: { base: stack.base } });
+    setJob(root, id, { owned: { base: stack.base } });
     logEvent(root, id, 'stacked', { dependency: stack.dependency, base: stack.base });
   }
   copyUntracked(root, dir, config.worktrees.copy ?? [], opts.sparseExclude ?? []);
@@ -169,7 +169,7 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   // Chosen and saved under the lock backing ports are allocated under, so a concurrent create never takes it.
   const ports = withLock(portsLock(root), () => {
     const p = allocatePorts(root, config, job);
-    setJob(root, id, { fields: { worktree: dir, port: p[portBearing(config, job)[0]], ports: p } });
+    setJob(root, id, { owned: { worktree: dir, port: p[portBearing(config, job)[0]] }, fields: { ports: p } });
     return p;
   });
   const port = ports[portBearing(config, job)[0]];
@@ -1285,7 +1285,7 @@ async function removeRootWorktree(root: string, id: string, opts: { deleteBranch
   runGit(root, ['worktree', 'prune'], { allowFail: true, write: true });
   // createJob always sets branch.
   if (opts.deleteBranch && !standalone) runGit(root, ['branch', '-D', job.branch!], { allowFail: true, write: true });
-  setJob(root, id, { fields: { worktree: null } });
+  setJob(root, id, { owned: { worktree: null } });
   logEvent(root, id, 'worktree-removed', { branchDeleted: Boolean(opts.deleteBranch) });
   return { removed: job.worktree };
 }

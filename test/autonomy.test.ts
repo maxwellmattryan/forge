@@ -105,7 +105,8 @@ function seed(dir: string, specs: { title: string; fields: Record<string, unknow
   const config = defaults();
   return specs.map((s) => {
     const j = createJob(dir, config, { title: s.title });
-    setJob(dir, j.id, { stage: 'done', state: 'done', fields: s.fields });
+    const { pr, ...fields } = s.fields;
+    setJob(dir, j.id, { stage: 'done', state: 'done', owned: pr === undefined ? {} : { pr }, fields });
     for (const [type, data] of s.events ?? []) logEvent(dir, j.id, type, data);
     return j.id;
   });

@@ -235,7 +235,7 @@ test('allocator keeps job and backing ports distinct', async () => {
   const write = (file: string, ports: unknown) => (fs.mkdirSync(path.dirname(file), { recursive: true }), fs.writeFileSync(file, JSON.stringify({ v: 1, ports })));
   try {
     const active = createJob(s.dir, s.config, { title: 'Active' }).id;
-    setJob(s.dir, active, { fields: { port: base } });
+    setJob(s.dir, active, { owned: { port: base } });
     const cancelled = createJob(s.dir, s.config, { title: 'Cancelled' }).id;
     setJob(s.dir, cancelled, { state: 'cancelled' });
     write(jobRecord(cancelled), { postgres: { 5432: base + 1 } });
@@ -248,7 +248,7 @@ test('allocator keeps job and backing ports distinct', async () => {
 
     // A later job's job.port skips every backing.json port, active or not.
     const later = createJob(s.dir, s.config, { title: 'Later' }).id;
-    setJob(s.dir, x, { fields: { port: base + 3 } });
+    setJob(s.dir, x, { owned: { port: base + 3 } });
     await withRunner(f.runner, () => createWorktree(s.dir, s.config, later));
     const laterPort = loadJob(s.dir, later).port!;
     assert.ok(![base, base + 1, base + 2, base + 3, base + 4].includes(laterPort), String(laterPort));

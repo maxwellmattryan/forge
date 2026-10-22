@@ -20,7 +20,9 @@ const outcome = (extra: Record<string, unknown>) => ({
 /** A job the given lenses reviewed in round 1, with job.json fields (pr, outcome, createdAt) set. */
 function reviewed(root: string, lenses: string[], fields: Record<string, unknown> = {}): string {
   const { id } = createJob(root, defaults(), { title: `Reviewed ${lenses.join(' ')} ${Math.random()}` });
-  setJob(root, id, { state: 'done', fields: { 'verdicts.1': Object.fromEntries(lenses.map((l) => [l, 'PASS'])), ...fields } });
+  const { pr, createdAt, ...rest } = fields;
+  const owned = Object.fromEntries(Object.entries({ pr, createdAt }).filter(([, v]) => v !== undefined));
+  setJob(root, id, { state: 'done', owned, fields: { 'verdicts.1': Object.fromEntries(lenses.map((l) => [l, 'PASS'])), ...rest } });
   return id;
 }
 

@@ -25,8 +25,8 @@ function queuedJob(dir: string, opts: { score?: unknown } = {}): string {
   setJob(dir, job.id, {
     stage: 'done',
     state: 'done',
+    owned: { score: opts.score ?? { status: 'queued', queuedAt: QUEUED_AT, value: null, outOf: 5, recordedAt: null, judgeModel: null, builderModel: null } },
     fields: {
-      score: opts.score ?? { status: 'queued', queuedAt: QUEUED_AT, value: null, outOf: 5, recordedAt: null, judgeModel: null, builderModel: null },
       'agents.builder': { runs: 1, status: 'done', model: 'sonnet', startedAt: '2026-09-01T00:00:00.000Z', endedAt: '2026-09-01T01:00:00.000Z' },
       'agents.judge': { runs: 1, status: 'done', model: 'claude-opus-4-1', startedAt: '2026-10-01T00:01:00.000Z', endedAt: '2026-10-01T00:05:00.000Z' },
     },

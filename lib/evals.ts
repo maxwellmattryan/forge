@@ -175,7 +175,7 @@ export function startRun(
         slug: `eval-${name}`,
         branch: `forge-eval/${runId}/${name}`,
       });
-      setJob(root, job.id, { fields: { eval: { run: runId, task: t.name, repeat: i, overlay } } });
+      setJob(root, job.id, { owned: { eval: { run: runId, task: t.name, repeat: i, overlay } } });
       const wt = createWorktree(root, cfg, job.id, { from: t.base ?? undefined, sparseExclude: ['.forge/evals'], isolate: true });
       record.tasks.push({ task: t.name, job: job.id, worktreeOk: wt.ok !== false, result: null, repeat: i });
     }

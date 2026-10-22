@@ -520,7 +520,7 @@ describe('foreman CLI', { concurrency: 4 }, () => {
     try {
       const head = 'a'.repeat(40);
       const pr = { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', headOid: head, checks: { state: 'failing', passing: 0, failing: 1, pending: 0 } };
-      const id = s.job('Feedback', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', fields: { pr } });
+      const id = s.job('Feedback', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', owned: { pr } });
       const refused = (label: string) => s.refusedDecision(id, OFFICE_SCOPE, 'rework', 'fix the failing test', /no queued pr-feedback gate request for .*current PR head/, label);
       refused('no gate request at all');
       enqueue(s.root, null, { type: 'gate', job: id, args: { gate: 'pr-feedback', key: 'b'.repeat(40), reserved: null }, from: 'forge' });
@@ -702,7 +702,7 @@ esac
   process.env.PATH = `${bin}${path.delimiter}${saved.PATH}`;
   try {
     const config = s.config();
-    const id = s.job('Feedback', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', fields: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } });
+    const id = s.job('Feedback', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', owned: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } });
     const head1 = 'a'.repeat(40);
     process.env.FAKE_HEAD_OID = head1;
     syncPr(s.root, config, id);
@@ -721,7 +721,7 @@ esac
     syncPr(s.root, off, id);
     assert.equal(s.gates(id).length, 2, 'pr-feedback missing from decides writes nothing');
     // Feedback only from people without write access never arms the gate, and the gate stays a human's.
-    const outsider = s.job('Outsider', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', fields: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } });
+    const outsider = s.job('Outsider', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', owned: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } });
     process.env.FAKE_ASSOC = 'NONE';
     process.env.FAKE_HEAD_OID = 'd'.repeat(40);
     syncPr(s.root, config, outsider);
@@ -762,7 +762,7 @@ esac
   );
   const saved = { PATH: process.env.PATH, FAKE_HEAD_OID: process.env.FAKE_HEAD_OID };
   process.env.PATH = `${bin}${path.delimiter}${saved.PATH}`;
-  const parked = { stage: 'pr' as const, state: 'waiting' as const, waitingOn: 'pr-review' as const, fields: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } };
+  const parked = { stage: 'pr' as const, state: 'waiting' as const, waitingOn: 'pr-review' as const, owned: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } };
   const resumes = (id: string) => listRequests(s.root).filter((q) => q.type === 'resume' && q.job === id);
   try {
     const base = s.config();
@@ -801,7 +801,7 @@ esac
     assert.equal(job.waitingOn, 'pr-review');
     assert.equal(s.gates(manual).length, 1);
     // A security review asking for changes doesn't hold a rework: fixing things is mitigation.
-    const held = s.job('Held', { ...parked, fields: { ...parked.fields, verdicts: { '1': { security: 'CHANGES' } } } });
+    const held = s.job('Held', { ...parked, fields: { verdicts: { '1': { security: 'CHANGES' } } } });
     process.env.FAKE_HEAD_OID = 'd'.repeat(40);
     syncPr(s.root, config, held);
     assert.equal(loadJob(s.root, held).stage, 'build');
@@ -850,7 +850,7 @@ esac
     fs.writeFileSync(prFile, JSON.stringify({ number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', isDraft: false, headRefOid: head, mergeable: 'MERGEABLE', mergeStateStatus: 'UNSTABLE', reviewDecision: null, statusCheckRollup: rollup, mergedAt: null, closedAt: null, headRefName: 'forge/x', baseRefName: 'main' }));
   const base = s.config();
   const config = { ...base, daemon: { ...base.daemon, enabled: true } };
-  const parked = { stage: 'pr' as const, state: 'waiting' as const, waitingOn: 'pr-review' as const, fields: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } };
+  const parked = { stage: 'pr' as const, state: 'waiting' as const, waitingOn: 'pr-review' as const, owned: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } };
   const capped = (id: string) => readEvents(s.root, id).filter((e) => e.type === 'ci-rework-capped');
   const ciReworks = (id: string) => readEvents(s.root, id).filter((e) => e.type === 'human' && e.action === 'rework' && e.ciHead);
   const sync = (id: string, head: string, rollup: unknown[] = RED) => {

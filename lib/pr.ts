@@ -125,10 +125,10 @@ export function findPr(root: string, config: Config, id: string): any {
   }
   if (pr.isCrossRepository) throw new ForgeError(`PR #${pr.number} comes from a fork; Forge only adopts branches in ${slug}`);
   refuseUnsafeRefs(root, id, pr);
-  const fields = { pr: { number: pr.number, url: pr.url, state: pr.state, isDraft: pr.isDraft, lastSyncedAt: now() } };
-  if (pr.headRefName && pr.headRefName !== job.branch) Object.assign(fields, { branch: pr.headRefName });
-  if (pr.baseRefName && pr.baseRefName !== job.base) Object.assign(fields, { base: pr.baseRefName });
-  setJob(root, id, { fields });
+  const owned = { pr: { number: pr.number, url: pr.url, state: pr.state, isDraft: pr.isDraft, lastSyncedAt: now() } };
+  if (pr.headRefName && pr.headRefName !== job.branch) Object.assign(owned, { branch: pr.headRefName });
+  if (pr.baseRefName && pr.baseRefName !== job.base) Object.assign(owned, { base: pr.baseRefName });
+  setJob(root, id, { owned });
   logEvent(root, id, 'pr-adopted', { number: pr.number, branch: pr.headRefName });
   return pr;
 }
@@ -265,7 +265,7 @@ export function openPr(
   const pushedSha = pushRoot();
   const existing = findPr(root, config, id);
   if (existing && existing.state === 'OPEN') {
-    setJob(root, id, { fields: { 'pr.pushedSha': pushedSha } });
+    setJob(root, id, { owned: { 'pr.pushedSha': pushedSha } });
     logEvent(root, id, 'pr-updated', { number: existing.number });
     logDeferred();
     linkSiblingsQuietly(root, config, id);
@@ -282,7 +282,7 @@ export function openPr(
   for (const r of config.pr.reviewers ?? []) args.push('--reviewer', r);
   const url = gh(job.worktree!, args).stdout.trim().split('\n').pop() ?? '';
   const number = Number(url.match(/\/pull\/(\d+)/)?.[1]);
-  setJob(root, id, { fields: { pr: { number, url, state: 'OPEN', isDraft, openedAt: now(), lastSyncedAt: now(), pushedSha } } });
+  setJob(root, id, { owned: { pr: { number, url, state: 'OPEN', isDraft, openedAt: now(), lastSyncedAt: now(), pushedSha } } });
   logEvent(root, id, 'pr-opened', { number, url });
   logDeferred();
   queueNotify(root, ['pr-opened'], { job: job.id, reason: 'pr-opened' });
@@ -363,7 +363,7 @@ function freshMerged(root: string, config: Config, job: Job, key: RepoKey): bool
   } catch {}
   if (pr?.state === 'MERGED' && live !== 'MERGED') {
     if (live === null) throw new ForgeError(`${repoLabel(key)}'s PR #${number} is recorded MERGED, but GitHub can't confirm its state; run: forge pr sync ${job.id}`, 'external');
-    if (key === null) setJob(root, job.id, { fields: { 'pr.state': live } });
+    if (key === null) setJob(root, job.id, { owned: { 'pr.state': live } });
     else recordMemberPr(root, job.id, key, (prev) => ({ ...(prev ?? {}), state: live }) as JobRepoPr);
     logEvent(root, job.id, 'pr-state-corrected', { repo: key, number, recorded: 'MERGED', live });
   }
@@ -707,7 +707,7 @@ export function retargetPr(
     requireGh();
     gh(root, ['pr', 'edit', String(number), '-R', repoSlug(root, config), '--base', base]);
   }
-  setJob(root, id, { fields: { base } });
+  setJob(root, id, { owned: { base } });
   logEvent(root, id, 'retargeted', { from, to: base, dependency, pr: number });
   return { from, to: base, pr: number };
 }
@@ -1177,7 +1177,7 @@ function syncPrDetailed(root: string, config: Config, id: string, opts: { route?
       synced = t.integrateFor ? { ...rest, integrateFor: t.integrateFor } : rest;
       integrate = t.integrate;
       reopen = t.change.reason === REOPEN_REASON;
-      return { ...t.change, fields: { pr: synced } };
+      return { ...t.change, owned: { pr: synced } };
     },
   });
   // A merged or closed PR finished the job: its environment goes, without undoing the state change.
@@ -1829,7 +1829,7 @@ export function readyPr(root: string, config: Config, id: string, target: { repo
       if (!SLUG_RE.test(slug)) throw new ForgeError(`repo ${repo} has an unusable GitHub repository ${JSON.stringify(slug).slice(0, 80)}`);
     }
     gh(root, ['pr', 'ready', String(number), '-R', slug]);
-    if (repo === null) setJob(root, id, { fields: { 'pr.isDraft': false } });
+    if (repo === null) setJob(root, id, { owned: { 'pr.isDraft': false } });
     else recordMemberPr(root, id, repo, (prev) => ({ ...(prev ?? {}), isDraft: false }) as JobRepoPr);
     logEvent(root, id, 'pr-ready', { ...(repo !== null ? { repo } : {}), number });
     out.ready.push({ repo, number });

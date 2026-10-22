@@ -183,6 +183,8 @@ export interface JobChange {
   waitingOn?: string | null;
   reason?: string | null;
   fields?: Record<string, any>;
+  /** Locked fields that only their owning module writes (lib/job-fields.ts); never from the CLI. */
+  owned?: Record<string, unknown>;
   note?: string;
 }
 

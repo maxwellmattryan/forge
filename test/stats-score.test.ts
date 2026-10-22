@@ -30,7 +30,7 @@ function seed(dir: string, list: { s: JobScore | null; merged?: boolean; mergedA
   return list.map((x, i) => {
     const job = createJob(dir, config, { title: `job ${i}`, ...(x.kind ? { kind: x.kind } : {}) });
     const pr = { number: 10 + i, url: `https://github.com/o/r/pull/${10 + i}`, state: x.merged === false ? 'OPEN' : 'MERGED', isDraft: false, lastSyncedAt: AT, ...(x.merged === false ? {} : { mergedAt: x.mergedAt ?? AT }) };
-    setJob(dir, job.id, { stage: 'done', state: 'done', fields: { pr, score: x.s } });
+    setJob(dir, job.id, { stage: 'done', state: 'done', owned: { pr, score: x.s } });
     return job.id;
   });
 }

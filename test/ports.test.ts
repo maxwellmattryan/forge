@@ -143,11 +143,11 @@ describe('job ports', { concurrency: 4 }, () => {
     });
     const base = s.config.ports.base;
     const a = createJob(s.dir, s.config, { title: 'A' }).id;
-    setJob(s.dir, a, { fields: { port: base, ports: { api: base, web: base + 1 } } });
+    setJob(s.dir, a, { owned: { port: base }, fields: { ports: { api: base, web: base + 1 } } });
     const bJob = createJob(s.dir, s.config, { title: 'B' }).id;
     const rec = b.allocateBacking(s.dir, s.config, { id: bJob, port: base + 2, ports: { api: base + 2, web: base + 3 } });
     assert.equal(rec.job.ports.postgres['5432'], base + 4, "past A's ports and B's own");
-    setJob(s.dir, bJob, { fields: { port: base + 2, ports: { api: base + 2, web: base + 3 } } });
+    setJob(s.dir, bJob, { owned: { port: base + 2 }, fields: { ports: { api: base + 2, web: base + 3 } } });
     // A's backing record (forged, as a session could) is taken for every later job port.
     fs.writeFileSync(path.join(jobDir(s.dir, a), 'backing.json'), JSON.stringify({ v: 1, ports: { postgres: { 5432: base + 5 } } }));
     const c = createJob(s.dir, s.config, { title: 'C' }).id;
