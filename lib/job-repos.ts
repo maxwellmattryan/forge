@@ -7,11 +7,12 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { SESSION_PINS, git, pinArgs } from './git.ts';
 import { loadJob, logEvent, updateJob } from './jobs.ts';
 import { memberCheck, readLocalConfig, resolveMemberPath } from './member-repos.ts';
 import { exists, linkDir, resolveFrom } from './paths.ts';
 import type { Config, Job, JobRepo, MemberRepoConfig } from './types.ts';
-import { ForgeError, GIT_PINS, assertSafeRef, run } from './util.ts';
+import { ForgeError, assertSafeRef } from './util.ts';
 
 /** A member entry: `repo` is always a name. */
 export type MemberJobRepo = JobRepo & { repo: string };
@@ -146,11 +147,9 @@ export function recordJobRepo(root: string, config: Config, id: string, name: st
   logEvent(root, id, 'job-repo-added', { repo: name, verifyOnly, ...(opts.downstream ? { downstream: true } : {}) });
 }
 
-/** git in a member checkout, without the caller's GIT_DIR-style overrides and with the session's GIT_PINS, so no hook or fsmonitor program the worktree holds runs. */
-function memberGit(cwd: string, args: string[]) {
-  const env = { ...process.env };
-  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']) delete env[k];
-  return run('git', [...GIT_PINS.flatMap(([key, value]) => ['-c', `${key}=${value}`]), ...args], { cwd, allowFail: true, env });
+/** git in a member checkout with the session's SESSION_PINS on top of the wrapper's, so no hook or fsmonitor program the worktree holds runs. */
+function memberGit(cwd: string, args: string[], opts: { write?: boolean } = {}) {
+  return git(cwd, [...pinArgs(SESSION_PINS), ...args], { allowFail: true, write: opts.write });
 }
 
 /**
@@ -184,10 +183,10 @@ export function promoteJobRepo(root: string, config: Config, id: string, name: s
   const clone = memberClone(root, config, name);
   const dir = memberWorktreePath(root, config, name, id, clone);
   if (exists(dir)) {
-    const removed = memberGit(clone, ['worktree', 'remove', '--force', dir]);
+    const removed = memberGit(clone, ['worktree', 'remove', '--force', dir], { write: true });
     if (!removed.ok) throw new ForgeError(`repo ${name}: git worktree remove ${dir} failed: ${(removed.stderr || removed.stdout).trim().slice(0, 300)}`, 1);
   }
-  memberGit(clone, ['worktree', 'prune']);
+  memberGit(clone, ['worktree', 'prune'], { write: true });
   updateJob(root, id, (j) => {
     const e = memberEntry(j, name);
     if (!e) throw new ForgeError(`job ${id} has no repo ${name}`);

@@ -1,8 +1,7 @@
 // `forge job scope`: which files a job changed that its spec's Approach never named.
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { PINNED_GIT_CONFIG, STATUS_ARGV } from './git-pins.ts';
+import { STATUS_ARGV, git as runGit, historyEnv } from './git.ts';
 import { inSpec } from './glob.ts';
 import { loadJob, jobDir, logEvent } from './jobs.ts';
 import { memberWorktree } from './job-repos.ts';
@@ -10,7 +9,7 @@ import { reviewedRepoNames } from './lens.ts';
 import { exists } from './paths.ts';
 import type { Config, Job } from './types.ts';
 import { matchPolicy, policyRules } from './policy-check.ts';
-import { ForgeError, now, run } from './util.ts';
+import { ForgeError, now } from './util.ts';
 
 const LIST_LIMIT = 20;
 
@@ -124,15 +123,7 @@ export function approachPaths(specText: string): string[] {
   return [...out];
 }
 
-const git = (cwd: string, args: string[]): string => run('git', args, { cwd }).stdout.trim();
-
-/**
- * Env for git calls that must see the committed history as it is: replace objects and grafts are
- * repository state the job's worktree can write, and either can make two commits look related.
- */
-export function realHistoryEnv(): NodeJS.ProcessEnv {
-  return { ...process.env, GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: path.join(os.devNull, 'forge-no-grafts') };
-}
+const git = (cwd: string, args: string[]): string => runGit(cwd, args).stdout.trim();
 
 const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 
@@ -144,13 +135,13 @@ const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
  */
 export function integrationTouched(cwd: string, head: string, upstream: string, sha: string): string[] | null {
   if (![head, upstream, sha].every((s) => FULL_SHA.test(s))) return null;
-  const env = realHistoryEnv();
+  const env = historyEnv();
   // Exit 1 means the merge has conflicts; the tree (with markers) is still written.
-  const merged = run('git', ['merge-tree', '--write-tree', '--no-messages', head, upstream], { cwd, env, allowFail: true });
+  const merged = runGit(cwd, ['merge-tree', '--write-tree', '--no-messages', head, upstream], { env, allowFail: true, write: true });
   if (merged.status !== 0 && merged.status !== 1) return null;
   const tree = merged.stdout.split('\n')[0].trim();
   if (!FULL_SHA.test(tree)) return null;
-  const diff = run('git', ['diff', '--name-only', '--no-renames', '-z', tree, sha, '--'], { cwd, env, allowFail: true });
+  const diff = runGit(cwd, ['diff', '--name-only', '--no-renames', '-z', tree, sha, '--'], { env, allowFail: true });
   return diff.ok ? diff.stdout.split('\0').filter(Boolean) : null;
 }
 
@@ -171,10 +162,10 @@ export function resolveBase(cwd: string, config: Config, job: Pick<Job, 'base'>,
           [`${config.git.remote}/${base}`, `refs/remotes/${config.git.remote}/${base}`],
           [base, `refs/heads/${base}`],
         ];
-  const env = realHistoryEnv();
+  const env = historyEnv();
   for (const [name, ref] of candidates) {
-    const r = run('git', ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { cwd, env, allowFail: true });
-    if (r.ok) return { baseRef: name, mergeBase: run('git', ['merge-base', r.stdout.trim(), head], { cwd, env }).stdout.trim() };
+    const r = runGit(cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { env, allowFail: true });
+    if (r.ok) return { baseRef: name, mergeBase: runGit(cwd, ['merge-base', r.stdout.trim(), head], { env }).stdout.trim() };
   }
   throw new ForgeError(`base ${job.base} not found`);
 }
@@ -185,10 +176,10 @@ export function resolveBase(cwd: string, config: Config, job: Pick<Job, 'base'>,
  * Every option that could hide or reshape a path is pinned, because the worktree's config is
  * builder-writable: `-z` keeps non-ASCII paths raw under core.quotePath, `--no-renames` keeps a
  * renamed file's old path, `--no-relative` ignores diff.relative, `--no-ext-diff` skips external
- * drivers, and realHistoryEnv ignores replace objects and grafts.
+ * drivers, and historyEnv ignores replace objects and grafts.
  */
 export function committedChanges(cwd: string, mergeBase: string, head = 'HEAD'): string[] {
-  const out = run('git', ['diff', '--name-only', '-z', '--no-renames', '--no-relative', '--no-ext-diff', mergeBase, head, '--'], { cwd, env: realHistoryEnv() }).stdout;
+  const out = runGit(cwd, ['diff', '--name-only', '-z', '--no-renames', '--no-relative', '--no-ext-diff', mergeBase, head, '--'], { env: historyEnv() }).stdout;
   return out.split('\0').filter(Boolean).sort();
 }
 
@@ -198,13 +189,13 @@ export function committedChanges(cwd: string, mergeBase: string, head = 'HEAD'):
  * throws), and its base through resolveBase, so the comparison point is pinned as the root's is.
  */
 export function reviewedRepoDiffs(root: string, config: Config, job: Pick<Job, 'id' | 'repos'>): RepoDiff[] {
-  const env = realHistoryEnv();
+  const env = historyEnv();
   return reviewedRepoNames(job).map((name) => {
     const { member, worktree: cwd } = memberWorktree(root, config, job, name);
     const { baseRef, mergeBase } = resolveBase(cwd, config, { base: member.base });
-    const head = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], { cwd, env }).stdout.trim();
-    // STATUS_ARGV pins core.fsmonitor off: the member worktree's config is builder-writable, and git status runs that program.
-    const dirty = run('git', [...STATUS_ARGV], { cwd, env }).stdout.trim() !== '';
+    const head = runGit(cwd, ['rev-parse', '--verify', 'HEAD^{commit}'], { env }).stdout.trim();
+    // The wrapper pins core.fsmonitor off: the member worktree's config is builder-writable, and git status runs that program.
+    const dirty = runGit(cwd, [...STATUS_ARGV], { env }).stdout.trim() !== '';
     return { repo: name, cwd, baseRef, mergeBase, head, dirty, changed: committedChanges(cwd, mergeBase) };
   });
 }
@@ -226,12 +217,12 @@ export interface DiffSection {
  * driver's output for the real change, or turn a hunk into "Binary files differ" (`-diff`, `binary`).
  */
 function writeScopeDiff(file: string, sections: DiffSection[]): void {
-  const env = realHistoryEnv();
+  const env = historyEnv();
   const parts = sections.map((s) => {
-    const out = run(
-      'git',
-      [...PINNED_GIT_CONFIG, 'diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-relative', '--no-renames', '--ignore-submodules=none', '--text', '-U3', `--src-prefix=a/${s.prefix}`, `--dst-prefix=b/${s.prefix}`, s.mergeBase, s.head, '--'],
-      { cwd: s.cwd, env },
+    const out = runGit(
+      s.cwd,
+      ['diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-relative', '--no-renames', '--ignore-submodules=none', '--text', '-U3', `--src-prefix=a/${s.prefix}`, `--dst-prefix=b/${s.prefix}`, s.mergeBase, s.head, '--'],
+      { env },
     ).stdout;
     return `# repo ${s.label} base ${s.baseRef} @ ${s.mergeBase} · HEAD ${s.head}\n${out}`;
   });

@@ -1,7 +1,7 @@
 // This repo's `owner/repo`, read offline: lib/issue-ref.ts needs it to tell this repo's issues from
 // foreign ones on every job read and link, so it must never wait on `gh` or the network.
 // lib/pr.ts keeps its gh-backed repoSlug for the operations that call gh anyway.
-import { run } from './util.ts';
+import { git } from './git.ts';
 import type { Config } from './types.ts';
 
 /** One `owner` or `name` segment of a GitHub `owner/name`. */
@@ -38,7 +38,7 @@ export function localRepoSlug(root: string, config: Pick<Config, 'tracker'>): st
   const configured = config.tracker?.github?.repo;
   if (typeof configured === 'string' && configured.trim()) return configured.trim();
   if (!fromRemote.has(root)) {
-    const r = run('git', ['remote', 'get-url', '--', 'origin'], { cwd: root, allowFail: true, timeoutMs: 5000 });
+    const r = git(root, ['remote', 'get-url', '--', 'origin'], { allowFail: true, timeoutMs: 5000 });
     fromRemote.set(root, r.ok ? slugFromRemote(r.stdout, process.env.GH_HOST || 'github.com') : null);
   }
   return fromRemote.get(root) ?? null;

@@ -9,6 +9,7 @@ import { refuseInOffice, refuseInboxDrive } from './daemon-owner.ts';
 import { NEED_INIT } from './config-set.ts';
 import { detect } from './detect.ts';
 import { stopBackground } from './environment-lifecycle.ts';
+import { git } from './git.ts';
 import { loadJob } from './jobs.ts';
 import { trustedMemberWorktree } from './job-repos.ts';
 import { mainRoot } from './paths.ts';
@@ -16,7 +17,7 @@ import * as pr from './pr.ts';
 import { prepareRetro, retroDue } from './retro.ts';
 import { roster } from './roster.ts';
 import { computeStats, statsByPromptCmd, statsCsv } from './stats.ts';
-import { ForgeError, readJson, run } from './util.ts';
+import { ForgeError, readJson } from './util.ts';
 import * as wt from './worktree.ts';
 import { advanceCmd } from './commands/advance.ts';
 import { auditCmd } from './commands/audit.ts';
@@ -150,7 +151,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
         return { data: res, exitCode: res.repos?.some((r) => r.error) || res.backing?.ok === false ? 1 : 0 };
       }
       if (sub === 'path') return ok(repo === undefined ? (loadJob(root, req(rest[0], 'job id')).worktree ?? '') : (trustedMemberWorktree(root, config, loadJob(root, req(rest[0], 'job id')), repo) ?? ''));
-      if (sub === 'prune') return ok(run('git', ['worktree', 'prune', '-v'], { cwd: root }).stderr.trim() || 'nothing to prune');
+      if (sub === 'prune') return ok(git(root, ['worktree', 'prune', '-v'], { write: true }).stderr.trim() || 'nothing to prune');
       throw usage('worktree');
     }
     case 'backing':

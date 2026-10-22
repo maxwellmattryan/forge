@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { MIN_SECRET } from './known-secrets.ts';
-import { gitEnv } from './links.ts';
+import { git } from './git.ts';
 import { secretEntryProblems, secretSourceOf } from './secret-refs-config.ts';
 import type { SecretSourceKind } from './secret-refs-config.ts';
 import type { Config, SecretSource } from './types.ts';
@@ -93,7 +93,7 @@ function ignoredRel(root: string, rel: string): { abs: string; realRoot: string;
   if (relParent.startsWith('..') || path.isAbsolute(relParent)) throw new Error('resolves outside the repo');
   const realRel = path.join(relParent, path.basename(abs)).split(path.sep).join('/');
   // Tracked files are not ignored (no --no-index), so one check refuses both.
-  const ignored = run('git', ['-c', 'core.quotepath=off', '-c', 'core.fsmonitor=false', 'check-ignore', '-q', '--', realRel], { cwd: realRoot, allowFail: true, env: gitEnv() });
+  const ignored = git(realRoot, ['check-ignore', '-q', '--', realRel], { allowFail: true });
   if (!ignored.ok) throw new Error('must be git-ignored and untracked');
   return { abs: path.join(parentReal, path.basename(abs)), realRoot, realRel };
 }

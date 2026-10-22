@@ -6,11 +6,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { INTERIM_STRATEGIES, isInterimStrategy } from './components.ts';
+import { git as runGit } from './git.ts';
 import { paths, resolveFrom } from './paths.ts';
 import { releaseMechanismCheck, strategyProblems } from './release-strategy.ts';
 import { SEG, githubHost, slugFromRemote } from './repo-slug.ts';
 import type { Config, DoctorCheck } from './types.ts';
-import { SAFE_REF, readText, run, safeText } from './util.ts';
+import { SAFE_REF, readText, safeText } from './util.ts';
 import * as yaml from './yaml.ts';
 
 export const REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
@@ -175,17 +176,6 @@ const quotePath = (p: string): string => shellWord(p);
 // Remotes are printed, never run; quoting only the odd ones keeps the usual scp and https forms copyable as is.
 const quoteRemote = (r: string): string => shellWord(r, /^[A-Za-z0-9._/~:@+=%-]+$/);
 
-/**
- * The env for git in a member clone: inherited location variables would point the call at another
- * repo, and optional locks off keeps `status` from refreshing (writing) the clone's index.
- */
-export function gitEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']) delete env[k];
-  env.GIT_OPTIONAL_LOCKS = '0';
-  return env;
-}
-
 // git prints the top level as a forward-slash long path on Windows (C:/Users/runneradmin/…) while the
 // clone path may use 8.3 short names (C:\Users\RUNNER~1\…): realpathSync.native expands those, and
 // Windows paths compare case-insensitively.
@@ -221,8 +211,7 @@ export function memberCheck(root: string, config: Config, repo: Config['repos'][
   }
   const notClone: DoctorCheck = { name, ok: false, detail: `${qp} is not a git clone; point .forge/local.yml at the clone's top-level directory` };
   if (!st.isDirectory()) return notClone;
-  const env = gitEnv();
-  const git = (args: string[]) => run('git', ['-c', 'core.fsmonitor=false', ...args], { cwd: dir, allowFail: true, timeoutMs: 5000, env });
+  const git = (args: string[]) => runGit(dir, args, { allowFail: true, timeoutMs: 5000 });
   const top = git(['rev-parse', '--show-toplevel']);
   if (!top.ok) return notClone;
   if (!sameDir(top.stdout.trim(), dir)) return notClone;

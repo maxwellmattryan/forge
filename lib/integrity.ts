@@ -5,13 +5,13 @@
 // It also reports local link overrides (lib/links.ts) that reached a commit.
 import fs from 'node:fs';
 import path from 'node:path';
-import { PINNED_GIT_CONFIG } from './git-pins.ts';
+import { git as runGit, historyEnv } from './git.ts';
 import { jobDir } from './jobs.ts';
 import { linkLeakPaths } from './links.ts';
 import { exists } from './paths.ts';
-import { approachPaths, approachSection, realHistoryEnv, resolveBase } from './scope.ts';
+import { approachPaths, approachSection, resolveBase } from './scope.ts';
 import type { Config, Job } from './types.ts';
-import { ForgeError, run } from './util.ts';
+import { ForgeError } from './util.ts';
 
 export const DEFAULT_TEST_PATTERN = '(^|/)(tests?|__tests__|spec|specs)/|[._-](test|spec)s?\\.[A-Za-z0-9]+$|_test\\.(go|py|rs)$|(^|/)test_[^/]+\\.py$';
 
@@ -465,7 +465,7 @@ export function parseDiffLines(raw: string): Map<string, FileLines> {
  * sparse-exclude `.forge/evals/`, and the standard git-lfs filter is trusted.
  */
 export function hiddenChanges(cwd: string, config: Pick<Config, 'commands' | 'components' | 'evals'>): string[] {
-  const git = (args: string[], input?: string) => run('git', args, { cwd, input }).stdout;
+  const git = (args: string[], input?: string) => runGit(cwd, args, { input }).stdout;
   const out: string[] = [];
   const files: string[] = [];
   let testRe: RegExp | null = null;
@@ -490,13 +490,13 @@ export function hiddenChanges(cwd: string, config: Pick<Config, 'commands' | 'co
   }
   const watched = files.filter(isWatched);
   if (!watched.length) return out;
-  const lfs = /^git-lfs\s/.test(run('git', ['config', '--get', 'filter.lfs.process'], { cwd, allowFail: true }).stdout.trim() || run('git', ['config', '--get', 'filter.lfs.smudge'], { cwd, allowFail: true }).stdout.trim());
+  const lfs = /^git-lfs\s/.test(runGit(cwd, ['config', '--get', 'filter.lfs.process'], { allowFail: true }).stdout.trim() || runGit(cwd, ['config', '--get', 'filter.lfs.smudge'], { allowFail: true }).stdout.trim());
   const attrs = git(['check-attr', '--stdin', '-z', 'filter'], `${watched.join('\0')}\0`).split('\0');
   for (let i = 0; i + 2 < attrs.length; i += 3) {
     const [p, , value] = [attrs[i], attrs[i + 1], attrs[i + 2]];
     if (value === 'unspecified' || value === 'unset' || (value === 'lfs' && lfs)) continue;
     const blob = git(['rev-parse', `:${p}`]).trim();
-    const disk = run('git', ['hash-object', '--no-filters', '--', p], { cwd, allowFail: true });
+    const disk = runGit(cwd, ['hash-object', '--no-filters', '--', p], { allowFail: true });
     if (!disk.ok || disk.stdout.trim() !== blob) out.push(`filter ${value} changes the checked-out file: ${p}`);
   }
   return out;
@@ -513,16 +513,16 @@ const CONE_LINE = /^(?:\/\*|!\/\*\/|\/.+\/|!\/.+\/\*\/)$/;
  * stricter answer.
  */
 function sparseSet(cwd: string): { cone: boolean; excludes: (p: string) => boolean } | null {
-  const cfg = (key: string) => run('git', ['config', '--get', '--bool', key], { cwd, allowFail: true }).stdout.trim() === 'true';
+  const cfg = (key: string) => runGit(cwd, ['config', '--get', '--bool', key], { allowFail: true }).stdout.trim() === 'true';
   if (!cfg('core.sparseCheckout')) return null;
-  const file = path.resolve(cwd, run('git', ['rev-parse', '--git-path', 'info/sparse-checkout'], { cwd }).stdout.trim());
+  const file = path.resolve(cwd, runGit(cwd, ['rev-parse', '--git-path', 'info/sparse-checkout']).stdout.trim());
   let lines: string[] = [];
   try {
     lines = fs.readFileSync(file, 'utf8').split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
   } catch {}
   if (!lines.length) return null;
   if (!cfg('core.sparseCheckoutCone') || !lines.every((l) => CONE_LINE.test(l))) return { cone: false, excludes: () => false };
-  const dirs = run('git', ['sparse-checkout', 'list'], { cwd }).stdout.split('\n').map((d) => d.trim().replace(/^\/+|\/+$/g, '')).filter(Boolean);
+  const dirs = runGit(cwd, ['sparse-checkout', 'list']).stdout.split('\n').map((d) => d.trim().replace(/^\/+|\/+$/g, '')).filter(Boolean);
   return {
     cone: true,
     excludes: (p) => {
@@ -590,8 +590,8 @@ export function testIntegrity(root: string, config: Config, job: Pick<Job, 'id' 
   try {
     // verify runs this only for a job with a worktree.
     const cwd = job.worktree!;
-    const env = realHistoryEnv();
-    const git = (args: string[]) => run('git', args, { cwd, env }).stdout;
+    const env = historyEnv();
+    const git = (args: string[]) => runGit(cwd, args, { env }).stdout;
     const { baseRef, mergeBase } = resolveBase(cwd, config, job);
     report.base = baseRef;
     report.mergeBase = mergeBase;
@@ -602,12 +602,12 @@ export function testIntegrity(root: string, config: Config, job: Pick<Job, 'id' 
     } catch (e) {
       throw new ForgeError(`invalid evals.testPattern: ${(e as Error).message}`);
     }
-    const diffArgs = [...PINNED_GIT_CONFIG, 'diff', ...PINNED_DIFF_OPTS];
+    const diffArgs = ['diff', ...PINNED_DIFF_OPTS];
     const changes = parseRaw(git([...diffArgs, '--raw', '-z', mergeBase, 'HEAD']));
     const lines = parseDiffLines(git([...diffArgs, '--text', '-U0', mergeBase, 'HEAD']));
     const read = (rev: string, p: string | null): string | null => {
       if (!p) return null;
-      const r = run('git', ['cat-file', 'blob', `${rev}:${p}`], { cwd, env, allowFail: true });
+      const r = runGit(cwd, ['cat-file', 'blob', `${rev}:${p}`], { env, allowFail: true });
       return r.ok ? r.stdout : null;
     };
     // Config files with binary content are reported as unparseable rather than parsed.

@@ -15,7 +15,9 @@ import type { ResolveOptions } from './secret-refs.ts';
 import { SUPPORT_URL, hostInfo, platformTier, posixShell, tierDetail, versionAtLeast } from './platform.ts';
 import type { HostInfo } from './platform.ts';
 import type { Config, DoctorCheck, DoctorReport } from './types.ts';
-import { hasBinary, readText, run } from './util.ts';
+import { gh } from './gh.ts';
+import { git } from './git.ts';
+import { hasBinary, readText } from './util.ts';
 import { latestReleaseCheck } from './version.ts';
 
 /** package.json `engines`: Node 22.18 is the first with type stripping on by default. */
@@ -111,9 +113,9 @@ export async function doctor(root: string, config: Config, initialized: boolean,
     }
   }
   add('node >= 22.18', nodeSupported(process.versions.node), process.versions.node);
-  const gitV = run('git', ['--version'], { allowFail: true });
+  const gitV = git(undefined, ['--version'], { allowFail: true });
   add('git >= 2.38', gitV.ok && versionAtLeast(gitV.stdout, [2, 38]), gitV.ok ? gitV.stdout.trim() : 'git not found');
-  const sparse = run('git', ['sparse-checkout', '-h'], { allowFail: true });
+  const sparse = git(undefined, ['sparse-checkout', '-h'], { allowFail: true });
   add('git sparse-checkout (evals)', sparse.status === 129 || sparse.ok, '');
   add('config present', initialized, initialized ? path.relative(root, paths(root).config) : 'run /forge init');
   if (initialized) {
@@ -136,10 +138,10 @@ export async function doctor(root: string, config: Config, initialized: boolean,
   }
   const needsGh = config.pr.enabled || config.tracker.kind === 'github';
   if (needsGh) {
-    const auth = hasBinary('gh') ? run('gh', ['auth', 'status'], { allowFail: true }) : null;
+    const auth = hasBinary('gh') ? gh(undefined, ['auth', 'status'], { allowFail: true }) : null;
     add('gh installed + authenticated', Boolean(auth?.ok), auth ? (auth.ok ? 'ok' : (auth.stderr || auth.stdout).trim().split('\n')[0]) : 'gh not found');
     if (auth) {
-      const ghV = run('gh', ['--version'], { allowFail: true });
+      const ghV = gh(undefined, ['--version'], { allowFail: true });
       add('gh >= 2.40', ghV.ok && versionAtLeast(ghV.stdout, [2, 40]), ghV.stdout.trim().split('\n')[0] || ghV.stderr.trim());
     }
     if (auth?.ok && ['project', 'both'].includes(config.tracker.github.statusSync)) {
@@ -147,9 +149,9 @@ export async function doctor(root: string, config: Config, initialized: boolean,
       add('gh token has "project" scope', /project/.test(scopes), 'run: gh auth refresh -s project');
     }
   }
-  const remote = run('git', ['remote', 'get-url', config.git.remote], { cwd: root, allowFail: true });
+  const remote = git(root, ['remote', 'get-url', config.git.remote], { allowFail: true });
   add(`remote "${config.git.remote}"`, remote.ok, remote.ok ? 'ok' : 'missing (PRs need a remote)');
-  const base = run('git', ['rev-parse', '--verify', '--quiet', config.git.base], { cwd: root, allowFail: true });
+  const base = git(root, ['rev-parse', '--verify', '--quiet', config.git.base], { allowFail: true });
   add(`base branch "${config.git.base}"`, base.ok, '');
   for (const j of listJobs(root).filter((x) => isActive(x) && x.port)) {
     if (j.worktree && !exists(j.worktree)) add(`job ${j.id} worktree`, false, `missing: ${j.worktree}`);

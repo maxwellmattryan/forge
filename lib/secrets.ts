@@ -7,15 +7,15 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PINNED_GIT_CONFIG } from './git-pins.ts';
+import { git as runGit, historyEnv } from './git.ts';
 import { inSpec } from './glob.ts';
 import { PINNED_DIFF_OPTS, parseDiffLines } from './integrity.ts';
 import { defaultAgentOutput, jobDir, logEvent } from './jobs.ts';
 import { MIN_SECRET, knownValues } from './known-secrets.ts';
 import { queueNotify } from './notify.ts';
-import { realHistoryEnv, resolveBase } from './scope.ts';
+import { resolveBase } from './scope.ts';
 import type { CompactSecrets, Config, Job, SecretAllowlist, SecretFinding, SecretKind, SecretScan, TextUnit } from './types.ts';
-import { ForgeError, run } from './util.ts';
+import { ForgeError } from './util.ts';
 
 export const SECRET_KINDS = [
   'private-key',
@@ -424,8 +424,8 @@ export function scanBranch(root: string, config: Config, job: Pick<Job, 'id' | '
   try {
     if (!job.worktree) throw new ForgeError(`job ${job.id} has no worktree`);
     const cwd = job.worktree;
-    const env = realHistoryEnv();
-    const git = (args: string[]) => run('git', args, { cwd, env }).stdout;
+    const env = historyEnv();
+    const git = (args: string[]) => runGit(cwd, args, { env }).stdout;
     const head = opts.head ?? 'HEAD';
     if (head !== 'HEAD' && !SHA.test(head)) throw new ForgeError(`${JSON.stringify(head.slice(0, 80))} is not a commit id`);
     const { baseRef, mergeBase } = resolveBase(cwd, config, job, head);
@@ -445,16 +445,16 @@ export function scanBranch(root: string, config: Config, job: Pick<Job, 'id' | '
     };
     for (const sha of shas) {
       if (!SHA.test(sha)) throw new ForgeError(`git rev-list printed ${JSON.stringify(sha.slice(0, 80))}, not a commit id`);
-      addDiff(git([...PINNED_GIT_CONFIG, 'show', '--no-show-signature', '--format=', ...PINNED_DIFF_OPTS, '--text', '-U0', sha, '--']), sha.slice(0, 12));
+      addDiff(git(['show', '--no-show-signature', '--format=', ...PINNED_DIFF_OPTS, '--text', '-U0', sha, '--']), sha.slice(0, 12));
     }
     // A merge's resolution lands in no ordinary commit; `--remerge-diff` (git ≥ 2.36) shows it
     // against git's own automatic merge, so base-side content isn't rescanned as the job's.
     for (const sha of merges) {
       if (!SHA.test(sha)) throw new ForgeError(`git rev-list printed ${JSON.stringify(sha.slice(0, 80))}, not a commit id`);
-      addDiff(git([...PINNED_GIT_CONFIG, 'show', '--no-show-signature', '--format=', '--remerge-diff', ...PINNED_DIFF_OPTS, '--text', '-U0', sha, '--']), sha.slice(0, 12));
+      addDiff(git(['show', '--no-show-signature', '--format=', '--remerge-diff', ...PINNED_DIFF_OPTS, '--text', '-U0', sha, '--']), sha.slice(0, 12));
     }
-    addDiff(git([...PINNED_GIT_CONFIG, 'diff', ...PINNED_DIFF_OPTS, '--text', '-U0', mergeBase, head, '--']), null);
-    const log = git([...PINNED_GIT_CONFIG, ...LOG_PINS, 'log', '--encoding=UTF-8', '--no-show-signature', '--no-color', '--format=%x00%H%x00%B', range, '--']).split('\0');
+    addDiff(git(['diff', ...PINNED_DIFF_OPTS, '--text', '-U0', mergeBase, head, '--']), null);
+    const log = git([...LOG_PINS, 'log', '--encoding=UTF-8', '--no-show-signature', '--no-color', '--format=%x00%H%x00%B', range, '--']).split('\0');
     // Fail closed: every record starts with a full sha, and there is one per commit in the range.
     const expected = Number(git(['rev-list', '--count', range, '--']).trim());
     if (log[0] !== '' || (log.length - 1) / 2 !== expected) throw new ForgeError(`git log printed ${Math.floor((log.length - 1) / 2)} commit messages for ${expected} commits; the message scan cannot be trusted`);
@@ -464,7 +464,7 @@ export function scanBranch(root: string, config: Config, job: Pick<Job, 'id' | '
       units.push({ path: `(commit message ${sha12})`, line: 1, text: log[i + 1], file: false, commit: sha12 });
       scan.scanned.texts++;
     }
-    if (opts.staged) addDiff(git([...PINNED_GIT_CONFIG, 'diff', '--cached', ...PINNED_DIFF_OPTS, '--text', '-U0', '--']), 'staged');
+    if (opts.staged) addDiff(git(['diff', '--cached', ...PINNED_DIFF_OPTS, '--text', '-U0', '--']), 'staged');
     scan.scanned.commits = shas.length + merges.length;
     scan.scanned.files = files.size;
     raw.push(...scanUnits(units, { config, known: knownValues(root, job.id, config) }));
@@ -484,7 +484,7 @@ export function scanPaths(root: string, config: Config, globs: string[]): Secret
   const raw: RawFinding[] = [];
   try {
     const realRoot = fs.realpathSync(root);
-    const names = run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter((n) => n && inSpec(n, globs));
+    const names = runGit(root, ['ls-files', '-z']).stdout.split('\0').filter((n) => n && inSpec(n, globs));
     const units: TextUnit[] = [];
     for (const name of names) {
       const full = path.join(root, name);

@@ -3,21 +3,20 @@
 // `--output=<file>`, which writes anywhere git can, `.git/config` included (where a textconv or
 // filter driver then runs on the next diff or add). A Bash prefix rule can't exclude one flag,
 // so the daemon allows this wrapper instead of `Bash(git diff:*)` (docs/ARCHITECTURE.md "Daemon security").
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { attributionForbidden, findAttribution } from '../attribution.ts';
 import { sessionEnv } from '../daemon.ts';
-import { PINNED_GIT_CONFIG } from '../git-pins.ts';
+import { git as runGit, gitEnv, gitSpawnSync, historyEnv } from '../git.ts';
 import { PINNED_DIFF_OPTS } from '../integrity.ts';
 import { jobDir, loadJob } from '../jobs.ts';
 import { memberWorktree } from '../job-repos.ts';
 import { policyRules } from '../policy-check.ts';
-import { blobReader, checkProtected, comparisonPoint, diffEntries, historyEnv, logEscalated, logRefused, prefixHits, recordProtected, refusalText } from '../protected.ts';
+import { blobReader, checkProtected, comparisonPoint, diffEntries, logEscalated, logRefused, prefixHits, recordProtected, refusalText } from '../protected.ts';
 import { resolveWorktreePaths } from '../paths.ts';
 import { knownValues } from '../known-secrets.ts';
 import { applyAllowlist, diffUnits, loadAllowlist, logSecrets, refusalMessage, refuseSecrets, scanUnits, secretMode, secretsBlock, textUnit } from '../secrets.ts';
-import { ForgeError, run } from '../util.ts';
+import { ForgeError } from '../util.ts';
 import { usageError } from './args.ts';
 import type { CommandHelp, Config, HelpGroup, Job, ProtectedHit } from '../types.ts';
 
@@ -94,7 +93,7 @@ function gitReadArgv(args: string[]): string[] {
 
 /** Runs git in the current directory with stdout/stderr passed through. */
 export function gitRead(args: string[]): number {
-  const res = spawnSync('git', gitReadArgv(args), { stdio: 'inherit' });
+  const res = gitSpawnSync(undefined, gitReadArgv(args), { stdio: 'inherit' });
   if (res.error) throw new ForgeError(`git failed to start: ${res.error.message}`, 'external');
   return res.status ?? 1;
 }
@@ -143,9 +142,8 @@ export function parseGitWriteArgs(args: string[]): GitWriteArgs {
 }
 
 /** Git's environment: the caller's, minus anything that points git at another repo, with the daemon's pins under FORGE_DAEMON=1. */
-function gitEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const base = { ...env };
-  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_NAMESPACE']) delete base[k];
+function commitEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const base = gitEnv(env);
   // Outside the daemon a human's hooks run as they would for a plain `git commit`.
   return env.FORGE_DAEMON === '1' ? sessionEnv(base) : base;
 }
@@ -213,7 +211,7 @@ function protectedPreview(config: Config, job: Job, cwd: string, dir: string, ge
   } catch (e) {
     throw new ForgeError(`can't find where ${job.id}'s branch starts, so its protected paths can't be checked (${(e as Error).message})`, 'protected_path');
   }
-  const index = path.resolve(cwd, run('git', ['rev-parse', '--git-path', 'index'], { cwd, env: genv }).stdout.trim());
+  const index = path.resolve(cwd, runGit(cwd, ['rev-parse', '--git-path', 'index'], { env: genv }).stdout.trim());
   const tmp = path.join(dir, `.protected-index-${process.pid}-${Date.now()}`);
   const penv = { ...genv, GIT_INDEX_FILE: tmp };
   try {
@@ -224,8 +222,8 @@ function protectedPreview(config: Config, job: Job, cwd: string, dir: string, ge
       // original's mtime (a second earlier, against rounding) keeps git's racy-entry check intact.
       const st = fs.statSync(index);
       fs.utimesSync(tmp, st.atime, new Date(st.mtimeMs - 1000));
-    } else run('git', ['read-tree', 'HEAD'], { cwd, env: penv });
-    run('git', ['--literal-pathspecs', 'add', '-A', ...(paths.length ? ['--', ...paths] : [])], { cwd, env: penv });
+    } else runGit(cwd, ['read-tree', 'HEAD'], { env: penv, write: true });
+    runGit(cwd, ['--literal-pathspecs', 'add', '-A', ...(paths.length ? ['--', ...paths] : [])], { env: penv, write: true });
     const denv = historyEnv(penv);
     const c = new Set(diffEntries(cwd, 'HEAD', 'index', denv).map((e) => e.path));
     const found = checkProtected(diffEntries(cwd, m, 'index', denv), rules, blobReader(cwd, denv), cwd);
@@ -252,10 +250,10 @@ export function gitWrite(
   if (member?.member.verifyOnly) throw new ForgeError(`repo ${member.member.repo} is verify-only: the job never commits there`);
   if (!member && (!job.worktree || !fs.existsSync(job.worktree))) throw new ForgeError(`job ${id} has no worktree`);
   const cwd = fs.realpathSync(member ? member.worktree : job.worktree!);
-  const genv = gitEnv(env);
-  const git = (a: string[], o: { allowFail?: boolean } = {}) => run('git', a, { cwd, env: genv, allowFail: o.allowFail });
+  const genv = commitEnv(env);
+  const git = (a: string[], o: { allowFail?: boolean; write?: boolean } = {}) => runGit(cwd, a, { env: genv, ...o });
   const toplevel = (dir: string) => {
-    const r = run('git', ['rev-parse', '--show-toplevel'], { cwd: dir, env: genv, allowFail: true });
+    const r = runGit(dir, ['rev-parse', '--show-toplevel'], { env: genv, allowFail: true });
     return r.ok ? fs.realpathSync(r.stdout.trim()) : null;
   };
   const top = toplevel(cwd);
@@ -265,7 +263,7 @@ export function gitWrite(
   if (top !== cwd) throw new ForgeError(`${cwd} is not the root of a git worktree`);
   const paths = resolveWorktreePaths(cwd, opts.paths);
   // Literal, so a path like `:(top)…` or `*` is a file name, not pathspec magic.
-  const add = (ps: string[]) => git(['--literal-pathspecs', 'add', '-A', ...(ps.length ? ['--', ...ps] : [])]);
+  const add = (ps: string[]) => git(['--literal-pathspecs', 'add', '-A', ...(ps.length ? ['--', ...ps] : [])], { write: true });
   const dir = fs.realpathSync(jobDir(root, id));
   /** Refuses before anything is written; returns the escalate set to record once the write is done. */
   // A member repo gets the root's policy over its own branch (from its own base); its hits are named
@@ -343,7 +341,7 @@ export function gitWrite(
   // A builder can't rewrite history through forge git, so this is the last point where it can still
   // take a key out. The index stays staged on a refusal, for the builder to fix.
   const mode = secretMode(config);
-  const staged = diffUnits(git([...PINNED_GIT_CONFIG, 'diff', '--cached', ...PINNED_DIFF_OPTS, '--text', '-U0', '--']).stdout, 'staged');
+  const staged = diffUnits(git(['diff', '--cached', ...PINNED_DIFF_OPTS, '--text', '-U0', '--']).stdout, 'staged');
   const found = applyAllowlist(scanUnits(staged.units, { config, known: knownValues(root, id, config) }), loadAllowlist(root));
   const blocked = secretsBlock(found.findings, mode);
   logSecrets(root, id, 'commit', found, { blocked });
@@ -351,7 +349,7 @@ export function gitWrite(
   const tmp = path.join(dir, `.commit-msg-${process.pid}-${Date.now()}.txt`);
   fs.writeFileSync(tmp, message);
   try {
-    git(['commit', '-q', '-F', tmp]);
+    git(['commit', '-q', '-F', tmp], { write: true });
   } finally {
     fs.rmSync(tmp, { force: true });
   }

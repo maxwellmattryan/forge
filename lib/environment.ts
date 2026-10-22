@@ -9,6 +9,8 @@ import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { entriesOrNone, isManaged } from './backing.ts';
 import { readLogPage } from './daemon-files.ts';
+import { dockerRunAsync } from './docker.ts';
+import type { DockerStateName } from './docker.ts';
 import { jobEndpoints } from './endpoints.ts';
 import { readSmallJson } from './focus.ts';
 import { currentFocus } from './focus-actions.ts';
@@ -80,7 +82,7 @@ function devTail(root: string, id: string): string[] {
   }
 }
 
-/** The recorded dev pid, when it is an integer above 1 (pid 1 would make pidAlive signal -1). */
+/** The recorded dev pid, when it is an integer above 1: pid 1 is never a dev server, so it reads as none (`stopped`), not `down`. */
 function recordedDev(root: string, id: string): { pid: number | null; startedAt: string | null } {
   const rec = readSmallJson(path.join(jobDir(root, id), 'runtime.json'))?.dev;
   if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return { pid: null, startedAt: null };
@@ -110,6 +112,8 @@ export interface CliJson {
   exitCode: number | null;
   data: any;
   error: string | null;
+  /** The CLI's error code (docs/CLI.md "Error codes"), or null when it printed none. */
+  code: string | null;
 }
 
 /**
@@ -155,15 +159,9 @@ export function forgeJson(root: string, args: string[], timeoutMs: number): Prom
       const cliError = data && typeof data === 'object' && data.error && typeof data.error.message === 'string' ? data.error.message : null;
       const stderr = Buffer.concat(err).toString('utf8').trim().split('\n').slice(-3).join('\n');
       const error = why ?? cliError ?? (code === 0 ? null : stderr || `exited ${code}`);
-      resolve({ exitCode: why ? null : code, data: cliError ? null : data, error });
+      const cliCode = cliError && typeof data.error.code === 'string' ? data.error.code : null;
+      resolve({ exitCode: why ? null : code, data: cliError ? null : data, error, code: why ? null : cliCode });
     });
-  });
-}
-
-/** `docker <args>` without a shell or a blocking call: argv only, output capped. Used only for `stats`. */
-function dockerRun(args: string[], timeoutMs: number): Promise<{ ok: boolean; stdout: string }> {
-  return new Promise((resolve) => {
-    execFile('docker', args, { timeout: timeoutMs, maxBuffer: 2 * 1024 * 1024, encoding: 'utf8' }, (e, stdout) => resolve({ ok: !e, stdout: String(stdout ?? '') }));
   });
 }
 
@@ -186,25 +184,19 @@ export async function jobEnvironment(root: string, config: Config, job: LoadedJo
   const dev = await devStatus(root, config, job);
   let backing: EnvironmentService[] = [];
   let backingError: string | null = null;
-  let docker: JobEnvironmentResponse['docker'] = null;
+  let docker: DockerStateName | null = null;
+  let reported: unknown = null;
   // No backing config: nothing to ask Docker, so no child is spawned on every poll.
   if (entriesOrNone(config).length) {
     const r = await forgeJson(root, ['backing', 'status', job.id], STATUS_TIMEOUT_MS);
-    if (r.exitCode === 0 && Array.isArray(r.data?.services)) backing = r.data.services.map(toService).filter((s: EnvironmentService | null): s is EnvironmentService => s !== null);
-    else backingError = redact(r.error ?? 'backing status failed');
+    if (r.exitCode === 0 && Array.isArray(r.data?.services)) {
+      backing = r.data.services.map(toService).filter((s: EnvironmentService | null): s is EnvironmentService => s !== null);
+      reported = r.data.docker;
+    } else backingError = redact(r.error ?? 'backing status failed');
   }
-  // `unknown` is both "Docker is unreachable" and "a container with someone else's labels": ask Docker which.
-  if (backing.some((s) => s.managed && s.state === 'unknown')) docker = await dockerProbe();
+  // `unknown` is both "Docker is unreachable" and "a container with someone else's labels": `backing status` says which.
+  if (backing.some((s) => s.managed && s.state === 'unknown') && (reported === 'ok' || reported === 'missing' || reported === 'stopped')) docker = reported;
   return { job: job.id, active: isActive(job), worktree: Boolean(job.worktree), dev, backing, backingError, docker, at: new Date().toISOString() };
-}
-
-/** Docker's state as lib/backing.ts `dockerState` reads it, without blocking the server. */
-function dockerProbe(): Promise<'ok' | 'missing' | 'stopped'> {
-  return new Promise((resolve) => {
-    execFile('docker', ['version', '--format', '{{.Server.Version}}'], { timeout: STATUS_TIMEOUT_MS, maxBuffer: 64 * 1024 }, (e) =>
-      resolve(!e ? 'ok' : (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'stopped'),
-    );
-  });
 }
 
 /** `1.50%` → 1.5; null for anything else (`--` while a container starts). */
@@ -244,10 +236,10 @@ function groupUsage(pgids: Set<number>): Promise<Map<number, EnvironmentUsage>> 
   });
 }
 
-/** The docker state a failed `backing status` reports, read from its error message. */
-function dockerStateOf(error: string | null): EnvironmentsResponse['docker'] {
-  if (error?.startsWith('docker not found')) return 'missing';
-  if (error?.includes('daemon is not reachable')) return 'stopped';
+/** The docker state a failed `backing status` reports, from its error code. */
+function dockerFromCode(code: string | null): DockerStateName | 'error' {
+  if (code === 'docker_missing') return 'missing';
+  if (code === 'docker_stopped') return 'stopped';
   return 'error';
 }
 
@@ -257,7 +249,7 @@ function dockerStateOf(error: string | null): EnvironmentsResponse['docker'] {
  * call (names only from the label-filtered listing) and one `ps` call.
  */
 export async function environmentsSnapshot(root: string, config: Config): Promise<EnvironmentsResponse> {
-  let docker: EnvironmentsResponse['docker'] = 'ok';
+  let docker: DockerStateName | 'error' = 'ok';
   let containers: { name: string; job: string | null; backing: string }[] = [];
   if (entriesOrNone(config).some(isManaged)) {
     const r = await forgeJson(root, ['backing', 'status'], STATUS_TIMEOUT_MS);
@@ -265,11 +257,11 @@ export async function environmentsSnapshot(root: string, config: Config): Promis
       containers = r.data.containers
         .filter((c: any) => c && c.state === 'running' && typeof c.name === 'string' && DOCKER_NAME.test(c.name))
         .map((c: any) => ({ name: c.name, job: typeof c.job === 'string' ? c.job : null, backing: String(c.backing ?? '') }));
-    } else docker = dockerStateOf(r.error);
+    } else docker = dockerFromCode(r.code);
   }
   const stats = new Map<string, EnvironmentUsage>();
   if (containers.length) {
-    const r = await dockerRun(['stats', '--no-stream', '--format', '{{json .}}', '--', ...containers.map((c) => c.name)], STATUS_TIMEOUT_MS);
+    const r = await dockerRunAsync(['stats', '--no-stream', '--format', '{{json .}}', '--', ...containers.map((c) => c.name)], { timeoutMs: STATUS_TIMEOUT_MS });
     for (const line of r.ok ? r.stdout.split('\n') : []) {
       try {
         const row = JSON.parse(line);

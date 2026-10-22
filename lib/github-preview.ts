@@ -1,6 +1,6 @@
 // Hover previews of github.com pages for the dashboard: a strict URL parse, one `gh api graphql` call per page, and a
 // small folded shape. Everything GitHub returns is untrusted text; the dashboard renders it as text, never as HTML.
-import { execFile } from 'node:child_process';
+import { ghAsync } from './gh.ts';
 import type { GitHubChecks, GitHubPreview, GitHubPreviewResponse } from './types.ts';
 
 /** A github.com page previewGitHub can describe. Owner and name are as GitHub spells them in the URL. */
@@ -203,14 +203,12 @@ export function toResponse(t: GitHubTarget, r: GhResult): GitHubPreviewResponse 
 
 /** gh without a shell, in the repo, so it uses the same login and host config as Forge's PR features. */
 export function ghRunner(cwd: string, timeoutMs = 15_000): GhRunner {
-  return (args) =>
-    new Promise((resolve) => {
-      execFile('gh', args, { cwd, timeout: timeoutMs, maxBuffer: 2 * 1024 * 1024, encoding: 'utf8' }, (err, stdout, stderr) => {
-        const e = err as (NodeJS.ErrnoException & { code?: unknown }) | null;
-        if (e?.code === 'ENOENT') return resolve({ code: null, stdout: '', stderr: '', missing: true });
-        resolve({ code: e ? (typeof e.code === 'number' ? e.code : 1) : 0, stdout: String(stdout ?? ''), stderr: String(stderr ?? e?.message ?? '') });
-      });
-    });
+  return async (args) => {
+    const r = await ghAsync(cwd, args, { timeoutMs });
+    if (r.missing) return { code: null, stdout: '', stderr: '', missing: true };
+    // A timed-out call has no exit code; it reads as a failure, with the timeout as its message.
+    return { code: r.code ?? 1, stdout: r.stdout, stderr: r.stderr };
+  };
 }
 
 export interface PreviewerOptions {

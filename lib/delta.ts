@@ -1,7 +1,7 @@
 // The human delta: what people changed on a PR branch after Forge's last push. It is the
 // escape rate that review threads only approximate, and the retro's strongest signal.
+import { git } from './git.ts';
 import type { HumanDelta } from './types.ts';
-import { run } from './util.ts';
 
 const MAX_FILES = 100;
 // Shas reach git as arguments, and the head comes from GitHub: anything else could read as an option.
@@ -17,7 +17,7 @@ export const isSha = (s: unknown): s is string => typeof s === 'string' && SHA.t
  */
 export function fetchCommit(cwd: string, remote: string, sha: unknown): boolean {
   if (!isSha(sha)) return false;
-  return run('git', ['fetch', '--quiet', remote, '--', sha], { cwd, allowFail: true }).ok;
+  return git(cwd, ['fetch', '--quiet', remote, '--', sha], { allowFail: true, write: true }).ok;
 }
 
 const empty = (status: 'rewritten' | 'unavailable', reason?: string): HumanDelta => ({
@@ -40,13 +40,13 @@ export function measureHumanDelta(cwd: string, base: string | null | undefined, 
   if (!base) return empty('unavailable', 'no pushed sha');
   if (!isSha(base) || !isSha(head)) return empty('unavailable', 'missing commits');
   for (const sha of [base, head]) {
-    if (!run('git', ['cat-file', '-e', `${sha}^{commit}`], { cwd, allowFail: true }).ok) return empty('unavailable', 'missing commits');
+    if (!git(cwd, ['cat-file', '-e', `${sha}^{commit}`], { allowFail: true }).ok) return empty('unavailable', 'missing commits');
   }
-  if (!run('git', ['merge-base', '--is-ancestor', base, head], { cwd, allowFail: true }).ok) return empty('rewritten');
+  if (!git(cwd, ['merge-base', '--is-ancestor', base, head], { allowFail: true }).ok) return empty('rewritten');
   const range = `${base}..${head}`;
-  const commits = Number(run('git', ['rev-list', '--count', '--first-parent', '--no-merges', range], { cwd }).stdout.trim());
+  const commits = Number(git(cwd, ['rev-list', '--count', '--first-parent', '--no-merges', range]).stdout.trim());
   // -z keeps paths with spaces, tabs or newlines intact instead of git's quoted form.
-  const out = run('git', ['log', '--first-parent', '--no-merges', '--no-renames', '--numstat', '-z', '--format=', range], { cwd }).stdout;
+  const out = git(cwd, ['log', '--first-parent', '--no-merges', '--no-renames', '--numstat', '-z', '--format=', range]).stdout;
   let linesAdded = 0, linesDeleted = 0;
   const seen = new Set<string>();
   for (const rec of out.split('\0')) {

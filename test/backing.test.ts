@@ -498,6 +498,7 @@ test('status finds orphans and shows env names only', () => {
     assert.equal(byName[`forge-${b.projectSlug(s.dir, s.config)}-redis`].orphan, false);
 
     const one = b.backingStatus(s.dir, s.config, live, f.runner);
+    assert.equal(one.docker, 'ok');
     assert.deepEqual(
       one.services.map((x) => [x.name, x.state, x.env]),
       [
@@ -511,11 +512,17 @@ test('status finds orphans and shows env names only', () => {
     assert.deepEqual(Object.keys(one.services[0].ports), ['5432']);
     assert.ok(!JSON.stringify(one).includes(SECRET) && !JSON.stringify(one).includes('mq.internal'), 'names only, never values');
     f.state.daemon = 'down';
+    const down = b.backingStatus(s.dir, s.config, live, f.runner);
+    assert.equal(down.docker, 'stopped');
     assert.deepEqual(
-      b.backingStatus(s.dir, s.config, live, f.runner).services.map((x) => x.state),
+      down.services.map((x) => x.state),
       ['unknown', 'unknown', 'external'],
     );
-    assert.throws(() => b.backingStatus(s.dir, s.config, undefined, f.runner), (e: any) => e.exitCode === 5 && /daemon is not reachable/.test(e.message));
+    assert.throws(() => b.backingStatus(s.dir, s.config, undefined, f.runner), (e: any) => e.exitCode === 5 && e.code === 'docker_stopped' && /daemon is not reachable/.test(e.message));
+    const missing = fake({ missing: true }).runner;
+    assert.equal(b.backingStatus(s.dir, s.config, live, missing).docker, 'missing');
+    assert.throws(() => b.backingStatus(s.dir, s.config, undefined, missing), (e: any) => e.exitCode === 5 && e.code === 'docker_missing' && /^docker not found on PATH/.test(e.message));
+    assert.equal(b.backingStatus(s.dir, { ...s.config, backing: [QUEUE] } as any, live, missing).docker, null, 'Docker is not asked without a managed entry');
   } finally {
     s.cleanup();
   }

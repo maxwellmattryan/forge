@@ -6,10 +6,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { globProblem } from './config.ts';
+import { git } from './git.ts';
 import { exists, resolveWorktreePaths } from './paths.ts';
 import { inSpec } from './glob.ts';
 import type { Config, Job } from './types.ts';
-import { run } from './util.ts';
+import type { RunResult } from './util.ts';
 import { commandTemplate, runCommand } from './worktree.ts';
 
 export type Strategy = 'merge' | 'rebase';
@@ -88,14 +89,14 @@ export function jobWorktreeProblem(root: string, job: Pick<Job, 'id' | 'worktree
   if (!cwd) return `job ${job.id}'s worktree does not resolve`;
   if (cwd === main) return `the job's worktree is the main checkout (${cwd})`;
   const toplevel = (dir: string) => {
-    const r = run('git', ['rev-parse', '--show-toplevel'], { cwd: dir, allowFail: true });
+    const r = git(dir, ['rev-parse', '--show-toplevel'], { allowFail: true });
     return r.ok ? real(r.stdout.trim()) : null;
   };
   const top = toplevel(cwd);
   if (top !== null && main !== null && top === toplevel(main)) return `the job's worktree is the main checkout (${cwd})`;
   if (top !== cwd) return `${cwd} is not the root of a git worktree`;
   const gitPath = (p: string) => {
-    const r = run('git', ['rev-parse', '--git-path', p], { cwd, allowFail: true });
+    const r = git(cwd, ['rev-parse', '--git-path', p], { allowFail: true });
     return r.ok ? path.resolve(cwd, r.stdout.trim()) : null;
   };
   const rebaseDir = ['rebase-merge', 'rebase-apply'].map(gitPath).find((d): d is string => d !== null && exists(d));
@@ -104,14 +105,15 @@ export function jobWorktreeProblem(root: string, job: Pick<Job, 'id' | 'worktree
     if (head !== `refs/heads/${job.branch}`) return `the rebase in ${cwd} is on ${JSON.stringify(head.slice(0, 200))}, not the job's branch ${job.branch}`;
     return null;
   }
-  const branch = run('git', ['symbolic-ref', '--short', '-q', 'HEAD'], { cwd, allowFail: true }).stdout.trim();
+  const branch = git(cwd, ['symbolic-ref', '--short', '-q', 'HEAD'], { allowFail: true }).stdout.trim();
   if (branch !== job.branch) return `the worktree is on ${branch ? JSON.stringify(branch.slice(0, 200)) : 'a detached HEAD'}, not the job's branch ${job.branch}`;
   return null;
 }
 
 /** Literal paths over stdin, so no name is ever argv and a long list can't hit the argv limit. */
-function gitPaths(cwd: string, args: string[], paths: string[], o: { allowFail?: boolean } = {}): ReturnType<typeof run> {
-  return run('git', ['--literal-pathspecs', ...args, '--pathspec-from-file=-', '--pathspec-file-nul'], { cwd, input: paths.join('\0'), allowFail: o.allowFail });
+function gitPaths(cwd: string, args: string[], paths: string[], o: { allowFail?: boolean } = {}): RunResult {
+  // Every caller checks out or stages.
+  return git(cwd, ['--literal-pathspecs', ...args, '--pathspec-from-file=-', '--pathspec-file-nul'], { input: paths.join('\0'), allowFail: o.allowFail, write: true });
 }
 
 /**
@@ -123,7 +125,7 @@ export function takeBaseSide(cwd: string, strategy: Strategy, paths: string[], o
   const baseStage = strategy === 'merge' ? '3' : '2';
   const want = new Set(paths);
   const withBase = new Set<string>();
-  for (const entry of run('git', ['ls-files', '-u', '-z'], { cwd }).stdout.split('\0')) {
+  for (const entry of git(cwd, ['ls-files', '-u', '-z']).stdout.split('\0')) {
     // `<mode> <object> <stage>\t<path>`
     const tab = entry.indexOf('\t');
     if (tab < 0) continue;
@@ -138,7 +140,7 @@ export function takeBaseSide(cwd: string, strategy: Strategy, paths: string[], o
 
 /** Stages every glob-matching path the worktree has, tracked or new, so output the build added or deleted is committed too. */
 function stageGenerated(cwd: string, globs: string[]): string[] {
-  const files = generatedPaths(cwd, run('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd }).stdout, globs);
+  const files = generatedPaths(cwd, git(cwd, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']).stdout, globs);
   if (files.length) gitPaths(cwd, ['add', '-A'], files);
   return files;
 }
@@ -168,7 +170,7 @@ export function rebuild(root: string, config: Config, job: Job, gen: GeneratedCo
  * the index (which is HEAD after an abort) and untracked ones (new build output) are deleted.
  */
 export function cleanGenerated(cwd: string, globs: string[]): void {
-  const status = run('git', ['-c', 'core.quotepath=off', 'status', '--porcelain', '-z', '--untracked-files=all'], { cwd }).stdout.split('\0');
+  const status = git(cwd, ['status', '--porcelain', '-z', '--untracked-files=all']).stdout.split('\0');
   const conflicted: string[] = [];
   const tracked: string[] = [];
   for (let i = 0; i < status.length; i++) {

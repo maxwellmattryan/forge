@@ -6,13 +6,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { modelFor, reviewerChecklist } from './config.ts';
 import { parseReviewFindings } from './findings.ts';
+import { git } from './git.ts';
 import type { RaisedFinding } from './findings.ts';
 import { jobDir, loadJob, logEvent, parseReview, readEvents } from './jobs.ts';
 import { LENS_NAME } from './lens.ts';
 import { paths, PLUGIN_ROOT } from './paths.ts';
 import { pluginHash } from './provenance.ts';
 import type { Config, Job } from './types.ts';
-import { ForgeError, now, run, writeJsonAtomic } from './util.ts';
+import { ForgeError, now, writeJsonAtomic } from './util.ts';
 import * as yaml from './yaml.ts';
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -222,7 +223,7 @@ const isRegular = (file: string): boolean => {
 
 const SHA = /^[0-9a-f]{40}$/;
 const gitOut = (cwd: string, args: string[]): string | null => {
-  const r = run('git', args, { cwd, allowFail: true });
+  const r = git(cwd, args, { allowFail: true });
   return r.ok ? r.stdout.trim() : null;
 };
 

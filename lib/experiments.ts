@@ -6,15 +6,16 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { git, historyEnv } from './git.ts';
 import { LENS_NAME } from './lens.ts';
 import { FORBIDDEN, METRIC_PATH, ledgerItems, metricValue, noteFiles, noteItems, parseLearnings, validDate } from './learnings.ts';
 import type { LedgerItem } from './learnings.ts';
 import { exists } from './paths.ts';
-import { realHistoryEnv, resolveBase } from './scope.ts';
+import { resolveBase } from './scope.ts';
 import { statsFrom, statsSources } from './stats.ts';
 import type { StatsSource } from './stats.ts';
 import type { Config, ExperimentEntry, ExperimentEvaluation, ExperimentResult, Job, NotesCheck, Stats } from './types.ts';
-import { ForgeError, run, safeText } from './util.ts';
+import { ForgeError, safeText } from './util.ts';
 
 export type Method = 'two-proportion' | 'wilson' | 'bootstrap';
 type Verdict = 'kept' | 'reverted' | 'inconclusive' | 'pending';
@@ -364,7 +365,7 @@ export const checkedNotes = (): string[] => [...noteFiles(), 'notes/experiments.
 
 /** The file at `rev`, as git stores it (no filters, no replace objects); null when it is absent there. */
 function atRev(cwd: string, rev: string, rel: string): string | null {
-  const r = run('git', ['cat-file', 'blob', `${rev}:${rel}`], { cwd, env: realHistoryEnv(), allowFail: true });
+  const r = git(cwd, ['cat-file', 'blob', `${rev}:${rel}`], { env: historyEnv(), allowFail: true });
   // No exit status: git never finished (a blob past run's buffer, say), which is no proof of absence.
   if (!r.ok && r.status === null) throw new ForgeError(`cannot read ${rel} at ${rev.slice(0, 12)}: ${r.stderr.slice(0, 200)}`, 'external');
   return r.ok ? r.stdout : null;
@@ -391,7 +392,7 @@ export function checkNotes(root: string, config: Config, job: Pick<Job, 'id' | '
   if (job) {
     const wt = job.worktree;
     if (!wt || !exists(wt)) throw new ForgeError(`job ${job.id} has no worktree; run: forge worktree create ${job.id}`);
-    const head = sha ?? run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], { cwd: wt, env: realHistoryEnv() }).stdout.trim();
+    const head = sha ?? git(wt, ['rev-parse', '--verify', 'HEAD^{commit}'], { env: historyEnv() }).stdout.trim();
     if (!SHA.test(head)) throw new ForgeError(`not a commit sha: ${JSON.stringify(head).slice(0, 60)}`);
     const mergeBase = resolveBase(wt, config, job, head).mergeBase;
     if (!SHA.test(mergeBase)) throw new ForgeError(`no merge base for job ${job.id}`, 'external');

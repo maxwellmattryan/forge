@@ -98,17 +98,13 @@ export function backgroundArgs(port: number, flags: Record<string, any>): string
 export async function dash(root: string, config: Config, flags: Record<string, any>): Promise<void> {
   const rtFile = path.join(paths(root).runtime, 'dashboard.json');
   const current = readJson(rtFile, null);
-  const alive = current?.pid && (() => {
-    try {
-      process.kill(current.pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  })();
+  const alive = pidAlive(current?.pid);
   if (flags.stop) {
     if (alive) {
-      process.kill(current.pid, 'SIGTERM');
+      // pidAlive checks the group first, so the server itself may already be gone.
+      try {
+        process.kill(current.pid, 'SIGTERM');
+      } catch {}
       // The server stops its sessions on SIGTERM before exiting: up to 5 s of grace, then SIGKILL
       // and up to 5 s more. 12 s covers that with room to close the server.
       for (let i = 0; i < 240 && pidAlive(current.pid); i++) sleepSync(50);

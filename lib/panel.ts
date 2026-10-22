@@ -4,15 +4,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { configForJob } from './eval-overlay.ts';
-import { STATUS_ARGV } from './git-pins.ts';
+import { STATUS_ARGV, git, historyEnv } from './git.ts';
 import { jobDir, loadJob, logEvent, readEvents, setJob } from './jobs.ts';
 import { exists } from './paths.ts';
 import { readMemberPanel } from './member-panel.ts';
-import { approachPaths, committedChanges, realHistoryEnv, resolveBase, reviewedRepoDiffs } from './scope.ts';
+import { approachPaths, committedChanges, resolveBase, reviewedRepoDiffs } from './scope.ts';
 import type { RepoScope } from './scope.ts';
 import { choosePanel, parseSpecHeader, reworkPanel } from './step.ts';
 import type { Config } from './types.ts';
-import { ForgeError, run } from './util.ts';
+import { ForgeError } from './util.ts';
 
 /** What `forge job panel` prints: jobPanel. */
 export interface PanelReport {
@@ -47,8 +47,8 @@ const SHA = /^[0-9a-f]{40,64}$/;
 function changedSinceReview(root: string, id: string, round: number, cwd: string): string[] | null {
   const sha = readEvents(root, id).findLast((e) => e.type === 'verdicts' && e.round === round)?.sha;
   if (typeof sha !== 'string' || !SHA.test(sha)) return null;
-  const env = realHistoryEnv();
-  if (!run('git', ['merge-base', '--is-ancestor', sha, 'HEAD'], { cwd, env, allowFail: true }).ok) return null;
+  const env = historyEnv();
+  if (!git(cwd, ['merge-base', '--is-ancestor', sha, 'HEAD'], { env, allowFail: true }).ok) return null;
   try {
     return committedChanges(cwd, sha);
   } catch {
@@ -69,10 +69,10 @@ export function jobPanel(root: string, base: Config, id: string): PanelReport {
   const specFile = path.join(jobDir(root, job.id), 'spec.md');
   if (!exists(specFile)) throw new ForgeError(`job ${id} has no spec.md`);
   const cwd = job.worktree;
-  const env = realHistoryEnv();
+  const env = historyEnv();
   const { baseRef, mergeBase } = resolveBase(cwd, config, job);
-  const head = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], { cwd, env }).stdout.trim();
-  const dirty = run('git', [...STATUS_ARGV], { cwd, env }).stdout.trim() !== '';
+  const head = git(cwd, ['rev-parse', '--verify', 'HEAD^{commit}'], { env }).stdout.trim();
+  const dirty = git(cwd, [...STATUS_ARGV], { env }).stdout.trim() !== '';
   const changed = committedChanges(cwd, mergeBase);
   // Before any write: a member whose worktree or panel config can't be used fails the command, so
   // the round never reviews with one of its lenses silently missing.

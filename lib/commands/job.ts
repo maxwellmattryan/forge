@@ -35,7 +35,8 @@ import { mirrorToTracker } from '../trackers/mirror.ts';
 import { AGENT_ID } from '../transcripts.ts';
 import { importClaudeCodeTranscript } from '../usage.ts';
 import { modelFor, resolveEffort } from '../config.ts';
-import { ForgeError, coerce, getPath, run } from '../util.ts';
+import { git } from '../git.ts';
+import { ForgeError, coerce, getPath } from '../util.ts';
 import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './args.ts';
 import { startFromRef } from './tracker.ts';
 import { refreshRequest } from '../request-refresh.ts';
@@ -917,12 +918,12 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       if (flags.malformed !== undefined && flags.malformed !== 'changes') throw new ForgeError('--malformed accepts only "changes"', 'usage');
       const v = roundVerdicts(root, job.id, round, reviewers, config.review.blockOn, { malformedAs: flags.malformed });
       // The sha reviewers saw is evidence; it tells a later reader whether the review is still current.
-      const sha = job.worktree && exists(job.worktree) ? run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree, allowFail: true }).stdout.trim() || null : null;
+      const sha = job.worktree && exists(job.worktree) ? git(job.worktree, ['rev-parse', 'HEAD'], { allowFail: true }).stdout.trim() || null : null;
       // Each reviewed member's HEAD beside the root's sha; only Forge's own worktree path is trusted.
       const memberHeads = Object.fromEntries(
         reviewedRepoNames(job).map((name) => {
           const wt = trustedMemberWorktree(root, config, job, name);
-          return [name, wt ? run('git', ['rev-parse', 'HEAD'], { cwd: wt, allowFail: true }).stdout.trim() || null : null];
+          return [name, wt ? git(wt, ['rev-parse', 'HEAD'], { allowFail: true }).stdout.trim() || null : null];
         }),
       );
       const heads = Object.keys(memberHeads).length ? { heads: memberHeads } : {};

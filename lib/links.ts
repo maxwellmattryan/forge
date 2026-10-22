@@ -10,10 +10,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { LINK_ECOSYSTEMS, isInsidePath, isLinkName, isLinkSource, isManifestPath } from './components.ts';
 import { isOwnWorktreePath, worktreeRoot } from './config.ts';
+import { git } from './git.ts';
 import { memberEntry, memberWorktreePath, trustedMemberWorktree } from './job-repos.ts';
 import { linkDir } from './paths.ts';
 import type { Config, Job, LinkEcosystem } from './types.ts';
-import { run } from './util.ts';
 
 /** A well-formed link from config: declaredLinks. A null repo is the root repo. */
 export interface DeclaredLink {
@@ -398,19 +398,12 @@ export interface LockSnapshot {
   files: { rel: string; bytes: Buffer }[];
 }
 
-/** process.env without the GIT_* overrides that would point a git child at another repo. */
-export function gitEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']) delete env[k];
-  return env;
-}
-
 /** The bytes of every tracked lockfile of `ecosystems` in `worktree` that is a regular file now. */
 export function snapshotLockfiles(worktree: string, ecosystems: LockEcosystem[]): LockSnapshot {
   const specs = ecosystems.flatMap((e) => LOCKFILE_NAMES[e]).map((n) => `:(glob)**/${n}`);
   const files: LockSnapshot['files'] = [];
   if (!specs.length) return { worktree, files };
-  const r = run('git', ['-c', 'core.quotepath=off', '-c', 'core.fsmonitor=false', 'ls-files', '-z', '--', ...specs], { cwd: worktree, allowFail: true, env: gitEnv() });
+  const r = git(worktree, ['ls-files', '-z', '--', ...specs], { allowFail: true });
   for (const rel of r.ok ? r.stdout.split('\0').filter(Boolean) : []) {
     const file = path.join(worktree, rel);
     try {

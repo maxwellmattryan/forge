@@ -13,9 +13,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PG_IDENT, backingProblems } from './backing-config.ts';
+import { git } from './git.ts';
 import { jobDir, paths } from './paths.ts';
 import type { BackingBuildStep, BackingDbRecord, BackingEntry, BackingUpEntry, Config, DockerResult, DockerRunner } from './types.ts';
-import { ForgeError, redact, run, sleepSync, tail, withLock, writeJsonPrivate } from './util.ts';
+import { ForgeError, redact, sleepSync, tail, withLock, writeJsonPrivate } from './util.ts';
 
 const TEMPLATE_NAME = /^forge_tpl_[0-9a-f]{12}$/;
 export const JOB_DB_NAME = /^forge_j_[a-z0-9_]{1,40}_[0-9a-f]{8}$/;
@@ -100,8 +101,9 @@ function verifierLit(v: string): string {
  * output is pinned: the worktree is agent-writable.
  */
 function inputFiles(worktree: string, inputs: string[]): [string, string][] {
-  const pins = ['-c', 'core.fsmonitor=false', '-c', `core.hooksPath=${os.devNull}`, '-c', 'core.untrackedCache=false', '-c', 'core.quotepath=off'];
-  const r = run('git', ['-C', worktree, ...pins, 'ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...inputs.map((g) => `:(glob)${g}`)], { allowFail: true });
+  // Beyond lib/git.ts's own pins: no hook dir, and no untracked cache that could hide a file.
+  const pins = ['-c', `core.hooksPath=${os.devNull}`, '-c', 'core.untrackedCache=false'];
+  const r = git(undefined, ['-C', worktree, ...pins, 'ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...inputs.map((g) => `:(glob)${g}`)], { allowFail: true });
   if (!r.ok) throw new ForgeError(`git ls-files failed for database inputs: ${tail(r.stderr || `exited ${r.status}`, 3).trim()}`);
   const out: [string, string][] = [];
   for (const rel of [...new Set(r.stdout.split('\0').filter(Boolean))].sort()) {

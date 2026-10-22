@@ -16,6 +16,9 @@ import { paths, exists, PLUGIN_ROOT } from './paths.ts';
 import { posixShell } from './platform.ts';
 import { createWorktree } from './worktree.ts';
 import { ForgeError, assertSafeRef, fill, now, readJson, readText, run, slugify, tail, withLock, writeJsonAtomic } from './util.ts';
+import { gh, ghJson } from './gh.ts';
+// applyHiddenPatch keeps a local `git` bound to the eval clone.
+import { git as runGit, gitEnv } from './git.ts';
 import { commandPort, endpointPlaceholders, jobEndpoints } from './endpoints.ts';
 import { jobComponent } from './components.ts';
 import { repoSlug } from './pr.ts';
@@ -82,13 +85,11 @@ export function mineFromPr(
 ): { name: string; dir: string; hasTests: boolean; hasReference: boolean } {
   const slug = repoSlug(root, config);
   // gh output: raw input.
-  const info: any = JSON.parse(
-    run('gh', ['pr', 'view', String(pr), '-R', slug, '--json', 'number,title,body,state,baseRefOid,mergeCommit,closingIssuesReferences,url'], { cwd: root }).stdout,
-  );
+  const info: any = ghJson(root, ['pr', 'view', String(pr), '-R', slug, '--json', 'number,title,body,state,baseRefOid,mergeCommit,closingIssuesReferences,url']);
   if (info.state !== 'MERGED') throw new ForgeError(`PR #${pr} is not merged`);
-  run('git', ['fetch', config.git.remote, info.baseRefOid, info.mergeCommit?.oid ?? ''].filter(Boolean), { cwd: root, allowFail: true });
-  const local = info.mergeCommit?.oid ? run('git', ['diff', `${info.baseRefOid}...${info.mergeCommit.oid}`], { cwd: root, allowFail: true }) : null;
-  const diff = local?.ok && local.stdout ? local.stdout : run('gh', ['pr', 'diff', String(pr), '-R', slug], { cwd: root }).stdout;
+  runGit(root, ['fetch', config.git.remote, info.baseRefOid, info.mergeCommit?.oid ?? ''].filter(Boolean), { write: true, allowFail: true });
+  const local = info.mergeCommit?.oid ? runGit(root, ['diff', `${info.baseRefOid}...${info.mergeCommit.oid}`], { allowFail: true }) : null;
+  const diff = local?.ok && local.stdout ? local.stdout : gh(root, ['pr', 'diff', String(pr), '-R', slug]).stdout;
   const testRe = new RegExp(opts.testPattern ?? config.evals?.testPattern ?? DEFAULT_TEST_PATTERN);
   const { tests, rest } = splitDiff(diff, testRe);
   const name = opts.name ?? `pr-${info.number}-${slugify(info.title, 4)}`;
@@ -98,7 +99,7 @@ export function mineFromPr(
   const issues = (info.closingIssuesReferences ?? []).map((i: any) => i.number);
   let request = `${info.title}\n\n${(info.body ?? '').replace(/<!--[\s\S]*?-->/g, '').trim()}`;
   for (const n of issues) {
-    const issue = run('gh', ['issue', 'view', String(n), '-R', slug, '--json', 'title,body'], { cwd: root, allowFail: true });
+    const issue = gh(root, ['issue', 'view', String(n), '-R', slug, '--json', 'title,body'], { allowFail: true });
     if (issue.ok) {
       const i = JSON.parse(issue.stdout);
       request += `\n\n## Issue #${n}: ${i.title}\n\n${(i.body ?? '').trim()}`;
@@ -201,10 +202,8 @@ function notApplied(stderr: string): PatchResult {
  * beyond a symlink keeps grading inside the clone.
  */
 function applyHiddenPatch(wt: string, job: Job, task: LoadedTask, patch: string): PatchResult {
-  // An inherited GIT_DIR or GIT_INDEX_FILE (Forge run from a git hook) would point git elsewhere.
-  const env = { ...process.env };
-  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']) delete env[k];
-  const git = (args: string[], extraEnv: NodeJS.ProcessEnv = env) => run('git', args, { cwd: wt, env: extraEnv, allowFail: true });
+  const env = gitEnv();
+  const git = (args: string[], opts: { env?: NodeJS.ProcessEnv; write?: boolean } = {}) => runGit(wt, args, { env: opts.env ?? env, write: opts.write, allowFail: true });
   const lines = (out: string) => out.split('\0').filter(Boolean);
 
   const ref = task.base ?? job.base;
@@ -224,11 +223,11 @@ function applyHiddenPatch(wt: string, job: Job, task: LoadedTask, patch: string)
   let touched: string[];
   try {
     const idx = { ...env, GIT_INDEX_FILE: path.join(tmp, 'index') };
-    const read = git(['read-tree', base], idx);
+    const read = git(['read-tree', base], { env: idx, write: true });
     if (!read.ok) return notApplied(read.stderr);
-    const applied = git(['apply', '--cached', '--whitespace=nowarn', patch], idx);
+    const applied = git(['apply', '--cached', '--whitespace=nowarn', patch], { env: idx, write: true });
     if (!applied.ok) return notApplied(applied.stderr);
-    const listed = git(['diff', '--cached', '--no-ext-diff', '--no-renames', '--name-only', '-z', base], idx);
+    const listed = git(['diff', '--cached', '--no-ext-diff', '--no-renames', '--name-only', '-z', base], { env: idx });
     if (!listed.ok) return notApplied(listed.stderr);
     touched = lines(listed.stdout);
   } finally {
@@ -250,15 +249,15 @@ function applyHiddenPatch(wt: string, job: Job, task: LoadedTask, patch: string)
     const restore = changed.filter((p) => inBase.has(p));
     const remove = changed.filter((p) => !inBase.has(p));
     if (restore.length) {
-      const res = git([...lit, 'checkout', base, '--', ...restore]);
+      const res = git([...lit, 'checkout', base, '--', ...restore], { write: true });
       if (!res.ok) return notApplied(res.stderr);
     }
     if (remove.length) {
-      const res = git([...lit, 'rm', '-q', '-f', '--ignore-unmatch', '--', ...remove]);
+      const res = git([...lit, 'rm', '-q', '-f', '--ignore-unmatch', '--', ...remove], { write: true });
       if (!res.ok) return notApplied(res.stderr);
     }
   }
-  const res = git(['apply', '--whitespace=nowarn', patch]);
+  const res = git(['apply', '--whitespace=nowarn', patch], { write: true });
   if (!res.ok) return notApplied(res.stderr);
   return { ok: true, replaced: changed };
 }
@@ -276,7 +275,7 @@ export function gradeJob(root: string, config: Config, jobId: string): EvalResul
   const check: EvalResult['check'] = { ran: false, pass: null, tail: null };
   const cmd = task.check.command ?? config.commands.test;
   if (task.check.patch || task.check.files) {
-    run('git', ['stash', '--include-untracked'], { cwd: wt, allowFail: true });
+    runGit(wt, ['stash', '--include-untracked'], { write: true, allowFail: true });
     let applied = true;
     if (task.check.patch) {
       const res = applyHiddenPatch(wt, job, task, path.join(task.dir, task.check.patch));
@@ -299,8 +298,8 @@ export function gradeJob(root: string, config: Config, jobId: string): EvalResul
       check.ran = true;
       check.pass = false;
     }
-    run('git', ['reset', '--hard'], { cwd: wt, allowFail: true });
-    run('git', ['clean', '-fd'], { cwd: wt, allowFail: true });
+    runGit(wt, ['reset', '--hard'], { write: true, allowFail: true });
+    runGit(wt, ['clean', '-fd'], { write: true, allowFail: true });
   }
   const judgeText = readText(path.join(jobDir(root, jobId), 'eval-judge.md'));
   const score = judgeText.match(/^\s*SCORE:\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+)/im);
