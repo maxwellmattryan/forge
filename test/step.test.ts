@@ -73,7 +73,14 @@ for (const row of recallSkips) {
     const a = step(fixture(row.fx)) as any;
     assert.ok(!['RC1', 'RC2'].includes(a.rule), `${row.name}: decided by ${a.rule}`);
     assertWant(a, row.want, row.name);
-    assert.ok(a.brief.split('\n').some((l: string) => l.startsWith('Reviewer recall: none') || (row.fx.job?.kind === 'eval' && l.startsWith('Reviewer recall: '))), a.brief);
+    // No gate at all is "not checked", never "none": that would claim the diff changes no reviewer prompts.
+    const line =
+      row.fx.job?.kind === 'eval'
+        ? 'Reviewer recall: not checked (an eval job)'
+        : row.fx.recall?.fixtures === false
+          ? 'Reviewer recall: not checked (no recall fixtures in the main checkout)'
+          : 'Reviewer recall: none (the diff changes no reviewer prompts)';
+    assert.ok(a.brief.split('\n').includes(line), `${line}\n${a.brief}`);
     assertSafe(a, row.name);
   });
 }

@@ -966,11 +966,20 @@ export const rows: Row[] = [
   { name: "RC2 the foreman's approve does not waive it", fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] }, events: recallWaiver(RECALL_REASON, { actor: FOREMAN }) }, want: { rule: 'RC2' } },
   { name: 'RC2 an approve at a park naming other prompts does not waive these', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] }, events: recallWaiver('recall eval: no recorded run for prompts ffffffffff') }, want: { rule: 'RC2' } },
   { name: 'RC2 a git failure fails closed', fx: { job: freshDecide(), recall: { changed: null } }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'recall eval: no recorded run for prompts unknown'), rule: 'RC2' } },
+  // `start` exits before it logs on a fixture that does not load, so no start count could ever reach RC2.
+  { name: 'RC2 fixtures that do not load park on a human at once', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'], invalid: true } }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', RECALL_REASON), rule: 'RC2' } },
+  { name: 'DC1 a human approve at the RC2 park waives it with fixtures that do not load', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'], invalid: true }, events: recallWaiver().slice(2) }, want: { action: 'spawn', role: 'approver' } },
   {
     name: 'DC1 brief: a diff with no reviewer prompts says none',
     fx: { job: freshDecide(), recall: { changed: ['lib/step/order.ts'] } },
     want: { action: 'spawn', role: 'approver' },
     check: (a) => assert.ok(a.brief.split('\n').includes('Reviewer recall: none (the diff changes no reviewer prompts)'), a.brief),
+  },
+  {
+    name: 'DC1 brief: no recall fixtures says not checked',
+    fx: { job: freshDecide() },
+    want: { action: 'spawn', role: 'approver' },
+    check: (a) => assert.ok(a.brief.split('\n').includes('Reviewer recall: not checked (no recall fixtures in the main checkout)'), a.brief),
   },
   { name: 'DC5 an eval job with a PR record still grades, never DC10', fx: { job: atDecide({ kind: 'eval', eval: { run: 'r', task: 'hello' }, pr: OPEN_PR }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], evalTask: { rubric: null, reference: null } }, want: { rule: 'DC5' } },
 

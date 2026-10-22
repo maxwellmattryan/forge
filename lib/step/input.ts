@@ -14,7 +14,7 @@ import { memberRepos, trustedMemberWorktree } from '../job-repos.ts';
 import { lensChecklists } from '../member-panel.ts';
 import { PLUGIN_ROOT, exists } from '../paths.ts';
 import { pluginHash } from '../provenance.ts';
-import { hasFixtures } from '../recall.ts';
+import { hasFixtures, loadFixtures } from '../recall.ts';
 import { approachPaths, committedChanges, inSpec, integrationTouched, resolveBase } from '../scope.ts';
 import type { Config, Job, JobEvent, StepFile, StepInput, StepVerdicts } from '../types.ts';
 import { readJson, readText } from '../util.ts';
@@ -157,15 +157,16 @@ export const RECALL_PATHS = ['agents/', 'reviewers/', 'lib/brief.ts'];
 export function recallGate(
   job: Pick<Job, 'stage' | 'kind'>,
   config: Config,
-  seen: { worktree: boolean; fixtures: boolean; changed: string[] | null; pluginHash: string | null },
+  seen: { worktree: boolean; fixtures: boolean; changed: string[] | null; pluginHash: string | null; invalid?: boolean },
 ): StepInput['recall'] {
   if (job.stage !== 'decide' || job.kind === 'eval' || !seen.worktree || !seen.fixtures) return null;
   if (seen.changed === null) return { required: true, pluginHash: null };
   const tokens = config.evals?.recall?.paths ?? RECALL_PATHS;
-  return { required: seen.changed.some((f) => inSpec(f, tokens)), pluginHash: seen.pluginHash };
+  const required = seen.changed.some((f) => inSpec(f, tokens));
+  return required && seen.invalid ? { required, pluginHash: seen.pluginHash, invalidFixtures: true } : { required, pluginHash: seen.pluginHash };
 }
 
-/** loadStepInput's recall read: the committed diff since the merge base, and the worktree's pluginHash. */
+/** loadStepInput's recall read: the committed diff since the merge base, the worktree's pluginHash, and whether the fixtures load. */
 export function loadRecall(root: string, config: Config, job: Job): StepInput['recall'] {
   const worktree = Boolean(job.worktree && exists(job.worktree));
   // Nothing below runs unless the gate can apply: git and the hash cost a few ms on every step.
@@ -179,7 +180,9 @@ export function loadRecall(root: string, config: Config, job: Job): StepInput['r
     changed = null;
     hash = null;
   }
-  return recallGate(job, config, { worktree, fixtures: true, changed, pluginHash: changed === null ? null : hash });
+  // A fixture that does not load makes `start` exit before it logs, so RC1 could never count two starts.
+  const invalid = changed !== null && loadFixtures(root).problems.length > 0;
+  return recallGate(job, config, { worktree, fixtures: true, changed, pluginHash: changed === null ? null : hash, invalid });
 }
 
 export function parsePlan(text: string): StepInput['plan'] {

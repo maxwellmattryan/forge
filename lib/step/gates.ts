@@ -75,6 +75,8 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
         return `${id} proposes repos (${reason}): ${path.join(x.jobDir, 'repo-proposals.md')}. Approve or reject in the dashboard, or in your own terminal: forge job human ${id} approve-repos|reject-repos --repo <names> --note …`;
       if (reason.startsWith('protected paths'))
         return `${id} changed protected paths (${reason}). Diff: ${path.join(x.jobDir, 'protected.diff')}. /forge approve ${id} once a human has reviewed them, or /forge rework ${id} <note>`;
+      if (reason.startsWith('recall eval') && x.recall?.invalidFixtures)
+        return `${id} changes reviewer prompts, but the main checkout's recall fixtures do not load (${reason}). Fix them on the base branch (forge eval recall list names each problem) and run the recall eval (${ref(x, 'recall.md')}), /forge approve ${id} to waive it, or /forge rework ${id} <note>`;
       if (reason.startsWith('recall eval'))
         return `${id} changes reviewer prompts and has no recorded recall eval for them (${reason}). Run the recall eval (${ref(x, 'recall.md')}) once more, /forge approve ${id} to waive it, or /forge rework ${id} <note>`;
       if (reason.startsWith('secret scan'))

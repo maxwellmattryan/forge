@@ -46,11 +46,13 @@ const side = (r: { run?: unknown; head?: unknown; summary?: unknown } | null | u
   r && typeof r.run === 'string' && RUN_ID.test(r.run) ? { run: r.run, head: typeof r.head === 'string' && SHA.test(r.head) ? r.head.slice(0, 12) : null, byLens: byLens(r.summary) } : null;
 
 /**
- * The approver's `Reviewer recall:` line: none when the diff changes no reviewer prompts, the waiver,
- * or the latest record for these prompts and the base-branch run beside it, as JSON of ids, shas and numbers.
+ * The approver's `Reviewer recall:` line: not checked when the gate does not apply, none when the diff
+ * changes no reviewer prompts, the waiver, or the latest record for these prompts and the base-branch
+ * run beside it, as JSON of ids, shas and numbers.
  */
-export function recallLine(x: Pick<StepInput, 'recall' | 'events'>): string {
-  if (!x.recall?.required) return 'Reviewer recall: none (the diff changes no reviewer prompts)';
+export function recallLine(x: Pick<StepInput, 'recall' | 'events' | 'job'>): string {
+  if (!x.recall) return `Reviewer recall: not checked (${x.job.kind === 'eval' ? 'an eval job' : 'no recall fixtures in the main checkout'})`;
+  if (!x.recall.required) return 'Reviewer recall: none (the diff changes no reviewer prompts)';
   const last = recallEvents(x, 'record').at(-1);
   const mine = last ? side(last as { run?: unknown; head?: unknown; summary?: unknown }) : null;
   if (!mine) return recallWaived(x) ? 'Reviewer recall: waived by a human' : 'Reviewer recall: no recorded run for these prompts';

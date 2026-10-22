@@ -46,10 +46,11 @@ export const DECIDE: Table<DecideCtx> = {
   rules: [
     { id: 'DC10', when: (c) => !evalJob(c) && isPrRework(c.x), then: ({ x }) => toStage(x, 'DC10', 'pr', 'the PR is open: nothing to decide') },
     // The diff changes reviewer prompts: a recall eval for exactly these prompts comes before the
-    // approver. Two starts with no record park on a human, who runs it again or waives it.
+    // approver. Two starts with no record park on a human, who runs it again or waives it; so do
+    // fixtures that do not load, since no start could ever be logged.
     {
       id: 'RC1',
-      when: (c) => recallOpen(c) && c.x.recall!.pluginHash !== null && recallEvents(c.x, 'start').length < 2,
+      when: (c) => recallOpen(c) && c.x.recall!.pluginHash !== null && !c.x.recall!.invalidFixtures && recallEvents(c.x, 'start').length < 2,
       then: ({ x }) => procedure(x, 'RC1', 'recall.md', 'the diff changes reviewer prompts: run the recall eval on them before the approver'),
     },
     { id: 'RC2', when: (c) => recallOpen(c) && !recallWaived(c.x), then: ({ x }) => park(x, 'RC2', 'human', recallReason(x.recall!.pluginHash)) },
