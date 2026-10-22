@@ -225,7 +225,7 @@ export interface DiffSection {
  * git config and attributes are builder-writable and could otherwise drop the repo prefix, substitute a
  * driver's output for the real change, or turn a hunk into "Binary files differ" (`-diff`, `binary`).
  */
-export function writeScopeDiff(file: string, sections: DiffSection[]): void {
+function writeScopeDiff(file: string, sections: DiffSection[]): void {
   const env = realHistoryEnv();
   const parts = sections.map((s) => {
     const out = run(

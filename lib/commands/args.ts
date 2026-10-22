@@ -59,7 +59,7 @@ export function withoutJson(argv: readonly string[]): string[] {
 }
 
 /** Output for a terminal (human) or a program (agent): docs/CLI.md "Output mode". */
-export const OUTPUT_MODES = ['human', 'agent'] as const;
+const OUTPUT_MODES = ['human', 'agent'] as const;
 export type OutputMode = (typeof OUTPUT_MODES)[number];
 
 // Agent by default, so in-process callers (tests, dispatch) keep the JSON contract; only main() sets it.

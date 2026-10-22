@@ -501,7 +501,7 @@ function newJobIssues(root: string, config: Config, flags: Record<string, any>):
 }
 
 /** `--epoch N` as a fence, with `session` when the call names one; undefined without the flag. Parsed before any write. */
-export function epochFence(flags: Record<string, any>, session?: string): Fence | undefined {
+function epochFence(flags: Record<string, any>, session?: string): Fence | undefined {
   const epoch = num(flags.epoch, '--epoch', { integer: true });
   return epoch === undefined ? undefined : { epoch, ...(session !== undefined ? { session } : {}) };
 }

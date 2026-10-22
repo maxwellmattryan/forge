@@ -94,7 +94,7 @@ function devPort(root: string, config: Config, job: LoadedJob): number | null {
 }
 
 /** The job's dev server, or null when no dev command is configured for it. */
-export async function devStatus(root: string, config: Config, job: LoadedJob): Promise<EnvironmentDev | null> {
+async function devStatus(root: string, config: Config, job: LoadedJob): Promise<EnvironmentDev | null> {
   const dev = commandTemplate(config, job, 'dev');
   if (typeof dev !== 'string' || !dev.trim()) return null;
   const port = devPort(root, config, job);
@@ -161,7 +161,7 @@ export function forgeJson(root: string, args: string[], timeoutMs: number): Prom
 }
 
 /** `docker <args>` without a shell or a blocking call: argv only, output capped. Used only for `stats`. */
-export function dockerRun(args: string[], timeoutMs: number): Promise<{ ok: boolean; stdout: string }> {
+function dockerRun(args: string[], timeoutMs: number): Promise<{ ok: boolean; stdout: string }> {
   return new Promise((resolve) => {
     execFile('docker', args, { timeout: timeoutMs, maxBuffer: 2 * 1024 * 1024, encoding: 'utf8' }, (e, stdout) => resolve({ ok: !e, stdout: String(stdout ?? '') }));
   });

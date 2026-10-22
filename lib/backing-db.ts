@@ -17,7 +17,7 @@ import { jobDir, paths } from './paths.ts';
 import type { BackingBuildStep, BackingDbRecord, BackingEntry, BackingUpEntry, Config, DockerResult, DockerRunner } from './types.ts';
 import { ForgeError, redact, run, sleepSync, tail, withLock, writeJsonPrivate } from './util.ts';
 
-export const TEMPLATE_NAME = /^forge_tpl_[0-9a-f]{12}$/;
+const TEMPLATE_NAME = /^forge_tpl_[0-9a-f]{12}$/;
 export const JOB_DB_NAME = /^forge_j_[a-z0-9_]{1,40}_[0-9a-f]{8}$/;
 export const PASSWORD = /^[A-Za-z0-9_-]{32}$/;
 /** What scramVerifier makes: the only literal besides checked names that reaches SQL. */
@@ -74,7 +74,7 @@ export function dbEntries(config: Config): BackingEntry[] {
 // ---------- secrets ----------
 
 /** 24 random bytes as base64url: 32 characters of [A-Za-z0-9_-], safe in a url and in a SQL literal. */
-export const newPassword = (): string => crypto.randomBytes(24).toString('base64url');
+const newPassword = (): string => crypto.randomBytes(24).toString('base64url');
 
 /**
  * The SCRAM-SHA-256 verifier Postgres stores for a password (RFC 5802 / 7677), so the password itself
@@ -258,7 +258,7 @@ const terminate = (db: string): string => `SELECT pg_terminate_backend(pid) FROM
  * Waits until the server accepts TCP connections inside the container. TCP on purpose: the image's
  * init-time server, which runs before the real one, listens on the socket only.
  */
-export function waitReady(s: PgServer, containerPort: number, timeoutMs = READY_TIMEOUT_MS): void {
+function waitReady(s: PgServer, containerPort: number, timeoutMs = READY_TIMEOUT_MS): void {
   const start = Date.now();
   for (;;) {
     const r = s.runner(['exec', s.container, 'pg_isready', '-q', '-h', '127.0.0.1', '-p', String(containerPort), '-U', ident(s.admin)], { timeoutMs: 10_000 });
@@ -303,7 +303,7 @@ function dropUnfinished(s: PgServer, t: string): void {
  * forge_tpl and the superuser reach it. Any failure drops the half-built database; forge_tpl always
  * loses its login.
  */
-export function ensureTemplate(s: PgServer, e: BackingEntry, t: string, cmds: TemplateCommands): { action: 'built' | 'reused'; build: BackingBuildStep[] } {
+function ensureTemplate(s: PgServer, e: BackingEntry, t: string, cmds: TemplateCommands): { action: 'built' | 'reused'; build: BackingBuildStep[] } {
   const state = psql(s, script(`SELECT datistemplate FROM pg_database WHERE datname = ${lit(t)}`))[0];
   if (state === 't') return { action: 'reused', build: [] };
   if (state === 'f') dropUnfinished(s, t);
@@ -340,7 +340,7 @@ export function ensureTemplate(s: PgServer, e: BackingEntry, t: string, cmds: Te
 }
 
 /** Drops every `forge_tpl_<12 hex>` on the server other than `keep` that no job's record names; returns them. */
-export function pruneTemplates(root: string, s: PgServer, keep: string): string[] {
+function pruneTemplates(root: string, s: PgServer, keep: string): string[] {
   const named = recordedTemplates(root);
   const dropped: string[] = [];
   for (const d of psql(s, script(`SELECT datname FROM pg_database WHERE datname ~ '^forge_tpl_[0-9a-f]{12}$'`))) {

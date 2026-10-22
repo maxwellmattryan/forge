@@ -37,11 +37,11 @@ export interface ProtectedCheck {
 }
 
 /** Hits kept on the job flag; `more` counts the rest. */
-export const MAX_HITS = 200;
+const MAX_HITS = 200;
 /** Paths named in an event, a brief or a JSON reply. */
 export const LIST_LIMIT = 20;
 /** protected.diff is capped here, with a note, so a lockfile rewrite can't fill the job dir. */
-export const DIFF_CAP = 1024 * 1024;
+const DIFF_CAP = 1024 * 1024;
 const LINK_MAX = 4096;
 /** Bytes of paths per `git diff` call when writing protected.diff, so argv stays bounded. */
 const ARGV_CHUNK = 64 * 1024;
@@ -142,7 +142,7 @@ export function comparisonPoint(cwd: string, config: Config, job: Pick<Job, 'bas
 }
 
 /** Parses `git diff --raw -z --no-renames --no-abbrev`; unmerged entries are left for the add that resolves them. */
-export function parseRawZ(out: string): DiffEntry[] {
+function parseRawZ(out: string): DiffEntry[] {
   const parts = out.split('\0');
   const entries: DiffEntry[] = [];
   for (let i = 0; i + 1 < parts.length; i += 2) {
@@ -294,7 +294,7 @@ function writeSource(src: DiffSource, paths: string[], parts: Buffer[], size: nu
 }
 
 /** sha256 over every (path, blob) of S, so a change past the stored MAX_HITS still moves `at`. */
-export function protectedDigest(s: Pick<ProtectedHit, 'path' | 'blob'>[]): string {
+function protectedDigest(s: Pick<ProtectedHit, 'path' | 'blob'>[]): string {
   const h = createHash('sha256');
   for (const k of s.map((x) => `${x.path}\0${x.blob ?? ''}\0`).sort()) h.update(k);
   return h.digest('hex');
@@ -421,7 +421,7 @@ export interface MemberBranch {
 }
 
 /** `<repo>:<path>`: how a member repo's hit is named on the job flag, in events and in messages. */
-export function memberHitPath(repo: string, p: string): string {
+function memberHitPath(repo: string, p: string): string {
   return `${repo}:${p}`;
 }
 

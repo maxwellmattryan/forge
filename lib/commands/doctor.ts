@@ -36,7 +36,7 @@ export const HELP: HelpGroup[] = [DOCTOR];
 const MAX_SUFFIX = 100;
 
 /** B under 1 KiB, then KiB and MiB with one decimal. */
-export function humanSize(n: number): string {
+function humanSize(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`;
   return `${(n / 1024 / 1024).toFixed(1)} MiB`;
@@ -46,7 +46,7 @@ export function humanSize(n: number): string {
 const printable = (s: string): string => s.replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
 
 /** The manifest lines stderr gets before the write. */
-export function manifestText(entries: BundleEntry[], r: Pick<BundleResult, 'skipped' | 'redactions' | 'includeText'>): string {
+function manifestText(entries: BundleEntry[], r: Pick<BundleResult, 'skipped' | 'redactions' | 'includeText'>): string {
   entries = entries.map((e) => ({ ...e, name: printable(e.name) }));
   const total = entries.reduce((n, e) => n + e.bytes, 0);
   const w = Math.max(...entries.map((e) => e.name.length));

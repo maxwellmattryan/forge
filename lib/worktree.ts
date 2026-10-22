@@ -1321,13 +1321,3 @@ function isDir(p: string): boolean {
     return false;
   }
 }
-
-/** Port probing lets `forge doctor` warn when something outside Forge holds a job's port. */
-export function portInUse(port: number): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    const srv = net.createServer();
-    srv.once('error', () => resolve(true));
-    srv.once('listening', () => srv.close(() => resolve(false)));
-    srv.listen(port, '127.0.0.1');
-  });
-}

@@ -69,7 +69,7 @@ export function firstVerifyRun(job: Pick<Job, 'verifyRuns' | 'verify'>): boolean
  * Per-verifier counts from `verifiers` record events: how often each ran, said NO, gave no valid
  * answer, and blocked. A verifier that never fires (hitRate 0 over many runs) is a retro candidate.
  */
-export function addVerifierStats(into: Record<string, VerifierStats>, events: JobEvent[]): void {
+function addVerifierStats(into: Record<string, VerifierStats>, events: JobEvent[]): void {
   for (const e of events) {
     if (e.type !== 'verifiers' || e.phase !== 'record' || !Array.isArray(e.results)) continue;
     for (const r of e.results as unknown[]) {

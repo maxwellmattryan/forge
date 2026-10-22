@@ -43,7 +43,7 @@ export const secretMode = (config: Pick<Config, 'verifySecrets'>): SecretMode =>
 /** Whether findings stop a gate under `mode`: any under `block`, a known value under either. */
 export const secretsBlock = (findings: Pick<SecretFinding, 'kind'>[], mode: SecretMode): boolean => (mode === 'block' ? findings.length > 0 : findings.some((f) => f.kind === 'known-secret'));
 
-export const ALLOWLIST_FILE = '.forge/secrets-allow.txt';
+const ALLOWLIST_FILE = '.forge/secrets-allow.txt';
 const MAX_ALLOWLIST = 1024 * 1024;
 const MAX_FILE = 2 * 1024 * 1024;
 const MAX_COMMITS = 1000;
@@ -225,7 +225,7 @@ function findSpans(unit: TextUnit, config: Pick<Config, 'worktrees'> | null, kno
 // A known value may be an 8-character dev password, so its plain sha256 or prefix could be brute-
 // forced from an event or a report. Its id is keyed by this process's random key: it only dedupes.
 const KNOWN_KEY = crypto.randomBytes(32);
-export const KNOWN_EXCERPT = '<known>';
+const KNOWN_EXCERPT = '<known>';
 const knownPrint = (value: string): string => `known:${crypto.createHmac('sha256', KNOWN_KEY).update(value, 'utf8').digest('hex').slice(0, 12)}`;
 
 /** Findings in one unit: the spans, masked and fingerprinted; a known value shows nothing of itself. */
@@ -250,7 +250,7 @@ export function secretSpans(text: string, config: Pick<Config, 'worktrees'> | nu
 }
 
 /** The entropy rule for one candidate value on its line. */
-export function highEntropy(value: string, line: string): boolean {
+function highEntropy(value: string, line: string): boolean {
   if (value.length < 33 || value.length > 256) return false;
   if (isPlaceholder(value) || /^sha(?:1|256|384|512)-/.test(value) || !/[A-Za-z0-9]/.test(value)) return false;
   if (/^[0-9a-f]+$/.test(value) || /^[0-9A-F]+$/.test(value)) return entropy(value) >= 3.0 && SECRET_WORDS.test(line);
@@ -648,7 +648,7 @@ export function secretsOk(scan: Pick<SecretScan, 'findings' | 'error'>, mode: Se
   return mode === 'warn' || !scan.error;
 }
 
-export function secretsHeading(scan: Pick<SecretScan, 'findings' | 'error'>, mode: SecretMode): string {
+function secretsHeading(scan: Pick<SecretScan, 'findings' | 'error'>, mode: SecretMode): string {
   if (scan.error) return `ERROR (${fence(scan.error)})`;
   const n = scan.findings.length;
   if (!n) return 'ok';

@@ -23,7 +23,7 @@ import type { BundleManifest, BundleSkip, Config, Job, RedactCounts } from './ty
 import { ForgeError, hasBinary, run } from './util.ts';
 import type { ZipEntry } from './zip.ts';
 
-export const ENTRY_CAP = 2 * 1024 * 1024;
+const ENTRY_CAP = 2 * 1024 * 1024;
 /** How much of a file is read before prose is dropped: the skeleton is far smaller than the stream. */
 const READ_CAP = 16 * 1024 * 1024;
 const VERIFY_LINES = 200;
@@ -106,7 +106,7 @@ function openContained(base: string, rel: string): Opened {
 }
 
 /** The last `maxBytes` of a contained file, starting on a whole line when cut; a skip reason or null otherwise. */
-export function readContained(base: string, rel: string, maxBytes: number): string | { skip: string } | null {
+function readContained(base: string, rel: string, maxBytes: number): string | { skip: string } | null {
   const o = openContained(base, rel);
   if (o === null) return null;
   if ('skip' in o) return { skip: o.skip };

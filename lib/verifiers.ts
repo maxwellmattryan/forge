@@ -22,17 +22,17 @@ import type { Config, Job, JobEvent, Verifier, VerifierAnswer, VerifierProblem, 
 import { ForgeError, fenced, now, readJson, run, writeJsonAtomic, writeTextAtomic } from './util.ts';
 import * as yaml from './yaml.ts';
 
-export const VERIFIER_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
-export const MAX_VERIFIER_FILES = 50;
-export const MAX_VERIFIER_BYTES = 16 * 1024;
+const VERIFIER_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const MAX_VERIFIER_FILES = 50;
+const MAX_VERIFIER_BYTES = 16 * 1024;
 export const MAX_BODY = 2000;
-export const MAX_QUESTION = 300;
+const MAX_QUESTION = 300;
 /** Per diff file, cut at a line boundary. */
-export const FILE_CAP = 40_000;
+const FILE_CAP = 40_000;
 /** Diff text across the whole input. */
-export const INPUT_CAP = 200_000;
-export const MAX_ANSWERS_BYTES = 64 * 1024;
-export const REASON_CAP = 300;
+const INPUT_CAP = 200_000;
+const MAX_ANSWERS_BYTES = 64 * 1024;
+const REASON_CAP = 300;
 
 const SEVERITY = ['blocker', 'major', 'minor'] as const;
 const MODES = ['warn', 'block'] as const;
@@ -50,12 +50,12 @@ export function oneLine(s: unknown, max = Infinity): string {
 }
 
 /** JSON that stays on one line: JSON.stringify leaves U+2028 and U+2029 unescaped. */
-export function jsonLine(v: unknown): string {
+function jsonLine(v: unknown): string {
   return JSON.stringify(v).replace(/[\u0085\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 }
 
 /** Every line break a reader might honour becomes `\n`, so only the fence decides where data ends. */
-export function normalizeBreaks(text: string): string {
+function normalizeBreaks(text: string): string {
   return text.replace(/\r\n?/g, '\n').replace(/[\u0085\u2028\u2029]/g, '\n');
 }
 
@@ -94,7 +94,7 @@ function readRegular(file: string, max: number): Buffer | string {
 }
 
 /** One verifier file's content: the verifier, or why it never runs. */
-export function parseVerifier(name: string, text: string): Verifier | string {
+function parseVerifier(name: string, text: string): Verifier | string {
   const src = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
   const m = /^---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)/.exec(src);
   if (!m) return 'no frontmatter between --- lines';
@@ -233,7 +233,7 @@ export function splitDiff(raw: string): Map<string, string> {
  * changes diff output is pinned, external diffs and textconv are off, and renames are split into
  * their deleted and added sides so both paths match globs. Git failure is exit 5.
  */
-export function diffFiles(cwd: string, config: Config, job: Pick<Job, 'base'>, sha: string): Map<string, string> {
+function diffFiles(cwd: string, config: Config, job: Pick<Job, 'base'>, sha: string): Map<string, string> {
   if (!FULL_SHA.test(sha)) throw new ForgeError(`verified sha ${jsonLine(sha)} is not a full commit id`);
   let mergeBase: string;
   try {
@@ -249,7 +249,7 @@ export function diffFiles(cwd: string, config: Config, job: Pick<Job, 'base'>, s
 }
 
 /** The verifiers at least one of whose globs matches a diff file, each with its matching files in path order. */
-export function selectVerifiers(verifiers: Verifier[], files: string[]): { verifier: Verifier; files: string[] }[] {
+function selectVerifiers(verifiers: Verifier[], files: string[]): { verifier: Verifier; files: string[] }[] {
   const sorted = [...files].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   return verifiers.map((verifier) => ({ verifier, files: sorted.filter((f) => inSpec(f, verifier.paths)) })).filter((s) => s.files.length > 0);
 }
@@ -356,7 +356,7 @@ export function parseAnswers(text: string | null, selected: string[]): Map<strin
 }
 
 /** The reason's first token when it names one of the verifier's files (keeping any `:<line>`), else `-`. */
-export function locationOf(reason: string, files: string[]): string {
+function locationOf(reason: string, files: string[]): string {
   const tok = reason.split(/\s+/)[0] ?? '';
   const p = cleanPath(tok);
   if (!p || !files.includes(p)) return '-';
@@ -425,7 +425,7 @@ export function renderReport(o: {
 // ---------- the commands ----------
 
 /** A job's verify-dir files for round `n`, job-dir-relative with `/`, as VerifyRun.file is written. */
-export function verifierFiles(round: number): { report: string; input: string; run: string; answers: string } {
+function verifierFiles(round: number): { report: string; input: string; run: string; answers: string } {
   return {
     report: `verify/round-${round}-verifiers.md`,
     input: `verify/round-${round}-verifiers-input.md`,

@@ -13,7 +13,7 @@ export const RELEASE_MECHANISMS = ['release-please', 'cargo-release', 'changeset
 export const RELEASE_REGISTRIES = ['crates.io', 'npm', 'none'] as const;
 export const RELEASE_CADENCES = ['on-merge', 'scheduled', 'manual'] as const;
 export const RELEASE_PUBLISH = ['confirm', 'allow'] as const;
-export const COMMAND_MAX = 1000;
+const COMMAND_MAX = 1000;
 
 // Same rendering as member-repos.ts, so every release message reads alike.
 const show = (v: unknown): string => (v === undefined ? 'nothing' : (JSON.stringify(v) ?? String(v)).slice(0, 120));

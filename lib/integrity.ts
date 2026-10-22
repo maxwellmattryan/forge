@@ -216,7 +216,7 @@ const PATCH_TABLE = /^\s*(\[\s*patch\b|patch\s*[.=])/;
  * dirs (`leaks`, linkLeakPaths), R2 a FetchContent source-dir override, R3 a cargo `[patch]` in a
  * `.cargo/config(.toml)`. R4 (package.json) needs both sides of the file: packageOverrides.
  */
-export function overrideRule(file: string, text: string, leaks: string[]): LinkOverride['rule'] | null {
+function overrideRule(file: string, text: string, leaks: string[]): LinkOverride['rule'] | null {
   if (leaks.some((p) => text.includes(p))) return 'R1';
   if (text.includes('FETCHCONTENT_SOURCE_DIR_')) return 'R2';
   if (CARGO_CONFIG.test(file) && PATCH_TABLE.test(text)) return 'R3';
@@ -229,7 +229,7 @@ const PACKAGE_DEP_KEYS = ['dependencies', 'devDependencies', 'optionalDependenci
  * R4: dependency specs in a package.json at `file` that are new or changed and are `file:` or `link:`
  * with a path that is absolute or leaves the repo. `overrides` may nest, so every string under it counts.
  */
-export function packageOverrides(file: string, beforeText: string | null, afterText: string | null): { key: string; spec: string }[] {
+function packageOverrides(file: string, beforeText: string | null, afterText: string | null): { key: string; spec: string }[] {
   const parse = (t: string | null): any => {
     try {
       const v = JSON.parse(t?.trim() ? t : '{}');

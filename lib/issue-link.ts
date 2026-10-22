@@ -21,13 +21,6 @@ export function issueLinkStatus(job: Pick<Job, 'issues' | 'noIssue' | 'kind' | '
   return 'missing';
 }
 
-/** The ref without a leading `#`, or null when it isn't one REF accepts. */
-export function normalizeRef(raw: unknown): string | null {
-  if (typeof raw !== 'string') return null;
-  const ref = raw.trim().replace(/^#/, '');
-  return REF.test(ref) ? ref : null;
-}
-
 const STOPWORDS = new Set(
   'the and for with from into onto that this these those when then than should would could will can add fix make use using via per not are was were has have had our your their its job'.split(' '),
 );

@@ -12,10 +12,10 @@ import type { Job, TranscriptActivity } from './types.ts';
 /** A Claude Code agent id: what `--agent-id` and job.json's `agentId` must look like before use. */
 export const AGENT_ID = /^[A-Za-z0-9_-]{1,100}$/;
 /** How many of a job's past orchestrator sessions are tried for an agent's transcript, newest first. */
-export const MAX_RUN_SESSIONS = 5;
+const MAX_RUN_SESSIONS = 5;
 /** lastActivity reads at most this much of a transcript's end. */
-export const ACTIVITY_TAIL_BYTES = 64 * 1024;
-export const ACTIVITY_CHARS = 160;
+const ACTIVITY_TAIL_BYTES = 64 * 1024;
+const ACTIVITY_CHARS = 160;
 const CACHE_MAX = 64;
 const TARGET_KEYS = ['file_path', 'notebook_path', 'path', 'pattern', 'command', 'url', 'query', 'description', 'skill'];
 const PATH_KEYS = new Set(['file_path', 'notebook_path', 'path']);
@@ -47,7 +47,7 @@ export function projectSlug(p: string): string {
 }
 
 /** The repo's worktrees dir (worktrees.root), or null when the config can't be read. */
-export function worktreesDir(root: string): string | null {
+function worktreesDir(root: string): string | null {
   try {
     return worktreeRoot(root, loadConfig(root).config);
   } catch {

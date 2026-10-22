@@ -207,7 +207,7 @@ export function pidAlive(pid: unknown): boolean {
  * for breaking locks: EPERM means a process exists that this one may not signal (another uid, or
  * one outside this sandbox), so it is never proof of death.
  */
-export function pidGone(pid: number): boolean {
+function pidGone(pid: number): boolean {
   for (const target of [-pid, pid]) {
     try {
       process.kill(target, 0);

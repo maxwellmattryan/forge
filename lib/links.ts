@@ -169,7 +169,7 @@ export function resolveLinks(root: string, config: Config, job: Pick<Job, 'id' |
 }
 
 /** `s` as one single-quoted sh word, always quoted. */
-export const shQuote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+const shQuote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
 
 const HEADER = (jobId: string) => `# Written by Forge for job ${jobId}: never commit this`;
 

@@ -24,7 +24,7 @@ import type { CommandHelp, Config, HelpGroup, Job, ProtectedHit } from '../types
 // Re-exported: callers (and tests) imported it from here before it moved to lib/paths.ts.
 export { resolveWorktreePaths };
 
-export const READ_SUBCOMMANDS: string[] = ['diff', 'log', 'show', 'range-diff'];
+const READ_SUBCOMMANDS: string[] = ['diff', 'log', 'show', 'range-diff'];
 
 const readHelp = (sub: string): CommandHelp => ({
   command: `git ${sub}`,
@@ -81,7 +81,7 @@ const REFUSED = /^--(output|ext-diff|textconv|open-files-in-pager)(=|$)/;
  * forced off (placed before `--`, after the caller's options, so they win).
  * `args` is `<subcommand> [options] [revisions] [-- paths]`.
  */
-export function gitReadArgv(args: string[]): string[] {
+function gitReadArgv(args: string[]): string[] {
   const [sub, ...rest] = args;
   if (!READ_SUBCOMMANDS.includes(sub)) throw new ForgeError(`forge git runs only ${READ_SUBCOMMANDS.join(', ')} (got ${JSON.stringify(sub ?? '')})`, 'usage');
   const dashdash = rest.indexOf('--');

@@ -108,7 +108,7 @@ export function age(iso: unknown, now: number): string {
 }
 
 /** A job state's colour: running green, waiting and blocked yellow, failed red. */
-export function stateStyle(state: unknown, p: Paint): Style | undefined {
+function stateStyle(state: unknown, p: Paint): Style | undefined {
   const s = String(state ?? '');
   if (s === 'running') return p.green;
   if (s === 'waiting' || s.startsWith('waiting:') || s === 'blocked') return p.yellow;

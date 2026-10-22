@@ -46,8 +46,8 @@ import type { RepoKey } from './repo-order.ts';
 import type { Config } from './types.ts';
 import { ForgeError, findOnPath, now, pidAlive, run, writeJsonAtomic } from './util.ts';
 
-export const RUN_DAEMON_REFUSAL = 'forge release run runs release and publish commands, which a daemon session may not do; a human runs it in their own session';
-export const RUN_WINDOWS_REFUSAL = `forge release run is not supported on native Windows; run it under WSL2: ${SUPPORT_URL}`;
+const RUN_DAEMON_REFUSAL = 'forge release run runs release and publish commands, which a daemon session may not do; a human runs it in their own session';
+const RUN_WINDOWS_REFUSAL = `forge release run is not supported on native Windows; run it under WSL2: ${SUPPORT_URL}`;
 const LOCK_STALE_MS = 60_000;
 const CHECK_TIMEOUT_MS = 120_000;
 
@@ -217,7 +217,7 @@ const sha = (git: GitReader, dir: string, ref: string): string | null => {
 };
 
 /** One check for one repo's step. `env` resolves the registry tools. */
-export function runCheck(kind: CheckKind, repo: ReleaseRepo, config: Config, git: GitReader = cloneGit, env: NodeJS.ProcessEnv = process.env): CheckResult {
+function runCheck(kind: CheckKind, repo: ReleaseRepo, config: Config, git: GitReader = cloneGit, env: NodeJS.ProcessEnv = process.env): CheckResult {
   const dir = repo.dir;
   const base = repoBase(config, repo.repo);
   const remote = repoRemote(config);
@@ -298,7 +298,7 @@ export function runCheck(kind: CheckKind, repo: ReleaseRepo, config: Config, git
 const LOCAL_TOOLS = new Set(['changeset', 'release-please']);
 
 /** The program and arguments a step spawns, or why it can't. */
-export function stepArgv(step: ReleaseStep, dir: string, env: NodeJS.ProcessEnv = process.env): { argv: string[] } | { missing: string } {
+function stepArgv(step: ReleaseStep, dir: string, env: NodeJS.ProcessEnv = process.env): { argv: string[] } | { missing: string } {
   if (step.shell !== null) return { argv: [posixShell({ env }), '-lc', step.shell] };
   const [word, ...args] = step.argv ?? [];
   const local = LOCAL_TOOLS.has(word) ? findOnPath(word, { PATH: path.join(dir, 'node_modules', '.bin') }) : null;
@@ -345,7 +345,7 @@ function spawnStep(spawn: SpawnFn, argv: string[], cwd: string, env: NodeJS.Proc
 }
 
 /** The prompt a publish step shows before it runs. */
-export const publishPrompt = (step: ReleaseStep, dir: string): string => `Publish step ${step.id} in ${dir}:\n  ${stepCommand(step)}\nRun it? [y/N] `;
+const publishPrompt = (step: ReleaseStep, dir: string): string => `Publish step ${step.id} in ${dir}:\n  ${stepCommand(step)}\nRun it? [y/N] `;
 
 /**
  * `forge release run`: refusals, recompute-and-compare, the lock, then each step from the first one

@@ -50,19 +50,19 @@ const keyPart = (v: unknown, fallback: string): string => {
 };
 
 /** The pricing table's hash: a price change invalidates every cached cost. */
-export function pricingHash(config: Config): string {
+function pricingHash(config: Config): string {
   return crypto.createHash('sha256').update(JSON.stringify(pricing(config?.usage?.pricing ?? {}))).digest('hex');
 }
 
 /** UTC `YYYY-MM-DD` of a timestamp, or null when it doesn't parse. */
-export function utcDay(ts: unknown): string | null {
+function utcDay(ts: unknown): string | null {
   if (typeof ts !== 'string') return null;
   const t = Date.parse(ts);
   return Number.isNaN(t) ? null : new Date(t).toISOString().slice(0, 10);
 }
 
 /** Buckets of one job's events: each agent-end with usage, on the UTC day of its `ts` (at or after `sinceMs`). */
-export function bucketsOf(events: JobEvent[], config: Config, sinceMs: number | null = null): Record<string, SpendBucket> {
+function bucketsOf(events: JobEvent[], config: Config, sinceMs: number | null = null): Record<string, SpendBucket> {
   const out: Record<string, SpendBucket> = {};
   for (const e of events) {
     if (e.type !== 'agent-end' || !e.usage || typeof e.usage !== 'object') continue;
@@ -109,7 +109,7 @@ function readNoFollow(file: string): { text: string; size: number; mtimeMs: numb
 }
 
 /** The cache, or null when it is missing, a link, unparsable, or written for another version or price table. */
-export function readSpendCache(root: string, hash: string): SpendCache | null {
+function readSpendCache(root: string, hash: string): SpendCache | null {
   const r = readNoFollow(spendFile(root));
   if (!r) return null;
   let raw: any;

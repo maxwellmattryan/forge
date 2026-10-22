@@ -11,22 +11,22 @@ import { enqueue, listRequests } from './requests.ts';
 import { ForgeError } from './util.ts';
 import type { Config, ForgeRequest, JobEvent } from './types.ts';
 
-export const RELEASE_PLANNED = 'release-planned';
+const RELEASE_PLANNED = 'release-planned';
 export const RELEASE_APPROVAL = 'release-approval';
 /** A full sha256 plan hash; an event carrying anything else is ignored. */
-export const PLAN_HASH = /^[0-9a-f]{64}$/;
+const PLAN_HASH = /^[0-9a-f]{64}$/;
 
 const GATE = 'release' as const;
 
 export type ReleaseOwner = 'human' | 'foreman';
 
 /** The Foreman decides `release`: it is on, the class is in foreman.decides, and no `gate:release` (decides() drops it). */
-export const foremanDecidesRelease = (config: Config): boolean => foremanEnabled(config) && decides(config).includes(GATE);
+const foremanDecidesRelease = (config: Config): boolean => foremanEnabled(config) && decides(config).includes(GATE);
 
 const hashOf = (e: JobEvent): string | null => (typeof e.planHash === 'string' && PLAN_HASH.test(e.planHash) ? e.planHash : null);
 
 /** The hash of the job's latest `release-planned` event, or null. */
-export function latestPlannedHash(events: JobEvent[]): string | null {
+function latestPlannedHash(events: JobEvent[]): string | null {
   const e = [...events].reverse().find((x) => x.type === RELEASE_PLANNED);
   return e ? hashOf(e) : null;
 }

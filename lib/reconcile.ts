@@ -13,7 +13,7 @@ import { lockHeld, readJson, withLock, writeJsonAtomic } from './util.ts';
 import type { Config, ForgeRequest, Job, JobEvent, LoadedJob } from './types.ts';
 
 /** Event types that mean the pipeline moved; renewals, syncs, notes and failures don't count. */
-export const PROGRESS_EVENTS: ReadonlySet<string> = new Set(['transition', 'round', 'verify', 'agent-start', 'agent-end', 'human', 'integrated', 'integration-review', 'pr-opened', 'pr-updated', 'pr-head-pulled', 'verdicts']);
+const PROGRESS_EVENTS: ReadonlySet<string> = new Set(['transition', 'round', 'verify', 'agent-start', 'agent-end', 'human', 'integrated', 'integration-review', 'pr-opened', 'pr-updated', 'pr-head-pulled', 'verdicts']);
 
 /** The newest progress event's time, or null: what a later pass or failure compares against. */
 export function progressMark(events: Pick<JobEvent, 'type' | 'ts'>[]): string | null {

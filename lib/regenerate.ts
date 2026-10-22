@@ -137,7 +137,7 @@ export function takeBaseSide(cwd: string, strategy: Strategy, paths: string[], o
 }
 
 /** Stages every glob-matching path the worktree has, tracked or new, so output the build added or deleted is committed too. */
-export function stageGenerated(cwd: string, globs: string[]): string[] {
+function stageGenerated(cwd: string, globs: string[]): string[] {
   const files = generatedPaths(cwd, run('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd }).stdout, globs);
   if (files.length) gitPaths(cwd, ['add', '-A'], files);
   return files;

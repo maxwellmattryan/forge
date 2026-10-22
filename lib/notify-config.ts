@@ -4,7 +4,7 @@ import { NOTIFY_EVENTS, NOTIFY_FORMATS } from './schema.ts';
 import type { Config, NotifyWebhook } from './types.ts';
 
 /** The {placeholders} notify.command may use; each becomes a quoted reference to its environment variable (lib/notify.ts commandSource). */
-export const NOTIFY_PLACEHOLDERS = ['event', 'job', 'title', 'url', 'stage', 'reason', 'dashboardUrl'] as const;
+const NOTIFY_PLACEHOLDERS = ['event', 'job', 'title', 'url', 'stage', 'reason', 'dashboardUrl'] as const;
 
 const WEBHOOK_KEYS = new Set(['url', 'events', 'format']);
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -19,7 +19,7 @@ export function webhookHost(url: unknown): string | null {
 }
 
 /** Why a webhook URL is refused, or null. Messages never quote the URL. */
-export function webhookUrlProblem(url: unknown): string | null {
+function webhookUrlProblem(url: unknown): string | null {
   if (typeof url !== 'string' || !url.trim()) return 'url must be a non-empty string';
   let u: URL;
   try {
@@ -51,7 +51,7 @@ export function webhookProblem(hook: unknown): string | null {
 }
 
 /** The label a problem names an entry by: its index and at most its host. */
-export function webhookLabel(i: number, hook: unknown): string {
+function webhookLabel(i: number, hook: unknown): string {
   const host = hook && typeof hook === 'object' ? webhookHost((hook as Record<string, unknown>).url) : null;
   return `notify.webhooks[${i}]${host ? ` (${host})` : ''}`;
 }

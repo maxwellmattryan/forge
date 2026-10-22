@@ -12,7 +12,7 @@ const SHOWN = 3;
 /**
  * Committed files changed since the merge-base that match the globs (`forge job scope` matching).
  */
-export function uiChanges(cwd: string, config: Config, job: Job, globs: string[]): { files: string[] } | { error: string } {
+function uiChanges(cwd: string, config: Config, job: Job, globs: string[]): { files: string[] } | { error: string } {
   try {
     const { mergeBase } = resolveBase(cwd, config, job);
     const changed = run('git', ['diff', '--name-only', '--no-renames', mergeBase, 'HEAD'], { cwd }).stdout.split('\n').filter(Boolean);

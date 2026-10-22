@@ -43,7 +43,7 @@ export function currentRerun(x: Pick<StepInput, 'job' | 'config' | 'events'>): s
 }
 
 /** A lens's latest verdict before `round`, and the round it came from; null when it never had one. */
-export function lastVerdict(verdicts: Job['verdicts'], lens: string, round: number): { verdict: string; round: number } | null {
+function lastVerdict(verdicts: Job['verdicts'], lens: string, round: number): { verdict: string; round: number } | null {
   for (let r = round - 1; r >= 1; r--) {
     const v = verdicts[String(r)]?.[lens];
     if (typeof v === 'string') return { verdict: v, round: r };

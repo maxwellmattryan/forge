@@ -22,7 +22,7 @@ export function checkRefs(job: Job): void {
 // `{worktree}` is filled unquoted, and job.json's `worktree` is agent-writable: it is trusted only
 // when it is literally the path Forge computes for the job, whatever characters the repo path holds.
 // Checked only for a template that uses it, so other commands run whatever the stored value is.
-export function assertOwnWorktree(root: string, config: Config, job: Job, dir: string, template: string): void {
+function assertOwnWorktree(root: string, config: Config, job: Job, dir: string, template: string): void {
   if (!template.includes('{worktree}') || isOwnWorktreePath(root, config, job.id, dir)) return;
   throw new ForgeError(`job.worktree ${JSON.stringify(dir).slice(0, 120)} is not this job's worktree: {worktree} is filled only with ${JSON.stringify(path.join(worktreeRoot(root, config), job.id)).slice(0, 120)}`);
 }

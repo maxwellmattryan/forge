@@ -23,13 +23,13 @@ const TIMEOUT_MS = 30_000;
 /** `docker run` pulls the image on demand. */
 const RUN_TIMEOUT_MS = 600_000;
 const DOCTOR_TIMEOUT_MS = 5_000;
-export const BACKING_HOST = '127.0.0.1';
+const BACKING_HOST = '127.0.0.1';
 
 /**
  * Always allowFail: run()'s throwing path puts the whole argv into the error message. A spawn error
  * (no status) whose message says ENOENT is a missing binary.
  */
-export const defaultRunner: DockerRunner = (args, opts = {}) => {
+const defaultRunner: DockerRunner = (args, opts = {}) => {
   const res = run('docker', args, { allowFail: true, timeoutMs: opts.timeoutMs ?? TIMEOUT_MS, input: opts.input });
   return { ...res, missing: res.status === null && /ENOENT/.test(res.stderr) };
 };
@@ -72,7 +72,7 @@ export function containerName(owner: string, name: string): string {
   return `forge-${owner}-${name}`;
 }
 
-export function volumeName(owner: string, name: string, i: number): string {
+function volumeName(owner: string, name: string, i: number): string {
   return `${containerName(owner, name)}-${i}`;
 }
 

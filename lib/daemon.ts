@@ -211,13 +211,13 @@ export const TURN = Object.freeze({
 export const TURN_LINE = JSON.stringify(TURN) + '\n';
 
 /** Request types that act on a job a budget stop may have parked. `approve` is the acknowledgement, so it is never held. */
-export const HOLD_TYPES: string[] = ['resume', 'rework', 'answer', 'revise-spec'];
+const HOLD_TYPES: string[] = ['resume', 'rework', 'answer', 'revise-spec'];
 
 /**
  * Request types the repo budget holds. Approving is no acknowledgement of a repo cap (only
  * `forge budget ack` is), so `approve` waits too; `cancel` never does.
  */
-export const REPO_HOLD_TYPES: string[] = [...HOLD_TYPES, 'approve'];
+const REPO_HOLD_TYPES: string[] = [...HOLD_TYPES, 'approve'];
 
 /**
  * Paths the session may never write, appended to every daemon command as --disallowedTools
@@ -309,7 +309,7 @@ export function modeReach(mode: string | null): number {
 }
 
 /** The control_request line asking claude to switch the session's permission mode. */
-export function modeRequest(requestId: string, mode: DaemonPermissionMode): string {
+function modeRequest(requestId: string, mode: DaemonPermissionMode): string {
   return JSON.stringify({ type: 'control_request', request_id: requestId, request: { subtype: 'set_permission_mode', mode } }) + '\n';
 }
 
@@ -372,7 +372,7 @@ export function ruleText(r: { toolName: string; ruleContent?: string }): string 
  * The control_response line answering a `can_use_tool` request. An allow echoes the input claude
  * sent, unchanged; a deny carries PERMISSION_DENIED. The human picks only the decision.
  */
-export function permissionResponse(requestId: string, decision: PermissionDecision, input: Record<string, unknown>, grant: SessionGrant): string {
+function permissionResponse(requestId: string, decision: PermissionDecision, input: Record<string, unknown>, grant: SessionGrant): string {
   let response: Record<string, unknown>;
   if (decision === 'deny') response = { behavior: 'deny', message: PERMISSION_DENIED };
   else {
@@ -414,7 +414,7 @@ export interface RateLimitInfo {
 }
 
 /** Reads `rate_limit_info` from a `rate_limit_event` line tolerantly; the shape is Claude Code's, not a contract. */
-export function parseRateLimit(info: unknown): RateLimitInfo | null {
+function parseRateLimit(info: unknown): RateLimitInfo | null {
   if (!info || typeof info !== 'object') return null;
   const r = info as Record<string, unknown>;
   if (typeof r.status !== 'string') return null;
@@ -429,7 +429,7 @@ export function parseRateLimit(info: unknown): RateLimitInfo | null {
  * usually started from a shell that exports one for some other tool, and a headless session
  * never asks which to use.
  */
-export const API_KEY_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const;
+const API_KEY_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const;
 
 /** The API_KEY_VARS that are set (non-empty) in `env`. */
 export function apiKeyVars(env: NodeJS.ProcessEnv): string[] {
@@ -506,7 +506,7 @@ export function heldByBudget(root: string, config: Config, rec: { type: string; 
 }
 
 /** A request is held while the repo budget holds new work and its job is not exempt (retro, or forced past the cap this month). */
-export function heldByRepoBudget(root: string, repo: RepoBudgetStatus | null | undefined, rec: { type: string; job: string | null }): boolean {
+function heldByRepoBudget(root: string, repo: RepoBudgetStatus | null | undefined, rec: { type: string; job: string | null }): boolean {
   if (!repo?.held || !REPO_HOLD_TYPES.includes(rec?.type) || !validJobId(rec.job)) return false;
   let job;
   try {
@@ -549,14 +549,14 @@ function appendLine(file: string, line: unknown): void {
 }
 
 /** How many replaced session ids a record remembers, so a job claimed by an old incarnation can be handed on. */
-export const MAX_PAST_SESSION_IDS = 20;
+const MAX_PAST_SESSION_IDS = 20;
 
 /**
  * The record after its session id becomes `next`: the old id (a uuid only, since the record is a
  * local file anyone with repo access can edit) joins `pastSessionIds`, deduped and capped. A record
  * runs one child at a time, so a past id names a session that has exited (lib/daemon-owner.ts).
  */
-export function withSessionId(info: any, next: string): any {
+function withSessionId(info: any, next: string): any {
   const kept = [...(Array.isArray(info.pastSessionIds) ? info.pastSessionIds : []), info.sessionId].filter((s: unknown): s is string => typeof s === 'string' && UUID.test(s) && s !== next);
   // Deduped keeping each id's latest position, so the cap drops the oldest.
   const past = kept.filter((s, i) => kept.lastIndexOf(s) === i);
@@ -1574,7 +1574,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   };
 }
 
-export function capLine(line: string): string {
+function capLine(line: string): string {
   const bytes = Buffer.byteLength(line);
   if (bytes <= RING_LINE_BYTES) return line;
   let originalType: unknown = null;
@@ -1589,7 +1589,7 @@ export function capLine(line: string): string {
  * than `max` is dropped up to its newline and reported through `onTooLong`; with no
  * `onTooLong` its first `max` bytes are kept instead.
  */
-export function splitter(max: number, onLine: (line: string) => void, onTooLong: ((bytes: number) => void) | null): (data: Buffer | string) => void {
+function splitter(max: number, onLine: (line: string) => void, onTooLong: ((bytes: number) => void) | null): (data: Buffer | string) => void {
   let parts: Buffer[] = [];
   let size = 0;
   let dropping = false;

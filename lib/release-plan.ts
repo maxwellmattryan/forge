@@ -21,7 +21,7 @@ import { ForgeError, assertSafeRef, fenced, now, run, safeText, writeJsonAtomic,
 /** The release.json and state.json format; a file of any other version is planned again, never read. */
 export const RELEASE_FILE_VERSION = 1;
 
-export const CHECK_KINDS = ['ready', 'clean', 'tagged', 'tag-pushed', 'remote-tagged', 'at-remote', 'registry'] as const;
+const CHECK_KINDS = ['ready', 'clean', 'tagged', 'tag-pushed', 'remote-tagged', 'at-remote', 'registry'] as const;
 export type CheckKind = (typeof CHECK_KINDS)[number];
 
 export type ReleaseSelection = { kind: 'job'; job: string } | { kind: 'since'; tag: string } | { kind: 'all' };
@@ -113,8 +113,8 @@ export interface PlanOptions {
   clone?: CloneResolver;
 }
 
-export const ROOT_LABEL = '(root)';
-export const labelOf = (repo: RepoKey): string => repo ?? ROOT_LABEL;
+const ROOT_LABEL = '(root)';
+const labelOf = (repo: RepoKey): string => repo ?? ROOT_LABEL;
 
 /** git in a clone with the fsmonitor off and no inherited GIT_DIR-style variables, as memberCheck runs it. */
 export const cloneGit: GitReader = (dir, args) => {

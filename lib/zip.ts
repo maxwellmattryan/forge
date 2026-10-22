@@ -33,7 +33,7 @@ export function dosDateTime(date: Date): { time: number; date: number } {
  * Why a name can't be an entry, or null: no `\`, which some extractors treat as a separator, no
  * control characters, and nothing that resolves outside the extraction dir.
  */
-export function unsafeEntryName(name: string): string | null {
+function unsafeEntryName(name: string): string | null {
   if (!name) return 'empty';
   if (name.includes('\\')) return 'a backslash';
   if (/[\u0000-\u001f\u007f-\u009f]/.test(name)) return 'a control character';

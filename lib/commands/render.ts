@@ -62,7 +62,7 @@ function renderObject(o: Record<string, unknown>, p: Paint): string {
     .join('\n');
 }
 
-export function renderTable(rows: Record<string, unknown>[], p: Paint): string {
+function renderTable(rows: Record<string, unknown>[], p: Paint): string {
   const cols: string[] = [];
   for (const r of rows) for (const k of Object.keys(r)) if (!cols.includes(k)) cols.push(k);
   const header = cols.map((k): Seg => ({ text: sanitize(k), style: p.bold }));

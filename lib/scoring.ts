@@ -19,10 +19,10 @@ import { ForgeError, run } from './util.ts';
 
 const DAY_MS = 86_400_000;
 /** Merges older than this are never queued: the bound on retrying a failed diff fetch. */
-export const SCORE_LOOKBACK_DAYS = 7;
+const SCORE_LOOKBACK_DAYS = 7;
 const PER_SYNC = 5;
 export const MAX_DIFF_BYTES = 1_048_576;
-export const MAX_SCORE_MD_BYTES = 65_536;
+const MAX_SCORE_MD_BYTES = 65_536;
 const TRUNCATED = `[forge: diff truncated at ${MAX_DIFF_BYTES} bytes]`;
 // One line, its parts separated by fixed tokens, so no two quantifiers can match the same characters.
 const SCORE_LINE = /^SCORE:\s*(\d(?:\.\d)?)\s*\/\s*5\s*$/;
@@ -52,7 +52,7 @@ export function mergeTime(job: Pick<Job, 'pr' | 'outcome'>): number | null {
 }
 
 /** Whether sync should queue a score run for `job` now: sampled, merged in the lookback, never scored. */
-export function scoreDue(job: Job, now: Date, config: Config): boolean {
+function scoreDue(job: Job, now: Date, config: Config): boolean {
   if (job.kind === 'eval' || job.pr?.state !== 'MERGED' || job.score !== null) return false;
   if (!isSampled(job.id, config.scoring?.sample ?? 0)) return false;
   const at = mergeTime(job);
