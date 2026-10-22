@@ -5,10 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { defaults, worktreeRoot } from '../lib/config.ts';
-import { createJob, loadJob, readEvents, setJob } from '../lib/jobs.ts';
-import { ForgeError, SAFE_REF, assertSafeRef } from '../lib/util.ts';
-import { createWorktree } from '../lib/worktree.ts';
+import { defaults, worktreeRoot } from '../lib/core/config/load.ts';
+import { createJob, loadJob, readEvents, setJob } from '../lib/core/job/store.ts';
+import { ForgeError } from '../lib/core/errors.ts';
+import { SAFE_REF, assertSafeRef } from '../lib/core/text.ts';
+import { createWorktree } from '../lib/engine/workspace/worktree.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 

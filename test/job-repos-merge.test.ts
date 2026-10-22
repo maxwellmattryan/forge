@@ -8,8 +8,8 @@ import path from 'node:path';
 import { dependsOn, prProject, ready } from './job-repos-fixture.ts';
 import type { PrProject } from './job-repos-fixture.ts';
 import { forgeInProcess } from './helpers.ts';
-import { loadJob } from '../lib/jobs.ts';
-import { SIBLINGS_END, SIBLINGS_START, spliceSiblings } from '../lib/pr.ts';
+import { loadJob } from '../lib/core/job/store.ts';
+import { SIBLINGS_END, SIBLINGS_START, spliceSiblings } from '../lib/engine/pr/lifecycle.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => cleanups.forEach((c) => c()));

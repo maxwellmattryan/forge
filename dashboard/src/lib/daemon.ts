@@ -180,7 +180,7 @@ export function sessionToggle(controls: { canStart: boolean; canStop: boolean },
   return { action: 'stop', enabled: controls.canStop };
 }
 
-/** The modes a session can be switched to: lib/daemon.ts PERMISSION_MODES. */
+/** The modes a session can be switched to: lib/office/session/lifecycle.ts PERMISSION_MODES. */
 export const PERMISSION_MODES: readonly DaemonPermissionMode[] = ['default', 'auto', 'dontAsk'];
 
 function chosenOverride(p: Record<string, any>, scope: string): DaemonPermissionMode | null {

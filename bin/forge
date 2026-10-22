@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 startupCache();
-const { main, reportError } = await import('../lib/cli.ts');
+const { main, reportError } = await import('../lib/cli/main.ts');
 
 const argv = process.argv.slice(2);
 // reportError prints the error (one JSON line on stdout under --json, error:/fix: lines in human

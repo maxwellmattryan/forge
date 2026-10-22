@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { defaults, lensNeedsApp, panelPathsProblems, reviewerChecklist, validateConfig } from '../lib/config.ts';
-import { PLUGIN_ROOT } from '../lib/paths.ts';
-import { choosePanel, reworkPanel, selectPanel } from '../lib/step.ts';
-import type { Config } from '../lib/types.ts';
+import { defaults, lensNeedsApp, panelPathsProblems, reviewerChecklist, validateConfig } from '../lib/core/config/load.ts';
+import { PLUGIN_ROOT } from '../lib/core/paths.ts';
+import { choosePanel, reworkPanel, selectPanel } from '../lib/engine/pipeline/step.ts';
+import type { Config } from '../lib/core/types.ts';
 
 const ROOT = process.cwd();
 

@@ -5,14 +5,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { trustDigest } from '../lib/config.ts';
-import { parseReview } from '../lib/jobs.ts';
-import { CONFIG_SCHEMA_VERSION, normalizeJob } from '../lib/schema.ts';
-import { computeStats } from '../lib/stats.ts';
-import { statsText } from '../lib/commands/status.ts';
-import { loadVerifiers, parseAnswers, readAnswers, renderInput, renderReport, splitDiff } from '../lib/verifiers.ts';
-import type { VerifierResult } from '../lib/verifiers.ts';
-import type { Verifier } from '../lib/types.ts';
+import { trustDigest } from '../lib/core/config/load.ts';
+import { parseReview } from '../lib/core/job/store.ts';
+import { CONFIG_SCHEMA_VERSION, normalizeJob } from '../lib/core/job/schema.ts';
+import { computeStats } from '../lib/engine/metrics/stats.ts';
+import { statsText } from '../lib/cli/commands/status.ts';
+import { loadVerifiers, parseAnswers, readAnswers, renderInput, renderReport, splitDiff } from '../lib/engine/pipeline/verifiers.ts';
+import type { VerifierResult } from '../lib/engine/pipeline/verifiers.ts';
+import type { Verifier } from '../lib/core/types.ts';
 
 function scratch(): { root: string; dir: string; put: (name: string, text: string) => string; cleanup: () => void } {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-verifiers-')));

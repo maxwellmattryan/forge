@@ -10,12 +10,12 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { forgeInProcess, forgeSync, repoTemplate, waitFor } from '../../helpers.ts';
 import { FIXTURE_DIST } from '../../dist.ts';
-import { startServer, textFrame } from '../../../lib/server.ts';
-import { recordKnown } from '../../../lib/known-secrets.ts';
-import { parseMemUsage, parsePercent } from '../../../lib/environment.ts';
-import { pidAlive } from '../../../lib/util.ts';
-import { parseDevProbe } from '../../../lib/worktree.ts';
-import * as yaml from '../../../lib/yaml.ts';
+import { startServer, textFrame } from '../../../lib/server/start.ts';
+import { recordKnown } from '../../../lib/engine/guard/known-secrets.ts';
+import { parseMemUsage, parsePercent } from '../../../lib/engine/environment/status.ts';
+import { pidAlive } from '../../../lib/core/os/process.ts';
+import { parseDevProbe } from '../../../lib/engine/workspace/worktree.ts';
+import * as yaml from '../../../lib/core/format/yaml.ts';
 
 const DEV_SERVER = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'dev-server.mjs');
 const DOCKER_BIN = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'docker-bin');

@@ -130,7 +130,7 @@ Every error carries one of these codes, and the code fixes the exit.
 - Help works before `.forge/config.yml` exists and outside any git repository. A first word that is not a command exits 2 (`unknown_command`); a second word that is not a subcommand shows the group's help.
 - `--json` prints the tables instead: `{"version", "groups"}` for the overview, the group for a group, and `{"command", "args", "summary", "flags", "exits", "docs"}` for a command.
 
-The tables live beside each command module as `HELP` (`lib/commands/<group>.ts`; the commands `lib/cli.ts` routes itself are in `lib/commands/help.ts`). They also build every `usage:` error and README's CLI table: `npm run docs:commands` regenerates it.
+The tables live beside each command module as `HELP` (`lib/cli/commands/<group>.ts`; the commands `lib/cli/main.ts` routes itself are in `lib/cli/commands/help.ts`). They also build every `usage:` error and README's CLI table: `npm run docs:commands` regenerates it.
 
 ## Environment variables
 
@@ -339,7 +339,7 @@ Before writing, stderr lists every entry with its size, any file it skipped and 
 | `manifest.json` | `{createdAt, forgeVersion, includeText, jobs, entries, skipped, redactions}` |
 | `doctor.json` | what `forge doctor` prints |
 | `versions.json` | `{forge, node, git, gh, glab, os}`; a missing tool is `null` |
-| `config.json` | the effective config, with every value that names a command, path, URL or person, and every key Forge doesn't know, replaced by `<redacted>` (`CONFIG_DISCLOSURE` in `lib/config-fields.ts`) |
+| `config.json` | the effective config, with every value that names a command, path, URL or person, and every key Forge doesn't know, replaced by `<redacted>` (`CONFIG_DISCLOSURE` in `lib/core/config/fields.ts`) |
 | `daemon/inbox.log`, `daemon/office.log` | without a job: the last 500 lines of the inbox and office session logs |
 | `jobs/<id>/job.json`, `events.jsonl`, `step.json` | the job, every event, and what `forge job step` decides now |
 | `jobs/<id>/verify/round-<n>.md` | the last 200 lines of the newest verify round |

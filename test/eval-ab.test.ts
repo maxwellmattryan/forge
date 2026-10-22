@@ -4,10 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { evalScratch, forgeAsync } from './helpers.ts';
-import { aggregateTasks, jobTiming, stat } from '../lib/eval-stats.ts';
-import { compareRuns, listRuns, pluginHash, summarize } from '../lib/evals.ts';
-import { loadJob } from '../lib/jobs.ts';
-import { PLUGIN_ROOT } from '../lib/paths.ts';
+import { aggregateTasks, jobTiming, stat } from '../lib/engine/evals/stats.ts';
+import { compareRuns, listRuns, pluginHash, summarize } from '../lib/engine/evals/run.ts';
+import { loadJob } from '../lib/core/job/store.ts';
+import { PLUGIN_ROOT } from '../lib/core/paths.ts';
 
 const T0 = Date.parse('2026-01-01T00:00:00.000Z');
 const at = (min: number) => new Date(T0 + min * 60_000).toISOString();
@@ -75,10 +75,10 @@ test('pluginHash covers prompts, checklists, the skill, step and brief only', ()
     'reviewers/code.md': 'code lens',
     'skills/forge/SKILL.md': 'skill',
     'skills/forge/reference/evals.md': 'evals',
-    'lib/step.ts': 'step',
-    'lib/step/stages/build.ts': 'build stage',
-    'lib/brief.ts': 'brief',
-    'lib/evals.ts': 'evals engine',
+    'lib/engine/pipeline/step.ts': 'step',
+    'lib/engine/pipeline/step/stages/build.ts': 'build stage',
+    'lib/engine/pipeline/brief.ts': 'brief',
+    'lib/engine/evals/run.ts': 'evals engine',
     'README.md': 'readme',
   };
   const put = (rel: string, text: string) => {
@@ -97,7 +97,7 @@ test('pluginHash covers prompts, checklists, the skill, step and brief only', ()
       undo();
       assert.equal(pluginHash(root), h0, `${label}: undone`);
     };
-    for (const rel of ['agents/builder.md', 'reviewers/code.md', 'skills/forge/SKILL.md', 'skills/forge/reference/evals.md', 'lib/step.ts', 'lib/step/stages/build.ts', 'lib/brief.ts'])
+    for (const rel of ['agents/builder.md', 'reviewers/code.md', 'skills/forge/SKILL.md', 'skills/forge/reference/evals.md', 'lib/engine/pipeline/step.ts', 'lib/engine/pipeline/step/stages/build.ts', 'lib/engine/pipeline/brief.ts'])
       changes(`edit ${rel}`, () => put(rel, 'changed'), () => put(rel, files[rel]), true);
     changes('add an agent', () => put('agents/new.md', 'new'), () => fs.rmSync(path.join(root, 'agents/new.md')), true);
     changes('add a skill file', () => put('skills/forge/reference/deep/x.md', 'x'), () => fs.rmSync(path.join(root, 'skills/forge/reference/deep'), { recursive: true }), true);
@@ -106,7 +106,7 @@ test('pluginHash covers prompts, checklists, the skill, step and brief only', ()
     const to = path.join(root, 'skills/forge/reference/other.md');
     changes('rename a skill file', () => fs.renameSync(from, to), () => fs.renameSync(to, from), true);
 
-    for (const rel of ['README.md', 'lib/evals.ts', 'agents/sub/x.md', 'agents/notes.txt'])
+    for (const rel of ['README.md', 'lib/engine/evals/run.ts', 'agents/sub/x.md', 'agents/notes.txt'])
       changes(`edit ${rel}`, () => put(rel, 'changed'), () => put(rel, files[rel]), false);
     const link = path.join(root, 'agents', 'link.md');
     changes('a symlinked prompt', () => fs.symlinkSync(path.join(root, 'README.md'), link), () => fs.rmSync(link), false);

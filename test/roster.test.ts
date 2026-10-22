@@ -4,10 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { defaults, validateConfig } from '../lib/config.ts';
-import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
-import { initWrite } from '../lib/commands/init.ts';
-import { modelFamily, modelOverlap, roster } from '../lib/roster.ts';
+import { defaults, validateConfig } from '../lib/core/config/load.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
+import { initWrite } from '../lib/cli/commands/init.ts';
+import { modelFamily, modelOverlap, roster } from '../lib/engine/pipeline/roster.ts';
 
 const warning = (role, model, builder) => `${role} runs on ${model}, the same model family as the builder (${builder}); runtime.diversity asks for a different one`;
 

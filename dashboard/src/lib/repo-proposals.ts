@@ -1,11 +1,11 @@
-// A job's repo proposals as the dashboard shows them: the RP1 park (lib/step/gates.ts) that tells this `human` wait
+// A job's repo proposals as the dashboard shows them: the RP1 park (lib/engine/pipeline/step/gates.ts) that tells this `human` wait
 // apart, the rows of repo-proposals.json (agent-written job state, so parsed defensively and rendered as text),
-// and the POST that decides them (lib/server.ts). Plain TS, so test/dashboard-repo-proposals.test.ts can pin it.
+// and the POST that decides them (lib/server/start.ts). Plain TS, so test/dashboard-repo-proposals.test.ts can pin it.
 import type { Job, PostJobReposBody, PostJobReposResponse, RepoProposal } from './types.ts';
 
-/** RP1's reason prefix, as lib/repo-proposals.ts PARK_PREFIX. */
+/** RP1's reason prefix, as lib/engine/project/repo-proposals.ts PARK_PREFIX. */
 export const REPO_PROPOSAL_PREFIX = 'repo proposal:';
-/** lib/member-repos.ts REPO_NAME: a row whose repo fails it is dropped. */
+/** lib/engine/project/member-repos.ts REPO_NAME: a row whose repo fails it is dropped. */
 const REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const REASON_MAX = 200;
 const NOTE_MAX = 2000;

@@ -2,9 +2,9 @@
 // test/step-purity.test.ts runs the same fixtures without registering step.test.ts's tests.
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { shellLine, step } from '../lib/step.ts';
-import type { Config, Job, StepInput, VerifyRun } from '../lib/types.ts';
-import { PLUGIN_ROOT } from '../lib/paths.ts';
+import { shellLine, step } from '../lib/engine/pipeline/step.ts';
+import type { Config, Job, StepInput, VerifyRun } from '../lib/core/types.ts';
+import { PLUGIN_ROOT } from '../lib/core/paths.ts';
 import { JOB_DIR, RECALL_HASH, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
 import type { FixtureOpts } from './step-fixture.ts';
 
@@ -944,7 +944,7 @@ export const rows: Row[] = [
   // ---- Recall eval before the approver (RC1, RC2)
   { name: 'RC1 a diff touching agents/ runs the recall procedure', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] } }, want: { action: 'procedure', rule: 'RC1', reference: RECALL_MD } },
   { name: 'RC1 a diff touching reviewers/code.md runs it', fx: { job: freshDecide(), recall: { changed: ['lib/x.ts', 'reviewers/code.md'] } }, want: { action: 'procedure', reference: RECALL_MD } },
-  { name: 'RC1 a diff touching lib/brief.ts runs it', fx: { job: freshDecide(), recall: { changed: ['lib/brief.ts'] } }, want: { action: 'procedure', reference: RECALL_MD } },
+  { name: 'RC1 a diff touching lib/engine/pipeline/brief.ts runs it', fx: { job: freshDecide(), recall: { changed: ['lib/engine/pipeline/brief.ts'] } }, want: { action: 'procedure', reference: RECALL_MD } },
   { name: 'RC1 one start for these prompts runs it again', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] }, events: [recallStart(30)] }, want: { action: 'procedure' } },
   { name: 'RC1 a record for another hash', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] }, events: [recallStart(30, 'ffffffffff'), recallRecord(31, 'ffffffffff')] }, want: { action: 'procedure' } },
   {

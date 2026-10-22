@@ -33,9 +33,9 @@ function scratch(): string {
 
 const stripDir = (cache: string) => path.join(cache, 'strip', process.version);
 
-/** A stand-in for lib/cli.ts in the strip cache, under the key the real file's content gives. */
+/** A stand-in for lib/cli/main.ts in the strip cache, under the key the real file's content gives. */
 function plant(cache: string) {
-  const src = fs.readFileSync(path.join(ROOT, 'lib', 'cli.ts'), 'utf8');
+  const src = fs.readFileSync(path.join(ROOT, 'lib', 'cli', 'main.ts'), 'utf8');
   fs.mkdirSync(stripDir(cache), { recursive: true, mode: 0o700 });
   const file = path.join(stripDir(cache), `${createHash('sha256').update(src).digest('hex')}.js`);
   fs.writeFileSync(file, `export async function main() { process.stdout.write(${JSON.stringify(PLANTED)}); }\nexport function reportError() { return 1; }\n`);
@@ -57,7 +57,7 @@ describe('start-up cache', { concurrency: 4 }, () => {
       assert.ok(fs.readdirSync(path.join(cache, 'v8')).length > 0, 'V8 code cache written');
       if (STRIPS) {
         const entries = fs.readdirSync(stripDir(cache));
-        assert.ok(entries.includes(`${createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'lib', 'cli.ts'), 'utf8')).digest('hex')}.js`));
+        assert.ok(entries.includes(`${createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'lib', 'cli', 'main.ts'), 'utf8')).digest('hex')}.js`));
         assert.ok(entries.every((f) => /^[0-9a-f]{64}\.js$/.test(f)), 'no temp files left behind');
       } else {
         assert.ok(!fs.existsSync(path.join(cache, 'strip')));

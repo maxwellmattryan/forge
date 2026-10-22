@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { hasAttribution, stripAttribution, scrubBranch } from '../lib/attribution.ts';
-import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
+import { hasAttribution, stripAttribution, scrubBranch } from '../lib/engine/guard/attribution.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
 
 const HOOK = path.resolve(import.meta.dirname, '..', 'hooks', 'no-ai-attribution.ts');
 

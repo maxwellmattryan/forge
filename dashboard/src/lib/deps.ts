@@ -1,5 +1,5 @@
 // Dependency links between jobs (`dependsOn`), derived from /api/state jobs. Done is green,
-// missing or cancelled red, anything else amber, matching lib/deps.ts where only `done` counts.
+// missing or cancelled red, anything else amber, matching lib/engine/pipeline/deps.ts where only `done` counts.
 // No DOM access, so node:test can import it; DepChips.svelte and DepSection.svelte render the links.
 // depLabel and depChipTitle shape the board card's chips; depHint stays as the drawer's title text.
 import type { Job } from './types.ts';

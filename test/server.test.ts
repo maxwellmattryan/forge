@@ -11,13 +11,13 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { budgetRepo } from './repo-budget-fixture.ts';
 import { twoRepo } from './job-repos-fixture.ts';
-import { broadcast, distAllowlist, distDirFor, startServer as serve } from '../lib/server.ts';
+import { broadcast, distAllowlist, distDirFor, startServer as serve } from '../lib/server/start.ts';
 import { FIXTURE_DIST } from './dist.ts';
-import { DEV_DIST_DIR } from '../lib/paths.ts';
-import { TURN_LINE } from '../lib/daemon.ts';
-import * as yaml from '../lib/yaml.ts';
+import { DEV_DIST_DIR } from '../lib/core/paths.ts';
+import { TURN_LINE } from '../lib/office/session/lifecycle.ts';
+import * as yaml from '../lib/core/format/yaml.ts';
 import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
-import { API_VERSION, CONFIG_SCHEMA_VERSION, JOB_SCHEMA_VERSION, sanitizeLogin } from '../lib/schema.ts';
+import { API_VERSION, CONFIG_SCHEMA_VERSION, JOB_SCHEMA_VERSION, sanitizeLogin } from '../lib/core/job/schema.ts';
 
 // Every server here serves the committed fixture dist unless a test names its own, so the page (and the token
 // in it) needs no real build: develop never commits dashboard/dist/.
@@ -1164,7 +1164,7 @@ test('api/config masks notify webhook urls and the command', async () => {
 });
 
 test('/api/config reads the schema and writes only editable keys', async () => {
-  const { FIELDS } = await import('../lib/config-fields.ts');
+  const { FIELDS } = await import('../lib/core/config/fields.ts');
   const bare = tempRepo();
   let srv = await startServer(bare.dir, { port: 0, daemon: fakeChildren().opts });
   try {
@@ -1286,9 +1286,9 @@ test('GET /api/doctor runs forge doctor behind the token', async () => {
 });
 
 test('GET /api/about reports versions', async () => {
-  const schema = await import('../lib/schema.ts');
-  const { PLUGIN_ROOT } = await import('../lib/paths.ts');
-  const { versionInfo } = await import('../lib/version.ts');
+  const schema = await import('../lib/core/job/schema.ts');
+  const { PLUGIN_ROOT } = await import('../lib/core/paths.ts');
+  const { versionInfo } = await import('../lib/engine/ops/version.ts');
   const root = path.resolve(import.meta.dirname, '..');
   const repo = tempRepo();
   const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
@@ -1302,7 +1302,7 @@ test('GET /api/about reports versions', async () => {
     assert.equal(a.apiVersion, API_VERSION);
     assert.equal(a.pluginRoot, PLUGIN_ROOT);
     assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
-    assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);
+    assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'integrations', 'claude', 'pricing.json'), 'utf8')).asOf);
     assert.equal(a.node, process.versions.node);
     assert.deepEqual(a.links, { repo: 'https://github.com/maxwellmattryan/forge', docs: 'https://github.com/maxwellmattryan/forge/tree/main/docs' });
     const v = versionInfo(PLUGIN_ROOT);
@@ -1589,7 +1589,7 @@ test('job detail lists the job\'s requests', async () => {
   const repo = tempRepo();
   const a = seedJob(repo.dir, 'job-a');
   const b = seedJob(repo.dir, 'job-b');
-  const { enqueue, claimRequest, ackRequest } = await import('../lib/requests.ts');
+  const { enqueue, claimRequest, ackRequest } = await import('../lib/core/job/requests.ts');
   const ids: string[] = [];
   for (let i = 0; i < 55; i++) {
     ids.push(enqueue(repo.dir, null, { type: 'answer', job: a, text: `answer ${i}`, from: 'dashboard' }).id);

@@ -4,7 +4,7 @@
 // properties only, never which jobs, steps or keys a workflow has: those change with every CI edit.
 import fs from 'node:fs';
 import path from 'node:path';
-import { parse } from '../lib/yaml.ts';
+import { parse } from '../lib/core/format/yaml.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 

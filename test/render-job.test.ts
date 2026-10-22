@@ -1,9 +1,9 @@
 // lib/commands/render/job.ts: `forge job list|show|step|claim|note` in human mode.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { jobClaim, jobList, jobNote, jobShow, jobStep } from '../lib/commands/render/job.ts';
+import { jobClaim, jobList, jobNote, jobShow, jobStep } from '../lib/cli/commands/render/job.ts';
 import { HOSTILE, assertSafe, hasLines, plain } from './render-helpers.ts';
-import type { StepSpawn } from '../lib/types.ts';
+import type { StepSpawn } from '../lib/core/types.ts';
 
 const listRow = (o: Record<string, unknown>) => ({ id: 'j', title: 'T', stage: 'build', state: 'running', waitingOn: null, round: 0, pr: null, owner: null, effort: null, ...o });
 

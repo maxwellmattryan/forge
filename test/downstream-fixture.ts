@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, scratchGitConfig } from './helpers.ts';
-import * as yaml from '../lib/yaml.ts';
+import * as yaml from '../lib/core/format/yaml.ts';
 
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, stdio: 'pipe', encoding: 'utf8' });
 

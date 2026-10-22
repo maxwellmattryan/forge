@@ -1,6 +1,6 @@
 <!-- The command bar (Cmd/Ctrl-K): a modal ARIA combobox that starts a job from free text or sends a /forge-style command.
      A centred sheet at md and up, a full-width sheet at the top below. It starts from the text typed into the status bar's
-     input, with the caret at the end. lib/command.ts holds the grammar and mapping. -->
+     input, with the caret at the end. src/lib/command.ts holds the grammar and mapping. -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import Chip from './Chip.svelte';

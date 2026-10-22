@@ -10,16 +10,16 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { forgeAsync, waitFor } from './helpers.ts';
 import { ago, repo, seedJob, tree } from './retention-fixture.ts';
-import { rootLabel } from '../lib/backing.ts';
-import { TRUST_ENV, defaults, trustDigest, validateConfig } from '../lib/config.ts';
-import { JOB_SCHEMA_VERSION } from '../lib/schema.ts';
-import { CONFIG_DISCLOSURE, FIELDS, disclosureOf } from '../lib/config-fields.ts';
-import { unmetDependencies } from '../lib/deps.ts';
-import { storageCheck } from '../lib/doctor.ts';
-import { createJob, jobDir, loadJob, readEvents, updateJob } from '../lib/jobs.ts';
-import { retroDue } from '../lib/retro.ts';
-import { computeStats } from '../lib/stats.ts';
-import type { Job, LoadedJob } from '../lib/types.ts';
+import { rootLabel } from '../lib/engine/environment/backing.ts';
+import { TRUST_ENV, defaults, trustDigest, validateConfig } from '../lib/core/config/load.ts';
+import { JOB_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
+import { CONFIG_DISCLOSURE, FIELDS, disclosureOf } from '../lib/core/config/fields.ts';
+import { unmetDependencies } from '../lib/engine/pipeline/deps.ts';
+import { storageCheck } from '../lib/engine/ops/doctor.ts';
+import { createJob, jobDir, loadJob, readEvents, updateJob } from '../lib/core/job/store.ts';
+import { retroDue } from '../lib/engine/evals/retro.ts';
+import { computeStats } from '../lib/engine/metrics/stats.ts';
+import type { Job, LoadedJob } from '../lib/core/types.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const DOCKER_BIN = path.resolve(import.meta.dirname, 'fixtures', 'docker-bin');
@@ -401,7 +401,7 @@ function get(port: number, p: string): Promise<any> {
 
 test('archived jobs only in stats', async () => {
   const r = repo();
-  const { startServer } = await import('../lib/server.ts');
+  const { startServer } = await import('../lib/server/start.ts');
   try {
     const gone = seedJob(r.dir, 'Gone');
     const kept = seedJob(r.dir, 'Kept', { state: 'running', stage: 'build' });

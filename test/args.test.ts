@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { num, oneOf, parseArgs, requireJob, str } from '../lib/commands/args.ts';
-import { ForgeError, coerce } from '../lib/util.ts';
+import { num, oneOf, parseArgs, requireJob, str } from '../lib/cli/commands/args.ts';
+import { ForgeError } from '../lib/core/errors.ts';
+import { coerce } from '../lib/core/text.ts';
 
 test('parseArgs: bare, empty and repeated flags', () => {
   assert.deepEqual(parseArgs(['--x']).flags, { x: true });

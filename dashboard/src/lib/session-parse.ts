@@ -44,7 +44,7 @@ export interface ToolResult {
 export interface TaskInfo {
   /** running, completed, failed, … as claude names them. */
   status: string | null;
-  /** The task's current step, from task_progress ("Editing lib/step.ts"). */
+  /** The task's current step, from task_progress ("Editing lib/engine/pipeline/step.ts"). */
   activity: string;
   tokens: number | null;
   toolUses: number | null;
@@ -130,7 +130,7 @@ export function toolResult(isError: boolean, content: string): ToolResult {
   return { isError, preview: clip(content, PREVIEW_CHARS), full: content, more: content.length > PREVIEW_CHARS };
 }
 
-/** The task's one line: `completed · Editing lib/step.ts · 12 tools · 32k tokens · 1m 7s`, whichever parts are known. */
+/** The task's one line: `completed · Editing lib/engine/pipeline/step.ts · 12 tools · 32k tokens · 1m 7s`, whichever parts are known. */
 export function taskText(t: Omit<TaskInfo, 'text'>): string {
   const bits = [t.status ?? '', clip(t.activity, SUMMARY_CHARS), t.toolUses !== null ? `${t.toolUses} ${t.toolUses === 1 ? 'tool' : 'tools'}` : '', t.tokens !== null ? `${tokensShort(t.tokens)} tokens` : '', t.durationMs !== null ? dur(t.durationMs) : ''];
   return bits.filter(Boolean).join(' · ');

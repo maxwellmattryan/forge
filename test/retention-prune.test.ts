@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { forgeAsync } from './helpers.ts';
 import { DAY, repo, seedJob, tree } from './retention-fixture.ts';
-import { jobDir } from '../lib/jobs.ts';
+import { jobDir } from '../lib/core/job/store.ts';
 
 const ACTOR = { FORGE_ACTOR: 'tester' };
 

@@ -4,10 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
 import { closedPort, hookServer } from './notify-server.ts';
-import { defaults } from '../lib/config.ts';
-import { createJob, readEvents, setJob } from '../lib/jobs.ts';
-import { notifyProblems, validWebhooks } from '../lib/notify-config.ts';
-import { REASONS, buildPayload, cleanText, contextFor, deliver, notifyLogFile, slackPayload, transitionEvents } from '../lib/notify.ts';
+import { defaults } from '../lib/core/config/load.ts';
+import { createJob, readEvents, setJob } from '../lib/core/job/store.ts';
+import { notifyProblems, validWebhooks } from '../lib/core/config/validators/notify.ts';
+import { REASONS, buildPayload, cleanText, contextFor, deliver, notifyLogFile, slackPayload, transitionEvents } from '../lib/office/notify.ts';
 
 const DASH = 'http://127.0.0.1:7400/#/pipeline';
 

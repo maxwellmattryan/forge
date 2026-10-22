@@ -1,8 +1,8 @@
-// The release scripts' one git runner: lib/git.ts's pins and clean env, so lib/ and scripts/ share
+// The release scripts' one git runner: lib/integrations/git/runner.ts's pins and clean env, so lib/ and scripts/ share
 // one pin list. Each script keeps its own error handling around it.
 import { spawnSync } from 'node:child_process';
 import type { SpawnSyncOptions, SpawnSyncReturns } from 'node:child_process';
-import { gitEnv, pinArgs } from '../lib/git.ts';
+import { gitEnv, pinArgs } from '../lib/integrations/git/runner.ts';
 
 type GitSyncOpts = Omit<SpawnSyncOptions, 'env' | 'encoding'> & { env?: NodeJS.ProcessEnv };
 

@@ -90,7 +90,7 @@ The skill can be invoked as `/forge` or, fully qualified, `/forge:forge`.
 
 The `forge` CLI underneath is also for scripts, CI and other agent runtimes: `forge help <command>` prints a command's flags and exit codes, `--mode human|agent` (or `FORGE_MODE`) picks text for a terminal or JSON for a program, and inside Claude Code it is always agent. [docs/CLI.md](docs/CLI.md) covers `--json`, the output mode, exit and error codes, environment variables and what stays stable. The commands worth knowing by hand:
 
-<!-- forge:commands:start (generated from lib/commands/*.ts by npm run docs:commands; edit those tables) -->
+<!-- forge:commands:start (generated from lib/cli/commands/*.ts by npm run docs:commands; edit those tables) -->
 | Command | What it does |
 |---|---|
 | `forge audit --since <date> [--until <date>] [--json\|--csv]` | every job's audit rows (forge job audit) and the repo-level ones such as config set (job null), with since <= ts < until, sorted by time then job; dates are YYYY-MM-DD (UTC midnight) or full ISO timestamps, and until defaults to now (see [Audit trail](docs/ARCHITECTURE.md#audit-trail)) |

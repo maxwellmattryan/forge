@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { defaults } from '../lib/config.ts';
-import { REAL_SCORE_WINDOW_DAYS, compareRuns } from '../lib/evals.ts';
-import { createJob, jobDir, setJob } from '../lib/jobs.ts';
-import { prepareRetro } from '../lib/retro.ts';
-import { computeStats } from '../lib/stats.ts';
-import type { JobScore } from '../lib/types.ts';
+import { defaults } from '../lib/core/config/load.ts';
+import { REAL_SCORE_WINDOW_DAYS, compareRuns } from '../lib/engine/evals/run.ts';
+import { createJob, jobDir, setJob } from '../lib/core/job/store.ts';
+import { prepareRetro } from '../lib/engine/evals/retro.ts';
+import { computeStats } from '../lib/engine/metrics/stats.ts';
+import type { JobScore } from '../lib/core/types.ts';
 
 const AT = '2026-10-10T00:00:00.000Z';
 const score = (status: JobScore['status'], extra: Partial<JobScore> = {}): JobScore => ({

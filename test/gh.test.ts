@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { gh, ghAsync, ghGraphql, ghJson } from '../lib/gh.ts';
-import { ForgeError } from '../lib/util.ts';
+import { gh, ghAsync, ghGraphql, ghJson } from '../lib/integrations/github/gh.ts';
+import { ForgeError } from '../lib/core/errors.ts';
 import { fakeGh } from './helpers.ts';
 
 test('a hung gh times out', { skip: process.platform === 'win32' }, async () => {

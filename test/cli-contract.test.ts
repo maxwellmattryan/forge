@@ -7,9 +7,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
 import { forgeInProcess, repoTemplate } from './helpers.ts';
-import { ConfigSetError } from '../lib/config-fields.ts';
-import { DEFAULT_CODE, ERROR_CODES, ForgeError, run } from '../lib/util.ts';
-import { GROUPS, README_END, README_START, findHelp, readmeTable, syncReadme, toCliError } from '../lib/commands/help.ts';
+import { ConfigSetError } from '../lib/core/config/fields.ts';
+import { DEFAULT_CODE, ERROR_CODES, ForgeError } from '../lib/core/errors.ts';
+import { run } from '../lib/core/os/process.ts';
+import { GROUPS, README_END, README_START, findHelp, readmeTable, syncReadme, toCliError } from '../lib/cli/commands/help.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const BIN = path.join(ROOT, 'bin', 'forge');
@@ -570,19 +571,19 @@ describe('the spawned CLI', { concurrency: 4 }, () => {
 
   test('help covers every routed command', async () => {
     const labels = (src: string) => new Set([...src.matchAll(/case '([^']+)':/g)].map((m) => m[1]));
-    const cli = read('lib/cli.ts');
+    const cli = read('lib/cli/main.ts');
     const routed = labels(cli.slice(cli.indexOf('export async function dispatch')));
     for (const extra of ['help', 'version', 'update']) routed.add(extra);
     assert.deepEqual([...routed].sort(), GROUPS.map((g) => g.name).sort());
 
     const subcommands = (name: string) => GROUPS.find((g) => g.name === name)!.commands.map((c) => c.command.slice(name.length + 1)).sort();
-    const job = labels(read('lib/commands/job.ts'));
+    const job = labels(read('lib/cli/commands/job.ts'));
     job.add('advance');
     assert.deepEqual([...job].sort(), subcommands('job'));
-    assert.deepEqual([...labels(read('lib/commands/eval.ts'))].sort(), subcommands('eval'));
-    assert.deepEqual([...labels(read('lib/commands/tracker.ts'))].sort(), subcommands('tracker'));
+    assert.deepEqual([...labels(read('lib/cli/commands/eval.ts'))].sort(), subcommands('eval'));
+    assert.deepEqual([...labels(read('lib/cli/commands/tracker.ts'))].sort(), subcommands('tracker'));
 
-    // lib/cli.ts only routes: no help or usage text of its own (AC10).
+    // lib/cli/main.ts only routes: no help or usage text of its own (AC10).
     assert.doesNotMatch(cli, /usage:|Usage:|HELP/);
 
     const s = scratch();

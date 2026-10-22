@@ -1,5 +1,5 @@
 // Per-job budget use, derived client-side from fields /api/state already serves. Mirrors
-// effectiveLimits/measureBudget/exceededKeys in lib/budget.ts (the dashboard cannot import lib/).
+// effectiveLimits/measureBudget/exceededKeys in lib/engine/metrics/budget.ts (the dashboard cannot import lib/).
 // No DOM access, so node:test can import it. The view models return raw strings: BudgetChip, BudgetCell and
 // BudgetPanel render them, and Svelte escapes them.
 import { num, usd, ago } from './util.ts';
@@ -35,7 +35,7 @@ export interface BudgetRow {
 /** job.json can be hand-edited, so despite the type every field is read through obj()/fin(). */
 type JobInput = Job | null | undefined;
 
-/** The keys daemon.jobBudget fills: lib/budget.ts SPEND_KEYS. */
+/** The keys daemon.jobBudget fills: lib/engine/metrics/budget.ts SPEND_KEYS. */
 const SPEND_KEYS = ['tokens', 'usd', 'minutes'] as const;
 
 /** /api/state's daemon.jobBudget when the daemon is on, else null: what budgetRows fills a job with no spend limit from. */

@@ -5,11 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { scratchGitConfig, tempRepo } from './helpers.ts';
-import { defaults, loadConfig } from '../lib/config.ts';
-import { loadJob, setJob } from '../lib/jobs.ts';
-import { configHash, gradeJob, startRun, summarize } from '../lib/evals.ts';
-import { evalCmd } from '../lib/commands/eval.ts';
-import * as yaml from '../lib/yaml.ts';
+import { defaults, loadConfig } from '../lib/core/config/load.ts';
+import { loadJob, setJob } from '../lib/core/job/store.ts';
+import { configHash, gradeJob, startRun, summarize } from '../lib/engine/evals/run.ts';
+import { evalCmd } from '../lib/cli/commands/eval.ts';
+import * as yaml from '../lib/core/format/yaml.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: 'pipe' });

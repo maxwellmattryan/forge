@@ -3,9 +3,9 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { backingProblems } from '../lib/backing-config.ts';
-import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
-import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
+import { backingProblems } from '../lib/core/config/validators/backing.ts';
+import { defaults, loadConfig, validateConfig } from '../lib/core/config/load.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
 import { tempRepo } from './helpers.ts';
 
 const EXAMPLE = [

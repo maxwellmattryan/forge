@@ -6,14 +6,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
-import { defaults } from '../lib/config.ts';
-import { initWrite } from '../lib/commands/init.ts';
-import { assertEpoch, claimJob, createJob, leaseStatus, loadJob, readEvents, recordAgent, renewLease, setJob, updateJob } from '../lib/jobs.ts';
-import { IDLE_UNDRIVEN_MS, RECONCILE_TEXT, daemonLockDir, judge, progressMark, reconcile } from '../lib/reconcile.ts';
-import type { SessionFacts } from '../lib/reconcile.ts';
-import { ackRequest, claimRequest, enqueue, listRequests } from '../lib/requests.ts';
-import { readLockHolder, tryLock, withLock } from '../lib/util.ts';
-import type { Config } from '../lib/types.ts';
+import { defaults } from '../lib/core/config/load.ts';
+import { initWrite } from '../lib/cli/commands/init.ts';
+import { assertEpoch, claimJob, createJob, leaseStatus, loadJob, readEvents, recordAgent, renewLease, setJob, updateJob } from '../lib/core/job/store.ts';
+import { IDLE_UNDRIVEN_MS, RECONCILE_TEXT, daemonLockDir, judge, progressMark, reconcile } from '../lib/office/reconcile.ts';
+import type { SessionFacts } from '../lib/office/reconcile.ts';
+import { ackRequest, claimRequest, enqueue, listRequests } from '../lib/core/job/requests.ts';
+import { readLockHolder, tryLock, withLock } from '../lib/core/os/lock.ts';
+import type { Config } from '../lib/core/types.ts';
 
 const HOUR = 3_600_000;
 

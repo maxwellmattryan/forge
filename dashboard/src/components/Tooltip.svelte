@@ -2,7 +2,7 @@
      mouse hover after TIP_DELAY_MS and at once on keyboard focus (:focus-visible); touch never opens it. It hides on
      pointer leave, focus leaving, Escape (never swallowed, so the drawer's and popovers' own Escape still runs), a press,
      a scroll or resize, `off`, and unmounting. It sits in the top layer (popover="manual", as MenuButton's panel), so no
-     drawer, popover body or scroller clips it; lib/tooltip.ts placeTip decides where. The button carries the name
+     drawer, popover body or scroller clips it; src/lib/tooltip.ts placeTip decides where. The button carries the name
      (aria-label) and the hint (aria-describedby), so the tip itself is aria-hidden. Text renders through {…} only. -->
 <script lang="ts">
   import { TIP_DELAY_MS, placeTip } from '../lib/tooltip.ts';

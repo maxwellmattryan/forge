@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, forgeSync, repoTemplate } from '../../helpers.ts';
-import { TRUST_ENV, trustDigest } from '../../../lib/config.ts';
+import { TRUST_ENV, trustDigest } from '../../../lib/core/config/load.ts';
 
 const template = repoTemplate((dir) => {
   const answers = path.join(dir, '.answers.json');

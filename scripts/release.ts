@@ -28,7 +28,7 @@ const NOTE = '<!--';
 const APPEAR_MS = 3 * 60_000;
 const FINISH_MS = 45 * 60_000;
 const POLL_MS = 15_000;
-// lib/schema.ts constants the notes report when they move, with the words CHANGELOG uses for them.
+// lib/core/job/schema.ts constants the notes report when they move, with the words CHANGELOG uses for them.
 const VERSION_LABELS: Record<string, string> = {
   CONFIG_SCHEMA_VERSION: 'config schema',
   JOB_SCHEMA_VERSION: 'job schema',
@@ -80,7 +80,15 @@ export function setVersion(root: string, from: string, to: string): void {
   for (const [file, text] of writes) fs.writeFileSync(file, text);
 }
 
-/** `export const X_VERSION = n;` constants in a lib/schema.ts text. */
+/** Where the schema file has lived, newest first: a tag from before the lib/ layers (#421) has the second. */
+export const SCHEMA_FILES = ['lib/core/job/schema.ts', 'lib/schema.ts'];
+
+/** The first of SCHEMA_FILES that `has` finds, or null when none is there. */
+export function schemaFileAt(has: (rel: string) => boolean): string | null {
+  return SCHEMA_FILES.find(has) ?? null;
+}
+
+/** `export const X_VERSION = n;` constants in a schema file's text. */
 export function schemaVersions(text: string): Record<string, number> {
   const out: Record<string, number> = {};
   for (const m of text.matchAll(/^export const (\w+) = (\d+);/gm)) if (m[1] in VERSION_LABELS) out[m[1]] = Number(m[2]);
@@ -187,9 +195,9 @@ function editNotes(file: string): void {
 function prepare(current: string, next: string, notesFile: string | null): void {
   const since = lastTag();
   const subjects = git('log', '--first-parent', '--format=%s', ...(since ? [`${since}..HEAD`] : ['HEAD'])).split('\n').filter(Boolean);
-  const schema = 'lib/schema.ts';
-  const before = since ? schemaVersions(gitOut(['show', `${since}:${schema}`])) : {};
-  const after = schemaVersions(fs.readFileSync(path.join(ROOT, schema), 'utf8'));
+  const old = since ? schemaFileAt((rel) => gitOk(['cat-file', '-e', `${since}:${rel}`])) : null;
+  const before = since && old ? schemaVersions(gitOut(['show', `${since}:${old}`])) : {};
+  const after = schemaVersions(fs.readFileSync(path.join(ROOT, SCHEMA_FILES[0]!), 'utf8'));
   const changelogFile = path.join(ROOT, 'CHANGELOG.md');
   const changelog = fs.readFileSync(changelogFile, 'utf8');
 

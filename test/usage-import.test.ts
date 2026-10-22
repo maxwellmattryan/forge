@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { loadJob } from '../lib/jobs.ts';
-import { importClaudeCodeTranscript } from '../lib/usage.ts';
-import { projectSlug } from '../lib/transcripts.ts';
+import { loadJob } from '../lib/core/job/store.ts';
+import { importClaudeCodeTranscript } from '../lib/engine/metrics/usage.ts';
+import { projectSlug } from '../lib/integrations/claude/transcripts.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const FIXTURE = path.resolve(import.meta.dirname, 'fixtures', 'transcript-resumed.jsonl');

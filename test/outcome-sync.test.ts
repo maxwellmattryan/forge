@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { defaults } from '../lib/config.ts';
-import { createJob, loadJob, readEvents, setJob } from '../lib/jobs.ts';
-import { syncAll } from '../lib/commands/tracker.ts';
+import { defaults } from '../lib/core/config/load.ts';
+import { createJob, loadJob, readEvents, setJob } from '../lib/core/job/store.ts';
+import { syncAll } from '../lib/cli/commands/tracker.ts';
 
 // A stand-in `gh` on PATH, as FAKE_GH in test/pr.test.ts: answers the outcome pass's three calls.
 const FAKE_GH = `#!/bin/sh

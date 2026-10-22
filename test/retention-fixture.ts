@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { repoTemplate } from './helpers.ts';
-import { defaults } from '../lib/config.ts';
-import { createJob, updateJob } from '../lib/jobs.ts';
-import type { Job, LoadedJob } from '../lib/types.ts';
+import { defaults } from '../lib/core/config/load.ts';
+import { createJob, updateJob } from '../lib/core/job/store.ts';
+import type { Job, LoadedJob } from '../lib/core/types.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 export const DAY = 86_400_000;

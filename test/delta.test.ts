@@ -4,11 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { defaults } from '../lib/config.ts';
-import { createJob, setJob } from '../lib/jobs.ts';
-import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from '../lib/delta.ts';
-import { computeStats } from '../lib/stats.ts';
-import { prepareRetro } from '../lib/retro.ts';
+import { defaults } from '../lib/core/config/load.ts';
+import { createJob, setJob } from '../lib/core/job/store.ts';
+import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from '../lib/engine/pr/delta.ts';
+import { computeStats } from '../lib/engine/metrics/stats.ts';
+import { prepareRetro } from '../lib/engine/evals/retro.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 

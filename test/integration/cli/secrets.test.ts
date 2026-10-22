@@ -9,14 +9,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fakeBin, forgeAsync, repoTemplate } from '../../helpers.ts';
-import { renderBrief, roleBrief } from '../../../lib/brief.ts';
-import { defaults, loadConfig } from '../../../lib/config.ts';
-import { secretsCheck } from '../../../lib/doctor.ts';
-import { createJob, jobDir, updateJob } from '../../../lib/jobs.ts';
-import { knownRecordValues } from '../../../lib/known-secrets.ts';
-import { loadStepInput } from '../../../lib/step.ts';
-import { createWorktree } from '../../../lib/worktree.ts';
-import * as yaml from '../../../lib/yaml.ts';
+import { renderBrief, roleBrief } from '../../../lib/engine/pipeline/brief.ts';
+import { defaults, loadConfig } from '../../../lib/core/config/load.ts';
+import { secretsCheck } from '../../../lib/engine/ops/doctor.ts';
+import { createJob, jobDir, updateJob } from '../../../lib/core/job/store.ts';
+import { knownRecordValues } from '../../../lib/engine/guard/known-secrets.ts';
+import { loadStepInput } from '../../../lib/engine/pipeline/step.ts';
+import { createWorktree } from '../../../lib/engine/workspace/worktree.ts';
+import * as yaml from '../../../lib/core/format/yaml.ts';
 
 const NODE = JSON.stringify(process.execPath);
 

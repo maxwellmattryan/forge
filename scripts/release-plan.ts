@@ -4,7 +4,7 @@
 // Repo text reaches the workflow only through these, and only after validation (docs/RELEASES.md).
 import fs from 'node:fs';
 import path from 'node:path';
-import { findAttribution } from '../lib/attribution.ts';
+import { findAttribution } from '../lib/engine/guard/attribution.ts';
 import { gitSync } from './git.ts';
 import { changelogSection, hasNotes } from './release-check.ts';
 

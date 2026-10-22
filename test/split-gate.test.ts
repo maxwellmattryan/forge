@@ -7,11 +7,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { defaults, validateConfig } from '../lib/config.ts';
-import { createJob, loadJob, readEvents, setJob } from '../lib/jobs.ts';
-import { WAITING_ON } from '../lib/schema.ts';
-import { statusKey } from '../lib/trackers/status.ts';
-import { step } from '../lib/step.ts';
+import { defaults, validateConfig } from '../lib/core/config/load.ts';
+import { createJob, loadJob, readEvents, setJob } from '../lib/core/job/store.ts';
+import { WAITING_ON } from '../lib/core/job/schema.ts';
+import { statusKey } from '../lib/api/tracker.ts';
+import { step } from '../lib/engine/pipeline/step.ts';
 import { ag, fixture } from './step-fixture.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');

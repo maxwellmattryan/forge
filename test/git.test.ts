@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { GIT_PINS, STATUS_ARGV, git, gitEnv, gitInvocation, gitSpawnSync } from '../lib/git.ts';
+import { GIT_PINS, STATUS_ARGV, git, gitEnv, gitInvocation, gitSpawnSync } from '../lib/integrations/git/runner.ts';
 import { tempRepo } from './helpers.ts';
 
 const PINS = ['-c', 'core.fsmonitor=false', '-c', 'core.quotepath=off', '-c', 'diff.interHunkContext=0', '-c', 'diff.suppressBlankEmpty=false', '-c', 'diff.relative=false'];

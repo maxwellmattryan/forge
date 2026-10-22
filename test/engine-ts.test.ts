@@ -47,9 +47,9 @@ test('incremental typecheck caches stay out of git', () => {
   }
 });
 
-test('lib/types.ts and lib/api-types.ts are type-only', () => {
+test('lib/core/types.ts and lib/api/types.ts are type-only', () => {
   const ts = createRequire(path.join(ROOT, 'package.json'))('typescript');
-  for (const name of ['types.ts', 'api-types.ts']) {
+  for (const name of ['core/types.ts', 'api/types.ts']) {
     const src = fs.readFileSync(path.join(ROOT, 'lib', name), 'utf8');
     // What Node would run after stripping types: nothing but the module marker.
     const out = ts.transpileModule(src, {
@@ -60,14 +60,15 @@ test('lib/types.ts and lib/api-types.ts are type-only', () => {
   }
 });
 
-// Custom tracker adapters still import status.mjs; it must stay the same functions as status.ts.
-test('the status.mjs re-export is lib/trackers/status.ts', async () => {
-  const shim = await import('../lib/trackers/status.mjs');
-  const real = await import('../lib/trackers/status.ts');
-  assert.deepEqual(Object.keys(shim).sort(), ['STATUS_KEYS', 'statusKey']);
+// Custom tracker adapters may still import the old status paths; both must stay the same functions as lib/api/tracker.ts.
+test('the deprecated tracker status paths re-export lib/api/tracker.ts', async () => {
+  const real = await import('../lib/api/tracker.ts');
   assert.deepEqual(Object.keys(real).sort(), ['STATUS_KEYS', 'statusKey']);
-  assert.equal(shim.statusKey, real.statusKey);
-  assert.equal(shim.STATUS_KEYS, real.STATUS_KEYS);
+  for (const shim of [await import('../lib/trackers/status.mjs'), await import('../lib/trackers/status.ts')]) {
+    assert.deepEqual(Object.keys(shim).sort(), ['STATUS_KEYS', 'statusKey']);
+    assert.equal(shim.statusKey, real.statusKey);
+    assert.equal(shim.STATUS_KEYS, real.STATUS_KEYS);
+  }
 });
 
 function filesUnder(rel: string): string[] {

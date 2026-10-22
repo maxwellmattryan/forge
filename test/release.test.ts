@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { draftSection, dropNotes, insertSection, nextVersion, parseArgs, runProblems, schemaVersions, setVersion, versionsLine } from '../scripts/release.ts';
+import { draftSection, dropNotes, insertSection, nextVersion, parseArgs, runProblems, schemaFileAt, schemaVersions, setVersion, versionsLine } from '../scripts/release.ts';
 import type { Run } from '../scripts/release.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -56,9 +56,12 @@ test('the real version files bump cleanly', () => {
 });
 
 test('the notes draft lists the commits and the versions that moved', () => {
-  const schema = fs.readFileSync(path.join(ROOT, 'lib', 'schema.ts'), 'utf8');
+  const schema = fs.readFileSync(path.join(ROOT, 'lib', 'core', 'job', 'schema.ts'), 'utf8');
   const now = schemaVersions(schema);
-  for (const k of ['CONFIG_SCHEMA_VERSION', 'JOB_SCHEMA_VERSION', 'EVENT_SCHEMA_VERSION', 'API_VERSION']) assert.equal(typeof now[k], 'number', `${k} is read from lib/schema.ts`);
+  for (const k of ['CONFIG_SCHEMA_VERSION', 'JOB_SCHEMA_VERSION', 'EVENT_SCHEMA_VERSION', 'API_VERSION']) assert.equal(typeof now[k], 'number', `${k} is read from lib/core/job/schema.ts`);
+  assert.equal(schemaFileAt((rel) => fs.existsSync(path.join(ROOT, rel))), 'lib/core/job/schema.ts');
+  assert.equal(schemaFileAt((rel) => rel === 'lib/schema.ts'), 'lib/schema.ts', 'a tag from before the move');
+  assert.equal(schemaFileAt(() => false), null);
   const line = versionsLine({ CONFIG_SCHEMA_VERSION: 22, JOB_SCHEMA_VERSION: 16, API_VERSION: 29 }, { CONFIG_SCHEMA_VERSION: 26, JOB_SCHEMA_VERSION: 16, API_VERSION: 31 });
   assert.equal(line, '- Versions: config schema 22 → 26, `API_VERSION` 29 → 31.');
   assert.equal(versionsLine(now, now), null);

@@ -59,7 +59,7 @@
    * (its glyph shows at every level), 5 the "Foreman" word (its glyph, live dot and prompt count stay): the supervisor keeps its name
    * longest. The Needs-you bell is icon-only at every width, so it adds no level. Right: 1 the provider and the effort, 2 the model label, 3 the
    * connection's word while it is Live or Connecting, and "needed" after "Update", 4 the rest of the connection's word.
-   * Facts, before either cluster: 1 the FOCUS word (lib/statusbar.ts factsHidden).
+   * Facts, before either cluster: 1 the FOCUS word (src/lib/statusbar.ts factsHidden).
    */
   let left = $state(0);
   let right = $state(0);

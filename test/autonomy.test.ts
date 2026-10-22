@@ -2,12 +2,12 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { tempRepo } from './helpers.ts';
-import { defaults } from '../lib/config.ts';
-import { createJob, logEvent, setJob } from '../lib/jobs.ts';
-import { AUTONOMY_REASONS, judgeAutonomy } from '../lib/autonomy.ts';
-import { computeStats } from '../lib/stats.ts';
-import { statsText } from '../lib/commands/status.ts';
-import { prepareRetro } from '../lib/retro.ts';
+import { defaults } from '../lib/core/config/load.ts';
+import { createJob, logEvent, setJob } from '../lib/core/job/store.ts';
+import { AUTONOMY_REASONS, judgeAutonomy } from '../lib/engine/evals/autonomy.ts';
+import { computeStats } from '../lib/engine/metrics/stats.ts';
+import { statsText } from '../lib/cli/commands/status.ts';
+import { prepareRetro } from '../lib/engine/evals/retro.ts';
 
 const PERSON = { login: 'pat', source: 'env' };
 const FOREMAN = { login: null, source: 'foreman' };

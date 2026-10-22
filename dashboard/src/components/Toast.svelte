@@ -1,7 +1,7 @@
 <!-- The toast; toast.svelte.ts drives it. The live region is always in the DOM, so screen readers announce each message as
      it appears, and it holds only the message: Dismiss sits beside it, outside, so the announcement stays the message alone.
      Pointer or focus inside holds the toast past its 4 s. Dismiss draws its ring inside itself: the plate clips to its cut corner, which would shave a ring drawn outside.
-     It never covers the board's controls, the job drawer's dock or the status bar (lib/toast-place.ts): at md and up it sits
+     It never covers the board's controls, the job drawer's dock or the status bar (src/lib/toast-place.ts): at md and up it sits
      at the bottom right, left of an open drawer and above its backdrop; below md, top-centre. -->
 <script lang="ts">
   import Chip from './Chip.svelte';

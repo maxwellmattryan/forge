@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { dashboardCheck, doctor } from '../lib/doctor.ts';
-import { loadConfig } from '../lib/config.ts';
+import { dashboardCheck, doctor } from '../lib/engine/ops/doctor.ts';
+import { loadConfig } from '../lib/core/config/load.ts';
 import { tempRepo } from './helpers.ts';
 
 test('dashboard built check', () => {
