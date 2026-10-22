@@ -54,17 +54,18 @@ test('parseReviewFindings normalises locations', () => {
     '```',
     '-[minor]lib/tight.ts:9',
   ].join('\n');
+  // The line is the digits right after the first `:`; `~176` has none.
   assert.deepEqual(parseReviewFindings(text), [
-    { severity: 'major', path: 'lib/x.ts' },
-    { severity: 'minor', path: 'lib/x.ts' },
-    { severity: 'nit', path: 'lib/x.ts' },
-    { severity: 'blocker', path: 'lib/x.ts' },
-    { severity: 'minor', path: 'lib/pr.mjs' },
-    { severity: 'minor', path: 'docs/A.md' },
-    { severity: 'nit', path: 'README.md' },
-    { severity: 'nit', path: null },
-    { severity: 'major', path: 'lib/y.ts' },
-    { severity: 'minor', path: 'lib/tight.ts' },
+    { severity: 'major', path: 'lib/x.ts', line: 42 },
+    { severity: 'minor', path: 'lib/x.ts', line: 42 },
+    { severity: 'nit', path: 'lib/x.ts', line: null },
+    { severity: 'blocker', path: 'lib/x.ts', line: 281 },
+    { severity: 'minor', path: 'lib/pr.mjs', line: 211 },
+    { severity: 'minor', path: 'docs/A.md', line: 87 },
+    { severity: 'nit', path: 'README.md', line: null },
+    { severity: 'nit', path: null, line: null },
+    { severity: 'major', path: 'lib/y.ts', line: 3 },
+    { severity: 'minor', path: 'lib/tight.ts', line: 9 },
   ]);
   assert.equal(cleanPath('—'), null);
   assert.equal(cleanPath(''), null);

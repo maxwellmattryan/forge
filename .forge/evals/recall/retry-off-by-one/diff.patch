@@ -1,0 +1,20 @@
+diff --git a/lib/retry.ts b/lib/retry.ts
+new file mode 100644
+--- /dev/null
++++ b/lib/retry.ts
+@@ -0,0 +1,15 @@
++// Retries a flaky call: `attempts` is the total number of calls, so 3 means
++// the first call and at most two retries.
++export async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
++  if (!Number.isInteger(attempts) || attempts < 1) throw new Error('attempts must be a positive integer');
++  let last: unknown;
++  for (let i = 0; i <= attempts; i++) {
++    try {
++      return await fn();
++    } catch (e) {
++      last = e;
++    }
++  }
++  throw last;
++}
++

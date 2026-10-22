@@ -14,6 +14,8 @@ export type Severity = (typeof SEVERITIES)[number];
 export interface RaisedFinding {
   severity: Severity;
   path: string | null;
+  /** The digits after the location token's first `:` (`lib/x.ts:42` → 42), else null. */
+  line: number | null;
 }
 
 /** One builder answer line, attributed to the review round it answers. */
@@ -82,9 +84,17 @@ export function parseReviewFindings(text: string): RaisedFinding[] {
     const m = REVIEW_LINE.exec(line);
     if (!m) continue;
     const first = m[2].trim().split(/\s+/)[0] ?? '';
-    out.push({ severity: m[1].toLowerCase() as Severity, path: first ? cleanPath(first) : null });
+    out.push({ severity: m[1].toLowerCase() as Severity, path: first ? cleanPath(first) : null, line: first ? lineOf(first) : null });
   }
   return out;
+}
+
+/** The line of a location token: the digits right after its first `:`, as cleanPath reads the path before it. */
+function lineOf(token: string): number | null {
+  const p = String(token).replace(/[`*()]/g, '');
+  const colon = p.indexOf(':');
+  const m = colon < 0 ? null : /^\d{1,9}/.exec(p.slice(colon + 1));
+  return m ? Number(m[0]) : null;
 }
 
 /**

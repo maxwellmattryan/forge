@@ -1,0 +1,22 @@
+diff --git a/lib/util.ts b/lib/util.ts
+--- a/lib/util.ts
++++ b/lib/util.ts
+@@ -644,2 +644,7 @@ export function tail(text: string, n: number): string {
+   return text.split('\n').slice(-n).join('\n');
+ }
++
++/** `n` held within [lo, hi]; when the bounds cross, lo wins. */
++export function clamp(n: number, lo: number, hi: number): number {
++  return Math.max(lo, Math.min(hi, n));
++}
+diff --git a/test/util.test.ts b/test/util.test.ts
+--- a/test/util.test.ts
++++ b/test/util.test.ts
+@@ -1,2 +1,7 @@
+ import test from 'node:test';
+ import assert from 'node:assert/strict';
++import { clamp } from '../lib/util.ts';
++
++test('clamp holds a number within its bounds', () => {
++  assert.deepEqual([clamp(5, 0, 3), clamp(-1, 0, 3), clamp(2, 0, 3), clamp(1, 4, 2)], [3, 0, 2, 4]);
++});

@@ -1,0 +1,7 @@
+title: an unchecked branch name from gh reaches git's argv
+lenses: [security]
+defects:
+  - id: head-ref-option-injection
+    lens: security
+    path: lib/pr.ts
+    line: 46
