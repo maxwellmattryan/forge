@@ -191,7 +191,7 @@
     {@const j = job}
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <!-- The hammered frame texture sits on this non-scrolling wrapper, so it never slides when a long header scrolls. -->
-      <div class="relative hammered shrink-0 max-h-[40%] flex flex-col">
+      <div class="relative hammered solid shrink-0 max-h-[40%] flex flex-col">
       <div bind:this={head} class="min-h-0 overflow-y-auto overscroll-contain p-5 md:p-6 pb-3 md:pb-4 flex flex-col gap-2">
         <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 bind:this={title} tabindex="-1" class="h sheet-title">{j.title}</h2><div class="mono text-[13px] muted selectable">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div></div>
         <div class="flex flex-wrap items-center gap-1.5"><span class="chip gleam">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if prot}<Chip tone="warn" extra="max-w-full flex-wrap whitespace-normal" text={$t('job.protectedDrawer', { reasons: prot.reasons.join(' · ') })} />{/if}{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}<EffortChip level={effort} />{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>

@@ -531,7 +531,8 @@
 }
 /* hammered: the frame's texture, and only the frame's: the sidebar brand plaque, the page header plaque, the status bar
    and the drawer header. Everything else is plain panel, so ornament marks the edges of the app, not its content. The
-   host must be positioned (a plate is; the status bar is fixed; the drawer header wrapper is relative). The texture is a
+   host must be positioned (a plate is; the status bar is fixed; the drawer header wrapper is relative) and carry its own
+   fill (plate, chrome or solid), or the soft-light blend has nothing to blend against. The texture is a
    clipped layer of its own, behind the content: a background-image painted on the host escapes a cut corner in some
    engines. */
 @utility hammered {

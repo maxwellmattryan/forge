@@ -29,9 +29,9 @@
 {/snippet}
 
 <input type="search" class="input sm w-full max-w-xs mb-3" placeholder={$t('table.filter')} aria-label={$t('table.filter')} bind:value={query} />
-{#if !rows.length}
-  <p class="plain px-3 py-2 text-sm text-muted">{$t('table.noMatch', { query: query.trim() })}</p>
-{:else}
+<!-- One persistent live region: a status element inserted together with its text is often not announced. -->
+<p role="status" class={rows.length ? '' : 'plain px-3 py-2 text-sm text-muted'}>{rows.length ? '' : $t('table.noMatch', { query: query.trim() })}</p>
+{#if rows.length}
   <!-- The scroller sits inside the plate, so the plate's cut corners clip it. -->
   <div class="plate flat"><div class="overflow-x-auto">
     <table class="tbl">
