@@ -121,9 +121,17 @@ export interface LedgerItem {
 
 const OPEN = 'status open';
 
-/** The raw offset of a comment-free offset: inside one kept span, or -1. */
+/** The raw offset of a comment-free offset: inside one kept span, or -1. Spans are in order, so a binary search. */
 function rawOffset(kept: { from: number; at: number; len: number }[], i: number): number {
-  for (const k of kept) if (i >= k.from && i < k.from + k.len) return k.at + (i - k.from);
+  let lo = 0;
+  let hi = kept.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const k = kept[mid];
+    if (i < k.from) hi = mid - 1;
+    else if (i >= k.from + k.len) lo = mid + 1;
+    else return k.at + (i - k.from);
+  }
   return -1;
 }
 
@@ -136,16 +144,19 @@ export function ledgerItems(text: string): LedgerItem[] {
     let openAt: number | null = null;
     if (statusSegment === OPEN) {
       for (const { start, line } of item.lines) {
-        let i = line.indexOf(OPEN);
-        while (i >= 0 && openAt === null) {
-          const before = line.slice(0, i);
-          const after = line.slice(i + OPEN.length);
-          if ((before.endsWith(' · ') || /^[ \t]*· $/.test(before)) && (after.trim() === '' || after.startsWith(' · '))) {
-            const at = rawOffset(kept, start + i);
-            // A comment between the words would make the raw text differ: never edited.
-            if (at >= 0 && text.slice(at, at + OPEN.length) === OPEN) openAt = at;
-          }
-          i = line.indexOf(OPEN, i + 1);
+        // Once per line, so each occurrence below costs O(1): a test over the text before or after
+        // it would rescan a long run of leading or trailing blanks for every decoy.
+        let lead = 0;
+        while (lead < line.length && (line[lead] === ' ' || line[lead] === '\t')) lead++;
+        const end = line.trimEnd().length;
+        for (let i = line.indexOf(OPEN); i >= 0 && openAt === null; i = line.indexOf(OPEN, i + 1)) {
+          const next = i + OPEN.length;
+          const segStart = (i >= 3 && line.startsWith(' · ', i - 3)) || (i === lead + 2 && line.startsWith('· ', lead));
+          const segEnd = next >= end || line.startsWith(' · ', next);
+          if (!segStart || !segEnd) continue;
+          const at = rawOffset(kept, start + i);
+          // A comment between the words would make the raw text differ: never edited.
+          if (at >= 0 && text.startsWith(OPEN, at)) openAt = at;
         }
         if (openAt !== null) break;
       }

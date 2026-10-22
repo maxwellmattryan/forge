@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
 import { createJob, jobDir, setJob } from '../lib/jobs.ts';
-import { expiredLearnings, learningSummary, metricValue, parseExperiments, parseLearnings, validDate } from '../lib/learnings.ts';
+import { expiredLearnings, learningSummary, ledgerItems, metricValue, parseExperiments, parseLearnings, validDate } from '../lib/learnings.ts';
 import { prepareRetro } from '../lib/retro.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
@@ -105,6 +105,20 @@ test('parses old and new learning entries', () => {
   parseLearnings('<!--'.repeat(10_000) + '\n- **' + 'x'.repeat(10_000) + ' review-by: ' + '9'.repeat(10_000));
   parseExperiments('- ' + ' · metric '.repeat(5_000) + '(' + 'u'.repeat(10_000));
   assert.ok(Date.now() - started < 2000, 'linear on hostile input');
+});
+
+test('ledgerItems finds the open status in linear time on a hostile ledger', () => {
+  const head = '- 2026-10-01 · id x · y · metric quality.avgRounds (down) · baseline 1';
+  // About 1 MiB each: a continuation line of 200k leading blanks and decoys before the real segment,
+  // and decoys split by a comment (so each maps back to the raw text) before 500k trailing blanks.
+  const leading = `${head}\n${' '.repeat(200_000)}${'evidence status open '.repeat(40_000)}· status open\n`;
+  const trailing = `${head} ·${' status <!---->open ·'.repeat(25_000)} status open${' '.repeat(500_000)}\n`;
+  const started = Date.now();
+  const [a] = ledgerItems(leading);
+  const [b] = ledgerItems(trailing);
+  assert.ok(Date.now() - started < 1000, `linear on hostile input (${Date.now() - started} ms)`);
+  assert.deepEqual([a.statusSegment, a.openAt], ['status open', leading.lastIndexOf('status open')]);
+  assert.deepEqual([b.statusSegment, b.openAt], ['status open', trailing.lastIndexOf('status open')]);
 });
 
 test('parses ledger entries with and without ids', () => {
