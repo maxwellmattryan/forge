@@ -11,7 +11,9 @@ import { forgeVersion } from '../lib/evals.ts';
 import { loadJob } from '../lib/jobs.ts';
 import { computeStats } from '../lib/stats.ts';
 import { compactJob } from '../lib/commands/job.ts';
-import { renderKeyOf, setRenderKey } from '../lib/commands/args.ts';
+import { out, outputMode, parseArgs, renderKeyOf, setOutputMode, setRenderKey } from '../lib/commands/args.ts';
+import { configCmd } from '../lib/commands/config.ts';
+import { versionCmd } from '../lib/commands/version.ts';
 import { render } from '../lib/commands/render.ts';
 import { RENDERERS, renderKey } from '../lib/commands/render/index.ts';
 import { doctor } from '../lib/commands/render/doctor.ts';
@@ -92,72 +94,138 @@ test('colour only when enabled', () => {
   for (const out of [status(rows, { color: false, now: 0 })!, doctor(report, { color: false, now: 0 })!]) assert.ok(!out.includes('\x1b['), out);
 });
 
+/** A dir holding a gh that answers nothing, so doctor's release check stays off the network. */
+function quietGh(r: { dir: string }): { bin: string; PATH: string } {
+  const bin = path.join(r.dir, '..', `regbin-${path.basename(r.dir)}`);
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  return { bin, PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+}
+
+// Only stats carries a clock: generatedAt differs between two runs.
+const sameClock = (s: string) => s.replace(/"generatedAt":"[^"]*"/, '"generatedAt":"-"');
+
+/**
+ * One agent-mode call as main() makes it, in-process, with stdout collected (Buffer chunks, the
+ * test runner's own reports, pass through). Restores the mode, render key, stdout and exit code.
+ */
+async function agentOut(root: string, args: string[]): Promise<string> {
+  const prevMode = outputMode();
+  const prevKey = renderKeyOf();
+  const prevExit = process.exitCode;
+  const write = process.stdout.write;
+  let printed = '';
+  try {
+    setOutputMode('agent');
+    const { pos, flags } = parseArgs(args);
+    setRenderKey(renderKey(pos));
+    const { config, initialized } = loadConfig(root);
+    // version and config print for themselves; everything else goes through dispatch and out().
+    const d = pos[0] === 'version' || pos[0] === 'config' ? null : await dispatch(args, { root, config, initialized });
+    process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
+      if (typeof chunk !== 'string') return (write as (...a: unknown[]) => boolean).call(process.stdout, chunk, ...rest);
+      printed += chunk;
+      return true;
+    }) as typeof process.stdout.write;
+    if (pos[0] === 'version') versionCmd(flags);
+    else if (pos[0] === 'config') configCmd(root, config, initialized, pos[1], pos.slice(2), flags);
+    else if (!d!.printed) out(d!.data, d!.pretty ? { ...flags, pretty: true } : flags);
+  } finally {
+    process.stdout.write = write;
+    process.exitCode = prevExit;
+    setOutputMode(prevMode);
+    setRenderKey(prevKey);
+  }
+  return printed;
+}
+
+// In-process, outside the concurrent block: it sets the module-wide mode, render key and PATH.
+test('--json carries the data agent output prints', async () => {
+  const r = repo();
+  const gh = quietGh(r);
+  const prevPath = process.env.PATH;
+  try {
+    process.env.PATH = gh.PATH;
+    const both = async (args: string[]) => ({ agent: await agentOut(r.dir, args), json: await agentOut(r.dir, [...args, '--json']) });
+
+    const version = await both(['version']);
+    assert.deepEqual(Object.keys(JSON.parse(version.json)), ['version', 'commit', 'installedAs', 'node']);
+    assert.equal(JSON.parse(version.json).version, JSON.parse(version.agent).version);
+
+    const st = await both(['status']);
+    assert.equal(st.agent, statusTable(r.dir, false) + '\n');
+    assert.equal(st.json, JSON.stringify(statusRows(r.dir, false)) + '\n');
+
+    const stats = await both(['stats']);
+    assert.equal(stats.agent, statsText(computeStats(r.dir, {})) + '\n');
+    assert.ok(JSON.parse(stats.json).counts);
+
+    for (const args of [['requests'], ['job', 'list'], ['job', 'show', 'reg-job'], ['config', 'validate']]) {
+      const x = await both(args);
+      assert.equal(x.json, x.agent, args.join(' '));
+    }
+
+    const doc = await both(['doctor']);
+    const d = JSON.parse(doc.agent);
+    assert.equal(doc.agent, JSON.stringify(d, null, 2) + '\n', 'doctor always indents');
+    assert.deepEqual(JSON.parse(doc.json), d);
+  } finally {
+    process.env.PATH = prevPath;
+    r.cleanup();
+    fs.rmSync(gh.bin, { recursive: true, force: true });
+  }
+});
+
 describe('the CLI', { concurrency: 4 }, () => {
-  test('agent and --json output is unchanged (golden)', async () => {
+  test('agent and --json output is unchanged', async () => {
     const r = repo();
-    // A gh that answers nothing, so doctor's release check stays off the network.
-    const bin = path.join(r.dir, '..', `regbin-${path.basename(r.dir)}`);
-    fs.mkdirSync(bin);
-    fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-    const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+    const gh = quietGh(r);
+    const env = { PATH: gh.PATH, FORGE_MODE: 'agent' };
     try {
-      const both = async (args: string[]) => {
-        const [agent, modeAgent, json, jsonHuman] = await Promise.all([
-          forgeAsync(r.dir, args, { ...env, FORGE_MODE: 'agent' }),
-          forgeAsync(r.dir, [...args, '--mode', 'agent'], { ...env, FORGE_MODE: 'human' }),
-          forgeAsync(r.dir, [...args, '--json'], env),
-          forgeAsync(r.dir, [...args, '--json'], { ...env, FORGE_MODE: 'human' }),
-        ]);
-        for (const x of [agent, modeAgent, json, jsonHuman]) assert.equal(x.stderr, '', `${args.join(' ')}: ${x.stderr}`);
-        // Only stats carries a clock: generatedAt differs between two runs.
-        const same = (s: string) => s.replace(/"generatedAt":"[^"]*"/, '"generatedAt":"-"');
-        assert.equal(same(modeAgent.stdout), same(agent.stdout), `${args.join(' ')}: --mode agent is FORGE_MODE=agent`);
-        assert.equal(same(jsonHuman.stdout), same(json.stdout), `${args.join(' ')}: --json beats FORGE_MODE=human`);
-        return { agent: agent.stdout, json: json.stdout, status: agent.status, jsonStatus: json.status };
+      const agent = async (args: string[], extra: NodeJS.ProcessEnv = {}) => {
+        const x = await forgeAsync(r.dir, args, { ...env, ...extra });
+        assert.equal(x.stderr, '', `${args.join(' ')}: ${x.stderr}`);
+        return x;
       };
 
-      const version = await both(['version']);
-      assert.equal(version.agent, JSON.stringify({ version: forgeVersion() }) + '\n');
-      assert.deepEqual(Object.keys(JSON.parse(version.json)), ['version', 'commit', 'installedAs', 'node']);
+      assert.equal((await agent(['version'])).stdout, JSON.stringify({ version: forgeVersion() }) + '\n');
 
-      const st = await both(['status']);
-      assert.equal(st.agent, statusTable(r.dir, false) + '\n');
-      assert.ok(st.agent.startsWith('job      stage    state'), st.agent);
-      assert.match(st.agent, /^job +stage +state /);
-      assert.equal(st.json, JSON.stringify(statusRows(r.dir, false)) + '\n');
+      // The two mode-precedence rules, once each, on status: its agent text differs from its JSON.
+      const [st, modeAgent, jsonHuman] = await Promise.all([
+        agent(['status']),
+        agent(['status', '--mode', 'agent'], { FORGE_MODE: 'human' }),
+        agent(['status', '--json'], { FORGE_MODE: 'human' }),
+      ]);
+      assert.equal(st.stdout, statusTable(r.dir, false) + '\n');
+      assert.match(st.stdout, /^job +stage +state /);
+      assert.equal(modeAgent.stdout, st.stdout, '--mode agent is FORGE_MODE=agent');
+      assert.equal(jsonHuman.stdout, JSON.stringify(statusRows(r.dir, false)) + '\n', '--json beats FORGE_MODE=human');
 
-      const stats = await both(['stats']);
-      assert.ok(stats.agent.startsWith('jobs '), stats.agent);
-      assert.equal(stats.agent, statsText(computeStats(r.dir, {})) + '\n');
-      assert.ok(JSON.parse(stats.json).counts);
+      const stats = await agent(['stats']);
+      assert.ok(stats.stdout.startsWith('jobs '), stats.stdout);
+      assert.equal(sameClock(stats.stdout), sameClock(statsText(computeStats(r.dir, {})) + '\n'));
 
-      const reqs = await both(['requests']);
-      assert.equal(reqs.agent, '[]\n');
-      assert.equal(reqs.json, '[]\n');
+      assert.equal((await agent(['requests'])).stdout, '[]\n');
 
-      const list = await both(['job', 'list']);
-      assert.deepEqual(Object.keys(JSON.parse(list.agent)[0]), ['id', 'title', 'stage', 'state', 'waitingOn', 'round', 'pr', 'owner', 'effort']);
-      assert.equal(list.json, list.agent);
+      const list = await agent(['job', 'list']);
+      assert.deepEqual(Object.keys(JSON.parse(list.stdout)[0]), ['id', 'title', 'stage', 'state', 'waitingOn', 'round', 'pr', 'owner', 'effort']);
 
-      const show = await both(['job', 'show', 'reg-job']);
-      assert.equal(show.agent, JSON.stringify(compactJob(r.dir, loadJob(r.dir, 'reg-job'))) + '\n');
-      assert.equal(show.json, show.agent);
+      const show = await agent(['job', 'show', 'reg-job']);
+      assert.equal(show.stdout, JSON.stringify(compactJob(r.dir, loadJob(r.dir, 'reg-job'))) + '\n');
 
-      const validate = await both(['config', 'validate']);
-      const v = JSON.parse(validate.agent);
+      const validate = await agent(['config', 'validate']);
+      assert.equal(validate.status, 0);
+      const v = JSON.parse(validate.stdout);
       assert.deepEqual(Object.keys(v), ['ok', 'initialized', 'problems']);
-      assert.equal(validate.agent, JSON.stringify(v) + '\n');
-      assert.equal(validate.json, validate.agent);
-      assert.equal(validate.jsonStatus, validate.status);
+      assert.equal(validate.stdout, JSON.stringify(v) + '\n');
 
-      const doc = await both(['doctor']);
-      const d = JSON.parse(doc.agent);
+      const doc = await agent(['doctor']);
+      const d = JSON.parse(doc.stdout);
       assert.deepEqual(Object.keys(d), ['ok', 'checks']);
-      assert.equal(doc.agent, JSON.stringify(d, null, 2) + '\n', 'doctor always indents');
-      assert.deepEqual(JSON.parse(doc.json), d);
+      assert.equal(doc.stdout, JSON.stringify(d, null, 2) + '\n', 'doctor always indents');
     } finally {
       r.cleanup();
-      fs.rmSync(bin, { recursive: true, force: true });
+      fs.rmSync(gh.bin, { recursive: true, force: true });
     }
   });
 

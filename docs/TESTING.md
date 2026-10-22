@@ -10,10 +10,11 @@ A feature has one unit file and one integration (or e2e) file per entry point, s
 | `test/` | **Unit**: one module's functions called in-process, with fakes injected, in a file named after the module or feature (`test/backing.test.ts`). | `npm run test:unit` |
 | `test/integration/<entry>/` | **Integration**: one entry point with outside systems faked. The entries are `cli` (spawns `bin/forge`), `server` (HTTP against `lib/server.ts`) and `pool` (`createPool`/`createSession` with a stub `claude`). | `npm run test:integration` |
 | `test/e2e/<flow>/` | **E2E**: a scratch-repo flow across layers, such as `release` or `pipeline`. | `npm run test:e2e` |
-| `test/support/` | **Support**: the shared helpers, `forgeSync` and `BIN` (`cli.ts`), `fakeBin` (`fake-bin.ts`) and `fakeGh` (`fake-gh.ts`). | - |
+| `test/support/` | **Support**: the shared helpers, `forgeSync` and `BIN` (`cli.ts`), `forgeInProcess` (`in-process.ts`), `fakeBin` (`fake-bin.ts`) and `fakeGh` (`fake-gh.ts`). | - |
 
 - Tests import support helpers only through `test/helpers.ts`, which re-exports them. Its import side effects pin git config, `SHELL`, `FORGE_MODE` and `NODE_OPTIONS` for every spawn.
 - Start the CLI with `forgeAsync` or `forgeSync`, never with a `bin/forge` path of your own. Fake `gh` with `fakeGh` (or `test/job-repos-fixture.ts`'s `prProject` for its stateful per-repo fake), and any other tool with `fakeBin`.
+- Check each case of a validation, refusal or formatting table in-process, through the domain function or `forgeInProcess` (which runs the CLI's router, `dispatch`, without a process), and keep one spawned-CLI test per command for its routing, exit code and JSON. A `forgeInProcess` call with `env` changes `process.env`, so it never runs inside `describe(…, { concurrency })`.
 - Build scratch repos from one `repoTemplate` per distinct init, not with `tempRepo()` plus `forge init write` in every test.
 - Put an assertion at the cheapest layer that proves it: a pure check belongs in the unit file, unless it sits in a test that still needs its server or CLI.
 - A file under `test/integration/` or `test/e2e/` imports `../../../lib/…` and `../../helpers.ts`, and builds `import.meta.dirname` paths for that depth.
@@ -37,6 +38,8 @@ A new entry needs a reason a public function or the CLI's JSON can't hold the in
 
 ## Coverage
 `npm run coverage` runs the whole suite under Node's built-in coverage and writes one line per `lib/` and `dashboard/src/lib/` file (path, line %, lines hit/found) and a total to `node_modules/.cache/forge/coverage.txt`. Its exit status is the test run's. A change that deletes or rewrites tests runs it before and after: no file's line coverage may drop more than 1 percentage point. Where one does, add a small test of that file's public function in the nearest existing test file. Code reached only through a spawned `bin/forge` may count low; the rule compares the same tool before and after, so that cancels out.
+
+**Timing.** `npm run test:times` runs the whole suite and prints each file's time (the sum of its top-level tests), slowest first, then the file count and the wall time. Use it to find the files worth speeding up, and record the machine's load average beside any number you compare.
 
 ## Measuring
 To see whether the rule holds, compare a window of job merges on `develop` with the baseline in the PR that added this file. Run from a checkout of `develop`; set `BASE` to the commit the window starts after.

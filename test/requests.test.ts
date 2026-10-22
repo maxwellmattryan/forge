@@ -8,13 +8,35 @@ import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
 import { claimJob, createJob, loadJob, readEvents, requeueOrphanedRequests, updateJob } from '../lib/jobs.ts';
 import { daemonLockDir } from '../lib/reconcile.ts';
 import { REQUEUE_REJECTED, ackRequest, claimRequest, enqueue, listRequests, requeueOrphans } from '../lib/requests.ts';
-import { tryLock } from '../lib/util.ts';
+import { ForgeError, tryLock } from '../lib/util.ts';
+import { parseArgs } from '../lib/commands/args.ts';
+import { requestsCmd } from '../lib/commands/requests.ts';
 
 /** Runs the CLI against a scratch repo; `env` adds to (or, with undefined, removes from) the environment. */
 function cliIn(dir) {
   return async (env, ...args) => {
     const r = await forgeAsync(dir, args, env);
     return r.status === 0 ? { ok: true, code: 0, out: r.stdout.trim(), json: () => JSON.parse(r.stdout) } : { ok: false, code: r.status, out: `${r.stdout}${r.stderr}`, json: () => null };
+  };
+}
+
+/**
+ * cliIn's twin without a process: `forge requests …` through requestsCmd with the env passed in,
+ * so per-case checks never touch process.env and stay safe in the concurrent block. A refusal
+ * gives the thrown ForgeError's exit code and message.
+ */
+function requestsIn(dir) {
+  return async (env, ...args) => {
+    const { pos, flags } = parseArgs(args);
+    const merged: NodeJS.ProcessEnv = { ...process.env, ...env };
+    for (const [k, v] of Object.entries(env)) if (v === undefined) delete merged[k];
+    try {
+      const data = JSON.parse(JSON.stringify(requestsCmd(dir, defaults(), pos[1], pos.slice(2), flags, merged)));
+      return { ok: true, code: 0, out: JSON.stringify(data), json: () => data };
+    } catch (e) {
+      if (!(e instanceof ForgeError)) throw e;
+      return { ok: false, code: e.exitCode, out: e.message, json: () => null };
+    }
   };
 }
 
@@ -60,7 +82,7 @@ describe('the request inbox', { concurrency: 4 }, () => {
   test('a daemon session sees and claims only its scope', async () => {
     const repo = tempRepo();
     const root = repo.dir;
-    const cli = cliIn(root);
+    const cli = requestsIn(root);
     try {
       const a = createJob(root, defaults(), { title: 'Job A' }).id;
       const b = createJob(root, defaults(), { title: 'Job B' }).id;
@@ -129,7 +151,9 @@ describe('the request inbox', { concurrency: 4 }, () => {
   test('office scope sees only gate requests', async () => {
     const repo = tempRepo();
     const root = repo.dir;
-    const cli = cliIn(root);
+    const cli = requestsIn(root);
+    // The spawned CLI's routing, exit code and JSON for requests scope, claim and ack.
+    const sh = cliIn(root);
     try {
       const a = createJob(root, defaults(), { title: 'Job A' }).id;
       const gate = enqueue(root, null, { type: 'gate', job: a, args: { gate: 'spec-approval', reserved: null }, from: 'forge' });
@@ -138,7 +162,9 @@ describe('the request inbox', { concurrency: 4 }, () => {
       assert.throws(() => enqueue(root, null, { type: 'gate', job: '../x', from: 'forge' }), /gate request needs a valid job/);
       assert.throws(() => enqueue(root, null, { type: 'gate', from: 'forge' }), /gate request needs a valid job/);
       const office = { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(root), FORGE_DAEMON_SCOPE: '_office' };
-      assert.deepEqual((await cli(office, 'requests', 'scope')).json(), { daemon: true, scope: 'office', job: null });
+      const scope = await sh(office, 'requests', 'scope');
+      assert.equal(scope.code, 0, scope.out);
+      assert.deepEqual(scope.json(), { daemon: true, scope: 'office', job: null });
       assert.deepEqual((await cli(office, 'requests')).json().map((r) => r.id), [gate.id], 'only gate requests');
       assert.deepEqual((await cli({ ...office, FORGE_DAEMON_SCOPE: a }, 'requests')).json().map((r) => r.id), [resume.id], "the job's session never sees its gate");
       assert.deepEqual((await cli({ ...office, FORGE_DAEMON_SCOPE: '_inbox' }, 'requests')).json().map((r) => r.id), [next.id]);
@@ -149,8 +175,12 @@ describe('the request inbox', { concurrency: 4 }, () => {
           assert.match(r.out, /belongs to scope/);
         }
       }
-      assert.equal((await cli(office, 'requests', 'claim', gate.id, '--session', 'office')).json().status, 'in-progress');
-      assert.equal((await cli(office, 'requests', 'ack', gate.id, '--status', 'done', '--result', 'approve: fine')).json().status, 'done');
+      const claimed = await sh(office, 'requests', 'claim', gate.id, '--session', 'office');
+      assert.equal(claimed.code, 0, claimed.out);
+      assert.deepEqual([claimed.json().id, claimed.json().status, claimed.json().session], [gate.id, 'in-progress', 'office']);
+      const acked = await sh(office, 'requests', 'ack', gate.id, '--status', 'done', '--result', 'approve: fine');
+      assert.equal(acked.code, 0, acked.out);
+      assert.deepEqual([acked.json().id, acked.json().status, acked.json().result], [gate.id, 'done', 'approve: fine']);
       assert.equal(listRequests(root).find((r) => r.id === resume.id).status, 'pending');
     } finally {
       repo.cleanup();
@@ -160,7 +190,7 @@ describe('the request inbox', { concurrency: 4 }, () => {
   test('requests scope, --intake and daemon provenance', async () => {
     const repo = tempRepo();
     const root = repo.dir;
-    const cli = cliIn(root);
+    const cli = requestsIn(root);
     try {
       const x = createJob(root, defaults(), { title: 'Job X' }).id;
       const trust = { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(root) };
@@ -168,7 +198,11 @@ describe('the request inbox', { concurrency: 4 }, () => {
       assert.deepEqual((await cli({ ...trust, FORGE_DAEMON_SCOPE: '_inbox' }, 'requests', 'scope')).json(), { daemon: true, scope: 'inbox', job: null });
       assert.deepEqual((await cli({ ...trust, FORGE_DAEMON_SCOPE: x }, 'requests', 'scope')).json(), { daemon: true, scope: 'job', job: x });
 
-      const human = (await cli({ FORGE_DAEMON: undefined }, 'requests', 'add', 'resume', '--job', x, '--intake', 'run')).json();
+      // The spawned CLI's routing, exit code and JSON for requests add.
+      const added = await cliIn(root)({ FORGE_DAEMON: undefined }, 'requests', 'add', 'resume', '--job', x, '--intake', 'run');
+      assert.equal(added.code, 0, added.out);
+      const human = added.json();
+      assert.deepEqual([human.type, human.job, human.status], ['resume', x, 'pending']);
       assert.deepEqual(human.args, { intake: 'run' });
       assert.equal(human.from, 'cli');
       assert.deepEqual((await cli({ FORGE_DAEMON: undefined }, 'requests', 'add', 'resume', '--job', x, '--intake', 'next')).json().args, { intake: 'next' });
@@ -203,7 +237,7 @@ describe('the request inbox', { concurrency: 4 }, () => {
   test("resume hand-off releases the handing-off session's claim", async () => {
     const repo = tempRepo();
     const root = repo.dir;
-    const cli = cliIn(root);
+    const cli = requestsIn(root);
     try {
       const x = createJob(root, defaults(), { title: 'Job X' }).id;
       const trust = { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(root) };
@@ -292,6 +326,7 @@ test('requeue follows the lease', async () => {
     claimRequest(root, o.id, 'U');
     expire(other);
     const listed = await forgeAsync(root, ['requests']);
+    assert.equal(listed.status, 0, listed.stderr);
     assert.ok(JSON.parse(listed.stdout).some((x: any) => x.id === o.id && x.status === 'pending'), listed.stderr);
 
     // While a forge dash runs, `forge requests` leaves the claim-age rule to the dash's reconciler.

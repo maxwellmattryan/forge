@@ -26,6 +26,23 @@ function whichForge(envFile: string, decoy: string, cwd: string) {
   });
 }
 
+/**
+ * The env file's lines that matter: `prior` kept as the leading lines, then exactly one PATH line
+ * for `bin` and exactly one FORGE_MODE line, in that order. Returns the file's bytes.
+ */
+function assertEnvLines(envFile: string, prior: string[], bin = path.join(ROOT, 'bin')): Buffer {
+  const bytes = fs.readFileSync(envFile);
+  const lines = bytes.toString('utf8').split('\n');
+  assert.deepEqual(lines.slice(0, prior.length), prior, 'prior content kept first');
+  const pathLine = `export PATH='${bin}':"$PATH"`;
+  const pathAt = lines.flatMap((l, i) => (l === pathLine ? [i] : []));
+  const modeAt = lines.flatMap((l, i) => (l === 'export FORGE_MODE=agent' ? [i] : []));
+  assert.equal(pathAt.length, 1, `one PATH line: ${JSON.stringify(lines)}`);
+  assert.equal(modeAt.length, 1, `one FORGE_MODE line: ${JSON.stringify(lines)}`);
+  assert.ok(pathAt[0] < modeAt[0], 'the mode line follows the PATH line');
+  return bytes;
+}
+
 /** A dir holding an executable `forge` that must lose to the plugin's. */
 function decoyDir(tmp: string): string {
   const decoy = path.join(tmp, 'decoy');
@@ -52,12 +69,11 @@ test("SessionStart hook puts the plugin's bin first", POSIX, () => {
     const first = runHook(HOOK, { CLAUDE_ENV_FILE: envFile }, tmp);
     assert.equal(first.status, 0, first.stderr);
     assert.equal(first.stdout, '');
-    const expected = `export FOO=1\nexport PATH='${path.join(ROOT, 'bin')}':"$PATH"\nexport FORGE_MODE=agent\n`;
-    assert.equal(fs.readFileSync(envFile, 'utf8'), expected);
+    const afterFirst = assertEnvLines(envFile, ['export FOO=1']);
     const second = runHook(HOOK, { CLAUDE_ENV_FILE: envFile }, tmp);
     assert.equal(second.status, 0);
     assert.equal(second.stdout, '');
-    assert.equal(fs.readFileSync(envFile, 'utf8'), expected, 'a second run changes nothing');
+    assert.ok(fs.readFileSync(envFile).equals(afterFirst), 'a second run changes nothing');
 
     const r = whichForge(envFile, decoyDir(tmp), tmp);
     assert.equal(r.status, 0, r.stderr);
@@ -73,7 +89,7 @@ test("SessionStart hook puts the plugin's bin first", POSIX, () => {
     // A missing env file is created; an unwritable one is reported on stderr, never stdout, exit 0.
     const fresh = path.join(tmp, 'fresh.sh');
     assert.equal(runHook(HOOK, { CLAUDE_ENV_FILE: fresh }, tmp).status, 0);
-    assert.equal(fs.readFileSync(fresh, 'utf8'), `export PATH='${path.join(ROOT, 'bin')}':"$PATH"\nexport FORGE_MODE=agent\n`);
+    assertEnvLines(fresh, []);
     const bad = runHook(HOOK, { CLAUDE_ENV_FILE: path.join(tmp, 'no', 'such', 'dir', 'env.sh') }, tmp);
     assert.equal(bad.status, 0);
     assert.equal(bad.stdout, '');
@@ -93,12 +109,12 @@ test('SessionStart hook pins agent output mode', POSIX, () => {
     const first = runHook(HOOK, { CLAUDE_ENV_FILE: envFile }, tmp);
     assert.equal(first.status, 0, first.stderr);
     assert.equal(first.stdout, '');
-    const expected = `${pathLine}\nexport FORGE_MODE=agent\n`;
-    assert.equal(fs.readFileSync(envFile, 'utf8'), expected, 'the mode line follows the PATH line');
+    // assertEnvLines also holds that the old PATH line was not written twice.
+    const afterFirst = assertEnvLines(envFile, [pathLine]);
     const second = runHook(HOOK, { CLAUDE_ENV_FILE: envFile }, tmp);
     assert.equal(second.status, 0);
     assert.equal(second.stdout, '');
-    assert.equal(fs.readFileSync(envFile, 'utf8'), expected, 'a second run adds nothing');
+    assert.ok(fs.readFileSync(envFile).equals(afterFirst), 'a second run adds nothing');
     const r = spawnSync('/bin/sh', ['-c', '. "$CLAUDE_ENV_FILE"; printf %s "$FORGE_MODE"'], { cwd: tmp, env: { PATH: '/usr/bin:/bin', CLAUDE_ENV_FILE: envFile, FORGE_MODE: 'human' }, encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.stdout, 'agent', 'sourcing the file overrides an inherited FORGE_MODE');

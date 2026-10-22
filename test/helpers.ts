@@ -10,6 +10,7 @@ import { BIN, type CliResult } from './support/cli.ts';
 export { BIN, cliEnv, forgeSync, type CliResult } from './support/cli.ts';
 export { fakeBin } from './support/fake-bin.ts';
 export { fakeGh, type GhReply } from './support/fake-gh.ts';
+export { forgeInProcess, type InProcessResult } from './support/in-process.ts';
 
 /**
  * Repo-local settings every scratch repo needs. A user's global `commit.gpgsign` would otherwise
