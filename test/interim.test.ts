@@ -1,11 +1,41 @@
-// Interim strategies, the pure half (lib/interim.ts): resolution, canary versions, git specs and the
-// manifest rewrites. No git or sh.
-import { describe, test } from 'node:test';
+// Interim strategies, the pure half (lib/interim.ts, lib/interim-apply.ts): resolution, canary
+// versions, git specs, the manifest pins and release writers, the release gates, config validation and
+// the no-follow manifest write. No CLI; the writers' fixtures go through the seeded release-gate script
+// with plain node, so they run on every platform.
+import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { defaults } from '../lib/config.ts';
-import { BLOCK_BEGIN, BLOCK_END, bumpedVersion, canaryVersion, heldConsumers, npmGitSpec, pinCargo, pinCmake, pinNpm, releaseGates, remoteUrl, resolveInterim } from '../lib/interim.ts';
-import { isPackageManagerConfig } from '../lib/interim-apply.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { defaults, validateConfig } from '../lib/config.ts';
+import { declaredLinks } from '../lib/links.ts';
+import {
+  BLOCK_BEGIN,
+  BLOCK_END,
+  bumpedVersion,
+  canaryVersion,
+  heldConsumers,
+  isReleaseVersion,
+  lockfileArgv,
+  npmGitSpec,
+  npmReleaseSpec,
+  pinCargo,
+  pinCmake,
+  pinNpm,
+  releaseCargo,
+  releaseCmake,
+  releaseGates,
+  releaseNpm,
+  releasedVersion,
+  remoteUrl,
+  resolveInterim,
+  strategyOf,
+} from '../lib/interim.ts';
+import { isPackageManagerConfig, writeManifest } from '../lib/interim-apply.ts';
+import { PLUGIN_ROOT } from '../lib/paths.ts';
 import type { Config, Job } from '../lib/types.ts';
+import { repoTemplate } from './helpers.ts';
 
 const SHA = '0123456789abcdef0123456789abcdef01234567';
 const SHA2 = 'fedcba9876543210fedcba9876543210fedcba98';
@@ -171,8 +201,9 @@ describe('interim: pure helpers', { concurrency: 4 }, () => {
     assert.deepEqual(gate(edge('git-ref'), [rel('1.2.0'), bumped('1.1.0')]), ['bump-due', '1.2.0']);
     assert.deepEqual(gate(edge('git-ref'), [rel('1.2.0'), bumped('1.2.0'), rel('1.3.0')]), ['bump-due', '1.3.0']);
     assert.deepEqual(gate(edge('git-ref'), [rel('1.2.0'), bumped('1.2.0'), rel('1.3.0'), bumped('1.3.0')]), ['released', '1.3.0']);
-    // Malformed events of both types are ignored.
-    for (const bad of [rel('1.2.0-canary.abc'), rel('-Zunstable'), rel('1.2.0 && x'), rel(`1.2.0-${'a'.repeat(120)}`), rel('1.2.0', '../x'), rel('1.2.0', 7)])
+    // Malformed events of both types are ignored: events.jsonl is writable outside the CLI.
+    const noRepo = { type: 'interim-released', version: '1.2.0' };
+    for (const bad of [rel('1.2.0-canary.abc'), rel('-Zunstable'), rel('1.2.0 && x'), rel(`1.2.0-${'a'.repeat(120)}`), rel('1.2.0', '../x'), rel('1.2.0', 7), rel('not a version'), rel(12), noRepo])
       assert.deepEqual(gate(edge('git-ref'), [bad]), ['ci', undefined], JSON.stringify(bad));
     for (const bad of [bumped('1.2.0-canary.abc'), bumped('1.2.0', { repo: '../x' }), bumped('1.2.0', { dependency: undefined }), bumped('1.2.0', { dependency: 'other' }), bumped('1.2.0', { repo: 'web' })])
       assert.deepEqual(gate(edge('git-ref'), [rel('1.2.0'), bad]), ['bump-due', '1.2.0'], JSON.stringify(bad));
@@ -183,5 +214,297 @@ describe('interim: pure helpers', { concurrency: 4 }, () => {
     assert.deepEqual(gates.map((g) => g.gate), ['released', 'bump-due', 'released']);
     assert.deepEqual([...heldConsumers(gates)], ['b']);
     assert.deepEqual([...heldConsumers(releaseGates([edge('local', [], 'a')], []))], ['a']);
+  });
+});
+
+// The helpers behind `forge job interim release`; its CLI tests are e2e/release/pr.test.ts.
+describe('interim release', () => {
+  test('gate helpers', () => {
+    assert.equal(isReleaseVersion('1.2.0'), true);
+    assert.equal(isReleaseVersion('v1.2.0-rc.1+build.5'), true);
+    assert.equal(isReleaseVersion('1.2.0-Canary'), false);
+    assert.equal(isReleaseVersion(`1.${'9'.repeat(10_000)}.0`), false, 'a long hostile value is refused fast');
+    const events = [
+      { type: 'interim-released', repo: 'lib', version: '1.0.0' },
+      { type: 'interim-released', repo: null, version: '2.0.0' },
+      { type: 'interim-released', repo: 'lib', version: 'bad' },
+    ];
+    assert.equal(releasedVersion(events, 'lib'), '1.0.0');
+    assert.equal(releasedVersion(events, null), '2.0.0');
+    assert.equal(releasedVersion(events, 'other'), null);
+  });
+});
+
+const REPOS = [{ name: 'lib', remote: 'https://example.com/lib.git', defaultBranch: 'main' }];
+const cfgLink = (ecosystem: string, extra: Record<string, unknown> = {}) => ({ ecosystem, name: ecosystem === 'npm' ? '@acme/lib' : 'lib', ...extra });
+const components = (l: Record<string, unknown>) => [
+  { name: 'app', path: 'app', kind: 'app', dependsOn: [{ component: 'lib', type: 'build', link: l }] },
+  { name: 'lib', repo: 'lib', path: '.', kind: 'library' },
+];
+const problems = (c: Record<string, unknown>) => validateConfig({ ...defaults(), repos: REPOS, components: components(cfgLink('cargo')), ...c }, process.cwd());
+const noJob = { interim: null, repos: [] } as unknown as Job;
+
+describe('interim strategies: config', { concurrency: 4 }, () => {
+  test('release.interim validates on the root and on repos entries', () => {
+    assert.deepEqual(defaults().release, { interim: 'local', versioning: null, mechanism: null, command: null, registry: null, cadence: null, publish: null });
+    assert.deepEqual(problems({}), []);
+    for (const interim of ['canary', 'git-ref', 'local', 'sequential']) {
+      assert.deepEqual(problems({ release: { interim } }), [], interim);
+      assert.deepEqual(problems({ repos: [{ ...REPOS[0], release: { interim } }] }), [], interim);
+    }
+    assert.deepEqual(problems({ repos: [{ ...REPOS[0], release: null }] }), [], 'a member may leave release out or null');
+    assert.deepEqual(problems({ repos: [{ ...REPOS[0], release: {} }] }), [], 'or give no interim');
+    assert.deepEqual(problems({ release: { interim: 'bogus' } }), ['release.interim must be one of canary | git-ref | local | sequential (got "bogus")']);
+    assert.deepEqual(problems({ release: 'canary' }), ['release must be a map with interim canary | git-ref | local | sequential (got "canary")']);
+    assert.deepEqual(problems({ repos: [{ ...REPOS[0], release: { interim: 'publish' } }] }), ['repos "lib".release.interim must be one of canary | git-ref | local | sequential (got "publish")']);
+    assert.deepEqual(problems({ repos: [{ ...REPOS[0], release: ['canary'] }] }), ['repos "lib".release must be a map with interim canary | git-ref | local | sequential (got ["canary"])']);
+    // Resolution: a member without release is local; config wins over the default.
+    const config = { ...defaults(), repos: REPOS } as Config;
+    assert.deepEqual(strategyOf(config, noJob, 'lib'), { strategy: 'local', source: 'config' });
+    assert.deepEqual(strategyOf({ ...config, repos: [{ ...REPOS[0], release: { interim: 'git-ref' } }] }, noJob, 'lib'), { strategy: 'git-ref', source: 'config' });
+    assert.deepEqual(strategyOf({ ...config, release: { ...config.release, interim: 'sequential' } }, noJob, null), { strategy: 'sequential', source: 'config' });
+    assert.deepEqual(strategyOf({ ...config, release: { interim: 'bogus' } } as unknown as Config, noJob, null), { strategy: 'local', source: 'config' }, 'an invalid value never resolves');
+  });
+
+  test('link.manifest validates per ecosystem', () => {
+    const at = 'components "app".dependsOn[0].link.manifest';
+    const ok: [string, string][] = [['cargo', 'Cargo.toml'], ['cargo', 'crates/app/Cargo.toml'], ['cmake', 'CMakeLists.txt'], ['cmake', 'cmake/deps.cmake'], ['npm', 'web/package.json']];
+    for (const [eco, manifest] of ok) assert.deepEqual(validateConfig({ ...defaults(), repos: REPOS, components: components(cfgLink(eco, { manifest })) }, process.cwd()), [], `${eco} ${manifest}`);
+    const bad: [string, unknown, string][] = [
+      ['cargo', '/abs/Cargo.toml', 'a Cargo.toml'],
+      ['cargo', '../x/Cargo.toml', 'a Cargo.toml'],
+      ['cargo', 'a/../Cargo.toml', 'a Cargo.toml'],
+      ['cargo', 'Cargo.lock', 'a Cargo.toml'],
+      ['cmake', 'CMakeLists.txt.bak', 'a CMakeLists.txt or a .cmake file'],
+      ['cmake', '.cmake', 'a CMakeLists.txt or a .cmake file'],
+      ['npm', 'package-lock.json', 'a package.json'],
+      ['npm', 'C:\\x\\package.json', 'a package.json'],
+      ['npm', 7, 'a package.json'],
+    ];
+    for (const [eco, manifest, what] of bad) {
+      const got = validateConfig({ ...defaults(), repos: REPOS, components: components(cfgLink(eco, { manifest })) }, process.cwd());
+      assert.deepEqual(got, [`${at} must be a relative path inside the consumer's repo to ${what} (got ${JSON.stringify(manifest)})`], `${eco} ${manifest}`);
+    }
+    // The default manifest is the ecosystem's file in the consumer component's path; a set one wins.
+    const [d] = declaredLinks({ components: components(cfgLink('cmake')) } as Config);
+    assert.equal(d.manifest, 'app/CMakeLists.txt');
+    const [m] = declaredLinks({ components: components(cfgLink('npm', { manifest: 'web/package.json' })) } as Config);
+    assert.equal(m.manifest, 'web/package.json');
+    assert.equal(declaredLinks({ components: components(cfgLink('npm', { manifest: '../package.json' })) } as Config).length, 0, 'an invalid manifest drops the link, as other invalid links are dropped');
+  });
+});
+
+// The release writers: what verify writes into a consumer's manifests once its dependency's release
+// is recorded, and the lockfile argv.
+const SCRIPT = path.join(PLUGIN_ROOT, 'templates', 'release-gate', 'release-gate.mjs');
+const WSHA = 'a'.repeat(40);
+const ok = (r: { text: string } | { error: string }): string => {
+  if ('error' in r) throw new Error(r.error);
+  return r.text;
+};
+const err = (r: { text: string } | { error: string }): string => {
+  assert.ok('error' in r, `expected an error, got ${JSON.stringify(r)}`);
+  return r.error;
+};
+const wpin = (name = 'engine-core') => ({ source: 'crates-io', name, git: 'https://example.com/lib.git', rev: WSHA });
+const gitRepo = repoTemplate(() => {});
+
+/** The seeded gate script over `files`, committed in a scratch repo. */
+function gate(files: Record<string, string>): { status: number | null; out: string } {
+  const repo = gitRepo();
+  try {
+    for (const [rel, text] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(repo.dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(repo.dir, rel), text);
+    }
+    repo.git('add', '-A');
+    repo.git('commit', '-qm', 'manifests');
+    const r = spawnSync(process.execPath, [SCRIPT], { cwd: repo.dir, encoding: 'utf8' });
+    return { status: r.status, out: r.stdout + r.stderr };
+  } finally {
+    repo.cleanup();
+  }
+}
+
+const PKG = 'name = "app"\nversion = "0.1.0"\n';
+
+describe('interim release writers', { concurrency: 4 }, () => {
+  test('pinCargo with no pins removes the block', () => {
+    const base = `[package]\n${PKG}\n[dependencies]\nengine-core = "1.2.0"\n`;
+    const pinned = ok(pinCargo(base, [wpin()]));
+    assert.ok(pinned.includes(BLOCK_BEGIN));
+    assert.equal(ok(pinCargo(pinned, [])), base, 'the block and the blank line before it go');
+    assert.equal(ok(pinCargo(base, [])), base, 'no block: unchanged');
+    // A block in the middle of the file loses only its own lines.
+    const middle = `[package]\n${PKG}\n${BLOCK_BEGIN}\n[patch."crates-io"]\n"x" = { git = "g", rev = "${WSHA}" }\n${BLOCK_END}\n\n[dependencies]\nx = "1"\n`;
+    assert.equal(ok(pinCargo(middle, [])), `[package]\n${PKG}\n\n[dependencies]\nx = "1"\n`);
+    const crlf = base.replace(/\n/g, '\r\n');
+    assert.equal(ok(pinCargo(ok(pinCargo(crlf, [wpin()])), [])), crlf, 'CRLF kept');
+    assert.match(err(pinCargo(`${BLOCK_BEGIN}\n`, [])), /broken or repeated/);
+  });
+
+  test('releaseCargo sets the released requirement', () => {
+    const cases: [string, string, string, string][] = [
+      ['string', '[dependencies]\nengine-core = "1.0.0"\n', '1.2.0', '[dependencies]\nengine-core = "1.2.0"\n'],
+      ['literal string', "[dependencies]\nengine-core = '1.0'\n", '1.2.0', "[dependencies]\nengine-core = '1.2.0'\n"],
+      ['quoted key', '[dependencies]\n"engine-core" = "1"\n', '1.2.0', '[dependencies]\n"engine-core" = "1.2.0"\n'],
+      ['^ kept', '[dependencies]\nengine-core = "^1"\n', '1.2.0', '[dependencies]\nengine-core = "^1.2.0"\n'],
+      ['v and +build stripped', '[dependencies]\nengine-core = "1"\n', 'v1.2.0+build.5', '[dependencies]\nengine-core = "1.2.0"\n'],
+      ['prerelease kept', '[dependencies]\nengine-core = "1"\n', '1.2.0-rc.1', '[dependencies]\nengine-core = "1.2.0-rc.1"\n'],
+      [
+        'inline table',
+        '[dependencies]\nengine-core = { version = "1.0", features = ["a", "b"], path = "../e" } # local\n',
+        '1.2.0',
+        '[dependencies]\nengine-core = { version = "1.2.0", features = ["a", "b"], path = "../e" } # local\n',
+      ],
+      ['subtable', '[dependencies.engine-core]\nversion = "1.0"\nfeatures = ["x"]\n', '1.2.0', '[dependencies.engine-core]\nversion = "1.2.0"\nfeatures = ["x"]\n'],
+      [
+        'every table kind',
+        '[dependencies]\nengine-core = "1"\n\n[dev-dependencies]\nengine-core = "1"\n\n[build-dependencies]\nengine-core = { version = "1" }\n\n[workspace.dependencies]\nengine-core = "1"\n\n[target.\'cfg(unix)\'.dependencies]\nengine-core = "1"\n\n[target."cfg(windows)".dev-dependencies.engine-core]\nversion = "1"\n',
+        '1.2.0',
+        '[dependencies]\nengine-core = "1.2.0"\n\n[dev-dependencies]\nengine-core = "1.2.0"\n\n[build-dependencies]\nengine-core = { version = "1.2.0" }\n\n[workspace.dependencies]\nengine-core = "1.2.0"\n\n[target.\'cfg(unix)\'.dependencies]\nengine-core = "1.2.0"\n\n[target."cfg(windows)".dev-dependencies.engine-core]\nversion = "1.2.0"\n',
+      ],
+      ['only workspace = true', '[dependencies]\nengine-core = { workspace = true }\n', '1.2.0', '[dependencies]\nengine-core = { workspace = true }\n'],
+      ['other crates and tables untouched', '[package]\nversion = "0.1.0"\n\n[dependencies]\nengine = "1"\nengine-core-x = "1"\n\n[features]\nengine-core = []\n\n[dependencies]\nengine-core = "1"\n', '1.2.0', '[package]\nversion = "0.1.0"\n\n[dependencies]\nengine = "1"\nengine-core-x = "1"\n\n[features]\nengine-core = []\n\n[dependencies]\nengine-core = "1.2.0"\n'],
+      ['CRLF kept', '[dependencies]\r\nengine-core = "1"\r\n', '1.2.0', '[dependencies]\r\nengine-core = "1.2.0"\r\n'],
+    ];
+    for (const [name, text, version, want] of cases) assert.equal(ok(releaseCargo(text, 'engine-core', version)), want, name);
+    // The Forge block is skipped: pinCargo removes the crate from it.
+    const pinned = ok(pinCargo('[dependencies]\nengine-core = "1"\n', [wpin()]));
+    assert.equal(ok(releaseCargo(pinned, 'engine-core', '1.2.0')), pinned.replace('engine-core = "1"', 'engine-core = "1.2.0"'), 'the [patch] entry inside the block stays');
+  });
+
+  test('releaseCargo refuses what it cannot rewrite', () => {
+    const refusals: [string, string, RegExp][] = [
+      ['multi-line inline table', '[dependencies]\nengine-core = {\n  version = "1",\n}\n', /multi-line inline table/],
+      ['dotted version key', '[dependencies]\nengine-core.version = "1"\n', /dotted key/],
+      ['no version', '[dependencies]\nengine-core = { git = "https://example.com/e.git" }\n', /has no version/],
+      ['subtable with no version', '[dependencies.engine-core]\npath = "../e"\n\n[features]\n', /dependency table has no version/],
+      ['no entry', '[dependencies]\nengine = "1"\n', /Cargo.toml has no dependency on engine-core/],
+      ['not a string', '[dependencies]\nengine-core = 1\n', /neither a version string nor an inline table/],
+    ];
+    for (const [name, text, re] of refusals) assert.match(err(releaseCargo(text, 'engine-core', '1.2.0')), re, name);
+    for (const bad of ['1.2', '1.2.0-canary.abc', '1.2.0 && x']) assert.match(err(releaseCargo('[dependencies]\nengine-core = "1"\n', 'engine-core', bad)), /not a released version/, bad);
+    const t = Date.now();
+    releaseCargo(`[dependencies]\nengine-core = { ${'"'.repeat(10_000)} ${'{'.repeat(10_000)}\n[${'a.'.repeat(5_000)}`, 'engine-core', '1.2.0');
+    assert.ok(Date.now() - t < 2000, 'a hostile line is parsed in linear time');
+  });
+
+  test('releaseCmake replaces the tag, kept as recorded', () => {
+    const CMAKE = 'include(FetchContent)\nFetchContent_Declare(\n  engine\n  GIT_REPOSITORY https://example.com/engine.git\n  GIT_TAG v1.0.0\n)\n';
+    const pinned = ok(pinCmake(CMAKE, 'Engine', WSHA));
+    assert.equal(ok(releaseCmake(pinned, 'engine', 'v1.2.0')), CMAKE.replace('v1.0.0', 'v1.2.0'));
+    assert.equal(ok(releaseCmake(pinned, 'engine', '1.2.0')), CMAKE.replace('v1.0.0', '1.2.0'));
+    assert.match(err(releaseCmake(CMAKE + CMAKE.slice(CMAKE.indexOf('FetchContent_Declare')), 'engine', 'v1.2.0')), /2 FetchContent_Declare\(engine …\) calls; the release needs exactly one/);
+    assert.match(err(releaseCmake(CMAKE, 'engine', WSHA)), /not a released version/);
+    assert.match(err(pinCmake(CMAKE.replace('  GIT_TAG v1.0.0\n', ''), 'engine', WSHA)), /0 GIT_TAG arguments; the pin needs exactly one with a value/, 'pin wording kept');
+  });
+
+  test('releaseNpm follows the per-section range rule', () => {
+    const cases: [unknown, string, string][] = [
+      ['^1.0.0', '1.2.0', '^1.2.0'],
+      ['~1.0.0', 'v1.2.0', '~1.2.0'],
+      ['1.0.0', '1.2.0+b', '1.2.0'],
+      ['1.0.0-canary.0123456789ab', '1.2.0', '^1.2.0'],
+      [`git+https://example.com/e.git#${WSHA}`, '1.2.0', '^1.2.0'],
+      [7, '1.2.0', '^1.2.0'],
+    ];
+    for (const [old, version, want] of cases) assert.equal(npmReleaseSpec(old, version), want, String(old));
+    const PKG_JSON = '{\n    "name": "app",\n    "dependencies": {\n        "engine": "1.0.0-canary.0123456789ab"\n    },\n    "devDependencies": {\n        "engine": "~1.0.0"\n    }\n}\n';
+    assert.equal(ok(releaseNpm(PKG_JSON, 'engine', '1.2.0')), PKG_JSON.replace('1.0.0-canary.0123456789ab', '^1.2.0').replace('~1.0.0', '~1.2.0'), 'per section, indent kept');
+    assert.match(err(releaseNpm(PKG_JSON, 'other', '1.2.0')), /no dependency on other/);
+    assert.match(err(releaseNpm(PKG_JSON, 'engine', '1.2.0-canary.x')), /not a released version/);
+  });
+
+  test('round trip and the gate script', () => {
+    const CARGO = `[package]\n${PKG}\n[dependencies]\nengine-core = "1.2.0"\n`;
+    const CMAKE = 'include(FetchContent)\nFetchContent_Declare(\n  engine\n  GIT_REPOSITORY https://example.com/engine.git\n  GIT_TAG v1.2.0\n)\n';
+    const JSON_PKG = '{\n  "name": "app",\n  "dependencies": {\n    "engine": "^1.2.0"\n  }\n}\n';
+    const cargo = ok(releaseCargo(ok(pinCargo(ok(pinCargo(CARGO, [wpin()])), [])), 'engine-core', '1.2.0'));
+    assert.equal(cargo, CARGO, 'Cargo.toml: byte for byte');
+    const cmake = ok(releaseCmake(ok(pinCmake(CMAKE, 'engine', WSHA)), 'engine', 'v1.2.0'));
+    assert.equal(cmake, CMAKE, 'CMakeLists.txt: byte for byte');
+    const npm = ok(releaseNpm(ok(pinNpm(JSON_PKG, 'engine', `git+https://example.com/e.git#${WSHA}`)), 'engine', '1.2.0'));
+    assert.equal(npm, JSON_PKG, 'package.json: byte for byte');
+    // Two crates pinned, one released: the other's pin stays and the gate still fails on it.
+    const two = ok(pinCargo(`${CARGO}engine-macros = "1.2.0"\n`, [wpin(), wpin('engine-macros')]));
+    const one = ok(releaseCargo(ok(pinCargo(two, [wpin('engine-macros')])), 'engine-core', '1.2.0'));
+    assert.ok(one.includes('"engine-macros" = { git') && !one.includes('"engine-core" = { git'));
+    assert.equal(gate({ 'Cargo.toml': one }).status, 1, 'the remaining pin still fails the gate');
+    const released = { 'Cargo.toml': cargo, 'cmake/CMakeLists.txt': cmake, 'package.json': npm, 'web/package.json': ok(releaseNpm(ok(pinNpm(JSON_PKG, 'engine', '1.2.0-canary.0123456789ab')), 'engine', '1.2.0')) };
+    for (const [file, text] of Object.entries(released)) {
+      const r = gate({ [file]: text });
+      assert.equal(r.status, 0, `${file}: ${r.out}`);
+    }
+    const all = gate(released);
+    assert.equal(all.status, 0, all.out);
+  });
+
+  test('lockfileArgv: argv and refusals', () => {
+    assert.deepEqual(lockfileArgv('cargo', 'engine-core', 'v1.2.0+b'), { argv: ['update', '-p', 'engine-core', '--precise', '1.2.0'] });
+    assert.deepEqual(lockfileArgv('npm', '@acme/engine', '1.2.0'), { argv: ['install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'] });
+    // Option-shaped names and versions never reach the argv, nor a canary or an over-long version.
+    for (const [eco, name, version] of [
+      ['cargo', '-Zunstable', '1.2.0'],
+      ['npm', '-g', '1.2.0'],
+      ['cargo', 'engine-core', '-Zunstable'],
+      ['cargo', 'engine-core', '1.2.0-canary.abc'],
+      ['cargo', 'engine-core', `1.2.0-${'a'.repeat(120)}`],
+      ['cmake', 'engine', '1.2.0'],
+    ])
+      assert.ok('error' in lockfileArgv(eco, name, version), `${eco} ${name} ${version}`);
+  });
+});
+
+// writeManifest, the interim pin writer: a random-named temp file opened exclusive and no-follow,
+// renamed over the manifest, and removed whenever anything after its creation fails.
+const dirs: string[] = [];
+after(() => dirs.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
+
+function scratch(): string {
+  const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-manifest-')));
+  dirs.push(d);
+  fs.mkdirSync(path.join(d, 'wt'));
+  return d;
+}
+
+const forgeTemps = (dir: string) => fs.readdirSync(dir).filter((f) => /\.forge-.*\.tmp$/.test(f));
+
+describe('interim manifest writes', () => {
+  test('a symlink planted at the temp path is never followed', { skip: process.platform === 'win32' ? 'symlinks need privileges on Windows' : false }, () => {
+    const d = scratch();
+    const wt = path.join(d, 'wt');
+    const outside = path.join(d, 'outside.txt');
+    fs.writeFileSync(outside, 'keep me\n');
+    fs.writeFileSync(path.join(wt, 'Cargo.toml'), 'original\n');
+    const planted = path.join(wt, '.Cargo.toml.forge-fixed.tmp');
+    fs.symlinkSync(outside, planted);
+    assert.throws(() => writeManifest(wt, 'Cargo.toml', 'pinned\n', () => 'fixed'), (e: any) => e.code === 'EEXIST' || e.code === 'ELOOP');
+    assert.equal(fs.readFileSync(outside, 'utf8'), 'keep me\n');
+    assert.equal(fs.readFileSync(path.join(wt, 'Cargo.toml'), 'utf8'), 'original\n');
+    assert.ok(fs.lstatSync(planted).isSymbolicLink(), 'the planted link is not Forge\'s to remove');
+    assert.deepEqual(forgeTemps(wt), ['.Cargo.toml.forge-fixed.tmp'], 'no temp file of Forge\'s is left');
+  });
+
+  test('a failed rename leaves no temp file', () => {
+    const d = scratch();
+    const wt = path.join(d, 'wt');
+    fs.mkdirSync(path.join(wt, 'package.json'));
+    fs.writeFileSync(path.join(wt, 'package.json', 'inner'), 'x');
+    assert.throws(() => writeManifest(wt, 'package.json', '{}\n'));
+    assert.deepEqual(forgeTemps(wt), []);
+    assert.ok(fs.statSync(path.join(wt, 'package.json')).isDirectory());
+  });
+
+  test('the manifest keeps its mode', () => {
+    const d = scratch();
+    const wt = path.join(d, 'wt');
+    const file = path.join(wt, 'CMakeLists.txt');
+    fs.writeFileSync(file, 'old\n');
+    fs.chmodSync(file, 0o640);
+    writeManifest(wt, 'CMakeLists.txt', 'new\n');
+    assert.equal(fs.readFileSync(file, 'utf8'), 'new\n');
+    if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o640);
+    assert.deepEqual(forgeTemps(wt), []);
   });
 });

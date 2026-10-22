@@ -1,16 +1,16 @@
 // The release bump: once a dependency's release is recorded, verify rewrites the consumer's
 // manifests to the released version, refreshes a tracked lockfile with a fixed argv, commits, and
-// logs `interim-bumped`. Scratch repos from job-repos-fixture.ts; cargo and npm are sh stubs in a
-// temp bin/ that record their argv, and the fake gh never reaches GitHub.
+// logs `interim-bumped`. Scratch repos from job-repos-fixture.ts; cargo and npm are fakeBin stubs
+// that record their argv, and the fake gh never reaches GitHub.
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { BLOCK_BEGIN, lockfileArgv } from '../lib/interim.ts';
-import { findOnPath } from '../lib/util.ts';
-import { prProject, ready, twoRepo } from './job-repos-fixture.ts';
-import type { PrProject } from './job-repos-fixture.ts';
+import { BLOCK_BEGIN } from '../../../lib/interim.ts';
+import { findOnPath } from '../../../lib/util.ts';
+import { prProject, ready } from '../../job-repos-fixture.ts';
+import { fakeBin } from '../../helpers.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => cleanups.forEach((c) => c()));
@@ -19,26 +19,19 @@ const STUBS = process.platform === 'win32' ? 'stub lockfile tools are POSIX shel
 const GH = process.platform === 'win32' ? 'spawns a fake gh, a sh script' : false;
 const LINKS = process.platform === 'win32' ? 'symlinks need privileges on native Windows' : false;
 
-// Each records `<cwd> <argv>`, fails with <tool>-fail, writes a stray file with <tool>-touch, and
-// otherwise rewrites its lockfile in the cwd deterministically.
-const stub = (tool: string, lock: string) => `#!/bin/sh
-echo "$PWD $*" >> "$STUB_DIR/${tool}.log"
-if [ -f "$STUB_DIR/${tool}-fail" ]; then echo "${tool}: resolution failed" >&2; exit 1; fi
-if [ -f "$STUB_DIR/${tool}-touch" ]; then echo x > stray.txt; fi
-printf 'refreshed by stub ${tool}: %s\\n' "$*" > ${lock}
-`;
+// After fakeBin logs the argv, each records its cwd, fails with `fail` in its dir, writes a stray
+// file with `touch`, and otherwise rewrites its lockfile in the cwd deterministically.
+const stub = (tool: string, lock: string) => `d=$(dirname "$0")
+echo "$PWD" >> "$d/pwd.log"
+if [ -f "$d/fail" ]; then echo "${tool}: resolution failed" >&2; exit 1; fi
+if [ -f "$d/touch" ]; then echo x > stray.txt; fi
+printf 'refreshed by stub ${tool}: %s\\n' "$*" > ${lock}`;
 
 type Link = Record<string, unknown>;
 
 /** The two-repo project, root `app` consuming member `lib` through `links`, lib on `strategy`, and stub cargo/npm. */
-async function project(links: Link[], strategy: string, opts: { gh?: boolean } = {}) {
-  let p: PrProject;
-  if (opts.gh) p = await prProject(cleanups);
-  else {
-    const t = await twoRepo();
-    cleanups.push(t.cleanup);
-    p = { ...t, env: {}, gh: '', calls: () => [], pr: async () => ({ status: 1, stdout: '', stderr: '' }), heads: () => '', fake: () => {}, body: () => '' } as PrProject;
-  }
+async function project(links: Link[], strategy: string) {
+  const p = await prProject(cleanups);
   p.config((c) => {
     c.components = [
       { name: 'app', path: '.', kind: 'app', dependsOn: links.map((link) => ({ component: 'lib', type: 'build', link })) },
@@ -46,19 +39,21 @@ async function project(links: Link[], strategy: string, opts: { gh?: boolean } =
     ];
     c.repos[0].release = { interim: strategy };
   });
-  const stubs = path.join(p.parent, 'stubs');
-  fs.mkdirSync(path.join(stubs, 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(stubs, 'bin', 'cargo'), stub('cargo', 'Cargo.lock'), { mode: 0o755 });
-  fs.writeFileSync(path.join(stubs, 'bin', 'npm'), stub('npm', 'package-lock.json'), { mode: 0o755 });
-  const env = { ...p.env, PATH: `${path.join(stubs, 'bin')}${path.delimiter}${p.env.PATH ?? process.env.PATH}`, STUB_DIR: stubs };
-  const log = (tool: string) => {
-    try {
-      return fs.readFileSync(path.join(stubs, `${tool}.log`), 'utf8').split('\n').filter(Boolean);
-    } catch {
-      return [];
-    }
+  const tools = { cargo: fakeBin('cargo', stub('cargo', 'Cargo.lock')), npm: fakeBin('npm', stub('npm', 'package-lock.json')) };
+  const env = { ...p.env, PATH: [tools.cargo.dir, tools.npm.dir, p.env.PATH].join(path.delimiter) };
+  /** Each call as `<cwd> <argv>`. */
+  const log = (tool: 'cargo' | 'npm') => {
+    const t = tools[tool];
+    const cwds = fs.existsSync(path.join(t.dir, 'pwd.log')) ? fs.readFileSync(path.join(t.dir, 'pwd.log'), 'utf8').split('\n').filter(Boolean) : [];
+    return t.calls().map((argv, i) => `${cwds[i]} ${argv.join(' ')}`);
   };
-  const flag = (name: string, on: boolean) => (on ? fs.writeFileSync(path.join(stubs, name), '') : fs.rmSync(path.join(stubs, name), { force: true }));
+  /** `cargo-fail` or `cargo-touch` on or off. */
+  const flag = (name: `${'cargo' | 'npm'}-${'fail' | 'touch'}`, on: boolean) => {
+    const [tool, what] = name.split('-') as ['cargo' | 'npm', string];
+    const file = path.join(tools[tool].dir, what);
+    if (on) fs.writeFileSync(file, '');
+    else fs.rmSync(file, { force: true });
+  };
   const verify = async (id: string, extra: NodeJS.ProcessEnv = env) => {
     const r = await p.raw(['verify', id], extra);
     const out = JSON.parse(r.stdout);
@@ -79,7 +74,7 @@ async function project(links: Link[], strategy: string, opts: { gh?: boolean } =
   const head = (cwd: string) => p.git(cwd, 'rev-parse', 'HEAD').trim();
   const show = (cwd: string, file: string) => p.git(cwd, 'show', `HEAD:${file}`);
   const bumped = (id: string) => p.events(id).filter((e) => e.type === 'interim-bumped');
-  return { p, env, stubs, log, flag, verify, recordPr, appendEvent, release, head, show, bumped };
+  return { p, env, log, flag, verify, recordPr, appendEvent, release, head, show, bumped };
 }
 
 const CARGO = '[package]\nname = "app"\nversion = "0.1.0"\n\n[dependencies]\nengine-core = "1.0.0"\n';
@@ -200,6 +195,7 @@ describe('interim release bump', { concurrency: 4 }, () => {
     assert.equal(c.bumped(j.id).length, 1);
   });
 
+  // The option-shaped lockfileArgv rows this test used to repeat are interim.test.ts › "lockfileArgv: argv and refusals".
   test('forged release records are refused', async () => {
     const c = await project([{ ecosystem: 'cargo', name: 'engine-core' }], 'git-ref');
     const j = await ready(c.p);
@@ -227,12 +223,10 @@ describe('interim release bump', { concurrency: 4 }, () => {
     assert.deepEqual(c.log('cargo'), []);
     const st = await c.p.f('job', 'interim', j.id);
     assert.deepEqual([st.edges[0].state, st.edges[0].detail], ['blocked', "repo lib's PR is not merged, yet a release 1.2.0 is recorded"]);
-    // An option-shaped link name or version never reaches the lockfile argv.
-    for (const [name, version] of [['-Zx', '1.2.0'], ['engine-core', '-Zx'], ['--offline', '1.2.0']]) assert.ok('error' in lockfileArgv('cargo', name, version), `${name} ${version}`);
   });
 
   test("a forged bumped event can't push or ready an unbumped consumer", { skip: GH }, async () => {
-    const c = await project([{ ecosystem: 'cargo', name: 'engine-core' }], 'git-ref', { gh: true });
+    const c = await project([{ ecosystem: 'cargo', name: 'engine-core' }], 'git-ref');
     const j = await ready(c.p);
     c.p.commit(j.rootWt, { 'Cargo.toml': CARGO });
     assert.equal((await c.verify(j.id)).status, 0);

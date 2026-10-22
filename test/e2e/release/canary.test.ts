@@ -1,7 +1,7 @@
 // The canary interim strategy: verify pins the consumer to `<core>-canary.<sha12>`, `pr open` defers
 // the consumer until the canary is published, and only `forge job interim publish --confirm`, run by
-// a human at a terminal, ever runs `npm publish`. npm is a stub (an sh script that logs its argv)
-// first on PATH, and the registry points at a closed port, so nothing can reach a real registry.
+// a human at a terminal, ever runs `npm publish`. npm is a fakeBin stub that logs its argv, first on
+// PATH, and the registry points at a closed port, so nothing can reach a real registry.
 // `--confirm` runs go through test/fixtures/tty-forge.ts, which stands in for the terminal.
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,28 +9,27 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { LIB_COMMANDS, prProject, ready } from './job-repos-fixture.ts';
-import type { PrProject } from './job-repos-fixture.ts';
-import { TRUST_ENV, trustDigest } from '../lib/config.ts';
-import { loadJob } from '../lib/jobs.ts';
-import { token } from './secret-fixtures.ts';
+import { LIB_COMMANDS, dependsOn, prProject, ready } from '../../job-repos-fixture.ts';
+import type { PrProject } from '../../job-repos-fixture.ts';
+import { fakeBin } from '../../helpers.ts';
+import { TRUST_ENV, trustDigest } from '../../../lib/config.ts';
+import { RELEASE_DAEMON_REFUSAL } from '../../../lib/interim-apply.ts';
+import { loadJob } from '../../../lib/jobs.ts';
+import { token } from '../../secret-fixtures.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => cleanups.forEach((c) => c()));
 
-// One line per call (`<cwd> <args>`), and the package.json and files it saw in the package dir
-// (\$2, after \`publish\`) beside the log, with the global config npm was pointed at.
-const STUB = `#!/bin/sh
-d="$STUB_DIR"
-echo "$PWD $*" >> "$d/npm.log"
-n=$(wc -l < "$d/npm.log" | tr -d ' ')
+// Beside fakeBin's argv log: the cwd of each call, and the package.json and files it saw in the
+// package dir ($2, after `publish`), with the global config npm was pointed at.
+const STUB = `d=$(dirname "$0")
+echo "$PWD" >> "$d/pwd.log"
+n=$(wc -l < "$d/pwd.log" | tr -d ' ')
 cp "$2/package.json" "$d/published-$n.json" 2>/dev/null
 ls -A "$2" > "$d/files-$n.txt"
 ls -A "$PWD" > "$d/cwd-$n.txt"
 echo "$npm_config_globalconfig" > "$d/globalconfig-$n.txt"
-[ -f "$d/fail" ] && exit 1
-exit 0
-`;
+exit 0`;
 
 const LIB_PKG = (name = 'engine', version = '1.4.0-beta.2') => `{\n  "name": "${name}",\n  "version": "${version}"\n}\n`;
 const APP_PKG = '{\n  "name": "app",\n  "dependencies": {\n    "engine": "^1.0.0"\n  }\n}\n';
@@ -41,14 +40,14 @@ interface Canary extends PrProject {
   libWt: string;
   jobDir: string;
   stub: string;
-  /** Every stub npm call so far. */
+  /** Every stub npm call so far, as `<cwd> <argv>`. */
   log: () => string[];
   run: (args: string[], extra?: NodeJS.ProcessEnv) => Promise<{ status: number | null; stdout: string; stderr: string }>;
   /** forge as if a human ran it at a terminal. */
   tty: (args: string[]) => Promise<{ status: number | null; stdout: string; stderr: string }>;
 }
 
-const TTY_FORGE = path.join(import.meta.dirname, 'fixtures', 'tty-forge.ts');
+const TTY_FORGE = path.join(import.meta.dirname, '..', '..', 'fixtures', 'tty-forge.ts');
 
 async function canary(libPkg = LIB_PKG(), opts: { libFiles?: Record<string, string>; libBase?: Record<string, string> } = {}): Promise<Canary> {
   const p = await prProject(cleanups);
@@ -59,10 +58,8 @@ async function canary(libPkg = LIB_PKG(), opts: { libFiles?: Record<string, stri
     ];
     c.repos[0].release = { interim: 'canary' };
   });
-  const stub = path.join(p.parent, 'npm-stub');
-  fs.mkdirSync(path.join(stub, 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(stub, 'bin', 'npm'), STUB, { mode: 0o755 });
-  const env = { ...p.env, PATH: `${path.join(stub, 'bin')}${path.delimiter}${p.env.PATH}`, STUB_DIR: stub, npm_config_registry: 'http://127.0.0.1:9/' };
+  const npm = fakeBin('npm', STUB);
+  const env = { ...p.env, PATH: `${npm.dir}${path.delimiter}${p.env.PATH}`, npm_config_registry: 'http://127.0.0.1:9/' };
   if (opts.libBase) {
     // Content already on lib's default branch, which the branch scan never reads.
     p.commit(p.lib, opts.libBase, 'chore: base');
@@ -70,7 +67,10 @@ async function canary(libPkg = LIB_PKG(), opts: { libFiles?: Record<string, stri
   }
   const j = await ready(p, { libFiles: { 'package.json': libPkg, ...opts.libFiles } });
   p.commit(j.rootWt, { 'package.json': APP_PKG });
-  const log = () => (fs.existsSync(path.join(stub, 'npm.log')) ? fs.readFileSync(path.join(stub, 'npm.log'), 'utf8').split('\n').filter(Boolean) : []);
+  const log = () => {
+    const cwds = fs.existsSync(path.join(npm.dir, 'pwd.log')) ? fs.readFileSync(path.join(npm.dir, 'pwd.log'), 'utf8').split('\n').filter(Boolean) : [];
+    return npm.calls().map((argv, i) => `${cwds[i]} ${argv.join(' ')}`);
+  };
   const tty = (args: string[]) =>
     new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
       execFile(process.execPath, [TTY_FORGE, ...args], { cwd: p.root, encoding: 'utf8', env: { ...process.env, FORGE_ROOT: p.root, ...env } }, (err, stdout, stderr) => {
@@ -78,7 +78,7 @@ async function canary(libPkg = LIB_PKG(), opts: { libFiles?: Record<string, stri
         resolve({ status: typeof code === 'number' ? code : null, stdout, stderr });
       });
     });
-  return { ...p, ...j, jobDir: path.join(p.root, '.forge', 'jobs', j.id), stub, log, env, run: (args, extra = {}) => p.raw(args, { ...env, ...extra }), tty };
+  return { ...p, ...j, jobDir: path.join(p.root, '.forge', 'jobs', j.id), stub: npm.dir, log, env, run: (args, extra = {}) => p.raw(args, { ...env, ...extra }), tty };
 }
 
 const json = (r: { status: number | null; stdout: string; stderr: string }) => {
@@ -261,5 +261,38 @@ describe('interim strategies: canary', { concurrency: 4 }, () => {
     assert.equal(r.status, 1);
     assert.match(r.stderr, /verified commit [0-9a-f]{12} is not on the job branch "main"/);
     assert.deepEqual(c.log(), []);
+  });
+
+  // The canary tails of interim-cli's "job repo interim sets, clears and refuses" and of
+  // interim-release's "release record: any strategy, resume".
+  test('canary is npm-only, and its release record bumps the consumer', async () => {
+    const p = await prProject(cleanups);
+    dependsOn(p, 'app-on-lib');
+    const j = await p.f('job', 'new', '--title', `canary ${Math.random().toString(36).slice(2, 8)}`);
+    const id = j.id as string;
+    await p.f('job', 'repo', 'add', id, 'lib');
+    for (const ecosystem of ['cargo', 'cmake']) {
+      p.config((c) => (c.components.find((x: any) => x.name === 'app').dependsOn = [{ component: 'lib', type: 'build', link: { ecosystem, name: 'engine' } }]));
+      const r = await p.raw(['job', 'repo', 'interim', id, 'lib', 'canary']);
+      assert.equal(r.status, 1, ecosystem);
+      assert.match(r.stderr, new RegExp(`canary is npm-only, and the root repo depends on repo lib through the ${ecosystem} link engine`));
+    }
+    p.config((c) => {
+      c.components.find((x: any) => x.name === 'app').dependsOn = [{ component: 'lib', type: 'build', link: { ecosystem: 'npm', name: 'engine' } }];
+      c.repos[0].release = { interim: 'canary' };
+    });
+    assert.deepEqual(await p.f('job', 'repo', 'interim', id, 'lib', 'canary'), { id, repo: 'lib', interim: 'canary' }, 'an npm link takes a canary');
+    // A merged canary dependency's release is recorded, and the open consumer must bump.
+    const file = path.join(p.root, '.forge', 'jobs', id, 'job.json');
+    const job = JSON.parse(fs.readFileSync(file, 'utf8'));
+    job.pr = { number: 11, url: null, state: 'OPEN', isDraft: false };
+    job.repos.find((r: any) => r.repo === 'lib').pr = { number: 7, url: null, state: 'MERGED', isDraft: false };
+    fs.writeFileSync(file, JSON.stringify(job, null, 2));
+    assert.deepEqual(await p.f('job', 'interim', 'release', id, 'lib', '2.0.0'), { id, repo: 'lib', version: '2.0.0', recorded: true, clear: [], bump: [null] });
+    const refusedRoot = await p.raw(['job', 'interim', 'release', id, '--root', '1.0.0']);
+    assert.match(refusedRoot.stderr, /the root repo is not the dependency of an edge on job .* \(no edge depends on it\)/);
+    const daemon = await p.raw(['job', 'interim', 'release', id, 'lib', '3.0.0'], { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(p.root) });
+    assert.ok(daemon.stderr.includes(RELEASE_DAEMON_REFUSAL), daemon.stderr);
+    assert.deepEqual(p.events(id).filter((e) => e.type === 'interim-released').map((e) => e.version), ['2.0.0']);
   });
 });

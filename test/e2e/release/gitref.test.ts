@@ -1,13 +1,16 @@
 // The git-ref interim strategy: verify pins the consumer's manifest (Cargo.toml, a CMake
 // FetchContent GIT_TAG, package.json) at the dependency's HEAD and commits it, `pr open` refuses a
-// stale pin and pushes the dependency first. Scratch repos with bare remotes and the fake `gh`.
+// stale pin and pushes the dependency first, and a recorded release on a git-ref edge resumes the
+// parked job to bump its consumer. Scratch repos with bare remotes and the fake `gh`.
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { LIB_COMMANDS, prProject, ready } from './job-repos-fixture.ts';
-import type { PrProject } from './job-repos-fixture.ts';
-import { BLOCK_BEGIN, BLOCK_END } from '../lib/interim.ts';
+import { LIB_COMMANDS, dependsOn, prProject, ready } from '../../job-repos-fixture.ts';
+import type { PrProject } from '../../job-repos-fixture.ts';
+import { BLOCK_BEGIN, BLOCK_END } from '../../../lib/interim.ts';
+import { loadJob } from '../../../lib/jobs.ts';
+import { listRequests } from '../../../lib/requests.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => cleanups.forEach((c) => c()));
@@ -206,5 +209,57 @@ describe('interim strategies: git-ref', { concurrency: 4 }, () => {
     const ok = await p.raw(['pr', 'open', j.id], p.env);
     assert.equal(ok.status, 0, ok.stderr);
     assert.equal(p.git(p.rootBare, 'rev-parse', j.branch).trim(), rootHead, 'pr open pushed exactly the pinned sha');
+  });
+});
+
+/** Writes a PR record straight into job.json (null: the root's), as pr open and pr sync would. */
+function recordPr(p: PrProject, id: string, repo: string | null, state: string): void {
+  const file = path.join(p.root, '.forge', 'jobs', id, 'job.json');
+  const job = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const pr = { number: repo === null ? 11 : 7, url: null, state, isDraft: false };
+  if (repo === null) job.pr = pr;
+  else job.repos.find((r: any) => r.repo === repo).pr = pr;
+  fs.writeFileSync(file, JSON.stringify(job, null, 2));
+}
+
+describe('interim release', () => {
+  test('release record: git-ref, resume', async () => {
+    const p = await prProject(cleanups);
+    dependsOn(p, 'app-on-lib');
+    const id = (await p.f('job', 'new', '--title', `release ${Math.random().toString(36).slice(2, 8)}`)).id as string;
+    await p.f('job', 'repo', 'add', id, 'lib');
+    // app (root) consumes lib through a cargo link; lib is git-ref.
+    p.config((c) => {
+      c.components.find((x: any) => x.name === 'app').dependsOn = [{ component: 'lib', type: 'build', link: { ecosystem: 'cargo', name: 'engine-core' } }];
+      c.repos[0].release = { interim: 'git-ref' };
+      c.daemon = { ...(c.daemon ?? {}), enabled: true };
+    });
+    recordPr(p, id, 'lib', 'OPEN');
+    const refusedOpen = await p.raw(['job', 'interim', 'release', id, 'lib', '1.2.0']);
+    assert.equal(refusedOpen.status, 1);
+    assert.match(refusedOpen.stderr, /repo lib's PR is not merged \(recorded state OPEN\)/);
+    recordPr(p, id, 'lib', 'MERGED');
+    recordPr(p, id, null, 'OPEN');
+    await p.f('job', 'set', id, '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review');
+    const out = await p.f('job', 'interim', 'release', id, 'lib', '1.2.0');
+    assert.deepEqual(out, { id, repo: 'lib', version: '1.2.0', recorded: true, clear: [], bump: [null], resumed: true });
+    const job = loadJob(p.root, id);
+    assert.deepEqual([job.stage, job.state, job.waitingOn], ['pr', 'running', null]);
+    assert.match(String(job.reason), /^release of repo lib 1\.2\.0 recorded: bump its consumers/);
+    const resumes = () => listRequests(p.root).filter((r) => r.type === 'resume' && r.job === id);
+    assert.equal(resumes().length, 1, 'a resume request with the daemon on');
+    assert.deepEqual((await p.f('job', 'interim', id)).gates, [{ consumer: null, dependency: 'lib', strategy: 'git-ref', gate: 'bump-due', version: '1.2.0' }]);
+    // Parked again, a second record resumes it once more but queues no second request.
+    await p.f('job', 'set', id, '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review');
+    assert.equal((await p.f('job', 'interim', 'release', id, 'lib', '1.2.1')).resumed, true);
+    assert.equal(resumes().length, 1, 'none duplicated');
+    // Another wait is never touched.
+    await p.f('job', 'set', id, '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'human');
+    assert.equal((await p.f('job', 'interim', 'release', id, 'lib', '1.2.2')).resumed, undefined);
+    assert.equal(loadJob(p.root, id).waitingOn, 'human');
+    // A merged consumer is clear: nothing to bump.
+    recordPr(p, id, null, 'MERGED');
+    assert.deepEqual(await p.f('job', 'interim', 'release', id, 'lib', '1.2.3'), { id, repo: 'lib', version: '1.2.3', recorded: true, clear: [null], bump: [] });
+    assert.deepEqual(p.events(id).filter((e) => e.type === 'interim-released').map((e) => e.version), ['1.2.0', '1.2.1', '1.2.2', '1.2.3']);
   });
 });

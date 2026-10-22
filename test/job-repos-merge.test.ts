@@ -208,7 +208,7 @@ describe('linked PRs: sync across repos', { concurrency: 4, skip }, () => {
 /**
  * Makes the fake gh report each PR's head as the commit forge pr open pushed, with `checks`, and
  * records both repos' releases: these edges are the default `local`, whose release gate would
- * otherwise hold every consumer (test/interim-pr.test.ts covers that gate).
+ * otherwise hold every consumer (test/e2e/release/pr.test.ts covers that gate).
  */
 function pin(p: PrProject, id: string, checks: 'passing' | 'pending' | 'failing' | null = 'passing') {
   const events = path.join(p.root, '.forge', 'jobs', id, 'events.jsonl');

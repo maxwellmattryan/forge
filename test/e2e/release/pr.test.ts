@@ -1,13 +1,18 @@
-// Interim strategies in the PR lifecycle: `local` holds the consumer PR as a draft and off
-// auto-merge, `sequential` defers it until the dependency's PR merges, then `pr sync` reopens the job.
-// Scratch repos with bare remotes and the fake `gh` from job-repos-fixture.ts; no real GitHub repo.
+// Interim strategies through the CLI and the PR lifecycle. `forge job interim` resolves each edge's
+// strategy (job override, then config, then local) and `forge job repo interim` sets and clears the
+// override; `local` holds the consumer PR as a draft and off auto-merge, `sequential` defers it until
+// the dependency's PR merges, then `pr sync` reopens the job; `forge job interim release` (human-only)
+// records a dependency's release, which clears its consumers' release gate. Scratch repos with bare
+// remotes and the fake `gh` from job-repos-fixture.ts; no real GitHub repo and no network.
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { dependsOn, prProject, ready } from './job-repos-fixture.ts';
-import type { PrProject } from './job-repos-fixture.ts';
-import { loadJob } from '../lib/jobs.ts';
+import { dependsOn, prProject, ready } from '../../job-repos-fixture.ts';
+import type { PrProject, TwoRepo } from '../../job-repos-fixture.ts';
+import { TRUST_ENV, trustDigest } from '../../../lib/config.ts';
+import { RELEASE_DAEMON_REFUSAL } from '../../../lib/interim-apply.ts';
+import { loadJob } from '../../../lib/jobs.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => cleanups.forEach((c) => c()));
@@ -30,6 +35,83 @@ function recordState(p: PrProject, id: string, repo: string, state: string): voi
 }
 
 const park = (p: PrProject, id: string) => p.f('job', 'set', id, '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review');
+
+/** A job with lib as a member (verify-only when asked), and no worktree. */
+async function memberJob(p: TwoRepo, verifyOnly = false): Promise<string> {
+  const j = await p.f('job', 'new', '--title', `interim ${Math.random().toString(36).slice(2, 8)}`);
+  await p.f('job', 'repo', 'add', ...(verifyOnly ? ['--verify-only'] : []), j.id, 'lib');
+  return j.id;
+}
+
+const brief = (r: any) => r.edges.map((e: any) => [e.consumer, e.dependency, e.strategy, e.source, e.state]);
+const jobFile = (p: TwoRepo, id: string) => path.join(p.root, '.forge', 'jobs', id, 'job.json');
+const jobJson = (p: TwoRepo, id: string) => JSON.parse(fs.readFileSync(jobFile(p, id), 'utf8'));
+
+describe('interim strategies: CLI', { concurrency: 4 }, () => {
+  test('job interim resolves default, config and job override', async () => {
+    const p = await project();
+    dependsOn(p, 'app-on-lib');
+    const id = await memberJob(p);
+    const first = await p.f('job', 'interim', id);
+    assert.deepEqual(brief(first), [[null, 'lib', 'local', 'config', 'held']]);
+    assert.equal(first.edges[0].detail, "the root repo's PR opens as a draft (interim: local)");
+    assert.deepEqual(first.edges[0].links, [], 'no dependsOn link');
+    p.config((c) => (c.repos[0].release = { interim: 'sequential' }));
+    assert.deepEqual(brief(await p.f('job', 'interim', id)), [[null, 'lib', 'sequential', 'config', 'waiting']]);
+    assert.equal((await p.f('job', 'interim', id)).edges[0].detail, 'repo lib has no PR yet');
+    await p.f('job', 'repo', 'interim', id, 'lib', 'local');
+    assert.deepEqual(brief(await p.f('job', 'interim', id)), [[null, 'lib', 'local', 'job', 'held']], 'a job override wins over config');
+    const single = await p.f('job', 'new', '--title', 'single repo');
+    assert.deepEqual((await p.f('job', 'interim', single.id)).edges, []);
+  });
+
+  test('root repo as dependency resolves through release.interim', async () => {
+    const p = await project();
+    dependsOn(p, 'lib-on-app');
+    const id = await memberJob(p);
+    assert.deepEqual(brief(await p.f('job', 'interim', id)), [['lib', null, 'local', 'config', 'held']]);
+    p.config((c) => {
+      c.release = { interim: 'sequential' };
+      c.repos[0].release = { interim: 'git-ref' };
+    });
+    assert.deepEqual(brief(await p.f('job', 'interim', id)), [['lib', null, 'sequential', 'config', 'waiting']], "the root's own release.interim, not a member's");
+    assert.deepEqual(await p.f('job', 'repo', 'interim', id, '--root', 'local'), { id, repo: null, interim: 'local' });
+    assert.deepEqual(brief(await p.f('job', 'interim', id)), [['lib', null, 'local', 'job', 'held']]);
+    const raw = jobJson(p, id);
+    assert.deepEqual([raw.interim, raw.repos[0].interim, raw.repos[1].interim], ['local', 'local', null]);
+  });
+
+  // Its canary tail (npm-only) is canary.test.ts › "canary is npm-only, and its release record bumps the consumer".
+  test('job repo interim sets, clears and refuses', async () => {
+    const p = await project();
+    dependsOn(p, 'app-on-lib');
+    const id = await memberJob(p);
+    assert.deepEqual(await p.f('job', 'repo', 'interim', id, 'lib', 'sequential'), { id, repo: 'lib', interim: 'sequential' });
+    assert.equal(jobJson(p, id).repos[1].interim, 'sequential');
+    assert.deepEqual(await p.f('job', 'repo', 'interim', id, 'lib', 'inherit'), { id, repo: 'lib', interim: null });
+    assert.equal(jobJson(p, id).repos[1].interim, null);
+    assert.deepEqual(p.events(id).filter((e) => e.type === 'job-repo-interim').map((e) => [e.repo, e.interim]), [['lib', 'sequential'], ['lib', null]]);
+
+    const before = fs.readFileSync(jobFile(p, id), 'utf8');
+    const daemon = await p.raw(['job', 'repo', 'interim', id, 'lib', 'canary'], { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(p.root) });
+    assert.equal(daemon.status, 1, daemon.stdout);
+    assert.match(daemon.stderr, /a daemon session may not change; a human runs it in their own session/);
+    assert.equal(fs.readFileSync(jobFile(p, id), 'utf8'), before, 'job.json unchanged');
+
+    const unknown = await p.raw(['job', 'repo', 'interim', id, 'nope', 'local']);
+    assert.equal(unknown.status, 1);
+    assert.match(unknown.stderr, /has no repo "nope"/);
+    const bogus = await p.raw(['job', 'repo', 'interim', id, 'lib', 'publish']);
+    assert.equal(bogus.status, 1);
+    assert.match(bogus.stderr, /strategy must be one of canary \| git-ref \| local \| sequential \| inherit/);
+    const v = await memberJob(p, true);
+    const vo = await p.raw(['job', 'repo', 'interim', v, 'lib', 'local']);
+    assert.equal(vo.status, 1);
+    assert.match(vo.stderr, /repo lib is verify-only/);
+    const set = await p.raw(['job', 'set', id, '--field', 'interim="canary"']);
+    assert.equal(set.status, 1, 'job set cannot write the override');
+  });
+});
 
 describe('interim strategies: pull requests', { concurrency: 4 }, () => {
   test('local holds the consumer PR as a draft', async () => {
@@ -285,5 +367,94 @@ describe('interim strategies: pull requests', { concurrency: 4 }, () => {
     const r = await p.raw(['pr', 'ready', j.id], p.env);
     assert.equal(r.status, 0, r.stderr);
     assert.deepEqual(readies(p), ['pr ready 11 -R o/app']);
+  });
+});
+
+/** The project, `app` (root) on `lib`, and a job with lib as a member. */
+async function setup(edge: 'app-on-lib' | 'lib-on-app' = 'app-on-lib') {
+  const p = await project();
+  dependsOn(p, edge);
+  return { p, id: await memberJob(p) };
+}
+
+/** Writes a PR record straight into job.json (null: the root's), as pr open and pr sync would. */
+function recordPr(p: TwoRepo, id: string, repo: string | null, state: string, extra: Record<string, unknown> = {}): void {
+  const job = jobJson(p, id);
+  const pr = { number: repo === null ? 11 : 7, url: null, state, isDraft: false, ...extra };
+  if (repo === null) job.pr = pr;
+  else job.repos.find((r: any) => r.repo === repo).pr = pr;
+  fs.writeFileSync(jobFile(p, id), JSON.stringify(job, null, 2));
+}
+const released = (p: TwoRepo, id: string) => p.events(id).filter((e) => e.type === 'interim-released');
+
+// The git-ref and canary records are gitref.test.ts › "release record: git-ref, resume" and
+// canary.test.ts › "canary is npm-only, and its release record bumps the consumer"; malformed
+// records are interim.test.ts › "release gates: bump-due and released".
+describe('interim release', { concurrency: 4 }, () => {
+  test('release is human-only', async () => {
+    const { p, id } = await setup();
+    recordPr(p, id, 'lib', 'MERGED');
+    const r = await p.raw(['job', 'interim', 'release', id, 'lib', '1.2.0'], { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(p.root) });
+    assert.equal(r.status, 1, r.stdout);
+    assert.ok(r.stderr.includes(RELEASE_DAEMON_REFUSAL), r.stderr);
+    assert.equal(RELEASE_DAEMON_REFUSAL, "forge job interim release records a dependency's release, which a daemon session may not do; a human runs it in their own session");
+    // Refused before the job is read: a job that does not exist gets the same answer.
+    const none = await p.raw(['job', 'interim', 'release', 'no-such-job', 'lib', '1.2.0'], { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(p.root) });
+    assert.ok(none.stderr.includes(RELEASE_DAEMON_REFUSAL), none.stderr);
+    assert.deepEqual(released(p, id), []);
+  });
+
+  test('release refusals', async () => {
+    const { p, id } = await setup();
+    const refused = async (args: string[], re: RegExp) => {
+      const r = await p.raw(['job', 'interim', 'release', ...args]);
+      assert.equal(r.status, 1, `${args.join(' ')}: ${r.stdout}`);
+      assert.match(r.stderr, re, args.join(' '));
+    };
+    await refused(['no-such-job', 'lib', '1.2.0'], /no-such-job/);
+    await refused([id, 'other', '1.2.0'], /has no repo "other"/);
+    await refused([id, '--root', '1.2.0'], /the root repo is not the dependency of an edge on job .* \(no edge depends on it\)/);
+    await refused([id, 'lib', '1.2.0'], /repo lib's PR is not merged \(recorded state none\); a release comes from a merged change; run: forge pr sync /);
+    recordPr(p, id, 'lib', 'OPEN');
+    await refused([id, 'lib', '1.2.0'], /repo lib's PR is not merged \(recorded state OPEN\)/);
+    recordPr(p, id, 'lib', 'MERGED');
+    for (const bad of ['1.2', '01.2.0', 'latest', `1.2.0-${'x'.repeat(130)}`, '1.2.0 ']) await refused([id, 'lib', bad], /is not a semver version/);
+    for (const canary of ['1.2.0-canary.abc123', '1.2.0-CANARY', '1.2.0+canary']) await refused([id, 'lib', canary], /is a canary; a release gate clears only on a released version/);
+    const job = jobJson(p, id);
+    for (const state of ['done', 'cancelled']) {
+      fs.writeFileSync(jobFile(p, id), JSON.stringify({ ...job, state }, null, 2));
+      await refused([id, 'lib', '1.2.0'], new RegExp(`job ${id} is ${state}`));
+    }
+    fs.writeFileSync(jobFile(p, id), JSON.stringify(job, null, 2));
+    const usage = await p.raw(['job', 'interim', 'release', id, 'lib']);
+    assert.equal(usage.status, 2, 'a missing version is a usage error');
+    assert.deepEqual(released(p, id), [], 'no refusal writes an event');
+  });
+
+  test('release records once and opens the gate', async () => {
+    const { p, id } = await setup();
+    let interim = await p.f('job', 'interim', id);
+    assert.deepEqual(interim.gates, [{ consumer: null, dependency: 'lib', strategy: 'local', gate: 'held' }]);
+    recordPr(p, id, 'lib', 'MERGED');
+    assert.deepEqual(await p.f('job', 'interim', 'release', id, 'lib', '1.2.0'), { id, repo: 'lib', version: '1.2.0', recorded: true, clear: [null], bump: [] });
+    assert.deepEqual(released(p, id).map((e) => [e.repo, e.version]), [['lib', '1.2.0']]);
+    assert.deepEqual(await p.f('job', 'interim', 'release', id, 'lib', '1.2.0'), { id, repo: 'lib', version: '1.2.0', recorded: false, clear: [null], bump: [] });
+    assert.equal(released(p, id).length, 1, 'the same version again logs nothing');
+    interim = await p.f('job', 'interim', id);
+    assert.deepEqual(interim.gates, [{ consumer: null, dependency: 'lib', strategy: 'local', gate: 'released', version: '1.2.0' }]);
+    assert.equal((await p.f('job', 'interim', 'release', id, 'lib', 'v1.3.0')).recorded, true, 'a later version is logged');
+    assert.equal((await p.f('job', 'interim', id)).gates[0].version, 'v1.3.0', 'the latest wins');
+  });
+
+  test('--root in either position', async () => {
+    const { p, id } = await setup('lib-on-app');
+    p.config((c) => (c.release = { interim: 'sequential' }));
+    recordPr(p, id, null, 'MERGED');
+    assert.deepEqual(await p.f('job', 'interim', 'release', id, '--root', '2.0.0'), { id, repo: null, version: '2.0.0', recorded: true, clear: ['lib'], bump: [] });
+    assert.deepEqual(await p.f('job', 'interim', 'release', id, '2.0.1', '--root'), { id, repo: null, version: '2.0.1', recorded: true, clear: ['lib'], bump: [] });
+    assert.deepEqual(released(p, id).map((e) => [e.repo, e.version]), [[null, '2.0.0'], [null, '2.0.1']]);
+    assert.deepEqual((await p.f('job', 'interim', id)).gates, [{ consumer: 'lib', dependency: null, strategy: 'sequential', gate: 'released', version: '2.0.1' }]);
+    const extra = await p.raw(['job', 'interim', 'release', id, 'lib', '2.0.0', '--root']);
+    assert.equal(extra.status, 2, 'a name and --root together is a usage error');
   });
 });
