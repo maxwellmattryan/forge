@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { forgeAsync, tempRepo } from './helpers.ts';
+import { forgeAsync, forgeInProcess, forgeSync, repoTemplate, tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
 import { jobDir, loadJob, readEvents } from '../lib/jobs.ts';
 import { JOB_SCHEMA_VERSION, normalizeJob } from '../lib/schema.ts';
@@ -15,14 +15,40 @@ import { localRepoSlug } from '../lib/repo-slug.ts';
 import { startFromRef } from '../lib/commands/tracker.ts';
 import type { Tracker } from '../lib/types.ts';
 
-/** A scratch repo initialised with `tracker`, and a CLI runner that never throws. */
-async function setup(tracker: Record<string, unknown>, opts: { backlog?: string; adapter?: string; env?: NodeJS.ProcessEnv } = {}) {
-  const repo = tempRepo();
+const ACME_ADAPTER = `export default { name: 'acme', list: () => [], get: () => null, claim: () => ({ ok: true }), update() {}, comment() {}, create: () => ({ ref: 'A-1' }), close() {} };\n`;
+
+/** One initialised repo per tracker kind, copied per test instead of `forge init write` each time. */
+const TEMPLATES: Record<string, { tracker: Record<string, unknown>; adapter?: string }> = {
+  local: { tracker: { kind: 'local' } },
+  none: { tracker: { kind: 'none' } },
+  github: { tracker: { kind: 'github', github: { repo: 'o/r' } } },
+  acme: { tracker: { kind: 'acme' }, adapter: ACME_ADAPTER },
+};
+const templates = Object.fromEntries(
+  Object.entries(TEMPLATES).map(([name, { tracker, adapter }]) => [
+    name,
+    repoTemplate((dir) => {
+      if (adapter) {
+        fs.mkdirSync(path.join(dir, '.forge', 'trackers'), { recursive: true });
+        fs.writeFileSync(path.join(dir, '.forge', 'trackers', `${tracker.kind}.mjs`), adapter);
+      }
+      const answers = path.join(dir, '.answers.json');
+      fs.writeFileSync(answers, JSON.stringify({ tracker, pr: { enabled: false } }));
+      const init = forgeSync(dir, ['init', 'write', '--answers', answers]);
+      assert.equal(init.status, 0, init.stderr);
+      fs.rmSync(answers);
+    }),
+  ]),
+);
+
+/**
+ * A scratch repo initialised with one of TEMPLATES' trackers, a CLI runner that never throws, and
+ * `ip`, the same call through forgeInProcess for per-case checks (it resolves `stderr` to the
+ * `forge: <message>` line the CLI would print).
+ */
+async function setup(kind: keyof typeof TEMPLATES, opts: { backlog?: string; env?: NodeJS.ProcessEnv } = {}) {
+  const repo = templates[kind]();
   const root = repo.dir;
-  if (opts.adapter) {
-    fs.mkdirSync(path.join(root, '.forge', 'trackers'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.forge', 'trackers', `${tracker.kind}.mjs`), opts.adapter);
-  }
   const cli = async (...args: string[]) => {
     const r = await forgeAsync(root, args, opts.env ?? {});
     let json: any = null;
@@ -31,20 +57,20 @@ async function setup(tracker: Record<string, unknown>, opts: { backlog?: string;
     } catch {}
     return { status: r.status, json, stdout: r.stdout, stderr: r.stderr };
   };
-  const answers = path.join(root, '.answers.json');
-  fs.writeFileSync(answers, JSON.stringify({ tracker, pr: { enabled: false } }));
-  const init = await cli('init', 'write', '--answers', answers);
-  assert.equal(init.status, 0, init.stderr);
+  const ip = async (...args: string[]) => {
+    const r = await forgeInProcess(root, args);
+    return { status: r.status, json: r.data as any, stderr: r.error ? `forge: ${r.error.message}\n` : '' };
+  };
   const backlogFile = path.join(root, '.forge', 'backlog.md');
   if (opts.backlog !== undefined) fs.writeFileSync(backlogFile, opts.backlog);
   const raw = (id: string) => fs.readFileSync(path.join(jobDir(root, id), 'job.json'), 'utf8');
   const newJob = async (title: string, ...extra: string[]) => {
-    const r = await cli('job', 'new', '--title', title, ...extra);
+    const r = await ip('job', 'new', '--title', title, ...extra);
     assert.equal(r.status, 0, r.stderr);
     return r.json.id as string;
   };
   const jobDirs = () => (fs.existsSync(path.join(root, '.forge', 'jobs')) ? fs.readdirSync(path.join(root, '.forge', 'jobs')).filter((d) => fs.statSync(path.join(root, '.forge', 'jobs', d)).isDirectory()) : []);
-  return { repo, root, cli, raw, newJob, jobDirs, backlog: () => fs.readFileSync(backlogFile, 'utf8') };
+  return { repo, root, cli, ip, raw, newJob, jobDirs, backlog: () => fs.readFileSync(backlogFile, 'utf8') };
 }
 
 test('parseIssueRef accepts the documented forms and refuses the rest', () => {
@@ -176,7 +202,7 @@ esac
       { mode: 0o755 },
     );
     const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}` };
-    const s = await setup({ kind: 'github', github: { repo: 'o/r' } }, { env });
+    const s = await setup('github', { env });
     try {
       const id = await s.newJob('Fix login');
       const r = await s.cli('job', 'link', id, '#5', 'other/repo#9');
@@ -206,14 +232,14 @@ esac
   });
 
   test('one issue on two jobs', async () => {
-    const s = await setup({ kind: 'local' }, { backlog: '# Backlog\n\n- [ ] Reading time badge\n' });
+    const s = await setup('local', { backlog: '# Backlog\n\n- [ ] Reading time badge\n' });
     try {
       const first = await s.newJob('First');
       const second = await s.newJob('Second');
-      assert.equal((await s.cli('job', 'link', first, 'reading-time-badge')).status, 0);
+      assert.equal((await s.ip('job', 'link', first, 'reading-time-badge')).status, 0);
       const backlog = s.backlog();
       assert.match(backlog, new RegExp(`- \\[~\\] Reading time badge → ${first}`));
-      const r = await s.cli('job', 'link', second, 'reading-time-badge');
+      const r = await s.ip('job', 'link', second, 'reading-time-badge');
       assert.equal(r.status, 0, r.stderr);
       assert.deepEqual(r.json.sharedWith, [first]);
       assert.deepEqual(r.json.added, ['reading-time-badge']);
@@ -225,27 +251,27 @@ esac
   });
 
   test('job link --remove and mode exclusivity', async () => {
-    const s = await setup({ kind: 'local' }, { backlog: '# Backlog\n\n- [ ] Alpha\n- [ ] Beta\n' });
+    const s = await setup('local', { backlog: '# Backlog\n\n- [ ] Alpha\n- [ ] Beta\n' });
     try {
       const id = await s.newJob('Two issues');
-      assert.equal((await s.cli('job', 'link', id, 'alpha', 'beta')).status, 0);
-      const r = await s.cli('job', 'link', id, '--remove', 'alpha');
+      assert.equal((await s.ip('job', 'link', id, 'alpha', 'beta')).status, 0);
+      const r = await s.ip('job', 'link', id, '--remove', 'alpha');
       assert.equal(r.status, 0, r.stderr);
       assert.deepEqual(r.json, { id, issues: [{ tracker: 'local', ref: 'beta', url: null }], added: [], removed: ['alpha'] });
       assert.deepEqual(readEvents(s.root, id).filter((e) => e.type === 'unlinked').map((e: any) => e.ref), ['alpha']);
       const before = s.raw(id);
-      const missing = await s.cli('job', 'link', id, '--remove', 'beta,alpha');
+      const missing = await s.ip('job', 'link', id, '--remove', 'beta,alpha');
       assert.equal(missing.status, 1);
       assert.match(missing.stderr, new RegExp(`alpha is not linked to job ${id}`));
       assert.equal(s.raw(id), before, 'byte-identical');
       for (const args of [['beta', '--remove', 'beta'], ['--remove', 'beta', '--create'], ['--none', '--suggest'], ['beta', '--create'], []]) {
-        const u = await s.cli('job', 'link', id, ...args);
+        const u = await s.ip('job', 'link', id, ...args);
         assert.equal(u.status, 2, args.join(' '));
         assert.match(u.stderr, /usage: forge job link/);
       }
       assert.equal(s.raw(id), before);
       // The last issue removed: the job is unlinked again.
-      assert.equal((await s.cli('job', 'link', id, '--remove', 'beta')).status, 0);
+      assert.equal((await s.ip('job', 'link', id, '--remove', 'beta')).status, 0);
       assert.deepEqual(loadJob(s.root, id).issues, []);
       assert.match(s.backlog(), /- \[~\] Beta/, 'the claim stays');
     } finally {
@@ -254,42 +280,43 @@ esac
   });
 
   test('job new records issues and reports the link status', async () => {
-    const s = await setup({ kind: 'local' });
-    const n = await setup({ kind: 'none' });
+    const s = await setup('local');
+    const n = await setup('none');
     try {
+      // The spawned CLI's routing, exit code and JSON for job new; the other cases run in-process.
       const two = await s.cli('job', 'new', '--title', 'Two refs', '--issue', 'a', '--issue', 'b');
       assert.equal(two.status, 0, two.stderr);
       assert.equal(two.json.issueLink, 'linked');
       assert.equal(two.json.id, 'a');
       assert.deepEqual(loadJob(s.root, two.json.id).issues.map((i) => i.ref), ['a', 'b']);
-      const comma = await s.cli('job', 'new', '--title', 'Comma refs', '--issue', 'c,d');
+      const comma = await s.ip('job', 'new', '--title', 'Comma refs', '--issue', 'c,d');
       assert.deepEqual(loadJob(s.root, comma.json.id).issues.map((i) => i.ref), ['c', 'd']);
-      const missing = await s.cli('job', 'new', '--title', 'Nothing linked');
+      const missing = await s.ip('job', 'new', '--title', 'Nothing linked');
       assert.equal(missing.json.issueLink, 'missing');
-      const waived = await s.cli('job', 'new', '--title', 'Tiny fix', '--no-issue', '--reason', 'a typo');
+      const waived = await s.ip('job', 'new', '--title', 'Tiny fix', '--no-issue', '--reason', 'a typo');
       assert.equal(waived.status, 0, waived.stderr);
       assert.equal(waived.json.issueLink, 'none');
       assert.equal(loadJob(s.root, waived.json.id).noIssue!.reason, 'a typo');
       const dirs = s.jobDirs().length;
       for (const args of [['--no-issue', '--issue', 'a'], ['--ref', 'a', '--issue', 'b'], ['--reason', 'x']]) {
-        const r = await s.cli('job', 'new', '--title', 'Refused', ...args);
+        const r = await s.ip('job', 'new', '--title', 'Refused', ...args);
         assert.equal(r.status, 2, args.join(' '));
         assert.match(r.stderr, /usage: forge job new/);
       }
-      const bad = await s.cli('job', 'new', '--title', 'Refused', '--issue', '../x');
+      const bad = await s.ip('job', 'new', '--title', 'Refused', '--issue', '../x');
       assert.equal(bad.status, 1);
       assert.match(bad.stderr, /invalid ref/);
       for (const url of ['https://x.test/1\nCloses evil/repo#1', 'ftp://x.test/1', 'https://x.test/a b']) {
-        const r = await s.cli('job', 'new', '--title', 'Refused', '--ref', 'a', '--url', url);
+        const r = await s.ip('job', 'new', '--title', 'Refused', '--ref', 'a', '--url', url);
         assert.equal(r.status, 1, url);
         assert.match(r.stderr, /invalid url/);
       }
       assert.equal(s.jobDirs().length, dirs, 'no job dir for a refused call');
-      const none = await n.cli('job', 'new', '--title', 'Untracked', '--no-issue');
+      const none = await n.ip('job', 'new', '--title', 'Untracked', '--no-issue');
       assert.equal(none.status, 1);
       assert.match(none.stderr, /tracker.kind is "none"/);
       assert.equal(n.jobDirs().length, 0);
-      const recorded = await n.cli('job', 'new', '--title', 'Untracked', '--issue', 'x-1');
+      const recorded = await n.ip('job', 'new', '--title', 'Untracked', '--issue', 'x-1');
       assert.equal(recorded.status, 0, recorded.stderr);
       assert.deepEqual(loadJob(n.root, recorded.json.id).issues, [{ tracker: 'none', ref: 'x-1', url: null }]);
       assert.equal(recorded.json.issueLink, 'no-tracker');
@@ -300,20 +327,20 @@ esac
   });
 
   test('job ids do not assume a numeric ref is local', async () => {
-    const g = await setup({ kind: 'github', github: { repo: 'o/r' } });
-    const c = await setup({ kind: 'acme' }, { adapter: `export default { name: 'acme', list: () => [], get: () => null, claim: () => ({ ok: true }), update() {}, comment() {}, create: () => ({ ref: 'A-1' }), close() {} };\n` });
+    const g = await setup('github');
+    const c = await setup('acme');
     try {
-      const native = await g.cli('job', 'new', '--title', 'Fix login', '--issue', '12');
+      const native = await g.ip('job', 'new', '--title', 'Fix login', '--issue', '12');
       assert.equal(native.status, 0, native.stderr);
       assert.equal(native.json.id, '12-fix-login');
       assert.deepEqual(loadJob(g.root, native.json.id).issues, [{ tracker: 'github', ref: 'o/r#12', url: 'https://github.com/o/r/issues/12' }]);
-      const foreign = await g.cli('job', 'new', '--title', 'Fix login', '--issue', 'other/repo#12');
+      const foreign = await g.ip('job', 'new', '--title', 'Fix login', '--issue', 'other/repo#12');
       assert.equal(foreign.json.id, 'repo-12-fix-login');
-      const key = await c.cli('job', 'new', '--title', 'Fix login', '--issue', 'KEY-123');
+      const key = await c.ip('job', 'new', '--title', 'Fix login', '--issue', 'KEY-123');
       assert.equal(key.json.id, 'key-123');
-      const plain = await g.cli('job', 'new', '--title', 'Fix login');
+      const plain = await g.ip('job', 'new', '--title', 'Fix login');
       assert.match(plain.json.id, /^fix-login-[a-z0-9]+$/);
-      const deep = await c.cli('job', 'new', '--title', 'Fix login', '--issue', 'group/sub/project#7');
+      const deep = await c.ip('job', 'new', '--title', 'Fix login', '--issue', 'group/sub/project#7');
       assert.equal(deep.json.id, 'project-7-fix-login');
     } finally {
       g.repo.cleanup();
@@ -322,16 +349,20 @@ esac
   });
 
   test('issues, source and noIssue are locked fields', async () => {
-    const s = await setup({ kind: 'local' });
+    const s = await setup('local');
     try {
       const id = await s.newJob('Locked');
       const before = s.raw(id);
+      // The spawned CLI's exit code and message for a locked field; the other fields run in-process.
+      const cli = await s.cli('job', 'set', id, '--field', 'issues=[{"tracker":"local","ref":"x","url":null}]');
+      assert.equal(cli.status, 1);
+      assert.ok(cli.stderr.includes('is not settable; use forge job link\n'), cli.stderr);
       for (const [kv, hint] of [
         ['issues=[{"tracker":"local","ref":"x","url":null}]', 'forge job link'],
         ['source={"tracker":"local","ref":"x","url":null}', 'forge job link'],
         ['noIssue={"reason":null,"at":"x"}', 'forge job link --none'],
       ]) {
-        const r = await s.cli('job', 'set', id, '--field', kv);
+        const r = await s.ip('job', 'set', id, '--field', kv);
         assert.equal(r.status, 1, kv);
         assert.ok(r.stderr.includes(`is not settable; use ${hint}\n`), r.stderr);
       }
