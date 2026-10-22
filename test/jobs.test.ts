@@ -229,8 +229,14 @@ test('setJob refuses locked fields and prototype keys from any caller', () => {
       [{ fields: { '__proto__.polluted': 1 } }, /^--field __proto__\.polluted: __proto__, constructor and prototype are not field names$/],
       [{ fields: { 'meta.constructor.x': 1 } }, /^--field meta\.constructor\.x: __proto__, constructor and prototype are not field names$/],
       [{ fields: { reviewers: 'code' } }, /^--field reviewers must be a JSON array of strings/],
+      // A nested key must not write into a list or over the kind, past the whole-value rules.
+      [{ fields: { 'reviewers.0': 5 } }, /^--field reviewers must be a JSON array of strings/],
+      [{ fields: { 'dependsOn.0': 'nope' } }, /^--field dependsOn must be a JSON array of strings/],
       [{ fields: { complexity: 'huge' } }, /^--field complexity must be low, medium or high, or null$/],
+      [{ fields: { 'complexity.x': 1 } }, /^--field complexity must be low, medium or high, or null$/],
       [{ fields: { kind: 'retro' } }, /^--field kind=retro is not settable; use forge job new --kind retro$/],
+      [{ fields: { 'kind.x': 1 } }, /^--field kind\.x is not settable; kind is one value/],
+      [{ fields: { kind: 'bug', 'kind.x': 1 } }, /^--field kind\.x is not settable; kind is one value/],
       [{ state: 'running', derive: () => ({ fields: { worktree: '/tmp/x' } }) }, /^--field worktree is not settable/],
       [{ owned: { round: 2 } }, /^owned field round is not a locked field; write it through fields$/],
       [{ owned: { 'pr.__proto__.x': 1 } }, /__proto__, constructor and prototype are not field names$/],
@@ -256,7 +262,8 @@ test('setJob refuses locked fields and prototype keys from any caller', () => {
     // A retro job's kind is read inside the lock and can't be changed through fields.
     const retro = createJob(root, defaults(), { title: 'Retro', kind: 'retro' });
     assert.throws(() => setJob(root, retro.id, { fields: { kind: 'feature' } }), (e: Error) => e.message === `job ${retro.id} is a retro job; its kind is not settable`);
-    assert.equal(loadJob(root, retro.id).kind, 'retro');
+    assert.throws(() => setJob(root, retro.id, { fields: { 'kind.x': 1 } }), (e: Error) => e.message === `job ${retro.id} is a retro job; its kind is not settable`);
+    assert.equal(loadJob(root, retro.id).kind, 'retro', 'still the string, not an object');
   } finally {
     repo.cleanup();
   }

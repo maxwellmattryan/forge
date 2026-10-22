@@ -39,6 +39,12 @@ test('deepMerge merges into a copy and refuses prototype keys', () => {
   assert.throws(() => deepMerge({}, JSON.parse('{"x": {"__proto__": 1}}'), { over: 'config sink values' }), refused('config sink values', '__proto__'));
   assert.throws(() => deepMerge(JSON.parse('{"__proto__": 1}'), {}, { base: 'defaults' }), refused('defaults', '__proto__'));
   assert.equal(({} as any).polluted, undefined);
+
+  // Runaway nesting is a refusal, not a RangeError from the recursion.
+  let deep: Record<string, any> = {};
+  for (let i = 0; i < 5000; i++) deep = { a: deep };
+  assert.throws(() => deepMerge({}, deep), (e: unknown) => e instanceof ForgeError && e.code === 'usage' && /^merge source is nested more than \d+ levels deep$/.test(e.message));
+  assert.throws(() => deepMerge(deep, {}), (e: unknown) => e instanceof ForgeError && e.code === 'usage' && /^merge base is nested/.test(e.message));
 });
 
 test('setPath and getPath refuse prototype segments', () => {

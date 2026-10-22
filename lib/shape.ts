@@ -21,13 +21,18 @@ export const PROTO_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructo
 /** Whether any segment of a dotted path is a prototype key. */
 export const hasProtoSegment = (dotted: string): boolean => dotted.split('.').some((k) => PROTO_KEYS.has(k));
 
-/** Throws when `v` holds an own prototype key at any depth, lists included. */
-function refuseProtoKeys(v: unknown, label: string): void {
-  if (Array.isArray(v)) for (const x of v) refuseProtoKeys(x, label);
+// Far deeper than any config or answers file; the bound turns runaway nesting into a refusal instead
+// of a stack overflow. refuseProtoKeys walks both inputs first, so it also bounds merge's recursion.
+const MAX_DEPTH = 64;
+
+/** Throws when `v` holds an own prototype key at any depth, lists included, or nests past MAX_DEPTH. */
+function refuseProtoKeys(v: unknown, label: string, depth = 0): void {
+  if (depth > MAX_DEPTH) throw new ForgeError(`${label} is nested more than ${MAX_DEPTH} levels deep`, 'usage');
+  if (Array.isArray(v)) for (const x of v) refuseProtoKeys(x, label, depth + 1);
   else if (isMap(v))
     for (const k of Object.keys(v)) {
       if (PROTO_KEYS.has(k)) throw new ForgeError(`${label} key ${JSON.stringify(k)} is not allowed`, 'usage');
-      refuseProtoKeys(v[k], label);
+      refuseProtoKeys(v[k], label, depth + 1);
     }
 }
 

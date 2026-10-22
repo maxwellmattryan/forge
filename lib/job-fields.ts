@@ -62,17 +62,26 @@ export function checkFieldKey(key: string): void {
 /** Throws the first rule `fields` breaks for `job`, with `forge job set`'s message, before anything is written. */
 export function checkJobFields(fields: Record<string, unknown>, job: Pick<Job, 'id' | 'kind'>): void {
   for (const key of Object.keys(fields)) checkFieldKey(key);
-  for (const [key, example] of Object.entries(ARRAY_FIELDS)) {
+  // Every rule below keys on a path's first segment, because setPath walks `reviewers.0` into the list
+  // and `kind.x` over the string: a nested key must not get past a rule meant for the whole value.
+  for (const key of Object.keys(fields)) {
+    const top = key.split('.')[0];
+    if (!Object.hasOwn(ARRAY_FIELDS, top)) continue;
     const v = fields[key];
-    if (Object.hasOwn(fields, key) && !(Array.isArray(v) && v.every((x) => typeof x === 'string'))) throw new ForgeError(`--field ${key} must be a JSON array of strings, e.g. --field '${key}=${example}'`);
+    if (key !== top || !(Array.isArray(v) && v.every((x) => typeof x === 'string'))) throw new ForgeError(`--field ${top} must be a JSON array of strings, e.g. --field '${top}=${ARRAY_FIELDS[top]}'`);
   }
   // complexity picks among levels a human configured, so only the three values (or none) are accepted.
   for (const key of Object.keys(fields))
     if (key.split('.')[0] === 'complexity' && (key !== 'complexity' || !(fields[key] === null || (COMPLEXITIES as readonly unknown[]).includes(fields[key]))))
       throw new ForgeError('--field complexity must be low, medium or high, or null');
-  if (Object.hasOwn(fields, 'kind') && Object.hasOwn(OWNED_KINDS, String(fields.kind))) throw new ForgeError(`--field kind=${fields.kind} is not settable; use ${OWNED_KINDS[String(fields.kind)]}`);
-  // Nor the other way: a retro set to `feature` would hand its spec gate to the foreman.
-  if (Object.hasOwn(fields, 'kind') && Object.hasOwn(OWNED_KINDS, String(job.kind))) throw new ForgeError(`job ${job.id} is a ${job.kind} job; its kind is not settable`);
+  const kindKeys = Object.keys(fields).filter((key) => key.split('.')[0] === 'kind');
+  if (kindKeys.length > 0) {
+    if (Object.hasOwn(fields, 'kind') && Object.hasOwn(OWNED_KINDS, String(fields.kind))) throw new ForgeError(`--field kind=${fields.kind} is not settable; use ${OWNED_KINDS[String(fields.kind)]}`);
+    // Nor the other way: a retro set to `feature` would hand its spec gate to the foreman.
+    if (Object.hasOwn(OWNED_KINDS, String(job.kind))) throw new ForgeError(`job ${job.id} is a ${job.kind} job; its kind is not settable`);
+    const nested = kindKeys.find((key) => key !== 'kind');
+    if (nested !== undefined) throw new ForgeError(`--field ${nested} is not settable; kind is one value, set it with --field kind=<kind>`);
+  }
 }
 
 /** Throws unless every `owned` key sits under a locked field: `owned` is for the module that owns it, never a way past checkJobFields. */
