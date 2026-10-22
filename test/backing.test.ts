@@ -1,5 +1,6 @@
 // Backing services (issue #193): per-job, shared and external entries driven through an in-memory
 // fake of the docker CLI (test/fixtures/fake-docker.mjs), injected with setDockerRunner or passed in.
+// `forge backing` and the CLI paths that need a real child are test/integration/cli/backing.test.ts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,9 +14,8 @@ import { createJob, loadJob, readEvents, setJob } from '../lib/jobs.ts';
 import { loadStepInput, step } from '../lib/step.ts';
 import { createWorktree, removeWorktree, runCommand, verify } from '../lib/worktree.ts';
 import { emptyState, handle } from './fixtures/fake-docker.mjs';
-import { forgeAsync, repoTemplate, waitFor } from './helpers.ts';
+import { forgeSync, repoTemplate } from './helpers.ts';
 
-const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 // Built at runtime: a literal that looks like a credential would trip the secret scan on commit.
 const SECRET = ['s3cr3t', 'pg', 'value'].join('-');
 
@@ -30,7 +30,8 @@ const template = repoTemplate((dir) => {
       tracker: { kind: 'none' },
     }),
   );
-  execFileSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, env: { ...process.env, FORGE_ROOT: dir }, stdio: 'pipe' });
+  const init = forgeSync(dir, ['init', 'write', '--answers', answers]);
+  if (init.status !== 0) throw new Error(init.stderr);
   fs.rmSync(answers);
   execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' });
   execFileSync('git', ['commit', '-qm', 'forge'], { cwd: dir, stdio: 'pipe' });
@@ -266,44 +267,6 @@ test('allocator keeps job and backing ports distinct', async () => {
   }
 });
 
-test('backing env reaches configured commands', async () => {
-  const s = scratch([PG, REDIS, QUEUE]);
-  const f = fake();
-  try {
-    const id = createJob(s.dir, s.config, { title: 'Env' }).id;
-    assert.deepEqual(b.backingEnv(s.dir, s.config, { id }), { FORGE_BACKING_QUEUE_URL: 'amqp://mq.internal:5672' }, 'nothing for a managed entry not yet up');
-    const created = await withRunner(f.runner, () => createWorktree(s.dir, s.config, id));
-    assert.ok(created.ok);
-    const pg = b.readJobRecord(s.dir, id, s.config).ports.postgres['5432'];
-    const redis = b.readSharedRecord(s.dir, s.config).ports.redis['6379'];
-    const want = {
-      FORGE_BACKING_POSTGRES_HOST: '127.0.0.1',
-      FORGE_BACKING_POSTGRES_PORT: String(pg),
-      FORGE_BACKING_POSTGRES_PORT_5432: String(pg),
-      FORGE_BACKING_POSTGRES_URL: `postgres://postgres:${SECRET}@127.0.0.1:${pg}/app`,
-      FORGE_BACKING_REDIS_HOST: '127.0.0.1',
-      FORGE_BACKING_REDIS_PORT: String(redis),
-      FORGE_BACKING_REDIS_PORT_6379: String(redis),
-      FORGE_BACKING_QUEUE_URL: 'amqp://mq.internal:5672',
-    };
-    assert.deepEqual(b.backingEnv(s.dir, s.config, { id }), want);
-    assert.ok(!('FORGE_BACKING_QUEUE_HOST' in b.backingEnv(s.dir, s.config, { id })));
-    // Through envFor composition in the real CLI: `forge run` needs no Docker.
-    const r = await forgeAsync(s.dir, ['run', id, 'probe']);
-    assert.equal(r.status, 0, r.stderr);
-    const seen = Object.fromEntries(
-      fs
-        .readFileSync(path.join(loadJob(s.dir, id).worktree!, 'backing.env'), 'utf8')
-        .trim()
-        .split('\n')
-        .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
-    );
-    assert.deepEqual(seen, want);
-  } finally {
-    s.cleanup();
-  }
-});
-
 test('a backing failure fails worktree setup', async () => {
   const s = scratch([PG], ['touch setup-ran']);
   const f = fake();
@@ -389,25 +352,77 @@ test('no free port for a backing service fails worktree setup instead of throwin
   }
 });
 
-test('job ports are allocated under the backing ports lock', async () => {
-  const s = scratch([]);
-  const lock = b.portsLock(s.dir);
+test("backingStop stops only this job's containers", () => {
+  const s = scratch([PG, REDIS]);
+  const f = fake();
   try {
-    const id = createJob(s.dir, s.config, { title: 'Locked' }).id;
-    fs.mkdirSync(lock, { recursive: true });
-    const pending = forgeAsync(s.dir, ['worktree', 'create', id]);
-    // git has made the worktree, so the create is past everything before the port.
-    await waitFor(() => fs.existsSync(`${s.dir}.wt`) && fs.readdirSync(`${s.dir}.wt`).length > 0, { what: 'the worktree' });
-    await new Promise((r) => setTimeout(r, 400));
-    assert.equal(loadJob(s.dir, id).port ?? null, null, 'no port while another create holds the lock');
-    fs.rmdirSync(lock);
-    const r = await pending;
-    assert.equal(r.status, 0, r.stderr);
-    assert.equal(JSON.parse(r.stdout).ok, true);
-    assert.equal(loadJob(s.dir, id).port, s.config.ports.base);
-    assert.ok(!fs.existsSync(lock), 'released');
+    const id = createJob(s.dir, s.config, { title: 'Stop me' }).id;
+    b.backingUp(s.dir, s.config, { id, port: 4100 }, f.runner);
+    const mine = `forge-${id}-postgres`;
+    const shared = `forge-${b.projectSlug(s.dir, s.config)}-redis`;
+    const volumesBefore = Object.keys(f.state.volumes);
+    const record = path.join(s.dir, '.forge', 'jobs', id, 'backing.json');
+    const stopCalls = () => f.calls.filter((c) => c[0] === 'stop');
+
+    assert.deepEqual(b.backingStop(s.dir, s.config, id, f.runner), { stopped: [mine], skipped: [], ok: true });
+    assert.deepEqual(stopCalls(), [['stop', '--time', '10', '--', mine]]);
+    assert.equal(f.state.containers[mine].running, false);
+    assert.equal(f.state.containers[shared].running, true, 'shared container untouched');
+    assert.deepEqual(Object.keys(f.state.volumes), volumesBefore, 'volumes kept');
+    assert.ok(fs.existsSync(record), 'record kept');
+    assert.ok(!f.calls.some((c) => c[0] === 'rm' || (c[0] === 'volume' && c[1] === 'rm')), 'nothing removed');
+    assert.deepEqual(b.backingStop(s.dir, s.config, id, f.runner), { stopped: [], skipped: [{ name: mine, reason: 'already stopped' }], ok: true }, 'idempotent');
+
+    // A same-named container of another checkout, or labelled with another job, is never stopped.
+    const other = createJob(s.dir, s.config, { title: 'Not mine' }).id;
+    const foreign = `forge-${other}-postgres`;
+    for (const labels of [
+      { 'forge.root': 'someone-else', 'forge.backing': 'postgres', 'forge.isolation': 'per-job', 'forge.job': other },
+      { 'forge.root': b.rootLabel(s.dir), 'forge.backing': 'postgres', 'forge.isolation': 'per-job', 'forge.job': id },
+    ]) {
+      f.state.containers[foreign] = { running: true, labels, image: 'postgres:16', ports: [] };
+      assert.deepEqual(b.backingStop(s.dir, s.config, other, f.runner), { stopped: [], skipped: [{ name: foreign, reason: "not this job's" }], ok: true });
+      assert.equal(f.state.containers[foreign].running, true);
+      assert.ok(!stopCalls().some((c) => c.at(-1) === foreign), `no stop argv for ${foreign}`);
+    }
+
+    assert.deepEqual(b.backingStop(s.dir, s.config, `${id}-gone`, f.runner).skipped, [{ name: `forge-${id}-gone-postgres`, reason: 'missing' }]);
+    f.state.daemon = 'down';
+    const down = b.backingStop(s.dir, s.config, id, f.runner);
+    assert.equal(down.ok, false);
+    assert.match(down.error!, /daemon is not reachable/);
   } finally {
-    fs.rmSync(lock, { recursive: true, force: true });
+    s.cleanup();
+  }
+});
+
+test('status reports container health', () => {
+  const s = scratch([PG, REDIS]);
+  const f = fake();
+  try {
+    const id = createJob(s.dir, s.config, { title: 'Health' }).id;
+    b.backingUp(s.dir, s.config, { id, port: 4100 }, f.runner);
+    const mine = `forge-${id}-postgres`;
+    const health = () => b.backingStatus(s.dir, s.config, id, f.runner).services.map((x) => [x.name, x.health]);
+    assert.deepEqual(health(), [['postgres', null], ['redis', null]], 'no healthcheck');
+    for (const h of ['healthy', 'unhealthy', 'starting']) {
+      f.state.containers[mine].health = h;
+      assert.deepEqual(health()[0], ['postgres', h]);
+    }
+    f.state.containers[mine].health = 'none';
+    assert.deepEqual(health()[0], ['postgres', null], "Docker's none reads as null");
+    // A label value with spaces still parses.
+    f.state.containers[mine].health = 'healthy';
+    f.state.containers[mine].labels = { ...f.state.containers[mine].labels, note: 'a b  c' };
+    assert.deepEqual(health()[0], ['postgres', 'healthy']);
+    // Another job's labels: unknown, with no health, even though Docker answered.
+    const labels = f.state.containers[mine].labels;
+    f.state.containers[mine].labels = { ...labels, 'forge.job': 'someone-else' };
+    assert.deepEqual(b.backingStatus(s.dir, s.config, id, f.runner).services.map((x) => [x.state, x.health])[0], ['unknown', null]);
+    f.state.containers[mine].labels = labels;
+    f.state.containers[mine].running = false;
+    assert.deepEqual(health()[0], ['postgres', null], 'not running: null');
+  } finally {
     s.cleanup();
   }
 });

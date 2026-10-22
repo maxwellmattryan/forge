@@ -148,7 +148,7 @@ Keeping `http.ts` small and alone is the security win here: the loopback, token,
 | `log.ts` | `readLogPage`, `tailLines`, `capLine`, `splitter` | 140 |
 | `lifecycle.ts` | `createSession` | 900 → ≈450 after the second step |
 
-`createSession` is a 900-line closure, so split it in two steps. Step 1 is the mechanical moves above. Step 2 extracts closure groups into factories that take a shared `core` object: control-channel handling (`onControl*`, `setPermissionMode`, `answerPermission`; ≈120 lines), idle and missed-turn timers (≈80), and the agent-keepalive logic (≈60). Child lifecycle (spawn, stdout, result, exit, kill) stays in `lifecycle.ts`. Step 2 is the riskiest change in this plan, so it goes last, behind `test/daemon.test.ts` (2,895 lines).
+`createSession` is a 900-line closure, so split it in two steps. Step 1 is the mechanical moves above. Step 2 extracts closure groups into factories that take a shared `core` object: control-channel handling (`onControl*`, `setPermissionMode`, `answerPermission`; ≈120 lines), idle and missed-turn timers (≈80), and the agent-keepalive logic (≈60). Child lifecycle (spawn, stdout, result, exit, kill) stays in `lifecycle.ts`. Step 2 is the riskiest change in this plan, so it goes last, behind `test/integration/pool/daemon.test.ts` (the pool and session tests #360 split out of `test/daemon.test.ts`).
 
 ## Order of work
 
@@ -161,7 +161,7 @@ Keeping `http.ts` small and alone is the security win here: the loopback, token,
    - Each module's `AGENTS.md`, and the slimmed root `AGENTS.md`.
 3. **types.ts by owner**, with the transitional type-only barrel. Same PR for the dashboard mirror.
 4. **Splits**, one PR each: step, pr, server, daemon (step 1, then step 2), then `release/plan/` and `release/run/`.
-5. **Tests mirror the modules** (`test/<module>/*.test.ts`), in its own PR: the glob becomes `"test/**/*.test.ts"` in ci.yml, AGENTS.md and `test/ci-workflow.test.ts`. 207 test files in one folder is the same problem as `lib/`.
+5. **Tests mirror the modules** (`test/<module>/*.test.ts`), in its own PR. #360 already widened the glob to `"test/**/*.test.ts"` in ci.yml, AGENTS.md and `test/ci-workflow.test.ts`, and placed its merged files where this step wants them (docs/TESTING.md › Layout). 207 test files in one folder is the same problem as `lib/`.
 6. **Later, as needed:** delete the `lib/types.ts` barrel; `docs/CONFIG.md` per section; `cli/commands/job.ts` (984), `workspace/worktree.ts` (1,233), `config/load.ts` (971), `release/interim-apply.ts` (927) and `guard/integrity.ts` (838) off the allowlist; grouping `dashboard/src/lib` (48 files) by view.
 
 ## Timing against other work

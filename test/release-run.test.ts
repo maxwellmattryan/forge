@@ -8,7 +8,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { TRUST_ENV, trustDigest } from '../lib/config.ts';
-import { releasedVersionFrom } from '../lib/release-run.ts';
 import { loadJob } from '../lib/jobs.ts';
 import { type TwoRepo, dependsOn, twoRepo } from './job-repos-fixture.ts';
 
@@ -87,21 +86,21 @@ describe('forge release', { concurrency: 4 }, () => {
   const cleanups: (() => void)[] = [];
   process.on('exit', () => cleanups.forEach((c) => c()));
 
-  test('plan writes release.md and release.json, library first', async () => {
+  // The order is release-plan.test.ts's ("a two-repo plan orders the library first"); the order the
+  // steps run in is "a failure mid-run resumes".
+  test('plan writes release.md and release.json', async () => {
     const p = await project(cleanups);
     p.setup(allowBoth);
     const r = await p.run(['plan']);
     assert.equal(r.status, 0, r.stderr);
-    assert.deepEqual(r.json.order, ['lib', '(root)']);
     assert.equal(r.json.plan, path.join(p.dir, 'release.md'));
     assert.equal(r.json.steps, path.join(p.dir, 'release.json'));
     assert.equal(r.json.total, 6);
     assert.match(r.json.hash, /^[0-9a-f]{12}$/);
     assert.deepEqual(r.json.skipped, []);
     const plan = steps(p);
-    assert.deepEqual(plan.order, ['lib', '(root)']);
     assert.equal(plan.version, 1);
-    assert.deepEqual(plan.repos[0].steps.map((s: any) => s.id), ['lib/preflight', 'lib/release', 'lib/publish']);
+    assert.deepEqual(plan.repos.find((x: any) => x.repo === 'lib').steps.map((s: any) => s.id), ['lib/preflight', 'lib/release', 'lib/publish']);
     assert.ok(fs.readFileSync(r.json.plan, 'utf8').startsWith('# Release plan\n'));
     assert.equal(p.argv().length, 0, 'planning runs nothing');
     assert.equal(fs.existsSync(path.join(p.dir, 'state.json')), false);
@@ -416,13 +415,6 @@ describe('forge release', { concurrency: 4 }, () => {
     assert.equal(amb.status, 0, amb.stderr);
     assert.deepEqual(amb.json.released, [{ repo: 'lib', version: null, recorded: false, hint: `forge job interim release ${two.id} lib <version>` }]);
     assert.deepEqual(two.releases(), []);
-    // The levels: a registry version, then <link>@<v>, then a bare version tag.
-    assert.equal(releasedVersionFrom([{ ok: true, tags: ['v1.0.0', 'engine@2.0.0'] }, { ok: true, version: '3.0.0' }], ['engine']), '3.0.0');
-    assert.equal(releasedVersionFrom([{ ok: true, tags: ['v1.0.0', 'engine@2.0.0', 'other@4.0.0'] }], ['engine']), '2.0.0');
-    assert.equal(releasedVersionFrom([{ ok: true, tags: ['v1.0.0', 'nightly'] }], ['engine']), 'v1.0.0');
-    assert.equal(releasedVersionFrom([{ ok: true, tags: ['engine@2.0.0', 'engine@2.0.1'] }], ['engine']), null);
-    assert.equal(releasedVersionFrom([{ ok: true, tags: ['v1.0.0-canary.abc', 'engine@-Z'] }], ['engine']), null);
-    assert.equal(releasedVersionFrom(undefined, []), null);
   });
 
   test('status shows progress and staleness', { skip: posix }, async () => {

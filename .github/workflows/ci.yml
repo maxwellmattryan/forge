@@ -56,7 +56,7 @@ jobs:
           TEST_SHARD: ${{ matrix.shard }}
           # The tests of the real build run here (it was just built) instead of skipping (test/dist.ts).
           FORGE_REQUIRE_DIST: '1'
-        run: node --test --test-shard="$TEST_SHARD" "test/*.test.ts"
+        run: node --test --test-shard="$TEST_SHARD" "test/**/*.test.ts"
       - name: Syntax-check JavaScript entry points
         run: for f in bin/forge lib/trackers/status.mjs dashboard/*.mjs; do node --check "$f"; done
       - name: Install Claude Code CLI

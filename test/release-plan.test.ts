@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { defaults } from '../lib/config.ts';
 import { type GitReader, type RepoInput, type ReleaseStep, planHash, planRelease, readManifestPackage, releaseFiles, renderReleaseMd, stepsFor, writeReleasePlan } from '../lib/release-plan.ts';
-import { releaseStatus, runRelease } from '../lib/release-run.ts';
+import { releaseStatus, releasedVersionFrom, runRelease } from '../lib/release-run.ts';
 import type { Config } from '../lib/types.ts';
 
 // A suite run from a daemon session inherits its marker; this file runs no CLI, so it drops it itself.
@@ -69,6 +69,16 @@ describe('release plan', { concurrency: 4 }, () => {
     } finally {
       p.cleanup();
     }
+  });
+
+  test('releasedVersionFrom reads the checked version', () => {
+    // The levels: a registry version, then <link>@<v>, then a bare version tag.
+    assert.equal(releasedVersionFrom([{ ok: true, tags: ['v1.0.0', 'engine@2.0.0'] }, { ok: true, version: '3.0.0' }], ['engine']), '3.0.0');
+    assert.equal(releasedVersionFrom([{ ok: true, tags: ['v1.0.0', 'engine@2.0.0', 'other@4.0.0'] }], ['engine']), '2.0.0');
+    assert.equal(releasedVersionFrom([{ ok: true, tags: ['v1.0.0', 'nightly'] }], ['engine']), 'v1.0.0');
+    assert.equal(releasedVersionFrom([{ ok: true, tags: ['engine@2.0.0', 'engine@2.0.1'] }], ['engine']), null);
+    assert.equal(releasedVersionFrom([{ ok: true, tags: ['v1.0.0-canary.abc', 'engine@-Z'] }], ['engine']), null);
+    assert.equal(releasedVersionFrom(undefined, []), null);
   });
 
   test('steps per mechanism', () => {
