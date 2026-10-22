@@ -312,6 +312,8 @@
     "session": "Session",
     "created": "Created",
     "updated": "Updated",
+    "budgetCard": "Budget",
+    "screenshotsCard": "Screenshots",
     "verify": "Verify",
     "verifiers": "Verifiers",
     "verifiersTitle": "{blocking} · {warnings}",

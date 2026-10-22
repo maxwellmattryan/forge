@@ -3,12 +3,12 @@
 <script lang="ts">
   import JobActions from './JobActions.svelte';
   import StateChip from './StateChip.svelte';
-  import { budgetPanel, unattendedDefault } from '../lib/budget.ts';
+  import BudgetPanel from './BudgetPanel.svelte';
   import { protectedSummary, showParkReason } from '../lib/protected.ts';
   import { gateOwnerBadge, handoffNote, inboxDoc, inboxKind, lastActed, secretPark } from '../lib/inbox.ts';
   import { TONE_CLASS, ago } from '../lib/util.ts';
   import { ticker } from '../lib/clock.svelte.ts';
-  import { S, openDrawer } from '../lib/app.svelte.ts';
+  import { openDrawer } from '../lib/app.svelte.ts';
   import type { StateJob } from '../lib/types.ts';
   import { t } from '../lib/locale.ts';
 
@@ -40,7 +40,7 @@
     </div>
   {/if}
   <!-- A repo hold (kind repo-budget) skips the per-job panel, whose limits aren't what holds it, and points at the section that lifts it. -->
-  {#if kind === 'budget'}{@html budgetPanel(j, S.data?.config?.pipeline?.budget, { compact: true, jobDefault: unattendedDefault(S.data?.config) })}{/if}
+  {#if kind === 'budget'}<BudgetPanel job={j} compact />{/if}
   {#if kind === 'repo-budget'}<div class="text-[13px]">{$t('budget.cardPointer')}</div>{/if}
   {#if doc}<button class="text-gleam underline underline-offset-2 text-[13px] self-start" onclick={() => openDrawer(j.id, doc, 'files')}>{$t('inbox.read', { doc })}</button>{/if}
   <JobActions job={j} noteId="note-{j.id}" />

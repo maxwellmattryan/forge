@@ -11,6 +11,7 @@
   import CloseButton from './CloseButton.svelte';
   import CommandTrigger from './CommandTrigger.svelte';
   import Banner from './Banner.svelte';
+  import BudgetPanel from './BudgetPanel.svelte';
   import Chip from './Chip.svelte';
   import DeleteJobSection from './DeleteJobSection.svelte';
   import DepSection from './DepSection.svelte';
@@ -21,19 +22,18 @@
   import PrChip from './PrChip.svelte';
   import ProgressBar from './ProgressBar.svelte';
   import RepoSection from './RepoSection.svelte';
+  import ScreenshotsPanel from './ScreenshotsPanel.svelte';
   import SessionActivity from './SessionActivity.svelte';
   import SessionLog from './SessionLog.svelte';
   import StateChip from './StateChip.svelte';
   import ThreadPanel from './ThreadPanel.svelte';
   import Icon from './Icon.svelte';
   import type { IconName } from '../lib/icons.ts';
-  import { budgetPanel, unattendedDefault } from '../lib/budget.ts';
   import { effortChip } from '../lib/effort.ts';
   import { protectedSummary } from '../lib/protected.ts';
   import { STAGE_LABEL } from '../lib/labels.ts';
   import { md, safeUrl } from '../lib/markdown.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
-  import { screenshotsPanel } from '../lib/screenshots.ts';
   import { threadItems, threadMarks, threadOpening, unreadCount } from '../lib/thread.ts';
   import { ago, dur, num, tokensShort, usd } from '../lib/util.ts';
   import { scopeVerbs } from '../lib/command.ts';
@@ -269,7 +269,7 @@
               </table>
             </div></div>
           {/if}
-          {@html budgetPanel(j, S.data?.config?.pipeline?.budget, { jobDefault: unattendedDefault(S.data?.config) })}
+          <BudgetPanel job={j} />
           {#if usageRows.length}
             <div class="plate flat"><div class="overflow-x-auto">
               <table class="tbl">
@@ -299,7 +299,7 @@
               </table>
             </div></div>
           {/if}
-          {@html screenshotsPanel(j.id, d.screenshots ?? [])}
+          <ScreenshotsPanel jobId={j.id} files={d.screenshots ?? []} />
           {#key j.id}<DeleteJobSection job={j} />{/key}
         {/if}
       </div>

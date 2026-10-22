@@ -1,7 +1,8 @@
 // Per-job budget use, derived client-side from fields /api/state already serves. Mirrors
 // effectiveLimits/measureBudget/exceededKeys in lib/budget.ts (the dashboard cannot import lib/).
-// No DOM access, so node:test can import it.
-import { esc, num, usd, ago, toneChip } from './util.ts';
+// No DOM access, so node:test can import it. The view models return raw strings: BudgetChip, BudgetCell and
+// BudgetPanel render them, and Svelte escapes them.
+import { num, usd, ago } from './util.ts';
 import type { BudgetKey, BudgetLimits, DaemonJobBudget, Job } from './types.ts';
 
 export const BUDGET_KEYS = ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries'] as const satisfies readonly BudgetKey[];
@@ -85,42 +86,68 @@ export function budgetWorst(rows: BudgetRow[]): BudgetRow | null {
 
 const quiet = (job: JobInput) => ['done', 'cancelled'].includes(job?.state as string) || (job?.state === 'waiting' && job?.waitingOn === 'budget');
 
-export function budgetChip(job: JobInput, configBudget: BudgetLimits | null | undefined, jobDefault: DaemonJobBudget = null): string {
-  if (quiet(job)) return '';
+/** The board card's budget chip: warn at 80% of a limit, bad over it. */
+export interface BudgetChipModel {
+  tone: 'warn' | 'bad';
+  text: string;
+  title: string;
+}
+
+/** Null below 80%, and for a finished job or one already waiting on its budget (its gate says so). */
+export function budgetChipModel(job: JobInput, configBudget: BudgetLimits | null | undefined, jobDefault: DaemonJobBudget = null): BudgetChipModel | null {
+  if (quiet(job)) return null;
   const w = budgetWorst(budgetRows(job, configBudget, jobDefault));
-  if (!w || (w.tone !== 'warn' && w.tone !== 'bad')) return '';
+  if (!w || (w.tone !== 'warn' && w.tone !== 'bad')) return null;
   const text = w.tone === 'bad' ? 'over budget' : `budget ${Math.round((w.fraction as number) * 100)}%`;
-  return `<span title="${esc(`${w.label} ${fmt(w.key, w.counted)}/${fmt(w.key, w.limit)}`)}">${toneChip(w.tone, text)}</span>`;
+  return { tone: w.tone, text, title: `${w.label} ${fmt(w.key, w.counted)}/${fmt(w.key, w.limit)}` };
 }
 
-export function budgetCell(job: JobInput, configBudget: BudgetLimits | null | undefined, jobDefault: DaemonJobBudget = null): string {
-  const chip = budgetChip(job, configBudget, jobDefault);
-  if (chip) return chip;
+/** The jobs table's Budget cell: the chip when there is one, else the worst row's percent, else nothing measured. */
+export type BudgetCellModel = { kind: 'chip'; chip: BudgetChipModel } | { kind: 'text'; text: string } | { kind: 'none' };
+
+export function budgetCellModel(job: JobInput, configBudget: BudgetLimits | null | undefined, jobDefault: DaemonJobBudget = null): BudgetCellModel {
+  const chip = budgetChipModel(job, configBudget, jobDefault);
+  if (chip) return { kind: 'chip', chip };
   const w = budgetWorst(budgetRows(job, configBudget, jobDefault));
-  if (!w) return '—';
+  if (!w) return { kind: 'none' };
   const f = w.fraction as number;
-  return `<span class="text-muted tabular-nums">${esc(Number.isFinite(f) ? `${Math.round(f * 100)}%` : 'over')}</span>`;
+  return { kind: 'text', text: Number.isFinite(f) ? `${Math.round(f * 100)}%` : 'over' };
 }
 
-function rowHtml(r: BudgetRow): string {
-  const muted = (t: string) => ` <span class="text-muted">${esc(t)}</span>`;
-  let value;
-  if (r.limit === null) value = `${esc(fmt(r.key, r.used))}${muted('· unlimited')}`;
-  else if (r.counted === null) value = `— / ${esc(fmt(r.key, r.limit))}${muted('not measured yet')}`;
-  else value = `${esc(fmt(r.key, r.counted))} / ${esc(fmt(r.key, r.limit))}${r.ackBase > 0 ? muted(`· ${fmt(r.key, r.ackBase)} acknowledged`) : ''}`;
-  const width = r.tone && r.fraction !== null ? Math.round(Math.min(Math.max(r.fraction, 0), 1) * 100) : null;
-  const bar = r.tone && width !== null
-    ? `<div class="col-span-2 md:col-span-1 track"><div class="fill ${r.tone}" style="width:${width}%"></div></div>`
-    : '<div class="hidden md:block"></div>';
-  return `<div class="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[10rem_minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-3 gap-y-1 py-1"><div class="label">${esc(r.label)}</div><div class="text-sm tabular-nums text-right md:text-left break-words ${r.tone === 'bad' ? 'text-bad' : ''}">${value}</div>${bar}</div>`;
+/** One row of the budget panel: `value` then the muted `note`, and the bar only for a toned row. */
+export interface BudgetRowView {
+  key: string;
+  label: string;
+  value: string;
+  note: string | null;
+  bad: boolean;
+  bar: { tone: 'ok' | 'warn' | 'bad'; width: number } | null;
 }
 
-export function budgetPanel(job: JobInput, configBudget: BudgetLimits | null | undefined, { compact = false, jobDefault = null }: { compact?: boolean; jobDefault?: DaemonJobBudget } = {}): string {
-  const rows = `<div class="flex flex-col">${budgetRows(job, configBudget, jobDefault).map(rowHtml).join('')}</div>`;
-  if (compact) return rows;
+function rowView(r: BudgetRow): BudgetRowView {
+  let value: string;
+  let note: string | null = null;
+  if (r.limit === null) {
+    value = fmt(r.key, r.used);
+    note = '· unlimited';
+  } else if (r.counted === null) {
+    value = `— / ${fmt(r.key, r.limit)}`;
+    note = 'not measured yet';
+  } else {
+    value = `${fmt(r.key, r.counted)} / ${fmt(r.key, r.limit)}`;
+    if (r.ackBase > 0) note = `· ${fmt(r.key, r.ackBase)} acknowledged`;
+  }
+  const bar = r.tone && r.fraction !== null ? { tone: r.tone, width: Math.round(Math.min(Math.max(r.fraction, 0), 1) * 100) } : null;
+  return { key: r.key, label: r.label, value, note, bad: r.tone === 'bad', bar };
+}
+
+/** The drawer's Budget card (and, compact, the budget gate's rows): one row per BUDGET_KEYS entry and the checked line, null when compact. */
+export function budgetPanelModel(job: JobInput, configBudget: BudgetLimits | null | undefined, { compact = false, jobDefault = null }: { compact?: boolean; jobDefault?: DaemonJobBudget } = {}): { rows: BudgetRowView[]; checked: string | null } {
+  const rows = budgetRows(job, configBudget, jobDefault).map(rowView);
+  if (compact) return { rows, checked: null };
   const lc = obj(obj(obj(job).budget).lastCheck);
   const checked = Object.keys(lc).length
     ? `checked ${Number.isFinite(Date.parse(lc.at)) ? ago(lc.at) : '—'} · ${lc.checkpoint ?? '—'}`
     : 'not checked yet';
-  return `<div class="plate p-4 flex flex-col gap-2"><div class="flex flex-wrap items-center justify-between gap-2"><h3 class="h section">Budget</h3><span class="label">${esc(checked)}</span></div>${rows}</div>`;
+  return { rows, checked };
 }
