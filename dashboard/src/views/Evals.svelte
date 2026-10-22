@@ -8,7 +8,7 @@
   import { safeUrl } from '../lib/markdown.ts';
   import { pct, tokensShort, usd } from '../lib/util.ts';
   import type { ApiState } from '../lib/types.ts';
-  import { evalRunBody } from '../lib/view.ts';
+  import { evalRunBody } from '../lib/requests.ts';
   import { S, compareRuns, request } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
 

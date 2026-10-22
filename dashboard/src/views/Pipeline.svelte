@@ -7,7 +7,7 @@
   import JobsTable from '../components/JobsTable.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import type { ApiState } from '../lib/types.ts';
-  import { boardColumns, filterJobs, pipelineCounts, type BoardGroupId } from '../lib/view.ts';
+  import { boardColumns, filterJobs, pipelineCounts, type BoardGroupId } from '../lib/board.ts';
   import { workingCount } from '../lib/live.ts';
   import { S, req, setFilter, setLayout } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';

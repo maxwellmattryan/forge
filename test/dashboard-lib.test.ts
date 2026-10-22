@@ -10,7 +10,7 @@ import { md, inline, safeUrl } from '../dashboard/src/lib/markdown.ts';
 import { STAGE_LABEL, WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
 import { readiness } from '../dashboard/src/lib/backlog.ts';
 import { bundleFilename } from '../dashboard/src/lib/diagnostics.ts';
-import { jobsSummary } from '../dashboard/src/lib/view.ts';
+import { jobsSummary } from '../dashboard/src/lib/analytics.ts';
 import * as types from '../dashboard/src/lib/types.ts';
 import * as schema from '../lib/schema.ts';
 

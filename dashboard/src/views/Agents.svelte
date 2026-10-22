@@ -6,7 +6,7 @@
   import { ago } from '../lib/util.ts';
   import { effortChip } from '../lib/effort.ts';
   import type { ApiState, Effort, EffortSource, RosterModelBy } from '../lib/types.ts';
-  import { agentSessions, runningAgents } from '../lib/view.ts';
+  import { agentSessions, runningAgents } from '../lib/agents.ts';
   import { S, openDrawer } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
 

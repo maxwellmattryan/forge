@@ -14,7 +14,8 @@
   import { safeUrl } from '../../lib/markdown.ts';
   import { ago } from '../../lib/util.ts';
   import type { ApiState } from '../../lib/types.ts';
-  import { cardRef, inboxGroups } from '../../lib/view.ts';
+  import { cardRef } from '../../lib/board.ts';
+  import { inboxGroups } from '../../lib/inbox.ts';
   import { pendingPrompts } from '../../lib/permissions.ts';
   import { S, openDrawer, req } from '../../lib/app.svelte.ts';
   import { ticker } from '../../lib/clock.svelte.ts';

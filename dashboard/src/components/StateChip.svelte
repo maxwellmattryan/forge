@@ -2,7 +2,7 @@
      `YOU · <state>` tag; the prefix is aria-hidden so a screen reader hears the state alone. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
-  import { stateText, stateTone } from '../lib/view.ts';
+  import { stateText, stateTone } from '../lib/job-state.ts';
   import { t } from '../lib/locale.ts';
   import type { Job } from '../lib/types.ts';
 

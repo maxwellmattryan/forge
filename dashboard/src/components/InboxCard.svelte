@@ -5,7 +5,7 @@
   import StateChip from './StateChip.svelte';
   import { budgetPanel, unattendedDefault } from '../lib/budget.ts';
   import { protectedSummary, showParkReason } from '../lib/protected.ts';
-  import { gateOwnerBadge, handoffNote, inboxDoc, inboxKind, lastActed, secretPark } from '../lib/view.ts';
+  import { gateOwnerBadge, handoffNote, inboxDoc, inboxKind, lastActed, secretPark } from '../lib/inbox.ts';
   import { TONE_CLASS, ago } from '../lib/util.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import { S, openDrawer } from '../lib/app.svelte.ts';

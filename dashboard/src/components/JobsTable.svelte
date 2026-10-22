@@ -7,7 +7,8 @@
   import StageStepper from './StageStepper.svelte';
   import { budgetCell, unattendedDefault } from '../lib/budget.ts';
   import { ago, num, usd } from '../lib/util.ts';
-  import { cardModel, prChipModel, sortByRank } from '../lib/view.ts';
+  import { cardModel, sortByRank } from '../lib/board.ts';
+  import { prChipModel } from '../lib/job-state.ts';
   import { S, openDrawer } from '../lib/app.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import type { StateJob } from '../lib/types.ts';

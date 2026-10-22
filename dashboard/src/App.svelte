@@ -23,7 +23,7 @@
   import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_RAIL, sidebarDrag, sidebarKey, sidebarShown } from './lib/sidebar.ts';
   import { hideTip, railTipOn } from './lib/rail-tip.svelte.ts';
   import { startClock } from './lib/clock.svelte.ts';
-  import type { ViewId } from './lib/view.ts';
+  import type { ViewId } from './lib/nav.ts';
   import { inlineInputAction, type InlineInputEvent } from './lib/statusbar.ts';
   import { t } from './lib/locale.ts';
   import { settingsKey, settingsKeyShortcuts, settingsShortcutLabel } from './lib/settings.ts';

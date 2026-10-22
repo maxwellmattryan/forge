@@ -82,7 +82,7 @@ function notFoundPaths(real: string): string[] {
     '/lib.js', '/server.ts', '/index.js', '/package.json', '/node_modules/vite/package.json',
     '/src/lib/util.ts', '/dashboard/src/lib/util.ts', '/src/lib/types.ts', '/tsconfig.json', '/dashboard/tsconfig.json',
     '/fonts/IBMPlexSans-400.woff2', '/dashboard/fonts/OFL.txt', '/fonts/README.md', '/textures/paper.svg', '/dashboard/textures/paper.svg',
-    '/src/main.ts', '/src/App.svelte', '/dashboard/src/App.svelte', '/src/lib/view.ts', '/svelte.config.mjs', '/dashboard/svelte.config.mjs',
+    '/src/main.ts', '/src/App.svelte', '/dashboard/src/App.svelte', '/src/lib/board.ts','/svelte.config.mjs', '/dashboard/svelte.config.mjs',
   ];
 }
 

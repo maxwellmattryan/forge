@@ -1,8 +1,15 @@
-// The dashboard's view logic (dashboard/src/lib/view.ts and thread.ts): small input/output cases for the inbox
-// cards, the POST bodies its buttons send, the board, chips and the drawer.
+// The dashboard's view logic (dashboard/src/lib/{job-state,nav,board,inbox,requests,agents,analytics,drawer,thread}.ts):
+// small input/output cases for the inbox cards, the POST bodies its buttons send, the board, chips and the drawer.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as V from '../dashboard/src/lib/view.ts';
+import { DEP_PARK_PREFIX, agentsSummary, hasLinkedIssue, isDependencyPark, needsHuman, prChipModel, progressWidth, resumeModel, runningRoles, stateText, stateTone, verdictTone } from '../dashboard/src/lib/job-state.ts';
+import { VIEWS, navCounts, viewIndex } from '../dashboard/src/lib/nav.ts';
+import { BOARD_GROUPS, STEPPER_STAGES, boardColumns, cardModel, cardRef, filterJobs, pipelineCounts, sortByRank, stepPosition } from '../dashboard/src/lib/board.ts';
+import { SECRET_PARK_PREFIX, UNLINKED_SPEC_REASON, gateOwnerBadge, handoffNote, inboxActions, inboxDoc, inboxGroups, inboxKind, lastActed, notePlaceholder, secretPark, showsNote, specLinkPending } from '../dashboard/src/lib/inbox.ts';
+import { buildRequest, evalRunBody, queuedMessage } from '../dashboard/src/lib/requests.ts';
+import { agentSessions, runningAgents } from '../dashboard/src/lib/agents.ts';
+import { compareRows, jobMs, statsQuery, topJobsByUsage, usageBars } from '../dashboard/src/lib/analytics.ts';
+import { actorLabel, eventDetail, isForemanEvent, pickDrawerFile, verdictMatrix, verifierRounds, verifierTone } from '../dashboard/src/lib/drawer.ts';
 import { PARK_LABEL, WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
 import { cleanRef, parseCandidates, secretItems, secretLine, threadAction, threadItems, threadMarks, threadOpening } from '../dashboard/src/lib/thread.ts';
 import { dur, tokensShort } from '../dashboard/src/lib/util.ts';
@@ -32,20 +39,20 @@ const card = (kind): any => (kind === 'failed' ? { id: 'j1', state: 'failed', wa
 
 test('inbox: every waiting kind keeps its actions, note and doc', () => {
   for (const [kind, [actions, note, doc]] of Object.entries(INBOX)) {
-    const k = V.inboxKind(card(kind));
-    assert.equal(shape(V.inboxActions(k)), actions, kind);
-    assert.equal(V.showsNote(k), note, kind);
-    if (note) assert.ok(V.notePlaceholder(k), kind);
-    assert.equal(V.inboxDoc(k, card(kind)), doc, kind);
+    const k = inboxKind(card(kind));
+    assert.equal(shape(inboxActions(k)), actions, kind);
+    assert.equal(showsNote(k), note, kind);
+    if (note) assert.ok(notePlaceholder(k), kind);
+    assert.equal(inboxDoc(k, card(kind)), doc, kind);
   }
-  assert.notEqual(V.notePlaceholder('budget'), V.notePlaceholder('human'), 'the budget card asks for new limits');
-  assert.equal(V.inboxActions('conflicts')[0].text, 'Resolve merge conflicts with the base branch', 'Fix conflicts sends a fixed rework text');
-  assert.equal(V.inboxKind({ state: 'failed', waitingOn: 'input' }), 'failed');
+  assert.notEqual(notePlaceholder('budget'), notePlaceholder('human'), 'the budget card asks for new limits');
+  assert.equal(inboxActions('conflicts')[0].text, 'Resolve merge conflicts with the base branch', 'Fix conflicts sends a fixed rework text');
+  assert.equal(inboxKind({ state: 'failed', waitingOn: 'input' }), 'failed');
 });
 
 test('requests: the POST bodies the buttons send', () => {
   const body = (input) => {
-    const r = V.buildRequest(input);
+    const r = buildRequest(input);
     return 'error' in r ? 'error' : r.body;
   };
   const note = '  ship it  ';
@@ -60,14 +67,14 @@ test('requests: the POST bodies the buttons send', () => {
   assert.equal(body({ type: 'revise-spec', job: 'j3', note: '', needsNote: true }), 'error', 'empty spec changes');
   assert.deepEqual(body({ type: 'rework', job: 'j3', note: '', needsNote: true }), req('rework', 'j3', null), 'rework may be empty');
   assert.deepEqual(body({ type: 'rework', job: 'j1', note, fixedText: 'Resolve merge conflicts with the base branch' }), req('rework', 'j1', 'Resolve merge conflicts with the base branch'), 'fixed text wins over the note');
-  assert.deepEqual(V.evalRunBody({ tags: ' replay, ui ', tasks: '   ', label: 'base' }), { type: 'eval-run', args: { tags: 'replay, ui', tasks: null, label: 'base' } }, 'Run eval');
-  assert.deepEqual(V.evalRunBody({ tags: '', tasks: null, label: '' }), { type: 'eval-run', args: { tags: null, tasks: null, label: null } }, 'Run eval, empty form');
+  assert.deepEqual(evalRunBody({ tags: ' replay, ui ', tasks: '   ', label: 'base' }), { type: 'eval-run', args: { tags: 'replay, ui', tasks: null, label: 'base' } }, 'Run eval');
+  assert.deepEqual(evalRunBody({ tags: '', tasks: null, label: '' }), { type: 'eval-run', args: { tags: null, tasks: null, label: null } }, 'Run eval, empty form');
   assert.deepEqual(Object.keys(body({ type: 'next' })), ['type', 'job', 'text', 'args'], 'same key order on the wire');
   assert.deepEqual(body({ type: 'approve', job: 'j1', note: ' why ', args: { link: 'none' } }), { type: 'approve', job: 'j1', text: 'why', args: { link: 'none' } }, 'args ride along');
   assert.deepEqual(body({ type: 'run', ref: '12', args: { n: 2 } }), { type: 'run', job: null, text: null, args: { ref: '12', n: 2 } }, 'args merge after ref');
   assert.deepEqual(body({ type: 'next', args: { n: 3 } }), { type: 'next', job: null, text: null, args: { n: 3 } });
-  assert.equal(V.queuedMessage('next', true), 'Queued "next". The daemon picks it up.');
-  assert.equal(V.queuedMessage('next', false), 'Queued "next". Your orchestrator session picks it up (/forge requests).');
+  assert.equal(queuedMessage('next', true), 'Queued "next". The daemon picks it up.');
+  assert.equal(queuedMessage('next', false), 'Queued "next". Your orchestrator session picks it up (/forge requests).');
 });
 
 test('chips: state, verdict and PR tones and text', () => {
@@ -77,17 +84,17 @@ test('chips: state, verdict and PR tones and text', () => {
     for (const waitingOn of state === 'waiting' ? WAITING_ON : [null]) {
       const j: any = { state, waitingOn };
       const want = state === 'waiting' ? (waitingOn === 'pr-review' ? 'info' : 'you') : TONE[state];
-      const got = V.stateTone(j);
+      const got = stateTone(j);
       assert.equal(got, want, `${state}/${waitingOn}`);
-      assert.equal(got === 'you', V.needsHuman(j), `${state}/${waitingOn}: you exactly when a human is needed`);
+      assert.equal(got === 'you', needsHuman(j), `${state}/${waitingOn}: you exactly when a human is needed`);
       assert.notEqual(got, 'accent');
       checked++;
     }
   assert.equal(checked, STATES.length - 1 + WAITING_ON.length);
-  assert.equal(V.stateText({ state: 'waiting', waitingOn: 'input' }), 'Question for you');
-  assert.equal(V.stateText({ state: 'waiting', waitingOn: 'later' } as any), 'later', 'unknown wait reasons show raw');
-  assert.equal(V.stateText({ state: 'running' }), 'running');
-  assert.deepEqual(['PASS', 'CHANGES', 'MALFORMED', undefined].map(V.verdictTone), ['ok', 'bad', 'warn', 'muted']);
+  assert.equal(stateText({ state: 'waiting', waitingOn: 'input' }), 'Question for you');
+  assert.equal(stateText({ state: 'waiting', waitingOn: 'later' } as any), 'later', 'unknown wait reasons show raw');
+  assert.equal(stateText({ state: 'running' }), 'running');
+  assert.deepEqual(['PASS', 'CHANGES', 'MALFORMED', undefined].map(verdictTone), ['ok', 'bad', 'warn', 'muted']);
   // prChipModel, as [input, `[tone:text]`].
   const prs: any = [
     [null, ''], [{}, ''], [{ number: 5, state: 'MERGED' }, '[ok:#5]'], [{ number: 5, state: 'CLOSED', conflicts: true }, '[muted:#5 · conflicts]'],
@@ -96,35 +103,35 @@ test('chips: state, verdict and PR tones and text', () => {
     [{ number: 5, state: 'OPEN', checks: { state: 'none' } }, '[info:#5]'], [{ number: 5, state: 'OPEN' }, '[info:#5]'],
   ];
   for (const [pr, want] of prs) {
-    const m = V.prChipModel(pr);
+    const m = prChipModel(pr);
     assert.equal(m ? `[${m.tone}:${m.text}]` : '', want, JSON.stringify(pr));
   }
-  assert.equal(V.progressWidth({ done: 1, total: 3 }), 33);
-  assert.equal(V.progressWidth({ done: 0, total: 0 }), null);
-  assert.equal(V.progressWidth(undefined), null);
-  assert.equal(V.cardRef({ id: '12-x', issues: [{ tracker: 'local', ref: '12', url: null }] } as any), '#12');
-  assert.equal(V.cardRef({ id: 'my-job', issues: [{ tracker: 'local', ref: 'ENG-4', url: null }] } as any), 'ENG-4');
-  assert.equal(V.cardRef({ id: 'slug', issues: [{ tracker: 'local', ref: 'slug', url: null }] } as any), null);
-  assert.equal(V.cardRef({ id: 'x', issues: [] }), null);
-  assert.equal(V.cardRef({ id: 'job-x', issues: [{ tracker: 'local', ref: '85', url: null }] } as any), '#85', 'a numeric ref is always #n');
-  assert.equal(V.cardRef({ id: '12', issues: [{ tracker: 'local', ref: '12', url: null }] } as any), '#12');
-  assert.equal(V.cardRef({ id: 'slug-ab12', issues: [{ tracker: 'local', ref: 'slug', url: null }] } as any), null, 'a local slug ref the id starts with');
-  assert.deepEqual(V.runningRoles({ agents: { builder: { status: 'running' }, reviewer: { status: 'done' } } } as any), ['builder']);
+  assert.equal(progressWidth({ done: 1, total: 3 }), 33);
+  assert.equal(progressWidth({ done: 0, total: 0 }), null);
+  assert.equal(progressWidth(undefined), null);
+  assert.equal(cardRef({ id: '12-x', issues: [{ tracker: 'local', ref: '12', url: null }] } as any), '#12');
+  assert.equal(cardRef({ id: 'my-job', issues: [{ tracker: 'local', ref: 'ENG-4', url: null }] } as any), 'ENG-4');
+  assert.equal(cardRef({ id: 'slug', issues: [{ tracker: 'local', ref: 'slug', url: null }] } as any), null);
+  assert.equal(cardRef({ id: 'x', issues: [] }), null);
+  assert.equal(cardRef({ id: 'job-x', issues: [{ tracker: 'local', ref: '85', url: null }] } as any), '#85', 'a numeric ref is always #n');
+  assert.equal(cardRef({ id: '12', issues: [{ tracker: 'local', ref: '12', url: null }] } as any), '#12');
+  assert.equal(cardRef({ id: 'slug-ab12', issues: [{ tracker: 'local', ref: 'slug', url: null }] } as any), null, 'a local slug ref the id starts with');
+  assert.deepEqual(runningRoles({ agents: { builder: { status: 'running' }, reviewer: { status: 'done' } } } as any), ['builder']);
 });
 
 test('agentsSummary: 0, 1, 2 and 7 agents, reviewers vs mixed roles', () => {
-  assert.equal(V.agentsSummary([]), null);
-  assert.deepEqual(V.agentsSummary(['builder']), { kind: 'role', role: 'builder', title: 'builder' });
-  assert.deepEqual(V.agentsSummary(['reviewer:code']), { kind: 'role', role: 'reviewer:code', title: 'reviewer:code' });
-  assert.deepEqual(V.agentsSummary(['reviewer:code', 'reviewer:tests']), { kind: 'reviewers', count: 2, title: 'reviewer:code, reviewer:tests' });
+  assert.equal(agentsSummary([]), null);
+  assert.deepEqual(agentsSummary(['builder']), { kind: 'role', role: 'builder', title: 'builder' });
+  assert.deepEqual(agentsSummary(['reviewer:code']), { kind: 'role', role: 'reviewer:code', title: 'reviewer:code' });
+  assert.deepEqual(agentsSummary(['reviewer:code', 'reviewer:tests']), { kind: 'reviewers', count: 2, title: 'reviewer:code, reviewer:tests' });
   const lenses = ['code', 'tests', 'security', 'docs', 'ui', 'accessibility', 'ux'].map((l) => `reviewer:${l}`);
-  assert.deepEqual(V.agentsSummary(lenses), { kind: 'reviewers', count: 7, title: lenses.join(', ') });
-  assert.deepEqual(V.agentsSummary(['builder', 'reviewer:code']), { kind: 'agents', count: 2, title: 'builder, reviewer:code' });
-  assert.deepEqual(V.agentsSummary(['reviewer', 'reviewer:ux']), { kind: 'reviewers', count: 2, title: 'reviewer, reviewer:ux' }, 'a bare reviewer counts');
-  assert.equal(V.agentsSummary(['reviewers-lead', 'reviewer:ux'])?.kind, 'agents', 'only `reviewer` or `reviewer:<lens>` counts');
+  assert.deepEqual(agentsSummary(lenses), { kind: 'reviewers', count: 7, title: lenses.join(', ') });
+  assert.deepEqual(agentsSummary(['builder', 'reviewer:code']), { kind: 'agents', count: 2, title: 'builder, reviewer:code' });
+  assert.deepEqual(agentsSummary(['reviewer', 'reviewer:ux']), { kind: 'reviewers', count: 2, title: 'reviewer, reviewer:ux' }, 'a bare reviewer counts');
+  assert.equal(agentsSummary(['reviewers-lead', 'reviewer:ux'])?.kind, 'agents', 'only `reviewer` or `reviewer:<lens>` counts');
   // Fed from runningRoles, in agents key order.
   const job: any = { agents: { 'reviewer:ux': { status: 'running' }, builder: { status: 'done' }, 'reviewer:code': { status: 'running' } } };
-  assert.deepEqual(V.agentsSummary(V.runningRoles(job)), { kind: 'reviewers', count: 2, title: 'reviewer:ux, reviewer:code' });
+  assert.deepEqual(agentsSummary(runningRoles(job)), { kind: 'reviewers', count: 2, title: 'reviewer:ux, reviewer:code' });
 });
 
 const JOBS: any = [
@@ -138,11 +145,11 @@ const JOBS: any = [
 test('pipeline: filters, counts, board columns and nav badges', () => {
   const base = JOBS.slice(0, 9);
   const filters = { active: ['a', 'b', 'c', 'd', 'i'], waiting: ['b', 'c', 'd'], done: ['e', 'f'], all: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'] };
-  for (const [f, ids] of Object.entries(filters)) assert.deepEqual(V.filterJobs(base, f).map((j) => j.id), ids, f);
-  assert.deepEqual(V.pipelineCounts(base), { all: 9, active: 5, waiting: 3, done: 2 }, 'all counts evals; the rest do not');
-  assert.deepEqual(V.boardColumns([]).map((c) => c.id), ['queued', 'plan', 'build', 'ship']);
-  assert.deepEqual(V.boardColumns(JOBS).map((c) => [c.id, c.jobs.map((j) => j.id)]), [['queued', ['i']], ['plan', ['b']], ['build', ['c', 'd', 'a', 'g']], ['ship', ['p']], ['done', ['e', 'f', 'h']]]);
-  assert.deepEqual(V.navCounts(JOBS), { active: 7, needs: 2 }, 'pr-review waits are not "needs you"');
+  for (const [f, ids] of Object.entries(filters)) assert.deepEqual(filterJobs(base, f).map((j) => j.id), ids, f);
+  assert.deepEqual(pipelineCounts(base), { all: 9, active: 5, waiting: 3, done: 2 }, 'all counts evals; the rest do not');
+  assert.deepEqual(boardColumns([]).map((c) => c.id), ['queued', 'plan', 'build', 'ship']);
+  assert.deepEqual(boardColumns(JOBS).map((c) => [c.id, c.jobs.map((j) => j.id)]), [['queued', ['i']], ['plan', ['b']], ['build', ['c', 'd', 'a', 'g']], ['ship', ['p']], ['done', ['e', 'f', 'h']]]);
+  assert.deepEqual(navCounts(JOBS), { active: 7, needs: 2 }, 'pr-review waits are not "needs you"');
   const now = Date.parse('2026-10-12T12:00:00Z');
   const owned: any = [
     { lease: { driver: 's1', epoch: 1, since: '2026-10-12T10:00:00Z', renewedAt: '2026-10-12T11:45:00Z', expiresAt: '2026-10-12T12:15:00Z' } },
@@ -153,36 +160,36 @@ test('pipeline: filters, counts, board columns and nav badges', () => {
     { lease: { driver: null, epoch: 4, since: null, renewedAt: null, expiresAt: null } },
     { lease: { driver: null, epoch: 0, since: null, renewedAt: null, expiresAt: null } },
   ];
-  const sessions = V.agentSessions(owned, now);
+  const sessions = agentSessions(owned, now);
   assert.deepEqual(sessions.map((x) => [x.session, x.jobs.length, x.live, x.since, x.renewedAt]), [
     ['s1', 2, true, '2026-10-12T10:00:00Z', '2026-10-12T11:59:00Z'],
     ['s2', 1, true, '2026-10-12T11:50:00Z', null],
   ]);
-  assert.deepEqual(V.runningAgents([{ id: 'j', agents: { builder: { status: 'running', model: 'opus' }, x: { status: 'done' } } }] as any).map((a) => [a.job.id, a.role, a.model]), [['j', 'builder', 'opus']]);
+  assert.deepEqual(runningAgents([{ id: 'j', agents: { builder: { status: 'running', model: 'opus' }, x: { status: 'done' } } }] as any).map((a) => [a.job.id, a.role, a.model]), [['j', 'builder', 'opus']]);
 });
 
 test('views list six pages', () => {
   // Needs you is a status-bar popover now, not a page.
-  assert.deepEqual(V.VIEWS.map((v) => v.id), ['pipeline', 'project', 'backlog', 'agents', 'analytics', 'evals']);
-  assert.equal(V.VIEWS.length, 6);
-  assert.equal(V.viewIndex('pipeline'), 1);
-  assert.equal(V.viewIndex('project'), 2);
-  assert.equal(V.viewIndex('backlog'), 3);
-  assert.equal(V.viewIndex('evals'), 6);
-  assert.equal(V.viewIndex('inbox'), 1, 'the old Needs-you id reads as the first view');
-  assert.equal(V.viewIndex('nope'), 1, 'an unknown id reads as the first view');
-  V.VIEWS.forEach((v, i) => assert.equal(V.viewIndex(v.id), i + 1, v.id));
+  assert.deepEqual(VIEWS.map((v) => v.id), ['pipeline', 'project', 'backlog', 'agents', 'analytics', 'evals']);
+  assert.equal(VIEWS.length, 6);
+  assert.equal(viewIndex('pipeline'), 1);
+  assert.equal(viewIndex('project'), 2);
+  assert.equal(viewIndex('backlog'), 3);
+  assert.equal(viewIndex('evals'), 6);
+  assert.equal(viewIndex('inbox'), 1, 'the old Needs-you id reads as the first view');
+  assert.equal(viewIndex('nope'), 1, 'an unknown id reads as the first view');
+  VIEWS.forEach((v, i) => assert.equal(viewIndex(v.id), i + 1, v.id));
 });
 
 test('inbox groups urgent jobs and PRs awaiting review', () => {
-  const g = V.inboxGroups(JOBS);
+  const g = inboxGroups(JOBS);
   assert.deepEqual(g.urgent.map((j) => j.id), ['b', 'c', 'd']);
   assert.deepEqual(g.prs.map((j) => j.id), ['p']);
   assert.deepEqual(g.parks, []);
 });
 
 test('evals: compare rows keep the old table\'s values and tones', () => {
-  const rows = V.compareRows({
+  const rows = compareRows({
     a: { configHash: 'h1', forgeVersion: '1' }, b: { configHash: 'h2', forgeVersion: '2' },
     delta: {
       tasks: { a: 2, b: 2, change: 0 }, checkPassRate: { a: 0.5, b: 0.75, change: 0.25 }, avgJudgeScore: { a: 0.9, b: 0.8, change: -0.1 }, firstPassRate: { a: null, b: 1, change: null },
@@ -204,15 +211,15 @@ test('evals: compare rows keep the old table\'s values and tones', () => {
 });
 
 test('drawer: file selection and timeline details', () => {
-  assert.equal(V.pickDrawerFile(['a.md', 'build.md', 'spec.md'], null), 'spec.md');
-  assert.equal(V.pickDrawerFile(['a.md', 'build.md'], null), 'build.md');
-  assert.equal(V.pickDrawerFile(['z.txt'], null), 'z.txt');
-  assert.equal(V.pickDrawerFile([], null), null);
-  assert.equal(V.pickDrawerFile(['spec.md', 'review/round-2/code.md'], 'review/round-2'), 'review/round-2/code.md', 'an inbox link to a dir opens its first file');
-  assert.equal(V.pickDrawerFile(['spec.md'], 'gone.md'), 'gone.md');
-  assert.equal(V.pickDrawerFile(['spec.md', 'build.md'], 'build.md'), 'build.md');
+  assert.equal(pickDrawerFile(['a.md', 'build.md', 'spec.md'], null), 'spec.md');
+  assert.equal(pickDrawerFile(['a.md', 'build.md'], null), 'build.md');
+  assert.equal(pickDrawerFile(['z.txt'], null), 'z.txt');
+  assert.equal(pickDrawerFile([], null), null);
+  assert.equal(pickDrawerFile(['spec.md', 'review/round-2/code.md'], 'review/round-2'), 'review/round-2/code.md', 'an inbox link to a dir opens its first file');
+  assert.equal(pickDrawerFile(['spec.md'], 'gone.md'), 'gone.md');
+  assert.equal(pickDrawerFile(['spec.md', 'build.md'], 'build.md'), 'build.md');
   const fmt = { tokens: tokensShort, dur };
-  const d = (e) => V.eventDetail({ v: 1, ts: 't', ...e }, fmt);
+  const d = (e) => eventDetail({ v: 1, ts: 't', ...e }, fmt);
   assert.deepEqual(d({ type: 'transition', from: { stage: 'spec', state: 'running' }, to: { stage: 'spec', state: 'waiting', waitingOn: 'spec-approval' }, reason: 'ready' }), { pre: 'spec/running → ', bold: 'spec/waiting', post: ' (spec-approval) · ready' });
   assert.deepEqual(d({ type: 'transition', from: null, to: { stage: 'backlog', state: 'queued' } }), { pre: '/ → ', bold: 'backlog/queued', post: '' });
   assert.deepEqual(d({ type: 'agent-end', role: 'builder', model: 'opus', usage: { totalTokens: 1500 }, summary: 'ok' }), { pre: 'builder (opus) · 2k tok · ok', bold: null, post: '' });
@@ -223,11 +230,11 @@ test('drawer: file selection and timeline details', () => {
   assert.deepEqual(d({ type: 'human', action: 'approve', note: 'lgtm' }), { pre: '', bold: 'approve', post: ' · lgtm' });
   const other = d({ type: 'mystery', blob: '<'.repeat(300) });
   assert.equal(other.pre, JSON.stringify({ blob: '<'.repeat(300) }).slice(0, 240), 'sliced before escaping, so no entity is cut');
-  assert.deepEqual(V.verdictMatrix({ verdicts: {}, verify: {} }), null);
-  assert.deepEqual(V.verdictMatrix({ reviewers: ['code'], verdicts: { 2: { code: 'PASS', ui: 'CHANGES' }, 1: { code: 'CHANGES' } }, verify: { 3: 'FAIL' } }), { rounds: [1, 2, 3], reviewers: ['code', 'ui'] });
+  assert.deepEqual(verdictMatrix({ verdicts: {}, verify: {} }), null);
+  assert.deepEqual(verdictMatrix({ reviewers: ['code'], verdicts: { 2: { code: 'PASS', ui: 'CHANGES' }, 1: { code: 'CHANGES' } }, verify: { 3: 'FAIL' } }), { rounds: [1, 2, 3], reviewers: ['code', 'ui'] });
   // A round with only a verifiers result still gets a row.
-  assert.deepEqual(V.verdictMatrix({ verdicts: {}, verify: {} }, { 4: { outcome: 'PASS', blocking: 0, warned: 1 } }), { rounds: [4], reviewers: [] });
-  assert.deepEqual(V.verdictMatrix({ reviewers: ['code'], verdicts: { 1: { code: 'PASS' } }, verify: { 1: 'PASS' } }, { 2: { outcome: 'CHANGES', blocking: 1, warned: 0 } }), { rounds: [1, 2], reviewers: ['code'] });
+  assert.deepEqual(verdictMatrix({ verdicts: {}, verify: {} }, { 4: { outcome: 'PASS', blocking: 0, warned: 1 } }), { rounds: [4], reviewers: [] });
+  assert.deepEqual(verdictMatrix({ reviewers: ['code'], verdicts: { 1: { code: 'PASS' } }, verify: { 1: 'PASS' } }, { 2: { outcome: 'CHANGES', blocking: 1, warned: 0 } }), { rounds: [1, 2], reviewers: ['code'] });
 });
 
 test('verifierRounds', () => {
@@ -245,26 +252,26 @@ test('verifierRounds', () => {
     { v: 1, ts: 'x', type: 'verify', round: 7, outcome: 'PASS', blocking: 0, warned: 0, phase: 'record' },
     null,
   ];
-  assert.deepEqual(V.verifierRounds(events), { 1: { outcome: 'PASS', blocking: 0, warned: 2 }, 2: { outcome: 'PASS', blocking: 0, warned: 0 } });
-  assert.deepEqual(V.verifierRounds([]), {});
-  assert.deepEqual(V.verifierRounds(undefined), {});
-  assert.equal(V.verifierTone({ outcome: 'CHANGES', blocking: 1, warned: 3 }), 'bad');
-  assert.equal(V.verifierTone({ outcome: 'PASS', blocking: 0, warned: 3 }), 'warn');
-  assert.equal(V.verifierTone({ outcome: 'PASS', blocking: 0, warned: 0 }), 'ok');
+  assert.deepEqual(verifierRounds(events), { 1: { outcome: 'PASS', blocking: 0, warned: 2 }, 2: { outcome: 'PASS', blocking: 0, warned: 0 } });
+  assert.deepEqual(verifierRounds([]), {});
+  assert.deepEqual(verifierRounds(undefined), {});
+  assert.equal(verifierTone({ outcome: 'CHANGES', blocking: 1, warned: 3 }), 'bad');
+  assert.equal(verifierTone({ outcome: 'PASS', blocking: 0, warned: 3 }), 'warn');
+  assert.equal(verifierTone({ outcome: 'PASS', blocking: 0, warned: 0 }), 'ok');
 });
 
 test('analytics: stats query, usage bars and top jobs', () => {
   const now = Date.parse('2026-10-12T00:00:00Z');
-  assert.equal(V.statsQuery('all', now), '');
-  assert.equal(V.statsQuery('7', now), `?since=${encodeURIComponent('2026-10-05T00:00:00.000Z')}`);
-  assert.equal(V.statsQuery('30', now), `?since=${encodeURIComponent('2026-09-12T00:00:00.000Z')}`);
-  assert.deepEqual(V.usageBars({ a: { tokens: 10 }, b: { tokens: 30 }, c: { tokens: 0 } }).map((r) => [r.key, r.width]), [['b', 100], ['a', (10 / 30) * 100], ['c', 2]]);
-  assert.deepEqual(V.usageBars({}), []);
+  assert.equal(statsQuery('all', now), '');
+  assert.equal(statsQuery('7', now), `?since=${encodeURIComponent('2026-10-05T00:00:00.000Z')}`);
+  assert.equal(statsQuery('30', now), `?since=${encodeURIComponent('2026-09-12T00:00:00.000Z')}`);
+  assert.deepEqual(usageBars({ a: { tokens: 10 }, b: { tokens: 30 }, c: { tokens: 0 } }).map((r) => [r.key, r.width]), [['b', 100], ['a', (10 / 30) * 100], ['c', 2]]);
+  assert.deepEqual(usageBars({}), []);
   const jobs: any = [{ id: 'x', kind: 'feature', usage: { totalTokens: 5 } }, { id: 'y', kind: 'eval', usage: { totalTokens: 50 } }, { id: 'z', kind: 'bug', usage: { totalTokens: 9 } }, { id: 'w', kind: 'bug', usage: { totalTokens: 0 } }];
-  assert.deepEqual(V.topJobsByUsage(jobs).map((j) => j.id), ['z', 'x']);
-  assert.equal(V.jobMs({ createdAt: '2026-10-12T00:00:00Z', finishedAt: '2026-10-12T00:01:00Z' }), 60000);
-  assert.equal(V.jobMs({ createdAt: '2026-10-12T00:00:00Z', updatedAt: '2026-10-12T00:00:00Z' }), null, 'zero is null, as main had it');
-  assert.equal(V.jobMs({}), null);
+  assert.deepEqual(topJobsByUsage(jobs).map((j) => j.id), ['z', 'x']);
+  assert.equal(jobMs({ createdAt: '2026-10-12T00:00:00Z', finishedAt: '2026-10-12T00:01:00Z' }), 60000);
+  assert.equal(jobMs({ createdAt: '2026-10-12T00:00:00Z', updatedAt: '2026-10-12T00:00:00Z' }), null, 'zero is null, as main had it');
+  assert.equal(jobMs({}), null);
 });
 
 test('thread items', () => {
@@ -423,15 +430,15 @@ test('issue-link candidates and actions', () => {
   assert.equal(cleanRef('../x'), null);
   assert.equal(cleanRef(''), null);
 
-  const k = V.inboxKind({ state: 'waiting', waitingOn: 'issue-link' } as any);
-  assert.equal(V.inboxDoc(k, { round: 0 } as any), 'issue-candidates.md');
-  assert.equal(V.showsNote(k), true);
-  assert.equal(V.notePlaceholder(k), 'Optional: why this job needs no issue…');
-  assert.deepEqual(V.inboxActions(k), [{ label: 'Cancel job', type: 'cancel', primary: false, needsNote: false }], 'the link buttons come from IssueLinkActions');
+  const k = inboxKind({ state: 'waiting', waitingOn: 'issue-link' } as any);
+  assert.equal(inboxDoc(k, { round: 0 } as any), 'issue-candidates.md');
+  assert.equal(showsNote(k), true);
+  assert.equal(notePlaceholder(k), 'Optional: why this job needs no issue…');
+  assert.deepEqual(inboxActions(k), [{ label: 'Cancel job', type: 'cancel', primary: false, needsNote: false }], 'the link buttons come from IssueLinkActions');
   assert.equal(WAIT_LABEL['issue-link'], 'Issue to link');
-  assert.equal(V.stateText({ state: 'waiting', waitingOn: 'issue-link' }), 'Issue to link');
-  assert.equal(V.needsHuman({ state: 'waiting', waitingOn: 'issue-link' }), true);
-  const link = (to: string, note: string | null = null) => (V.buildRequest({ type: 'approve', job: 'j1', note, args: { link: to } }) as any).body;
+  assert.equal(stateText({ state: 'waiting', waitingOn: 'issue-link' }), 'Issue to link');
+  assert.equal(needsHuman({ state: 'waiting', waitingOn: 'issue-link' }), true);
+  const link = (to: string, note: string | null = null) => (buildRequest({ type: 'approve', job: 'j1', note, args: { link: to } }) as any).body;
   assert.deepEqual(link('12'), { type: 'approve', job: 'j1', text: null, args: { link: '12' } });
   assert.deepEqual(link('none', 'tiny fix'), { type: 'approve', job: 'j1', text: 'tiny fix', args: { link: 'none' } });
   assert.deepEqual(link('new'), { type: 'approve', job: 'j1', text: null, args: { link: 'new' } });
@@ -439,9 +446,9 @@ test('issue-link candidates and actions', () => {
 
 test('spec-approval on an unlinked job: the chooser replaces Approve', () => {
   const gate = { state: 'waiting', waitingOn: 'spec-approval', reason: 'spec ready, issue unlinked', issues: [] as any[], noIssue: null } as const;
-  assert.equal(V.UNLINKED_SPEC_REASON, 'spec ready, issue unlinked');
-  assert.equal(V.specLinkPending(gate), true);
-  assert.equal(V.specLinkPending({ ...gate, issues: undefined, noIssue: undefined }), true, 'fields missing from a hand-edited job.json');
+  assert.equal(UNLINKED_SPEC_REASON, 'spec ready, issue unlinked');
+  assert.equal(specLinkPending(gate), true);
+  assert.equal(specLinkPending({ ...gate, issues: undefined, noIssue: undefined }), true, 'fields missing from a hand-edited job.json');
   for (const [why, j] of [
     ['linked while it waits', { ...gate, issues: [{ tracker: 'local', ref: 'x', url: null }] }],
     ['no issue needed', { ...gate, noIssue: { reason: null, at: 'now' } }],
@@ -450,22 +457,22 @@ test('spec-approval on an unlinked job: the chooser replaces Approve', () => {
     ['another gate', { ...gate, waitingOn: 'issue-link' }],
     ['running again', { ...gate, state: 'running' }],
   ] as const)
-    assert.equal(V.specLinkPending(j as any), false, why);
+    assert.equal(specLinkPending(j as any), false, why);
 
-  assert.equal(shape(V.inboxActions('spec-approval', { linkPending: true })), 'revise-spec!');
-  assert.equal(shape(V.inboxActions('spec-approval')), INBOX['spec-approval'][0], 'a linked spec card is unchanged');
-  assert.equal(shape(V.inboxActions('spec-approval', { linkPending: false })), INBOX['spec-approval'][0]);
-  assert.notEqual(V.notePlaceholder('spec-approval', { linkPending: true }), V.notePlaceholder('spec-approval'), 'the note may say why no issue is needed');
+  assert.equal(shape(inboxActions('spec-approval', { linkPending: true })), 'revise-spec!');
+  assert.equal(shape(inboxActions('spec-approval')), INBOX['spec-approval'][0], 'a linked spec card is unchanged');
+  assert.equal(shape(inboxActions('spec-approval', { linkPending: false })), INBOX['spec-approval'][0]);
+  assert.notEqual(notePlaceholder('spec-approval', { linkPending: true }), notePlaceholder('spec-approval'), 'the note may say why no issue is needed');
   // linkPending only changes the spec gate.
   for (const kind of Object.keys(INBOX)) if (kind !== 'spec-approval') {
-    assert.deepEqual(V.inboxActions(kind as any, { linkPending: true }), V.inboxActions(kind as any), kind);
-    assert.equal(V.notePlaceholder(kind as any, { linkPending: true }), V.notePlaceholder(kind as any), kind);
+    assert.deepEqual(inboxActions(kind as any, { linkPending: true }), inboxActions(kind as any), kind);
+    assert.equal(notePlaceholder(kind as any, { linkPending: true }), notePlaceholder(kind as any), kind);
   }
 });
 
 test('resumeModel', () => {
   const os = (status: string): any => ({ status, session: status === 'none' ? null : 's1', since: null, renewedAt: null, expiresAt: null, epoch: 1, jobSession: false });
-  const m = (state: string, ownerStatus: any, kind = 'feature') => V.resumeModel({ state, kind, ownerStatus } as any);
+  const m = (state: string, ownerStatus: any, kind = 'feature') => resumeModel({ state, kind, ownerStatus } as any);
   const show = (enabled: boolean, note: string | null) => ({ show: true, enabled, note });
   const hidden = { show: false, enabled: false, note: null };
   assert.deepEqual(m('queued', os('none')), show(true, null), 'queued, no driver');
@@ -501,12 +508,21 @@ const SNAPSHOT: any = [
   ['23-split-lib-cli-mjs-into', 'plan', 'cancelled', null, null, '23', '2026-10-12T10:00:00Z'],
 ].map(([id, stage, state, waitingOn, reason, ref, updatedAt]) => ({ id, kind: 'feature', stage, state, waitingOn, reason, issues: ref ? [{ tracker: 'github', ref, url: null }] : [], updatedAt }));
 
+// The board's column, rank and stepper helpers are private to board.ts, so these read them through its public functions.
+/** The column boardColumns puts a lone job in. */
+const column = (j: any) => boardColumns([{ ...j, id: 'x' }]).find((c) => c.jobs.length)?.id;
+/** One undated job per rank 0…4, with ids that sort before the probe's: sortByRank puts a rank-k probe right after the k-th. */
+const RANKED: any[] = [{ id: '0', state: 'failed' }, { id: '1', state: 'running' }, { id: '2', state: 'waiting', waitingOn: 'pr-review' }, { id: '3', state: 'queued' }, { id: '4', state: 'done' }];
+const rankOf = (j: any): number => sortByRank([...RANKED, { ...j, id: 'x', updatedAt: undefined }]).findIndex((x) => x.id === 'x') - 1;
+/** A card's stepper. */
+const stageSteps = (j: any) => cardModel(j).steps;
+
 const PARKS = ['alive-dashboard-live-session-indicators-q3ik', 'markdown-everywhere-in-the-dashboard-2l9s', 'surface-hierarchy-opaque-sheets-and-xki2', 'three-themes-whiter-vellum-true-rwun', 'universal-command-palette-triggers-out-s3yj'];
 
 test('board: groups, columns and the snapshot fixture', () => {
-  assert.deepEqual(V.BOARD_GROUPS.flatMap((g) => [...g.stages]), [...STAGES], 'every stage in exactly one group, in pipeline order');
-  assert.deepEqual(V.STEPPER_STAGES, STAGES.slice(1, -1));
-  const empty = V.boardColumns([]);
+  assert.deepEqual(BOARD_GROUPS.flatMap((g) => [...g.stages]), [...STAGES], 'every stage in exactly one group, in pipeline order');
+  assert.deepEqual(STEPPER_STAGES, STAGES.slice(1, -1));
+  const empty = boardColumns([]);
   assert.deepEqual(empty.map((c) => c.id), ['queued', 'plan', 'build', 'ship']);
   assert.ok(empty.every((c) => c.jobs.length === 0));
 
@@ -517,25 +533,25 @@ test('board: groups, columns and the snapshot fixture', () => {
     build: ['67-drafting-restyle-5-5-appearance'],
     ship: [],
   };
-  const cols = V.boardColumns(V.filterJobs(SNAPSHOT, 'active'));
+  const cols = boardColumns(filterJobs(SNAPSHOT, 'active'));
   assert.deepEqual(cols.map((c) => c.id), ['queued', 'plan', 'build', 'ship'], 'no Done column under the Active filter');
   assert.deepEqual(ids(cols), active);
-  const all = V.boardColumns(SNAPSHOT);
+  const all = boardColumns(SNAPSHOT);
   assert.deepEqual(all.map((c) => c.id), ['queued', 'plan', 'build', 'ship', 'done']);
   assert.deepEqual(ids(all), { ...active, done: ['66-drafting-restyle-4-5-job', '23-split-lib-cli-mjs-into'] });
   assert.equal(SNAPSHOT.length, 11, 'boardColumns does not mutate or drop its input');
 
-  assert.equal(V.boardGroup({ stage: 'plan', state: 'cancelled' }), 'done');
-  assert.equal(V.boardGroup({ stage: 'pr', state: 'done' }), 'done', 'a finished job left in an earlier stage');
-  assert.equal(V.boardGroup({ stage: 'done', state: 'running' }), 'done');
-  assert.equal(V.boardGroup({ stage: 'mystery', state: 'queued' } as any), 'queued', 'an unknown stage is never invisible');
-  assert.equal(V.boardGroup({ state: 'queued' }), 'queued');
-  for (const g of V.BOARD_GROUPS.slice(0, 4)) for (const stage of g.stages) assert.equal(V.boardGroup({ stage, state: 'running' }), g.id, stage);
+  assert.equal(column({ stage: 'plan', state: 'cancelled' }), 'done');
+  assert.equal(column({ stage: 'pr', state: 'done' }), 'done', 'a finished job left in an earlier stage');
+  assert.equal(column({ stage: 'done', state: 'running' }), 'done');
+  assert.equal(column({ stage: 'mystery', state: 'queued' }), 'queued', 'an unknown stage is never invisible');
+  assert.equal(column({ state: 'queued' }), 'queued');
+  for (const g of BOARD_GROUPS.slice(0, 4)) for (const stage of g.stages) assert.equal(column({ stage, state: 'running' }), g.id, stage);
 });
 
 test('stageSteps: one row per stage plus needs-you, failed, blocked, cancelled and unknown', () => {
   const render = (j: any) => {
-    const chars = V.stageSteps(j).map((x) => (x.status === 'past' ? 'p' : x.status === 'future' ? 'f' : x.tone === 'ember' ? 'R' : 'I'));
+    const chars = stageSteps(j).map((x) => (x.status === 'past' ? 'p' : x.status === 'future' ? 'f' : x.tone === 'ember' ? 'R' : 'I'));
     return [0, 3, 6].map((i) => chars.slice(i, i + 3).join('')).join(' ');
   };
   const rows: [any, string][] = [
@@ -560,49 +576,49 @@ test('stageSteps: one row per stage plus needs-you, failed, blocked, cancelled a
   for (const [j, want] of rows) assert.equal(render(j), want, `${j.stage}/${j.state}${j.waitingOn ? ` ${j.waitingOn}` : ''}`);
   assert.equal(render({ stage: 'build', state: 'waiting', waitingOn: 'external', reason: 'dependencies not done: x' }), 'ppp Iff fff', 'a dependency park is not red');
   for (const [j] of rows) {
-    const steps = V.stageSteps(j);
+    const steps = stageSteps(j);
     assert.equal(steps.length, 9);
-    assert.deepEqual(steps.map((x) => x.stage), V.STEPPER_STAGES);
+    assert.deepEqual(steps.map((x) => x.stage), STEPPER_STAGES);
     assert.ok(steps.every((x) => x.status === 'current' || x.tone === 'gleam'), 'only the current step can be ember');
   }
-  const pos = (j: any) => V.stepPosition(V.stageSteps(j));
+  const pos = (j: any) => stepPosition(stageSteps(j));
   assert.equal(pos({ stage: 'backlog', state: 'queued' }), 0);
   assert.equal(pos({ stage: 'mystery', state: 'queued' }), 0);
   assert.equal(pos({ stage: 'done', state: 'done' }), 9);
-  V.STEPPER_STAGES.forEach((stage, i) => assert.equal(pos({ stage, state: 'running' }), i + 1, stage));
+  STEPPER_STAGES.forEach((stage, i) => assert.equal(pos({ stage, state: 'running' }), i + 1, stage));
 });
 
 test('dependency parks are not human gates', () => {
-  assert.equal(V.DEP_PARK_PREFIX, DEP_REASON, 'the dashboard reads the reason the engine writes');
+  assert.equal(DEP_PARK_PREFIX, DEP_REASON, 'the dashboard reads the reason the engine writes');
   const park: any = { state: 'waiting', waitingOn: 'external', reason: `${DEP_REASON}a (build/running)` };
-  assert.equal(V.isDependencyPark(park), true);
-  assert.equal(V.needsHuman(park), false);
-  assert.equal(V.stateTone(park), 'muted');
-  assert.equal(V.stateText(park), 'Dependencies');
-  assert.equal(V.stateText(park), PARK_LABEL);
+  assert.equal(isDependencyPark(park), true);
+  assert.equal(needsHuman(park), false);
+  assert.equal(stateTone(park), 'muted');
+  assert.equal(stateText(park), 'Dependencies');
+  assert.equal(stateText(park), PARK_LABEL);
   for (const other of [
     { state: 'waiting', waitingOn: 'external', reason: 'waiting on the vendor' },
     { state: 'waiting', waitingOn: 'external', reason: null },
     { state: 'waiting', waitingOn: 'external' },
     { state: 'waiting', waitingOn: 'input', reason: `${DEP_REASON}a (build/running)` },
   ] as any[]) {
-    assert.equal(V.isDependencyPark(other), false, JSON.stringify(other));
-    assert.equal(V.stateTone(other), 'you', JSON.stringify(other));
-    assert.equal(V.needsHuman(other), true, JSON.stringify(other));
+    assert.equal(isDependencyPark(other), false, JSON.stringify(other));
+    assert.equal(stateTone(other), 'you', JSON.stringify(other));
+    assert.equal(needsHuman(other), true, JSON.stringify(other));
   }
-  assert.equal(V.isDependencyPark({ state: 'queued', waitingOn: 'external', reason: `${DEP_REASON}a` } as any), false, 'only a waiting job is parked');
-  assert.equal(V.stateText({ state: 'waiting', waitingOn: 'external', reason: 'x' }), 'External dependency');
+  assert.equal(isDependencyPark({ state: 'queued', waitingOn: 'external', reason: `${DEP_REASON}a` } as any), false, 'only a waiting job is parked');
+  assert.equal(stateText({ state: 'waiting', waitingOn: 'external', reason: 'x' }), 'External dependency');
 
-  assert.deepEqual(V.navCounts(SNAPSHOT), { active: 9, needs: 2 });
-  const g = V.inboxGroups(SNAPSHOT);
+  assert.deepEqual(navCounts(SNAPSHOT), { active: 9, needs: 2 });
+  const g = inboxGroups(SNAPSHOT);
   assert.deepEqual(g.urgent.map((j) => j.id), ['job-drawer-action-dock-decisions-0s08', 'restyle-the-dashboard-in-the-79e6']);
   assert.deepEqual(g.prs, []);
   assert.deepEqual(g.parks.map((j) => j.id), PARKS, 'five parks, in input order');
-  assert.equal(V.boardRank(park), 3, 'a park sorts with the queued jobs');
+  assert.equal(rankOf(park), 3, 'a park sorts with the queued jobs');
 });
 
 test('boardRank and sortByRank: rank, then newest, then id', () => {
-  const R = (j: any) => V.boardRank(j);
+  const R = rankOf;
   assert.equal(R({ state: 'waiting', waitingOn: 'input' }), 0);
   assert.equal(R({ state: 'failed' }), 0);
   assert.equal(R({ state: 'blocked' }), 0);
@@ -626,19 +642,19 @@ test('boardRank and sortByRank: rank, then newest, then id', () => {
     { id: 'fail', state: 'failed', updatedAt: '2026-10-01T00:00:00Z' },
   ];
   const before = jobs.map((j) => j.id);
-  const sorted = V.sortByRank(jobs);
+  const sorted = sortByRank(jobs);
   assert.deepEqual(sorted.map((j) => j.id), ['fail', 'run', 'pr', 'q-a', 'q-b', 'q-old', 'q-bad', 'q-none', 'done'], 'equal rank and time fall back to id; a missing or invalid date sorts last');
   assert.deepEqual(jobs.map((j) => j.id), before, 'a new array; the input keeps its order');
   assert.notEqual(sorted, jobs);
 });
 
 test('cardModel: slots and null rules', () => {
-  const bare = V.cardModel({ id: 'slug-ab12', stage: 'backlog', state: 'queued', issues: [{ tracker: 'local', ref: 'slug', url: null }], round: 0 } as any);
-  assert.deepEqual(bare, { ref: 'slug-ab12', refTitle: 'slug-ab12', steps: V.stageSteps({ stage: 'backlog', state: 'queued' }), stage: 'Queued', round: null, progress: null, lenses: null, running: false, protected: null });
-  assert.equal(V.cardModel({ id: 'x', reviewers: [], progress: { done: 0, total: 0 } } as any).lenses, null, 'no reviewers, no lenses');
-  assert.equal(V.cardModel({ id: 'x', progress: { done: 0, total: 0 } } as any).progress, null, 'no tasks, no bar');
+  const bare = cardModel({ id: 'slug-ab12', stage: 'backlog', state: 'queued', issues: [{ tracker: 'local', ref: 'slug', url: null }], round: 0 } as any);
+  assert.deepEqual(bare, { ref: 'slug-ab12', refTitle: 'slug-ab12', steps: stageSteps({ stage: 'backlog', state: 'queued' }), stage: 'Queued', round: null, progress: null, lenses: null, running: false, protected: null });
+  assert.equal(cardModel({ id: 'x', reviewers: [], progress: { done: 0, total: 0 } } as any).lenses, null, 'no reviewers, no lenses');
+  assert.equal(cardModel({ id: 'x', progress: { done: 0, total: 0 } } as any).progress, null, 'no tasks, no bar');
 
-  const full = V.cardModel({
+  const full = cardModel({
     id: '89-board', stage: 'verify', state: 'running', issues: [{ tracker: 'local', ref: '89', url: null }], round: 2, maxRounds: 3, progress: { done: 3, total: 5 },
     reviewers: ['code', 'ui'], verdicts: { 1: { code: 'CHANGES', ui: 'PASS' }, 2: { code: 'PASS' } },
   } as any);
@@ -648,37 +664,37 @@ test('cardModel: slots and null rules', () => {
   assert.deepEqual(full.round, { round: 2, max: 3 });
   assert.deepEqual(full.progress, { done: 3, total: 5 });
   assert.deepEqual(full.lenses, [{ name: 'code', verdict: 'PASS' }, { name: 'ui', verdict: null }], "this round's verdicts only");
-  assert.equal(V.stepPosition(full.steps), 5);
+  assert.equal(stepPosition(full.steps), 5);
   assert.equal(full.running, true, 'a running job lights its stepper');
-  for (const state of ['queued', 'waiting', 'failed', 'done']) assert.equal(V.cardModel({ id: 'x', state } as any).running, false, state);
+  for (const state of ['queued', 'waiting', 'failed', 'done']) assert.equal(cardModel({ id: 'x', state } as any).running, false, state);
 
-  assert.deepEqual(V.cardModel({ id: 'x', round: 1 } as any).round, { round: 1, max: null }, 'a missing maxRounds');
-  assert.equal(V.cardModel({ id: 'x', stage: 'mystery' } as any).stage, 'mystery', 'an unknown stage shows raw');
-  assert.equal(V.cardModel({ id: 'my-job', issues: [{ tracker: 'local', ref: 'ENG-4', url: null }] } as any).ref, 'ENG-4');
+  assert.deepEqual(cardModel({ id: 'x', round: 1 } as any).round, { round: 1, max: null }, 'a missing maxRounds');
+  assert.equal(cardModel({ id: 'x', stage: 'mystery' } as any).stage, 'mystery', 'an unknown stage shows raw');
+  assert.equal(cardModel({ id: 'my-job', issues: [{ tracker: 'local', ref: 'ENG-4', url: null }] } as any).ref, 'ENG-4');
   const flag = { hits: [{ path: 'yarn.lock', rule: 4, glob: 'yarn.lock', reason: 'dependency lockfile', blob: null }], more: 0, at: 't', gate: 'commit', head: null };
-  assert.deepEqual(V.cardModel({ id: 'x', protectedPaths: flag } as any).protected, { reasons: ['dependency lockfile'], rows: [{ path: 'yarn.lock', reason: 'dependency lockfile' }], more: 0 }, 'the Protected chip');
+  assert.deepEqual(cardModel({ id: 'x', protectedPaths: flag } as any).protected, { reasons: ['dependency lockfile'], rows: [{ path: 'yarn.lock', reason: 'dependency lockfile' }], more: 0 }, 'the Protected chip');
 });
 
 test('foreman event line and gate owner badge', () => {
-  assert.equal(V.isForemanEvent({ type: 'human', action: 'approve-spec', actor: { login: null, source: 'foreman' } }), true);
-  assert.equal(V.isForemanEvent({ type: 'human', action: 'approve-spec', actor: { login: 'alice', source: 'gh' } }), false);
-  assert.equal(V.isForemanEvent({ type: 'human', action: 'approve-spec', actor: { login: null, source: 'unknown' } }), false, 'a v1 human event reads as unknown, not foreman');
-  assert.equal(V.isForemanEvent({ type: 'human', action: 'approve-spec' }), false, 'an older event without actor is a human one');
-  assert.equal(V.isForemanEvent({ type: 'note', actor: { login: null, source: 'foreman' } }), false);
-  assert.equal(V.isForemanEvent(null), false);
+  assert.equal(isForemanEvent({ type: 'human', action: 'approve-spec', actor: { login: null, source: 'foreman' } }), true);
+  assert.equal(isForemanEvent({ type: 'human', action: 'approve-spec', actor: { login: 'alice', source: 'gh' } }), false);
+  assert.equal(isForemanEvent({ type: 'human', action: 'approve-spec', actor: { login: null, source: 'unknown' } }), false, 'a v1 human event reads as unknown, not foreman');
+  assert.equal(isForemanEvent({ type: 'human', action: 'approve-spec' }), false, 'an older event without actor is a human one');
+  assert.equal(isForemanEvent({ type: 'note', actor: { login: null, source: 'foreman' } }), false);
+  assert.equal(isForemanEvent(null), false);
   // The line itself is unchanged: the label is a chip beside it.
-  assert.deepEqual(V.eventDetail({ v: 1, ts: 't', type: 'human', action: 'rework', note: 'fix it', actor: { login: null, source: 'foreman' } }, { tokens: tokensShort, dur }), { pre: '', bold: 'rework', post: ' · fix it' });
-  assert.deepEqual(V.gateOwnerBadge('foreman'), { foreman: true, tone: 'live' });
-  assert.deepEqual(V.gateOwnerBadge('human'), { foreman: false, tone: 'you' });
-  for (const none of [null, undefined, 'robot', 1]) assert.equal(V.gateOwnerBadge(none), null, String(none));
+  assert.deepEqual(eventDetail({ v: 1, ts: 't', type: 'human', action: 'rework', note: 'fix it', actor: { login: null, source: 'foreman' } }, { tokens: tokensShort, dur }), { pre: '', bold: 'rework', post: ' · fix it' });
+  assert.deepEqual(gateOwnerBadge('foreman'), { foreman: true, tone: 'live' });
+  assert.deepEqual(gateOwnerBadge('human'), { foreman: false, tone: 'you' });
+  for (const none of [null, undefined, 'robot', 1]) assert.equal(gateOwnerBadge(none), null, String(none));
 });
 
 test('handoffNote reads a Foreman hand-off', () => {
   const h = { gate: 'escalation', class: 'reserved', reason: 'touches <img onerror=x>', at: 't' };
-  assert.deepEqual(V.handoffNote(h), { cls: 'reserved', reason: 'touches <img onerror=x>' });
-  for (const cls of ['escalated', 'refused']) assert.equal(V.handoffNote({ ...h, class: cls })?.cls, cls);
+  assert.deepEqual(handoffNote(h), { cls: 'reserved', reason: 'touches <img onerror=x>' });
+  for (const cls of ['escalated', 'refused']) assert.equal(handoffNote({ ...h, class: cls })?.cls, cls);
   for (const bad of [null, undefined, 'reserved', 1, [], { ...h, class: 'bored' }, { ...h, class: undefined }, { ...h, reason: 7 }, { ...h, reason: null }])
-    assert.equal(V.handoffNote(bad), null, JSON.stringify(bad));
+    assert.equal(handoffNote(bad), null, JSON.stringify(bad));
 });
 
 test('secretPark: secret parks and still blocked after approve', () => {
@@ -686,65 +702,65 @@ test('secretPark: secret parks and still blocked after approve', () => {
   const park = (ts: string): any => ({ v: 1, ts, type: 'transition', from: { stage: 'pr', state: 'running', waitingOn: null }, to: { stage: 'pr', state: 'waiting', waitingOn: 'human' } });
   const job = (extra: Record<string, unknown> = {}): any => ({ state: 'waiting', waitingOn: 'human', reason: 'secret scan blocked pr open', lastHuman: null, lastEvent: null, ...extra });
   // Not secret parks.
-  assert.equal(V.secretPark(job({ reason: 'protected path edited' })), null);
-  assert.equal(V.secretPark(job({ waitingOn: 'escalation' })), null);
-  assert.equal(V.secretPark(job({ state: 'running' })), null);
-  assert.equal(V.secretPark(job({ reason: null })), null);
-  assert.equal(V.SECRET_PARK_PREFIX, 'secret scan blocked ');
+  assert.equal(secretPark(job({ reason: 'protected path edited' })), null);
+  assert.equal(secretPark(job({ waitingOn: 'escalation' })), null);
+  assert.equal(secretPark(job({ state: 'running' })), null);
+  assert.equal(secretPark(job({ reason: null })), null);
+  assert.equal(SECRET_PARK_PREFIX, 'secret scan blocked ');
   // A fresh park, and an approve nothing has acted on yet.
-  assert.deepEqual(V.secretPark(job({ reason: 'secret scan blocked verify round 2', lastEvent: park('2026-10-19T09:00:00Z') })), { stillBlocked: false });
-  assert.deepEqual(V.secretPark(job({ lastHuman: approve, lastEvent: { v: 1, ts: approve.ts, type: 'human', action: 'approve' } })), { stillBlocked: false });
-  assert.deepEqual(V.secretPark(job({ lastHuman: approve, lastEvent: null })), { stillBlocked: false });
-  assert.deepEqual(V.secretPark(job({ lastHuman: approve, lastEvent: park('2026-10-19T09:59:59Z') })), { stillBlocked: false }, 'a park before the approve');
+  assert.deepEqual(secretPark(job({ reason: 'secret scan blocked verify round 2', lastEvent: park('2026-10-19T09:00:00Z') })), { stillBlocked: false });
+  assert.deepEqual(secretPark(job({ lastHuman: approve, lastEvent: { v: 1, ts: approve.ts, type: 'human', action: 'approve' } })), { stillBlocked: false });
+  assert.deepEqual(secretPark(job({ lastHuman: approve, lastEvent: null })), { stillBlocked: false });
+  assert.deepEqual(secretPark(job({ lastHuman: approve, lastEvent: park('2026-10-19T09:59:59Z') })), { stillBlocked: false }, 'a park before the approve');
   // The approve ran the scan again and it parked once more.
-  assert.deepEqual(V.secretPark(job({ lastHuman: approve, lastEvent: park('2026-10-19T10:00:05Z') })), { stillBlocked: true });
+  assert.deepEqual(secretPark(job({ lastHuman: approve, lastEvent: park('2026-10-19T10:00:05Z') })), { stillBlocked: true });
   // Only an approve counts, and only a park on human.
-  assert.deepEqual(V.secretPark(job({ lastHuman: { ...approve, action: 'note' }, lastEvent: park('2026-10-19T10:00:05Z') })), { stillBlocked: false });
+  assert.deepEqual(secretPark(job({ lastHuman: { ...approve, action: 'note' }, lastEvent: park('2026-10-19T10:00:05Z') })), { stillBlocked: false });
   const other = park('2026-10-19T10:00:05Z');
   other.to.waitingOn = 'escalation';
-  assert.deepEqual(V.secretPark(job({ lastHuman: approve, lastEvent: other })), { stillBlocked: false });
+  assert.deepEqual(secretPark(job({ lastHuman: approve, lastEvent: other })), { stillBlocked: false });
 });
 
 test('actorLabel and lastActed', () => {
   const ev = (actor: any, type = 'human') => ({ v: 2, ts: 't', type, action: 'approve', actor });
-  assert.deepEqual(V.actorLabel(ev({ login: 'alice', source: 'gh' })), { login: 'alice', source: 'gh' });
-  assert.deepEqual(V.actorLabel(ev({ login: null, source: 'unknown' })), { login: 'unknown', source: 'unknown' }, 'a null login reads as unknown');
-  assert.deepEqual(V.actorLabel(ev({ login: 'bob', source: 'env' }, 'budget-ack')), { login: 'bob', source: 'env' }, 'any event with an actor, not only human');
-  assert.equal(V.actorLabel(ev({ login: null, source: 'foreman' })), null, 'the foreman keeps its chip and shows no login');
-  assert.equal(V.actorLabel({ v: 2, ts: 't', type: 'agent-end' }), null);
-  assert.equal(V.actorLabel(null), null);
+  assert.deepEqual(actorLabel(ev({ login: 'alice', source: 'gh' })), { login: 'alice', source: 'gh' });
+  assert.deepEqual(actorLabel(ev({ login: null, source: 'unknown' })), { login: 'unknown', source: 'unknown' }, 'a null login reads as unknown');
+  assert.deepEqual(actorLabel(ev({ login: 'bob', source: 'env' }, 'budget-ack')), { login: 'bob', source: 'env' }, 'any event with an actor, not only human');
+  assert.equal(actorLabel(ev({ login: null, source: 'foreman' })), null, 'the foreman keeps its chip and shows no login');
+  assert.equal(actorLabel({ v: 2, ts: 't', type: 'agent-end' }), null);
+  assert.equal(actorLabel(null), null);
   // Markup is returned as text; Svelte's {…} escapes it, and no {@html} renders an actor (dashboard-invariants.test.ts).
-  assert.equal(V.actorLabel(ev({ login: '<img src=x onerror=alert(1)>', source: 'env' }))!.login, '<img src=x onerror=alert(1)>');
+  assert.equal(actorLabel(ev({ login: '<img src=x onerror=alert(1)>', source: 'env' }))!.login, '<img src=x onerror=alert(1)>');
 
-  assert.equal(V.lastActed({ lastHuman: null }), null);
-  assert.equal(V.lastActed({}), null, 'an older server without lastHuman');
-  assert.deepEqual(V.lastActed({ lastHuman: { ts: 't1', type: 'human', action: 'approve', actor: { login: 'alice', source: 'gh' } } }), { who: 'alice', foreman: false, ts: 't1' });
-  assert.deepEqual(V.lastActed({ lastHuman: { ts: 't2', type: 'human', action: 'rework', actor: { login: null, source: 'foreman' } } }), { who: 'foreman', foreman: true, ts: 't2' });
-  assert.deepEqual(V.lastActed({ lastHuman: { ts: 't3', type: 'budget-ack', action: null, actor: { login: null, source: 'unknown' } } }), { who: 'unknown', foreman: false, ts: 't3' });
+  assert.equal(lastActed({ lastHuman: null }), null);
+  assert.equal(lastActed({}), null, 'an older server without lastHuman');
+  assert.deepEqual(lastActed({ lastHuman: { ts: 't1', type: 'human', action: 'approve', actor: { login: 'alice', source: 'gh' } } }), { who: 'alice', foreman: false, ts: 't1' });
+  assert.deepEqual(lastActed({ lastHuman: { ts: 't2', type: 'human', action: 'rework', actor: { login: null, source: 'foreman' } } }), { who: 'foreman', foreman: true, ts: 't2' });
+  assert.deepEqual(lastActed({ lastHuman: { ts: 't3', type: 'budget-ack', action: null, actor: { login: null, source: 'unknown' } } }), { who: 'unknown', foreman: false, ts: 't3' });
 });
 
 test('the raw event line leaves the actor to its own label', () => {
   const e = { v: 2, ts: 't', type: 'budget-set', key: 'usd', value: 5, actor: { login: 'bob', source: 'env' } } as const;
-  assert.equal(V.eventDetail(e, { tokens: tokensShort, dur }).pre, '{"key":"usd","value":5}');
+  assert.equal(eventDetail(e, { tokens: tokensShort, dur }).pre, '{"key":"usd","value":5}');
 });
 
 test('issue labels and link state', () => {
   const gh = (ref: string | null) => ({ tracker: 'github', ref, url: null });
-  assert.equal(V.cardRef({ id: '12-x', issues: [gh('12')] } as any), '#12');
-  assert.equal(V.cardRef({ id: '12-x', issues: [gh('o/repo#12')] } as any), 'repo#12');
-  assert.equal(V.cardRef({ id: '12-x', issues: [gh('o/repo#12'), gh('x/y#3')] } as any), 'repo#12 +1');
-  assert.equal(V.cardRef({ id: '12-x', issues: [gh('o/repo#12'), gh(null)] } as any), 'repo#12', 'a ref-less issue is not counted');
-  assert.equal(V.cardRef({ id: 'slug-ab12', issues: [{ tracker: 'local', ref: 'slug', url: null }] } as any), null, 'a local slug the id starts with');
-  assert.equal(V.cardRef({ id: 'slug-ab12', issues: [{ tracker: 'local', ref: 'slug', url: null }, { tracker: 'local', ref: 'other', url: null }, { tracker: 'local', ref: 'third', url: null }] } as any), '+2', 'the count stays when the label is hidden');
-  assert.equal(V.cardRef({ id: 'x', issues: [gh(null)] } as any), null);
-  assert.equal(V.issueLabel('group/sub/project#7'), 'project#7');
-  assert.equal(V.issueLabel('KEY-1'), 'KEY-1');
-  assert.equal(V.issueLabel(null), null);
-  assert.equal(V.hasLinkedIssue([]), false);
-  assert.equal(V.hasLinkedIssue([{ ref: null }]), false);
-  assert.equal(V.hasLinkedIssue(undefined), false);
-  assert.equal(V.hasLinkedIssue([{ ref: null }, { ref: 'o/r#1' }]), true);
+  assert.equal(cardRef({ id: '12-x', issues: [gh('12')] } as any), '#12');
+  assert.equal(cardRef({ id: '12-x', issues: [gh('o/repo#12')] } as any), 'repo#12');
+  assert.equal(cardRef({ id: '12-x', issues: [gh('o/repo#12'), gh('x/y#3')] } as any), 'repo#12 +1');
+  assert.equal(cardRef({ id: '12-x', issues: [gh('o/repo#12'), gh(null)] } as any), 'repo#12', 'a ref-less issue is not counted');
+  assert.equal(cardRef({ id: 'slug-ab12', issues: [{ tracker: 'local', ref: 'slug', url: null }] } as any), null, 'a local slug the id starts with');
+  assert.equal(cardRef({ id: 'slug-ab12', issues: [{ tracker: 'local', ref: 'slug', url: null }, { tracker: 'local', ref: 'other', url: null }, { tracker: 'local', ref: 'third', url: null }] } as any), '+2', 'the count stays when the label is hidden');
+  assert.equal(cardRef({ id: 'x', issues: [gh(null)] } as any), null);
+  assert.equal(cardRef({ id: 'x', issues: [gh('group/sub/project#7')] } as any), 'project#7');
+  assert.equal(cardRef({ id: 'x', issues: [{ tracker: 'local', ref: 'KEY-1', url: null }] } as any), 'KEY-1');
+  assert.equal(cardRef({ id: 'x', issues: [{ tracker: 'local', ref: null, url: null }] } as any), null);
+  assert.equal(hasLinkedIssue([]), false);
+  assert.equal(hasLinkedIssue([{ ref: null }]), false);
+  assert.equal(hasLinkedIssue(undefined), false);
+  assert.equal(hasLinkedIssue([{ ref: null }, { ref: 'o/r#1' }]), true);
   const gate = { state: 'waiting', waitingOn: 'spec-approval', reason: 'spec ready, issue unlinked', noIssue: null } as const;
-  assert.equal(V.specLinkPending({ ...gate, issues: [gh(null)] } as any), true, 'specLinkPending uses hasLinkedIssue');
-  assert.equal(V.specLinkPending({ ...gate, issues: [gh('o/r#1')] } as any), false);
+  assert.equal(specLinkPending({ ...gate, issues: [gh(null)] } as any), true, 'specLinkPending uses hasLinkedIssue');
+  assert.equal(specLinkPending({ ...gate, issues: [gh('o/r#1')] } as any), false);
 });

@@ -1,8 +1,9 @@
 // The command bar's grammar, completions, keyboard rule and request mapping: plain functions over
 // the dashboard's state, so node:test can pin them. CommandBar.svelte holds only markup.
 import type { OwnerStatus, PostJobBody, RequestType, StateJob, TrackerItem } from './types.ts';
-import { buildRequest, needsHuman, resumeModel } from './view.ts';
-import type { RequestInput } from './view.ts';
+import { needsHuman, resumeModel } from './job-state.ts';
+import { buildRequest } from './requests.ts';
+import type { RequestInput } from './requests.ts';
 
 /** First words the bar understands, in the order the empty bar lists them (all of them: the empty list is where they are discovered). */
 export const VERBS = ['next', 'issue', 'continue', 'approve', 'answer', 'revise', 'rework', 'cancel', 'sync', 'retro'] as const;

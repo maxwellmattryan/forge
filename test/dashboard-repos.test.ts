@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { jobRepoRows, memberPrs } from '../dashboard/src/lib/repos.ts';
-import { prChipModel } from '../dashboard/src/lib/view.ts';
+import { prChipModel } from '../dashboard/src/lib/job-state.ts';
 
 const root = { repo: null, worktree: '/w/app', branch: 'forge/x', base: 'main', pr: { number: 11, url: 'https://github.com/o/app/pull/11', state: 'OPEN' as const, isDraft: false, lastSyncedAt: 't' }, verifyOnly: false };
 const lib = { repo: 'lib', worktree: '/w/lib', branch: 'forge/x', base: 'main', pr: { number: 7, url: 'https://github.com/o/lib/pull/7', state: 'MERGED' as const, isDraft: false, lastSyncedAt: 't' }, verifyOnly: false };

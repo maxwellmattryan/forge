@@ -16,7 +16,8 @@
   import { memberPrs } from '../lib/repos.ts';
   import { effortChip } from '../lib/effort.ts';
   import { ago, tokensShort } from '../lib/util.ts';
-  import { agentsSummary, cardModel, needsHuman, runningRoles } from '../lib/view.ts';
+  import { agentsSummary, needsHuman, runningRoles } from '../lib/job-state.ts';
+  import { cardModel } from '../lib/board.ts';
   import { S, openDrawer } from '../lib/app.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import { sessionActivity } from '../lib/live.ts';

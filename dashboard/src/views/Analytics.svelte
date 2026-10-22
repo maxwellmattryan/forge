@@ -5,7 +5,7 @@
   import Select from '../components/Select.svelte';
   import { dur, num, pct, tokensShort, usd } from '../lib/util.ts';
   import type { ApiState, UsageRow } from '../lib/types.ts';
-  import { STATS_WINDOWS, jobMs, jobsSummary, topJobsByUsage, usageBars } from '../lib/view.ts';
+  import { STATS_WINDOWS, jobMs, jobsSummary, topJobsByUsage, usageBars } from '../lib/analytics.ts';
   import { S, openDrawer, setWindow } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
 

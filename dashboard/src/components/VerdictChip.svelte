@@ -1,7 +1,7 @@
 <!-- One reviewer's verdict for the current round. -->
 <script lang="ts">
   import { TONE_CLASS } from '../lib/util.ts';
-  import { verdictTone } from '../lib/view.ts';
+  import { verdictTone } from '../lib/job-state.ts';
   import { t } from '../lib/locale.ts';
 
   let { name, verdict }: { name: string; verdict: string | null | undefined } = $props();
