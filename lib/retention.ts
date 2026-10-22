@@ -8,7 +8,7 @@ import path from 'node:path';
 import { currentActor } from './actor.ts';
 import { archiveDir, hasLiveJob } from './archive.ts';
 import { RETENTION_DAYS, loadConfig } from './config.ts';
-import { daemonsDir, openAppend, readInfo, sessionFiles } from './daemon.ts';
+import { daemonsDir, openAppend, readInfo, sessionFiles } from './daemon-files.ts';
 import { hasEnvironment, teardownEnvironment } from './environment-lifecycle.ts';
 import { jobFindings } from './findings.ts';
 import { isActive, jobDir, leaseStatus, listJobs, logEvent, readEvents } from './jobs.ts';
@@ -16,8 +16,7 @@ import { paths } from './paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, validScope } from './requests.ts';
 import { ARCHIVE_SCHEMA_VERSION, normalizeJob } from './schema.ts';
 import type { ArchiveRecord, ArchiveResult, Config, EventActor, Job, LoadedJob, PruneResult, RetentionTrigger } from './types.ts';
-import { ForgeError, now, withLock } from './util.ts';
-import { pidAlive } from './worktree.ts';
+import { ForgeError, now, pidAlive, withLock } from './util.ts';
 
 export const DAY_MS = 86_400_000;
 

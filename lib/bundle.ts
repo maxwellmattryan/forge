@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { redactedConfig } from './config-fields.ts';
 import { worktreeRoot } from './config.ts';
-import { daemonsDir, openRead, tailLines } from './daemon.ts';
+import { daemonsDir, openRead, tailLines } from './daemon-files.ts';
 import { doctor } from './doctor.ts';
 import { forgeVersion } from './evals.ts';
 import { PINNED_DIFF_OPTS, PINNED_GIT_CONFIG } from './integrity.ts';

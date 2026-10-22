@@ -13,11 +13,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PG_IDENT, backingProblems } from './backing-config.ts';
-import { jobDir } from './jobs.ts';
-import { redact } from './known-secrets.ts';
-import { paths } from './paths.ts';
+import { jobDir, paths } from './paths.ts';
 import type { BackingBuildStep, BackingDbRecord, BackingEntry, BackingUpEntry, Config, DockerResult, DockerRunner } from './types.ts';
-import { ForgeError, run, sleepSync, tail, withLock, writeJsonPrivate } from './util.ts';
+import { ForgeError, redact, run, sleepSync, tail, withLock, writeJsonPrivate } from './util.ts';
 
 export const TEMPLATE_NAME = /^forge_tpl_[0-9a-f]{12}$/;
 export const JOB_DB_NAME = /^forge_j_[a-z0-9_]{1,40}_[0-9a-f]{8}$/;
@@ -93,9 +91,6 @@ function verifierLit(v: string): string {
   if (!VERIFIER.test(v)) throw new ForgeError('internal: malformed SCRAM verifier');
   return `'${v}'`;
 }
-
-// Moved to known-secrets.ts, which redacts every known value; kept here for existing callers.
-export { redact };
 
 // ---------- template name ----------
 

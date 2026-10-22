@@ -65,6 +65,16 @@ export function paths(root: string): ForgePaths {
   };
 }
 
+export function jobDir(root: string, id: string): string {
+  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(id)) throw new ForgeError(`invalid job id "${id}"`);
+  return paths(root).job(id);
+}
+
+/** `<jobDir>/links/<key>`: the member name, or `_root` (a repo name cannot start with `_`). */
+export function linkDir(root: string, id: string, repo: string | null): string {
+  return path.join(jobDir(root, id), 'links', repo ?? '_root');
+}
+
 export function resolveFrom(root: string, p: string): string {
   return path.isAbsolute(p) ? p : path.resolve(root, p);
 }

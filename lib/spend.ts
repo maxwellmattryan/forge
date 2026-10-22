@@ -2,14 +2,14 @@
 // UTC day, role and model, across live jobs and archive records. The repo budget (lib/repo-budget.ts)
 // and `forge stats --csv` read it. `.forge/runtime/spend.json` caches each job's buckets keyed by
 // its events file's size and mtime, so a check re-parses only the jobs that changed. It is not in
-// lib/usage.ts because jobs.ts imports usage.ts, and the ledger needs jobs.ts and the archive.
+// lib/pricing.ts because jobs.ts imports pricing.ts, and the ledger needs jobs.ts and the archive.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { archiveDir, hasLiveJob, readArchived } from './archive.ts';
 import { jobDir, listJobs, parseEventLines } from './jobs.ts';
 import { paths } from './paths.ts';
-import { estimateCost, pricing } from './usage.ts';
+import { estimateCost, pricing } from './pricing.ts';
 import type { Config, JobEvent, SpendBucket } from './types.ts';
 import { writeJsonAtomic } from './util.ts';
 

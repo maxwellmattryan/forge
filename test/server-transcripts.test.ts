@@ -8,7 +8,7 @@ import { tempRepo, waitFor } from './helpers.ts';
 import { startServer } from '../lib/server.ts';
 import { FIXTURE_DIST } from './dist.ts';
 import { defaults } from '../lib/config.ts';
-import { sessionFiles } from '../lib/daemon.ts';
+import { sessionFiles } from '../lib/daemon-files.ts';
 import { attachAgent, claimJob, createJob, recordAgent, updateJob } from '../lib/jobs.ts';
 import { projectSlug } from '../lib/transcripts.ts';
 

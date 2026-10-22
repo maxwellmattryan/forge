@@ -11,7 +11,7 @@ import { exists } from './paths.ts';
 import { isActive, jobDir, leaseStatus, listJobs } from './jobs.ts';
 import { ackRequest, listRequests } from './requests.ts';
 import { appendRetentionLog, daemonRunning, readableJob } from './retention.ts';
-import { sessionFiles } from './daemon.ts';
+import { sessionFiles } from './daemon-files.ts';
 import { removeWorktree } from './worktree.ts';
 import type { Config, DeleteJobResult, EventActor, Job } from './types.ts';
 import { ForgeError, withLock } from './util.ts';

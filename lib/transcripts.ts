@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { loadConfig, worktreeRoot } from './config.ts';
-import { UUID } from './daemon.ts';
+import { UUID } from './daemon-files.ts';
 import type { Job, TranscriptActivity } from './types.ts';
 
 /** A Claude Code agent id: what `--agent-id` and job.json's `agentId` must look like before use. */

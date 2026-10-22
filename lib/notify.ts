@@ -12,8 +12,8 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig } from './config.ts';
-import { openAppend } from './daemon.ts';
-import { jobDir, loadJob, logEvent } from './jobs.ts';
+import { openAppend } from './daemon-files.ts';
+import { jobDir, loadJob, logEvent, onTransition } from './jobs.ts';
 import { commandProblem, notifyConfigured, validCommand, validWebhooks, webhookHost, webhookProblem } from './notify-config.ts';
 import { PLUGIN_ROOT, exists, paths } from './paths.ts';
 import { posixShell } from './platform.ts';
@@ -444,3 +444,11 @@ export async function notifyChecks(config: Pick<Config, 'notify'>, opts: { timeo
   }
   return checks;
 }
+
+// jobs.ts sits below this module, so it can't call queueNotify itself: it calls this hook once per
+// transition instead. Every `forge` process loads this module (lib/cli.ts imports commands/notify.ts),
+// so no state change goes unnoticed.
+onTransition((root, job, from, to) => {
+  const n = transitionEvents(from, to, job);
+  if (n) queueNotify(root, n.events, { job: job.id, reason: n.reason });
+});

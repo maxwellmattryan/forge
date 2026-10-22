@@ -9,7 +9,8 @@ import { allKnownValues, isPrivateJobFile, isPrivateName, knownValues, redactDee
 import { ConfigSetError, FIELDS } from './config-fields.ts';
 import { dashboardActor } from './actor.ts';
 import { setConfigValue } from './config-set.ts';
-import { PERMISSION_MODES, UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from './daemon.ts';
+import { PERMISSION_MODES } from './daemon.ts';
+import { UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from './daemon-files.ts';
 import type { DaemonOptions } from './daemon.ts';
 import { createPool } from './daemon-pool.ts';
 import type { DaemonPool, PoolState } from './daemon-pool.ts';

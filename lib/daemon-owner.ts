@@ -2,7 +2,7 @@
 // under (the supervisor expires their leases when they exit, lib/daemon.ts and lib/daemon-pool.ts),
 // and the refusals that keep the inbox and office sessions from driving a job.
 // A separate module because lib/daemon.ts imports lib/jobs.ts, which must not import it back.
-import { UUID, readInfo, sessionRecords } from './daemon.ts';
+import { UUID, readInfo, sessionRecords } from './daemon-files.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, daemonScope } from './requests.ts';
 import { ForgeError } from './util.ts';
 

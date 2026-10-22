@@ -12,7 +12,8 @@ import { repoTemplate } from './helpers.ts';
 import { defaults, resolveEffort } from '../lib/config.ts';
 import { escapeControls } from '../lib/commands/daemon.ts';
 import { createJob, loadJob, markAgentsLost, recordAgent, updateJob } from '../lib/jobs.ts';
-import { DENY_TOOLS, GIT_PINS, PROMPT_TOOL, apiKeyVars, buildArgv, sessionEnv, sessionGrant, PERMISSION_MODES, commandPermissionMode, modeReach, withPermissionMode, withEffort, LOST_SUMMARY } from '../lib/daemon.ts';
+import { DENY_TOOLS, PROMPT_TOOL, apiKeyVars, buildArgv, sessionEnv, sessionGrant, PERMISSION_MODES, commandPermissionMode, modeReach, withPermissionMode, withEffort, LOST_SUMMARY } from '../lib/daemon.ts';
+import { GIT_PINS } from '../lib/util.ts';
 
 /** A bare git repo, copied per test. */
 const scratch = repoTemplate(() => {});

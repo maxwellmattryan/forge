@@ -30,6 +30,15 @@ export class ForgeError extends Error {
 
 export const now = (): string => new Date().toISOString();
 
+export const REDACTED = '[redacted]';
+
+/** `text` with every secret replaced by `[redacted]`. */
+export function redact(text: string, secrets: readonly string[]): string {
+  let out = text;
+  for (const s of secrets) if (s) out = out.split(s).join(REDACTED);
+  return out;
+}
+
 /**
  * A branch or job name that is safe as one shell word and as a git argument: no metacharacters,
  * no whitespace, and no leading `-` that git would read as an option.

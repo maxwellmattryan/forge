@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { entriesOrNone, isManaged } from './backing.ts';
-import { readLogPage } from './daemon.ts';
+import { readLogPage } from './daemon-files.ts';
 import { jobEndpoints } from './endpoints.ts';
 import { readSmallJson } from './focus.ts';
 import { currentFocus } from './focus-actions.ts';

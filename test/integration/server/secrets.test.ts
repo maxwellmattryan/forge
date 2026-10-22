@@ -13,7 +13,7 @@ import { FIXTURE_DIST } from '../../dist.ts';
 import { startServer, stateFrame } from '../../../lib/server.ts';
 import type { DaemonSessionState } from '../../../lib/types.ts';
 import { defaults } from '../../../lib/config.ts';
-import { sessionFiles } from '../../../lib/daemon.ts';
+import { sessionFiles } from '../../../lib/daemon-files.ts';
 import { attachAgent, claimJob, createJob, jobDir, recordAgent } from '../../../lib/jobs.ts';
 import { recordKnown } from '../../../lib/known-secrets.ts';
 import { fingerprint, mask, refuseSecrets, textUnit } from '../../../lib/secrets.ts';
