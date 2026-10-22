@@ -42,7 +42,10 @@ test('status: no rows', () => {
   assert.equal(plain(status, { id: 'x' }), null);
 });
 
-const reviewer = (changeRate: number | null, disputeRate: number | null): ReviewerStats => ({ reviews: 4, changes: 2, blockers: 0, changeRate, findings: 3, fixed: 2, disputes: 1, disputeRate }) as ReviewerStats;
+const reviewer = (changeRate: number | null, disputeRate: number | null): ReviewerStats => ({
+  reviews: 4, changes: 2, blockers: 0, changeRate, findings: 3, fixed: 2, disputes: 1, disputeRate, recurring: 0,
+  missChecked: 2, missed: 1, missRate: 0.5, blockerMajor: 1, severityKnown: 3, blockerMajorShare: 0.333, severityTrend: [],
+});
 
 const STATS = {
   generatedAt: '2026-10-19T00:00:00.000Z',
@@ -92,14 +95,17 @@ const LINES = [
 ];
 
 test('statsText is unchanged', () => {
-  const REVIEWERS = 'reviewers: code 50% changes, 10% disputed · security — changes, 0% disputed';
+  const REVIEWERS = 'reviewers: code 50% changes, 10% disputed, 50% missed · security — changes, 0% disputed, 50% missed';
   const VERIFIERS = 'verifiers: no-todo 20% hit over 5 runs, 1 blocked';
   hasLines(statsText(STATS), ...LINES, REVIEWERS, VERIFIERS);
   const { verifiers: _v, ...older } = STATS;
   const olderText = statsText(older as Stats);
   hasLines(olderText, ...LINES, REVIEWERS);
   assert.ok(!olderText.includes('verifiers:'), 'no verifiers line for an older stats object');
-  assert.deepEqual(statsSections(STATS).reviewers, [['code', '50% changes, 10% disputed'], ['security', '— changes, 0% disputed']]);
+  assert.deepEqual(statsSections(STATS).reviewers, [['code', '50% changes, 10% disputed, 50% missed'], ['security', '— changes, 0% disputed, 50% missed']]);
+  // A stats object from before the miss rate.
+  const { missRate: _m, ...noMiss } = STATS.reviewers.code;
+  assert.deepEqual(statsSections({ ...STATS, reviewers: { code: noMiss as ReviewerStats } }).reviewers, [['code', '50% changes, 10% disputed, — missed']]);
 });
 
 test('stats: score line with nothing scored, and from an older stats object', () => {
@@ -111,7 +117,7 @@ test('stats: score line with nothing scored, and from an older stats object', ()
 
 test('stats: headings, then reviewers and verifiers one per line', () => {
   const head = ['Jobs', `  ${LINES[0]}`, 'Quality', `  ${LINES[1]}`, `  ${LINES[5]}`, 'Speed', `  ${LINES[6]}`, 'Cost', `  ${LINES[7]}`];
-  hasLines(plain(stats, STATS), ...head, 'Reviewers', '  code  50% changes, 10% disputed', '  security  — changes, 0% disputed', 'Verifiers', '  no-todo  20% hit over 5 runs, 1 blocked');
+  hasLines(plain(stats, STATS), ...head, 'Reviewers', '  code  50% changes, 10% disputed, 50% missed', '  security  — changes, 0% disputed, 50% missed', 'Verifiers', '  no-todo  20% hit over 5 runs, 1 blocked');
   const { verifiers: _v, ...older } = STATS;
   const olderOut = plain(stats, { ...older, reviewers: {} });
   hasLines(olderOut, ...head);

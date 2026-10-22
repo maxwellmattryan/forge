@@ -1601,6 +1601,20 @@ export interface ReviewerStats {
   disputeRate: number | null;
   /** (lens, path) pairs this lens raised in two consecutive rounds of one job. */
   recurring: number;
+  /** Merged jobs this lens reviewed whose escape status is known: a measured human delta or a final outcome. */
+  missChecked: number;
+  /** Of those, jobs with an escape this lens covered: a revert or follow-up, or a human-delta file in its paths, `when` or `always`. */
+  missed: number;
+  /** missed / missChecked; null when none is known. */
+  missRate: number | null;
+  /** Blocker and major findings, where the findings record carries severities. */
+  blockerMajor: number;
+  /** All findings where the record carries severities: blockerMajor's denominator. */
+  severityKnown: number;
+  /** blockerMajor / severityKnown; null at 0. */
+  blockerMajorShare: number | null;
+  /** By the UTC Monday of each job's createdAt, oldest first, the last 12 weeks with findings. */
+  severityTrend: { week: string; findings: number; blockerMajor: number; share: number | null }[];
 }
 
 /** One verifier's record: computeStats in lib/stats.ts, from `verifiers` record events. */

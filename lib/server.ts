@@ -279,7 +279,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       if (req.method === 'GET' && p === '/api/state') return json(res, state(root, poolState(), projects, budget()));
       if (req.method === 'GET' && p === '/api/events') return events(req, res, url);
       if (req.method === 'GET' && p === '/api/daemons/log') return sessionLog(req, res, url);
-      if (req.method === 'GET' && p === '/api/stats') return json(res, computeStats(root, { since: url.searchParams.get('since') ?? undefined }));
+      if (req.method === 'GET' && p === '/api/stats') return json(res, computeStats(root, { since: url.searchParams.get('since') ?? undefined, config: loadConfig(root).config }));
       if (req.method === 'GET' && p === '/api/evals') return json(res, { tasks: listTasks(root).map(({ dir: _d, request: _r, ...t }) => t), runs: listRuns(root) } satisfies EvalsResponse);
       if (req.method === 'GET' && p === '/api/evals/compare') return json(res, compareRuns(root, url.searchParams.get('a') ?? '', url.searchParams.get('b') ?? ''));
       if (req.method === 'GET' && p === '/api/requests') return json(res, listRequests(root));

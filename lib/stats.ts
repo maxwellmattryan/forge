@@ -11,6 +11,8 @@ import { LEDGER_BY, ledgerRows, spendLedger } from './spend.ts';
 import type { LedgerBy } from './spend.ts';
 import { LENS_NAME } from './lens.ts';
 import { agentRoles } from './provenance.ts';
+import { inSpec } from './scope.ts';
+import { whenTokens } from './step/panel.ts';
 import type { Config, Job, JobEvent, PromptCohort, PromptStats, ReviewerStats, Stats, UsageRow, VerifierStats } from './types.ts';
 import { ForgeError } from './util.ts';
 
@@ -30,6 +32,28 @@ const median = (xs: number[]): number | null => {
 };
 const ratio = (n: number, d: number): number | null => (d ? Math.round((n / d) * 1000) / 1000 : null);
 const r2 = (n: number): number => Math.round(n * 100) / 100;
+
+/** The UTC Monday (`YYYY-MM-DD`) of a timestamp's week, or null for an unreadable one. */
+export function utcMonday(ts: unknown): string | null {
+  const t = Date.parse(String(ts));
+  if (Number.isNaN(t)) return null;
+  const d = new Date(t);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - ((d.getUTCDay() + 6) % 7))).toISOString().slice(0, 10);
+}
+
+/**
+ * Whether a lens's review covered a file: today's panel entry for that name is `always`, or the
+ * file matches its `paths`, or (unless `pathsOnly`) the path tokens of its `when`. A lens missing
+ * from the panel, or a member repo's qualified lens, covers nothing.
+ */
+function covers(config: Config | undefined, lens: string, file: string): boolean {
+  if (!config || !LENS_NAME.test(lens)) return false;
+  const entry = (config.review?.panel ?? []).find((e) => e?.name === lens);
+  if (!entry) return false;
+  if (entry.always) return true;
+  if (Array.isArray(entry.paths) && inSpec(file, entry.paths)) return true;
+  return !entry.pathsOnly && inSpec(file, whenTokens(entry.when));
+}
 
 /**
  * Whether the very first verify attempt of round 1 passed, or null when the job never got there.
@@ -108,6 +132,8 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
   const timeToPr: number[] = [];
   const cycle: number[] = [];
   const reviewers: Record<string, ReviewerStats> = {};
+  // lens → UTC Monday → severity-known findings and blocker/major among them.
+  const weeks: Record<string, Record<string, { findings: number; blockerMajor: number }>> = {};
   const verifiers: Record<string, VerifierStats> = {};
   const byRole: Record<string, UsageRow> = {};
   const byModel: Record<string, UsageRow> = {};
@@ -131,17 +157,20 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
       roundsSum += rounds[rounds.length - 1];
       const first = j.verdicts[rounds[0]];
       if (first && Object.values(first).every((v) => v === 'PASS')) firstPass++;
+      const lenses = new Set<string>();
       for (const r of rounds) {
         for (const [name, v] of Object.entries(j.verdicts[r] ?? {})) {
-          // changeRate and disputeRate are filled in for every lens after the loop.
-          const s = (reviewers[name] ??= { reviews: 0, changes: 0, blockers: 0, findings: 0, fixed: 0, disputes: 0, recurring: 0 } as ReviewerStats);
+          // The rates and the trend are filled in for every lens after the loop.
+          const s = (reviewers[name] ??= { reviews: 0, changes: 0, blockers: 0, findings: 0, fixed: 0, disputes: 0, recurring: 0, missChecked: 0, missed: 0, blockerMajor: 0, severityKnown: 0 } as ReviewerStats);
           s.reviews++;
           if (v === 'CHANGES') s.changes++;
+          lenses.add(name);
         }
       }
       // Only lenses with verdicts in the window: an answer line naming `verify` or `pr` is no reviewer.
       const f = src.findings();
       recurringFindings += f.totals.recurring;
+      const week = utcMonday(j.createdAt);
       for (const [lens, c] of Object.entries(f.byLens)) {
         const s = reviewers[lens];
         if (!s) continue;
@@ -149,6 +178,32 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
         s.fixed += c.fixed;
         s.disputes += c.disputed;
         s.recurring += c.recurring;
+        // Only where the record carries severities: an older archive's findings count in none of these.
+        const sev = c.severity;
+        if (!sev) continue;
+        const bm = (sev.blocker ?? 0) + (sev.major ?? 0);
+        const all = bm + (sev.minor ?? 0) + (sev.nit ?? 0);
+        s.blockers += sev.blocker ?? 0;
+        s.blockerMajor += bm;
+        s.severityKnown += all;
+        if (all && week) {
+          const w = ((weeks[lens] ??= {})[week] ??= { findings: 0, blockerMajor: 0 });
+          w.findings += all;
+          w.blockerMajor += bm;
+        }
+      }
+      // Escapes: only merged jobs whose outcome or human delta is known are in any denominator.
+      const afterPush = j.pr?.state === 'MERGED' ? j.pr.humanDelta : undefined;
+      const closed = j.pr?.state === 'MERGED' && j.outcome?.status === 'final' ? j.outcome : null;
+      if (afterPush?.status === 'measured' || closed) {
+        // A revert or a follow-up bug is the whole merged diff's escape: every lens on the panel had it.
+        const whole = Boolean(closed && (closed.reverted === true || (typeof closed.followUps === 'number' && closed.followUps > 0)));
+        const files = afterPush?.status === 'measured' ? (afterPush.files ?? []) : [];
+        for (const lens of lenses) {
+          const s = reviewers[lens];
+          s.missChecked++;
+          if (whole || files.some((file) => covers(opts.config, lens, file))) s.missed++;
+        }
       }
     }
     const firstVerify = firstVerifyRun(j);
@@ -246,7 +301,19 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
   }
   // Disputes over answered findings, not raised ones: builders skip many nits and the last round's
   // findings are never answered, so a raised denominator would mostly measure whether a next round came.
-  for (const s of Object.values(reviewers)) Object.assign(s, { changeRate: ratio(s.changes, s.reviews), disputeRate: ratio(s.disputes, s.fixed + s.disputes) });
+  for (const [lens, s] of Object.entries(reviewers)) {
+    const trend = Object.entries(weeks[lens] ?? {})
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-12)
+      .map(([week, w]) => ({ week, findings: w.findings, blockerMajor: w.blockerMajor, share: ratio(w.blockerMajor, w.findings) }));
+    Object.assign(s, {
+      changeRate: ratio(s.changes, s.reviews),
+      disputeRate: ratio(s.disputes, s.fixed + s.disputes),
+      missRate: ratio(s.missed, s.missChecked),
+      blockerMajorShare: ratio(s.blockerMajor, s.severityKnown),
+      severityTrend: trend,
+    });
+  }
   for (const s of Object.values(verifiers)) s.hitRate = ratio(s.fails, s.runs);
   return {
     generatedAt: new Date().toISOString(),

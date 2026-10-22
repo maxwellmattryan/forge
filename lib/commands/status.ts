@@ -92,7 +92,8 @@ export function statsSections(s: Stats): StatsSections {
     ],
     speed: [`median to PR ${s.speed.medianMinutesToPr ?? '—'} min · median to done ${s.speed.medianMinutesToDone ?? '—'} min`],
     cost: [`tokens ${s.cost.totalTokens.toLocaleString()} · est. API cost $${s.cost.estCostUsd} · per job $${s.cost.avgCostPerJobUsd ?? '—'} · usage coverage ${s.cost.reportingCoverage.withUsage}/${s.cost.reportingCoverage.agentRuns} (exact ${s.cost.reportingCoverage.exact})`],
-    reviewers: Object.entries(s.reviewers).map(([k, v]) => [k, `${pct(v.changeRate)} changes, ${pct(v.disputeRate)} disputed`]),
+    // An older stats.json (or /api/stats) has no miss rate.
+    reviewers: Object.entries(s.reviewers).map(([k, v]) => [k, `${pct(v.changeRate)} changes, ${pct(v.disputeRate)} disputed, ${pct(v.missRate ?? null)} missed`]),
     // An older stats.json (or /api/stats) has no verifiers.
     verifiers: Object.entries(s.verifiers ?? {}).map(([k, v]) => [k, `${pct(v.hitRate)} hit over ${v.runs} runs, ${v.blocks} blocked`]),
   };

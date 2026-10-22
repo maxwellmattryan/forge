@@ -34,7 +34,11 @@ interface Counts {
 /** CLI output of `forge job findings`, without the id. */
 export interface JobFindings {
   rounds: (Counts & { round: number })[];
-  byLens: Record<string, Counts & { recurring: number }>;
+  /**
+   * `severity`: the lens's raised findings by severity, present once it raised one. Archive records
+   * written before it carry none, and stats leaves those out of its severity counts.
+   */
+  byLens: Record<string, Counts & { recurring: number; severity?: Record<Severity, number> }>;
   totals: Counts & { recurring: number };
   recurring: { lens: string; path: string; rounds: number[] }[];
   disputed: { round: number; lens: string; severity: Severity; path: string | null }[];
@@ -144,7 +148,9 @@ export function summariseFindings(raised: Map<number, { lens: string; severity: 
     const c = roundOf(r);
     for (const f of findings) {
       c.raised++;
-      lensOf(f.lens).raised++;
+      const l = lensOf(f.lens);
+      l.raised++;
+      (l.severity ??= { blocker: 0, major: 0, minor: 0, nit: 0 })[f.severity]++;
       if (f.path === null) continue;
       const key = JSON.stringify([f.lens, f.path]);
       let entry = seenAt.get(key);

@@ -11,7 +11,7 @@ import { evaluateExperiments } from './experiments.ts';
 import { expiredLearnings, metricValue, parseNoteEntries, readExperiments } from './learnings.ts';
 import { paths, exists } from './paths.ts';
 import { computeStats } from './stats.ts';
-import type { Config, ExperimentEntry, ExperimentResult, HumanDelta, LearningEntry, LoadedJob, Stats } from './types.ts';
+import type { Config, ExperimentEntry, ExperimentResult, HumanDelta, LearningEntry, LoadedJob, ReviewerStats, Stats } from './types.ts';
 import { readText, safeText, writeJsonAtomic } from './util.ts';
 
 /** Live and archived jobs: the retro cadence counts jobs that retention has since archived. */
@@ -64,6 +64,12 @@ function expiredLine(l: LearningEntry & { file: string }, ledger: Map<string, Ex
     parts.push(!r ? 'unknown' : r.verdict === 'settled' ? safeText(r.status ?? 'unknown') : r.verdict);
   }
   return parts.join(' · ');
+}
+
+/** One lens's misses and blocker/major share, with its last 4 weeks, for `## Per-lens recall`. */
+function recallLine(lens: string, s: ReviewerStats): string {
+  const trend = (s.severityTrend ?? []).slice(-4).map((t) => `${t.week}:${t.share ?? '-'}`).join(', ') || '-';
+  return `- ${safeText(lens, 100)}: missed ${s.missed}/${s.missChecked} (${s.missRate ?? '-'}) · blocker/major ${s.blockerMajor}/${s.severityKnown} (${s.blockerMajorShare ?? '-'}) · trend ${trend}`;
 }
 
 /** One open entry's dry-run result for `## Experiment verdicts`. */
@@ -154,6 +160,8 @@ export function prepareRetro(
     out.push('## Learnings past review-by', ...expired.map((l) => expiredLine(l, ledger, results, stats)), '');
   }
   if (open.length) out.push('## Experiment verdicts', ...open.map(verdictLine), '');
+  const recall = Object.entries(stats.reviewers).filter(([, s]) => s.missChecked > 0 || s.findings > 0);
+  if (recall.length) out.push('## Per-lens recall', ...recall.map(([lens, s]) => recallLine(lens, s)), '');
   for (const j of jobs) {
     const jd = jobDir(root, j.id);
     const events = readEvents(root, j.id);
