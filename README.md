@@ -153,13 +153,13 @@ Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/GLOSSARY.md](do
 
 ## Dashboard
 
-`forge dash` serves a single-page dashboard bound to localhost, drawn as a smithy at night: gunmetal plates cut at two corners, one silver-blue gleam where agents are at work, and one warm ember for what waits on you. The screenshots show Ash, the daylight theme:
+`forge dash` serves a single-page dashboard bound to localhost, drawn as a smithy at night: gunmetal plates cut at two corners, one silver-blue gleam where agents are at work, and one warm ember for what waits on you (the Forge theme here; Ash is the daylight one):
 
-![The Pipeline board in the Ash theme: jobs across the Queued, Plan, Build and Ship columns on plain plates, one outlined in ember with a YOU chip because it waits on a person, sentence-case filter segments in the header, and the status bar along the bottom](assets/screenshots/pipeline.png)
+![The Pipeline board in the Forge theme: jobs across the Queued, Plan, Build and Ship columns, one outlined in ember with a YOU chip because it waits on a person, and the status bar with its facts strip along the bottom](assets/screenshots/pipeline.png)
 
-![A job's drawer open on its Thread in the Ash theme: the header with its stage and YOU chips, the Thread, Log, Files, Timeline and Details tabs, the job's request, and the dock with Approve spec as its one primary action beside Request changes](assets/screenshots/job-drawer.png)
+![A job's drawer open on its Thread in the Forge theme: the compact header with its stage and YOU chips, the Thread, Log, Files, Timeline and Details tabs, the job's request, and the dock with the gate's actions](assets/screenshots/job-drawer.png)
 
-![Settings › General in the Ash theme: the Theme segments (Forge, Ash, Temper, Crucible, Patina, Obsidian and System), the Grain checkbox, the language and the settings shortcut](assets/screenshots/settings-appearance.png)
+![Settings › General in the Forge theme: the Theme segments (Forge, Ash, Temper, System), the Grain checkbox, the language and the settings shortcut](assets/screenshots/settings-appearance.png)
 
 
 - **Sidebar**: the views in the order you use them, Pipeline, Project, Backlog, Agents, Analytics and Evals (the phone strip lists them the same way). At md and up, drag its right edge to resize it between 184 and 360px, or focus the edge and use the arrow keys (Shift for bigger steps, Home for the rail, End for the widest, Enter to switch between the rail and your last width); a double-click restores the default. Dragging or stepping below the narrowest width collapses it to a 64px icon-only rail: the mark, a command button that opens the palette (Cmd-K or Ctrl-K then opens it at once), the view icons with Pipeline's count in the corner, and the gear. Each rail control shows its name in a tooltip on hover or keyboard focus. The width and the rail are kept in this browser, and the job panel and the status bar follow the sidebar's edge.
