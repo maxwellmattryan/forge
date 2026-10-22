@@ -12,7 +12,8 @@
   import { S, compareRuns, request } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
 
-  let { data }: { data: ApiState } = $props();
+  // App renders a view only once S.data is loaded.
+  const data = $derived(S.data as ApiState);
   const e = $derived(S.evals);
   const runs = $derived(e?.runs ?? []);
   // Typed text and the compare picks survive polls; the picks default to the previous and latest run, as on main.

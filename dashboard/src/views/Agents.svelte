@@ -11,7 +11,8 @@
   import { S, openDrawer } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
 
-  let { data }: { data: ApiState } = $props();
+  // App renders a view only once S.data is loaded.
+  const data = $derived(S.data as ApiState);
   const running = $derived(runningAgents(data.jobs));
   const sessions = $derived(agentSessions(data.jobs, Date.now()));
   const r = $derived(S.roster);

@@ -9,7 +9,8 @@
   import { S, openDrawer, setWindow } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
 
-  let { data }: { data: ApiState } = $props();
+  // App renders a view only once S.data is loaded.
+  const data = $derived(S.data as ApiState);
   const s = $derived(S.stats);
   const jobs = $derived(topJobsByUsage(data.jobs));
 </script>

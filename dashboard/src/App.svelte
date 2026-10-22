@@ -296,12 +296,12 @@
       {:else}
         {#if S.error}<Banner msg={S.error} />{/if}
         {#if !S.data.initialized}<Banner msg={$t('app.noConfig')} />{/if}
-        {#if S.view === 'pipeline'}<Pipeline data={S.data} />
+        {#if S.view === 'pipeline'}<Pipeline />
         {:else if S.view === 'backlog'}<Backlog />
-        {:else if S.view === 'agents'}<Agents data={S.data} />
-        {:else if S.view === 'analytics'}<Analytics data={S.data} />
-        {:else if S.view === 'project'}<Project data={S.data} />
-        {:else}<Evals data={S.data} />{/if}
+        {:else if S.view === 'agents'}<Agents />
+        {:else if S.view === 'analytics'}<Analytics />
+        {:else if S.view === 'project'}<Project />
+        {:else}<Evals />{/if}
       {/if}
     </div>
   </main>

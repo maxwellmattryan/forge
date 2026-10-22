@@ -12,7 +12,8 @@
   import { S, req, setFilter, setLayout } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
 
-  let { data }: { data: ApiState } = $props();
+  // App renders a view only once S.data is loaded.
+  const data = $derived(S.data as ApiState);
   const counts = $derived(pipelineCounts(data.jobs));
   const jobs = $derived(filterJobs(data.jobs, S.filter));
   const FILTERS = ['active', 'waiting', 'done', 'all'] as const;
