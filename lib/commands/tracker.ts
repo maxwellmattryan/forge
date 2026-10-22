@@ -11,7 +11,7 @@ import { applyRetention } from '../retention.ts';
 import { queueRetro } from '../retro.ts';
 import { finishEnvironment } from '../environment-lifecycle.ts';
 import { searchTerms } from '../issue-link.ts';
-import { checkIssueRef, isSafeUrl, linkedIssues, nativeRef, nativeRefs, parseIssueRef, primaryIssue, sameIssue } from '../issue-ref.ts';
+import { checkIssueRef, isSafeUrl, nativeRef, nativeRefs, parseIssueRef, primaryIssue, sameIssue } from '../issue-ref.ts';
 import { localRepoSlug } from '../repo-slug.ts';
 import { isLinkedJob, jobRepoOrder, nextMergeable } from '../repo-order.ts';
 import type { PrStateKey, RepoKey } from '../repo-order.ts';
@@ -19,7 +19,8 @@ import { memberClone, memberConfig, memberRepos, recordJobRepo } from '../job-re
 import { memberCheck, readLocalConfig } from '../member-repos.ts';
 import { clampLimit, publicHits, searchTracker } from '../tracker-link.ts';
 import { loadTracker, memberTracker } from '../trackers/index.ts';
-import { matchMember, memberForRef, memberTrackerConfig, memberTrackers, qualify } from '../member-trackers.ts';
+import { memberIssues, mirrorToTracker } from '../trackers/mirror.ts';
+import { memberForRef, memberTrackerConfig, memberTrackers, qualify } from '../member-trackers.ts';
 import type { MemberTracker } from '../member-trackers.ts';
 import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '../triage.ts';
 import { dashRunning, reconcile } from '../reconcile.ts';
@@ -27,7 +28,7 @@ import type { ReconcileResult } from '../reconcile.ts';
 import { ForgeError } from '../util.ts';
 import * as wt from '../worktree.ts';
 import { bodyFrom, list, num, req, str, usageError } from './args.ts';
-import type { Config, HelpGroup, Job, JobIssue, JobPr, Tracker, TrackerItem } from '../types.ts';
+import type { Config, HelpGroup, Job, JobPr, Tracker, TrackerItem } from '../types.ts';
 
 const TRACKER_EXITS: [1 | 5, string][] = [
   [1, 'the tracker refused the call, no such item or job, or a likely secret in the text Forge would send (code secret_found)'],
@@ -377,57 +378,6 @@ async function startFromMemberRef(
   }
   if (session) claimJob(root, job.id, session, false);
   return { id: job.id, ref, title: item.title, branch: job.branch, repo: member.name };
-}
-
-/** The job's linked issues a member repo's tracker owns, each with its member and number. */
-function memberIssues(root: string, config: Config, job: Job, slug: string | null): { issue: JobIssue; member: MemberTracker & { n: string } }[] {
-  const kind = config.tracker.kind;
-  const candidates = linkedIssues(job).filter((i) => i.tracker === 'github' && nativeRef(i, kind, slug) === null);
-  if (!candidates.length) return [];
-  const members = memberTrackers(root, config);
-  if (!members.length) return [];
-  return candidates.flatMap((issue) => {
-    const member = matchMember(members, issue.ref);
-    return member ? [{ issue, member }] : [];
-  });
-}
-
-/**
- * Best-effort: tracker hiccups must never block the pipeline. Each issue is updated in its own
- * repo: this repo's through its tracker, a member repo's through that member's; every other issue
- * is foreign and left alone. A finished job leaves alone an issue another active job still
- * carries, so one sharer finishing never marks the shared issue done. One repo's failure is
- * logged and never skips another's.
- */
-export async function mirrorToTracker(root: string, config: Config, job: Job): Promise<void> {
-  if (job.kind === 'eval') return;
-  const kind = config.tracker.kind;
-  const slug = localRepoSlug(root, config);
-  let issues = linkedIssues(job).filter((i) => nativeRef(i, kind, slug) !== null);
-  let members = memberIssues(root, config, job, slug);
-  if (!issues.length && !members.length) return;
-  if (job.state === 'done' || job.state === 'cancelled') {
-    const others = listJobs(root).filter((j) => j.id !== job.id && isActive(j));
-    const shared = (i: JobIssue) => others.some((o) => o.issues.some((x) => sameIssue(x, i, slug)));
-    issues = issues.filter((i) => !shared(i));
-    members = members.filter((m) => !shared(m.issue));
-  }
-  const failed = (e: unknown) => logEvent(root, job.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
-  if (issues.length) {
-    try {
-      const tracker = await loadTracker(root, config);
-      for (const i of issues) tracker.update({ root, config }, nativeRef(i, kind, slug)!, job);
-    } catch (e) {
-      failed(e);
-    }
-  }
-  for (const { member } of members) {
-    try {
-      memberTracker().update({ root, config: memberTrackerConfig(config, member.slug) }, member.n, job);
-    } catch (e) {
-      failed(e);
-    }
-  }
 }
 
 /**

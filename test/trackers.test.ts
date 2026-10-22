@@ -294,7 +294,8 @@ test('github: needs-info label', { skip: process.platform === 'win32' }, async (
 test('mirror and approval comment act on each native issue', async () => {
   const repo = tempRepo();
   try {
-    const { commentApproval, mirrorToTracker } = await import('../lib/commands/tracker.ts');
+    const { commentApproval } = await import('../lib/commands/tracker.ts');
+    const { mirrorToTracker } = await import('../lib/trackers/mirror.ts');
     const { logEvent, loadJob } = await import('../lib/jobs.ts');
     const calls: string[] = [];
     (globalThis as any).__issueRefsCalls = calls;

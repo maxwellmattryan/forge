@@ -5,9 +5,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { currentActor } from './actor.ts';
-// The tracker mirror lives with the tracker commands; nothing there imports this module back.
-import { mirrorToTracker } from './commands/tracker.ts';
 import { exists } from './paths.ts';
+import { mirrorToTracker } from './trackers/mirror.ts';
 import { isActive, jobDir, leaseStatus, listJobs } from './jobs.ts';
 import { ackRequest, listRequests } from './requests.ts';
 import { appendRetentionLog, daemonRunning, readableJob } from './retention.ts';
