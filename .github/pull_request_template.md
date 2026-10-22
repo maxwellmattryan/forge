@@ -14,7 +14,7 @@ Run every command from AGENTS.md "Verify before claiming it works", checking eng
 - [ ] `npm run build:dashboard`
 - [ ] `npm run check:dashboard`
 - [ ] `npm run typecheck`
-- [ ] `node --test "test/*.test.ts"`
+- [ ] `node --test "test/**/*.test.ts"`
 - [ ] `for f in bin/forge lib/trackers/status.mjs dashboard/*.mjs; do node --check "$f"; done`
 - [ ] `claude plugin validate . --strict`
 
