@@ -197,8 +197,8 @@ test('help lists acs', () => {
   try {
     const { f, fails } = cli(repo.dir);
     setup(repo.dir);
-    assert.match(f('--help'), /forge job [^\n]*\|acs/);
-    assert.match(fails('job', 'bogus'), /usage: forge job [^\n]*\|acs/);
+    assert.match(f('--help'), /forge job (?:[^\n]*\|)?acs\b/);
+    assert.match(fails('job', 'bogus'), /usage: forge job (?:[^\n]*\|)?acs\b/);
   } finally {
     cleanup(repo);
   }

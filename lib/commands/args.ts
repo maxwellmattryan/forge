@@ -205,6 +205,6 @@ export function requireJob(root: string, id: unknown): LoadedJob {
 export function usageError(group: HelpGroup, sub?: string): ForgeError {
   const words = sub === undefined ? null : group.commands.find((c) => c.command === `${group.name} ${sub}`);
   if (words) return new ForgeError(`usage: ${['forge', words.command, words.args].filter(Boolean).join(' ')}; run \`forge help ${words.command}\``, 'usage', `forge help ${words.command}`);
-  const subs = group.commands.map((c) => c.command.slice(group.name.length + 1)).filter(Boolean).join('|');
+  const subs = group.commands.map((c) => c.command.slice(group.name.length + 1)).filter(Boolean).sort().join('|');
   return new ForgeError(`usage: forge ${group.name} ${subs}; run \`forge help ${group.name}\``, 'usage', `forge help ${group.name}`);
 }

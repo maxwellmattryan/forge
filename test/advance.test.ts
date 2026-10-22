@@ -485,8 +485,8 @@ test('job usage and help list advance', () => {
   try {
     const bogus = s.raw('job', 'bogus');
     assert.equal(bogus.status, 2);
-    assert.match(bogus.stderr, /usage: forge job [^\n]*\|advance\b/);
-    assert.match(bogus.stderr, /usage: forge job [^\n]*\|acs/);
+    assert.match(bogus.stderr, /usage: forge job (?:[^\n]*\|)?advance\b/);
+    assert.match(bogus.stderr, /usage: forge job (?:[^\n]*\|)?acs\b/);
     assert.match(bogus.stderr, /usage: forge job [a-z|-]*\|step\b/);
     const help = s.raw('help', 'job');
     assert.equal(help.status, 0);
