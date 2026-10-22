@@ -3,7 +3,7 @@
 <!--
 One line per retro change: its date, `id <slug>` (what a learning's `experiment:` names), what
 changed, the metric it should move (a dotted stats.json path such as `quality.avgRounds`), its
-baseline, the evidence, and its status. A new entry is always `status open`; only
+baseline, the evidence, and its status. A new entry always starts open; only
 `forge experiment evaluate` settles one (kept | reverted | inconclusive), and `forge experiment
 check` and verify refuse a status written by hand or any other edit to an existing entry.
 -->
