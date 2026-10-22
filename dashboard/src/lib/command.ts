@@ -18,7 +18,7 @@ const ALIASES: Record<string, Verb> = { resume: 'continue' };
 const NEEDS_NOTE: ReadonlySet<JobVerb> = new Set(['revise', 'answer']);
 const MAX_SUGGESTIONS = 8;
 const MAX_N = 16;
-/** lib/issue-link.ts REF: duplicated, because the dashboard never imports engine modules. */
+/** lib/core/job/issue-link.ts REF: duplicated, because the dashboard never imports engine modules. */
 const REF = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 
 export interface CommandCtx {

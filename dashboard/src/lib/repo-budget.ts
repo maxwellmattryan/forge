@@ -1,5 +1,5 @@
 // The repo budget's numbers for the Analytics meter and the Needs-you section, from
-// /api/state.budget (repoBudgetStatus in lib/repo-budget.ts). No DOM access, so node:test can import it.
+// /api/state.budget (repoBudgetStatus in lib/engine/metrics/repo-budget.ts). No DOM access, so node:test can import it.
 import type { Job, RepoBudgetKey, RepoBudgetStatus } from './types.ts';
 
 /** none, warn from 80% of the cap, danger once the cap is reached (the server's `exceeded`). */

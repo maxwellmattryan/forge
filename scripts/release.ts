@@ -80,10 +80,7 @@ export function setVersion(root: string, from: string, to: string): void {
   for (const [file, text] of writes) fs.writeFileSync(file, text);
 }
 
-/**
- * Where the schema file has lived, newest first: a tag from before the lib/ layers (#421) has it at
- * lib/schema.ts.
- */
+/** Where the schema file has lived, newest first: a tag from before the lib/ layers (#421) has the second. */
 export const SCHEMA_FILES = ['lib/core/job/schema.ts', 'lib/schema.ts'];
 
 /** The first of SCHEMA_FILES that `has` finds, or null when none is there. */

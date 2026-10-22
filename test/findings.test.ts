@@ -178,8 +178,8 @@ test('builder prompt example parses', () => {
   }
   assert.equal(examples.length, 3, prompt);
   assert.deepEqual(parseAddressed(['## Round 2', 'Findings addressed:', ...examples].join('\n')), [
-    { round: 1, lens: 'code', severity: 'major', path: 'lib/stats.ts', outcome: 'fixed' },
-    { round: 1, lens: 'security', severity: 'minor', path: 'lib/retro.ts', outcome: 'disputed' },
+    { round: 1, lens: 'code', severity: 'major', path: 'lib/engine/metrics/stats.ts', outcome: 'fixed' },
+    { round: 1, lens: 'security', severity: 'minor', path: 'lib/engine/evals/retro.ts', outcome: 'disputed' },
     { round: 1, lens: 'docs', severity: 'nit', path: null, outcome: 'fixed' },
   ]);
 });

@@ -1,6 +1,6 @@
 <!-- A status bar popover: a non-modal dialog that sits --space-1 above the bar, anchored to its indicator at md and up and
      spanning the viewport less 16px on phones. It takes focus when it opens, and closes on a press outside or when focus
-     leaves it (lib/popover.ts decides where focus goes). Tab moves through it as if it sat right after its indicator.
+     leaves it (src/lib/popover.ts decides where focus goes). Tab moves through it as if it sat right after its indicator.
      It holds no live region: StatusBar has the one. The chat size (the Foreman's thread) has a fixed height, and its content
      fills the body instead of growing it, so the session log inside is the one scroller and its follow-to-bottom keeps
      working (the body scrolls only when the room is too short for the log's own header). Every other size is capped at

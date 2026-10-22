@@ -1,5 +1,5 @@
 // `npm run docs:commands`: regenerates README.md's CLI command table from the help tables beside
-// each command module (lib/commands/*.ts), so README and `forge help` can't drift.
+// each command module (lib/cli/commands/*.ts), so README and `forge help` can't drift.
 import fs from 'node:fs';
 import path from 'node:path';
 import { syncReadme } from '../lib/cli/commands/help.ts';

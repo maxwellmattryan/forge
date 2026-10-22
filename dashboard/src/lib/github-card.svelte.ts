@@ -1,5 +1,5 @@
 // The GitHub hover card's one open card, its hover-intent timers and the answers fetched so far, like toast.svelte.ts
-// for the toast: GitHubCard.svelte feeds it document events and renders it, and lib/github.ts holds the rules. The card
+// for the toast: GitHubCard.svelte feeds it document events and renders it, and src/lib/github.ts holds the rules. The card
 // describes any link to a github.com page, or an element carrying `data-gh-href` (a board card's PR chip).
 import { fetchGitHubPreview } from './app.svelte.ts';
 import { CLIENT_TTL, CLOSE_DELAY, OPEN_DELAY, cardKey, cardResult, leftBoth } from './github.ts';
@@ -11,7 +11,7 @@ export const CARD_ID = 'gh-card';
 class CardState {
   /** The link (or `data-gh-href` element) the card describes; null while it is closed. */
   link = $state.raw<HTMLElement | null>(null);
-  /** The page, as lib/github.ts previewable() spells it. */
+  /** The page, as src/lib/github.ts previewable() spells it. */
   url = $state('');
   /** The answer; null while it loads. */
   result = $state.raw<GitHubPreviewResponse | null>(null);

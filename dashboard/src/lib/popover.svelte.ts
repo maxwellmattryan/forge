@@ -1,5 +1,5 @@
 // The status bar's one open popover and its focus return, like palette.svelte.ts for the palette: StatusBar's indicators
-// open it, Popover.svelte and App.svelte close it, and lib/popover.ts decides when it closes and where focus goes.
+// open it, Popover.svelte and App.svelte close it, and src/lib/popover.ts decides when it closes and where focus goes.
 import { tick } from 'svelte';
 import { dismissal, togglePopover, type DismissCtx, type DismissReason, type PopoverId } from './popover.ts';
 

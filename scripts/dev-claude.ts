@@ -8,7 +8,7 @@ import { PLUGIN_ROOT } from '../lib/core/paths.ts';
 
 /** The claude call for `argv`: the checkout as the plugin dir, its bin/ first on PATH. */
 export function claudePlan(argv: string[], env: NodeJS.ProcessEnv = process.env): { command: 'claude'; args: string[]; cwd: string; env: NodeJS.ProcessEnv } {
-  // The same shape as sessionEnv() in lib/daemon.ts.
+  // The same shape as sessionEnv() in lib/office/session/lifecycle.ts.
   const PATH = [path.join(PLUGIN_ROOT, 'bin'), env.PATH].filter(Boolean).join(path.delimiter);
   return { command: 'claude', args: ['--plugin-dir', PLUGIN_ROOT, ...argv], cwd: path.resolve(env.INIT_CWD || process.cwd()), env: { ...env, PATH } };
 }

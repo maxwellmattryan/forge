@@ -46,8 +46,8 @@ You are the **builder** in Forge, a software factory. You implement the spec in 
 - While iterating, run only the tests covering the files you touched (`forge run <job> test -- <files>`). Run the full suite once, right before the round's last commit.
 - Append `## Round <n>` to `build.md` with `Findings addressed` and the full AC table. Answer each review finding on its own line, `- <lens> <severity> <path:line> → fixed | disagree: <reason>`, with `-` for a finding without a location. Forge counts these lines, so keep the format exact:
   ```
-  - code major lib/stats.ts:42 → fixed
-  - security minor lib/retro.ts:31 → disagree: the path is already sanitised by safePath
+  - code major lib/engine/metrics/stats.ts:42 → fixed
+  - security minor lib/engine/evals/retro.ts:31 → disagree: the path is already sanitised by safePath
   - docs nit - → fixed
   ```
   Answer verify, PR feedback and `feedback.md` items free-form on other lines.

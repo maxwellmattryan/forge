@@ -5,8 +5,8 @@
      opened against (`menu-pop` in style.css). Entries are dense rows: a check column, then the label with an optional
      icon and hint line, or the caller's `entry` snippet; `separator` rules an entry off and consecutive entries of one
      `group` sit under its name. Focus never leaves the button and aria-activedescendant names the active option, so the
-     settings focus trap and the drawer's focus handling see one control. lib/select.ts decides what each key does,
-     lib/menu.ts placeMenu where the list opens, and dismissal follows MenuButton: Escape closes only the list, a press
+     settings focus trap and the drawer's focus handling see one control. src/lib/select.ts decides what each key does,
+     src/lib/menu.ts placeMenu where the list opens, and dismissal follows MenuButton: Escape closes only the list, a press
      outside, focus leaving, a resize, a scroll that moves the button or unmounting close it without a change. -->
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
@@ -66,7 +66,7 @@
 
   let trigger = $state<HTMLButtonElement>();
   let list = $state<HTMLUListElement>();
-  // Raw: lib/select.ts returns the state it was given for a key it ignores, and a proxy would never compare equal to it.
+  // Raw: src/lib/select.ts returns the state it was given for a key it ignores, and a proxy would never compare equal to it.
   let st = $state.raw<SelectState>(CLOSED);
   let at = $state<{ left: number; top: number }>({ left: 0, top: 0 });
   let minWidth = $state(0);

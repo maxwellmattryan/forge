@@ -1,5 +1,5 @@
 // Where an icon button's tooltip (components/Tooltip.svelte) opens, as a plain function node:test can pin. Modelled on
-// placeMenu in lib/menu.ts.
+// placeMenu in src/lib/menu.ts.
 
 /** Hover waits this long before the tip shows; keyboard focus shows it at once. */
 export const TIP_DELAY_MS = 400;

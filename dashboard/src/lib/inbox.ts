@@ -30,7 +30,7 @@ export function inboxDoc(kind: InboxKind, job: JobLike): string | null {
   return docs[s(kind)] ?? null;
 }
 
-/** SP5's reason in lib/step/stages/spec.ts for a job with no issue yet: its spec gate also picks the issue. */
+/** SP5's reason in lib/engine/pipeline/step/stages/spec.ts for a job with no issue yet: its spec gate also picks the issue. */
 export const UNLINKED_SPEC_REASON = 'spec ready, issue unlinked';
 
 /** A spec gate that still needs an issue: the chooser stands in for the plain Approve. Re-checks issues and noIssue, so a job linked while it waits gets the plain card. */
