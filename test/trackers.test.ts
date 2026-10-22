@@ -318,7 +318,7 @@ export default { name: 'acme', list: () => [], get: () => null, claim: () => ({ 
     await mirrorToTracker(repo.dir, config, loadJob(repo.dir, a.id));
     assert.deepEqual(calls.splice(0), ['update A-1 done'], 'a finished job leaves a shared issue alone');
 
-    setJob(repo.dir, a.id, { fields: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'MERGED' } } });
+    setJob(repo.dir, a.id, { owned: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'MERGED' } } });
     logEvent(repo.dir, a.id, 'transition', { from: { stage: 'decide', state: 'running', waitingOn: null }, to: { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }, reason: 'auth change' });
     logEvent(repo.dir, a.id, 'human', { action: 'approve', note: 'ok', actor: { login: 'alice', source: 'env' } });
     logEvent(repo.dir, a.id, 'transition', { from: { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }, to: { stage: 'integrate', state: 'running', waitingOn: null } });

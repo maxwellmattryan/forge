@@ -120,12 +120,12 @@ async function log(root: string, job: string | undefined, flags: Record<string, 
   const file = sessionFiles(root, scope).log;
   // Lines are redacted at write; this covers values recorded since, or a log written before.
   const known = scopeKnownValues(root, scope, loadConfig(root).config);
-  const show = (line: string) => escapeControls(redactKnown(line, known));
+  const clean = (line: string) => escapeControls(redactKnown(line, known));
   if (!flags.follow) {
     if (!fs.existsSync(file)) throw new ForgeError(`no session log for ${scope}`);
-    return tail(file, n).lines.map(show).join('\n');
+    return tail(file, n).lines.map(clean).join('\n');
   }
-  await follow(file, n, show);
+  await follow(file, n, clean);
   return undefined;
 }
 

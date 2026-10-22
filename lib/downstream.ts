@@ -12,6 +12,7 @@ import { declaredLinks } from './links.ts';
 import { REPO_NAME } from './member-repos.ts';
 import { projectGraph } from './project.ts';
 import { daemonScope } from './requests.ts';
+import { isMap } from './shape.ts';
 import type { Config, Job, JobEvent } from './types.ts';
 import { ForgeError } from './util.ts';
 
@@ -25,7 +26,6 @@ export interface DownstreamCandidates {
   skipped: DownstreamSkip[];
 }
 
-const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
 /** The verify-only members whose latest `job-repo-added` event says `downstream: true`. */
 export function downstreamMembers(job: Pick<Job, 'repos'>, events: JobEvent[]): Set<string> {

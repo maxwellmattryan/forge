@@ -1,7 +1,8 @@
-// backing: validation, apart from lib/backing.ts so lib/config.ts and lib/schema.ts can import it
+// backing: validation, apart from lib/backing.ts so lib/config-validate.ts and lib/schema.ts can import it
 // without pulling in jobs.ts (which imports config.ts). Every value here reaches `docker` as an
 // argument or an env-file line, so the shapes are strict: no leading `-`, a fixed charset, no newlines.
 import { globProblem } from './policy-check.ts';
+import { isMap, kind, show } from './shape.ts';
 
 /** How a backing service is shared: a container per job, one per project, or an address run elsewhere. */
 export const BACKING_ISOLATIONS = ['per-job', 'shared', 'external'] as const;
@@ -24,10 +25,6 @@ const MAX_URL = 500;
 const KEYS = new Set(['name', 'isolation', 'image', 'ports', 'env', 'volumes', 'url', 'database']);
 const MANAGED_ONLY = ['image', 'ports', 'env', 'volumes'] as const;
 
-const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
-const show = (v: unknown): string => (v === undefined ? 'nothing' : (JSON.stringify(v) ?? String(v)).slice(0, 120));
-/** A value's kind, for fields that can hold credentials (a url, the whole backing value): never the value itself. */
-const kind = (v: unknown): string => (v === undefined ? 'nothing' : v === null ? 'null' : Array.isArray(v) ? 'a list' : typeof v === 'object' ? 'a map' : `a ${typeof v}`);
 
 /** Whether an entry runs a container Forge manages (per-job or shared). */
 export function isManaged(e: { isolation?: unknown }): boolean {
@@ -137,8 +134,9 @@ function databaseProblems(at: string, e: Record<string, any>): string[] {
 }
 
 /** Every problem with `backing`, in the form validateConfig reports. */
-export function backingProblems(c: any): string[] {
-  const list = c?.backing;
+export function backingProblems(c: unknown): string[] {
+  const cfg: Record<string, any> = isMap(c) ? c : {};
+  const list = cfg.backing;
   if (list === undefined) return [];
   if (!Array.isArray(list)) return [`backing must be a list (got ${kind(list)})`];
   const problems: string[] = [];
@@ -165,8 +163,8 @@ export function backingProblems(c: any): string[] {
     problems.push(...portsProblems(at, e.ports), ...envProblems(at, e.env), ...volumesProblems(at, e.volumes), ...templateProblems(at, e.url, e.ports, e.isolation === 'shared' && e.database !== undefined));
   });
   // An empty list keeps today's shape-only check of dependsOn backing edges.
-  if (list.length && Array.isArray(c?.components)) {
-    c.components.forEach((comp: unknown, i: number) => {
+  if (list.length && Array.isArray(cfg.components)) {
+    cfg.components.forEach((comp: unknown, i: number) => {
       if (!isMap(comp) || !Array.isArray(comp.dependsOn)) return;
       comp.dependsOn.forEach((d: unknown, j: number) => {
         if (isMap(d) && typeof d.backing === 'string' && !names.has(d.backing.trim()))

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parse, setIn, stringify, YamlError } from '../lib/yaml.ts';
 import { FIELDS, validateFieldValue } from '../lib/config-fields.ts';
-import { setPath } from '../lib/util.ts';
+import { setPath } from '../lib/shape.ts';
 
 test('parses a GitHub project-config file', () => {
   const doc = parse(`# GitHub Project Configuration

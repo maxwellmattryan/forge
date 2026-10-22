@@ -109,7 +109,7 @@ export function queueScores(root: string, config: Config, opts: { now?: Date; gh
     repoHeld ??= repoBudgetStatus(root, config, { write: false }).held;
     if (over || repoHeld) {
       const reason = over ? 'budget exceeded' : 'repo budget';
-      setJob(root, job.id, { fields: { score: { ...blankScore(), status: 'held', recordedAt: now.toISOString(), reason } } });
+      setJob(root, job.id, { owned: { score: { ...blankScore(), status: 'held', recordedAt: now.toISOString(), reason } } });
       logEvent(root, job.id, 'score', { status: 'held', reason });
       held.push(job.id);
       continue;
@@ -119,7 +119,7 @@ export function queueScores(root: string, config: Config, opts: { now?: Date; gh
     const r = gh(['pr', 'diff', String(number), '-R', slug]);
     if (!r.ok) continue;
     writeFresh(path.join(jobDir(root, job.id), 'score.diff'), capDiff(r.stdout));
-    setJob(root, job.id, { fields: { score: { ...blankScore(), status: 'queued', queuedAt: now.toISOString() } } });
+    setJob(root, job.id, { owned: { score: { ...blankScore(), status: 'queued', queuedAt: now.toISOString() } } });
     logEvent(root, job.id, 'score', { status: 'queued' });
     // A fixed text: nothing from the PR reaches a session through it.
     if (!listRequests(root, { status: 'pending' }).some((q) => q.type === 'resume' && q.job === job.id))

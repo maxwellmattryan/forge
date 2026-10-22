@@ -4,12 +4,12 @@
 import path from 'node:path';
 import { paths } from './paths.ts';
 import { agentRoles } from './provenance.ts';
+import { PROTO_KEYS } from './shape.ts';
 import type { ExperimentEntry, LearningEntry, Stats } from './types.ts';
 import { readText } from './util.ts';
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 export const METRIC_PATH = /^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+$/;
-export const FORBIDDEN: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
 
 /** A real calendar date in `YYYY-MM-DD`; `2026-02-30` round-trips to March and is rejected. */
 export function validDate(s: unknown): boolean {
@@ -216,7 +216,7 @@ export function metricValue(stats: Stats, name: string): number | null | undefin
   if (typeof name !== 'string' || name.length > 200 || !METRIC_PATH.test(name)) return undefined;
   let cur: unknown = stats;
   for (const seg of name.split('.')) {
-    if (FORBIDDEN.has(seg)) return undefined;
+    if (PROTO_KEYS.has(seg)) return undefined;
     if (cur === null || typeof cur !== 'object' || Array.isArray(cur)) return undefined;
     const proto = Object.getPrototypeOf(cur);
     if (proto !== Object.prototype && proto !== null) return undefined;

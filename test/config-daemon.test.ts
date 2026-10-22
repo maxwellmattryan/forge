@@ -79,6 +79,11 @@ test('AC2: a v1 launcher config loads and migrates with the launcher as daemon.c
     assert.doesNotMatch(text, /launcher:/);
     assert.equal(yaml.parse(text).daemon.command, 'claude -p "{prompt}"');
     assert.equal(yaml.parse(text).daemon.enabled, undefined);
+
+    // A prototype key in config.yml is refused like a parse error, and never merged.
+    write(`schemaVersion: ${CONFIG_SCHEMA_VERSION}\ndaemon:\n  constructor:\n    prototype:\n      polluted: 1\n`);
+    assert.throws(() => loadConfig(repo.dir), (e: any) => e.code === 'config_invalid' && e.message === `${cfg}: merge source key "constructor" is not allowed`);
+    assert.equal(({} as any).polluted, undefined);
   } finally {
     repo.cleanup();
   }
@@ -122,6 +127,13 @@ test('AC3: daemon config validation', () => {
   one('leftover launcher', (c) => (c.dashboard.launcher = null), /^dashboard\.launcher/);
   assert.deepEqual(problems((c) => (c.daemon.idleStopMinutes = null)), [], 'null means never');
   assert.deepEqual(problems((c) => (c.daemon.idleStopMinutes = 0.5)), []);
+  // Validators take anything: a non-map config is one problem, and a non-map section input reads as {}.
+  for (const bad of [null, []]) {
+    const got = validateConfig(bad, process.cwd());
+    assert.equal(got.length, 1, JSON.stringify(got));
+    assert.match(got[0], /^config must be a map/);
+  }
+  assert.deepEqual(daemonProblems('x'), daemonProblems({}));
 });
 
 test('daemon.allowedTools refuses blanket git/gh, unscoped Bash and file-writing git forms', () => {

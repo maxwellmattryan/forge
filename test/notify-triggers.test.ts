@@ -105,7 +105,7 @@ describe('notify triggers', { concurrency: 4 }, () => {
       const a = await s.f('job', 'new', '--title', 'Breaks');
       await s.f('job', 'set', a.id, '--state', 'failed');
       const b = await s.f('job', 'new', '--title', 'Merges');
-      setJob(s.repo.dir, b.id, { fields: { pr: { number: 12, url: 'https://github.com/o/r/pull/12', state: 'OPEN' } } });
+      setJob(s.repo.dir, b.id, { owned: { pr: { number: 12, url: 'https://github.com/o/r/pull/12', state: 'OPEN' } } });
       await s.f('job', 'set', b.id, '--stage', 'done', '--state', 'done');
       await waitFor(() => s.notes(a.id).length === 1 && s.notes(b.id).length === 1, { what: 'both notified' });
       const posts = s.server.posts();

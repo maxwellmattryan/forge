@@ -63,7 +63,7 @@ describe('notify config and payloads', { concurrency: 4 }, () => {
       const marker = 'MARKER-7f3a';
       const job = createJob(repo.dir, defaults(), { title: `Add\u0007 login\n${'x'.repeat(300)}`, body: `request ${marker}` });
       setJob(repo.dir, job.id, { stage: 'spec', state: 'waiting', waitingOn: 'spec-approval', reason: `reason ${marker}`, note: `note ${marker}` });
-      setJob(repo.dir, job.id, { fields: { pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN' } } });
+      setJob(repo.dir, job.id, { owned: { pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN' } } });
       const ctx = contextFor(repo.dir, job.id, 'spec-approval');
       const p = buildPayload('gate', ctx, DASH, '2026-10-16T09:00:00.000Z');
       assert.deepEqual(Object.keys(p), ['event', 'job', 'title', 'stage', 'reason', 'url', 'dashboardUrl', 'at']);

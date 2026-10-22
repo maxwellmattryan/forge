@@ -60,18 +60,18 @@ function tool(name: string, kind: SecretSourceKind, cmd: string, args: string[],
 /** A regular file's text through one descriptor that follows no link and never blocks; throws a reason. */
 function readConfined(file: string, realRoot: string): string {
   const link = fs.lstatSync(file);
-  if (link.isSymbolicLink()) throw new Error('is a symlink');
-  if (!link.isFile()) throw new Error('is not a regular file');
+  if (link.isSymbolicLink()) throw new ForgeError('is a symlink');
+  if (!link.isFile()) throw new ForgeError('is not a regular file');
   // A hard link stays inside the repo by path while reading a file from anywhere.
-  if (link.nlink > 1) throw new Error('is a hard link');
-  if (link.size > MAX_FILE) throw new Error(`is larger than ${MAX_FILE / 1024} KiB`);
+  if (link.nlink > 1) throw new ForgeError('is a hard link');
+  if (link.size > MAX_FILE) throw new ForgeError(`is larger than ${MAX_FILE / 1024} KiB`);
   const real = fs.realpathSync.native(file);
   const rel = path.relative(realRoot, real);
-  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throw new Error('resolves outside the repo');
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throw new ForgeError('resolves outside the repo');
   const fd = fs.openSync(real, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK);
   try {
     const st = fs.fstatSync(fd);
-    if (!st.isFile() || st.dev !== link.dev || st.ino !== link.ino || st.size > MAX_FILE) throw new Error('changed while it was read');
+    if (!st.isFile() || st.dev !== link.dev || st.ino !== link.ino || st.size > MAX_FILE) throw new ForgeError('changed while it was read');
     return fs.readFileSync(fd, 'utf8');
   } finally {
     fs.closeSync(fd);
@@ -80,21 +80,21 @@ function readConfined(file: string, realRoot: string): string {
 
 /** The repo-relative real path of a file source when git ignores it and does not track it; throws a reason. */
 function ignoredRel(root: string, rel: string): { abs: string; realRoot: string; realRel: string } {
-  if (!isInsidePath(rel)) throw new Error('is not a relative path inside the repo');
+  if (!isInsidePath(rel)) throw new ForgeError('is not a relative path inside the repo');
   const realRoot = fs.realpathSync.native(root);
   const abs = path.join(realRoot, rel);
   let parentReal: string;
   try {
     parentReal = fs.realpathSync.native(path.dirname(abs));
   } catch {
-    throw new Error('does not exist');
+    throw new ForgeError('does not exist');
   }
   const relParent = path.relative(realRoot, parentReal);
-  if (relParent.startsWith('..') || path.isAbsolute(relParent)) throw new Error('resolves outside the repo');
+  if (relParent.startsWith('..') || path.isAbsolute(relParent)) throw new ForgeError('resolves outside the repo');
   const realRel = path.join(relParent, path.basename(abs)).split(path.sep).join('/');
   // Tracked files are not ignored (no --no-index), so one check refuses both.
   const ignored = git(realRoot, ['check-ignore', '-q', '--', realRel], { allowFail: true });
-  if (!ignored.ok) throw new Error('must be git-ignored and untracked');
+  if (!ignored.ok) throw new ForgeError('must be git-ignored and untracked');
   return { abs: path.join(parentReal, path.basename(abs)), realRoot, realRel };
 }
 
@@ -132,10 +132,11 @@ function readSource(root: string, name: string, kind: SecretSourceKind, entry: S
     const text = readConfined(where.abs, where.realRoot);
     if (entry.key === undefined) return text;
     const v = dotenvValue(text, entry.key);
-    if (v === null) throw new Error(`has no ${entry.key}= line`);
+    if (v === null) throw new ForgeError(`has no ${entry.key}= line`);
     return v;
   } catch (e) {
-    if (e instanceof ForgeError) throw e;
+    // ForgeError's `code` is Forge's own, not an errno: its reason is the message, and its code stays.
+    if (e instanceof ForgeError) throw new ForgeError(`secret ${name} (file): ${entry.file} ${e.message}`, e.code);
     const code = (e as NodeJS.ErrnoException).code;
     throw new ForgeError(`secret ${name} (file): ${entry.file} ${code === 'ENOENT' ? 'does not exist' : code ? `is unreadable (${code})` : (e as Error).message}`);
   }

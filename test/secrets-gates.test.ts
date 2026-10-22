@@ -360,7 +360,7 @@ describe('secret gates', { concurrency: 4 }, () => {
     const s = await scratch();
     try {
       const j = await s.job({ 'a.txt': 'fine\n' });
-      setJob(s.repo.dir, j.id, { fields: { base: 'no-such-branch' } });
+      setJob(s.repo.dir, j.id, { owned: { base: 'no-such-branch' } });
       let r = await s.verify(j.id);
       assert.equal(r.status, 1);
       assert.equal(r.out.failure.name, 'secrets');
@@ -632,7 +632,7 @@ describe('secret gates', { concurrency: 4 }, () => {
       // A base with no history in common: the refresh fetches it, then the scan finds no merge-base.
       const orphan = execFileSync('git', ['commit-tree', '-m', 'orphan', execFileSync('git', ['hash-object', '-t', 'tree', '-w', '--stdin'], { cwd: j.wt, input: '' }).toString().trim()], { cwd: j.wt, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@e.st', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@e.st' } }).trim();
       r0.git(j.wt, 'push', '-q', r0.bare, `${orphan}:refs/heads/orphan`);
-      setJob(s.repo.dir, j.id, { fields: { base: 'orphan' } });
+      setJob(s.repo.dir, j.id, { owned: { base: 'orphan' } });
       const scanErrors = () => s.events(j.dir).filter((e) => e.type === 'secret-found' && e.gate === 'pr');
       let r = await s.raw(['pr', 'open', j.id, '--force', '--json'], r0.env);
       assert.equal(r.status, 1, r.stdout + r.stderr);

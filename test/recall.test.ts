@@ -5,7 +5,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeSync, repoTemplate } from './helpers.ts';
 import { loadConfig } from '../lib/config.ts';
-import { createJob, loadJob, readEvents, setJob } from '../lib/jobs.ts';
+import { createJob, loadJob, readEvents, setJob, updateJob } from '../lib/jobs.ts';
 import { loadStepInput } from '../lib/step/input.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
 import { pluginHash } from '../lib/provenance.ts';
@@ -189,12 +189,14 @@ test('the gate input fails closed', () => {
     assert.deepEqual(loadStepInput(s.dir, s.config, job.id).recall, { required: true, pluginHash: pluginHash(wt), invalidFixtures: true });
     fs.rmSync(broken, { recursive: true });
     // A base that can't be resolved reads as required, with no hash a record could match.
-    setJob(s.dir, job.id, { fields: { base: 'no-such-branch' } });
+    setJob(s.dir, job.id, { owned: { base: 'no-such-branch' } });
     assert.deepEqual(loadStepInput(s.dir, s.config, job.id).recall, { required: true, pluginHash: null });
     // Outside decide, or for an eval job, there is no gate at all.
-    setJob(s.dir, job.id, { stage: 'review', fields: { base: 'main' } });
+    setJob(s.dir, job.id, { stage: 'review', owned: { base: 'main' } });
     assert.equal(loadStepInput(s.dir, s.config, job.id).recall, null);
-    setJob(s.dir, job.id, { stage: 'decide', fields: { kind: 'eval' } });
+    // Only `forge eval start` makes an eval job, so the fixture writes the kind below setJob.
+    setJob(s.dir, job.id, { stage: 'decide' });
+    updateJob(s.dir, job.id, (j) => void (j.kind = 'eval'));
     assert.equal(loadStepInput(s.dir, s.config, job.id).recall, null);
   } finally {
     s.cleanup();

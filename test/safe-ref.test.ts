@@ -82,7 +82,7 @@ test('forge run never fills a template with an unsafe branch', { skip: process.p
     const wt = cli(repo.dir, 'worktree', 'create', id);
     assert.equal(wt.status, 0, wt.stderr);
     const dir = loadJob(repo.dir, id).worktree!;
-    setJob(repo.dir, id, { fields: { branch: 'a;touch pwned' } });
+    setJob(repo.dir, id, { owned: { branch: 'a;touch pwned' } });
     const gone = () => {
       for (const d of [dir, repo.dir]) for (const f of ['pwned', 'out.txt']) assert.equal(fs.existsSync(path.join(d, f)), false, path.join(d, f));
     };
@@ -116,7 +116,7 @@ test('forge run fills {worktree} only with the path Forge computed for the job',
     const other = path.join(path.dirname(dir), 'other-job');
     fs.mkdirSync(other);
     for (const worktree of [`${sneaky}/..`, sneaky, `${dir}/.`, `${dir} --extra`, other]) {
-      setJob(repo.dir, id, { fields: { worktree } });
+      setJob(repo.dir, id, { owned: { worktree } });
       for (const extra of [[], ['--background']]) {
         const r = cli(repo.dir, 'run', id, 'test', ...extra);
         assert.notEqual(r.status, 0, `${worktree} ${extra}`);
@@ -158,7 +158,7 @@ test('a repo path with ( & and spaces runs commands, with and without {worktree}
     assert.equal(fs.readFileSync(path.join(wt, 'bg.txt'), 'utf8'), 'bg\n');
 
     // A command without {worktree} runs whatever the stored value is; one with it is refused.
-    setJob(repo.dir, id, { fields: { worktree: `${wt} --extra` } });
+    setJob(repo.dir, id, { owned: { worktree: `${wt} --extra` } });
     fs.mkdirSync(`${wt} --extra`);
     assert.equal(cli(repo.dir, 'run', id, 'test').status, 0);
     const refused = cli(repo.dir, 'run', id, 'lint');
@@ -176,7 +176,7 @@ test('createWorktree refuses unsafe refs before touching git', () => {
   try {
     for (const [field, value] of [['base', 'main;id'], ['branch', '-x']] as const) {
       const job = createJob(repo.dir, config, { title: `refuse ${field}` });
-      setJob(repo.dir, job.id, { fields: { [field]: value } });
+      setJob(repo.dir, job.id, { owned: { [field]: value } });
       assert.throws(() => createWorktree(repo.dir, config, job.id), (e: any) => e instanceof ForgeError && e.message.startsWith(`job.${field} `));
       assert.equal(fs.existsSync(wtRoot), false, 'nothing is created under the worktrees root');
       const after = loadJob(repo.dir, job.id);

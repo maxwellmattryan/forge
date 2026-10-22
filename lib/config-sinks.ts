@@ -4,7 +4,8 @@
 // validation, expressions and renderers that return strings. Writing, git and processes live in
 // config-sinks-apply.ts. No import from schema.ts: components.ts loads this while schema.ts loads it.
 
-import { isInsidePath } from './util.ts';
+import { PROTO_KEYS, deepMerge, isMap, show } from './shape.ts';
+import { ForgeError, isInsidePath } from './util.ts';
 import * as yaml from './yaml.ts';
 
 const SINK_KINDS = ['env', 'env-file', 'file', 'command'] as const;
@@ -40,12 +41,9 @@ export type SinkValue = string | number | boolean | null | { [k: string]: SinkVa
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const PROTO_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 /** An env-file value written without quotes. */
 const BARE_VALUE = /^[A-Za-z0-9_./:@%+,-]*$/;
 
-const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
-const show = (v: unknown): string => (v === undefined ? 'nothing' : JSON.stringify(v));
 const reservedOf = (name: string): string | null => Object.keys(RESERVED_NAMESPACES).find((ns) => name === ns || name.startsWith(`${ns}.`)) ?? null;
 const isKnownRoot = (name: string): boolean => (EXPRESSION_ROOTS as readonly string[]).includes(name);
 
@@ -89,13 +87,13 @@ function expressionProblems(v: string, at: string, declared: ReadonlySet<string>
 
 /** Problems with one flat `name: expression` map (env, env-file values, command values). */
 function flatProblems(values: unknown, at: string, declared?: ReadonlySet<string>): string[] {
-  if (!isMap(values)) return [`${at} must be a map of variable names to strings (got ${show(values)})`];
+  if (!isMap(values)) return [`${at} must be a map of variable names to strings (got ${show(values, Infinity)})`];
   const problems: string[] = [];
   for (const [name, v] of Object.entries(values)) {
     const bad = nameProblem(name);
-    if (bad) problems.push(`${at} variable ${show(name)} ${bad}`);
-    if (isMap(v)) problems.push(`${at}.${name} must be a string; quote the expression ("{port}"), since unquoted YAML reads {port} as a map (got ${show(v)})`);
-    else if (typeof v !== 'string') problems.push(`${at}.${name} must be a string (got ${show(v)})`);
+    if (bad) problems.push(`${at} variable ${show(name, Infinity)} ${bad}`);
+    if (isMap(v)) problems.push(`${at}.${name} must be a string; quote the expression ("{port}"), since unquoted YAML reads {port} as a map (got ${show(v, Infinity)})`);
+    else if (typeof v !== 'string') problems.push(`${at}.${name} must be a string (got ${show(v, Infinity)})`);
     else problems.push(...expressionProblems(v, `${at}.${name}`, declared));
   }
   return problems;
@@ -103,19 +101,19 @@ function flatProblems(values: unknown, at: string, declared?: ReadonlySet<string
 
 /** Problems with merge `values`: a nested map whose leaves are strings, numbers, booleans or null. */
 function nestedProblems(values: unknown, at: string, declared?: ReadonlySet<string>): string[] {
-  if (!isMap(values)) return [`${at} must be a map (got ${show(values)})`];
+  if (!isMap(values)) return [`${at} must be a map (got ${show(values, Infinity)})`];
   const problems: string[] = [];
   for (const [k, v] of Object.entries(values)) {
     const here = `${at}.${k}`;
     if (PROTO_KEYS.has(k)) problems.push(`${here} is not an allowed key`);
     if (isMap(v)) problems.push(...nestedProblems(v, here, declared));
     else if (typeof v === 'string') problems.push(...expressionProblems(v, here, declared));
-    else if (v !== null && typeof v !== 'number' && typeof v !== 'boolean') problems.push(`${here} must be a string, number, boolean, null or a map of those (got ${show(v)})`);
+    else if (v !== null && typeof v !== 'number' && typeof v !== 'boolean') problems.push(`${here} must be a string, number, boolean, null or a map of those (got ${show(v, Infinity)})`);
   }
   return problems;
 }
 
-const pathProblem = (p: unknown, at: string): string | null => (isInsidePath(p) ? null : `${at} must be a relative path inside the component's directory (got ${show(p)})`);
+const pathProblem = (p: unknown, at: string): string | null => (isInsidePath(p) ? null : `${at} must be a relative path inside the component's directory (got ${show(p, Infinity)})`);
 
 /**
  * Every problem with a component's `config` list, labelled `at` (`components "api".config`), in the
@@ -124,13 +122,13 @@ const pathProblem = (p: unknown, at: string): string | null => (isInsidePath(p) 
  * `secrets`), a `{secret.NAME}` naming none of them is a problem too.
  */
 export function sinkProblems(sinks: unknown, at: string, component: { repo?: unknown }, secretNames?: ReadonlySet<string>): string[] {
-  if (component.repo !== undefined && component.repo !== null) return [`${at} is only for a root-repo component; this one sets repo ${show(component.repo)}`];
-  if (!Array.isArray(sinks)) return [`${at} must be a list of sinks (got ${show(sinks)})`];
+  if (component.repo !== undefined && component.repo !== null) return [`${at} is only for a root-repo component; this one sets repo ${show(component.repo, Infinity)}`];
+  if (!Array.isArray(sinks)) return [`${at} must be a list of sinks (got ${show(sinks, Infinity)})`];
   const problems: string[] = [];
   sinks.forEach((sink: unknown, i: number) => {
     const s = `${at}[${i}]`;
     const kinds = isMap(sink) ? SINK_KINDS.filter((k) => sink[k] !== undefined) : [];
-    if (!isMap(sink) || kinds.length !== 1) return problems.push(`${s} must be a map with exactly one of ${SINK_KINDS.join(' | ')} (got ${show(sink)})`);
+    if (!isMap(sink) || kinds.length !== 1) return problems.push(`${s} must be a map with exactly one of ${SINK_KINDS.join(' | ')} (got ${show(sink, Infinity)})`);
     const kind = kinds[0];
     if (kind === 'env') return problems.push(...flatProblems(sink.env, `${s}.env`, secretNames));
     if (kind === 'env-file') {
@@ -140,18 +138,18 @@ export function sinkProblems(sinks: unknown, at: string, component: { repo?: unk
       return;
     }
     if (kind === 'command') {
-      if (typeof sink.command !== 'string' || !sink.command.trim()) problems.push(`${s}.command must be a non-empty shell command (got ${show(sink.command)})`);
+      if (typeof sink.command !== 'string' || !sink.command.trim()) problems.push(`${s}.command must be a non-empty shell command (got ${show(sink.command, Infinity)})`);
       if (sink.values !== undefined) problems.push(...flatProblems(sink.values, `${s}.values`, secretNames));
       return;
     }
     const f = sink.file;
-    if (!isMap(f)) return problems.push(`${s}.file must be a map with path, format and mode (got ${show(f)})`);
+    if (!isMap(f)) return problems.push(`${s}.file must be a map with path, format and mode (got ${show(f, Infinity)})`);
     const bad = pathProblem(f.path, `${s}.file.path`);
     if (bad) problems.push(bad);
     const format = (SINK_FORMATS as readonly unknown[]).includes(f.format) ? (f.format as SinkFormat) : null;
     const mode = (SINK_MODES as readonly unknown[]).includes(f.mode) ? (f.mode as SinkMode) : null;
-    if (!format) problems.push(`${s}.file.format must be one of ${SINK_FORMATS.join(' | ')} (got ${show(f.format)})`);
-    if (!mode) problems.push(`${s}.file.mode must be one of ${SINK_MODES.join(' | ')} (got ${show(f.mode)})`);
+    if (!format) problems.push(`${s}.file.format must be one of ${SINK_FORMATS.join(' | ')} (got ${show(f.format, Infinity)})`);
+    if (!mode) problems.push(`${s}.file.mode must be one of ${SINK_MODES.join(' | ')} (got ${show(f.mode, Infinity)})`);
     if (f.from !== undefined && f.from !== null) {
       const badFrom = pathProblem(f.from, `${s}.file.from`);
       if (badFrom) problems.push(badFrom);
@@ -193,12 +191,12 @@ function lookup(name: string, ctx: ExprContext): string | number | null {
   }
   const secret = secretOf(name);
   if (secret) {
-    if (!ctx.secret) throw new Error(`{${name}} needs a declared secret`);
+    if (!ctx.secret) throw new ForgeError(`{${name}} needs a declared secret`);
     return ctx.secret(secret);
   }
   const ns = reservedOf(name);
-  if (ns) throw new Error(`{${name}} needs ${RESERVED_FEATURES[ns]} (${RESERVED_NAMESPACES[ns]}), which this Forge does not support yet`);
-  throw new Error(`unknown expression {${name}}; known roots are ${EXPRESSION_ROOTS.map((r) => `{${r}}`).join(' ')}`);
+  if (ns) throw new ForgeError(`{${name}} needs ${RESERVED_FEATURES[ns]} (${RESERVED_NAMESPACES[ns]}), which this Forge does not support yet`);
+  throw new ForgeError(`unknown expression {${name}}; known roots are ${EXPRESSION_ROOTS.map((r) => `{${r}}`).join(' ')}`);
 }
 
 const asString = (v: string | number | null): string => (v === null ? '' : String(v));
@@ -245,23 +243,8 @@ export function renderEnvFile(values: Record<string, string>, ctx: ExprContext):
 function resolveValues(values: Record<string, SinkValue>, ctx: ExprContext): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(values)) {
-    if (PROTO_KEYS.has(k)) throw new Error(`config sink values key ${JSON.stringify(k)} is not allowed`);
+    if (PROTO_KEYS.has(k)) throw new ForgeError(`config sink values key ${JSON.stringify(k)} is not allowed`);
     out[k] = isMap(v) ? resolveValues(v, ctx) : typeof v === 'string' ? resolveValue(v, ctx) : v;
-  }
-  return out;
-}
-
-/** `over` deep-merged into a copy of `base`: maps merge key by key, arrays and scalars from `over` replace. */
-function deepMerge(base: unknown, over: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  if (isMap(base))
-    for (const k of Object.keys(base)) {
-      if (PROTO_KEYS.has(k)) throw new Error(`merge base key ${JSON.stringify(k)} is not allowed`);
-      out[k] = structuredClone(base[k]);
-    }
-  for (const [k, v] of Object.entries(over)) {
-    if (PROTO_KEYS.has(k)) throw new Error(`config sink values key ${JSON.stringify(k)} is not allowed`);
-    out[k] = isMap(v) && isMap(out[k]) ? deepMerge(out[k], v) : structuredClone(v);
   }
   return out;
 }
@@ -277,10 +260,10 @@ function parseBase(format: SinkFormat, text: string | null): Record<string, unkn
   try {
     parsed = format === 'json' ? JSON.parse(text) : yaml.parse(text);
   } catch (e) {
-    throw new Error(`the merge base does not parse as ${format}`, { cause: e });
+    throw new ForgeError(`the merge base does not parse as ${format}`, 'failed', null, { cause: e });
   }
   if (parsed === null || parsed === undefined) return {};
-  if (!isMap(parsed)) throw new Error(`the merge base is not a map`);
+  if (!isMap(parsed)) throw new ForgeError(`the merge base is not a map`);
   return parsed;
 }
 
@@ -289,8 +272,8 @@ function parseBase(format: SinkFormat, text: string | null): Record<string, unkn
  * with a trailing newline, yaml through lib/yaml.ts. toml is never merged (validation refuses it).
  */
 export function renderMerge(format: SinkFormat, baseText: string | null, values: Record<string, SinkValue>, ctx: ExprContext): string {
-  if (format === 'toml') throw new Error('toml supports mode template only');
-  const merged = deepMerge(parseBase(format, baseText), resolveValues(values, ctx));
+  if (format === 'toml') throw new ForgeError('toml supports mode template only');
+  const merged = deepMerge(parseBase(format, baseText), resolveValues(values, ctx), { base: 'merge base', over: 'config sink values' });
   return format === 'json' ? `${JSON.stringify(merged, null, 2)}\n` : yaml.stringify(merged);
 }
 
@@ -301,7 +284,7 @@ export function renderTemplate(format: SinkFormat, text: string, ctx: ExprContex
     try {
       JSON.parse(filled);
     } catch {
-      throw new Error(`config sink template ${from} does not fill to valid JSON; check the quoting around its expressions`);
+      throw new ForgeError(`config sink template ${from} does not fill to valid JSON; check the quoting around its expressions`);
     }
   }
   return filled;

@@ -12,7 +12,7 @@ import { forgeAsync, forgeSync, repoTemplate } from '../../helpers.ts';
 import { defaults, loadConfig, stringifyConfig, validateConfig } from '../../../lib/config.ts';
 import { createJob, jobDir, loadJob, readEvents, setJob, updateJob } from '../../../lib/jobs.ts';
 import { CONFIG_SCHEMA_VERSION } from '../../../lib/schema.ts';
-import { deepMerge } from '../../../lib/util.ts';
+import { deepMerge } from '../../../lib/shape.ts';
 import { createWorktree } from '../../../lib/worktree.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
@@ -470,7 +470,7 @@ describe('verify runs e2e', { concurrency: 4 }, () => {
       // The protected-paths check reads it too and fails closed, so the policy is off here.
       await s.configure({ verifySecrets: 'warn', policy: { protectedPaths: [] } });
       const lib = await s.job(['lib/x.mjs']);
-      setJob(s.repo.dir, lib.id, { fields: { base: 'no-such-branch' } });
+      setJob(s.repo.dir, lib.id, { owned: { base: 'no-such-branch' } });
       const b = await s.verify(lib.id);
       assert.equal(b.status, 0);
       const e2e = b.out.steps.find((x: any) => x.name === 'e2e');

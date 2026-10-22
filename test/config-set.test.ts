@@ -8,7 +8,8 @@ import { CONFIG_DISCLOSURE, FIELDS, disclosureOf, fieldFor, parseCliValue, redac
 import { COMPLEXITIES, EFFORT_ROLES, EFFORTS, EVENT_SCHEMA_VERSION } from '../lib/schema.ts';
 import { setConfigValue } from '../lib/config-set.ts';
 import { applyOverlay, overlayProblems } from '../lib/eval-overlay.ts';
-import { ForgeError, getPath } from '../lib/util.ts';
+import { getPath } from '../lib/shape.ts';
+import { ForgeError } from '../lib/util.ts';
 import { setIn } from '../lib/yaml.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');

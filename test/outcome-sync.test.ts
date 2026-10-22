@@ -39,7 +39,7 @@ function harness() {
   let n = 0;
   const merged = (mergedAt: string, extra: { kind?: string } = {}) => {
     const job = createJob(repo.dir, config, { title: `job ${++n}`, ...extra });
-    setJob(repo.dir, job.id, { stage: 'done', state: 'done', fields: { pr: { number: 100 + n, url: `https://github.com/o/r/pull/${100 + n}`, state: 'MERGED', isDraft: false, lastSyncedAt: mergedAt, mergedAt } } });
+    setJob(repo.dir, job.id, { stage: 'done', state: 'done', owned: { pr: { number: 100 + n, url: `https://github.com/o/r/pull/${100 + n}`, state: 'MERGED', isDraft: false, lastSyncedAt: mergedAt, mergedAt } } });
     return job.id;
   };
   return {

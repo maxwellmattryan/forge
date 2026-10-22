@@ -6,7 +6,8 @@ import { ConfigSetError, fieldFor, validateFieldValue } from './config-fields.ts
 import { logRepoEvent } from './jobs.ts';
 import { exists, paths } from './paths.ts';
 import type { ConfigValue, EventActor, PostConfigResponse } from './types.ts';
-import { getPath, withLock, writeTextAtomic } from './util.ts';
+import { getPath } from './shape.ts';
+import { withLock, writeTextAtomic } from './util.ts';
 import * as yaml from './yaml.ts';
 
 /** The lock every writer of .forge/config.yml takes: `forge config set`, `init write`, `migrate`. */

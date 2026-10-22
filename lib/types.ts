@@ -183,6 +183,8 @@ export interface JobChange {
   waitingOn?: string | null;
   reason?: string | null;
   fields?: Record<string, any>;
+  /** Locked fields that only their owning module writes (lib/job-fields.ts); never from the CLI. */
+  owned?: Record<string, unknown>;
   note?: string;
 }
 
@@ -305,7 +307,7 @@ export interface CompactSecrets {
 
 // ---------- config ----------
 
-/** One review lens: an entry of review.panel in defaults() (lib/config.ts). */
+/** One review lens: an entry of review.panel in defaults() (lib/config-defaults.ts). */
 export interface PanelEntry {
   name: string;
   always?: boolean;
@@ -418,7 +420,7 @@ export interface MemberRepoConfig {
   release?: ({ interim?: InterimStrategy } & ReleaseStrategy) | null;
 }
 
-/** What `forge run <job> <name>` executes: defaults().commands in lib/config.ts. */
+/** What `forge run <job> <name>` executes: defaults().commands in lib/config-defaults.ts. */
 export interface CommandsConfig {
   setup: string | null;
   build: string | null;
@@ -434,7 +436,7 @@ export interface CommandsConfig {
 /** One `verify` entry: a step name, or a group of step names that run at the same time (config schemaVersion 3). */
 export type VerifyEntry = string | string[];
 
-/** The effective config: defaults() in lib/config.ts merged with .forge/config.yml by loadConfig. docs/CONFIG.md documents each key. */
+/** The effective config: defaults() in lib/config-defaults.ts merged with .forge/config.yml by loadConfig. docs/CONFIG.md documents each key. */
 export interface Config {
   schemaVersion: number;
   project: {

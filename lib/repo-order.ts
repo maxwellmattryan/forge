@@ -4,6 +4,7 @@
 
 import { memberRepos } from './job-repos.ts';
 import { projectGraph } from './project.ts';
+import { isMap } from './shape.ts';
 import type { Config, Job } from './types.ts';
 
 /** A job repo: a member's name, or null for the root (as `JobRepo.repo`). */
@@ -22,7 +23,6 @@ export interface RepoOrder {
 
 export type PrStateKey = 'OPEN' | 'CLOSED' | 'MERGED' | null;
 
-const isMap = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
 /** The job's PR repos: the root, then every member that is not verify-only, in `job.repos` order. */
 export function prRepos(job: Pick<Job, 'repos'>): RepoKey[] {

@@ -13,6 +13,7 @@ import { isOwnWorktreePath, worktreeRoot } from './config.ts';
 import { git } from './git.ts';
 import { memberEntry, memberWorktreePath, trustedMemberWorktree } from './job-repos.ts';
 import { linkDir } from './paths.ts';
+import { isMap } from './shape.ts';
 import type { Config, Job, LinkEcosystem } from './types.ts';
 
 /** A well-formed link from config: declaredLinks. A null repo is the root repo. */
@@ -63,7 +64,6 @@ export interface AppliedLinks {
 
 export type LockEcosystem = 'cargo' | 'npm';
 
-const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 /** The manifest an interim pin goes in when a link names none. */
 const MANIFEST_FILE: Record<LinkEcosystem, string> = { cargo: 'Cargo.toml', cmake: 'CMakeLists.txt', npm: 'package.json' };
 const posixPath = (p: string): string => path.posix.normalize(p.replace(/\\/g, '/'));

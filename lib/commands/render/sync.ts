@@ -1,5 +1,6 @@
 // `forge sync` in human mode.
-import { blocks, has, hang, isObj, list, paint, section, txt } from './kit.ts';
+import { isMap } from '../../shape.ts';
+import { blocks, has, hang, list, paint, section, txt } from './kit.ts';
 import type { Paint, Renderer } from './kit.ts';
 
 function summary(r: Record<string, any>, integrating: string[], p: Paint): string {
@@ -21,8 +22,8 @@ export const sync: Renderer = (d, o) => {
   const p = paint(o.color);
   const integrating: string[] = Array.isArray(d.integrating) ? d.integrating.map(String) : [];
   const head = `synced ${txt(d.synced)} job(s) · ${txt(d.requests)} request(s) queued${integrating.length ? ` · integrating: ${list(integrating)}` : ''}`;
-  const rows = d.results.filter(isObj).map((r: Record<string, any>) => `${txt(r.id)}  ${summary(r, integrating, p)}`);
-  const ret = isObj(d.retention) ? d.retention : null;
+  const rows = d.results.filter(isMap).map((r: Record<string, any>) => `${txt(r.id)}  ${summary(r, integrating, p)}`);
+  const ret = isMap(d.retention) ? d.retention : null;
   return blocks(
     head,
     section('Jobs', rows, p),

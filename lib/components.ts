@@ -6,6 +6,7 @@
 
 import path from 'node:path';
 import type { ComponentConfig, Config, Job } from './types.ts';
+import { isMap, show } from './shape.ts';
 import { SAFE_REF, isInsidePath } from './util.ts';
 import { sinkProblems } from './config-sinks.ts';
 import { declaredSecrets } from './secret-refs-config.ts';
@@ -28,8 +29,6 @@ const LINK_NAMES: Record<(typeof LINK_ECOSYSTEMS)[number], { re: RegExp; max: nu
 const REGISTRY_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const SOURCE_MAX = 2000;
 const SOURCE_URL = /^(?:https|ssh|git):\/\/[^\s"'\\\u0000-\u001f\u007f-\u009f]+$/;
-
-const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
 /**
  * The v8 `services` list folded into `components`: each service becomes a `service` component with
@@ -59,7 +58,6 @@ export function jobComponent(config: Pick<Config, 'components'>, job: Pick<Job, 
   return c && (c.repo === undefined || c.repo === null) ? c : null;
 }
 
-const show = (v: unknown): string => (v === undefined ? 'nothing' : JSON.stringify(v));
 const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
 
 /** Whether `name` is a valid link name for `ecosystem`. */
@@ -76,18 +74,18 @@ export function isLinkSource(s: unknown): s is string {
 /** The problems with one `dependsOn` edge's `link`, labelled `at` (`components "x".dependsOn[0].link`). */
 function linkProblems(link: unknown, at: string): string[] {
   if (!isMap(link) || !(LINK_ECOSYSTEMS as readonly unknown[]).includes(link.ecosystem))
-    return [`${at} must be a map with ecosystem ${LINK_ECOSYSTEMS.join(' | ')} (got ${show(link)})`];
+    return [`${at} must be a map with ecosystem ${LINK_ECOSYSTEMS.join(' | ')} (got ${show(link, Infinity)})`];
   const problems: string[] = [];
   const eco = link.ecosystem as (typeof LINK_ECOSYSTEMS)[number];
-  if (!isLinkName(eco, link.name)) problems.push(`${at}.name must be ${LINK_NAMES[eco].what} (got ${show(link.name)})`);
+  if (!isLinkName(eco, link.name)) problems.push(`${at}.name must be ${LINK_NAMES[eco].what} (got ${show(link.name, Infinity)})`);
   if (link.source !== undefined && link.source !== null) {
-    if (eco !== 'cargo') problems.push(`${at}.source is only for a cargo link (got ${show(link.source)})`);
+    if (eco !== 'cargo') problems.push(`${at}.source is only for a cargo link (got ${show(link.source, Infinity)})`);
     else if (!isLinkSource(link.source))
-      problems.push(`${at}.source must be crates-io, a registry name or an https://, ssh:// or git:// url of at most ${SOURCE_MAX} characters without whitespace, quotes, backslashes or control characters (got ${show(link.source)})`);
+      problems.push(`${at}.source must be crates-io, a registry name or an https://, ssh:// or git:// url of at most ${SOURCE_MAX} characters without whitespace, quotes, backslashes or control characters (got ${show(link.source, Infinity)})`);
   }
-  if (link.path !== undefined && link.path !== null && !isInsidePath(link.path)) problems.push(`${at}.path must be a relative path inside the dependency's repo (got ${show(link.path)})`);
+  if (link.path !== undefined && link.path !== null && !isInsidePath(link.path)) problems.push(`${at}.path must be a relative path inside the dependency's repo (got ${show(link.path, Infinity)})`);
   if (link.manifest !== undefined && link.manifest !== null && !isManifestPath(eco, link.manifest))
-    problems.push(`${at}.manifest must be a relative path inside the consumer's repo to ${MANIFEST_NAMES[eco]} (got ${show(link.manifest)})`);
+    problems.push(`${at}.manifest must be a relative path inside the consumer's repo to ${MANIFEST_NAMES[eco]} (got ${show(link.manifest, Infinity)})`);
   return problems;
 }
 
@@ -106,13 +104,14 @@ export function isManifestPath(ecosystem: unknown, p: unknown): p is string {
 const repoLabel = (r: unknown): string => (typeof r === 'string' ? `repo ${r}` : 'the root repo');
 
 /** Every problem with `components` (and a leftover `services`), in the form validateConfig reports. */
-export function componentProblems(c: any): string[] {
+export function componentProblems(c: unknown): string[] {
+  const cfg: Record<string, any> = isMap(c) ? c : {};
   const problems: string[] = [];
-  if (c?.services !== undefined && c?.components !== undefined)
+  if (cfg.services !== undefined && cfg.components !== undefined)
     problems.push('services was renamed to components in config schemaVersion 10; move its entries under components and delete services');
-  const list = c?.components;
+  const list = cfg.components;
   if (list === undefined) return problems;
-  if (!Array.isArray(list)) return [...problems, `components must be a list (got ${show(list)})`];
+  if (!Array.isArray(list)) return [...problems, `components must be a list (got ${show(list, Infinity)})`];
   const counts = new Map<string, number>();
   for (const e of list) if (isMap(e) && typeof e.name === 'string' && SAFE_REF.test(e.name)) counts.set(e.name, (counts.get(e.name) ?? 0) + 1);
   const reported = new Set<string>();
@@ -121,33 +120,33 @@ export function componentProblems(c: any): string[] {
   list.forEach((e: unknown, i: number) => {
     if (!isMap(e)) return problems.push(`components[${i}] must be a map`);
     const named = typeof e.name === 'string' && SAFE_REF.test(e.name);
-    if (!named) problems.push(`components[${i}].name must start with a letter or digit and use only A-Z a-z 0-9 . _ / - (got ${show(e.name)})`);
+    if (!named) problems.push(`components[${i}].name must start with a letter or digit and use only A-Z a-z 0-9 . _ / - (got ${show(e.name, Infinity)})`);
     const at = named ? `components "${e.name}"` : `components[${i}]`;
     if (named && counts.get(e.name)! > 1 && !reported.has(e.name)) {
       reported.add(e.name);
       problems.push(`components "${e.name}" is listed more than once`);
     }
-    if (!isInsidePath(e.path)) problems.push(`${at}.path must be a relative path inside the repo (got ${show(e.path)})`);
-    if (!(COMPONENT_KINDS as readonly unknown[]).includes(e.kind)) problems.push(`${at}.kind must be one of ${COMPONENT_KINDS.join(' | ')} (got ${show(e.kind)})`);
-    if (e.repo !== undefined && e.repo !== null && typeof e.repo !== 'string') problems.push(`${at}.repo must be a string or null (got ${show(e.repo)})`);
-    if (e.owners !== undefined && (!Array.isArray(e.owners) || e.owners.some((o: unknown) => typeof o !== 'string'))) problems.push(`${at}.owners must be a list of strings (got ${show(e.owners)})`);
+    if (!isInsidePath(e.path)) problems.push(`${at}.path must be a relative path inside the repo (got ${show(e.path, Infinity)})`);
+    if (!(COMPONENT_KINDS as readonly unknown[]).includes(e.kind)) problems.push(`${at}.kind must be one of ${COMPONENT_KINDS.join(' | ')} (got ${show(e.kind, Infinity)})`);
+    if (e.repo !== undefined && e.repo !== null && typeof e.repo !== 'string') problems.push(`${at}.repo must be a string or null (got ${show(e.repo, Infinity)})`);
+    if (e.owners !== undefined && (!Array.isArray(e.owners) || e.owners.some((o: unknown) => typeof o !== 'string'))) problems.push(`${at}.owners must be a list of strings (got ${show(e.owners, Infinity)})`);
     if (e.commands !== undefined) {
-      if (!isMap(e.commands)) problems.push(`${at}.commands must be a map of command names to strings (got ${show(e.commands)})`);
-      else for (const [k, v] of Object.entries(e.commands)) if (v !== null && typeof v !== 'string') problems.push(`${at}.commands.${k} must be a string or null (got ${show(v)})`);
+      if (!isMap(e.commands)) problems.push(`${at}.commands must be a map of command names to strings (got ${show(e.commands, Infinity)})`);
+      else for (const [k, v] of Object.entries(e.commands)) if (v !== null && typeof v !== 'string') problems.push(`${at}.commands.${k} must be a string or null (got ${show(v, Infinity)})`);
     }
-    if (e.notes !== undefined && e.notes !== null && typeof e.notes !== 'string') problems.push(`${at}.notes must be a string or null (got ${show(e.notes)})`);
-    if (e.config !== undefined) problems.push(...sinkProblems(e.config, `${at}.config`, e, declaredSecrets(c)));
+    if (e.notes !== undefined && e.notes !== null && typeof e.notes !== 'string') problems.push(`${at}.notes must be a string or null (got ${show(e.notes, Infinity)})`);
+    if (e.config !== undefined) problems.push(...sinkProblems(e.config, `${at}.config`, e, declaredSecrets(cfg)));
     if (e.dependsOn === undefined) return;
-    if (!Array.isArray(e.dependsOn)) return problems.push(`${at}.dependsOn must be a list (got ${show(e.dependsOn)})`);
+    if (!Array.isArray(e.dependsOn)) return problems.push(`${at}.dependsOn must be a list (got ${show(e.dependsOn, Infinity)})`);
     e.dependsOn.forEach((d: unknown, j: number) => {
       const dep = isMap(d) ? d : {};
       const keys = (['component', 'backing'] as const).filter((k) => dep[k] !== undefined);
       if (keys.length !== 1) problems.push(`${at}.dependsOn[${j}] must name exactly one of component or backing`);
-      else if (!isNonEmptyString(dep[keys[0]])) problems.push(`${at}.dependsOn[${j}].${keys[0]} must be a non-empty string (got ${show(dep[keys[0]])})`);
+      else if (!isNonEmptyString(dep[keys[0]])) problems.push(`${at}.dependsOn[${j}].${keys[0]} must be a non-empty string (got ${show(dep[keys[0]], Infinity)})`);
       // A self edge is a cycle when it is a build edge (buildCycles reports it), and unknown otherwise.
       else if (keys[0] === 'component' && (dep.component === e.name ? dep.type !== 'build' : !counts.has(dep.component)))
-        problems.push(`${at}.dependsOn[${j}] names unknown component ${show(dep.component)}`);
-      if (isMap(d) && !(DEPENDENCY_TYPES as readonly unknown[]).includes(dep.type)) problems.push(`${at}.dependsOn[${j}].type must be one of ${DEPENDENCY_TYPES.join(' | ')} (got ${show(dep.type)})`);
+        problems.push(`${at}.dependsOn[${j}] names unknown component ${show(dep.component, Infinity)}`);
+      if (isMap(d) && !(DEPENDENCY_TYPES as readonly unknown[]).includes(dep.type)) problems.push(`${at}.dependsOn[${j}].type must be one of ${DEPENDENCY_TYPES.join(' | ')} (got ${show(dep.type, Infinity)})`);
       if (dep.link === undefined) return;
       const lat = `${at}.dependsOn[${j}].link`;
       if (dep.backing !== undefined) return problems.push(`${lat} is only for a component edge, not a backing one`);

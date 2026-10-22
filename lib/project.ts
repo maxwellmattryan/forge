@@ -5,9 +5,9 @@
 import type { Config, DependencyType, ProjectComponent, ProjectEdge, ProjectResponse } from './types.ts';
 import { COMPONENT_KINDS, DEPENDENCY_TYPES, componentProblems } from './components.ts';
 import { REPO_NAME } from './member-repos.ts';
+import { isMap } from './shape.ts';
 import { SAFE_REF } from './util.ts';
 
-const isMap = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const trimmed = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 

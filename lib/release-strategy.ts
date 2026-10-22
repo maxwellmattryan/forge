@@ -5,6 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { show } from './shape.ts';
 import type { DoctorCheck, ReleaseStrategy } from './types.ts';
 import { findOnPath, splitWords } from './util.ts';
 
@@ -15,8 +16,6 @@ export const RELEASE_CADENCES = ['on-merge', 'scheduled', 'manual'] as const;
 export const RELEASE_PUBLISH = ['confirm', 'allow'] as const;
 const COMMAND_MAX = 1000;
 
-// Same rendering as member-repos.ts, so every release message reads alike.
-const show = (v: unknown): string => (v === undefined ? 'nothing' : (JSON.stringify(v) ?? String(v)).slice(0, 120));
 const unset = (v: unknown): boolean => v === undefined || v === null;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 

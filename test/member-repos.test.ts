@@ -13,7 +13,7 @@ import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 import { doctor } from '../lib/doctor.ts';
 import { initWrite, migrate } from '../lib/commands/init.ts';
 import { memberRepoChecks, readLocalConfig, remotesMatch, repoProblems, resolveMemberPath, sameDir, shellWord } from '../lib/member-repos.ts';
-import { deepMerge } from '../lib/util.ts';
+import { deepMerge } from '../lib/shape.ts';
 import * as yaml from '../lib/yaml.ts';
 
 const A = 'git@github.com:acme/a.git';

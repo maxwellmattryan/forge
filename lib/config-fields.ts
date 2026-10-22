@@ -8,7 +8,8 @@
 import { defaults } from './config.ts';
 import { COMPLEXITIES, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, MODEL_RE, OFFICE_GATES } from './schema.ts';
 import type { Config, ConfigField, ConfigFieldType, ConfigSection, ConfigValue } from './types.ts';
-import { ForgeError, getPath } from './util.ts';
+import { getPath } from './shape.ts';
+import { ForgeError } from './util.ts';
 import * as yaml from './yaml.ts';
 
 export { MODEL_RE };

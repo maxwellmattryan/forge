@@ -7,6 +7,7 @@ import { panelPathsProblems, reviewerChecklist } from './config.ts';
 import { memberClone, within } from './job-repos.ts';
 import { LENS_NAME, QUALIFIED_LENS, lensRepoAllowed, splitLens } from './lens.ts';
 import { PLUGIN_ROOT, exists, resolveFrom } from './paths.ts';
+import { isMap, show } from './shape.ts';
 import type { Config, Job, PanelEntry } from './types.ts';
 import { ForgeError } from './util.ts';
 import * as yaml from './yaml.ts';
@@ -23,8 +24,6 @@ export interface MemberLens {
 // The same cap local.yml has: a config this big is a mistake, and reading it all would stall the panel.
 const CONFIG_MAX_BYTES = 256 * 1024;
 
-const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
-const show = (v: unknown): string => (v === undefined ? 'nothing' : (JSON.stringify(v) ?? String(v)).slice(0, 120));
 
 /** The text of `<clone>/.forge/config.yml`, or null when it is absent. Never blocks on a FIFO. */
 function readMemberConfig(name: string, file: string): string | null {

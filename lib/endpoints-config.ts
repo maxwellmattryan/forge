@@ -1,12 +1,12 @@
 // The config-time half of lib/endpoints.ts: the env name of a component and the problems with the
 // `{endpoint.<c>}` / `{backing.<n>.*}` placeholders a config's templates use. Imports nothing that
-// reads job state, so config.ts can import it (endpoints.ts would cycle through jobs.ts).
+// reads job state, so config-validate.ts can import it (endpoints.ts would cycle through jobs.ts).
 import { isManaged } from './backing-config.ts';
+import { isMap } from './shape.ts';
 
 /** FORGE_PORT_<C> / FORGE_ENDPOINT_<C>'s `<C>`: the name upper-cased, anything outside A-Z 0-9 as `_`. */
 export const envName = (component: string): string => component.toUpperCase().replace(/[^A-Z0-9]/g, '_');
 
-const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const PLACEHOLDER = /\{(endpoint|backing)\.([^{}]*)\}/g;
 
 /**
@@ -15,15 +15,16 @@ const PLACEHOLDER = /\{(endpoint|backing)\.([^{}]*)\}/g;
  * `{backing.X.url|port}` naming no entry, `{backing.X.port}` on an entry with no port, and two
  * components whose env names collide. Never shows a url.
  */
-export function placeholderProblems(c: any): string[] {
+export function placeholderProblems(c: unknown): string[] {
+  const cfg: Record<string, any> = isMap(c) ? c : {};
   const problems: string[] = [];
-  const components: any[] = Array.isArray(c?.components) ? c.components.filter((x: unknown) => isMap(x) && typeof x.name === 'string') : [];
+  const components: any[] = Array.isArray(cfg.components) ? cfg.components.filter((x: unknown) => isMap(x) && typeof x.name === 'string') : [];
   const bearing = components.filter((x) => x.kind === 'service' || x.kind === 'app').map((x) => x.name as string);
-  const backing: any[] = Array.isArray(c?.backing) ? c.backing.filter((x: unknown) => isMap(x) && typeof x.name === 'string') : [];
+  const backing: any[] = Array.isArray(cfg.backing) ? cfg.backing.filter((x: unknown) => isMap(x) && typeof x.name === 'string') : [];
   const templates: [string, unknown][] = [
-    ...Object.entries(isMap(c?.commands) ? c.commands : {}).map(([k, v]): [string, unknown] => [`commands.${k}`, v]),
+    ...Object.entries(isMap(cfg.commands) ? cfg.commands : {}).map(([k, v]): [string, unknown] => [`commands.${k}`, v]),
     ...components.flatMap((x) => Object.entries(isMap(x.commands) ? x.commands : {}).map(([k, v]): [string, unknown] => [`components "${x.name}".commands.${k}`, v])),
-    ...(Array.isArray(c?.worktrees?.setup) ? c.worktrees.setup.map((v: unknown, i: number): [string, unknown] => [`worktrees.setup[${i}]`, v]) : []),
+    ...(Array.isArray(cfg.worktrees?.setup) ? cfg.worktrees.setup.map((v: unknown, i: number): [string, unknown] => [`worktrees.setup[${i}]`, v]) : []),
   ];
   for (const [at, template] of templates) {
     if (typeof template !== 'string') continue;

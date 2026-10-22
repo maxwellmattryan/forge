@@ -180,11 +180,11 @@ test('setJob derive decides from the locked job', () => {
     assert.equal(stale.lease.driver, null);
     const seen: (string | null)[] = [];
     const out = setJob(root, job.id, {
-      fields: { 'pr.number': 7 },
+      owned: { 'pr.number': 7 },
       reason: 'static',
       derive: (j) => {
         seen.push(j.lease.driver);
-        return j.lease.driver ? { state: 'waiting', waitingOn: 'conflicts', reason: 'derived', fields: { 'pr.number': 8 }, note: 'derived note' } : { stage: 'integrate', state: 'running' };
+        return j.lease.driver ? { state: 'waiting', waitingOn: 'conflicts', reason: 'derived', owned: { 'pr.number': 8 }, note: 'derived note' } : { stage: 'integrate', state: 'running' };
       },
     });
     assert.deepEqual(seen, ['session-1'], 'called once, with the job as stored at write time');
@@ -204,13 +204,66 @@ test('setJob derive decides from the locked job', () => {
     for (const bad of [{ stage: 'nope' }, { state: 'nope' }, { waitingOn: 'nope' }, { state: 'waiting', waitingOn: null }]) {
       const bytes = fs.readFileSync(file);
       const count = readEvents(root, job.id).length;
-      assert.throws(() => setJob(root, job.id, { fields: { 'pr.number': 9 }, derive: () => bad }), /unknown|needs --waiting-on/, JSON.stringify(bad));
+      assert.throws(() => setJob(root, job.id, { owned: { 'pr.number': 9 }, derive: () => bad }), /unknown|needs --waiting-on/, JSON.stringify(bad));
       assert.ok(fs.readFileSync(file).equals(bytes), `${JSON.stringify(bad)}: job.json is byte-identical`);
       assert.equal(readEvents(root, job.id).length, count, `${JSON.stringify(bad)}: no event`);
     }
 
-    const plain = setJob(root, job.id, { reason: 'static only', fields: { 'pr.number': 10 }, derive: () => null });
+    const plain = setJob(root, job.id, { reason: 'static only', owned: { 'pr.number': 10 }, derive: () => null });
     assert.deepEqual([plain.stage, plain.state, plain.waitingOn, plain.reason, plain.pr?.number], ['pr', 'waiting', 'conflicts', 'static only', 10], 'a null result applies the static change');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('setJob refuses locked fields and prototype keys from any caller', () => {
+  const repo = tempRepo();
+  try {
+    const root = repo.dir;
+    const job = createJob(root, defaults(), { title: 'Locked' });
+    const file = path.join(jobDir(root, job.id), 'job.json');
+    const eventsFile = path.join(jobDir(root, job.id), 'events.jsonl');
+    const refused: [Parameters<typeof setJob>[2], RegExp][] = [
+      [{ fields: { branch: 'main' } }, /^--field branch is not settable; use forge job new --branch$/],
+      [{ fields: { 'pr.number': 1 } }, /^--field pr is not settable; use forge pr find\|open\|sync$/],
+      [{ fields: { '__proto__.polluted': 1 } }, /^--field __proto__\.polluted: __proto__, constructor and prototype are not field names$/],
+      [{ fields: { 'meta.constructor.x': 1 } }, /^--field meta\.constructor\.x: __proto__, constructor and prototype are not field names$/],
+      [{ fields: { reviewers: 'code' } }, /^--field reviewers must be a JSON array of strings/],
+      // A nested key must not write into a list or over the kind, past the whole-value rules.
+      [{ fields: { 'reviewers.0': 5 } }, /^--field reviewers must be a JSON array of strings/],
+      [{ fields: { 'dependsOn.0': 'nope' } }, /^--field dependsOn must be a JSON array of strings/],
+      [{ fields: { complexity: 'huge' } }, /^--field complexity must be low, medium or high, or null$/],
+      [{ fields: { 'complexity.x': 1 } }, /^--field complexity must be low, medium or high, or null$/],
+      [{ fields: { kind: 'retro' } }, /^--field kind=retro is not settable; use forge job new --kind retro$/],
+      [{ fields: { 'kind.x': 1 } }, /^--field kind\.x is not settable; kind is one value/],
+      [{ fields: { kind: 'bug', 'kind.x': 1 } }, /^--field kind\.x is not settable; kind is one value/],
+      [{ state: 'running', derive: () => ({ fields: { worktree: '/tmp/x' } }) }, /^--field worktree is not settable/],
+      [{ owned: { round: 2 } }, /^owned field round is not a locked field; write it through fields$/],
+      [{ owned: { 'pr.__proto__.x': 1 } }, /__proto__, constructor and prototype are not field names$/],
+      // `owned` never slips a non-locked key past the field rules.
+      [{ owned: { worktree: '/tmp/x', reviewers: 'code' } }, /^owned field reviewers is not a locked field/],
+    ];
+    for (const [change, re] of refused) {
+      const bytes = fs.readFileSync(file);
+      const events = fs.readFileSync(eventsFile);
+      assert.throws(() => setJob(root, job.id, change), (e: Error) => re.test(e.message), JSON.stringify(change));
+      assert.ok(fs.readFileSync(file).equals(bytes), `${JSON.stringify(change)}: job.json is byte-identical`);
+      assert.ok(fs.readFileSync(eventsFile).equals(events), `${JSON.stringify(change)}: events.jsonl is byte-identical`);
+      assert.equal(({} as any).polluted, undefined);
+      assert.equal(({} as any).x, undefined);
+    }
+    assert.throws(() => setJob(root, job.id, { owned: { round: 2 } }), (e: any) => e.code === 'internal');
+
+    // The owning module's write: both keys land, logged as one fields event.
+    const out = setJob(root, job.id, { owned: { worktree: '/tmp/wt', port: 4101 }, fields: { size: 'S' } });
+    assert.deepEqual([out.worktree, out.port, out.size], ['/tmp/wt', 4101, 'S']);
+    assert.deepEqual(readEvents(root, job.id).filter((e) => e.type === 'fields').at(-1)!.fields, { worktree: '/tmp/wt', port: 4101, size: 'S' });
+
+    // A retro job's kind is read inside the lock and can't be changed through fields.
+    const retro = createJob(root, defaults(), { title: 'Retro', kind: 'retro' });
+    assert.throws(() => setJob(root, retro.id, { fields: { kind: 'feature' } }), (e: Error) => e.message === `job ${retro.id} is a retro job; its kind is not settable`);
+    assert.throws(() => setJob(root, retro.id, { fields: { 'kind.x': 1 } }), (e: Error) => e.message === `job ${retro.id} is a retro job; its kind is not settable`);
+    assert.equal(loadJob(root, retro.id).kind, 'retro', 'still the string, not an object');
   } finally {
     repo.cleanup();
   }

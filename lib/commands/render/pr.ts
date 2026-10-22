@@ -1,6 +1,7 @@
 // `forge pr open|sync|merge` in human mode.
 import { cell } from '../render.ts';
-import { blocks, fields, has, hang, isObj, line, marked, paint, section, table, txt } from './kit.ts';
+import { isMap } from '../../shape.ts';
+import { blocks, fields, has, hang, line, marked, paint, section, table, txt } from './kit.ts';
 import type { Paint, Renderer, Val } from './kit.ts';
 import type { MergeResult } from '../../pr.ts';
 
@@ -9,7 +10,7 @@ export const prOpen: Renderer = (d, o) => {
   const p = paint(o.color);
   let head = d.number === null ? 'no PR (pr.enabled is off or nothing to push)' : d.created ? `opened PR #${txt(d.number)} ${txt(d.url)}` : `PR #${txt(d.number)} already open ${txt(d.url)}`;
   if (d.unlinked) head += ' (unlinked)';
-  const repos = Array.isArray(d.repos) ? d.repos.filter(isObj).map((r: Record<string, any>) => marked(r.number !== null && r.number !== undefined, [{ text: `${txt(r.repo)} #${txt(r.number)} ${txt(r.url)}` }], p)) : [];
+  const repos = Array.isArray(d.repos) ? d.repos.filter(isMap).map((r: Record<string, any>) => marked(r.number !== null && r.number !== undefined, [{ text: `${txt(r.repo)} #${txt(r.number)} ${txt(r.url)}` }], p)) : [];
   const deferred = Array.isArray(d.deferred) ? d.deferred.map((x: unknown) => line([cell(x, p)]).replace(/\n/g, ' ')) : [];
   return blocks(head, section('Repos', repos, p), section('Deferred', deferred, p));
 };

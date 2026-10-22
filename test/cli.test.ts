@@ -128,10 +128,10 @@ describe('the CLI end to end', { concurrency: 4 }, () => {
       assert.ok(!await f('job', 'get', evalJob, 'worktree'), 'job.worktree is cleared');
 
       // job.worktree is writable state: a bad value must never turn removal into rm -rf of the main checkout.
-      setJob(repo.dir, evalJob, { fields: { worktree: repo.dir } });
+      setJob(repo.dir, evalJob, { owned: { worktree: repo.dir } });
       await assert.rejects(() => removeWorktree(repo.dir, evalJob, { force: true }), /refusing to delete/);
       assert.ok(fs.existsSync(path.join(repo.dir, '.git')) && fs.existsSync(path.join(repo.dir, 'README.md')), 'main checkout survives');
-      setJob(repo.dir, evalJob, { fields: { worktree: null } });
+      setJob(repo.dir, evalJob, { owned: { worktree: null } });
 
       const { config } = loadConfig(repo.dir);
       const { id: iso } = await f('job', 'new', '--title', 'Isolated paths');
@@ -145,7 +145,7 @@ describe('the CLI end to end', { concurrency: 4 }, () => {
       fs.rmSync(isoDir, { recursive: true });
       assert.equal(createWorktree(repo.dir, config, iso, { isolate: true }).ok, true);
       await assert.rejects(() => removeWorktree(repo.dir, iso), /refusing to delete/, 'only eval jobs get directory deletion');
-      setJob(repo.dir, iso, { fields: { eval: { run: 'r', task: 't' } } });
+      setJob(repo.dir, iso, { owned: { eval: { run: 'r', task: 't' } } });
       await removeWorktree(repo.dir, iso);
       assert.equal(fs.existsSync(isoDir), false, 'a clean eval clone is removed without --force');
       const runs = await f('eval', 'runs');
@@ -301,7 +301,7 @@ describe('the CLI end to end', { concurrency: 4 }, () => {
       // AC7 through verify: an unresolvable base fails block with the error as the tail, and passes warn.
       // The secret scan reads the same base and would fail first under its own `block`, so it warns here.
       await f('init', 'write', '--answers', answer({ verifySecrets: 'warn' }));
-      setJob(repo.dir, id, { fields: { base: 'no-such-branch' } });
+      setJob(repo.dir, id, { owned: { base: 'no-such-branch' } });
       const errored = (await failing('verify', id)).out;
       assert.equal(errored.failure.name, 'integrity');
       assert.match(errored.failure.tail, /base no-such-branch not found/);
