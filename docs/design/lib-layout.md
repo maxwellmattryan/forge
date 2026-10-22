@@ -84,7 +84,7 @@ ESM handles these cycles. Fix them only if they hurt; don't fix them as part of 
 | `server/types.ts` | GET responses, SSE frames, POST bodies and replies (split into `api/` files only if it passes 600 lines) |
 | `cli/types.ts` | CliContext, Dispatch, CliError, help |
 
-During the move `lib/types.ts` stays as a type-only barrel, one `export type * from './<module>/types.ts'` line per module, so none of the 113 importers has to change at once. New code imports the module's file. The barrel is deleted once nothing imports it. Split `dashboard/src/lib/types.ts` (1,291 lines) to match `server/types.ts` so that `test/types-parity.ts` compares file by file.
+During the move `lib/types.ts` stays as a type-only barrel, one `export type * from './<module>/types.ts'` line per module, so none of the 113 importers has to change at once. New code imports the module's file. The barrel is deleted once nothing imports it. The dashboard imports the API shapes (`lib/api-types.ts` since #367, `server/types.ts` after the move), so there is no dashboard copy to split.
 
 ## Splitting the four other big files
 

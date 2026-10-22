@@ -651,7 +651,7 @@ test('session log history is paged and confined', async () => {
   };
   try {
     const empty = (await page('session=job-a')).body;
-    // The keys of DaemonLogPage in dashboard/src/lib/types.ts.
+    // The keys of DaemonLogPage in lib/api-types.ts.
     assert.deepEqual(Object.keys(empty).sort(), ['end', 'lines', 'more', 'scope', 'start']);
     assert.deepEqual([empty.lines, empty.end, empty.more], [[], 0, false], 'a missing log is an empty page');
     fs.mkdirSync(dir, { recursive: true });
@@ -987,7 +987,7 @@ test('POST /api/daemon starts and stops one session', async () => {
     const stopA = await post({ action: 'stop', scope: jobA });
     assert.equal(stopA.status, 200);
     const pool = JSON.parse(stopA.text);
-    // The keys of DaemonPoolState (PostDaemonResponse) in dashboard/src/lib/types.ts.
+    // The keys of DaemonPoolState (PostDaemonResponse) in lib/api-types.ts.
     assert.deepEqual(Object.keys(pool), keys, 'the reply is DaemonPoolState');
     assert.equal(pool.wanted, true, 'stopping one session leaves the pool wanted');
     assert.equal(pool.jobs[jobA].wanted, false);
@@ -1046,7 +1046,7 @@ test('/api/state exposes the session pool', async () => {
   let srv = await startServer(repo.dir, { port: 0, daemon: kitOff.opts });
   try {
     const s = JSON.parse((await hit(Number(new URL(srv.url).port), { path: '/api/state' })).text);
-    // The keys of ApiState in dashboard/src/lib/types.ts.
+    // The keys of ApiState in lib/api-types.ts.
     assert.deepEqual(Object.keys(s).sort(), ['apiVersion', 'budget', 'config', 'daemons', 'focus', 'forgeVersion', 'initialized', 'jobs', 'now', 'repo', 'requests']);
     assert.equal(s.apiVersion, API_VERSION);
     assert.equal(s.apiVersion, DASH_API_VERSION);
@@ -1081,7 +1081,7 @@ test('/api/state exposes the session pool', async () => {
     const r = await postRequest(port, { type: 'next' });
     assert.equal(r.status, 200);
     const rec = JSON.parse(r.text);
-    // The keys of PostRequestResponse (a new ForgeRequest, before any optional key is set) in dashboard/src/lib/types.ts.
+    // The keys of PostRequestResponse (a new ForgeRequest, before any optional key is set) in lib/api-types.ts.
     assert.deepEqual(Object.keys(rec).sort(), ['args', 'createdAt', 'daemon', 'from', 'id', 'job', 'status', 'text', 'type']);
     assert.equal(rec.daemon, true);
     assert.equal('launched' in rec, false);
@@ -1191,7 +1191,7 @@ test('/api/config reads the schema and writes only editable keys', async () => {
     const r = await hit(port, { path: '/api/config' });
     assert.equal(r.status, 200);
     const c = JSON.parse(r.text);
-    // The keys of ConfigResponse in dashboard/src/lib/types.ts.
+    // The keys of ConfigResponse in lib/api-types.ts.
     assert.deepEqual(Object.keys(c).sort(), ['fields', 'initialized', 'lockedBy', 'path', 'problems', 'values', 'writable']);
     assert.equal(c.initialized, true);
     assert.equal(c.path, '.forge/config.yml');
@@ -1204,7 +1204,7 @@ test('/api/config reads the schema and writes only editable keys', async () => {
 
     const ok = await post({ key: 'pipeline.maxRounds', value: 4 });
     assert.equal(ok.status, 200);
-    // The keys of PostConfigResponse in dashboard/src/lib/types.ts.
+    // The keys of PostConfigResponse in lib/api-types.ts.
     assert.deepEqual(Object.keys(ok.body).sort(), ['changed', 'key', 'ok', 'previous', 'value']);
     assert.deepEqual([ok.body.value, ok.body.previous, ok.body.changed], [4, 3, true]);
     const settled = fs.readFileSync(file);
@@ -1269,7 +1269,7 @@ test('GET /api/doctor runs forge doctor behind the token', async () => {
     const r = await hit(port, { path: '/api/doctor', headers: { 'x-forge-token': token } });
     assert.equal(r.status, 200);
     const d = JSON.parse(r.text);
-    // The keys of DoctorResponse in dashboard/src/lib/types.ts.
+    // The keys of DoctorResponse in lib/api-types.ts.
     assert.deepEqual(Object.keys(d), ['ok', 'checks', 'at']);
     assert.equal(typeof d.ok, 'boolean');
     assert.ok(!Number.isNaN(Date.parse(d.at)));
@@ -1296,7 +1296,7 @@ test('GET /api/about reports versions', async () => {
     const r = await hit(Number(new URL(url).port), { path: '/api/about' });
     assert.equal(r.status, 200);
     const a = JSON.parse(r.text);
-    // The keys of AboutResponse in dashboard/src/lib/types.ts.
+    // The keys of AboutResponse in lib/api-types.ts.
     assert.deepEqual(Object.keys(a).sort(), ['apiVersion', 'commit', 'forgeVersion', 'installedAs', 'links', 'node', 'pluginRoot', 'pricingAsOf', 'schemaVersions']);
     assert.equal(a.forgeVersion, JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version);
     assert.equal(a.apiVersion, API_VERSION);
@@ -1359,7 +1359,7 @@ test('POST /api/jobs creates the job and queues its resume', async () => {
     const r = await postJson(port, '/api/jobs', { text });
     assert.equal(r.status, 200, r.text);
     const body = JSON.parse(r.text);
-    // The keys of PostJobResponse in dashboard/src/lib/types.ts.
+    // The keys of PostJobResponse in lib/api-types.ts.
     assert.deepEqual(Object.keys(body).sort(), ['branch', 'daemon', 'id', 'request', 'title']);
     assert.equal(body.title, 'Add a reading-time badge');
     assert.match(body.id, /^add-a-reading-time-badge-[a-z0-9]+$/);
@@ -1607,7 +1607,7 @@ test('job detail lists the job\'s requests', async () => {
   const port = Number(new URL(url).port);
   try {
     const detail = JSON.parse((await hit(port, { path: `/api/jobs/${a}` })).text);
-    // The keys of JobDetail in dashboard/src/lib/types.ts.
+    // The keys of JobDetail in lib/api-types.ts.
     assert.deepEqual(Object.keys(detail).sort(), ['agents', 'events', 'files', 'job', 'ownerTranscript', 'request', 'requestFromTracker', 'requests', 'screenshots']);
     assert.equal(detail.requests.length, 50, 'capped at 50');
     assert.deepEqual(detail.requests.map((r) => r.id), ids.slice(-50), 'the newest 50, oldest first');
@@ -1896,7 +1896,7 @@ test('POST /api/jobs/:id/effort sets a job\'s effort, guarded like every POST', 
     const ok = await post({ effort: 'high' });
     assert.equal(ok.status, 200);
     const set = JSON.parse(ok.text);
-    // The keys of PostJobEffortResponse in dashboard/src/lib/types.ts.
+    // The keys of PostJobEffortResponse in lib/api-types.ts.
     assert.deepEqual(Object.keys(set).sort(), ['changed', 'effort', 'id', 'previous']);
     assert.deepEqual([set.id, set.effort, set.previous, set.changed], [id, 'high', null, true]);
     assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'job.json'), 'utf8')).effort, 'high');
@@ -1936,7 +1936,7 @@ test('backlog carries readiness from the triage cache', async () => {
     const r = await get(port, '/api/backlog');
     assert.equal(r.status, 200);
     const backlog = JSON.parse(r.body.toString('utf8'));
-    // The keys of BacklogResponse in dashboard/src/lib/types.ts (`error` only when the tracker failed).
+    // The keys of BacklogResponse in lib/api-types.ts (`error` only when the tracker failed).
     assert.deepEqual(Object.keys(backlog).sort(), ['items', 'tracker']);
     const items = backlog.items;
     const by = Object.fromEntries(items.map((i: any) => [i.ref, i]));
@@ -2106,7 +2106,7 @@ test('budget ack endpoint guards', async () => {
     const ok = await post({ period: month });
     assert.equal(ok.status, 200, ok.text);
     const st = JSON.parse(ok.text);
-    // The keys of RepoBudgetStatus (PostBudgetAckResponse) in dashboard/src/lib/types.ts.
+    // The keys of RepoBudgetStatus (PostBudgetAckResponse) in lib/api-types.ts.
     assert.deepEqual(Object.keys(st).sort(), ['acks', 'caps', 'configured', 'day', 'exceeded', 'held', 'heldJobs', 'month', 'onExceeded', 'projectedMonthUsd', 'reason', 'remaining', 'spent']);
     assert.equal(st.caps.usdPerMonth, 20);
     assert.equal(st.held, false);
@@ -2226,7 +2226,7 @@ test('POST /api/jobs/:id/repos decides pending proposals', async () => {
     const ok = await post({ ...lib, note: 'needed' });
     assert.equal(ok.status, 200, ok.text);
     const decided = JSON.parse(ok.text);
-    // The keys of PostJobReposResponse in dashboard/src/lib/types.ts.
+    // The keys of PostJobReposResponse in lib/api-types.ts.
     assert.deepEqual(Object.keys(decided).sort(), ['added', 'decision', 'id', 'pending', 'repos', 'resumed']);
     assert.deepEqual([decided.id, decided.added, decided.pending, decided.resumed], [parked, ['lib'], [], true]);
     const job = JSON.parse(fs.readFileSync(path.join(dir(parked), 'job.json'), 'utf8'));

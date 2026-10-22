@@ -6,8 +6,10 @@ import { isInterimStrategy, servicesToComponents } from './components.ts';
 import { isSha } from './delta.ts';
 import { isSafeUrl, isStoredRef, sameIssue } from './issue-ref.ts';
 import { REPO_NAME, isSafeBranch } from './member-repos.ts';
+import { ACTOR_SOURCES, COMPLEXITIES, EFFORTS, OFFICE_GATES } from './constants.ts';
 import type { EventActor, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcome, JobRepo, JobRepoPr, JobScore, LoadedJob } from './types.ts';
 
+export { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, STAGES, STATES, WAITING_ON } from './constants.ts';
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from './backing-config.ts';
 
@@ -21,53 +23,6 @@ export const ARCHIVE_SCHEMA_VERSION = 1;
  * served by the same plugin version.
  */
 export const API_VERSION = 35;
-
-/**
- * Where an event's `actor` came from: lib/actor.ts resolves env, gh, git, os and dashboard; the
- * foreman's decisions say `foreman`; anything Forge cannot vouch for reads as `unknown`.
- */
-export const ACTOR_SOURCES = ['env', 'gh', 'git', 'os', 'dashboard', 'foreman', 'unknown'] as const;
-
-export const STAGES = [
-  'backlog',
-  'plan',
-  'spec',
-  'design',
-  'build',
-  'verify',
-  'review',
-  'integrate',
-  'decide',
-  'pr',
-  'done',
-] as const;
-
-export const STATES = ['queued', 'running', 'waiting', 'blocked', 'failed', 'cancelled', 'done'] as const;
-
-export const WAITING_ON = [
-  'spec-approval',
-  'split-approval',
-  'issue-link',
-  'input',
-  'escalation',
-  'infra',
-  'conflicts',
-  'rounds-exhausted',
-  'pr-review',
-  'external',
-  'budget',
-  // A CLI check stopped the job and only a human can clear it; the reason names the check.
-  'human',
-] as const;
-
-/** Budget keys in the fixed order reasons and reports list them. */
-export const BUDGET_KEYS = ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries'] as const;
-
-/** Repo budget caps (config `budget:`) in the order checks and reasons list them. */
-export const REPO_BUDGET_KEYS = ['usdPerMonth', 'tokensPerMonth', 'usdPerDay'] as const;
-
-/** budget.onExceeded: hold parks and refuses new work; warn only reports it. */
-export const REPO_BUDGET_MODES = ['hold', 'warn'] as const;
 
 export const SEVERITIES = ['blocker', 'major', 'minor', 'nit'] as const;
 
@@ -83,27 +38,11 @@ export const NOTIFY_FORMATS = ['json', 'slack'] as const;
 /** The waitingOn values that are human gates; pr-review and external wait on someone outside Forge. */
 export const NOTIFY_GATES = ['spec-approval', 'split-approval', 'issue-link', 'input', 'escalation', 'infra', 'conflicts', 'rounds-exhausted', 'budget', 'human'] as const;
 
-/** Reasoning effort levels: runtime.effort and job.effort, passed to claude as --effort and to agents. */
-export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
-
-/** A spec's judged difficulty (its `Complexity:` header), which runtime.effortByComplexity maps to a level. */
-export const COMPLEXITIES = ['low', 'medium', 'high'] as const;
-
 /** A model alias or id as runtime.models and the builder overrides take it; here so config.ts and config-fields.ts share it without an import cycle. */
 export const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]*$/;
 
 /** The roles runtime.efforts sets, in runtime.models order. No orchestrator: sessions take runtime.effort. */
 export const EFFORT_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'reviewer', 'approver', 'integrator', 'retro', 'judge', 'assistant'] as const;
-
-/**
- * The gate classes the foreman may decide (foreman.decides); `pr-feedback` is a pr-review wait with
- * feedback, `repo-proposal` a `human` wait with pending repo proposals, and `release` a job's release
- * plan awaiting approval (lib/release-approval.ts), which no job waits on.
- */
-export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release'] as const;
-
-/** Why the Foreman left a gate for a person (`forge job handoff --class`): a reserved topic or class, the assistant escalated, or the CLI refused its decision. */
-export const HANDOFF_CLASSES = ['reserved', 'escalated', 'refused'] as const;
 
 /**
  * A foreman.reserved entry read as a class reservation: the class for exactly `gate:<class>`
