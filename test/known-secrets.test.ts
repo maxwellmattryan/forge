@@ -7,11 +7,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
-import { applySinks } from '../lib/config-sinks-apply.ts';
+import { applySinks } from '../lib/engine/environment/config-sinks-apply.ts';
 import { loadConfig } from '../lib/core/config/load.ts';
 import { createJob, jobDir, loadJob } from '../lib/core/job/store.ts';
-import { PRIVATE_JOB_FILES, knownFile, knownRecordValues, knownValues, recordKnown, redactDeep, redactKnown } from '../lib/known-secrets.ts';
-import { createWorktree } from '../lib/worktree.ts';
+import { PRIVATE_JOB_FILES, knownFile, knownRecordValues, knownValues, recordKnown, redactDeep, redactKnown } from '../lib/engine/guard/known-secrets.ts';
+import { createWorktree } from '../lib/engine/workspace/worktree.ts';
 import * as yaml from '../lib/core/format/yaml.ts';
 
 const template = repoTemplate((dir) => {

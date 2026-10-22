@@ -10,9 +10,9 @@ import path from 'node:path';
 import { tempRepo, scratchGitConfig } from './helpers.ts';
 import { defaults, loadConfig, validateConfig } from '../lib/core/config/load.ts';
 import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
-import { doctor } from '../lib/doctor.ts';
+import { doctor } from '../lib/engine/ops/doctor.ts';
 import { initWrite, migrate } from '../lib/commands/init.ts';
-import { memberRepoChecks, readLocalConfig, remotesMatch, repoProblems, resolveMemberPath, sameDir, shellWord } from '../lib/member-repos.ts';
+import { memberRepoChecks, readLocalConfig, remotesMatch, repoProblems, resolveMemberPath, sameDir, shellWord } from '../lib/engine/project/member-repos.ts';
 import { deepMerge } from '../lib/core/shape.ts';
 import * as yaml from '../lib/core/format/yaml.ts';
 

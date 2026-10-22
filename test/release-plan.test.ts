@@ -9,8 +9,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { defaults } from '../lib/core/config/load.ts';
-import { type GitReader, type RepoInput, type ReleaseStep, planHash, planRelease, readManifestPackage, releaseFiles, renderReleaseMd, stepsFor, writeReleasePlan } from '../lib/release-plan.ts';
-import { releaseStatus, releasedVersionFrom, runRelease } from '../lib/release-run.ts';
+import { type GitReader, type RepoInput, type ReleaseStep, planHash, planRelease, readManifestPackage, releaseFiles, renderReleaseMd, stepsFor, writeReleasePlan } from '../lib/engine/release/plan.ts';
+import { releaseStatus, releasedVersionFrom, runRelease } from '../lib/engine/release/run.ts';
 import type { Config } from '../lib/core/types.ts';
 
 // A suite run from a daemon session inherits its marker; this file runs no CLI, so it drops it itself.
@@ -351,7 +351,7 @@ describe('release plan', { concurrency: 4 }, () => {
       const dead = spawnSync(process.execPath, ['-e', '']).pid;
       fs.writeFileSync(path.join(lock, 'owner.json'), JSON.stringify({ pid: dead, startedAt: new Date().toISOString() }));
       const go = path.join(p.root, 'go');
-      const mod = new URL('../lib/release-run.ts', import.meta.url).href;
+      const mod = new URL('../lib/engine/release/run.ts', import.meta.url).href;
       // Each child waits for the go file, takes the lock once and holds it until its stdin closes, so
       // neither sees the other's lock as a dead owner's.
       const script = `import fs from 'node:fs';

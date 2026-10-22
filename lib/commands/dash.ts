@@ -3,7 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import readline from 'node:readline/promises';
 import { paths, PLUGIN_ROOT } from '../core/paths.ts';
-import { currentActor } from '../actor.ts';
+import { currentActor } from '../integrations/github/actor.ts';
 import { setConfigValue } from '../core/config/set.ts';
 import { apiKeyVars, reapOrphans } from '../daemon.ts';
 import { daemonPlatformProblem } from '../core/os/platform.ts';
@@ -149,7 +149,7 @@ export async function dash(root: string, config: Config, flags: Record<string, a
   // dev dashboard points at a scratch repo and deletes nothing; a failure never stops the server.
   if (!flags.dev) {
     try {
-      const { applyRetention } = await import('../retention.ts');
+      const { applyRetention } = await import('../engine/ops/retention.ts');
       applyRetention(root, config, 'policy');
     } catch (e) {
       process.stderr.write(`retention: ${(e as Error).message}\n`);

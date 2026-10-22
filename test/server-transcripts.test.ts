@@ -10,7 +10,7 @@ import { FIXTURE_DIST } from './dist.ts';
 import { defaults } from '../lib/core/config/load.ts';
 import { sessionFiles } from '../lib/core/job/session-files.ts';
 import { attachAgent, claimJob, createJob, recordAgent, updateJob } from '../lib/core/job/store.ts';
-import { projectSlug } from '../lib/transcripts.ts';
+import { projectSlug } from '../lib/integrations/claude/transcripts.ts';
 
 const OWNER = '11111111-2222-4333-8444-555555555555';
 /** A query string built at run time. */

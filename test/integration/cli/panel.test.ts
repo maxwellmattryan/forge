@@ -15,8 +15,8 @@ import { execFileSync } from 'node:child_process';
 import { evalTaskYml, forgeAsync, forgeSync, repoTemplate, scratchGitConfig } from '../../helpers.ts';
 import { defaults, loadConfig } from '../../../lib/core/config/load.ts';
 import { jobDir, loadJob, logEvent, readEvents, updateJob } from '../../../lib/core/job/store.ts';
-import { jobPanel } from '../../../lib/panel.ts';
-import { reworkPanel } from '../../../lib/step.ts';
+import { jobPanel } from '../../../lib/engine/pipeline/panel.ts';
+import { reworkPanel } from '../../../lib/engine/pipeline/step.ts';
 import type { Config } from '../../../lib/core/types.ts';
 
 const write = (dir: string, rel: string, text = 'x\n') => {

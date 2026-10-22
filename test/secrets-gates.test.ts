@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, tempRepo } from './helpers.ts';
-import { fingerprint } from '../lib/secrets.ts';
+import { fingerprint } from '../lib/engine/guard/secrets.ts';
 import { defaults } from '../lib/core/config/load.ts';
 import { setJob, updateJob } from '../lib/core/job/store.ts';
 import { token } from './secret-fixtures.ts';

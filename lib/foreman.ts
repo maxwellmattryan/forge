@@ -8,7 +8,7 @@ import path from 'node:path';
 import { isForemanActor, jobDir, readEvents } from './core/job/store.ts';
 import { OFFICE_SCOPE, daemonScope, enqueue, listRequests } from './core/job/requests.ts';
 import { HANDOFF_CLASSES, OFFICE_GATES, reservedGateEntry } from './core/job/schema.ts';
-import { isRepoProposalPark, pendingRepoProposals, repoProposals } from './repo-proposals.ts';
+import { isRepoProposalPark, pendingRepoProposals, repoProposals } from './engine/project/repo-proposals.ts';
 import { ForgeError } from './core/errors.ts';
 import { safeText } from './core/text.ts';
 import type { Config, ForemanHandoff, ForgeRequest, GateClass, GateOwner, HandoffClass, Job, JobEvent } from './core/types.ts';

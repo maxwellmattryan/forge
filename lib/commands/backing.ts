@@ -1,10 +1,10 @@
 // `forge backing up|down|stop|status`: a job's backing services on demand (lib/backing.ts, docs/CONFIG.md
 // "Backing services"). worktree create and remove do the same bring-up and teardown on their own.
-import { backingDown, backingDownShared, backingStatus, backingStop, backingUp } from '../backing.ts';
+import { backingDown, backingDownShared, backingStatus, backingStop, backingUp } from '../engine/environment/backing.ts';
 import { refuseInboxDrive, refuseInboxOrOffice } from '../daemon-owner.ts';
 import { loadJob } from '../core/job/store.ts';
 import { validJobId } from '../core/job/requests.ts';
-import { databaseCommands } from '../job-command.ts';
+import { databaseCommands } from '../engine/workspace/job-command.ts';
 import { ForgeError } from '../core/errors.ts';
 import { assertSafeRef } from '../core/text.ts';
 import { usageError } from './args.ts';

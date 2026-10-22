@@ -11,13 +11,13 @@ import { PERMISSION_MODES, TRUST_CHANGED, commandPermissionMode, createSession, 
 import { UUID, readInfo, sessionFiles } from './core/job/session-files.ts';
 import type { DaemonOptions, Session, SessionContext, SessionEvent } from './daemon.ts';
 import { daemonSessionIds } from './daemon-owner.ts';
-import { configForJob } from './eval-overlay.ts';
+import { configForJob } from './engine/evals/overlay.ts';
 import { expireLease, listJobs, loadJob, logHumanEvent, repoAuditFile, requeueOrphanedRequests } from './core/job/store.ts';
 import { PLUGIN_ROOT } from './core/paths.ts';
 import { RECONCILE_MS, daemonLockDir, reconcile } from './reconcile.ts';
 import type { SessionFacts } from './reconcile.ts';
 import { tryLock } from './core/os/lock.ts';
-import { repoBudgetStatus } from './repo-budget.ts';
+import { repoBudgetStatus } from './engine/metrics/repo-budget.ts';
 import { daemonPlatformProblem } from './core/os/platform.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, listRequests, requestScope, validScope } from './core/job/requests.ts';
 import type { Config, RepoBudgetStatus, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, Job, PermissionDecision } from './core/types.ts';

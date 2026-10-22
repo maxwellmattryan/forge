@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, forgeInProcess, repoTemplate } from './helpers.ts';
 import { loadConfig } from '../lib/core/config/load.ts';
-import { forgeVersion } from '../lib/evals.ts';
+import { forgeVersion } from '../lib/engine/evals/run.ts';
 import { ForgeError } from '../lib/core/errors.ts';
 import { dispatch } from '../lib/cli.ts';
 import { lenientOutputMode, out, outputMode, parseArgs, renderKeyOf, resolveOutputMode, setOutputMode, setRenderKey, withoutMode } from '../lib/commands/args.ts';

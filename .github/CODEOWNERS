@@ -7,7 +7,7 @@
 /lib/daemon.ts @maxwellmattryan
 /lib/daemon-pool.ts @maxwellmattryan
 /hooks/** @maxwellmattryan
-/lib/attribution.ts @maxwellmattryan
+/lib/engine/guard/attribution.ts @maxwellmattryan
 /lib/core/config/fields.ts @maxwellmattryan
 /.github/** @maxwellmattryan
 /lib/core/job/schema.ts @maxwellmattryan

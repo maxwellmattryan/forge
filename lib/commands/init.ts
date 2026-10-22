@@ -7,7 +7,7 @@ import { configLock } from '../core/config/set.ts';
 import { listJobs, jobDir } from '../core/job/store.ts';
 import { paths, exists, PLUGIN_ROOT } from '../core/paths.ts';
 import { matchPolicy } from '../core/config/validators/policy-check.ts';
-import { modelOverlap } from '../roster.ts';
+import { modelOverlap } from '../engine/pipeline/roster.ts';
 import { migrateConfig, normalizeJob, serializeJob } from '../core/job/schema.ts';
 import { deepMerge } from '../core/shape.ts';
 import { ForgeError } from '../core/errors.ts';

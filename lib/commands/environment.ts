@@ -1,10 +1,10 @@
 // `forge environment up|stop|down|list`: a job's environment on demand (lib/environment-lifecycle.ts,
 // docs/CONFIG.md "Backing services" › Lifecycle). Forge does the same on its own: teardown when a job
 // finishes or is archived, stop on a park, start on resume, verify, run --background and focus.
-import { currentFocus } from '../focus-actions.ts';
+import { currentFocus } from '../engine/workspace/focus-actions.ts';
 import { refuseInboxDrive } from '../daemon-owner.ts';
-import { ensureEnvironment, stopEnvironment, teardownEnvironment } from '../environment-lifecycle.ts';
-import { liveJob, readEnvironments } from '../environment-record.ts';
+import { ensureEnvironment, stopEnvironment, teardownEnvironment } from '../engine/environment/lifecycle.ts';
+import { liveJob, readEnvironments } from '../engine/environment/record.ts';
 import { isActive, loadJob } from '../core/job/store.ts';
 import { validJobId } from '../core/job/requests.ts';
 import { ForgeError } from '../core/errors.ts';

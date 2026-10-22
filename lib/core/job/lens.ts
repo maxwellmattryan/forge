@@ -1,7 +1,7 @@
 // Review lens names. A plain name (`code`) is a lens of the root panel or the plugin catalog; a
 // qualified name (`lib:realtime`) is a lens a member repo of the job defines for itself. Both reach
 // shell lines, file names and job.json keys, so every caller checks names here first.
-import { REPO_NAME } from '../../member-repos.ts';
+import { REPO_NAME } from '../../engine/project/member-repos.ts';
 import type { Job } from '../types.ts';
 
 export const LENS_NAME = /^[a-z0-9][a-z0-9-]*$/;

@@ -5,9 +5,9 @@ import path from 'node:path';
 import { describe, test } from 'node:test';
 import { defaults } from '../lib/core/config/load.ts';
 import { createJob } from '../lib/core/job/store.ts';
-import { recordKnown } from '../lib/known-secrets.ts';
-import { daemonSkeleton, omitProse, redactContext, redactText } from '../lib/redact.ts';
-import type { RedactContext } from '../lib/redact.ts';
+import { recordKnown } from '../lib/engine/guard/known-secrets.ts';
+import { daemonSkeleton, omitProse, redactContext, redactText } from '../lib/engine/guard/redact.ts';
+import type { RedactContext } from '../lib/engine/guard/redact.ts';
 import { pem, token } from './secret-fixtures.ts';
 import { tempRepo } from './helpers.ts';
 

@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { LIB_COMMANDS, dependsOn, prProject, ready } from '../../job-repos-fixture.ts';
 import type { PrProject } from '../../job-repos-fixture.ts';
-import { BLOCK_BEGIN, BLOCK_END } from '../../../lib/interim.ts';
+import { BLOCK_BEGIN, BLOCK_END } from '../../../lib/engine/release/interim.ts';
 import { loadJob } from '../../../lib/core/job/store.ts';
 import { listRequests } from '../../../lib/core/job/requests.ts';
 

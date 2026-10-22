@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { agentTranscript, cachedActivity, claudeProjectsDir, lastActivity, openTranscript, ownerTranscript, projectSlug, transcriptProjectDirs } from '../lib/transcripts.ts';
+import { agentTranscript, cachedActivity, claudeProjectsDir, lastActivity, openTranscript, ownerTranscript, projectSlug, transcriptProjectDirs } from '../lib/integrations/claude/transcripts.ts';
 
 const OWNER = '11111111-2222-4333-8444-555555555555';
 const OLD = '66666666-7777-4888-8999-aaaaaaaaaaaa';

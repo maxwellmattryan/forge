@@ -6,8 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
-import { focusJob } from '../lib/focus-actions.ts';
-import { checkoutFile, readCheckoutRecord } from '../lib/checkout.ts';
+import { focusJob } from '../lib/engine/workspace/focus-actions.ts';
+import { checkoutFile, readCheckoutRecord } from '../lib/engine/workspace/checkout.ts';
 import { loadConfig } from '../lib/core/config/load.ts';
 import * as yaml from '../lib/core/format/yaml.ts';
 

@@ -1,13 +1,13 @@
 // Builds StepInputs for test/step.test.ts and test/brief.test.ts without touching disk: a job from
 // normalizeJob({id:'j'}), the default config, and only the facts a row names.
 import path from 'node:path';
-import { acCoverage } from '../lib/acs.ts';
-import { jobPathMap } from '../lib/brief.ts';
+import { acCoverage } from '../lib/engine/pipeline/acs.ts';
+import { jobPathMap } from '../lib/engine/pipeline/brief.ts';
 import { defaults } from '../lib/core/config/load.ts';
-import { jobEndpoints } from '../lib/endpoints.ts';
+import { jobEndpoints } from '../lib/engine/environment/endpoints.ts';
 import { normalizeJob } from '../lib/core/job/schema.ts';
 import { PLUGIN_ROOT } from '../lib/core/paths.ts';
-import { recallGate } from '../lib/step/input.ts';
+import { recallGate } from '../lib/engine/pipeline/step/input.ts';
 import type { Config, Job, JobAgent, JobEvent, StepFile, StepInput } from '../lib/core/types.ts';
 
 export const ROOT = '/repo';

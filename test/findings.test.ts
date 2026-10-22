@@ -6,9 +6,9 @@ import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
 import { defaults } from '../lib/core/config/load.ts';
 import { createJob, jobDir, setJob } from '../lib/core/job/store.ts';
-import { cleanPath, parseAddressed, parseReviewFindings, summariseFindings } from '../lib/findings.ts';
-import { prepareRetro } from '../lib/retro.ts';
-import { utcMonday } from '../lib/stats.ts';
+import { cleanPath, parseAddressed, parseReviewFindings, summariseFindings } from '../lib/engine/pipeline/findings.ts';
+import { prepareRetro } from '../lib/engine/evals/retro.ts';
+import { utcMonday } from '../lib/engine/metrics/stats.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 

@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findAttribution } from '../lib/attribution.ts';
+import { findAttribution } from '../lib/engine/guard/attribution.ts';
 import { gitSync } from './git.ts';
 import { distHash, sourceHash, STAMP } from '../dashboard/build-stamp.mjs';
 

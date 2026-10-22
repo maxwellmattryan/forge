@@ -9,7 +9,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate, tempRepo } from './helpers.ts';
 import { defaults } from '../lib/core/config/load.ts';
-import { refreshDependencyWait, DEP_REASON } from '../lib/deps.ts';
+import { refreshDependencyWait, DEP_REASON } from '../lib/engine/pipeline/deps.ts';
 import { AGENT_LEASE_MS, LEASE_MS, claimJob, createJob, jobDir, leaseStatus, loadJob, readEvents, recordAgent, releaseJob, renewLease, setJob, updateJob } from '../lib/core/job/store.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');

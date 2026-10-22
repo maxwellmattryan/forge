@@ -5,7 +5,7 @@
 // repo's .forge/config.yml.
 import fs from 'node:fs';
 import path from 'node:path';
-import { findAttribution } from '../lib/attribution.ts';
+import { findAttribution } from '../lib/engine/guard/attribution.ts';
 
 const PUBLISHING = /\b(git\s+(commit|tag|notes|merge)|gh\s+(pr|issue|release|api|gist)|glab\s+(mr|issue|release))\b/;
 

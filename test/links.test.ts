@@ -10,8 +10,8 @@ import { execFileSync } from 'node:child_process';
 import { forgeAsync, scratchGitConfig, tempRepo } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/core/config/load.ts';
 import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
-import { memberWorktreePath } from '../lib/job-repos.ts';
-import { applyLinks, cargoShim, cmakeArgs, cmakeShim, declaredLinks, linkLeakPaths, npmShim, pathPrelude, renderCargoConfig, resolveLinks, restoreLockfiles, sameMode, snapshotLockfiles, writeIfChanged } from '../lib/links.ts';
+import { memberWorktreePath } from '../lib/engine/project/job-repos.ts';
+import { applyLinks, cargoShim, cmakeArgs, cmakeShim, declaredLinks, linkLeakPaths, npmShim, pathPrelude, renderCargoConfig, resolveLinks, restoreLockfiles, sameMode, snapshotLockfiles, writeIfChanged } from '../lib/engine/project/links.ts';
 import type { Config, Job } from '../lib/core/types.ts';
 import * as yaml from '../lib/core/format/yaml.ts';
 

@@ -6,13 +6,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import * as b from '../lib/backing.ts';
-import type { DockerRunner } from '../lib/backing.ts';
+import * as b from '../lib/engine/environment/backing.ts';
+import type { DockerRunner } from '../lib/engine/environment/backing.ts';
 import { loadConfig } from '../lib/core/config/load.ts';
-import { doctor } from '../lib/doctor.ts';
+import { doctor } from '../lib/engine/ops/doctor.ts';
 import { createJob, loadJob, readEvents, setJob } from '../lib/core/job/store.ts';
-import { loadStepInput, step } from '../lib/step.ts';
-import { createWorktree, removeWorktree, runCommand, verify } from '../lib/worktree.ts';
+import { loadStepInput, step } from '../lib/engine/pipeline/step.ts';
+import { createWorktree, removeWorktree, runCommand, verify } from '../lib/engine/workspace/worktree.ts';
 import { emptyState, handle } from './fixtures/fake-docker.mjs';
 import { forgeSync, repoTemplate } from './helpers.ts';
 

@@ -1288,7 +1288,7 @@ test('GET /api/doctor runs forge doctor behind the token', async () => {
 test('GET /api/about reports versions', async () => {
   const schema = await import('../lib/core/job/schema.ts');
   const { PLUGIN_ROOT } = await import('../lib/core/paths.ts');
-  const { versionInfo } = await import('../lib/version.ts');
+  const { versionInfo } = await import('../lib/engine/ops/version.ts');
   const root = path.resolve(import.meta.dirname, '..');
   const repo = tempRepo();
   const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
@@ -1302,7 +1302,7 @@ test('GET /api/about reports versions', async () => {
     assert.equal(a.apiVersion, API_VERSION);
     assert.equal(a.pluginRoot, PLUGIN_ROOT);
     assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
-    assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);
+    assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'integrations', 'claude', 'pricing.json'), 'utf8')).asOf);
     assert.equal(a.node, process.versions.node);
     assert.deepEqual(a.links, { repo: 'https://github.com/maxwellmattryan/forge', docs: 'https://github.com/maxwellmattryan/forge/tree/main/docs' });
     const v = versionInfo(PLUGIN_ROOT);

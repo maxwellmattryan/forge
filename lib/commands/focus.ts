@@ -1,7 +1,7 @@
 // `forge focus`: which job the human is QA-ing in its worktree. A pointer plus the configured
 // `checkout` steps (lib/checkout.ts), then the focused job's backing services; it starts and stops
 // no background process (lib/focus.ts, lib/focus-actions.ts).
-import { currentFocus, focusJob } from '../focus-actions.ts';
+import { currentFocus, focusJob } from '../engine/workspace/focus-actions.ts';
 import type { Config, EnvironmentUpResult, FocusResponse, HelpGroup } from '../core/types.ts';
 import { ForgeError } from '../core/errors.ts';
 

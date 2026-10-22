@@ -3,10 +3,10 @@
 // pr.ts imports the scanner.
 import { loadJob } from '../core/job/store.ts';
 import { exists } from '../core/paths.ts';
-import { prText } from '../pr.ts';
-import { applyAllowlist, findingLine, scanBranch, scanPaths, scanUnits, textUnit } from '../secrets.ts';
-import { knownValues } from '../known-secrets.ts';
-import { checkSecret } from '../secret-refs.ts';
+import { prText } from '../engine/pr/lifecycle.ts';
+import { applyAllowlist, findingLine, scanBranch, scanPaths, scanUnits, textUnit } from '../engine/guard/secrets.ts';
+import { knownValues } from '../engine/guard/known-secrets.ts';
+import { checkSecret } from '../engine/guard/secret-refs.ts';
 import { secretSourceOf } from '../core/config/validators/secret-refs.ts';
 import { ForgeError } from '../core/errors.ts';
 import { list, usageError } from './args.ts';

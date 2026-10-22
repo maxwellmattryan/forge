@@ -11,7 +11,7 @@ import { defaults } from '../lib/core/config/load.ts';
 import { jobDir, loadJob, readEvents } from '../lib/core/job/store.ts';
 import { JOB_SCHEMA_VERSION, normalizeJob } from '../lib/core/job/schema.ts';
 import { checkIssueRef, nativeRef, parseIssueRef } from '../lib/core/job/issue-ref.ts';
-import { localRepoSlug } from '../lib/repo-slug.ts';
+import { localRepoSlug } from '../lib/integrations/git/repo-slug.ts';
 import { startFromRef } from '../lib/commands/tracker.ts';
 import type { Tracker } from '../lib/core/types.ts';
 

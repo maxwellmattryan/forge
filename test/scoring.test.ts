@@ -7,10 +7,10 @@ import { forgeAsync, repoTemplate } from './helpers.ts';
 import { defaults, resolveModel, validateConfig } from '../lib/core/config/load.ts';
 import { CONFIG_DISCLOSURE, FIELDS } from '../lib/core/config/fields.ts';
 import { createJob, jobDir, loadJob, readEvents, setJob } from '../lib/core/job/store.ts';
-import { isSampled, parseScoreMd } from '../lib/scoring.ts';
+import { isSampled, parseScoreMd } from '../lib/engine/evals/scoring.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const SCORING = path.join(ROOT, 'lib', 'scoring.ts');
+const SCORING = path.join(ROOT, 'lib', 'engine', 'evals', 'scoring.ts');
 
 const repo = repoTemplate((dir) => {
   fs.mkdirSync(path.join(dir, '.forge'));

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, forgeInProcess, repoTemplate } from './helpers.ts';
-import { csvCell, jobAudit, parseAuditDate, toCsv } from '../lib/audit.ts';
+import { csvCell, jobAudit, parseAuditDate, toCsv } from '../lib/engine/ops/audit.ts';
 import { auditCmd } from '../lib/commands/audit.ts';
 import { parseArgs } from '../lib/commands/args.ts';
 import { defaults } from '../lib/core/config/load.ts';

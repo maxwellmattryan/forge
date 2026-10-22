@@ -1,5 +1,5 @@
 // `forge update [--check] [--keep-dash]`: routed before mainRoot(), so it needs no repo or .forge/.
-import { updateForge } from '../update.ts';
+import { updateForge } from '../engine/ops/update.ts';
 import { out } from './args.ts';
 import type { HelpGroup } from '../core/types.ts';
 

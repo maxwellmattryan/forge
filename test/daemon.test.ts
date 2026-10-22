@@ -13,7 +13,7 @@ import { defaults, resolveEffort } from '../lib/core/config/load.ts';
 import { escapeControls } from '../lib/commands/daemon.ts';
 import { createJob, loadJob, markAgentsLost, recordAgent, updateJob } from '../lib/core/job/store.ts';
 import { DENY_TOOLS, PROMPT_TOOL, apiKeyVars, buildArgv, sessionEnv, sessionGrant, PERMISSION_MODES, commandPermissionMode, modeReach, withPermissionMode, withEffort, LOST_SUMMARY } from '../lib/daemon.ts';
-import { SESSION_PINS as GIT_PINS } from '../lib/git.ts';
+import { SESSION_PINS as GIT_PINS } from '../lib/integrations/git/runner.ts';
 
 /** A bare git repo, copied per test. */
 const scratch = repoTemplate(() => {});

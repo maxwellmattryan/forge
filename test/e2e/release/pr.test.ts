@@ -11,7 +11,7 @@ import path from 'node:path';
 import { dependsOn, prProject, ready } from '../../job-repos-fixture.ts';
 import type { PrProject, TwoRepo } from '../../job-repos-fixture.ts';
 import { TRUST_ENV, trustDigest } from '../../../lib/core/config/load.ts';
-import { RELEASE_DAEMON_REFUSAL } from '../../../lib/interim-apply.ts';
+import { RELEASE_DAEMON_REFUSAL } from '../../../lib/engine/release/interim-apply.ts';
 import { loadJob } from '../../../lib/core/job/store.ts';
 
 const cleanups: (() => void)[] = [];

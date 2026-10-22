@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { defaults, validateConfig } from '../lib/core/config/load.ts';
-import { declaredLinks } from '../lib/links.ts';
+import { declaredLinks } from '../lib/engine/project/links.ts';
 import {
   BLOCK_BEGIN,
   BLOCK_END,
@@ -31,8 +31,8 @@ import {
   remoteUrl,
   resolveInterim,
   strategyOf,
-} from '../lib/interim.ts';
-import { isPackageManagerConfig, writeManifest } from '../lib/interim-apply.ts';
+} from '../lib/engine/release/interim.ts';
+import { isPackageManagerConfig, writeManifest } from '../lib/engine/release/interim-apply.ts';
 import { PLUGIN_ROOT } from '../lib/core/paths.ts';
 import type { Config, Job } from '../lib/core/types.ts';
 import { repoTemplate } from './helpers.ts';

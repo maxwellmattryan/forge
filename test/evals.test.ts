@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { scratchGitConfig, tempRepo } from './helpers.ts';
 import { defaults, loadConfig } from '../lib/core/config/load.ts';
 import { loadJob, setJob } from '../lib/core/job/store.ts';
-import { configHash, gradeJob, startRun, summarize } from '../lib/evals.ts';
+import { configHash, gradeJob, startRun, summarize } from '../lib/engine/evals/run.ts';
 import { evalCmd } from '../lib/commands/eval.ts';
 import * as yaml from '../lib/core/format/yaml.ts';
 

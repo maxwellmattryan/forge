@@ -1,7 +1,7 @@
 // `forge config show|get|set|validate`: read the effective config, and write one editable key.
 import { validateConfig } from '../core/config/load.ts';
 import { fieldFor, parseCliValue } from '../core/config/fields.ts';
-import { currentActor } from '../actor.ts';
+import { currentActor } from '../integrations/github/actor.ts';
 import { NEED_INIT, setConfigValue } from '../core/config/set.ts';
 import type { Config, HelpGroup } from '../core/types.ts';
 import { getPath } from '../core/shape.ts';

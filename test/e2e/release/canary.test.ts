@@ -13,7 +13,7 @@ import { LIB_COMMANDS, dependsOn, prProject, ready } from '../../job-repos-fixtu
 import type { PrProject } from '../../job-repos-fixture.ts';
 import { fakeBin } from '../../helpers.ts';
 import { TRUST_ENV, trustDigest } from '../../../lib/core/config/load.ts';
-import { RELEASE_DAEMON_REFUSAL } from '../../../lib/interim-apply.ts';
+import { RELEASE_DAEMON_REFUSAL } from '../../../lib/engine/release/interim-apply.ts';
 import { loadJob } from '../../../lib/core/job/store.ts';
 import { token } from '../../secret-fixtures.ts';
 

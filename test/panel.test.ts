@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { defaults, lensNeedsApp, panelPathsProblems, reviewerChecklist, validateConfig } from '../lib/core/config/load.ts';
 import { PLUGIN_ROOT } from '../lib/core/paths.ts';
-import { choosePanel, reworkPanel, selectPanel } from '../lib/step.ts';
+import { choosePanel, reworkPanel, selectPanel } from '../lib/engine/pipeline/step.ts';
 import type { Config } from '../lib/core/types.ts';
 
 const ROOT = process.cwd();

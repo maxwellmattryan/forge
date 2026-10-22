@@ -5,7 +5,7 @@ import { refuseInboxDrive } from '../daemon-owner.ts';
 import { maybeEnqueueGate } from '../foreman.ts';
 import { assertEpoch, leaseStatus, loadJob, logEvent, readEvents, renewLease, setJob } from '../core/job/store.ts';
 import { progressMark } from '../reconcile.ts';
-import { loadStepInput, step } from '../step.ts';
+import { loadStepInput, step } from '../engine/pipeline/step.ts';
 import { ForgeError } from '../core/errors.ts';
 import { safeText } from '../core/text.ts';
 import { num, req, str } from './args.ts';

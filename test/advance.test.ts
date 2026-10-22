@@ -433,7 +433,7 @@ test('advance stops when another session takes the job mid-call', async () => {
 });
 
 test('only the commands step emits run in-process', () => {
-  const dir = path.join(ROOT, 'lib', 'step');
+  const dir = path.join(ROOT, 'lib', 'engine', 'pipeline', 'step');
   const files = (fs.readdirSync(dir, { recursive: true }) as string[]).filter((f) => f.endsWith('.ts'));
   const src = files.map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
   const groups = new Set([...src.matchAll(/\brun\([\w.]+, '[A-Za-z0-9]+', \['([a-z]+)'/g)].map((m) => m[1]));

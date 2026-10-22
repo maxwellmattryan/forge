@@ -1,7 +1,7 @@
 // `forge eval …`: lists, mines, starts, grades and reports eval tasks, and the reviewer recall evals.
-import { parseOverlay } from '../eval-overlay.ts';
-import * as evals from '../evals.ts';
-import * as recall from '../recall.ts';
+import { parseOverlay } from '../engine/evals/overlay.ts';
+import * as evals from '../engine/evals/run.ts';
+import * as recall from '../engine/evals/recall.ts';
 import { ForgeError } from '../core/errors.ts';
 import { bodyFrom, list, num, req, requireJob, usageError } from './args.ts';
 import type { Config, HelpGroup } from '../core/types.ts';

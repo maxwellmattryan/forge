@@ -4,18 +4,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import * as stepModule from '../lib/step.ts';
-import { RULES, TABLES, step } from '../lib/step.ts';
-import { computeFacts } from '../lib/step/facts.ts';
-import { PP1 } from '../lib/step/gates.ts';
-import { M1, M2, N1, N1b, N2, X1 } from '../lib/step/generic.ts';
-import { firstMatch, flatRows } from '../lib/step/rules.ts';
-import type { Ctx, Row, Rule } from '../lib/step/rules.ts';
+import * as stepModule from '../lib/engine/pipeline/step.ts';
+import { RULES, TABLES, step } from '../lib/engine/pipeline/step.ts';
+import { computeFacts } from '../lib/engine/pipeline/step/facts.ts';
+import { PP1 } from '../lib/engine/pipeline/step/gates.ts';
+import { M1, M2, N1, N1b, N2, X1 } from '../lib/engine/pipeline/step/generic.ts';
+import { firstMatch, flatRows } from '../lib/engine/pipeline/step/rules.ts';
+import type { Ctx, Row, Rule } from '../lib/engine/pipeline/step/rules.ts';
 import type { StepInput } from '../lib/core/types.ts';
 import { fixture } from './step-fixture.ts';
 import { rows } from './step-rows.ts';
 
-const LIB = path.resolve(import.meta.dirname, '..', 'lib');
+const LIB = path.resolve(import.meta.dirname, '..', 'lib', 'engine', 'pipeline');
 
 /** Changing precedence means editing this list: every table's IDs in evaluation order, shared rows where they run. */
 const PINNED: Record<string, string[]> = {

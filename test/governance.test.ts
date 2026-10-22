@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse } from '../lib/core/format/yaml.ts';
-import { findAttribution } from '../lib/attribution.ts';
+import { findAttribution } from '../lib/engine/guard/attribution.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), 'utf8');

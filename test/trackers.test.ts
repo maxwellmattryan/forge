@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
-import { loadTracker } from '../lib/trackers/index.ts';
+import { loadTracker } from '../lib/engine/trackers/load.ts';
 import { token } from './secret-fixtures.ts';
 import { defaults } from '../lib/core/config/load.ts';
 import { createJob, setJob } from '../lib/core/job/store.ts';
-import local from '../lib/trackers/local.ts';
+import local from '../lib/integrations/backlog/tracker.ts';
 import { statusKey } from '../lib/api/tracker.ts';
-import { statusMap } from '../lib/trackers/github.ts';
+import { statusMap } from '../lib/integrations/github/tracker.ts';
 import { scoreItems, searchTerms } from '../lib/core/job/issue-link.ts';
 import { execFileSync } from 'node:child_process';
 
@@ -295,7 +295,7 @@ test('mirror and approval comment act on each native issue', async () => {
   const repo = tempRepo();
   try {
     const { commentApproval } = await import('../lib/commands/tracker.ts');
-    const { mirrorToTracker } = await import('../lib/trackers/mirror.ts');
+    const { mirrorToTracker } = await import('../lib/engine/trackers/mirror.ts');
     const { logEvent, loadJob } = await import('../lib/core/job/store.ts');
     const calls: string[] = [];
     (globalThis as any).__issueRefsCalls = calls;

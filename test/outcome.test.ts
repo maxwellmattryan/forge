@@ -5,7 +5,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { repoTemplate } from './helpers.ts';
 import { defaults } from '../lib/core/config/load.ts';
-import { findRevertCommit, matchFollowUps, matchRevertPr, measureChurn, measureOutcome, outcomeDue } from '../lib/outcome.ts';
+import { findRevertCommit, matchFollowUps, matchRevertPr, measureChurn, measureOutcome, outcomeDue } from '../lib/engine/evals/outcome.ts';
 
 const T0 = Date.parse('2026-10-01T00:00:00.000Z');
 const DAY = 86_400_000;

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { budgetRows, budgetWorst, budgetChipModel, budgetCellModel, budgetPanelModel, unattendedDefault, BUDGET_KEYS } from '../dashboard/src/lib/budget.ts';
-import { effectiveLimits } from '../lib/budget.ts';
+import { effectiveLimits } from '../lib/engine/metrics/budget.ts';
 import { defaults } from '../lib/core/config/load.ts';
 
 const row = (rows, key) => rows.find((r) => r.key === key);

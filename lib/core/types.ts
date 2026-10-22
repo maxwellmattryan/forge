@@ -4,10 +4,10 @@
 import type { BACKING_DB_ENGINES, BACKING_ISOLATIONS, DAEMON_AUTH, EFFORT_ROLES, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS, SEVERITIES } from './job/schema.ts';
 import type { LINK_ECOSYSTEMS } from './config/components.ts';
 import type { SINK_FORMATS, SINK_MODES } from './config/sinks.ts';
-import type { AcCoverage } from '../acs.ts';
+import type { AcCoverage } from '../engine/pipeline/acs.ts';
 import type { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_PUBLISH, RELEASE_REGISTRIES, RELEASE_VERSIONINGS } from './config/release-strategy.ts';
-import type { SECRET_KINDS } from '../secrets.ts';
-import type { JobFindings } from '../findings.ts';
+import type { SECRET_KINDS } from '../engine/guard/secrets.ts';
+import type { JobFindings } from '../engine/pipeline/findings.ts';
 import type { Complexity, ComponentKind, DaemonJobBudget, DependencyType, Effort, EventActor, ForemanHandoff, GateClass, InstalledAs, InterimStrategy, Job, JobEvent, JobState, PipelineConfig, RepoBudgetMode, Stage, Stats, TrackerItem, WaitingOn } from '../api/types.ts';
 
 export type * from '../api/types.ts';

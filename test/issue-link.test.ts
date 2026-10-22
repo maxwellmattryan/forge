@@ -11,9 +11,9 @@ import { defaults } from '../lib/core/config/load.ts';
 import { jobDir, loadJob, readEvents } from '../lib/core/job/store.ts';
 import { WAITING_ON } from '../lib/core/job/schema.ts';
 import { issueLinkStatus, prLinkNote, queryTerms } from '../lib/core/job/issue-link.ts';
-import { searchTracker } from '../lib/tracker-link.ts';
-import github, { inRepo, quote } from '../lib/trackers/github.ts';
-import { gateTell, step } from '../lib/step.ts';
+import { searchTracker } from '../lib/engine/trackers/link.ts';
+import github, { inRepo, quote } from '../lib/integrations/github/tracker.ts';
+import { gateTell, step } from '../lib/engine/pipeline/step.ts';
 import type { StepFile } from '../lib/core/types.ts';
 import { fixture } from './step-fixture.ts';
 

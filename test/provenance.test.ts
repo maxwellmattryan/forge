@@ -7,7 +7,7 @@ import path from 'node:path';
 import { forgeSync, tempRepo } from './helpers.ts';
 import { defaults } from '../lib/core/config/load.ts';
 import { createJob, jobDir, readEvents, recordAgent, setJob } from '../lib/core/job/store.ts';
-import { pluginHash } from '../lib/provenance.ts';
+import { pluginHash } from '../lib/engine/evals/provenance.ts';
 import { ARCHIVE_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
 import type { Config } from '../lib/core/types.ts';
 
@@ -76,12 +76,12 @@ test('pluginHash never follows a linked plugin directory, and caps its walk', ()
   try {
     put('agents/builder.md', 'builder');
     put('skills/forge/SKILL.md', 'skill');
-    put('lib/step/order.ts', 'order');
-    put('lib/brief.ts', 'brief');
+    put('lib/engine/pipeline/step/order.ts', 'order');
+    put('lib/engine/pipeline/brief.ts', 'brief');
     fs.writeFileSync(path.join(outside, 'x.md'), 'outside');
     const real = pluginHash(root);
     // A listed directory, or one above a listed path, that is a link: a marker, and its target is never read.
-    for (const rel of ['lib/step', 'skills/forge', 'skills', 'lib', 'agents']) {
+    for (const rel of ['lib/engine/pipeline/step', 'skills/forge', 'skills', 'lib', 'agents']) {
       const moved = path.join(root, `${rel}.moved`);
       fs.renameSync(path.join(root, rel), moved);
       fs.symlinkSync(outside, path.join(root, rel));

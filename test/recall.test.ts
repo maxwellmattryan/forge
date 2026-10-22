@@ -6,11 +6,11 @@ import { execFileSync } from 'node:child_process';
 import { forgeSync, repoTemplate } from './helpers.ts';
 import { loadConfig } from '../lib/core/config/load.ts';
 import { createJob, loadJob, readEvents, setJob, updateJob } from '../lib/core/job/store.ts';
-import { loadStepInput } from '../lib/step/input.ts';
+import { loadStepInput } from '../lib/engine/pipeline/step/input.ts';
 import { PLUGIN_ROOT } from '../lib/core/paths.ts';
-import { pluginHash } from '../lib/provenance.ts';
-import { loadFixtures, recallDir } from '../lib/recall.ts';
-import { createWorktree } from '../lib/worktree.ts';
+import { pluginHash } from '../lib/engine/evals/provenance.ts';
+import { loadFixtures, recallDir } from '../lib/engine/evals/recall.ts';
+import { createWorktree } from '../lib/engine/workspace/worktree.ts';
 
 const template = repoTemplate((dir) => {
   const answers = path.join(dir, '.answers.json');

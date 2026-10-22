@@ -7,7 +7,7 @@ import { TRUST_ENV, defaults, loadConfig, trustDigest, validateConfig } from '..
 import { CONFIG_DISCLOSURE, FIELDS, disclosureOf, fieldFor, parseCliValue, redactedConfig, validateFieldValue } from '../lib/core/config/fields.ts';
 import { COMPLEXITIES, EFFORT_ROLES, EFFORTS, EVENT_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
 import { setConfigValue } from '../lib/core/config/set.ts';
-import { applyOverlay, overlayProblems } from '../lib/eval-overlay.ts';
+import { applyOverlay, overlayProblems } from '../lib/engine/evals/overlay.ts';
 import { getPath } from '../lib/core/shape.ts';
 import { ForgeError } from '../lib/core/errors.ts';
 import { setIn } from '../lib/core/format/yaml.ts';

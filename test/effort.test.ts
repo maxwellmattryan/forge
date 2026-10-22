@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { EFFORT_CASES, INVALID_EFFORTS, ROLE_EFFORT_CASES } from './effort-cases.ts';
 import { TRUST_ENV, daemonProblems, defaults, loadConfig, resolveEffort, trustDigest, validEffort, validateConfig } from '../lib/core/config/load.ts';
-import { doctor } from '../lib/doctor.ts';
+import { doctor } from '../lib/engine/ops/doctor.ts';
 import { createJob, jobDir, loadJob } from '../lib/core/job/store.ts';
 import { CONFIG_SCHEMA_VERSION, EFFORTS, EFFORT_ROLES, JOB_SCHEMA_VERSION, normalizeJob } from '../lib/core/job/schema.ts';
 import { setIn } from '../lib/core/format/yaml.ts';

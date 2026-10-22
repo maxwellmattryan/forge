@@ -19,7 +19,7 @@ test('every lib/ source file opens with a header comment', () => {
 
 test('lib/ folder maps are what npm run docs:map writes', () => {
   const maps = mapFiles(LIB);
-  assert.ok(maps.includes(path.join(LIB, 'step', 'AGENTS.md')), 'lib/step/AGENTS.md is a map');
+  assert.ok(maps.includes(path.join(LIB, 'engine', 'pipeline', 'step', 'AGENTS.md')), 'lib/engine/pipeline/step/AGENTS.md is a map');
   for (const file of maps) {
     const text = fs.readFileSync(file, 'utf8');
     assert.equal(syncMap(text, renderMap(path.dirname(file))), text, `${path.relative(LIB, file)} is stale: run npm run docs:map`);

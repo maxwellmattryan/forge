@@ -9,7 +9,7 @@ import { tempRepo, waitFor } from './helpers.ts';
 import { loadConfig } from '../lib/core/config/load.ts';
 import { createJob, jobDir, readEvents, updateJob } from '../lib/core/job/store.ts';
 import { shellArgs } from '../lib/core/text.ts';
-import { createWorktree } from '../lib/worktree.ts';
+import { createWorktree } from '../lib/engine/workspace/worktree.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const ARGS = ['a', 'b c', '$HOME', ';touch pwned', '*', '{job}', '`id`'];

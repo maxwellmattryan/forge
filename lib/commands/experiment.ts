@@ -1,7 +1,7 @@
 // `forge experiment evaluate|check`: settling the experiment ledger and validating the notes layer
 // (lib/experiments.ts, docs/IMPROVEMENT.md). The retro job runs evaluate on its worktree and commits
 // what it writes; verify's `notes` step runs check on every branch that touches a notes file.
-import { checkNotes, evaluateExperiments } from '../experiments.ts';
+import { checkNotes, evaluateExperiments } from '../engine/evals/experiments.ts';
 import { requireJob, usageError } from './args.ts';
 import type { CliContext, Dispatched, HelpGroup } from '../core/types.ts';
 

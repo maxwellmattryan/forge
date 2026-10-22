@@ -4,10 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { evalScratch, forgeAsync } from './helpers.ts';
 import { TRUST_ENV, defaults, loadConfig, resolveEffort, trustDigest } from '../lib/core/config/load.ts';
-import { applyOverlay, configForJob, overlayProblems } from '../lib/eval-overlay.ts';
-import { configHash } from '../lib/evals.ts';
+import { applyOverlay, configForJob, overlayProblems } from '../lib/engine/evals/overlay.ts';
+import { configHash } from '../lib/engine/evals/run.ts';
 import { createJob, jobDir, loadJob } from '../lib/core/job/store.ts';
-import { loadStepInput } from '../lib/step.ts';
+import { loadStepInput } from '../lib/engine/pipeline/step.ts';
 
 /** Nothing on disk says a run started: no job dir, no clone, no run file. */
 function assertNothingCreated(dir: string, label = '') {

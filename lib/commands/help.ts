@@ -2,7 +2,7 @@
 // their command modules as `HELP`; CORE holds the commands lib/cli.ts routes itself. The same tables
 // build `usage:` errors, the README command table and the `--json` error hint.
 import path from 'node:path';
-import { forgeVersion } from '../evals.ts';
+import { forgeVersion } from '../engine/evals/run.ts';
 import { PLUGIN_ROOT } from '../core/paths.ts';
 import { ERROR_CODES, ForgeError } from '../core/errors.ts';
 import { jsonFlag, lenientOutputMode, out, parseArgs, usageError } from './args.ts';

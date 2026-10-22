@@ -2,7 +2,7 @@
 // test/step-purity.test.ts runs the same fixtures without registering step.test.ts's tests.
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { shellLine, step } from '../lib/step.ts';
+import { shellLine, step } from '../lib/engine/pipeline/step.ts';
 import type { Config, Job, StepInput, VerifyRun } from '../lib/core/types.ts';
 import { PLUGIN_ROOT } from '../lib/core/paths.ts';
 import { JOB_DIR, RECALL_HASH, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';

@@ -3,9 +3,9 @@
 // strands jobs or configs written by an older version. A file from a *newer* plugin is
 // refused rather than guessed at.
 import { isInterimStrategy, servicesToComponents } from '../config/components.ts';
-import { isSha } from '../../delta.ts';
+import { isSha } from '../../engine/pr/delta.ts';
 import { isSafeUrl, isStoredRef, sameIssue } from './issue-ref.ts';
-import { REPO_NAME, isSafeBranch } from '../../member-repos.ts';
+import { REPO_NAME, isSafeBranch } from '../../engine/project/member-repos.ts';
 import { ACTOR_SOURCES, COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../../api/constants.ts';
 import type { EventActor, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcome, JobRepo, JobRepoPr, JobScore, LoadedJob } from '../types.ts';
 

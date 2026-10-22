@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { canaryVersion, pinCargo, pinCmake, pinNpm } from '../lib/interim.ts';
+import { canaryVersion, pinCargo, pinCmake, pinNpm } from '../lib/engine/release/interim.ts';
 import { PLUGIN_ROOT } from '../lib/core/paths.ts';
 import { scratchGitConfig } from './helpers.ts';
 

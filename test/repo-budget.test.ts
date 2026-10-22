@@ -8,12 +8,12 @@ import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
 import { CONFIG_DISCLOSURE, FIELDS } from '../lib/core/config/fields.ts';
 import * as yaml from '../lib/core/format/yaml.ts';
 import { budgetRepo, spend } from './repo-budget-fixture.ts';
-import { budgetCmd } from '../lib/budget.ts';
+import { budgetCmd } from '../lib/engine/metrics/budget.ts';
 import { jobCmd } from '../lib/commands/job.ts';
 import { nextCmd } from '../lib/commands/tracker.ts';
 import { claimJob, createJob, loadJob, parseEventLines, readEvents, recordAgent, repoAuditFile, setJob, updateJob } from '../lib/core/job/store.ts';
 import { transitionEvents } from '../lib/notify.ts';
-import { parkForRepoBudget, releaseRepoHolds, repoBudgetStatus } from '../lib/repo-budget.ts';
+import { parkForRepoBudget, releaseRepoHolds, repoBudgetStatus } from '../lib/engine/metrics/repo-budget.ts';
 import { listRequests } from '../lib/core/job/requests.ts';
 import type { Config } from '../lib/core/types.ts';
 

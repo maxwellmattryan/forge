@@ -6,12 +6,12 @@ import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import { exists } from '../lib/core/paths.ts';
-import { step } from '../lib/step.ts';
+import { step } from '../lib/engine/pipeline/step.ts';
 import type { StepInput } from '../lib/core/types.ts';
 import { fixture } from './step-fixture.ts';
 import { job, rows } from './step-rows.ts';
 
-const STEP_DIR = path.resolve(import.meta.dirname, '..', 'lib', 'step');
+const STEP_DIR = path.resolve(import.meta.dirname, '..', 'lib', 'engine', 'pipeline', 'step');
 const inputs = (): [string, StepInput][] => rows.map((r) => [r.name, fixture(r.fx)]);
 
 /** A repo-budget park whose tell must name the period of `now`, not of the wall clock. */

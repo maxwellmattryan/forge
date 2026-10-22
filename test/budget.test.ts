@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/core/config/load.ts';
 import { createJob, jobDir, loadJob, readEvents, setJob, updateJob } from '../lib/core/job/store.ts';
-import { budgetCmd, effectiveLimits, enforceBudget, exceededKeys, formatReason } from '../lib/budget.ts';
+import { budgetCmd, effectiveLimits, enforceBudget, exceededKeys, formatReason } from '../lib/engine/metrics/budget.ts';
 import { heldByBudget } from '../lib/daemon.ts';
 import { jobCmd } from '../lib/commands/job.ts';
 import { migrate } from '../lib/commands/init.ts';

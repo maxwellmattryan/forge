@@ -13,7 +13,7 @@ import { defaults, loadConfig, stringifyConfig, validateConfig } from '../../../
 import { createJob, jobDir, loadJob, readEvents, setJob, updateJob } from '../../../lib/core/job/store.ts';
 import { CONFIG_SCHEMA_VERSION } from '../../../lib/core/job/schema.ts';
 import { deepMerge } from '../../../lib/core/shape.ts';
-import { createWorktree } from '../../../lib/worktree.ts';
+import { createWorktree } from '../../../lib/engine/workspace/worktree.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
 

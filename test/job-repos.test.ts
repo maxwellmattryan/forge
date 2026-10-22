@@ -8,8 +8,8 @@ import path from 'node:path';
 import { twoRepo } from './job-repos-fixture.ts';
 import type { TwoRepo } from './job-repos-fixture.ts';
 import { TRUST_ENV, loadConfig, trustDigest } from '../lib/core/config/load.ts';
-import { loadStepInput } from '../lib/step.ts';
-import { verifiedHead } from '../lib/worktree.ts';
+import { loadStepInput } from '../lib/engine/pipeline/step.ts';
+import { verifiedHead } from '../lib/engine/workspace/worktree.ts';
 import { token } from './secret-fixtures.ts';
 import { loadJob, updateJob } from '../lib/core/job/store.ts';
 

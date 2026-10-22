@@ -13,22 +13,22 @@ const CAP = 600;
 /** Lib-relative path → its line count when pinned. Lower a pin when a file shrinks; never raise one. */
 const ALLOWED: Record<string, number> = {
   'api/types.ts': 1501,
-  'backing.ts': 751,
+  'engine/environment/backing.ts': 751,
   'commands/job.ts': 1048,
   'commands/tracker.ts': 612,
   'daemon-pool.ts': 637,
   'daemon.ts': 1624,
-  'integrity.ts': 832,
-  'interim-apply.ts': 921,
-  'interim.ts': 698,
+  'engine/guard/integrity.ts': 832,
+  'engine/release/interim-apply.ts': 921,
+  'engine/release/interim.ts': 698,
   'core/job/store.ts': 818,
-  'pr.ts': 1843,
-  'release-plan.ts': 632,
+  'engine/pr/lifecycle.ts': 1843,
+  'engine/release/plan.ts': 632,
   'core/job/schema.ts': 666,
-  'secrets.ts': 705,
+  'engine/guard/secrets.ts': 705,
   'server.ts': 1762,
   'core/types.ts': 1174,
-  'worktree.ts': 1320,
+  'engine/workspace/worktree.ts': 1320,
 };
 
 /** Lines as `wc -l` counts them for a newline-terminated file. */

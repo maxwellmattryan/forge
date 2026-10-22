@@ -7,7 +7,7 @@ import { defaults } from '../lib/core/config/load.ts';
 import { createJob, jobDir, loadJob, readEvents, setJob, updateJob } from '../lib/core/job/store.ts';
 import type { Job } from '../lib/core/types.ts';
 import { listRequests } from '../lib/core/job/requests.ts';
-import { MAX_DIFF_BYTES, capDiff, isSampled, queueScores } from '../lib/scoring.ts';
+import { MAX_DIFF_BYTES, capDiff, isSampled, queueScores } from '../lib/engine/evals/scoring.ts';
 import { syncAll } from '../lib/commands/tracker.ts';
 
 // A stand-in `gh` on PATH, as in test/outcome-sync.test.ts, that also answers `pr diff`: it fails for
