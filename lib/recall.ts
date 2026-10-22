@@ -7,7 +7,7 @@ import path from 'node:path';
 import { modelFor, reviewerChecklist } from './config.ts';
 import { parseReviewFindings } from './findings.ts';
 import type { RaisedFinding } from './findings.ts';
-import { jobDir, loadJob, logEvent, parseReview } from './jobs.ts';
+import { jobDir, loadJob, logEvent, parseReview, readEvents } from './jobs.ts';
 import { LENS_NAME } from './lens.ts';
 import { paths, PLUGIN_ROOT } from './paths.ts';
 import { pluginHash } from './provenance.ts';
@@ -338,21 +338,25 @@ export function gradeRecall(rec: Pick<RecallRun, 'fixtures' | 'reviews'>, texts:
   return { byLens, total };
 }
 
-/** A run's directory and record: a job's run under its job dir, any other under .forge/runtime/recall/. */
-function findRun(root: string, runId: string): { dir: string; rec: RecallRun } {
+/**
+ * A run's directory and record: a job's run under its job dir, any other under .forge/runtime/recall/.
+ * The job is where the run was found, never what run.json says: reviewers can write into the run.
+ */
+function findRun(root: string, runId: string): { dir: string; rec: RecallRun; job: string | null } {
   if (!RUN_ID.test(runId)) throw new ForgeError(`not a recall run id: ${JSON.stringify(runId).slice(0, 100)}`, 'usage');
   const suffix = /^\d{8}-\d{6}-(.+)$/.exec(runId)?.[1] ?? null;
-  const candidates = [runDirFor(root, runId, null)];
+  const candidates: [string, string | null][] = [[runDirFor(root, runId, null), null]];
   if (suffix) {
     try {
-      candidates.unshift(runDirFor(root, runId, suffix));
+      candidates.unshift([runDirFor(root, runId, suffix), suffix]);
     } catch {}
   }
-  for (const dir of candidates) {
+  for (const [dir, job] of candidates) {
     const r = readRegular(path.join(dir, 'run.json'), MAX_REVIEW_BYTES);
     if ('problem' in r) continue;
     try {
-      return { dir, rec: JSON.parse(r.text) as RecallRun };
+      const rec = JSON.parse(r.text) as RecallRun;
+      if (rec && typeof rec === 'object' && rec.run === runId) return { dir, rec, job };
     } catch {}
   }
   throw new ForgeError(`no recall run ${runId}`);
@@ -380,12 +384,22 @@ export function baseRun(root: string, branch: string | null): { run: string; hea
 
 /** `forge eval recall record`: reads and grades every review of the run, then closes it. */
 export function recordRecall(root: string, config: Config, runId: string, opts: { tokens?: number | null } = {}) {
-  const { dir, rec } = findRun(root, runId);
+  const { dir, rec, job } = findRun(root, runId);
   if (rec.status === 'done') throw new ForgeError(`recall run ${runId} is already recorded`);
+  // A job's hashes come from the start event the CLI logged, and the defects from the main checkout's
+  // fixtures: run.json sits where the reviews write, so a review prompt could rewrite it.
+  let { pluginHash: hash, head } = rec;
+  if (job) {
+    const start = readEvents(root, job).findLast((e) => e.type === 'recall' && e.phase === 'start' && e.run === runId);
+    if (!start || typeof start.pluginHash !== 'string') throw new ForgeError(`job ${job} logged no start for recall run ${runId}`);
+    hash = start.pluginHash;
+    head = typeof start.head === 'string' && SHA.test(start.head) ? start.head : null;
+  }
+  const fixtures = loadOrThrow(root).map(({ diffText: _d, ...f }) => f);
+  const reviews = fixtures.flatMap((f) => f.lenses.map((lens) => ({ fixture: f.name, lens, model: rec.reviews?.find((r) => r.fixture === f.name && r.lens === lens)?.model ?? lensModel(config, lens) })));
   const texts = new Map<string, string | null>();
   let found = 0;
-  for (const r of rec.reviews ?? []) {
-    if (!SLUG.test(r.fixture) || !LENS_NAME.test(r.lens)) continue;
+  for (const r of reviews) {
     const t = readRegular(path.join(dir, r.fixture, `${r.lens}.md`), MAX_REVIEW_BYTES);
     texts.set(`${r.fixture}/${r.lens}`, 'text' in t ? t.text : null);
     if ('text' in t) found++;
@@ -393,14 +407,14 @@ export function recordRecall(root: string, config: Config, runId: string, opts: 
   if (!found) throw new ForgeError(`recall run ${runId} has no review file yet; spawn the reviews first`);
   const finishedAt = now();
   const minutes = Math.round(((Date.parse(finishedAt) - Date.parse(rec.startedAt)) / 60000) * 100) / 100;
-  const summary: RecallSummary = { ...gradeRecall(rec, texts, config.review?.blockOn ?? ['blocker', 'major']), minutes: Number.isFinite(minutes) ? minutes : 0, tokens: opts.tokens ?? null };
-  const done: RecallRun = { ...rec, status: 'done', finishedAt, summary };
+  const graded = gradeRecall({ fixtures, reviews }, texts, config.review?.blockOn ?? ['blocker', 'major']);
+  const summary: RecallSummary = { ...graded, minutes: Number.isFinite(minutes) ? minutes : 0, tokens: opts.tokens ?? null };
+  const done: RecallRun = { ...rec, job, pluginHash: hash, head, fixtures, reviews, status: 'done', finishedAt, summary };
   writeJsonAtomic(path.join(dir, 'run.json'), done);
   let base: ReturnType<typeof baseRun> = null;
-  if (rec.job) {
-    // loadJob checks the id run.json names before it reaches a path.
-    base = baseRun(root, loadJob(root, rec.job).base ?? null);
-    logEvent(root, rec.job, 'recall', { phase: 'record', run: rec.run, pluginHash: rec.pluginHash, head: rec.head, summary, base });
-  } else writeJsonAtomic(path.join(recallDir(root), 'runs', `${rec.run}.json`), done);
-  return { run: rec.run, summary, base };
+  if (job) {
+    base = baseRun(root, loadJob(root, job).base ?? null);
+    logEvent(root, job, 'recall', { phase: 'record', run: runId, pluginHash: hash, head, summary, base });
+  } else writeJsonAtomic(path.join(recallDir(root), 'runs', `${runId}.json`), done);
+  return { run: runId, summary, base };
 }

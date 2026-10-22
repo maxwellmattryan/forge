@@ -895,13 +895,19 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
 /**
  * The `notes` step: when the committed diff (merge base..`sha`) touches a learnings, ledger or
  * addendum file, `forge experiment check` over the committed content at `sha`, never the working
- * tree. Absent when no notes file changed; a git failure fails it rather than skipping it.
+ * tree. Absent when no notes file changed, or when the base can't be resolved (the integrity report
+ * already says so, as the protected step does); a check that fails once it applies fails the step.
  */
 function notesStep(root: string, config: Config, job: Job, sha: string): VerifyStep | null {
   const started = Date.now();
+  let changed: Set<string>;
   try {
-    const changed = new Set(committedChanges(job.worktree!, resolveBase(job.worktree!, config, job, sha).mergeBase));
-    if (!checkedNotes().some((f) => changed.has(f))) return null;
+    changed = new Set(committedChanges(job.worktree!, resolveBase(job.worktree!, config, job, sha).mergeBase));
+  } catch {
+    return null;
+  }
+  if (!checkedNotes().some((f) => changed.has(f))) return null;
+  try {
     const r = checkNotes(root, config, job, sha);
     const step: VerifyStep = { name: 'notes', ok: r.ok, exit: null, durationMs: Date.now() - started };
     if (!r.ok) step.tail = r.problems.slice(0, 20).map((p) => `${p.file}: ${p.problem} (${p.entry})`).join('\n');

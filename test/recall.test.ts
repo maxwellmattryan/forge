@@ -218,6 +218,9 @@ test('record computes recall and precision per lens', () => {
     const out = json(forgeSync(s.dir, ['eval', 'recall', 'start', '--job', job.id]));
     assert.equal(forgeSync(s.dir, ['eval', 'recall', 'record', out.run]).status, 1, 'no review file yet');
     stubs(out, REVIEWS);
+    // Reviews write into the run dir, so run.json is no source of truth: defects, hash and job come from elsewhere.
+    const runFile = path.join(out.dir, 'run.json');
+    fs.writeFileSync(runFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(runFile, 'utf8')), job: 'someone-else', pluginHash: 'ffffffffff', fixtures: [], reviews: [] }));
     const r = forgeSync(s.dir, ['eval', 'recall', 'record', out.run, '--tokens', '1234']);
     assert.equal(r.status, 0, r.stderr);
     const { summary, base } = json(r);

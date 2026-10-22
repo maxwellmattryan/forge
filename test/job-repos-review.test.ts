@@ -224,7 +224,7 @@ describe('cross-repo review: member panels', { concurrency: 4 }, () => {
     assert.equal(JSON.parse(fs.readFileSync(path.join(j.dir, 'job.json'), 'utf8')).verdicts['1']['lib:realtime'], 'CHANGES');
     fs.writeFileSync(path.join(j.dir, 'build.md'), '## Round 2\nFindings addressed:\n- lib:realtime [major] lib/src/dsp.rs:3 → disagree: the buffer is preallocated\n');
     const findings = await p.f('job', 'findings', j.id);
-    assert.deepEqual(findings.byLens['lib:realtime'], { raised: 1, fixed: 0, disputed: 1, recurring: 0 });
+    assert.deepEqual(findings.byLens['lib:realtime'], { raised: 1, fixed: 0, disputed: 1, recurring: 0, severity: { blocker: 0, major: 1, minor: 0, nit: 0 } });
     assert.deepEqual(findings.disputed, [{ round: 1, lens: 'lib:realtime', severity: 'major', path: 'lib/src/dsp.rs' }]);
   });
 
