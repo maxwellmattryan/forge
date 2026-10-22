@@ -1,10 +1,11 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFile, spawnSync } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { lockHeld, pidAlive, readLockHolder, tryLock, withLock } from '../lib/util.ts';
+import { waitFor } from './helpers.ts';
+import { killAndWait, killAndWaitAsync, lockHeld, pidAlive, readLockHolder, tryLock, withLock } from '../lib/util.ts';
 
 const CHILD = path.resolve(import.meta.dirname, 'fixtures', 'lock-child.ts');
 
@@ -27,6 +28,32 @@ test('pidAlive is false for pids that are not a real process id', () => {
   for (const pid of [0, 1, -1, -process.pid, 1.5, Number.NaN, '123', null, undefined]) assert.equal(pidAlive(pid), false, String(pid));
   assert.equal(pidAlive(process.pid), true);
   assert.equal(pidAlive(deadPid()), false);
+});
+
+/** A detached process group, led by a pid that has already exited, whose one member ignores SIGTERM. */
+async function stubbornGroup(): Promise<number> {
+  const child = spawn('sh', ['-c', "trap '' TERM; sleep 60 </dev/null >/dev/null 2>&1 & exit 0"], { detached: true, stdio: 'ignore' });
+  assert.ok(child.pid);
+  await new Promise((resolve) => child.once('exit', resolve));
+  return child.pid;
+}
+
+test('killAndWait and killAndWaitAsync escalate to SIGKILL for a group that ignores SIGTERM', { skip: process.platform === 'win32' }, async () => {
+  for (const kill of [(pid: number) => killAndWait(pid, 200), (pid: number) => killAndWaitAsync(pid, 200)]) {
+    const pid = await stubbornGroup();
+    assert.equal(pidAlive(pid), true, 'the group outlives its leader');
+    try {
+      await kill(pid);
+      await waitFor(() => !pidAlive(pid), { what: 'the group to die' });
+    } finally {
+      try {
+        process.kill(-pid, 'SIGKILL');
+      } catch {}
+    }
+  }
+  // A pid that is not a real process id is never signalled (pid 1's group is kill(-1)).
+  killAndWait(1, 0);
+  assert.equal(pidAlive(1), false);
 });
 
 function plant(lock: string, holder: Record<string, unknown> | string | null, opts: { mtimeAgoMs?: number; breaking?: boolean } = {}): void {

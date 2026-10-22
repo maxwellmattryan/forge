@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { GIT_PINS, STATUS_ARGV, git, gitEnv, gitInvocation } from '../lib/git.ts';
+import { GIT_PINS, STATUS_ARGV, git, gitEnv, gitInvocation, gitSpawnSync } from '../lib/git.ts';
 import { tempRepo } from './helpers.ts';
 
 const PINS = ['-c', 'core.fsmonitor=false', '-c', 'core.quotepath=off', '-c', 'diff.interHunkContext=0', '-c', 'diff.suppressBlankEmpty=false', '-c', 'diff.relative=false'];
@@ -90,6 +90,15 @@ test("a worktree's fsmonitor and an inherited GIT_DIR never reach a wrapper call
 
     const top = withEnv({ GIT_DIR: path.join(other.dir, '.git'), GIT_WORK_TREE: other.dir }, () => git(repo.dir, ['rev-parse', '--show-toplevel']).stdout.trim());
     assert.equal(top, repo.dir);
+
+    // The spawnSync flavour takes the same pins and clean env, and returns Buffers when asked.
+    fs.writeFileSync(hook, `#!/bin/sh\necho ran >> '${marker}'\n`, { mode: 0o755 });
+    const viaSpawn = gitSpawnSync(repo.dir, [...STATUS_ARGV], { encoding: 'utf8' });
+    assert.match(String(viaSpawn.stdout), /README\.md/);
+    assert.ok(!fs.existsSync(marker), 'gitSpawnSync did not run the fsmonitor program');
+    const spawnTop = withEnv({ GIT_DIR: path.join(other.dir, '.git'), GIT_WORK_TREE: other.dir }, () => gitSpawnSync(repo.dir, ['rev-parse', '--show-toplevel']));
+    assert.ok(Buffer.isBuffer(spawnTop.stdout));
+    assert.equal(spawnTop.stdout.toString().trim(), repo.dir);
   } finally {
     repo.cleanup();
     other.cleanup();

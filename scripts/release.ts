@@ -210,7 +210,7 @@ function prepare(current: string, next: string, notesFile: string | null): void 
   fs.writeFileSync(changelogFile, insertSection(changelog, section));
   const problems = releaseProblems(ROOT, { dist: 'absent' }).filter((p) => !p.startsWith('the working tree is not clean'));
   if (problems.length) {
-    gitOut(['checkout', '--',...VERSION_FILES.map(([rel]) => rel), 'CHANGELOG.md']);
+    gitOut(['checkout', '--', ...VERSION_FILES.map(([rel]) => rel), 'CHANGELOG.md']);
     throw new Refusal(`nothing was committed:\n${problems.join('\n')}`);
   }
   gitOut(['add', '--', ...VERSION_FILES.map(([rel]) => rel), 'CHANGELOG.md']);
@@ -277,10 +277,10 @@ export function parseArgs(argv: string[]): Args | null {
 
 async function release(args: Args): Promise<void> {
   if (git('symbolic-ref', '--short', 'HEAD') !== 'develop') throw new Refusal('check out develop first');
-  const dirty = gitOut(['status','--porcelain', '--untracked-files=all']).trimEnd();
+  const dirty = gitOut(['status', '--porcelain', '--untracked-files=all']).trimEnd();
   if (dirty) throw new Refusal(`the working tree is not clean:\n${dirty}`);
   say('fetching develop, main and the tags');
-  gitOut(['fetch', '--quiet','--tags', 'origin', '+refs/heads/develop:refs/remotes/origin/develop', '+refs/heads/main:refs/remotes/origin/main']);
+  gitOut(['fetch', '--quiet', '--tags', 'origin', '+refs/heads/develop:refs/remotes/origin/develop', '+refs/heads/main:refs/remotes/origin/main']);
 
   let version = readVersion(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   if (args.want) {
@@ -298,7 +298,7 @@ async function release(args: Args): Promise<void> {
   const develop = git('rev-parse', 'HEAD');
   const remote = git('rev-parse', 'refs/remotes/origin/develop');
   if (develop !== remote) {
-    if (!gitOk(['merge-base','--is-ancestor', remote, develop])) throw new Refusal('origin/develop has commits this develop lacks: pull first');
+    if (!gitOk(['merge-base', '--is-ancestor', remote, develop])) throw new Refusal('origin/develop has commits this develop lacks: pull first');
     await confirm(`Push ${git('rev-list', '--count', `${remote}..${develop}`)} commit(s) ending in Release ${version} to develop?`, args.yes);
     gitOut(['push', '--quiet', 'origin', `${develop}:refs/heads/develop`]);
   }
@@ -332,7 +332,7 @@ async function release(args: Args): Promise<void> {
     }
   }
 
-  if (!gitOk(['ls-remote','--exit-code', '--tags', 'origin', `refs/tags/v${version}`])) await waitForRun(repo, 'release.yml', onMain, 'main');
+  if (!gitOk(['ls-remote', '--exit-code', '--tags', 'origin', `refs/tags/v${version}`])) await waitForRun(repo, 'release.yml', onMain, 'main');
   const url = sh('gh', ['release', 'view', `v${version}`, '--repo', repo, '--json', 'url', '--jq', '.url']).trim();
   say(`released ${version}`);
   process.stdout.write(`${url}\n`);

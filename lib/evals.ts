@@ -88,7 +88,7 @@ export function mineFromPr(
   const info: any = ghJson(root, ['pr', 'view', String(pr), '-R', slug, '--json', 'number,title,body,state,baseRefOid,mergeCommit,closingIssuesReferences,url']);
   if (info.state !== 'MERGED') throw new ForgeError(`PR #${pr} is not merged`);
   runGit(root, ['fetch', config.git.remote, info.baseRefOid, info.mergeCommit?.oid ?? ''].filter(Boolean), { write: true, allowFail: true });
-  const local = info.mergeCommit?.oid ? runGit(root, ['diff',`${info.baseRefOid}...${info.mergeCommit.oid}`], { allowFail: true }) : null;
+  const local = info.mergeCommit?.oid ? runGit(root, ['diff', `${info.baseRefOid}...${info.mergeCommit.oid}`], { allowFail: true }) : null;
   const diff = local?.ok && local.stdout ? local.stdout : gh(root, ['pr', 'diff', String(pr), '-R', slug]).stdout;
   const testRe = new RegExp(opts.testPattern ?? config.evals?.testPattern ?? DEFAULT_TEST_PATTERN);
   const { tests, rest } = splitDiff(diff, testRe);
