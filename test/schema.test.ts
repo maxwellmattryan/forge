@@ -110,6 +110,7 @@ const CONFIG_ROWS: Row[] = [
     note: ONLY_VERSION,
   },
   { from: 27, input: { schemaVersion: 27, daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.turnTimeoutMinutes'], note: ONLY_VERSION },
+  { from: 28, input: { schemaVersion: 28, improve: { retroEvery: 5 }, evals: { testPattern: 'x' } }, fields: { improve: { retroEvery: 5 }, evals: { testPattern: 'x' } }, removed: ['improve.experiments', 'evals.recall'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [

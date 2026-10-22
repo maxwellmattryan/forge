@@ -7,10 +7,11 @@ import { listArchived } from './archive.ts';
 import { listRuns } from './evals.ts';
 import { jobFindings } from './findings.ts';
 import { reviewFileName } from './lens.ts';
-import { expiredLearnings, metricValue, readExperiments, readLearnings, verdict } from './learnings.ts';
+import { evaluateExperiments } from './experiments.ts';
+import { expiredLearnings, metricValue, parseNoteEntries, readExperiments } from './learnings.ts';
 import { paths, exists } from './paths.ts';
 import { computeStats } from './stats.ts';
-import type { Config, ExperimentEntry, HumanDelta, LearningEntry, LoadedJob, Stats } from './types.ts';
+import type { Config, ExperimentEntry, ExperimentResult, HumanDelta, LearningEntry, LoadedJob, Stats } from './types.ts';
 import { readText, safeText, writeJsonAtomic } from './util.ts';
 
 /** Live and archived jobs: the retro cadence counts jobs that retention has since archived. */
@@ -44,9 +45,12 @@ function deltaLine(d: HumanDelta): string {
   return `- human delta after Forge's last push: ${d.commits} commit(s), +${d.linesAdded}/-${d.linesDeleted} lines in: ${files}${more}`;
 }
 
-/** One learning past its review-by, with its experiment's baseline, current value and verdict. */
-function expiredLine(l: LearningEntry, ledger: Map<string, ExperimentEntry>, stats: Stats): string {
-  const parts = [`- ${safeText(l.rule.trim())}`, `review-by ${l.reviewBy}`];
+/**
+ * One learning or addendum entry past its review-by, with its experiment's baseline, current value
+ * and verdict: evaluate's dry-run verdict for an open entry, the written status for a closed one.
+ */
+function expiredLine(l: LearningEntry & { file: string }, ledger: Map<string, ExperimentEntry>, results: Map<string, ExperimentResult>, stats: Stats): string {
+  const parts = [`- (${l.file}) ${safeText(l.rule.trim())}`, `review-by ${l.reviewBy}`];
   const exp = l.experiment ? ledger.get(l.experiment) : undefined;
   if (!l.experiment) parts.push('no experiment', 'unknown');
   else if (!exp) parts.push(`experiment ${l.experiment} (unknown experiment)`, 'unknown');
@@ -56,9 +60,17 @@ function expiredLine(l: LearningEntry, ledger: Map<string, ExperimentEntry>, sta
     parts.push(exp.baseline === null ? 'baseline unknown' : `baseline ${String(exp.baseline)}`);
     const current = exp.metric ? metricValue(stats, exp.metric) : undefined;
     parts.push(current === undefined ? 'current metric unavailable' : current === null ? 'current no data' : `current ${String(current)}`);
-    parts.push(verdict(exp.direction, exp.baseline, current));
+    const r = results.get(l.experiment);
+    parts.push(!r ? 'unknown' : r.verdict === 'settled' ? safeText(r.status ?? 'unknown') : r.verdict);
   }
   return parts.join(' · ');
+}
+
+/** One open entry's dry-run result for `## Experiment verdicts`. */
+function verdictLine(r: ExperimentResult): string {
+  const metric = `metric ${safeText(r.metric ?? '-', 100)}${r.direction ? ` (${r.direction})` : ''}`;
+  const diff = r.interval ? `diff ${r.interval[0]}..${r.interval[1]}` : 'diff -';
+  return `- ${r.id ?? '(no id)'} · ${metric} · baseline ${r.baseline ?? '-'} · n ${r.n ?? '-'} · ${r.method ?? '-'} · ${diff} · ${r.verdict}`;
 }
 
 /**
@@ -101,9 +113,17 @@ export function prepareRetro(
   config: Config,
   retroJobId: string,
   opts: { since?: string; today?: string } = {},
-): { stats: string; signals: string; experiments: string | null; jobsInWindow: number; since: string | null; expiredLearnings: number } {
+): {
+  stats: string;
+  signals: string;
+  experiments: string | null;
+  jobsInWindow: number;
+  since: string | null;
+  expiredLearnings: number;
+  verdicts: Record<'kept' | 'reverted' | 'inconclusive' | 'pending', number>;
+} {
   const since = opts.since ?? lastRetro(root)?.createdAt ?? undefined;
-  const stats = computeStats(root, { since });
+  const stats = computeStats(root, { since, config });
   const dir = jobDir(root, retroJobId);
   writeJsonAtomic(path.join(dir, 'stats.json'), stats);
   const jobs = listJobs(root).filter((j) => !['eval', 'retro'].includes(j.kind) && (!since || String(j.createdAt) >= since));
@@ -115,12 +135,25 @@ export function prepareRetro(
     `${jobs.length} job(s) in window.`,
     '',
   ];
-  const expired = expiredLearnings(readLearnings(root), opts.today ?? new Date().toISOString().slice(0, 10));
+  const today = opts.today ?? new Date().toISOString().slice(0, 10);
+  // evaluate's own verdicts, computed and never written: the retro job settles the ledger on its branch.
+  let evaluated: ExperimentResult[] = [];
+  try {
+    evaluated = evaluateExperiments(root, config, { dryRun: true, today }).entries;
+  } catch {}
+  const open = evaluated.filter((r) => r.verdict !== 'settled');
+  const verdicts = { kept: 0, reverted: 0, inconclusive: 0, pending: 0 };
+  for (const r of open) verdicts[r.verdict as keyof typeof verdicts]++;
+  const entries = parseNoteEntries(root).flatMap(({ file, entries: es }) => es.map((e) => ({ ...e, file })));
+  const expired = expiredLearnings(entries, today);
   if (expired.length) {
     const ledger = new Map<string, ExperimentEntry>();
     for (const e of readExperiments(root)) if (e.id && !ledger.has(e.id)) ledger.set(e.id, e); // the first entry with an id wins
-    out.push('## Learnings past review-by', ...expired.map((l) => expiredLine(l, ledger, stats)), '');
+    const results = new Map<string, ExperimentResult>();
+    for (const r of evaluated) if (r.id && !results.has(r.id)) results.set(r.id, r);
+    out.push('## Learnings past review-by', ...expired.map((l) => expiredLine(l, ledger, results, stats)), '');
   }
+  if (open.length) out.push('## Experiment verdicts', ...open.map(verdictLine), '');
   for (const j of jobs) {
     const jd = jobDir(root, j.id);
     const events = readEvents(root, j.id);
@@ -171,5 +204,6 @@ export function prepareRetro(
     jobsInWindow: jobs.length,
     since: since ?? null,
     expiredLearnings: expired.length,
+    verdicts,
   };
 }

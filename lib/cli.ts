@@ -28,6 +28,7 @@ import { daemonCmd } from './commands/daemon.ts';
 import { dash } from './commands/dash.ts';
 import { doctorCmd } from './commands/doctor.ts';
 import { evalCmd } from './commands/eval.ts';
+import { experimentCmd } from './commands/experiment.ts';
 import { focusCmd } from './commands/focus.ts';
 import { gitRead, gitWrite } from './commands/git.ts';
 import { helpCmd, usage } from './commands/help.ts';
@@ -236,6 +237,9 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     case 'eval':
       needInit();
       return ok(await evalCmd(root, config, sub, rest, flags));
+    case 'experiment':
+      needInit();
+      return experimentCmd(ctx, sub, rest, flags);
     case 'requests':
       return ok(requestsCmd(root, config, sub, rest, flags));
     case 'notify':

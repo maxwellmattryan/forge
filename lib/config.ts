@@ -182,9 +182,13 @@ export function defaults(): Config {
     improve: {
       retroEvery: 10,
       maxLearnings: 30,
+      // minJobs 5 and maxJobs 10 match retroEvery: each retro settles what the one before it opened.
+      experiments: { minJobs: 5, maxJobs: 10 },
     },
     evals: {
       testPattern: null,
+      // A change to these decides how reviewers behave, so the decide gate asks for a recall eval.
+      recall: { paths: ['agents/', 'reviewers/', 'lib/brief.ts'] },
     },
     dashboard: {
       port: 7400,
@@ -510,6 +514,26 @@ export function validateConfig(c: any, root: string): string[] {
   problems.push(...placeholderProblems(c));
   problems.push(...downstreamProblems(c));
   problems.push(...repoBudgetProblems(c));
+  problems.push(...improveProblems(c));
+  return problems;
+}
+
+/** improve.experiments and evals.recall: the settlement thresholds and the recall gate's paths. */
+export function improveProblems(c: any): string[] {
+  const problems: string[] = [];
+  const exp = c.improve?.experiments;
+  const positive = (k: 'minJobs' | 'maxJobs') => {
+    const v = exp?.[k];
+    if (Number.isInteger(v) && v >= 1) return true;
+    problems.push(`improve.experiments.${k} must be a positive integer (got ${JSON.stringify(v)})`);
+    return false;
+  };
+  if (!exp || typeof exp !== 'object' || Array.isArray(exp)) problems.push(`improve.experiments must be a map with minJobs and maxJobs (got ${JSON.stringify(exp)})`);
+  else if (positive('minJobs') && positive('maxJobs') && exp.maxJobs < exp.minJobs)
+    problems.push(`improve.experiments.maxJobs (${exp.maxJobs}) must be at least minJobs (${exp.minJobs})`);
+  const paths = c.evals?.recall?.paths;
+  if (!Array.isArray(paths) || paths.some((p: unknown) => typeof p !== 'string' || !p.trim()))
+    problems.push(`evals.recall.paths must be a list of non-empty strings (got ${JSON.stringify(paths)?.slice(0, 80)})`);
   return problems;
 }
 
