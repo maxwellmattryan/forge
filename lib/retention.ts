@@ -8,7 +8,7 @@ import path from 'node:path';
 import { currentActor } from './actor.ts';
 import { archiveDir, hasLiveJob } from './archive.ts';
 import { RETENTION_DAYS, loadConfig } from './config.ts';
-import { daemonsDir, openAppend, readInfo, sessionFiles } from './daemon.ts';
+import { daemonsDir, openAppend, readInfo, sessionFiles } from './daemon-files.ts';
 import { hasEnvironment, teardownEnvironment } from './environment-lifecycle.ts';
 import { jobFindings } from './findings.ts';
 import { isActive, jobDir, leaseStatus, listJobs, logEvent, readEvents } from './jobs.ts';
@@ -16,8 +16,7 @@ import { paths } from './paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, validScope } from './requests.ts';
 import { ARCHIVE_SCHEMA_VERSION, normalizeJob } from './schema.ts';
 import type { ArchiveRecord, ArchiveResult, Config, EventActor, Job, LoadedJob, PruneResult, RetentionTrigger } from './types.ts';
-import { ForgeError, now, withLock } from './util.ts';
-import { pidAlive } from './worktree.ts';
+import { ForgeError, now, pidAlive, withLock } from './util.ts';
 
 export const DAY_MS = 86_400_000;
 
@@ -116,7 +115,7 @@ export function eligibility(root: string, job: Job, live: Job[]): string | null 
  * Creates `.forge/archive/` (0700) with a `.gitignore` of `*`, so records are never committed even
  * in a repo whose `.forge/.gitignore` predates retention. A symlink or non-directory there is refused.
  */
-export function ensureArchiveDir(root: string): string {
+function ensureArchiveDir(root: string): string {
   const dir = archiveDir(root);
   const st = lstat(dir);
   if (st && (st.isSymbolicLink() || !st.isDirectory())) throw new ForgeError(`${path.relative(root, dir)} is not a directory (a symlink?); refusing to write archives there`, 1);
@@ -277,7 +276,7 @@ const LOG_NAME = /^(.+)\.log(\.1)?$/;
  * old, whose record names no live child or server, and whose scope is not an active live job.
  * Pure listing: nothing is written.
  */
-export function staleLogs(root: string, days: number, at = Date.now()): StaleLog[] {
+function staleLogs(root: string, days: number, at = Date.now()): StaleLog[] {
   const dir = daemonsDir(root);
   const st = lstat(dir);
   if (!st || st.isSymbolicLink() || !st.isDirectory()) return [];

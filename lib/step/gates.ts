@@ -14,7 +14,7 @@ import type { Ctx, Rule, RuleId, Table } from './rules.ts';
 
 const CI_CAP_REASON = /^CI rework cap: [A-Za-z0-9 ._/,:#?-]{1,600}$/;
 
-export function escalationFile(x: StepInput): string {
+function escalationFile(x: StepInput): string {
   switch (x.job.stage) {
     case 'plan':
       return p(x, 'plan');

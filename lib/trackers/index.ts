@@ -34,7 +34,7 @@ const none: Tracker = {
  * title and reason are scanned too. A refused claim returns `{ok: false}` like any refused claim, so
  * callers cancel the job they just created instead of leaving it behind.
  */
-export function guardTracker(adapter: Tracker, opts: { custom: boolean }): Tracker {
+function guardTracker(adapter: Tracker, opts: { custom: boolean }): Tracker {
   const g: Tracker = Object.create(adapter);
   const refuse = (ctx: TrackerCtx, what: string, units: TextUnit[]) => refuseSecrets(ctx.root, ctx.config, units, { what });
   g.comment = (ctx, ref, body) => {

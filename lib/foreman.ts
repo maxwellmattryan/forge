@@ -65,7 +65,7 @@ const GATE_PREFIX = 'gate:';
  * `reserved` that can't be read, or a mis-written `gate:` entry, is not handled here:
  * reservedMatch fails closed on it, so every gate still stays with a human.
  */
-export function reservedClasses(config: Config): GateClass[] {
+function reservedClasses(config: Config): GateClass[] {
   const patterns: unknown = config.foreman?.reserved;
   if (!Array.isArray(patterns)) return [];
   const out = new Set<GateClass>();
@@ -154,7 +154,7 @@ export function sections(text: string, titles: string[]): string[] {
  * What a reserved pattern is matched against for a gate: the reason, plus decision.md's Why and For the
  * human on escalations, and the agent-written reasons of the pending proposals on a repo proposal.
  */
-export function reservedTexts(root: string, job: Pick<Job, 'id' | 'reason'>, gate: GateClass | null): string[] {
+function reservedTexts(root: string, job: Pick<Job, 'id' | 'reason'>, gate: GateClass | null): string[] {
   const texts = [job.reason ?? ''];
   // From events, not repo-proposals.md: the reasons the assistant reads, without the session-editable copy.
   if (gate === 'repo-proposal') texts.push(...repoProposals({ repos: [] }, readEvents(root, job.id)).filter((r) => r.status === 'pending').map((r) => r.reason));
@@ -207,7 +207,7 @@ const isRetroSpec = (job: Partial<Pick<Job, 'kind'>>, gate: GateClass | null): b
 export const TOTAL_CEILING = '(total-round ceiling: only a human clears it)';
 
 /** The foreman actions that send a job back to fix a security finding rather than accept it. */
-export const SECURITY_MITIGATIONS: readonly string[] = ['rework', 'revise-spec', 'revise-split', 'reject-repos'];
+const SECURITY_MITIGATIONS: readonly string[] = ['rework', 'revise-spec', 'revise-split', 'reject-repos'];
 
 /** SECURITY_CHANGES or SECURITY_UNCLEAR while the latest security review isn't PASS, else null. */
 export function securityHold(job: Pick<Job, 'verdicts'>): string | null {
@@ -248,7 +248,7 @@ export function reservedFor(
  * A PR with feedback the foreman may act on: trusted feedback (threads or change requests from someone
  * with write access, counted by trustedFeedback in lib/pr.ts) or failing checks.
  */
-export function prHasFeedback(job: Pick<Job, 'pr'>, trusted: number): boolean {
+function prHasFeedback(job: Pick<Job, 'pr'>, trusted: number): boolean {
   return trusted > 0 || job.pr?.checks?.state === 'failing';
 }
 
@@ -304,7 +304,7 @@ export function enqueuePrFeedbackGate(root: string, config: Config, job: Job, tr
 }
 
 /** A pending or in-progress pr-feedback gate request for the job's current PR head exists. */
-export function queuedPrFeedbackGate(root: string, job: Pick<Job, 'id' | 'pr'>, requests: ForgeRequest[] = listRequests(root)): boolean {
+function queuedPrFeedbackGate(root: string, job: Pick<Job, 'id' | 'pr'>, requests: ForgeRequest[] = listRequests(root)): boolean {
   const head = job.pr?.headOid;
   if (typeof head !== 'string' || !SHA.test(head)) return false;
   return requests.some((r) => isGateRequest(r, job.id, 'pr-feedback') && r.args?.key === head && (r.status === 'pending' || r.status === 'in-progress'));
@@ -356,7 +356,7 @@ export function checkForemanDecision(
  * The stages a `forge job set --state running` may move a job to right after each foreman action: the
  * second column of the gate table in skills/forge/reference/foreman.md. undefined: the stage stays.
  */
-export const SET_AFTER: Record<string, readonly (string | undefined)[]> = {
+const SET_AFTER: Record<string, readonly (string | undefined)[]> = {
   'approve-spec': [undefined, 'spec'],
   'revise-spec': ['spec'],
   'approve-split': ['plan'],
@@ -371,7 +371,7 @@ export const SET_AFTER: Record<string, readonly (string | undefined)[]> = {
 export const OFFICE_JOB_COMMANDS: readonly string[] = ['assist', 'human', 'set', 'note', 'handoff', 'show', 'get', 'list', 'step'];
 
 /** The longest hand-off reason kept, after safeText. */
-export const HANDOFF_REASON_MAX = 200;
+const HANDOFF_REASON_MAX = 200;
 
 /** The reason as `forge job handoff` stores it: control characters and backticks removed, trimmed, at most 200 characters. */
 export const cleanHandoffReason = (reason: unknown): string => (typeof reason === 'string' ? safeText(reason, HANDOFF_REASON_MAX).trim() : '');
@@ -408,7 +408,7 @@ export function foremanHandoffFor(root: string, job: Pick<Job, 'id' | 'state' | 
  * `--state running` (with its stage) and nothing else. So a misled foreman or assistant can't move a job
  * off a gate the CLI refused it, or that a human owns. Throws ForgeError (exit 1) before any write.
  */
-export function checkOfficeSet(
+function checkOfficeSet(
   job: Pick<Job, 'id' | 'state'>,
   events: JobEvent[],
   change: { stage?: unknown; state?: unknown; waitingOn?: unknown; reason?: unknown; fields?: Record<string, unknown> },

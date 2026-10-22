@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { TRUST_ENV, trustDigest } from '../../../lib/config.ts';
-import { pidAlive } from '../../../lib/worktree.ts';
+import { pidAlive } from '../../../lib/util.ts';
 import { forgeAsync, forgeSync, repoTemplate, waitFor } from '../../helpers.ts';
 
 const DOCKER_BIN = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'docker-bin');

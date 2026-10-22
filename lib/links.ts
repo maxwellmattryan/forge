@@ -11,7 +11,7 @@ import path from 'node:path';
 import { LINK_ECOSYSTEMS, isInsidePath, isLinkName, isLinkSource, isManifestPath } from './components.ts';
 import { isOwnWorktreePath, worktreeRoot } from './config.ts';
 import { memberEntry, memberWorktreePath, trustedMemberWorktree } from './job-repos.ts';
-import { jobDir } from './jobs.ts';
+import { linkDir } from './paths.ts';
 import type { Config, Job, LinkEcosystem } from './types.ts';
 import { run } from './util.ts';
 
@@ -169,7 +169,7 @@ export function resolveLinks(root: string, config: Config, job: Pick<Job, 'id' |
 }
 
 /** `s` as one single-quoted sh word, always quoted. */
-export const shQuote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+const shQuote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
 
 const HEADER = (jobId: string) => `# Written by Forge for job ${jobId}: never commit this`;
 
@@ -265,11 +265,6 @@ export function npmShim(jobId: string, binDir: string, dirs: string[]): string {
 
 /** The PATH line the shell runs before the command, after the login profile. */
 export const pathPrelude = (binDir: string): string => `PATH=${shQuote(binDir)}:"$PATH"; export PATH\n`;
-
-/** `<jobDir>/links/<key>`: the member name, or `_root` (a repo name cannot start with `_`). */
-export function linkDir(root: string, id: string, repo: string | null): string {
-  return path.join(jobDir(root, id), 'links', repo ?? '_root');
-}
 
 /** Makes `dir` a real directory: a planted symlink or file there is replaced, never followed. */
 function realDir(dir: string): void {
@@ -441,11 +436,6 @@ export function restoreLockfiles(snapshot: LockSnapshot): string[] {
     restored.push(f.rel);
   }
   return restored;
-}
-
-/** Deletes `<jobDir>/links/<repo>/`, when a member leaves the job. */
-export function removeLinkDir(root: string, id: string, repo: string): void {
-  fs.rmSync(linkDir(root, id, repo), { force: true, recursive: true });
 }
 
 /**

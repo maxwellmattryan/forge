@@ -304,7 +304,7 @@ const caughtBy = (d: RecallDefect, findings: RaisedFinding[]): boolean =>
   findings.some((f) => f.severity !== 'nit' && f.path === d.path && (d.line === null || (f.line !== null && Math.abs(f.line - d.line) <= NEAR)));
 
 /** Grades every review of a run: pure, so tests pass review texts (null for a missing one). */
-export function gradeRecall(rec: Pick<RecallRun, 'fixtures' | 'reviews'>, texts: Map<string, string | null>, blockOn: string[]): Omit<RecallSummary, 'minutes' | 'tokens'> {
+function gradeRecall(rec: Pick<RecallRun, 'fixtures' | 'reviews'>, texts: Map<string, string | null>, blockOn: string[]): Omit<RecallSummary, 'minutes' | 'tokens'> {
   const byLens: Record<string, RecallGrade> = {};
   const total = zero();
   const both = (lens: string, fn: (g: RecallGrade) => void) => {
@@ -365,7 +365,7 @@ function findRun(root: string, runId: string): { dir: string; rec: RecallRun; jo
 }
 
 /** The base branch's latest recorded run: the newest committed run without a job on `branch`. */
-export function baseRun(root: string, branch: string | null): { run: string; head: string | null; summary: RecallSummary } | null {
+function baseRun(root: string, branch: string | null): { run: string; head: string | null; summary: RecallSummary } | null {
   if (!branch) return null;
   let names: string[] = [];
   try {

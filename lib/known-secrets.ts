@@ -3,13 +3,13 @@
 // replaces them with `[redacted]` wherever it writes or serves text. The record is agent-writable:
 // it is read without following a link or blocking on a FIFO, a bad one counts as empty, and write-
 // time redaction also uses the values the rendering process holds in memory. jobs.ts imports this
-// module, so it never imports jobs.ts at load time (backing-db.ts does, for functions only).
+// module, so neither it nor backing-db.ts imports jobs.ts.
 import fs from 'node:fs';
 import path from 'node:path';
 import { jobDbPasswords } from './backing-db.ts';
 import { paths } from './paths.ts';
 import type { Config } from './types.ts';
-import { withLock, writeJsonPrivate } from './util.ts';
+import { redact, withLock, writeJsonPrivate } from './util.ts';
 
 /** Below this a value can't be redacted reliably: it would match ordinary text. */
 export const MIN_SECRET = 8;
@@ -17,7 +17,6 @@ const MAX_RECORD = 1024 * 1024;
 const JOB_ID = /^[a-z0-9][a-z0-9._-]*$/i;
 const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
 const NONBLOCK = fs.constants.O_NONBLOCK ?? 0;
-export const REDACTED = '[redacted]';
 
 /** Job files that hold credentials: never served, listed or bundled. */
 export const PRIVATE_JOB_FILES: ReadonlySet<string> = new Set(['known-secrets.json', 'backing-db.json']);
@@ -36,13 +35,6 @@ export function isPrivateJobFile(file: string): boolean {
 }
 
 export const knownFile = (root: string, id: string): string => path.join(paths(root).job(id), 'known-secrets.json');
-
-/** `text` with every secret replaced by `[redacted]`. */
-export function redact(text: string, secrets: readonly string[]): string {
-  let out = text;
-  for (const s of secrets) if (s) out = out.split(s).join(REDACTED);
-  return out;
-}
 
 /** The forms a value takes in text Forge writes: raw, and escaped inside a JSON string when that differs. */
 function forms(values: readonly string[]): string[] {

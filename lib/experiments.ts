@@ -24,7 +24,7 @@ const RESAMPLES = 2000;
 const MAX_LEDGER_BYTES = 1024 * 1024;
 
 /** ReviewerStats keys a ledger metric may name under `reviewers.<lens>.`: the numeric ones. */
-export const REVIEWER_METRICS = [
+const REVIEWER_METRICS = [
   'reviews', 'changes', 'blockers', 'changeRate', 'findings', 'fixed', 'disputes', 'disputeRate', 'recurring',
   'missChecked', 'missed', 'missRate', 'blockerMajor', 'severityKnown', 'blockerMajorShare',
 ];
@@ -107,7 +107,7 @@ const round3 = (x: number): number => {
 const isRate = (metric: string): boolean => /(Rate|Share)$/.test(metric.split('.').pop() ?? '');
 
 /** Why an entry can never be settled by measurement, in step 1's order; null when it can. */
-export function unsettleable(e: Pick<ExperimentEntry, 'metric' | 'direction' | 'baseline'>): string | null {
+function unsettleable(e: Pick<ExperimentEntry, 'metric' | 'direction' | 'baseline'>): string | null {
   if (!validMetricPath(e.metric)) return 'metric is not a stats path';
   if (!e.direction) return 'no direction';
   if (e.baseline === null) return 'no baseline';
@@ -115,14 +115,14 @@ export function unsettleable(e: Pick<ExperimentEntry, 'metric' | 'direction' | '
 }
 
 /** The method step 4 picks: a rate with a baseline sample, a rate without one, or a mean. Null when unsettleable. */
-export function methodFor(e: Pick<ExperimentEntry, 'metric' | 'direction' | 'baseline' | 'baselineN'>): Method | null {
+function methodFor(e: Pick<ExperimentEntry, 'metric' | 'direction' | 'baseline' | 'baselineN'>): Method | null {
   if (unsettleable(e)) return null;
   if (!isRate(e.metric!)) return 'bootstrap';
   return e.baselineN !== null && e.baselineN > 0 ? 'two-proportion' : 'wilson';
 }
 
 /** kept on the improving side, reverted on the worsening side, inconclusive when the interval straddles or touches 0. */
-export function verdictOf(direction: 'up' | 'down', [lo, hi]: [number, number]): 'kept' | 'reverted' | 'inconclusive' {
+function verdictOf(direction: 'up' | 'down', [lo, hi]: [number, number]): 'kept' | 'reverted' | 'inconclusive' {
   const up = direction === 'up';
   if (up ? lo > 0 : hi < 0) return 'kept';
   if (up ? hi < 0 : lo > 0) return 'reverted';
@@ -130,7 +130,7 @@ export function verdictOf(direction: 'up' | 'down', [lo, hi]: [number, number]):
 }
 
 /** The three statuses evaluate writes; validWrittenStatus reads exactly these back. */
-export const writtenStatus = {
+const writtenStatus = {
   decided: (verdict: 'kept' | 'reverted' | 'inconclusive', date: string, n: number, method: Method, [lo, hi]: [number, number]) =>
     `status ${verdict} (${date}, n ${n}, ${method}, diff ${String(lo)}..${String(hi)})`,
   belowMin: (date: string, n: number, minJobs: number, jobsAfter: number) => `status inconclusive (${date}, n ${n} below minJobs ${minJobs} after ${jobsAfter} jobs)`,
@@ -252,7 +252,7 @@ function readNoFollow(file: string): string | null {
 }
 
 /** The ledger evaluate edits: the job worktree's, or the repo's; never through a link or outside its checkout. */
-export function ledgerFile(root: string, job: Pick<Job, 'id' | 'worktree'> | null): string {
+function ledgerFile(root: string, job: Pick<Job, 'id' | 'worktree'> | null): string {
   const checkout = job ? job.worktree : root;
   if (!checkout || !exists(checkout)) throw new ForgeError(`job ${job?.id} has no worktree; run: forge worktree create ${job?.id}`);
   const real = fs.realpathSync(checkout);

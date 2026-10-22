@@ -21,7 +21,7 @@ const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v =
 export const MAX_MANIFEST_BYTES = 1024 * 1024;
 
 /** A repo file's text, or null when it is missing, not a plain file (a FIFO would block), over `MAX_MANIFEST_BYTES`, or resolves outside `root`. */
-export function readRepoFile(root: string, rel: string): string | null {
+function readRepoFile(root: string, rel: string): string | null {
   const abs = path.join(root, rel);
   try {
     const real = fs.realpathSync(abs);
@@ -36,7 +36,7 @@ export function readRepoFile(root: string, rel: string): string | null {
 }
 
 /** A repo JSON file, or null when it cannot be read or does not parse. */
-export function readRepoJson(root: string, rel: string): any {
+function readRepoJson(root: string, rel: string): any {
   const text = readRepoFile(root, rel);
   if (text === null) return null;
   try {

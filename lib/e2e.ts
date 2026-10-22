@@ -2,7 +2,8 @@
 // browser suite is too slow to run on every backend-only change.
 // Must not import worktree.ts (it imports this module).
 import { verifySteps } from './config.ts';
-import { inSpec, resolveBase } from './scope.ts';
+import { inSpec } from './glob.ts';
+import { resolveBase } from './scope.ts';
 import type { Config, Job } from './types.ts';
 import { run } from './util.ts';
 
@@ -11,7 +12,7 @@ const SHOWN = 3;
 /**
  * Committed files changed since the merge-base that match the globs (`forge job scope` matching).
  */
-export function uiChanges(cwd: string, config: Config, job: Job, globs: string[]): { files: string[] } | { error: string } {
+function uiChanges(cwd: string, config: Config, job: Job, globs: string[]): { files: string[] } | { error: string } {
   try {
     const { mergeBase } = resolveBase(cwd, config, job);
     const changed = run('git', ['diff', '--name-only', '--no-renames', mergeBase, 'HEAD'], { cwd }).stdout.split('\n').filter(Boolean);

@@ -14,7 +14,7 @@ import { reworkReviewFiles } from './panel.ts';
 import type { RuleId } from './rules.ts';
 
 export const SAFE_ELEMENT = /^[A-Za-z0-9 ._:/@=,+\-[\]"]*$/;
-export const BARE_ELEMENT = /^[A-Za-z0-9._:/@=,+-]+$/;
+const BARE_ELEMENT = /^[A-Za-z0-9._:/@=,+-]+$/;
 export const SAFE_URL = /^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9._/-]+$/;
 
 export const safe = (v: string | null | undefined, re: RegExp, fallback: string) => (v && re.test(v) ? v : fallback);
@@ -76,7 +76,7 @@ export function outputFor(x: StepInput, role: string): string | undefined {
 }
 
 /** The builder's rework inputs this spawn, in the order its brief lists them. */
-export function builderRework(x: StepInput): NonNullable<RoleContext['rework']> {
+function builderRework(x: StepInput): NonNullable<RoleContext['rework']> {
   const j = x.job;
   const b = agent(x, 'builder');
   const lv = lastVerify(x);

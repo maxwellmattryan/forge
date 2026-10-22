@@ -42,7 +42,7 @@ function moveFocus(root: string, job: Job | null, from: 'cli' | 'dashboard', act
 }
 
 /** `forge run`'s runner for checkout steps: the same command, cwd, env, log file and event. */
-export const stepRunner =
+const stepRunner =
   (root: string, config: Config): StepRunner =>
   (id, name, label) =>
     runCommandAsync(root, config, id, name, { label, tail: 20 });

@@ -66,7 +66,7 @@ export class CheckoutError extends ForgeError {
   }
 }
 
-export const ASIDE_SUFFIX = '.forge-aside';
+const ASIDE_SUFFIX = '.forge-aside';
 export const checkoutFile = (root: string): string => path.join(paths(root).runtime, 'checkout.json');
 const checkoutLock = (root: string): string => path.join(paths(root).locks, 'checkout');
 

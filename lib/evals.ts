@@ -26,7 +26,7 @@ import type { Config, EvalCompare, EvalCompareSide, EvalDelta, EvalOverlay, Eval
 /** An eval task as loadTask reads it: the served EvalTask plus its directory and request text. */
 export type LoadedTask = EvalTask & { dir: string; request: string };
 
-export function evalsDir(root: string): string {
+function evalsDir(root: string): string {
   return path.join(paths(root).dir, 'evals');
 }
 
@@ -384,7 +384,7 @@ export function summarize(rec: Pick<EvalRun, 'tasks'>): EvalSummary {
 }
 
 /** How many graded results stand behind each summary key. */
-export function summaryCounts(rec: Pick<EvalRun, 'tasks'>): Record<keyof EvalSummary, number> {
+function summaryCounts(rec: Pick<EvalRun, 'tasks'>): Record<keyof EvalSummary, number> {
   const rs = gradedResults(rec);
   const counts = Object.fromEntries((Object.keys(SUMMARY) as Averaged[]).map((k) => [k, values(rs, SUMMARY[k]).length])) as Record<Averaged, number>;
   return { tasks: rs.length, graded: rs.length, ...counts };

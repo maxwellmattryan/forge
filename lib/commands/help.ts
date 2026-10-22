@@ -275,7 +275,7 @@ export function renderOverview(): string {
   ].join('\n');
 }
 
-export function renderGroup(g: HelpGroup): string {
+function renderGroup(g: HelpGroup): string {
   if (single(g)) return renderCommand(g.commands[0]);
   return [
     `forge ${g.name}: ${g.summary}`,

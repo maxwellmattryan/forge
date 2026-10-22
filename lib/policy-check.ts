@@ -1,6 +1,9 @@
-// Config-time validation of the glob lists and the protected-paths policy. A leaf module (imports
-// nothing from lib/) so config.ts can use it without a cycle through protected.ts, jobs.ts and friends.
+// Config-time validation of the glob lists and the protected-paths policy, and the matcher that
+// applies it. Imports only leaf modules (glob.ts, util.ts), so config.ts can use it without a cycle.
 import path from 'node:path';
+import { inSpec } from './glob.ts';
+import type { Config, ProtectedRule } from './types.ts';
+import { ForgeError } from './util.ts';
 
 const REASON_MAX = 200;
 const isMap = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -39,4 +42,44 @@ export function policyProblems(c: any): string[] {
       problems.push(`${key}: reason must be a string of 1 to ${REASON_MAX} characters with no newline (got ${JSON.stringify(r.reason)?.slice(0, 80)})`);
   });
   return problems;
+}
+
+/** A rule that matched a path: `rule` is 1-based, `glob` is the configured glob that matched. */
+export interface PolicyMatch {
+  rule: number;
+  glob: string;
+  action: ProtectedRule['action'];
+  reason: string;
+}
+
+/** The rules to enforce. An invalid policy fails closed: every gate refuses until a human fixes it. */
+export function policyRules(config: Config): ProtectedRule[] {
+  const problems = policyProblems(config);
+  if (problems.length) throw new ForgeError(`invalid policy in .forge/config.yml, so Forge refuses to check protected paths: ${problems.join('; ')}`, 'config_invalid');
+  return (config.policy?.protectedPaths ?? []) as ProtectedRule[];
+}
+
+/** refuse beats escalate; within one action the lowest rule number wins. */
+export function betterMatch(a: PolicyMatch | null, b: PolicyMatch | null): PolicyMatch | null {
+  if (!a || !b) return a ?? b;
+  if (a.action !== b.action) return a.action === 'refuse' ? a : b;
+  return a.rule <= b.rule ? a : b;
+}
+
+export function matchWith(rules: ProtectedRule[], test: (glob: string) => boolean): PolicyMatch | null {
+  let best: PolicyMatch | null = null;
+  rules.forEach((r, i) => {
+    for (const glob of r.paths) {
+      if (!test(glob.toLowerCase())) continue;
+      best = betterMatch(best, { rule: i + 1, glob, action: r.action, reason: r.reason });
+      break;
+    }
+  });
+  return best;
+}
+
+/** The rule a path falls under, or null. Case-insensitive, so `.GitHub/Workflows/x.yml` still counts. */
+export function matchPolicy(file: string, rules: ProtectedRule[]): PolicyMatch | null {
+  const p = file.toLowerCase();
+  return matchWith(rules, (g) => inSpec(p, [g]));
 }

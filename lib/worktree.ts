@@ -2,19 +2,21 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { backingDown, backingEnv, hasJobBacking, portsLock } from './backing.ts';
-import { ensureEnvironment, hasManagedBacking } from './environment-lifecycle.ts';
-import type { DatabaseOpts } from './backing.ts';
+import { backingDown, hasJobBacking, portsLock } from './backing.ts';
+import { ensureEnvironment, hasManagedBacking, stopBackground } from './environment-lifecycle.ts';
+import { checkRefs, joinOutput, jobEnv, shell, vars } from './job-command.ts';
+import type { ShellResult } from './job-command.ts';
 import { knownValues, redactKnown, removeKnown } from './known-secrets.ts';
 import { enforceBudget } from './budget.ts';
 import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
-import { isOwnWorktreePath, loadConfig, verifyGroups, worktreeRoot } from './config.ts';
+import { loadConfig, verifyGroups, worktreeRoot } from './config.ts';
 import { e2ePlan } from './e2e.ts';
 import { checkNotes, checkedNotes } from './experiments.ts';
 import { committedChanges, realHistoryEnv, resolveBase } from './scope.ts';
 import { configForJob } from './eval-overlay.ts';
 import { stackSource } from './deps.ts';
-import { STATUS_ARGV, blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.ts';
+import { STATUS_ARGV } from './git-pins.ts';
+import { blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.ts';
 import type { CompactIntegrity, IntegrityReport } from './integrity.ts';
 import { loadJob, logEvent, readEvents, renewLease, setJob, updateJob, jobDir } from './jobs.ts';
 import { changedRepos, downstreamMembers } from './downstream.ts';
@@ -28,7 +30,7 @@ import { jobComponent } from './components.ts';
 import { applySinks } from './config-sinks-apply.ts';
 import type { SinkSummary } from './config-sinks-apply.ts';
 import { allocatePorts, portBearing } from './ports.ts';
-import { commandPort, endpointEnv, endpointPlaceholders, jobEndpoints } from './endpoints.ts';
+import { commandPort, endpointPlaceholders, jobEndpoints } from './endpoints.ts';
 import { refreshInterim } from './interim-apply.ts';
 import { applyLinks, consumerLockfiles, pathPrelude, resolveLinks, restoreLockfiles, snapshotLockfiles } from './links.ts';
 import type { AppliedLinks, LockSnapshot } from './links.ts';
@@ -360,30 +362,6 @@ function writeSharedCargoTarget(root: string, config: Config, wtRoot: string): v
   if (!exists(file) || fs.readFileSync(file, 'utf8') !== body) fs.writeFileSync(file, body);
 }
 
-// Placeholders fill a shell command, and job.json can be edited outside the CLI, so these are
-// checked here at the sink rather than trusted from createJob.
-function checkRefs(job: Job): void {
-  assertSafeRef(job.id, 'job.id');
-  assertSafeRef(job.branch, 'job.branch');
-  assertSafeRef(job.base, 'job.base');
-}
-
-// `{worktree}` is filled unquoted, and job.json's `worktree` is agent-writable: it is trusted only
-// when it is literally the path Forge computes for the job, whatever characters the repo path holds.
-// Checked only for a template that uses it, so other commands run whatever the stored value is.
-function assertOwnWorktree(root: string, config: Config, job: Job, dir: string, template: string): void {
-  if (!template.includes('{worktree}') || isOwnWorktreePath(root, config, job.id, dir)) return;
-  throw new ForgeError(`job.worktree ${JSON.stringify(dir).slice(0, 120)} is not this job's worktree: {worktree} is filled only with ${JSON.stringify(path.join(worktreeRoot(root, config), job.id)).slice(0, 120)}`);
-}
-
-// `{args}` is empty here: only `forge run … -- <args>` fills it (fillCommand), so verify, setup,
-// background servers and regenerate never take arguments that could narrow what they run.
-function vars(root: string, config: Config, job: Job, dir: string, port: number | null, template: string): Record<string, string | number> {
-  checkRefs(job);
-  assertOwnWorktree(root, config, job, dir, template);
-  return { ...endpointPlaceholders(jobEndpoints(root, config, job), { shell: true }), job: job.id, port: port ?? '', worktree: dir, root, branch: job.branch!, base: job.base!, args: '' };
-}
-
 /**
  * Fills a command template. Arguments are opt-in: only a template that says `{args}` takes them,
  * so a configured command touching outside systems can't be steered with flags a session picks.
@@ -425,57 +403,6 @@ function placeholdersArePlainWords(template: string): boolean {
     else if (quote !== null && c === quote) quote = null;
   }
   return true;
-}
-
-// The daemon's trust check guards the session's own `forge` calls; a configured command that
-// calls `forge` (a test suite on scratch repos) must behave as it does for a human.
-const DAEMON_MARKER = /^FORGE_DAEMON(_|$)/;
-// An outer job's per-component and backing variables would otherwise reach a nested job's
-// commands (the suite run by `forge verify` driving scratch jobs) beside that job's own.
-const JOB_VARS = /^FORGE_(PORT|ENDPOINT|BACKING)_/;
-
-/** A configured command's environment: `base` without the daemon markers or an outer job's variables (git pins kept), plus the job's variables. */
-export function envFor(job: Job, dir: string, port: number | null, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...base };
-  for (const k of Object.keys(env)) if (DAEMON_MARKER.test(k) || JOB_VARS.test(k)) delete env[k];
-  return Object.assign(env, { FORGE_JOB: job.id, FORGE_WORKTREE: dir, PORT: port ? String(port) : '', FORGE_PORT: port ? String(port) : '' });
-}
-
-/** envFor plus the job's FORGE_BACKING_* and FORGE_PORT_* / FORGE_ENDPOINT_* variables: what every configured command Forge runs for a job sees. */
-function jobEnv(root: string, config: Config, job: Job, dir: string, port: number | null): NodeJS.ProcessEnv {
-  return { ...envFor(job, dir, port), ...backingEnv(root, config, job), ...endpointEnv(jobEndpoints(root, config, job)) };
-}
-
-/**
- * How backingUp builds a template database for the job: in the worktree path Forge computes for it
- * (never job.worktree, which the session can write), null when that directory is missing, with the
- * job's usual placeholders and env plus `envOverride` (the template's url).
- */
-export function databaseCommands(root: string, config: Config, job: Job): DatabaseOpts {
-  const dir = path.join(worktreeRoot(root, config), job.id);
-  const worktree = exists(dir) ? dir : null;
-  const port = commandPort(config, job, jobComponent(config, job));
-  return {
-    worktree,
-    runCommand: (cmd, envOverride) => {
-      if (!worktree) return { ok: false, output: `job ${job.id} has no worktree` };
-      const res = shell(fill(cmd, vars(root, config, job, worktree, port, cmd)), worktree, { ...jobEnv(root, config, job, worktree, port), ...envOverride });
-      return { ok: res.ok, output: res.output };
-    },
-  };
-}
-
-interface ShellResult {
-  ok: boolean;
-  status: number | null;
-  output: string;
-}
-
-const joinOutput = (stdout: string, stderr: string): string => `${stdout}${stderr ? `\n${stderr}` : ''}`;
-
-function shell(cmd: string, cwd: string, env: NodeJS.ProcessEnv): ShellResult {
-  const res = run(posixShell(), ['-lc', cmd], { cwd, env, allowFail: true });
-  return { ok: res.ok, status: res.status, output: joinOutput(res.stdout, res.stderr) };
 }
 
 /** run()'s spawnSync limit per stream, kept for the async path. */
@@ -1145,9 +1072,6 @@ export async function startBackground(
   return { pid: rec.pid, port, log: rec.log, reused: rec.reused, listening };
 }
 
-// Moved to util.ts so the lock can use it; kept here for its many importers.
-export { pidAlive };
-
 /** How far the process's start time may be from runtime.json's `startedAt` (ps reports whole seconds). */
 const DEV_START_SLACK_MS = 30_000;
 const DEV_STOP_WAIT_MS = 5_000;
@@ -1273,30 +1197,6 @@ export async function portAnswers(port: number): Promise<boolean> {
   return false;
 }
 
-export function stopBackground(root: string, id: string): string[] {
-  const pidFile = path.join(jobDir(root, id), 'runtime.json');
-  const rt = readJson(pidFile, {});
-  const stopped: string[] = [];
-  for (const [name, info] of Object.entries(rt)) {
-    // runtime.json is in the job dir, which the job's agents can write, and this runs unattended on
-    // every park: pid 1 would make kill(-1) signal every process the user may signal.
-    const pid = (info as any)?.pid;
-    if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) continue;
-    try {
-      process.kill(-pid, 'SIGTERM');
-      stopped.push(name);
-    } catch {
-      try {
-        process.kill(pid, 'SIGTERM');
-        stopped.push(name);
-      } catch {}
-    }
-  }
-  writeJsonAtomic(pidFile, {});
-  if (stopped.length) logEvent(root, id, 'background-stop', { names: stopped });
-  return stopped;
-}
-
 /**
  * Removes the job's worktrees: the root's and then every member's, or with `repo` only that member's.
  * `removed` stays the root's path; `repos` lists the members handled, only when there are any.
@@ -1420,14 +1320,4 @@ function isDir(p: string): boolean {
   } catch {
     return false;
   }
-}
-
-/** Port probing lets `forge doctor` warn when something outside Forge holds a job's port. */
-export function portInUse(port: number): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    const srv = net.createServer();
-    srv.once('error', () => resolve(true));
-    srv.once('listening', () => srv.close(() => resolve(false)));
-    srv.listen(port, '127.0.0.1');
-  });
 }

@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { configForJob } from './eval-overlay.ts';
-import { STATUS_ARGV } from './integrity.ts';
+import { STATUS_ARGV } from './git-pins.ts';
 import { jobDir, loadJob, logEvent, readEvents, setJob } from './jobs.ts';
 import { exists } from './paths.ts';
 import { readMemberPanel } from './member-panel.ts';
@@ -44,7 +44,7 @@ const SHA = /^[0-9a-f]{40,64}$/;
  * or null when that sha is missing, malformed, or not an ancestor of HEAD (history was rewritten,
  * so a small diff could hide work the passed lenses never saw).
  */
-export function changedSinceReview(root: string, id: string, round: number, cwd: string): string[] | null {
+function changedSinceReview(root: string, id: string, round: number, cwd: string): string[] | null {
   const sha = readEvents(root, id).findLast((e) => e.type === 'verdicts' && e.round === round)?.sha;
   if (typeof sha !== 'string' || !SHA.test(sha)) return null;
   const env = realHistoryEnv();

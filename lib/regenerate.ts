@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { globProblem } from './config.ts';
 import { exists, resolveWorktreePaths } from './paths.ts';
-import { inSpec } from './scope.ts';
+import { inSpec } from './glob.ts';
 import type { Config, Job } from './types.ts';
 import { run } from './util.ts';
 import { commandTemplate, runCommand } from './worktree.ts';
@@ -137,7 +137,7 @@ export function takeBaseSide(cwd: string, strategy: Strategy, paths: string[], o
 }
 
 /** Stages every glob-matching path the worktree has, tracked or new, so output the build added or deleted is committed too. */
-export function stageGenerated(cwd: string, globs: string[]): string[] {
+function stageGenerated(cwd: string, globs: string[]): string[] {
   const files = generatedPaths(cwd, run('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd }).stdout, globs);
   if (files.length) gitPaths(cwd, ['add', '-A'], files);
   return files;

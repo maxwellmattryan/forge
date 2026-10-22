@@ -202,7 +202,7 @@ function isForgeCommit(sha: string, subject: string, forge: ForgeCommits): boole
 }
 
 /** Every live and archived job's merge sha and PR number. */
-export function forgeCommits(root: string): ForgeCommits {
+function forgeCommits(root: string): ForgeCommits {
   const shas = new Set<string>();
   const prNumbers = new Set<number>();
   for (const j of [...listJobs(root), ...listArchived(root).map((a) => a.job)]) {

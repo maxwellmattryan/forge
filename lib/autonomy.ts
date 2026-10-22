@@ -12,7 +12,7 @@ export type AutonomyReason = (typeof AUTONOMY_REASONS)[number];
  * A person's actions at gates that park only when config or policy requires them: they never count
  * against the autonomy rate, only against the strict one.
  */
-export const REQUIRED_GATE_ACTIONS = ['approve-spec', 'approve-split', 'approve-repos', 'reject-repos', 'approve-release'] as const;
+const REQUIRED_GATE_ACTIONS = ['approve-spec', 'approve-split', 'approve-repos', 'reject-repos', 'approve-release'] as const;
 
 /** The parks a person's `approve` clears as a required gate (`human` only with a protected-paths reason). */
 const REQUIRED_PARKS = new Set(['issue-link', 'infra']);

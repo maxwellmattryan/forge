@@ -12,8 +12,8 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig } from './config.ts';
-import { openAppend } from './daemon.ts';
-import { jobDir, loadJob, logEvent } from './jobs.ts';
+import { openAppend } from './daemon-files.ts';
+import { jobDir, loadJob, logEvent, onTransition } from './jobs.ts';
 import { commandProblem, notifyConfigured, validCommand, validWebhooks, webhookHost, webhookProblem } from './notify-config.ts';
 import { PLUGIN_ROOT, exists, paths } from './paths.ts';
 import { posixShell } from './platform.ts';
@@ -133,7 +133,7 @@ const PR_PATHS = [new RegExp(`^/${SEGMENT}/${SEGMENT}/pull/[1-9][0-9]*$`), new R
  * The PR url only when it is a GitHub pull request or GitLab merge request URL, else null. job.json is
  * agent-writable, so any other https value could put a link of an agent's choosing into a team channel.
  */
-export function prLink(url: unknown): string | null {
+function prLink(url: unknown): string | null {
   if (typeof url !== 'string') return null;
   try {
     const u = new URL(url);
@@ -187,7 +187,7 @@ function fetchError(e: unknown): 'redirect' | 'timeout' | 'network' {
  * POSTs `body` once, and once more after `retryDelayMs` on a network error, timeout, 429 or 5xx.
  * A redirect is an error (redirect: 'error'), so a 3xx can't send the payload to another host.
  */
-export async function deliverWebhook(hook: Pick<NotifyWebhook, 'url'>, body: string, opts: { timeoutMs?: number; retryDelayMs?: number } = {}): Promise<DeliveryResult> {
+async function deliverWebhook(hook: Pick<NotifyWebhook, 'url'>, body: string, opts: { timeoutMs?: number; retryDelayMs?: number } = {}): Promise<DeliveryResult> {
   const timeoutMs = opts.timeoutMs ?? 5000;
   const retryDelayMs = opts.retryDelayMs ?? 1000;
   let last: DeliveryResult = { ok: false, error: 'network', attempts: 0 };
@@ -229,7 +229,7 @@ export function commandSource(template: string): string {
 }
 
 /** The variables the command's environment carries: empty strings for nulls. */
-export function commandEnv(p: NotifyPayload): Record<string, string> {
+function commandEnv(p: NotifyPayload): Record<string, string> {
   return {
     FORGE_NOTIFY_EVENT: p.event,
     FORGE_NOTIFY_JOB: p.job ?? '',
@@ -278,7 +278,7 @@ export function runCommand(root: string, template: string, p: NotifyPayload, opt
 }
 
 /** The first event in `events` (most specific first) that `hook` subscribes to, or null. */
-export function eventFor(hook: NotifyWebhook, events: readonly NotifyEvent[]): NotifyEvent | null {
+function eventFor(hook: NotifyWebhook, events: readonly NotifyEvent[]): NotifyEvent | null {
   return events.find((e) => !hook.events || hook.events.includes(e)) ?? null;
 }
 
@@ -324,7 +324,7 @@ export async function deliver(root: string, config: Config, events: readonly Not
 }
 
 /** The event a result becomes: host only, never the URL or the command. */
-export function resultEvent(r: TargetResult): { type: 'notified' | 'notify-failed'; data: Record<string, unknown> } {
+function resultEvent(r: TargetResult): { type: 'notified' | 'notify-failed'; data: Record<string, unknown> } {
   const where = r.target === 'webhook' ? { host: r.host, format: r.format } : {};
   if (r.ok) return { type: 'notified', data: { event: r.event, target: r.target, ...where, ...(r.status !== undefined ? { status: r.status } : {}), attempts: r.attempts } };
   return {
@@ -444,3 +444,11 @@ export async function notifyChecks(config: Pick<Config, 'notify'>, opts: { timeo
   }
   return checks;
 }
+
+// jobs.ts sits below this module, so it can't call queueNotify itself: it calls this hook once per
+// transition instead. Every `forge` process loads this module (lib/cli.ts imports commands/notify.ts),
+// so no state change goes unnoticed.
+onTransition((root, job, from, to) => {
+  const n = transitionEvents(from, to, job);
+  if (n) queueNotify(root, n.events, { job: job.id, reason: n.reason });
+});

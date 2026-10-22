@@ -1,7 +1,8 @@
 // lib/commands/render.ts: the generic human-mode renderer (docs/CLI.md "Output mode").
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { colorEnabled, paint, render, renderError, sanitize } from '../lib/commands/render.ts';
+import { paint, sanitize } from '../lib/ansi.ts';
+import { colorEnabled, render, renderError } from '../lib/commands/render.ts';
 
 const plain = (v: unknown) => render(v, { color: false });
 const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '');

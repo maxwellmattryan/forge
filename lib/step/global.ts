@@ -11,7 +11,7 @@ import type { Ctx, Table } from './rules.ts';
 import { nextLenses, retryLens } from './stages/review.ts';
 
 /** The role whose lost or failed run blocks the current stage (L1); reviewers go through M1/M2 instead. */
-export function blockedRole(x: StepInput, f: Facts): string | null {
+function blockedRole(x: StepInput, f: Facts): string | null {
   const j = x.job;
   const a = (r: string) => agent(x, r);
   const latest = (roles: string[]) => roles.filter((r) => a(r)?.startedAt).sort((m, n) => String(a(n)!.startedAt).localeCompare(String(a(m)!.startedAt)))[0] ?? null;

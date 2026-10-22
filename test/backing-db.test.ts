@@ -15,7 +15,8 @@ import { loadConfig } from '../lib/config.ts';
 import { createJob, loadJob, readEvents } from '../lib/jobs.ts';
 import { paths } from '../lib/paths.ts';
 import { loadStepInput, step } from '../lib/step.ts';
-import { createWorktree, databaseCommands, removeWorktree } from '../lib/worktree.ts';
+import { databaseCommands } from '../lib/job-command.ts';
+import { createWorktree, removeWorktree } from '../lib/worktree.ts';
 import { emptyState, handle } from './fixtures/fake-docker.mjs';
 import { repoTemplate } from './helpers.ts';
 

@@ -16,13 +16,13 @@ import { daemonScope } from './requests.ts';
 import type { Config, EventActor, Job, JobEvent, RepoProposal } from './types.ts';
 import { ForgeError, fenced, safeText, withLock, writeJsonAtomic, writeTextAtomic } from './util.ts';
 
-export const PROPOSALS_MD = 'repo-proposals.md';
-export const PROPOSALS_JSON = 'repo-proposals.json';
+const PROPOSALS_MD = 'repo-proposals.md';
+const PROPOSALS_JSON = 'repo-proposals.json';
 export const REASON_MAX = 200;
 const NOTE_MAX = 2000;
 /** The reason prefix of the RP1 park (lib/step/gates.ts) that tells this `human` wait apart from the others. */
-export const PARK_PREFIX = 'repo proposal:';
-export const DECISION_ACTIONS = { approve: 'approve-repos', reject: 'reject-repos' } as const;
+const PARK_PREFIX = 'repo proposal:';
+const DECISION_ACTIONS = { approve: 'approve-repos', reject: 'reject-repos' } as const;
 
 const isRepoName = (v: unknown): v is string => typeof v === 'string' && REPO_NAME.test(v);
 const isActor = (v: unknown): v is EventActor => Boolean(v) && typeof v === 'object' && 'source' in (v as object);
@@ -167,7 +167,7 @@ export function decideRepoProposals(
 const who = (a: EventActor | null): string => (a ? safeText(a.login ?? a.source, 100) : 'unknown');
 
 /** repo-proposals.md for the human, the foreman's assistant and re-run agents, and repo-proposals.json for the dashboard. */
-export function writeRepoProposalFiles(root: string, config: Config, id: string): void {
+function writeRepoProposalFiles(root: string, config: Config, id: string): void {
   const job = loadJob(root, id);
   const rows = repoProposals(job, readEvents(root, id));
   const graph = new Map(repoGraph(config).map((g) => [g.repo, g]));

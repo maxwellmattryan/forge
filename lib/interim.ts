@@ -376,7 +376,7 @@ export function pinNpm(text: string, name: string, spec: string, file = 'package
 const EXACT_SEMVER = /^\d{1,16}\.\d{1,16}\.\d{1,16}(?:-[0-9A-Za-z.-]{1,100})?(?:\+[0-9A-Za-z.-]{1,100})?$/;
 
 /** A version's requirement core: no leading `v`, no `+build`. */
-export const releaseCore = (version: string): string => version.replace(/^v/, '').replace(/\+.*$/, '');
+const releaseCore = (version: string): string => version.replace(/^v/, '').replace(/\+.*$/, '');
 
 /**
  * The npm spec a released version replaces `old` with: `^`/`~` kept before a numeric range, the bare
@@ -613,7 +613,7 @@ export function pendingDeferral<E extends { type: string }>(events: E[]): E | nu
 }
 
 /** Whether a `canary-published` event records `version` for dependency `repo`. */
-export const canaryPublished = (events: { type: string; repo?: unknown; version?: unknown }[], repo: RepoKey, version: string | undefined): boolean =>
+const canaryPublished = (events: { type: string; repo?: unknown; version?: unknown }[], repo: RepoKey, version: string | undefined): boolean =>
   events.some((e) => e.type === 'canary-published' && (e.repo ?? null) === repo && e.version === version);
 
 /**

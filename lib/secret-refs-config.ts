@@ -5,15 +5,15 @@
 import { isInsidePath } from './util.ts';
 
 /** Where a secret's value can come from (docs/CONFIG.md "Secret references"). */
-export const SECRET_SOURCES = ['env', 'keychain', 'op', 'file'] as const;
+const SECRET_SOURCES = ['env', 'keychain', 'op', 'file'] as const;
 export type SecretSourceKind = (typeof SECRET_SOURCES)[number];
 
 /** A secret's name, an env source's variable and a dotenv `key`. */
 export const SECRET_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** A keychain service or account: 1–128 safe characters, never an option. */
-export const KEYCHAIN_FIELD = /^(?!-)[A-Za-z0-9._@:/ +-]{1,128}$/;
+const KEYCHAIN_FIELD = /^(?!-)[A-Za-z0-9._@:/ +-]{1,128}$/;
 /** A 1Password secret reference. */
-export const OP_REF = /^op:\/\/[^\s]+$/;
+const OP_REF = /^op:\/\/[^\s]+$/;
 const MAX_OP_REF = 500;
 // Names that are object keys with a meaning: `values.__proto__ = v` drops the value, so it would never be redacted.
 const RESERVED_NAMES: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);

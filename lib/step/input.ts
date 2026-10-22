@@ -15,7 +15,8 @@ import { lensChecklists } from '../member-panel.ts';
 import { PLUGIN_ROOT, exists } from '../paths.ts';
 import { pluginHash } from '../provenance.ts';
 import { hasFixtures, loadFixtures } from '../recall.ts';
-import { approachPaths, committedChanges, inSpec, integrationTouched, resolveBase } from '../scope.ts';
+import { inSpec } from '../glob.ts';
+import { approachPaths, committedChanges, integrationTouched, resolveBase } from '../scope.ts';
 import type { Config, Job, JobEvent, StepFile, StepInput, StepVerdicts } from '../types.ts';
 import { readJson, readText } from '../util.ts';
 import { verifierCount } from '../verifiers.ts';
@@ -26,7 +27,7 @@ export const PLAN_AUTO_CHARS = 600;
 export const PLAN_AUTO_LINES = 3;
 
 /** Events loadStepInput keeps; everything else in events.jsonl is noise to step. */
-export const STEP_EVENTS = new Set([
+const STEP_EVENTS = new Set([
   'human', 'round', 'worktree', 'worktree-setup-failed', 'pr-find', 'pr-adopted', 'scope', 'panel', 'integrated', 'integrate-conflicts',
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
@@ -148,7 +149,7 @@ export function loadIntegrationTouched(job: Job, config: Config, events: JobEven
 }
 
 /** The recall gate's paths when a config predates evals.recall. */
-export const RECALL_PATHS = ['agents/', 'reviewers/', 'lib/brief.ts'];
+const RECALL_PATHS = ['agents/', 'reviewers/', 'lib/brief.ts'];
 
 /**
  * The recall gate from what was read: null unless the job is a non-eval job in decide with a

@@ -14,7 +14,7 @@ import { readText } from './util.ts';
 export { verifierDigest } from './provenance.ts';
 
 /** The builder's overrides as resolveModel reads them: an invalid value shows as null, as it resolves. */
-export function builderModelBy(config: Config): RosterModelBy {
+function builderModelBy(config: Config): RosterModelBy {
   const by: Record<string, unknown> | null | undefined = config.runtime?.modelByComplexity;
   const at = (k: string) => (by && typeof by === 'object' && !Array.isArray(by) ? validModel(by[k]) : null);
   return { low: at('low'), medium: at('medium'), high: at('high'), rework: validModel(config.runtime?.reworkModel) };

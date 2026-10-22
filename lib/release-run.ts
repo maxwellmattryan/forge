@@ -22,13 +22,13 @@ import {
   type PlanOptions,
   type ReleasePlan,
   type ReleaseRepo,
-  type ReleaseState,
   type ReleaseStep,
   type StepState,
   RELEASE_FILE_VERSION,
   assertNoSymlinks,
   cloneGit,
   doneCount,
+  freshPlan,
   planHash,
   planRelease,
   planSteps,
@@ -44,11 +44,10 @@ import {
 import { foremanReleaseApproval, releaseApprovalStatus } from './release-approval.ts';
 import type { RepoKey } from './repo-order.ts';
 import type { Config } from './types.ts';
-import { ForgeError, findOnPath, now, run, writeJsonAtomic } from './util.ts';
-import { pidAlive } from './worktree.ts';
+import { ForgeError, findOnPath, now, pidAlive, run, writeJsonAtomic } from './util.ts';
 
-export const RUN_DAEMON_REFUSAL = 'forge release run runs release and publish commands, which a daemon session may not do; a human runs it in their own session';
-export const RUN_WINDOWS_REFUSAL = `forge release run is not supported on native Windows; run it under WSL2: ${SUPPORT_URL}`;
+const RUN_DAEMON_REFUSAL = 'forge release run runs release and publish commands, which a daemon session may not do; a human runs it in their own session';
+const RUN_WINDOWS_REFUSAL = `forge release run is not supported on native Windows; run it under WSL2: ${SUPPORT_URL}`;
 const LOCK_STALE_MS = 60_000;
 const CHECK_TIMEOUT_MS = 120_000;
 
@@ -102,15 +101,6 @@ export interface RunOptions extends PlanOptions {
 export function refuseRun(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): void {
   if (env.FORGE_DAEMON === '1') throw new ForgeError(RUN_DAEMON_REFUSAL);
   if (platform === 'win32') throw new ForgeError(RUN_WINDOWS_REFUSAL);
-}
-
-/** The plan as it is now, against release.json and state.json; a mismatch is refused as stale. */
-export function freshPlan(root: string, config: Config, file: ReleasePlan, state: ReleaseState | null, opts: PlanOptions = {}): ReleasePlan {
-  const now = planRelease(root, config, file.selection, opts);
-  // planHash(file) catches a release.json edited without updating its hash.
-  const old = [file.hash, planHash(file), state?.planHash].find((h) => h !== undefined && h !== now.hash);
-  if (old !== undefined) throw new ForgeError(`the release plan no longer matches config and the repos (plan ${String(old).slice(0, 12)}, now ${now.hash.slice(0, 12)}); run forge release plan`);
-  return now;
 }
 
 /** `.forge/locks/release/`, taken with mkdir; a dead owner's (or an ownerless stale) lock is taken over once. */
@@ -227,7 +217,7 @@ const sha = (git: GitReader, dir: string, ref: string): string | null => {
 };
 
 /** One check for one repo's step. `env` resolves the registry tools. */
-export function runCheck(kind: CheckKind, repo: ReleaseRepo, config: Config, git: GitReader = cloneGit, env: NodeJS.ProcessEnv = process.env): CheckResult {
+function runCheck(kind: CheckKind, repo: ReleaseRepo, config: Config, git: GitReader = cloneGit, env: NodeJS.ProcessEnv = process.env): CheckResult {
   const dir = repo.dir;
   const base = repoBase(config, repo.repo);
   const remote = repoRemote(config);
@@ -308,7 +298,7 @@ export function runCheck(kind: CheckKind, repo: ReleaseRepo, config: Config, git
 const LOCAL_TOOLS = new Set(['changeset', 'release-please']);
 
 /** The program and arguments a step spawns, or why it can't. */
-export function stepArgv(step: ReleaseStep, dir: string, env: NodeJS.ProcessEnv = process.env): { argv: string[] } | { missing: string } {
+function stepArgv(step: ReleaseStep, dir: string, env: NodeJS.ProcessEnv = process.env): { argv: string[] } | { missing: string } {
   if (step.shell !== null) return { argv: [posixShell({ env }), '-lc', step.shell] };
   const [word, ...args] = step.argv ?? [];
   const local = LOCAL_TOOLS.has(word) ? findOnPath(word, { PATH: path.join(dir, 'node_modules', '.bin') }) : null;
@@ -355,7 +345,7 @@ function spawnStep(spawn: SpawnFn, argv: string[], cwd: string, env: NodeJS.Proc
 }
 
 /** The prompt a publish step shows before it runs. */
-export const publishPrompt = (step: ReleaseStep, dir: string): string => `Publish step ${step.id} in ${dir}:\n  ${stepCommand(step)}\nRun it? [y/N] `;
+const publishPrompt = (step: ReleaseStep, dir: string): string => `Publish step ${step.id} in ${dir}:\n  ${stepCommand(step)}\nRun it? [y/N] `;
 
 /**
  * `forge release run`: refusals, recompute-and-compare, the lock, then each step from the first one

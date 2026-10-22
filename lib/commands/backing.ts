@@ -4,7 +4,7 @@ import { backingDown, backingDownShared, backingStatus, backingStop, backingUp }
 import { refuseInboxDrive, refuseInboxOrOffice } from '../daemon-owner.ts';
 import { loadJob } from '../jobs.ts';
 import { validJobId } from '../requests.ts';
-import { databaseCommands } from '../worktree.ts';
+import { databaseCommands } from '../job-command.ts';
 import { ForgeError, assertSafeRef } from '../util.ts';
 import { usageError } from './args.ts';
 import type { CliContext, Dispatched, HelpGroup } from '../types.ts';

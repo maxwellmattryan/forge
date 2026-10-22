@@ -8,13 +8,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { entriesOrNone, isManaged } from './backing.ts';
-import { readLogPage } from './daemon.ts';
+import { readLogPage } from './daemon-files.ts';
 import { jobEndpoints } from './endpoints.ts';
 import { readSmallJson } from './focus.ts';
 import { currentFocus } from './focus-actions.ts';
 import { isActive, jobDir, listJobs } from './jobs.ts';
 import { PLUGIN_ROOT } from './paths.ts';
-import { commandTemplate, pidAlive, portAnswers } from './worktree.ts';
+import { pidAlive } from './util.ts';
+import { commandTemplate, portAnswers } from './worktree.ts';
 import type { Config, EnvironmentDev, EnvironmentRow, EnvironmentService, EnvironmentsResponse, EnvironmentUsage, JobEnvironmentResponse, LoadedJob } from './types.ts';
 
 /** The most a CLI child may print: a status of every container fits many times over. */
@@ -93,7 +94,7 @@ function devPort(root: string, config: Config, job: LoadedJob): number | null {
 }
 
 /** The job's dev server, or null when no dev command is configured for it. */
-export async function devStatus(root: string, config: Config, job: LoadedJob): Promise<EnvironmentDev | null> {
+async function devStatus(root: string, config: Config, job: LoadedJob): Promise<EnvironmentDev | null> {
   const dev = commandTemplate(config, job, 'dev');
   if (typeof dev !== 'string' || !dev.trim()) return null;
   const port = devPort(root, config, job);
@@ -160,7 +161,7 @@ export function forgeJson(root: string, args: string[], timeoutMs: number): Prom
 }
 
 /** `docker <args>` without a shell or a blocking call: argv only, output capped. Used only for `stats`. */
-export function dockerRun(args: string[], timeoutMs: number): Promise<{ ok: boolean; stdout: string }> {
+function dockerRun(args: string[], timeoutMs: number): Promise<{ ok: boolean; stdout: string }> {
   return new Promise((resolve) => {
     execFile('docker', args, { timeout: timeoutMs, maxBuffer: 2 * 1024 * 1024, encoding: 'utf8' }, (e, stdout) => resolve({ ok: !e, stdout: String(stdout ?? '') }));
   });

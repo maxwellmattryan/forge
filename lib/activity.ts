@@ -5,8 +5,8 @@ import path from 'node:path';
 import { paths } from './paths.ts';
 import { parseEventLines } from './jobs.ts';
 import { validJobId } from './requests.ts';
-import { paint, sanitize, sgr } from './commands/render.ts';
-import type { Paint, Style } from './commands/render.ts';
+import { paint, sanitize, sgr } from './ansi.ts';
+import type { Paint, Style } from './ansi.ts';
 import type { SessionEvent } from './daemon.ts';
 import type { RunningServer } from './server.ts';
 import type { DaemonSessionState, JobEvent, RequestInfo } from './types.ts';
@@ -39,7 +39,7 @@ const hues = new Map<string, string>();
  * A subject's colour. Jobs take the next one in turn as they first appear, so the few that run at
  * once rarely share one, and a subject keeps its colour for as long as this `forge dash` runs.
  */
-export function subjectHue(subject: string): string {
+function subjectHue(subject: string): string {
   const fixed = FIXED_HUES.get(subject);
   if (fixed) return fixed;
   let hue = hues.get(subject);
@@ -109,7 +109,7 @@ export function formatActivity(kind: ActivityKind, text: string | Part[], opts: 
 }
 
 /** The plain text of a line's parts, as a log without colour prints it. */
-export const plainText = (parts: Part[]): string => parts.map((x) => x.text).join('');
+const plainText = (parts: Part[]): string => parts.map((x) => x.text).join('');
 
 type Line = (kind: ActivityKind, text: string | Part[], error?: boolean) => void;
 const liner = (write: (line: string) => void, opts: ActivityOpts): Line => (kind, text, error) =>

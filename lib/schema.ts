@@ -266,7 +266,7 @@ const isoOrNull = (v: unknown): string | null => (typeof v === 'string' && v.len
  * malformed one reads field by field: a bad driver is none, a bad epoch 0, a bad time null (an
  * unreadable expiry reads as expired, never as live).
  */
-export function cleanLease(raw: unknown): JobLease {
+function cleanLease(raw: unknown): JobLease {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return noLease();
   const l = raw as Record<string, unknown>;
   const driver = typeof l.driver === 'string' && l.driver && l.driver.length <= 200 ? l.driver : null;
@@ -389,7 +389,7 @@ const MAX_URL = 2000;
 const ISSUE_URL = /^https:\/\/[A-Za-z0-9.-]{1,253}(?::\d{1,5})?\/([A-Za-z0-9][A-Za-z0-9._-]{0,99})\/([A-Za-z0-9][A-Za-z0-9._-]{0,99})\/issues\/(\d{1,10})$/;
 
 /** A v10 `source` as the v11 list: one entry, or none for a null source. */
-export function sourceToIssues(source: unknown): unknown[] {
+function sourceToIssues(source: unknown): unknown[] {
   if (!source || typeof source !== 'object') return [];
   const s = source as { tracker?: unknown; ref?: unknown; url?: unknown };
   let ref = typeof s.ref === 'number' ? String(s.ref) : s.ref ?? null;
@@ -503,7 +503,7 @@ export function migrateConfig(raw: any): { config: any; from: number | undefined
 }
 
 /** The states a job never leaves on its own; isActive in lib/jobs.ts is false for exactly these. */
-export const FINISHED_STATES = ['done', 'cancelled'] as const;
+const FINISHED_STATES = ['done', 'cancelled'] as const;
 
 /**
  * A job's agents with every one still marked running ended as `lost` when the job has finished, and
@@ -620,7 +620,7 @@ const isActorSource = (v: unknown): v is EventActor['source'] => (ACTOR_SOURCES 
  * Any stored actor as the v2 object. The legacy strings keep their v1 meaning whatever the event's
  * version says: `"foreman"` stays the foreman's, so a foreman decision can never read as a person's (protected paths).
  */
-export function normalizeActor(raw: unknown): EventActor {
+function normalizeActor(raw: unknown): EventActor {
   if (raw === 'foreman') return { login: null, source: 'foreman' };
   if (raw === 'human') return { login: null, source: 'unknown' };
   if (typeof raw === 'string') return { login: sanitizeLogin(raw) || null, source: 'unknown' };

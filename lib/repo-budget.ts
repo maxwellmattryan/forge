@@ -12,8 +12,8 @@ import { periodTotals, spendLedger } from './spend.ts';
 import type { Config, EventActor, Job, RepoBudgetConfig, RepoBudgetKey, RepoBudgetStatus } from './types.ts';
 import { ForgeError, readText } from './util.ts';
 
-export const REPO_HOLD_PREFIX = 'repo budget:';
-export const RELEASE_REASON = 'repo budget released';
+const REPO_HOLD_PREFIX = 'repo budget:';
+const RELEASE_REASON = 'repo budget released';
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const DAY_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 const MONTH_KEYS: readonly RepoBudgetKey[] = ['usdPerMonth', 'tokensPerMonth'];
@@ -29,7 +29,7 @@ export class RepoBudgetAckError extends ForgeError {
 }
 
 /** config.budget with every key present; a missing or malformed block reads as unlimited. */
-export function repoBudgetConfig(config: Config): RepoBudgetConfig {
+function repoBudgetConfig(config: Config): RepoBudgetConfig {
   const b: Partial<RepoBudgetConfig> = config?.budget && typeof config.budget === 'object' ? config.budget : {};
   const usd = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null);
   return {
@@ -62,7 +62,7 @@ function ackCounts(root: string): Map<string, number> {
 const money = (n: number): string => `$${n.toFixed(2)}`;
 
 /** `repo budget: …`, one part per exceeded key in REPO_BUDGET_KEYS order. */
-export function formatRepoReason(exceeded: RepoBudgetKey[], spent: RepoBudgetStatus['spent'], caps: RepoBudgetStatus['caps']): string {
+function formatRepoReason(exceeded: RepoBudgetKey[], spent: RepoBudgetStatus['spent'], caps: RepoBudgetStatus['caps']): string {
   const part = (k: RepoBudgetKey): string => {
     if (k === 'usdPerMonth') return `${money(spent.monthUsd)} of ${money(caps.usdPerMonth ?? 0)} this month`;
     if (k === 'tokensPerMonth') return `${Math.round(spent.monthTokens)} of ${Math.round(caps.tokensPerMonth ?? 0)} tokens this month`;
