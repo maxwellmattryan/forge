@@ -1,3 +1,4 @@
+// `forge eval …`: lists, mines, starts, grades and reports eval tasks, and the reviewer recall evals.
 import { parseOverlay } from '../eval-overlay.ts';
 import * as evals from '../evals.ts';
 import * as recall from '../recall.ts';

@@ -1,6 +1,6 @@
 // The one place a git process starts in lib/: every call gets the same config pins and a clean
 // environment, so no caller can forget either. Imports only node:* and ./util.ts, so any module can
-// use it without an import cycle (test/lib-imports.test.ts).
+// use it without an import cycle (test/invariants/layers.test.ts).
 import { spawnSync } from 'node:child_process';
 import type { SpawnSyncOptions, SpawnSyncReturns } from 'node:child_process';
 import os from 'node:os';

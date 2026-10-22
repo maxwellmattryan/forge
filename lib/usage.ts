@@ -1,3 +1,5 @@
+// Token usage read from Claude Code transcripts: deduped by message id, tools counted by block id,
+// output estimated from content because the logged count is the stream's opening snapshot.
 import fs from 'node:fs';
 import path from 'node:path';
 import { agentTranscriptById, claudeProjectsDir, openTranscript } from './transcripts.ts';

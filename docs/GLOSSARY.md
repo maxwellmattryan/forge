@@ -73,6 +73,16 @@ Planned in M008.
 |---|---|---|
 | **profile** | A named subset of a project's components and backing services, so a job runs only what it needs. | planned (M008) |
 
+## Code layout
+
+Words for Forge's own code, decided in #303 ([design/lib-layout.md](design/lib-layout.md)).
+
+| Term | Meaning | Config key |
+|---|---|---|
+| **lib layer** | One of the seven top-level folders of `lib/` (`api`, `core`, `integrations`, `engine`, `office`, `server`, `cli`), lowest first; a layer imports only layers below it ([design/lib-layout.md](design/lib-layout.md)). | - |
+| **office** | Forge's long-running runtime, which `forge dash` keeps up: the session pool (the inbox session, per-job sessions and the office session where the Foreman decides gates), the reconciler and notifications; its code lives in `lib/office/`. | - |
+| **integrations** | The code that knows an outside system's API, CLI or file format (git, GitHub, Claude Code, Docker, webhooks, and the built-in backlog that implements the same contract), one folder per system in `lib/integrations/`; it holds mechanism, never pipeline policy. | - |
+
 ## Collisions we avoid
 
 Some of these words already mean something in Forge. They keep those meanings:
@@ -85,6 +95,9 @@ Some of these words already mean something in Forge. They keep those meanings:
 - A job's `dependsOn` is a job dependency. "Dependency" alone means a component edge.
 - "Environment" alone never means environment variables (say "environment variables"), and "focus" never means a test's focus marker or keyboard focus.
 - "Hand-off" alone means a session handing a job to another with `forge requests add resume`; the Foreman's always carries the name ("Foreman hand-off").
+- "Integrations" never means the integrate stage or the integrator (bringing a branch up to date with its base), nor integration tests (`test/integration/`).
+- "Office" alone means the runtime; the Foreman's session is the "office session".
+- "Layer" alone keeps [ARCHITECTURE.md's meaning](ARCHITECTURE.md#layers) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
 
 ## Existing terms
 

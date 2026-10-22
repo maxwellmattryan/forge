@@ -1,126 +1,192 @@
-# lib/ layout and the big-file splits
+# lib/ layers and the big-file splits
 
-Status: decided (2026-10-19). Nothing here has landed. The conventions below were settled with the maintainer and supersede the first draft of this file.
+Status: decided 2026-10-21 (#303). The groundwork landed in #412: the glossary words, header comments, the tripwire tests in `test/invariants/`, `npm run docs:map` and this doc. The move and everything after it are pending.
+
+This replaces the flat "~18 top-level modules" plan of 2026-10-19.
 
 ## Why
 
-`lib/` is 99 files in one flat folder (≈39k lines with `commands/` and `trackers/`). An agent that lists it sees 99 names and no grouping. The five biggest files (types, daemon, pr, server, step) are 1.4k to 2.2k lines each, so an agent has to read them in chunks and often misses the part it needed. The goal is a structure where folder names, file names and a small map in each folder lead an agent to the right ~300 lines, so builders and planners spend less time and fewer tokens finding their way.
+`lib/` is 200 source files and about 48k lines, 132 of them flat in one folder beside `commands/`, `step/` and `trackers/`. It mixes several libraries with different purposes: the HTTP server, the CLI, the long-running sessions, the pipeline engine, and code that talks to GitHub, Claude Code, Docker and git. Eighteen files are over 600 lines, and the biggest (`pr.ts`, `server.ts`, `daemon.ts`, `api-types.ts`, `worktree.ts`, `types.ts`) run from 1.2k to 1.8k. An agent that lists `lib/` sees 132 names and no grouping, and reads the big files in chunks. The goal is folders, names and a small map per folder that lead an agent to the right ~300 lines, and import rules a test enforces.
+
+## Layers
+
+Each lib layer is a top-level folder under `lib/` with its own modules inside, and imports go one way only ([GLOSSARY.md › Code layout](../GLOSSARY.md#code-layout)).
+
+```
+cli ─▶ server ─▶ office ─▶ engine ─▶ integrations ─▶ core ─▶ api
+dashboard ─▶ api (type-only)
+```
+
+| Rank | Layer | Holds |
+|---|---|---|
+| 0 | `lib/api/` | Forge's public contracts, with no Node imports: the `/api` and SSE shapes, the `as const` lists they derive from, and the tracker adapter contract (`statusKey`, `STATUS_KEYS`). |
+| 1 | `lib/core/` | Foundations with no pipeline policy: state shapes, schema and migrations, the job store and its lease, config loading and validation, paths, errors, fs, process and OS helpers. |
+| 2 | `lib/integrations/` | All code that knows an outside system's API, CLI or file format, one folder per system (below). |
+| 3 | `lib/engine/` | What Forge does: the pipeline (step, brief, panel, verifiers), worktrees, the PR lifecycle, tracker sync, integrity, protected paths and secrets, releases, environments and backing services, evals, stats and usage. It runs the repo's own configured commands. |
+| 4 | `lib/office/` | The long-running runtime: sessions, the pool, the reconciler, the Foreman, notifications. |
+| 5 | `lib/server/` | HTTP only: route table, guards, SSE, static files. |
+| 6 | `lib/cli/` | The entry, argument parsing, `commands/`, render and help. |
+
+Rules:
+- A file imports its own layer and lower ones only. Every edge counts: runtime, type-only, side-effect, re-export and dynamic `import()`.
+- `cli` may import `server`, because `forge dash` starts it. Nothing imports `cli`.
+- `api` imports nothing outside `api`, Node built-ins included, so the dashboard can import it type-only.
+- Integrations hold mechanism and engine holds policy: `integrations/github/` opens a PR and reads its checks, while when to retarget, rework on a red CI or merge stays in `engine`.
+- The security wrappers (secret scanning of outgoing text, fencing of incoming text) live in engine's loaders around every adapter, built-in or custom, never inside one adapter.
+- `office` starts long-running listeners (a Slack Socket Mode connection, later); their client code lives in `integrations`.
+- Node built-ins and OS process tools stay in `core`; the repo's own configured commands (verify, dev servers) stay in `engine`.
+
+`test/invariants/layers.test.ts` holds these rules today, on the flat tree, through `test/invariants/layer-map.ts`. For #370: its alias map gives `#server` no alias, so `cli/commands/dash.ts → server/` needs either a relative-import exception or an alias.
+
+## `lib/integrations/`
+
+Grouped by outside system, so each has one client (auth, timeouts, output parsing) shared by everything that uses it:
+
+```
+git/          git.ts (one wrapper: env, pins, write flag), repo-slug
+github/       gh.ts (gh + GraphQL, default timeout), tracker.ts, pull-requests.ts, preview.ts, actor.ts
+claude/       Claude Code session argv and permission modes, transcripts, model ids and pricing.json
+docker/       runner.ts (sync and async)
+webhook/      notify transport
+backlog/      the built-in markdown backlog tracker (not third-party, but it implements the same contract)
+slack/ discord/ jira/ gitlab/ …   later (M014 and after)
+```
+
+`integrations` imports only `core` and `api`, never `engine` or `office`.
 
 ## Conventions
 
-These apply to all new `lib/` code from now on, before and after the move.
+These apply to all new `lib/` code, before and after the move.
 
-- **Nested modules.** Code lives at `lib/<module>/<file>.ts`. A concept gets its own sub-module (`lib/<module>/<sub>/<file>.ts`) once it has at least 3 files of its own, roughly 500+ lines. Nothing goes deeper than `lib/module/sub/file.ts`.
-- **Folder size.** About 18 top-level modules, and 3–12 entries per folder. Registries, folders whose files are entries in one table, are exempt (`cli/commands/`, `cli/commands/render/`, `server/routes/`).
-- **Standard names.** A module's shared shapes go in its `types.ts`, and its module-wide constants in `constants.ts`. A constant used in one file stays in that file.
-- **Name by purpose.** Helpers are named for what they do (`gh.ts`, `lock.ts`), and `utils.ts` holds only small leftovers. Files are named for their purpose too (`release/plan/build.ts`).
-- **No stutter.** A file never repeats its folder's name (`plan/plan.ts`, `server/server.ts`, `config/config.ts` are wrong) and drops a prefix its folder already says (`release-plan.ts` → `release/plan/`).
-- **No `index.ts` and no runtime barrels.** A barrel that re-exports a folder loads the whole folder on every CLI start, which undoes the start-up work (ARCHITECTURE.md "Start-up cache"), and makes import cycles easier to hit (the reason `backing-config.ts` exists). Importers name the file they need. The one exception is the transitional `lib/types.ts` (see below), which is type-only and erased by type stripping.
-- **Per-folder `AGENTS.md` maps.** Each module folder has an `AGENTS.md`: a few hand-written lines (what belongs here, what doesn't, the invariants), then a generated table of `file → first sentence of its header comment`. `npm run docs:map` writes the table, and a test fails when it's stale, the same way `docs:commands` works. Before relying on this, confirm that the pinned CLI (2.1.299) loads nested `AGENTS.md` files on demand; if it only loads `CLAUDE.md`, name the files `CLAUDE.md`.
-- **A slimmer root `AGENTS.md`.** The root file (≈23 KB) keeps the essentials, the rules and the verify list. Area-specific gotchas move to the nested file of the area they concern: dashboard gotchas to `dashboard/AGENTS.md`, session and transcript gotchas to `lib/office/AGENTS.md`, the start-up cache to `lib/cli/AGENTS.md`, and so on. Its "Layout" section shrinks to the module table.
-- **Every file starts with a header comment.** Ten files have none today: `config.ts`, `jobs.ts`, `paths.ts`, `pr.ts`, `server.ts`, `usage.ts`, `util.ts`, `trackers/index.ts`, `trackers/status.ts` and `commands/eval.ts`. The map generator fails on a file without one.
-- **CLI on top.** The CLI is the highest layer: `lib/cli/` holds the entry and `cli/commands/`, built on the domain modules. Domain modules never import from `cli/`.
-- **Small files stay files.** Don't make a folder for one concept that fits in one file: `release/approval.ts` and `release/strategy.ts` stay files, while `release/plan/` and `release/run/` are sub-modules. `office/foreman.ts` stays a file until #281 grows it.
-- **`test/` mirrors `lib/`.** `lib/<module>/<file>.ts` is tested by `test/<module>/<file>.test.ts`. `test/helpers.ts` and `test/fixtures/` stay at the root.
-- **A flat-folder rule with a tripwire.** AGENTS.md states the principle in one line, and `test/layout.test.ts` enforces it for `lib/` and `test/`: at most 12 entries per folder (registries exempt), no path deeper than `lib/module/sub/file.ts`, no `index.ts`, and no file named like its folder.
-- **A size cap that only tightens.** `test/file-size.test.ts`: no `lib/**/*.ts` file may exceed 600 lines, except files on an allowlist pinned to their current line counts. An allowlisted file may shrink but never grow, and drops off the list once it fits. The target for new files is ≤ 400 lines.
+- **Folders.** Inside a layer: `lib/<layer>/<module>/<file>.ts`. A concept gets a sub-module only once it has 3 or more files. 3–12 entries per folder; registries, folders whose files are entries in one table (`cli/commands/`, `server/routes/`), are exempt.
+- **Standard names.** `types.ts` for a module's shapes, `constants.ts` for module-wide constants only. Helpers and files are named by purpose; `utils.ts` holds only small leftovers.
+- **No stutter, no `index.ts`, no barrels.** A file never repeats its folder's name (`plan/plan.ts`). A runtime barrel loads a whole folder on every CLI start, which undoes the start-up cache (ARCHITECTURE.md "Start-up cache") and makes cycles easier to hit; importers name the file they need. The one exception is the transitional type-only `core/types.ts`.
+- **Aliases.** Cross-layer imports use `package.json` subpath aliases (`#core/…`), never tsconfig `paths` (#370). Inside a layer, imports stay relative.
+- **Folder maps.** Each module folder has an `AGENTS.md`: a few hand-written lines (what belongs here, the invariants), then a table of each file and the first sentence of its header comment, between the `forge:map` markers. `npm run docs:map` writes the tables and `test/invariants/docs-map.test.ts` fails when one is stale. `lib/step/AGENTS.md` is the first. Area gotchas move out of the root `AGENTS.md` into these, so each rule is stated in one place.
+- **Header comments.** Every `lib/` source opens with a comment (after at most a shebang) whose first sentence says what the file holds; that sentence is its map row.
+- **Size.** No `lib/**/*.ts` file over 600 lines, except the pinned files on the shrinking allowlist in `test/invariants/file-size.test.ts`. The target for new files is 400.
+- **Glossary first.** A new word for a layer or module goes in `docs/GLOSSARY.md` before the code uses it.
 
-Not part of this: an `ai/` folder for markdown. `agents/`, `skills/` and `hooks/` sit where Claude Code's plugin loader expects them, and `reviewers/` and `templates/` are read at runtime by path. The markdown change worth making later is splitting `docs/CONFIG.md` (982 lines) into one file per config section.
+**Open item for the move: nested `AGENTS.md`.** Checked on the installed Claude Code 2.1.308: in a project with no `CLAUDE.md` (Forge has none), it loads `AGENTS.md` files as project instructions exactly where it would load `CLAUDE.md`, nested folders included (its default `claude-md-or-agents-md` mode). The pinned 2.1.299 was not checked directly. The maps keep the `AGENTS.md` name, like `dashboard/AGENTS.md`; the move confirms 2.1.299 loads `lib/step/AGENTS.md` on demand before it adds more.
 
 ## The module map
 
-Each file goes where most of its imports and importers live. Names drop the prefix their folder now says; otherwise they stay as they are, so grep and habit still work. Glossary words name modules where the glossary has one (`project`, `environment`, `release`); `office` and `workspace` are added to `docs/GLOSSARY.md` before the move.
+`test/invariants/layer-map.ts` (`FLAT_LAYERS`) is the source of truth for each of today's files' layers; this map agrees with it file for file. The move settles the names within the folder rules: a name drops the prefix its folder now says, and `a ← b` means `a` is today's `b`.
 
-| Module | Files (new names) | Lines now | What it is |
-|---|---|---|---|
-| `cli/` | `main.ts` (was `cli.ts`), `commands/` (unchanged inside, `render/index.ts` → `render/registry.ts`) | 0.3k + commands | The CLI entry and one module per command group; `bin/forge` imports `lib/cli/main.ts` |
-| `core/` | `errors.ts`, `process.ts`, `fs.ts`, `lock.ts`, `text.ts`, `git.ts`, `utils.ts` (split from util.ts), `paths.ts`, `platform.ts`, `yaml.ts`, `zip.ts` | 1.3k | Leaf helpers with no domain (fan-in 98 for util, 54 for paths) |
-| `job/` | `store.ts` (was jobs.ts), `schema.ts`, `actor.ts`, `requests.ts`, `archive.ts`, `deps.ts`, `audit.ts`, `types.ts` | 2.0k | Job records, events, migrations, the request inbox |
-| `pipeline/` | `step/` (split, see below), `review/` (panel, lenses, members, findings), `brief.ts`, `verifiers.ts`, `roster.ts`, `acs.ts`, `e2e.ts`, `types.ts` | 3.2k | What runs next and what agents are told |
-| `guard/` | `integrity.ts`, `scope.ts`, `protected.ts`, `policy-check.ts`, `secrets.ts`, `redact.ts`, `attribution.ts`, `types.ts` | 2.7k | Checks that refuse or redact: protected paths, secret scanning, diff integrity, no attribution |
-| `config/` | `load.ts` (was config.ts), `fields.ts`, `set.ts`, `deprecations.ts`, `detect.ts`, `detect-components.ts`, `components.ts`, `types.ts` | 2.2k | Loading, validating and writing `.forge/config.yml`; init detection |
-| `workspace/` | `worktree.ts`, `checkout.ts`, `checkout-config.ts`, `focus.ts`, `focus-actions.ts`, `editor.ts`, `regenerate.ts` | 2.0k | A job's working copy and what points at it |
-| `environment/` | `backing.ts`, `backing-config.ts`, `ports.ts`, `endpoints.ts`, `endpoints-config.ts`, `sinks.ts`, `sinks-apply.ts` | 1.5k | What a job runs against: backing services, ports, endpoints, config sinks |
-| `project/` | `members.ts`, `job-repos.ts`, `graph.ts` (was project.ts), `order.ts`, `proposals.ts`, `slug.ts`, `links.ts`, `downstream.ts` | 1.6k | Member repos, the project graph, local links |
-| `release/` | `plan/` (split of release-plan.ts), `run/` (split of release-run.ts), `approval.ts`, `strategy.ts`, `interim.ts`, `interim-apply.ts` | 3.1k | Release plans and interim references |
-| `office/` | `session/` (split of daemon.ts), `pool.ts`, `inbox.ts`, `owner.ts`, `foreman.ts`, `notify.ts`, `notify-config.ts`, `constants.ts` | 3.3k | Headless sessions, the pool, the inbox, the Foreman, notifications |
-| `metrics/` | `stats.ts`, `usage.ts`, `spend.ts`, `budget.ts`, `repo-budget.ts`, `transcripts.ts`, `pricing.json` | 1.4k | Tokens, cost, budgets, transcript reading |
-| `evals/` | `run.ts` (was evals.ts), `stats.ts`, `overlay.ts`, `retro.ts`, `learnings.ts` | 1.1k | Evals and self-improvement |
-| `trackers/` | `load.ts` (was index.ts), `github.ts`, `local.ts`, `status.ts`, `status.mjs` + `issue-ref.ts`, `issue-link.ts`, `link.ts`, `triage.ts`, `members.ts` | 1.7k | Everything about issues |
-| `server/` | split of server.ts with `routes/`, `github-preview.ts`, `title.ts`, `types.ts` (the `/api` shapes) | 1.7k | The dashboard's HTTP server |
-| `pr/` | split of pr.ts, `delta.ts` | 1.8k | Pull requests: open, sync, integrate, merge |
-| `ops/` | `doctor.ts`, `bundle.ts`, `update.ts`, `version.ts`, `retention.ts` | 1.4k | Maintenance: health, support bundles, updates, pruning |
+### api
 
-`office/inbox.ts` is the inbox lane carved out of `daemon-pool.ts` as a move, without behaviour changes; #292 and #298 then change what it does.
-
-Paths that must not move, because they're public:
-
-- `lib/trackers/status.ts` and `lib/trackers/status.mjs`. Custom tracker adapters import them (docs/TRACKERS.md).
-
-`bin/forge` changes its one import to `lib/cli/main.ts` in the move PR, and its start-up cache keys by content, so nothing goes stale.
-
-### What the move reveals
-
-The modules aren't strictly layered. A few low-level files reach upward, and the move makes that visible:
-
-- `job/store.ts` imports focus (`workspace/`), lens (`pipeline/`), issue-ref (`trackers/`) and slug (`project/`). It no longer imports notify or usage (#364): notify registers a transition hook with it (`onTransition`), and it prices usage through the `pricing.ts` leaf.
-- `job/schema.ts` and `config/load.ts` import the domain validators (`*-config.ts`). That's by design: validation lives next to its domain but stays out of the domain's runtime.
-- `retention` imports the session code and worktree, which is why it goes to `ops/` rather than `job/`.
-
-#364 broke the runtime import cycles before the move. `test/lib-imports.test.ts` holds both boundaries: `lib/` has no runtime import cycle, and nothing outside `commands/` and `cli.ts` imports `commands/`. The move updates its paths to `cli/`.
-
-## Splitting types.ts
-
-`types.ts` (2,238 lines, 113 importers) splits by owner: each section moves to the `types.ts` of the module that owns the shape, along the section banners already in the file.
-
-| Destination | Sections |
+| Module | Today's files |
 |---|---|
-| `job/types.ts` | enumerations, job data, events, RepoProposal |
-| `pipeline/types.ts` | StepAction family, StepInput |
-| `guard/types.ts` | secret scanning, verifiers, protected paths |
-| `config/types.ts` | Config and friends, settings (ConfigField) |
-| `ops/types.ts` | doctor, bundle, update, archive and prune |
-| `trackers/types.ts` | requests, tracker contract |
-| `server/types.ts` | GET responses, SSE frames, POST bodies and replies (split into `api/` files only if it passes 600 lines) |
-| `cli/types.ts` | CliContext, Dispatch, CliError, help |
+| `types.ts` | ← `api-types.ts` |
+| `constants.ts` | `constants.ts` |
+| `tracker.ts` | ← `trackers/status.ts`; `trackers/status.ts` and `trackers/status.mjs` stay as deprecated one-line re-exports for one minor release, and the stability contract in docs/RELEASES.md moves to `lib/api/tracker.ts` |
 
-During the move `lib/types.ts` stays as a type-only barrel, one `export type * from './<module>/types.ts'` line per module, so none of the 113 importers has to change at once. New code imports the module's file. The barrel is deleted once nothing imports it. The dashboard imports the API shapes (`lib/api-types.ts` since #367, `server/types.ts` after the move), so there is no dashboard copy to split.
+### core
 
-## Splitting the four other big files
+| Module | Today's files |
+|---|---|
+| `job/` | store ← `jobs.ts`, `schema.ts`, `requests.ts`, `archive.ts`, `job-fields.ts`, `focus.ts`, `issue-ref.ts`, `issue-link.ts`, `lens.ts`, session-files ← `daemon-files.ts` |
+| `config/` | load ← `config.ts`, `config-defaults.ts`, `config-validate.ts`, `config-fields.ts`, `config-set.ts`, `config-models.ts`, `config-trust.ts`, `deprecations.ts`, `components.ts`, `config-sinks.ts`, `release-strategy.ts`, `policy-check.ts`, and the validators `backing-config.ts`, `checkout-config.ts`, `endpoints-config.ts`, `notify-config.ts`, `secret-refs-config.ts` |
+| leaves | `types.ts` (transitional type-only barrel), `paths.ts`, `platform.ts`, `shape.ts`, `yaml.ts`, `zip.ts`, `glob.ts`, `ansi.ts`, and `util.ts` split into errors, process, fs, lock, text and utils |
 
-Each split is its own PR and changes no behaviour. The existing tests, unchanged, are the proof.
+Why these sit in core:
+- `requests.ts` and `daemon-files.ts` are stores that about 20 engine modules write or read. `office` is the layer that acts on them, so they sit below engine rather than in office.
+- `components.ts`, `config-sinks.ts`, `release-strategy.ts`, `policy-check.ts` and the `*-config.ts` validators parse config, so they sit with it.
+- `issue-link.ts` is pure, like `issue-ref.ts`.
 
-### step.ts (1,422 lines) → `pipeline/step/`
+### integrations
 
-The split landed as `lib/step/` (issue #347): ordered rule tables per stage, with `lib/step.ts` kept as re-exports; the proposal below is the earlier plan.
+| Module | Today's files |
+|---|---|
+| `git/` | `git.ts`, `repo-slug.ts` |
+| `github/` | `gh.ts`, tracker ← `trackers/github.ts`, preview ← `github-preview.ts`, `actor.ts`; `pull-requests.ts` arrives with #414 |
+| `claude/` | `transcripts.ts`, `pricing.ts` + `pricing.json`; the session argv arrives with #416 |
+| `docker/` | runner ← `docker.ts` |
+| `backlog/` | ← `trackers/local.ts` |
+| `webhook/` | arrives when notify's transport splits out of `notify.ts` |
+
+### engine
+
+| Module | Today's files |
+|---|---|
+| `pipeline/` | `step/`, `step.ts`, `brief.ts`, `panel.ts`, `verifiers.ts`, `roster.ts`, `acs.ts`, `findings.ts`, `scope.ts`, `e2e.ts`, `member-panel.ts`, `deps.ts` |
+| `workspace/` | `worktree.ts`, `checkout.ts`, `focus-actions.ts`, `editor.ts`, `regenerate.ts`, `job-command.ts` |
+| `guard/` | `integrity.ts`, `protected.ts`, `secrets.ts`, `known-secrets.ts`, `secret-refs.ts`, `redact.ts`, `attribution.ts` |
+| `environment/` | `backing.ts`, `backing-db.ts`, `ports.ts`, `endpoints.ts`, `environment.ts`, `environment-lifecycle.ts`, `environment-record.ts`, `config-sinks-apply.ts` |
+| `project/` | `member-repos.ts`, `member-trackers.ts`, `job-repos.ts`, `project.ts`, `repo-order.ts`, `repo-proposals.ts`, `links.ts`, `downstream.ts` |
+| `pr/` | `pr.ts`, `delta.ts` |
+| `trackers/` | load ← `trackers/index.ts`, `trackers/mirror.ts`, `tracker-link.ts`, `triage.ts`, `request-refresh.ts` |
+| `release/` | `release-plan.ts`, `release-run.ts`, `release-approval.ts`, `interim.ts`, `interim-apply.ts` |
+| `evals/` | `evals.ts`, `eval-overlay.ts`, `eval-stats.ts`, `experiments.ts`, `learnings.ts`, `retro.ts`, `recall.ts`, `scoring.ts`, `outcome.ts`, `autonomy.ts`, `provenance.ts` |
+| `metrics/` | `stats.ts`, `usage.ts`, `spend.ts`, `budget.ts`, `repo-budget.ts` |
+| `ops/` | `doctor.ts`, `bundle.ts`, `update.ts`, `version.ts`, `retention.ts`, `delete.ts`, `audit.ts`, `detect.ts`, `detect-components.ts`, `title.ts` |
+
+### office
+
+| Module | Today's files |
+|---|---|
+| `session/` | ← `daemon.ts` (split in #416) |
+| pool | ← `daemon-pool.ts` |
+| owner | ← `daemon-owner.ts` |
+| leaves | `session-agents.ts`, `reconcile.ts`, `foreman.ts`, `notify.ts` |
+
+### server
+
+| Module | Today's files |
+|---|---|
+| the `server.ts` split (#415) | `server.ts` |
+
+### cli
+
+| Module | Today's files |
+|---|---|
+| main | ← `cli.ts` (`bin/forge` changes its one import in the move) |
+| `commands/` | `commands/` (unchanged inside) |
+| leaves | `activity.ts` (only `commands/dash.ts` imports it, and it types against the server) |
+
+## Today's upward edges
+
+With the placement above, 26 imports point up a layer. `ALLOWED_EDGES` in `test/invariants/layer-map.ts` is the live list; it may only shrink, and an entry that no longer exists or no longer points up fails as stale.
+
+| Edges | What removes them |
+|---|---|
+| `types.ts` type-imports `acs.ts`, `secrets.ts` and `findings.ts`; `trackers/status.ts` type-imports `types.ts` | the types split (#413): each shape moves to the module that owns it |
+| `jobs.ts` reaches `known-secrets`, `eval-overlay`, `provenance`, `actor`, `repo-slug` and `pricing`; `paths.ts` reaches `git.ts` | the move: hooks or parameters in the job store (like `onTransition`), or the pieces moving down to a core leaf |
+| `schema.ts` reaches `delta.ts` and `member-repos.ts`; `config-validate.ts` and `lens.ts` reach `member-repos.ts` | the value validators (`isSha`, `REPO_NAME`, `isSafeBranch`, the repo problems) moving into `core/config/` |
+| `step/gates.ts`, `step/stages/build.ts`, `step/stages/decide.ts`, `pr.ts` and `release-approval.ts` reach `foreman.ts` | the Foreman's gate classes and round ceilings moving to engine, with office keeping the session |
+| `doctor.ts`, `pr.ts` and `secrets.ts` reach `notify.ts`; `doctor.ts` reaches `daemon.ts` | notify's transport splitting to `integrations/webhook/` and the queue to engine; the API-key variables moving to `integrations/claude/` (#416) |
+| `trackers/github.ts` reaches `pr.ts` and `attribution.ts` | the tracker loader's security wrappers (attribution stripping applied in engine) and `repoSlug` moving to `integrations/github/` (#414) |
+
+## Tests
+
+| Kind | Definition | Lives in |
+|---|---|---|
+| Unit | Imports one module and calls its functions in-process. No subprocess, no git repo, no network; temp files are fine. | Beside the module: `lib/core/jobs.test.ts`, `dashboard/src/lib/board.test.ts` |
+| Integration | One entry point for real (a CLI command, an HTTP endpoint, a pool session, an adapter), with outside systems faked | `test/integration/<entry point>/` |
+| E2E | A whole flow across layers in a scratch git repo | `test/e2e/<flow>/` |
+| Invariants | Rules about the repository itself, not behaviour: workflow security, docs sync, the dashboard invariants, the layer and file-size tripwires | `test/invariants/` |
+| Support | Helpers, fake binaries and fixtures; no tests | `test/support/` |
+
+`test/invariants/` has started: `layers.test.ts` (with `layer-map.ts`), `file-size.test.ts` and `docs-map.test.ts`, run by `npm run test:invariants`. The other invariant tests (`ci-workflow`, `governance`, `dashboard-invariants` and the rest) move there with #420, along with the tsconfig includes and CI sharding by kind. A `*.test.ts` under `lib/` is scanned for imports and given a layer, but is outside the size cap and the maps.
+
+## The big-file splits
+
+Each split is its own PR and changes no behaviour; the existing tests, unchanged apart from paths, are the proof. `step.ts` already split into `lib/step/` (#347).
+
+### pr.ts → `engine/pr/` and `integrations/github/` (#414)
 
 | File | Contents | ≈ lines |
 |---|---|---|
-| `decide.ts` | `RULES`, `RuleId`, `step()`, `decide()`, `blockedRole()` | 180 |
-| `input.ts` | `loadStepInput`, `loadIntegrationTouched`, plan/spec parsing | 150 |
-| `shell.ts` | `shellLine` and the SAFE_* patterns | 40 |
-| `panel-choice.ts` | lens selection, `choosePanel`, `selectPanel` | 130 |
-| `actions.ts` | state helpers, action builders, `spawn`, the generic per-role rules | 250 |
-| `gates.ts` | `gateTell`, escalation, and the secret, protected, repo-proposal and downstream gates | 160 |
-| `stages.ts` | intake, plan, spec, design, build, verify, review, decide | 270 |
-| `ship.ts` | integrate, pr, release bump, deferred PR | 200 |
+| `integrations/github/pull-requests.ts` | `graphql`, `findPr`, `refuseUnsafeRefs`, `repoSlug`: the gh mechanism | 100 |
+| `engine/pr/open.ts` | `openPr`, interim open plan, retarget, push, PR text and body, escalation approval | 330 |
+| `engine/pr/members.ts` | member-repo PRs: check, open, record, sibling links, sync | 300 |
+| `engine/pr/sync.ts` | `syncPr`, transitions, reopen, checks summary, feedback | 310 |
+| `engine/pr/integrate.ts` | `integrate`, `integrateContinue` | 190 |
+| `engine/pr/merge.ts` | `mergePr`, targets, linked merges, `readyPr`, release-gate message | 350 |
 
-The split also makes purity structural: `input.ts` is the only file that touches the filesystem, and a test asserts that no other file in `step/` imports `node:fs`.
+### server.ts → `server/` (#415)
 
-### pr.ts (1,684 lines) → `pr/`
-
-| File | Contents | ≈ lines |
-|---|---|---|
-| `gh.ts` | `gh`, `graphql`, `findPr`, `refuseUnsafeRefs`, `repoSlug` | 100 |
-| `open.ts` | `openPr`, interim open plan, retarget, push, PR text and body, escalation approval | 330 |
-| `members.ts` | member-repo PRs: check, open, record, sibling links, sync | 300 |
-| `sync.ts` | `syncPr`, transitions, reopen, checks summary, feedback | 310 |
-| `integrate.ts` | `integrate`, `integrateContinue` | 190 |
-| `merge.ts` | `mergePr`, targets, linked merges, `readyPr`, release-gate message | 350 |
-
-### server.ts (1,391 lines) → `server/`
-
-Most of the file is one 670-line closure inside `startServer`. Pass the closure's state (token, SSE clients, pool, projects dir, previewer) explicitly as a `ServerCtx`. Then replace the `if (p === …)` chain with a route table of `{ method, path | RegExp, handler(ctx, req, res, match) }`. That table is the server's map.
+Most of the file is one closure inside `startServer`. Pass the closure's state (token, SSE clients, pool, projects dir, previewer) explicitly as a `ServerCtx`, then replace the `if (p === …)` chain with a route table of `{ method, path | RegExp, handler(ctx, req, res, match) }`. That table is the server's map.
 
 | File | Contents | ≈ lines |
 |---|---|---|
@@ -134,38 +200,44 @@ Most of the file is one 670-line closure inside `startServer`. Pass the closure'
 | `routes/config.ts` | config GET/POST, webhook masking, budget ack | 120 |
 | `routes/misc.ts` | state, stats, evals, requests, roster, project, backlog, about, doctor, bundle, GitHub preview, focus | 250 |
 
-Keeping `http.ts` small and alone is the security win here: the loopback, token, Origin and JSON rules become one file a reviewer can read whole. `.github/CODEOWNERS` has to name it.
+Keeping `http.ts` small and alone is the security win: the loopback, token, Origin and JSON rules become one file a reviewer reads whole. `.github/CODEOWNERS` has to name it.
 
-### daemon.ts (1,829 lines) → `office/session/`
+### daemon.ts → `office/session/` and `integrations/claude/` (#416)
 
 | File | Contents | ≈ lines |
 |---|---|---|
-| `contract.ts` | SessionEvent, LogSink, DaemonOptions, SessionContext, Session | 220 |
-| `argv.ts` | permission mode and effort flags, `buildArgv`, `sessionEnv`, `apiKeyVars` | 120 |
-| `control.ts` | `sessionGrant`, `ruleText`, `permissionResponse`, `modeRequest` | 110 |
-| `holds.ts` | `heldByBudget`, `heldByRepoBudget`, `parseRateLimit`, `sessionAgents` | 130 |
-| `files.ts` | session files, info read and write, `reapOrphans`, `otherOwner` | 220 |
-| `log.ts` | `readLogPage`, `tailLines`, `capLine`, `splitter` | 140 |
-| `lifecycle.ts` | `createSession` | 900 → ≈450 after the second step |
+| `office/session/contract.ts` | SessionEvent, LogSink, DaemonOptions, SessionContext, Session | 220 |
+| `integrations/claude/argv.ts` | permission mode and effort flags, `buildArgv`, `sessionEnv`, `apiKeyVars` | 120 |
+| `office/session/control.ts` | `sessionGrant`, `ruleText`, `permissionResponse`, `modeRequest` | 110 |
+| `office/session/holds.ts` | `heldByBudget`, `heldByRepoBudget`, `parseRateLimit`, `sessionAgents` | 130 |
+| `office/session/files.ts` | session files, info read and write, `reapOrphans`, `otherOwner` | 220 |
+| `office/session/log.ts` | `readLogPage`, `tailLines`, `capLine`, `splitter` | 140 |
+| `office/session/lifecycle.ts` | `createSession` | 900 → ≈450 after the second step |
 
-`createSession` is a 900-line closure, so split it in two steps. Step 1 is the mechanical moves above. Step 2 extracts closure groups into factories that take a shared `core` object: control-channel handling (`onControl*`, `setPermissionMode`, `answerPermission`; ≈120 lines), idle and missed-turn timers (≈80), and the agent-keepalive logic (≈60). Child lifecycle (spawn, stdout, result, exit, kill) stays in `lifecycle.ts`. Step 2 is the riskiest change in this plan, so it goes last, behind `test/integration/pool/daemon.test.ts` (the pool and session tests #360 split out of `test/daemon.test.ts`).
+`createSession` is a 900-line closure, so it splits in two steps. Step 1 is the mechanical moves above. Step 2 extracts closure groups into factories that take a shared `core` object: control-channel handling (`onControl*`, `setPermissionMode`, `answerPermission`), idle and missed-turn timers, and the agent keepalive. Child lifecycle (spawn, stdout, result, exit, kill) stays in `lifecycle.ts`. Step 2 is the riskiest change here, so it goes last, behind `test/integration/pool/daemon.test.ts`.
 
 ## Order of work
 
-1. **Groundwork (small, no moves):** add `office` and `workspace` to `docs/GLOSSARY.md`; header comments on the ten files; `test/file-size.test.ts` with its allowlist; `scripts/module-map.ts` + `npm run docs:map` + the staleness test; the flat-folder rule in AGENTS.md. `test/layout.test.ts` lands here too, with today's flat `lib/` on its allowlist, so the move only shrinks the list.
-2. **The move.** One mechanical PR: `git mv` plus a codemod that rewrites relative imports in `lib/`, `test/`, `hooks/`, `scripts/` and `bin/forge`, with no content edits beyond the `util.ts` split and the renames above. Reviewers check it with `git diff -M --stat` and by rerunning the codemod. Every in-flight job branch will conflict with it, so land it when no Forge jobs are open. The same PR updates:
-   - `.github/CODEOWNERS`, which names `server.ts`, `daemon.ts`, `daemon-pool.ts`, `attribution.ts`, `config-fields.ts` and `schema.ts`. Missing an entry silently drops required review on security-sensitive code.
-   - `ci.yml` (it references `lib/server.ts`) and `test/ci-workflow.test.ts`.
-   - `hooks/no-ai-attribution.ts`, `agents/builder.md`, `skills/forge/reference/evals.md`.
-   - About 94 path mentions across `AGENTS.md`, `README.md` and `docs/`, plus the `PLUGIN_ROOT/lib/pricing.json` read in `server.ts`.
-   - Each module's `AGENTS.md`, and the slimmed root `AGENTS.md`.
-3. **types.ts by owner**, with the transitional type-only barrel. Same PR for the dashboard mirror.
-4. **Splits**, one PR each: step, pr, server, daemon (step 1, then step 2), then `release/plan/` and `release/run/`.
-5. **Tests mirror the modules** (`test/<module>/*.test.ts`), in its own PR. #360 already widened the glob to `"test/**/*.test.ts"` in ci.yml, AGENTS.md and `test/ci-workflow.test.ts`, and placed its merged files where this step wants them (docs/TESTING.md › Layout). 207 test files in one folder is the same problem as `lib/`.
-6. **Later, as needed:** delete the `lib/types.ts` barrel; `docs/CONFIG.md` per section; `cli/commands/job.ts` (984), `workspace/worktree.ts` (1,233), `config/load.ts` (971), `release/interim-apply.ts` (927) and `guard/integrity.ts` (838) off the allowlist; grouping `dashboard/src/lib` (48 files) by view.
+One PR each.
 
-## Timing against other work
+1. **Groundwork (#412, landed):** glossary words, header comments, `test/invariants/` with the layer, file-size and folder-map tests on today's flat tree, `npm run docs:map` with `lib/step/AGENTS.md`, and this doc.
+2. **The move (#421):** `git mv` and an import-rewriting codemod into the seven layers, with no content edits beyond the `util.ts` split and renames. It empties `FLAT_LAYERS`, re-keys `ALLOWED_EDGES` and the size pins, and updates CODEOWNERS, `ci.yml` + `test/ci-workflow.test.ts`, the hook, `bin/forge`, prompts and doc paths. It adds each module's `AGENTS.md` and slims the root one, and adds the folder layout test (3–12 entries, no stutter, no `index.ts`).
+3. **Aliases (#370):** the `#core/…` subpath map and its cross-layer relative-import test.
+4. **types.ts by owner (#413)**, with the transitional type-only barrel.
+5. **pr.ts (#414)**, **server.ts (#415)**, **daemon.ts (#416)**, **worktree.ts (#417)** (create/remove, command templating, `verify`, the dev server), **commands/job.ts (#418)** (`HELP` apart, one handler per subcommand), **the release splits (#419)** (`release-plan.ts`, `release-run.ts`). Each deletes its size pin and the upward edges it removes.
+6. **Tests (#420):** unit tests beside their modules, the rest into `test/{integration,e2e,invariants,support}/`, with the tsconfig includes and CI sharding by kind.
 
-- The move (step 2) conflicts with every open job branch. Land it between waves, with no Forge jobs open.
-- #292, #288 and #298 rework the pool and sessions, and #281 grows the Foreman. Either land the `office/` move before them, or land them first and move their result; don't run both at once.
-- #280 resets every schema version for 1.0.0 and lands last before the tag, so it touches `job/schema.ts` after the move, not before.
+## Timing
+
+- The move conflicts with every open job branch, so land it between waves, with no Forge jobs open.
+- #292, #288, #298 and #281 rework the pool, sessions and Foreman. Don't run them at the same time as the `office/` move.
+- #280 (the schema reset) lands last before 1.0.0, after the move.
+
+## Done when
+
+- The layer test passes with an empty allowlist, and every folder passes the layout rules (registries apart).
+- No `lib/**/*.ts` file is over 600 lines, except files still on the shrinking allowlist.
+- `grep` for `git`, `gh`, `docker` or `claude` process calls outside `lib/integrations/` finds nothing.
+- Every test is in the place its kind dictates; `test/` has no test files at its top level.
+- Each module has an `AGENTS.md` map that `npm run docs:map` keeps current, and the root `AGENTS.md` is slimmer.
+- No behaviour changes: the existing tests pass unchanged apart from paths, and the AGENTS.md verify list passes.

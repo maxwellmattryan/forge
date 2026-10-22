@@ -1,3 +1,5 @@
+// Job state and its event log: load, update and list jobs, and the job lease (claim, renew, expire,
+// the epoch fence). The CLI writes state only through here.
 import fs from 'node:fs';
 import path from 'node:path';
 import { paths, exists, jobDir } from './paths.ts';
