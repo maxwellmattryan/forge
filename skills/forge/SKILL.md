@@ -57,7 +57,7 @@ Then loop: `forge job advance <id> --session ${CLAUDE_SESSION_ID} --epoch <epoch
 - `done`: report any `tell` and stop.
 - `secret_found` outside advance: `forge job set <id> --state waiting --waiting-on human --reason "secret scan blocked <command>"`, report, stop; never retry or reword.
 
-After `pr` or `done`, `forge retro due`; if `due: true`, tell the human once that `/forge retro` proposes improvements (never run unasked).
+After `pr` or `done`, with the foreman off, `forge retro due`; if `due: true`, tell the human once that `/forge retro` proposes improvements (never run unasked). With the foreman on, `forge sync` queues the retro itself, and its spec still waits for a human.
 
 ## Parallel jobs
 Drive up to `runtime.maxParallelJobs` jobs at once (a daemon job session, only its own).

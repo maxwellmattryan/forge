@@ -10,6 +10,7 @@ import { reviewFileName } from './lens.ts';
 import { evaluateExperiments } from './experiments.ts';
 import { expiredLearnings, metricValue, parseNoteEntries, readExperiments } from './learnings.ts';
 import { paths, exists } from './paths.ts';
+import { enqueue, listRequests } from './requests.ts';
 import { computeStats } from './stats.ts';
 import type { Config, ExperimentEntry, ExperimentResult, HumanDelta, LearningEntry, LoadedJob, ReviewerStats, Stats } from './types.ts';
 import { readText, safeText, writeJsonAtomic } from './util.ts';
@@ -30,6 +31,18 @@ export function retroDue(root: string, config: Config): { due: boolean; finished
     (j) => !['eval', 'retro'].includes(j.kind) && ['done', 'cancelled'].includes(j.state) && (!since || String(j.finishedAt ?? j.updatedAt) > since),
   ).length;
   return { due: finished >= (config.improve?.retroEvery ?? 10), finishedSinceLast: finished, every: config.improve?.retroEvery ?? 10, lastRetro: last?.id ?? null };
+}
+
+/**
+ * `forge sync`'s retro pass: with the foreman on and a retro due, one `retro` request for the inbox
+ * (which runs reference/retro.md), unless one is already pending or in progress or a retro job is
+ * still open. Returns the queued request's id, or null. The retro job's spec still waits for a human.
+ */
+export function queueRetro(root: string, config: Config): string | null {
+  if (config.foreman?.enabled !== true || !retroDue(root, config).due) return null;
+  if (listRequests(root).some((r) => r.type === 'retro' && (r.status === 'pending' || r.status === 'in-progress'))) return null;
+  if (allJobs(root).some((j) => j.kind === 'retro' && !['done', 'cancelled', 'failed'].includes(j.state))) return null;
+  return enqueue(root, config, { type: 'retro', from: 'foreman', text: 'a retro is due: improve.retroEvery jobs finished since the last one' }).id;
 }
 
 /**

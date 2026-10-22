@@ -8,6 +8,7 @@ import { refreshRequest } from '../request-refresh.ts';
 import { listRequests } from '../requests.ts';
 import { checkRepoBudget, isRepoHold, repoBudgetBlock } from '../repo-budget.ts';
 import { applyRetention } from '../retention.ts';
+import { queueRetro } from '../retro.ts';
 import { finishEnvironment } from '../environment-lifecycle.ts';
 import { searchTerms } from '../issue-link.ts';
 import { checkIssueRef, isSafeUrl, linkedIssues, nativeRef, nativeRefs, parseIssueRef, primaryIssue, sameIssue } from '../issue-ref.ts';
@@ -523,6 +524,7 @@ export async function syncAll(
   integrating: string[];
   outcomes?: { measured: number; finalized: string[] };
   scoring?: { queued: string[]; held: string[] };
+  retro?: { queued: string };
   retention?: { archived: string[]; logs: string[] };
   reconcile: ReconcileResult | 'skipped (forge dash owns it)' | { error: string };
 }> {
@@ -619,11 +621,29 @@ export async function syncAll(
     const still = new Set(checkRepoBudget(root, config).heldJobs);
     for (const id of repoHeld) if (!still.has(id)) results.push({ id, repoBudgetReleased: true });
   }
+  // Before retention, so a retro job retention would archive still holds the cadence back this pass.
+  let retro: { queued: string } | null = null;
+  try {
+    const queued = queueRetro(root, config);
+    if (queued) retro = { queued };
+  } catch (e) {
+    results.push({ retro: 'error', error: (e as Error).message.slice(0, 300) });
+  }
   // The human's retention policy runs in any session, daemon ones included: they set it, not a request.
   const retention = applyRetention(root, config, 'policy');
   const reconciled = syncReconcile(root, config);
   // Counted last, so it includes the resumes sync and the reconciler queued.
-  return { synced: results.length, results, requests: listRequests(root, { status: 'pending' }).length, integrating, ...(outcomes ? { outcomes } : {}), ...(scoring ? { scoring } : {}), ...(retention ? { retention } : {}), reconcile: reconciled };
+  return {
+    synced: results.length,
+    results,
+    requests: listRequests(root, { status: 'pending' }).length,
+    integrating,
+    ...(outcomes ? { outcomes } : {}),
+    ...(scoring ? { scoring } : {}),
+    ...(retro ? { retro } : {}),
+    ...(retention ? { retention } : {}),
+    reconcile: reconciled,
+  };
 }
 
 /**
