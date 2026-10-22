@@ -55,7 +55,9 @@
     "verdicts": "Verdicts",
     "pr": "PR",
     "budget": "Budget",
-    "updated": "Updated"
+    "updated": "Updated",
+    "filter": "Filter by title or id",
+    "noMatch": "No jobs match “{query}”."
   },
   "verdict": {
     "title": "{name}: {verdict}",
@@ -430,7 +432,7 @@
   },
   "agents": {
     "title": "Agents",
-    "sub": "Who is working on what, and the roster every job draws from.",
+    "sub": "Who is working now, and the roster every job draws from.",
     "running": "Running now",
     "modelUnknown": "model?",
     "runningMeta": "round {round} · started {started}",
@@ -469,7 +471,7 @@
   "analytics": {
     "title": "Analytics",
     "window": "Time window",
-    "sub": "How Forge itself is performing. Comparable across repos because it measures the process, not the code.",
+    "sub": "How Forge's process is performing, comparable across repos.",
     "name": "Name",
     "noUsage": "No usage recorded yet.",
     "jobs": "Jobs",

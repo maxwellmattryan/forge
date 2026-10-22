@@ -15,7 +15,7 @@
   import { budgetChip, unattendedDefault } from '../lib/budget.ts';
   import { memberPrs } from '../lib/repos.ts';
   import { effortChip } from '../lib/effort.ts';
-  import { ago, tokensShort } from '../lib/util.ts';
+  import { absTime, ago, tokensShort } from '../lib/util.ts';
   import { agentsSummary, cardModel, needsHuman, runningRoles } from '../lib/view.ts';
   import { S, openDrawer } from '../lib/app.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
@@ -49,6 +49,6 @@
     <SessionActivity activity={act} extra="normal-case tracking-normal min-w-0 shrink" />
     {#if agents}<span class="flex items-center gap-1.5 text-gleam min-w-0 shrink-[2]" title={agents.title}><span class="dot gleam plain size-1.5 shrink-0"></span><span class="truncate">{#if agents.kind === 'role'}{agents.role}{:else if agents.kind === 'reviewers'}{$t('job.runningReviewers', { count: agents.count })}{:else}{$t('job.runningAgents', { count: agents.count })}{/if}</span></span>{/if}
     <!-- The flash dot's space is always reserved, so a change never shifts the card. -->
-    <span class="ml-auto shrink-0 whitespace-nowrap normal-case tracking-normal"><span class="{flashing ? 'dot spark' : 'dot invisible'} size-1.5 mr-1.5 align-middle" aria-hidden="true"></span>{$t('job.usage', { tokens: tokensShort(j.usage?.totalTokens), ago: ago(j.updatedAt, ticker.now) })}</span>
+    <span class="ml-auto shrink-0 whitespace-nowrap normal-case tracking-normal" title={absTime(j.updatedAt)}><span class="{flashing ? 'dot spark' : 'dot invisible'} size-1.5 mr-1.5 align-middle" aria-hidden="true"></span>{$t('job.usage', { tokens: tokensShort(j.usage?.totalTokens), ago: ago(j.updatedAt, ticker.now) })}</span>
   </div>
 </button>

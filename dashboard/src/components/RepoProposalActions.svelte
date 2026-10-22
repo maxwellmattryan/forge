@@ -2,7 +2,8 @@
      reason, and (with `buttons`, rendered after the note) Approve repos / Reject repos, which decide the pending repos the list
      shows (`shown`, bound by JobActions from the list instance) through POST /api/jobs/:id/repos with the note. The server
      refuses (409) unless those are the whole pending set from the job's events, since the file is session-editable.
-     Reasons and notes are agent-written job state: they render as text, never as markup. An error toasts the server's message. -->
+     Reasons and notes are agent-written job state: they render as text, never as markup. An error toasts the server's message.
+     Approve repos is primary only in the drawer's action dock (`dock`). -->
 <script lang="ts">
   import Chip from './Chip.svelte';
   import { api } from '../lib/util.ts';
@@ -12,7 +13,7 @@
   import { t } from '../lib/locale.ts';
   import type { RepoProposal } from '../lib/types.ts';
 
-  let { id, note = $bindable(''), buttons = false, shown = $bindable([]) }: { id: string; note?: string; buttons?: boolean; shown?: string[] } = $props();
+  let { id, note = $bindable(''), buttons = false, shown = $bindable([]), dock = false }: { id: string; note?: string; buttons?: boolean; shown?: string[]; dock?: boolean } = $props();
 
   let rows = $state<RepoProposal[]>([]);
   let busy = $state(false);
@@ -51,7 +52,7 @@
 
 {#if buttons}
   <div class="flex flex-wrap gap-2">
-    <button class="btn primary" disabled={busy || !shown.length} onclick={() => decide('approve')}>{$t('repoProposal.approve')}</button>
+    <button class="btn {dock ? 'primary' : ''}" disabled={busy || !shown.length} onclick={() => decide('approve')}>{$t('repoProposal.approve')}</button>
     <button class="btn" disabled={busy || !shown.length} onclick={() => decide('reject')}>{$t('repoProposal.reject')}</button>
   </div>
 {:else}

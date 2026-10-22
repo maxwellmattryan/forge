@@ -481,7 +481,8 @@ test('text tokens meet 4.5:1 except the documented exceptions', (t) => {
     const dim = contrast(color('dim'), color('bg'));
     assert.ok(dim >= DIM_FLOOR && dim < 4.5, `${theme} --dim on --bg is ${dim.toFixed(2)}:1, the documented exception`);
     t.diagnostic(`${theme} dim on bg: ${dim.toFixed(2)}:1`);
-    for (const [on, fill] of [['on-gleam', 'gleam'], ['on-spark', 'spark'], ['on-ember', 'ember']]) {
+    // on-gleam on gleam-hot: the primary button's hover fill.
+    for (const [on, fill] of [['on-gleam', 'gleam'], ['on-gleam', 'gleam-hot'], ['on-spark', 'spark'], ['on-ember', 'ember']]) {
       const ratio = contrast(color(on), color(fill));
       assert.ok(ratio >= 4.5, `${theme} --${on} on --${fill} is ${ratio.toFixed(2)}:1`);
     }

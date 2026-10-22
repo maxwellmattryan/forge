@@ -220,7 +220,7 @@
   <!-- Compact, the sidebar is a 64px rail: the brand's mark, an icon button for the palette, the view icons and the gear,
        each named by aria-label and shown a tooltip (RailTip) on hover and focus. -->
   <aside id="sidebar" class="hidden md:flex w-(--size-sidebar) shrink-0 flex-col gap-1 border-r chrome z-10 border-line-strong shadow-(--shadow-chrome) {compact ? 'px-2' : 'px-3'} py-4 sticky top-0 h-screen overflow-y-auto overscroll-contain" inert={covered}>
-    <div class="plate riveted flex items-center {compact ? 'justify-center px-1 py-2' : 'gap-3 py-3 pr-3 pl-3.5'} mb-1.5"><img src="/forge.png" alt="" class="mark shrink-0" />{#if !compact}<div class="min-w-0"><div class="h sheet-title">{$t('app.brand')}</div><div class="label mt-0.5">{$t('app.tagline')}</div></div>{/if}</div>
+    <div class="plate riveted hammered flex items-center {compact ? 'justify-center px-1 py-2' : 'gap-3 py-3 pr-3 pl-3.5'} mb-1.5"><img src="/forge.png" alt="" class="mark shrink-0" />{#if !compact}<div class="min-w-0"><div class="h sheet-title">{$t('app.brand')}</div><div class="label mt-0.5">{$t('app.tagline')}</div></div>{/if}</div>
     {#if !compact}<div class="stamp-line wide mx-0.5 mt-0.5 mb-2">{$t('app.view', { view: viewLabel })}</div>{/if}
     {#if !compact}<div class="label flex min-w-0 items-baseline gap-2 px-2.5 pb-2.5"><span class="shrink-0">{$t('app.repo')}</span><span id="repo-name" class="mono truncate font-normal normal-case tracking-normal text-fg">{S.data?.repo?.name ?? ''}</span></div>{/if}
     <!-- A real input: typing hands its text to the palette. The kbd is hidden from assistive tech because
@@ -283,7 +283,7 @@
     <!-- The palette and settings buttons stay outside the scrolling nav, so they are always on screen. -->
     <header class="md:hidden flex items-center gap-1 border-b chrome border-line-strong pr-2" inert={covered}>
       <div id="mobile-nav" class="navlist row flex-1 min-w-0 overflow-x-auto p-2"><Nav mobile /></div>
-      <button id="mobile-command" class="btn touch shrink-0 px-2.5! normal-case tracking-normal" aria-haspopup="dialog" onclick={(e) => openPalette({ opener: e.currentTarget })}><Icon name="command" /><span class="max-sm:sr-only">{$t('command.open')}</span></button>
+      <button id="mobile-command" class="btn touch shrink-0 px-2.5!" aria-haspopup="dialog" onclick={(e) => openPalette({ opener: e.currentTarget })}><Icon name="command" /><span class="max-sm:sr-only">{$t('command.open')}</span></button>
       <button bind:this={settingsMobile} id="settings-open-mobile" class="btn icon touch shrink-0" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={openSettings}><Icon name="settings" /></button>
     </header>
     <!-- Outside the strip, which holds exactly its three controls; the tip sits in the top layer wherever it is written. -->

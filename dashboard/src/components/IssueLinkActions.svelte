@@ -1,6 +1,7 @@
 <!-- The issue-link gate's answers: link one of the candidates Forge found (issue-candidates.json), another issue by ref,
      a new issue, or none. Candidate titles are tracker text and render as text; their links go through safeUrl.
-     With `approving` (an unlinked spec gate) each button also approves the spec: same request, approve-and-link wording. -->
+     With `approving` (an unlinked spec gate) each button also approves the spec: same request, approve-and-link wording.
+     Create issue is primary only in the drawer's action dock (`dock`); elsewhere every gate action is a secondary. -->
 <script lang="ts">
   import { api } from '../lib/util.ts';
   import { safeUrl } from '../lib/markdown.ts';
@@ -10,7 +11,7 @@
 
   // `refId` keeps the ref field's id unique when the Needs-you card and the drawer show the same job.
   // `note` is bound so a send clears the gate's note box along with the ref field.
-  let { id, refId, note = $bindable(''), approving = false }: { id: string; refId: string; note?: string; approving?: boolean } = $props();
+  let { id, refId, note = $bindable(''), approving = false, dock = false }: { id: string; refId: string; note?: string; approving?: boolean; dock?: boolean } = $props();
 
   let candidates = $state<Candidate[]>([]);
   let loaded = $state(false);
@@ -68,7 +69,7 @@
     <button class="btn" disabled={!otherRef} onclick={() => otherRef && link(otherRef)}>{approving ? $t('issueLink.approveLink') : $t('issueLink.link')}</button>
   </div>
   <div class="flex flex-wrap gap-2">
-    <button class="btn primary" onclick={() => link('new')}>{approving ? $t('issueLink.approveCreate') : $t('issueLink.create')}</button>
+    <button class="btn {dock ? 'primary' : ''}" onclick={() => link('new')}>{approving ? $t('issueLink.approveCreate') : $t('issueLink.create')}</button>
     <button class="btn" onclick={() => link('none')}>{approving ? $t('issueLink.approveNone') : $t('issueLink.none')}</button>
   </div>
 </div>

@@ -28,6 +28,6 @@
         {#if r.note}<span id="dock-owner-note-{job.id}" class="min-w-0 text-sm text-muted wrap-anywhere">{r.note === 'live' ? $t('drawer.ownerLive', values) : $t('drawer.ownerExpired', values)}</span>{/if}
       </div>
     {/if}
-    {#if m.actionable}{#key job.id}<JobActions {job} noteId="dock-note-{job.id}" />{/key}{/if}
+    {#if m.actionable}{#key job.id}<JobActions {job} noteId="dock-note-{job.id}" dock />{/key}{/if}
   </section>
 {/if}

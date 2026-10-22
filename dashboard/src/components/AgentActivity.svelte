@@ -26,7 +26,7 @@
   <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
     {#if top.newest}{@render line(top.newest)}{/if}
     {#if top.more > 0 && !expandable}<Chip tone="muted" text={$t('activity.more', { count: top.more })} extra="shrink-0" />{/if}
-    {#if top.more > 0 && expandable}<button type="button" class="btn sm shrink-0" aria-expanded={open ? 'true' : 'false'} onclick={(e) => { e.stopPropagation(); open = !open; }}>{$t('activity.runningCount', { count: all.length })}</button>{/if}
+    {#if top.more > 0 && expandable}<button type="button" class="btn sm tertiary shrink-0" aria-expanded={open ? 'true' : 'false'} onclick={(e) => { e.stopPropagation(); open = !open; }}>{$t('activity.runningCount', { count: all.length })}</button>{/if}
     {#if live.tone}<Chip tone={live.tone} text={$t('activity.owner', { status: live.status ?? '', age: live.age ?? '' })} extra="shrink-0" />{/if}
   </div>
   {#if expandable && open && top.more > 0}

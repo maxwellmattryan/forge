@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { esc, num, usd, ago, pct, tokensShort, dur, clock } from '../dashboard/src/lib/util.ts';
+import { esc, num, usd, ago, pct, tokensShort, dur, clock, absTime } from '../dashboard/src/lib/util.ts';
 import { md, inline, safeUrl } from '../dashboard/src/lib/markdown.ts';
 import { STAGE_LABEL, WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
 import { readiness } from '../dashboard/src/lib/backlog.ts';
@@ -72,7 +72,15 @@ test('formatters and esc', () => {
   assert.equal(dur(3720000), '1h 2m');
   assert.equal(usd(null), '—');
   assert.equal(usd(2), '$2.00');
-  assert.equal(usd(0.5), '$0.500');
+  assert.equal(usd(0.5), '$0.50');
+  assert.equal(usd(undefined), '—');
+  assert.equal(usd(0), '$0.00');
+  assert.equal(usd(0.01), '$0.01');
+  assert.equal(usd(0.004), '$0.004');
+  assert.equal(usd(0.001), '$0.001');
+  assert.equal(usd(0.0004), '<$0.001');
+  assert.equal(usd(0.0001), '<$0.001');
+  for (const n of [0, 0.0001, 0.0004, 0.0009, 0.001, 0.004, 0.0099, 0.01, 0.5]) assert.notEqual(usd(n), '$0.000', `usd(${n})`);
   // num(<number>) is locale-dependent, so only the null case has a golden.
   assert.equal(num(null), '—');
   assert.equal(ago(null), '—');
@@ -129,6 +137,14 @@ test('clock: a local HH:MM:SS, or nothing for a missing or unparseable time', ()
   assert.equal(clock(null), '');
   assert.equal(clock(''), '');
   assert.equal(clock('yesterday'), '');
+});
+
+test('absTime formats local time', () => {
+  assert.equal(absTime(new Date(2026, 9, 14, 12, 5, 9).toISOString()), '2026-10-14 12:05');
+  assert.equal(absTime(new Date(2026, 0, 2, 3, 4).toISOString()), '2026-01-02 03:04');
+  assert.equal(absTime(null), '');
+  assert.equal(absTime(undefined), '');
+  assert.equal(absTime('nope'), '');
 });
 
 test('backlog readiness', () => {

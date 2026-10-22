@@ -485,23 +485,8 @@
   position: relative;
   isolation: isolate;
   overflow: clip;
-  /* The grain is a clipped layer of its own, behind the content: a background-image painted on the plate itself
-     escapes the cut corner in some engines, so it never goes on the plate. */
-  &::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    corner-shape: inherit;
-    background-image: var(--hammer);
-    background-size: 100% 100%;
-    mix-blend-mode: soft-light;
-    pointer-events: none;
-    z-index: -1;
-  }
-  /* .flat: table wrappers and the log pane, where lines are dense. */
-  &.flat::after, &.open::after, &.cold::after { display: none; }
-  html[data-grain="off"] &::after { display: none; }
+  /* Plates are plain panel: the hammered texture is frame-only (the `hammered` utility below). .flat (table wrappers,
+     the log pane) is kept as a marker so no markup changes. */
   /* A hovered card: the seam hardens at once, the fill stays panel, nothing glows. */
   &.clickable { cursor: pointer; }
   @media (hover: hover) { &.clickable:hover { border-color: var(--line-strong); background-color: var(--panel); } }
@@ -543,6 +528,27 @@
     background-size: 4px 4px, 10px 10px, 10px 10px, 4px 4px, 10px 10px, 10px 10px, 4px 4px, 10px 10px, 10px 10px, 4px 4px, 10px 10px, 10px 10px;
     background-position: 8px 8px, 5px 5px, 5px 5px, calc(100% - 8px) 8px, calc(100% - 5px) 5px, calc(100% - 5px) 5px, 8px calc(100% - 8px), 5px calc(100% - 5px), 5px calc(100% - 5px), calc(100% - 8px) calc(100% - 8px), calc(100% - 5px) calc(100% - 5px), calc(100% - 5px) calc(100% - 5px);
   }
+}
+/* hammered: the frame's texture, and only the frame's: the sidebar brand plaque, the page header plaque, the status bar
+   and the drawer header. Everything else is plain panel, so ornament marks the edges of the app, not its content. The
+   host must be positioned (a plate is; the status bar is fixed; the drawer header wrapper is relative). The texture is a
+   clipped layer of its own, behind the content: a background-image painted on the host escapes a cut corner in some
+   engines. */
+@utility hammered {
+  isolation: isolate;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    corner-shape: inherit;
+    background-image: var(--hammer);
+    background-size: 100% 100%;
+    mix-blend-mode: soft-light;
+    pointer-events: none;
+    z-index: -1;
+  }
+  html[data-grain="off"] &::after { display: none; }
 }
 /* tint: who a Thread message or a log line comes from (lib/sender.ts), as a faint opaque wash of the panel: agent (Claude)
    cool, cli (the CLI and the supervisor) neutral, forge (Forge itself) warm. It sets --surface, so text on it is off the
@@ -629,14 +635,16 @@
   &.compact > :last-child { margin-bottom: 0; }
 }
 
-/* ---------- buttons: a forged slug; sheen on hover; the primary one is hot ---------- */
+/* ---------- buttons: a forged slug; sheen on hover ----------
+   Three roles, one height and one type: primary (a flat gleam fill, at most one per view or dialog), secondary (the
+   plain btn) and tertiary (text only: close, cancel, show more). Controls are set in the sans face, sentence case;
+   labels and data stay mono uppercase. */
 @utility btn {
   appearance: none;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-weight: 500;
-  font-size: 12px;
-  letter-spacing: .06em;
-  text-transform: uppercase;
+  font-size: 13px;
+  letter-spacing: 0;
   text-decoration: none;
   color: var(--fg);
   background-color: var(--surface, var(--bg));
@@ -665,25 +673,27 @@
   &:active, &.active { background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--fg) 8%); box-shadow: inset 0 1px 0 0 var(--edge-dark); transform: translateY(1px); }
   &:focus-visible, &.focus { outline: 2px solid var(--line-strong); outline-offset: 2px; }
   &[disabled], &.disabled { opacity: .4; cursor: not-allowed; border-style: dashed; box-shadow: none; background-color: var(--surface, var(--bg)); }
-  /* A selected segment: solid gleam with a cooled bottom edge. */
-  &.sel { background: var(--gleam-fill); color: var(--on-gleam); border-color: var(--gleam); box-shadow: inset 0 -2px 0 0 var(--gleam-deep), var(--gleam-spec); }
-  &.primary { background: var(--gleam-fill); color: var(--on-gleam); border-color: var(--gleam); box-shadow: var(--gleam-spec), var(--shadow-primary); }
-  @media (hover: hover) { &.primary:hover { background: var(--gleam-fill-hot); border-color: var(--gleam-hot); box-shadow: var(--gleam-spec), var(--shadow-primary), var(--shadow-glow); } }
-  &.primary.hover { background: var(--gleam-fill-hot); border-color: var(--gleam-hot); box-shadow: var(--gleam-spec), var(--shadow-primary), var(--shadow-glow); }
-  &.primary:active, &.primary.active { box-shadow: var(--gleam-spec); transform: translateY(2px); background: var(--gleam-fill); }
+  /* A selected segment: a flat gleam fill. */
+  &.sel { background: var(--gleam); color: var(--on-gleam); border-color: var(--gleam); box-shadow: none; }
+  /* The primary: a flat gleam fill that turns gleam-hot on hover; no gradient, highlight, drop or glow. */
+  &.primary { background: var(--gleam); color: var(--on-gleam); border-color: var(--gleam); box-shadow: none; }
+  @media (hover: hover) { &.primary:hover { background: var(--gleam-hot); border-color: var(--gleam-hot); box-shadow: none; } }
+  &.primary.hover { background: var(--gleam-hot); border-color: var(--gleam-hot); box-shadow: none; }
+  &.primary:active, &.primary.active { background: var(--gleam); box-shadow: none; transform: translateY(1px); }
   &.primary[disabled] { background: var(--surface, var(--bg)); color: var(--fg); border-color: var(--line-strong); box-shadow: none; transform: none; }
-  /* .flush: a primary in a row of segment buttons (Run Next). Its 2px drop moves inside the box, as .sel's cooled
-     edge, so its visible top and bottom line up with theirs. */
-  &.primary.flush { box-shadow: inset 0 -2px 0 0 var(--gleam-deep), var(--gleam-spec); }
-  @media (hover: hover) { &.primary.flush:hover { box-shadow: inset 0 -2px 0 0 var(--gleam-deep), var(--gleam-spec), var(--shadow-glow); } }
-  &.primary.flush.hover { box-shadow: inset 0 -2px 0 0 var(--gleam-deep), var(--gleam-spec), var(--shadow-glow); }
-  &.primary.flush:active, &.primary.flush.active { box-shadow: var(--gleam-spec); transform: translateY(1px); }
-  &.primary.flush[disabled] { box-shadow: none; transform: none; }
-  &.sm { font-size: 11px; height: var(--control-sm); padding: 0 9px; }
+  /* The tertiary: close, cancel, show more. Text only, no seam and no fill at rest or on hover; muted to fg on hover
+     and while its disclosure is open. The focus ring stays. Disabled keeps btn's 40% but drops the dashed seam. */
+  &.tertiary { border-color: transparent; background-color: transparent; box-shadow: none; color: var(--muted); }
+  @media (hover: hover) { &.tertiary:hover { border-color: transparent; background-color: transparent; color: var(--fg); } }
+  &.tertiary.hover { border-color: transparent; background-color: transparent; color: var(--fg); }
+  &.tertiary:active, &.tertiary.active { background-color: transparent; box-shadow: none; }
+  &.tertiary[aria-expanded="true"] { color: var(--fg); }
+  &.tertiary[disabled], &.tertiary.disabled { border-color: transparent; background-color: transparent; }
+  &.sm { height: var(--control-sm); padding: 0 9px; }
   &.icon { width: var(--control-md); padding: 0; justify-content: center; }
   &.sm.icon { width: var(--control-sm); padding: 0; }
-  /* The quiet close and the status bar's indicators: no seam at rest, so only the glyph shows; hover draws --line,
-     never heavier than a neighbouring btn's --line-strong. The fill is btn's, so the sheen, press and ring stay. */
+  /* The status bar's indicators only: no seam at rest, so only the glyph shows; hover draws --line, never heavier than
+     a neighbouring btn's --line-strong. The fill is btn's, so the sheen, press and ring stay. */
   &.ghost { border-color: transparent; box-shadow: none; }
   @media (hover: hover) { &.ghost:hover { border-color: var(--line); } }
   &.ghost.hover { border-color: var(--line); }
@@ -758,7 +768,7 @@
   flex-direction: column;
   gap: 2px;
   text-decoration: none;
-  & a, & button { appearance: none; font-family: var(--font-mono); font-weight: 500; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px 9px 12px; border: 1px solid transparent; corner-shape: bevel; border-radius: 0 var(--radius-nick) 0 var(--radius-nick); background-color: var(--surface, var(--bg)); width: 100%; cursor: pointer; line-height: 16px; transition: background-color .12s ease, border-color .12s ease, color .12s ease; position: relative; text-align: left; }
+  & a, & button { appearance: none; font-family: var(--font-sans); font-weight: 500; font-size: 13px; letter-spacing: 0; color: var(--muted); text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px 9px 12px; border: 1px solid transparent; corner-shape: bevel; border-radius: 0 var(--radius-nick) 0 var(--radius-nick); background-color: var(--surface, var(--bg)); width: 100%; cursor: pointer; line-height: 16px; transition: background-color .12s ease, border-color .12s ease, color .12s ease; position: relative; text-align: left; }
   @media (hover: hover) { & a:hover, & button:hover { color: var(--fg); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--gleam) 10%); border-color: color-mix(in srgb, var(--gleam) 40%, transparent); } }
   & a.hover { color: var(--fg); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--gleam) 10%); border-color: color-mix(in srgb, var(--gleam) 40%, transparent); }
   & a.active, & button.active { color: var(--fg); border-color: var(--line); background-color: var(--raised); box-shadow: inset var(--bar-rule) 0 0 0 var(--gleam), var(--shadow-bevel); }
@@ -874,11 +884,10 @@
 }
 @utility tab {
   appearance: none;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-weight: 500;
-  font-size: 12px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+  font-size: 13px;
+  letter-spacing: 0;
   text-decoration: none;
   color: var(--muted);
   height: var(--control-lg);
@@ -920,6 +929,12 @@
   font-size: 14px;
   & th { font-family: var(--font-mono); font-weight: 500; font-size: 11px; letter-spacing: .10em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); }
   & td { padding: 8px 12px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  /* A sortable header's button is a header first: it keeps the header's mono label type, the one deliberate exception
+     to "controls are sans". The sorted column's header goes fg. */
+  & th > button { appearance: none; background: none; border: 0; padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  @media (hover: hover) { & th > button:hover { color: var(--fg); } }
+  & th[aria-sort] { color: var(--fg); }
+  & th > button .ic { width: 12px; height: 12px; }
   & tr:last-child td { border-bottom: 0; }
   & tr.clickable { cursor: pointer; }
   & .r { text-align: right; }

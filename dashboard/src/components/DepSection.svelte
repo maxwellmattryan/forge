@@ -13,7 +13,7 @@
 
 {#snippet row(label: string, links: DepLink[])}
   {#if links.length}
-    <div class="flex items-start gap-2"><div class="label w-20 shrink-0 pt-2">{label}</div><div class="flex flex-wrap gap-2 min-w-0">{#each links as l, i (i)}<button title={depHint(l)} class="btn sm normal-case tracking-normal font-mono" onclick={() => openDrawer(l.id)}>{l.id} <Chip tone={l.tone} text={l.state} /></button>{/each}</div></div>
+    <div class="flex items-start gap-2"><div class="label w-20 shrink-0 pt-2">{label}</div><div class="flex flex-wrap gap-2 min-w-0">{#each links as l, i (i)}<button title={depHint(l)} class="btn sm font-mono" onclick={() => openDrawer(l.id)}>{l.id} <Chip tone={l.tone} text={l.state} /></button>{/each}</div></div>
   {/if}
 {/snippet}
 

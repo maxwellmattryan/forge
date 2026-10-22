@@ -1,5 +1,5 @@
-<!-- The one close control: a quiet square icon button at its siblings' height (sm or md). `ghost` drops the border at rest,
-     so only the cross shows; hover, press and the focus ring are every btn's. Its name shows in a Tooltip. -->
+<!-- The one close control: a tertiary square icon button at its siblings' height (sm or md). No seam or fill at rest or
+     on hover, so only the cross shows, muted until hovered; the focus ring is every btn's. Its name shows in a Tooltip. -->
 <script lang="ts">
   import Icon from './Icon.svelte';
   import Tooltip from './Tooltip.svelte';
@@ -8,5 +8,5 @@
   let el = $state<HTMLButtonElement>();
 </script>
 
-<button bind:this={el} type="button" class="btn icon ghost shrink-0 {size === 'sm' ? 'sm' : ''} {cls}" aria-label={label} {onclick}><Icon name="close" /></button>
+<button bind:this={el} type="button" class="btn icon tertiary shrink-0 {size === 'sm' ? 'sm' : ''} {cls}" aria-label={label} {onclick}><Icon name="close" /></button>
 <Tooltip anchor={el} text={label} />

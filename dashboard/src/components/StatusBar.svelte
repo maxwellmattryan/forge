@@ -246,7 +246,7 @@
   bind:this={footer}
   id="statusbar"
   aria-label={$t('statusbar.label')}
-  class="fixed bottom-0 right-0 left-0 md:left-(--size-sidebar) z-25 chrome border-t border-line-strong h-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex items-center gap-1 px-1 md:gap-3.5 md:px-2"
+  class="fixed bottom-0 right-0 left-0 md:left-(--size-sidebar) z-25 chrome hammered border-t border-line-strong h-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex items-center gap-1 px-1 md:gap-3.5 md:px-2"
 >
   <!-- Under an open job pane the indicators go inert, as the sidebar does; the live region stays out of it, since an inert
        region never speaks. display: contents keeps the three parts in the bar's own flex row. -->

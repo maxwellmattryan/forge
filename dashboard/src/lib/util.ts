@@ -2,7 +2,13 @@
 // Toasts live in toast.svelte.ts now that components render them.
 export const esc = (v: unknown): string => String(v ?? '').replace(/[&<>"']/g, (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }) as Record<string, string>)[c]);
 export const num = (n: unknown): string => (n == null ? '—' : Number(n).toLocaleString());
-export const usd = (n: unknown): string => (n == null ? '—' : `$${Number(n) < 1 ? Number(n).toFixed(3) : Number(n).toFixed(2)}`);
+/** Dollars: two decimals, three only under a cent so a small cost still shows, and `<$0.001` below that; never `$0.000`. */
+export const usd = (n: unknown): string => {
+  if (n == null) return '—';
+  const v = Number(n);
+  if (!(v > 0) || v >= 0.01) return `$${v.toFixed(2)}`;
+  return v < 0.001 ? '<$0.001' : `$${v.toFixed(3)}`;
+};
 /** `now` defaults to the wall clock; the board and the drawer pass the shared ticker's so their times tick. */
 export const ago = (iso: string | null | undefined, now: number = Date.now()): string => {
   if (!iso) return '—';
@@ -19,6 +25,14 @@ export const clock = (iso: string | null | undefined): string => {
   if (Number.isNaN(d.getTime())) return '';
   const p = (n: number) => String(n).padStart(2, '0');
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+};
+/** A relative time's absolute twin for its title: local YYYY-MM-DD HH:MM; '' when missing or it does not parse. */
+export const absTime = (iso: string | null | undefined): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 };
 export const pct = (x: number | null | undefined): string => (x == null ? '—' : `${Math.round(x * 100)}%`);
 const TOKEN_UNITS = [

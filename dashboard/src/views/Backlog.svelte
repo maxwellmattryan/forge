@@ -15,7 +15,7 @@
 </script>
 
 <PageHeader title={$t('backlog.title')}>
-  {#snippet sub()}{#if b}{$t('backlog.from')} <Icon name={S.data?.config?.tracker === 'github' ? 'github' : 'tracker'} /><b>{b.tracker}</b> {$t('backlog.tracker')}{:else}{$t('common.loading')}{/if}{/snippet}
+  {#snippet facts()}{#if b}{$t('backlog.from')} <Icon name={S.data?.config?.tracker === 'github' ? 'github' : 'tracker'} /><b>{b.tracker}</b> {$t('backlog.tracker')}{:else}{$t('common.loading')}{/if}{/snippet}
   {#snippet right()}<button class="btn" onclick={refreshBacklog}><Icon name="refresh" />{$t('backlog.refresh')}</button><button class="btn primary" onclick={() => req({ type: 'next' })}>{$t('common.runNext')}</button>{/snippet}
 </PageHeader>
 {#if b}

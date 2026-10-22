@@ -288,7 +288,7 @@
       </MenuButton>
       <MarkdownToggle surface="session" iconOnly />
       <button class="btn sm {follow ? 'sel' : ''}" aria-pressed={follow ? 'true' : 'false'} onclick={jump}>{$t('session.follow')}</button>
-      {#if more}<button class="btn sm" onclick={() => log.loadOlder()}>{$t('session.loadOlder')}</button>{/if}
+      {#if more}<button class="btn sm tertiary" onclick={() => log.loadOlder()}>{$t('session.loadOlder')}</button>{/if}
     </div>
   </div>
   {#if !transcript}

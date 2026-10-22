@@ -57,7 +57,7 @@
       {#if error}<p class="text-[13px] text-bad break-words" role="alert">{error}</p>{/if}
       <div class="flex flex-wrap gap-2">
         <button class="btn sm text-bad" disabled={!armed || busy} aria-busy={busy} onclick={remove}>{$t('deleteJob.confirm')}</button>
-        <button class="btn sm" disabled={busy} onclick={cancel}>{$t('deleteJob.keep')}</button>
+        <button class="btn sm tertiary" disabled={busy} onclick={cancel}>{$t('deleteJob.keep')}</button>
       </div>
     {/if}
   {/if}
