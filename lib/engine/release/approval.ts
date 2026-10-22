@@ -5,7 +5,7 @@
 // (freshPlan) and re-reads the policy, at approval time and again at run time.
 // docs/RELEASES.md "Releasing a project", docs/ARCHITECTURE.md "Foreman".
 import { isForemanActor, loadJob, logEvent, readEvents } from '../../core/job/store.ts';
-import { classReservation, decides, foremanEnabled, inOffice, reservedFor } from '../../foreman.ts';
+import { classReservation, decides, foremanEnabled, inOffice, reservedFor } from '../../office/foreman.ts';
 import { assertNoSymlinks, freshPlan, readPlanFile, readState, releaseFiles, type ReleasePlan } from './plan.ts';
 import { enqueue, listRequests } from '../../core/job/requests.ts';
 import { ForgeError } from '../../core/errors.ts';

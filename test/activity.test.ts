@@ -6,8 +6,8 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { tempRepo, waitFor } from './helpers.ts';
-import { attachActivityLog, formatActivity, jobEventLine, jobEventParts, requestLine, requestLogger, sessionTracker, tailJobEvents } from '../lib/activity.ts';
-import { distAllowlist, startServer } from '../lib/server.ts';
+import { attachActivityLog, formatActivity, jobEventLine, jobEventParts, requestLine, requestLogger, sessionTracker, tailJobEvents } from '../lib/cli/activity.ts';
+import { distAllowlist, startServer } from '../lib/server/start.ts';
 import { FIXTURE_DIST } from './dist.ts';
 
 const AT = new Date(2026, 9, 19, 9, 5, 7);

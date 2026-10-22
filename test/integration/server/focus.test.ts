@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fakeBin, forgeAsync, forgeSync, repoTemplate, waitFor } from '../../helpers.ts';
-import { startServer } from '../../../lib/server.ts';
+import { startServer } from '../../../lib/server/start.ts';
 import { FIXTURE_DIST } from '../../dist.ts';
 import { editorArgv } from '../../../lib/engine/workspace/editor.ts';
 import { pidAlive } from '../../../lib/core/os/process.ts';

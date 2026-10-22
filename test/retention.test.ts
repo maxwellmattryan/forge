@@ -401,7 +401,7 @@ function get(port: number, p: string): Promise<any> {
 
 test('archived jobs only in stats', async () => {
   const r = repo();
-  const { startServer } = await import('../lib/server.ts');
+  const { startServer } = await import('../lib/server/start.ts');
   try {
     const gone = seedJob(r.dir, 'Gone');
     const kept = seedJob(r.dir, 'Kept', { state: 'running', stage: 'build' });

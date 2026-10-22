@@ -1,7 +1,8 @@
-// Which lib layer each of today's flat lib/ files belongs to, and the upward imports still allowed.
-// Data only, read by test/invariants/layers.test.ts; docs/design/lib-layout.md explains the placement.
-// The move (#421) puts each file under lib/<layer>/, which empties FLAT_LAYERS and re-keys
-// ALLOWED_EDGES to the new paths; every later job only deletes entries from either list.
+// Which lib layer each lib/ file outside a lib/<layer>/ folder belongs to, and the upward imports still
+// allowed. Data only, read by test/invariants/layers.test.ts; docs/design/lib-layout.md explains the
+// placement. The move (#421) put every other file under lib/<layer>/, leaving only the deprecated tracker
+// re-exports flat, and re-keyed ALLOWED_EDGES to the new paths; every later job only deletes entries from
+// either list.
 
 /** The lib layers, lowest first: a file may import its own layer and the ones before it. */
 export const LAYERS = ['api', 'core', 'integrations', 'engine', 'office', 'server', 'cli'] as const;
@@ -16,9 +17,9 @@ export const FLAT_LAYERS: Record<Layer, string[]> = {
   core: [],
   integrations: [],
   engine: [],
-  office: ['daemon-owner.ts', 'daemon-pool.ts', 'daemon.ts', 'foreman.ts', 'notify.ts', 'reconcile.ts', 'session-agents.ts'],
-  server: ['server.ts'],
-  cli: ['activity.ts', 'cli.ts', 'commands/'],
+  office: [],
+  server: [],
+  cli: [],
 };
 
 /**
@@ -41,15 +42,15 @@ export const ALLOWED_EDGES: string[] = [
   'core/types.ts → engine/guard/secrets.ts', // core type-imports engine: the types split
   'core/types.ts → engine/pipeline/acs.ts', // core type-imports engine: the types split
   'core/types.ts → engine/pipeline/findings.ts', // core type-imports engine: the types split
-  'engine/guard/secrets.ts → notify.ts', // engine reaches office: notify transport
-  'engine/ops/doctor.ts → daemon.ts', // engine reaches office: the session's API-key variables
-  'engine/ops/doctor.ts → notify.ts', // engine reaches office: notify transport
-  'engine/pipeline/step/gates.ts → foreman.ts', // engine reaches office: the Foreman's round ceilings
-  'engine/pipeline/step/stages/build.ts → foreman.ts', // engine reaches office: the Foreman's round ceilings
-  'engine/pipeline/step/stages/decide.ts → foreman.ts', // engine reaches office: the Foreman's round ceilings
-  'engine/pr/lifecycle.ts → foreman.ts', // engine reaches office: the Foreman's gate classes
-  'engine/pr/lifecycle.ts → notify.ts', // engine reaches office: notify transport
-  'engine/release/approval.ts → foreman.ts', // engine reaches office: the Foreman's gate classes
+  'engine/guard/secrets.ts → office/notify.ts', // engine reaches office: notify transport
+  'engine/ops/doctor.ts → office/notify.ts', // engine reaches office: notify transport
+  'engine/ops/doctor.ts → office/session/lifecycle.ts', // engine reaches office: the session's API-key variables
+  'engine/pipeline/step/gates.ts → office/foreman.ts', // engine reaches office: the Foreman's round ceilings
+  'engine/pipeline/step/stages/build.ts → office/foreman.ts', // engine reaches office: the Foreman's round ceilings
+  'engine/pipeline/step/stages/decide.ts → office/foreman.ts', // engine reaches office: the Foreman's round ceilings
+  'engine/pr/lifecycle.ts → office/foreman.ts', // engine reaches office: the Foreman's gate classes
+  'engine/pr/lifecycle.ts → office/notify.ts', // engine reaches office: notify transport
+  'engine/release/approval.ts → office/foreman.ts', // engine reaches office: the Foreman's gate classes
   'integrations/github/tracker.ts → engine/guard/attribution.ts', // integrations reach engine: tracker security wrappers
   'integrations/github/tracker.ts → engine/pr/lifecycle.ts', // integrations reach engine: repoSlug
 ];

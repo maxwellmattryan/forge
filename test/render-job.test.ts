@@ -1,7 +1,7 @@
 // lib/commands/render/job.ts: `forge job list|show|step|claim|note` in human mode.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { jobClaim, jobList, jobNote, jobShow, jobStep } from '../lib/commands/render/job.ts';
+import { jobClaim, jobList, jobNote, jobShow, jobStep } from '../lib/cli/commands/render/job.ts';
 import { HOSTILE, assertSafe, hasLines, plain } from './render-helpers.ts';
 import type { StepSpawn } from '../lib/core/types.ts';
 

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { forgeSync, repoTemplate } from './helpers.ts';
 import { defaults, loadConfig } from '../lib/core/config/load.ts';
-import { syncAll } from '../lib/commands/tracker.ts';
+import { syncAll } from '../lib/cli/commands/tracker.ts';
 import { createJob, setJob } from '../lib/core/job/store.ts';
 import { INBOX_SCOPE, ackRequest, listRequests, requestScope } from '../lib/core/job/requests.ts';
 import * as yaml from '../lib/core/format/yaml.ts';

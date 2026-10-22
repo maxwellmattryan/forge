@@ -8,7 +8,7 @@ import { createJob, jobDir, loadJob, readEvents, setJob, updateJob } from '../li
 import type { Job } from '../lib/core/types.ts';
 import { listRequests } from '../lib/core/job/requests.ts';
 import { MAX_DIFF_BYTES, capDiff, isSampled, queueScores } from '../lib/engine/evals/scoring.ts';
-import { syncAll } from '../lib/commands/tracker.ts';
+import { syncAll } from '../lib/cli/commands/tracker.ts';
 
 // A stand-in `gh` on PATH, as in test/outcome-sync.test.ts, that also answers `pr diff`: it fails for
 // the PR number in FAKE_DIFF_FAIL and logs every call as `<argc>:<args>`.

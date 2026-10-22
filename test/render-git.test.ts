@@ -1,10 +1,10 @@
 // lib/commands/render/{pr,worktree,verify,backing}.ts: git, PR and service commands in human mode.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { backingStatus } from '../lib/commands/render/backing.ts';
-import { prMerge, prOpen, prSync } from '../lib/commands/render/pr.ts';
-import { verify } from '../lib/commands/render/verify.ts';
-import { worktreeCreate, worktreeRemove } from '../lib/commands/render/worktree.ts';
+import { backingStatus } from '../lib/cli/commands/render/backing.ts';
+import { prMerge, prOpen, prSync } from '../lib/cli/commands/render/pr.ts';
+import { verify } from '../lib/cli/commands/render/verify.ts';
+import { worktreeCreate, worktreeRemove } from '../lib/cli/commands/render/worktree.ts';
 import { HOSTILE, assertSafe, hasLines, plain } from './render-helpers.ts';
 
 const URL = 'https://github.com/o/r/pull/12';

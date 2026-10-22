@@ -12,7 +12,7 @@ import { jobDir, loadJob, readEvents } from '../lib/core/job/store.ts';
 import { JOB_SCHEMA_VERSION, normalizeJob } from '../lib/core/job/schema.ts';
 import { checkIssueRef, nativeRef, parseIssueRef } from '../lib/core/job/issue-ref.ts';
 import { localRepoSlug } from '../lib/integrations/git/repo-slug.ts';
-import { startFromRef } from '../lib/commands/tracker.ts';
+import { startFromRef } from '../lib/cli/commands/tracker.ts';
 import type { Tracker } from '../lib/core/types.ts';
 
 const ACME_ADAPTER = `export default { name: 'acme', list: () => [], get: () => null, claim: () => ({ ok: true }), update() {}, comment() {}, create: () => ({ ref: 'A-1' }), close() {} };\n`;

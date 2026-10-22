@@ -10,7 +10,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { repoTemplate } from '../../helpers.ts';
 import { FIXTURE_DIST } from '../../dist.ts';
-import { startServer, stateFrame } from '../../../lib/server.ts';
+import { startServer, stateFrame } from '../../../lib/server/start.ts';
 import type { DaemonSessionState } from '../../../lib/core/types.ts';
 import { defaults } from '../../../lib/core/config/load.ts';
 import { sessionFiles } from '../../../lib/core/job/session-files.ts';

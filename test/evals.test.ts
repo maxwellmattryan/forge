@@ -8,7 +8,7 @@ import { scratchGitConfig, tempRepo } from './helpers.ts';
 import { defaults, loadConfig } from '../lib/core/config/load.ts';
 import { loadJob, setJob } from '../lib/core/job/store.ts';
 import { configHash, gradeJob, startRun, summarize } from '../lib/engine/evals/run.ts';
-import { evalCmd } from '../lib/commands/eval.ts';
+import { evalCmd } from '../lib/cli/commands/eval.ts';
 import * as yaml from '../lib/core/format/yaml.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');

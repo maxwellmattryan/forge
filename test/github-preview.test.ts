@@ -6,7 +6,7 @@ import http from 'node:http';
 import { tempRepo } from './helpers.ts';
 import { createPreviewer, excerpt, foldPreview, ghArgs, parseGitHubUrl, targetKey, toResponse } from '../lib/integrations/github/preview.ts';
 import type { GhResult, GhRunner, GitHubTarget } from '../lib/integrations/github/preview.ts';
-import { startServer } from '../lib/server.ts';
+import { startServer } from '../lib/server/start.ts';
 import { FIXTURE_DIST } from './dist.ts';
 
 const PR = {

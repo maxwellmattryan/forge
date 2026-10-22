@@ -10,7 +10,7 @@ import { stripAttribution } from '../lib/engine/guard/attribution.ts';
 import { defaults } from '../lib/core/config/load.ts';
 import { claimJob, createJob, loadJob, logEvent, setJob, readEvents, updateJob } from '../lib/core/job/store.ts';
 import { listRequests } from '../lib/core/job/requests.ts';
-import { syncAll } from '../lib/commands/tracker.ts';
+import { syncAll } from '../lib/cli/commands/tracker.ts';
 import type { Job, JobPr } from '../lib/core/types.ts';
 
 test('mergeAction: direct merge only when CI passed or the repo has none', () => {

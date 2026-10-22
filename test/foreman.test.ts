@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { forgeAsync, forgeInProcess, repoTemplate } from './helpers.ts';
 import { TRUST_ENV, autoMerge, defaults, loadConfig, trustDigest, validateConfig } from '../lib/core/config/load.ts';
 import { FIELDS } from '../lib/core/config/fields.ts';
-import { INVALID_RESERVED, RETRO_SPEC_HOLD, SECURITY_CHANGES, SECURITY_UNCLEAR, TOTAL_CEILING, checkForemanDecision, checkOfficeSetFor, gateClass, gateOwner, latestSecurityVerdict, maybeEnqueueGate, reservedFor, reservedMatch } from '../lib/foreman.ts';
+import { INVALID_RESERVED, RETRO_SPEC_HOLD, SECURITY_CHANGES, SECURITY_UNCLEAR, TOTAL_CEILING, checkForemanDecision, checkOfficeSetFor, gateClass, gateOwner, latestSecurityVerdict, maybeEnqueueGate, reservedFor, reservedMatch } from '../lib/office/foreman.ts';
 import { ForgeError } from '../lib/core/errors.ts';
 import { createJob, jobDir, loadJob, logEvent, readEvents, setJob } from '../lib/core/job/store.ts';
 import { checksText, failingCheckNames, syncPr, trustedFeedback } from '../lib/engine/pr/lifecycle.ts';

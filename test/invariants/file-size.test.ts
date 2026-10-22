@@ -14,10 +14,10 @@ const CAP = 600;
 const ALLOWED: Record<string, number> = {
   'api/types.ts': 1501,
   'engine/environment/backing.ts': 751,
-  'commands/job.ts': 1048,
-  'commands/tracker.ts': 612,
-  'daemon-pool.ts': 637,
-  'daemon.ts': 1624,
+  'cli/commands/job.ts': 1048,
+  'cli/commands/tracker.ts': 612,
+  'office/pool.ts': 637,
+  'office/session/lifecycle.ts': 1624,
   'engine/guard/integrity.ts': 832,
   'engine/release/interim-apply.ts': 921,
   'engine/release/interim.ts': 698,
@@ -26,7 +26,7 @@ const ALLOWED: Record<string, number> = {
   'engine/release/plan.ts': 632,
   'core/job/schema.ts': 666,
   'engine/guard/secrets.ts': 705,
-  'server.ts': 1762,
+  'server/start.ts': 1762,
   'core/types.ts': 1174,
   'engine/workspace/worktree.ts': 1320,
 };

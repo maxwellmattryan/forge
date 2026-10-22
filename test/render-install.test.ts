@@ -1,8 +1,8 @@
 // lib/commands/render/{version,update}.ts: `forge version` and `forge update` in human mode.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { update } from '../lib/commands/render/update.ts';
-import { version } from '../lib/commands/render/version.ts';
+import { update } from '../lib/cli/commands/render/update.ts';
+import { version } from '../lib/cli/commands/render/version.ts';
 import { HOSTILE, assertSafe, hasLines, plain } from './render-helpers.ts';
 import type { UpdateCheck, UpdateResult } from '../lib/core/types.ts';
 

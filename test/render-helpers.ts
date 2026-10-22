@@ -1,6 +1,6 @@
 // Shared by the test/render-*.test.ts files: run a renderer with colour off, and the hostile text AC9 feeds it.
 import assert from 'node:assert/strict';
-import type { Renderer } from '../lib/commands/render/index.ts';
+import type { Renderer } from '../lib/cli/commands/render/registry.ts';
 
 /** A fixed clock, so relative ages are exact. */
 export const NOW = Date.parse('2026-10-19T12:00:00.000Z');

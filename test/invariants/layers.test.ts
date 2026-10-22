@@ -1,7 +1,7 @@
 // lib/ keeps its layers: every file has one lib layer, imports point down the order in
 // test/invariants/layer-map.ts (docs/design/lib-layout.md) except the shrinking ALLOWED_EDGES, `api`
 // imports nothing outside `api`, no runtime import cycle exists, and only the CLI reaches
-// lib/commands/. No public function exposes the module graph, so this reads the import declarations
+// lib/cli/commands/. No public function exposes the module graph, so this reads the import declarations
 // of lib/ sources (docs/TESTING.md › Allowed source-text tests, entry 10).
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -233,10 +233,10 @@ test('lib/ has no runtime import cycles', () => {
   assert.deepEqual(found, [], `import cycles in lib/:\n${found.map((c) => c.join(' → ')).join('\n')}`);
 });
 
-test('only commands/ and cli.ts import lib/commands/', () => {
-  const cli = (f: string): boolean => f === 'cli.ts' || f.startsWith('commands/');
+test('only cli/commands/ and cli/main.ts import cli/commands/', () => {
+  const cli = (f: string): boolean => f === 'cli/main.ts' || f.startsWith('cli/commands/');
   const bad = [...libEdges()].flatMap(([file, edges]) =>
-    cli(file) ? [] : edges.filter((e) => e.target.startsWith('commands/')).map((e) => `${file} → ${e.target}`));
+    cli(file) ? [] : edges.filter((e) => e.target.startsWith('cli/commands/')).map((e) => `${file} → ${e.target}`));
   assert.deepEqual(bad, []);
 });
 

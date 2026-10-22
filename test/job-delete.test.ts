@@ -7,7 +7,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
-import { startServer } from '../lib/server.ts';
+import { startServer } from '../lib/server/start.ts';
 import { FIXTURE_DIST } from './dist.ts';
 import { confirmMatches, deleteBlocker } from '../dashboard/src/lib/delete-job.ts';
 

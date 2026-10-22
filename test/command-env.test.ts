@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { envFor } from '../lib/engine/workspace/job-command.ts';
-import { sessionEnv } from '../lib/daemon.ts';
+import { sessionEnv } from '../lib/office/session/lifecycle.ts';
 import { TRUST_ENV, trustDigest } from '../lib/core/config/load.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');

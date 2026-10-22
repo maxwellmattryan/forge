@@ -8,7 +8,7 @@ import { hookServer } from './notify-server.ts';
 import type { HookServer } from './notify-server.ts';
 import { createJob, loadJob, readEvents, setJob } from '../lib/core/job/store.ts';
 import { loadConfig } from '../lib/core/config/load.ts';
-import { REASONS, queueNotify } from '../lib/notify.ts';
+import { REASONS, queueNotify } from '../lib/office/notify.ts';
 import { logSecrets } from '../lib/engine/guard/secrets.ts';
 import * as yaml from '../lib/core/format/yaml.ts';
 

@@ -13,7 +13,7 @@ import { spawn as nodeSpawn, spawnSync } from 'node:child_process';
 import { repoTemplate, waitFor as waitUntil } from '../../helpers.ts';
 import { TRUST_ENV, defaults, trustDigest } from '../../../lib/core/config/load.ts';
 import { budgetCmd } from '../../../lib/engine/metrics/budget.ts';
-import { initWrite } from '../../../lib/commands/init.ts';
+import { initWrite } from '../../../lib/cli/commands/init.ts';
 import { ackRepoBudget } from '../../../lib/engine/metrics/repo-budget.ts';
 import { dollarConfig, spend } from '../../repo-budget-fixture.ts';
 import { claimJob, createJob, jobDir, leaseStatus, loadJob, readEvents, recordAgent, setJob, setJobEffort, updateJob } from '../../../lib/core/job/store.ts';
@@ -21,12 +21,12 @@ import { recordKnown } from '../../../lib/engine/guard/known-secrets.ts';
 import { loadStepInput, step } from '../../../lib/engine/pipeline/step.ts';
 import { PLUGIN_ROOT } from '../../../lib/core/paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, ackRequest, claimRequest, enqueue, listRequests, requestScope, validScope } from '../../../lib/core/job/requests.ts';
-import { DENY_TOOLS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, buildArgv, createSession, heldByBudget, parseTemplate, reapOrphans, sessionEnv, PROMPT_INPUT_CHARS, sessionOptions, LOST_SUMMARY } from '../../../lib/daemon.ts';
+import { DENY_TOOLS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, buildArgv, createSession, heldByBudget, parseTemplate, reapOrphans, sessionEnv, PROMPT_INPUT_CHARS, sessionOptions, LOST_SUMMARY } from '../../../lib/office/session/lifecycle.ts';
 import { sessionFiles } from '../../../lib/core/job/session-files.ts';
-import { sessionAgents } from '../../../lib/session-agents.ts';
-import type { SessionEvent } from '../../../lib/daemon.ts';
-import { createPool } from '../../../lib/daemon-pool.ts';
-import { REASONS, contextFor, deliver, queueNotify } from '../../../lib/notify.ts';
+import { sessionAgents } from '../../../lib/office/session-agents.ts';
+import type { SessionEvent } from '../../../lib/office/session/lifecycle.ts';
+import { createPool } from '../../../lib/office/pool.ts';
+import { REASONS, contextFor, deliver, queueNotify } from '../../../lib/office/notify.ts';
 import { hookServer } from '../../notify-server.ts';
 
 // Named claude, because daemon.command must run claude; it runs fake-claude.mjs.
@@ -2201,7 +2201,7 @@ test('a FIFO planted as a session log never blocks the supervisor', { skip: proc
       import { PassThrough } from 'node:stream';
       import { defaults } from ${JSON.stringify(path.resolve(import.meta.dirname, '..', '..', '..', 'lib', 'core', 'config', 'load.ts'))};
       import { openAppend } from ${JSON.stringify(path.resolve(import.meta.dirname, '..', '..', '..', 'lib', 'core', 'job', 'session-files.ts'))};
-      import { createPool } from ${JSON.stringify(path.resolve(import.meta.dirname, '..', '..', '..', 'lib', 'daemon-pool.ts'))};
+      import { createPool } from ${JSON.stringify(path.resolve(import.meta.dirname, '..', '..', '..', 'lib', 'office', 'pool.ts'))};
       const root = process.argv[1];
       let refused = false;
       try { openAppend(root + '/.forge/runtime/daemons/job-r.log'); } catch { refused = true; }

@@ -10,7 +10,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { forgeInProcess, forgeSync, repoTemplate, waitFor } from '../../helpers.ts';
 import { FIXTURE_DIST } from '../../dist.ts';
-import { startServer, textFrame } from '../../../lib/server.ts';
+import { startServer, textFrame } from '../../../lib/server/start.ts';
 import { recordKnown } from '../../../lib/engine/guard/known-secrets.ts';
 import { parseMemUsage, parsePercent } from '../../../lib/engine/environment/status.ts';
 import { pidAlive } from '../../../lib/core/os/process.ts';

@@ -1,9 +1,9 @@
 // lib/commands/render/{doctor,config,sync}.ts: `forge doctor`, `forge config show|get|validate` and `forge sync` in human mode.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { configGet, configShow, configValidate } from '../lib/commands/render/config.ts';
-import { doctor } from '../lib/commands/render/doctor.ts';
-import { sync } from '../lib/commands/render/sync.ts';
+import { configGet, configShow, configValidate } from '../lib/cli/commands/render/config.ts';
+import { doctor } from '../lib/cli/commands/render/doctor.ts';
+import { sync } from '../lib/cli/commands/render/sync.ts';
 import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
 import { HOSTILE, assertSafe, hasLines, plain } from './render-helpers.ts';
 

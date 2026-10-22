@@ -8,12 +8,12 @@ import { forgeAsync, forgeInProcess, repoTemplate } from './helpers.ts';
 import { loadConfig } from '../lib/core/config/load.ts';
 import { forgeVersion } from '../lib/engine/evals/run.ts';
 import { ForgeError } from '../lib/core/errors.ts';
-import { dispatch } from '../lib/cli.ts';
-import { lenientOutputMode, out, outputMode, parseArgs, renderKeyOf, resolveOutputMode, setOutputMode, setRenderKey, withoutMode } from '../lib/commands/args.ts';
-import { GLOBAL_FLAGS, GROUPS, renderCommand, renderOverview, reportError, toCliError } from '../lib/commands/help.ts';
-import { renderError } from '../lib/commands/render.ts';
-import { renderKey } from '../lib/commands/render/index.ts';
-import { versionCmd } from '../lib/commands/version.ts';
+import { dispatch } from '../lib/cli/main.ts';
+import { lenientOutputMode, out, outputMode, parseArgs, renderKeyOf, resolveOutputMode, setOutputMode, setRenderKey, withoutMode } from '../lib/cli/commands/args.ts';
+import { GLOBAL_FLAGS, GROUPS, renderCommand, renderOverview, reportError, toCliError } from '../lib/cli/commands/help.ts';
+import { renderError } from '../lib/cli/commands/render.ts';
+import { renderKey } from '../lib/cli/commands/render/registry.ts';
+import { versionCmd } from '../lib/cli/commands/version.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 

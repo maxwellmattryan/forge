@@ -9,10 +9,10 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { tempRepo } from './helpers.ts';
 import { defaults } from '../lib/core/config/load.ts';
-import { createPool } from '../lib/daemon-pool.ts';
+import { createPool } from '../lib/office/pool.ts';
 import { doctor } from '../lib/engine/ops/doctor.ts';
 import { SUPPORT_URL, WINDOWS_DAEMON_REFUSAL, daemonPlatformProblem, platformTier, posixShell, versionAtLeast, whereExe } from '../lib/core/os/platform.ts';
-import { daemonPlatformNote, dashNotes } from '../lib/commands/dash.ts';
+import { daemonPlatformNote, dashNotes } from '../lib/cli/commands/dash.ts';
 import type { HostInfo } from '../lib/core/os/platform.ts';
 import { ForgeError } from '../lib/core/errors.ts';
 

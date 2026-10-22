@@ -5,7 +5,7 @@ import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { TRUST_ENV, daemonProblems, defaults, loadConfig, trustDigest, validateConfig } from '../lib/core/config/load.ts';
 import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
-import { migrate } from '../lib/commands/init.ts';
+import { migrate } from '../lib/cli/commands/init.ts';
 import * as yaml from '../lib/core/format/yaml.ts';
 
 const DEFAULT_COMMAND =

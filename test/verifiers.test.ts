@@ -9,7 +9,7 @@ import { trustDigest } from '../lib/core/config/load.ts';
 import { parseReview } from '../lib/core/job/store.ts';
 import { CONFIG_SCHEMA_VERSION, normalizeJob } from '../lib/core/job/schema.ts';
 import { computeStats } from '../lib/engine/metrics/stats.ts';
-import { statsText } from '../lib/commands/status.ts';
+import { statsText } from '../lib/cli/commands/status.ts';
 import { loadVerifiers, parseAnswers, readAnswers, renderInput, renderReport, splitDiff } from '../lib/engine/pipeline/verifiers.ts';
 import type { VerifierResult } from '../lib/engine/pipeline/verifiers.ts';
 import type { Verifier } from '../lib/core/types.ts';

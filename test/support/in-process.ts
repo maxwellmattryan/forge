@@ -26,7 +26,7 @@ export async function forgeInProcess(root: string, args: string[], opts: { env?:
   }
   // Loaded here, not at the top: test/helpers.ts re-exports this module, and most test files never
   // call it, so they shouldn't load the whole command graph.
-  const [{ dispatch }, { loadConfig }, { toCliError }] = await Promise.all([import('../../lib/cli.ts'), import('../../lib/core/config/load.ts'), import('../../lib/commands/help.ts')]);
+  const [{ dispatch }, { loadConfig }, { toCliError }] = await Promise.all([import('../../lib/cli/main.ts'), import('../../lib/core/config/load.ts'), import('../../lib/cli/commands/help.ts')]);
   const saved = new Map<string, string | undefined>();
   for (const [k, v] of Object.entries(opts.env ?? {})) {
     saved.set(k, process.env[k]);

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { TRUST_ENV, loadConfig, trustDigest } from '../lib/core/config/load.ts';
-import { gitWrite, parseGitWriteArgs, resolveWorktreePaths } from '../lib/commands/git.ts';
+import { gitWrite, parseGitWriteArgs, resolveWorktreePaths } from '../lib/cli/commands/git.ts';
 import { jobDir, setJob } from '../lib/core/job/store.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');

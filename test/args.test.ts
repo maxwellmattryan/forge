@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { num, oneOf, parseArgs, requireJob, str } from '../lib/commands/args.ts';
+import { num, oneOf, parseArgs, requireJob, str } from '../lib/cli/commands/args.ts';
 import { ForgeError } from '../lib/core/errors.ts';
 import { coerce } from '../lib/core/text.ts';
 

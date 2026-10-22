@@ -5,7 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { tempRepo, waitFor } from './helpers.ts';
-import { startServer } from '../lib/server.ts';
+import { startServer } from '../lib/server/start.ts';
 import { FIXTURE_DIST } from './dist.ts';
 import { defaults } from '../lib/core/config/load.ts';
 import { sessionFiles } from '../lib/core/job/session-files.ts';

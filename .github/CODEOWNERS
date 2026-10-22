@@ -3,9 +3,9 @@
 # Code Owners" rule. See SECURITY.md "Configuration is code".
 /.forge/config.yml @maxwellmattryan
 /.forge/trackers/** @maxwellmattryan
-/lib/server.ts @maxwellmattryan
-/lib/daemon.ts @maxwellmattryan
-/lib/daemon-pool.ts @maxwellmattryan
+/lib/server/** @maxwellmattryan
+/lib/office/session/** @maxwellmattryan
+/lib/office/pool.ts @maxwellmattryan
 /hooks/** @maxwellmattryan
 /lib/engine/guard/attribution.ts @maxwellmattryan
 /lib/core/config/fields.ts @maxwellmattryan
