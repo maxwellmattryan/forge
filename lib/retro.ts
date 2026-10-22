@@ -13,7 +13,7 @@ import { paths, exists } from './paths.ts';
 import { enqueue, listRequests } from './requests.ts';
 import { computeStats } from './stats.ts';
 import type { Config, ExperimentEntry, ExperimentResult, HumanDelta, LearningEntry, LoadedJob, ReviewerStats, Stats } from './types.ts';
-import { readText, safeText, writeJsonAtomic } from './util.ts';
+import { readText, safeText, withLock, writeJsonAtomic } from './util.ts';
 
 /** Live and archived jobs: the retro cadence counts jobs that retention has since archived. */
 const allJobs = (root: string): LoadedJob[] => [...listJobs(root), ...listArchived(root).map((a) => a.job)];
@@ -40,9 +40,12 @@ export function retroDue(root: string, config: Config): { due: boolean; finished
  */
 export function queueRetro(root: string, config: Config): string | null {
   if (config.foreman?.enabled !== true || !retroDue(root, config).due) return null;
-  if (listRequests(root).some((r) => r.type === 'retro' && (r.status === 'pending' || r.status === 'in-progress'))) return null;
-  if (allJobs(root).some((j) => j.kind === 'retro' && !['done', 'cancelled', 'failed'].includes(j.state))) return null;
-  return enqueue(root, config, { type: 'retro', from: 'foreman', text: 'a retro is due: improve.retroEvery jobs finished since the last one' }).id;
+  // The pool's sync and a manual one can overlap: the check and the enqueue happen under one lock.
+  return withLock(path.join(paths(root).locks, 'retro-queue'), () => {
+    if (listRequests(root).some((r) => r.type === 'retro' && (r.status === 'pending' || r.status === 'in-progress'))) return null;
+    if (allJobs(root).some((j) => j.kind === 'retro' && !['done', 'cancelled', 'failed'].includes(j.state))) return null;
+    return enqueue(root, config, { type: 'retro', from: 'foreman', text: 'a retro is due: improve.retroEvery jobs finished since the last one' }).id;
+  });
 }
 
 /**
