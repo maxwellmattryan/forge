@@ -1,4 +1,4 @@
-// Redaction for the support bundle (lib/bundle.ts): what a user can attach to a public bug report.
+// Redaction for the support bundle (lib/engine/ops/bundle.ts): what a user can attach to a public bug report.
 // Pattern-based and best-effort, so it errs towards replacing too much: secrets, then paths, then
 // emails, then logins. Every replacement token is free of `"` and `\`, so JSON stays parseable.
 import fs from 'node:fs';
@@ -17,7 +17,7 @@ export interface RedactContext {
   config: Pick<Config, 'worktrees'> | null;
   /** The configured worktrees root, which may sit outside both the repo and home. */
   worktrees?: string | null;
-  /** Every job's known values (lib/known-secrets.ts), replaced before any pattern runs. */
+  /** Every job's known values (lib/engine/guard/known-secrets.ts), replaced before any pattern runs. */
   known?: string[];
 }
 

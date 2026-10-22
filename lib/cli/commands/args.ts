@@ -71,7 +71,7 @@ export function outputMode(): OutputMode {
   return mode;
 }
 
-// The outer call's renderer key (renderKey in lib/commands/render/index.ts), set once by main()
+// The outer call's renderer key (renderKey in lib/cli/commands/render/registry.ts), set once by main()
 // beside the mode, so a command printing through out() itself gets its renderer without a new argument.
 let renderKeyed: string | undefined;
 export function setRenderKey(k: string | undefined): void {

@@ -1,7 +1,7 @@
-// `forge release plan`: each repo's release strategy (lib/release-strategy.ts) and the repo graph
+// `forge release plan`: each repo's release strategy (lib/core/config/release-strategy.ts) and the repo graph
 // turned into an ordered plan of checkable steps with rollback (docs/RELEASES.md "Releasing a
 // project"). Planning only reads: local git, the manifests and config. It never runs a release
-// command, a registry command or `git fetch`. lib/release-run.ts executes the plan, and recomputes
+// command, a registry command or `git fetch`. lib/engine/release/run.ts executes the plan, and recomputes
 // it here first rather than trusting release.json, which an agent session could have edited.
 
 import crypto from 'node:crypto';

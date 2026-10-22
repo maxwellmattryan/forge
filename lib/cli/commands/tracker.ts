@@ -597,7 +597,7 @@ export async function syncAll(
 }
 
 /**
- * The reconciler's pass without `forge dash` (lib/reconcile.ts): a running dash reconciles on its own
+ * The reconciler's pass without `forge dash` (lib/office/reconcile.ts): a running dash reconciles on its own
  * timer with its sessions' facts, so sync leaves it to the dash whenever a live process holds its lock.
  * Read, never taken: a dash starting that instant must not find it held. A failed pass is reported,
  * not thrown, since every other sync step has already run.

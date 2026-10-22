@@ -1,6 +1,6 @@
 // A merged job's outcome: whether its merge was reverted, drew follow-up bug issues or churned
 // inside a window after the merge. It is the escape signal that pre-merge metrics cannot see, and
-// what the autonomy rate (lib/autonomy.ts) judges a job on once the window has closed.
+// what the autonomy rate (lib/engine/evals/autonomy.ts) judges a job on once the window has closed.
 //
 // GitHub titles, bodies and labels are untrusted: they are only compared, never stored, logged or
 // rendered. What is stored is integers, shas that pass isSha, and refs rebuilt from the configured

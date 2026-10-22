@@ -1,9 +1,9 @@
 // A job's environment as the dashboard shows it (issue #199): its dev server's state and last log lines,
 // its backing services, and every running environment in the checkout with its CPU and memory. Docker is
 // reached only through the CLI as an async child (forgeJson) or one argv-only `docker stats` call, so no
-// dashboard request waits on lib/backing.ts's synchronous docker calls. runtime.json and logs/ are in the
+// dashboard request waits on lib/engine/environment/backing.ts's synchronous docker calls. runtime.json and logs/ are in the
 // job dir, which the job's agents can write: both are read without following links or blocking on FIFOs.
-// Starting, stopping and tearing an environment down is lib/environment-lifecycle.ts.
+// Starting, stopping and tearing an environment down is lib/engine/environment/lifecycle.ts.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
@@ -90,7 +90,7 @@ function recordedDev(root: string, id: string): { pid: number | null; startedAt:
   return { pid: typeof pid === 'number' && Number.isInteger(pid) && pid > 1 ? pid : null, startedAt: typeof startedAt === 'string' ? startedAt : null };
 }
 
-/** The port the dev command serves: the first component's (job.port), as endpointsFor in lib/server.ts reads it. */
+/** The port the dev command serves: the first component's (job.port), as endpointsFor in lib/server/start.ts reads it. */
 function devPort(root: string, config: Config, job: LoadedJob): number | null {
   return jobEndpoints(root, config, job).components.find((c) => c.port === job.port)?.port ?? null;
 }
@@ -117,7 +117,7 @@ export interface CliJson {
 }
 
 /**
- * `forge <args> --json` as an async child: lib/backing.ts runs Docker through spawnSync, which would
+ * `forge <args> --json` as an async child: lib/engine/environment/backing.ts runs Docker through spawnSync, which would
  * freeze every dashboard request for as long as a docker call takes. Output is capped and the child is
  * killed on timeout. `error` is the CLI's error message, or why the child failed.
  */

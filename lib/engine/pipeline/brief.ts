@@ -19,7 +19,7 @@ import type { Config, GateClass, Job, JobEvent, StepInput } from '../../core/typ
 /**
  * Absolute paths an agent prompt needs, keyed as `forge job paths` prints them. Reads (which
  * instruction files and checklists exist) but never creates anything: `jobPaths` in
- * lib/commands/job.ts adds the review directories.
+ * lib/cli/commands/job.ts adds the review directories.
  */
 export function jobPathMap(root: string, config: Config, job: Job): Record<string, unknown> {
   const dir = jobDir(root, job.id);
@@ -59,7 +59,7 @@ export function jobPathMap(root: string, config: Config, job: Job): Record<strin
     instructions: (config.project.instructions ?? []).map((f: string) => path.join(job.worktree ?? root, f)).filter(exists),
     checklists: lensChecklists(root, config, job, job.reviewers ?? []),
     ...(memberRepos(job).length ? { repos: Object.fromEntries(memberRepos(job).map((m) => [m.repo, m.worktree])) } : {}),
-    // The post-merge score run's output and input (lib/scoring.ts); an eval job is graded instead.
+    // The post-merge score run's output and input (lib/engine/evals/scoring.ts); an eval job is graded instead.
     ...(job.kind !== 'eval' ? { score: path.join(dir, 'score.md'), scoreDiff: path.join(dir, 'score.diff') } : {}),
   };
 }

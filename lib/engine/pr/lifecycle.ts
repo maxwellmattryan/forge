@@ -1356,7 +1356,7 @@ const sortedList = (paths: Iterable<string>): string[] => [...new Set(paths)].so
  * files, leaving the fix-now/defer/ask decision to the orchestrator and the repo's policy.
  * `keepConflicts` leaves the conflicted merge/rebase in place for the integrator instead, so it
  * never needs to start one itself (`git rebase` would allow `--exec`, so the daemon can't allow it).
- * Conflicts on `worktrees.generated` paths are rebuilt rather than reported (lib/regenerate.ts):
+ * Conflicts on `worktrees.generated` paths are rebuilt rather than reported (lib/engine/workspace/regenerate.ts):
  * when they are all a stop has, Forge finishes it and carries on, pick after pick in a rebase.
  */
 export function integrate(root: string, config: Config, id: string, opts: { strategy?: Strategy; keepConflicts?: boolean } = {}): IntegrateResult {
@@ -1614,7 +1614,7 @@ function mergeOne(root: string, config: Config, id: string, t: MergeTarget, opts
 
 /**
  * Merges only once CI allows it (mergeOne). A linked job's PRs merge in the order of the
- * components' dependsOn (lib/repo-order.ts): a PR is merged, or queued with `--auto`, only when
+ * components' dependsOn (lib/engine/project/repo-order.ts): a PR is merged, or queued with `--auto`, only when
  * every dependency's PR is MERGED by this call's own sync, so a consumer never lands first and a
  * hand-edited job.json state counts for nothing. `repo` (a member) or `root` merges only that PR.
  */

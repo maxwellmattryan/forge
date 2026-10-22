@@ -20,7 +20,7 @@ export interface RunOpts {
   allowFail?: boolean;
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
-  /** The arguments error messages name, when `args` starts with a wrapper's own options (lib/git.ts's pins). */
+  /** The arguments error messages name, when `args` starts with a wrapper's own options (lib/integrations/git/runner.ts's pins). */
   shownArgs?: string[];
 }
 

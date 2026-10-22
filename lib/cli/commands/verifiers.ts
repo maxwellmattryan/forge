@@ -1,5 +1,5 @@
 // `forge verifiers list|run|record`: the repo's yes/no checks between verify and the review panel
-// (lib/verifiers.ts, docs/VERIFIERS.md). `run` and `record` are what `forge job step` emits as VF1
+// (lib/engine/pipeline/verifiers.ts, docs/VERIFIERS.md). `run` and `record` are what `forge job step` emits as VF1
 // and VF3; the verifier agent in between only reads the input and writes the answers.
 import path from 'node:path';
 import { loadVerifiers, verifiersRecord, verifiersRun } from '../../engine/pipeline/verifiers.ts';

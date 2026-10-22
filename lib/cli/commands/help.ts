@@ -1,5 +1,5 @@
 // `forge help`, `--help` and the CLI's error contract (docs/CLI.md). The help tables live beside
-// their command modules as `HELP`; CORE holds the commands lib/cli.ts routes itself. The same tables
+// their command modules as `HELP`; CORE holds the commands lib/cli/main.ts routes itself. The same tables
 // build `usage:` errors, the README command table and the `--json` error hint.
 import path from 'node:path';
 import { forgeVersion } from '../../engine/evals/run.ts';
@@ -35,7 +35,7 @@ const NO_JOB: [1, string] = [1, 'no such job'];
 const GIT_FAILED: [5, string] = [5, 'git failed'];
 const GH_FAILED: [5, string] = [5, 'gh or git failed'];
 
-/** The commands lib/cli.ts routes itself. */
+/** The commands lib/cli/main.ts routes itself. */
 export const CORE: HelpGroup[] = [
   {
     name: 'worktree',
@@ -345,7 +345,7 @@ export function syncReadme(readme: string): string {
   return `${readme.slice(0, start + README_START.length)}\n${readmeTable()}\n${readme.slice(end)}`;
 }
 
-/** A `usage:` error for a group in these tables (lib/cli.ts routes some groups itself). */
+/** A `usage:` error for a group in these tables (lib/cli/main.ts routes some groups itself). */
 export function usage(name: string, sub?: string): ForgeError {
   const g = GROUPS.find((x) => x.name === name);
   if (!g) throw new ForgeError(`no help table for forge ${name}`, 'internal');

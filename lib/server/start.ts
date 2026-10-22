@@ -122,7 +122,7 @@ export interface ServerOptions {
   projectsDir?: string;
   /**
    * Called once per request when its response finishes or closes early. Only `forge dash`'s activity
-   * log sets it (lib/activity.ts); it observes requests and never changes a response.
+   * log sets it (lib/cli/activity.ts); it observes requests and never changes a response.
    */
   onRequest?: (r: RequestInfo) => void;
 }
@@ -209,7 +209,7 @@ const ENV_MEMO_MS = 2000;
 /** How long GET /api/environments reuses its snapshot. */
 const ENVS_CACHE_MS = 5000;
 const ENV_STATUS_TIMEOUT_MS = 10_000;
-/** `backing up` may pull images: lib/backing.ts's RUN_TIMEOUT_MS plus a margin. */
+/** `backing up` may pull images: lib/engine/environment/backing.ts's RUN_TIMEOUT_MS plus a margin. */
 const BACKING_UP_TIMEOUT_MS = 11 * 60_000;
 const BACKING_STOP_TIMEOUT_MS = 60_000;
 /** An environment log frame carries at most this many characters of one line. */

@@ -1,34 +1,34 @@
 // The /api/* and SSE shapes `forge dash` serves, type-only. The dashboard imports this file with
-// `import type` (through its own lib/types.ts) and type-checks it without Node's types, so it
-// imports only ./constants.ts and never Node or another engine module. lib/types.ts re-exports it
+// `import type` (through its own lib/core/types.ts) and type-checks it without Node's types, so it
+// imports only ./constants.ts and never Node or another engine module. lib/core/types.ts re-exports it
 // for engine code. It becomes server/types.ts when the lib/ layout (#303) lands.
 import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, COMPONENT_KINDS, DEPENDENCY_TYPES, EFFORTS, HANDOFF_CLASSES, INTERIM_STRATEGIES, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, REQUEST_TYPES, STAGES, STATES, WAITING_ON } from './constants.ts';
 
 // ---------- enumerations ----------
 
-/** A pipeline stage: STAGES in lib/schema.ts. */
+/** A pipeline stage: STAGES in lib/core/job/schema.ts. */
 export type Stage = (typeof STAGES)[number];
-/** A job state: STATES in lib/schema.ts. */
+/** A job state: STATES in lib/core/job/schema.ts. */
 export type JobState = (typeof STATES)[number];
-/** Why a job waits: WAITING_ON in lib/schema.ts. */
+/** Why a job waits: WAITING_ON in lib/core/job/schema.ts. */
 export type WaitingOn = (typeof WAITING_ON)[number];
-/** lib/schema.ts BUDGET_KEYS. */
+/** lib/core/job/schema.ts BUDGET_KEYS. */
 export type BudgetKey = (typeof BUDGET_KEYS)[number];
-/** A repo budget cap: REPO_BUDGET_KEYS in lib/schema.ts. */
+/** A repo budget cap: REPO_BUDGET_KEYS in lib/core/job/schema.ts. */
 export type RepoBudgetKey = (typeof REPO_BUDGET_KEYS)[number];
-/** budget.onExceeded: REPO_BUDGET_MODES in lib/schema.ts. */
+/** budget.onExceeded: REPO_BUDGET_MODES in lib/core/job/schema.ts. */
 export type RepoBudgetMode = (typeof REPO_BUDGET_MODES)[number];
-/** A reasoning effort level: EFFORTS in lib/schema.ts. */
+/** A reasoning effort level: EFFORTS in lib/core/job/schema.ts. */
 export type Effort = (typeof EFFORTS)[number];
-/** Where a resolved effort came from: resolveEffort in lib/config.ts. */
+/** Where a resolved effort came from: resolveEffort in lib/core/config/load.ts. */
 export type EffortSource = 'job' | 'panel' | 'role' | 'complexity' | 'config' | 'none';
-/** A spec's judged difficulty: COMPLEXITIES in lib/schema.ts. */
+/** A spec's judged difficulty: COMPLEXITIES in lib/core/job/schema.ts. */
 export type Complexity = (typeof COMPLEXITIES)[number];
 
 // ---------- job data ----------
 
 /**
- * One of a job's issues: lib/issue-ref.ts. `tracker` is the tracker kind; `ref` is `owner/repo#12`
+ * One of a job's issues: lib/core/job/issue-ref.ts. `tracker` is the tracker kind; `ref` is `owner/repo#12`
  * for GitHub (a bare number only in legacy jobs), the slug for the local backlog, or a custom
  * adapter's own ref. A null ref keeps a url-only entry, which never counts as linked.
  */
@@ -38,7 +38,7 @@ export interface JobIssue {
   url: string | null;
 }
 
-/** GitHub check rollup: summarizeChecks in lib/pr.ts. */
+/** GitHub check rollup: summarizeChecks in lib/engine/pr/lifecycle.ts. */
 export interface PrChecks {
   state: 'passing' | 'failing' | 'pending' | 'none';
   passing: number;
@@ -46,7 +46,7 @@ export interface PrChecks {
   pending: number;
 }
 
-/** Commits humans pushed after Forge: measureOnMerge in lib/pr.ts (shape from lib/delta.ts). */
+/** Commits humans pushed after Forge: measureOnMerge in lib/engine/pr/lifecycle.ts (shape from lib/engine/pr/delta.ts). */
 export interface HumanDelta {
   status: 'measured' | 'rewritten' | 'unavailable';
   reason?: string;
@@ -62,7 +62,7 @@ export interface HumanDelta {
   attempts?: number;
 }
 
-/** What happened to a merged job inside its window: measureOutcome in lib/outcome.ts. */
+/** What happened to a merged job inside its window: measureOutcome in lib/engine/evals/outcome.ts. */
 export interface JobOutcome {
   status: 'open' | 'final';
   windowDays: number;
@@ -79,7 +79,7 @@ export interface JobOutcome {
   reason?: string;
 }
 
-/** A sampled merged job's post-merge judge score: queueScores and recordScore in lib/scoring.ts. */
+/** A sampled merged job's post-merge judge score: queueScores and recordScore in lib/engine/evals/scoring.ts. */
 export interface JobScore {
   status: 'queued' | 'held' | 'scored' | 'failed';
   /** null when held */
@@ -94,7 +94,7 @@ export interface JobScore {
   reason?: 'budget exceeded' | 'repo budget' | 'no score.md' | 'malformed score.md';
 }
 
-/** A job's pull request: findPr, openPr and syncPr in lib/pr.ts; sync-only fields are optional. */
+/** A job's pull request: findPr, openPr and syncPr in lib/engine/pr/lifecycle.ts; sync-only fields are optional. */
 export interface JobPr {
   number: number;
   url: string;
@@ -119,7 +119,7 @@ export interface JobPr {
 }
 
 /**
- * The fenced claim on a job: claimJob, renewLease, expireLease and releaseJob in lib/jobs.ts. `epoch`
+ * The fenced claim on a job: claimJob, renewLease, expireLease and releaseJob in lib/core/job/store.ts. `epoch`
  * grows by one at every change of driver and never goes back, so a write fenced with an older one is
  * a driver that was taken over.
  */
@@ -137,7 +137,7 @@ export interface JobLease {
 /** `none` without a driver; `expired` with one whose expiresAt has passed. */
 export type OwnerStatusKind = 'none' | 'live' | 'expired';
 
-/** Whether a job's lease still holds: leaseStatus in lib/jobs.ts. */
+/** Whether a job's lease still holds: leaseStatus in lib/core/job/store.ts. */
 export interface OwnerStatus {
   status: OwnerStatusKind;
   session: string | null;
@@ -153,14 +153,14 @@ export interface OwnerStatus {
   jobSession: boolean;
 }
 
-/** One orchestrator session's stint on a job: claimJob/releaseJob in lib/jobs.ts. */
+/** One orchestrator session's stint on a job: claimJob/releaseJob in lib/core/job/store.ts. */
 export interface JobRun {
   session: string;
   startedAt: string;
   endedAt?: string;
 }
 
-/** Per-role agent record: recordAgent in lib/jobs.ts. */
+/** Per-role agent record: recordAgent in lib/core/job/store.ts. */
 export interface JobAgent {
   runs: number;
   status?: string;
@@ -183,7 +183,7 @@ export interface JobAgent {
   retry?: boolean;
 }
 
-/** One role's or model's usage totals: addUsage in lib/jobs.ts. */
+/** One role's or model's usage totals: addUsage in lib/core/job/store.ts. */
 export interface UsageBucket {
   tokens: number;
   input: number;
@@ -196,7 +196,7 @@ export interface UsageBucket {
   estCostUsd: number;
 }
 
-/** A job's token and cost totals: normalizeJob in lib/schema.ts and addUsage in lib/jobs.ts. */
+/** A job's token and cost totals: normalizeJob in lib/core/job/schema.ts and addUsage in lib/core/job/store.ts. */
 export interface JobUsage {
   totalTokens: number;
   byRole: Record<string, UsageBucket>;
@@ -205,20 +205,20 @@ export interface JobUsage {
   exact: boolean;
 }
 
-/** Budget limits per key; null means unlimited: defaults().pipeline.budget in lib/config.ts. */
+/** Budget limits per key; null means unlimited: defaults().pipeline.budget in lib/core/config/load.ts. */
 export type BudgetLimits = Partial<Record<BudgetKey, number | null>>;
 
-/** What a job has spent per key: measureBudget in lib/budget.ts. */
+/** What a job has spent per key: measureBudget in lib/engine/metrics/budget.ts. */
 export type BudgetUsed = Record<BudgetKey, number | null>;
 
-/** Per-job budget state: enforceBudget and budgetCmd in lib/budget.ts. */
+/** Per-job budget state: enforceBudget and budgetCmd in lib/engine/metrics/budget.ts. */
 export interface JobBudget {
   limits: BudgetLimits;
   ack: Partial<Record<BudgetKey, { used: number; round: number }>>;
   lastCheck: { at: string; checkpoint: string; used: BudgetUsed } | null;
 }
 
-/** One verify attempt: verify in lib/worktree.ts. */
+/** One verify attempt: verify in lib/engine/workspace/worktree.ts. */
 export interface VerifyRun {
   round: number;
   attempt: number;
@@ -228,7 +228,7 @@ export interface VerifyRun {
   file: string;
   /** The name of the step that failed (`test`, `integrity`, `secrets`, `protected`, …), null on a pass. */
   failure?: string | null;
-  /** One record per member repo, only when the job has members: verify in lib/worktree.ts. */
+  /** One record per member repo, only when the job has members: verify in lib/engine/workspace/worktree.ts. */
   repos?: VerifyRunRepo[];
 }
 
@@ -245,7 +245,7 @@ export type JobRepoPr = Omit<JobPr, 'url'> & { url: string | null };
 
 /**
  * One repo a job changes: `repos[0]` is the root repo (`repo: null`), mirrored from the top-level
- * branch/base/worktree/pr by normalizeJob; later entries are member repos (lib/job-repos.ts).
+ * branch/base/worktree/pr by normalizeJob; later entries are member repos (lib/engine/project/job-repos.ts).
  */
 export interface JobRepo {
   repo: string | null;
@@ -260,19 +260,19 @@ export interface JobRepo {
   interim?: InterimStrategy | null;
 }
 
-/** A reviewer's settled verdict for a round: the verdicts case in lib/commands/job.ts (via roundVerdicts in lib/jobs.ts). */
+/** A reviewer's settled verdict for a round: the verdicts case in lib/cli/commands/job.ts (via roundVerdicts in lib/core/job/store.ts). */
 export type Verdict = 'PASS' | 'CHANGES' | 'MALFORMED';
 
-/** A job record: normalizeJob in lib/schema.ts. */
+/** A job record: normalizeJob in lib/core/job/schema.ts. */
 export interface Job {
   schemaVersion: number;
   id: string;
   title: string;
   kind: string;
   size: string | null;
-  /** The job's issues, primary first; one issue may sit on several jobs: lib/tracker-link.ts. */
+  /** The job's issues, primary first; one issue may sit on several jobs: lib/engine/trackers/link.ts. */
   issues: JobIssue[];
-  /** The human's decision that the job needs no issue, cleared by linking one: `forge job link --none` in lib/tracker-link.ts. */
+  /** The human's decision that the job needs no issue, cleared by linking one: `forge job link --none` in lib/engine/trackers/link.ts. */
   noIssue: { reason: string | null; at: string } | null;
   parent: string | null;
   children: string[];
@@ -285,9 +285,9 @@ export interface Job {
   branch: string | null;
   base: string | null;
   worktree: string | null;
-  /** The first port-bearing component's port (what `{port}`, the dev server and the live dot use): lib/ports.ts. */
+  /** The first port-bearing component's port (what `{port}`, the dev server and the live dot use): lib/engine/environment/ports.ts. */
   port: number | null;
-  /** One port per service or app component (`dev` when the repo has none), allocated with the worktree: lib/ports.ts. */
+  /** One port per service or app component (`dev` when the repo has none), allocated with the worktree: lib/engine/environment/ports.ts. */
   ports: Record<string, number>;
   round: number;
   maxRounds: number;
@@ -315,15 +315,15 @@ export interface Job {
   effort: Effort | null;
   /** The spec's `Complexity:` header, recorded at SP3; picks runtime.effortByComplexity. */
   complexity: Complexity | null;
-  /** Escalate paths the branch changes, recorded by the CLI only: recordProtected in lib/protected.ts. */
+  /** Escalate paths the branch changes, recorded by the CLI only: recordProtected in lib/engine/guard/protected.ts. */
   protectedPaths: ProtectedPaths | null;
   /** The human's interim strategy for the root repo as a dependency (`forge job repo interim --root`); null inherits config. */
   interim: InterimStrategy | null;
-  /** The root repo first, then member repos: `forge job repo add|remove` in lib/job-repos.ts. */
+  /** The root repo first, then member repos: `forge job repo add|remove` in lib/engine/project/job-repos.ts. */
   repos: JobRepo[];
-  /** The merged root PR's post-merge outcome, written by `forge sync` (lib/outcome.ts); null until measured. */
+  /** The merged root PR's post-merge outcome, written by `forge sync` (lib/engine/evals/outcome.ts); null until measured. */
   outcome: JobOutcome | null;
-  /** The post-merge judge score of a sampled merged job (lib/scoring.ts); null until forge sync queues one. */
+  /** The post-merge judge score of a sampled merged job (lib/engine/evals/scoring.ts); null until forge sync queues one. */
   score: JobScore | null;
 }
 
@@ -349,13 +349,13 @@ export interface ProtectedPaths {
   digest?: string;
 }
 
-/** tasks.md checkbox counts: progress in lib/jobs.ts. */
+/** tasks.md checkbox counts: progress in lib/core/job/store.ts. */
 export interface Progress {
   done: number;
   total: number;
 }
 
-/** One member repo an agent proposed for a job (lib/repo-proposals.ts), as repo-proposals.json lists it. */
+/** One member repo an agent proposed for a job (lib/engine/project/repo-proposals.ts), as repo-proposals.json lists it. */
 export interface RepoProposal {
   repo: string;
   reason: string;
@@ -368,14 +368,14 @@ export interface RepoProposal {
 
 // ---------- events ----------
 
-/** The stage/state pair a transition event records: setJob in lib/jobs.ts. */
+/** The stage/state pair a transition event records: setJob in lib/core/job/store.ts. */
 export interface TransitionSide {
   stage: Stage;
   state: JobState;
   waitingOn: WaitingOn | null;
 }
 
-/** Usage an agent reported at agent-end: the agent case in lib/commands/job.ts (transcript fields from importClaudeCodeTranscript in lib/usage.ts). */
+/** Usage an agent reported at agent-end: the agent case in lib/cli/commands/job.ts (transcript fields from importClaudeCodeTranscript in lib/engine/metrics/usage.ts). */
 export interface AgentUsage {
   model?: string | null;
   outputEstimated?: boolean;
@@ -389,7 +389,7 @@ export interface AgentUsage {
   exact?: boolean;
 }
 
-/** One events.jsonl line: logEvent in lib/jobs.ts; open-ended because event types are. */
+/** One events.jsonl line: logEvent in lib/core/job/store.ts; open-ended because event types are. */
 export interface JobEvent {
   v: number;
   ts: string;
@@ -408,9 +408,9 @@ export interface JobEvent {
   text?: string;
   action?: string;
   note?: string | null;
-  /** On human-action events (lib/actor.ts): who acted, best effort and unauthenticated. */
+  /** On human-action events (lib/integrations/github/actor.ts): who acted, best effort and unauthenticated. */
   actor?: EventActor;
-  /** agent-start since event v3 (lib/provenance.ts): the running plugin's 10-hex hash. */
+  /** agent-start since event v3 (lib/engine/evals/provenance.ts): the running plugin's 10-hex hash. */
   pluginHash?: string | null;
   /** agent-start since event v3: the role's 12-hex hash as `forge roster` reports it; null for a role with no agent file. */
   promptHash?: string | null;
@@ -425,7 +425,7 @@ export type ComponentKind = (typeof COMPONENT_KINDS)[number];
 export type DependencyType = (typeof DEPENDENCY_TYPES)[number];
 export type InterimStrategy = (typeof INTERIM_STRATEGIES)[number];
 
-/** Repo spend against the caps: repoBudgetStatus in lib/repo-budget.ts (`forge budget`, /api/state.budget). */
+/** Repo spend against the caps: repoBudgetStatus in lib/engine/metrics/repo-budget.ts (`forge budget`, /api/state.budget). */
 export interface RepoBudgetStatus {
   /** Current UTC period ids: YYYY-MM-DD and YYYY-MM. */
   day: string;
@@ -449,28 +449,28 @@ export interface RepoBudgetStatus {
   heldJobs: string[];
 }
 
-/** A gate class the foreman may decide: OFFICE_GATES in lib/schema.ts. */
+/** A gate class the foreman may decide: OFFICE_GATES in lib/core/job/schema.ts. */
 export type GateClass = (typeof OFFICE_GATES)[number];
-/** Why the Foreman left a gate for a person: HANDOFF_CLASSES in lib/schema.ts. */
+/** Why the Foreman left a gate for a person: HANDOFF_CLASSES in lib/core/job/schema.ts. */
 export type HandoffClass = (typeof HANDOFF_CLASSES)[number];
-/** A Foreman hand-off still standing at the job's current park: foremanHandoff in lib/foreman.ts. */
+/** A Foreman hand-off still standing at the job's current park: foremanHandoff in lib/office/foreman.ts. */
 export interface ForemanHandoff {
   gate: GateClass;
   class: HandoffClass;
   reason: string;
   at: string;
 }
-/** Where an event's actor came from: ACTOR_SOURCES in lib/schema.ts. */
+/** Where an event's actor came from: ACTOR_SOURCES in lib/core/job/schema.ts. */
 export type ActorSource = (typeof ACTOR_SOURCES)[number];
-/** Who did a human action (lib/actor.ts); `login` is null for the foreman and when nothing resolved. */
+/** Who did a human action (lib/integrations/github/actor.ts); `login` is null for the foreman and when nothing resolved. */
 export interface EventActor {
   login: string | null;
   source: ActorSource;
 }
-/** Who owns a waiting job's gate: gateOwner in lib/foreman.ts; null when the job waits on nothing. */
+/** Who owns a waiting job's gate: gateOwner in lib/office/foreman.ts; null when the job waits on nothing. */
 export type GateOwner = 'foreman' | 'human' | null;
 
-// ---------- settings (lib/config-fields.ts) ----------
+// ---------- settings (lib/core/config/fields.ts) ----------
 
 /** A value `forge config set` and POST /api/config can write. */
 export type ConfigValue = string | number | boolean | null | string[];
@@ -481,7 +481,7 @@ export type ConfigFieldType = 'boolean' | 'integer' | 'number' | 'string' | 'enu
 /** The settings tab a field belongs to. */
 export type ConfigSection = 'pipeline' | 'review' | 'agents' | 'tracker' | 'dashboard' | 'daemon';
 
-/** One entry of FIELDS in lib/config-fields.ts. Every property is always present. */
+/** One entry of FIELDS in lib/core/config/fields.ts. Every property is always present. */
 export interface ConfigField {
   key: string;
   section: ConfigSection;
@@ -502,7 +502,7 @@ export interface ConfigField {
   lockedReason: string | null;
 }
 
-/** What setConfigValue in lib/config.ts returns: `forge config set` and POST /api/config. */
+/** What setConfigValue in lib/core/config/load.ts returns: `forge config set` and POST /api/config. */
 export interface PostConfigResponse {
   ok: true;
   key: string;
@@ -511,7 +511,7 @@ export interface PostConfigResponse {
   changed: boolean;
 }
 
-/** One `forge doctor` check: doctor in lib/doctor.ts. */
+/** One `forge doctor` check: doctor in lib/engine/ops/doctor.ts. */
 export interface DoctorCheck {
   name: string;
   ok: boolean;
@@ -520,7 +520,7 @@ export interface DoctorCheck {
   warn?: boolean;
 }
 
-/** What `forge doctor` prints: doctor in lib/doctor.ts. */
+/** What `forge doctor` prints: doctor in lib/engine/ops/doctor.ts. */
 export interface DoctorReport {
   ok: boolean;
   checks: DoctorCheck[];
@@ -533,10 +533,10 @@ export type InstalledAs = 'plugin' | 'clone' | 'unknown';
 
 // ---------- requests ----------
 
-/** Request types the inbox accepts: REQUEST_TYPES in lib/requests.ts. */
+/** Request types the inbox accepts: REQUEST_TYPES in lib/core/job/requests.ts. */
 export type RequestType = (typeof REQUEST_TYPES)[number];
 
-/** A queued request: enqueue, claimRequest and ackRequest in lib/requests.ts. */
+/** A queued request: enqueue, claimRequest and ackRequest in lib/core/job/requests.ts. */
 export interface ForgeRequest {
   id: string;
   type: RequestType;
@@ -555,7 +555,7 @@ export interface ForgeRequest {
 
 // ---------- tracker contract ----------
 
-/** A backlog item, as a tracker's list() and get() return it (lib/trackers/index.ts). */
+/** A backlog item, as a tracker's list() and get() return it (lib/engine/trackers/load.ts). */
 export interface TrackerItem {
   ref: string;
   title: string;
@@ -572,7 +572,7 @@ export interface TrackerItem {
 
 // ---------- HTTP API: GET responses ----------
 
-/** config.pipeline as served: defaults().pipeline in lib/config.ts. */
+/** config.pipeline as served: defaults().pipeline in lib/core/config/load.ts. */
 export interface PipelineConfig {
   plan: 'auto' | 'always' | 'never';
   split: 'ask' | 'auto' | 'never';
@@ -584,13 +584,13 @@ export interface PipelineConfig {
   budget: BudgetLimits;
 }
 
-/** daemon.jobBudget: the spend limits an unattended job with none of its own gets (lib/budget.ts effectiveLimits). */
+/** daemon.jobBudget: the spend limits an unattended job with none of its own gets (lib/engine/metrics/budget.ts effectiveLimits). */
 export type DaemonJobBudget = { tokens?: number | null; usd?: number | null; minutes?: number | null } | null;
 
-/** Session supervisor status: state() in lib/daemon.ts. */
+/** Session supervisor status: state() in lib/office/session/lifecycle.ts. */
 export type DaemonStatus = 'off' | 'idle' | 'busy' | 'stopping';
 
-/** One supervised session (the inbox or a job's): state() in lib/daemon.ts, or offState in lib/daemon-pool.ts. */
+/** One supervised session (the inbox or a job's): state() in lib/office/session/lifecycle.ts, or offState in lib/office/pool.ts. */
 export interface DaemonSessionState {
   /** `_inbox` or a job id. */
   scope: string;
@@ -619,7 +619,7 @@ export interface DaemonSessionState {
 
 /**
  * The permission modes a human may put one daemon session in from the dashboard: `default` asks in the
- * dashboard, `auto` lets Claude Code's classifier approve routine calls, `dontAsk` refuses. lib/daemon.ts PERMISSION_MODES.
+ * dashboard, `auto` lets Claude Code's classifier approve routine calls, `dontAsk` refuses. lib/office/session/lifecycle.ts PERMISSION_MODES.
  */
 export type DaemonPermissionMode = 'default' | 'auto' | 'dontAsk';
 
@@ -628,7 +628,7 @@ export type PermissionDecision = 'allow' | 'session' | 'deny';
 
 /**
  * A tool call a daemon session's permission check sent to the supervisor instead of refusing:
- * lib/daemon.ts. Every field but id and at comes from the session, so it is untrusted text.
+ * lib/office/session/lifecycle.ts. Every field but id and at comes from the session, so it is untrusted text.
  */
 export interface DaemonPermissionPrompt {
   /** The supervisor's id for the prompt, not claude's request id. */
@@ -649,7 +649,7 @@ export interface DaemonPermissionPrompt {
   at: string;
 }
 
-/** The session pool as the dashboard sees it: state() in lib/daemon-pool.ts plus `clients` from lib/server.ts. */
+/** The session pool as the dashboard sees it: state() in lib/office/pool.ts plus `clients` from lib/server/start.ts. */
 export interface DaemonPoolState {
   enabled: boolean;
   wanted: boolean;
@@ -672,7 +672,7 @@ export interface DaemonPoolState {
   clients: number;
 }
 
-/** GET /api/daemons/log: readLogPage in lib/daemon-files.ts. Offsets are the SSE ids of the same lines. */
+/** GET /api/daemons/log: readLogPage in lib/core/job/session-files.ts. Offsets are the SSE ids of the same lines. */
 export interface DaemonLogPage {
   scope: string;
   lines: { offset: number; line: string }[];
@@ -683,14 +683,14 @@ export interface DaemonLogPage {
   more: boolean;
 }
 
-/** What a transcript's agent did last: lastActivity in lib/transcripts.ts. Plain text, at most 160 characters. */
+/** What a transcript's agent did last: lastActivity in lib/integrations/claude/transcripts.ts. Plain text, at most 160 characters. */
 export interface TranscriptActivity {
   kind: 'tool' | 'text';
   text: string;
   at: string | null;
 }
 
-/** One running agent of a job in /api/state: state() in lib/server.ts. `last` is null when no transcript is found. */
+/** One running agent of a job in /api/state: state() in lib/server/start.ts. `last` is null when no transcript is found. */
 export interface AgentActivity {
   role: string;
   model: string | null;
@@ -698,7 +698,7 @@ export interface AgentActivity {
   last: TranscriptActivity | null;
 }
 
-/** One agent of the job's current round (or still running) in the job detail: jobDetail() in lib/server.ts. */
+/** One agent of the job's current round (or still running) in the job detail: jobDetail() in lib/server/start.ts. */
 export interface AgentRow {
   role: string;
   status: string | null;
@@ -725,8 +725,8 @@ export interface TranscriptPage {
   more: boolean;
 }
 
-/** A job row in /api/state: state() in lib/server.ts. */
-/** The last event that carries an actor: who last acted on a job (lastHuman in lib/server.ts). */
+/** A job row in /api/state: state() in lib/server/start.ts. */
+/** The last event that carries an actor: who last acted on a job (lastHuman in lib/server/start.ts). */
 export interface LastHuman {
   ts: string;
   type: string;
@@ -736,7 +736,7 @@ export interface LastHuman {
 
 export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null; endpoints: Endpoint[]; foremanHandoff: ForemanHandoff | null };
 
-/** GET /api/state: state() in lib/server.ts. */
+/** GET /api/state: state() in lib/server/start.ts. */
 export interface ApiState {
   apiVersion: number;
   forgeVersion: string;
@@ -765,7 +765,7 @@ export interface ApiState {
 /** POST /api/budget/ack: the repo budget status after the acknowledgement. */
 export type PostBudgetAckResponse = RepoBudgetStatus;
 
-/** GET /api/jobs/:id: jobDetail in lib/server.ts. */
+/** GET /api/jobs/:id: jobDetail in lib/server/start.ts. */
 export interface JobDetail {
   job: Job & { progress: Progress; ownerStatus: OwnerStatus };
   events: JobEvent[];
@@ -784,19 +784,19 @@ export interface JobDetail {
 }
 
 /**
- * GET /api/jobs/:id/file for a text file: the text/plain body (send in lib/server.ts). Images come
+ * GET /api/jobs/:id/file for a text file: the text/plain body (send in lib/server/start.ts). Images come
  * back as raw bytes and /raw as sandboxed HTML; neither goes through api().
  */
 export type JobFileText = string;
 
-/** Usage per role or model in stats: computeStats in lib/stats.ts. */
+/** Usage per role or model in stats: computeStats in lib/engine/metrics/stats.ts. */
 export interface UsageRow {
   tokens: number;
   estCostUsd: number;
   runs: number;
 }
 
-/** One review lens's record: computeStats in lib/stats.ts. */
+/** One review lens's record: computeStats in lib/engine/metrics/stats.ts. */
 export interface ReviewerStats {
   reviews: number;
   changes: number;
@@ -828,7 +828,7 @@ export interface ReviewerStats {
   severityTrend: { week: string; findings: number; blockerMajor: number; share: number | null }[];
 }
 
-/** One verifier's record: computeStats in lib/stats.ts, from `verifiers` record events. */
+/** One verifier's record: computeStats in lib/engine/metrics/stats.ts, from `verifiers` record events. */
 export interface VerifierStats {
   /** Records whose results name it. */
   runs: number;
@@ -842,11 +842,11 @@ export interface VerifierStats {
   hitRate: number | null;
 }
 
-/** GET /api/stats: computeStats in lib/stats.ts. */
+/** GET /api/stats: computeStats in lib/engine/metrics/stats.ts. */
 export interface Stats {
   generatedAt: string;
   since: string | null;
-  /** `archived`: how many of `total` were read from .forge/archive/ (lib/archive.ts). */
+  /** `archived`: how many of `total` were read from .forge/archive/ (lib/core/job/archive.ts). */
   counts: { total: number; active: number; done: number; cancelled: number; failed: number; waiting: number; archived: number };
   waitingOn: Record<string, number>;
   quality: {
@@ -866,7 +866,7 @@ export interface Stats {
     specFirstApprovalRate: number | null;
     /** Recurring (lens, path) review findings across every job in the window. */
     recurringFindings: number;
-    /** Autonomous jobs (lib/autonomy.ts) over merged jobs with a final outcome. */
+    /** Autonomous jobs (lib/engine/evals/autonomy.ts) over merged jobs with a final outcome. */
     autonomyRate: number | null;
     /** The same, also without a person's approval at a required gate. */
     autonomyRateStrict: number | null;
@@ -874,7 +874,7 @@ export interface Stats {
     followUpRate: number | null;
     churnRate: number | null;
     outcomeCoverage: { merged: number; final: number; open: number };
-    /** The median post-merge judge score (0-5) over scored jobs (lib/scoring.ts). */
+    /** The median post-merge judge score (0-5) over scored jobs (lib/engine/evals/scoring.ts). */
     medianScore: number | null;
     /** `sampled` counts jobs with any score; `merged` is the merged count above. */
     scoreCoverage: { merged: number; sampled: number; scored: number; held: number; failed: number; queued: number };
@@ -895,7 +895,7 @@ export interface Stats {
   verifiers: Record<string, VerifierStats>;
 }
 
-/** An eval task as served: loadTask in lib/evals.ts minus `dir` and `request`. */
+/** An eval task as served: loadTask in lib/engine/evals/run.ts minus `dir` and `request`. */
 export interface EvalTask {
   name: string;
   title: string;
@@ -907,7 +907,7 @@ export interface EvalTask {
   source: { pr: number; url: string; mergeCommit: string | null } | null;
 }
 
-/** A graded eval job: gradeJob in lib/evals.ts. */
+/** A graded eval job: gradeJob in lib/engine/evals/run.ts. */
 export interface EvalResult {
   check: {
     ran: boolean;
@@ -926,7 +926,7 @@ export interface EvalResult {
   estCostUsd: number;
   minutes: number | null;
   gradedAt: string;
-  /** Minutes per stage the job entered: jobTiming in lib/eval-stats.ts. Absent on results graded before it. */
+  /** Minutes per stage the job entered: jobTiming in lib/engine/evals/stats.ts. Absent on results graded before it. */
   stages?: Partial<Record<Stage, number>>;
   /** Agent-run time, summed across parallel agents. */
   agentMinutes?: number | null;
@@ -937,7 +937,7 @@ export interface EvalResult {
   roundsExhausted?: boolean;
 }
 
-/** Aggregates over a run's graded tasks: summarize in lib/evals.ts. */
+/** Aggregates over a run's graded tasks: summarize in lib/engine/evals/run.ts. */
 export interface EvalSummary {
   tasks: number;
   graded: number;
@@ -955,10 +955,10 @@ export interface EvalSummary {
   avgReviewerRuns: number | null;
 }
 
-/** A per-run config overlay: dotted config keys to typed values, parseOverlay in lib/eval-overlay.ts. */
+/** A per-run config overlay: dotted config keys to typed values, parseOverlay in lib/engine/evals/overlay.ts. */
 export type EvalOverlay = Record<string, unknown>;
 
-/** A sample's size and spread: stat in lib/eval-stats.ts. */
+/** A sample's size and spread: stat in lib/engine/evals/stats.ts. */
 export interface EvalStat {
   n: number;
   mean: number | null;
@@ -966,7 +966,7 @@ export interface EvalStat {
   max: number | null;
 }
 
-/** Two means and the sample count behind each: delta in lib/eval-stats.ts. */
+/** Two means and the sample count behind each: delta in lib/engine/evals/stats.ts. */
 export interface EvalDelta {
   a: number | null;
   b: number | null;
@@ -975,10 +975,10 @@ export interface EvalDelta {
   nb: number;
 }
 
-/** The per-task metrics: TASK_METRICS in lib/eval-stats.ts. */
+/** The per-task metrics: TASK_METRICS in lib/engine/evals/stats.ts. */
 export type EvalTaskMetric = 'checkPass' | 'judgeScore' | 'firstPass' | 'rounds' | 'tokens' | 'costUsd' | 'minutes' | 'agentMinutes' | 'orchestratorMinutes' | 'reviewerRuns';
 
-/** One task's repeats in a run: aggregateTasks in lib/eval-stats.ts. */
+/** One task's repeats in a run: aggregateTasks in lib/engine/evals/stats.ts. */
 export interface EvalTaskAggregate {
   task: string;
   runs: number;
@@ -987,14 +987,14 @@ export interface EvalTaskAggregate {
   stages: Record<string, EvalStat>;
 }
 
-/** An eval run record: startRun and gradeJob in lib/evals.ts, with summary filled by listRuns. */
+/** An eval run record: startRun and gradeJob in lib/engine/evals/run.ts, with summary filled by listRuns. */
 export interface EvalRun {
   schemaVersion: number;
   id: string;
   label: string | null;
   forgeVersion: string;
   configHash: string;
-  /** The plugin's prompt and pipeline hash: pluginHash in lib/evals.ts. Null on records before it. */
+  /** The plugin's prompt and pipeline hash: pluginHash in lib/engine/evals/run.ts. Null on records before it. */
   pluginHash?: string | null;
   overlay?: EvalOverlay;
   repeat?: number;
@@ -1008,13 +1008,13 @@ export interface EvalRun {
   perTask?: EvalTaskAggregate[];
 }
 
-/** GET /api/evals: the handler in lib/server.ts over listTasks/listRuns in lib/evals.ts. */
+/** GET /api/evals: the handler in lib/server/start.ts over listTasks/listRuns in lib/engine/evals/run.ts. */
 export interface EvalsResponse {
   tasks: EvalTask[];
   runs: EvalRun[];
 }
 
-/** GET /api/evals/compare: compareRuns in lib/evals.ts. */
+/** GET /api/evals/compare: compareRuns in lib/engine/evals/run.ts. */
 export interface EvalCompare {
   a: EvalCompareSide;
   b: EvalCompareSide;
@@ -1028,11 +1028,11 @@ export interface EvalCompare {
     stats: { a: EvalTaskAggregate | null; b: EvalTaskAggregate | null };
     delta: Record<EvalTaskMetric, EvalDelta>;
   }[];
-  /** Post-merge scores of real jobs merged in the 14 days before each run started (lib/scoring.ts). */
+  /** Post-merge scores of real jobs merged in the 14 days before each run started (lib/engine/evals/scoring.ts). */
   realJobs: { a: RealJobScores; b: RealJobScores };
 }
 
-/** Real jobs' post-merge scores over a window: realJobScores in lib/evals.ts. avgScore is 0-1, as avgJudgeScore. */
+/** Real jobs' post-merge scores over a window: realJobScores in lib/engine/evals/run.ts. avgScore is 0-1, as avgJudgeScore. */
 export interface RealJobScores {
   from: string;
   to: string;
@@ -1051,7 +1051,7 @@ export interface EvalCompareSide {
   repeat: number;
 }
 
-/** GET /api/config: configResponse in lib/server.ts over FIELDS in lib/config-fields.ts. */
+/** GET /api/config: configResponse in lib/server/start.ts over FIELDS in lib/core/config/fields.ts. */
 export interface ConfigResponse {
   initialized: boolean;
   path: '.forge/config.yml';
@@ -1063,10 +1063,10 @@ export interface ConfigResponse {
   lockedBy: 'uninitialized' | 'daemon' | null;
 }
 
-/** GET /api/doctor: doctor in lib/doctor.ts, plus when it ran. */
+/** GET /api/doctor: doctor in lib/engine/ops/doctor.ts, plus when it ran. */
 export type DoctorResponse = DoctorReport & { at: string };
 
-/** GET /api/about: about in lib/server.ts. */
+/** GET /api/about: about in lib/server/start.ts. */
 export interface AboutResponse {
   forgeVersion: string;
   apiVersion: number;
@@ -1075,7 +1075,7 @@ export interface AboutResponse {
   pricingAsOf: string | null;
   node: string;
   links: { repo: string | null; docs: string | null };
-  /** versionInfo(PLUGIN_ROOT) in lib/version.ts: 40 lowercase hex, or null. */
+  /** versionInfo(PLUGIN_ROOT) in lib/engine/ops/version.ts: 40 lowercase hex, or null. */
   commit: string | null;
   installedAs: InstalledAs;
 }
@@ -1161,13 +1161,13 @@ export type GitHubPreview = GitHubRepoPreview | GitHubPullPreview | GitHubIssueP
 /** Why a preview could not be fetched: no `gh` on PATH, GitHub has no such page (or no access), or anything else. */
 export type GitHubPreviewError = 'gh_missing' | 'not_found' | 'failed';
 
-/** GET /api/github/preview?url=: previewGitHub in lib/github-preview.ts. A URL it can't preview is a 400 ApiError. */
+/** GET /api/github/preview?url=: previewGitHub in lib/integrations/github/preview.ts. A URL it can't preview is a 400 ApiError. */
 export type GitHubPreviewResponse = { preview: GitHubPreview } | { error: GitHubPreviewError; message: string };
 
-/** GET /api/requests: listRequests in lib/requests.ts. */
+/** GET /api/requests: listRequests in lib/core/job/requests.ts. */
 export type RequestsResponse = ForgeRequest[];
 
-/** One component of GET /api/project: projectGraph in lib/project.ts. Never its commands, owners or notes. */
+/** One component of GET /api/project: projectGraph in lib/engine/project/graph.ts. Never its commands, owners or notes. */
 export interface ProjectComponent {
   name: string;
   /** null: the root repo. */
@@ -1184,7 +1184,7 @@ export interface ProjectEdge {
   type: DependencyType;
 }
 
-/** GET /api/project: projectGraph in lib/project.ts, the config-derived graph only. */
+/** GET /api/project: projectGraph in lib/engine/project/graph.ts, the config-derived graph only. */
 export interface ProjectResponse {
   components: ProjectComponent[];
   backing: string[];
@@ -1193,7 +1193,7 @@ export interface ProjectResponse {
   problems: number;
 }
 
-/** GET /api/roster: roster in lib/roster.ts. */
+/** GET /api/roster: roster in lib/engine/pipeline/roster.ts. */
 /** The builder's model overrides, as the roster reports them. */
 export interface RosterModelBy {
   low: string | null;
@@ -1215,10 +1215,10 @@ export interface Roster {
   warnings: string[];
 }
 
-/** A readiness rubric key a triage verdict can name: TRIAGE_MISSING in lib/triage.ts. */
+/** A readiness rubric key a triage verdict can name: TRIAGE_MISSING in lib/engine/trackers/triage.ts. */
 export type TriageMissing = 'outcome' | 'acceptance' | 'scope' | 'duplicate';
 
-/** The last triage verdict for an item, from the triage cache (lib/triage.ts). */
+/** The last triage verdict for an item, from the triage cache (lib/engine/trackers/triage.ts). */
 export interface TriageInfo {
   ready: boolean;
   missing: TriageMissing[];
@@ -1230,7 +1230,7 @@ export interface BacklogItem extends TrackerItem {
   triage?: TriageInfo;
 }
 
-/** GET /api/backlog: the handler in lib/server.ts over the tracker's list(). */
+/** GET /api/backlog: the handler in lib/server/start.ts over the tracker's list(). */
 export interface BacklogResponse {
   tracker: string;
   items: BacklogItem[];
@@ -1239,10 +1239,10 @@ export interface BacklogResponse {
 
 // ---------- SSE frames (/api/events) ----------
 
-/** One /api/events?session= frame: stateFrame and lineFrame in lib/server.ts; `id` is the line's offset in the session log, `data` the raw log line. */
+/** One /api/events?session= frame: stateFrame and lineFrame in lib/server/start.ts; `id` is the line's offset in the session log, `data` the raw log line. */
 export type SseFrame = { event: 'state'; data: DaemonSessionState } | { event: 'line'; id: number; data: string };
 
-/** The line a frame carries instead of an oversized one: lineFrame in lib/server.ts. */
+/** The line a frame carries instead of an oversized one: lineFrame in lib/server/start.ts. */
 export interface ForgeTruncatedLine {
   type: 'forge-truncated';
   originalType: string | null;
@@ -1251,7 +1251,7 @@ export interface ForgeTruncatedLine {
 
 // ---------- POST bodies and replies ----------
 
-/** POST /api/requests body: read by the handler in lib/server.ts and passed to enqueue. */
+/** POST /api/requests body: read by the handler in lib/server/start.ts and passed to enqueue. */
 export interface PostRequestBody {
   type: RequestType;
   job?: string | null;
@@ -1259,7 +1259,7 @@ export interface PostRequestBody {
   args?: Record<string, unknown>;
 }
 
-/** POST /api/requests reply: the handler in lib/server.ts. */
+/** POST /api/requests reply: the handler in lib/server/start.ts. */
 export type PostRequestResponse = ForgeRequest & { daemon: boolean };
 
 /** POST /api/jobs body: a new job from free text; `title` overrides the one derived from `text`. */
@@ -1277,38 +1277,38 @@ export interface PostJobResponse {
   daemon: boolean;
 }
 
-/** POST /api/config body: the handler in lib/server.ts passes it to setConfigValue. */
+/** POST /api/config body: the handler in lib/server/start.ts passes it to setConfigValue. */
 export interface PostConfigBody {
   key: string;
   value: ConfigValue;
 }
 
-/** POST /api/daemon body: the handler in lib/server.ts. */
+/** POST /api/daemon body: the handler in lib/server/start.ts. */
 export interface PostDaemonBody {
   action: 'start' | 'stop';
   /** `_inbox` or a job id: start or stop that one session instead of the pool. */
   scope?: string;
 }
 
-/** POST /api/daemon reply on success: poolState in lib/server.ts. */
+/** POST /api/daemon reply on success: poolState in lib/server/start.ts. */
 export type PostDaemonResponse = DaemonPoolState;
 
-/** POST /api/daemon/mode body: the handler in lib/server.ts. */
+/** POST /api/daemon/mode body: the handler in lib/server/start.ts. */
 export interface PostDaemonModeBody {
   /** `_inbox` or a job id. */
   scope: string;
   mode: DaemonPermissionMode;
 }
 
-/** POST /api/daemon/mode reply on success: poolState in lib/server.ts. */
+/** POST /api/daemon/mode reply on success: poolState in lib/server/start.ts. */
 export type PostDaemonModeResponse = DaemonPoolState;
 
-/** POST /api/jobs/:id/effort body: the handler in lib/server.ts. null inherits runtime.effort. */
+/** POST /api/jobs/:id/effort body: the handler in lib/server/start.ts. null inherits runtime.effort. */
 export interface PostJobEffortBody {
   effort: Effort | null;
 }
 
-/** POST /api/jobs/:id/effort reply, and `forge job effort`'s output: setJobEffort in lib/jobs.ts. */
+/** POST /api/jobs/:id/effort reply, and `forge job effort`'s output: setJobEffort in lib/core/job/store.ts. */
 export interface PostJobEffortResponse {
   id: string;
   effort: Effort | null;
@@ -1316,14 +1316,14 @@ export interface PostJobEffortResponse {
   changed: boolean;
 }
 
-/** POST /api/jobs/:id/repos body: the handler in lib/server.ts. `repos` are the names the drawer listed, which must be the whole pending set. */
+/** POST /api/jobs/:id/repos body: the handler in lib/server/start.ts. `repos` are the names the drawer listed, which must be the whole pending set. */
 export interface PostJobReposBody {
   decision: 'approve' | 'reject';
   repos: string[];
   note?: string | null;
 }
 
-/** POST /api/jobs/:id/repos reply: decideRepoProposals in lib/repo-proposals.ts, and whether the job was set running and resumed. */
+/** POST /api/jobs/:id/repos reply: decideRepoProposals in lib/engine/project/repo-proposals.ts, and whether the job was set running and resumed. */
 export interface PostJobReposResponse {
   id: string;
   decision: 'approve' | 'reject';
@@ -1333,7 +1333,7 @@ export interface PostJobReposResponse {
   resumed: boolean;
 }
 
-/** A focused job, as `forge focus` and /api/state report it: resolveFocus in lib/focus.ts. */
+/** A focused job, as `forge focus` and /api/state report it: resolveFocus in lib/core/job/focus.ts. */
 export interface FocusFact {
   id: string;
   title: string;
@@ -1341,7 +1341,7 @@ export interface FocusFact {
 }
 
 /**
- * One row of a job's Environment card: endpointsFor in lib/server.ts. A `component` row has a
+ * One row of a job's Environment card: endpointsFor in lib/server/start.ts. A `component` row has a
  * `http://localhost:<port>/` url; a `backing` row has none. `live` is a boolean only on the component
  * row the dev command serves (the one whose port is `job.port`), null everywhere else.
  */
@@ -1358,7 +1358,7 @@ export interface PostFocusBody {
   job: string | null;
 }
 
-/** One checkout step applied or undone on a focus change: lib/checkout.ts. `log` is relative to the job dir. */
+/** One checkout step applied or undone on a focus change: lib/engine/workspace/checkout.ts. `log` is relative to the job dir. */
 export interface CheckoutStepResult {
   step: number;
   kind: 'link' | 'run';
@@ -1369,7 +1369,7 @@ export interface CheckoutStepResult {
   error?: string;
 }
 
-/** `forge focus <id>|--clear` and POST /api/focus reply: focusJob in lib/focus-actions.ts. */
+/** `forge focus <id>|--clear` and POST /api/focus reply: focusJob in lib/engine/workspace/focus-actions.ts. */
 export interface FocusResponse {
   focus: FocusFact | null;
   previous: string | null;
@@ -1382,7 +1382,7 @@ export interface PostRunBody {
   command: 'dev';
 }
 
-/** POST /api/jobs/:id/run reply: startBackground in lib/worktree.ts, without the pid and log path. */
+/** POST /api/jobs/:id/run reply: startBackground in lib/engine/workspace/worktree.ts, without the pid and log path. */
 export interface PostRunResponse {
   reused: boolean;
   listening: boolean | null;
@@ -1477,7 +1477,7 @@ export interface EnvironmentsResponse {
 }
 
 /**
- * JSON error body: jsonStatus for /api/daemon's and /api/config's 4xx and the catch-all 500 in lib/server.ts.
+ * JSON error body: jsonStatus for /api/daemon's and /api/config's 4xx and the catch-all 500 in lib/server/start.ts.
  * The POST guard failures (403/415/421) are text/plain, not this.
  */
 export interface ApiError {

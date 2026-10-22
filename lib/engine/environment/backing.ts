@@ -180,7 +180,7 @@ export function takenPorts(root: string, config: Config, exceptId?: string): Set
   return taken;
 }
 
-/** The lock every host port is handed out under: job ports (lib/worktree.ts) and backing ports alike. */
+/** The lock every host port is handed out under: job ports (lib/engine/workspace/worktree.ts) and backing ports alike. */
 export const portsLock = (root: string): string => path.join(paths(root).locks, 'ports');
 
 /**
@@ -430,7 +430,7 @@ function ensure(root: string, runner: DockerRunner, e: BackingEntry, owner: stri
  * Brings every entry up for the job, idempotently. Probes Docker once; shared entries serialise on
  * a lock so they start at most once. One failure is reported and the rest still run. Then, once
  * every service is up (migrate and seed may need them all), each shared entry with `database` that
- * came up gets the job's database (lib/backing-db.ts), with build commands run through `db`.
+ * came up gets the job's database (lib/engine/environment/backing-db.ts), with build commands run through `db`.
  */
 export function backingUp(
   root: string,

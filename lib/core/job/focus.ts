@@ -1,7 +1,7 @@
 // Focus: which job the human at the keyboard is QA-ing. A pointer in the root repo's
 // .forge/runtime/focus.json, never a checkout and never a process change. jobs.ts imports this
 // module (setJob clears a finished job's focus), so it must never import jobs.ts; the write path
-// that loads jobs and logs events is lib/focus-actions.ts.
+// that loads jobs and logs events is lib/engine/workspace/focus-actions.ts.
 import fs from 'node:fs';
 import path from 'node:path';
 import { paths } from '../paths.ts';

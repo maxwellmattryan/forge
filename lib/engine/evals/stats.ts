@@ -15,7 +15,7 @@ export const TASK_METRICS = [
   'reviewerRuns',
 ] as const satisfies readonly EvalTaskMetric[];
 
-// Fails to type-check when lib/types.ts names a metric this list lacks.
+// Fails to type-check when lib/core/types.ts names a metric this list lacks.
 type Missing = Exclude<EvalTaskMetric, (typeof TASK_METRICS)[number]>;
 true satisfies [Missing] extends [never] ? true : never;
 

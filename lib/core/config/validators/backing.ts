@@ -1,5 +1,5 @@
-// backing: validation, apart from lib/backing.ts so lib/config-validate.ts and lib/schema.ts can import it
-// without pulling in jobs.ts (which imports config.ts). Every value here reaches `docker` as an
+// backing: validation, apart from lib/engine/environment/backing.ts so lib/core/config/validate.ts and lib/core/job/schema.ts can import it
+// without pulling in the job store (which imports config/load.ts). Every value here reaches `docker` as an
 // argument or an env-file line, so the shapes are strict: no leading `-`, a fixed charset, no newlines.
 import { globProblem } from './policy-check.ts';
 import { isMap, kind, show } from '../../shape.ts';
@@ -7,7 +7,7 @@ import { isMap, kind, show } from '../../shape.ts';
 /** How a backing service is shared: a container per job, one per project, or an address run elsewhere. */
 export const BACKING_ISOLATIONS = ['per-job', 'shared', 'external'] as const;
 
-/** The database engines a shared entry's `database` can name (lib/backing-db.ts). */
+/** The database engines a shared entry's `database` can name (lib/engine/environment/backing-db.ts). */
 export const BACKING_DB_ENGINES = ['postgres'] as const;
 /** A Postgres role or database name Forge writes into SQL, always double-quoted after this check. */
 export const PG_IDENT = /^[a-z_][a-z0-9_]{0,62}$/;

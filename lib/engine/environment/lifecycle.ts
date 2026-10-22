@@ -3,8 +3,8 @@
 // stop keeps everything but the running processes, teardown removes it. None of these throws on a
 // Docker, psql or record failure: each returns `ok: false` with the error and logs its event, so a
 // state change that triggered it is never rolled back. Names reach Docker only through
-// lib/backing.ts, which derives them from the job id and config. The dashboard's read model of an
-// environment (dev status, services, usage) is lib/environment.ts.
+// lib/engine/environment/backing.ts, which derives them from the job id and config. The dashboard's read model of an
+// environment (dev status, services, usage) is lib/engine/environment/status.ts.
 import fs from 'node:fs';
 import path from 'node:path';
 import { backingDown, backingStop, backingUp, isManaged } from './backing.ts';

@@ -1,6 +1,6 @@
-// A job's issue link: the pure half. Its only runtime import is the equally pure lib/issue-ref.ts,
-// because lib/pr.ts and lib/server.ts import it while lib/trackers/github.ts imports lib/pr.ts; the
-// operations that touch trackers and job state live in lib/tracker-link.ts.
+// A job's issue link: the pure half. Its only runtime import is the equally pure lib/core/job/issue-ref.ts,
+// because lib/engine/pr/lifecycle.ts and lib/server/start.ts import it while lib/integrations/github/tracker.ts imports lib/engine/pr/lifecycle.ts; the
+// operations that touch trackers and job state live in lib/engine/trackers/link.ts.
 import { REF, linkedIssues } from './issue-ref.ts';
 import type { Config, Job, TrackerItem } from '../types.ts';
 

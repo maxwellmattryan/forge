@@ -2,7 +2,7 @@
 // runs them. A build can go green by deleting a test, adding `.skip`, or editing the test script;
 // this makes those changes visible to reviewers and, under `verifyIntegrity: block`, fails verify.
 // Must not import evals.ts or worktree.ts: worktree imports this module, and evals imports worktree.
-// It also reports local link overrides (lib/links.ts) that reached a commit.
+// It also reports local link overrides (lib/engine/project/links.ts) that reached a commit.
 import fs from 'node:fs';
 import path from 'node:path';
 import { git as runGit, historyEnv } from '../../integrations/git/runner.ts';

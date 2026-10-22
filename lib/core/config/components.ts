@@ -20,7 +20,7 @@ export const LINK_ECOSYSTEMS = ['cargo', 'cmake', 'npm'] as const;
 
 export const isInterimStrategy = (v: unknown): v is (typeof INTERIM_STRATEGIES)[number] => (INTERIM_STRATEGIES as readonly unknown[]).includes(v);
 
-// Names and sources reach TOML and sh (lib/links.ts quotes them too), so each is held to what its
+// Names and sources reach TOML and sh (lib/engine/project/links.ts quotes them too), so each is held to what its
 // ecosystem accepts: a crate name, a FetchContent name (it becomes a CMake variable), an npm name.
 const LINK_NAMES: Record<(typeof LINK_ECOSYSTEMS)[number], { re: RegExp; max: number; what: string }> = {
   cargo: { re: /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/, max: 64, what: 'a crate name (A-Z a-z 0-9 _ -, at most 64 characters)' },

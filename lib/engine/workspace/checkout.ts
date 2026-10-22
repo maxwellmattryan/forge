@@ -18,7 +18,7 @@ import { ForgeError } from '../../core/errors.ts';
 import { writeJsonAtomic } from '../../core/os/fs.ts';
 import { withLockAsync } from '../../core/os/lock.ts';
 
-/** What a step needs from `forge run`'s result (lib/worktree.ts CommandResult). */
+/** What a step needs from `forge run`'s result (lib/engine/workspace/worktree.ts CommandResult). */
 export interface StepRun {
   ok: boolean;
   exit: number | null;

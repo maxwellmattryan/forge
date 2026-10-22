@@ -1,10 +1,10 @@
-// Model prices (lib/pricing.json merged with config.usage.pricing) and the cost estimate built on
+// Model prices (lib/integrations/claude/pricing.json merged with config.usage.pricing) and the cost estimate built on
 // them. A leaf, so jobs.ts can price usage without loading the transcript reader in usage.ts.
 import path from 'node:path';
 import { readJson } from '../../core/os/fs.ts';
 import { PLUGIN_ROOT } from '../../core/paths.ts';
 
-/** One model's prices in USD per million tokens: an entry of lib/pricing.json's `models`. */
+/** One model's prices in USD per million tokens: an entry of lib/integrations/claude/pricing.json's `models`. */
 export interface ModelRate {
   input: number;
   output: number;
@@ -12,7 +12,7 @@ export interface ModelRate {
   cacheWrite: number;
 }
 
-/** lib/pricing.json merged with config.usage.pricing: pricing(). */
+/** lib/integrations/claude/pricing.json merged with config.usage.pricing: pricing(). */
 export interface PricingTable {
   aliases: Record<string, string>;
   models: Record<string, ModelRate>;

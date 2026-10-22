@@ -1,4 +1,4 @@
-// Job ports: one stable port per port-bearing component (lib/endpoints.ts turns them into
+// Job ports: one stable port per port-bearing component (lib/engine/environment/endpoints.ts turns them into
 // placeholders and env), chosen with the worktree under the same lock as backing ports.
 import { takenPorts } from './backing.ts';
 import { jobComponent } from '../../core/config/components.ts';

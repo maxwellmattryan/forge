@@ -1,5 +1,5 @@
 // The rule IDs of `forge job step` and the shape of its tables. Imports types only, so every other
-// module under lib/step/ can import it without a cycle.
+// module under lib/engine/pipeline/step/ can import it without a cycle.
 import type { StepAction, StepInput } from '../../../core/types.ts';
 import type { Facts } from './facts.ts';
 

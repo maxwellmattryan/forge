@@ -1,6 +1,6 @@
-// The one write path for focus, shared by `forge focus` and POST /api/focus (as config-set.ts is
-// for config): validation, the locked write and the events. Kept apart from lib/focus.ts, which
-// jobs.ts imports, so this module may import jobs.ts without a cycle.
+// The one write path for focus, shared by `forge focus` and POST /api/focus (as core/config/set.ts is
+// for config): validation, the locked write and the events. Kept apart from lib/core/job/focus.ts, which
+// the job store imports, so this module may import the job store without a cycle.
 import fs from 'node:fs';
 import path from 'node:path';
 import { currentActor } from '../../integrations/github/actor.ts';
@@ -50,9 +50,9 @@ const stepRunner =
 /**
  * Focuses `id`, or clears focus for null. Re-focusing the focused job changes and logs nothing.
  * With `checkout` steps configured, the recorded job's steps are undone and the new job's applied
- * first (lib/checkout.ts); a failing step rolls back, re-applies the previous job's steps and
+ * first (lib/engine/workspace/checkout.ts); a failing step rolls back, re-applies the previous job's steps and
  * leaves focus where it was. Those steps may run configured commands. Once focus has moved onto a
- * job, its environment's backing services start (ensure up, lib/environment-lifecycle.ts); a failure there
+ * job, its environment's backing services start (ensure up, lib/engine/environment/lifecycle.ts); a failure there
  * never undoes the focus and reaches the caller only through `onEnvironment`, so the reply's shape
  * stays the same. No background process is started or signalled.
  */

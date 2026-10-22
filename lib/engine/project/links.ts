@@ -29,7 +29,7 @@ export interface DeclaredLink {
   /** The directory in the dependency's repo. */
   relPath: string;
   /**
-   * The consumer's manifest an interim pin goes in (lib/interim.ts), relative to the consumer repo:
+   * The consumer's manifest an interim pin goes in (lib/engine/release/interim.ts), relative to the consumer repo:
    * `link.manifest`, or the ecosystem's file in the consumer component's path; null when that path is unusable.
    */
   manifest: string | null;
@@ -290,7 +290,7 @@ export function sameMode(actual: number, wanted: number, platform: NodeJS.Platfo
  * Writes `content` (temp file plus rename) only when the file differs; a symlink or FIFO there is
  * replaced, never followed. The temp name is random and opened exclusively (`wx`), so an entry a
  * hostile checkout plants at a guessed name fails the write instead of redirecting it, and the
- * mode is set on the open descriptor, never through a path. Config sinks (lib/config-sinks-apply.ts) reuse it.
+ * mode is set on the open descriptor, never through a path. Config sinks (lib/engine/environment/config-sinks-apply.ts) reuse it.
  */
 export function writeIfChanged(file: string, content: string, mode: number): void {
   try {

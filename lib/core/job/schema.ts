@@ -16,7 +16,7 @@ export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from '../config/validators/bac
 export const CONFIG_SCHEMA_VERSION = 29;
 export const JOB_SCHEMA_VERSION = 17;
 export const EVENT_SCHEMA_VERSION = 3;
-/** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
+/** `.forge/archive/<id>.json` records (lib/core/job/archive.ts); a reader skips a record from a newer Forge. */
 export const ARCHIVE_SCHEMA_VERSION = 1;
 /**
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
@@ -231,12 +231,12 @@ const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
   // config, which is what every v12 job did. Members get theirs in cleanRepos.
   12: (j) => ({ ...j, interim: j.interim ?? null }),
   // v14 adds one port per port-bearing component. A v13 job keeps its `port`, which the next
-  // `worktree create` reconciles into `ports` (lib/ports.ts), so nothing it runs changes.
+  // `worktree create` reconciles into `ports` (lib/engine/environment/ports.ts), so nothing it runs changes.
   13: (j) => ({ ...j, ports: {} }),
   // v15 adds the merged PR's post-merge outcome, which forge sync measures. A v14 job has none yet,
   // and the next sync measures it, so a long-merged job gets a final outcome straight away.
   14: (j) => ({ ...j, outcome: j.outcome ?? null }),
-  // v16 adds the post-merge score (lib/scoring.ts). A v15 job has none; the next sync queues one
+  // v16 adds the post-merge score (lib/engine/evals/scoring.ts). A v15 job has none; the next sync queues one
   // only when the job is sampled and merged inside the lookback.
   15: (j) => ({ ...j, score: j.score ?? null }),
   // v17 replaces the heartbeat `owner` with a fenced `lease`. A v16 owner keeps driving: it becomes
@@ -445,7 +445,7 @@ function cleanRepoPr(raw: unknown): JobRepoPr | null {
   return { ...(out as unknown as JobRepoPr), url: isHttpsUrl(pr.url) ? pr.url : null };
 }
 
-/** What openMemberPr and syncMemberPrs record (lib/pr.ts). */
+/** What openMemberPr and syncMemberPrs record (lib/engine/pr/lifecycle.ts). */
 const REPO_PR_KEYS = ['number', 'url', 'state', 'isDraft', 'openedAt', 'lastSyncedAt', 'pushedSha', 'headOid', 'mergeable', 'mergeState', 'checks', 'mergedAt'] as const;
 
 /**
@@ -502,7 +502,7 @@ export function migrateConfig(raw: any): { config: any; from: number | undefined
   return { config, from: from === CONFIG_SCHEMA_VERSION ? undefined : from };
 }
 
-/** The states a job never leaves on its own; isActive in lib/jobs.ts is false for exactly these. */
+/** The states a job never leaves on its own; isActive in lib/core/job/store.ts is false for exactly these. */
 const FINISHED_STATES = ['done', 'cancelled'] as const;
 
 /**
@@ -644,7 +644,7 @@ const EVENT_MIGRATIONS: Record<number, (e: any) => any> = {
     if (e.actor === undefined || e.actor === 'human') return { ...e, actor: { login: null, source: 'unknown' } };
     return e;
   },
-  // v3 adds pluginHash, promptHash and configHash to agent-start (lib/provenance.ts); a v2 start
+  // v3 adds pluginHash, promptHash and configHash to agent-start (lib/engine/evals/provenance.ts); a v2 start
   // simply has none, and readers treat it as unrecorded.
   2: (e) => e,
 };

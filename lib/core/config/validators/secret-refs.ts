@@ -1,5 +1,5 @@
-// secrets: validation, apart from lib/secret-refs.ts so lib/config-validate.ts can import it without pulling in
-// processes or git. Mirrors lib/backing-config.ts. Every field here reaches `security`, `secret-tool`
+// secrets: validation, apart from lib/engine/guard/secret-refs.ts so lib/core/config/validate.ts can import it without pulling in
+// processes or git. Mirrors lib/core/config/validators/backing.ts. Every field here reaches `security`, `secret-tool`
 // or `op` as an argument, so the shapes are strict: no leading `-`, a fixed charset. A problem never
 // echoes a field's value: a credential pasted where its reference belongs must not reach Settings.
 import { PROTO_KEYS, isMap, kind, show } from '../../shape.ts';

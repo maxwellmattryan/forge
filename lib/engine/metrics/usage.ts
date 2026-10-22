@@ -27,7 +27,7 @@ export type TranscriptUsage = Required<Pick<AgentUsage, 'input' | 'output' | 'ca
  * `through`) skips every line at or before it: each import counts, and times, only the new span.
  * A line without a timestamp belongs to the span of the timestamped line before it.
  * Given the job and root, the transcript is looked up under the job's sessions in this repo's project
- * dirs first (lib/transcripts.ts); the scan of every project dir stays as the fallback for an agent
+ * dirs first (lib/integrations/claude/transcripts.ts); the scan of every project dir stays as the fallback for an agent
  * whose parent session isn't recorded.
  */
 export function importClaudeCodeTranscript(

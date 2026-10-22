@@ -10,7 +10,7 @@ import local from '../../integrations/backlog/tracker.ts';
 import github from '../../integrations/github/tracker.ts';
 import type { Config, Job, TextUnit, Tracker, TrackerCtx } from '../../core/types.ts';
 
-// The tracker contract (Tracker, TrackerCtx and TrackerItem) lives in lib/types.ts. Every adapter, built-in
+// The tracker contract (Tracker, TrackerCtx and TrackerItem) lives in lib/core/types.ts. Every adapter, built-in
 // or a repo's own `.forge/trackers/<name>.mjs` or `.ts`, default-exports one. docs/TRACKERS.md has the details.
 
 const none: Tracker = {
@@ -66,7 +66,7 @@ function guardTracker(adapter: Tracker, opts: { custom: boolean }): Tracker {
   return g;
 }
 
-/** A member repo's tracker (lib/member-trackers.ts): always the built-in GitHub adapter, guarded. */
+/** A member repo's tracker (lib/engine/project/member-trackers.ts): always the built-in GitHub adapter, guarded. */
 export function memberTracker(): Tracker {
   return guardTracker(github, { custom: false });
 }

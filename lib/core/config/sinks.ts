@@ -29,7 +29,7 @@ export interface ExprContext {
   branch: string;
   base: string;
   component: { name: string; path: string; dir: string };
-  /** A declared secret's value (lib/secret-refs.ts), resolved only when an expression reaches it. */
+  /** A declared secret's value (lib/engine/guard/secret-refs.ts), resolved only when an expression reaches it. */
   secret?: (name: string) => string;
 }
 
@@ -270,7 +270,7 @@ function parseBase(format: SinkFormat, text: string | null): Record<string, unkn
 
 /**
  * `values` (resolved) deep-merged over `baseText` and serialised in `format`: json as 2-space JSON
- * with a trailing newline, yaml through lib/yaml.ts. toml is never merged (validation refuses it).
+ * with a trailing newline, yaml through lib/core/format/yaml.ts. toml is never merged (validation refuses it).
  */
 export function renderMerge(format: SinkFormat, baseText: string | null, values: Record<string, SinkValue>, ctx: ExprContext): string {
   if (format === 'toml') throw new ForgeError('toml supports mode template only');

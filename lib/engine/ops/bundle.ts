@@ -1,6 +1,6 @@
 // The support bundle: `forge doctor --bundle` and GET /api/doctor/bundle. It gathers what a
 // maintainer needs to reproduce a problem (doctor, versions, config, events, step, verify and daemon
-// logs) and redacts it (lib/redact.ts) so a user can attach it to a public issue. The job dir and the
+// logs) and redacts it (lib/engine/guard/redact.ts) so a user can attach it to a public issue. The job dir and the
 // runtime dir are agent-writable: every read is contained, never follows a link and never blocks.
 // docs/CLI.md "Support bundle".
 import fs from 'node:fs';

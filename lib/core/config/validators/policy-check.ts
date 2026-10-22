@@ -1,5 +1,5 @@
 // Config-time validation of the glob lists and the protected-paths policy, and the matcher that
-// applies it. Imports only leaf modules (glob.ts, shape.ts, util.ts), so config.ts can use it without a cycle.
+// applies it. Imports only leaf modules (glob.ts, shape.ts, errors.ts), so config/load.ts can use it without a cycle.
 import path from 'node:path';
 import { inSpec } from '../../glob.ts';
 import type { Config, ProtectedRule } from '../../types.ts';

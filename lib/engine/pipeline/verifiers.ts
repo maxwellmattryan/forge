@@ -64,7 +64,7 @@ function normalizeBreaks(text: string): string {
 
 // ---------- loading ----------
 
-/** Why a `paths` entry can't be used, or null: the rules globProblem in lib/config.ts applies to worktrees.generated. */
+/** Why a `paths` entry can't be used, or null: the rules globProblem in lib/core/config/load.ts applies to worktrees.generated. */
 function globProblem(g: unknown): string | null {
   if (typeof g !== 'string' || !g.trim()) return `paths entries must be non-empty strings (got ${jsonLine(g)})`;
   if (g.startsWith('/') || g.startsWith('\\') || path.isAbsolute(g) || /^[A-Za-z]:/.test(g)) return `paths entry ${jsonLine(g)} must be relative to the repo`;

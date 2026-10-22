@@ -1,5 +1,5 @@
-// A job's endpoints: the address of each port-bearing component (lib/ports.ts) and the host port of
-// each backing service (lib/backing.ts), as the `{endpoint.<c>}` / `{backing.<n>.*}` placeholders
+// A job's endpoints: the address of each port-bearing component (lib/engine/environment/ports.ts) and the host port of
+// each backing service (lib/engine/environment/backing.ts), as the `{endpoint.<c>}` / `{backing.<n>.*}` placeholders
 // and the FORGE_PORT_<C> / FORGE_ENDPOINT_<C> variables configured commands get, as the briefs and
 // the dashboard list them, and as the config sinks of #196 will read them.
 import { entriesOrNone, envPrefix, readJobRecord, readSharedRecord } from './backing.ts';
@@ -38,7 +38,7 @@ export function jobEndpoints(root: string, config: Config, job: Pick<Job, 'id' |
   const list = entriesOrNone(config);
   const mine = list.some((e) => e.isolation === 'per-job') ? readJobRecord(root, job.id, config) : null;
   const shared = list.some((e) => e.isolation === 'shared') ? readSharedRecord(root, config) : null;
-  // A job database's url exists only once its record does (lib/backing-db.ts).
+  // A job database's url exists only once its record does (lib/engine/environment/backing-db.ts).
   const dbs = dbEntries(config).length ? readDbRecord(root, job.id, config).databases : {};
   const backing = list.map((e) => {
     if (!isManaged(e)) return { name: e.name, port: null, hasUrl: Boolean(e.url) };

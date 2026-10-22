@@ -14,11 +14,11 @@ export type * from '../api/types.ts';
 
 // ---------- enumerations ----------
 
-/** A review finding's severity: SEVERITIES in lib/schema.ts. */
+/** A review finding's severity: SEVERITIES in lib/core/job/schema.ts. */
 export type Severity = (typeof SEVERITIES)[number];
-/** A role with its own runtime.efforts entry: EFFORT_ROLES in lib/schema.ts. */
+/** A role with its own runtime.efforts entry: EFFORT_ROLES in lib/core/job/schema.ts. */
 export type EffortRole = (typeof EFFORT_ROLES)[number];
-/** What the secret scanner reports: SECRET_KINDS in lib/secrets.ts. */
+/** What the secret scanner reports: SECRET_KINDS in lib/engine/guard/secrets.ts. */
 export type SecretKind = (typeof SECRET_KINDS)[number];
 
 // ---------- job data ----------
@@ -33,14 +33,14 @@ export interface ProtectedRule {
 /** A job as loadJob and normalizeJob return it: normalizeJob marks one written by a newer Forge. */
 export type LoadedJob = Job & { _unsupported?: true };
 
-// ---------- forge job step (lib/step/; not /api shapes) ----------
+// ---------- forge job step (lib/engine/pipeline/step/; not /api shapes) ----------
 
 /** What a `wait` waits on: a gate, or the agents still running. */
 export type StepWaitingOn = WaitingOn | 'agents';
 
 interface StepBase {
   id: string;
-  /** The rule in lib/step/rules.ts RULES that chose this action. */
+  /** The rule in lib/engine/pipeline/step/rules.ts RULES that chose this action. */
   rule: string;
 }
 
@@ -101,21 +101,21 @@ export interface StepDone extends StepBase {
 /** What `forge job step` prints. */
 export type StepAction = StepSpawn | StepRun | StepWait | StepProcedure | StepDone;
 
-/** The round's or integration review's verdicts as step reads them: roundVerdicts in lib/jobs.ts. */
+/** The round's or integration review's verdicts as step reads them: roundVerdicts in lib/core/job/store.ts. */
 export interface StepVerdicts {
   complete: boolean;
   outcome: string;
   reviewers: Record<string, { verdict: string }>;
 }
 
-/** Everything `step` decides from, read once by loadStepInput in lib/step/input.ts. */
+/** Everything `step` decides from, read once by loadStepInput in lib/engine/pipeline/step/input.ts. */
 export interface StepInput {
   job: Job;
   config: Config;
   root: string;
   jobDir: string;
   pluginRoot: string;
-  /** jobPathMap in lib/brief.ts. */
+  /** jobPathMap in lib/engine/pipeline/brief.ts. */
   paths: Record<string, unknown>;
   /** Which job files exist, by name. */
   files: Record<StepFile, boolean>;
@@ -137,7 +137,7 @@ export interface StepInput {
   acs: AcCoverage;
   /** The record names in runtime.json. */
   runtime: string[];
-  /** The job's entry in the environment record (lib/environment-record.ts); null when it has none. */
+  /** The job's entry in the environment record (lib/engine/environment/record.ts); null when it has none. */
   environment: EnvironmentState | null;
   /** The events step reads, oldest first: human, round, worktree*, pr-*, scope, integrate*, integration-review, decision, fields, eval-graded, transition, agent-start/end. */
   events: JobEvent[];
@@ -146,11 +146,11 @@ export interface StepInput {
   checklists: Record<string, string | null>;
   /**
    * In integrate: what the last conflict episode's resolution changed at the last verified sha
-   * (lib/scope.ts integrationTouched), keyed by the sides that event recorded; null when unknown.
+   * (lib/engine/pipeline/scope.ts integrationTouched), keyed by the sides that event recorded; null when unknown.
    */
   integrationTouched: { head: string; upstream: string; sha: string; files: string[] | null } | null;
   /**
-   * The decide gate's recall eval (lib/step/input.ts loadRecall): whether the committed diff touches
+   * The decide gate's recall eval (lib/engine/pipeline/step/input.ts loadRecall): whether the committed diff touches
    * evals.recall.paths, and the worktree's pluginHash a recorded run must match. `invalidFixtures`
    * when the gate is required but a main-checkout fixture does not load, so `start` cannot run and
    * RC2 parks at once. Null outside decide, for an eval job, without a worktree, or when the main
@@ -176,19 +176,19 @@ export type StepFile = 'request' | 'plan' | 'spec' | 'design' | 'mockup' | 'buil
 
 // ---------- events ----------
 
-/** What setJob in lib/jobs.ts applies; stage, state and waitingOn are checked against their lists before the write. */
+/** What setJob in lib/core/job/store.ts applies; stage, state and waitingOn are checked against their lists before the write. */
 export interface JobChange {
   stage?: string;
   state?: string;
   waitingOn?: string | null;
   reason?: string | null;
   fields?: Record<string, any>;
-  /** Locked fields that only their owning module writes (lib/job-fields.ts); never from the CLI. */
+  /** Locked fields that only their owning module writes (lib/core/job/fields.ts); never from the CLI. */
   owned?: Record<string, unknown>;
   note?: string;
 }
 
-// ---------- secret scanning (lib/secrets.ts) ----------
+// ---------- secret scanning (lib/engine/guard/secrets.ts) ----------
 
 /** Text the scanner reads: a run of added lines, a whole file, or text Forge is about to send. */
 export interface TextUnit {
@@ -228,10 +228,10 @@ export interface SecretAllowlist {
   prints: Map<string, number>;
 }
 
-/** One valid `.forge/verifiers/<name>.md`: loadVerifiers in lib/verifiers.ts. */
+/** One valid `.forge/verifiers/<name>.md`: loadVerifiers in lib/engine/pipeline/verifiers.ts. */
 export interface Verifier {
   name: string;
-  /** Globs matched with inSpec (lib/glob.ts). */
+  /** Globs matched with inSpec (lib/core/glob.ts). */
   paths: string[];
   severity: 'blocker' | 'major' | 'minor';
   mode: 'warn' | 'block';
@@ -254,7 +254,7 @@ export interface VerifierSet {
   problems: VerifierProblem[];
 }
 
-/** What `forge verifiers run` returns: verifiersRun in lib/verifiers.ts. */
+/** What `forge verifiers run` returns: verifiersRun in lib/engine/pipeline/verifiers.ts. */
 export interface VerifiersRun {
   id: string;
   round: number;
@@ -267,10 +267,10 @@ export interface VerifiersRun {
   file: string;
 }
 
-/** A selected verifier's answer: parseAnswers in lib/verifiers.ts; `none` fails closed. */
+/** A selected verifier's answer: parseAnswers in lib/engine/pipeline/verifiers.ts; `none` fails closed. */
 export type VerifierAnswer = 'yes' | 'no' | 'none';
 
-/** What `forge verifiers record` returns: verifiersRecord in lib/verifiers.ts. */
+/** What `forge verifiers record` returns: verifiersRecord in lib/engine/pipeline/verifiers.ts. */
 export interface VerifiersRecord {
   id: string;
   round: number;
@@ -307,7 +307,7 @@ export interface CompactSecrets {
 
 // ---------- config ----------
 
-/** One review lens: an entry of review.panel in defaults() (lib/config-defaults.ts). */
+/** One review lens: an entry of review.panel in defaults() (lib/core/config/defaults.ts). */
 export interface PanelEntry {
   name: string;
   always?: boolean;
@@ -396,14 +396,14 @@ export type SinkMode = (typeof SINK_MODES)[number];
 /** Merge `values`: a nested map whose leaves are strings (expressions), numbers, booleans or null. */
 export type SinkValues = { [k: string]: string | number | boolean | null | SinkValues };
 
-/** One config sink: a map with exactly one kind key (lib/config-sinks.ts). */
+/** One config sink: a map with exactly one kind key (lib/core/config/sinks.ts). */
 export type ConfigSink =
   | { env: Record<string, string> }
   | { 'env-file': string; values?: Record<string, string> }
   | { file: { path: string; format: SinkFormat; mode: SinkMode; from?: string | null }; values?: SinkValues }
   | { command: string; values?: Record<string, string> };
 
-/** Where one declared secret's value comes from: exactly one source key (lib/secret-refs-config.ts). */
+/** Where one declared secret's value comes from: exactly one source key (lib/core/config/validators/secret-refs.ts). */
 export type SecretSource =
   | { env: string }
   | { keychain: { service: string; account?: string } }
@@ -420,7 +420,7 @@ export interface MemberRepoConfig {
   release?: ({ interim?: InterimStrategy } & ReleaseStrategy) | null;
 }
 
-/** What `forge run <job> <name>` executes: defaults().commands in lib/config-defaults.ts. */
+/** What `forge run <job> <name>` executes: defaults().commands in lib/core/config/defaults.ts. */
 export interface CommandsConfig {
   setup: string | null;
   build: string | null;
@@ -436,7 +436,7 @@ export interface CommandsConfig {
 /** One `verify` entry: a step name, or a group of step names that run at the same time (config schemaVersion 3). */
 export type VerifyEntry = string | string[];
 
-/** The effective config: defaults() in lib/config-defaults.ts merged with .forge/config.yml by loadConfig. docs/CONFIG.md documents each key. */
+/** The effective config: defaults() in lib/core/config/defaults.ts merged with .forge/config.yml by loadConfig. docs/CONFIG.md documents each key. */
 export interface Config {
   schemaVersion: number;
   project: {
@@ -538,11 +538,11 @@ export interface Config {
   resources: ResourceConfig[];
   components: ComponentConfig[];
   repos: MemberRepoConfig[];
-  /** Steps `forge focus` applies to the focused job and undoes on the next change: lib/checkout.ts. */
+  /** Steps `forge focus` applies to the focused job and undoes on the next change: lib/engine/workspace/checkout.ts. */
   checkout: CheckoutStep[];
-  /** Databases, caches and queues jobs run against: lib/backing.ts, docs/CONFIG.md "Backing services". */
+  /** Databases, caches and queues jobs run against: lib/engine/environment/backing.ts, docs/CONFIG.md "Backing services". */
   backing: BackingEntry[];
-  /** Named credentials config sinks reach as `{secret.NAME}`: lib/secret-refs.ts, docs/CONFIG.md "Secret references". */
+  /** Named credentials config sinks reach as `{secret.NAME}`: lib/engine/guard/secret-refs.ts, docs/CONFIG.md "Secret references". */
   secrets: Record<string, SecretSource>;
   /** Verify-only consumers of a changed library: docs/CONFIG.md "Downstream verification". */
   downstream: { enabled: boolean; max: number; skip: string[] };
@@ -553,7 +553,7 @@ export interface Config {
   };
   usage: {
     track: boolean;
-    /** Overrides for lib/pricing.json: { models: { <id>: {input, output, cacheRead, cacheWrite} }, aliases: {…} }. */
+    /** Overrides for lib/integrations/claude/pricing.json: { models: { <id>: {input, output, cacheRead, cacheWrite} }, aliases: {…} }. */
     pricing: Record<string, unknown>;
   };
   /** experiments: how many after-jobs `forge experiment evaluate` needs to decide an entry (minJobs) and when it closes one undecided (maxJobs). */
@@ -583,7 +583,7 @@ export interface Config {
   policy: { protectedPaths: ProtectedRule[] };
   /** What Forge deletes and when; null keeps forever: docs/CONFIG.md "Retention". */
   retention: { jobsDays: number | null; logsDays: number | null; logMaxBytes: number | null };
-  /** Job environments running at once; null means no cap (lib/environment-lifecycle.ts eviction). */
+  /** Job environments running at once; null means no cap (lib/engine/environment/lifecycle.ts eviction). */
   environments: { maxRunning: number | null };
   /** How long after a merge `forge sync` watches a job's outcome: docs/CONFIG.md "Outcomes". */
   outcomes: { windowDays: number };
@@ -603,7 +603,7 @@ export interface RepoBudgetConfig {
   onExceeded: RepoBudgetMode;
 }
 
-/** One day, role and model's spend in the ledger: lib/spend.ts. */
+/** One day, role and model's spend in the ledger: lib/engine/metrics/spend.ts. */
 export interface SpendBucket {
   runs: number;
   tokens: number;
@@ -614,9 +614,9 @@ export interface SpendBucket {
   usd: number;
 }
 
-/** A notify event: NOTIFY_EVENTS in lib/schema.ts. */
+/** A notify event: NOTIFY_EVENTS in lib/core/job/schema.ts. */
 export type NotifyEvent = (typeof NOTIFY_EVENTS)[number];
-/** notify.webhooks[].format: NOTIFY_FORMATS in lib/schema.ts. */
+/** notify.webhooks[].format: NOTIFY_FORMATS in lib/core/job/schema.ts. */
 export type NotifyFormat = (typeof NOTIFY_FORMATS)[number];
 /** One notify.webhooks entry; `events` omitted subscribes to every event, `format` defaults to json. */
 export interface NotifyWebhook {
@@ -624,10 +624,10 @@ export interface NotifyWebhook {
   events?: NotifyEvent[];
   format?: NotifyFormat;
 }
-/** foreman.ship: FOREMAN_SHIP in lib/schema.ts. */
+/** foreman.ship: FOREMAN_SHIP in lib/core/job/schema.ts. */
 export type ForemanShip = (typeof FOREMAN_SHIP)[number];
 
-/** One row of `forge job audit` / `forge audit` (lib/audit.ts); `job` is null for the repo-level log. */
+/** One row of `forge job audit` / `forge audit` (lib/engine/ops/audit.ts); `job` is null for the repo-level log. */
 export interface AuditRow {
   ts: string;
   job: string | null;
@@ -658,7 +658,7 @@ export interface RepoAudit {
 /** Which credential a daemon session runs on: the Claude login (subscription) or an API key from the environment. */
 export type DaemonAuth = (typeof DAEMON_AUTH)[number];
 
-/** What loadConfig in lib/config.ts returns. */
+/** What loadConfig in lib/core/config/load.ts returns. */
 export interface LoadedConfig {
   config: Config;
   initialized: boolean;
@@ -668,7 +668,7 @@ export interface LoadedConfig {
 
 // ---------- forge doctor --bundle ----------
 
-/** How many spans of each class lib/redact.ts replaced. */
+/** How many spans of each class lib/engine/guard/redact.ts replaced. */
 export interface RedactCounts {
   secrets: number;
   paths: number;
@@ -688,7 +688,7 @@ export interface BundleSkip {
   reason: string;
 }
 
-/** The support bundle's manifest.json: buildBundle in lib/bundle.ts. Names are already redacted. */
+/** The support bundle's manifest.json: buildBundle in lib/engine/ops/bundle.ts. Names are already redacted. */
 export interface BundleManifest {
   createdAt: string;
   forgeVersion: string;
@@ -712,10 +712,10 @@ export interface BundleResult {
 
 // ---------- forge update ----------
 
-/** How the running Forge was installed: detectInstall in lib/update.ts. */
+/** How the running Forge was installed: detectInstall in lib/engine/ops/update.ts. */
 export type InstallKind = 'plugin' | 'git' | 'unknown';
 
-/** The running install as detectInstall in lib/update.ts sees it. */
+/** The running install as detectInstall in lib/engine/ops/update.ts sees it. */
 export interface InstallInfo {
   kind: InstallKind;
   root: string;
@@ -729,7 +729,7 @@ export interface InstallInfo {
   reason?: string;
 }
 
-/** `forge version --json`: versionInfo in lib/version.ts. */
+/** `forge version --json`: versionInfo in lib/engine/ops/version.ts. */
 export interface VersionInfo {
   version: string;
   /** 40 lowercase hex, or null when no source could say. */
@@ -738,7 +738,7 @@ export interface VersionInfo {
   node: string;
 }
 
-/** What `forge update --check` prints: updateForge in lib/update.ts. */
+/** What `forge update --check` prints: updateForge in lib/engine/ops/update.ts. */
 export interface UpdateCheck {
   kind: InstallKind;
   root: string;
@@ -752,10 +752,10 @@ export interface UpdateCheck {
   warnings?: string[];
 }
 
-/** This repo's dashboard after an update: updateForge in lib/update.ts. */
+/** This repo's dashboard after an update: updateForge in lib/engine/ops/update.ts. */
 export type UpdateDashboard = { restarted: true; url?: string } | { running: true; stale: true; url: string };
 
-/** What `forge update` prints: updateForge in lib/update.ts. */
+/** What `forge update` prints: updateForge in lib/engine/ops/update.ts. */
 export interface UpdateResult {
   kind: InstallKind;
   root: string;
@@ -774,7 +774,7 @@ export interface UpdateResult {
 
 // ---------- tracker contract ----------
 
-/** What every tracker method receives: loadTracker's callers (lib/trackers/index.ts). */
+/** What every tracker method receives: loadTracker's callers (lib/engine/trackers/load.ts). */
 export interface TrackerCtx {
   root: string;
   config: Config;
@@ -795,12 +795,12 @@ export interface Tracker {
   close: (ctx: TrackerCtx, ref: string, opts?: { reason?: 'completed' | 'not-planned' }) => void;
   /**
    * Optional: open items matching a free-text query, best first, at most `opts.limit` of them
-   * (bodies included, for local re-ranking). Without it, searchTracker in lib/tracker-link.ts scores
+   * (bodies included, for local re-ranking). Without it, searchTracker in lib/engine/trackers/link.ts scores
    * a capped list() instead.
    */
   search?: (ctx: TrackerCtx, query: string, opts: { limit: number }) => TrackerItem[];
   /**
-   * Optional: readiness triage's mark (lib/triage.ts). A note (one line Forge renders from fixed
+   * Optional: readiness triage's mark (lib/engine/trackers/triage.ts). A note (one line Forge renders from fixed
    * text) marks the item needs-info, so list({ready: true}) leaves it out; null clears the mark.
    */
   setNeedsInfo?: (ctx: TrackerCtx, ref: string, note: string | null) => void;
@@ -808,7 +808,7 @@ export interface Tracker {
 
 // ---------- HTTP API: GET responses ----------
 
-/** One finished (or aborted) dashboard request, as startServer's onRequest hook reports it: lib/activity.ts. */
+/** One finished (or aborted) dashboard request, as startServer's onRequest hook reports it: lib/cli/activity.ts. */
 export interface RequestInfo {
   method: string;
   /** The pathname only: a query string can carry the dashboard token. */
@@ -819,7 +819,7 @@ export interface RequestInfo {
   sse: boolean;
 }
 
-/** One prompt cohort of `forge stats --by prompt` (statsByPrompt in lib/stats.ts). */
+/** One prompt cohort of `forge stats --by prompt` (statsByPrompt in lib/engine/metrics/stats.ts). */
 export interface PromptCohort {
   promptHash: string;
   jobs: number;
@@ -848,7 +848,7 @@ export interface PromptStats {
   mixed: number;
 }
 
-/** One entry of `.forge/notes/learnings.md`: parseLearnings in lib/learnings.ts. Dates are valid or null. */
+/** One entry of `.forge/notes/learnings.md`: parseLearnings in lib/engine/evals/learnings.ts. Dates are valid or null. */
 export interface LearningEntry {
   /** Unsanitised; callers pass it through safeText before writing it anywhere. */
   rule: string;
@@ -857,7 +857,7 @@ export interface LearningEntry {
   added: string | null;
 }
 
-/** One line of `.forge/notes/experiments.md`: parseExperiments in lib/learnings.ts. */
+/** One line of `.forge/notes/experiments.md`: parseExperiments in lib/engine/evals/learnings.ts. */
 export interface ExperimentEntry {
   id: string | null;
   date: string | null;
@@ -870,7 +870,7 @@ export interface ExperimentEntry {
   status: string | null;
 }
 
-/** One `forge experiment evaluate` result (lib/experiments.ts). */
+/** One `forge experiment evaluate` result (lib/engine/evals/experiments.ts). */
 export interface ExperimentResult {
   id: string | null;
   metric: string | null;
@@ -914,7 +914,7 @@ export type CheckoutStep = { link: string; to: string } | { run: string; undo?: 
 /** How a backing service is shared: a container per job, one per project, or an address run elsewhere. */
 export type BackingIsolation = (typeof BACKING_ISOLATIONS)[number];
 
-/** One `backing:` entry (lib/backing-config.ts validates it). image, ports, env and volumes are for managed (per-job, shared) entries only. */
+/** One `backing:` entry (lib/core/config/validators/backing.ts validates it). image, ports, env and volumes are for managed (per-job, shared) entries only. */
 export interface BackingEntry {
   name: string;
   isolation: BackingIsolation;
@@ -923,7 +923,7 @@ export interface BackingEntry {
   env?: Record<string, string | number | boolean>;
   volumes?: string[];
   url?: string;
-  /** Shared entries only: a job database per job on this server, cloned from a template database (lib/backing-db.ts). */
+  /** Shared entries only: a job database per job on this server, cloned from a template database (lib/engine/environment/backing-db.ts). */
   database?: BackingDatabase;
 }
 
@@ -935,7 +935,7 @@ export interface BackingDatabase {
   inputs?: string[];
 }
 
-/** One `docker` call's outcome: lib/backing.ts and lib/backing-db.ts. */
+/** One `docker` call's outcome: lib/engine/environment/backing.ts and lib/engine/environment/backing-db.ts. */
 export interface DockerResult {
   ok: boolean;
   stdout: string;
@@ -991,7 +991,7 @@ export interface BackingDownResult {
   error?: string;
 }
 
-/** What Forge last did to a job's environment: lib/environment-record.ts. */
+/** What Forge last did to a job's environment: lib/engine/environment/record.ts. */
 export type EnvironmentState = 'running' | 'stopped';
 
 export interface EnvironmentEntry {
@@ -1010,7 +1010,7 @@ export type EnvironmentUpTrigger = 'verify' | 'run' | 'focus' | 'worktree' | 'st
 export type EnvironmentStopTrigger = 'park' | 'evict' | 'cli' | 'done' | 'cancelled';
 export type EnvironmentDownTrigger = 'done' | 'cancelled' | 'archive' | 'cli';
 
-/** Ensure up: lib/environment-lifecycle.ts ensureEnvironment. `backing` lists each service as `forge backing up` does. */
+/** Ensure up: lib/engine/environment/lifecycle.ts ensureEnvironment. `backing` lists each service as `forge backing up` does. */
 export interface EnvironmentUpResult {
   ok: boolean;
   backing: BackingUpEntry[];
@@ -1048,7 +1048,7 @@ export interface CliContext {
   initialized: boolean;
 }
 
-/** One command's outcome from `dispatch` in lib/cli.ts: `main` prints `data` unless the command `printed` itself. */
+/** One command's outcome from `dispatch` in lib/cli/main.ts: `main` prints `data` unless the command `printed` itself. */
 export interface Dispatched {
   data?: unknown;
   exitCode: number;
@@ -1056,7 +1056,7 @@ export interface Dispatched {
   printed?: true;
 }
 
-/** The dispatcher, passed in so lib/commands/ never imports lib/cli.ts. */
+/** The dispatcher, passed in so lib/cli/commands/ never imports lib/cli/main.ts. */
 export type Dispatch = (argv: string[], ctx: CliContext) => Promise<Dispatched>;
 
 /** One command `forge job advance` ran: `result`/`error` are one line of at most 200 characters. */
@@ -1069,9 +1069,9 @@ export interface AdvanceRan {
   tell?: string;
 }
 
-/** The `error` object `forge … --json` prints on stdout when a command fails: toCliError in lib/commands/help.ts. */
+/** The `error` object `forge … --json` prints on stdout when a command fails: toCliError in lib/cli/commands/help.ts. */
 export interface CliError {
-  /** One of ERROR_CODES in lib/util.ts. */
+  /** One of ERROR_CODES in lib/core/errors.ts. */
   code: string;
   message: string;
   /** The process exit code. */
@@ -1080,7 +1080,7 @@ export interface CliError {
   hint: string | null;
 }
 
-/** One row of `forge status --json`: statusRows in lib/commands/status.ts. */
+/** One row of `forge status --json`: statusRows in lib/cli/commands/status.ts. */
 export interface StatusRow {
   id: string;
   stage: Stage;
@@ -1118,7 +1118,7 @@ export interface HelpGroup {
   commands: CommandHelp[];
 }
 
-/** What archived a job: `forge job archive`, `forge job prune`, or the retention policy (lib/retention.ts). */
+/** What archived a job: `forge job archive`, `forge job prune`, or the retention policy (lib/engine/ops/retention.ts). */
 export type RetentionTrigger = 'cli' | 'prune' | 'policy';
 
 /** The facts an archive record keeps beside the raw job and events, so readers need no job dir. */

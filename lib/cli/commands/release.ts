@@ -1,5 +1,5 @@
 // `forge release plan|run|status`: a release a human runs from the CLI, single- or multi-repo
-// (lib/release-plan.ts plans it, lib/release-run.ts runs it; docs/RELEASES.md "Releasing a project").
+// (lib/engine/release/plan.ts plans it, lib/engine/release/run.ts runs it; docs/RELEASES.md "Releasing a project").
 import readline from 'node:readline/promises';
 import { refuseRun, releaseStatus, runRelease } from '../../engine/release/run.ts';
 import { noteReleasePlanned } from '../../engine/release/approval.ts';

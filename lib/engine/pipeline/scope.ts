@@ -90,7 +90,7 @@ function cleanToken(raw: string): string | null {
   for (let prev = ''; prev !== t; ) {
     prev = t;
     t = t.replace(/^["'`([]+/, '').replace(/\)\*+$/, ')').replace(/["'`)\]]+$/, '').replace(/[.,;:]+$/, '');
-    // Markdown emphasis wrapping a word (`**lib/x.mjs**`) is not a glob.
+    // Markdown emphasis wrapping a word (`**src/x.mjs**`) is not a glob.
     for (const m of ['**', '__', '*', '_']) if (t.length > 2 * m.length && t.startsWith(m) && t.endsWith(m)) t = t.slice(m.length, -m.length);
   }
   t = t.replace(/:\d+(?:-\d+)?$/, '').replace(/#L\d+(?:-L?\d+)?$/, '').replace(/^\.\//, '');
@@ -99,7 +99,7 @@ function cleanToken(raw: string): string | null {
   return t;
 }
 
-/** One level of brace expansion: `lib/{a,b}.mjs` → `lib/a.mjs`, `lib/b.mjs`. */
+/** One level of brace expansion: `src/{a,b}.mjs` → `src/a.mjs`, `src/b.mjs`. */
 function expandBraces(t: string): string[] {
   const m = /^(.*?)\{([^{}]*,[^{}]*)\}(.*)$/.exec(t);
   return m ? m[2].split(',').map((alt) => m[1] + alt + m[3]) : [t];

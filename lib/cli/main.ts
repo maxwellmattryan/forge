@@ -3,7 +3,7 @@
 // Output is compact JSON (or a terse table for `status`) to keep orchestrator context small: that is
 // agent mode. Human mode, for a person at a terminal, renders the same results as text; main()
 // resolves the mode once per process (docs/CLI.md "Output mode").
-// Command groups live in lib/commands/; this file only routes.
+// Command groups live in lib/cli/commands/; this file only routes.
 import { daemonTrust, loadConfig } from '../core/config/load.ts';
 import { refuseInOffice, refuseInboxDrive } from '../office/owner.ts';
 import { NEED_INIT } from '../core/config/set.ts';
@@ -93,7 +93,7 @@ export async function main(rawArgv: string[]): Promise<void> {
 /**
  * One command, returned instead of printed, so `forge job advance` can run step's commands
  * in-process. Commands that print for themselves (`config`, `dash`, `daemon log --follow`)
- * return `printed`; advance never runs those (runnableInProcess in lib/commands/advance.ts).
+ * return `printed`; advance never runs those (runnableInProcess in lib/cli/commands/advance.ts).
  */
 export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatched> {
   // Never resolves the output mode or the render key: advance runs step's commands here, in-process,
@@ -127,7 +127,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       return doctorCmd(ctx, pos.slice(1), flags);
     case 'status':
       needInit();
-      // Reading the mode is safe: status is not in ADVANCE_GROUPS (lib/commands/advance.ts), so it
+      // Reading the mode is safe: status is not in ADVANCE_GROUPS (lib/cli/commands/advance.ts), so it
       // only ever runs as the outer call, whose mode main() set.
       if (flags.json) return ok(statusRows(root, Boolean(flags.all)));
       return ok(outputMode() === 'human' ? statusView(root, Boolean(flags.all)) : statusTable(root, Boolean(flags.all)));

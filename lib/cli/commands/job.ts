@@ -58,7 +58,7 @@ const BODY: [string, string][] = [
   ['--body-file F', 'read the text from F (- for stdin)'],
 ];
 
-// In the order `forge job` lists its subcommands. `advance` is routed by lib/cli.ts but documented here.
+// In the order `forge job` lists its subcommands. `advance` is routed by lib/cli/main.ts but documented here.
 const JOB: HelpGroup = {
   name: 'job',
   summary: "one job's state, agents and reviews; forge job step <id> returns its next action",

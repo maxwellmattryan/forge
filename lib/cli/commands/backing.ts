@@ -1,4 +1,4 @@
-// `forge backing up|down|stop|status`: a job's backing services on demand (lib/backing.ts, docs/CONFIG.md
+// `forge backing up|down|stop|status`: a job's backing services on demand (lib/engine/environment/backing.ts, docs/CONFIG.md
 // "Backing services"). worktree create and remove do the same bring-up and teardown on their own.
 import { backingDown, backingDownShared, backingStatus, backingStop, backingUp } from '../../engine/environment/backing.ts';
 import { refuseInboxDrive, refuseInboxOrOffice } from '../../office/owner.ts';

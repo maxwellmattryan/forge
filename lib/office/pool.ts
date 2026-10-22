@@ -1,6 +1,6 @@
 // The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests
 // with no job, an office session for gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job sessions, each spawned on demand for the job
-// its requests name. Sessions fail, hold and stop on their own (lib/daemon.ts); the pool owns what
+// its requests name. Sessions fail, hold and stop on their own (lib/office/session/lifecycle.ts); the pool owns what
 // is repo-wide: the trust snapshot, routing, the cap and the stops config changes force.
 // docs/ARCHITECTURE.md "Daemon" describes the rules.
 import { spawn } from 'node:child_process';
@@ -307,13 +307,13 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
     tick();
   }
 
-  /** Every job session's facts, by job id: what judge (lib/reconcile.ts) reads beside job.json and the requests. */
+  /** Every job session's facts, by job id: what judge (lib/office/reconcile.ts) reads beside job.json and the requests. */
   function sessionFacts(): Map<string, SessionFacts> {
     return new Map(jobSessions().map((s) => [s.scope, s.facts()]));
   }
 
   /**
-   * One reconciler pass (lib/reconcile.ts), for every job or only `only`. Never throws: a failed
+   * One reconciler pass (lib/office/reconcile.ts), for every job or only `only`. Never throws: a failed
    * pass is logged once per distinct failure and retried at the next timer.
    */
   function runReconcile(only?: string): void {

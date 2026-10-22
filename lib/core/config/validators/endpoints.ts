@@ -1,4 +1,4 @@
-// The config-time half of lib/endpoints.ts: the env name of a component and the problems with the
+// The config-time half of lib/engine/environment/endpoints.ts: the env name of a component and the problems with the
 // `{endpoint.<c>}` / `{backing.<n>.*}` placeholders a config's templates use. Imports nothing that
 // reads job state, so config-validate.ts can import it (endpoints.ts would cycle through jobs.ts).
 import { isManaged } from './backing.ts';

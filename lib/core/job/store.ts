@@ -201,7 +201,7 @@ export function logRepoEvent(root: string, type: string, data: Record<string, an
 
 /**
  * A human action's event: logEvent plus who did it. The actor defaults to this process's
- * (lib/actor.ts), resolved only now, so paths that write no human event never call gh or git.
+ * (lib/integrations/github/actor.ts), resolved only now, so paths that write no human event never call gh or git.
  */
 export function logHumanEvent(root: string, id: string, type: string, data: Record<string, any> = {}, actor: EventActor = currentActor(root)): void {
   logEvent(root, id, type, { ...data, actor });
@@ -725,7 +725,7 @@ export function parseReview(text: string): { declared: string | null; counts: Re
 
 /**
  * One review-format file's verdict under `blockOn`: the counting roundVerdicts applies to a lens's
- * review, and verifiersRecord (lib/verifiers.ts) to the verifiers report, so both block alike.
+ * review, and verifiersRecord (lib/engine/pipeline/verifiers.ts) to the verifiers report, so both block alike.
  */
 export function fileVerdict(
   text: string,

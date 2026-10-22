@@ -1,8 +1,8 @@
 // Interim strategies: what a multi-repo job's consumer PR points at while its dependency's change is
 // unmerged or unreleased (docs/CONFIG.md "Interim strategies"). Each dependency repo resolves to one
 // of `local`, `sequential`, `git-ref` or `canary`: the job's override, then config, then `local`.
-// Pure: no fs or git here, so lib/step/stages/pr.ts can import it. The git-dependent states (`stale`, and
-// `ready` for git-ref and canary) and every write live in lib/interim-apply.ts.
+// Pure: no fs or git here, so lib/engine/pipeline/step/stages/pr.ts can import it. The git-dependent states (`stale`, and
+// `ready` for git-ref and canary) and every write live in lib/engine/release/interim-apply.ts.
 
 import path from 'node:path';
 import { INTERIM_STRATEGIES, isInterimStrategy, isLinkName } from '../../core/config/components.ts';

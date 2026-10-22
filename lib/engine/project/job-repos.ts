@@ -1,7 +1,7 @@
 // Job repos: the member repos (config `repos`) one job changes beside the root repo. `job.repos[0]`
-// mirrors the root's top-level fields (lib/schema.ts cleanRepos); entries 1..n are members, added
+// mirrors the root's top-level fields (lib/core/job/schema.ts cleanRepos); entries 1..n are members, added
 // and removed by a human (`forge job repo add|remove`), or added once by intake to the job it creates
-// from a member repo's issue (lib/member-trackers.ts). job.json is writable by the session,
+// from a member repo's issue (lib/engine/project/member-trackers.ts). job.json is writable by the session,
 // so nothing here trusts a stored clone path or worktree: the clone is recomputed from config plus
 // `.forge/local.yml` every time, and a stored worktree is used only when it is the path Forge computes.
 

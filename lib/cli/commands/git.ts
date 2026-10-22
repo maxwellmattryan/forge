@@ -20,7 +20,7 @@ import { ForgeError } from '../../core/errors.ts';
 import { usageError } from './args.ts';
 import type { CommandHelp, Config, HelpGroup, Job, ProtectedHit } from '../../core/types.ts';
 
-// Re-exported: callers (and tests) imported it from here before it moved to lib/paths.ts.
+// Re-exported: callers (and tests) imported it from here before it moved to lib/core/paths.ts.
 export { resolveWorktreePaths };
 
 const READ_SUBCOMMANDS: string[] = ['diff', 'log', 'show', 'range-diff'];

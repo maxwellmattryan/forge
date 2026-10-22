@@ -28,7 +28,7 @@ export interface ForgePaths {
   dir: string;
   config: string;
   jobs: string;
-  /** Archive records of finished jobs (lib/archive.ts); gitignored like jobs/. */
+  /** Archive records of finished jobs (lib/core/job/archive.ts); gitignored like jobs/. */
   archive: string;
   locks: string;
   runtime: string;

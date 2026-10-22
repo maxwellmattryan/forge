@@ -62,7 +62,7 @@ export type CreateWorktreeResult =
       path: string;
       created: true;
       port: number;
-      /** One port per port-bearing component (lib/ports.ts); `port` is the first entry's. */
+      /** One port per port-bearing component (lib/engine/environment/ports.ts); `port` is the first entry's. */
       ports: Record<string, number>;
       stackedOn?: string;
       base?: string;
@@ -119,7 +119,7 @@ export interface VerifyResult {
   protected: CompactProtected;
   /** One record per member repo, only when the job has members. */
   repos?: VerifyRunRepo[];
-  /** One record per downstream consumer (lib/downstream.ts), only when the job has any. */
+  /** One record per downstream consumer (lib/engine/project/downstream.ts), only when the job has any. */
   downstream?: { repo: string; ok: boolean; failure: string | null }[];
   budget?: NonNullable<ReturnType<typeof enforceBudget>>;
 }
@@ -637,7 +637,7 @@ export async function runCommandAsync(root: string, config: Config, id: string, 
  * otherwise cost a full round of reviewer agents. Every run is evidence bound to the commit
  * it checked: it records the HEAD sha and keeps earlier attempts instead of overwriting them.
  * Uncommitted changes fail the gate first, because reviewers and the PR only ever see commits.
- * The secret scan (lib/secrets.ts) runs next, always; under `verifySecrets: block` a finding stops
+ * The secret scan (lib/engine/guard/secrets.ts) runs next, always; under `verifySecrets: block` a finding stops
  * every configured step, though the integrity report is still computed. A `verify` entry that is a list runs its steps at the same time; the next entry waits for all of
  * them, and none runs after a group with a failure. Results stay in config order whatever finishes
  * first, so `failure` is the first failing step as configured, not the first to fail.
@@ -1112,7 +1112,7 @@ export function parseDevProbe(stdout: string): { pgid: number; tty: boolean; sta
 /**
  * Whether runtime.json's dev record names the dev server Forge started for this job. The record is in
  * the job dir, which the job's agents can write, so it is proved rather than trusted (as isOurChild in
- * lib/daemon.ts proves a session): the pid is not 1 or ours, leads its own group and has no controlling
+ * lib/office/session/lifecycle.ts proves a session): the pid is not 1 or ours, leads its own group and has no controlling
  * terminal (startBackground spawns detached, which starts a new session; a shell the human opened in the
  * worktree, and anything it runs, keeps its terminal), is not our group, started within 30 s of
  * `startedAt`, and runs inside the job's contained worktree. The command line is not compared:

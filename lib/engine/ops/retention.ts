@@ -1,7 +1,7 @@
 // Retention: archive finished jobs into compact records, delete stale daemon session logs, and
 // apply the human's `retention` policy. Everything here deletes files, so every path is built from
 // a validated id or scope, checked with lstat, and never followed through a symlink. The read side
-// (archive records) lives in lib/archive.ts so stats, audit, retro and deps need not import this.
+// (archive records) lives in lib/core/job/archive.ts so stats, audit, retro and deps need not import this.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -174,7 +174,7 @@ export interface ArchiveOpts {
  * event (so it is inside the record), writes `.forge/archive/<id>.json`, then deletes the job dir.
  * The record lands before the delete, so a crash leaves both copies and readers prefer the live one.
  * Throws a refusal (exit 1) with nothing written when the job is not eligible. An eligible job's
- * environment is torn down first (lib/environment-lifecycle.ts); when that fails it throws a TeardownRefusal
+ * environment is torn down first (lib/engine/environment/lifecycle.ts); when that fails it throws a TeardownRefusal
  * and keeps the job dir, so its records are never deleted while containers may still exist.
  */
 export function archiveJob(root: string, id: string, trigger: RetentionTrigger, opts: ArchiveOpts = {}): ArchiveResult['archived'][number] {

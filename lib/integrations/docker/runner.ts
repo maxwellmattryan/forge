@@ -1,4 +1,4 @@
-// The one place a docker process starts in lib/: a sync runner (lib/backing.ts), an async one and a
+// The one place a docker process starts in lib/: a sync runner (lib/engine/environment/backing.ts), an async one and a
 // streaming spawn (the dashboard server). Docker's state is read from the result's fields, never
 // from its message text.
 import { execFile, spawn } from 'node:child_process';

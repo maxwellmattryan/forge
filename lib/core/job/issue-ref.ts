@@ -1,7 +1,7 @@
 // A job's issues are tracker-neutral, repo-qualified refs (`owner/repo#12`, `KEY-123`, a backlog
 // slug). This is the pure half: the grammar, which issues this repo's tracker owns, and the job-id
-// rule. It has no runtime imports, like lib/issue-link.ts, because lib/pr.ts, lib/server.ts and the
-// trackers all import it. lib/repo-slug.ts reads the slug every function here takes.
+// rule. It has no runtime imports, like lib/core/job/issue-link.ts, because lib/engine/pr/lifecycle.ts, lib/server/start.ts and the
+// trackers all import it. lib/integrations/git/repo-slug.ts reads the slug every function here takes.
 import type { Job, JobIssue } from '../types.ts';
 
 /** A tracker ref as `forge job link` and the dashboard accept it (after a leading `#` is stripped). */
@@ -21,7 +21,7 @@ const CONTROL = /[\x00-\x1f\x7f\u2028\u2029]/;
 export interface IssueRefOpts {
   /** The tracker kind the ref is for: `github`, `local`, `none` or a custom adapter's name. */
   tracker: string;
-  /** This repo's `owner/repo` (lib/repo-slug.ts), or null when none is known. */
+  /** This repo's `owner/repo` (lib/integrations/git/repo-slug.ts), or null when none is known. */
   slug: string | null;
 }
 

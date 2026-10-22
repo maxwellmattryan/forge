@@ -31,7 +31,7 @@ export const SECRET_KINDS = [
   'bearer-token',
   'url-credential',
   'high-entropy',
-  // An exact occurrence of a job's known value (lib/known-secrets.ts): never a false positive.
+  // An exact occurrence of a job's known value (lib/engine/guard/known-secrets.ts): never a false positive.
   'known-secret',
 ] as const;
 

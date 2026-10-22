@@ -1,5 +1,5 @@
-// `forge secrets scan`: what the secret scanner (lib/secrets.ts) finds in a job's branch and PR
-// text, or in the main checkout's tracked files. This module, not lib/secrets.ts, imports lib/pr.ts:
+// `forge secrets scan`: what the secret scanner (lib/engine/guard/secrets.ts) finds in a job's branch and PR
+// text, or in the main checkout's tracked files. This module, not lib/engine/guard/secrets.ts, imports lib/engine/pr/lifecycle.ts:
 // pr.ts imports the scanner.
 import { loadJob } from '../../core/job/store.ts';
 import { exists } from '../../core/paths.ts';

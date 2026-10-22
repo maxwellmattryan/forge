@@ -1,5 +1,5 @@
 // `forge init write` and `forge migrate`: setting a repo up and keeping its files current.
-// `forge doctor` lives in lib/doctor.ts, which the dashboard's /api/doctor shares.
+// `forge doctor` lives in lib/engine/ops/doctor.ts, which the dashboard's /api/doctor shares.
 import fs from 'node:fs';
 import path from 'node:path';
 import { defaults, stringifyConfig, validateConfig } from '../../core/config/load.ts';

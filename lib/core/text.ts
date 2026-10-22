@@ -125,7 +125,7 @@ export function shellArgs(args: string[]): string {
 }
 
 export function fill(template: string, vars: Record<string, string | number>): string {
-  // Dotted keys for `{endpoint.<component>}` and `{backing.<name>.port}` (lib/endpoints.ts).
+  // Dotted keys for `{endpoint.<component>}` and `{backing.<name>.port}` (lib/engine/environment/endpoints.ts).
   return template.replace(/\{([\w./-]+)\}/g, (m, k) => (Object.hasOwn(vars, k) ? String(vars[k]) : m));
 }
 

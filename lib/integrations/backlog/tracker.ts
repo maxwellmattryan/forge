@@ -8,7 +8,7 @@
 //     Needs info: acceptance criteria or a reproduction
 //
 // "[ ]" is ready, "[~]" is claimed by a job, "[x]" is done, "[-]" is dropped, and "[?]" needs info
-// (readiness triage, lib/triage.ts). Triage writes one indented `Needs info: …` line under such an
+// (readiness triage, lib/engine/trackers/triage.ts). Triage writes one indented `Needs info: …` line under such an
 // item; that line is Forge's, never part of the item's body.
 // An item's ref is the slug of its title, so refs survive reordering.
 import fs from 'node:fs';

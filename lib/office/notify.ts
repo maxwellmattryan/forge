@@ -446,7 +446,7 @@ export async function notifyChecks(config: Pick<Config, 'notify'>, opts: { timeo
 }
 
 // jobs.ts sits below this module, so it can't call queueNotify itself: it calls this hook once per
-// transition instead. Every `forge` process loads this module (lib/cli.ts imports commands/notify.ts),
+// transition instead. Every `forge` process loads this module (lib/cli/main.ts imports commands/notify.ts),
 // so no state change goes unnoticed.
 onTransition((root, job, from, to) => {
   const n = transitionEvents(from, to, job);

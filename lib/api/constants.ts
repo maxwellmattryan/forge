@@ -1,9 +1,9 @@
-// The runtime lists the /api shapes in api-types.ts derive from, plus the two daemon scopes the
-// dashboard pins. This file imports nothing, so the dashboard can type-check api-types.ts without
+// The runtime lists the /api shapes in types.ts derive from, plus the two daemon scopes the
+// dashboard pins. This file imports nothing, so the dashboard can type-check types.ts without
 // Node's types. schema.ts, requests.ts and components.ts re-export what they used to define here.
 
 /**
- * Where an event's `actor` came from: lib/actor.ts resolves env, gh, git, os and dashboard; the
+ * Where an event's `actor` came from: lib/integrations/github/actor.ts resolves env, gh, git, os and dashboard; the
  * foreman's decisions say `foreman`; anything Forge cannot vouch for reads as `unknown`.
  */
 export const ACTOR_SOURCES = ['env', 'gh', 'git', 'os', 'dashboard', 'foreman', 'unknown'] as const;
@@ -58,7 +58,7 @@ export const COMPLEXITIES = ['low', 'medium', 'high'] as const;
 /**
  * The gate classes the foreman may decide (foreman.decides); `pr-feedback` is a pr-review wait with
  * feedback, `repo-proposal` a `human` wait with pending repo proposals, and `release` a job's release
- * plan awaiting approval (lib/release-approval.ts), which no job waits on.
+ * plan awaiting approval (lib/engine/release/approval.ts), which no job waits on.
  */
 export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release'] as const;
 
@@ -77,5 +77,5 @@ export const OFFICE_SCOPE = '_office';
 
 export const COMPONENT_KINDS = ['library', 'service', 'app'] as const;
 export const DEPENDENCY_TYPES = ['build', 'runtime'] as const;
-/** What a consumer's PR points at while its dependency is unmerged (lib/interim.ts, docs/CONFIG.md "Interim strategies"). */
+/** What a consumer's PR points at while its dependency is unmerged (lib/engine/release/interim.ts, docs/CONFIG.md "Interim strategies"). */
 export const INTERIM_STRATEGIES = ['canary', 'git-ref', 'local', 'sequential'] as const;

@@ -1,4 +1,4 @@
-// A minimal zip writer for the support bundle (lib/bundle.ts): Forge has no runtime dependencies,
+// A minimal zip writer for the support bundle (lib/engine/ops/bundle.ts): Forge has no runtime dependencies,
 // and zlib gives deflate and CRC-32. Pure: it builds the archive in memory and never touches fs.
 // No zip64, encryption or extra fields: the bundle's entries are capped far below those limits.
 import zlib from 'node:zlib';

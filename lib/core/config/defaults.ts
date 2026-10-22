@@ -187,7 +187,7 @@ export function defaults(): Config {
     checkout: [],
     backing: [],
     secrets: {},
-    // A changed library's linked consumers join the job as verify-only repos (lib/downstream.ts).
+    // A changed library's linked consumers join the job as verify-only repos (lib/engine/project/downstream.ts).
     downstream: { enabled: true, max: 5, skip: [] },
     infra: {
       mode: 'human',
@@ -250,7 +250,7 @@ export function defaults(): Config {
       // would silently bill it instead of the subscription.
       auth: 'subscription',
       // With the daemon on, fills a job's spend limits when none of tokens, usd or minutes is set
-      // anywhere (lib/budget.ts effectiveLimits); null turns it off.
+      // anywhere (lib/engine/metrics/budget.ts effectiveLimits); null turns it off.
       jobBudget: { tokens: 600000000, usd: 150 },
     },
     // Opt-in: the `_office` daemon session decides gates through forge:assistant sub-agents;

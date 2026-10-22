@@ -1,6 +1,6 @@
 // Job databases (docs/CONFIG.md "Backing services"): a shared Postgres entry with `database` gives
 // each job its own database and login role on the one server, cloned from a template database the
-// project's migrate and seed commands build. A leaf beside lib/backing.ts, which passes in the docker
+// project's migrate and seed commands build. A leaf beside lib/engine/environment/backing.ts, which passes in the docker
 // runner, the container and a command callback, so this module never imports backing.ts or worktree.ts.
 //
 // Every name is derived (from the job id, or the hash of what builds the template), checked against
@@ -105,7 +105,7 @@ function verifierLit(v: string): string {
  * output is pinned: the worktree is agent-writable.
  */
 function inputFiles(worktree: string, inputs: string[]): [string, string][] {
-  // Beyond lib/git.ts's own pins: no hook dir, and no untracked cache that could hide a file.
+  // Beyond lib/integrations/git/runner.ts's own pins: no hook dir, and no untracked cache that could hide a file.
   const pins = ['-c', `core.hooksPath=${os.devNull}`, '-c', 'core.untrackedCache=false'];
   const r = git(undefined, ['-C', worktree, ...pins, 'ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...inputs.map((g) => `:(glob)${g}`)], { allowFail: true });
   if (!r.ok) throw new ForgeError(`git ls-files failed for database inputs: ${tail(r.stderr || `exited ${r.status}`, 3).trim()}`);

@@ -1,8 +1,8 @@
 // The repo spend ledger: every job's agent-end usage, re-priced with today's table and bucketed by
-// UTC day, role and model, across live jobs and archive records. The repo budget (lib/repo-budget.ts)
+// UTC day, role and model, across live jobs and archive records. The repo budget (lib/engine/metrics/repo-budget.ts)
 // and `forge stats --csv` read it. `.forge/runtime/spend.json` caches each job's buckets keyed by
 // its events file's size and mtime, so a check re-parses only the jobs that changed. It is not in
-// lib/pricing.ts because jobs.ts imports pricing.ts, and the ledger needs jobs.ts and the archive.
+// lib/integrations/claude/pricing.ts because jobs.ts imports pricing.ts, and the ledger needs jobs.ts and the archive.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';

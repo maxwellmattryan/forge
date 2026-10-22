@@ -1,10 +1,10 @@
-// notify.* validation, apart from lib/notify.ts so lib/config-validate.ts can import it without pulling in
-// the delivery code (which imports lib/jobs.ts, which imports lib/config.ts).
+// notify.* validation, apart from lib/office/notify.ts so lib/core/config/validate.ts can import it without pulling in
+// the delivery code (which imports lib/core/job/store.ts, which imports lib/core/config/load.ts).
 import { NOTIFY_EVENTS, NOTIFY_FORMATS } from '../../job/schema.ts';
 import { isMap } from '../../shape.ts';
 import type { Config, NotifyWebhook } from '../../types.ts';
 
-/** The {placeholders} notify.command may use; each becomes a quoted reference to its environment variable (lib/notify.ts commandSource). */
+/** The {placeholders} notify.command may use; each becomes a quoted reference to its environment variable (lib/office/notify.ts commandSource). */
 const NOTIFY_PLACEHOLDERS = ['event', 'job', 'title', 'url', 'stage', 'reason', 'dashboardUrl'] as const;
 
 const WEBHOOK_KEYS = new Set(['url', 'events', 'format']);

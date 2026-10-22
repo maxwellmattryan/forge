@@ -1,5 +1,5 @@
 // ANSI styles and terminal-safe text for human output. A leaf below the CLI layer, so the activity
-// feed (lib/activity.ts) and the renderers in lib/commands/ share it.
+// feed (lib/cli/activity.ts) and the renderers in lib/cli/commands/ share it.
 
 export type Style = (s: string) => string;
 
@@ -21,7 +21,7 @@ const hex = (c: string, width: number): string => c.charCodeAt(0).toString(16).p
  * Rendered text can come from tracker issues, PR comments and agent-written job state, so every
  * control a terminal acts on is shown as a visible escape: OSC 52 clipboard writes, title changes,
  * cursor moves and carriage returns could otherwise hide or forge lines. Only `\n` survives.
- * The set matches the title sanitising in lib/notify.ts, which deletes rather than escapes.
+ * The set matches the title sanitising in lib/office/notify.ts, which deletes rather than escapes.
  */
 export function sanitize(s: string): string {
   return s.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, (c) => `\\x${hex(c, 2)}`).replace(/[\u202a-\u202e\u2066-\u2069\u2028\u2029]/g, (c) => `\\u${hex(c, 4)}`);

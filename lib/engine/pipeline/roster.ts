@@ -1,6 +1,6 @@
 // The agent roster: every role's prompt, the model it runs on, and a content hash of the
 // prompt plus the repo's addendum for that role. Hashes let eval runs and retros attribute a
-// change in behaviour to a change in instructions; lib/provenance.ts computes them, so the roster
+// change in behaviour to a change in instructions; lib/engine/evals/provenance.ts computes them, so the roster
 // and every agent-start event never disagree.
 import fs from 'node:fs';
 import path from 'node:path';

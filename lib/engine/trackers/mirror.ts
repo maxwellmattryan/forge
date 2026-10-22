@@ -1,5 +1,5 @@
 // A job's state mirrored onto its linked issues, each in its own repo's tracker. Below the CLI
-// layer, so `forge job delete` (lib/delete.ts) and the tracker commands share it.
+// layer, so `forge job delete` (lib/engine/ops/delete.ts) and the tracker commands share it.
 import { isActive, listJobs, logEvent } from '../../core/job/store.ts';
 import { linkedIssues, nativeRef, sameIssue } from '../../core/job/issue-ref.ts';
 import { localRepoSlug } from '../../integrations/git/repo-slug.ts';

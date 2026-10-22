@@ -12,7 +12,7 @@ import { num, req, str } from './args.ts';
 import type { AdvanceRan, CliContext, Dispatch, Dispatched, Job } from '../../core/types.ts';
 
 /**
- * The command groups advance runs: every group lib/step/ emits. Anything else (config writes,
+ * The command groups advance runs: every group lib/engine/pipeline/step/ emits. Anything else (config writes,
  * commands that print for themselves, trackers, a nested advance) stays a separate call.
  */
 export const ADVANCE_GROUPS = ['job', 'worktree', 'pr', 'verify', 'verifiers', 'integrate', 'run', 'stop', 'environment', 'eval'] as const;
@@ -101,7 +101,7 @@ export async function advance(ctx: CliContext, id: string, opts: { session: stri
 
 /**
  * Logs an `advance-failed` event, and parks the job on escalation when the same rule and command
- * already failed with no pipeline progress since (progressMark in lib/reconcile.ts): a session that stopped there
+ * already failed with no pipeline progress since (progressMark in lib/office/reconcile.ts): a session that stopped there
  * would leave the job running with nothing to drive it, so the gate hands it to the foreman instead.
  * The running check is made under the job lock: a job a human or another session moved since the
  * events were read is left exactly as it is. `hooks.beforePark` is a test seam, run just before.

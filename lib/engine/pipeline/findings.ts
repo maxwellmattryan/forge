@@ -52,7 +52,7 @@ const MAX_FILE_BYTES = 1024 * 1024;
 const LENS = /^[a-z0-9][a-z0-9_-]*$/;
 const ROUND_DIR = /^round-([1-9]\d*)$/;
 // Every regex below runs over agent-written text, so each is linear: no two adjacent unbounded
-// runs can match the same characters (see the comment on HEADING in lib/acs.ts).
+// runs can match the same characters (see the comment on HEADING in lib/engine/pipeline/acs.ts).
 // `s`: a Unicode line separator inside a finding must not hide it.
 const REVIEW_LINE = /^\s*[-*]\s*\[(blocker|major|minor|nit)\](.*)$/is;
 // The lens may be qualified (`lib:realtime`): the `:` ends the bounded repo run, so it stays linear.

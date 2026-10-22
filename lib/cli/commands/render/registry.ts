@@ -1,5 +1,5 @@
 // The hand-written human-mode renderers, keyed by command path (docs/CLI.md "Output mode").
-// out() in lib/commands/args.ts looks the call's key up here; a missing key, or a renderer that
+// out() in lib/cli/commands/args.ts looks the call's key up here; a missing key, or a renderer that
 // returns null for a shape it doesn't know, falls back to the generic render() in ../render.ts.
 // Renderer modules import only ../render.ts, ./kit.ts and types (plus statsSections), never
 // args.ts or cli.ts, because args.ts imports this file.

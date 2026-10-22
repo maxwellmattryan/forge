@@ -422,7 +422,7 @@ export function statsByPrompt(root: string, opts: { role?: unknown; since?: stri
 const CSV_TOTALS = ['runs', 'tokens', 'input', 'output', 'cache_read', 'cache_write', 'usd'] as const;
 
 /**
- * `forge stats --csv`: the spend ledger (lib/spend.ts) by job, role, model or day, for finance. Every
+ * `forge stats --csv`: the spend ledger (lib/engine/metrics/spend.ts) by job, role, model or day, for finance. Every
  * job counts, evals and retros included, so the totals match `forge budget`.
  */
 export function statsCsv(root: string, config: Config, flags: Record<string, unknown>): string {

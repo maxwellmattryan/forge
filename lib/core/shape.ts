@@ -1,5 +1,5 @@
 // Shape helpers every validator and state writer shares: one definition each, so the prototype-key
-// guards can't drift between copies. Imports only util.ts, and util.ts must never import this file.
+// guards can't drift between copies. Imports only errors.ts, and errors.ts must never import this file.
 
 import { ForgeError } from './errors.ts';
 

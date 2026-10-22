@@ -1,5 +1,5 @@
-// `forge job step` lives in lib/step/: start at lib/step/order.ts, which walks the rule tables in
-// order. This file only re-exports what importers have always taken from lib/step.ts.
+// `forge job step` lives in lib/engine/pipeline/step/: start at lib/engine/pipeline/step/order.ts, which walks the rule tables in
+// order. This file only re-exports what importers have always taken from lib/engine/pipeline/step.ts.
 export { RULES } from './step/rules.ts';
 export type { Rule, RuleId, Table } from './step/rules.ts';
 export { PLAN_AUTO_CHARS, PLAN_AUTO_LINES, hasSpecDeltas, listLineCount, loadIntegrationTouched, loadStepInput, parsePlan, parseSpecHeader } from './step/input.ts';

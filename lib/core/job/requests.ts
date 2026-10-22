@@ -1,6 +1,6 @@
 // A small file-based inbox. The dashboard (or anything else) drops requests here; an
 // orchestrator session drains them: the human's own (`/forge requests`) or, with
-// `daemon.enabled`, the headless one `forge dash` supervises (lib/daemon.ts). Enqueueing only
+// `daemon.enabled`, the headless one `forge dash` supervises (lib/office/session/lifecycle.ts). Enqueueing only
 // writes a file, so nothing here starts a process.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -140,7 +140,7 @@ export function claimRequest(root: string, id: string, session: string, force = 
  * sessions mid-turn: a turn may run past CLAIM_STALE_MS, up to daemon.turnTimeoutMinutes), and is
  * off with `byAge: false` (a caller that can't see the dash's sessions while one runs). A request
  * requeued once before is rejected instead, so one that kills its session can't loop. `leaseOf`
- * reads a job's lease (lib/jobs.ts), which this module must not import; `note` logs on the
+ * reads a job's lease (lib/core/job/store.ts), which this module must not import; `note` logs on the
  * request's job after the lock is released.
  */
 export function requeueOrphans(

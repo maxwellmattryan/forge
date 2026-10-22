@@ -1,5 +1,5 @@
 // `forge doctor`: is this machine and repo ready for Forge, and with --bundle, a redacted support
-// bundle (lib/bundle.ts) a user can attach to a bug report. The manifest goes to stderr before the
+// bundle (lib/engine/ops/bundle.ts) a user can attach to a bug report. The manifest goes to stderr before the
 // file is written, so the user sees what it holds.
 import fs from 'node:fs';
 import path from 'node:path';

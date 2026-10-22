@@ -212,7 +212,7 @@ function broadBash(tool: string): boolean {
 /**
  * Modes that never approve more than allowedTools lists without a human: `default` asks one in the
  * dashboard (`manual` is the name claude now lists for it), `dontAsk` refuses. `auto` is left out:
- * only a human in the dashboard may put a session there (lib/daemon.ts PERMISSION_MODES).
+ * only a human in the dashboard may put a session there (lib/office/session/lifecycle.ts PERMISSION_MODES).
  */
 const SAFE_PERMISSION_MODES = ['dontAsk', 'default', 'manual', 'plan'];
 

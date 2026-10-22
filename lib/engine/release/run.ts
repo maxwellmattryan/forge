@@ -1,11 +1,11 @@
 // `forge release run` and `forge release status`: execute the release plan step by step with
 // checkpoints in `.forge/runtime/release/state.json`, stop on the first failure, and resume there.
-// What runs always comes from recomputing the plan (lib/release-plan.ts) from config and the clones:
+// What runs always comes from recomputing the plan (lib/engine/release/plan.ts) from config and the clones:
 // release.json and state.json are runtime files an agent session can write, so they are checked,
 // never trusted. Every step with a check runs the check first, so a step that happened (a publish
 // that crashed before its checkpoint) is never run twice. Publish steps ask on a TTY unless the
 // repo sets `release.publish: allow`; nothing here fakes a TTY or skips the question. Without a TTY,
-// the Foreman's approval of this exact plan (lib/release-approval.ts) stands in for the answer.
+// the Foreman's approval of this exact plan (lib/engine/release/approval.ts) stands in for the answer.
 
 import crypto from 'node:crypto';
 import { spawn as nodeSpawn } from 'node:child_process';

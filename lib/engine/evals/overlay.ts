@@ -40,7 +40,7 @@ const PANEL_KEYS = new Set(['name', 'always', 'when', 'model', 'effort', 'needsA
 // A lens name becomes a checklist file name, so it is one plain path segment.
 const LENS_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
-// lib/yaml.ts reads a `__proto__:` key as the parsed map's prototype, which Object.keys never shows,
+// lib/core/format/yaml.ts reads a `__proto__:` key as the parsed map's prototype, which Object.keys never shows,
 // so a map whose prototype isn't a plain one is refused rather than checked key by key.
 const plainMap = (v: unknown): v is Record<string, any> => isMap(v) && [Object.prototype, null].includes(Object.getPrototypeOf(v));
 

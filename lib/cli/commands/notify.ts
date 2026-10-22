@@ -1,5 +1,5 @@
 // `forge notify test|send`: a sample notification to every configured target, and the detached
-// sender lib/notify.ts queueNotify spawns. Delivery itself lives in lib/notify.ts.
+// sender lib/office/notify.ts queueNotify spawns. Delivery itself lives in lib/office/notify.ts.
 import { contextFor, deliver, isNotifyEvent, isReasonCode, notifyConfigured } from '../../office/notify.ts';
 import { NOTIFY_EVENTS } from '../../core/job/schema.ts';
 import type { CliContext, Dispatched, HelpGroup, NotifyEvent } from '../../core/types.ts';

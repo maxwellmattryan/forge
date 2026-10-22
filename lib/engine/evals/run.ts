@@ -75,7 +75,7 @@ export function forgeVersion(): string {
   return readJson(path.join(PLUGIN_ROOT, 'package.json'), { version: '0.0.0' }).version;
 }
 
-// The run stamps live in lib/provenance.ts beside the prompt hash; re-exported so imports keep working.
+// The run stamps live in lib/engine/evals/provenance.ts beside the prompt hash; re-exported so imports keep working.
 export { configHash, pluginHash };
 
 /**

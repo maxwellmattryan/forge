@@ -39,7 +39,7 @@ const isGithubSlug = (s: unknown): boolean => {
 
 /**
  * A `release` map: `interim` one of the strategies, and the release strategy keys
- * (lib/release-strategy.ts). The root's (top-level) is always a map once defaults fill it; a
+ * (lib/core/config/release-strategy.ts). The root's (top-level) is always a map once defaults fill it; a
  * member's may be absent, null, or a map without interim.
  */
 export function releaseProblems(r: unknown, at: string, optional = false): string[] {

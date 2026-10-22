@@ -1,7 +1,7 @@
 // A repo's release strategy (docs/CONFIG.md "Release strategy"): how it versions, which tool cuts a
 // release, where it publishes and how often. Validation here, and doctor's check that the declared
 // mechanism's tool is on this machine. Doctor only looks: it never runs `command` or the tool
-// (`forge release run` does, lib/release-run.ts).
+// (`forge release run` does, lib/engine/release/run.ts).
 
 import fs from 'node:fs';
 import path from 'node:path';

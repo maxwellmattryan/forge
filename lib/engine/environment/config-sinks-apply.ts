@@ -1,4 +1,4 @@
-// Renders a component's config sinks (lib/config-sinks.ts) into the job's worktree right before one
+// Renders a component's config sinks (lib/core/config/sinks.ts) into the job's worktree right before one
 // of its commands runs: env vars for the command, env files and config files written at 0o600
 // through a temp file plus rename, and project scripts run with the values. The checkout is hostile
 // (ARCHITECTURE.md "Untrusted input"): every output stays inside the job's own worktree, a symlink

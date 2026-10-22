@@ -1,8 +1,8 @@
 // A job's issues: searching a tracker for them and linking, unlinking, creating or waiving them. A job
 // may carry several issues (from this repo and others), and one issue may sit on several jobs; only
 // this repo's issues ever reach the tracker. The CLI owns all of this so the orchestrator never puts
-// request or issue text on a command line. The pure helpers are in lib/issue-link.ts and
-// lib/issue-ref.ts.
+// request or issue text on a command line. The pure helpers are in lib/core/job/issue-link.ts and
+// lib/core/job/issue-ref.ts.
 import fs from 'node:fs';
 import path from 'node:path';
 import { issueLinkStatus, queryTerms, scoreItems, searchTerms } from '../../core/job/issue-link.ts';

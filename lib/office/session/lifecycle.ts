@@ -1,4 +1,4 @@
-// One supervised headless session. `forge dash` runs a pool of these (lib/daemon-pool.ts): one for
+// One supervised headless session. `forge dash` runs a pool of these (lib/office/pool.ts): one for
 // the inbox and one per job with work. Each is a long-lived `claude -p --input-format stream-json`
 // child that, whenever its pool sees new work for its scope, gets the one fixed `/forge requests`
 // turn. A session never runs agents or writes job state itself: the claude child does, through the
@@ -59,13 +59,13 @@ export interface DaemonOptions {
   modeConfirmMs?: number;
   /** A turn's limit in ms, over daemon.turnTimeoutMinutes (tests). */
   turnTimeoutMs?: number;
-  /** How often a wanted pool reconciles (lib/reconcile.ts); 0 never does on a timer. */
+  /** How often a wanted pool reconciles (lib/office/reconcile.ts); 0 never does on a timer. */
   reconcileMs?: number;
-  /** The host platform; the pool refuses to start on native Windows (lib/platform.ts). */
+  /** The host platform; the pool refuses to start on native Windows (lib/core/os/platform.ts). */
   platform?: NodeJS.Platform;
-  /** Where a daemon stop is announced (lib/notify.ts queueNotify). */
+  /** Where a daemon stop is announced (lib/office/notify.ts queueNotify). */
   notify?: QueueNotify;
-  /** The known values a scope's log lines are redacted with (lib/known-secrets.ts scopeKnownValues). */
+  /** The known values a scope's log lines are redacted with (lib/engine/guard/known-secrets.ts scopeKnownValues). */
   redactor?: Redactor;
   /** How often the pool runs `forge sync` while it is wanted; 0 never does. */
   syncMs?: number;
@@ -176,7 +176,7 @@ export interface Session {
   /** Why it may not be evicted for a slot now: running agents of the job it drives. */
   keptBy(at?: number): 'agents' | null;
   state(): DaemonSessionState;
-  /** What the reconciler needs to judge its job (lib/reconcile.ts judge). */
+  /** What the reconciler needs to judge its job (lib/office/reconcile.ts judge). */
   facts(): SessionFacts;
   /**
    * Applies this tick's pending requests for the scope: prunes, holds, and says whether any is fresh.
@@ -249,7 +249,7 @@ export const PROMPT_TOOL = Object.freeze(['--permission-prompt-tool', 'stdio']);
 
 /**
  * The modes a human may switch one session to from the dashboard. `auto` is here but refused in
- * daemon.command (lib/config-trust.ts SAFE_PERMISSION_MODES): a repo's config can't put every session on
+ * daemon.command (lib/core/config/trust.ts SAFE_PERMISSION_MODES): a repo's config can't put every session on
  * every machine in it, but a human watching the dashboard may put one session there, for as long
  * as that `forge dash` runs. `bypassPermissions` never: claude refuses it on a session launched
  * without --dangerously-skip-permissions anyway.
@@ -463,7 +463,7 @@ export function sessionEnv(env: NodeJS.ProcessEnv, auth: DaemonAuth = 'subscript
   return out;
 }
 
-/** `daemon.command` split into words; see splitWords in lib/util.ts. */
+/** `daemon.command` split into words; see splitWords in lib/core/text.ts. */
 export function parseTemplate(template: string): string[] {
   return splitWords(template, 'daemon.command');
 }
@@ -553,7 +553,7 @@ const MAX_PAST_SESSION_IDS = 20;
 /**
  * The record after its session id becomes `next`: the old id (a uuid only, since the record is a
  * local file anyone with repo access can edit) joins `pastSessionIds`, deduped and capped. A record
- * runs one child at a time, so a past id names a session that has exited (lib/daemon-owner.ts).
+ * runs one child at a time, so a past id names a session that has exited (lib/office/owner.ts).
  */
 function withSessionId(info: any, next: string): any {
   const kept = [...(Array.isArray(info.pastSessionIds) ? info.pastSessionIds : []), info.sessionId].filter((s: unknown): s is string => typeof s === 'string' && UUID.test(s) && s !== next);
@@ -809,7 +809,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   /**
    * The child is gone, so nothing it held is driven: its job's lease expires when one of its ids
    * drives it (driver and epoch kept: anyone may now claim), and requests it claimed go back to
-   * pending (lib/requests.ts requeueOrphans). Never throws: an exit must finish.
+   * pending (lib/core/job/requests.ts requeueOrphans). Never throws: an exit must finish.
    */
   function letGo(reason: string): void {
     if (!fs.existsSync(root)) return;
