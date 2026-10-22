@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isRepoProposal, parseRepoProposals, pendingRepos, postRepoDecision, proposalTone } from '../dashboard/src/lib/repo-proposals.ts';
-import { inboxActions, inboxDoc, inboxKind, showsNote } from '../dashboard/src/lib/view.ts';
+import { inboxActions, inboxDoc, inboxKind, showsNote } from '../dashboard/src/lib/inbox.ts';
 
 const parked = { id: 'j', state: 'waiting', waitingOn: 'human', reason: 'repo proposal: lib, tools', round: 0 } as any;
 

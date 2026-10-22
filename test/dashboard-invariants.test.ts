@@ -23,9 +23,9 @@ const read = (rel: string) => fs.readFileSync(path.join(DASHBOARD, rel), 'utf8')
 /** A file under dashboard/src/. */
 const readSrc = (rel: string) => fs.readFileSync(path.join(SRC, rel), 'utf8');
 
-// ---------- 1. raw HTML and URLs: only the escape-first builders and safeUrl ----------
-// Svelte's {…} interpolation escapes by construction; these keep raw HTML confined to the escape-first builders
-// (md, budget*, screenshotsPanel), whose escaping dashboard-markdown, dashboard-budget and dashboard-ui-lib › screenshots pin.
+// ---------- 1. raw HTML and URLs: only the escape-first md() and safeUrl ----------
+// Svelte's {…} interpolation escapes by construction; these keep raw HTML confined to md(), the escape-first markdown
+// renderer, whose escaping dashboard-markdown pins. Anything else that needs markup is a component over a plain-TS model.
 
 /** Every .ts and .svelte file under dashboard/src, as paths relative to dashboard/. */
 const sources = () =>
@@ -36,7 +36,7 @@ const sources = () =>
     .sort();
 const componentFiles = () => sources().filter((f) => f.endsWith('.svelte'));
 /** The escape-first HTML builders; their output is the only raw HTML the app renders. */
-const BUILDERS = { md: 'markdown', budgetChip: 'budget', budgetCell: 'budget', budgetPanel: 'budget', screenshotsPanel: 'screenshots' };
+const BUILDERS = { md: 'markdown' };
 
 function htmlProblems(file: string, text: string) {
   const problems: string[] = [];
@@ -73,6 +73,8 @@ test('the {@html} guard rejects anything but one whole builder call', () => {
     assert.equal(htmlProblems('bad.svelte', head + bad).problems.length, 1, bad);
   }
   assert.equal(htmlProblems('bad.svelte', '{@html md(x)}').problems.length, 1, 'md must come from lib/markdown.ts');
+  const builder = `<script lang="ts">\n  import { budgetPanel } from '../lib/budget.ts';\n</script>\n{@html budgetPanel(j)}`;
+  assert.equal(htmlProblems('bad.svelte', builder).problems.length, 1, 'only md() is a builder, whatever lib a call comes from');
 });
 
 test('no raw HTML sinks in dashboard sources', () => {

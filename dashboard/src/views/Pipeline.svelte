@@ -7,12 +7,13 @@
   import JobsTable from '../components/JobsTable.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import type { ApiState } from '../lib/types.ts';
-  import { boardColumns, filterJobs, pipelineCounts, type BoardGroupId } from '../lib/view.ts';
+  import { boardColumns, filterJobs, pipelineCounts, type BoardGroupId } from '../lib/board.ts';
   import { workingCount } from '../lib/live.ts';
   import { S, req, setFilter, setLayout } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
 
-  let { data }: { data: ApiState } = $props();
+  // App renders a view only once S.data is loaded.
+  const data = $derived(S.data as ApiState);
   const counts = $derived(pipelineCounts(data.jobs));
   const jobs = $derived(filterJobs(data.jobs, S.filter));
   const FILTERS = ['active', 'waiting', 'done', 'all'] as const;

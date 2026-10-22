@@ -1,8 +1,8 @@
 // The job drawer's action dock: whether it shows and what it holds. The pure half of ActionDock.svelte.
 import { pendingPrompts } from './permissions.ts';
 import type { PendingPrompt } from './permissions.ts';
-import { isDependencyPark, needsHuman, resumeModel } from './view.ts';
-import type { ResumeModel } from './view.ts';
+import { isDependencyPark, needsHuman, resumeModel } from './job-state.ts';
+import type { ResumeModel } from './job-state.ts';
 import type { DaemonPoolState, Job, OwnerStatus } from './types.ts';
 
 export interface DockModel {

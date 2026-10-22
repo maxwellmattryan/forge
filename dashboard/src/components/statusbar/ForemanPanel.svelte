@@ -4,6 +4,7 @@
      foreman.enabled is locked in Settings and forge config set, so nothing here writes config. Session output is untrusted
      and renders through SessionLog's own rules. -->
 <script lang="ts">
+  import Chip from '../Chip.svelte';
   import PermissionPrompts from '../PermissionPrompts.svelte';
   import SessionLog from '../SessionLog.svelte';
   import { OFFICE_SCOPE } from '../../lib/types.ts';
@@ -24,7 +25,7 @@
 {#if foreman.on}
   <div class="flex min-h-0 flex-1 flex-col gap-3">
     <div class="flex shrink-0 flex-col items-start gap-1.5">
-      <span class="chip sm foreman">{$t('statusbar.foreman.tag')}</span>
+      <Chip extra="sm foreman" text={$t('statusbar.foreman.tag')} />
       <p class="text-sm text-muted">{$t('statusbar.foreman.about')}</p>
       {#if !foreman.daemon}<p class="text-sm text-muted">{@render howTo($t('statusbar.foreman.daemonOffHow'))}</p>{/if}
     </div>
@@ -33,7 +34,7 @@
   </div>
 {:else}
   <div class="flex flex-col items-start gap-2">
-    <span class="chip sm foreman off">{$t('statusbar.foreman.tag')}</span>
+    <Chip extra="sm foreman off" text={$t('statusbar.foreman.tag')} />
     <p class="text-sm">{$t('statusbar.foreman.about')}</p>
     <p class="text-sm text-muted">{$t('statusbar.foreman.offTitle')} {$t('statusbar.foreman.offBody')}</p>
     <p class="text-sm text-muted">{@render howTo($t('statusbar.foreman.offHow'))}</p>

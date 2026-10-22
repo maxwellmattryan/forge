@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ackPeriod, dayMeter, isRepoHold, meterFraction, meterTone, money, monthMeter, showRepoSection } from '../dashboard/src/lib/repo-budget.ts';
 import { sessionPill } from '../dashboard/src/lib/daemon.ts';
-import { inboxActions, inboxDoc, inboxKind, showsNote, stateText } from '../dashboard/src/lib/view.ts';
+import { inboxActions, inboxDoc, inboxKind, showsNote } from '../dashboard/src/lib/inbox.ts';
+import { stateText } from '../dashboard/src/lib/job-state.ts';
 import type { RepoBudgetStatus } from '../dashboard/src/lib/types.ts';
 
 const status = (over: Partial<RepoBudgetStatus> = {}): RepoBudgetStatus => ({

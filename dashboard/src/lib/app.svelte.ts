@@ -28,11 +28,14 @@ import { bundleFilename } from './diagnostics.ts';
 import { fetchEnvironments } from './environment.ts';
 import { pref } from './prefs.ts';
 import { toast } from './toast.svelte.ts';
-import { VIEWS, buildRequest, pickDrawerFile, queuedMessage, statsQuery } from './view.ts';
+import { VIEWS } from './nav.ts';
+import { buildRequest, queuedMessage } from './requests.ts';
+import { statsQuery } from './analytics.ts';
 import { addFlashes, changedJobs } from './live.ts';
 import { threadItems, threadMarks, threadOpening } from './thread.ts';
-import { DEFAULT_DRAWER_TAB, PANE_DEFAULT, clampPaneWidth, type DrawerTab } from './drawer.ts';
-import type { RequestBody, RequestInput, ViewId } from './view.ts';
+import { DEFAULT_DRAWER_TAB, PANE_DEFAULT, clampPaneWidth, pickDrawerFile, type DrawerTab } from './drawer.ts';
+import type { RequestBody, RequestInput } from './requests.ts';
+import type { ViewId } from './nav.ts';
 import { readSidebar, type SidebarState } from './sidebar.ts';
 
 const SIDE_START: SidebarState = readSidebar(pref.get);

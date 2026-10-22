@@ -6,7 +6,7 @@
 <script lang="ts">
   import IssueLinkActions from './IssueLinkActions.svelte';
   import RepoProposalActions from './RepoProposalActions.svelte';
-  import { inboxActions, inboxKind, notePlaceholder, showsNote, specLinkPending, type InboxAction } from '../lib/view.ts';
+  import { inboxActions, inboxKind, notePlaceholder, showsNote, specLinkPending, type InboxAction } from '../lib/inbox.ts';
   import { req } from '../lib/app.svelte.ts';
   import type { Job } from '../lib/types.ts';
 

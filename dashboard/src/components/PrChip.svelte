@@ -3,7 +3,7 @@
      itself one button that can't hold a link: there the chip is a span carrying `data-gh-href`, pointer-only like DepChips. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
-  import { prChipModel } from '../lib/view.ts';
+  import { prChipModel } from '../lib/job-state.ts';
   import { safeUrl } from '../lib/markdown.ts';
   import type { JobPr } from '../lib/types.ts';
 

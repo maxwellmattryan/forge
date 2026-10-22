@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { VERBS, commandKey, commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, scopeVerbs, scopedJob, shellEscape, shortcutAction, shortcutLabel, suggest } from '../dashboard/src/lib/command.ts';
-import { buildRequest } from '../dashboard/src/lib/view.ts';
+import { buildRequest } from '../dashboard/src/lib/requests.ts';
 
 const job = (id: string, state = 'running', extra: Record<string, unknown> = {}): any => ({ id, title: `Title of ${id}`, state, waitingOn: null, stage: 'build', ...extra });
 const JOBS = [

@@ -1,7 +1,7 @@
 // GitHub hover cards' pure rules: which links get a card, when it opens and closes, where it sits and how a preview's
 // state reads. The server parses the URL again (lib/github-preview.ts); this side only decides whether to ask.
 import type { GitHubChecks, GitHubPreview, GitHubPreviewResponse } from './types.ts';
-import type { Tone } from './view.ts';
+import type { Tone } from './job-state.ts';
 
 const OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 const NAME = /^[A-Za-z0-9._-]{1,100}$/;
