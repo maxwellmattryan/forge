@@ -1,50 +1,17 @@
 // The agent roster: every role's prompt, the model it runs on, and a content hash of the
 // prompt plus the repo's addendum for that role. Hashes let eval runs and retros attribute a
-// change in behaviour to a change in instructions.
-import crypto from 'node:crypto';
+// change in behaviour to a change in instructions; lib/provenance.ts computes them, so the roster
+// and every agent-start event never disagree.
 import fs from 'node:fs';
 import path from 'node:path';
-import { modelFor, resolveEffort, reviewerChecklist, validModel } from './config.ts';
+import { modelFor, resolveEffort, validModel } from './config.ts';
 import { learningSummary } from './learnings.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
+import { frontmatter, lensChecklist, promptHash } from './provenance.ts';
 import type { Config, PanelEntry, Roster, RosterModelBy } from './types.ts';
 import { readText } from './util.ts';
 
-function frontmatter(text: string): { meta: Record<string, string>; body: string } {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n?/);
-  if (!m) return { meta: {}, body: text };
-  const meta: Record<string, string> = {};
-  for (const line of m[1].split('\n')) {
-    const kv = line.match(/^(\w[\w-]*):\s*(.*)$/);
-    if (kv) meta[kv[1]] = kv[2].replace(/^["']|["']$/g, '');
-  }
-  return { meta, body: text.slice(m[0].length) };
-}
-
-const hash = (...parts: string[]): string => crypto.createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 12);
-
-/**
- * The main checkout's `.forge/verifiers/*.md`, sorted by name and framed by name and length: they
- * are the verifier agent's real instructions, so editing one changes its prompt hash.
- */
-export function verifierDigest(root: string): string {
-  const dir = paths(root).verifiers;
-  let names: string[] = [];
-  try {
-    names = fs.readdirSync(dir).filter((n) => n.endsWith('.md'));
-  } catch {}
-  names.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  const h = crypto.createHash('sha256');
-  for (const n of names) {
-    let body = '';
-    try {
-      // lstat: a symlinked verifier never runs, so only its name counts.
-      if (fs.lstatSync(path.join(dir, n)).isFile()) body = fs.readFileSync(path.join(dir, n), 'utf8');
-    } catch {}
-    h.update(`${n}\0${Buffer.byteLength(body)}\0`).update(body);
-  }
-  return h.digest('hex');
-}
+export { verifierDigest } from './provenance.ts';
 
 /** The builder's overrides as resolveModel reads them: an invalid value shows as null, as it resolves. */
 export function builderModelBy(config: Config): RosterModelBy {
@@ -62,16 +29,16 @@ export function roster(root: string, config: Config): Roster {
     .filter((f) => f.endsWith('.md'))
     .map((f) => {
       const role = f.replace(/\.md$/, '');
-      const { meta, body } = frontmatter(readText(path.join(agentsDir, f)));
+      const { meta } = frontmatter(readText(path.join(agentsDir, f)));
       const addendumFile = path.join(p.notes, `${role}.md`);
-      const addendum = readText(addendumFile);
       // No job: what a spawn gets before a job's own effort or complexity applies.
       const effort = resolveEffort(config, null, role);
       return {
         role,
         description: meta.description ?? '',
         model: config.runtime.models[role] ?? meta.model ?? 'inherit',
-        promptHash: role === 'verifier' ? hash(body, addendum, learnings, verifierDigest(root)) : hash(body, addendum, learnings),
+        // Null only for a file name that is no role (agentRoles' rule); the roster still lists it.
+        promptHash: promptHash(root, config, role) ?? '',
         addendum: exists(addendumFile) ? path.relative(root, addendumFile) : null,
         effort: effort.level,
         effortSource: effort.source,
@@ -79,7 +46,7 @@ export function roster(root: string, config: Config): Roster {
       };
     });
   const reviewers = (config.review.panel ?? []).map((r: PanelEntry) => {
-    const file = reviewerChecklist(root, r.name, r.checklist);
+    const { file, hash } = lensChecklist(root, config, r.name);
     const effort = resolveEffort(config, null, `reviewer:${r.name}`);
     return {
       name: r.name,
@@ -87,7 +54,7 @@ export function roster(root: string, config: Config): Roster {
       always: Boolean(r.always),
       when: r.when ?? null,
       checklist: file ? (file.startsWith(root) ? path.relative(root, file) : `plugin:reviewers/${path.basename(file)}`) : null,
-      checklistHash: file ? hash(readText(file)) : null,
+      checklistHash: hash,
       effort: effort.level,
       effortSource: effort.source,
     };

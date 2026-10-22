@@ -5,7 +5,7 @@ import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest, validateConfig } from '../lib/config.ts';
 import { CONFIG_DISCLOSURE, FIELDS, disclosureOf, redactedConfig, validateFieldValue } from '../lib/config-fields.ts';
-import { COMPLEXITIES, EFFORT_ROLES, EFFORTS } from '../lib/schema.ts';
+import { COMPLEXITIES, EFFORT_ROLES, EFFORTS, EVENT_SCHEMA_VERSION } from '../lib/schema.ts';
 import { setConfigValue } from '../lib/config-set.ts';
 import { applyOverlay, overlayProblems } from '../lib/eval-overlay.ts';
 import { getPath } from '../lib/util.ts';
@@ -203,7 +203,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
       const set = await s.cli({ FORGE_ACTOR: 'alice' }, 'config', 'set', 'runtime.effort', 'high');
       assert.equal(set.code, 0, set.err);
       const [first] = lines();
-      assert.deepEqual({ ...first, ts: undefined }, { v: 2, ts: undefined, type: 'config-set', key: 'runtime.effort', previous: null, value: 'high', changed: true, actor: { login: 'alice', source: 'env' } });
+      assert.deepEqual({ ...first, ts: undefined }, { v: EVENT_SCHEMA_VERSION, ts: undefined, type: 'config-set', key: 'runtime.effort', previous: null, value: 'high', changed: true, actor: { login: 'alice', source: 'env' } });
       const same = await s.cli({ FORGE_ACTOR: 'alice' }, 'config', 'set', 'runtime.effort', 'high');
       assert.equal(same.code, 0, same.err);
       assert.equal(lines().length, 1, 'an unchanged value appends nothing');

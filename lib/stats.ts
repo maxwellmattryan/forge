@@ -9,11 +9,13 @@ import { isForemanActor, listJobs, readEvents } from './jobs.ts';
 import { csvCell, parseAuditDate } from './audit.ts';
 import { LEDGER_BY, ledgerRows, spendLedger } from './spend.ts';
 import type { LedgerBy } from './spend.ts';
-import type { Config, Job, JobEvent, ReviewerStats, Stats, UsageRow, VerifierStats } from './types.ts';
+import { LENS_NAME } from './lens.ts';
+import { agentRoles } from './provenance.ts';
+import type { Config, Job, JobEvent, PromptCohort, PromptStats, ReviewerStats, Stats, UsageRow, VerifierStats } from './types.ts';
 import { ForgeError } from './util.ts';
 
 /** One job stats reads: live (its files on disk) or archived (its record), with the same accessors. */
-interface StatsSource {
+export interface StatsSource {
   job: Job;
   events: () => JobEvent[];
   findings: () => JobFindings;
@@ -59,16 +61,37 @@ export function addVerifierStats(into: Record<string, VerifierStats>, events: Jo
   }
 }
 
-export function computeStats(root: string, opts: { since?: string; includeEvals?: boolean; jobs?: Job[] } = {}): Stats {
+export interface StatsOpts {
+  since?: string;
+  includeEvals?: boolean;
+  jobs?: Job[];
+  /** The loaded config: the review panel decides which lenses a human delta's files count against. */
+  config?: Config;
+}
+
+export function computeStats(root: string, opts: StatsOpts = {}): Stats {
+  return statsFrom(statsSources(root, opts), opts);
+}
+
+/** The jobs stats reads, live and archived, filtered by kind and creation date; each is read lazily. */
+export function statsSources(root: string, opts: StatsOpts = {}): StatsSource[] {
   const since = opts.since ? Date.parse(opts.since) : 0;
-  const all: StatsSource[] = (opts.jobs ?? listJobs(root)).map((job) => ({ job, events: () => readEvents(root, job.id), findings: () => jobFindings(root, job.id), archived: false }));
+  const all: StatsSource[] = (opts.jobs ?? listJobs(root)).map((job) => {
+    // Memoised: per-job metrics (experiments, cohorts) read the same events more than once.
+    let events: JobEvent[] | null = null;
+    return { job, events: () => (events ??= readEvents(root, job.id)), findings: () => jobFindings(root, job.id), archived: false };
+  });
   // Jobs passed in are the whole population (tests, evals): no archives join them.
   if (!opts.jobs) {
     for (const a of listArchived(root)) all.push({ job: a.job, events: () => a.events, findings: () => a.summary.findings, archived: true });
     // listJobs' order, so sums of rounded values come out the same after a job moves to the archive.
     all.sort((a, b) => String(b.job.updatedAt).localeCompare(String(a.job.updatedAt)));
   }
-  const sources = all.filter(({ job: j }) => (opts.includeEvals || j.kind !== 'eval') && Date.parse((j.createdAt ?? 0) as string) >= since);
+  return all.filter(({ job: j }) => (opts.includeEvals || j.kind !== 'eval') && Date.parse((j.createdAt ?? 0) as string) >= since);
+}
+
+/** The metrics over exactly these sources: computeStats over a subset (one job, one prompt cohort). */
+export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' | 'config'> = {}): Stats {
   const jobs = sources.map((s) => s.job);
   const counts = { total: jobs.length, active: 0, done: 0, cancelled: 0, failed: 0, waiting: 0, archived: sources.filter((s) => s.archived).length };
   let reviewed = 0, firstPass = 0, roundsSum = 0, decided = 0, escalated = 0, verified = 0, verifyFirstPass = 0;
@@ -270,6 +293,63 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
     reviewers,
     verifiers,
   };
+}
+
+const PROMPT_USAGE = 'usage: forge stats --by prompt [--role R] [--since DATE] [--include-evals]';
+
+/** The roles `--by prompt` accepts: an `agents/*.md` role, or `reviewer:<lens>`. */
+function promptRole(role: unknown): string {
+  const r = role === undefined ? 'builder' : role;
+  if (typeof r === 'string' && (agentRoles().includes(r) || (r.startsWith('reviewer:') && LENS_NAME.test(r.slice(9))))) return r;
+  throw new ForgeError(`--role must be an agents/*.md role or reviewer:<lens> (got ${JSON.stringify(String(r)).slice(0, 40)}); ${PROMPT_USAGE}`, 'usage', 'forge help stats');
+}
+
+/** `forge stats --by prompt` from the CLI's flags: JSON only, so --csv is refused. */
+export function statsByPromptCmd(root: string, config: Config, flags: Record<string, any>): PromptStats {
+  if (flags.csv) throw new ForgeError(`--by prompt prints JSON and takes no --csv; ${PROMPT_USAGE}`, 'usage', 'forge help stats');
+  return statsByPrompt(root, { role: flags.role, since: flags.since, includeEvals: Boolean(flags['include-evals']), config });
+}
+
+/**
+ * `forge stats --by prompt`: jobs grouped by the prompt hash their `role` last started on, each
+ * cohort with its own full stats, so a prompt change can be compared with the one before it.
+ */
+export function statsByPrompt(root: string, opts: { role?: unknown; since?: string; includeEvals?: boolean; config?: Config } = {}): PromptStats {
+  const role = promptRole(opts.role);
+  const groups = new Map<string, { sources: StatsSource[]; at: string[]; plugin: string[]; config: string[] }>();
+  let unrecorded = 0;
+  let mixed = 0;
+  const keyed: { src: StatsSource; start: JobEvent }[] = [];
+  for (const src of statsSources(root, opts)) {
+    const starts = src.events().filter((e) => e.type === 'agent-start' && e.role === role && typeof e.promptHash === 'string');
+    if (!starts.length) {
+      unrecorded++;
+      continue;
+    }
+    if (new Set(starts.map((e) => e.promptHash)).size > 1) mixed++;
+    keyed.push({ src, start: starts[starts.length - 1] });
+  }
+  // Oldest start first, so each cohort's jobIds, plugin and config hashes read in run order.
+  keyed.sort((a, b) => String(a.start.ts).localeCompare(String(b.start.ts)));
+  for (const { src, start } of keyed) {
+    const g = groups.get(start.promptHash as string) ?? { sources: [], at: [], plugin: [], config: [] };
+    groups.set(start.promptHash as string, g);
+    g.sources.push(src);
+    g.at.push(String(start.ts));
+    for (const [list, h] of [[g.plugin, start.pluginHash], [g.config, start.configHash]] as const) if (typeof h === 'string' && !list.includes(h) && list.length < 5) list.push(h);
+  }
+  const cohorts: PromptCohort[] = [...groups].map(([promptHash, g]) => ({
+    promptHash,
+    jobs: g.sources.length,
+    jobIds: g.sources.slice(0, 20).map((s) => s.job.id),
+    firstAt: g.at[0],
+    lastAt: g.at[g.at.length - 1],
+    pluginHashes: g.plugin,
+    configHashes: g.config,
+    stats: statsFrom(g.sources, opts),
+  }));
+  cohorts.sort((a, b) => a.firstAt.localeCompare(b.firstAt));
+  return { by: 'prompt', role, since: opts.since ?? null, cohorts, unrecorded, mixed };
 }
 
 const CSV_TOTALS = ['runs', 'tokens', 'input', 'output', 'cache_read', 'cache_write', 'usd'] as const;

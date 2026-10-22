@@ -15,13 +15,14 @@ export const HELP: HelpGroup[] = [
     commands: [
       {
         command: 'stats',
-        args: '[--since DATE] [--include-evals] [--json] | --csv [--since DATE] [--by job|role|model|day]',
-        summary: 'pipeline metrics: review and verify first-pass rates, per-lens change and dispute rates, recurring findings, escalations, time to PR, tokens and cost (a text summary, or the full object with --json)',
+        args: '[--since DATE] [--include-evals] [--json] | --by prompt [--role R] [--since DATE] [--include-evals] | --csv [--since DATE] [--by job|role|model|day]',
+        summary: 'pipeline metrics: review and verify first-pass rates, per-lens change, dispute and miss rates, recurring findings, escalations, time to PR, tokens and cost (a text summary, or the full object with --json); --by prompt groups jobs into prompt cohorts',
         flags: [
           ['--since DATE', 'only jobs created on or after DATE'],
           ['--include-evals', 'count eval jobs too (--csv always counts every job)'],
           ['--csv', 'spend as RFC 4180 CSV with CRLF line ends: key columns, then runs,tokens,input,output,cache_read,cache_write,usd; with it, --since keeps events at or after DATE'],
-          ['--by K', 'with --csv: one row per job (default, keyed job,kind,title), role, model or day'],
+          ['--by K', 'with --csv: one row per job (default, keyed job,kind,title), role, model or day; `prompt` (JSON only): one cohort per prompt hash the role last started on, each with its own stats'],
+          ['--role R', 'with --by prompt: the agents/*.md role or reviewer:<lens> whose starts key the cohorts (default builder)'],
         ],
         docs: ['Repo budget', 'docs/CLI.md#repo-budget'],
       },

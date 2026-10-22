@@ -426,6 +426,12 @@ export interface JobEvent {
   note?: string | null;
   /** On human-action events (lib/actor.ts): who acted, best effort and unauthenticated. */
   actor?: EventActor;
+  /** agent-start since event v3 (lib/provenance.ts): the running plugin's 10-hex hash. */
+  pluginHash?: string | null;
+  /** agent-start since event v3: the role's 12-hex hash as `forge roster` reports it; null for a role with no agent file. */
+  promptHash?: string | null;
+  /** agent-start since event v3: the 10-hex hash of the repo layer and the job's effective config; null when the config could not be built. */
+  configHash?: string | null;
   [key: string]: unknown;
 }
 

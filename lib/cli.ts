@@ -14,7 +14,7 @@ import { mainRoot } from './paths.ts';
 import * as pr from './pr.ts';
 import { prepareRetro, retroDue } from './retro.ts';
 import { roster } from './roster.ts';
-import { computeStats, statsCsv } from './stats.ts';
+import { computeStats, statsByPromptCmd, statsCsv } from './stats.ts';
 import { ForgeError, readJson, run } from './util.ts';
 import * as wt from './worktree.ts';
 import { advanceCmd } from './commands/advance.ts';
@@ -213,8 +213,9 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       needInit();
       return ok(await trackerCmd(root, config, sub, rest, flags));
     case 'stats': {
+      if (flags.by === 'prompt') return ok(statsByPromptCmd(root, config, flags));
       if (flags.csv || flags.by !== undefined) return ok(statsCsv(root, config, flags));
-      const s = computeStats(root, { since: flags.since, includeEvals: Boolean(flags['include-evals']) });
+      const s = computeStats(root, { since: flags.since, includeEvals: Boolean(flags['include-evals']), config });
       // Human mode renders the object; safe for the same reason as status (not in ADVANCE_GROUPS).
       return ok(flags.json || outputMode() === 'human' ? s : statsText(s));
     }

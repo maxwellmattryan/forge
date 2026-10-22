@@ -11,7 +11,7 @@ import { ACTOR_CACHE_TTL_MS, currentActor, resolveActor } from '../lib/actor.ts'
 import type { ActorDeps } from '../lib/actor.ts';
 import { defaults } from '../lib/config.ts';
 import { createJob, jobDir, readEvents, setJob } from '../lib/jobs.ts';
-import { normalizeEvent, sanitizeLogin } from '../lib/schema.ts';
+import { EVENT_SCHEMA_VERSION, normalizeEvent, sanitizeLogin } from '../lib/schema.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const DAY = ACTOR_CACHE_TTL_MS;
@@ -194,7 +194,7 @@ describe('the CLI', { concurrency: 4 }, () => {
       const res = await forgeAsync(r.dir, ['job', 'human', id, 'approve', '--note', 'x'], { FORGE_ACTOR: 'alice' });
       assert.equal(res.status, 0, res.stderr);
       const line = fs.readFileSync(path.join(jobDir(r.dir, id), 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1);
-      assert.deepEqual({ ...line, ts: undefined }, { v: 2, ts: undefined, type: 'human', action: 'approve', note: 'x', actor: { login: 'alice', source: 'env' } });
+      assert.deepEqual({ ...line, ts: undefined }, { v: EVENT_SCHEMA_VERSION, ts: undefined, type: 'human', action: 'approve', note: 'x', actor: { login: 'alice', source: 'env' } });
     } finally {
       r.cleanup();
     }

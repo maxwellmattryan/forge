@@ -576,6 +576,12 @@ export interface JobEvent {
   note?: string | null;
   /** On human-action events (lib/actor.ts): who acted, best effort and unauthenticated. */
   actor?: EventActor;
+  /** agent-start since event v3 (lib/provenance.ts): the running plugin's 10-hex hash. */
+  pluginHash?: string | null;
+  /** agent-start since event v3: the role's 12-hex hash as `forge roster` reports it; null for a role with no agent file. */
+  promptHash?: string | null;
+  /** agent-start since event v3: the 10-hex hash of the repo layer and the job's effective config; null when the config could not be built. */
+  configHash?: string | null;
   [key: string]: unknown;
 }
 
@@ -1607,6 +1613,35 @@ export interface VerifierStats {
   blocks: number;
   /** fails / runs; null at 0 runs. */
   hitRate: number | null;
+}
+
+/** One prompt cohort of `forge stats --by prompt` (statsByPrompt in lib/stats.ts). */
+export interface PromptCohort {
+  promptHash: string;
+  jobs: number;
+  /** The first 20, oldest keyed start first. */
+  jobIds: string[];
+  /** The earliest and latest keyed start of the cohort's jobs. */
+  firstAt: string;
+  lastAt: string;
+  /** At most 5 each, in run order. */
+  pluginHashes: string[];
+  configHashes: string[];
+  /** The full metrics over this cohort's jobs only. */
+  stats: Stats;
+}
+
+/** `forge stats --by prompt`: jobs keyed by the promptHash on their role's last hashed agent-start. */
+export interface PromptStats {
+  by: 'prompt';
+  role: string;
+  since: string | null;
+  /** Oldest firstAt first. */
+  cohorts: PromptCohort[];
+  /** Jobs with no hashed start for the role. */
+  unrecorded: number;
+  /** Jobs whose starts for the role carry more than one hash. */
+  mixed: number;
 }
 
 /** GET /api/stats: computeStats in lib/stats.ts. */

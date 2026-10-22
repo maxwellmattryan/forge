@@ -2,7 +2,6 @@
 // every selected task through the normal pipeline (eval mode: no tracker, no PR, no human gates),
 // then grades each job. Runs are stamped with the Forge version and a hash of the repo's
 // Forge configuration, so two runs can be compared to tell whether a change helped.
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,6 +11,7 @@ import { aggregateTasks, delta, jobTiming, stageStats, stat, taskPass, TASK_METR
 import { listArchived } from './archive.ts';
 import { createJob, listJobs, loadJob, logEvent, readEvents, setJob, jobDir } from './jobs.ts';
 import { mergeTime } from './scoring.ts';
+import { configHash, pluginHash } from './provenance.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
 import { posixShell } from './platform.ts';
 import { createWorktree } from './worktree.ts';
@@ -67,78 +67,8 @@ export function forgeVersion(): string {
   return readJson(path.join(PLUGIN_ROOT, 'package.json'), { version: '0.0.0' }).version;
 }
 
-/** The plugin files that shape what agents do and how the pipeline drives them. */
-const PLUGIN_DIRS: { dir: string; recursive: boolean; md: boolean }[] = [
-  { dir: 'agents', recursive: false, md: true },
-  { dir: 'reviewers', recursive: false, md: true },
-  { dir: 'skills/forge', recursive: true, md: false },
-  { dir: 'lib/step', recursive: true, md: false },
-];
-const PLUGIN_FILES = ['lib/step.ts', 'lib/brief.ts'];
-
-/** A regular file's bytes, or null: a link or FIFO swapped in since the listing is not read. */
-function regularFile(file: string): Buffer | null {
-  let fd: number | undefined;
-  try {
-    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
-    return fs.fstatSync(fd).isFile() ? fs.readFileSync(fd) : null;
-  } catch {
-    return null;
-  } finally {
-    if (fd !== undefined) fs.closeSync(fd);
-  }
-}
-
-/**
- * A content hash of the plugin's prompts, checklists, skill, step and brief, so two dev builds
- * with the same version string tell apart. Regular files only (no symlinks); the plugin's own path
- * is never part of it, since run records can be committed and it would leak a home directory.
- */
-export function pluginHash(pluginRoot: string = PLUGIN_ROOT): string {
-  const rels: string[] = [];
-  const list = (rel: string, recursive: boolean, md: boolean) => {
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(path.join(pluginRoot, rel), { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries) {
-      const r = `${rel}/${e.name}`;
-      if (e.isFile() && (!md || e.name.endsWith('.md'))) rels.push(r);
-      else if (e.isDirectory() && recursive) list(r, recursive, md);
-    }
-  };
-  for (const d of PLUGIN_DIRS) list(d.dir, d.recursive, d.md);
-  for (const f of PLUGIN_FILES) {
-    try {
-      if (fs.lstatSync(path.join(pluginRoot, f)).isFile()) rels.push(f);
-    } catch {}
-  }
-  const h = crypto.createHash('sha256');
-  // Framed like trustDigest, so no two file sets hash alike by moving bytes between names.
-  for (const rel of rels.sort()) {
-    const data = regularFile(path.join(pluginRoot, rel));
-    if (data === null) continue;
-    h.update(`${rel}\0${data.byteLength}\0`).update(data);
-  }
-  return h.digest('hex').slice(0, 10);
-}
-
-/**
- * Captures everything repo-side that shapes Forge behaviour, so a retro or config change
- * shows up as a different hash between two eval runs.
- */
-export function configHash(root: string, config: Config): string {
-  const h = crypto.createHash('sha256');
-  h.update(JSON.stringify(config));
-  const p = paths(root);
-  for (const dir of [p.reviewers, p.notes, p.verifiers]) {
-    if (!exists(dir)) continue;
-    for (const f of fs.readdirSync(dir).sort()) h.update(f).update(readText(path.join(dir, f)));
-  }
-  return h.digest('hex').slice(0, 10);
-}
+// The run stamps live in lib/provenance.ts beside the prompt hash; re-exported so imports keep working.
+export { configHash, pluginHash };
 
 /**
  * Turns a merged PR into a replay eval: start from its base commit, ask for what the PR did,
