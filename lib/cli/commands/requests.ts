@@ -113,7 +113,7 @@ export function requestsCmd(
       args.intake = flags.intake;
     }
     // A guardrail against accidental cross-job requests, not a security boundary: provenance comes
-    // from the caller's environment and isn't authenticated (docs/ARCHITECTURE.md "Untrusted input").
+    // from the caller's environment and isn't authenticated (docs/architecture/untrusted-input.md).
     // The only hand-off the skill needs is resume, so a session following the skill never queues a
     // human decision for another job's session.
     const s = scoped();

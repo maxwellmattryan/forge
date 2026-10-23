@@ -1,6 +1,6 @@
 // Downstream verification: when a job changes a library, the member repos that consume it join the
 // job as verify-only repos, so verify runs their tests against the job's changes through local links
-// (docs/CONFIG.md "Downstream verification", ARCHITECTURE.md "Job repos"). Candidates are always
+// (docs/CONFIG.md "Downstream verification", docs/architecture/job-repos.md). Candidates are always
 // recomputed from config, the job and its events, never named by the caller: this is the one path by
 // which a daemon session adds a repo, and it can add only a verify-only one, which never pushes.
 

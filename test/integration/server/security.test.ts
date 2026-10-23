@@ -1,5 +1,5 @@
 // The dashboard server's request guards: it answers loopback Hosts only, its POSTs need the token,
-// a matching Origin and a JSON body (docs/ARCHITECTURE.md "Dashboard security"), and a resume bounces
+// a matching Origin and a JSON body (docs/architecture/dashboard-security.md), and a resume bounces
 // off a live lease only when that lease is not the job's own pool session's. Kept through the test
 // rewrite (docs/test-rewrite/README.md): the security posture AGENTS.md says to preserve.
 import test from 'node:test';
