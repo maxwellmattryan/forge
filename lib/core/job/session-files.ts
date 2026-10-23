@@ -24,6 +24,8 @@ export function daemonsDir(root: string): string {
 }
 
 const MAX_RECORD = 64 * 1024;
+/** With retention.logMaxBytes null, a session log or a background log rotates once past this size. */
+export const LOG_ROTATE_BYTES = 20 * 1024 * 1024;
 /** Open flags for runtime files something else may have planted: never follow a link, never block on a FIFO. */
 const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
 const NONBLOCK = fs.constants.O_NONBLOCK ?? 0;
