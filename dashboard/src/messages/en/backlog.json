@@ -19,7 +19,8 @@
       "outcome": "clear outcome",
       "acceptance": "acceptance criteria or repro",
       "scope": "bounded scope",
-      "duplicate": "possible duplicate"
+      "duplicate": "possible duplicate",
+      "hiddenText": "hidden text"
     }
   }
 }
