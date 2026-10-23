@@ -10,7 +10,7 @@ Code that knows an outside system's API, CLI or file format, one folder per syst
 | File | What it holds |
 |---|---|
 | `backlog/` | The built-in markdown backlog tracker, behind the same contract as the GitHub one. |
-| `claude/` | Claude Code's command line, files and prices: the session argv and env, transcripts and the model price table. |
+| `claude/` | Claude Code's command line, protocol, files and prices: the session argv and env, the stream-json protocol and the child that speaks it, transcripts and the model price table. |
 | `docker/` | The one Docker runner: sync, async and streaming. |
 | `git/` | The one git runner, with its config pins and clean environment, and the offline repo slug. |
 | `github/` | GitHub through `gh`: the runner, pull requests, the GitHub tracker, issue previews and the actor. |

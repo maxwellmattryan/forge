@@ -1,7 +1,8 @@
 # lib/integrations/claude/
 
-Claude Code's command line, files and prices: the session argv and env, transcripts and the model price table.
+Claude Code's command line, protocol, files and prices: the session argv and env, the stream-json protocol and the child that speaks it, transcripts and the model price table.
 
+- `stream.ts` builds every line written to a session's stdin from fixed text or a fixed list: the one turn, permission answers (an allow echoes claude's own input) and mode switches. Nothing from requests, HTTP or config reaches one (docs/ARCHITECTURE.md "Daemon security"). Line caps (`maxLineBytes`, `STDERR_CAP`) apply there too. Redaction is the office's job (`lib/office/session/log.ts` `logLine`): integrations can't import engine's known-secrets.
 - `DENY_TOOLS` and `PROMPT_TOOL` end every argv, and API keys are dropped unless `daemon.auth` is `api-key` (docs/ARCHITECTURE.md "Daemon security").
 - `pricing.json` holds the model prices: take them from Anthropic's current pricing, never from memory, and bump `asOf`. `pricing()` and `/api/about` read it through `PLUGIN_ROOT`.
 - Transcript paths come from job state only, which an agent or a checkout can write, so each id is checked before it becomes a path segment.
@@ -10,6 +11,9 @@ Claude Code's command line, files and prices: the session argv and env, transcri
 | File | What it holds |
 |---|---|
 | `argv.ts` | Claude Code's command line and environment for a headless session: the permission-mode and effort flags, `daemon.command` to argv, and the child's env. |
+| `child.ts` | The real ClaudeAdapter: spawns claude as the leader of its own process group, feeds its stdout and stderr through the protocol (stream.ts), and signals the whole group to stop it. |
 | `pricing.ts` | Model prices (lib/integrations/claude/pricing.json merged with config.usage.pricing) and the cost estimate built on them. |
+| `stream.ts` | Claude Code's stream-json protocol, with no I/O of its own: claude's output lines become ClaudeEvents, and every line written to its stdin is built here, from fixed text or a fixed list: the one turn, permission answers and mode switches. |
 | `transcripts.ts` | Claude Code transcripts of this repo's sessions and their agents, located from job state only. |
+| `types.ts` | The shapes of a headless Claude Code child as the office sees it: the domain events its stream-json output means (ClaudeEvent), the handle that is the only way to write to it (ClaudeChild), and the adapter that starts one (ClaudeAdapter). |
 <!-- forge:map:end -->
