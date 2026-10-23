@@ -1082,6 +1082,13 @@
 }
 @utility trace-loop { animation: trace-loop 1.5s ease-in-out infinite; }
 @keyframes trace-loop { from { stroke-dashoffset: 34.56; } 50% { stroke-dashoffset: 0; } to { stroke-dashoffset: -34.56; } }
+/* The step a cooling card just finished: its ring draws closed once. The markup hides it under reduced motion. */
+@utility trace-draw { animation: trace-draw var(--motion-slow) var(--ease-enter) both; }
+@keyframes trace-draw { from { stroke-dashoffset: 34.56; } to { stroke-dashoffset: 0; } }
+/* A board card whose stage just changed: its edge starts at spark with a soft glow and cools to its own over --heat-cool,
+   once. No `to` frame, so it settles on the card's own border and shadow, ember included. Nothing moves or fades. */
+@utility cooling { animation: edge-cool var(--heat-cool) var(--ease-enter) both; }
+@keyframes edge-cool { from { border-color: var(--spark); box-shadow: 0 0 0 1px var(--spark), 0 0 12px 0 color-mix(in srgb, var(--spark) 45%, transparent), var(--shadow-bevel); } }
 @utility backdrop {
   background: rgba(5,7,10,.72);
   [data-theme="ash"] & { background: rgba(20,24,30,.45); }
