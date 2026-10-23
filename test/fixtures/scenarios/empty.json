@@ -1,0 +1,12 @@
+{
+  "description": "A fresh repo with Forge set up and no jobs",
+  "jobs": [],
+  "expect": {
+    "pipeline": ["@pipeline.empty"],
+    "project": ["@project.empty"],
+    "backlog": ["@backlog.empty"],
+    "agents": ["@agents.noRunning", "@agents.noSessions", "@agents.roster"],
+    "analytics": ["@analytics.noUsage", "@analytics.noReviews"],
+    "evals": ["@evals.empty"]
+  }
+}
