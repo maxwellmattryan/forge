@@ -21,7 +21,10 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'project.name': { doc: 'display name' },
   'project.description': { doc: 'a one-line summary of the project (informational)' },
   'project.kinds': { doc: 'free-form tags (web-ui, rust, embedded, …); help pick lenses' },
-  'project.instructions': { doc: 'files every agent reads first, if present' },
+  'project.instructions': {
+    doc: 'files each agent reads first, if present: `default` for every role, or a role name\n(planner, spec-writer, builder, reviewer, …) whose list replaces it; a plain list is every role\'s',
+    uniform: true,
+  },
   'project.notes': { doc: 'one-paragraph context every agent should know' },
 
   git: { doc: 'the branches and remote jobs work against' },

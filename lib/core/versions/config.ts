@@ -122,6 +122,10 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v30 adds worktrees.seed (off while its paths are empty), filled from defaults, so no v29 config
   // changes; the bump lets older Forges refuse a config whose seed they would ignore.
   { id: 'worktree-seed', up: (c) => c },
+  // v31 turns a `project.instructions` list into `{ default: <list> }`, the per-role map's form; a
+  // config without the key, or with a map, is unchanged. The bump lets older Forges refuse a config
+  // whose role map they would misread as a list.
+  { id: 'instructions-per-role', up: (c) => (Array.isArray(c?.project?.instructions) ? { ...c, project: { ...c.project, instructions: { default: [...c.project.instructions] } } } : c) },
 ];
 
 export const CONFIG_SCHEMA_VERSION = versionOf(CONFIG_STEPS);

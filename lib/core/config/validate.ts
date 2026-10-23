@@ -18,6 +18,7 @@ import { PLUGIN_ROOT, exists, paths, resolveFrom } from '../paths.ts';
 import { globProblem, policyProblems } from './validators/policy-check.ts';
 import { CONFIG_SCHEMA_VERSION, FOREMAN_SHIP, OFFICE_GATES, REPO_BUDGET_MODES, reservedGateEntry } from '../job/schema.ts';
 import { secretRefProblems } from './validators/secret-refs.ts';
+import { instructionsProblems } from './validators/instructions.ts';
 import { isMap, show } from '../shape.ts';
 import type { VerifyEntry } from '../types.ts';
 import { ForgeError } from '../errors.ts';
@@ -191,6 +192,7 @@ export function validateConfig(c: unknown, root: string): string[] {
   problems.push(...downstreamProblems(c));
   problems.push(...repoBudgetProblems(c));
   problems.push(...improveProblems(c));
+  problems.push(...instructionsProblems(c));
   return problems;
 }
 

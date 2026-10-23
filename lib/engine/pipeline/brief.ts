@@ -13,6 +13,7 @@ import { repoGraph } from '../project/graph.ts';
 import { paths, exists } from '#core/paths.ts';
 import { releaseFiles } from '../release/files.ts';
 import { SECRET_NAME, secretSourceOf } from '#core/config/validators/secret-refs.ts';
+import { instructionsFor } from '#core/config/validators/instructions.ts';
 import { recallLine } from './step/recall.ts';
 import { lastRun } from '../verify/record.ts';
 import type { Config, GateClass, Job, JobEvent } from '#core/types.ts';
@@ -21,9 +22,10 @@ import type { StepInput } from './types.ts';
 /**
  * Absolute paths an agent prompt needs, keyed as `forge job paths` prints them. Reads (which
  * instruction files and checklists exist) but never creates anything: `jobPaths` in
- * lib/cli/commands/job/read.ts adds the review directories.
+ * lib/cli/commands/job/read.ts adds the review directories. `instructions` is `role`'s list
+ * (instructionsFor), the default list without one.
  */
-export function jobPathMap(root: string, config: Config, job: Job): Record<string, unknown> {
+export function jobPathMap(root: string, config: Config, job: Job, role?: string): Record<string, unknown> {
   const dir = jobDir(root, job.id);
   const p = paths(root);
   const round = Math.max(job.round, 1);
@@ -60,7 +62,7 @@ export function jobPathMap(root: string, config: Config, job: Job): Record<strin
     learnings: path.join(p.notes, 'learnings.md'),
     notesDir: p.notes,
     config: p.config,
-    instructions: (config.project.instructions ?? []).map((f: string) => path.join(job.worktree ?? root, f)).filter(exists),
+    instructions: instructionsFor(config, role).map((f) => path.join(job.worktree ?? root, f)).filter(exists),
     checklists: lensChecklists(root, config, job, job.reviewers ?? []),
     ...(memberRepos(job).length ? { repos: Object.fromEntries(memberRepos(job).map((m) => [m.repo, m.worktree])) } : {}),
     // The post-merge score run's output and input (lib/engine/evals/scoring.ts); an eval job is graded instead.
@@ -358,7 +360,11 @@ export function renderBrief(input: StepInput, spec: BriefSpec): string {
   const present = spec.inputs.filter((p) => input.present.includes(p));
   const downstream = downstreamMembers(j, input.events);
   const keys = spec.pathKeys;
-  const paths = keys ? Object.fromEntries(Object.entries(input.paths).filter(([k]) => keys.includes(k))) : input.paths;
+  const all = keys ? Object.fromEntries(Object.entries(input.paths).filter(([k]) => keys.includes(k))) : input.paths;
+  // The role's own files; loadStepInput put every role's existing ones in `present`, so this reads nothing.
+  const paths = 'instructions' in all
+    ? { ...all, instructions: instructionsFor(input.config, spec.role).map((f) => path.join(j.worktree ?? input.root, f)).filter((f) => input.present.includes(f)) }
+    : all;
   const lines = [
     `Job id: ${j.id}`,
     `Role: ${spec.role}${spec.lens ? ` · lens ${spec.lens}` : ''}`,

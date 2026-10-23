@@ -6,14 +6,16 @@ Command templates are POSIX `sh`: each runs as `$SHELL -lc <cmd>` (`/bin/sh` whe
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 30            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 31            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
   name: null                 # display name
   description: null          # a one-line summary of the project (informational)
   kinds: []                  # free-form tags (web-ui, rust, embedded, …); help pick lenses
-  instructions: [AGENTS.md, CLAUDE.md]  # files every agent reads first, if present
+  instructions:              # files each agent reads first, if present: `default` for every role, or a role name
+                             # (planner, spec-writer, builder, reviewer, …) whose list replaces it; a plain list is every role's
+    default: [AGENTS.md, CLAUDE.md]
   notes: null                # one-paragraph context every agent should know
 
 git:                         # the branches and remote jobs work against

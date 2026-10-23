@@ -28,6 +28,7 @@
 | `validators/checkout.ts` | checkout: validation, apart from lib/engine/workspace/checkout.ts so lib/core/config/validate.ts can import it without pulling in the job store (which imports config/load.ts). |
 | `validators/deprecations.ts` | Config keys on their way out (docs/RELEASES.md "Deprecation"). |
 | `validators/endpoints.ts` | The config-time half of lib/engine/environment/endpoints.ts: the env name of a component and the problems with the `{endpoint.<c>}` / `{backing.<n>.*}` placeholders a config's templates use. |
+| `validators/instructions.ts` | project.instructions: the files each agent reads first. |
 | `validators/notify.ts` | notify.* validation, apart from lib/office/notify.ts so lib/core/config/validate.ts can import it without pulling in the delivery code (which imports lib/core/job/store.ts, which imports lib/core/config/load.ts). |
 | `validators/policy-check.ts` | Config-time validation of the glob lists and the protected-paths policy, and the matcher that applies it. |
 | `validators/secret-refs.ts` | secrets: validation, apart from lib/engine/guard/secret-refs.ts so lib/core/config/validate.ts can import it without pulling in processes or git. |

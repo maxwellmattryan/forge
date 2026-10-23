@@ -20,6 +20,7 @@ import { approachPaths, committedChanges, integrationTouched, resolveBase } from
 import type { Config, Job, JobEvent } from '#core/types.ts';
 import type { StepFile, StepInput, StepVerdicts } from '../types.ts';
 import { readJson, readText } from '#core/os/fs.ts';
+import { INSTRUCTION_ROLES, instructionsFor } from '#core/config/validators/instructions.ts';
 import { verifierCount } from '../verifiers.ts';
 import { currentRerun, reworkReviewFiles, roundLenses } from './panel.ts';
 import { lastRun } from '../../verify/record.ts';
@@ -75,6 +76,12 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
   const present = Object.values(paths).filter((v): v is string => typeof v === 'string' && exists(v));
   // The only I/O for the rework brief's review inputs, so step itself stays pure.
   for (const f of reworkReviewFiles(job, (paths.previousReviewDir as string | null) ?? null)) if (exists(f)) present.push(f);
+  // Every role's instruction files, so renderBrief picks its role's list without reading disk.
+  for (const r of [undefined, ...INSTRUCTION_ROLES])
+    for (const f of instructionsFor(config, r)) {
+      const abs = path.join(job.worktree ?? root, f);
+      if (!present.includes(abs) && exists(abs)) present.push(abs);
+    }
   const body = requestBody(root, job.id);
   const specText = read('spec.md') ?? '';
   const events = readEvents(root, job.id).filter((e) => STEP_EVENTS.has(e.type));
