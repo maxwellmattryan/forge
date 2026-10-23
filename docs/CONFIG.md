@@ -351,7 +351,7 @@ budget:                      # repo-wide spend caps per UTC day and month; null 
 
 ## Instruction files
 
-`project.instructions` names the files each agent reads first, relative to the repo root; a brief lists only those that exist in the job's worktree. It takes one of two forms:
+`project.instructions` names the files each agent reads first, relative to the repo root; a brief lists only those that exist in the main checkout. It takes one of two forms:
 
 - **A list**: every role reads the same files.
 - **A map**: `default` (the list for every role the map doesn't name) plus any of `planner`, `spec-writer`, `designer`, `builder`, `reviewer` (every lens), `approver`, `integrator`, `verifier` and `judge`. A role's list **replaces** `default`; it doesn't add to it, so repeat a file the role still needs. A role mapped to `[]` gets no instruction files. A map without `default` keeps the default list, `[AGENTS.md, CLAUDE.md]`.
@@ -365,6 +365,8 @@ project:
 ```
 
 `forge config validate` reports a key that is not a role, a value that is not a list, an entry that is not a non-empty string, an absolute path and a `..` segment; the briefs skip any such entry. `forge job paths <id>` prints the `default` list. A config at schemaVersion 30 or older still loads: its list reads as `{ default: <list> }`, and `forge migrate` writes it that way.
+
+**The main checkout's copies, never the branch's.** `paths.instructions` points at the main checkout's files, read as they are on disk, so a branch can't rewrite the conventions its own reviewers and approver follow. The worktree's copies are the branch's edits and part of its diff: data to review, never instructions. When the branch's committed diff changes an instruction file (`**/AGENTS.md`, `**/CLAUDE.md`, `.claude`, `.claude/**`, `.mcp.json`, or any role's `project.instructions` entry, matched case-insensitively), every brief but the scoring judge's carries an `Instructions changed by this branch (JSON): [...]` line naming them, or a `not checked` line when the diff can't be read. Verify records the same list in `verify/round-<n>.md`'s `## instructions` section, and the default policy escalates them ("Protected paths"). An eval job reads the main checkout's copies too, and those may postdate the task's base commit.
 
 **Keep the auto-loaded file short.** Claude Code loads the root `AGENTS.md` (or `CLAUDE.md`) into every session as project instructions, the orchestrator and every agent included, and the brief tells an agent to skip a file already in its context. So naming fewer files per role saves little while that root file stays long. Keep it to what every session needs and move the reference into a file only the roles that need it are given, such as `docs/DEVELOPING.md` above.
 

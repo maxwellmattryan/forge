@@ -7,7 +7,7 @@ import type { Config, Job, VerifyRun } from '#core/types.ts';
 import type { StepInput } from '#engine/pipeline/types.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { acCoverage } from '#engine/pipeline/acs.ts';
-import { JOB_DIR, RECALL_HASH, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
+import { JOB_DIR, RECALL_HASH, ROOT, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
 import type { FixtureOpts } from './step-fixture.ts';
 
 export interface Row {
@@ -118,10 +118,10 @@ const PROPOSED = (n: number) => ev('repo-proposed', n, { repo: 'lib', reason: 'c
 /** The job's repos once lib was added: the root mirror, then lib. */
 const WITH_LIB = [{ repo: null }, { repo: 'lib', worktree: '/lib.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }] as Job['repos'];
 
-/** A per-role project.instructions map, with both files in the worktree (AC5 of #433). */
+/** A per-role project.instructions map, with both files in the main checkout (AC5 of #433; #388). */
 const ROLE_INSTRUCTIONS: Pick<FixtureOpts, 'config' | 'present'> = {
   config: (c) => (c.project.instructions = { default: ['AGENTS.md'], 'spec-writer': ['AGENTS.md', 'docs/DEVELOPING.md'], approver: [] }),
-  present: [path.join(WT, 'AGENTS.md'), path.join(WT, 'docs', 'DEVELOPING.md')],
+  present: [path.join(ROOT, 'AGENTS.md'), path.join(ROOT, 'docs', 'DEVELOPING.md')],
 };
 /** The brief's `Job paths (JSON)` instructions, and whether it has the Instructions: line. */
 const briefInstructions = (brief: string): { files: unknown; line: boolean } => {
@@ -462,7 +462,7 @@ export const rows: Row[] = [
     name: 'P1 the planner gets the default instruction files',
     fx: { ...ROLE_INSTRUCTIONS, job: job({ stage: 'plan' }) },
     want: { action: 'spawn', rule: 'P1', role: 'planner' },
-    check: (a) => assert.deepEqual(briefInstructions(a.brief), { files: [path.join(WT, 'AGENTS.md')], line: true }),
+    check: (a) => assert.deepEqual(briefInstructions(a.brief), { files: [path.join(ROOT, 'AGENTS.md')], line: true }),
   },
   { name: 'P1 re-plans after revise-split with split mode never', fx: { job: job({ stage: 'plan', splitMode: 'never', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SPLIT', jobs: 2 }, events: [ev('human', 3, { action: 'revise-split' })] }, want: { action: 'spawn', role: 'planner' }, check: (a) => assert.ok(a.brief.includes('Split mode: never')) },
   { name: 'P2 a split under auto follows split.md', fx: { config: (c) => (c.pipeline.split = 'auto'), job: job({ stage: 'plan', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SPLIT', jobs: 3 } }, want: { action: 'procedure', why: 'PLAN: SPLIT under pipeline.split auto' }, check: (a) => assert.ok(a.reference.endsWith(path.join('reference', 'split.md'))) },
@@ -490,7 +490,7 @@ export const rows: Row[] = [
     name: "SP1 the spec-writer gets its role's instruction files",
     fx: { ...ROLE_INSTRUCTIONS, files: ['request'], job: job({ stage: 'spec' }) },
     want: { action: 'spawn', rule: 'SP1', role: 'spec-writer' },
-    check: (a) => assert.deepEqual(briefInstructions(a.brief), { files: [path.join(WT, 'AGENTS.md'), path.join(WT, 'docs', 'DEVELOPING.md')], line: true }),
+    check: (a) => assert.deepEqual(briefInstructions(a.brief), { files: [path.join(ROOT, 'AGENTS.md'), path.join(ROOT, 'docs', 'DEVELOPING.md')], line: true }),
   },
   { name: 'SP2 a revise-spec re-runs the spec-writer with feedback', fx: { files: ['feedback'], job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'revise-spec' })] }, want: { action: 'spawn', role: 'spec-writer' }, check: (a) => assert.ok(a.brief.includes(path.join(JOB_DIR, 'feedback.md'))) },
   { name: 'SP3 panel always lenses', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }) }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]') },
