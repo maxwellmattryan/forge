@@ -273,7 +273,10 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   daemon: { doc: 'opt-in headless sessions supervised by `forge dash`: an inbox plus one per job (see "Daemon" below)' },
   'daemon.enabled': { doc: 'true: `forge dash` starts it, and POST /api/daemon may start it again after a stop' },
   'daemon.command': { doc: 'the claude command each session runs, split into words without a shell (see "Daemon" below)' },
-  'daemon.allowedTools': { doc: 'refused if it names blanket git/gh (see "Daemon" below)', layout: 'block' },
+  'daemon.allowedTools': {
+    doc: 'refused if it names blanket git/gh, a scoped file rule or an MCP tool; bare Edit/Write are scoped to the job folders and worktrees at spawn (see "Daemon" below)',
+    layout: 'block',
+  },
   'daemon.maxConcurrent': { doc: 'job sessions at once (1-16), besides the inbox' },
   'daemon.idleStopMinutes': { doc: 'stop an idle session after this long (null: never); new work resumes it' },
   'daemon.turnTimeoutMinutes': { doc: 'stop a turn still running after this long and requeue its work (null: no limit)' },

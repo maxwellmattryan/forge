@@ -255,7 +255,7 @@ dashboard:                   # forge dash, the local dashboard
 daemon:                      # opt-in headless sessions supervised by `forge dash`: an inbox plus one per job (see "Daemon" below)
   enabled: false             # true: `forge dash` starts it, and POST /api/daemon may start it again after a stop
   command: claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode default --allowedTools {allowedTools}  # the claude command each session runs, split into words without a shell (see "Daemon" below)
-  allowedTools:              # refused if it names blanket git/gh (see "Daemon" below)
+  allowedTools:              # refused if it names blanket git/gh, a scoped file rule or an MCP tool; bare Edit/Write are scoped to the job folders and worktrees at spawn (see "Daemon" below)
     - Agent
     - Skill
     - Read
