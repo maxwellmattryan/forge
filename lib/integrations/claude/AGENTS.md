@@ -8,6 +8,7 @@ Claude Code's files and prices: session transcripts and the model price table.
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
 |---|---|
+| `argv.ts` | Claude Code's command line and environment for a headless session: the permission-mode and effort flags, `daemon.command` to argv, and the child's env. |
 | `pricing.ts` | Model prices (lib/integrations/claude/pricing.json merged with config.usage.pricing) and the cost estimate built on them. |
 | `transcripts.ts` | Claude Code transcripts of this repo's sessions and their agents, located from job state only. |
 <!-- forge:map:end -->

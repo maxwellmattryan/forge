@@ -6,7 +6,7 @@ import path from 'node:path';
 import { daemonProblems, loadConfig } from '#core/config/load.ts';
 import { scopeKnownValues } from '#engine/guard/known-secrets.ts';
 import { dashboardActor } from '#integrations/github/actor.ts';
-import { PERMISSION_MODES } from '#office/session/lifecycle.ts';
+import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
 import { UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from '#core/job/session-files.ts';
 import type { PoolState } from '#office/pool.ts';
 import { jobDir } from '#core/job/store.ts';

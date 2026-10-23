@@ -7,7 +7,7 @@ import { parseEventLines } from '#core/job/store.ts';
 import { validJobId } from '#core/job/requests.ts';
 import { paint, sanitize, sgr } from '#core/format/ansi.ts';
 import type { Paint, Style } from '#core/format/ansi.ts';
-import type { SessionEvent } from '#office/session/lifecycle.ts';
+import type { SessionEvent } from '#office/session/contract.ts';
 import type { DaemonSessionState, JobEvent } from '#core/types.ts';
 import type { RequestInfo, RunningServer } from '../server/types.ts';
 
