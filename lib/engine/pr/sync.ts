@@ -219,14 +219,17 @@ export async function syncPr(root: string, config: Config, github: GitHub, id: s
   return (await syncPrDetailed(root, config, github, id, opts)).result;
 }
 
-/** syncPr, plus each non-verify-only member PR as this call read it (mergePr decides on these). */
+/**
+ * syncPr, plus each non-verify-only member PR as this call read it and the base branch GitHub says the
+ * root PR targets (null when it read none): mergePr decides on these, never on job.json.
+ */
 export async function syncPrDetailed(
   root: string,
   config: Config,
   github: GitHub,
   id: string,
   opts: { route?: boolean } = {},
-): Promise<{ result: SyncResult; members: Map<string, MemberSync> }> {
+): Promise<{ result: SyncResult; members: Map<string, MemberSync>; baseRef: string | null }> {
   const route = opts.route !== false;
   github.require();
   // Member PRs first: a failure there never stops the root sync, and counts as not merged.
@@ -248,7 +251,7 @@ export async function syncPrDetailed(
         });
         if (reopen) enqueueReopen(root, config, id);
       }
-      return { result: reopen ? { id, pr: null, reopen: true } : { id, pr: null }, members };
+      return { result: reopen ? { id, pr: null, reopen: true } : { id, pr: null }, members, baseRef: null };
     }
     job = loadJob(root, id);
   }
@@ -336,7 +339,7 @@ export async function syncPrDetailed(
     // At the CI rework cap no gate is queued either, so the foreman can't rework that head through the office.
     if ((await startCiRework(root, config, after, pr.failingChecks)) === false) enqueuePrFeedbackGate(root, config, after, feedback.trusted);
   }
-  return { result: integrate ? { id, pr: synced, integrate: true } : reopen ? { id, pr: synced, reopen: true } : { id, pr: synced }, members };
+  return { result: integrate ? { id, pr: synced, integrate: true } : reopen ? { id, pr: synced, reopen: true } : { id, pr: synced }, members, baseRef: pr.baseRefName };
 }
 
 /** The pool spawns the job's session to open the deferred PRs. A fixed text, as for integrate. */

@@ -123,19 +123,24 @@ function pathList(paths: string[]): string {
   return [...shown, ...(paths.length > 3 ? [`+${paths.length - 3} more`] : [])].join(', ');
 }
 
-/** One PR as the gate checks it: the repo it is in (null: the root) and GitHub's live head from this call's sync. */
+/** One PR as the gate checks it: the repo it is in (null: the root), and GitHub's live head and base branch from this call's sync. */
 export interface GateTarget {
   repo: string | null;
   headOid: string | null;
+  baseRef: string | null;
 }
+
+const named = (b: string | null | undefined): string => (b ? JSON.stringify(clean(b).slice(0, 80)) : 'no branch');
 
 /**
  * Checks 1 to 5 of a merge without --now, in order (docs/CONFIG.md "Merge"): merge.auto is on, the
- * last decision event is eligible, the live head follows the decided head, protected paths recomputed
- * at the live head are all approved (throws `protected_path` otherwise, as forge pr open does), and
- * the escalate floor finds nothing. A check that can't be computed refuses under its own reason.
- * Checks 3 to 5 compare against the base as the push remote holds it now (remoteBaseTip), never a
- * local ref the job's worktree could have moved; a base that can't be read refuses under `decision`.
+ * last decision event is eligible, the live head follows the decided head on the base the job
+ * targets, protected paths recomputed at the live head are all approved (throws `protected_path`
+ * otherwise, as forge pr open does), and the escalate floor finds nothing. A check that can't be
+ * computed refuses under its own reason. Checks 3 to 5 compare against the base as the push remote
+ * holds it now (remoteBaseTip), never a local ref the job's worktree could have moved; a base that
+ * can't be read refuses under `decision`, and so does a PR GitHub now targets at another branch,
+ * since GitHub merges into that one and every check would run on a diff that does not land.
  */
 export function autoMergeGate(root: string, config: Config, job: Job, events: JobEvent[], target: GateTarget): GateResult {
   if (!autoMerge(config)) return { ok: false, reason: 'auto-off', error: 'merge.auto is off: a human merges this PR on GitHub, or runs forge pr merge <id> --now in their own terminal' };
@@ -154,6 +159,7 @@ export function autoMergeGate(root: string, config: Config, job: Job, events: Jo
   }
   const notApproved = (): GateResult => ({ ok: false, reason: 'decision', error: `the PR head ${short(target.headOid)} is not the commit the approver approved (${short(decided)}); a human reviews and merges it` });
   if (live === null) return notApproved();
+  if (target.baseRef === null || target.baseRef !== base.base) return { ok: false, reason: 'decision', error: `the PR targets ${named(target.baseRef)} on GitHub, not the job's base ${named(base.base)}; a human reviews and merges it` };
   // From here the base is a commit id read from the remote, which resolveBase takes as it is.
   try {
     base = { base: remoteBaseTip(cwd, config, job.id, base.base) };

@@ -22,7 +22,7 @@ import { FULL_SHA, autoMergeGate } from './eligible.ts';
 import type { GateReason, GateResult } from './eligible.ts';
 import { memberSlug, recordMemberPr } from './members.ts';
 import type { MemberSync } from './members.ts';
-import { syncPr, syncPrDetailed } from './sync.ts';
+import { syncPrDetailed } from './sync.ts';
 
 /** What `forge pr merge` returns: mergePr. */
 export interface MergeResult {
@@ -128,6 +128,8 @@ interface MergeTarget {
   checks: PrChecks['state'] | undefined;
   mergeState: string | null;
   headOid: string | null;
+  /** The base branch GitHub says the PR targets, from this call's sync, or null. */
+  baseRef: string | null;
   /** The ts of the job's last pr-opened/pr-updated event (one forge pr open pushes every repo), or null. */
   pushedAt: string | null;
   /** When the live head was committed, in ms, or null when it can't be read. Asked only for a head that moved on. */
@@ -171,7 +173,7 @@ function mergeOne(root: string, config: Config, github: GitHub, id: string, t: M
   if (!now) {
     let gate: GateResult;
     try {
-      gate = autoMergeGate(root, config, loadJob(root, id), readEvents(root, id), { repo: t.repo, headOid: t.headOid });
+      gate = autoMergeGate(root, config, loadJob(root, id), readEvents(root, id), { repo: t.repo, headOid: t.headOid, baseRef: t.baseRef });
     } catch (e) {
       if (e instanceof ForgeError && e.code === 'protected_path') logEvent(root, id, 'pr-merge-refused', { ...tag, number, checks, head: t.headOid, reason: 'protected' });
       throw e;
@@ -253,11 +255,12 @@ export async function mergePr(
   const now = opts.now === true;
   if (isLinkedJob(job)) return mergeLinked(root, config, github, id, { now, clock, target: opts.repo !== undefined ? opts.repo : opts.root ? null : undefined });
   // A merge never routes: a conflicting PR parks as before, and the next forge sync routes it.
-  const { pr: synced } = await syncPr(root, config, github, id, { route: false });
+  const { result, baseRef } = await syncPrDetailed(root, config, github, id, { route: false });
+  const synced = result.pr;
   const number = synced?.number ?? job.pr.number;
   const checks = synced?.checks?.state;
   if (synced?.state === 'MERGED') return { merged: true, action: 'already-merged', checks };
-  return mergeOne(root, config, github, id, rootTarget(root, config, github, id, number, synced), { now, tag: {}, clock });
+  return mergeOne(root, config, github, id, rootTarget(root, config, github, id, number, synced, baseRef), { now, tag: {}, clock });
 }
 
 /**
@@ -276,7 +279,7 @@ export async function continueMerge(root: string, config: Config, github: GitHub
 
 // The live head is always GitHub's headRefOid from this call's sync, never job.json's pushedSha,
 // which the session can write.
-function rootTarget(root: string, config: Config, github: GitHub, id: string, number: number, synced: JobPr | null): MergeTarget {
+function rootTarget(root: string, config: Config, github: GitHub, id: string, number: number, synced: JobPr | null, baseRef: string | null): MergeTarget {
   const job = loadJob(root, id);
   return {
     repo: null,
@@ -286,6 +289,7 @@ function rootTarget(root: string, config: Config, github: GitHub, id: string, nu
     checks: synced?.checks?.state,
     mergeState: synced?.mergeState ?? null,
     headOid: synced?.headOid ?? null,
+    baseRef,
     pushedAt: lastPushAt(root, id),
     headAt: () => commitTime(root, synced?.headOid ?? null),
     hasWorkflows: () => hasCiWorkflows(root, `${config.git.remote}/${job.base}`),
@@ -306,6 +310,7 @@ function memberTarget(root: string, config: Config, job: Job, m: MemberSync): Me
     checks: m.checks,
     mergeState: m.mergeState,
     headOid: m.headOid,
+    baseRef: m.baseRef,
     pushedAt: lastPushAt(root, job.id),
     headAt: () => {
       try {
@@ -339,7 +344,7 @@ export function mergeTarget(flags: Record<string, unknown>, sub: 'merge' | 'read
 
 /** mergePr for a linked job: the walk in merge order, or one `target` PR (null: the root). */
 async function mergeLinked(root: string, config: Config, github: GitHub, id: string, opts: { now: boolean; clock: () => number; target: RepoKey | undefined }): Promise<MergeResult> {
-  const { result, members } = await syncPrDetailed(root, config, github, id, { route: false });
+  const { result, members, baseRef } = await syncPrDetailed(root, config, github, id, { route: false });
   const job = loadJob(root, id);
   const { order, deps, cycle } = jobRepoOrder(config, job);
   const gates = releaseGates(resolveInterim(config, job).edges, readEvents(root, id), job);
@@ -393,7 +398,7 @@ async function mergeLinked(root: string, config: Config, github: GitHub, id: str
     // recorded its dependency's release, and a bump-due one only once verify bumped it to that release.
     const gate = gates.find((g) => g.consumer === k && (g.gate === 'held' || g.gate === 'bump-due'));
     if (gate) return refuse(k, 'release', releaseGateMessage(id, gate));
-    const t = k === null ? rootTarget(root, config, github, id, rootNumber, synced) : memberTarget(root, config, job, members.get(k)!);
+    const t = k === null ? rootTarget(root, config, github, id, rootNumber, synced, baseRef) : memberTarget(root, config, job, members.get(k)!);
     const r = mergeOne(root, config, github, id, t, { now: opts.now, tag: tag(k), clock: opts.clock });
     // The walk's reason is the refused PR's own (auto-off, decision, floor).
     if (r.reason) reason = r.reason;

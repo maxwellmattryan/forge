@@ -42,6 +42,8 @@ interface ScenarioOpts {
   merged?: { base: 'pushed' | 'forged'; at?: number };
   /** The push remote no longer answers: the base can't be re-read. */
   remoteGone?: boolean;
+  /** The base branch GitHub says the PR targets (else main, the job's). */
+  prBase?: string;
 }
 
 /** A single-repo job with PR #7 opened, a decision bound to its head, and GitHub's PR #7 at that head. */
@@ -84,7 +86,7 @@ function scenario(rollup: keyof typeof ROLLUP, mergeStateStatus = 'CLEAN', opts:
   logEvent(repo.dir, id, 'pr-opened', { number: 7 });
   if (opts.decision !== null) logEvent(repo.dir, id, 'decision', { decision: 'APPROVE', reason: null, autoMerge: true, head: decided, ...opts.decision });
   const github = memoryGitHub();
-  github.put(ghPr({ headRefOid: head, statusCheckRollup: ROLLUP[rollup], mergeStateStatus }));
+  github.put(ghPr({ headRefOid: head, statusCheckRollup: ROLLUP[rollup], mergeStateStatus, ...(opts.prBase ? { baseRefName: opts.prBase } : {}) }));
   return {
     root: repo.dir,
     id,
@@ -195,6 +197,14 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
     check: (s, r) => {
       refusedFor('decision')(s, r);
       assert.match((r as MergeResult).error ?? '', /can't be checked against the base/);
+    },
+  },
+  {
+    name: "decision: a PR retargeted on GitHub to another branch is not checked against the job's base, so it refuses",
+    arrange: () => scenario('passing', 'CLEAN', { prBase: 'release' }),
+    check: (s, r) => {
+      refusedFor('decision')(s, r);
+      assert.match((r as MergeResult).error ?? '', /targets "release" on GitHub, not the job's base "main"/);
     },
   },
   {

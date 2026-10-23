@@ -223,6 +223,8 @@ export interface MemberSync {
   /** The PR turned CLOSED in this sync. */
   newlyClosed: boolean;
   headOid: string | null;
+  /** The base branch GitHub says the PR targets (assertJobPr already matched it to the member's base). */
+  baseRef: string | null;
   checks: PrChecks['state'] | undefined;
   mergeState: string | null;
 }
@@ -237,7 +239,7 @@ export function syncMemberPrs(root: string, config: Config, github: GitHub, id: 
   const job = loadJob(root, id);
   const out = new Map<string, MemberSync>();
   for (const m of memberRepos(job).filter((x) => !x.verifyOnly)) {
-    const unread: MemberSync = { repo: m.repo, number: safePrNumber(m.pr?.number), state: null, newlyClosed: false, headOid: null, checks: undefined, mergeState: null };
+    const unread: MemberSync = { repo: m.repo, number: safePrNumber(m.pr?.number), state: null, newlyClosed: false, headOid: null, baseRef: null, checks: undefined, mergeState: null };
     out.set(m.repo, unread);
     try {
       const slug = memberSlug(config, m.repo);
@@ -271,7 +273,7 @@ export function syncMemberPrs(root: string, config: Config, github: GitHub, id: 
       const state: PrStateKey = fresh.number !== null ? pr.state : null;
       const newlyClosed = state === 'CLOSED' && m.pr?.state !== 'CLOSED';
       if (newlyClosed) logEvent(root, id, 'repo-pr-closed', { repo: m.repo, number: fresh.number });
-      out.set(m.repo, { repo: m.repo, number: fresh.number, state, newlyClosed, headOid: fresh.headOid, checks: fresh.checks.state, mergeState: fresh.mergeState ?? null });
+      out.set(m.repo, { repo: m.repo, number: fresh.number, state, newlyClosed, headOid: fresh.headOid, baseRef: pr.baseRefName, checks: fresh.checks.state, mergeState: fresh.mergeState ?? null });
     } catch {
       logEvent(root, id, 'repo-pr-sync-failed', { repo: m.repo });
     }
