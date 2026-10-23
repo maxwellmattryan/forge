@@ -3,6 +3,7 @@
 The dashboard's route handlers, one file per area; the route table in `lib/server/start.ts` maps each method and path to one of them and names its guards.
 
 - Handlers start after their guards have passed and never call a guard themselves.
+- Design: [Dashboard security](../../../docs/architecture/dashboard-security.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

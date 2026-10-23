@@ -3,6 +3,7 @@
 File and terminal formats Forge reads and writes itself, with no dependencies: YAML, zip archives and ANSI styles.
 
 - Each file is a pure leaf: no job state, no config, no process.
+- Design: [Dashboard security](../../../docs/architecture/dashboard-security.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

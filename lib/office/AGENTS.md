@@ -6,6 +6,7 @@ Forge's long-running runtime: the session pool, per-job sessions, the reconciler
 - Whether a lease's driver is one of a session's ids is asked only of `driver.ts` (`drivenBy`, `whoDrives`), and everything a gone session held is let go only through its `releaseSession`: never compare `lease.driver` with a session id elsewhere.
 - The session records and logs live in `lib/core/job/session-files.ts`, below engine, because engine modules write and read them too.
 - `office` starts long-running listeners; their client code lives in `lib/integrations/`.
+- Design: [Daemon](../../docs/architecture/daemon.md), [Daemon runtime](../../docs/architecture/daemon-runtime.md), [Foreman](../../docs/architecture/foreman.md), [Daemon security](../../docs/architecture/daemon-security.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

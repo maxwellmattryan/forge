@@ -222,7 +222,7 @@ export function defaults(): Config {
       // --output), finishing a merge or rebase (`forge integrate --continue`) and commits, which go
       // through `forge git add|commit <job>` because the session's cwd is the main checkout, where a
       // bare `git add`/`git commit` would land on the base branch. Blanket git/gh would reach code
-      // execution and arbitrary GitHub writes (docs/ARCHITECTURE.md "Daemon security").
+      // execution and arbitrary GitHub writes (docs/architecture/daemon-security.md).
       allowedTools: [
         'Agent',
         'Skill',
@@ -254,7 +254,7 @@ export function defaults(): Config {
       jobBudget: { tokens: 600000000, usd: 150 },
     },
     // Opt-in: the `_office` daemon session decides gates through forge:assistant sub-agents;
-    // docs/ARCHITECTURE.md "Foreman". Whole-phrase, case-insensitive patterns: a match keeps the
+    // docs/architecture/foreman.md. Whole-phrase, case-insensitive patterns: a match keeps the
     // gate with a human, and a false positive errs that way on purpose.
     foreman: {
       enabled: false,

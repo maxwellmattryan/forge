@@ -7,6 +7,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 - **`job/`** holds `forge job`'s help table (`help.ts`) and one handler function per subcommand, grouped by concern; `job.ts` only routes, through `JOB_HANDLERS`.
 - **CLI output**: string results print raw (e.g. `forge worktree path`), everything else prints compact JSON.
 - **`--field` values** are not comma-split, because JSON arrays contain commas. Other list flags are.
+- Design: [Why a CLI does the bookkeeping](../../../docs/architecture/cli-bookkeeping.md), [Audit trail](../../../docs/architecture/audit-trail.md), [Untrusted input](../../../docs/architecture/untrusted-input.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

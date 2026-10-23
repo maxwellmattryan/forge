@@ -4,7 +4,7 @@
 // foreman decides becomes a `gate` request for the `_office` daemon session, which hands the
 // judgement to a forge:assistant sub-agent and records the verdict with `forge job human … --actor
 // foreman`. The CLI, not the prompt, holds the authority line: checkForemanDecision runs before any
-// write. docs/ARCHITECTURE.md "Foreman".
+// write. docs/architecture/foreman.md.
 import { isForemanActor, readEvents } from '#core/job/store.ts';
 import { inOffice, listRequests } from '#core/job/requests.ts';
 import { HANDOFF_CLASSES } from '#core/job/schema.ts';

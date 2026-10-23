@@ -4,6 +4,7 @@ A job's runtime environment: backing services, ports, endpoints, the dev server'
 
 - Backing services run through the Docker CLI (`lib/integrations/docker/runner.ts`); their validation lives in `lib/core/config/validators/` so config and the schema can import it without the job store.
 - `ports.ts` gives each component its job ports, and `endpoints.ts` turns them into the placeholders and env a command sees.
+- Design: [Untrusted input](../../../docs/architecture/untrusted-input.md), [Concurrency](../../../docs/architecture/concurrency.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

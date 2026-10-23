@@ -142,13 +142,13 @@ Read by Forge:
 | Variable | Effect |
 |---|---|
 | `FORGE_ROOT` | the main checkout Forge keeps its state in; without it, the checkout of the current directory's git repository |
-| `FORGE_CACHE_DIR` | where `bin/forge` keeps its start-up cache (V8 code cache, and stripped modules on Node 22); default `.cache/` in the plugin root. It must be private to the current user, and no easier to write than the plugin itself, since it holds code the CLI runs (ARCHITECTURE.md "Start-up cache") |
+| `FORGE_CACHE_DIR` | where `bin/forge` keeps its start-up cache (V8 code cache, and stripped modules on Node 22); default `.cache/` in the plugin root. It must be private to the current user, and no easier to write than the plugin itself, since it holds code the CLI runs (docs/architecture/startup-cache.md) |
 | `NODE_DISABLE_COMPILE_CACHE` | any non-empty value turns the start-up cache off |
 | `FORGE_DEBUG` | any non-empty value prints an error's stack trace on stderr, with or without `--json` |
 | `FORGE_MODE` | `human` or `agent`: the output mode when neither `--json` nor `--mode` is given (see Output mode); empty counts as unset, any other value is a usage error. The SessionStart hook and daemon sessions set it to `agent` |
 | `NO_COLOR` | any non-empty value turns colour off in human mode |
 | `FORGE_AI_ATTRIBUTION` | `allow` turns the no-AI-attribution policy off for the hook, `forge git commit`, `forge pr open` and the GitHub tracker |
-| `FORGE_ACTOR` | the login human-action events record (`actor: { login, source: "env" }`), ahead of `gh`, `git config user.email` and the OS user; ignored inside daemon sessions, which record the dashboard's OS user. Sanitised to `[A-Za-z0-9 ._@+-]`, at most 100 characters, and unauthenticated (ARCHITECTURE.md "Audit trail") |
+| `FORGE_ACTOR` | the login human-action events record (`actor: { login, source: "env" }`), ahead of `gh`, `git config user.email` and the OS user; ignored inside daemon sessions, which record the dashboard's OS user. Sanitised to `[A-Za-z0-9 ._@+-]`, at most 100 characters, and unauthenticated (docs/architecture/audit-trail.md) |
 | `FORGE_EDITOR` | the editor command `forge dash`'s Open in editor runs, split into words without a shell, with the job's worktree path appended; default `code`. Read from `forge dash`'s own environment |
 | `GH_HOST` | a GitHub Enterprise host whose issue URLs count as the configured repo's, besides github.com |
 | `SHELL` | the shell configured commands run in (`$SHELL -lc`; `/bin/sh` when unset): `forge run`, `forge verify`, worktree setup and eval checks |
@@ -219,11 +219,11 @@ The log file gains a `(links <bin dir>)` line after `(cwd …)`. Background comm
 
 ## Foreman decisions
 
-`forge job human <id> <action> [--actor human|foreman]` records who decided. Without `--actor` the event's `actor` is the resolved person, `{ "login": "<login>"|null, "source": "env"|"gh"|"git"|"os"|"dashboard"|"unknown" }` (ARCHITECTURE.md "Audit trail"); with `--actor foreman` it is `{ "login": null, "source": "foreman" }`. Events written before event schema v2 said `"human"` or `"foreman"`, and read as source `unknown` and `foreman`. `--actor foreman` is accepted only from the office daemon session (`FORGE_DAEMON_SCOPE=_office`), which in turn must pass it, and only after the authority checks in docs/ARCHITECTURE.md "Foreman": the job waits on a gate class in `foreman.decides`, the action belongs to that class, `--note` is given and no reserved pattern matches (nor a latest security verdict other than `PASS`), a pr-feedback `rework` has a queued gate request for the PR's current head, and there is no `--link` or `--reason`. A refusal exits 1 and writes nothing.
+`forge job human <id> <action> [--actor human|foreman]` records who decided. Without `--actor` the event's `actor` is the resolved person, `{ "login": "<login>"|null, "source": "env"|"gh"|"git"|"os"|"dashboard"|"unknown" }` (docs/architecture/audit-trail.md); with `--actor foreman` it is `{ "login": null, "source": "foreman" }`. Events written before event schema v2 said `"human"` or `"foreman"`, and read as source `unknown` and `foreman`. `--actor foreman` is accepted only from the office daemon session (`FORGE_DAEMON_SCOPE=_office`), which in turn must pass it, and only after the authority checks in docs/architecture/foreman.md: the job waits on a gate class in `foreman.decides`, the action belongs to that class, `--note` is given and no reserved pattern matches (nor a latest security verdict other than `PASS`), a pr-feedback `rework` has a queued gate request for the PR's current head, and there is no `--link` or `--reason`. A refusal exits 1 and writes nothing.
 
 `forge job assist <id> --gate <class>` is read-only and returns `{gate, stale, reserved, model, effort, subagent, brief}`: the `forge:assistant` spawn for that gate, with a brief of paths only. `stale: true` means the job no longer waits on that gate, and `reserved` is re-checked at call time. An unknown `--gate` exits 1, and so does a daemon session other than the office. `forge requests add gate` always exits 1: only `forge job set` and `forge pr sync` write gate requests.
 
-A recorded decision moves the job by itself: the next `forge job step` on a job whose current park a `human` event answers returns that gate's follow-up `forge job set` (rules GA1–GA11, ARCHITECTURE.md "Job model" › Answered gates), so `forge job human` followed by `forge requests add resume --job <id>` is enough from any session.
+A recorded decision moves the job by itself: the next `forge job step` on a job whose current park a `human` event answers returns that gate's follow-up `forge job set` (rules GA1–GA11, docs/architecture/job-model.md › Answered gates), so `forge job human` followed by `forge requests add resume --job <id>` is enough from any session.
 
 `forge job handoff <id> --class reserved|escalated|refused --reason "<text>"` records a **Foreman hand-off**: the office left the gate the job waits at for a person (a reserved topic or class, the assistant escalated, or the CLI refused its decision). Its checks run in this order and all before any write: the office daemon session (anywhere else it exits 1 with `only the office daemon session records a Foreman hand-off`), the job exists, the job waits on a gate the Foreman decides (otherwise exit 1, `job <id> is not waiting on a gate the Foreman decides`; the gate is taken from the job, never passed in), `--class` is one of the three, and `--reason` keeps some text once control characters and backticks are removed and it is cut to 200 characters (otherwise exit 1). It then logs one `foreman-handoff` event `{gate, class, reason, actor: {login: null, source: "foreman"}}` and prints `{"ok": true, "foremanHandoff": {"gate", "class", "reason", "at"}}`.
 
@@ -233,15 +233,15 @@ A recorded decision moves the job by itself: the next `forge job step` on a job 
 
 `forge pr merge <id> [--repo NAME | --root] [--now]` syncs first, then merges one PR at a time with exactly one `gh pr merge` call each: directly when checks pass or the repo has no CI, queued with `--auto` while checks are pending only when GitHub holds the PR and no protected-paths policy applies, deferred otherwise, and refused when checks fail. A single-repo job has one PR, and the result is `{ merged, autoMerge, action, checks, mergeState?, error? }` with `action` one of `already-merged`, `merged`, `auto`, `deferred`, `refused`, `failed`.
 
-A job with a member repo that gets a PR merges its PRs in the order of the components' `dependsOn` (docs/ARCHITECTURE.md "Job repos"): a PR is merged, or queued with `--auto`, only when every PR it depends on is MERGED by this call's own sync. The walk goes on after a direct merge and stops at the first PR it queues, defers, refuses or fails to merge, so a consumer is never queued while a dependency is unmerged. `--repo NAME` merges only that member's PR and `--root` only the root's; either is refused while a PR it depends on is not merged, has no PR, or could not be read. The result adds `repo` (the PR acted on last, null for the root), `parts` (one `{ repo, number, action, checks, mergeState?, error? }` per PR acted on, in order) and, on an order refusal, `reason`: `order` when a dependency PR is not merged, `cycle` when the components' `dependsOn` form a cycle between the job's repos, which refuses every merge of the job. Both exit 1 with no `gh pr merge` call and log `pr-merge-refused` with that `reason`. `merged` is true only when every PR of the job is MERGED. `--now` bypasses CI and the head pin for each PR it merges, never the order. `--repo` with `--root`, `--repo` naming no PR member, and `--root` with a value (`--root <id>` swallows the id) exit 1.
+A job with a member repo that gets a PR merges its PRs in the order of the components' `dependsOn` (docs/architecture/job-repos.md): a PR is merged, or queued with `--auto`, only when every PR it depends on is MERGED by this call's own sync. The walk goes on after a direct merge and stops at the first PR it queues, defers, refuses or fails to merge, so a consumer is never queued while a dependency is unmerged. `--repo NAME` merges only that member's PR and `--root` only the root's; either is refused while a PR it depends on is not merged, has no PR, or could not be read. The result adds `repo` (the PR acted on last, null for the root), `parts` (one `{ repo, number, action, checks, mergeState?, error? }` per PR acted on, in order) and, on an order refusal, `reason`: `order` when a dependency PR is not merged, `cycle` when the components' `dependsOn` form a cycle between the job's repos, which refuses every merge of the job. Both exit 1 with no `gh pr merge` call and log `pr-merge-refused` with that `reason`. `merged` is true only when every PR of the job is MERGED. `--now` bypasses CI and the head pin for each PR it merges, never the order. `--repo` with `--root`, `--repo` naming no PR member, and `--root` with a value (`--root <id>` swallows the id) exit 1.
 
 ## Leases and fencing
 
-`forge job claim <id> --session S` prints `{ id, lease, epoch }`: the job's lease (`{ driver, epoch, since, renewedAt, expiresAt }`, docs/ARCHITECTURE.md "Job model" › Ownership) and the epoch to fence later writes with. A new driver gets the next epoch; a re-claim by the same driver keeps it, so re-claiming always returns the epoch to use. `--epoch N` is accepted by `forge job step`, `forge job advance`, `forge job set`, `forge job claim` and `forge job agent start|end`; with it, the command is refused before it writes anything when the lease is no longer at epoch N or (with `--session S`) S no longer drives the job: exit 3, code `stale_epoch`, and the caller must stop driving the job. Without `--epoch`, nothing is fenced and `forge job advance` keeps its driver check. `N` must be a non-negative integer (else `usage`). Before `plan.md` or `spec.md` exists, a claim of a job started from its issue also re-reads `request.md` from that issue, best effort, and adds `requestRefreshed: true` when it changed; `forge next --claim` does the same for the job it resumes (docs/TRACKERS.md "Edited issues").
+`forge job claim <id> --session S` prints `{ id, lease, epoch }`: the job's lease (`{ driver, epoch, since, renewedAt, expiresAt }`, docs/architecture/job-model.md › Ownership) and the epoch to fence later writes with. A new driver gets the next epoch; a re-claim by the same driver keeps it, so re-claiming always returns the epoch to use. `--epoch N` is accepted by `forge job step`, `forge job advance`, `forge job set`, `forge job claim` and `forge job agent start|end`; with it, the command is refused before it writes anything when the lease is no longer at epoch N or (with `--session S`) S no longer drives the job: exit 3, code `stale_epoch`, and the caller must stop driving the job. Without `--epoch`, nothing is fenced and `forge job advance` keeps its driver check. `N` must be a non-negative integer (else `usage`). Before `plan.md` or `spec.md` exists, a claim of a job started from its issue also re-reads `request.md` from that issue, best effort, and adds `requestRefreshed: true` when it changed; `forge next --claim` does the same for the job it resumes (docs/TRACKERS.md "Edited issues").
 
 `forge requests` (list) first returns to `pending` any `in-progress` request whose session is gone (its job's lease, held by that session, expired; or, for a request no lease covers, its claim is over 30 minutes old), adding `requeues`; one orphaned a second time is `rejected` with `its session ended twice while handling it`.
 
-`forge sync` ends with the reconciler's pass (docs/ARCHITECTURE.md "Daemon" › Reconciler) and reports it as `reconcile`: `{ resumed, escalated, requeued }` (job ids resumed or parked on `escalation` for having nothing to drive them, and request ids returned to pending), or the string `"skipped (forge dash owns it)"` while a live `forge dash` holds the daemon lock and reconciles on its own (sync reads the lock, never takes it), or `{ error }` when the pass failed; the rest of the sync has run either way.
+`forge sync` ends with the reconciler's pass (docs/architecture/daemon.md › Reconciler) and reports it as `reconcile`: `{ resumed, escalated, requeued }` (job ids resumed or parked on `escalation` for having nothing to drive them, and request ids returned to pending), or the string `"skipped (forge dash owns it)"` while a live `forge dash` holds the daemon lock and reconciles on its own (sync reads the lock, never takes it), or `{ error }` when the pass failed; the rest of the sync has run either way.
 
 ## Next
 
@@ -249,7 +249,7 @@ A job with a member repo that gets a PR merges its PRs in the order of the compo
 
 ## Audit trail
 
-`forge job audit <id> [--json|--csv]` prints the job's audit rows in time order (ARCHITECTURE.md "Audit trail" says which events carry an actor). JSON, the default:
+`forge job audit <id> [--json|--csv]` prints the job's audit rows in time order (docs/architecture/audit-trail.md says which events carry an actor). JSON, the default:
 
 ```
 { "id", "title", "pr": { "number": n|null, "mergeMethod": s|null, "merged": bool },
@@ -393,7 +393,7 @@ Export the audit trail of every job for a period.
 | `--since <date>` | the first instant included (required) |
 | `--until <date>` | the first instant excluded (default now) |
 
-See [Audit trail](ARCHITECTURE.md#audit-trail).
+See [Audit trail](architecture/audit-trail.md).
 
 ### `forge backing`
 
@@ -864,7 +864,7 @@ One job's state, agents and reviews; forge job step &lt;id> returns its next act
 |---|---|
 | 1 | not eligible, or a daemon session |
 
-See [Retention](ARCHITECTURE.md#retention).
+See [Retention](architecture/retention.md).
 
 **`forge job assist <id> --gate G`**: the office session's forge:assistant spawn for a gate: model, effort and a brief of paths only, and for repo-proposal the pending repos to pass as --repo; stale when the job no longer waits there. Read-only
 
@@ -887,7 +887,7 @@ See [Retention](ARCHITECTURE.md#retention).
 |---|---|
 | 1 | no such job |
 
-See [Audit trail](ARCHITECTURE.md#audit-trail).
+See [Audit trail](architecture/audit-trail.md).
 
 **`forge job budget <id> [--set key=value,...] [--ack]`**: the job's budget limits and use
 
@@ -930,7 +930,7 @@ See [Audit trail](ARCHITECTURE.md#audit-trail).
 |---|---|
 | 1 | no such job, not eligible (the message says why), a worktree or backing teardown that failed (rerun once fixed), or a daemon session |
 
-See [Deleting a job](ARCHITECTURE.md#deleting-a-job).
+See [Deleting a job](architecture/deleting-a-job.md).
 
 **`forge job effort <id> low|medium|high|xhigh|max | --inherit`**: set a job's reasoning effort (forge job new --effort sets it at creation), or clear it so the job inherits runtime.effort; daemon sessions start with --effort and every agent gets it
 
@@ -1108,7 +1108,7 @@ See [Local links](CONFIG.md#local-links).
 |---|---|
 | 1 | not eligible, or a daemon session |
 
-See [Retention](ARCHITECTURE.md#retention).
+See [Retention](architecture/retention.md).
 
 **`forge job refresh-request <id>`**: re-read request.md and the title from the job's primary issue, so a queued job picks up an edited issue; the id, links, claim and dependsOn stay
 
@@ -1134,7 +1134,7 @@ See [Retention](ARCHITECTURE.md#retention).
 |---|---|
 | 1 | no such job, a done job or one at stage pr, an unknown or duplicate repo, a failing clone check, a repo with a PR or a worktree, or a daemon session; for interim, a done or cancelled job, an unknown or verify-only repo, canary for a repo a cargo or cmake link depends on, or a daemon session; for propose: a missing or long --reason, an eval job, a repo rejected on this job, or a daemon session other than the job's own; for downstream: an eval job, a job at stage pr or later, or a daemon session other than the job's own |
 
-See [Job repos](ARCHITECTURE.md#job-repos).
+See [Job repos](architecture/job-repos.md).
 
 **`forge job round <id>`**: start the next review round, unless the budget is spent
 
