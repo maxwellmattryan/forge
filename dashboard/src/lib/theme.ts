@@ -26,7 +26,7 @@ export const SYSTEM_DARK: Theme = 'forge';
  * `patina` and `obsidian` are themselves; anything else (`Temper` or `PATINA` in the wrong case included) counts as unset
  * and follows the OS: light → ash, dark → forge. The saved value itself is never rewritten.
  * index.html's inline script duplicates this mapping because it runs before the bundle;
- * test/dashboard-theme.test.ts keeps the two in step.
+ * a test keeps the two in step (being rewritten from docs/test-rewrite/modules/dashboard.ui.md).
  */
 export function normalizeTheme(saved: string | null | undefined, prefersLight: boolean): Theme {
   if (saved === 'forge' || saved === 'cyanotype' || saved === 'dark' || saved === 'nightprint') return 'forge';

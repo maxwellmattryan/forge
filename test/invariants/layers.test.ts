@@ -4,7 +4,9 @@
 // lib/cli/commands/, and imports across layers (from lib/, test/ and dashboard/src/) go through the
 // package.json "imports" aliases. No public function exposes the module graph, so this reads the import
 // declarations of lib/, test/ and dashboard/src/ sources, package.json "imports" and the tsconfigs' `paths`
-// (docs/TESTING.md › Allowed source-text tests, entry 10).
+// (docs/TESTING.md › Allowed source-text tests, entry 10). A test beside its module (lib/**/<name>.test.ts)
+// is no part of the graph: it keeps its folder's layer direction and reaches outside lib/ only for test/helpers.ts.
+// Runtime code (lib/ and bin/) never imports dashboard sources, which only Vite builds.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -227,7 +229,31 @@ function aliasProblems(pairs: [file: string, spec: string][], aliases: Aliases):
   return problems;
 }
 
-interface Scan { edges: Map<string, Edge[]>; externals: Map<string, string[]>; specs: [string, string][] }
+/**
+ * Everything wrong with the imports of tests beside their modules, as `lib/${file} → ${spec}: …`: an import
+ * up the layers from the test's own folder, or a file outside lib/ other than test/helpers.ts. Node and
+ * package imports stay allowed, since a test needs node:test and the api rule is about shipped code.
+ */
+function colocatedProblems(tests: [file: string, specs: Spec[]][], flat: Flat, aliases: Aliases): string[] {
+  const problems: string[] = [];
+  for (const [file, specs] of tests) {
+    const own = layerOf(file, flat);
+    for (const { spec } of specs) {
+      const target = spec.startsWith('#') ? unalias(spec, aliases)
+        : spec.startsWith('.') ? path.posix.normalize(path.posix.join(path.posix.dirname(file), spec)) : null;
+      if (target === null) continue;
+      if (target.startsWith('../')) {
+        if (target !== '../test/helpers.ts') problems.push(`lib/${file} → ${spec}: from outside lib/ a test imports only test/helpers.ts`);
+        continue;
+      }
+      const layer = layerOf(target, flat);
+      if (own && layer && rank(layer) > rank(own)) problems.push(`lib/${file} → ${spec}: imports a higher layer`);
+    }
+  }
+  return problems;
+}
+
+interface Scan { edges: Map<string, Edge[]>; externals: Map<string, string[]>; specs: [string, string][]; tests: [string, Spec[]][] }
 
 const listFiles = (dir: string, pattern: RegExp): string[] => (fs.readdirSync(dir, { recursive: true }) as string[])
   .map((f) => f.split(path.sep).join('/'))
@@ -237,12 +263,15 @@ const listFiles = (dir: string, pattern: RegExp): string[] => (fs.readdirSync(di
 let scanned: Scan | undefined;
 function scan(): Scan {
   if (scanned) return scanned;
-  const files = listFiles(LIB, /\.(ts|mjs)$/);
-  const specs = new Map(files.map((f) => [f, specsOf(f, fs.readFileSync(path.join(LIB, f), 'utf8'))]));
+  const all = listFiles(LIB, /\.(ts|mjs)$/);
+  const isTest = (f: string): boolean => f.endsWith('.test.ts');
+  const files = all.filter((f) => !isTest(f));
+  const specs = new Map(all.map((f) => [f, specsOf(f, fs.readFileSync(path.join(LIB, f), 'utf8'))]));
   scanned = {
     edges: new Map(files.map((f) => [f, edgesFrom(f, specs.get(f)!, ALIASES)])),
     externals: new Map(files.map((f) => [f, specs.get(f)!.filter((s) => isExternal(s.spec)).map((s) => s.spec)])),
-    specs: files.flatMap((f) => specs.get(f)!.map((s): [string, string] => [`lib/${f}`, s.spec])),
+    specs: all.flatMap((f) => specs.get(f)!.map((s): [string, string] => [`lib/${f}`, s.spec])),
+    tests: all.filter(isTest).map((f): [string, Spec[]] => [f, specs.get(f)!]),
   };
   return scanned;
 }
@@ -316,6 +345,20 @@ test('the layer check reads post-move paths and refuses planted violations', () 
   ]);
 });
 
+test('tests beside their modules keep their layer and reach outside lib/ only for test/helpers.ts', () => {
+  const problems = colocatedProblems(scan().tests, FLAT_LAYERS, ALIASES);
+  assert.deepEqual(problems, [], problems.join('\n'));
+  const spec = (s: string): Spec => ({ spec: s, typeOnly: false, dynamic: false });
+  assert.deepEqual(colocatedProblems([
+    ['core/job/a.test.ts', ['node:test', '../../../test/helpers.ts', './a.ts', '#api/types.ts', '#nope/x.ts'].map(spec)],
+    ['core/job/b.test.ts', ['../../../test/support/cli.ts', '#engine/c.ts', '../../server/start.ts'].map(spec)],
+  ], FLAT_LAYERS, ALIASES), [
+    'lib/core/job/b.test.ts → ../../../test/support/cli.ts: from outside lib/ a test imports only test/helpers.ts',
+    'lib/core/job/b.test.ts → #engine/c.ts: imports a higher layer',
+    'lib/core/job/b.test.ts → ../../server/start.ts: imports a higher layer',
+  ]);
+});
+
 test('package.json aliases each lib layer below server, and no tsconfig uses paths', () => {
   const expected = Object.fromEntries(LAYERS.filter((l) => !UNALIASED.includes(l)).map((l) => [`#${l}/*`, `./lib/${l}/*`]));
   assert.deepEqual(readJson('package.json').imports, expected);
@@ -373,6 +416,28 @@ test('only cli/commands/ and cli/main.ts import cli/commands/', () => {
   const bad = [...libEdges()].flatMap(([file, edges]) =>
     cli(file) ? [] : edges.filter((e) => e.target.startsWith('cli/commands/')).map((e) => `${file} → ${e.target}`));
   assert.deepEqual(bad, []);
+});
+
+test('runtime code never imports dashboard sources', () => {
+  /** @type {string[]} */
+  const files = [];
+  const walk = (/** @type {string} */ d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.isFile()) files.push(full);
+    }
+  };
+  walk(path.join(ROOT, 'lib'));
+  walk(path.join(ROOT, 'bin'));
+  assert.ok(files.length > 10, 'walked lib/ and bin/');
+  for (const f of files) {
+    const text = fs.readFileSync(f, 'utf8');
+    const rel = path.relative(ROOT, f);
+    assert.ok(!text.includes('dashboard/src'), `${rel} mentions dashboard/src`);
+    // The engine is TypeScript too now, so only a .ts import that reaches into dashboard/ is refused.
+    assert.doesNotMatch(text, /(?:from\s*|import\s*\(\s*|require\s*\(\s*)['"][^'"]*dashboard[^'"]*\.ts['"]/, `${rel} imports a dashboard .ts file`);
+  }
 });
 
 test('the import scan reads what Node loads and finds a planted cycle', () => {

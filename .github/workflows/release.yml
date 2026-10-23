@@ -1,7 +1,7 @@
 # Forge's release: on a push to main that changes the package.json version and has no v<version> tag
 # yet, run all of ci.yml, build a source archive stamped with its commit, tag the pushed commit and
 # publish a GitHub Release whose body is that version's CHANGELOG section. Any other push stops after
-# detect. test/release-workflow.test.ts pins this file; docs/RELEASES.md explains the flow.
+# detect. test/invariants/release-workflow.test.ts pins this file; docs/RELEASES.md explains the flow.
 name: Release
 
 on:

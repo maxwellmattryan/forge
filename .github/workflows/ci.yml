@@ -1,5 +1,5 @@
 # Forge's own gate: the "Verify before claiming it works" list in AGENTS.md, in the same order.
-# test/ci-workflow.test.ts fails when the two drift, so edit both together. It runs on Linux only.
+# test/invariants/ci-workflow.test.ts fails when the two drift, so edit both together. It runs on Linux only.
 # release.yml calls this whole workflow (workflow_call) before it tags a release, and `npm run release`
 # waits for its push run on the release commit before it pushes main (docs/RELEASES.md, docs/CI.md).
 name: CI
@@ -56,7 +56,7 @@ jobs:
           TEST_SHARD: ${{ matrix.shard }}
           # The tests of the real build run here (it was just built) instead of skipping (test/dist.ts).
           FORGE_REQUIRE_DIST: '1'
-        run: node --test --test-shard="$TEST_SHARD" "test/**/*.test.ts"
+        run: node --test --test-shard="$TEST_SHARD" "test/**/*.test.ts" "lib/**/*.test.ts" "dashboard/src/**/*.test.ts"
       - name: Syntax-check JavaScript entry points
         run: for f in bin/forge lib/trackers/status.mjs dashboard/*.mjs; do node --check "$f"; done
       - name: Install Claude Code CLI

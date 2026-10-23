@@ -21,7 +21,7 @@ const run = spawnSync(process.execPath, [
   ...INCLUDE.map((glob) => `--test-coverage-include=${glob}`),
   '--test-reporter=spec', '--test-reporter-destination=stdout',
   '--test-reporter=lcov', `--test-reporter-destination=${lcov}`,
-  'test/**/*.test.ts',
+  'test/**/*.test.ts', 'lib/**/*.test.ts', 'dashboard/src/**/*.test.ts',
 ], { cwd: root, stdio: 'inherit' });
 
 interface FileCoverage { file: string; hit: number; found: number }
@@ -43,7 +43,7 @@ const pct = (hit: number, found: number) => (found === 0 ? 100 : (hit / found) *
 
 if (fs.existsSync(lcov)) {
   const files = parseLcov(fs.readFileSync(lcov, 'utf8'), root)
-    .filter((f) => !f.file.startsWith('test/') && !f.file.startsWith('..'))
+    .filter((f) => !f.file.startsWith('test/') && !f.file.startsWith('..') && !f.file.endsWith('.test.ts'))
     .sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
   let hit = 0;
   let found = 0;

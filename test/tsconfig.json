@@ -1,5 +1,6 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": { "strict": false, "lib": ["es2023", "dom"] },
-  "include": ["**/*"]
+  "include": ["**/*", "../lib/**/*.test.ts", "../dashboard/src/**/*.test.ts"],
+  "exclude": []
 }

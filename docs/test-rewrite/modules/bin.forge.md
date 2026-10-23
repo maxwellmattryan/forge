@@ -1,0 +1,35 @@
+# bin/forge
+Source: bin/forge · Public surface: the `forge` executable: turns on the start-up cache (`startupCache()`, `cacheRoot()`), imports lib/cli/main.ts and runs `main(argv)`, exiting with `reportError(err, argv)` on a thrown error; env `FORGE_CACHE_DIR`, `NODE_DISABLE_COMPILE_CACHE`.
+Old tests: test/startup-cache.test.ts, test/cli-contract.test.ts, test/ci-workflow.test.ts, test/background.test.ts, test/deps.test.ts, test/git-commit.test.ts, test/integration/cli/environment.test.ts, test/lease.test.ts, test/notify-cli.test.ts, test/verdicts.test.ts
+Baseline coverage: not measured (outside `lib/` and `dashboard/src/lib/`, which `npm run coverage` covers)
+
+The other files the script assigned here spawn `bin/forge` but test command behaviour; their items are inventoried in cli.commands.md: background.test.ts (B100), deps.test.ts (B32, B33, B62, B66, E9, E10, E55), git-commit.test.ts (B70–B76, E25–E28), integration/cli/environment.test.ts (B96–B99, E42, E43), lease.test.ts (E11), notify-cli.test.ts (B136, E50; its doctor-check test goes to engine.ops.md), verdicts.test.ts (B34, B36, E20), cli-contract.test.ts (B10–B25). The entry's own contract is below.
+
+## Behaviours
+- B1. A thrown error ends the process with `reportError`'s exit code: `--json` → one JSON line on stdout and nothing on stderr; agent mode → `forge: <message>\n` on stderr; human mode → `error:`/`fix:` lines; `FORGE_DEBUG` adds the stack on stderr. A successful run exits 0 unless the command set `process.exitCode`. (Exit table and forms: cli.commands.md B17–B19.) Old: cli-contract › "the spawned CLI › exit codes follow the table", "text errors are unchanged; FORGE_DEBUG adds the stack"
+- B2. `forge help` with `FORGE_CACHE_DIR=<new dir>` exits 0, prints exactly what an uncached start (`NODE_DISABLE_COMPILE_CACHE=1`) prints, writes nothing to stderr (no ExperimentalWarning), creates the cache dir with mode `0700` and writes V8's code cache under `<cache>/v8/`; on Node < 24 it also writes `<cache>/strip/<process.version>/<sha256 of the source>.js` for lib/cli/main.ts and for a module reached through a `#core/` alias (lib/core/config/load.ts), every entry named `/^[0-9a-f]{64}\.js$/` (no temp files left); on Node ≥ 24 there is no `strip/` dir. A second start prints the same bytes and status. Old: startup-cache › "start-up cache › fills a private cache dir and prints exactly what an uncached start prints"
+- B3. Without FORGE_CACHE_DIR the cache is `<plugin root>/.cache`, holding a `.gitignore` of exactly `*\n` (so `git status --porcelain -- .cache` is empty), with `strip/<version>/` present only on Node < 24; output equals the uncached start and stderr is empty. Old: startup-cache › "defaults to .cache in the plugin root, ignored by git"
+- B4. `NODE_DISABLE_COMPILE_CACHE=1` turns the cache off: output unchanged and the FORGE_CACHE_DIR is never created. A read-only cache dir (mode 0500) just runs uncached: exit 0, empty stderr, same output, nothing written into it. Old: startup-cache › "NODE_DISABLE_COMPILE_CACHE turns it off, and a read-only dir just runs uncached"
+- B5. KEPT: a strip-cache entry planted under the content key of lib/cli/main.ts, in a private (0700) cache dir, is what runs (prints the planted text) (kept, not rewritten: test/startup-cache.test.ts). Old: startup-cache › "a cached module is what runs"
+- B6. `--help`, `version` and `update` run without a repo or `.forge/`; help also works in an empty non-git temp dir with no FORGE_ROOT. Old: cli-contract › "help works outside a repo, without FORGE_ROOT"
+- B7. KEPT (repo invariant): the CLI starts without a type-stripping warning on the Node running the suite (kept, not rewritten: test/invariants/ci-workflow.test.ts). Old: ci-workflow › "the CLI starts without a type-stripping warning on this Node"
+
+## Edge and corner cases
+- E1. KEPT: a cache dir others can write (mode 0777), a symlink to a private cache dir, and a private cache dir inside a world-writable non-sticky parent are all ignored: each start prints the uncached output with empty stderr, never the planted module (kept, not rewritten: test/startup-cache.test.ts). Old: startup-cache › "a cache dir others can write, or a symlink, is ignored"
+- E2. A cache file whose source fails to strip falls back to Node's own load so the syntax error is reported Node's way; a write failure (read-only install, sandbox) leaves that start uncached; concurrent starts write aside and rename, so no reader sees half a module. Setup: none (from source, no old test). Old: none (from source)
+- E3. The cache root must be a real directory owned by the current uid with no group/other write bit, in a parent owned by the uid or root that is private or sticky; anything else runs uncached. Setup: as E1 (a private scratch dir, planted entry, permissions varied). Old: startup-cache › "a cache dir others can write, or a symlink, is ignored" (kept)
+
+## Regressions worth keeping
+- R1. Cache entries are keyed by the sha256 of the source text, so an edited file or an updated plugin is never served stale (B2's key; B5 proves the key is what is looked up). Setup: as B2 and B5. Old: startup-cache › "fills a private cache dir and prints exactly what an uncached start prints"
+- R2. The cache lives beside the code it caches, never in a shared temp dir, so a sandboxed agent that can write /tmp cannot plant a module a later unsandboxed start runs (B3, E1). Setup: as B3 and E1. Old: startup-cache › "defaults to .cache in the plugin root, ignored by git"
+
+## Cheapest layer
+Every item needs a spawned `node bin/forge help` with a controlled environment: drop NODE_COMPILE_CACHE, NODE_DISABLE_COMPILE_CACHE, NODE_OPTIONS (the suite's strip-cache hook), FORGE_CACHE_DIR and FORGE_DEBUG from the inherited env, then set only what the case needs. POSIX-only (permission bits); the strip-cache cases are Node < 24 only.
+
+## Setup recipes
+- A private scratch dir: `fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-cache-test-')))`; pass `FORGE_CACHE_DIR=<dir>/cache`.
+- Planting: write `<cache>/strip/<process.version>/<sha256(readFileSync('lib/cli/main.ts'))>.js` containing `export async function main() { process.stdout.write('served from the strip cache'); }\nexport function reportError() { return 1; }\n`, then `chmod 0700` the cache dir (or 0777 / a symlink / a 0777 parent for E1).
+- The reference output: one `forge help` run with `NODE_DISABLE_COMPILE_CACHE=1`, memoised per file.
+
+## Dropped on purpose
+- Nothing: the start-up cache tests not marked kept (B2–B4) are inventoried above; the CLI behaviour tests assigned here are in cli.commands.md.

@@ -1,0 +1,35 @@
+load: 5.94 4.18 5.51
+node: v26.3.0
+commit: tests-teardown (after the teardown)
+
+    7.0 s  test/invariants/cli-contract.test.ts
+    3.2 s  test/integration/cli/secret-gates.test.ts
+    3.0 s  test/invariants/release-workflow.test.ts
+    2.9 s  lib/engine/guard/attribution.test.ts
+    1.8 s  test/integration/cli/startup-cache.test.ts
+    1.2 s  test/outcome-schema.test.ts
+    1.1 s  test/integration/server/security.test.ts
+    1.1 s  test/invariants/ci-workflow.test.ts
+    1.0 s  test/invariants/layers.test.ts
+    0.7 s  test/schema.test.ts
+    0.6 s  lib/engine/guard/secret-refs.test.ts
+    0.5 s  lib/engine/pr/adopt.test.ts
+    0.5 s  test/job-repos-schema.test.ts
+    0.3 s  test/invariants/agent-tools.test.ts
+    0.3 s  test/step.test.ts
+    0.1 s  test/invariants/dashboard-invariants.test.ts
+    0.1 s  test/step-tables.test.ts
+    0.1 s  test/invariants/docs-map.test.ts
+    0.0 s  test/invariants/governance.test.ts
+    0.0 s  test/invariants/file-size.test.ts
+    0.0 s  test/score-schema.test.ts
+    0.0 s  test/invariants/main-update-workflow.test.ts
+    0.0 s  test/invariants/config-set.test.ts
+    0.0 s  test/invariants/layout.test.ts
+    0.0 s  lib/engine/guard/known-secrets.test.ts
+    0.0 s  test/invariants/findings.test.ts
+    0.0 s  test/invariants/docs-glossary.test.ts
+    0.0 s  test/invariants/version.test.ts
+    0.0 s  test/invariants/engine-ts.test.ts
+    0.0 s  lib/api/constants.test.ts
+files 30 · wall 8.2 s

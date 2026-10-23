@@ -1,5 +1,5 @@
 // Reasoning effort as the dashboard shows it. effectiveEffort mirrors resolveEffort in lib/core/config/models.ts (the
-// dashboard can't import lib/), and test/dashboard-effort.test.ts checks both against one table.
+// dashboard can't import lib/), and its test (being rewritten from docs/test-rewrite/modules/dashboard.lib.md) checks both against one table.
 import { EFFORTS } from './types.ts';
 import type { DaemonSessionState, Effort, PostJobEffortResponse } from './types.ts';
 

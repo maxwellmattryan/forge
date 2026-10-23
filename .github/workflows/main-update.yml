@@ -1,7 +1,7 @@
 # Forge's main-update build: every push to develop (or a manual run on develop) builds the dashboard with
 # a read-only token and uploads dashboard/dist/ as the dashboard-dist artifact. Nothing here writes:
 # `npm run release` (scripts/release.ts) waits for this run and ci.yml's on the release commit, checks the
-# artifact and pushes develop's tree plus it to main itself. test/main-update-workflow.test.ts pins this
+# artifact and pushes develop's tree plus it to main itself. test/invariants/main-update-workflow.test.ts pins this
 # file; docs/RELEASES.md explains the flow.
 name: Main update
 
