@@ -3,8 +3,8 @@
      Foreman popover's body, the Agents tab panel) clips it, while staying a DOM descendant of them, so their own
      contains() checks still count it as inside. Manual mode keeps dismissal here instead of the browser's light dismiss,
      which would race App's window Escape handler: Escape closes only this panel and refocuses the button; a press outside
-     or focus leaving both closes it (lib/popover.ts dismissal decides the focus); a resize, a scroll that moves the button,
-     or the button unmounting closes it too. lib/menu.ts placeMenu decides where it opens. With `iconOnly` the button's
+     or focus leaving both closes it (src/lib/popover.ts dismissal decides the focus); a resize, a scroll that moves the button,
+     or the button unmounting closes it too. src/lib/menu.ts placeMenu decides where it opens. With `iconOnly` the button's
      name shows in a Tooltip (hidden while the panel is open) instead of a native title. -->
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
@@ -33,6 +33,8 @@
   let panel = $state<HTMLDivElement>();
   let open = $state(false);
   let at = $state<{ left: number; top: number }>({ left: 0, top: 0 });
+  // menu-pop grows from the edge nearest the trigger: the panel's right edge meets the trigger's, above or below it.
+  let origin = $state('top right');
 
   const within = (n: Node | null): boolean => n !== null && Boolean(panel?.contains(n) || trigger?.contains(n));
 
@@ -49,8 +51,9 @@
   function place(): void {
     if (!panel || !trigger) return;
     const r = trigger.getBoundingClientRect();
-    const p = panel.getBoundingClientRect();
-    at = placeMenu({ top: r.top, bottom: r.bottom, right: r.right, vw: document.documentElement.clientWidth, vh: window.innerHeight, width: p.width, height: p.height });
+    // Offset sizes: menu-pop opens at scale .96, which would shrink a bounding rect and misplace a menu that opens above.
+    at = placeMenu({ top: r.top, bottom: r.bottom, right: r.right, vw: document.documentElement.clientWidth, vh: window.innerHeight, width: panel.offsetWidth, height: panel.offsetHeight });
+    origin = at.top < r.top ? 'bottom right' : 'top right';
   }
 
   function hide(refocus: boolean): void {
@@ -125,8 +128,8 @@
   role="dialog"
   aria-labelledby={titleId}
   tabindex="-1"
-  class="plate solid fixed inset-auto m-0 p-0 text-fg hidden open:flex flex-col w-[min(16rem,calc(100vw_-_16px))] max-h-[calc(100dvh_-_16px)] shadow-(--shadow-overlay)"
-  style="left: {at.left}px; top: {at.top}px"
+  class="plate solid menu-pop fixed inset-auto m-0 p-0 text-fg hidden open:flex flex-col w-[min(16rem,calc(100vw_-_16px))] max-h-[calc(100dvh_-_16px)] shadow-(--shadow-overlay)"
+  style="left: {at.left}px; top: {at.top}px; transform-origin: {origin}"
   onkeydown={key}
   onfocusout={focusOut}
 >

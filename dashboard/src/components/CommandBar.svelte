@@ -1,18 +1,20 @@
 <!-- The command bar (Cmd/Ctrl-K): a modal ARIA combobox that starts a job from free text or sends a /forge-style command.
      A centred sheet at md and up, a full-width sheet at the top below. It starts from the text typed into the status bar's
-     input, with the caret at the end. lib/command.ts holds the grammar and mapping. -->
+     input, with the caret at the end. src/lib/command.ts holds the grammar and mapping. -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
+  import Chip from './Chip.svelte';
   import CloseButton from './CloseButton.svelte';
   import Icon from './Icon.svelte';
   import StateChip from './StateChip.svelte';
   import { S, createJob, loadBacklog, openDrawer, postRequest, refresh } from '../lib/app.svelte.ts';
   import { commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, scopedJob, suggest, type CommandCtx, type Suggestion, type Verb } from '../lib/command.ts';
   import { clearScope, palette } from '../lib/palette.svelte.ts';
-  import { buildRequest } from '../lib/view.ts';
+  import { buildRequest } from '../lib/requests.ts';
   import { TABBABLE, wrapFocus } from '../lib/settings.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
+  import { EXIT, fade, pop } from '../lib/motion.ts';
 
   let { onclose }: { onclose: () => void } = $props();
 
@@ -193,15 +195,15 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop; Escape closes the dialog from the keyboard) -->
-<div class="fixed inset-0 z-45 flex items-start justify-center scrim md:p-6 md:pt-[12vh]" onmousedown={backdropDown} onclick={backdrop}>
-  <div bind:this={dialog} role="dialog" aria-modal="true" aria-label={$t('command.title')} tabindex="-1" class="plate solid flex flex-col w-full min-w-0 max-h-[85vh] shadow-(--shadow-overlay) md:max-w-[672px]" onkeydown={trap}>
+<div class="fixed inset-0 z-45 flex items-start justify-center scrim md:p-6 md:pt-[12vh]" in:fade|global out:fade|global={EXIT} onmousedown={backdropDown} onclick={backdrop}>
+  <div bind:this={dialog} role="dialog" aria-modal="true" aria-label={$t('command.title')} tabindex="-1" in:pop|global class="plate solid flex flex-col w-full min-w-0 max-h-[85vh] shadow-(--shadow-overlay) md:max-w-[672px]" onkeydown={trap}>
     <!-- One recessed field holding the glyph, the scope chip and a seamless input. flex-wrap with a 10rem input basis: on a
          phone the scope chip and its remove button take the first line, so the input keeps room to type. -->
     <div class="input cmd-field flex-wrap gap-x-2">
       <Icon name="command" class="shrink-0 text-muted" />
       {#if scoped}
         <!-- The chip is the combobox's description; removing the scope is its own labelled button, so the description reads the job. -->
-        <span id="command-scope" class="chip gleam sm min-w-0 max-w-[40%]" title={scoped.id}><span class="truncate">{$t('command.scope', { job: scoped.id })}</span></span>
+        <Chip id="command-scope" tone="gleam" extra="sm min-w-0 max-w-[40%]" title={scoped.id}><span class="truncate">{$t('command.scope', { job: scoped.id })}</span></Chip>
         <CloseButton size="sm" label={$t('command.clearScope')} onclick={removeScope} />
       {/if}
       <input

@@ -4,8 +4,8 @@
 // Repo text reaches the workflow only through these, and only after validation (docs/RELEASES.md).
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { findAttribution } from '../lib/attribution.ts';
+import { findAttribution } from '../lib/engine/guard/attribution.ts';
+import { gitSync } from './git.ts';
 import { changelogSection, hasNotes } from './release-check.ts';
 
 const SEMVER = /^\d+\.\d+\.\d+$/;
@@ -15,7 +15,7 @@ function fail(message: string, code = 1): never {
   process.exit(code);
 }
 
-const git = (...args: string[]) => spawnSync('git', args, { encoding: 'utf8' });
+const git = (...args: string[]) => gitSync(args);
 
 /** The version as a plain X.Y.Z, or exit before anything reaches stdout (it becomes a step output). */
 function currentVersion(): string {

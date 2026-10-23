@@ -7,12 +7,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
-import { disclosureOf } from '../lib/config-fields.ts';
-import { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, migrateConfig, normalizeEvent, normalizeJob, serializeJob } from '../lib/schema.ts';
-import { createJob, jobDir, leaseStatus, loadJob, updateJob } from '../lib/jobs.ts';
-import { issueLinkStatus } from '../lib/issue-link.ts';
-import * as yaml from '../lib/yaml.ts';
+import { defaults, loadConfig, validateConfig } from '#core/config/load.ts';
+import { disclosureOf } from '#core/config/fields.ts';
+import { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, migrateConfig, normalizeEvent, normalizeJob, serializeJob } from '#core/job/schema.ts';
+import { createJob, jobDir, leaseStatus, loadJob, updateJob } from '#core/job/store.ts';
+import { issueLinkStatus } from '#core/job/issue-link.ts';
+import * as yaml from '#core/format/yaml.ts';
 
 type Row = { from: number; input: Record<string, unknown>; fields: Record<string, unknown>; removed?: string[]; note?: string };
 

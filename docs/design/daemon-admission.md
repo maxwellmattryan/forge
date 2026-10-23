@@ -94,7 +94,7 @@ daemon:
 
 - `test/admission.test.ts`: the pure function across thresholds, unknown windows, hysteresis, both windows over, nulls.
 - `test/integration/pool/daemon.test.ts` with `fakeKit`: a child emits events; assert slots shrink to 1 at `throttle`, a hold at `pause` with `held: 'quota'` on every session and nothing written, resume after `until` (short `resetsAt` in the test), a `rejected` event holding the other sessions at once, the reading surviving a pool restart via `quota.json`, and an expired persisted window ignored.
-- `test/dashboard-daemon.test.ts`: `poolModel` with a quota chip and `held: 'quota'` pills; `test/config-set.test.ts` picks the new fields up automatically; `test/types-parity.ts` and `test/dashboard-invariants.test.ts` enforce the rest.
+- `test/dashboard-daemon.test.ts`: `poolModel` with a quota chip and `held: 'quota'` pills; `test/config-set.test.ts` picks the new fields up automatically; `test/dashboard-invariants.test.ts` enforces the rest (`test/types-parity.ts` existed when this was written and has since been removed).
 
 ## Rollout and measurement
 

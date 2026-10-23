@@ -11,6 +11,7 @@
   import CloseButton from './CloseButton.svelte';
   import CommandTrigger from './CommandTrigger.svelte';
   import Banner from './Banner.svelte';
+  import BudgetPanel from './BudgetPanel.svelte';
   import Chip from './Chip.svelte';
   import DeleteJobSection from './DeleteJobSection.svelte';
   import DepSection from './DepSection.svelte';
@@ -21,29 +22,30 @@
   import PrChip from './PrChip.svelte';
   import ProgressBar from './ProgressBar.svelte';
   import RepoSection from './RepoSection.svelte';
+  import ScreenshotsPanel from './ScreenshotsPanel.svelte';
   import SessionActivity from './SessionActivity.svelte';
+  import SessionControls from './SessionControls.svelte';
   import SessionLog from './SessionLog.svelte';
   import StateChip from './StateChip.svelte';
+  import ThreadLive from './ThreadLive.svelte';
   import ThreadPanel from './ThreadPanel.svelte';
   import Icon from './Icon.svelte';
   import type { IconName } from '../lib/icons.ts';
-  import { budgetPanel, unattendedDefault } from '../lib/budget.ts';
   import { effortChip } from '../lib/effort.ts';
   import { protectedSummary } from '../lib/protected.ts';
   import { STAGE_LABEL } from '../lib/labels.ts';
   import { md, safeUrl } from '../lib/markdown.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
-  import { screenshotsPanel } from '../lib/screenshots.ts';
   import { threadItems, threadMarks, threadOpening, unreadCount } from '../lib/thread.ts';
   import { ago, dur, num, tokensShort, usd } from '../lib/util.ts';
-  import { actorLabel, eventDetail, isForemanEvent, verdictMatrix, verifierRounds, verifierTone } from '../lib/view.ts';
   import { scopeVerbs } from '../lib/command.ts';
   import { S, closeDrawer, loadFile, setDrawerTab } from '../lib/app.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import { freshCount, sessionActivity } from '../lib/live.ts';
   import { t } from '../lib/locale.ts';
-  import { DRAWER_TABS, PANE_DEFAULT, PANE_MIN, clampPaneWidth, moveDrawerTab, paneKey, paneMax, type DrawerTab } from '../lib/drawer.ts';
+  import { DRAWER_TABS, PANE_DEFAULT, PANE_MIN, actorLabel, clampPaneWidth, eventDetail, isForemanEvent, moveDrawerTab, paneKey, paneMax, verdictMatrix, verifierRounds, verifierTone, type DrawerTab } from '../lib/drawer.ts';
   import { pref } from '../lib/prefs.ts';
+  import { slideMarker } from '../lib/marker.ts';
   import { sidebarShown } from '../lib/sidebar.ts';
 
   const open = $derived(S.drawer.id !== null);
@@ -52,7 +54,7 @@
   const job = $derived(shown?.detail.job);
   const prUrl = $derived(safeUrl(job?.pr?.url));
   // Only a job with a verifiers record gets the column. The detail's events are the last 400
-  // (lib/server.ts), so on a very long job an early round's cell can read — though it ran.
+  // (lib/server/routes/jobs.ts), so on a very long job an early round's cell can read — though it ran.
   const verifierResults = $derived(shown ? verifierRounds(shown.detail.events) : {});
   const hasVerifiers = $derived(Object.keys(verifierResults).length > 0);
   const matrix = $derived(job ? verdictMatrix(job, verifierResults) : null);
@@ -148,19 +150,21 @@
 {/snippet}
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop, as on main; Escape closes the drawer from the keyboard) -->
-<div id="drawer-backdrop" class="fixed inset-0 backdrop {open ? '' : 'hidden'} z-30" onclick={closeDrawer}></div>
+<!-- Always mounted, so it fades both ways: closed, it is invisible and lets presses through. -->
+<div id="drawer-backdrop" class="fixed inset-0 backdrop z-30 {open ? 'opacity-100 transition-[opacity] duration-(--motion-base) ease-(--ease-enter)' : 'opacity-0 invisible pointer-events-none transition-[opacity,visibility] duration-(--motion-quick) ease-(--ease-exit)'}" onclick={closeDrawer}></div>
 <!-- A full-height column that never scrolls itself: the header (capped at 40%, scrolling inside itself when taller) and
      the tab strip stay put, the tab panel under them is the one scroller (on Log, the log pane is), and the action dock
      under it stays put on every tab. It runs to the viewport's bottom, over the status bar, which the backdrop dims like
-     the rest of the page; the bottom inset keeps the dock clear of a phone's home indicator. Opening slides it in (the reduced-motion block turns that off). Only a close transitions
-     visibility, so it turns invisible at the end of the slide: on open it turns visible at once, as a transition would
-     hold it hidden for the first frame and the title could not take focus. A drag drops the transition, so the width
-     follows the pointer. -->
+     the rest of the page; the bottom inset keeps the dock clear of a phone's home indicator. Opening slides it 24px in from
+     the right as it fades in (base, easing out); closing slides and fades it out (quick, easing in); the reduced-motion
+     block turns both off. Only a close transitions visibility, so it turns invisible at the end of the exit: on open it
+     turns visible at once, as a transition would hold it hidden for the first frame and the title could not take focus.
+     A drag drops the transition, so the width follows the pointer. -->
 <aside
   bind:this={pane}
   id="drawer"
   aria-label={$t('drawer.label')}
-  class="fixed right-0 top-0 bottom-0 pb-[env(safe-area-inset-bottom)] z-40 solid w-full flex flex-col overflow-hidden {open ? 'shadow-(--shadow-drawer)' : 'translate-x-full invisible'} {dragging ? '' : open ? 'transition-[translate]' : 'transition-[translate,visibility]'}"
+  class="fixed right-0 top-0 bottom-0 pb-[env(safe-area-inset-bottom)] z-40 solid w-full flex flex-col overflow-hidden {open ? 'opacity-100 shadow-(--shadow-drawer)' : 'translate-x-6 opacity-0 invisible'} {dragging ? '' : open ? 'transition-[translate,opacity] duration-(--motion-base) ease-(--ease-enter)' : 'transition-[translate,opacity,visibility] duration-(--motion-quick) ease-(--ease-exit)'}"
   style={S.pane.md ? `width: ${width}px` : undefined}
 >
   {#if S.pane.md && open}
@@ -192,19 +196,22 @@
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div bind:this={head} class="shrink-0 max-h-[40%] overflow-y-auto overscroll-contain p-5 md:p-6 pb-3 md:pb-4 flex flex-col gap-2">
         <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 bind:this={title} tabindex="-1" class="h sheet-title">{j.title}</h2><div class="mono text-[13px] muted selectable">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div></div>
-        <div class="flex flex-wrap items-center gap-1.5"><span class="chip gleam">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if prot}<Chip tone="warn" extra="max-w-full flex-wrap whitespace-normal" text={$t('job.protectedDrawer', { reasons: prot.reasons.join(' · ') })} />{/if}{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}<EffortChip level={effort} />{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>
+        <!-- A daemon-backed job's session controls sit here, not in its Log, so every tab has them; an interactive owner's
+             job has none, as its Log follows a transcript, and keeps the effort chip. -->
+        <div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-2"><div class="flex min-w-0 flex-wrap items-center gap-1.5"><Chip tone="gleam" text={STAGE_LABEL[j.stage] ?? j.stage} /><StateChip job={j} />{#if prot}<Chip tone="warn" extra="max-w-full flex-wrap whitespace-normal" text={$t('job.protectedDrawer', { reasons: prot.reasons.join(' · ') })} />{/if}{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}{#if ownerLog}<EffortChip level={effort} />{/if}{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>{#if !ownerLog}{#key j.id}<SessionControls scope={j.id} />{/key}{/if}</div>
         {#if j.reason}<div class="text-sm text-muted truncate" title={j.reason}>{j.reason}</div>{/if}
-        {#if running.length || j.ownerStatus?.status !== 'none'}<AgentActivity activity={running} owner={j.ownerStatus} expandable={true} />{/if}
+        <!-- On the Thread the live line under the conversation says what runs, so the header doesn't say it twice. -->
+        {#if shown.tab !== 'thread' && (running.length || j.ownerStatus?.status !== 'none')}<AgentActivity activity={running} owner={j.ownerStatus} expandable={true} />{/if}
       </div>
       <!-- Outside the scroller, so it never moves; it scrolls sideways when the tabs outgrow a phone. -->
-      <div role="tablist" tabindex="-1" aria-label={$t('drawer.tabs')} class="tabs shrink-0 z-20 solid px-5 md:px-6 overflow-x-auto overflow-y-hidden" onkeydown={stripKey}>{#each DRAWER_TABS as tab (tab)}<button role="tab" id="drawer-tab-{tab}" aria-selected={shown.tab === tab} aria-controls="drawer-panel-{tab}" tabindex={shown.tab === tab ? 0 : -1} class="tab shrink-0 whitespace-nowrap focus-visible:-outline-offset-2 {shown.tab === tab ? 'active' : ''}" onclick={() => selectTab(tab)}>{#if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<span class="chip spark ml-1.5">{$t('drawer.threadUnread', { count: unread })}</span>{/if}{:else if tab === 'log'}{$t('drawer.logTab')}{#if activity?.kind === 'working'}<span class="inline-flex ml-1.5 align-middle"><LiveDot on={true} /></span><span class="sr-only">{$t('live.working')}</span>{/if}{:else if tab === 'agents'}{$t('drawer.agentsTab')}{#if running.length}<span class="muted num ml-1">({running.length})</span>{/if}{:else if tab === 'files'}{$t('drawer.files')}{:else if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted num">({d.events.length})</span>{:else if tab === 'details'}{$t('drawer.detailsTab')}{/if}</button>{/each}</div>
+      <div role="tablist" tabindex="-1" aria-label={$t('drawer.tabs')} {@attach slideMarker('[aria-selected="true"]', 'bar-bottom')} class="tabs slide-marker shrink-0 z-20 solid px-5 md:px-6 overflow-x-auto overflow-y-hidden" onkeydown={stripKey}>{#each DRAWER_TABS as tab (tab)}<button role="tab" id="drawer-tab-{tab}" aria-selected={shown.tab === tab} aria-controls="drawer-panel-{tab}" tabindex={shown.tab === tab ? 0 : -1} class="tab shrink-0 whitespace-nowrap focus-visible:-outline-offset-2 {shown.tab === tab ? 'active' : ''}" onclick={() => selectTab(tab)}>{#if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<Chip extra="spark ml-1.5" text={$t('drawer.threadUnread', { count: unread })} />{/if}{:else if tab === 'log'}{$t('drawer.logTab')}{#if activity?.kind === 'working'}<span class="inline-flex ml-1.5 align-middle"><LiveDot on={true} /></span><span class="sr-only">{$t('live.working')}</span>{/if}{:else if tab === 'agents'}{$t('drawer.agentsTab')}{#if running.length}<span class="muted num ml-1">({running.length})</span>{/if}{:else if tab === 'files'}{$t('drawer.files')}{:else if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted num">({d.events.length})</span>{:else if tab === 'details'}{$t('drawer.detailsTab')}{/if}</button>{/each}</div>
       <div bind:this={panel} role="tabpanel" id="drawer-panel-{shown.tab}" aria-labelledby="drawer-tab-{shown.tab}" tabindex="0" class="min-h-0 flex-1 overscroll-contain {shown.tab === 'log' ? 'overflow-hidden' : 'overflow-y-auto'} p-5 md:p-6 flex flex-col gap-5 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
         {#if shown.tab === 'thread'}
           <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} events={d.events ?? []} baseline={S.drawer.threadAtOpen} />
         {:else if shown.tab === 'log'}
           <!-- Keyed by job id (and owner transcript), so the drawer's 2 s refresh never re-creates the log or its stream; `active`
                closes the stream as soon as the drawer closes, though its last view stays while it slides out. -->
-          {#key logKey}<SessionLog scope={j.id} active={open} transcript={ownerLog} fill />{/key}
+          {#key logKey}<SessionLog scope={j.id} active={open} transcript={ownerLog} stage={j.stage} controls={false} fill />{/key}
         {:else if shown.tab === 'agents'}
           {#key j.id}<AgentsTab job={j.id} detail={d} active={open} />{/key}
         {:else if shown.tab === 'files'}
@@ -237,7 +244,7 @@
             {#each events as e, i (i)}
               {@const x = eventDetail(e, { tokens: tokensShort, dur })}
               {@const by = actorLabel(e)}
-              <li class="flex gap-3 py-1.5 border-b border-line text-sm">{#if i < fresh}<span class="dot spark size-1.5 shrink-0 self-center" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts, ticker.now)}</span><span class="font-mono text-gleam shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{#if isForemanEvent(e)}<span class="chip sm live mr-1.5">{$t('drawer.foreman')}</span>{/if}{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}{#if by}<span class="muted ml-1.5" title={$t('drawer.actorSource', { source: by.source })}>{$t('drawer.by', { login: by.login })}</span>{/if}</span></li>
+              <li class="flex gap-3 py-1.5 border-b border-line text-sm">{#if i < fresh}<span class="dot spark size-1.5 shrink-0 self-center" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts, ticker.now)}</span><span class="font-mono text-gleam shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{#if isForemanEvent(e)}<Chip tone="live" extra="sm mr-1.5" text={$t('drawer.foreman')} />{/if}{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}{#if by}<span class="muted ml-1.5" title={$t('drawer.actorSource', { source: by.source })}>{$t('drawer.by', { login: by.login })}</span>{/if}</span></li>
             {/each}
           </ul>
         {:else if shown.tab === 'details'}
@@ -270,7 +277,7 @@
               </table>
             </div></div>
           {/if}
-          {@html budgetPanel(j, S.data?.config?.pipeline?.budget, { jobDefault: unattendedDefault(S.data?.config) })}
+          <BudgetPanel job={j} />
           {#if usageRows.length}
             <div class="plate flat"><div class="overflow-x-auto">
               <table class="tbl">
@@ -300,10 +307,11 @@
               </table>
             </div></div>
           {/if}
-          {@html screenshotsPanel(j.id, d.screenshots ?? [])}
+          <ScreenshotsPanel jobId={j.id} files={d.screenshots ?? []} />
           {#key j.id}<DeleteJobSection job={j} />{/key}
         {/if}
       </div>
+      {#if shown.tab === 'thread'}<ThreadLive agents={running} session={activity} cost={j.usage?.estCostUsd} onopen={() => selectTab('log', true)} />{/if}
     </div>
     <ActionDock job={j} />
   {/if}

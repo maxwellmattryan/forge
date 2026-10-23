@@ -14,6 +14,8 @@ Check:
 - A new test that repeats one already present → minor.
 - A test that reads source, Svelte, CSS or Markdown text for an invariant outside the repo's allowed list (named in its instruction files; Forge's own: `docs/TESTING.md`) → minor.
 - A test that compares a whole JSON object or argv where one field is the point → minor.
+- A unit test outside its module's folder where the repo keeps tests beside their modules (Forge: `lib/**/<module>.test.ts`), or a spawned CLI, server or scratch repo where an in-process call would prove the same → minor.
+- One test per acceptance criterion instead of one per behaviour (edge cases as rows of one table) → minor.
 
 Run the configured test command yourself if the verify log is missing or stale.
 Severity guide: an acceptance criterion with no proof that would fail without the change → major; AC table missing a row, or naming a proof that doesn't exist → major; a disabled/weakened test → blocker; an unjustified deleted test or skip/focus marker → blocker; any other unjustified integrity finding → major.

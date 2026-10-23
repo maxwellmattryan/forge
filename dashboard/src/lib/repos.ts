@@ -1,5 +1,5 @@
 // The drawer's Repos table and the card's member PR chips, for a job with member repos
-// (job.repos: the root repo first, then members). Plain TS so test/dashboard-repos.test.ts can import it.
+// (job.repos: the root repo first, then members). Plain TS so a test can import it.
 import { safeUrl } from './markdown.ts';
 import type { Job, JobRepoPr } from './types.ts';
 

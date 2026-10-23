@@ -14,7 +14,7 @@ In the general form any repo can declare, [CONFIG.md "Release strategy"](CONFIG.
 | `/api/state` and the other `/api/*` endpoints | Removing or renaming a field. Every shape change, additive or not, bumps `API_VERSION`, and a dashboard refuses data from a newer server. |
 | The `job.json`, config and event schemas | Dropping a migration, so an older job or config no longer loads, or changing what a field means. New versions migrate older files on read. |
 | Config keys | Removing or renaming a key, or changing what a default does. A key is deprecated first (see Deprecation). |
-| The agent/skill contract | `/forge` arguments, `forge:<role>` agent names, agents' reply contracts, job file names and spec headers, review lens names, and the tracker adapter contract with `lib/trackers/status.mjs`. |
+| The agent/skill contract | `/forge` arguments, `forge:<role>` agent names, agents' reply contracts, job file names and spec headers, review lens names, and the tracker adapter contract in `lib/api/tracker.ts` (`lib/trackers/status.ts` and `status.mjs` re-export it, deprecated, and are removed one minor release after the move ships). |
 
 ## Support
 
@@ -24,7 +24,7 @@ Only the latest minor release line gets fixes, security fixes included, as patch
 
 A config key or CLI flag on its way out is announced in CHANGELOG.md at least one minor release before it is removed. While it still works:
 
-- it is listed in `DEPRECATED_CONFIG_KEYS` in `lib/deprecations.ts`, with the release that deprecated it, the release that removes it and what to use instead, and in [CONFIG.md](CONFIG.md#deprecated-keys) "Deprecated keys";
+- it is listed in `DEPRECATED_CONFIG_KEYS` in `lib/core/config/validators/deprecations.ts`, with the release that deprecated it, the release that removes it and what to use instead, and in [CONFIG.md](CONFIG.md#deprecated-keys) "Deprecated keys";
 - `forge doctor` (and Settings › Diagnostics) shows a warning row, `deprecated config key <key>`, whenever it is set in `.forge/config.yml`. A warning never fails the report.
 
 ## Releasing
@@ -38,7 +38,7 @@ A release is a commit on `main` that changes the `version` in `package.json` and
 **`npm run release -- patch|minor|major|X.Y.Z`** runs on a clean `develop` checkout, with `gh` signed in:
 
 1. It fetches `develop`, `main` and the tags, and refuses unless `develop` equals `origin/develop` and the current version is tagged.
-2. It bumps `package.json`, `package-lock.json` and `.claude-plugin/plugin.json`, and drafts the `## <version>` section from the first-parent commits since the last tag, plus a `Versions:` line for any `lib/schema.ts` constant that moved. It opens the draft in `$VISUAL` or `$EDITOR`, or takes the notes from `--notes-file <file>`; lines starting with `<!--` are dropped. Rewrite the draft as notes: behaviour changes first, then fixes, the versions bumped, deprecations and removals. It runs the release check (below) and commits `Release <version>`.
+2. It bumps `package.json`, `package-lock.json` and `.claude-plugin/plugin.json`, and drafts the `## <version>` section from the first-parent commits since the last tag, plus a `Versions:` line for any `lib/core/job/schema.ts` constant that moved. It opens the draft in `$VISUAL` or `$EDITOR`, or takes the notes from `--notes-file <file>`; lines starting with `<!--` are dropped. Rewrite the draft as notes: behaviour changes first, then fixes, the versions bumped, deprecations and removals. It runs the release check (below) and commits `Release <version>`.
 3. It asks before pushing `develop`, then waits for that commit's `CI` push run and its `Main update` build to succeed. It trusts a run only when it is that workflow file's own push or dispatch run in this repo, on `develop`, for that exact commit.
 4. It lists the hotfixes on `main` since the last release that `develop` doesn't have, and asks whether they were ported: the release undoes any that weren't.
 5. It downloads the artifact and builds the main update with `scripts/main-update.ts`. That checks the artifact holds only `index.html`, `manifest.json`, `build-stamp.json` and the `assets/*.js|css|woff2` files the manifest names, with no symlinks, and that its build stamp matches both the files and develop's dashboard sources. It refuses when develop tracks a `dashboard/dist/` path or the version is already tagged. The commit is develop's tree plus `dashboard/dist/`, with parents `[main, develop]`, subject `Release <version>`, authored by you.

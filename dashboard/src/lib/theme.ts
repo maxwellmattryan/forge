@@ -1,5 +1,5 @@
-// Appearance: <html>'s `data-theme` and `data-grain` (index.html sets them before first paint) and their `theme`
-// and `grain` prefs. Per browser, never in config.yml.
+// Appearance: <html>'s `data-theme`, `data-grain` and `data-screen` (index.html sets them before first paint) and
+// their `theme`, `grain` and `screen` prefs. Per browser, never in config.yml.
 // Touches `document` and `matchMedia` only inside functions so tests can import it under Node.
 import { pref } from './prefs.ts';
 
@@ -26,7 +26,7 @@ export const SYSTEM_DARK: Theme = 'forge';
  * `patina` and `obsidian` are themselves; anything else (`Temper` or `PATINA` in the wrong case included) counts as unset
  * and follows the OS: light → ash, dark → forge. The saved value itself is never rewritten.
  * index.html's inline script duplicates this mapping because it runs before the bundle;
- * test/dashboard-theme.test.ts keeps the two in step.
+ * a test keeps the two in step (being rewritten from docs/test-rewrite/modules/dashboard.ui.md).
  */
 export function normalizeTheme(saved: string | null | undefined, prefersLight: boolean): Theme {
   if (saved === 'forge' || saved === 'cyanotype' || saved === 'dark' || saved === 'nightprint') return 'forge';
@@ -94,4 +94,15 @@ export function setGrain(on: boolean): void {
   const v = on ? 'on' : 'off';
   document.documentElement.dataset.grain = v;
   pref.set('grain', v);
+}
+
+/** Whether a session log's screen draws its scanlines and glow (`forge.screen`): on unless it says `off`. */
+export const screenOn = (v: string | null | undefined): boolean => v !== 'off';
+
+export const currentScreen = (): boolean => document.documentElement.dataset.screen !== 'off';
+
+export function setScreen(on: boolean): void {
+  const v = on ? 'on' : 'off';
+  document.documentElement.dataset.screen = v;
+  pref.set('screen', v);
 }

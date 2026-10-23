@@ -87,13 +87,14 @@ Like `forge version`, it needs no repo and no `.forge/`. The commit is self-repo
 | usage | 2 | Forge could not parse the call: an unknown command or subcommand, a missing argument, a flag with no value or given twice, a value that is not a number, JSON or one of the listed words. Also a missing or unparseable `.forge/config.yml`, or not inside a git repository |
 | owned | 3 | the job or request is held by another live session, or a tracker claim was lost to another job; also `stale_epoch`, a fenced write from a session that was taken over |
 | blocked | 4 | the job's dependencies are not done, or the repo budget (`budget:`) holds new work: `forge job claim` parked the job, or `forge job from-ref` started nothing |
-| external | 5 | a tool Forge runs failed to start or exited non-zero: git, gh, claude, docker |
+| external | 5 | a tool Forge runs failed to start, timed out or exited non-zero: git, gh, claude, docker |
 
 The exceptions:
 - `verify`, `run`, `integrate`, `pr merge`, `job advance`, `config validate`, `secrets scan` and `update` print their own result when they fail, and exit 1. `secrets scan` fails on any finding; a scan that cannot finish is an error. `secrets check` fails when any secret it checks does not resolve, and prints each one's `error` (never a value or its length); an undeclared name is a usage error (exit 2). `forge job advance` exits 3 when it refuses a job its session does not hold, and 1 when a command it ran failed, whatever that command's own exit would have been.
 - `forge git diff|log|show|range-diff` exit with git's own code once git runs.
 - `forge release run` prints its own result and exits 1 when it stops at a step (the result's `stopped` says why), and exits 3 (`owned`) while another `forge release run` holds the release lock.
-- `forge backing up|down|status` exit 5 (`external`) when Docker is missing, its daemon is stopped or a docker command fails (for `up`, also a same-named container that isn't this job's); `status <job>` still exits 0 and reports `unknown`. `forge worktree remove` exits 1 when its backing teardown fails (docs/CONFIG.md "Backing services"). With a job database, `forge backing up` also exits 5 when the server does not accept connections within 60 s, migrate or seed fails, a psql call fails, or the job has no worktree (`job <id> has no worktree: run forge worktree create <id>`); `forge backing down` and `forge worktree remove` count a stopped shared container or a failed psql call as a failed teardown and keep `backing-db.json` for a retry (docs/CONFIG.md "Job databases").
+- `forge backing up|down|stop|status` exit 5 when Docker is missing, its daemon is stopped or a docker command fails (for `up`, also a same-named container that isn't this job's); `status` without a job and `down --shared` throw `docker_missing` or `docker_stopped` for the first two, and `external` for a failed docker command. `status <job>` still exits 0, reports `unknown` for each managed service, and says why in its `docker` field (`ok`, `missing` or `stopped`; `null` when no service is managed). `forge worktree remove` exits 1 when its backing teardown fails (docs/CONFIG.md "Backing services"). With a job database, `forge backing up` also exits 5 when the server does not accept connections within 60 s, migrate or seed fails, a psql call fails, or the job has no worktree (`job <id> has no worktree: run forge worktree create <id>`); `forge backing down` and `forge worktree remove` count a stopped shared container or a failed psql call as a failed teardown and keep `backing-db.json` for a retry (docs/CONFIG.md "Job databases").
+- `forge dash --permission-mode default|auto|dontAsk` sets the job sessions' default permission mode until that dashboard stops (docs/CONFIG.md "Default for job sessions"). It exits 1 inside a daemon session, which may not widen its own permissions, and exits 2 (`usage`) for any other value.
 - `forge focus <id>|--clear` exits 1 when a configured checkout step fails (docs/CONFIG.md "Checkout steps"): the message names the step, why it failed and its log, and focus is unchanged.
 - The no-AI-attribution hook's exit 2 belongs to Claude Code's hook protocol, not this table.
 
@@ -118,7 +119,9 @@ Every error carries one of these codes, and the code fixes the exit.
 | `owned` | 3 | another live session holds the job or request, or a tracker claim was lost |
 | `stale_epoch` | 3 | a write fenced with `--epoch N` (`forge job step\|advance\|set\|claim\|agent start\|end`) found the job's lease at another epoch, or another driver, because another session took the job over: the caller must stop driving it. The check runs under the job lock before any write, so `job.json` is unchanged |
 | `blocked` | 4 | the job's dependencies are not done (`--force` claims anyway), or the repo budget holds new work (the message is the `repo budget: …` reason; a human runs `forge budget ack`) |
-| `external` | 5 | git, gh or claude failed to start or exited non-zero |
+| `external` | 5 | git, gh, claude or docker failed to start, exited non-zero, or ran past its timeout (`gh <subcommand> timed out after <n> s`; every gh call has one, 60 s by default); also gh output that is not JSON where JSON was asked for |
+| `docker_missing` | 5 | a backing command needs Docker and `docker` is not on PATH |
+| `docker_stopped` | 5 | a backing command needs Docker and its daemon does not answer |
 
 ## Help
 
@@ -128,7 +131,7 @@ Every error carries one of these codes, and the code fixes the exit.
 - Help works before `.forge/config.yml` exists and outside any git repository. A first word that is not a command exits 2 (`unknown_command`); a second word that is not a subcommand shows the group's help.
 - `--json` prints the tables instead: `{"version", "groups"}` for the overview, the group for a group, and `{"command", "args", "summary", "flags", "exits", "docs"}` for a command.
 
-The tables live beside each command module as `HELP` (`lib/commands/<group>.ts`; the commands `lib/cli.ts` routes itself are in `lib/commands/help.ts`). They also build every `usage:` error and README's CLI table: `npm run docs:commands` regenerates it.
+The tables live beside each command module as `HELP` (`lib/cli/commands/<group>.ts`; the commands `lib/cli/main.ts` routes itself are in `lib/cli/commands/help.ts`). They also build every `usage:` error and README's CLI table: `npm run docs:commands` regenerates it.
 
 ## Environment variables
 
@@ -337,7 +340,7 @@ Before writing, stderr lists every entry with its size, any file it skipped and 
 | `manifest.json` | `{createdAt, forgeVersion, includeText, jobs, entries, skipped, redactions}` |
 | `doctor.json` | what `forge doctor` prints |
 | `versions.json` | `{forge, node, git, gh, glab, os}`; a missing tool is `null` |
-| `config.json` | the effective config, with every value that names a command, path, URL or person, and every key Forge doesn't know, replaced by `<redacted>` (`CONFIG_DISCLOSURE` in `lib/config-fields.ts`) |
+| `config.json` | the effective config, with every value that names a command, path, URL or person, and every key Forge doesn't know, replaced by `<redacted>` (`CONFIG_DISCLOSURE` in `lib/core/config/fields.ts`) |
 | `daemon/inbox.log`, `daemon/office.log` | without a job: the last 500 lines of the inbox and office session logs |
 | `jobs/<id>/job.json`, `events.jsonl`, `step.json` | the job, every event, and what `forge job step` decides now |
 | `jobs/<id>/verify/round-<n>.md` | the last 200 lines of the newest verify round |
@@ -359,4 +362,4 @@ Redaction is pattern-based and best-effort: a secret no pattern knows, or a logi
 
 ## Stability
 
-Forge follows semver for this contract. Any release may add commands, flags, JSON fields, error codes and environment variables. Renaming or removing a JSON field, an error code or an exit number is a breaking change: it ships only in a release whose version says so (a new major version, or a new minor version while Forge is below 1.0) and is called out in [CHANGELOG.md](../CHANGELOG.md). Message and hint text, human-mode output, and the order of JSON keys, are not covered: match on `code` and `exit`, never on `message`. `test/cli-contract.test.ts` pins the JSON keys of `forge job list|show|step`, `forge status --json`, `forge verify`, `forge stats --json` and `forge version --json` (`version`, `commit`, `installedAs`, `node`), so an accidental rename fails the build.
+Forge follows semver for this contract. Any release may add commands, flags, JSON fields, error codes and environment variables. Renaming or removing a JSON field, an error code or an exit number is a breaking change: it ships only in a release whose version says so (a new major version, or a new minor version while Forge is below 1.0) and is called out in [CHANGELOG.md](../CHANGELOG.md). Message and hint text, human-mode output, and the order of JSON keys, are not covered: match on `code` and `exit`, never on `message`. `test/invariants/cli-contract.test.ts` pins the JSON keys of `forge job list|show|step`, `forge status --json`, `forge verify`, `forge stats --json` and `forge version --json` (`version`, `commit`, `installedAs`, `node`), so an accidental rename fails the build.

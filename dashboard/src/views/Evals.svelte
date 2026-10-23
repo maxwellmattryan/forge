@@ -8,11 +8,12 @@
   import { safeUrl } from '../lib/markdown.ts';
   import { pct, tokensShort, usd } from '../lib/util.ts';
   import type { ApiState } from '../lib/types.ts';
-  import { evalRunBody } from '../lib/view.ts';
+  import { evalRunBody } from '../lib/requests.ts';
   import { S, compareRuns, request } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
 
-  let { data }: { data: ApiState } = $props();
+  // App renders a view only once S.data is loaded.
+  const data = $derived(S.data as ApiState);
   const e = $derived(S.evals);
   const runs = $derived(e?.runs ?? []);
   // Typed text and the compare picks survive polls; the picks default to the previous and latest run, as on main.
@@ -91,7 +92,7 @@
             {@const u = safeUrl(task.source?.url)}
             <tr>
               <td><div class="font-medium">{task.title}</div><div class="font-mono text-[11px] text-muted">{task.name}</div></td>
-              <td>{#each task.tags ?? [] as g, i (i)}<span class="chip muted mr-1">{g}</span>{/each}</td>
+              <td>{#each task.tags ?? [] as g, i (i)}<Chip tone="muted" extra="mr-1" text={g} />{/each}</td>
               <td>{#if task.check?.patch || task.check?.files}<Chip tone="ok" text={$t('evals.yes')} />{:else}<Chip tone="muted" text={$t('evals.none')} />{/if}</td>
               <td>{#if task.rubric}<Chip tone="info" text={$t('evals.judgeChip')} />{:else}—{/if}</td>
               <td>{#if u}<a class="text-gleam" href={u} target="_blank" rel="noopener">{$t('evals.pr', { number: task.source?.pr })}</a>{:else}—{/if}</td>

@@ -73,6 +73,29 @@ Planned in M008.
 |---|---|---|
 | **profile** | A named subset of a project's components and backing services, so a job runs only what it needs. | planned (M008) |
 
+## Code layout
+
+Words for Forge's own code, decided in #303 ([design/lib-layout.md](design/lib-layout.md)).
+
+| Term | Meaning | Config key |
+|---|---|---|
+| **lib layer** | One of the seven top-level folders of `lib/` (`api`, `core`, `integrations`, `engine`, `office`, `server`, `cli`), lowest first; a layer imports only layers below it ([design/lib-layout.md](design/lib-layout.md)). | - |
+| **office** | Forge's long-running runtime, which `forge dash` keeps up: the session pool (the inbox session, per-job sessions and the office session where the Foreman decides gates), the reconciler and notifications; its code lives in `lib/office/`. | - |
+| **integrations** | The code that knows an outside system's API, CLI or file format (git, GitHub, Claude Code, Docker, webhooks, and the built-in backlog that implements the same contract), one folder per system in `lib/integrations/`; it holds mechanism, never pipeline policy. | - |
+| **lib module** | A folder inside a lib layer (`lib/<layer>/<module>/`) that holds one concept's files, such as `lib/core/job/` or `lib/engine/pipeline/`. | - |
+| **layer alias** | A `package.json` subpath import (`#api/`, `#core/`, `#integrations/`, `#engine/`, `#office/`) that names a lib layer; imports across layers use one, imports inside a layer stay relative. | - |
+| **folder map** | A folder's `AGENTS.md`: a few hand-written lines, then the table that `npm run docs:map` generates from each file's header comment. | - |
+
+## Dashboard look
+
+Words for how the dashboard shows activity, used in the README, Settings and `dashboard/AGENTS.md`. The design language behind them ("station", "bezel", "pilot lamp") belongs in code, comments and design notes, never in dashboard copy.
+
+| Term | Meaning | Config key |
+|---|---|---|
+| **heat** | The dashboard's picture of activity: a session log's frame warms while output streams and cools slowly after, and a board card's edge cools once after its job changes stage. It shows only what arrives while the dashboard is connected, never a page load or a reconnect, and reduced motion leaves each at its end state. | - |
+| **lamp** | A small light that shows state at a glance, on a session log's nameplate (working, waiting, you, done, idle or fault) and on the status bar's indicators. It is decorative: the pill or text beside it carries the meaning. | - |
+| **Screen effect** | The browser preference in Settings › General for the scanlines and soft glow on session logs, on by default and kept per browser like Grain; off leaves the rest of each log's frame as it is. | - |
+
 ## Collisions we avoid
 
 Some of these words already mean something in Forge. They keep those meanings:
@@ -85,6 +108,10 @@ Some of these words already mean something in Forge. They keep those meanings:
 - A job's `dependsOn` is a job dependency. "Dependency" alone means a component edge.
 - "Environment" alone never means environment variables (say "environment variables"), and "focus" never means a test's focus marker or keyboard focus.
 - "Hand-off" alone means a session handing a job to another with `forge requests add resume`; the Foreman's always carries the name ("Foreman hand-off").
+- "Integrations" never means the integrate stage or the integrator (bringing a branch up to date with its base), nor integration tests (`test/integration/`).
+- "Office" alone means the runtime; the Foreman's session is the "office session".
+- "Milestone" means a tracker milestone (a group of planned work). The Thread's one-line rows for a job's events are "progress lines".
+- "Layer" alone keeps [ARCHITECTURE.md's meaning](ARCHITECTURE.md#layers) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
 
 ## Existing terms
 
@@ -99,7 +126,7 @@ The new words build on these, which exist today.
 | **Foreman hand-off** | The Foreman leaving a gate it was asked to decide for a person (a reserved topic or class, the assistant escalating, or the CLI refusing its decision), recorded with `forge job handoff` and shown as *left for a human* (`foremanHandoff`) until a decision answers that park or the job parks again. | `foreman.reserved` |
 | **lease** | A job's one claim on who drives it (`lease` in job.json: `driver`, `epoch`, `since`, `renewedAt`, `expiresAt`): taken by `forge job claim`, renewed only by the driver's own activity, expired by the supervisor when the driver's session exits, and `live` until `expiresAt` passes; nobody else may claim a live lease without `--force`. | - |
 | **epoch** | The lease's counter, one higher at every change of driver and never lower; a driver passes the epoch its claim returned as `--epoch`, and a write with an older one is refused (`stale_epoch`), so a session that was taken over can't write after it. | - |
-| **reconciler** | The pass (lib/reconcile.ts) that finds `running` jobs nothing drives (no request routed to them, no busy session, no live lease) and resumes each once, then parks it on `escalation` if it made no progress since; `forge dash` runs it every 30 s and `forge sync` runs it when no dash does (it replaces what was called a stranded job). | `daemon.turnTimeoutMinutes` |
+| **reconciler** | The pass (lib/office/reconcile.ts) that finds `running` jobs nothing drives (no request routed to them, no busy session, no live lease) and resumes each once, then parks it on `escalation` if it made no progress since; `forge dash` runs it every 30 s and `forge sync` runs it when no dash does (it replaces what was called a stranded job). | `daemon.turnTimeoutMinutes` |
 | **rework panel** | The lenses that re-run on a rework round under `review.onRework: narrow` (the `always` and `alwaysOnRework` lenses, `security` by default, those whose last verdict asked for changes or that have none, and those whose `paths` the fix touched), while every other lens on the job's panel keeps its last pass. | `review.onRework` |
 | **outcome** | What happened to a merged job inside its window after the merge (reverted, follow-up bug issues, churn), `open` until the window closes and `final` after, measured by `forge sync` and stored as `outcome` in job.json. | `outcomes.windowDays` |
 | **autonomy rate** | The share of merged jobs with a final outcome that shipped with no person's rework, revision, decision, PR feedback or edit, and were neither reverted nor followed by a bug; the **strict** autonomy rate also counts a person's approval at a gate config requires (spec, split, repos, release, issue link, infra, protected paths). | - |
@@ -112,4 +139,5 @@ The new words build on these, which exist today.
 | **`release` gate class** | The Foreman's approval of one job's release plan (`forge release plan --job`), which stands in for `forge release run`'s publish prompt without a terminal, for that exact plan only, which stays a human's unless a project adds `release` to `foreman.decides` and removes `gate:release` from `foreman.reserved` (not the **release gate**, the CI check on interim references). | `foreman.reserved` |
 | **prompt cohort** | The jobs whose last start of one role ran on the same prompt hash (`promptHash` on `agent-start`), grouped by `forge stats --by prompt` so a prompt change can be compared with the prompts before it. | - |
 | **settled experiment** | An experiment ledger entry whose status `forge experiment evaluate` wrote (`kept`, `reverted` or `inconclusive`, with its n, method and interval); it is history, and the notes check refuses any change to it. | `improve.experiments` |
+| **progress line** | A one-line row the job panel's Thread shows between the messages for a job event a person follows: a new stage, a parked gate, an agent's closing reply, a round's checks or reviews, the decision, the PR, merge conflicts or a note. It never counts as unread. | - |
 | **recall fixture** | A frozen diff in the main checkout's `.forge/evals/recall/<name>/`, with the lenses that review it and its planted defects (none for a clean fixture), that `forge eval recall` grades reviewer prompts against. | `evals.recall.paths` |

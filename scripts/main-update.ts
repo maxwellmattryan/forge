@@ -6,9 +6,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { distHash, sourceHash, STAMP } from '../dashboard/build-stamp.mjs';
+import { gitSync } from './git.ts';
 
 export const ASSET = /^assets\/[\w.-]+\.(js|css|woff2)$/;
 const SHA = /^[0-9a-f]{40}$/;
@@ -81,13 +81,13 @@ export function checkedDistFiles(dir: string): string[] {
 }
 
 function git(args: string[], opts: { env?: NodeJS.ProcessEnv; input?: string } = {}): string {
-  const r = spawnSync('git', ['-c', 'core.quotepath=off', ...args], { encoding: 'utf8', env: opts.env ?? process.env, input: opts.input, maxBuffer: 64 * 1024 * 1024 });
+  const r = gitSync(args, { env: opts.env, input: opts.input });
   if (r.error || r.status !== 0) throw new Refusal(`git ${args[0]} failed: ${(r.stderr || r.error?.message || '').trim()}`);
   return r.stdout;
 }
 
 function gitBuffer(args: string[]): Buffer {
-  const r = spawnSync('git', ['-c', 'core.quotepath=off', ...args], { maxBuffer: 64 * 1024 * 1024 });
+  const r = gitSync(args, { encoding: 'buffer' });
   if (r.error || r.status !== 0) throw new Refusal(`git ${args[0]} failed: ${(r.stderr?.toString() || r.error?.message || '').trim()}`);
   return r.stdout;
 }
@@ -112,7 +112,7 @@ function developVersion(develop: string): string {
 function title(develop: string): string {
   const v = developVersion(develop);
   // Any rev-parse failure reads as "no tag", so this needs the tags in the checkout (release.ts fetches them).
-  const tagged = spawnSync('git', ['rev-parse', '-q', '--verify', `refs/tags/v${v}`], { encoding: 'utf8' }).status === 0;
+  const tagged = gitSync(['rev-parse', '-q', '--verify', `refs/tags/v${v}`]).status === 0;
   if (tagged) throw new Refusal(`v${v} is already tagged: bump the version on develop to release again`);
   return `Release ${v}`;
 }

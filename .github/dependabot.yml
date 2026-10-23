@@ -13,9 +13,7 @@
 # Before merging an npm bump, a maintainer runs `npm run build:dashboard` and the tests on the
 # Dependabot branch. The dashboard/dist/ build stamp hashes the resolved versions in
 # package-lock.json, but dist/ is gitignored on develop and never committed there: CI rebuilds it
-# for the next main update. When a devDependency's own version changes (not for a lockfile-only
-# update), the maintainer commits the new version in the pinned map in
-# test/dashboard-dist.test.ts, which asserts each exact version.
+# for the next main update.
 #
 # The 7-day cooldown lets a fresh release age before it is proposed, a hedge against a
 # compromised publish.

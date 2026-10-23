@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { DEV_DIST_DIR, PLUGIN_ROOT } from '../lib/paths.ts';
+import { DEV_DIST_DIR, PLUGIN_ROOT } from '../lib/core/paths.ts';
 
 /** One child the supervisor runs. */
 export interface DevProc {

@@ -1,19 +1,14 @@
 // The drawer's Screenshots card: UI evidence that agents saved to the job's screenshots/ dir.
-// No DOM access, so node:test can import it.
-import { esc } from './util.ts';
+// No DOM access, so node:test can import it. ScreenshotsPanel.svelte renders the tiles; Svelte escapes the names.
 
 /**
  * @param files paths relative to the job dir (`screenshots/…`)
- * @returns HTML, or '' when there is nothing to show
+ * @returns one tile per file: its same-origin URL (job id and path percent-encoded) and its name without `screenshots/`
  */
-export function screenshotsPanel(jobId: string, files: string[] | undefined): string {
-  if (!Array.isArray(files) || !files.length) return '';
-  const tiles = files
-    .map((rel) => {
-      const url = `/api/jobs/${encodeURIComponent(jobId)}/file?path=${encodeURIComponent(rel)}`;
-      const name = String(rel).replace(/^screenshots\//, '');
-      return `<a class="plate clickable block min-w-0 p-1" href="${esc(url)}" target="_blank" rel="noopener"><img loading="lazy" alt="${esc(name)}" class="w-full h-32 object-contain bg-panel" src="${esc(url)}"><div class="mt-1 truncate font-mono text-[11px] text-muted">${esc(name)}</div></a>`;
-    })
-    .join('');
-  return `<div class="plate p-4 flex flex-col gap-3"><div class="flex items-center justify-between gap-2"><h3 class="h section">Screenshots</h3><span class="label">${files.length}</span></div><div class="grid grid-cols-2 md:grid-cols-3 gap-2">${tiles}</div></div>`;
+export function screenshotTiles(jobId: string, files: string[] | undefined): { url: string; name: string }[] {
+  if (!Array.isArray(files)) return [];
+  return files.map((rel) => ({
+    url: `/api/jobs/${encodeURIComponent(jobId)}/file?path=${encodeURIComponent(rel)}`,
+    name: String(rel).replace(/^screenshots\//, ''),
+  }));
 }

@@ -2,6 +2,7 @@
      projected month-end, with today's spend against usdPerDay underneath. Built from /api/state.budget, not the windowed
      stats. The reason is the CLI's own text and renders as text. -->
 <script lang="ts">
+  import Chip from './Chip.svelte';
   import type { RepoBudgetStatus } from '../lib/types.ts';
   import { TONE_MOD, dayMeter, money, monthMeter, spentMoney } from '../lib/repo-budget.ts';
   import { t } from '../lib/locale.ts';
@@ -17,7 +18,7 @@
   <section class="plate p-4 mb-6 flex flex-col gap-3" aria-labelledby="period-meter">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <h2 id="period-meter" class="label">{$t('budget.meterTitle', { month: budget.month })}</h2>
-      {#if budget.held}<span class="chip bad">{$t('budget.holding')}</span>{:else if budget.reason}<span class="chip warn">{$t('budget.warnOnly')}</span>{/if}
+      {#if budget.held}<Chip tone="bad" text={$t('budget.holding')} />{:else if budget.reason}<Chip tone="warn" text={$t('budget.warnOnly')} />{/if}
     </div>
     <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
       <span class="font-mono text-[28px] leading-8 font-medium num">{spentMoney(m.spent)}</span>

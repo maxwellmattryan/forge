@@ -1,13 +1,13 @@
 // GitHub hover cards' pure rules: which links get a card, when it opens and closes, where it sits and how a preview's
-// state reads. The server parses the URL again (lib/github-preview.ts); this side only decides whether to ask.
+// state reads. The server parses the URL again (lib/integrations/github/preview.ts); this side only decides whether to ask.
 import type { GitHubChecks, GitHubPreview, GitHubPreviewResponse } from './types.ts';
-import type { Tone } from './view.ts';
+import type { Tone } from './job-state.ts';
 
 const OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 const NAME = /^[A-Za-z0-9._-]{1,100}$/;
 const NUMBER = /^[1-9]\d{0,9}$/;
 const SHA = /^[0-9a-f]{7,40}$/i;
-// GitHub's own pages, not owners: lib/github-preview.ts keeps the same list.
+// GitHub's own pages, not owners: lib/integrations/github/preview.ts keeps the same list.
 const RESERVED = new Set(['about', 'account', 'apps', 'codespaces', 'collections', 'contact', 'customer-stories', 'dashboard', 'enterprise', 'events', 'explore', 'features', 'issues', 'login', 'logout', 'marketplace', 'new', 'notifications', 'organizations', 'orgs', 'pricing', 'pulls', 'search', 'security', 'settings', 'site', 'sponsors', 'stars', 'team', 'topics', 'trending', 'users']);
 
 /** Hover intent: a pointer rests this long before the card opens, and may wander off this long before it closes. */

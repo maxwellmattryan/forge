@@ -1,4 +1,4 @@
-// The locale store layer over lib/i18n.ts. `t` is a store because Svelte 5 reserves the `$` prefix
+// The locale store layer over src/lib/i18n.ts. `t` is a store because Svelte 5 reserves the `$` prefix
 // for runes and store subscriptions: components import it and write $t('nav.pipeline').
 import { derived, writable } from 'svelte/store';
 import en from '../messages/en.json';

@@ -67,15 +67,41 @@ export const jobSig = (j: { eventCount?: number; state?: string; stage?: string 
  * The ids whose signature differs from the last poll's, and this poll's signatures. With no previous poll (the first
  * load) nothing has changed; against one, a job it lacked is new and counts as changed.
  */
-export function changedJobs(prev: Record<string, string> | null, jobs: { id: string; eventCount?: number; state?: string; stage?: string }[]): { sigs: Record<string, string>; changed: string[] } {
+export function changedJobs(
+  prev: Record<string, string> | null,
+  jobs: { id: string; eventCount?: number; state?: string; stage?: string }[],
+  sigOf: (j: { eventCount?: number; state?: string; stage?: string }) => string = jobSig,
+): { sigs: Record<string, string>; changed: string[] } {
   const sigs: Record<string, string> = {};
   const changed: string[] = [];
   for (const j of jobs) {
-    const sig = jobSig(j);
+    const sig = sigOf(j);
     sigs[j.id] = sig;
     if (prev && (!Object.hasOwn(prev, j.id) || prev[j.id] !== sig)) changed.push(j.id);
   }
   return { sigs, changed };
+}
+
+/** What a poll must change for a card to cool from a stage change. */
+export const stageSig = (j: { stage?: string }): string => String(j.stage);
+
+/** The last poll's signatures, for flashes (any change) and cooling (a stage change). */
+export interface PollMemo {
+  sigs: Record<string, string>;
+  stages: Record<string, string>;
+}
+
+/**
+ * This poll's changed ids (eventCount, state or stage), staged ids (stage only) and the new memo. Nothing is reported on
+ * the first load (no memo) or on the first poll after a failed one (`resumed`): what changed while the page was away is
+ * not news. A job new to the memo is changed but never staged.
+ */
+export function pollChanges(memo: PollMemo | null, jobs: { id: string; eventCount?: number; state?: string; stage?: string }[], resumed: boolean): { memo: PollMemo; changed: string[]; staged: string[] } {
+  const base = resumed ? null : memo;
+  const all = changedJobs(base?.sigs ?? null, jobs);
+  const st = changedJobs(base?.stages ?? null, jobs, stageSig);
+  const known = base?.stages ?? {};
+  return { memo: { sigs: all.sigs, stages: st.sigs }, changed: all.changed, staged: st.changed.filter((id) => Object.hasOwn(known, id)) };
 }
 
 /** Flash expiries by job id: each changed id until `now + ms`, unexpired ones kept, expired ones dropped. */

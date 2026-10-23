@@ -1,6 +1,6 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { JOB_SCHEMA_VERSION, cleanScore, normalizeJob } from '../lib/schema.ts';
+import { JOB_SCHEMA_VERSION, cleanScore, normalizeJob } from '#core/job/schema.ts';
 
 const good = () => ({
   status: 'scored',

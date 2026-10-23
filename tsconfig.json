@@ -13,5 +13,6 @@
     "types": ["node"],
     "skipLibCheck": true
   },
-  "include": ["lib/**/*", "hooks/**/*", "scripts/**/*", "test/types-parity.ts"]
+  "include": ["lib/**/*", "hooks/**/*", "scripts/**/*"],
+  "exclude": ["**/*.test.ts"]
 }

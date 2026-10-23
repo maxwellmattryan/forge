@@ -105,6 +105,19 @@
   --font-head: "Barlow Semi Condensed", "Barlow", "Arial Narrow", sans-serif;
   --font-sans: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Motion: anything between the user and a control takes at most slow. Entries ease out over base, exits ease in
+     over quick. src/lib/motion.ts mirrors the three durations for Svelte transitions. */
+  --motion-quick: 90ms;
+  --motion-base: 140ms;
+  --motion-slow: 200ms;
+  --ease-enter: cubic-bezier(.33, 1, .68, 1);
+  --ease-exit: cubic-bezier(.32, 0, .67, 0);
+  /* Heat is activity: ambient, never gating a control, so it may run longer. */
+  --heat-glow: 400ms;
+  --heat-cool: 1s;
+  --heat-bezel: 3s;
+  --heat-breathe: 2.4s;
+  --heat-blink: 1s;
 }
 
 :root, [data-theme="forge"] {
@@ -137,6 +150,11 @@
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
   --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  /* heat: activity (a working lamp, a hot bezel, the screen's glow). Ember on forge only: on crucible ember is the
+     carmine "waits on you", so elsewhere heat is the gleam. */
+  --heat: var(--ember);
+  --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
+  --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
   --shadow-bevel: inset 0 1px 0 0 rgba(220,232,250,0.08), inset 0 -1px 0 0 rgba(0,0,0,0.5);
   --shadow-primary: 0 2px 0 0 #4a6684;
   --shadow-overlay: 0 1px 0 0 rgba(0,0,0,0.6), 0 16px 40px 0 rgba(0,0,0,0.6);
@@ -175,6 +193,9 @@
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
   --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --heat: var(--gleam);
+  --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
+  --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
   --shadow-bevel: inset 0 1px 0 0 rgba(255,255,255,0.85), inset 0 -1px 0 0 rgba(30,38,50,0.14);
   --shadow-primary: 0 2px 0 0 #2a3746;
   --shadow-overlay: 0 1px 0 0 rgba(30,38,50,0.12), 0 16px 40px 0 rgba(20,28,40,0.22);
@@ -213,6 +234,9 @@
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
   --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --heat: var(--gleam);
+  --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
+  --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
   --shadow-bevel: inset 0 1px 0 0 rgba(220,215,255,0.10), inset 0 -1px 0 0 rgba(2,0,16,0.55);
   --shadow-primary: 0 2px 0 0 #1f6f78;
   --shadow-overlay: 0 1px 0 0 rgba(2,0,16,0.6), 0 16px 40px 0 rgba(2,0,16,0.6);
@@ -253,6 +277,9 @@
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
   --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --heat: var(--gleam);
+  --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
+  --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
   --shadow-bevel: inset 0 1px 0 0 rgba(255,226,206,0.08), inset 0 -1px 0 0 rgba(8,2,0,0.55);
   --shadow-primary: 0 2px 0 0 #8a5a12;
   --shadow-overlay: 0 1px 0 0 rgba(8,2,0,0.6), 0 16px 40px 0 rgba(8,2,0,0.6);
@@ -292,6 +319,9 @@
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
   --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --heat: var(--gleam);
+  --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
+  --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
   --shadow-bevel: inset 0 1px 0 0 rgba(210,245,228,0.07), inset 0 -1px 0 0 rgba(0,6,3,0.55);
   --shadow-primary: 0 2px 0 0 #1e6b52;
   --shadow-overlay: 0 1px 0 0 rgba(0,6,3,0.6), 0 16px 40px 0 rgba(0,6,3,0.6);
@@ -332,6 +362,9 @@
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
   --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --heat: var(--gleam);
+  --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
+  --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
   --shadow-bevel: inset 0 1px 0 0 rgba(236,232,255,0.09), inset 0 -1px 0 0 rgba(0,0,0,0.6);
   --shadow-primary: 0 2px 0 0 #4b3a8a;
   --shadow-overlay: 0 1px 0 0 rgba(0,0,0,0.7), 0 16px 40px 0 rgba(0,0,0,0.7);
@@ -410,6 +443,14 @@
   :focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
   /* The status bar is fixed over the viewport's bottom: a control scrolled into view by focus stops clear of it. */
   html { scroll-padding-bottom: calc(var(--size-statusbar) + env(safe-area-inset-bottom) + var(--space-2)); }
+  /* A <details> opens with a height transition where the browser can animate to auto; elsewhere it opens at once.
+     The 4px clip margin is a focus ring's reach (2px outline, 2px offset), so a control flush with the content's edge,
+     such as a nested summary, keeps its ring. */
+  :root { interpolate-size: allow-keywords; }
+  @supports selector(::details-content) {
+    details::details-content { block-size: 0; overflow: clip; overflow-clip-margin: 4px; transition: block-size var(--motion-base) var(--ease-enter), content-visibility var(--motion-base) allow-discrete; }
+    details[open]::details-content { block-size: auto; }
+  }
 }
 
 /* ---------- the ground: soot, grained, dark at the corners ----------
@@ -544,7 +585,7 @@
     background-position: 8px 8px, 5px 5px, 5px 5px, calc(100% - 8px) 8px, calc(100% - 5px) 5px, calc(100% - 5px) 5px, 8px calc(100% - 8px), 5px calc(100% - 5px), 5px calc(100% - 5px), calc(100% - 8px) calc(100% - 8px), calc(100% - 5px) calc(100% - 5px), calc(100% - 5px) calc(100% - 5px);
   }
 }
-/* tint: who a Thread message or a log line comes from (lib/sender.ts), as a faint opaque wash of the panel: agent (Claude)
+/* tint: who a Thread message or a log line comes from (src/lib/sender.ts), as a faint opaque wash of the panel: agent (Claude)
    cool, cli (the CLI and the supervisor) neutral, forge (Forge itself) warm. It sets --surface, so text on it is off the
    grain; on a plate, `.tint.agent` (two classes) beats the plate's fill whatever the order. Never the only cue. */
 @utility tint {
@@ -552,6 +593,36 @@
   &.cli { background-color: var(--tint-cli); --surface: var(--tint-cli); }
   &.forge { background-color: var(--tint-forge); --surface: var(--tint-forge); }
 }
+/* log-row: one session log line on a fixed grid, so the eye can run down each column: the time, the disclosure caret
+   (empty on a line that doesn't expand), the tag (a tool's name or a line's chip) and the body. Every line places its
+   cells by class, so a missing cell leaves its column empty instead of shifting the rest. A row's expanded content is
+   another log-row whose one cell is the body, so it hangs under the summary's text. Where the log is narrow (log-pane
+   sets the container) the body drops under the tag, from the caret's column; a line with no tag keeps it on one row. */
+@utility log-row {
+  display: grid;
+  grid-template-columns: 8ch 12px 7.5rem minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: baseline;
+  & > .log-time { grid-column: 1; color: var(--muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  & > .log-caret { grid-column: 2; align-self: start; height: 1lh; display: flex; align-items: center; color: var(--muted); }
+  & > .log-caret .ic { width: 12px; height: 12px; transform: rotate(-90deg); transition: transform var(--motion-quick) var(--ease-enter); }
+  & > .log-tag { grid-column: 3; min-width: 0; display: flex; }
+  & > .log-tag > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  & > .log-body { grid-column: 4; min-width: 0; }
+  /* A subagent's own lines: from the caret's column on, with their own container, so they lay out for the room they get. */
+  & > .log-nest { grid-column: 2 / -1; min-width: 0; container: log / inline-size; }
+  @container log (width < 30rem) {
+    grid-template-columns: 8ch 12px minmax(0, 1fr);
+    & > .log-body { grid-column: 2 / -1; }
+  }
+}
+/* A log line that expands: a details whose summary is the log-row, without the browser's marker; open turns the caret. */
+@utility log-fold {
+  & > summary { list-style: none; }
+  & > summary::-webkit-details-marker { display: none; }
+  &[open] > summary > .log-caret .ic { transform: none; }
+}
+@utility log-pane { container: log / inline-size; }
 /* A clickable row (a table row): changes at once, washing with raised over its plate's panel. */
 @utility clickable {
   cursor: pointer;
@@ -653,7 +724,7 @@
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  transition: background-color .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease, transform .12s ease;
+  transition: background-color var(--motion-quick) var(--ease-enter), border-color var(--motion-quick) var(--ease-enter), color var(--motion-quick) var(--ease-enter), box-shadow var(--motion-quick) var(--ease-enter), transform var(--motion-quick) var(--ease-enter);
   white-space: nowrap;
   position: relative;
   & a { text-decoration: none; }
@@ -747,7 +818,9 @@
   &.sm { min-height: var(--control-sm); padding-inline: 9px; }
   /* A glyph struck on the slug: the PR chip's pull-request mark. */
   & .ic { width: 12px; height: 12px; }
-  &:is(button) { cursor: pointer; transition: border-color .12s ease, background-color .12s ease; }
+  /* A tone change (a state chip moving from live to ok) eases over base; a button chip's hover answers at quick. */
+  transition: color var(--motion-base) var(--ease-enter), border-color var(--motion-base) var(--ease-enter), background-color var(--motion-base) var(--ease-enter);
+  &:is(button) { cursor: pointer; transition-duration: var(--motion-quick); }
   @media (hover: hover) { &:is(button):hover { border-color: currentColor; } }
   &:is(button)[aria-expanded="true"] { outline: 2px solid currentColor; outline-offset: 1px; }
 }
@@ -758,7 +831,7 @@
   flex-direction: column;
   gap: 2px;
   text-decoration: none;
-  & a, & button { appearance: none; font-family: var(--font-mono); font-weight: 500; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px 9px 12px; border: 1px solid transparent; corner-shape: bevel; border-radius: 0 var(--radius-nick) 0 var(--radius-nick); background-color: var(--surface, var(--bg)); width: 100%; cursor: pointer; line-height: 16px; transition: background-color .12s ease, border-color .12s ease, color .12s ease; position: relative; text-align: left; }
+  & a, & button { appearance: none; font-family: var(--font-mono); font-weight: 500; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px 9px 12px; border: 1px solid transparent; corner-shape: bevel; border-radius: 0 var(--radius-nick) 0 var(--radius-nick); background-color: var(--surface, var(--bg)); width: 100%; cursor: pointer; line-height: 16px; transition: background-color var(--motion-quick) var(--ease-enter), border-color var(--motion-quick) var(--ease-enter), color var(--motion-quick) var(--ease-enter); position: relative; text-align: left; }
   @media (hover: hover) { & a:hover, & button:hover { color: var(--fg); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--gleam) 10%); border-color: color-mix(in srgb, var(--gleam) 40%, transparent); } }
   & a.hover { color: var(--fg); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--gleam) 10%); border-color: color-mix(in srgb, var(--gleam) 40%, transparent); }
   & a.active, & button.active { color: var(--fg); border-color: var(--line); background-color: var(--raised); box-shadow: inset var(--bar-rule) 0 0 0 var(--gleam), var(--shadow-bevel); }
@@ -860,6 +933,7 @@
   border-radius: 0 3px 0 3px;
   box-shadow: var(--gleam-spec), var(--shadow-glow);
   position: relative;
+  transition: width var(--motion-slow) var(--ease-enter);
   &.ok { background: var(--ok); box-shadow: none; }
   &.warn { background: var(--warn); box-shadow: none; }
   &.bad { background: var(--bad); box-shadow: none; }
@@ -890,7 +964,7 @@
   border: 0;
   border-bottom: 2px solid transparent;
   background-color: var(--surface, var(--bg));
-  transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+  transition: background-color var(--motion-quick) var(--ease-enter), border-color var(--motion-quick) var(--ease-enter), color var(--motion-quick) var(--ease-enter);
   cursor: pointer;
   margin-bottom: -1px;
   @media (hover: hover) { &:hover { color: var(--fg); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--gleam) 10%); } }
@@ -997,12 +1071,15 @@
   border-radius: 50%;
   display: inline-block;
   flex: none;
+  /* A stepper dot moving from future to current to past eases its colour, outline and glow. */
+  transition: background-color var(--motion-base) var(--ease-enter), outline-color var(--motion-base) var(--ease-enter), box-shadow var(--motion-base) var(--ease-enter);
   &.ok { background: var(--ok); }
   /* A small lit sphere, with the gleam's glow. */
   &.gleam { background: radial-gradient(circle at 35% 30%, var(--gleam-hot) 0%, var(--gleam) 55%, var(--gleam-deep) 100%); box-shadow: var(--shadow-glow); }
   &.spark { background: var(--spark); }
   &.ember { background: var(--ember); }
   &.warn { background: var(--warn); }
+  &.bad { background: var(--bad); }
   &.hollow { border: 1px solid var(--line-strong); }
   /* A gleam dot without the glow: the stepper's past steps, the agent role dot. */
   &.plain { box-shadow: none; }
@@ -1038,6 +1115,20 @@
 }
 @utility trace-loop { animation: trace-loop 1.5s ease-in-out infinite; }
 @keyframes trace-loop { from { stroke-dashoffset: 34.56; } 50% { stroke-dashoffset: 0; } to { stroke-dashoffset: -34.56; } }
+/* The step a cooling card just finished: its ring draws closed once. The markup hides it under reduced motion. */
+@utility trace-draw { animation: trace-draw var(--motion-slow) var(--ease-enter) both; }
+@keyframes trace-draw { from { stroke-dashoffset: 34.56; } to { stroke-dashoffset: 0; } }
+/* A board card whose stage just changed: its edge starts at spark with a soft glow and cools to its own over --heat-cool,
+   once. No `to` frame, so it settles on the card's own border and shadow, ember included. Nothing moves or fades.
+   A shadow list interpolates only when its entries line up with the card's own ([bevel] or [ember bar, bevel]) by
+   position and inset-ness, else it flips at once. So each `from` lists the card's own shadows first, then the ring and
+   glow, which pad against the shorter list and fade out. */
+@utility cooling {
+  animation: edge-cool var(--heat-cool) var(--ease-enter) both;
+  &.ember { animation-name: edge-cool-ember; }
+}
+@keyframes edge-cool { from { border-color: var(--spark); box-shadow: var(--shadow-bevel), 0 0 0 1px var(--spark), 0 0 12px 0 color-mix(in srgb, var(--spark) 45%, transparent); } }
+@keyframes edge-cool-ember { from { border-color: var(--spark); box-shadow: inset var(--bar-rule) 0 0 0 var(--ember), var(--shadow-bevel), 0 0 0 1px var(--spark), 0 0 12px 0 color-mix(in srgb, var(--spark) 45%, transparent); } }
 @utility backdrop {
   background: rgba(5,7,10,.72);
   [data-theme="ash"] & { background: rgba(20,24,30,.45); }
@@ -1054,10 +1145,143 @@
 @utility menu-pop {
   opacity: 0;
   scale: .96;
-  transition: opacity .12s ease, scale .12s ease, overlay .12s ease allow-discrete, display .12s ease allow-discrete;
-  &:popover-open { opacity: 1; scale: 1; }
+  /* The way out (quick, easing in) sits on the base rule; the way in (base, easing out) on :popover-open. */
+  transition: opacity var(--motion-quick) var(--ease-exit), scale var(--motion-quick) var(--ease-exit), overlay var(--motion-quick) var(--ease-exit) allow-discrete, display var(--motion-quick) var(--ease-exit) allow-discrete;
+  &:popover-open { opacity: 1; scale: 1; transition-duration: var(--motion-base); transition-timing-function: var(--ease-enter); }
   @starting-style { &:popover-open { opacity: 0; scale: .96; } }
 }
+/* A tooltip: a fade only, quick both ways (Tooltip.svelte). */
+@utility tip-fade {
+  opacity: 0;
+  transition: opacity var(--motion-quick) var(--ease-exit), overlay var(--motion-quick) var(--ease-exit) allow-discrete, display var(--motion-quick) var(--ease-exit) allow-discrete;
+  &:popover-open { opacity: 1; transition-timing-function: var(--ease-enter); }
+  @starting-style { &:popover-open { opacity: 0; } }
+}
+/* A status bar popover's top edge flashes gleam as it opens and cools to its seam; it is usable long before. */
+@utility shutter-edge { animation: gleam-cool var(--heat-glow) var(--ease-enter); }
+@keyframes gleam-cool { from { border-top-color: var(--gleam); } }
+/* A selected marker that slides between items: the nav's bar, the tab strip's baseline, a seg's fill. src/lib/marker.ts
+   measures the selected item into --mk-*, sets data-marker="set" for the first placement (no slide), then "on". Without
+   data-marker (before the first measurement, or without JS) the items' own selected styles show, as they always did. */
+@utility slide-marker {
+  position: relative;
+  &[data-marker]::before { content: ""; position: absolute; left: 0; top: 0; translate: var(--mk-x) var(--mk-y); width: var(--mk-w); height: var(--mk-h); pointer-events: none; }
+  &[data-marker="on"]::before { transition: translate var(--motion-base) var(--ease-enter), width var(--motion-base) var(--ease-enter), height var(--motion-base) var(--ease-enter); }
+  /* The nav: a 3px gleam bar over the active item's left edge, in place of its own inset bar. The clip follows the
+     item's bottom-left chamfer (a --radius-nick bevel: its diagonal is 5px up the bar's left edge and 2px up its right
+     edge), so the bar's corner doesn't poke past it. */
+  &.navlist[data-marker]::before { background: var(--gleam); z-index: 2; clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--radius-nick) + var(--bar-rule)), 0 calc(100% - var(--radius-nick))); }
+  &.navlist[data-marker] :is(a, button).active { box-shadow: var(--shadow-bevel); }
+  /* The tab strip: a 2px gleam baseline in place of the active tab's own. */
+  &.tabs[data-marker]::before { background: var(--gleam); z-index: 2; }
+  &.tabs[data-marker] .tab.active { border-bottom-color: transparent; }
+  /* A seg: the gleam slug (with its cooled bottom edge) slides under the buttons and shows through the selected one,
+     which keeps its on-gleam text, so it wipes into the newly selected button. */
+  &.seg[data-marker]::before { background: var(--gleam-fill); box-shadow: inset 0 -2px 0 0 var(--gleam-deep), var(--gleam-spec); corner-shape: bevel; border-radius: var(--mk-r, 0); z-index: 0; }
+  &.seg[data-marker] .btn { position: relative; z-index: 1; }
+  &.seg[data-marker] .btn.sel { background: transparent; box-shadow: none; }
+}
+/* ---------- the station terminal: every session and environment log (SessionLog, EnvironmentLog) ----------
+   A brushed-steel bezel (no hammer, no grain: text and controls sit on it) holding a stamped nameplate and a recessed
+   screen. Heat is activity: the bezel's top edge warms while output streams and cools slowly after. */
+@utility station {
+  border: 1px solid var(--line);
+  corner-shape: bevel;
+  border-radius: var(--radius-cut) var(--radius-1) var(--radius-cut) var(--radius-1);
+  background-color: var(--panel);
+  --surface: var(--panel);
+  background-image: linear-gradient(180deg, var(--sheen), transparent 45%);
+  box-shadow: var(--shadow-bevel);
+  padding: 8px;
+  @media (width < 48rem) { padding: 4px; }
+  min-width: 0;
+  transition: border-top-color var(--heat-bezel) var(--ease-enter), box-shadow var(--heat-bezel) var(--ease-enter);
+  /* Warms at base, cools over --heat-bezel (the base rule's timing). */
+  &.hot { border-top-color: var(--heat); box-shadow: inset 0 1px 0 0 color-mix(in srgb, var(--heat) 60%, transparent), var(--shadow-bevel); transition-duration: var(--motion-base); }
+}
+/* The terminal's tag: lamp, then the facts, stamped in the label type on the chrome. */
+@utility nameplate {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: .10em;
+  text-transform: uppercase;
+  line-height: 16px;
+  color: var(--muted);
+  background-color: var(--chrome);
+  --surface: var(--chrome);
+  border: 1px solid var(--line-strong);
+  corner-shape: bevel;
+  border-radius: var(--radius-nick) 0 var(--radius-nick) 0;
+  box-shadow: var(--shadow-bevel);
+  padding: 2px 8px;
+}
+/* The screen: an opaque recess the log scrolls in. Its scanlines are its own background, so they never draw outside a
+   screen, and the grain never draws on one. .live adds the phosphor glow, which fades over --heat-glow both ways.
+   Settings › General › Screen effect (data-screen="off") removes the scanlines and the glow only. */
+@utility screen {
+  background-color: var(--screen);
+  --surface: var(--screen);
+  background-image: repeating-linear-gradient(to bottom, var(--scanline) 0 1px, transparent 1px 3px);
+  border: 1px solid var(--line);
+  corner-shape: bevel;
+  border-radius: 0 var(--radius-nick) 0 var(--radius-nick);
+  box-shadow: inset 0 2px 6px 0 var(--edge-dark), inset 0 0 0 1px var(--line-soft);
+  isolation: isolate;
+  overflow-y: auto;
+  transition: text-shadow var(--heat-glow) var(--ease-exit);
+  &.live { text-shadow: 0 0 6px color-mix(in srgb, var(--heat) 35%, transparent); }
+  /* Clocking in: the first time a mounted terminal goes live, the picture opens from the centre line. */
+  &.powering { animation: power-on var(--motion-base) var(--ease-enter); }
+  html[data-screen="off"] & { background-image: none; text-shadow: none; }
+}
+@keyframes power-on { from { clip-path: inset(50% 0 50% 0); } to { clip-path: inset(0); } }
+/* The block cursor after the last line. Its rest state is lit, so reduced motion (no blink) leaves it visible. */
+@utility cursor {
+  display: inline-block;
+  width: .6em;
+  height: 1.1em;
+  vertical-align: text-bottom;
+  background-color: var(--heat);
+  opacity: 1;
+  &.blink { animation: blink var(--heat-blink) steps(1) infinite; }
+  &.hold { opacity: .45; }
+}
+@keyframes blink { 50% { opacity: 0; } }
+/* A tool or subagent call that arrived live: one quick spark tick in its left gutter. The tick's rest state is gone, so
+   reduced motion shows nothing. */
+@utility strike {
+  position: relative;
+  &::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--spark); opacity: 0; pointer-events: none; animation: strike var(--motion-quick) var(--ease-exit) both; }
+}
+@keyframes strike { from { opacity: 1; } to { opacity: 0; } }
+/* A lamp relit after its job moved stage: it comes back from dark. */
+@utility relight { animation: relight var(--motion-slow) var(--ease-enter) both; }
+@keyframes relight { from { opacity: .15; } }
+/* The pilot lamp: an 8px light in a dark ring. Lit states stay at full opacity, so reduced motion (which stops the
+   breathing) leaves it lit. you rings itself apart from working, which shares its hue on forge. */
+@utility lamp {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+  opacity: 1;
+  background: transparent;
+  box-shadow: 0 0 0 1px var(--edge-dark);
+  &.working { background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--heat), white 35%) 0%, var(--heat) 60%); animation: breathe var(--heat-breathe) ease-in-out infinite; }
+  &.waiting { background: color-mix(in srgb, var(--heat) 55%, var(--line-strong)); }
+  &.you { background: var(--ember); box-shadow: 0 0 0 1px var(--surface, var(--bg)), 0 0 0 2px var(--ember); }
+  &.done { background: var(--ok); }
+  &.idle { box-shadow: inset 0 0 0 1px var(--line-strong), 0 0 0 1px var(--edge-dark); }
+  &.fault { background: var(--bad); }
+}
+@keyframes breathe { 50% { opacity: .55; } }
 /* The anvil, as shipped: a raster with its own light grey tile. */
 @utility mark { width: 36px; height: 36px; }
 
@@ -1098,6 +1322,10 @@ input[type=checkbox]:focus-visible, input[type=radio]:focus-visible { outline: 2
 /* Reduced motion: nothing slides, fades or loops; every end state is unchanged. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+  /* `*` does not match ::details-content, and a selector list with a pseudo-element the browser lacks is dropped whole,
+     so it gets its own rule. */
+  details::details-content { transition: none !important; }
 }
 /* Phones: 44px touch targets. Inline links in prose and table text are exempt (WCAG 2.5.5). */
 @media (width < 48rem) {

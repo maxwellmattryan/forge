@@ -42,7 +42,7 @@
   </div></div>
   {#if row && role !== null}
     {#if row.transcript}
-      {#key role}<SessionLog scope={job} {active} transcript={{ job, agent: role, label: $t('agentsTab.transcript', { role }) }} />{/key}
+      {#key role}<SessionLog scope={job} {active} transcript={{ job, agent: role, label: $t('agentsTab.transcript', { role }) }} finished={row.status === 'done' && !row.running} />{/key}
     {:else}
       <Empty>{$t('agentsTab.noTranscript')}</Empty>
     {/if}

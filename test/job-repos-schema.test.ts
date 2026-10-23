@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { defaults } from '../lib/config.ts';
-import { createJob, jobDir, loadJob, setJob, updateJob } from '../lib/jobs.ts';
-import { JOB_SCHEMA_VERSION, normalizeJob } from '../lib/schema.ts';
+import { defaults } from '#core/config/load.ts';
+import { createJob, jobDir, loadJob, setJob, updateJob } from '#core/job/store.ts';
+import { JOB_SCHEMA_VERSION, normalizeJob } from '#core/job/schema.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => cleanups.forEach((c) => c()));
@@ -49,8 +49,8 @@ describe('job repos: schema', { concurrency: 4 }, () => {
     const repo = tempRepo();
     cleanups.push(repo.cleanup);
     const job = createJob(repo.dir, defaults(), { title: 'mirror' });
-    setJob(repo.dir, job.id, { fields: { worktree: '/w/one', base: 'develop', pr: PR } });
-    setJob(repo.dir, job.id, { fields: { 'pr.pushedSha': 'b'.repeat(40) } });
+    setJob(repo.dir, job.id, { owned: { worktree: '/w/one', base: 'develop', pr: PR } });
+    setJob(repo.dir, job.id, { owned: { 'pr.pushedSha': 'b'.repeat(40) } });
     let j = loadJob(repo.dir, job.id);
     assert.deepEqual(j.repos[0], { repo: null, worktree: '/w/one', branch: j.branch, base: 'develop', pr: { ...PR, pushedSha: 'b'.repeat(40) }, verifyOnly: false, interim: null });
     const file = path.join(jobDir(repo.dir, job.id), 'job.json');
@@ -65,7 +65,7 @@ describe('job repos: schema', { concurrency: 4 }, () => {
     assert.deepEqual(j.repos[0], { repo: null, worktree: '/w/one', branch: j.branch, base: 'develop', pr: { ...PR, pushedSha: 'b'.repeat(40) }, verifyOnly: false, interim: null }, 'a hand-edited repos[0] is overwritten');
     assert.equal(j.repos[1].branch, j.branch, "a member's branch is always the job's");
     assert.equal(j.repos[2].branch, null, 'a verify-only member has none');
-    setJob(repo.dir, job.id, { fields: { worktree: null } });
+    setJob(repo.dir, job.id, { owned: { worktree: null } });
     assert.equal(loadJob(repo.dir, job.id).repos[0].worktree, null);
     assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).repos[0].worktree, null, 'serializeJob writes the mirror too');
   });

@@ -1,5 +1,5 @@
 <!-- "Command for this job" in the drawer header: opens the command palette scoped to `job`. The status bar holds the
-     palette's other triggers; lib/palette.svelte.ts holds the open state and focus return. -->
+     palette's other triggers; src/lib/palette.svelte.ts holds the open state and focus return. -->
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { openPalette } from '../lib/palette.svelte.ts';

@@ -1,5 +1,5 @@
 // Focus and a job's environment as the dashboard shows them: the status bar's focus fact, the drawer's Environment
-// section's header, and the POSTs behind it (lib/server.ts). Plain TS, so test/dashboard-focus.test.ts can pin it.
+// section's header, and the POSTs behind it (lib/server/routes/). Plain TS, so a test can pin it.
 import type { ApiState, Endpoint, FocusResponse, Job, PostEditorResponse } from './types.ts';
 
 const active = (state: unknown): boolean => state !== 'done' && state !== 'cancelled';

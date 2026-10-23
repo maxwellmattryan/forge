@@ -23,7 +23,7 @@
   import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_RAIL, sidebarDrag, sidebarKey, sidebarShown } from './lib/sidebar.ts';
   import { hideTip, railTipOn } from './lib/rail-tip.svelte.ts';
   import { startClock } from './lib/clock.svelte.ts';
-  import type { ViewId } from './lib/view.ts';
+  import type { ViewId } from './lib/nav.ts';
   import { inlineInputAction, type InlineInputEvent } from './lib/statusbar.ts';
   import { t } from './lib/locale.ts';
   import { settingsKey, settingsKeyShortcuts, settingsShortcutLabel } from './lib/settings.ts';
@@ -31,6 +31,7 @@
   import { closePalette, openPalette, palette } from './lib/palette.svelte.ts';
   import { closePopover, popover } from './lib/popover.svelte.ts';
   import { closeCard, ghCard } from './lib/github-card.svelte.ts';
+  import { slideMarker } from './lib/marker.ts';
 
   let settingsOpen = $state(false);
   let settings = $state<ReturnType<typeof Settings>>();
@@ -249,7 +250,7 @@
       <kbd class="mono muted pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-[10px]" aria-hidden="true">{shortcut}</kbd>
       {/if}
     </span>
-    <nav id="nav" class="navlist {compact ? 'rail' : ''}"><Nav {compact} /></nav>
+    <nav id="nav" class="navlist slide-marker {compact ? 'rail' : ''}" {@attach slideMarker('.active', 'bar-left')}><Nav {compact} /></nav>
     <div class="mt-auto flex flex-col gap-2 pt-3">
       <div class="navlist {compact ? 'rail' : ''}"><button id="settings-open" aria-label={compact ? $t('settings.open') : undefined} aria-haspopup="dialog" aria-keyshortcuts={settingsKeyShortcuts(platform)} onclick={openSettings} {@attach compact && railTipOn($t('settings.open'))}>{#if compact}<Icon name="settings" />{:else}<span class="lbl"><Icon name="settings" />{$t('settings.open')}</span><kbd class="mono muted text-[10px] normal-case" aria-hidden="true">{settingsShortcut}</kbd>{/if}</button></div>
     </div>
@@ -296,12 +297,12 @@
       {:else}
         {#if S.error}<Banner msg={S.error} />{/if}
         {#if !S.data.initialized}<Banner msg={$t('app.noConfig')} />{/if}
-        {#if S.view === 'pipeline'}<Pipeline data={S.data} />
+        {#if S.view === 'pipeline'}<Pipeline />
         {:else if S.view === 'backlog'}<Backlog />
-        {:else if S.view === 'agents'}<Agents data={S.data} />
-        {:else if S.view === 'analytics'}<Analytics data={S.data} />
-        {:else if S.view === 'project'}<Project data={S.data} />
-        {:else}<Evals data={S.data} />{/if}
+        {:else if S.view === 'agents'}<Agents />
+        {:else if S.view === 'analytics'}<Analytics />
+        {:else if S.view === 'project'}<Project />
+        {:else}<Evals />{/if}
       {/if}
     </div>
   </main>

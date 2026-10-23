@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { stubDir } from './fake-bin.ts';
 
-export type GhReply = string | { stdout?: string; stderr?: string; status?: number };
+/** `sleepMs` holds the reply that long first: a gh that hangs. */
+export type GhReply = string | { stdout?: string; stderr?: string; status?: number; sleepMs?: number };
 
 // Reads routes.json on every call, so set() can change a reply mid-test. The longest key that
 // prefixes the space-joined argv wins ('pr view' over 'pr'); an unknown call fails loudly.
@@ -23,6 +24,7 @@ for (const key of Object.keys(routes)) {
 }
 if (best === null) { process.stderr.write('fake gh: no route for ' + line + '\\n'); process.exit(1); }
 const r = typeof routes[best] === 'string' ? { stdout: routes[best] } : routes[best];
+if (r.sleepMs) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, r.sleepMs);
 if (r.stdout) process.stdout.write(r.stdout);
 if (r.stderr) process.stderr.write(r.stderr);
 process.exit(r.status ?? 0);

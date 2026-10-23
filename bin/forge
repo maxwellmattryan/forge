@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 startupCache();
-const { main, reportError } = await import('../lib/cli.ts');
+const { main, reportError } = await import('../lib/cli/main.ts');
 
 const argv = process.argv.slice(2);
 // reportError prints the error (one JSON line on stdout under --json, error:/fix: lines in human
@@ -28,7 +28,18 @@ function startupCache() {
   if (Number(process.versions.node.split('.')[0]) >= 24 || !registerHooks || !stripTypeScriptTypes) return;
   const dir = path.join(root, 'strip', process.version);
   const ours = new URL('..', import.meta.url).href;
+  const lib = new URL('../lib/', import.meta.url).href;
+  const aliased = new Map();
   registerHooks({
+    // Node 22 walks up to package.json for every `#core/…` import, which made a start about 12% slower
+    // than relative imports did. Every lib/ file shares the plugin root's "imports", so Node's answer for
+    // a specifier is the same for all of them: resolve it once per process.
+    resolve(specifier, context, nextResolve) {
+      if (specifier[0] !== '#' || !context.parentURL?.startsWith(lib)) return nextResolve(specifier, context);
+      let hit = aliased.get(specifier);
+      if (!hit) aliased.set(specifier, (hit = nextResolve(specifier, context)));
+      return { ...hit, shortCircuit: true };
+    },
     load(url, context, nextLoad) {
       if (!url.startsWith(ours) || !url.endsWith('.ts')) return nextLoad(url, context);
       const src = fs.readFileSync(new URL(url), 'utf8');

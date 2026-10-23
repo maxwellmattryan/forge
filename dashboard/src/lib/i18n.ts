@@ -1,5 +1,5 @@
 // The dashboard's message lookup: plain functions over JSON catalogs, so node:test can pin them.
-// No svelte import; lib/locale.ts wraps translate in the `t` store components read as $t.
+// No svelte import; src/lib/locale.ts wraps translate in the `t` store components read as $t.
 
 /** The catalog every other locale falls back to. */
 export const SOURCE_LOCALE = 'en';

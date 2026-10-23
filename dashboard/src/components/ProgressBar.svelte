@@ -1,6 +1,6 @@
 <!-- tasks.md progress: a bar and done/total; nothing without tasks. -->
 <script lang="ts">
-  import { progressWidth } from '../lib/view.ts';
+  import { progressWidth } from '../lib/job-state.ts';
   import type { Progress } from '../lib/types.ts';
 
   let { progress }: { progress: Progress | null | undefined } = $props();

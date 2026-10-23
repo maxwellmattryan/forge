@@ -1,6 +1,6 @@
 <!-- The Evals compare result: config and version line, then one row per metric. -->
 <script lang="ts">
-  import { compareRows } from '../lib/view.ts';
+  import { compareRows } from '../lib/analytics.ts';
   import type { EvalCompare } from '../lib/types.ts';
   import { t } from '../lib/locale.ts';
 

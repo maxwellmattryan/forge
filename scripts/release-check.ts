@@ -5,9 +5,9 @@
 // Built-ins only, so CI's `release check` job runs it without `npm ci` (docs/RELEASES.md).
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { findAttribution } from '../lib/attribution.ts';
+import { findAttribution } from '../lib/engine/guard/attribution.ts';
+import { gitSync } from './git.ts';
 import { distHash, sourceHash, STAMP } from '../dashboard/build-stamp.mjs';
 
 const SEMVER = /^\d+\.\d+\.\d+$/;
@@ -67,7 +67,7 @@ export function releaseProblems(root: string, opts: { dist?: DistMode } = {}): s
   }
 
   // Pinned so repo config can't hide untracked files or reshape the listing.
-  const status = spawnSync('git', ['-c', 'core.quotepath=off', '-c', 'status.showUntrackedFiles=all', '--no-optional-locks', '-C', root, 'status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8' });
+  const status = gitSync(['-c', 'status.showUntrackedFiles=all', '--no-optional-locks', '-C', root, 'status', '--porcelain', '--untracked-files=all']);
   if (status.error || status.status !== 0) problems.push(`git status failed in ${root}: ${(status.stderr || status.error?.message || '').trim()}`);
   else {
     const dirty = status.stdout.split('\n').filter(Boolean);
@@ -78,7 +78,7 @@ export function releaseProblems(root: string, opts: { dist?: DistMode } = {}): s
   }
 
   // develop never commits the build; main must carry it.
-  const tracked = spawnSync('git', ['-c', 'core.quotepath=off', '--no-optional-locks', '-C', root, 'ls-files', '--', 'dashboard/dist'], { encoding: 'utf8' });
+  const tracked = gitSync(['--no-optional-locks', '-C', root, 'ls-files', '--', 'dashboard/dist']);
   if (tracked.error || tracked.status !== 0) {
     problems.push(`git ls-files failed in ${root}: ${(tracked.stderr || tracked.error?.message || '').trim()}`);
     return problems;
