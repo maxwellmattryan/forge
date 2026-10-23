@@ -447,7 +447,7 @@ The daemon runs an unattended agent under `daemon.allowedTools`, asking a human 
 
 ## Release security
 
-`.github/workflows/release.yml` holds the only write token Forge's automation uses: it tags commits and publishes Releases. [RELEASES.md](RELEASES.md#releasing) describes the flow. `test/release-workflow.test.ts` pins the file with allowlists that fail closed on any trigger, key, permission, action or expression it does not list, so weakening it means editing that test in the same reviewed diff.
+`.github/workflows/release.yml` holds the only write token Forge's automation uses: it tags commits and publishes Releases. [RELEASES.md](RELEASES.md#releasing) describes the flow. `test/invariants/release-workflow.test.ts` pins the file with allowlists that fail closed on any trigger, key, permission, action or expression it does not list, so weakening it means editing that test in the same reviewed diff.
 
 - **Who it defends against.** A PR author (a fork included) who wants the token or the Release, a retagged or compromised action, repo text (the `package.json` version, CHANGELOG) that would reach a shell, `GITHUB_OUTPUT` or argv, and a later edit, by a person or an agent, that quietly weakens the workflow.
 - **Never on PR events.** It runs on pushes to `main` only: no `pull_request`, `pull_request_target`, `workflow_run` or `workflow_dispatch`.

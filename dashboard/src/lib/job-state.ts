@@ -58,7 +58,7 @@ export function agentsSummary(roles: string[]): AgentsSummary | null {
 /** Whether any of a job's issues names an item: a url-only entry never counts as linked. */
 export const hasLinkedIssue = (issues: unknown): boolean => Array.isArray(issues) && issues.some((i) => Boolean(i && typeof i === 'object' && (i as { ref?: unknown }).ref));
 
-/** lib/engine/pipeline/deps.ts DEP_REASON; test/dashboard-view.test.ts pins the two equal. */
+/** lib/engine/pipeline/deps.ts DEP_REASON; a test pins the two equal (being rewritten from docs/test-rewrite/modules/dashboard.lib.md). */
 export const DEP_PARK_PREFIX = 'dependencies not done: ';
 
 /** A job the engine parked until its dependencies finish: it resumes by itself, so no human is needed. */

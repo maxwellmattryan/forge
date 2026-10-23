@@ -4,7 +4,7 @@ Forge is a Claude Code plugin that is also its own marketplace. Read [AGENTS.md]
 
 ## Setup
 
-You need Node ≥ 22.18, git ≥ 2.38 and the GitHub CLI (`gh`). Clone the repository, then run `npm ci`. It installs only the dashboard's build toolchain, all exact-pinned devDependencies; the engine itself needs nothing installed. Forge's own `package.json` has no install scripts, but two toolchain packages run their own: esbuild, and fsevents on macOS. `test/dashboard-dist.test.ts` fails if any other package starts to.
+You need Node ≥ 22.18, git ≥ 2.38 and the GitHub CLI (`gh`). Clone the repository, then run `npm ci`. It installs only the dashboard's build toolchain, all exact-pinned devDependencies; the engine itself needs nothing installed. Forge's own `package.json` has no install scripts, but two toolchain packages run their own: esbuild, and fsevents on macOS. A test of `package.json` and its lockfile fails if any other package starts to (being rewritten: [docs/test-rewrite/modules/dashboard.ui.md](docs/test-rewrite/modules/dashboard.ui.md) B7).
 
 Before you open a PR, run every command in [the verify list](AGENTS.md#verify-before-claiming-it-works) in AGENTS.md. The pull-request template repeats it as a checklist. Check engine changes on Node 22.18 itself, not only on a newer 22.x.
 
@@ -35,7 +35,7 @@ Run `npm ci` once. After that, the dashboard and the CLI run your local source, 
 
 ## Dependencies
 
-Forge has zero runtime dependencies by rule, so a PR that adds one is closed. Dependabot proposes devDependency updates weekly. Before merging one, the maintainer commits on the Dependabot branch, as the comment in [.github/dependabot.yml](.github/dependabot.yml) describes. Every update changes the dashboard build stamp, which hashes the resolved versions in `package-lock.json`, so the next main update carries a rebuilt `dashboard/dist/`. When a devDependency's own version changes, the new version also goes in the pinned map in `test/dashboard-dist.test.ts`, which asserts every devDependency's exact version; a lockfile-only update leaves that map alone.
+Forge has zero runtime dependencies by rule, so a PR that adds one is closed. Dependabot proposes devDependency updates weekly. Before merging one, the maintainer commits on the Dependabot branch, as the comment in [.github/dependabot.yml](.github/dependabot.yml) describes. Every update changes the dashboard build stamp, which hashes the resolved versions in `package-lock.json`, so the next main update carries a rebuilt `dashboard/dist/`.
 
 ## Security and conduct
 

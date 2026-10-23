@@ -12,7 +12,7 @@ const LIB = path.resolve(import.meta.dirname, '..', '..', 'lib');
 test('every lib/ source file opens with a header comment', () => {
   const bare = (fs.readdirSync(LIB, { recursive: true }) as string[])
     .map((f) => f.split(path.sep).join('/'))
-    .filter((f) => /\.(ts|mjs)$/.test(f))
+    .filter((f) => /\.(ts|mjs)$/.test(f) && !f.endsWith('.test.ts'))
     .filter((f) => headerSentence(fs.readFileSync(path.join(LIB, f), 'utf8')) === null);
   assert.deepEqual(bare, [], 'open each with a // comment whose first sentence says what the file holds');
 });
