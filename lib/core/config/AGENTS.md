@@ -10,8 +10,10 @@
 | File | What it holds |
 |---|---|
 | `components.ts` | Components: the parts of a repo (`config.components`), what kind each is and what it depends on. |
-| `defaults.ts` | Every config key Forge reads, with its default: what loadConfig merges a repo's config.yml over. |
 | `fields.ts` | The settings schema: which config keys `forge config set` and POST /api/config may write, and how each one is parsed, validated and shown in the dashboard. |
+| `keys/defaults.ts` | Every config key Forge reads, with its default: what loadConfig merges a repo's config.yml over. |
+| `keys/docs.ts` | Every config key's doc string: the comment docs/CONFIG.md's reference block shows beside its default (npm run docs:config). |
+| `keys/reference.ts` | docs/CONFIG.md's per-key reference: defaults() rendered as commented YAML from the doc strings in docs.ts, and the sync npm run docs:config writes. |
 | `load.ts` | Loading `.forge/config.yml` over the defaults, and the small readers of a loaded config. |
 | `models.ts` | runtime.model* and runtime.effort*: their validation, and the one place each resolves for a spawn (resolveModel, resolveEffort). |
 | `release-strategy.ts` | A repo's release strategy (docs/CONFIG.md "Release strategy"): how it versions, which tool cuts a release, where it publishes and how often. |

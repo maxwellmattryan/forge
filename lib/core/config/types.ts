@@ -16,7 +16,7 @@ export interface ProtectedRule {
   reason: string;
 }
 
-/** One review lens: an entry of review.panel in defaults() (lib/core/config/defaults.ts). */
+/** One review lens: an entry of review.panel in defaults() (lib/core/config/keys/defaults.ts). */
 export interface PanelEntry {
   name: string;
   always?: boolean;
@@ -129,7 +129,7 @@ export interface MemberRepoConfig {
   release?: ({ interim?: InterimStrategy } & ReleaseStrategy) | null;
 }
 
-/** What `forge run <job> <name>` executes: defaults().commands in lib/core/config/defaults.ts. */
+/** What `forge run <job> <name>` executes: defaults().commands in lib/core/config/keys/defaults.ts. */
 export interface CommandsConfig {
   setup: string | null;
   build: string | null;
@@ -145,7 +145,7 @@ export interface CommandsConfig {
 /** One `verify` entry: a step name, or a group of step names that run at the same time (config schemaVersion 3). */
 export type VerifyEntry = string | string[];
 
-/** The effective config: defaults() in lib/core/config/defaults.ts merged with .forge/config.yml by loadConfig. docs/CONFIG.md documents each key. */
+/** The effective config: defaults() in lib/core/config/keys/defaults.ts merged with .forge/config.yml by loadConfig. docs/CONFIG.md documents each key. */
 export interface Config {
   schemaVersion: number;
   project: {

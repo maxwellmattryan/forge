@@ -8,6 +8,7 @@ File and terminal formats Forge reads and writes itself, with no dependencies: Y
 | File | What it holds |
 |---|---|
 | `ansi.ts` | ANSI styles and terminal-safe text for human output. |
+| `region.ts` | Generated regions in docs: the text between a start and an end marker, which a generator replaces whole. |
 | `yaml.ts` | A deliberately small YAML subset so Forge stays zero-dependency. |
 | `zip.ts` | A minimal zip writer for the support bundle (lib/engine/ops/bundle.ts): Forge has no runtime dependencies, and zlib gives deflate and CRC-32. |
 <!-- forge:map:end -->

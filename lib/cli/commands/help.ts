@@ -5,6 +5,7 @@ import path from 'node:path';
 import { forgeVersion } from '#engine/evals/run.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { ERROR_CODES, ForgeError } from '#core/errors.ts';
+import { replaceRegion } from '#core/format/region.ts';
 import { jsonFlag, lenientOutputMode, out, parseArgs, usageError } from './args.ts';
 import { colorEnabled, renderError } from './render.ts';
 import { HELP as AUDIT } from './audit.ts';
@@ -339,10 +340,7 @@ export function readmeTable(): string {
 
 /** README.md's text with the lines between the markers replaced by readmeTable(). */
 export function syncReadme(readme: string): string {
-  const start = readme.indexOf(README_START);
-  const end = readme.indexOf(README_END);
-  if (start < 0 || end < start) throw new ForgeError(`README.md has no ${README_START} … ${README_END} region`);
-  return `${readme.slice(0, start + README_START.length)}\n${readmeTable()}\n${readme.slice(end)}`;
+  return replaceRegion(readme, README_START, README_END, readmeTable(), 'README.md');
 }
 
 /** A `usage:` error for a group in these tables (lib/cli/main.ts routes some groups itself). */
