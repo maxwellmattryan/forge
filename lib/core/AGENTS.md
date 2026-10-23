@@ -20,4 +20,5 @@ Foundations with no pipeline policy: shared shapes, the job store and schema, co
 | `text.ts` | Small text helpers: redaction, safe refs and outside text, slugs, CLI value coercion, shell words, templates, fences and tails. |
 | `types.ts` | The transitional type-only barrel: the /api/* and SSE shapes (lib/api/types.ts), the job shapes (lib/core/job/types.ts) and the config shapes (lib/core/config/types.ts), re-exported so older `#core/types.ts` imports keep compiling, plus the tracker contract. |
 | `utils.ts` | Small leftovers with no better home: the current timestamp and a short random id. |
+| `versions/` | The version lists: one append-only list of named steps per persisted shape, whose length plus one is that shape's version. |
 <!-- forge:map:end -->
