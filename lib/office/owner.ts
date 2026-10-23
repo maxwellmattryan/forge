@@ -1,7 +1,7 @@
 // What the daemon's session records say about who drives what: the ids `forge dash` sessions ran
-// under (the supervisor expires their leases when they exit, lib/office/session/lifecycle.ts and lib/office/pool.ts),
+// under (the supervisor expires their leases when they exit, lib/office/session/owned.ts and lib/office/pool.ts),
 // and the refusals that keep the inbox and office sessions from driving a job.
-// A separate module because lib/office/session/lifecycle.ts imports lib/core/job/store.ts, which must not import it back.
+// A separate module because lib/office/session/owned.ts imports lib/core/job/store.ts, which must not import it back.
 import { UUID, readInfo, sessionRecords } from '#core/job/session-files.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, daemonScope } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';

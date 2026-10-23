@@ -25,7 +25,7 @@ export const GIT_PINS: readonly (readonly [string, string])[] = Object.freeze([
 
 /**
  * Git config pinned for a daemon session and everything it runs (subagents, `forge`, verify commands),
- * through GIT_CONFIG_* (lib/office/session/lifecycle.ts sessionEnv). Those entries outrank every config file, and the
+ * through GIT_CONFIG_* (lib/integrations/claude/argv.ts sessionEnv). Those entries outrank every config file, and the
  * allowlist has no `git -c`, so a hook or fsmonitor program the session writes into the repo (e.g. a
  * `core.hooksPath` dir such as `.githooks/`, which Claude Code doesn't protect the way it does `.git/`)
  * never runs. Drivers that only .git/config or ~/.gitconfig can define (filter, diff, merge) are left alone.

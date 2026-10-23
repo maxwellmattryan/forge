@@ -1,22 +1,22 @@
-// The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests
-// with no job, an office session for gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job sessions, each spawned on demand for the job
-// its requests name. Sessions fail, hold and stop on their own (lib/office/session/lifecycle.ts); the pool owns what
-// is repo-wide: the trust snapshot, routing, the cap and the stops config changes force.
-// docs/ARCHITECTURE.md "Daemon" describes the rules.
+// The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests with no job, an office
+// session for gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job sessions, each spawned on demand
+// for the job its requests name. Sessions fail, hold and stop on their own (lib/office/session/lifecycle.ts); the pool owns
+// what is repo-wide: the trust snapshot, routing, the cap and the stops config changes force. docs/ARCHITECTURE.md "Daemon" describes the rules.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveEffort, trustDigest } from '#core/config/load.ts';
-import { PERMISSION_MODES, TRUST_CHANGED, createSession, otherOwner, reapOrphans, sessionOptions } from './session/lifecycle.ts';
+import { TRUST_CHANGED, createSession } from './session/lifecycle.ts';
+import { sessionOptions, type DaemonOptions, type Session, type SessionContext, type SessionEvent } from './session/contract.ts';
+import { otherOwner, reapOrphans } from './session/records.ts';
+import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
 import { createModeBook, type PoolOptions } from './modes.ts';
 import { UUID, readInfo, sessionFiles } from '#core/job/session-files.ts';
-import type { DaemonOptions, Session, SessionContext, SessionEvent } from './session/lifecycle.ts';
 import { daemonSessionIds } from './owner.ts';
 import { configForJob } from '#engine/evals/overlay.ts';
 import { expireLease, listJobs, loadJob, logHumanEvent, repoAuditFile, requeueOrphanedRequests } from '#core/job/store.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
-import { RECONCILE_MS, daemonLockDir, reconcile } from './reconcile.ts';
-import type { SessionFacts } from './reconcile.ts';
+import { RECONCILE_MS, daemonLockDir, reconcile, type SessionFacts } from './reconcile.ts';
 import { tryLock } from '#core/os/lock.ts';
 import { repoBudgetStatus } from '#engine/metrics/repo-budget.ts';
 import { daemonPlatformProblem } from '#core/os/platform.ts';

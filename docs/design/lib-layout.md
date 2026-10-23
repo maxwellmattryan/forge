@@ -1,6 +1,6 @@
 # lib/ layers and the big-file splits
 
-Status: decided 2026-10-21 (#303). The groundwork landed in #412: the glossary words, header comments, the tripwire tests in `test/invariants/`, `npm run docs:map` and this doc. The move landed in #421: every `lib/` file sits in its layer and module, with a folder map in each layer and module folder. The aliases landed in #370: imports across layers go through `package.json` "imports". The types split landed in #413, the PR split in #414 and the server split in #415; the other file splits (#416–#419) and the test layout (#420) are pending.
+Status: decided 2026-10-21 (#303). The groundwork landed in #412: the glossary words, header comments, the tripwire tests in `test/invariants/`, `npm run docs:map` and this doc. The move landed in #421: every `lib/` file sits in its layer and module, with a folder map in each layer and module folder. The aliases landed in #370: imports across layers go through `package.json` "imports". The types split landed in #413, the PR split in #414, the server split in #415 and the daemon split in #416; the other file splits (#417–#419) and the test layout (#420) are pending.
 
 This replaces the flat "~18 top-level modules" plan of 2026-10-19.
 
@@ -105,7 +105,7 @@ Why these sit in core, and why so:
 |---|---|
 | `git/` | runner ← `git.ts`, `repo-slug.ts` |
 | `github/` | `gh.ts`, tracker ← `trackers/github.ts`, preview ← `github-preview.ts`, `actor.ts`, `pull-requests.ts` (the PR mechanism, split out in #414) |
-| `claude/` | `transcripts.ts`, `pricing.ts` + `pricing.json`; the session argv arrives with #416 |
+| `claude/` | `argv.ts` (the session argv and env, from `daemon.ts` in #416), `transcripts.ts`, `pricing.ts` + `pricing.json` |
 | `docker/` | runner ← `docker.ts`, `types.ts` |
 | `backlog/` | tracker ← `trackers/local.ts` |
 | `webhook/` | arrives when notify's transport splits out of `office/notify.ts` |
@@ -130,7 +130,7 @@ Why these sit in core, and why so:
 
 | Module | Files |
 |---|---|
-| `session/` | lifecycle ← `daemon.ts` (split in #416) |
+| `session/` | lifecycle ← `daemon.ts`, split in #416 into `contract.ts`, `control.ts`, `holds.ts`, `launch.ts`, `log.ts`, `owned.ts`, `records.ts` and `timers.ts` |
 | pool | ← `daemon-pool.ts` |
 | owner | ← `daemon-owner.ts` |
 | leaves | `session-agents.ts`, `reconcile.ts`, `foreman.ts`, `notify.ts` |
@@ -161,14 +161,14 @@ Where the names differ from a plain prefix drop, the folder rules decided:
 
 ## Today's upward edges
 
-With the placement above, 21 imports point up a layer. `ALLOWED_EDGES` in `test/invariants/layer-map.ts` is the live list; it may only shrink, and an entry that no longer exists or no longer points up fails as stale.
+With the placement above, 20 imports point up a layer. `ALLOWED_EDGES` in `test/invariants/layer-map.ts` is the live list; it may only shrink, and an entry that no longer exists or no longer points up fails as stale.
 
 | Edges | What removes them |
 |---|---|
 | `core/job/store.ts` reaches `engine/guard/known-secrets.ts`, `engine/evals/overlay.ts`, `engine/evals/provenance.ts`, `integrations/github/actor.ts`, `integrations/git/repo-slug.ts` and `integrations/claude/pricing.ts`; `core/paths.ts` reaches `integrations/git/runner.ts` | hooks or parameters in the job store (like `onTransition`), or the pieces moving down to a core leaf |
 | `core/job/schema.ts` reaches `engine/pr/delta.ts` and `engine/project/member-repos.ts`; `core/config/validate.ts` and `core/job/lens.ts` reach `engine/project/member-repos.ts` | the value validators (`isSha`, `REPO_NAME`, `isSafeBranch`, the repo problems) moving into `core/config/` |
 | `engine/pipeline/step/gates.ts`, `engine/pipeline/step/stages/build.ts`, `engine/pipeline/step/stages/decide.ts`, `engine/pr/sync.ts` and `engine/release/approval.ts` reach `office/foreman.ts` | the Foreman's gate classes and round ceilings moving to engine, with office keeping the session |
-| `engine/ops/doctor.ts`, `engine/pr/open.ts` and `engine/guard/secrets.ts` reach `office/notify.ts`; `engine/ops/doctor.ts` reaches `office/session/lifecycle.ts` | notify's transport splitting to `integrations/webhook/` and the queue to engine; the API-key variables moving to `integrations/claude/` (#416) |
+| `engine/ops/doctor.ts`, `engine/pr/open.ts` and `engine/guard/secrets.ts` reach `office/notify.ts` | notify's transport splitting to `integrations/webhook/` and the queue to engine |
 | `integrations/github/tracker.ts` reaches `engine/guard/attribution.ts` | the tracker loader's security wrappers (attribution stripping applied in engine) |
 
 ## Tests
@@ -230,17 +230,22 @@ Where it differs from the plan, and why: `routes/environment.ts` was added, beca
 
 ### daemon.ts → `office/session/` and `integrations/claude/` (#416)
 
+Landed in #416, in two commits so the moves read as moves. Step 1 moved the pure parts out verbatim; step 2 broke `createSession`'s 940-line closure into factories that share one `SessionCore`, a set of accessors over `createSession`'s own variables, so every read and write of the session's state stays where it was. Child lifecycle (spawn, stdout, result, exit, kill, the turn) and `state()` stay in `lifecycle.ts`. The factories import `contract.ts` for types only, and none imports `lifecycle.ts`.
+
 | File | Contents | ≈ lines |
 |---|---|---|
-| `office/session/contract.ts` | SessionEvent, LogSink, DaemonOptions, SessionContext, Session | 220 |
-| `integrations/claude/argv.ts` | permission mode and effort flags, `buildArgv`, `sessionEnv`, `apiKeyVars` | 120 |
-| `office/session/control.ts` | `sessionGrant`, `ruleText`, `permissionResponse`, `modeRequest` | 110 |
-| `office/session/holds.ts` | `heldByBudget`, `heldByRepoBudget`, `parseRateLimit`, `sessionAgents` | 130 |
-| `office/session/files.ts` | session files, info read and write, `reapOrphans`, `otherOwner` | 220 |
-| `office/session/log.ts` | `readLogPage`, `tailLines`, `capLine`, `splitter` | 140 |
-| `office/session/lifecycle.ts` | `createSession` | 900 → ≈450 after the second step |
+| `integrations/claude/argv.ts` | `DENY_TOOLS`, `PROMPT_TOOL`, `PERMISSION_MODES`, the permission-mode and effort flags, `modeReach`, `apiKeyVars`, `sessionEnv`, `parseTemplate`, `buildArgv` | 157 |
+| `office/session/contract.ts` | `SessionEvent`, `LogSink`, `DaemonOptions`, `Redactor`, `SessionOptions` and `sessionOptions`, `SessionContext`, `ChildMeta`, `DaemonChild`, `Session`, `SessionCore` | 221 |
+| `office/session/control.ts` | every stdin line (`TURN`, `TURN_LINE`, permission answers, mode switches), `sessionGrant`, `ruleText`, and `createControl`: prompts and mode switches | 243 |
+| `office/session/holds.ts` | `heldByBudget`, `heldByRepoBudget`, `routeHolds`, `parseRateLimit`, `LIMIT_TEXT` | 89 |
+| `office/session/launch.ts` | `checkLaunch`: tracker symlinks, the one read of config.yml, the trust digest, `daemon.enabled`, `daemonProblems` | 49 |
+| `office/session/log.ts` | `capLine`, `splitter`, `stamped`, and `createSessionLog`: the sink, offsets, the replay ring, rotation, backpressure | 207 |
+| `office/session/owned.ts` | `LOST_SUMMARY` and `createOwned`: kept, facts, agents lost, the lease and claimed requests on exit | 89 |
+| `office/session/records.ts` | `withSessionId`, `isOurChild`, `otherOwner`, `reapOrphans` | 99 |
+| `office/session/timers.ts` | `createTimers`: the turn limit and the idle stop | 82 |
+| `office/session/lifecycle.ts` | `TRUST_CHANGED`, `createSession` | 589 |
 
-`createSession` is a 900-line closure, so it splits in two steps. Step 1 is the mechanical moves above. Step 2 extracts closure groups into factories that take a shared `core` object: control-channel handling (`onControl*`, `setPermissionMode`, `answerPermission`), idle and missed-turn timers, and the agent keepalive. Child lifecycle (spawn, stdout, result, exit, kill) stays in `lifecycle.ts`. Step 2 is the riskiest change here, so it goes last, behind `test/integration/pool/daemon.test.ts`.
+Where it differs from the plan, and why: `TURN` and `TURN_LINE` went to `control.ts`, not `contract.ts`, because the turn is one of only three kinds of stdin line and that file now holds all three, so a security reviewer reads them in one place. `records.ts` replaced `files.ts`: the record files themselves live in `lib/core/job/session-files.ts` (with `readLogPage`), so what is left is what a record says about its child. `log.ts` holds the live log rather than the readers, and `launch.ts` and `owned.ts` were added for the spawn checks and what an exit lets go. `session-agents.ts` stayed in `lib/office/`, so `forge daemon status` reads it without loading the supervisor. The old `test/integration/pool/daemon.test.ts` was gone with the test teardown (#447), so step 2 went in behind `test/integration/server/security.test.ts`, which drives the pool with in-memory children, and a new in-process `lib/office/session/lifecycle.test.ts` over the seams step 2 cut.
 
 ## Order of work
 
@@ -250,7 +255,7 @@ One PR each.
 2. **The move (#421, landed):** `git mv` and an import-rewriting codemod into the seven layers, with no content edits beyond the `util.ts` split, renames and the paths computed from the plugin root. It leaves only the two deprecated tracker re-exports in `FLAT_LAYERS`, re-keys `ALLOWED_EDGES` and the size pins, and updates CODEOWNERS, the hook, `bin/forge`, prompts and doc paths (`ci.yml` names only `lib/trackers/status.mjs`, which stays). It adds each layer and module folder's `AGENTS.md` and slims the root one, and adds the folder layout test (`test/invariants/layout.test.ts`: 3–12 entries, no stutter, no `index.ts`, the maps).
 3. **Aliases (#370, landed):** the `#core/…` subpath map and its cross-layer relative-import test.
 4. **types.ts by owner (#413, landed)**, with the transitional type-only barrel. Each shape moved to the `types.ts` of the module that owns it; `core/types.ts` re-exports the api, job and config shapes and keeps the tracker contract. `e2e.ts` moved from `pipeline/` to `workspace/` and `deprecations.ts` from `config/` into `config/validators/` to make room, and the four types-split edges and the `core/types.ts` size pin are gone.
-5. **pr.ts (#414, landed)**, **server.ts (#415, landed)**, **daemon.ts (#416)**, **worktree.ts (#417)** (create/remove, command templating, `verify`, the dev server), **commands/job.ts (#418)** (`HELP` apart, one handler per subcommand), **the release splits (#419)** (`release-plan.ts`, `release-run.ts`). Each deletes its size pin and the upward edges it removes.
+5. **pr.ts (#414, landed)**, **server.ts (#415, landed)**, **daemon.ts (#416, landed)**, **worktree.ts (#417)** (create/remove, command templating, `verify`, the dev server), **commands/job.ts (#418)** (`HELP` apart, one handler per subcommand), **the release splits (#419)** (`release-plan.ts`, `release-run.ts`). Each deletes its size pin and the upward edges it removes.
 6. **Tests (#420):** unit tests beside their modules, the rest into `test/{integration,e2e,invariants,support}/`, with the tsconfig includes and CI sharding by kind.
 
 ## Timing

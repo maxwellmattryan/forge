@@ -618,7 +618,7 @@ export interface DaemonSessionState {
 }
 
 /**
- * The permission modes a human may put a daemon session in from the dashboard (lib/office/session/lifecycle.ts PERMISSION_MODES): `default` asks in the dashboard, `auto` lets Claude Code's classifier approve routine calls, `dontAsk` refuses.
+ * The permission modes a human may put a daemon session in from the dashboard (lib/integrations/claude/argv.ts PERMISSION_MODES): `default` asks in the dashboard, `auto` lets Claude Code's classifier approve routine calls, `dontAsk` refuses.
  */
 export type DaemonPermissionMode = 'default' | 'auto' | 'dontAsk';
 
@@ -627,7 +627,7 @@ export type PermissionDecision = 'allow' | 'session' | 'deny';
 
 /**
  * A tool call a daemon session's permission check sent to the supervisor instead of refusing:
- * lib/office/session/lifecycle.ts. Every field but id and at comes from the session, so it is untrusted text.
+ * lib/office/session/control.ts. Every field but id and at comes from the session, so it is untrusted text.
  */
 export interface DaemonPermissionPrompt {
   /** The supervisor's id for the prompt, not claude's request id. */

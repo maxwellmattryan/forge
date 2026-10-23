@@ -1112,7 +1112,7 @@ export function parseDevProbe(stdout: string): { pgid: number; tty: boolean; sta
 /**
  * Whether runtime.json's dev record names the dev server Forge started for this job. The record is in
  * the job dir, which the job's agents can write, so it is proved rather than trusted (as isOurChild in
- * lib/office/session/lifecycle.ts proves a session): the pid is not 1 or ours, leads its own group and has no controlling
+ * lib/office/session/records.ts proves a session): the pid is not 1 or ours, leads its own group and has no controlling
  * terminal (startBackground spawns detached, which starts a new session; a shell the human opened in the
  * worktree, and anything it runs, keeps its terminal), is not our group, started within 30 s of
  * `startedAt`, and runs inside the job's contained worktree. The command line is not compared:
