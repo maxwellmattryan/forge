@@ -10,6 +10,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { tempRepo } from '../../helpers.ts';
 import { startServer as serve } from '../../../lib/server/start.ts';
+import { ROUTES, matchRoute } from '../../../lib/server/start.ts';
 import { FIXTURE_DIST } from '../../dist.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
@@ -170,6 +171,97 @@ test('POST /api/config is token, origin and JSON guarded', async () => {
     assert.equal((await post('{"key":"pipeline.maxRounds"}')).status, 400, 'value must be present');
     assert.equal((await post('[]')).status, 400);
     assert.ok(fs.readFileSync(file).equals(before), 'config.yml is byte-identical');
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
+/** One request on its own connection (agent: false): what came back, as status, Content-Type and text. */
+function raw(port: number, method: string, p: string, headers: Record<string, string>, body?: string): Promise<{ status: number; type: string; text: string }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, path: p, method, agent: false, headers: { host: `127.0.0.1:${port}`, ...headers } }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, type: String(res.headers['content-type'] ?? ''), text: Buffer.concat(chunks).toString('utf8') }));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
+/** The repo's files outside .git/, so a test can tell that a request wrote nothing. */
+const filesOf = (dir: string): string[] => (fs.readdirSync(dir, { recursive: true }) as string[]).filter((f) => f.split(path.sep)[0] !== '.git').sort();
+
+test('every guarded route refuses before its handler runs', async () => {
+  const repo = tempRepo();
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  try {
+    const token = await tokenOf(port);
+    const origin = `http://127.0.0.1:${port}`;
+    const evil = 'http://evil.example';
+    type Row = { method: string; path: string; headers: Record<string, string>; body?: string; status: number; text: string };
+    const rows: Row[] = [];
+    // Invalid JSON: a guard that ran after the body parse would answer 400 instead.
+    const body = '{"x":';
+    const posts = ['/api/jobs', '/api/requests', '/api/config', '/api/budget/ack', '/api/daemon', '/api/daemon/permission', '/api/daemon/mode', '/api/focus', ...['effort', 'delete', 'repos', 'environment', 'run', 'editor'].map((s) => `/api/jobs/j-1/${s}`)];
+    for (const p of posts) {
+      rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': 'wrong', origin, 'content-type': 'application/json' }, status: 403, text: 'bad token' });
+      rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': token, 'content-type': 'application/json' }, status: 403, text: 'bad origin' });
+      rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': token, origin, 'content-type': 'text/plain' }, status: 415, text: 'json only' });
+    }
+    const readRows = (p: string): Row[] => [
+      { method: 'GET', path: p, headers: { 'sec-fetch-site': 'cross-site' }, status: 403, text: 'cross-site' },
+      { method: 'GET', path: p, headers: { origin: evil }, status: 403, text: 'bad origin' },
+    ];
+    for (const p of ['/api/doctor', '/api/github/preview?url=https://github.com/a/b']) {
+      rows.push({ method: 'GET', path: p, headers: {}, status: 403, text: 'bad token' });
+      rows.push({ method: 'GET', path: p, headers: { 'x-forge-token': token, origin: evil }, status: 403, text: 'bad origin' });
+    }
+    for (const p of ['/api/events?session=_inbox', '/api/daemons/log?session=_inbox', '/api/jobs/j-1']) rows.push(...readRows(p));
+    for (const p of ['/api/environments', '/api/jobs/j-1/environment', '/api/jobs/j-1/transcript', '/api/doctor/bundle']) {
+      rows.push(...readRows(p), { method: 'GET', path: p, headers: { 'sec-fetch-site': 'same-origin' }, status: 403, text: 'bad token' });
+    }
+    for (const p of ['/api/jobs/j-1/transcript/events', '/api/jobs/j-1/environment/logs?source=dev']) {
+      rows.push(...readRows(p), { method: 'GET', path: p, headers: { 'x-forge-token': token }, status: 403, text: 'bad token' });
+    }
+    const guarded = [...new Map(rows.map((r) => [`${r.method} ${r.path}`, r])).values()];
+    for (const r of [...guarded, { method: 'GET', path: '/' }, { method: 'GET', path: '/assets/index-Fx1.js' }, { method: 'GET', path: '/api/state' }]) {
+      rows.push({ method: r.method, path: r.path, headers: { host: `evil.example:${port}`, 'x-forge-token': token, origin }, status: 421, text: 'misdirected request' });
+    }
+
+    const before = filesOf(repo.dir);
+    for (const r of rows) {
+      const got = await raw(port, r.method, r.path, r.headers, r.body);
+      assert.deepEqual({ status: got.status, text: got.text }, { status: r.status, text: r.text }, `${r.method} ${r.path} ${JSON.stringify(r.headers)}`);
+    }
+    assert.deepEqual(filesOf(repo.dir), before, 'a refused request writes nothing');
+
+    // A route added later with guards, or as a POST, needs a row above.
+    const covered = new Set(rows.map((r) => matchRoute(ROUTES, r.method, r.path.split('?')[0])?.route));
+    const missing = ROUTES.filter((r) => (r.method === 'POST' || r.guards?.length) && !covered.has(r)).map((r) => `${r.method} ${r.path}`);
+    assert.deepEqual(missing, [], 'every guarded route has a row');
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
+test('a route that throws answers 500 and the server keeps serving', async () => {
+  const repo = tempRepo();
+  // An agent can leave job.json unreadable; the environment route is async, so its throw is a rejection.
+  fs.mkdirSync(path.join(repo.dir, '.forge', 'jobs', 'j-1'), { recursive: true });
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'jobs', 'j-1', 'job.json'), '{');
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  try {
+    const token = await tokenOf(port);
+    const broken = await raw(port, 'GET', '/api/jobs/j-1/environment', { 'x-forge-token': token, 'sec-fetch-site': 'same-origin' });
+    assert.equal(broken.status, 500);
+    assert.match(broken.type, /^application\/json/);
+    assert.match(JSON.parse(broken.text).error, /cannot read/);
+    assert.equal((await raw(port, 'GET', '/api/about', {})).status, 200);
   } finally {
     await close();
     repo.cleanup();
