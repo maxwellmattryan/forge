@@ -91,10 +91,10 @@ export const ROUTES: readonly Route[] = [
   { method: 'GET', path: /^\/api\/jobs\/([^/]+)\/environment\/logs$/, guards: ['read', 'queryToken'], handler: getEnvironmentLogs },
   { method: 'POST', path: /^\/api\/jobs\/([^/]+)\/environment$/, handler: postJobEnvironment },
   // It spawns git and gh, so it takes the token like a POST.
-  { method: 'GET', path: '/api/doctor', guards: ['token'], handler: getDoctor },
+  { method: 'GET', path: '/api/doctor', guards: ['read', 'token'], handler: getDoctor },
   { method: 'GET', path: '/api/doctor/bundle', guards: ['read', 'token'], handler: getSupportBundle },
   // It spawns gh and spends the login's GitHub rate limit, so it takes the token like a POST.
-  { method: 'GET', path: '/api/github/preview', guards: ['token'], handler: getGitHubPreview },
+  { method: 'GET', path: '/api/github/preview', guards: ['read', 'token'], handler: getGitHubPreview },
   { method: 'POST', path: '/api/jobs', handler: postJob },
   { method: 'GET', path: /^\/api\/jobs\/([A-Za-z0-9._-]+)$/, guards: ['read'], handler: getJob },
   { method: 'GET', path: /^\/api\/jobs\/([A-Za-z0-9._-]+)\/transcript$/, guards: ['read', 'token'], handler: getTranscript },

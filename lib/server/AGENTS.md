@@ -4,7 +4,7 @@ The dashboard's HTTP server: `/api` endpoints, server-sent events and the built 
 
 - Preserve the security posture (docs/architecture/dashboard-security.md): answer loopback Hosts only; every POST needs the token, a matching Origin and JSON.
 - The static allowlist is `dashboard/dist/manifest.json`, so a new dashboard module needs no server change. An `/api` shape change appends a named step to `API_CHANGES` in `lib/api/versions.ts` (on conflict keep both, in merge order) and changes its owner module in `lib/api/`.
-- `http.ts` holds every guard, and the route table in `start.ts` names each route's guards: dispatch runs the POST guard on every POST route, and a GET that does work or reads logs lists `read`, `token` or `queryToken`. A new route is a row there and a handler in `routes/`.
+- `http.ts` holds every guard, and the route table in `start.ts` names each route's guards: dispatch runs the POST guard on every POST route, and every GET under `/api` lists `read`, plus `token` or `queryToken` when it does work or streams a session or transcript. A new route is a row there and a handler in `routes/`.
 - Per-server state lives in `ServerCtx` (`types.ts`), built once per `startServer`, never at module level.
 - Design: [Dashboard security](../../docs/architecture/dashboard-security.md), [Daemon security](../../docs/architecture/daemon-security.md).
 

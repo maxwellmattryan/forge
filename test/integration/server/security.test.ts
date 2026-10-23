@@ -215,7 +215,7 @@ test('every guarded route refuses before its handler runs', async () => {
       { method: 'GET', path: p, headers: { origin: evil }, status: 403, text: 'bad origin' },
     ];
     for (const p of ['/api/doctor', '/api/github/preview?url=https://github.com/a/b']) {
-      rows.push({ method: 'GET', path: p, headers: {}, status: 403, text: 'bad token' });
+      rows.push(...readRows(p), { method: 'GET', path: p, headers: {}, status: 403, text: 'bad token' });
       rows.push({ method: 'GET', path: p, headers: { 'x-forge-token': token, origin: evil }, status: 403, text: 'bad origin' });
     }
     const reads = ['/api/state', '/api/stats', '/api/evals', '/api/evals/compare', '/api/requests', '/api/roster', '/api/project', '/api/backlog?refresh=1', '/api/config', '/api/about'];
