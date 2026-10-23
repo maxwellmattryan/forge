@@ -56,7 +56,7 @@ export function createOwned(core: SessionCore) {
   }
 
   function facts(): SessionFacts {
-    const background = core.child?._forge.background;
+    const background = core.child?.meta.background;
     return { ids: sessionIds(), status: core.status, background: typeof background === 'number' ? background : -1, idleSince: core.status === 'idle' ? core.lastResultAt : null };
   }
 

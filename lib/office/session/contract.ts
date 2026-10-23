@@ -1,9 +1,9 @@
 // The session's contract with its pool: the events it reports, the context and options it is built
 // with (sessionOptions fills in the real defaults), the child it supervises and the Session it returns.
 // SessionCore is what createSession's pieces share.
-import { spawn as nodeSpawn } from 'node:child_process';
-import type { ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
+import { claudeAdapter } from '#integrations/claude/child.ts';
+import type { ClaudeAdapter, ClaudeChild } from '#integrations/claude/types.ts';
 import { loadConfig as defaultLoadConfig } from '#core/config/load.ts';
 import { openAppend } from '#core/job/session-files.ts';
 import type { sessionFiles } from '#core/job/session-files.ts';
@@ -26,8 +26,8 @@ export interface LogSink {
 
 /** Injection points for tests; every one defaults to the real thing. */
 export interface DaemonOptions {
-  spawn?: typeof nodeSpawn;
-  killTree?: (child: DaemonChild, signal: NodeJS.Signals) => void;
+  /** Starts the claude children (lib/integrations/claude/child.ts claudeAdapter); tests pass fakeClaude().adapter. */
+  claude?: ClaudeAdapter;
   pollMs?: number;
   graceMs?: number;
   maxLineBytes?: number;
@@ -61,8 +61,7 @@ export type Redactor = (root: string, scope: string, config: Config) => readonly
 
 /** DaemonOptions with every default filled in. */
 export interface SessionOptions {
-  spawn: typeof nodeSpawn;
-  killTree: (child: DaemonChild, signal: NodeJS.Signals) => void;
+  claude: ClaudeAdapter;
   graceMs: number;
   maxLineBytes: number;
   rotateBytes: number;
@@ -80,8 +79,7 @@ export interface SessionOptions {
 
 export function sessionOptions(opts: DaemonOptions = {}): SessionOptions {
   return {
-    spawn: opts.spawn ?? nodeSpawn,
-    killTree: opts.killTree ?? defaultKillTree,
+    claude: opts.claude ?? claudeAdapter(),
     graceMs: opts.graceMs ?? 5000,
     maxLineBytes: opts.maxLineBytes ?? 8 * 1024 * 1024,
     rotateBytes: opts.rotateBytes ?? 20 * 1024 * 1024,
@@ -127,20 +125,23 @@ export interface SessionContext {
 export interface ChildMeta {
   resume: boolean;
   stdout: boolean;
-  /** a system/init was seen (claude emits one as each turn starts) */
+  /** a turn-started was seen (claude reports one as each turn starts) */
   init: boolean;
   result: boolean;
   asked: boolean;
   /** ids its results covered */
   committed: string[];
-  /** Background tasks claude listed in its latest background_tasks_changed; null until it sends one. */
+  /** Background tasks claude reported last; null until it reports any. */
   background: number | null;
   /** Why the supervisor stopped it, for the lease-expired event; null for an exit nobody asked for. */
   reason: string | null;
 }
 
-/** A spawned session, with the supervisor's bookkeeping attached. */
-export type DaemonChild = ChildProcess & { _forge: ChildMeta };
+/** A spawned session: the handle to its claude child, and the supervisor's bookkeeping about it. */
+export interface DaemonChild {
+  readonly claude: ClaudeChild;
+  readonly meta: ChildMeta;
+}
 
 /** One scope's supervisor. The pool decides when it spawns and gets a turn; the session does the rest. */
 export interface Session {
@@ -205,17 +206,4 @@ export interface SessionCore {
   changed(): void;
   logEvent(event: string, extra?: Record<string, unknown>): void;
   kill(event: string, endStdin: boolean, reason?: string): Promise<void>;
-}
-
-function defaultKillTree(child: DaemonChild, signal: NodeJS.Signals): void {
-  if (process.platform === 'win32') return void child.kill(signal);
-  // The child leads its own group (detached), so the group signal reaches whatever it started.
-  // A child without a pid never spawned, and its error handler drops it before anything kills it.
-  try {
-    process.kill(-child.pid!, signal);
-  } catch {
-    try {
-      process.kill(child.pid!, signal);
-    } catch {}
-  }
 }

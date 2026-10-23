@@ -8,6 +8,7 @@ import { BIN, type CliResult } from './support/cli.ts';
 // Tests import the shared helpers from here, never from test/support/ directly: this module's
 // import side effects (below) are what pin git config, SHELL, FORGE_MODE and NODE_OPTIONS.
 export { BIN, cliEnv, forgeSync, type CliResult } from './support/cli.ts';
+export { fakeClaude, type FakeClaudeChild } from './support/claude-adapter.ts';
 export { fakeBin } from './support/fake-bin.ts';
 export { fakeGh, type GhReply } from './support/fake-gh.ts';
 export { forgeInProcess, type InProcessResult } from './support/in-process.ts';

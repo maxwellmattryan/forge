@@ -6,9 +6,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
-import { tempRepo } from '../../helpers.ts';
+import { fakeClaude, tempRepo, type FakeClaudeChild } from '../../helpers.ts';
+import type { ClaudeAdapter } from '#integrations/claude/types.ts';
 import { startServer as serve } from '../../../lib/server/start.ts';
 import { ROUTES, matchRoute } from '../../../lib/server/start.ts';
 import { FIXTURE_DIST } from '../../dist.ts';
@@ -49,7 +48,7 @@ test('dashboard server rejects DNS-rebound hosts and cross-origin posts', async 
   }
 });
 
-// ---- Daemon endpoints. Every pool here gets in-memory children: nothing real is spawned or signalled.
+// ---- Daemon endpoints. Every pool here gets fake claude children: nothing real is spawned or signalled.
 
 /** @param {number} port @param {{method?:string, path:string, headers?:Record<string,string>, body?:string}} o */
 function hit(port, o): any {
@@ -64,28 +63,19 @@ function hit(port, o): any {
   });
 }
 
-function fakeChildren() {
-  const children = [];
-  const spawn: any = (cmd, args, opts) => {
-    const c: any = new EventEmitter();
-    Object.assign(c, { cmd, args, opts, scope: opts.env.FORGE_DAEMON_SCOPE, pid: 4_100_000 + children.length, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), written: '' });
-    c.stdin.on('data', (d) => (c.written += d.toString()));
-    c.exit = (code, signal) => {
-      if (c.exited) return;
-      c.exited = true;
-      c.stdout.end();
-      c.stderr.end();
-      c.emit('exit', code, signal);
-      c.emit('close', code, signal);
-    };
-    c.line = (obj) => c.stdout.write(JSON.stringify(obj) + '\n');
-    children.push(c);
-    const live = children.filter((x) => !x.exited && x.scope === c.scope).length;
-    if (live > kit.maxLive) kit.maxLive = live;
-    return c;
+/** A pool's daemon options over fakeClaude, tracking the most children of one scope alive at once. */
+function daemonKit() {
+  const fake = fakeClaude();
+  const children: FakeClaudeChild[] = fake.children;
+  const claude: ClaudeAdapter = {
+    start(argv, o, onEvent) {
+      const c = fake.adapter.start(argv, o, onEvent) as FakeClaudeChild;
+      const live = children.filter((x) => !x.exited && x.scope === c.scope).length;
+      if (live > kit.maxLive) kit.maxLive = live;
+      return c;
+    },
   };
-  const killTree = (c, signal) => setTimeout(() => c.exit(null, signal), 5);
-  const kit = { children, maxLive: 0, of: (scope) => children.filter((c) => c.scope === scope), opts: { spawn, killTree, pollMs: 3_600_000, graceMs: 500 } };
+  const kit = { children, maxLive: 0, opts: { claude, pollMs: 3_600_000, graceMs: 500 } };
   return kit;
 }
 
@@ -99,7 +89,7 @@ const tokenOf = async (port) => /name="forge-token" content="([0-9a-f]+)"/.exec(
 
 test('POST /api/daemon is token, origin and JSON guarded', async () => {
   const repo = tempRepo();
-  const kit = fakeChildren();
+  const kit = daemonKit();
   const { url, close } = await startServer(repo.dir, { port: 0, daemon: kit.opts });
   const port = Number(new URL(url).port);
   try {
@@ -153,7 +143,7 @@ test('POST /api/config is token, origin and JSON guarded', async () => {
   writeConfig(repo.dir, { enabled: false });
   const file = path.join(repo.dir, '.forge', 'config.yml');
   const before = fs.readFileSync(file);
-  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: daemonKit().opts });
   const port = Number(new URL(url).port);
   try {
     const good = { 'x-forge-token': await tokenOf(port), origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
@@ -195,7 +185,7 @@ const filesOf = (dir: string): string[] => (fs.readdirSync(dir, { recursive: tru
 
 test('every guarded route refuses before its handler runs', async () => {
   const repo = tempRepo();
-  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: daemonKit().opts });
   const port = Number(new URL(url).port);
   try {
     const token = await tokenOf(port);
@@ -253,7 +243,7 @@ test('a route that throws answers 500 and the server keeps serving', async () =>
   // An agent can leave job.json unreadable; the environment route is async, so its throw is a rejection.
   fs.mkdirSync(path.join(repo.dir, '.forge', 'jobs', 'j-1'), { recursive: true });
   fs.writeFileSync(path.join(repo.dir, '.forge', 'jobs', 'j-1', 'job.json'), '{');
-  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: daemonKit().opts });
   const port = Number(new URL(url).port);
   try {
     const token = await tokenOf(port);
