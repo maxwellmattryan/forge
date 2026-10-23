@@ -126,16 +126,17 @@ export async function twoRepo(): Promise<TwoRepo> {
 // --body-file and `pr view --json body` prints it. `pr merge` without --auto makes the PR MERGED.
 // <name>.draft marks the PR a draft: `pr create --draft` writes it, `pr ready` removes it, and
 // `pr list` and `pr view` report it as isDraft.
-// Issues: `issue list` prints <name>.issues (default []), and <name>.issuefail makes it fail;
-// `issue view N` prints <name>.issue-N, else an open issue N carrying the labels in <name>.labels-N;
+// Issues: `issue list` prints <name>.issues (default []), and <name>.issuefail makes it fail; the
+// issue number N is the word after `--`, where the tracker puts it. `issue view N` prints <name>.issue-N, else an open issue N carrying the labels in <name>.labels-N;
 // `issue edit N --add-label L` writes L to <name>.labels-N; `issue comment N` writes its body to
 // <name>.comment-N, and <name>.commentfail makes it fail. `api user` is forge-bot.
 const FAKE_GH = `#!/bin/sh
 d="$FAKE_GH_DIR"
 echo "$*" >> "$d/calls.log"
-slug=""; head=""; open=""; prev=""; bodyfile=""; json=""; auto=""; draft=""
+slug=""; head=""; open=""; prev=""; bodyfile=""; json=""; auto=""; draft=""; n=""
 for a in "$@"; do
   [ "$prev" = "-R" ] && slug="$a"
+  [ "$prev" = "--" ] && n="$a"
   [ "$prev" = "--head" ] && head="$a"
   [ "$prev" = "--state" ] && [ "$a" = "open" ] && open=1
   [ "$prev" = "--body-file" ] && bodyfile="$a"
@@ -196,19 +197,19 @@ case "$1 $2" in
     if [ -f "$d/$name.issuefail" ]; then echo "issue list failed for $slug" >&2; exit 1; fi
     if [ -f "$d/$name.issues" ]; then cat "$d/$name.issues"; else echo '[]'; fi ;;
   "issue view")
-    if [ -f "$d/$name.issue-$3" ]; then cat "$d/$name.issue-$3"; exit 0; fi
+    if [ -f "$d/$name.issue-$n" ]; then cat "$d/$name.issue-$n"; exit 0; fi
     labels='[]'
-    if [ -f "$d/$name.labels-$3" ]; then labels="$(cat "$d/$name.labels-$3")"; fi
-    printf '{"number":%s,"title":"Issue %s","body":"b","url":"https://github.com/%s/issues/%s","labels":%s,"assignees":[],"comments":[],"state":"OPEN","author":{"login":"x"}}' "$3" "$3" "$slug" "$3" "$labels" ;;
+    if [ -f "$d/$name.labels-$n" ]; then labels="$(cat "$d/$name.labels-$n")"; fi
+    printf '{"number":%s,"title":"Issue %s","body":"b","url":"https://github.com/%s/issues/%s","labels":%s,"assignees":[],"comments":[],"state":"OPEN","author":{"login":"x"}}' "$n" "$n" "$slug" "$n" "$labels" ;;
   "issue edit")
     label=""; p2=""
     for a in "$@"; do [ "$p2" = "--add-label" ] && label="$a"; p2="$a"; done
-    if [ -n "$label" ]; then printf '[{"name":"%s"}]' "$label" > "$d/$name.labels-$3"; fi ;;
+    if [ -n "$label" ]; then printf '[{"name":"%s"}]' "$label" > "$d/$name.labels-$n"; fi ;;
   "issue comment")
     # Read the body before failing, as gh does: exiting with stdin unread races forge's write into EPIPE.
-    cat > "$d/$name.comment-$3.tmp"
-    if [ -f "$d/$name.commentfail" ]; then rm -f "$d/$name.comment-$3.tmp"; echo "comment failed for $slug" >&2; exit 1; fi
-    mv "$d/$name.comment-$3.tmp" "$d/$name.comment-$3" ;;
+    cat > "$d/$name.comment-$n.tmp"
+    if [ -f "$d/$name.commentfail" ]; then rm -f "$d/$name.comment-$n.tmp"; echo "comment failed for $slug" >&2; exit 1; fi
+    mv "$d/$name.comment-$n.tmp" "$d/$name.comment-$n" ;;
   "pr merge")
     if [ -f "$d/$name.mergefail" ]; then echo "merge failed for $slug" >&2; exit 1; fi
     if [ -z "$auto" ]; then echo MERGED > "$d/$name.state"; fi ;;
