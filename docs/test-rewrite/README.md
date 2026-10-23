@@ -26,7 +26,7 @@ The numbers are recorded in [`baseline/`](baseline/): `counts.md`, `times.txt` (
 | Tests (`it`/`test` with a title) | 1,960 | 123 (710 run: 552 are generated step-table rows) |
 | Lines in test files | 61,580 | 4,503 |
 | Local wall time (`npm run test:times`, Node 26.3) | 283.3 s | 8.2 s |
-| CI wall time | 6 m 14 s | {AFTER_CI} |
+| CI wall time | 6 m 14 s | first run on #447 |
 | Line coverage, `lib/` + `dashboard/src/lib/` | 99.6% | 94.3% of the 214 files still loaded (55 files no kept test loads drop out of the report) |
 
 ## What stays
