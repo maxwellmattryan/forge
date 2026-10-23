@@ -5,7 +5,7 @@ import readline from 'node:readline/promises';
 import { paths, PLUGIN_ROOT } from '../../core/paths.ts';
 import { currentActor } from '../../integrations/github/actor.ts';
 import { setConfigValue } from '../../core/config/set.ts';
-import { apiKeyVars, reapOrphans } from '../../office/session/lifecycle.ts';
+import { PERMISSION_MODES, apiKeyVars, reapOrphans } from '../../office/session/lifecycle.ts';
 import { daemonPlatformProblem } from '../../core/os/platform.ts';
 import { getPath } from '../../core/shape.ts';
 import { ForgeError } from '../../core/errors.ts';
@@ -15,7 +15,7 @@ import * as yaml from '../../core/format/yaml.ts';
 import { out, outputMode } from './args.ts';
 import { colorEnabled } from './render.ts';
 import type { RunningServer } from '../../server/start.ts';
-import type { Config, HelpGroup } from '../../core/types.ts';
+import type { Config, DaemonPermissionMode, HelpGroup } from '../../core/types.ts';
 
 export const HELP: HelpGroup[] = [
   {
@@ -24,17 +24,18 @@ export const HELP: HelpGroup[] = [
     commands: [
       {
         command: 'dash',
-        args: '[--background|--stop] [--port N] [--dev] [--quiet]',
+        args: '[--background|--stop] [--port N] [--permission-mode MODE] [--dev] [--quiet]',
         summary: 'start the dashboard in the foreground (prints its URL), or detached with --background; --stop stops it and its sessions',
         flags: [
           ['--background', 'start it detached and print {url, pid}'],
           ['--stop', 'stop it and reap its sessions'],
           ['--port N', 'the first port to try (default: dashboard.port, 7400)'],
           ['--foreground', 'run in the foreground even when one is running'],
+          ['--permission-mode MODE', "the job sessions' default permission mode until it stops: default (ask), auto or dontAsk (refuse); refused in a daemon session"],
           ['--dev', "serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist; the daemon stays off until Start; refused while a dashboard runs for this repo"],
           ['--quiet', 'in the foreground in human mode, print only the banner (no activity log)'],
         ],
-        exits: [[1, 'no free port near N, or --dev while a dashboard is already running for this repo']],
+        exits: [[1, 'no free port near N, --dev while a dashboard is already running for this repo, or --permission-mode in a daemon session']],
       },
     ],
   },
@@ -95,10 +96,25 @@ export async function dashNotes(root: string, config: Config, flags: Record<stri
 
 /** The detached child's argv: --quiet, since its stdio is ignored and an activity log would only cost it work. */
 export function backgroundArgs(port: number, flags: Record<string, any>): string[] {
-  return ['dash', '--foreground', '--port', String(port), ...(flags.dev ? ['--dev'] : []), '--quiet'];
+  const mode = jobPermissionMode(flags);
+  return ['dash', '--foreground', '--port', String(port), ...(mode ? ['--permission-mode', mode] : []), ...(flags.dev ? ['--dev'] : []), '--quiet'];
+}
+
+// Auto lets most calls run unread, so only the human's own command line may make it every job's default.
+const MODE_DAEMON_REFUSAL = "forge dash --permission-mode sets every job session's permission mode, which a daemon session may not do; a human runs it in their own terminal or chooses it in the dashboard";
+
+/** --permission-mode, validated; null when absent. */
+export function jobPermissionMode(flags: Record<string, any>, env: NodeJS.ProcessEnv = process.env): DaemonPermissionMode | null {
+  const v = flags['permission-mode'];
+  if (v === undefined) return null;
+  if (env.FORGE_DAEMON === '1') throw new ForgeError(MODE_DAEMON_REFUSAL);
+  const mode = PERMISSION_MODES.find((m) => m === v);
+  if (!mode) throw new ForgeError(`--permission-mode must be one of ${PERMISSION_MODES.join(', ')} (got ${JSON.stringify(String(v).slice(0, 40))})`, 'usage', 'forge help dash');
+  return mode;
 }
 
 export async function dash(root: string, config: Config, flags: Record<string, any>): Promise<void> {
+  const mode = jobPermissionMode(flags);
   const rtFile = path.join(paths(root).runtime, 'dashboard.json');
   const current = readJson(rtFile, null);
   const alive = pidAlive(current?.pid);
@@ -163,7 +179,7 @@ export async function dash(root: string, config: Config, flags: Record<string, a
   let res: RunningServer | undefined;
   for (let p = port; p < port + 20; p++) {
     try {
-      res = await startServer(root, { port: p, dev: Boolean(flags.dev), ...(onRequest ? { onRequest } : {}) });
+      res = await startServer(root, { port: p, dev: Boolean(flags.dev), ...(mode ? { daemon: { jobPermissionMode: mode } } : {}), ...(onRequest ? { onRequest } : {}) });
       break;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e;
