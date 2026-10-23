@@ -19,10 +19,17 @@ const BIN = path.join(PLUGIN_ROOT, 'bin', 'forge');
 const MESSAGES = path.join(PLUGIN_ROOT, 'dashboard', 'src', 'messages', 'en.json');
 const USAGE = 'usage: npm run scenario -- <name> | --list';
 const PREFIX = 'forge-scenario-';
+// The scratch repo's directory inside its private parent; the worktrees sibling is `repo.worktrees`.
+const REPO_DIR = 'repo';
+const SCENARIO_ACTOR = 'scenario';
 const STEP_TIMEOUT_MS = 60_000;
 
-// Steps can't start a server, a session or a release: only these command groups run.
+// Steps can't start a server, a session or a release: only these command groups run, and of `job`
+// only the subcommands below. `job advance` would run the pr, run, eval and other actions
+// `forge job step` returns (a dev server that outlives cleanup, a PR), and `job from-ref` and
+// `job link` exist to reach a tracker, so a group name alone is not enough.
 const STEP_COMMANDS = new Set(['job', 'worktree', 'verify', 'requests']);
+const STEP_JOB_COMMANDS = new Set(['show', 'get', 'list', 'set', 'effort', 'claim', 'release', 'note', 'human', 'handoff', 'agent', 'round', 'budget', 'verdicts', 'decision', 'score']);
 // The seeder passes these to `forge job new` itself.
 const NEW_FLAGS_REFUSED = ['--title', '--slug', '--session', '--body-file'];
 // What a scenario's config may set. tracker, daemon, foreman, worktrees, notify, repos and the rest
@@ -68,7 +75,7 @@ export interface Seeded {
   jobs: Record<string, string>;
   expect: ResolvedExpect;
   ms: number;
-  /** Removes root and its .worktrees sibling; idempotent. */
+  /** Removes root, its .worktrees sibling and their private parent; idempotent. */
   cleanup(): void;
 }
 
@@ -188,6 +195,8 @@ export function loadScenario(name: string, dir: string = SCENARIO_DIR): Scenario
       } else return fail(`${where}: a step is a string list or { argv, exit }`);
       if (!step.argv.length) fail(`${where}: argv is empty`);
       if (!STEP_COMMANDS.has(step.argv[0])) fail(`${where}: forge ${step.argv[0]} is not allowed (only ${[...STEP_COMMANDS].join(', ')})`);
+      // An exact word: a flag in argv[1] never matches, so it can't shift the subcommand the CLI reads.
+      if (step.argv[0] === 'job' && !STEP_JOB_COMMANDS.has(step.argv[1] ?? '')) fail(`${where}: forge job${step.argv[1] === undefined ? '' : ` ${step.argv[1]}`} is not allowed (only job ${[...STEP_JOB_COMMANDS].join(', ')})`);
       if (step.argv.includes('--json')) fail(`${where}: must not pass --json; the seeder appends it`);
       for (const a of step.argv) checkPlaceholders(a, where, keys, true);
       return step;
@@ -220,12 +229,15 @@ export function loadScenario(name: string, dir: string = SCENARIO_DIR): Scenario
 
 /**
  * The environment every child of a seed (git and the CLI) gets: `env` without the git location
- * variables and the FORGE_ ones that would steer the CLI elsewhere, then FORGE_ROOT pinned to `root`.
+ * variables and the FORGE_ ones that would steer the CLI elsewhere, then FORGE_ROOT pinned to `root`
+ * and FORGE_ACTOR to a fixed name, so a step that logs a human event never asks `gh` who the
+ * developer is.
  */
 export function scenarioEnv(env: NodeJS.ProcessEnv, root: string): NodeJS.ProcessEnv {
   const out = gitEnv(env);
   for (const k of Object.keys(out)) if (SCENARIO_ENV_DROPPED.test(k)) delete out[k];
   out.FORGE_ROOT = root;
+  out.FORGE_ACTOR = SCENARIO_ACTOR;
   return out;
 }
 
@@ -241,25 +253,26 @@ function cli(argv: string[], root: string, env: NodeJS.ProcessEnv): Promise<{ co
 }
 
 /**
- * Seeds scenario `name` into a fresh scratch repo under os.tmpdir(), writing Forge state only through
- * bin/forge. On a failed step it removes what it made and rejects with the step's argv, its exit and
- * the tail of its output. The returned cleanup also runs on process exit.
+ * Seeds scenario `name` into a fresh scratch repo, writing Forge state only through bin/forge. The
+ * repo and its `.worktrees` sibling live inside one private (0700) `forge-scenario-*` directory under
+ * os.tmpdir(), so no other local user can plant the sibling before `worktree create` makes it. On a
+ * failed step it removes what it made and rejects with the step's argv, its exit and the tail of its
+ * output. The returned cleanup also runs on process exit.
  */
 export async function seedScenario(name: string, opts: { dir?: string; env?: NodeJS.ProcessEnv; log?: (s: string) => void } = {}): Promise<Seeded> {
   const scenario = loadScenario(name, opts.dir);
   const started = Date.now();
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), PREFIX)));
+  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), PREFIX)));
+  const root = path.join(parent, REPO_DIR);
   const worktrees = `${root}.worktrees`;
-  const created = root;
   let cleaned = false;
   const cleanup = (): void => {
     if (cleaned) return;
     cleaned = true;
     process.removeListener('exit', cleanup);
-    // Only the two paths this call made, behind the prefix: nothing else is ever deleted.
-    if (!path.basename(root).startsWith(PREFIX) || root !== created) return;
-    fs.rmSync(root, { recursive: true, force: true });
-    fs.rmSync(worktrees, { recursive: true, force: true });
+    // Only the directory this call made, behind the prefix: nothing else is ever deleted.
+    if (!path.basename(parent).startsWith(PREFIX)) return;
+    fs.rmSync(parent, { recursive: true, force: true });
   };
   process.on('exit', cleanup);
   opts.log?.(`seeding ${name} into ${root}`);
@@ -279,6 +292,7 @@ export async function seedScenario(name: string, opts: { dir?: string; env?: Nod
   };
 
   try {
+    fs.mkdirSync(root);
     git('init', '-q', '-b', 'main');
     // SESSION_PINS' reasoning: no host hook or signing agent decides whether a seed works.
     for (const [k, v] of [

@@ -60,7 +60,7 @@ async function readJobs(root: string): Promise<SeededJob[]> {
   );
 }
 
-const ROWS: { name: string; check: (jobs: SeededJob[]) => void }[] = [
+const ROWS: { name: string; check: (jobs: SeededJob[], seeded: { worktrees: string }) => void }[] = [
   { name: 'empty', check: (jobs) => assert.equal(jobs.length, 0) },
   {
     name: 'busy',
@@ -78,7 +78,9 @@ const ROWS: { name: string; check: (jobs: SeededJob[]) => void }[] = [
   },
   {
     name: 'failures',
-    check: (jobs) => {
+    check: (jobs, seeded) => {
+      // `worktree create` puts the worktree where the seeder says, beside the repo in the private parent.
+      assert.ok(fs.statSync(seeded.worktrees).isDirectory(), 'a worktree under the worktrees sibling');
       assert.ok(jobs.some((j) => j.verify === 'FAIL'), 'a failed verify');
       assert.ok(jobs.some((j) => Object.values(j.lastVerdicts ?? {}).includes('CHANGES')), 'a CHANGES verdict');
       assert.ok(jobs.some((j) => j.state === 'failed'), 'a failed job');
@@ -124,21 +126,27 @@ describe('scripts/scenario.ts', () => {
       it(row.name, async () => {
         // The daemon's markers must never reach the scratch repo's CLI: with them it would refuse.
         const seeded = await seedScenario(row.name, { env: { ...process.env, FORGE_DAEMON: '1', FORGE_DAEMON_TRUST: 'bogus-trust' } });
+        const parent = path.dirname(seeded.root);
         try {
           // A seed is 20-40 CLI starts, 2-3 s on an idle machine; inside the whole suite on a busy one
           // it took up to 32 s, so the budget catches a step that hangs, not ordinary load.
           assert.ok(seeded.ms < SEED_BUDGET_MS, `${row.name} took ${seeded.ms} ms`);
           assert.equal(seeded.worktrees, `${seeded.root}.worktrees`);
+          // Both live in one private directory, so no other local user can plant the worktrees sibling first.
+          assert.ok(path.basename(parent).startsWith('forge-scenario-'), parent);
+          assert.equal(path.dirname(seeded.worktrees), parent);
+          assert.equal(fs.statSync(parent).mode & 0o077, 0, 'the parent is private to its owner');
           const jobs = await readJobs(seeded.root);
           const titles = loadScenario(row.name).jobs.map((j) => j.title);
           assert.deepEqual(jobs.map((j) => j.title).sort(), [...titles].sort());
           assert.deepEqual(Object.keys(seeded.jobs).length, titles.length);
-          row.check(jobs);
+          row.check(jobs, seeded);
         } finally {
           seeded.cleanup();
         }
         assert.equal(fs.existsSync(seeded.root), false);
         assert.equal(fs.existsSync(seeded.worktrees), false);
+        assert.equal(fs.existsSync(parent), false);
         seeded.cleanup();
       });
     }
@@ -155,6 +163,10 @@ describe('scripts/scenario.ts', () => {
       ['dup-key', { ...valid(), jobs: [{ key: 'a', title: 'A' }, { key: 'a', title: 'B' }] }, 'duplicate job key'],
       ['bad-key', { ...valid(), jobs: [{ key: 'A B', title: 'A' }] }, 'job key'],
       ['step-dash', jobWith({ steps: [['dash']] }), 'forge dash is not allowed'],
+      // `job advance` runs pr, run and eval actions; `from-ref` and `link` reach a tracker; a flag in
+      // argv[1] must not stand in for the subcommand; a bare `job` has none.
+      ...['advance', 'from-ref', 'link', '--session'].map((sub, i): [string, unknown, string] => [`step-job-${i}`, jobWith({ steps: [['job', sub, '{id}', '--session', 's']] }), `forge job ${sub} is not allowed`]),
+      ['step-job-bare', jobWith({ steps: [['job']] }), 'forge job is not allowed'],
       ['step-json', jobWith({ steps: [['job', 'show', '{id}', '--json']] }), '--json'],
       ['new-title', jobWith({ new: ['--title', 'x'] }), '--title'],
       ['new-body-file', jobWith({ new: ['--body-file', 'x'] }), '--body-file'],
@@ -179,8 +191,11 @@ describe('scripts/scenario.ts', () => {
         );
       }
       // The baseline the rows break loads, its @keys resolved and its drawer defaulted to the first job.
-      writeScenario(dir, 'ok', { ...valid(), expect: { ...valid().expect, evals: ['@nav.evals'] } });
+      // and each allowed command group loads.
+      const steps = [['job', 'set', '{id}', '--stage', 'spec'], ['job', 'human', '{id}', 'approve'], ['worktree', 'create', '{id}'], ['verify', '{id}'], ['requests', 'list']];
+      writeScenario(dir, 'ok', { ...valid(), jobs: [{ key: 'a', title: 'Job A', steps }], expect: { ...valid().expect, evals: ['@nav.evals'] } });
       const ok = loadScenario('ok', dir);
+      assert.equal(ok.jobs[0].steps.length, steps.length);
       assert.deepEqual(ok.expect.views.evals, [MESSAGES.nav.evals]);
       assert.deepEqual(ok.expect.drawer, { title: 'Job A', text: [] });
     } finally {
@@ -222,6 +237,8 @@ describe('scripts/scenario.ts', () => {
       GIT_CONFIG_VALUE_0: '/dev/null',
       FORGE_RENDER_CHROME: '/chrome',
       FORGE_ROOT: '/scratch',
+      // Pinned, not dropped: a human-event step would otherwise ask `gh` who the developer is.
+      FORGE_ACTOR: 'scenario',
     });
     assert.equal(base.FORGE_ROOT, '/repo', 'the caller env is not changed');
   });
@@ -237,7 +254,8 @@ describe('scripts/scenario.ts', () => {
     const lines = stdout.trim().split('\n');
     assert.equal(lines.length, 1, stdout);
     const root = lines[0];
-    assert.ok(path.basename(root).startsWith('forge-scenario-'), root);
+    const parent = path.dirname(root);
+    assert.ok(path.basename(parent).startsWith('forge-scenario-'), root);
     assert.ok(fs.statSync(root).isDirectory());
     assert.match(stderr, /seeded empty in \d+ ms/);
     fs.mkdirSync(`${root}.worktrees`);
@@ -245,6 +263,7 @@ describe('scripts/scenario.ts', () => {
     assert.equal(await exited, 0, stderr);
     assert.equal(fs.existsSync(root), false);
     assert.equal(fs.existsSync(`${root}.worktrees`), false);
+    assert.equal(fs.existsSync(parent), false);
 
     const dir = tempDir();
     try {
@@ -259,6 +278,7 @@ describe('scripts/scenario.ts', () => {
       const failedRoot = seeding.slice('seeding broken into '.length);
       assert.equal(fs.existsSync(failedRoot), false);
       assert.equal(fs.existsSync(`${failedRoot}.worktrees`), false);
+      assert.equal(fs.existsSync(path.dirname(failedRoot)), false);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
