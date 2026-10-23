@@ -642,10 +642,36 @@ export const rows: Row[] = [
     },
   },
   {
+    name: 'B4 the round-1 builder reads the folder maps first',
+    fx: {
+      files: ['spec', 'tasks'],
+      folderMaps: { maps: [path.join(WT, 'lib', 'engine', 'AGENTS.md')], topics: [path.join(WT, 'docs', 'architecture', 'x.md')], more: 2 },
+      job: job({ stage: 'build', round: 1 }),
+      events: [ev('round', 4)],
+    },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => {
+      const lines: string[] = a.brief.split('\n');
+      const i = lines.findIndex((l) => l.startsWith('Maps (JSON): '));
+      assert.ok(i >= 0, a.brief);
+      assert.ok(lines[i + 1].startsWith('File map: '), 'directly before File map:');
+      const json = lines[i].slice('Maps (JSON): '.length, lines[i].indexOf(' · read these before you search'));
+      assert.deepEqual(JSON.parse(json), { maps: [path.join(WT, 'lib', 'engine', 'AGENTS.md')], topics: [path.join(WT, 'docs', 'architecture', 'x.md')], more: 2 });
+      assert.equal(lines.length, 15);
+    },
+  },
+  {
+    name: 'B4 empty folder maps add no line',
+    fx: { files: ['spec', 'tasks'], folderMaps: { maps: [], topics: [] }, job: job({ stage: 'build', round: 1 }), events: [ev('round', 4)] },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => assert.ok(!a.brief.includes('Maps (JSON):'), a.brief),
+  },
+  {
     name: 'B4 a review rework spawns a fresh builder with a findings-first brief',
     fx: {
       files: ['spec', 'feedback', 'tasks', 'build'],
       present: [path.join(JOB_DIR, 'review', 'round-1', 'code.md'), path.join(JOB_DIR, 'review', 'round-1', 'tests.md')],
+      folderMaps: { maps: [path.join(WT, 'lib', 'AGENTS.md')], topics: [] },
       job: job({ stage: 'build', round: 2, verdicts: { 1: { code: 'CHANGES', tests: 'PASS' } }, agents: { builder: ag(1, 5, 6, { agentId: 'b1' }) } }),
       events: [ev('round', 7)],
     },
@@ -659,6 +685,7 @@ export const rows: Row[] = [
       assert.ok(lines.some((l: string) => l.startsWith('Rework scope: ')));
       assert.ok(lines.includes(`Reference: ${path.join(JOB_DIR, 'spec.md')}`));
       assert.ok(!a.brief.includes('File map:'));
+      assert.ok(!a.brief.includes('Maps (JSON):'));
     },
   },
   {

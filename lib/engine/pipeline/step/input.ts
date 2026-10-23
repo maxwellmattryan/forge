@@ -1,7 +1,8 @@
 // loadStepInput: the one place `forge job step` reads disk. Everything step decides from is read
 // here once, so step itself stays a pure function of the StepInput.
+import fs from 'node:fs';
 import path from 'node:path';
-import { acCoverage, specUiAcs } from '../acs.ts';
+import { acCoverage, specFileMapPaths, specUiAcs } from '../acs.ts';
 import { readJobRecord, readSharedRecord } from '../../environment/backing.ts';
 import { effectiveLimits, exceededKeys, measureBudget } from '../../metrics/budget.ts';
 import { jobPathMap } from '../brief.ts';
@@ -19,7 +20,7 @@ import { inSpec } from '#core/glob.ts';
 import { approachPaths, committedChanges, integrationTouched, resolveBase } from '../scope.ts';
 import type { Config, Job, JobEvent } from '#core/types.ts';
 import type { StepFile, StepInput, StepVerdicts } from '../types.ts';
-import { readJson, readText } from '#core/os/fs.ts';
+import { isInsidePath, readJson, readText } from '#core/os/fs.ts';
 import { INSTRUCTION_ROLES, instructionsFor } from '#core/config/validators/instructions.ts';
 import { verifierCount } from '../verifiers.ts';
 import { currentRerun, reworkReviewFiles, roundLenses } from './panel.ts';
@@ -128,6 +129,8 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
       integration: job.stage === 'integrate' ? compact(roundVerdicts(root, job.id, 'integration', ['code'], config.review.blockOn)) : null,
     },
     acs: acCoverage(read('spec.md'), read('build.md')),
+    // Only at build: the walk reads the worktree, and only the fresh builder brief uses it.
+    folderMaps: job.stage === 'build' && job.worktree && exists(job.worktree) && specText ? folderMaps(job.worktree, specFileMapPaths(specText)) : null,
     runtime,
     environment: environmentState(root, job.id),
     events,
@@ -146,6 +149,105 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     // Only at a budget park: measuring runs git, and only GA7 reads it.
     budgetExceeded: job.state === 'waiting' && job.waitingOn === 'budget' ? exceededKeys(effectiveLimits(config, job), measureBudget(job), job.budget.ack, job.round).map((e) => e.key) : null,
   };
+}
+
+const MAP_READ_CAP = 64 * 1024;
+const MAX_FOLDER_MAPS = 8;
+const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
+const NONBLOCK = fs.constants.O_NONBLOCK ?? 0;
+// Bounded and with no adjacent quantifiers: a map is builder-writable on its branch.
+const DESIGN_LINK = /\]\(([^()\s]{1,300})\)/g;
+
+/** The first MAP_READ_CAP bytes of a regular file, through one descriptor that follows no symlink and never blocks on a FIFO; null on any failure. */
+function readCapped(abs: string): string | null {
+  let fd: number | undefined;
+  try {
+    const link = fs.lstatSync(abs);
+    if (!link.isFile()) return null;
+    fd = fs.openSync(abs, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK);
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.dev !== link.dev || st.ino !== link.ino) return null;
+    const buf = Buffer.alloc(Math.min(st.size, MAP_READ_CAP));
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    return buf.subarray(0, n).toString('utf8');
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+/**
+ * The fresh builder brief's `Maps (JSON)` line: for each file-map path, the nearest `AGENTS.md`
+ * above it short of the root one (already in every session's context), then the `.md` targets of
+ * each map's `- Design:` bullet. Both the spec and the maps are agent-written, so only regular files
+ * whose real path is inside the worktree count, and only paths are returned, never file text.
+ */
+export function folderMaps(worktree: string, files: readonly string[]): { maps: string[]; topics: string[]; more?: number } {
+  let real: string;
+  try {
+    real = fs.realpathSync(worktree);
+  } catch {
+    return { maps: [], topics: [] };
+  }
+  // A worktree-relative posix path that is a regular file (no symlink, no FIFO) whose real path stays inside.
+  const regular = (rel: string): boolean => {
+    const abs = path.join(worktree, rel);
+    try {
+      if (!fs.lstatSync(abs).isFile()) return false;
+      const r = path.relative(real, fs.realpathSync(abs));
+      return r !== '' && !path.isAbsolute(r) && r.split(path.sep)[0] !== '..';
+    } catch {
+      return false;
+    }
+  };
+  const nearest = new Map<string, string | null>();
+  const mapFor = (dir: string): string | null => {
+    const seen: string[] = [];
+    let found: string | null = null;
+    for (let d = dir; d && d !== '.' && d !== '/'; d = path.posix.dirname(d)) {
+      const known = nearest.get(d);
+      if (known !== undefined) {
+        found = known;
+        break;
+      }
+      seen.push(d);
+      if (regular(`${d}/AGENTS.md`)) {
+        found = `${d}/AGENTS.md`;
+        break;
+      }
+    }
+    for (const d of seen) nearest.set(d, found);
+    return found;
+  };
+  const maps: string[] = [];
+  for (const f of files) {
+    if (!isInsidePath(f)) continue;
+    const p = path.posix.normalize(f);
+    let isDir = p.endsWith('/');
+    if (!isDir) {
+      try {
+        isDir = fs.statSync(path.join(worktree, p)).isDirectory();
+      } catch {}
+    }
+    const map = mapFor(isDir ? p.replace(/\/+$/, '') : path.posix.dirname(p));
+    if (map && !maps.includes(map)) maps.push(map);
+  }
+  const topics: string[] = [];
+  for (const map of maps) {
+    const line = (readCapped(path.join(worktree, map)) ?? '').split('\n').find((l) => l.startsWith('- Design:'));
+    if (!line) continue;
+    const dir = path.posix.dirname(map);
+    for (const m of line.matchAll(DESIGN_LINK)) {
+      const target = m[1].split('#')[0];
+      if (!target.endsWith('.md') || path.posix.isAbsolute(target) || /^[A-Za-z]:|^\\/.test(target)) continue;
+      const rel = path.posix.normalize(path.posix.join(dir, target));
+      if (isInsidePath(rel) && !topics.includes(rel) && regular(rel)) topics.push(rel);
+    }
+  }
+  const more = Math.max(0, maps.length - MAX_FOLDER_MAPS) + Math.max(0, topics.length - MAX_FOLDER_MAPS);
+  const abs = (list: string[]) => list.slice(0, MAX_FOLDER_MAPS).map((rel) => path.join(worktree, rel));
+  return { maps: abs(maps), topics: abs(topics), ...(more ? { more } : {}) };
 }
 
 /** Only when a skip is possible: integrate, code-only, the last verify passed, and the last conflicts event names both sides. */

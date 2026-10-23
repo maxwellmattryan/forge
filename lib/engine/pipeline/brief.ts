@@ -275,7 +275,12 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
       const fileMap = rows
         ? `File map: ${rows} rows in spec.md's Approach › Files · start from it; explore only what it does not cover`
         : 'File map: none in spec.md · explore the code the Approach names';
-      return out([p('tasks'), p('build')], inputs, [...(rework.length ? [`Rework: ${rework.join(', ')}`] : []), infra, ...backingLines, ...secretLines, uiProof, fileMap]);
+      // JSON, and only existing worktree paths loadStepInput checked, so nothing a map or the spec says starts a line.
+      const fm = input.folderMaps;
+      const maps = fm && (fm.maps.length || fm.topics.length)
+        ? [`Maps (JSON): ${JSON.stringify(fm)} · read these before you search: the folder maps say where code lives, the topics the rules behind it`]
+        : [];
+      return out([p('tasks'), p('build')], inputs, [...(rework.length ? [`Rework: ${rework.join(', ')}`] : []), infra, ...backingLines, ...secretLines, uiProof, ...maps, fileMap]);
     }
     case 'reviewer': {
       const lens = ctx.lens ?? role.slice('reviewer:'.length);

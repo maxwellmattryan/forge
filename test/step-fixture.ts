@@ -58,6 +58,8 @@ export interface FixtureOpts {
   memberWorktrees?: StepInput['memberWorktrees'];
   /** Fields over acCoverage(null, null), as `forge job acs` would report them. */
   acs?: Partial<AcCoverage>;
+  /** loadStepInput's folderMaps; null by default, as at any stage but build. */
+  folderMaps?: StepInput['folderMaps'];
   /** The keys still over budget at a budget park (loadStepInput's budgetExceeded); null by default. */
   budgetExceeded?: StepInput['budgetExceeded'];
   /**
@@ -125,6 +127,7 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     runbookBeforeMerge: o.runbookBeforeMerge ?? false,
     verdicts: { round: null, integration: null, ...o.verdicts },
     acs: { ...acCoverage(null, null), ...o.acs },
+    folderMaps: o.folderMaps ?? null,
     runtime: o.runtime ?? [],
     environment: o.environment ?? null,
     events: o.events ?? [],

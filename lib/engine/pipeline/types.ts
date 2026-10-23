@@ -104,6 +104,12 @@ export interface StepInput {
   runbookBeforeMerge: boolean;
   verdicts: { round: StepVerdicts | null; integration: StepVerdicts | null };
   acs: AcCoverage;
+  /**
+   * At stage build with a worktree and a spec: the folder maps over the spec's file-map paths and the
+   * topics their `Design:` bullets link, as absolute paths (folderMaps in lib/engine/pipeline/step/input.ts),
+   * for the fresh builder brief's `Maps (JSON)` line; null at every other stage.
+   */
+  folderMaps: { maps: string[]; topics: string[]; more?: number } | null;
   /** The record names in runtime.json. */
   runtime: string[];
   /** The job's entry in the environment record (lib/engine/environment/record.ts); null when it has none. */

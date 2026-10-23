@@ -3,7 +3,7 @@
 import path from 'node:path';
 import { loadJob, jobDir } from '#core/job/store.ts';
 import { exists } from '#core/paths.ts';
-import { readText } from '#core/os/fs.ts';
+import { isInsidePath, readText } from '#core/os/fs.ts';
 import { approachSection } from './scope.ts';
 
 const FENCE = /^\s*(```|~~~)/;
@@ -121,13 +121,13 @@ function cells(line: string): string[] {
 const FILES_LINE = /^\s*(?:Files:|\*\*Files:\*\*|\*\*Files\*\*:)\s*$/;
 
 /**
- * Rows in the spec's file map: inside Approach, a `Files:` line (`**Files:**` and `**Files**:` too),
- * then after optional blank lines a table whose first header cell is `Path` and whose next row is a
- * separator. A row counts when its first cell is not empty. A table in a code fence counts as none.
+ * The non-empty first cells of the file map's rows, in order: inside Approach, a `Files:` line
+ * (`**Files:**` and `**Files**:` too), then after optional blank lines a table whose first header
+ * cell is `Path` and whose next row is a separator. A table in a code fence counts as none.
  */
-export function specFileMap(text: string): number {
+function fileMapCells(text: string): string[] {
   const section = approachSection(text);
-  if (section === null) return 0;
+  if (section === null) return [];
   const lines = unfenced(section);
   for (let i = 0; i < lines.length; i++) {
     if (lines[i] === null || !FILES_LINE.test(lines[i] as string)) continue;
@@ -136,11 +136,47 @@ export function specFileMap(text: string): number {
     const header = lines[h];
     const sep = lines[h + 1];
     if (header == null || sep == null || !header.includes('|') || !SEPARATOR.test(sep) || !/^path$/i.test(cells(header)[0] ?? '')) continue;
-    let rows = 0;
-    for (let j = h + 2; j < lines.length && lines[j] !== null && (lines[j] as string).includes('|'); j++) if (cells(lines[j] as string)[0]) rows++;
-    return rows;
+    const out: string[] = [];
+    for (let j = h + 2; j < lines.length && lines[j] !== null && (lines[j] as string).includes('|'); j++) {
+      const first = cells(lines[j] as string)[0];
+      if (first) out.push(first);
+    }
+    return out;
   }
-  return 0;
+  return [];
+}
+
+/** Rows in the spec's file map (fileMapCells): a row counts when its first cell is not empty. */
+export function specFileMap(text: string): number {
+  return fileMapCells(text).length;
+}
+
+const MAX_MAP_PATH = 300;
+const MAX_MAP_PATHS = 100;
+
+/**
+ * The file map's paths, in table order: each row's first backtick span (else the cell), cut at the
+ * first whitespace or glob character, a glob cut down to its directory. Only relative paths with no
+ * `..` segment, at most 300 characters, deduplicated, at most 100: the spec is agent-written.
+ */
+export function specFileMapPaths(text: string): string[] {
+  const out: string[] = [];
+  for (const cell of fileMapCells(text)) {
+    if (out.length >= MAX_MAP_PATHS) break;
+    const span = /`([^`]+)`/.exec(cell);
+    let p = (span ? span[1] : cell.replace(/`/g, '')).trim();
+    const cut = p.search(/[\s*?[{]/);
+    if (cut >= 0) {
+      const glob = '*?[{'.includes(p[cut]);
+      p = p.slice(0, cut);
+      if (glob) p = p.slice(0, p.lastIndexOf('/') + 1);
+    }
+    if (!p || p.length > MAX_MAP_PATH || !isInsidePath(p)) continue;
+    p = path.posix.normalize(p);
+    if (!isInsidePath(p) || p === '.' || p === './') continue;
+    if (!out.includes(p)) out.push(p);
+  }
+  return out;
 }
 
 /**
