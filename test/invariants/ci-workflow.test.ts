@@ -260,6 +260,7 @@ test('ci runs the AGENTS.md verify list in the same order and nothing else', () 
   assert.deepEqual(verifyListProblems(AGENTS, WF), []);
   assert.deepEqual(agentsVerifyCommands(AGENTS), [
     'npm ci',
+    'npm run check:touchpoints',
     'npm run typecheck',
     'npm run check:dashboard',
     'npm run build:dashboard',
@@ -284,6 +285,27 @@ test('ci runs the AGENTS.md verify list in the same order and nothing else', () 
   assertFlags(verifyListProblems(AGENTS, mutate((wf) => {
     stepRunning(wf, 'verify', (r) => r === SHARDED_TEST_CMD).run = 'node --test --test-shard="$TEST_SHARD" "test/a.test.ts"';
   })), 'a sharded run over fewer files');
+});
+
+const TOUCHPOINTS = 'npm run check:touchpoints';
+/** The touchpoints check is vacuous against HEAD, and fails without HEAD's parent in the clone. */
+function touchpointsProblems(wf: any): string[] {
+  const out: string[] = [];
+  const steps = stepsOf(wf?.jobs?.verify);
+  const step = steps.find((s) => runOf(s)?.trim() === TOUCHPOINTS);
+  if (!step) out.push(`verify must run ${TOUCHPOINTS}`);
+  else if (step.env?.FORGE_TOUCHPOINTS_BASE !== 'HEAD^1') out.push(`${TOUCHPOINTS} must set FORGE_TOUCHPOINTS_BASE: HEAD^1, got ${JSON.stringify(step.env?.FORGE_TOUCHPOINTS_BASE ?? null)}`);
+  const checkout = steps.find((s) => String(s?.uses ?? '').startsWith('actions/checkout@'));
+  if (checkout?.with?.['fetch-depth'] !== 2) out.push(`the verify checkout must set fetch-depth: 2, got ${JSON.stringify(checkout?.with?.['fetch-depth'] ?? null)}`);
+  return out;
+}
+
+test('the touchpoints step compares against the previous commit', () => {
+  assert.deepEqual(touchpointsProblems(WF), []);
+  const setStep = (fn: (s: Step) => void) => mutate((wf) => fn(stepRunning(wf, 'verify', (r) => r.trim() === TOUCHPOINTS)));
+  assertFlags(touchpointsProblems(setStep((s) => { s.env.FORGE_TOUCHPOINTS_BASE = 'HEAD'; })), 'a base of HEAD');
+  assertFlags(touchpointsProblems(setStep((s) => { delete s.env; })), 'the env removed');
+  assertFlags(touchpointsProblems(mutate((wf) => { wf.jobs.verify.steps[0].with['fetch-depth'] = 1; })), 'fetch-depth: 1');
 });
 
 test('the Claude Code CLI is pinned and installed once, directly before validation', () => {

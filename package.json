@@ -50,7 +50,8 @@
     "scenario": "node scripts/scenario.ts",
     "test:render": "node scripts/render-check.ts",
     "release": "node scripts/release.ts",
-    "release:check": "node scripts/release-check.ts"
+    "release:check": "node scripts/release-check.ts",
+    "check:touchpoints": "node scripts/check-touchpoints.ts"
   },
   "repository": {
     "type": "git",
