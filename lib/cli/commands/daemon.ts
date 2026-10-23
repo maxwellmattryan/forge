@@ -8,6 +8,7 @@ import { redactKnown, scopeKnownValues } from '#engine/guard/known-secrets.ts';
 import { paths } from '#core/paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '#core/job/requests.ts';
 import { sessionAgents } from '#office/session-agents.ts';
+import { recordIds } from '#office/driver.ts';
 import { ForgeError } from '#core/errors.ts';
 import { pidAlive } from '#core/os/process.ts';
 import { readJson } from '#core/os/fs.ts';
@@ -90,7 +91,7 @@ function status(root: string): DaemonStatusOut {
     } catch {}
     const alive = pid !== null && pidAlive(pid);
     const shared = r.scope === INBOX_SCOPE || r.scope === OFFICE_SCOPE;
-    const owned = alive && !shared ? sessionAgents(root, r.scope, str(info.sessionId)) : null;
+    const owned = alive && !shared ? sessionAgents(root, r.scope, recordIds(info)) : null;
     return {
       scope: r.scope,
       job: shared ? null : r.scope,

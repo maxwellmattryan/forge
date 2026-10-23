@@ -591,14 +591,14 @@ export function attachAgent(root: string, id: string, role: string, agentId: str
  * Ends each role still marked running with status `lost`, as `forge job agent <id> end --role
  * <role> --status lost` would, minus the transcript import and budget check: a lost agent carries
  * no usage. Each role is re-read first, so one another writer ended meanwhile keeps its status, and
- * with `driver`, so is one whose job another session has claimed since.
- * Returns the roles it ended.
+ * with `drivers` (every id of the session that drove it), so is one whose job another session has
+ * claimed since. Returns the roles it ended.
  */
-export function markAgentsLost(root: string, id: string, roles: string[], summary: string, config: Config, driver?: string): string[] {
+export function markAgentsLost(root: string, id: string, roles: string[], summary: string, config: Config, drivers?: readonly string[]): string[] {
   const ended: string[] = [];
   for (const role of roles) {
     const job = loadJob(root, id);
-    if (driver !== undefined && job.lease.driver !== driver) break;
+    if (drivers !== undefined && !(job.lease.driver && drivers.includes(job.lease.driver))) break;
     const a = job.agents[role];
     if (a?.status !== 'running') continue;
     const outputMissing = agentOutputMissing(root, id, role, a, undefined);

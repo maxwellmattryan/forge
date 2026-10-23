@@ -2,7 +2,7 @@
 // orchestrators draining the inbox at once cannot both act on the same one. Inside a daemon session
 // (FORGE_DAEMON=1) the session sees and claims only the requests routed to its scope.
 import path from 'node:path';
-import { inboxSessionIds } from '#office/owner.ts';
+import { inboxSessionIds } from '#office/driver.ts';
 import { releaseJob, requeueOrphanedRequests } from '#core/job/store.ts';
 import { exists, paths } from '#core/paths.ts';
 import { dashRunning } from '#office/reconcile.ts';

@@ -112,7 +112,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   };
   const log = createSessionLog(core);
   const { logLine, logEvent } = log;
-  const { agents, computeKept, keptBy, facts, loseAgents, letGo } = createOwned(core);
+  const { agents, computeKept, keptBy, facts, release } = createOwned(core);
   const control = createControl(core);
   const { setPermissionMode, answerPermission, clearModeRequests } = control;
   const { armTurn, clearTurn, armIdle, clearIdle } = createTimers(core, agents);
@@ -366,20 +366,27 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     }
   }
 
-  function exited(proc: DaemonChild, code: number | null, signal: string | null): void {
-    const meta = proc.meta;
+  /**
+   * The child is gone, whether it exited or a kill never saw it close: this session's own state
+   * settles first, then the one release of what its ids held. Both paths call it exactly once.
+   */
+  function gone(reason: string): void {
     child = null;
+    kept = null;
     clearIdle();
     clearTurn();
     dropPrompts();
     inFlight = [];
     status = 'off';
-    kept = null;
     info = { ...info, pid: null };
     persist();
+    release(reason);
+  }
+
+  function exited(proc: DaemonChild, code: number | null, signal: string | null): void {
+    const meta = proc.meta;
     logEvent('exit', { code, signal });
-    loseAgents();
-    letGo(meta.reason ?? `exited (code ${code}, signal ${signal})`);
+    gone(meta.reason ?? `exited (code ${code}, signal ${signal})`);
     if (meta.asked) {
       // A failed turn's error describes the process just stopped on purpose; the log keeps it.
       // Clearing it lets a finished or slot-stopped session be pruned instead of showing failing forever.
@@ -451,13 +458,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     }
     if (child === proc) {
       // No close event at all (a stuck pipe): treat it as gone so the supervisor can't wedge.
-      child = null;
-      kept = null;
-      dropPrompts();
-      info = { ...info, pid: null };
-      persist();
-      loseAgents();
-      letGo(proc.meta.reason ?? event);
+      gone(proc.meta.reason ?? event);
       if (!closed) ctx.onExit(scope);
     }
     if (!child) status = 'off';
