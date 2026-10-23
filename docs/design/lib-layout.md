@@ -1,6 +1,6 @@
 # lib/ layers and the big-file splits
 
-Status: decided 2026-10-21 (#303). The groundwork landed in #412: the glossary words, header comments, the tripwire tests in `test/invariants/`, `npm run docs:map` and this doc. The move landed in #421: every `lib/` file sits in its layer and module, with a folder map in each layer and module folder. The aliases landed in #370: imports across layers go through `package.json` "imports". The types split landed in #413, the PR split in #414, the server split in #415, the daemon split in #416, the worktree split in #417 and the `forge job` split in #418; the release splits (#419) and the test layout (#420) are pending.
+Status: decided 2026-10-21 (#303). The groundwork landed in #412: the glossary words, header comments, the tripwire tests in `test/invariants/`, `npm run docs:map` and this doc. The move landed in #421: every `lib/` file sits in its layer and module, with a folder map in each layer and module folder. The aliases landed in #370: imports across layers go through `package.json` "imports". The types split landed in #413, the PR split in #414, the server split in #415, the daemon split in #416, the worktree split in #417, the `forge job` split in #418 and the release split in #419; the test layout (#420) is pending.
 
 This replaces the flat "~18 top-level modules" plan of 2026-10-19.
 
@@ -122,7 +122,7 @@ Why these sit in core, and why so:
 | `project/` | `member-repos.ts`, `member-trackers.ts`, `job-repos.ts`, graph ← `project.ts`, `repo-order.ts`, `repo-proposals.ts`, `links.ts`, `downstream.ts` |
 | `pr/` | `adopt.ts`, `body.ts`, `branch.ts`, `members.ts`, `sync.ts`, `open.ts`, `integrate.ts`, `merge.ts` (the PR policy, split out in #414), `delta.ts` |
 | `trackers/` | load ← `trackers/index.ts`, mirror ← `trackers/mirror.ts`, link ← `tracker-link.ts`, `triage.ts`, `request-refresh.ts` |
-| `release/` | plan ← `release-plan.ts`, run ← `release-run.ts`, approval ← `release-approval.ts`, `interim.ts`, `interim-apply.ts` |
+| `release/` | plan ← `release-plan.ts`, run ← `release-run.ts`, approval ← `release-approval.ts`, `interim.ts`, `interim-apply.ts`; `manifest.ts`, `steps.ts`, `render.ts` and `files.ts` (split out of `plan.ts` in #419) |
 | `evals/` | run ← `evals.ts`, overlay ← `eval-overlay.ts`, stats ← `eval-stats.ts`, `experiments.ts`, `learnings.ts`, `retro.ts`, `recall.ts`, `scoring.ts`, `outcome.ts`, `autonomy.ts`, `provenance.ts`, `types.ts` |
 | `metrics/` | `stats.ts`, `usage.ts`, `spend.ts`, `budget.ts`, `repo-budget.ts`, `types.ts` |
 | `ops/` | `doctor.ts`, `bundle.ts`, `update.ts`, `version.ts`, `retention.ts`, `delete.ts`, `audit.ts`, `detect.ts`, `detect-components.ts`, `title.ts`, `types.ts` |
@@ -291,6 +291,20 @@ Landed in #418. The 1048-line file held `forge job`'s help table and one 500-lin
 
 Judgement calls: handlers are grouped by concern into 9 files rather than one file per subcommand, since thirty-five files of 3–30 lines would need a registry exception and scatter the shared helpers; "one handler per subcommand" is one function per subcommand in one dispatch table. A `Cmd` suffix marks a handler whose bare name is a reserved word or would shadow an import (`newCmd`, `deleteCmd`, `listCmd`, `pruneCmd`, `progressCmd`, `stepCmd`, `refreshRequestCmd`, `assistCmd`). `JOB_HANDLERS` is exported only so `lib/cli/commands/job.test.ts` can check it against the help table. `JobHandler` goes in `lib/cli/types.ts` rather than a `job/types.ts`, which would be an 11th entry for one type. The security lens's paths in `.forge/config.yml` gain `lib/cli/commands/job/**`, since the refusals now live there; Forge's own policy changes only by a human on the base branch, so that line lands outside this job.
 
+### release/plan.ts → `engine/release/` (#419)
+
+Landed in #419. The 632-line file held the plan's shapes and planner, the manifest reader, the mechanism table, `release.md`'s renderer and the runtime files. Bodies moved verbatim; the only edits are imports, header comments and `export` on `labelOf`, `ecosystemOf` and `rollbackFor`, which another file now needs, so `assertNoSymlinks`, `readPlanFile`'s `selection` checks, `readState` and `freshPlan`'s hash comparison run at the same points in `writeReleasePlan`, `runRelease` and the approval path. `plan.ts` keeps its name and `selectionFrom`, so the CLI's import of it is unchanged, and re-exports nothing. Imports run one way: `manifest.ts` imports nothing in the folder, `steps.ts` imports only types from `plan.ts`, `plan.ts` imports `steps.ts` and `manifest.ts`, `render.ts` imports `plan.ts`, and `files.ts` imports `plan.ts` and `render.ts`. `labelOf` lives in `steps.ts` because a runtime import of it from `plan.ts` would form the cycle `plan.ts` ↔ `steps.ts`.
+
+| File | Contents | lines |
+|---|---|---|
+| `plan.ts` | `RELEASE_FILE_VERSION`, `CHECK_KINDS`/`CheckKind`, every shape (`ReleaseSelection`, `ReleaseStep`, `ReleasePackage`, `ReleaseRepo`, `ReleaseSkip`, `ReleasePlan`, `StepStatus`, `StepState`, `ReleaseState`, `GitReader`, `CloneResolver`, `PlanOptions`), `cloneGit`, `defaultClone`, `repoBase`, `repoRemote`, `strategyOf`, `planHash`, `SINCE`, `planRelease`, `freshPlan`, `selectionFrom` | 295 |
+| `manifest.ts` | `NPM_NAME`, `CARGO_NAME`, `VERSION`, `MANIFEST_MAX`, `readManifest`, `unquote`, `readManifestPackage`, `ecosystemOf` | 88 |
+| `steps.ts` | `ROOT_LABEL`, `labelOf`, `RepoInput`, `stepsFor`, `rollbackFor` | 74 |
+| `render.ts` | `CHECK_TEXT`, `stepCommand`, `SELECTION_TEXT`, `renderReleaseMd` | 63 |
+| `files.ts` | `ReleaseFiles`, `releaseFiles`, `assertNoSymlinks`, `readState`, `readPlanFile`, `planSteps`, `doneCount`, `finished`, `writeReleasePlan` | 142 |
+
+Judgement calls: `run.ts` (578 lines, now 573) is not split: it was already under the cap with no pin, and deleting `plan.ts`'s pin meets the goal, so a further split would be churn. There is no `release/types.ts`: the shapes depend on `RELEASE_FILE_VERSION` and `CHECK_KINDS`, which are runtime values, and the other engine `types.ts` files hold no runtime constants, so the shapes stay beside the planner, as #417 kept shapes beside their functions. `selectionFrom` stays in `plan.ts` beside `ReleaseSelection`. Folder count: `release/` 10.
+
 ## Order of work
 
 One PR each.
@@ -299,7 +313,7 @@ One PR each.
 2. **The move (#421, landed):** `git mv` and an import-rewriting codemod into the seven layers, with no content edits beyond the `util.ts` split, renames and the paths computed from the plugin root. It leaves only the two deprecated tracker re-exports in `FLAT_LAYERS`, re-keys `ALLOWED_EDGES` and the size pins, and updates CODEOWNERS, the hook, `bin/forge`, prompts and doc paths (`ci.yml` names only `lib/trackers/status.mjs`, which stays). It adds each layer and module folder's `AGENTS.md` and slims the root one, and adds the folder layout test (`test/invariants/layout.test.ts`: 3–12 entries, no stutter, no `index.ts`, the maps).
 3. **Aliases (#370, landed):** the `#core/…` subpath map and its cross-layer relative-import test.
 4. **types.ts by owner (#413, landed)**, with the transitional type-only barrel. Each shape moved to the `types.ts` of the module that owns it; `core/types.ts` re-exports the api, job and config shapes and keeps the tracker contract. `e2e.ts` moved from `pipeline/` to `workspace/` and `deprecations.ts` from `config/` into `config/validators/` to make room, and the four types-split edges and the `core/types.ts` size pin are gone.
-5. **pr.ts (#414, landed)**, **server.ts (#415, landed)**, **daemon.ts (#416, landed)**, **worktree.ts (#417, landed)** (create/remove, command templating, `verify`, the dev server), **commands/job.ts (#418, landed)** (`HELP` apart, one handler per subcommand), **the release splits (#419)** (`release-plan.ts`, `release-run.ts`). Each deletes its size pin and the upward edges it removes.
+5. **pr.ts (#414, landed)**, **server.ts (#415, landed)**, **daemon.ts (#416, landed)**, **worktree.ts (#417, landed)** (create/remove, command templating, `verify`, the dev server), **commands/job.ts (#418, landed)** (`HELP` apart, one handler per subcommand), **the release split (#419, landed)** (`release-plan.ts`; `release-run.ts` already fit under the cap). Each deletes its size pin and the upward edges it removes.
 6. **Tests (#420):** unit tests beside their modules, the rest into `test/{integration,e2e,invariants,support}/`, with the tsconfig includes and CI sharding by kind.
 
 ## Timing
