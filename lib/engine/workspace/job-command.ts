@@ -1,6 +1,8 @@
-// The environment, placeholders and shell of a configured command Forge runs for a job. Apart from
-// worktree.ts so environment-lifecycle.ts can build a job's template database without loading it.
+// The environment, placeholders and shell of a configured command Forge runs for a job, with the
+// shell's async twin verify runs steps through. Apart from run.ts and worktree.ts so
+// environment-lifecycle.ts can build a job's template database without loading them.
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { backingEnv } from '../environment/backing.ts';
 import type { DatabaseOpts } from '../environment/backing.ts';
 import { jobComponent } from '#core/config/components.ts';
@@ -86,4 +88,55 @@ export const joinOutput = (stdout: string, stderr: string): string => `${stdout}
 export function shell(cmd: string, cwd: string, env: NodeJS.ProcessEnv): ShellResult {
   const res = run(posixShell(), ['-lc', cmd], { cwd, env, allowFail: true });
   return { ok: res.ok, status: res.status, output: joinOutput(res.stdout, res.stderr) };
+}
+
+/** run()'s spawnSync limit per stream, kept for the async path. */
+export const MAX_OUTPUT = 64 * 1024 * 1024;
+
+/**
+ * shell() without blocking, so verify can run a group's steps at once. Past MAX_OUTPUT on either
+ * stream the child is killed and the step fails, as spawnSync's ENOBUFS does; a spawn error is a
+ * failure with no exit code.
+ */
+export function shellAsync(cmd: string, cwd: string, env: NodeJS.ProcessEnv): Promise<ShellResult> {
+  // Outside the Promise, so a refused shell throws here as it does in shell().
+  const sh = posixShell();
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (r: ShellResult) => {
+      if (settled) return;
+      settled = true;
+      resolve(r);
+    };
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(sh, ['-lc', cmd], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) {
+      return finish({ ok: false, status: null, output: joinOutput('', (e as Error).message) });
+    }
+    const chunks: Record<'stdout' | 'stderr', Buffer[]> = { stdout: [], stderr: [] };
+    const sizes = { stdout: 0, stderr: 0 };
+    let overflow: string | null = null;
+    for (const k of ['stdout', 'stderr'] as const) {
+      child[k]!.on('data', (chunk: Buffer) => {
+        if (overflow) return;
+        sizes[k] += chunk.length;
+        if (sizes[k] <= MAX_OUTPUT) return void chunks[k].push(chunk);
+        overflow = `spawn ${sh} ENOBUFS: ${k} passed ${MAX_OUTPUT / 1024 / 1024} MiB, so the command was stopped`;
+        chunks.stdout = [];
+        chunks.stderr = [];
+        child.kill('SIGTERM');
+        // A grandchild holding the pipes open would otherwise delay close until it exits.
+        child.stdout!.destroy();
+        child.stderr!.destroy();
+      });
+    }
+    child.on('error', (e) => finish({ ok: false, status: null, output: joinOutput('', e.message) }));
+    child.on('close', (code) => {
+      if (overflow) return finish({ ok: false, status: null, output: joinOutput('', overflow) });
+      const stdout = Buffer.concat(chunks.stdout).toString('utf8');
+      const stderr = Buffer.concat(chunks.stderr).toString('utf8');
+      finish({ ok: code === 0, status: code, output: joinOutput(stdout, stderr) });
+    });
+  });
 }

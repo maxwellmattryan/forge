@@ -1,6 +1,6 @@
 # lib/ layers and the big-file splits
 
-Status: decided 2026-10-21 (#303). The groundwork landed in #412: the glossary words, header comments, the tripwire tests in `test/invariants/`, `npm run docs:map` and this doc. The move landed in #421: every `lib/` file sits in its layer and module, with a folder map in each layer and module folder. The aliases landed in #370: imports across layers go through `package.json` "imports". The types split landed in #413, the PR split in #414, the server split in #415 and the daemon split in #416; the other file splits (#417–#419) and the test layout (#420) are pending.
+Status: decided 2026-10-21 (#303). The groundwork landed in #412: the glossary words, header comments, the tripwire tests in `test/invariants/`, `npm run docs:map` and this doc. The move landed in #421: every `lib/` file sits in its layer and module, with a folder map in each layer and module folder. The aliases landed in #370: imports across layers go through `package.json` "imports". The types split landed in #413, the PR split in #414, the server split in #415, the daemon split in #416 and the worktree split in #417; the other file splits (#418–#419) and the test layout (#420) are pending.
 
 This replaces the flat "~18 top-level modules" plan of 2026-10-19.
 
@@ -115,7 +115,7 @@ Why these sit in core, and why so:
 | Module | Files |
 |---|---|
 | `pipeline/` | `step/`, `step.ts`, `brief.ts`, `panel.ts`, `verifiers.ts`, `roster.ts`, `acs.ts`, `findings.ts`, `scope.ts`, `member-panel.ts`, `deps.ts`, `types.ts` (the step and verifier shapes: `step/` is at its entry cap) |
-| `workspace/` | `worktree.ts`, `checkout.ts`, `focus-actions.ts`, `editor.ts`, `regenerate.ts`, `job-command.ts`, `e2e.ts` (moved from `pipeline/` in #413; only verify reads it) |
+| `workspace/` | `worktree.ts`, split in #417 into `worktree.ts` (create and remove), `run.ts`, `verify.ts`, `verify-steps.ts` and `dev-server.ts`; `checkout.ts`, `focus-actions.ts`, `editor.ts`, `regenerate.ts`, `job-command.ts`, `e2e.ts` (moved from `pipeline/` in #413; only verify reads it) |
 | `guard/` | `integrity.ts`, `protected.ts`, `secrets.ts`, `known-secrets.ts`, `secret-refs.ts`, `redact.ts`, `attribution.ts`, `types.ts` |
 | `environment/` | `backing.ts`, `backing-db.ts`, `ports.ts`, `endpoints.ts`, status ← `environment.ts`, lifecycle ← `environment-lifecycle.ts`, record ← `environment-record.ts`, `config-sinks-apply.ts`, `types.ts` |
 | `project/` | `member-repos.ts`, `member-trackers.ts`, `job-repos.ts`, graph ← `project.ts`, `repo-order.ts`, `repo-proposals.ts`, `links.ts`, `downstream.ts` |
@@ -249,6 +249,21 @@ Where it differs from the plan, and why: `TURN` and `TURN_LINE` went to `control
 
 #457 then moved Claude Code's stream-json protocol out of `office/session/` into `integrations/claude/`: `types.ts` (`ClaudeEvent`, `ClaudeChild`, `ClaudeAdapter`), `stream.ts` (every stdin line from `control.ts`, `LIMIT_TEXT` and `parseRateLimit` from `holds.ts`, `splitter`, `stamped` and `STDERR_CAP` from `log.ts`, and `createStream`, the decoder) and `child.ts` (`claudeAdapter`, with the process-group kill from `contract.ts`). `DaemonOptions.spawn` and `killTree` became `claude`, `DaemonChild` became `{ claude, meta }`, and the session reacts to `ClaudeEvent`s only, so its tests drive `fakeClaude` (`test/support/claude-adapter.ts`) with events instead of writing claude's JSON into `PassThrough` children. `buildArgv` stays called by the office, so a template error stays a repo-wide refusal and a spawn error a session-only one.
 
+### worktree.ts → `engine/workspace/` (#417)
+
+Landed in #417. The 1320-line file held four concerns: worktree create and remove, configured commands, `forge verify` and the background dev server. Bodies moved verbatim; the only edits are imports, header comments and `export` on the helpers now shared across files. `worktree.ts` keeps its name and create/remove, so the importers of `createWorktree` and `removeWorktree` kept their path. Imports run one way: `run.ts` ← `verify-steps.ts` ← `verify.ts`, `verify.ts` and `worktree.ts` also import `run.ts`, and `dev-server.ts` imports none of them.
+
+| File | Contents | ≈ lines |
+|---|---|---|
+| `worktree.ts` | `MemberWorktreeResult`, `CreateWorktreeResult`, `createWorktree` and its root and member halves, `addWorktree`, `sparseCheckout`, `cloneIsolated`, `copyUntracked`, `globFiles`, `writeSharedCargoTarget`, `removeWorktree` and its root, member and backing halves, `realpath`, `insideDir`, `isDir` | 420 |
+| `run.ts` | `CommandResult`, `RunOptions`, `fillCommand`, `placeholdersArePlainWords`, `commandTemplate`, `prepareCommand`, `prepareMemberCommand`, `memberComponent`, `memberVars`, `recordCommand`, `runCommand`, `runCommandAsync`, `lockSnapshot`, `restoreLocks` | 235 |
+| `verify.ts` | `VerifyResult`, `verify`, `verifiedHead` | 268 |
+| `verify-steps.ts` | `VerifyStep`, `verifyLockSnapshot`, `restoreGroup`, `notesStep`, `MemberVerify`, `verifyMember`, `renderSteps` | 208 |
+| `dev-server.ts` | `startBackground`, `parseDevProbe`, `ownDevProcess`, `stopDevProven`, `portAnswers`, the probe constants, and its own `realpath` | 205 |
+| `job-command.ts` (existing) | adds `MAX_OUTPUT` and `shellAsync`, the async twin of `shell` | +53 |
+
+Judgement calls: no `workspace/types.ts`, so each shape sits with the function that returns it and the folder stays at 11 entries under the cap of 12. `VerifyStep` lives in `verify-steps.ts` because both verify files need it and `verify-steps.ts` must not import `verify.ts`. `realpath` is copied into `dev-server.ts` rather than shared, matching the private copies in `ops/update.ts` and `ops/version.ts`. Verify splits in two so neither file passes the 400-line target. `MemberVerify` is exported, beside the functions verify imports, because `verify.ts` annotates its member runs with it.
+
 ## Order of work
 
 One PR each.
@@ -257,7 +272,7 @@ One PR each.
 2. **The move (#421, landed):** `git mv` and an import-rewriting codemod into the seven layers, with no content edits beyond the `util.ts` split, renames and the paths computed from the plugin root. It leaves only the two deprecated tracker re-exports in `FLAT_LAYERS`, re-keys `ALLOWED_EDGES` and the size pins, and updates CODEOWNERS, the hook, `bin/forge`, prompts and doc paths (`ci.yml` names only `lib/trackers/status.mjs`, which stays). It adds each layer and module folder's `AGENTS.md` and slims the root one, and adds the folder layout test (`test/invariants/layout.test.ts`: 3–12 entries, no stutter, no `index.ts`, the maps).
 3. **Aliases (#370, landed):** the `#core/…` subpath map and its cross-layer relative-import test.
 4. **types.ts by owner (#413, landed)**, with the transitional type-only barrel. Each shape moved to the `types.ts` of the module that owns it; `core/types.ts` re-exports the api, job and config shapes and keeps the tracker contract. `e2e.ts` moved from `pipeline/` to `workspace/` and `deprecations.ts` from `config/` into `config/validators/` to make room, and the four types-split edges and the `core/types.ts` size pin are gone.
-5. **pr.ts (#414, landed)**, **server.ts (#415, landed)**, **daemon.ts (#416, landed)**, **worktree.ts (#417)** (create/remove, command templating, `verify`, the dev server), **commands/job.ts (#418)** (`HELP` apart, one handler per subcommand), **the release splits (#419)** (`release-plan.ts`, `release-run.ts`). Each deletes its size pin and the upward edges it removes.
+5. **pr.ts (#414, landed)**, **server.ts (#415, landed)**, **daemon.ts (#416, landed)**, **worktree.ts (#417, landed)** (create/remove, command templating, `verify`, the dev server), **commands/job.ts (#418)** (`HELP` apart, one handler per subcommand), **the release splits (#419)** (`release-plan.ts`, `release-run.ts`). Each deletes its size pin and the upward edges it removes.
 6. **Tests (#420):** unit tests beside their modules, the rest into `test/{integration,e2e,invariants,support}/`, with the tsconfig includes and CI sharding by kind.
 
 ## Timing

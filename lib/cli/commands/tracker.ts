@@ -25,7 +25,7 @@ import { memberForRef, memberTrackerConfig, memberTrackers, qualify, type Member
 import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '#engine/trackers/triage.ts';
 import { dashRunning, reconcile, type ReconcileResult } from '#office/reconcile.ts';
 import { ForgeError } from '#core/errors.ts';
-import * as wt from '#engine/workspace/worktree.ts';
+import { removeWorktree } from '#engine/workspace/worktree.ts';
 import { bodyFrom, list, num, req, str, usageError } from './args.ts';
 import type { Config, Job, JobPr, Tracker, TrackerItem } from '#core/types.ts';
 import type { HelpGroup } from '../types.ts';
@@ -493,7 +493,7 @@ export async function syncAll(
       let cleaned = false;
       if (after.state === 'done' && config.worktrees.cleanup === 'on-merge' && after.worktree) {
         try {
-          await wt.removeWorktree(root, job.id, { deleteBranch: true });
+          await removeWorktree(root, job.id, { deleteBranch: true });
           cleaned = true;
         } catch {}
       }

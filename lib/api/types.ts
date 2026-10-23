@@ -218,7 +218,7 @@ export interface JobBudget {
   lastCheck: { at: string; checkpoint: string; used: BudgetUsed } | null;
 }
 
-/** One verify attempt: verify in lib/engine/workspace/worktree.ts. */
+/** One verify attempt: verify in lib/engine/workspace/verify.ts. */
 export interface VerifyRun {
   round: number;
   attempt: number;
@@ -228,7 +228,7 @@ export interface VerifyRun {
   file: string;
   /** The name of the step that failed (`test`, `integrity`, `secrets`, `protected`, …), null on a pass. */
   failure?: string | null;
-  /** One record per member repo, only when the job has members: verify in lib/engine/workspace/worktree.ts. */
+  /** One record per member repo, only when the job has members: verify in lib/engine/workspace/verify.ts. */
   repos?: VerifyRunRepo[];
 }
 
@@ -1380,7 +1380,7 @@ export interface PostRunBody {
   command: 'dev';
 }
 
-/** POST /api/jobs/:id/run reply: startBackground in lib/engine/workspace/worktree.ts, without the pid and log path. */
+/** POST /api/jobs/:id/run reply: startBackground in lib/engine/workspace/dev-server.ts, without the pid and log path. */
 export interface PostRunResponse {
   reused: boolean;
   listening: boolean | null;

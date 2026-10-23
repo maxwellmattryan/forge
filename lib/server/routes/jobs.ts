@@ -19,7 +19,7 @@ import { deriveTitle, normalizeTitle } from '#engine/ops/title.ts';
 import { isMap } from '#core/shape.ts';
 import { ForgeError } from '#core/errors.ts';
 import { readText } from '#core/os/fs.ts';
-import { startBackground } from '#engine/workspace/worktree.ts';
+import { startBackground } from '#engine/workspace/dev-server.ts';
 import type {
   Config,
   DeleteJobResult,

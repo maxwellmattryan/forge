@@ -23,7 +23,8 @@ import { roster } from '#engine/pipeline/roster.ts';
 import { computeStats, statsByPromptCmd, statsCsv } from '#engine/metrics/stats.ts';
 import { ForgeError } from '#core/errors.ts';
 import { readJson } from '#core/os/fs.ts';
-import * as wt from '#engine/workspace/worktree.ts';
+import { createWorktree, removeWorktree } from '#engine/workspace/worktree.ts';
+import { verify } from '#engine/workspace/verify.ts';
 import { advanceCmd } from './commands/advance.ts';
 import { auditCmd } from './commands/audit.ts';
 import { backingCmd } from './commands/backing.ts';
@@ -147,12 +148,12 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       if (sub === 'create') {
         const id = req(rest[0], 'job id');
         refuseInboxDrive(id);
-        const res = wt.createWorktree(root, config, id);
+        const res = createWorktree(root, config, id);
         return { data: res, exitCode: res.repos?.some((r) => !r.ok) ? 1 : 0 };
       }
       const repo = flags.repo === undefined ? undefined : req(typeof flags.repo === 'string' ? flags.repo : undefined, '--repo');
       if (sub === 'remove') {
-        const res = await wt.removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force), repo });
+        const res = await removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force), repo });
         return { data: res, exitCode: res.repos?.some((r) => r.error) || res.backing?.ok === false ? 1 : 0 };
       }
       if (sub === 'path') return ok(repo === undefined ? (loadJob(root, req(rest[0], 'job id')).worktree ?? '') : (trustedMemberWorktree(root, config, loadJob(root, req(rest[0], 'job id')), repo) ?? ''));
@@ -175,7 +176,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       return ok(await focusCmd(root, config, pos.slice(1), flags));
     case 'verify': {
       needInit();
-      const r = await wt.verify(root, config, req(sub, 'job id'));
+      const r = await verify(root, config, req(sub, 'job id'));
       return { data: r, exitCode: r.ok ? 0 : 1 };
     }
     case 'secrets':
