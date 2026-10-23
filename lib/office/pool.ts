@@ -6,21 +6,21 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveEffort, trustDigest } from '../core/config/load.ts';
+import { resolveEffort, trustDigest } from '#core/config/load.ts';
 import { PERMISSION_MODES, TRUST_CHANGED, commandPermissionMode, createSession, otherOwner, reapOrphans, sessionOptions } from './session/lifecycle.ts';
-import { UUID, readInfo, sessionFiles } from '../core/job/session-files.ts';
+import { UUID, readInfo, sessionFiles } from '#core/job/session-files.ts';
 import type { DaemonOptions, Session, SessionContext, SessionEvent } from './session/lifecycle.ts';
 import { daemonSessionIds } from './owner.ts';
-import { configForJob } from '../engine/evals/overlay.ts';
-import { expireLease, listJobs, loadJob, logHumanEvent, repoAuditFile, requeueOrphanedRequests } from '../core/job/store.ts';
-import { PLUGIN_ROOT } from '../core/paths.ts';
+import { configForJob } from '#engine/evals/overlay.ts';
+import { expireLease, listJobs, loadJob, logHumanEvent, repoAuditFile, requeueOrphanedRequests } from '#core/job/store.ts';
+import { PLUGIN_ROOT } from '#core/paths.ts';
 import { RECONCILE_MS, daemonLockDir, reconcile } from './reconcile.ts';
 import type { SessionFacts } from './reconcile.ts';
-import { tryLock } from '../core/os/lock.ts';
-import { repoBudgetStatus } from '../engine/metrics/repo-budget.ts';
-import { daemonPlatformProblem } from '../core/os/platform.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, listRequests, requestScope, validScope } from '../core/job/requests.ts';
-import type { Config, RepoBudgetStatus, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, Job, PermissionDecision } from '../core/types.ts';
+import { tryLock } from '#core/os/lock.ts';
+import { repoBudgetStatus } from '#engine/metrics/repo-budget.ts';
+import { daemonPlatformProblem } from '#core/os/platform.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, listRequests, requestScope, validScope } from '#core/job/requests.ts';
+import type { Config, RepoBudgetStatus, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, Job, PermissionDecision } from '#core/types.ts';
 
 /** The pool's own state: state() below. The server adds `clients` to make a DaemonPoolState. */
 export type PoolState = Omit<DaemonPoolState, 'clients'>;

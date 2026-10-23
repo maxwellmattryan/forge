@@ -5,10 +5,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { defaults, loadConfig, modelProblems, resolveModel, validateConfig } from '../lib/core/config/load.ts';
-import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
-import { setIn } from '../lib/core/format/yaml.ts';
-import type { Config } from '../lib/core/types.ts';
+import { defaults, loadConfig, modelProblems, resolveModel, validateConfig } from '#core/config/load.ts';
+import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
+import { setIn } from '#core/format/yaml.ts';
+import type { Config } from '#core/types.ts';
 
 const cfg = (f: (c: Config) => void = () => {}) => {
   const c = defaults();

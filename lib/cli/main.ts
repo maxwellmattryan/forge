@@ -4,22 +4,22 @@
 // agent mode. Human mode, for a person at a terminal, renders the same results as text; main()
 // resolves the mode once per process (docs/CLI.md "Output mode").
 // Command groups live in lib/cli/commands/; this file only routes.
-import { daemonTrust, loadConfig } from '../core/config/load.ts';
-import { refuseInOffice, refuseInboxDrive } from '../office/owner.ts';
-import { NEED_INIT } from '../core/config/set.ts';
-import { detect } from '../engine/ops/detect.ts';
-import { stopBackground } from '../engine/environment/lifecycle.ts';
-import { git } from '../integrations/git/runner.ts';
-import { loadJob } from '../core/job/store.ts';
-import { trustedMemberWorktree } from '../engine/project/job-repos.ts';
-import { mainRoot } from '../core/paths.ts';
-import * as pr from '../engine/pr/lifecycle.ts';
-import { prepareRetro, retroDue } from '../engine/evals/retro.ts';
-import { roster } from '../engine/pipeline/roster.ts';
-import { computeStats, statsByPromptCmd, statsCsv } from '../engine/metrics/stats.ts';
-import { ForgeError } from '../core/errors.ts';
-import { readJson } from '../core/os/fs.ts';
-import * as wt from '../engine/workspace/worktree.ts';
+import { daemonTrust, loadConfig } from '#core/config/load.ts';
+import { refuseInOffice, refuseInboxDrive } from '#office/owner.ts';
+import { NEED_INIT } from '#core/config/set.ts';
+import { detect } from '#engine/ops/detect.ts';
+import { stopBackground } from '#engine/environment/lifecycle.ts';
+import { git } from '#integrations/git/runner.ts';
+import { loadJob } from '#core/job/store.ts';
+import { trustedMemberWorktree } from '#engine/project/job-repos.ts';
+import { mainRoot } from '#core/paths.ts';
+import * as pr from '#engine/pr/lifecycle.ts';
+import { prepareRetro, retroDue } from '#engine/evals/retro.ts';
+import { roster } from '#engine/pipeline/roster.ts';
+import { computeStats, statsByPromptCmd, statsCsv } from '#engine/metrics/stats.ts';
+import { ForgeError } from '#core/errors.ts';
+import { readJson } from '#core/os/fs.ts';
+import * as wt from '#engine/workspace/worktree.ts';
 import { advanceCmd } from './commands/advance.ts';
 import { auditCmd } from './commands/audit.ts';
 import { backingCmd } from './commands/backing.ts';
@@ -48,7 +48,7 @@ import { statsText, statusRows, statusTable, statusView } from './commands/statu
 import { nextCmd, syncAll, trackerCmd } from './commands/tracker.ts';
 import { updateCmd } from './commands/update.ts';
 import { versionCmd } from './commands/version.ts';
-import type { CliContext, Dispatched } from '../core/types.ts';
+import type { CliContext, Dispatched } from '#core/types.ts';
 
 export { reportError } from './commands/help.ts';
 

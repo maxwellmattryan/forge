@@ -5,8 +5,8 @@
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import { PassThrough } from 'node:stream';
-import { defaults } from '../../lib/core/config/load.ts';
-import { createPool } from '../../lib/office/pool.ts';
+import { defaults } from '#core/config/load.ts';
+import { createPool } from '#office/pool.ts';
 
 const [root, go] = process.argv.slice(2);
 const cfg = defaults();

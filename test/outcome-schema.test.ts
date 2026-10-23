@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
-import { defaults, validateConfig } from '../lib/core/config/load.ts';
-import { FIELDS } from '../lib/core/config/fields.ts';
-import { JOB_SCHEMA_VERSION, cleanOutcome, normalizeJob } from '../lib/core/job/schema.ts';
+import { defaults, validateConfig } from '#core/config/load.ts';
+import { FIELDS } from '#core/config/fields.ts';
+import { JOB_SCHEMA_VERSION, cleanOutcome, normalizeJob } from '#core/job/schema.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const SHA = 'a'.repeat(40);

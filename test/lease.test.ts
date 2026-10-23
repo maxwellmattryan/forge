@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
-import { jobDir } from '../lib/core/job/store.ts';
+import { jobDir } from '#core/job/store.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 

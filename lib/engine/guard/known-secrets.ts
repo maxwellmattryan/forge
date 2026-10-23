@@ -7,11 +7,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { jobDbPasswords } from '../environment/backing-db.ts';
-import { paths } from '../../core/paths.ts';
-import type { Config } from '../../core/types.ts';
-import { writeJsonPrivate } from '../../core/os/fs.ts';
-import { withLock } from '../../core/os/lock.ts';
-import { redact } from '../../core/text.ts';
+import { paths } from '#core/paths.ts';
+import type { Config } from '#core/types.ts';
+import { writeJsonPrivate } from '#core/os/fs.ts';
+import { withLock } from '#core/os/lock.ts';
+import { redact } from '#core/text.ts';
 
 /** Below this a value can't be redacted reliably: it would match ordinary text. */
 export const MIN_SECRET = 8;

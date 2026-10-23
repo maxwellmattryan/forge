@@ -1,15 +1,15 @@
 // `forge job advance`: step's executor. It runs the deterministic `run` actions `forge job step`
 // returns in-process and hands back only the next action that needs judgement, so a stretch of
 // bookkeeping costs the orchestrator one call instead of a turn per command. `step` stays pure.
-import { refuseInboxDrive } from '../../office/owner.ts';
-import { maybeEnqueueGate } from '../../office/foreman.ts';
-import { assertEpoch, leaseStatus, loadJob, logEvent, readEvents, renewLease, setJob } from '../../core/job/store.ts';
-import { progressMark } from '../../office/reconcile.ts';
-import { loadStepInput, step } from '../../engine/pipeline/step.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { safeText } from '../../core/text.ts';
+import { refuseInboxDrive } from '#office/owner.ts';
+import { maybeEnqueueGate } from '#office/foreman.ts';
+import { assertEpoch, leaseStatus, loadJob, logEvent, readEvents, renewLease, setJob } from '#core/job/store.ts';
+import { progressMark } from '#office/reconcile.ts';
+import { loadStepInput, step } from '#engine/pipeline/step.ts';
+import { ForgeError } from '#core/errors.ts';
+import { safeText } from '#core/text.ts';
 import { num, req, str } from './args.ts';
-import type { AdvanceRan, CliContext, Dispatch, Dispatched, Job } from '../../core/types.ts';
+import type { AdvanceRan, CliContext, Dispatch, Dispatched, Job } from '#core/types.ts';
 
 /**
  * The command groups advance runs: every group lib/engine/pipeline/step/ emits. Anything else (config writes,

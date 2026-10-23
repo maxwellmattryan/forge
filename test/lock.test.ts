@@ -5,8 +5,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { waitFor } from './helpers.ts';
-import { killAndWait, killAndWaitAsync, pidAlive } from '../lib/core/os/process.ts';
-import { lockHeld, readLockHolder, tryLock, withLock } from '../lib/core/os/lock.ts';
+import { killAndWait, killAndWaitAsync, pidAlive } from '#core/os/process.ts';
+import { lockHeld, readLockHolder, tryLock, withLock } from '#core/os/lock.ts';
 
 const CHILD = path.resolve(import.meta.dirname, 'fixtures', 'lock-child.ts');
 

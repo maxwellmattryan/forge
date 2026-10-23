@@ -6,11 +6,11 @@ import path from 'node:path';
 import { describe, test } from 'node:test';
 import zlib from 'node:zlib';
 import { forgeAsync, repoTemplate } from './helpers.ts';
-import { TRUST_ENV, loadConfig, trustDigest } from '../lib/core/config/load.ts';
-import { createJob, jobDir, logEvent, updateJob } from '../lib/core/job/store.ts';
-import { sessionFiles } from '../lib/core/job/session-files.ts';
-import { hasBinary } from '../lib/core/os/process.ts';
-import { setIn } from '../lib/core/format/yaml.ts';
+import { TRUST_ENV, loadConfig, trustDigest } from '#core/config/load.ts';
+import { createJob, jobDir, logEvent, updateJob } from '#core/job/store.ts';
+import { sessionFiles } from '#core/job/session-files.ts';
+import { hasBinary } from '#core/os/process.ts';
+import { setIn } from '#core/format/yaml.ts';
 import { token } from './secret-fixtures.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');

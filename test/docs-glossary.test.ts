@@ -4,8 +4,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { defaults } from '../lib/core/config/load.ts';
-import { getPath } from '../lib/core/shape.ts';
+import { defaults } from '#core/config/load.ts';
+import { getPath } from '#core/shape.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const GLOSSARY = fs.readFileSync(path.join(ROOT, 'docs', 'GLOSSARY.md'), 'utf8');

@@ -2,9 +2,9 @@
 // output estimated from content because the logged count is the stream's opening snapshot.
 import fs from 'node:fs';
 import path from 'node:path';
-import { agentTranscriptById, claudeProjectsDir, openTranscript } from '../../integrations/claude/transcripts.ts';
-import type { TranscriptHit } from '../../integrations/claude/transcripts.ts';
-import type { AgentUsage, Job } from '../../core/types.ts';
+import { agentTranscriptById, claudeProjectsDir, openTranscript } from '#integrations/claude/transcripts.ts';
+import type { TranscriptHit } from '#integrations/claude/transcripts.ts';
+import type { AgentUsage, Job } from '#core/types.ts';
 
 /**
  * What importClaudeCodeTranscript returns: AgentUsage's transcript fields, all set, plus the file

@@ -3,10 +3,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { defaults } from '../lib/core/config/load.ts';
-import { createJob, jobDir, setJob } from '../lib/core/job/store.ts';
-import type { Config, RepoBudgetConfig } from '../lib/core/types.ts';
-import * as yaml from '../lib/core/format/yaml.ts';
+import { defaults } from '#core/config/load.ts';
+import { createJob, jobDir, setJob } from '#core/job/store.ts';
+import type { Config, RepoBudgetConfig } from '#core/types.ts';
+import * as yaml from '#core/format/yaml.ts';
 
 /** A config whose `usd-model` costs $1 per input token, so a run's input is its cost. */
 export function dollarConfig(): Config {

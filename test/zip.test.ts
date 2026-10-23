@@ -6,8 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import zlib from 'node:zlib';
-import { hasBinary } from '../lib/core/os/process.ts';
-import { dosDateTime, zip } from '../lib/core/format/zip.ts';
+import { hasBinary } from '#core/os/process.ts';
+import { dosDateTime, zip } from '#core/format/zip.ts';
 
 const HAS_UNZIP = hasBinary('unzip');
 

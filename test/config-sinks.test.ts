@@ -4,10 +4,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
-import { componentProblems } from '../lib/core/config/components.ts';
-import { loadConfig, validateConfig } from '../lib/core/config/load.ts';
-import { EXPRESSION_ROOTS, fillTemplate, renderEnvFile, renderMerge, renderTemplate, resolveString, resolveValue, sinkProblems } from '../lib/core/config/sinks.ts';
-import * as yaml from '../lib/core/format/yaml.ts';
+import { componentProblems } from '#core/config/components.ts';
+import { loadConfig, validateConfig } from '#core/config/load.ts';
+import { EXPRESSION_ROOTS, fillTemplate, renderEnvFile, renderMerge, renderTemplate, resolveString, resolveValue, sinkProblems } from '#core/config/sinks.ts';
+import * as yaml from '#core/format/yaml.ts';
 
 const CTX = { job: 'j1', port: 4123, worktree: '/wt/j1', branch: 'forge/j1', base: 'main', component: { name: 'api', path: 'services/api', dir: '/wt/j1/services/api' } };
 const NO_PORT = { ...CTX, port: null };

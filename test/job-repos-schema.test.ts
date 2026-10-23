@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { defaults } from '../lib/core/config/load.ts';
-import { createJob, jobDir, loadJob, setJob, updateJob } from '../lib/core/job/store.ts';
-import { JOB_SCHEMA_VERSION, normalizeJob } from '../lib/core/job/schema.ts';
+import { defaults } from '#core/config/load.ts';
+import { createJob, jobDir, loadJob, setJob, updateJob } from '#core/job/store.ts';
+import { JOB_SCHEMA_VERSION, normalizeJob } from '#core/job/schema.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => cleanups.forEach((c) => c()));

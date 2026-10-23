@@ -9,20 +9,20 @@
 // (default .github/project-config.yml); projects need a token with the "project" scope.
 import fs from 'node:fs';
 import path from 'node:path';
-import { paths, resolveFrom, exists } from '../../core/paths.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { readJson, writeJsonAtomic } from '../../core/os/fs.ts';
-import { withLock } from '../../core/os/lock.ts';
+import { paths, resolveFrom, exists } from '#core/paths.ts';
+import { ForgeError } from '#core/errors.ts';
+import { readJson, writeJsonAtomic } from '#core/os/fs.ts';
+import { withLock } from '#core/os/lock.ts';
 import { gh, ghJson } from './gh.ts';
-import * as yaml from '../../core/format/yaml.ts';
-import { repoSlug } from '../../engine/pr/lifecycle.ts';
-import { listJobs, isActive } from '../../core/job/store.ts';
-import { statusKey, STATUS_KEYS } from '../../api/tracker.ts';
-import { queryTerms } from '../../core/job/issue-link.ts';
-import { nativeRef } from '../../core/job/issue-ref.ts';
+import * as yaml from '#core/format/yaml.ts';
+import { repoSlug } from '#engine/pr/lifecycle.ts';
+import { listJobs, isActive } from '#core/job/store.ts';
+import { statusKey, STATUS_KEYS } from '#api/tracker.ts';
+import { queryTerms } from '#core/job/issue-link.ts';
+import { nativeRef } from '#core/job/issue-ref.ts';
 import { localRepoSlug } from '../git/repo-slug.ts';
-import { attributionForbidden, stripAttribution } from '../../engine/guard/attribution.ts';
-import type { LoadedJob, Tracker, TrackerCtx, TrackerItem } from '../../core/types.ts';
+import { attributionForbidden, stripAttribution } from '#engine/guard/attribution.ts';
+import type { LoadedJob, Tracker, TrackerCtx, TrackerItem } from '#core/types.ts';
 
 /** A GitHub Project (v2) and its status field, from config or the project-config file: projectCoords. */
 export interface ProjectCoords {

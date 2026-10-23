@@ -2,20 +2,20 @@
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import readline from 'node:readline/promises';
-import { paths, PLUGIN_ROOT } from '../../core/paths.ts';
-import { currentActor } from '../../integrations/github/actor.ts';
-import { setConfigValue } from '../../core/config/set.ts';
-import { apiKeyVars, reapOrphans } from '../../office/session/lifecycle.ts';
-import { daemonPlatformProblem } from '../../core/os/platform.ts';
-import { getPath } from '../../core/shape.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { pidAlive, sleepSync } from '../../core/os/process.ts';
-import { readJson, readText, writeJsonAtomic } from '../../core/os/fs.ts';
-import * as yaml from '../../core/format/yaml.ts';
+import { paths, PLUGIN_ROOT } from '#core/paths.ts';
+import { currentActor } from '#integrations/github/actor.ts';
+import { setConfigValue } from '#core/config/set.ts';
+import { apiKeyVars, reapOrphans } from '#office/session/lifecycle.ts';
+import { daemonPlatformProblem } from '#core/os/platform.ts';
+import { getPath } from '#core/shape.ts';
+import { ForgeError } from '#core/errors.ts';
+import { pidAlive, sleepSync } from '#core/os/process.ts';
+import { readJson, readText, writeJsonAtomic } from '#core/os/fs.ts';
+import * as yaml from '#core/format/yaml.ts';
 import { out, outputMode } from './args.ts';
 import { colorEnabled } from './render.ts';
 import type { RunningServer } from '../../server/start.ts';
-import type { Config, HelpGroup } from '../../core/types.ts';
+import type { Config, HelpGroup } from '#core/types.ts';
 
 export const HELP: HelpGroup[] = [
   {
@@ -149,7 +149,7 @@ export async function dash(root: string, config: Config, flags: Record<string, a
   // dev dashboard points at a scratch repo and deletes nothing; a failure never stops the server.
   if (!flags.dev) {
     try {
-      const { applyRetention } = await import('../../engine/ops/retention.ts');
+      const { applyRetention } = await import('#engine/ops/retention.ts');
       applyRetention(root, config, 'policy');
     } catch (e) {
       process.stderr.write(`retention: ${(e as Error).message}\n`);

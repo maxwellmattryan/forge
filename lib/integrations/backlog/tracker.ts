@@ -13,12 +13,12 @@
 // An item's ref is the slug of its title, so refs survive reordering.
 import fs from 'node:fs';
 import path from 'node:path';
-import { queryTerms, scoreItems } from '../../core/job/issue-link.ts';
-import { paths, resolveFrom, exists } from '../../core/paths.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { withLock } from '../../core/os/lock.ts';
-import { slugify } from '../../core/text.ts';
-import type { Tracker, TrackerCtx, TrackerItem } from '../../core/types.ts';
+import { queryTerms, scoreItems } from '#core/job/issue-link.ts';
+import { paths, resolveFrom, exists } from '#core/paths.ts';
+import { ForgeError } from '#core/errors.ts';
+import { withLock } from '#core/os/lock.ts';
+import { slugify } from '#core/text.ts';
+import type { Tracker, TrackerCtx, TrackerItem } from '#core/types.ts';
 
 const ITEM_RE = /^([-*])\s+\[([ xX~?\-])\]\s+(.*?)(?:\s+→\s+(\S+))?\s*$/;
 

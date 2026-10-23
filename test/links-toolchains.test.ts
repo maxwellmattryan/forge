@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { twoRepo } from './job-repos-fixture.ts';
 import type { TwoRepo } from './job-repos-fixture.ts';
-import { hasBinary } from '../lib/core/os/process.ts';
+import { hasBinary } from '#core/os/process.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => cleanups.forEach((c) => c()));

@@ -4,10 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
-import { defaults } from '../lib/core/config/load.ts';
-import { createJob, jobDir, setJob } from '../lib/core/job/store.ts';
-import { expiredLearnings, learningSummary, ledgerItems, metricValue, parseExperiments, parseLearnings, validDate } from '../lib/engine/evals/learnings.ts';
-import { prepareRetro } from '../lib/engine/evals/retro.ts';
+import { defaults } from '#core/config/load.ts';
+import { createJob, jobDir, setJob } from '#core/job/store.ts';
+import { expiredLearnings, learningSummary, ledgerItems, metricValue, parseExperiments, parseLearnings, validDate } from '#engine/evals/learnings.ts';
+import { prepareRetro } from '#engine/evals/retro.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 

@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
-import { TRUST_ENV, daemonProblems, defaults, loadConfig, trustDigest, validateConfig } from '../lib/core/config/load.ts';
-import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
+import { TRUST_ENV, daemonProblems, defaults, loadConfig, trustDigest, validateConfig } from '#core/config/load.ts';
+import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
 import { migrate } from '../lib/cli/commands/init.ts';
-import * as yaml from '../lib/core/format/yaml.ts';
+import * as yaml from '#core/format/yaml.ts';
 
 const DEFAULT_COMMAND =
   'claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode default --allowedTools {allowedTools}';

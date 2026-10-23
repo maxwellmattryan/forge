@@ -7,11 +7,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { forgeAsync, forgeSync, repoTemplate } from './helpers.ts';
-import { loadConfig } from '../lib/core/config/load.ts';
-import { focusFile, readFocusRecord, readSmallJson, resolveFocus } from '../lib/core/job/focus.ts';
-import { currentFocus, focusJob } from '../lib/engine/workspace/focus-actions.ts';
-import { createJob, setJob } from '../lib/core/job/store.ts';
-import { archiveJob } from '../lib/engine/ops/retention.ts';
+import { loadConfig } from '#core/config/load.ts';
+import { focusFile, readFocusRecord, readSmallJson, resolveFocus } from '#core/job/focus.ts';
+import { currentFocus, focusJob } from '#engine/workspace/focus-actions.ts';
+import { createJob, setJob } from '#core/job/store.ts';
+import { archiveJob } from '#engine/ops/retention.ts';
 
 const template = repoTemplate((dir) => {
   const answers = path.join(dir, '.answers.json');

@@ -2,13 +2,13 @@
 // secret checks every tracker write goes through.
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { daemonTrust } from '../../core/config/load.ts';
-import { paths, exists } from '../../core/paths.ts';
+import { daemonTrust } from '#core/config/load.ts';
+import { paths, exists } from '#core/paths.ts';
 import { refuseSecrets, textUnit } from '../guard/secrets.ts';
-import { ForgeError } from '../../core/errors.ts';
-import local from '../../integrations/backlog/tracker.ts';
-import github from '../../integrations/github/tracker.ts';
-import type { Config, Job, TextUnit, Tracker, TrackerCtx } from '../../core/types.ts';
+import { ForgeError } from '#core/errors.ts';
+import local from '#integrations/backlog/tracker.ts';
+import github from '#integrations/github/tracker.ts';
+import type { Config, Job, TextUnit, Tracker, TrackerCtx } from '#core/types.ts';
 
 // The tracker contract (Tracker, TrackerCtx and TrackerItem) lives in lib/core/types.ts. Every adapter, built-in
 // or a repo's own `.forge/trackers/<name>.mjs` or `.ts`, default-exports one. docs/TRACKERS.md has the details.
@@ -92,4 +92,4 @@ export async function loadTracker(root: string, config: Config): Promise<Tracker
   return guardTracker(t, { custom: true });
 }
 
-export { statusKey, STATUS_KEYS } from '../../api/tracker.ts';
+export { statusKey, STATUS_KEYS } from '#api/tracker.ts';

@@ -4,15 +4,15 @@
 // the contract and a change goes through revise.
 import fs from 'node:fs';
 import path from 'node:path';
-import { jobDir, loadJob, logEvent, readEvents, requestBody, updateJob } from '../../core/job/store.ts';
-import { nativeRef, primaryIssue } from '../../core/job/issue-ref.ts';
+import { jobDir, loadJob, logEvent, readEvents, requestBody, updateJob } from '#core/job/store.ts';
+import { nativeRef, primaryIssue } from '#core/job/issue-ref.ts';
 import { memberForRef, memberTrackerConfig } from '../project/member-trackers.ts';
-import { localRepoSlug } from '../../integrations/git/repo-slug.ts';
+import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import { loadTracker, memberTracker } from './load.ts';
-import { issueAuthorAssociation, trustedAssociation } from '../../integrations/github/tracker.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { writeTextAtomic } from '../../core/os/fs.ts';
-import type { Config, Job, Tracker, TrackerCtx, TrackerItem } from '../../core/types.ts';
+import { issueAuthorAssociation, trustedAssociation } from '#integrations/github/tracker.ts';
+import { ForgeError } from '#core/errors.ts';
+import { writeTextAtomic } from '#core/os/fs.ts';
+import type { Config, Job, Tracker, TrackerCtx, TrackerItem } from '#core/types.ts';
 
 export type RefreshTrigger = 'cli' | 'claim';
 

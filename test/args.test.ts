@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
 import { num, oneOf, parseArgs, requireJob, str } from '../lib/cli/commands/args.ts';
-import { ForgeError } from '../lib/core/errors.ts';
-import { coerce } from '../lib/core/text.ts';
+import { ForgeError } from '#core/errors.ts';
+import { coerce } from '#core/text.ts';
 
 test('parseArgs: bare, empty and repeated flags', () => {
   assert.deepEqual(parseArgs(['--x']).flags, { x: true });
