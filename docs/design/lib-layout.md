@@ -1,6 +1,6 @@
 # lib/ layers and the big-file splits
 
-Status: decided 2026-10-21 (#303). The groundwork landed in #412: the glossary words, header comments, the tripwire tests in `test/invariants/`, `npm run docs:map` and this doc. The move landed in #421: every `lib/` file sits in its layer and module, with a folder map in each layer and module folder. The aliases landed in #370: imports across layers go through `package.json` "imports". The file splits (#413–#419) and the test layout (#420) are pending.
+Status: decided 2026-10-21 (#303). The groundwork landed in #412: the glossary words, header comments, the tripwire tests in `test/invariants/`, `npm run docs:map` and this doc. The move landed in #421: every `lib/` file sits in its layer and module, with a folder map in each layer and module folder. The aliases landed in #370: imports across layers go through `package.json` "imports". The types split landed in #413 and the PR split in #414; the other file splits (#415–#419) and the test layout (#420) are pending.
 
 This replaces the flat "~18 top-level modules" plan of 2026-10-19.
 
@@ -104,7 +104,7 @@ Why these sit in core, and why so:
 | Module | Files |
 |---|---|
 | `git/` | runner ← `git.ts`, `repo-slug.ts` |
-| `github/` | `gh.ts`, tracker ← `trackers/github.ts`, preview ← `github-preview.ts`, `actor.ts`; `pull-requests.ts` arrives with #414 |
+| `github/` | `gh.ts`, tracker ← `trackers/github.ts`, preview ← `github-preview.ts`, `actor.ts`, `pull-requests.ts` (the PR mechanism, split out in #414) |
 | `claude/` | `transcripts.ts`, `pricing.ts` + `pricing.json`; the session argv arrives with #416 |
 | `docker/` | runner ← `docker.ts`, `types.ts` |
 | `backlog/` | tracker ← `trackers/local.ts` |
@@ -119,7 +119,7 @@ Why these sit in core, and why so:
 | `guard/` | `integrity.ts`, `protected.ts`, `secrets.ts`, `known-secrets.ts`, `secret-refs.ts`, `redact.ts`, `attribution.ts`, `types.ts` |
 | `environment/` | `backing.ts`, `backing-db.ts`, `ports.ts`, `endpoints.ts`, status ← `environment.ts`, lifecycle ← `environment-lifecycle.ts`, record ← `environment-record.ts`, `config-sinks-apply.ts`, `types.ts` |
 | `project/` | `member-repos.ts`, `member-trackers.ts`, `job-repos.ts`, graph ← `project.ts`, `repo-order.ts`, `repo-proposals.ts`, `links.ts`, `downstream.ts` |
-| `pr/` | lifecycle ← `pr.ts`, `delta.ts` |
+| `pr/` | `adopt.ts`, `body.ts`, `branch.ts`, `members.ts`, `sync.ts`, `open.ts`, `integrate.ts`, `merge.ts` (the PR policy, split out in #414), `delta.ts` |
 | `trackers/` | load ← `trackers/index.ts`, mirror ← `trackers/mirror.ts`, link ← `tracker-link.ts`, `triage.ts`, `request-refresh.ts` |
 | `release/` | plan ← `release-plan.ts`, run ← `release-run.ts`, approval ← `release-approval.ts`, `interim.ts`, `interim-apply.ts` |
 | `evals/` | run ← `evals.ts`, overlay ← `eval-overlay.ts`, stats ← `eval-stats.ts`, `experiments.ts`, `learnings.ts`, `retro.ts`, `recall.ts`, `scoring.ts`, `outcome.ts`, `autonomy.ts`, `provenance.ts`, `types.ts` |
@@ -151,20 +151,20 @@ Why these sit in core, and why so:
 | leaves | `activity.ts` (only `commands/dash.ts` imports it, and it types against the server), `types.ts` (the CLI's own shapes) |
 
 Where the names differ from a plain prefix drop, the folder rules decided:
-- **No stutter.** A name that would repeat its folder takes the name the later split leaves: `git/runner.ts` (matching `docker/runner.ts`), `server/start.ts` (#415), `session/lifecycle.ts` (#416), `pr/lifecycle.ts`, `evals/run.ts`, `environment/status.ts` (the environment as the dashboard shows it) and `project/graph.ts` (the project graph).
+- **No stutter.** A name that would repeat its folder takes the name the later split leaves: `git/runner.ts` (matching `docker/runner.ts`), `server/start.ts` (#415), `session/lifecycle.ts` (#416), `evals/run.ts`, `environment/status.ts` (the environment as the dashboard shows it) and `project/graph.ts` (the project graph).
 - **No `index.ts`.** `cli/commands/render/index.ts` became `render/registry.ts`, because its header calls it the renderer registry.
 
 ## Today's upward edges
 
-With the placement above, 22 imports point up a layer. `ALLOWED_EDGES` in `test/invariants/layer-map.ts` is the live list; it may only shrink, and an entry that no longer exists or no longer points up fails as stale.
+With the placement above, 21 imports point up a layer. `ALLOWED_EDGES` in `test/invariants/layer-map.ts` is the live list; it may only shrink, and an entry that no longer exists or no longer points up fails as stale.
 
 | Edges | What removes them |
 |---|---|
 | `core/job/store.ts` reaches `engine/guard/known-secrets.ts`, `engine/evals/overlay.ts`, `engine/evals/provenance.ts`, `integrations/github/actor.ts`, `integrations/git/repo-slug.ts` and `integrations/claude/pricing.ts`; `core/paths.ts` reaches `integrations/git/runner.ts` | hooks or parameters in the job store (like `onTransition`), or the pieces moving down to a core leaf |
 | `core/job/schema.ts` reaches `engine/pr/delta.ts` and `engine/project/member-repos.ts`; `core/config/validate.ts` and `core/job/lens.ts` reach `engine/project/member-repos.ts` | the value validators (`isSha`, `REPO_NAME`, `isSafeBranch`, the repo problems) moving into `core/config/` |
-| `engine/pipeline/step/gates.ts`, `engine/pipeline/step/stages/build.ts`, `engine/pipeline/step/stages/decide.ts`, `engine/pr/lifecycle.ts` and `engine/release/approval.ts` reach `office/foreman.ts` | the Foreman's gate classes and round ceilings moving to engine, with office keeping the session |
-| `engine/ops/doctor.ts`, `engine/pr/lifecycle.ts` and `engine/guard/secrets.ts` reach `office/notify.ts`; `engine/ops/doctor.ts` reaches `office/session/lifecycle.ts` | notify's transport splitting to `integrations/webhook/` and the queue to engine; the API-key variables moving to `integrations/claude/` (#416) |
-| `integrations/github/tracker.ts` reaches `engine/pr/lifecycle.ts` and `engine/guard/attribution.ts` | the tracker loader's security wrappers (attribution stripping applied in engine) and `repoSlug` moving to `integrations/github/` (#414) |
+| `engine/pipeline/step/gates.ts`, `engine/pipeline/step/stages/build.ts`, `engine/pipeline/step/stages/decide.ts`, `engine/pr/sync.ts` and `engine/release/approval.ts` reach `office/foreman.ts` | the Foreman's gate classes and round ceilings moving to engine, with office keeping the session |
+| `engine/ops/doctor.ts`, `engine/pr/open.ts` and `engine/guard/secrets.ts` reach `office/notify.ts`; `engine/ops/doctor.ts` reaches `office/session/lifecycle.ts` | notify's transport splitting to `integrations/webhook/` and the queue to engine; the API-key variables moving to `integrations/claude/` (#416) |
+| `integrations/github/tracker.ts` reaches `engine/guard/attribution.ts` | the tracker loader's security wrappers (attribution stripping applied in engine) |
 
 ## Tests
 
@@ -184,14 +184,21 @@ Each split is its own PR and changes no behaviour; the existing tests, unchanged
 
 ### pr.ts → `engine/pr/` and `integrations/github/` (#414)
 
+Landed in #414. The `gh` mechanism sits in `integrations/github/pull-requests.ts`, the policy in small files in `engine/pr/`, which import in this order and never back: `pull-requests.ts` ← `body.ts`, `branch.ts`, `adopt.ts` ← `members.ts` ← `sync.ts` ← `merge.ts`; `open.ts` imports `adopt`, `body`, `branch` and `members`; `integrate.ts` none of them.
+
 | File | Contents | ≈ lines |
 |---|---|---|
-| `integrations/github/pull-requests.ts` | `graphql`, `findPr`, `refuseUnsafeRefs`, `repoSlug`: the gh mechanism | 100 |
-| `engine/pr/open.ts` | `openPr`, interim open plan, retarget, push, PR text and body, escalation approval | 330 |
-| `engine/pr/members.ts` | member-repo PRs: check, open, record, sibling links, sync | 300 |
-| `engine/pr/sync.ts` | `syncPr`, transitions, reopen, checks summary, feedback | 310 |
-| `engine/pr/integrate.ts` | `integrate`, `integrateContinue` | 190 |
-| `engine/pr/merge.ts` | `mergePr`, targets, linked merges, `readyPr`, release-gate message | 350 |
+| `integrations/github/pull-requests.ts` | `repoSlug`, `requireGh`, the checks on gh's answers (`assertJobPr`, `safePrNumber`, `SLUG_RE`, `PR_STATES`), one wrapper per `gh` call (`viewPr`, `listPrs`, `closingPrs`, `createPr`, `editPrBase`, `editPrBody`, `markPrReady`, `submitMerge`), and the readers: `fetchFeedback`, `trustedFeedback`, `summarizeChecks`, `failingCheckNames`, `checksText` | 180 |
+| `engine/pr/adopt.ts` | `findPr`, `refuseUnsafeRefs` | 60 |
+| `engine/pr/body.ts` | PR text and body, escalation approval, sibling section, issue lines | 130 |
+| `engine/pr/branch.ts` | `refreshBase`, `pushBranch`, `pullPrHead` | 80 |
+| `engine/pr/members.ts` | member-repo PRs: check, open, record, sibling links, sync | 285 |
+| `engine/pr/sync.ts` | `syncPr`, transitions, CI reworks, reopen, human delta, pr-feedback.md | 385 |
+| `engine/pr/open.ts` | `openPr`, interim open plan, protected-paths re-check, retarget | 275 |
+| `engine/pr/integrate.ts` | `integrate`, `integrateContinue` | 195 |
+| `engine/pr/merge.ts` | `mergePr`, targets, linked merges, `readyPr`, release-gate message | 400 |
+
+`findPr` stays in engine, against the first plan: it records the adopted PR in `job.json` and applies the fork, safe-ref and trusted-closing-PR rules, which is adoption policy, so only its `gh` calls moved.
 
 ### server.ts → `server/` (#415)
 
@@ -233,7 +240,7 @@ One PR each.
 2. **The move (#421, landed):** `git mv` and an import-rewriting codemod into the seven layers, with no content edits beyond the `util.ts` split, renames and the paths computed from the plugin root. It leaves only the two deprecated tracker re-exports in `FLAT_LAYERS`, re-keys `ALLOWED_EDGES` and the size pins, and updates CODEOWNERS, the hook, `bin/forge`, prompts and doc paths (`ci.yml` names only `lib/trackers/status.mjs`, which stays). It adds each layer and module folder's `AGENTS.md` and slims the root one, and adds the folder layout test (`test/invariants/layout.test.ts`: 3–12 entries, no stutter, no `index.ts`, the maps).
 3. **Aliases (#370, landed):** the `#core/…` subpath map and its cross-layer relative-import test.
 4. **types.ts by owner (#413, landed)**, with the transitional type-only barrel. Each shape moved to the `types.ts` of the module that owns it; `core/types.ts` re-exports the api, job and config shapes and keeps the tracker contract. `e2e.ts` moved from `pipeline/` to `workspace/` and `deprecations.ts` from `config/` into `config/validators/` to make room, and the four types-split edges and the `core/types.ts` size pin are gone.
-5. **pr.ts (#414)**, **server.ts (#415)**, **daemon.ts (#416)**, **worktree.ts (#417)** (create/remove, command templating, `verify`, the dev server), **commands/job.ts (#418)** (`HELP` apart, one handler per subcommand), **the release splits (#419)** (`release-plan.ts`, `release-run.ts`). Each deletes its size pin and the upward edges it removes.
+5. **pr.ts (#414, landed)**, **server.ts (#415)**, **daemon.ts (#416)**, **worktree.ts (#417)** (create/remove, command templating, `verify`, the dev server), **commands/job.ts (#418)** (`HELP` apart, one handler per subcommand), **the release splits (#419)** (`release-plan.ts`, `release-run.ts`). Each deletes its size pin and the upward edges it removes.
 6. **Tests (#420):** unit tests beside their modules, the rest into `test/{integration,e2e,invariants,support}/`, with the tsconfig includes and CI sharding by kind.
 
 ## Timing
