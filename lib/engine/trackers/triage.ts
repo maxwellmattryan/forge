@@ -11,7 +11,7 @@ import { nativeRefs } from '#core/job/issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import { isActive, listJobs } from '#core/job/store.ts';
 import { paths } from '#core/paths.ts';
-import { repoSlug } from '../pr/lifecycle.ts';
+import { repoSlug } from '#integrations/github/pull-requests.ts';
 import { roster } from '../pipeline/roster.ts';
 import { UNTRUSTED_LINE, oneLine } from './link.ts';
 import { gh } from '#integrations/github/gh.ts';

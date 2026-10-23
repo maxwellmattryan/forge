@@ -80,7 +80,7 @@ diff: diff.patch              # optional, the default
 defects:                      # optional; none makes a clean fixture
   - id: git-option-injection  # slug, unique in the fixture
     lens: security            # one of lenses
-    path: lib/engine/pr/lifecycle.ts           # a file the diff's +++ b/ headers name
+    path: lib/engine/pr/open.ts                # a file the diff's +++ b/ headers name
     line: 42                  # optional new-side line
 ```
 Both files must be regular files of at most 256 KiB. An unknown key, a bad slug or lens, a defect lens outside `lenses`, a path no header names, a line that isn't a positive integer, or a linked, missing or oversized file makes `list` and `start` exit 1, naming the fixture and the problem. Fixtures are read from the main checkout only: a branch that edits or deletes its own copy changes nothing.

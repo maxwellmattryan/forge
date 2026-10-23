@@ -9,7 +9,7 @@ import { listArchived } from '#core/job/archive.ts';
 import { fetchCommit, isSha } from '../pr/delta.ts';
 import { listJobs, logEvent, setJob } from '#core/job/store.ts';
 import { isSafeBranch, isSafeRemote } from '../project/member-repos.ts';
-import { repoSlug } from '../pr/lifecycle.ts';
+import { repoSlug } from '#integrations/github/pull-requests.ts';
 import { OUTCOME_REF } from '#core/job/schema.ts';
 import type { Config, Job, JobOutcome } from '#core/types.ts';
 import { gh } from '#integrations/github/gh.ts';

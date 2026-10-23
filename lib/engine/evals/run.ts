@@ -26,7 +26,7 @@ import { gh, ghJson } from '#integrations/github/gh.ts';
 import { git as runGit, gitEnv } from '#integrations/git/runner.ts';
 import { commandPort, endpointPlaceholders, jobEndpoints } from '../environment/endpoints.ts';
 import { jobComponent } from '#core/config/components.ts';
-import { repoSlug } from '../pr/lifecycle.ts';
+import { repoSlug } from '#integrations/github/pull-requests.ts';
 import { firstVerifyRun } from '../metrics/stats.ts';
 import * as yaml from '#core/format/yaml.ts';
 import type { Config, EvalCompare, EvalCompareSide, EvalDelta, EvalOverlay, EvalResult, EvalRun, EvalSummary, EvalTask, EvalTaskMetric, Job, RealJobScores } from '#core/types.ts';

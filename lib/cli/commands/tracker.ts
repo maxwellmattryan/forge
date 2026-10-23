@@ -1,7 +1,9 @@
 // Tracker commands, starting jobs from tracker refs, and `forge sync` (PRs + trackers for every job).
 import { DEP_REASON, claimRespectingDeps, refreshDependencyWait, retargetPlan, unmetDependencies } from '#engine/pipeline/deps.ts';
 import { createJob, isActive, leaseStatus, listJobs, loadJob, logEvent, readEvents, setJob, claimJob } from '#core/job/store.ts';
-import * as pr from '#engine/pr/lifecycle.ts';
+import { approvedBy, escalationApproval } from '#engine/pr/body.ts';
+import { retargetPr } from '#engine/pr/open.ts';
+import { syncPr } from '#engine/pr/sync.ts';
 import { measureOutcomes } from '#engine/evals/outcome.ts';
 import { queueScores } from '#engine/evals/scoring.ts';
 import { refreshRequest } from '#engine/trackers/request-refresh.ts';
@@ -13,15 +15,13 @@ import { finishEnvironment } from '#engine/environment/lifecycle.ts';
 import { searchTerms } from '#core/job/issue-link.ts';
 import { checkIssueRef, isSafeUrl, nativeRef, nativeRefs, parseIssueRef, primaryIssue, sameIssue } from '#core/job/issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
-import { isLinkedJob, jobRepoOrder, nextMergeable } from '#engine/project/repo-order.ts';
-import type { PrStateKey, RepoKey } from '#engine/project/repo-order.ts';
+import { isLinkedJob, jobRepoOrder, nextMergeable, type PrStateKey, type RepoKey } from '#engine/project/repo-order.ts';
 import { memberClone, memberConfig, memberRepos, recordJobRepo } from '#engine/project/job-repos.ts';
 import { memberCheck, readLocalConfig } from '#engine/project/member-repos.ts';
 import { clampLimit, publicHits, searchTracker } from '#engine/trackers/link.ts';
 import { loadTracker, memberTracker } from '#engine/trackers/load.ts';
 import { memberIssues, mirrorToTracker } from '#engine/trackers/mirror.ts';
-import { memberForRef, memberTrackerConfig, memberTrackers, qualify } from '#engine/project/member-trackers.ts';
-import type { MemberTracker } from '#engine/project/member-trackers.ts';
+import { memberForRef, memberTrackerConfig, memberTrackers, qualify, type MemberTracker } from '#engine/project/member-trackers.ts';
 import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '#engine/trackers/triage.ts';
 import { dashRunning, reconcile, type ReconcileResult } from '#office/reconcile.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -396,12 +396,12 @@ export async function commentApproval(root: string, config: Config, job: Job): P
   if (!refs.length && !members.length) return;
   const events = readEvents(root, job.id);
   if (events.some((e) => e.type === 'tracker-approval-comment')) return;
-  const approval = pr.escalationApproval(events);
+  const approval = escalationApproval(events);
   if (!approval) return;
   const merged = events.findLast((e) => e.type === 'pr-merged');
   const method = typeof merged?.method === 'string' ? merged.method : config.merge.method;
   const number = job.pr?.number;
-  const by = pr.approvedBy(approval);
+  const by = approvedBy(approval);
   const posted: string[] = [];
   let ok = true;
   const failed = (e: unknown) => {
@@ -485,7 +485,7 @@ export async function syncAll(
     if (!watch || !config.pr.enabled) continue;
     try {
       const before: Partial<JobPr> = job.pr ?? {};
-      const r = pr.syncPr(root, config, job.id);
+      const r = syncPr(root, config, job.id);
       if (r.integrate) integrating.push(job.id);
       const after = loadJob(root, job.id);
       await mirrorToTracker(root, config, after);
@@ -536,7 +536,7 @@ export async function syncAll(
   // Both passes are local git and job state, so they run even with PRs disabled.
   for (const p of retargetPlan(root, config)) {
     try {
-      pr.retargetPr(root, config, p.id, p.to, p.dependency);
+      retargetPr(root, config, p.id, p.to, p.dependency);
       results.push({ id: p.id, retargeted: { from: p.from, to: p.to, dependency: p.dependency } });
     } catch (e) {
       results.push({ id: p.id, error: (e as Error).message.slice(0, 300) });

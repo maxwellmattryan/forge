@@ -48,7 +48,7 @@ import { finishEnvironment, finishEnvironmentStopOnly } from '#engine/environmen
 import type { AgentUsage, Config, Effort, Job, JobIssue } from '#core/types.ts';
 import type { ArchiveResult } from '#engine/ops/types.ts';
 import type { HelpGroup } from '../types.ts';
-import { pullPrHead } from '#engine/pr/lifecycle.ts';
+import { pullPrHead } from '#engine/pr/branch.ts';
 import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
 import { jobAudit, toCsv } from '#engine/ops/audit.ts';
 import { checkRepoBudget, isRepoHold, parkForRepoBudget, repoBudgetBlock, repoBudgetExempt } from '#engine/metrics/repo-budget.ts';

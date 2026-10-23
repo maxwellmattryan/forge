@@ -15,7 +15,7 @@ import { readJson, writeJsonAtomic } from '#core/os/fs.ts';
 import { withLock } from '#core/os/lock.ts';
 import { gh, ghJson } from './gh.ts';
 import * as yaml from '#core/format/yaml.ts';
-import { repoSlug } from '#engine/pr/lifecycle.ts';
+import { repoSlug } from './pull-requests.ts';
 import { listJobs, isActive } from '#core/job/store.ts';
 import { statusKey, STATUS_KEYS } from '#api/tracker.ts';
 import { queryTerms } from '#core/job/issue-link.ts';

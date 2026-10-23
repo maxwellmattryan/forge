@@ -1,6 +1,6 @@
 // Dependencies between jobs (`job.dependsOn`): validation, parking, claim refusal, stacked
 // branches and retargeting. Imports only jobs/paths/util/git and archive.ts (which imports no more):
-// worktree.ts imports this module, and pr.ts imports worktree.ts, so anything more would be a cycle.
+// worktree.ts imports this module, and lib/engine/pr/ imports worktree.ts, so anything more would be a cycle.
 import path from 'node:path';
 import { readArchived } from '#core/job/archive.ts';
 import { git } from '#integrations/git/runner.ts';
