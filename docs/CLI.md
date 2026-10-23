@@ -1505,7 +1505,7 @@ Reconcile PRs and trackers for all jobs.
 
 ### `forge tracker`
 
-The configured issue tracker (tracker.kind): items, claims, comments.
+The configured issue tracker (tracker.kind): items, claims, comments; under github a &lt;ref> is an issue in this repo (12, #12 or owner/repo#12).
 
 **`forge tracker claim <ref> <job>`**: mark an item as taken by a job
 
@@ -1698,12 +1698,12 @@ A job's git worktree.
 
 | Flag | Meaning |
 |---|---|
-| `--delete-branch` | delete the job's branch too (not in a verify-only repo) |
+| `--delete-branch` | delete the job's branch too, only the one Forge named (git.branchPrefix + id; another is kept and listed as branchKept), not in a verify-only repo |
 | `--force` | remove it with uncommitted changes |
 | `--repo NAME` | only the worktree of member repo NAME |
 
 | Exit | When |
 |---|---|
-| 1 | no such job or repo, a member worktree that could not be removed (the result names it), or a backing teardown that failed (backing.json is kept for a retry) |
+| 1 | no such job or repo, a stored worktree that is not the job's own &lt;worktrees.root>/&lt;id>, an unsafe branch name with --delete-branch, a member worktree that could not be removed (the result names it), or a backing teardown that failed (backing.json is kept for a retry) |
 | 5 | git failed |
 <!-- forge:cli:end -->

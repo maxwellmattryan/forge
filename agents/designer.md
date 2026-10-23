@@ -34,7 +34,7 @@ Source of truth: <Figma frame links / existing screens / "none: derived from des
 <only if the designs are missing something essential, or "None">
 ```
 
-If the brief says **mockup mode**, also write `mockup.html`: one self-contained static page (inline CSS, no external requests, no scripts unless needed for a state toggle) that shows each screen/state side by side, using the app's real tokens/colours. It's a reference for the builder and the human, not production code.
+If the brief says **mockup mode**, also write `mockup.html`: one self-contained static page (inline CSS, no external requests, no scripts: the dashboard shows mockups with scripts off, so use CSS (`:target`, `<details>`) for state toggles) that shows each screen/state side by side, using the app's real tokens/colours. It's a reference for the builder and the human, not production code.
 
 ## Finish
 Write output files with the Write or Edit tool, never a shell redirect or heredoc, and confirm each exists before you reply.
