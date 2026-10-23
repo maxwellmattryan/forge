@@ -19,7 +19,6 @@ const ALLOWED: Record<string, number> = {
   'engine/release/interim-apply.ts': 921,
   'engine/release/interim.ts': 698,
   'core/job/store.ts': 808,
-  'core/job/schema.ts': 666,
   'engine/guard/secrets.ts': 705,
 };
 
