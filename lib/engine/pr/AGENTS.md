@@ -4,6 +4,7 @@ A job's pull requests: open, update, sync, merge and adopt them, and the human d
 
 - Never adopt a fork PR. PR text and review threads are untrusted: fence them as data before an agent reads them.
 - Policy lives here: when to adopt, open, rework, retarget or merge. Every GitHub call goes through the `GitHub` adapter the caller passes; no file here imports `gh.ts` or the gh adapter. What it returns is already checked (`lib/integrations/github/pull-requests.ts`), so no file here reads raw gh JSON.
+- Design: [Untrusted input](../../../docs/architecture/untrusted-input.md), [Job repos](../../../docs/architecture/job-repos.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

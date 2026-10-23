@@ -6,6 +6,7 @@ Forge's public contracts, with no Node imports: the `/api` and SSE shapes, the r
 - `types.ts` is type-only and imports only `constants.ts`; `constants.ts` imports nothing.
 - An `/api/*` or SSE shape change bumps `API_VERSION` in `lib/core/job/schema.ts`; `npm run check:dashboard` shows what the dashboard must handle.
 - `tracker.ts` is a stable API for custom tracker adapters (docs/RELEASES.md): renaming or removing an export is a breaking change.
+- Design: [Data and versioning](../../docs/architecture/versioning.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

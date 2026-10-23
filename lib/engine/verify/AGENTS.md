@@ -5,6 +5,7 @@
 - Import order, kept acyclic: `record.ts` ← everything (it imports nothing in this folder); `steps.ts` ← `gate.ts`, and `steps.ts` never imports `gate.ts`; `e2e.ts` ← `gate.ts`.
 - **Only `record.ts` reads `job.verifyRuns`.** Every other module asks it: this round's last run is the job's latest verify, and a HEAD is verified only when that run passed on it and on every member HEAD (`headVerified`). job.json is agent-writable, so the record treats every field as hostile.
 - `verify` and `verifyMember` run configured commands, the e2e step included, only through the `CommandRunner` they are given: `COMMAND_RUNNER` (`runCommand` and `runCommandAsync`) outside tests, a stub in them.
+- Design: [Untrusted input](../../../docs/architecture/untrusted-input.md), [Daemon security](../../../docs/architecture/daemon-security.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
