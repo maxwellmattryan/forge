@@ -14,6 +14,7 @@
   import { TABBABLE, wrapFocus } from '../lib/settings.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
+  import { EXIT, fade, pop } from '../lib/motion.ts';
 
   let { onclose }: { onclose: () => void } = $props();
 
@@ -194,8 +195,8 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop; Escape closes the dialog from the keyboard) -->
-<div class="fixed inset-0 z-45 flex items-start justify-center scrim md:p-6 md:pt-[12vh]" onmousedown={backdropDown} onclick={backdrop}>
-  <div bind:this={dialog} role="dialog" aria-modal="true" aria-label={$t('command.title')} tabindex="-1" class="plate solid flex flex-col w-full min-w-0 max-h-[85vh] shadow-(--shadow-overlay) md:max-w-[672px]" onkeydown={trap}>
+<div class="fixed inset-0 z-45 flex items-start justify-center scrim md:p-6 md:pt-[12vh]" in:fade|global out:fade|global={EXIT} onmousedown={backdropDown} onclick={backdrop}>
+  <div bind:this={dialog} role="dialog" aria-modal="true" aria-label={$t('command.title')} tabindex="-1" in:pop|global class="plate solid flex flex-col w-full min-w-0 max-h-[85vh] shadow-(--shadow-overlay) md:max-w-[672px]" onkeydown={trap}>
     <!-- One recessed field holding the glyph, the scope chip and a seamless input. flex-wrap with a 10rem input basis: on a
          phone the scope chip and its remove button take the first line, so the input keeps room to type. -->
     <div class="input cmd-field flex-wrap gap-x-2">

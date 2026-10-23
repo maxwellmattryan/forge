@@ -45,6 +45,7 @@
   import { t } from '../lib/locale.ts';
   import { DRAWER_TABS, PANE_DEFAULT, PANE_MIN, actorLabel, clampPaneWidth, eventDetail, isForemanEvent, moveDrawerTab, paneKey, paneMax, verdictMatrix, verifierRounds, verifierTone, type DrawerTab } from '../lib/drawer.ts';
   import { pref } from '../lib/prefs.ts';
+  import { slideMarker } from '../lib/marker.ts';
   import { sidebarShown } from '../lib/sidebar.ts';
 
   const open = $derived(S.drawer.id !== null);
@@ -149,19 +150,21 @@
 {/snippet}
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop, as on main; Escape closes the drawer from the keyboard) -->
-<div id="drawer-backdrop" class="fixed inset-0 backdrop {open ? '' : 'hidden'} z-30" onclick={closeDrawer}></div>
+<!-- Always mounted, so it fades both ways: closed, it is invisible and lets presses through. -->
+<div id="drawer-backdrop" class="fixed inset-0 backdrop z-30 {open ? 'opacity-100 transition-[opacity] duration-(--motion-base) ease-(--ease-enter)' : 'opacity-0 invisible pointer-events-none transition-[opacity,visibility] duration-(--motion-quick) ease-(--ease-exit)'}" onclick={closeDrawer}></div>
 <!-- A full-height column that never scrolls itself: the header (capped at 40%, scrolling inside itself when taller) and
      the tab strip stay put, the tab panel under them is the one scroller (on Log, the log pane is), and the action dock
      under it stays put on every tab. It runs to the viewport's bottom, over the status bar, which the backdrop dims like
-     the rest of the page; the bottom inset keeps the dock clear of a phone's home indicator. Opening slides it in (the reduced-motion block turns that off). Only a close transitions
-     visibility, so it turns invisible at the end of the slide: on open it turns visible at once, as a transition would
-     hold it hidden for the first frame and the title could not take focus. A drag drops the transition, so the width
-     follows the pointer. -->
+     the rest of the page; the bottom inset keeps the dock clear of a phone's home indicator. Opening slides it 24px in from
+     the right as it fades in (base, easing out); closing slides and fades it out (quick, easing in); the reduced-motion
+     block turns both off. Only a close transitions visibility, so it turns invisible at the end of the exit: on open it
+     turns visible at once, as a transition would hold it hidden for the first frame and the title could not take focus.
+     A drag drops the transition, so the width follows the pointer. -->
 <aside
   bind:this={pane}
   id="drawer"
   aria-label={$t('drawer.label')}
-  class="fixed right-0 top-0 bottom-0 pb-[env(safe-area-inset-bottom)] z-40 solid w-full flex flex-col overflow-hidden {open ? 'shadow-(--shadow-drawer)' : 'translate-x-full invisible'} {dragging ? '' : open ? 'transition-[translate]' : 'transition-[translate,visibility]'}"
+  class="fixed right-0 top-0 bottom-0 pb-[env(safe-area-inset-bottom)] z-40 solid w-full flex flex-col overflow-hidden {open ? 'opacity-100 shadow-(--shadow-drawer)' : 'translate-x-6 opacity-0 invisible'} {dragging ? '' : open ? 'transition-[translate,opacity] duration-(--motion-base) ease-(--ease-enter)' : 'transition-[translate,opacity,visibility] duration-(--motion-quick) ease-(--ease-exit)'}"
   style={S.pane.md ? `width: ${width}px` : undefined}
 >
   {#if S.pane.md && open}
@@ -201,14 +204,14 @@
         {#if shown.tab !== 'thread' && (running.length || j.ownerStatus?.status !== 'none')}<AgentActivity activity={running} owner={j.ownerStatus} expandable={true} />{/if}
       </div>
       <!-- Outside the scroller, so it never moves; it scrolls sideways when the tabs outgrow a phone. -->
-      <div role="tablist" tabindex="-1" aria-label={$t('drawer.tabs')} class="tabs shrink-0 z-20 solid px-5 md:px-6 overflow-x-auto overflow-y-hidden" onkeydown={stripKey}>{#each DRAWER_TABS as tab (tab)}<button role="tab" id="drawer-tab-{tab}" aria-selected={shown.tab === tab} aria-controls="drawer-panel-{tab}" tabindex={shown.tab === tab ? 0 : -1} class="tab shrink-0 whitespace-nowrap focus-visible:-outline-offset-2 {shown.tab === tab ? 'active' : ''}" onclick={() => selectTab(tab)}>{#if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<Chip extra="spark ml-1.5" text={$t('drawer.threadUnread', { count: unread })} />{/if}{:else if tab === 'log'}{$t('drawer.logTab')}{#if activity?.kind === 'working'}<span class="inline-flex ml-1.5 align-middle"><LiveDot on={true} /></span><span class="sr-only">{$t('live.working')}</span>{/if}{:else if tab === 'agents'}{$t('drawer.agentsTab')}{#if running.length}<span class="muted num ml-1">({running.length})</span>{/if}{:else if tab === 'files'}{$t('drawer.files')}{:else if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted num">({d.events.length})</span>{:else if tab === 'details'}{$t('drawer.detailsTab')}{/if}</button>{/each}</div>
+      <div role="tablist" tabindex="-1" aria-label={$t('drawer.tabs')} {@attach slideMarker('[aria-selected="true"]', 'bar-bottom')} class="tabs slide-marker shrink-0 z-20 solid px-5 md:px-6 overflow-x-auto overflow-y-hidden" onkeydown={stripKey}>{#each DRAWER_TABS as tab (tab)}<button role="tab" id="drawer-tab-{tab}" aria-selected={shown.tab === tab} aria-controls="drawer-panel-{tab}" tabindex={shown.tab === tab ? 0 : -1} class="tab shrink-0 whitespace-nowrap focus-visible:-outline-offset-2 {shown.tab === tab ? 'active' : ''}" onclick={() => selectTab(tab)}>{#if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<Chip extra="spark ml-1.5" text={$t('drawer.threadUnread', { count: unread })} />{/if}{:else if tab === 'log'}{$t('drawer.logTab')}{#if activity?.kind === 'working'}<span class="inline-flex ml-1.5 align-middle"><LiveDot on={true} /></span><span class="sr-only">{$t('live.working')}</span>{/if}{:else if tab === 'agents'}{$t('drawer.agentsTab')}{#if running.length}<span class="muted num ml-1">({running.length})</span>{/if}{:else if tab === 'files'}{$t('drawer.files')}{:else if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted num">({d.events.length})</span>{:else if tab === 'details'}{$t('drawer.detailsTab')}{/if}</button>{/each}</div>
       <div bind:this={panel} role="tabpanel" id="drawer-panel-{shown.tab}" aria-labelledby="drawer-tab-{shown.tab}" tabindex="0" class="min-h-0 flex-1 overscroll-contain {shown.tab === 'log' ? 'overflow-hidden' : 'overflow-y-auto'} p-5 md:p-6 flex flex-col gap-5 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
         {#if shown.tab === 'thread'}
           <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} events={d.events ?? []} baseline={S.drawer.threadAtOpen} />
         {:else if shown.tab === 'log'}
           <!-- Keyed by job id (and owner transcript), so the drawer's 2 s refresh never re-creates the log or its stream; `active`
                closes the stream as soon as the drawer closes, though its last view stays while it slides out. -->
-          {#key logKey}<SessionLog scope={j.id} active={open} transcript={ownerLog} controls={false} fill />{/key}
+          {#key logKey}<SessionLog scope={j.id} active={open} transcript={ownerLog} stage={j.stage} controls={false} fill />{/key}
         {:else if shown.tab === 'agents'}
           {#key j.id}<AgentsTab job={j.id} detail={d} active={open} />{/key}
         {:else if shown.tab === 'files'}

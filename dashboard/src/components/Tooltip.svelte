@@ -106,6 +106,6 @@
   bind:this={tip}
   popover="manual"
   aria-hidden="true"
-  class="plate solid fixed inset-auto m-0 px-2 py-1 text-xs text-fg pointer-events-none shadow-(--shadow-overlay) max-w-[min(20rem,calc(100vw_-_16px))]"
+  class="plate solid tip-fade fixed inset-auto m-0 px-2 py-1 text-xs text-fg pointer-events-none shadow-(--shadow-overlay) max-w-[min(20rem,calc(100vw_-_16px))]"
   style="left: {at.left}px; top: {at.top}px"
 >{text}{#if hint}<span class="block text-muted">{hint}</span>{/if}</div>

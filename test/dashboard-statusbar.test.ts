@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sessionPill } from '../dashboard/src/lib/daemon.ts';
-import { FACTS_DROP, FACTS_MAX, ROLE_ORDER, barModel, factsHidden, type BarModel, type DaemonIndicator, connectionState, inlineInputAction, modelLabel, modelSummary, promptAnnouncement, reviewerRows, roleRows, summaryText } from '../dashboard/src/lib/statusbar.ts';
+import { FACTS_DROP, FACTS_MAX, ROLE_ORDER, barLamps, barModel, factsHidden, type BarModel, type DaemonIndicator, connectionState, inlineInputAction, modelLabel, modelSummary, promptAnnouncement, reviewerRows, roleRows, summaryText } from '../dashboard/src/lib/statusbar.ts';
 import { FOCUSABLE, POPOVERS, POPOVER_WIDTH, TAB_STOPS, dismissal, placePopover, togglePopover, type DismissReason } from '../dashboard/src/lib/popover.ts';
 import { TABBABLE } from '../dashboard/src/lib/settings.ts';
 
@@ -84,6 +84,33 @@ test('barModel: daemon, foreman, held, waiting and prompts', () => {
   assert.deepEqual([held.held, held.waiting], [2, 0]);
   const waiting = barModel(pool({ jobs: { a: session({ scope: 'a', waiting: true }) } }), { pending: false });
   assert.deepEqual([waiting.held, waiting.waiting], [0, 1]);
+});
+
+test('barLamps: one row per indicator state', () => {
+  const lamps = (p: any, o: { needs?: number; conn?: any; working?: boolean } = {}) => barLamps(barModel(p, { pending: false }), { needs: 0, conn: 'live', working: false, ...o });
+  // Needs: you while anything waits on a person.
+  assert.equal(lamps(pool()).needs, 'idle');
+  assert.equal(lamps(pool(), { needs: 2 }).needs, 'you');
+  // Foreman: dark while it or the daemon is off; you with office prompts; working while busy; done while quiet.
+  assert.equal(lamps(pool({ foreman: false })).foreman, 'idle', 'foreman off');
+  assert.equal(lamps({ enabled: false, wanted: false, foreman: true, office: session({ scope: '_office' }) }).foreman, 'idle', 'the daemon is off');
+  const office = (o: any) => pool({ foreman: true, office: session({ scope: '_office', running: true, ...o }) });
+  assert.equal(lamps(office({ status: 'busy', permissions: [prompt('p1')] })).foreman, 'you', 'office prompts');
+  assert.equal(lamps(office({ status: 'busy' })).foreman, 'working', 'office busy');
+  assert.equal(lamps(office({ status: 'idle' })).foreman, 'done', 'office quiet');
+  // Daemon: dark while off; you with any prompt in the pool; working while any session works; done while quiet.
+  assert.equal(lamps({ enabled: false, wanted: false }).daemon, 'idle', 'daemon off');
+  assert.equal(lamps(pool({ live: 1, jobs: { a: session({ running: true, status: 'busy', permissions: [prompt('p2')] }) } })).daemon, 'you', 'a prompt in the pool');
+  assert.equal(lamps(pool({ live: 1, jobs: { a: session({ running: true, status: 'busy' }) } })).daemon, 'working', 'a session works');
+  assert.equal(lamps(pool({ live: 1, jobs: { a: session({ running: true, status: 'idle' }) } })).daemon, 'done', 'running quiet');
+  // Model: working while any session or agent works.
+  assert.equal(lamps(pool()).model, 'idle');
+  assert.equal(lamps(pool(), { working: true }).model, 'working');
+  // Connection.
+  assert.equal(lamps(pool(), { conn: 'live' }).connection, 'done');
+  assert.equal(lamps(pool(), { conn: 'connecting' }).connection, 'idle');
+  assert.equal(lamps(pool(), { conn: 'offline' }).connection, 'fault');
+  assert.equal(lamps(pool(), { conn: 'outdated' }).connection, 'you');
 });
 
 test('promptAnnouncement speaks only when the count rises', () => {

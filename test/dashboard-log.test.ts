@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CLOSED_NOTE, LOG_KEY, createSessionLog, eventsUrl } from '../dashboard/src/lib/daemon-log.ts';
 import { MAX_ENTRIES } from '../dashboard/src/lib/session-log.ts';
+import { SETTLE_MS } from '../dashboard/src/lib/motion.ts';
 
 class FakeSource {
   declare url: any;
@@ -36,9 +37,10 @@ function harness({ visible = true, pages = [] as any[], scope = 'job-a' } = {}) 
   const sources = [];
   const states = [];
   const fetches = [];
-  const env = { visible, changes: 0, pages };
+  const env = { visible, changes: 0, pages, clock: 0 };
   const log = createSessionLog({
     scope,
+    now: () => env.clock,
     onState: (st) => states.push(st),
     onChange: () => env.changes++,
     connect: (url) => {
@@ -88,6 +90,19 @@ test('merges live lines by offset: no duplicates, nothing older than the window,
   src.emit('line', { data: 'l130', lastEventId: '130' });
   assert.deepEqual(h.offsets(), [100, 110, 120, 130, 140]);
   assert.equal(h.log.entries[1].line, 'l110', 'a replayed line never replaces the one we have');
+  assert.equal(h.log.lastLiveAt, null, 'lines within SETTLE_MS of the dial are backlog');
+  assert.equal(h.log.arrivedAt(140), null);
+  assert.equal(h.log.arrivedAt(100), null, 'the page is never live');
+  h.env.clock = SETTLE_MS;
+  src.emit('line', { data: 'l150', lastEventId: '150' });
+  assert.equal(h.log.lastLiveAt, SETTLE_MS, 'a live line after the settle window stamps the log');
+  assert.equal(h.log.arrivedAt(150), SETTLE_MS, 'and its offset');
+  h.env.clock = SETTLE_MS + 500;
+  src.emit('line', { data: 'l150 again', lastEventId: '150' });
+  assert.equal(h.log.lastLiveAt, SETTLE_MS, 'a duplicate stamps nothing');
+  assert.equal(h.log.arrivedAt(150), SETTLE_MS);
+  h.log.sync(false);
+  assert.deepEqual([h.log.lastLiveAt, h.log.arrivedAt(150)], [null, null], 'stop forgets both');
   src.emit('state', { data: '{"scope":"job-a","status":"busy"}' });
   src.emit('state', { data: '{oops' });
   assert.deepEqual(h.states, [{ scope: 'job-a', status: 'busy' }]);
@@ -132,10 +147,14 @@ test('refetches on reconnect and replaces the buffer when the log was reset', as
   src.readyState = 0;
   src.emit('error');
   src.readyState = 1;
+  h.env.clock = 10_000;
   src.emit('open');
+  src.emit('line', { data: 'l115', lastEventId: '115' });
   await tick();
   assert.equal(h.fetches.length, 2, 'a reconnect refetches the latest page');
-  assert.deepEqual(h.offsets(), [100, 110, 120, 130], 'and fills the gap by offset');
+  assert.deepEqual(h.offsets(), [100, 110, 115, 120, 130], 'and fills the gap by offset');
+  assert.equal(h.log.lastLiveAt, null, 'neither the replayed line nor the refetched page is live');
+  assert.deepEqual([115, 120, 130].map((o) => h.log.arrivedAt(o)), [null, null, null]);
   src.emit('open');
   await tick();
   assert.deepEqual(h.offsets(), [5, 15], 'a page ending before our newest line means the log was reset');

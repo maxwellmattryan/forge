@@ -11,6 +11,7 @@
   import { workingCount } from '../lib/live.ts';
   import { S, req, setFilter, setLayout } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
+  import { slideMarker } from '../lib/marker.ts';
 
   // App renders a view only once S.data is loaded.
   const data = $derived(S.data as ApiState);
@@ -41,10 +42,10 @@
   {#snippet sub()}{$t('pipeline.active', { count: counts.active })} · <Icon name="branch" />{$t('pipeline.base')} <code class="font-mono">{data.config.base}</code> · <Icon name={data.config.tracker === 'github' ? 'github' : 'tracker'} />{$t('pipeline.tracker', { tracker: data.config.tracker })}{/snippet}
   {#snippet right()}
     <!-- Wraps on a phone: the riveted header clips what overflows it. -->
-    <div class="seg flex-wrap gap-y-1">
+    <div class="seg slide-marker flex-wrap gap-y-1" {@attach slideMarker('.sel', 'fill')}>
       {#each FILTERS as f (f)}{@const on = S.filter === f}<button class="btn {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setFilter(f)}>{filterLabel[f]} <span class="num {on ? '' : 'muted'}">({counts[f]})</span></button>{/each}
     </div>
-    <div class="seg">
+    <div class="seg slide-marker" {@attach slideMarker('.sel', 'fill')}>
       {#each LAYOUTS as l (l)}{@const on = S.layout === l}<button class="btn {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setLayout(l)}><Icon name={l} />{layoutLabel[l]}</button>{/each}
     </div>
 <!--    <button class="btn primary flush" onclick={() => req({ type: 'next' })}>{$t('common.runNext')}</button>-->

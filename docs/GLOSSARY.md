@@ -86,6 +86,16 @@ Words for Forge's own code, decided in #303 ([design/lib-layout.md](design/lib-l
 | **layer alias** | A `package.json` subpath import (`#api/`, `#core/`, `#integrations/`, `#engine/`, `#office/`) that names a lib layer; imports across layers use one, imports inside a layer stay relative. | - |
 | **folder map** | A folder's `AGENTS.md`: a few hand-written lines, then the table that `npm run docs:map` generates from each file's header comment. | - |
 
+## Dashboard look
+
+Words for how the dashboard shows activity, used in the README, Settings and `dashboard/AGENTS.md`. The design language behind them ("station", "bezel", "pilot lamp") belongs in code, comments and design notes, never in dashboard copy.
+
+| Term | Meaning | Config key |
+|---|---|---|
+| **heat** | The dashboard's picture of activity: a session log's frame warms while output streams and cools slowly after, and a board card's edge cools once after its job changes stage. It shows only what arrives while the dashboard is connected, never a page load or a reconnect, and reduced motion leaves each at its end state. | - |
+| **lamp** | A small light that shows state at a glance, on a session log's nameplate (working, waiting, you, done, idle or fault) and on the status bar's indicators. It is decorative: the pill or text beside it carries the meaning. | - |
+| **Screen effect** | The browser preference in Settings › General for the scanlines and soft glow on session logs, on by default and kept per browser like Grain; off leaves the rest of each log's frame as it is. | - |
+
 ## Collisions we avoid
 
 Some of these words already mean something in Forge. They keep those meanings:

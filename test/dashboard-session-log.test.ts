@@ -108,6 +108,21 @@ test('turns, items and subagent groups from a fixture stream', () => {
   assert.equal(failed.text, 'turn failed · Failed to authenticate · 1 turns', 'a failed turn never reads as success');
 });
 
+test('openTool ignores filters', () => {
+  assert.equal(buildSessionView(FIXTURE).openTool, false, 'the newest item is a supervisor line');
+  const head = [sup('turn', { requests: 1 }), assistant([{ type: 'text', text: 'Reading.' }])];
+  const tool = entries([...head, assistant([{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'a' } }])]);
+  assert.equal(buildSessionView(tool).openTool, true, 'a tool call without its result');
+  assert.equal(buildSessionView(tool, { ...DEFAULT_FILTERS, tools: false }).openTool, true, 'a filter that hides tools changes nothing');
+  assert.equal(buildSessionView(tool, { ...DEFAULT_FILTERS, text: 'no such text' }).openTool, true, 'nor does a search');
+  const done = entries([...head, assistant([{ type: 'tool_use', id: 't1', name: 'Read', input: {} }]), user([{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }])]);
+  assert.equal(buildSessionView(done).openTool, false, 'its result arrived');
+  const agent = entries([...head, assistant([{ type: 'tool_use', id: 'a1', name: 'Agent', input: { subagent_type: 'forge:builder' } }]), assistant([{ type: 'text', text: 'child' }], 'a1')]);
+  assert.equal(buildSessionView(agent, { ...DEFAULT_FILTERS, subagents: false }).openTool, true, 'a running subagent, its child lines nested under it');
+  assert.equal(buildSessionView(entries([...head, assistant([{ type: 'tool_use', id: 't1', name: 'Read', input: {} }]), sup('turn', { requests: 1 })])).openTool, false, 'a new turn with nothing in it yet');
+  assert.equal(buildSessionView([]).openTool, false, 'an empty log');
+});
+
 test('one-line tool summaries', () => {
   assert.equal(toolSummary('Bash', { command: `echo ${'a'.repeat(200)}\nnext` }).length, 121);
   assert.equal(toolSummary('Bash', { command: 'ls -la\nrm x' }), 'ls -la');
@@ -162,7 +177,7 @@ test('long text, empty logs and odd lines', () => {
   const long = 'L'.repeat(LONG_TEXT + 1);
   const v = buildSessionView(entries([assistant([{ type: 'text', text: long }, { type: 'text', text: 'short' }])]));
   assert.deepEqual(v.turns[0].items.map((i) => i.kind === 'text' && i.long), [true, false]);
-  assert.deepEqual(buildSessionView([]), { turns: [], totals: { turns: 0, costUsd: 0, results: 0 } });
+  assert.deepEqual(buildSessionView([]), { turns: [], totals: { turns: 0, costUsd: 0, results: 0 }, openTool: false });
   const odd = buildSessionView(entries(['not json', '42', { type: 'mystery', x: 1 }, { type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } }, user([{ type: 'tool_result', tool_use_id: 'nope', content: 'r' }])]));
   assert.deepEqual(odd.turns[0].items.map((i) => i.kind), ['raw', 'raw', 'other', 'rate-limit', 'other']);
   // A child line that arrives before its Agent call (out-of-order lines) is adopted by the call.
