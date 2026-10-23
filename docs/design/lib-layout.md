@@ -1,6 +1,6 @@
 # lib/ layers and the big-file splits
 
-Status: decided 2026-10-21 (#303). The groundwork landed in #412: the glossary words, header comments, the tripwire tests in `test/invariants/`, `npm run docs:map` and this doc. The move landed in #421: every `lib/` file sits in its layer and module, with a folder map in each layer and module folder. The aliases landed in #370: imports across layers go through `package.json` "imports". The types split landed in #413 and the PR split in #414; the other file splits (#415–#419) and the test layout (#420) are pending.
+Status: decided 2026-10-21 (#303). The groundwork landed in #412: the glossary words, header comments, the tripwire tests in `test/invariants/`, `npm run docs:map` and this doc. The move landed in #421: every `lib/` file sits in its layer and module, with a folder map in each layer and module folder. The aliases landed in #370: imports across layers go through `package.json` "imports". The types split landed in #413, the PR split in #414 and the server split in #415; the other file splits (#416–#419) and the test layout (#420) are pending.
 
 This replaces the flat "~18 top-level modules" plan of 2026-10-19.
 
@@ -36,7 +36,7 @@ Rules:
 - `office` starts long-running listeners (a Slack Socket Mode connection, later); their client code lives in `integrations`.
 - Node built-ins and OS process tools stay in `core`; the repo's own configured commands (verify, dev servers) stay in `engine`.
 
-`test/invariants/layers.test.ts` holds these rules, through `test/invariants/layer-map.ts`. Decided in #370: `server` and `cli` get no alias, because nothing below them may import them. The imports from `lib/cli/` into `lib/server/` (`cli/activity.ts` and `cli/commands/dash.ts` → `server/start.ts`), and the tests' imports of `lib/cli/` and `lib/server/`, stay relative. That needs no exception list: the alias check flags only a relative import that crosses into an aliased layer's folder.
+`test/invariants/layers.test.ts` holds these rules, through `test/invariants/layer-map.ts`. Decided in #370: `server` and `cli` get no alias, because nothing below them may import them. The imports from `lib/cli/` into `lib/server/` (`cli/activity.ts` → `server/types.ts`, and `cli/commands/dash.ts` → `server/start.ts` and `server/types.ts`), and the tests' imports of `lib/cli/` and `lib/server/`, stay relative. That needs no exception list: the alias check flags only a relative import that crosses into an aliased layer's folder.
 
 ## `lib/integrations/`
 
@@ -58,7 +58,7 @@ slack/ discord/ jira/ gitlab/ …   later (M014 and after)
 
 These apply to all new `lib/` code, before and after the move.
 
-- **Folders.** Inside a layer: `lib/<layer>/<module>/<file>.ts`. A concept gets a sub-module only once it has 3 or more files. 3–12 entries per folder, where an entry is a subfolder or a `.ts`, `.mjs` or `.json` file (`AGENTS.md` and tests are not entries). Three kinds of folder are exempt: registries, folders whose files are entries in one table (`cli/commands/`, `cli/commands/render/`, later `server/routes/`), may hold more; an `integrations/<system>/` folder may hold fewer, one folder per outside system; and the shrinking `SMALL` list in `test/invariants/layout.test.ts` may hold fewer until its split lands. `test/invariants/layout.test.ts` holds these rules.
+- **Folders.** Inside a layer: `lib/<layer>/<module>/<file>.ts`. A concept gets a sub-module only once it has 3 or more files. 3–12 entries per folder, where an entry is a subfolder or a `.ts`, `.mjs` or `.json` file (`AGENTS.md` and tests are not entries). Three kinds of folder are exempt: registries, folders whose files are entries in one table (`cli/commands/`, `cli/commands/render/`), may hold more; an `integrations/<system>/` folder may hold fewer, one folder per outside system; and the shrinking `SMALL` list in `test/invariants/layout.test.ts` may hold fewer until its split lands. `test/invariants/layout.test.ts` holds these rules.
 - **Standard names.** `types.ts` for a module's shapes, `constants.ts` for module-wide constants only. Helpers and files are named by purpose; `utils.ts` holds only small leftovers.
 - **No stutter, no `index.ts`, no barrels.** A file never repeats its folder's name (`plan/plan.ts`). A runtime barrel loads a whole folder on every CLI start, which undoes the start-up cache (ARCHITECTURE.md "Start-up cache") and makes cycles easier to hit; importers name the file they need. The one exception is the transitional type-only `core/types.ts`.
 - **Aliases.** Cross-layer imports use `package.json` subpath aliases (`#core/…`), never tsconfig `paths` (#370). `server` and `cli` have none. Inside a layer, imports stay relative.
@@ -139,8 +139,13 @@ Why these sit in core, and why so:
 
 | Module | Files |
 |---|---|
-| `start.ts` | ← `server.ts` (the rest of it splits out in #415) |
-| `types.ts` | the server's shapes outside `/api` (`RequestInfo`) |
+| `start.ts` | ← `server.ts`: `startServer`, the route table and dispatch (split in #415) |
+| `types.ts` | the server's shapes outside `/api`: options, `ServerCtx`, the route rows, `RequestInfo` |
+| `http.ts` | the Host, token, Origin, JSON and read guards, body readers, response writers |
+| `static.ts` | the dist allowlist, the page, hashed assets, the logo, screenshots |
+| `sse.ts` | frames, following a file, `broadcast`, the ping |
+| `redact.ts` | known values out of pages and streams |
+| `routes/` | `jobs.ts`, `office.ts`, `transcripts.ts`, `environment.ts`, `config.ts`, `misc.ts` |
 
 ### cli
 
@@ -202,21 +207,26 @@ Landed in #414. The `gh` mechanism sits in `integrations/github/pull-requests.ts
 
 ### server.ts → `server/` (#415)
 
-Most of the file is one closure inside `startServer`. Pass the closure's state (token, SSE clients, pool, projects dir, previewer) explicitly as a `ServerCtx`, then replace the `if (p === …)` chain with a route table of `{ method, path | RegExp, handler(ctx, req, res, match) }`. That table is the server's map.
+Landed in #415. Most of the file was one closure inside `startServer`. The closure's state (token, SSE clients, pool, projects dir, previewer, caches) is now an explicit `ServerCtx` that `createContext` builds once per server, and the `if (p === …)` chain is the route table `ROUTES` of `{ method, path | RegExp, guards?, handler(ctx, req, res, match) }`. That table is the server's map: dispatch runs the POST guard on every POST row, and each GET row names its own guards.
 
 | File | Contents | ≈ lines |
 |---|---|---|
-| `start.ts` | `startServer`, lifecycle, the route table, dispatch | 200 |
-| `http.ts` | Host, token, Origin and JSON guards, body readers, `send` and `json`, `safeJoin` | 200 |
-| `static.ts` | dist allowlist, page, immutable assets, images, screenshots | 130 |
-| `sse.ts` | `broadcast`, frames, `/api/events`, ping | 100 |
-| `routes/jobs.ts` | job detail, file and raw, POST jobs, effort, repos, run, editor | 300 |
-| `routes/office.ts` | daemon, mode, permission, daemon log, session log | 200 |
-| `routes/transcripts.ts` | locate, page, events | 150 |
-| `routes/config.ts` | config GET/POST, webhook masking, budget ack | 120 |
-| `routes/misc.ts` | state, stats, evals, requests, roster, project, backlog, about, doctor, bundle, GitHub preview, focus | 250 |
+| `start.ts` | `startServer`, `createContext`, `GUARDS`, `ROUTES`, `matchRoute`, dispatch, the activity-log hook | 235 |
+| `types.ts` | `ServerOptions`, `RunningServer`, `RequestInfo`, `ServerCtx`, `Guard`, `RouteMatch`, `Handler`, `Route` | 100 |
+| `http.ts` | the loopback Host check, the token, Origin, JSON, read and query-token guards, body readers, `send`, `json`, `jsonStatus`, `safeJoin` | 115 |
+| `static.ts` | dist allowlist, page, immutable assets, the logo, images, screenshots | 170 |
+| `sse.ts` | frames, `followFd`, `broadcast`, the ping | 160 |
+| `redact.ts` | `redactPage`, `knownReader` | 20 |
+| `routes/jobs.ts` | POST jobs, job detail, file and raw, requests, effort, delete, repos, run, editor | 360 |
+| `routes/office.ts` | `/api/events`, session log, daemon, mode, permission | 185 |
+| `routes/transcripts.ts` | locate, page, events, agent rows and activity | 160 |
+| `routes/environment.ts` | job environment GET/POST, its log stream, every running environment | 270 |
+| `routes/config.ts` | config GET/POST, webhook masking, budget ack | 90 |
+| `routes/misc.ts` | state, stats, evals, roster, project, backlog, about, doctor, bundle, GitHub preview, focus | 280 |
 
-Keeping `http.ts` small and alone is the security win: the loopback, token, Origin and JSON rules become one file a reviewer reads whole. `.github/CODEOWNERS` has to name it.
+Keeping `http.ts` small and alone is the security win: the loopback, token, Origin and JSON rules become one file a reviewer reads whole.
+
+Where it differs from the plan, and why: `routes/environment.ts` was added, because the plan had no home for the environment routes. The requests routes went to `routes/jobs.ts`, beside `resumeHeld`, which POST repos also uses. `/api/events` went to `routes/office.ts`, so `sse.ts` stays mechanism only. `redact.ts` was added for the redaction both the transcript and environment streams share. Guards are declared in the table rather than called by handlers. `.github/CODEOWNERS` needed no change: `/lib/server/**` already covers `http.ts`.
 
 ### daemon.ts → `office/session/` and `integrations/claude/` (#416)
 
@@ -240,7 +250,7 @@ One PR each.
 2. **The move (#421, landed):** `git mv` and an import-rewriting codemod into the seven layers, with no content edits beyond the `util.ts` split, renames and the paths computed from the plugin root. It leaves only the two deprecated tracker re-exports in `FLAT_LAYERS`, re-keys `ALLOWED_EDGES` and the size pins, and updates CODEOWNERS, the hook, `bin/forge`, prompts and doc paths (`ci.yml` names only `lib/trackers/status.mjs`, which stays). It adds each layer and module folder's `AGENTS.md` and slims the root one, and adds the folder layout test (`test/invariants/layout.test.ts`: 3–12 entries, no stutter, no `index.ts`, the maps).
 3. **Aliases (#370, landed):** the `#core/…` subpath map and its cross-layer relative-import test.
 4. **types.ts by owner (#413, landed)**, with the transitional type-only barrel. Each shape moved to the `types.ts` of the module that owns it; `core/types.ts` re-exports the api, job and config shapes and keeps the tracker contract. `e2e.ts` moved from `pipeline/` to `workspace/` and `deprecations.ts` from `config/` into `config/validators/` to make room, and the four types-split edges and the `core/types.ts` size pin are gone.
-5. **pr.ts (#414, landed)**, **server.ts (#415)**, **daemon.ts (#416)**, **worktree.ts (#417)** (create/remove, command templating, `verify`, the dev server), **commands/job.ts (#418)** (`HELP` apart, one handler per subcommand), **the release splits (#419)** (`release-plan.ts`, `release-run.ts`). Each deletes its size pin and the upward edges it removes.
+5. **pr.ts (#414, landed)**, **server.ts (#415, landed)**, **daemon.ts (#416)**, **worktree.ts (#417)** (create/remove, command templating, `verify`, the dev server), **commands/job.ts (#418)** (`HELP` apart, one handler per subcommand), **the release splits (#419)** (`release-plan.ts`, `release-run.ts`). Each deletes its size pin and the upward edges it removes.
 6. **Tests (#420):** unit tests beside their modules, the rest into `test/{integration,e2e,invariants,support}/`, with the tsconfig includes and CI sharding by kind.
 
 ## Timing

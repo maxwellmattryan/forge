@@ -648,7 +648,7 @@ export interface DaemonPermissionPrompt {
   at: string;
 }
 
-/** The session pool as the dashboard sees it: state() in lib/office/pool.ts plus `clients` from lib/server/start.ts. */
+/** The session pool as the dashboard sees it: state() in lib/office/pool.ts plus `clients` from createContext in lib/server/start.ts. */
 export interface DaemonPoolState {
   enabled: boolean;
   wanted: boolean;
@@ -690,7 +690,7 @@ export interface TranscriptActivity {
   at: string | null;
 }
 
-/** One running agent of a job in /api/state: state() in lib/server/start.ts. `last` is null when no transcript is found. */
+/** One running agent of a job in /api/state: state() in lib/server/routes/misc.ts. `last` is null when no transcript is found. */
 export interface AgentActivity {
   role: string;
   model: string | null;
@@ -698,7 +698,7 @@ export interface AgentActivity {
   last: TranscriptActivity | null;
 }
 
-/** One agent of the job's current round (or still running) in the job detail: jobDetail() in lib/server/start.ts. */
+/** One agent of the job's current round (or still running) in the job detail: jobDetail() in lib/server/routes/jobs.ts. */
 export interface AgentRow {
   role: string;
   status: string | null;
@@ -725,8 +725,8 @@ export interface TranscriptPage {
   more: boolean;
 }
 
-/** A job row in /api/state: state() in lib/server/start.ts. */
-/** The last event that carries an actor: who last acted on a job (lastHuman in lib/server/start.ts). */
+/** A job row in /api/state: state() in lib/server/routes/misc.ts. */
+/** The last event that carries an actor: who last acted on a job (lastHuman in lib/server/routes/misc.ts). */
 export interface LastHuman {
   ts: string;
   type: string;
@@ -736,7 +736,7 @@ export interface LastHuman {
 
 export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null; endpoints: Endpoint[]; foremanHandoff: ForemanHandoff | null };
 
-/** GET /api/state: state() in lib/server/start.ts. */
+/** GET /api/state: state() in lib/server/routes/misc.ts. */
 export interface ApiState {
   apiVersion: number;
   forgeVersion: string;
@@ -765,7 +765,7 @@ export interface ApiState {
 /** POST /api/budget/ack: the repo budget status after the acknowledgement. */
 export type PostBudgetAckResponse = RepoBudgetStatus;
 
-/** GET /api/jobs/:id: jobDetail in lib/server/start.ts. */
+/** GET /api/jobs/:id: jobDetail in lib/server/routes/jobs.ts. */
 export interface JobDetail {
   job: Job & { progress: Progress; ownerStatus: OwnerStatus };
   events: JobEvent[];
@@ -784,7 +784,7 @@ export interface JobDetail {
   ownerTranscript: { session: string } | null;
 }
 
-/** GET /api/jobs/:id/file for a text file: the text/plain body (send in lib/server/start.ts); images come back as raw bytes and /raw as sandboxed HTML, neither through api(). */
+/** GET /api/jobs/:id/file for a text file: the text/plain body (send in lib/server/http.ts); images come back as raw bytes and /raw as sandboxed HTML, neither through api(). */
 export type JobFileText = string;
 
 /** Usage per role or model in stats: computeStats in lib/engine/metrics/stats.ts. */
@@ -1006,7 +1006,7 @@ export interface EvalRun {
   perTask?: EvalTaskAggregate[];
 }
 
-/** GET /api/evals: the handler in lib/server/start.ts over listTasks/listRuns in lib/engine/evals/run.ts. */
+/** GET /api/evals: the handler in lib/server/routes/misc.ts over listTasks/listRuns in lib/engine/evals/run.ts. */
 export interface EvalsResponse {
   tasks: EvalTask[];
   runs: EvalRun[];
@@ -1049,7 +1049,7 @@ export interface EvalCompareSide {
   repeat: number;
 }
 
-/** GET /api/config: configResponse in lib/server/start.ts over FIELDS in lib/core/config/fields.ts. */
+/** GET /api/config: configResponse in lib/server/routes/config.ts over FIELDS in lib/core/config/fields.ts. */
 export interface ConfigResponse {
   initialized: boolean;
   path: '.forge/config.yml';
@@ -1064,7 +1064,7 @@ export interface ConfigResponse {
 /** GET /api/doctor: doctor in lib/engine/ops/doctor.ts, plus when it ran. */
 export type DoctorResponse = DoctorReport & { at: string };
 
-/** GET /api/about: about in lib/server/start.ts. */
+/** GET /api/about: about in lib/server/routes/misc.ts. */
 export interface AboutResponse {
   forgeVersion: string;
   apiVersion: number;
@@ -1228,7 +1228,7 @@ export interface BacklogItem extends TrackerItem {
   triage?: TriageInfo;
 }
 
-/** GET /api/backlog: the handler in lib/server/start.ts over the tracker's list(). */
+/** GET /api/backlog: the handler in lib/server/routes/misc.ts over the tracker's list(). */
 export interface BacklogResponse {
   tracker: string;
   items: BacklogItem[];
@@ -1237,10 +1237,10 @@ export interface BacklogResponse {
 
 // ---------- SSE frames (/api/events) ----------
 
-/** One /api/events?session= frame: stateFrame and lineFrame in lib/server/start.ts; `id` is the line's offset in the session log, `data` the raw log line. */
+/** One /api/events?session= frame: stateFrame and lineFrame in lib/server/sse.ts; `id` is the line's offset in the session log, `data` the raw log line. */
 export type SseFrame = { event: 'state'; data: DaemonSessionState } | { event: 'line'; id: number; data: string };
 
-/** The line a frame carries instead of an oversized one: lineFrame in lib/server/start.ts. */
+/** The line a frame carries instead of an oversized one: lineFrame in lib/server/sse.ts. */
 export interface ForgeTruncatedLine {
   type: 'forge-truncated';
   originalType: string | null;
@@ -1249,7 +1249,7 @@ export interface ForgeTruncatedLine {
 
 // ---------- POST bodies and replies ----------
 
-/** POST /api/requests body: read by the handler in lib/server/start.ts and passed to enqueue. */
+/** POST /api/requests body: read by the handler in lib/server/routes/jobs.ts and passed to enqueue. */
 export interface PostRequestBody {
   type: RequestType;
   job?: string | null;
@@ -1257,7 +1257,7 @@ export interface PostRequestBody {
   args?: Record<string, unknown>;
 }
 
-/** POST /api/requests reply: the handler in lib/server/start.ts. */
+/** POST /api/requests reply: the handler in lib/server/routes/jobs.ts. */
 export type PostRequestResponse = ForgeRequest & { daemon: boolean };
 
 /** POST /api/jobs body: a new job from free text; `title` overrides the one derived from `text`. */
@@ -1275,33 +1275,33 @@ export interface PostJobResponse {
   daemon: boolean;
 }
 
-/** POST /api/config body: the handler in lib/server/start.ts passes it to setConfigValue. */
+/** POST /api/config body: the handler in lib/server/routes/config.ts passes it to setConfigValue. */
 export interface PostConfigBody {
   key: string;
   value: ConfigValue;
 }
 
-/** POST /api/daemon body: the handler in lib/server/start.ts. */
+/** POST /api/daemon body: the handler in lib/server/routes/office.ts. */
 export interface PostDaemonBody {
   action: 'start' | 'stop';
   /** `_inbox` or a job id: start or stop that one session instead of the pool. */
   scope?: string;
 }
 
-/** POST /api/daemon reply on success: poolState in lib/server/start.ts. */
+/** POST /api/daemon reply on success: poolState from createContext in lib/server/start.ts. */
 export type PostDaemonResponse = DaemonPoolState;
 
-/** POST /api/daemon/mode body: the handler in lib/server/start.ts. */
+/** POST /api/daemon/mode body: the handler in lib/server/routes/office.ts. */
 export interface PostDaemonModeBody {
   /** `_inbox` or a job id. */
   scope: string;
   mode: DaemonPermissionMode;
 }
 
-/** POST /api/daemon/mode reply on success: poolState in lib/server/start.ts. */
+/** POST /api/daemon/mode reply on success: poolState from createContext in lib/server/start.ts. */
 export type PostDaemonModeResponse = DaemonPoolState;
 
-/** POST /api/jobs/:id/effort body: the handler in lib/server/start.ts. null inherits runtime.effort. */
+/** POST /api/jobs/:id/effort body: the handler in lib/server/routes/jobs.ts. null inherits runtime.effort. */
 export interface PostJobEffortBody {
   effort: Effort | null;
 }
@@ -1314,7 +1314,7 @@ export interface PostJobEffortResponse {
   changed: boolean;
 }
 
-/** POST /api/jobs/:id/repos body: the handler in lib/server/start.ts. `repos` are the names the drawer listed, which must be the whole pending set. */
+/** POST /api/jobs/:id/repos body: the handler in lib/server/routes/jobs.ts. `repos` are the names the drawer listed, which must be the whole pending set. */
 export interface PostJobReposBody {
   decision: 'approve' | 'reject';
   repos: string[];
@@ -1339,7 +1339,7 @@ export interface FocusFact {
 }
 
 /**
- * One row of a job's Environment card: endpointsFor in lib/server/start.ts. A `component` row has a
+ * One row of a job's Environment card: endpointsFor in lib/server/routes/misc.ts. A `component` row has a
  * `http://localhost:<port>/` url; a `backing` row has none. `live` is a boolean only on the component
  * row the dev command serves (the one whose port is `job.port`), null everywhere else.
  */
@@ -1475,7 +1475,7 @@ export interface EnvironmentsResponse {
 }
 
 /**
- * JSON error body: jsonStatus for /api/daemon's and /api/config's 4xx and the catch-all 500 in lib/server/start.ts.
+ * JSON error body: jsonStatus (lib/server/http.ts) for /api/daemon's and /api/config's 4xx and the catch-all 500 in lib/server/start.ts's dispatch.
  * The POST guard failures (403/415/421) are text/plain, not this.
  */
 export interface ApiError {

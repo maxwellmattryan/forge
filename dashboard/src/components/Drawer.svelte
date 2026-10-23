@@ -54,7 +54,7 @@
   const job = $derived(shown?.detail.job);
   const prUrl = $derived(safeUrl(job?.pr?.url));
   // Only a job with a verifiers record gets the column. The detail's events are the last 400
-  // (lib/server/start.ts), so on a very long job an early round's cell can read — though it ran.
+  // (lib/server/routes/jobs.ts), so on a very long job an early round's cell can read — though it ran.
   const verifierResults = $derived(shown ? verifierRounds(shown.detail.events) : {});
   const hasVerifiers = $derived(Object.keys(verifierResults).length > 0);
   const matrix = $derived(job ? verdictMatrix(job, verifierResults) : null);

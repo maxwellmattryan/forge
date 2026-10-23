@@ -1,6 +1,6 @@
 // A job's issues are tracker-neutral, repo-qualified refs (`owner/repo#12`, `KEY-123`, a backlog
 // slug). This is the pure half: the grammar, which issues this repo's tracker owns, and the job-id
-// rule. It has no runtime imports, like lib/core/job/issue-link.ts, because lib/engine/pr/, lib/server/start.ts and the
+// rule. It has no runtime imports, like lib/core/job/issue-link.ts, because lib/engine/pr/, lib/server/routes/jobs.ts and the
 // trackers all import it. lib/integrations/git/repo-slug.ts reads the slug every function here takes.
 import type { Job, JobIssue } from '../types.ts';
 
