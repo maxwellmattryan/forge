@@ -2,17 +2,17 @@
 // so they work with or without a running `forge dash` and never talk to its server.
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadConfig } from '../../core/config/load.ts';
-import { openRead, readInfo, sessionFiles, sessionRecords, tailLines } from '../../core/job/session-files.ts';
-import { redactKnown, scopeKnownValues } from '../../engine/guard/known-secrets.ts';
-import { paths } from '../../core/paths.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '../../core/job/requests.ts';
-import { sessionAgents } from '../../office/session-agents.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { pidAlive } from '../../core/os/process.ts';
-import { readJson } from '../../core/os/fs.ts';
+import { loadConfig } from '#core/config/load.ts';
+import { openRead, readInfo, sessionFiles, sessionRecords, tailLines } from '#core/job/session-files.ts';
+import { redactKnown, scopeKnownValues } from '#engine/guard/known-secrets.ts';
+import { paths } from '#core/paths.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '#core/job/requests.ts';
+import { sessionAgents } from '#office/session-agents.ts';
+import { ForgeError } from '#core/errors.ts';
+import { pidAlive } from '#core/os/process.ts';
+import { readJson } from '#core/os/fs.ts';
 import { usageError } from './args.ts';
-import type { HelpGroup } from '../../core/types.ts';
+import type { HelpGroup } from '#core/types.ts';
 
 const DAEMON: HelpGroup = {
   name: 'daemon',

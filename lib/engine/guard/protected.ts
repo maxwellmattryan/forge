@@ -6,17 +6,17 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { betterMatch, matchPolicy, matchWith, policyRules } from '../../core/config/validators/policy-check.ts';
-import type { PolicyMatch } from '../../core/config/validators/policy-check.ts';
-import { git, gitSpawnSync, historyEnv } from '../../integrations/git/runner.ts';
-import { globToRegExp } from '../../core/glob.ts';
-import { isForemanActor, jobDir, loadJob, logEvent, updateJob } from '../../core/job/store.ts';
+import { betterMatch, matchPolicy, matchWith, policyRules } from '#core/config/validators/policy-check.ts';
+import type { PolicyMatch } from '#core/config/validators/policy-check.ts';
+import { git, gitSpawnSync, historyEnv } from '#integrations/git/runner.ts';
+import { globToRegExp } from '#core/glob.ts';
+import { isForemanActor, jobDir, loadJob, logEvent, updateJob } from '#core/job/store.ts';
 import { resolveBase } from '../pipeline/scope.ts';
-import { isMap } from '../../core/shape.ts';
-import type { Config, Job, JobEvent, ProtectedHit, ProtectedPaths, ProtectedRule } from '../../core/types.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { writeTextAtomic } from '../../core/os/fs.ts';
-import { now } from '../../core/utils.ts';
+import { isMap } from '#core/shape.ts';
+import type { Config, Job, JobEvent, ProtectedHit, ProtectedPaths, ProtectedRule } from '#core/types.ts';
+import { ForgeError } from '#core/errors.ts';
+import { writeTextAtomic } from '#core/os/fs.ts';
+import { now } from '#core/utils.ts';
 
 export type ProtectedAction = ProtectedRule['action'];
 export type ProtectedGate = ProtectedPaths['gate'];

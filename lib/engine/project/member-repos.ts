@@ -5,16 +5,16 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { INTERIM_STRATEGIES, isInterimStrategy } from '../../core/config/components.ts';
-import { git as runGit } from '../../integrations/git/runner.ts';
-import { paths, resolveFrom } from '../../core/paths.ts';
-import { releaseMechanismCheck, strategyProblems } from '../../core/config/release-strategy.ts';
-import { SEG, githubHost, slugFromRemote } from '../../integrations/git/repo-slug.ts';
-import { isMap, show } from '../../core/shape.ts';
-import type { Config, DoctorCheck } from '../../core/types.ts';
-import { readText } from '../../core/os/fs.ts';
-import { SAFE_REF, safeText } from '../../core/text.ts';
-import * as yaml from '../../core/format/yaml.ts';
+import { INTERIM_STRATEGIES, isInterimStrategy } from '#core/config/components.ts';
+import { git as runGit } from '#integrations/git/runner.ts';
+import { paths, resolveFrom } from '#core/paths.ts';
+import { releaseMechanismCheck, strategyProblems } from '#core/config/release-strategy.ts';
+import { SEG, githubHost, slugFromRemote } from '#integrations/git/repo-slug.ts';
+import { isMap, show } from '#core/shape.ts';
+import type { Config, DoctorCheck } from '#core/types.ts';
+import { readText } from '#core/os/fs.ts';
+import { SAFE_REF, safeText } from '#core/text.ts';
+import * as yaml from '#core/format/yaml.ts';
 
 export const REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const REMOTE_MAX = 2000;

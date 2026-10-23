@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { defaults } from '../lib/core/config/load.ts';
-import { createJob, jobDir, logEvent, recordAgent, roundVerdicts } from '../lib/core/job/store.ts';
-import { sleepSync } from '../lib/core/os/process.ts';
+import { defaults } from '#core/config/load.ts';
+import { createJob, jobDir, logEvent, recordAgent, roundVerdicts } from '#core/job/store.ts';
+import { sleepSync } from '#core/os/process.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 

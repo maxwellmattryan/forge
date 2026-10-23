@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, scratchGitConfig, tempRepo } from './helpers.ts';
-import { createWorktree, removeWorktree, verifiedHead } from '../lib/engine/workspace/worktree.ts';
-import { TRUST_ENV, loadConfig, trustDigest } from '../lib/core/config/load.ts';
-import { setJob } from '../lib/core/job/store.ts';
+import { createWorktree, removeWorktree, verifiedHead } from '#engine/workspace/worktree.ts';
+import { TRUST_ENV, loadConfig, trustDigest } from '#core/config/load.ts';
+import { setJob } from '#core/job/store.ts';
 import { jobCmd } from '../lib/cli/commands/job.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');

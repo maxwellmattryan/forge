@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { parse, setIn, stringify, YamlError } from '../lib/core/format/yaml.ts';
-import { FIELDS, validateFieldValue } from '../lib/core/config/fields.ts';
-import { setPath } from '../lib/core/shape.ts';
+import { parse, setIn, stringify, YamlError } from '#core/format/yaml.ts';
+import { FIELDS, validateFieldValue } from '#core/config/fields.ts';
+import { setPath } from '#core/shape.ts';
 
 test('parses a GitHub project-config file', () => {
   const doc = parse(`# GitHub Project Configuration

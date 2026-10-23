@@ -5,9 +5,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { defaults } from '../lib/core/config/load.ts';
-import { integrationTouched } from '../lib/engine/pipeline/scope.ts';
-import { loadIntegrationTouched } from '../lib/engine/pipeline/step.ts';
+import { defaults } from '#core/config/load.ts';
+import { integrationTouched } from '#engine/pipeline/scope.ts';
+import { loadIntegrationTouched } from '#engine/pipeline/step.ts';
 
 function scenario() {
   const repo = tempRepo();

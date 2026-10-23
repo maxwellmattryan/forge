@@ -3,13 +3,13 @@
 // strands jobs or configs written by an older version. A file from a *newer* plugin is
 // refused rather than guessed at.
 import { isInterimStrategy, servicesToComponents } from '../config/components.ts';
-import { isSha } from '../../engine/pr/delta.ts';
+import { isSha } from '#engine/pr/delta.ts';
 import { isSafeUrl, isStoredRef, sameIssue } from './issue-ref.ts';
-import { REPO_NAME, isSafeBranch } from '../../engine/project/member-repos.ts';
-import { ACTOR_SOURCES, COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../../api/constants.ts';
+import { REPO_NAME, isSafeBranch } from '#engine/project/member-repos.ts';
+import { ACTOR_SOURCES, COMPLEXITIES, EFFORTS, OFFICE_GATES } from '#api/constants.ts';
 import type { EventActor, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcome, JobRepo, JobRepoPr, JobScore, LoadedJob } from '../types.ts';
 
-export { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, STAGES, STATES, WAITING_ON } from '../../api/constants.ts';
+export { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, STAGES, STATES, WAITING_ON } from '#api/constants.ts';
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from '../config/components.ts';
 export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from '../config/validators/backing.ts';
 

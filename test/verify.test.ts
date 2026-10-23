@@ -5,9 +5,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { repoTemplate } from './helpers.ts';
-import { defaults, validateConfig } from '../lib/core/config/load.ts';
-import { e2ePlan } from '../lib/engine/pipeline/e2e.ts';
-import type { Config, Job } from '../lib/core/types.ts';
+import { defaults, validateConfig } from '#core/config/load.ts';
+import { e2ePlan } from '#engine/pipeline/e2e.ts';
+import type { Config, Job } from '#core/types.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 

@@ -7,8 +7,8 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { BLOCK_BEGIN } from '../../../lib/engine/release/interim.ts';
-import { findOnPath } from '../../../lib/core/os/process.ts';
+import { BLOCK_BEGIN } from '#engine/release/interim.ts';
+import { findOnPath } from '#core/os/process.ts';
 import { prProject, ready } from '../../job-repos-fixture.ts';
 import { fakeBin } from '../../helpers.ts';
 

@@ -5,9 +5,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { prProject, ready } from './job-repos-fixture.ts';
-import { loadConfig } from '../lib/core/config/load.ts';
-import { loadJob } from '../lib/core/job/store.ts';
-import { SIBLINGS_END, SIBLINGS_START, memberPrBody, prText } from '../lib/engine/pr/lifecycle.ts';
+import { loadConfig } from '#core/config/load.ts';
+import { loadJob } from '#core/job/store.ts';
+import { SIBLINGS_END, SIBLINGS_START, memberPrBody, prText } from '#engine/pr/lifecycle.ts';
 import { token } from './secret-fixtures.ts';
 
 const cleanups: (() => void)[] = [];

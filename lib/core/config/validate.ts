@@ -12,7 +12,7 @@ import { componentProblems } from './components.ts';
 import { effortProblems, modelProblems, validModel } from './models.ts';
 import { daemonProblems } from './trust.ts';
 import { placeholderProblems } from './validators/endpoints.ts';
-import { downstreamProblems, releaseProblems, repoProblems } from '../../engine/project/member-repos.ts';
+import { downstreamProblems, releaseProblems, repoProblems } from '#engine/project/member-repos.ts';
 import { notifyProblems } from './validators/notify.ts';
 import { PLUGIN_ROOT, exists, paths, resolveFrom } from '../paths.ts';
 import { globProblem, policyProblems } from './validators/policy-check.ts';

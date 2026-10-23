@@ -7,6 +7,13 @@
   "bin": {
     "forge": "bin/forge"
   },
+  "imports": {
+    "#api/*": "./lib/api/*",
+    "#core/*": "./lib/core/*",
+    "#integrations/*": "./lib/integrations/*",
+    "#engine/*": "./lib/engine/*",
+    "#office/*": "./lib/office/*"
+  },
   "files": [
     "bin",
     "lib",

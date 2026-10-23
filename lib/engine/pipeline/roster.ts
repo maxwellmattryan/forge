@@ -4,12 +4,12 @@
 // and every agent-start event never disagree.
 import fs from 'node:fs';
 import path from 'node:path';
-import { modelFor, resolveEffort, validModel } from '../../core/config/load.ts';
+import { modelFor, resolveEffort, validModel } from '#core/config/load.ts';
 import { learningSummary } from '../evals/learnings.ts';
-import { paths, exists, PLUGIN_ROOT } from '../../core/paths.ts';
+import { paths, exists, PLUGIN_ROOT } from '#core/paths.ts';
 import { frontmatter, lensChecklist, promptHash } from '../evals/provenance.ts';
-import type { Config, PanelEntry, Roster, RosterModelBy } from '../../core/types.ts';
-import { readText } from '../../core/os/fs.ts';
+import type { Config, PanelEntry, Roster, RosterModelBy } from '#core/types.ts';
+import { readText } from '#core/os/fs.ts';
 
 export { verifierDigest } from '../evals/provenance.ts';
 

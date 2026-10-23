@@ -8,6 +8,9 @@
 export const LAYERS = ['api', 'core', 'integrations', 'engine', 'office', 'server', 'cli'] as const;
 export type Layer = (typeof LAYERS)[number];
 
+/** The top layers get no package.json alias: nothing below may import them, so only relative imports reach them. */
+export const UNALIASED: Layer[] = ['server', 'cli'];
+
 /**
  * Lib-relative posix paths of files outside a lib/<layer>/ folder. A key ending in `/` covers the
  * whole folder; an exact file key wins over a folder key.

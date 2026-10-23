@@ -1,7 +1,7 @@
 // `forge audit`: the audit trail across every job and the repo-level log, for a period.
-import { auditAll, parseAuditDate, toCsv } from '../../engine/ops/audit.ts';
-import type { HelpGroup, RepoAudit } from '../../core/types.ts';
-import { ForgeError } from '../../core/errors.ts';
+import { auditAll, parseAuditDate, toCsv } from '#engine/ops/audit.ts';
+import type { HelpGroup, RepoAudit } from '#core/types.ts';
+import { ForgeError } from '#core/errors.ts';
 
 const AUDIT: HelpGroup = {
   name: 'audit',

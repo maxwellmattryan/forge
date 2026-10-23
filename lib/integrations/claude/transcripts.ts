@@ -5,9 +5,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadConfig, worktreeRoot } from '../../core/config/load.ts';
-import { UUID } from '../../core/job/session-files.ts';
-import type { Job, TranscriptActivity } from '../../core/types.ts';
+import { loadConfig, worktreeRoot } from '#core/config/load.ts';
+import { UUID } from '#core/job/session-files.ts';
+import type { Job, TranscriptActivity } from '#core/types.ts';
 
 /** A Claude Code agent id: what `--agent-id` and job.json's `agentId` must look like before use. */
 export const AGENT_ID = /^[A-Za-z0-9_-]{1,100}$/;

@@ -5,15 +5,15 @@
 // GitHub titles, bodies and labels are untrusted: they are only compared, never stored, logged or
 // rendered. What is stored is integers, shas that pass isSha, and refs rebuilt from the configured
 // slug and an integer.
-import { listArchived } from '../../core/job/archive.ts';
+import { listArchived } from '#core/job/archive.ts';
 import { fetchCommit, isSha } from '../pr/delta.ts';
-import { listJobs, logEvent, setJob } from '../../core/job/store.ts';
+import { listJobs, logEvent, setJob } from '#core/job/store.ts';
 import { isSafeBranch, isSafeRemote } from '../project/member-repos.ts';
 import { repoSlug } from '../pr/lifecycle.ts';
-import { OUTCOME_REF } from '../../core/job/schema.ts';
-import type { Config, Job, JobOutcome } from '../../core/types.ts';
-import { gh } from '../../integrations/github/gh.ts';
-import { git } from '../../integrations/git/runner.ts';
+import { OUTCOME_REF } from '#core/job/schema.ts';
+import type { Config, Job, JobOutcome } from '#core/types.ts';
+import { gh } from '#integrations/github/gh.ts';
+import { git } from '#integrations/git/runner.ts';
 
 /** A read-only gh call: the default runs gh in the root, tests pass a fake. */
 export type GhFn = (args: string[]) => { ok: boolean; stdout: string };

@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, forgeSync, repoTemplate } from '../../helpers.ts';
-import { loadJob, readEvents } from '../../../lib/core/job/store.ts';
+import { loadJob, readEvents } from '#core/job/store.ts';
 
 const gitIn = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' }).toString();
 const commitAll = (cwd: string, msg: string) => {
