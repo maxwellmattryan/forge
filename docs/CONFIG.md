@@ -349,6 +349,25 @@ budget:                      # repo-wide spend caps per UTC day and month; null 
 ```
 <!-- forge:config:end -->
 
+## Instruction files
+
+`project.instructions` names the files each agent reads first, relative to the repo root; a brief lists only those that exist in the job's worktree. It takes one of two forms:
+
+- **A list**: every role reads the same files.
+- **A map**: `default` (the list for every role the map doesn't name) plus any of `planner`, `spec-writer`, `designer`, `builder`, `reviewer` (every lens), `approver`, `integrator`, `verifier` and `judge`. A role's list **replaces** `default`; it doesn't add to it, so repeat a file the role still needs. A role mapped to `[]` gets no instruction files. A map without `default` keeps the default list, `[AGENTS.md, CLAUDE.md]`.
+
+```yaml
+project:
+  instructions:
+    default: [AGENTS.md]
+    builder: [AGENTS.md, docs/DEVELOPING.md]
+    spec-writer: [AGENTS.md, docs/DEVELOPING.md]
+```
+
+`forge config validate` reports a key that is not a role, a value that is not a list, an entry that is not a non-empty string, an absolute path and a `..` segment; the briefs skip any such entry. `forge job paths <id>` prints the `default` list. A config at schemaVersion 30 or older still loads: its list reads as `{ default: <list> }`, and `forge migrate` writes it that way.
+
+**Keep the auto-loaded file short.** Claude Code loads the root `AGENTS.md` (or `CLAUDE.md`) into every session as project instructions, the orchestrator and every agent included, and the brief tells an agent to skip a file already in its context. So naming fewer files per role saves little while that root file stays long. Keep it to what every session needs and move the reference into a file only the roles that need it are given, such as `docs/DEVELOPING.md` above.
+
 ## Worktree seed
 
 `worktrees.setup` (an `npm ci`, say) runs in every new job worktree and starts it cold: dependencies rebuilt, test and type-check caches empty. A **worktree seed** lets a new worktree start warm instead. Forge keeps a private copy of a fresh base worktree's untracked paths (`worktrees.seed.paths`, such as `node_modules` with its `.cache`), and a new worktree clones it copy-on-write whenever its key files (`worktrees.seed.key`, such as `package-lock.json`) hash the same. It is off while `paths` is empty, and applies only to the root repo's worktree in `forge worktree create`: never to member repos or eval clones, whose results have no `seed`.

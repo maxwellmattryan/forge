@@ -1,6 +1,6 @@
 # Contributing to Forge
 
-Forge is a Claude Code plugin that is also its own marketplace. Read [AGENTS.md](AGENTS.md) first: it maps where each kind of change goes, the rules every change follows and the gotchas already paid for. This page covers what you need on top of it to get a change merged.
+Forge is a Claude Code plugin that is also its own marketplace. Read [AGENTS.md](AGENTS.md) first: it holds the essentials and the verify list. [docs/DEVELOPING.md](docs/DEVELOPING.md) maps where each kind of change goes, the rules every change follows and the gotchas already paid for. This page covers what you need on top of it to get a change merged.
 
 ## Setup
 
