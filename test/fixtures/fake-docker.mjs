@@ -237,8 +237,15 @@ export function main(argv) {
   if (process.env.FAKE_DOCKER_LOG) fs.appendFileSync(process.env.FAKE_DOCKER_LOG, `${JSON.stringify(argv)}\n`);
   const input = argv[0] === 'exec' && argv[1] === '-i' ? fs.readFileSync(0, 'utf8') : undefined;
   const r = handle(state, argv, input);
-  // `logs` reads only, so it never writes the state back (a follower would race the test's own writes).
-  if (file && argv[0] !== 'logs') fs.writeFileSync(file, JSON.stringify(state));
+  // `logs`, `version` and `inspect` read only, so they never write the state back: a follower, or a `version` held by
+  // versionDelayMs, would put back a stale copy over the test's own writes.
+  if (file && !['logs', 'version', 'inspect'].includes(argv[0])) {
+    // Written aside and renamed: concurrent calls read this file as they start, and an in-place write would hand one
+    // a truncated file, which fails its JSON.parse before its argv is logged.
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(state));
+    fs.renameSync(tmp, file);
+  }
   process.stdout.write(r.stdout);
   process.stderr.write(r.stderr);
   process.exitCode = r.status;

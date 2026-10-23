@@ -552,6 +552,36 @@
   &.cli { background-color: var(--tint-cli); --surface: var(--tint-cli); }
   &.forge { background-color: var(--tint-forge); --surface: var(--tint-forge); }
 }
+/* log-row: one session log line on a fixed grid, so the eye can run down each column: the time, the disclosure caret
+   (empty on a line that doesn't expand), the tag (a tool's name or a line's chip) and the body. Every line places its
+   cells by class, so a missing cell leaves its column empty instead of shifting the rest. A row's expanded content is
+   another log-row whose one cell is the body, so it hangs under the summary's text. Where the log is narrow (log-pane
+   sets the container) the body drops under the tag, from the caret's column; a line with no tag keeps it on one row. */
+@utility log-row {
+  display: grid;
+  grid-template-columns: 8ch 12px 7.5rem minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: baseline;
+  & > .log-time { grid-column: 1; color: var(--muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  & > .log-caret { grid-column: 2; align-self: start; height: 1lh; display: flex; align-items: center; color: var(--muted); }
+  & > .log-caret .ic { width: 12px; height: 12px; transform: rotate(-90deg); transition: transform .12s; }
+  & > .log-tag { grid-column: 3; min-width: 0; display: flex; }
+  & > .log-tag > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  & > .log-body { grid-column: 4; min-width: 0; }
+  /* A subagent's own lines: from the caret's column on, with their own container, so they lay out for the room they get. */
+  & > .log-nest { grid-column: 2 / -1; min-width: 0; container: log / inline-size; }
+  @container log (width < 30rem) {
+    grid-template-columns: 8ch 12px minmax(0, 1fr);
+    & > .log-body { grid-column: 2 / -1; }
+  }
+}
+/* A log line that expands: a details whose summary is the log-row, without the browser's marker; open turns the caret. */
+@utility log-fold {
+  & > summary { list-style: none; }
+  & > summary::-webkit-details-marker { display: none; }
+  &[open] > summary > .log-caret .ic { transform: none; }
+}
+@utility log-pane { container: log / inline-size; }
 /* A clickable row (a table row): changes at once, washing with raised over its plate's panel. */
 @utility clickable {
   cursor: pointer;
