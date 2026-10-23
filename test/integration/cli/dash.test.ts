@@ -1,6 +1,6 @@
 // `forge dash` and `forge daemon status` trust .forge/runtime/dashboard.json only when it names a
-// live `forge dash` process that started when the record says, at a loopback url: a planted record
-// never gets a process signalled or its url shown.
+// live process with `forge` in the script position, then `dash`, that started when the record says,
+// at a loopback url: a planted record never gets a process signalled or its url shown.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -25,27 +25,49 @@ function alive(pid: number): boolean {
 
 const json = (stdout: string) => JSON.parse(stdout);
 
+type Argv = 'foreign' | 'wordsAfterE' | 'script';
+
+/**
+ * A live process whose command line is: `foreign`, a plain `node -e` loop; `wordsAfterE`, the same
+ * with `<dir>/bin/forge dash` after the script (node ignores them, so they only change what ps
+ * shows, outside the script position); `script`, `node <dir>/bin/forge dash` running a stub that
+ * idles, so `forge` sits in the script position.
+ */
+function spawnIdle(dir: string, argv: Argv): ChildProcess {
+  const bin = path.join(dir, 'bin', 'forge');
+  if (argv === 'script') {
+    fs.mkdirSync(path.dirname(bin), { recursive: true });
+    fs.writeFileSync(bin, 'setInterval(() => {}, 1e3);\n');
+    return spawn(process.execPath, [bin, 'dash'], { stdio: 'ignore' });
+  }
+  return spawn(process.execPath, ['-e', 'setInterval(()=>{},1e3)', ...(argv === 'wordsAfterE' ? [bin, 'dash'] : [])], { stdio: 'ignore' });
+}
+
+function setupRepo(): ReturnType<typeof tempRepo> {
+  const repo = tempRepo();
+  fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\ndaemon:\n  enabled: false\n`);
+  return repo;
+}
+
 test('dash --stop signals only a proven dashboard', async () => {
-  type Row = { name: string; forgeArgv: boolean; url: string; startOffsetMs: number; proven: boolean; skip?: boolean };
+  type Row = { name: string; argv: Argv; url: string; startOffsetMs: number; proven: boolean; skip?: boolean };
   const rows: Row[] = [
-    { name: 'foreign process, matching start', forgeArgv: false, url: 'http://127.0.0.1:7999', startOffsetMs: 0, proven: false },
-    { name: 'foreign process, start 1 h off', forgeArgv: false, url: 'http://127.0.0.1:7999', startOffsetMs: -HOUR_MS, proven: false },
-    { name: 'forge dash argv, non-loopback url', forgeArgv: true, url: 'http://evil.example/', startOffsetMs: 0, proven: false },
+    { name: 'foreign process, matching start', argv: 'foreign', url: 'http://127.0.0.1:7999', startOffsetMs: 0, proven: false },
+    { name: 'foreign process, start 1 h off', argv: 'foreign', url: 'http://127.0.0.1:7999', startOffsetMs: -HOUR_MS, proven: false },
+    { name: 'forge dash words after -e', argv: 'wordsAfterE', url: 'http://127.0.0.1:7999', startOffsetMs: 0, proven: false },
+    { name: 'forge dash argv, non-loopback url', argv: 'script', url: 'http://evil.example/', startOffsetMs: 0, proven: false },
     // Native Windows has no start-time probe, so no record is ever proven there.
-    { name: 'proven dashboard', forgeArgv: true, url: 'http://127.0.0.1:7999', startOffsetMs: 0, proven: true, skip: process.platform === 'win32' },
+    { name: 'proven dashboard', argv: 'script', url: 'http://127.0.0.1:7999', startOffsetMs: 0, proven: true, skip: process.platform === 'win32' },
   ];
   const children: ChildProcess[] = [];
   const repos: ReturnType<typeof tempRepo>[] = [];
   try {
     for (const row of rows) {
       if (row.skip) continue;
-      const repo = tempRepo();
+      const repo = setupRepo();
       repos.push(repo);
-      fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
-      fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\ndaemon:\n  enabled: false\n`);
-      // Node ignores argv after the -e script, so the extra words only change what ps shows.
-      const extra = row.forgeArgv ? [path.join(repo.dir, 'bin', 'forge'), 'dash'] : [];
-      const child = spawn(process.execPath, ['-e', 'setInterval(()=>{},1e3)', ...extra], { stdio: 'ignore' });
+      const child = spawnIdle(repo.dir, row.argv);
       children.push(child);
       const pid = child.pid!;
       const startedAt = new Date((processStartMs(pid) ?? Date.now()) + row.startOffsetMs).toISOString();
