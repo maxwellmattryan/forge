@@ -1505,7 +1505,7 @@ Reconcile PRs and trackers for all jobs.
 
 ### `forge tracker`
 
-The configured issue tracker (tracker.kind): items, claims, comments.
+The configured issue tracker (tracker.kind): items, claims, comments; under github a &lt;ref> is an issue in this repo (12, #12 or owner/repo#12).
 
 **`forge tracker claim <ref> <job>`**: mark an item as taken by a job
 
