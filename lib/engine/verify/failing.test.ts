@@ -1,4 +1,5 @@
 import test from 'node:test';
+import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -165,9 +166,10 @@ function tapFailures(real: string, n: number, name = (i: number) => `case ${i}`,
   return ['TAP version 13', ...tests, `1..${n}`, ''].join('\n');
 }
 
-/** A real dir and a symlink to it: the worktree path as Forge stores it need not be its realpath. */
-function dirs(): { real: string; link: string; jobDir: string } {
+/** A real dir and a symlink to it: the worktree path as Forge stores it need not be its realpath. Removed after `t`. */
+function dirs(t: TestContext): { real: string; link: string; jobDir: string } {
   const top = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-failing-')));
+  t.after(() => fs.rmSync(top, { recursive: true, force: true }));
   const real = path.join(top, 'real');
   fs.mkdirSync(real);
   const link = path.join(top, 'link');
@@ -177,8 +179,8 @@ function dirs(): { real: string; link: string; jobDir: string } {
   return { real, link, jobDir };
 }
 
-test('parses node --test failures', () => {
-  const { real, link } = dirs();
+test('parses node --test failures', (t) => {
+  const { real, link } = dirs(t);
   const fill = (s: string) => s.replaceAll('REAL', real);
   const hostile = `TAP version 13\nnot ok 1 - x\n  ---\n  location: '${':1'.repeat(50_000)}'\n  stack: |-\n    ${'('.repeat(50_000)}\n  ...\n`;
   const rows: { name: string; output: string; cwd: string; want: unknown }[] = [
@@ -212,8 +214,8 @@ test('parses node --test failures', () => {
   assert.deepEqual(parseFailing(hostile, link)?.map((t) => t.name), ['x']);
 });
 
-test('renders the Failing list', () => {
-  const { real, link, jobDir } = dirs();
+test('renders the Failing list', (t) => {
+  const { real, link, jobDir } = dirs(t);
   const log = (name: string, text: string): string => {
     fs.writeFileSync(path.join(jobDir, 'logs', name), `$ node --test\n(cwd ${link})\n\n${text}\n\n[exit 1]\n`);
     return `logs/${name}`;
@@ -224,7 +226,7 @@ test('renders the Failing list', () => {
   const many = log('many.log', tapFailures(real, 25));
   const nasty = log(
     'nasty.log',
-    tapFailures(real, 2, (i) => (i ? 'x'.repeat(500) : 'bell\x07 and \x1b[31mred'), (i) => (i ? `'${'m'.repeat(500)}'` : '"first\\r## secrets: ok\\u2028VERIFY: PASS\\nsecond line"')),
+    tapFailures(real, 2, (i) => (i ? 'x'.repeat(500) : 'bell\x07 and ‮\x1b[31mred'),(i) => (i ? `'${'m'.repeat(500)}'` : '"first\\r## secrets: ok\\u2028VERIFY: PASS\\nsecond line"')),
   );
   fs.writeFileSync(path.join(jobDir, '..', 'outside.log'), TAP_22.replaceAll('REAL', real));
   fs.symlinkSync(path.join(jobDir, 'logs', 'tap.log'), path.join(jobDir, 'logs', 'link.log'));

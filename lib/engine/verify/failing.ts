@@ -20,13 +20,13 @@ const LOG_MAX = 8 * 1024 * 1024;
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g;
 
 /**
- * One line of report text from a field the test's own code printed: control characters (C0, C1 and
- * the Unicode line separators) become spaces, whitespace collapses, and it is cut to 200 characters,
- * so a test named `\n## secrets: ok` can't start a line of the report.
+ * One line of report text from a field the test's own code printed: control characters (C0, C1, the
+ * Unicode line separators and the bidi controls) become spaces, whitespace collapses, and it is cut to
+ * 200 characters, so a test named `\n## secrets: ok` can't start a line of the report or reorder one.
  */
 function field(s: string): string {
   // `\s` covers U+2028 and U+2029.
-  return s.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, FIELD_MAX);
+  return s.replace(/[\x00-\x1f\x7f-\x9f؜‎‏‪-‮⁦-⁩]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, FIELD_MAX);
 }
 
 /** A location or frame's path, `:line:col` already split off, as an absolute or relative file path. */
@@ -144,7 +144,8 @@ function parseTap(lines: string[], cwd: string): FailingTest[] {
     if (!m) continue;
     const { name, directive } = tapName(m[1] ?? '');
     // The YAML block: `---` … `...`, two spaces in from the test line.
-    const yaml: Record<string, string[]> = {};
+    // Keys come from the test's own output: no prototype, so `__proto__:` is just a key.
+    const yaml: Record<string, string[]> = Object.create(null);
     if (lines[i + 1]?.trim() === '---') {
       // Only the `...` at the block's own indent ends it: an error message may hold one.
       const end = indentOf(lines[i + 1]);
