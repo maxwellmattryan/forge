@@ -1571,14 +1571,11 @@ function jobDetail(root: string, id: string, projects: string, ownPoolSession: (
   }, knownValues(root, id, loadConfig(root).config));
 }
 
-/**
- * request.md without its `# title` line, for the Thread's opening message; null when empty. The detail is polled, so a long
- * request is cut here and `requestTruncated` tells the Thread to load the whole file when asked.
- */
+/** request.md without its `# title` line, for the Thread's opening message (null when empty); the polled detail cuts a long one. */
 function requestExcerpt(root: string, id: string): Pick<JobDetail, 'request' | 'requestTruncated'> {
   const body = requestBody(root, id);
-  if (!body) return { request: null, requestTruncated: false };
-  return body.length > MAX_REQUEST_EXCERPT ? { request: `${body.slice(0, MAX_REQUEST_EXCERPT)}…`, requestTruncated: true } : { request: body, requestTruncated: false };
+  const cut = body.length > MAX_REQUEST_EXCERPT;
+  return { request: !body ? null : cut ? `${body.slice(0, MAX_REQUEST_EXCERPT)}…` : body, requestTruncated: cut };
 }
 
 /**
