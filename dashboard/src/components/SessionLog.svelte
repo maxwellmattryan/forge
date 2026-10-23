@@ -6,15 +6,19 @@
      input, tool results and every other line render as text. With `transcript`, it follows a job's Claude Code transcript
      instead (an agent's, or an interactive owner's): read-only, with no status, Start/Stop, mode or effort controls.
      With `fill` (the drawer's Log tab, the Foreman popover), it takes its container's remaining height and its log pane is the one scroller,
-     instead of capping the pane's height. The office's header also states its model (from the newest init line) and its
-     effort, both read-only: the daemon passes no --model, and the office's effort follows runtime.effort. -->
+     instead of capping the pane's height. Every daemon-scoped header also states its model (from the newest init line), and
+     the office's its effort, both read-only: the daemon passes no --model, and the office's effort follows runtime.effort.
+     It is a station terminal (style.css `station`): the bezel holds the nameplate (pilot lamp, then the facts) and the
+     controls, and the screen is the log pane, always drawn. Heat is activity (src/lib/station.ts): the bezel warms while
+     live lines stream, the cursor blinks or holds, a call that arrives live strikes its gutter, the screen clocks in the
+     first time the lamp goes live after the dashboard settles, and a stage change drops the nameplate's shutter. -->
 <script lang="ts">
   import { onDestroy, tick, untrack } from 'svelte';
   import Banner from './Banner.svelte';
   import Chip from './Chip.svelte';
   import EffortSelect from './EffortSelect.svelte';
   import IconButton from './IconButton.svelte';
-  import Empty from './Empty.svelte';
+  import Lamp from './Lamp.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
   import MenuButton from './MenuButton.svelte';
   import Select from './Select.svelte';
@@ -38,13 +42,34 @@
   import { promptRefreshKey } from '../lib/permissions.ts';
   import { PERMISSION_MODES, mergeSessionState, postDaemon, postDaemonMode, sessionControls, sessionMode, sessionPill, sessionToggle } from '../lib/daemon.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
+  import { ticker } from '../lib/clock.svelte.ts';
+  import { settled, shutter } from '../lib/motion.ts';
+  import { LIVE_LAMPS, cursorState, lampState, streaming, struck } from '../lib/station.ts';
   import { pref } from '../lib/prefs.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
 
   /** A transcript to follow in place of the daemon session: the job, the agent's role (null for the owner) and the banner text. */
   type Transcript = { job: string; agent: string | null; label: string };
-  let { scope, compact = false, active = true, transcript = null, fill = false }: { scope: string; compact?: boolean; active?: boolean; transcript?: Transcript | null; fill?: boolean } = $props();
+  let {
+    scope,
+    compact = false,
+    active = true,
+    transcript = null,
+    fill = false,
+    stage = null,
+    finished = false,
+  }: {
+    scope: string;
+    compact?: boolean;
+    active?: boolean;
+    transcript?: Transcript | null;
+    fill?: boolean;
+    /** The job's stage (the drawer's Log tab): a change drops the nameplate's shutter and relights the lamp. */
+    stage?: string | null;
+    /** A transcript's agent has finished (the Agents tab), so its lamp is done. */
+    finished?: boolean;
+  } = $props();
 
   /** The transcript routes: the page takes the token as a header, the stream (EventSource sends none) as a query parameter. */
   function transcriptUrls(tr: Transcript): SessionLogUrls {
@@ -111,9 +136,12 @@
         if (closed) live = null;
         loading = log.loading;
         error = log.error;
+        lastLiveAt = log.lastLiveAt;
       },
     }),
   );
+  /** When the newest live line arrived (daemon-log.ts): page fetches and replayed lines never set it. */
+  let lastLiveAt = $state<number | null>(null);
   let entries = $state.raw<Entry[]>([]);
   let more = $state(false);
   let closed = $state(false);
@@ -123,9 +151,11 @@
   let follow = $state(true);
   const effortName = $derived<Record<Effort, string>>({ low: $t('effort.levels.low'), medium: $t('effort.levels.medium'), high: $t('effort.levels.high'), xhigh: $t('effort.levels.xhigh'), max: $t('effort.levels.max') });
   const level = (v: unknown): Effort | null => EFFORTS.find((e) => e === v) ?? null;
-  // The office's facts. The model is session output (the init line), shown as text.
-  const officeModel = $derived.by(() => {
-    if (scope !== OFFICE_SCOPE) return '';
+  // The nameplate's facts. The job id on job-scoped terminals; the model on every daemon-scoped one, from session output
+  // (the init line), shown as text.
+  const jobId = $derived(scope === INBOX_SCOPE || scope === OFFICE_SCOPE ? null : (transcript?.job ?? scope));
+  const model = $derived.by(() => {
+    if (transcript) return '';
     const raw = latestInitModel(entries);
     return raw === null ? $t('session.modelUnknown') : (modelLabel(raw).label ?? raw);
   });
@@ -136,6 +166,34 @@
     return fallback === null ? $t('effort.claude') : $t('effort.inherit', { level: effortName[fallback] });
   });
   let pane = $state<HTMLDivElement>();
+
+  // ---------- the station's life ----------
+  /** When the screen clocked in: it warms the bezel as if a line had arrived. */
+  let clockIn = $state<number | null>(null);
+  let powering = $state(false);
+  let clocked = false;
+  const isStreaming = $derived(streaming(Math.max(lastLiveAt ?? -Infinity, clockIn ?? -Infinity), ticker.now));
+  const lamp = $derived(
+    lampState(transcript ? { kind: 'stream', ended: finished, waiting: view.openTool, streaming: isStreaming } : { kind: 'session', session, waiting: view.openTool, streaming: isStreaming }),
+  );
+  const cursor = $derived(cursorState(lamp, isStreaming));
+  const CURSOR = { blink: 'cursor blink', hold: 'cursor hold' } as const;
+  // Nothing heats for SETTLE_MS after the dashboard's first data or a reconnect.
+  const hot = $derived(isStreaming && settled(ticker.now, S.readyAt));
+  // Once per mount: the first time the lamp is live, the screen powers on, unless that is before the dashboard settled
+  // (a page load), which spends the clock-in without showing it.
+  $effect(() => {
+    if (clocked || !LIVE_LAMPS.has(lamp)) return;
+    clocked = true;
+    const now = Date.now();
+    if (!untrack(() => settled(now, S.readyAt))) return;
+    clockIn = now;
+    powering = true;
+  });
+  const initialStage = untrack(() => stage);
+  const ready = (): number | null => S.readyAt;
+  /** A stage change since mount: the nameplate's shutter drops and the lamp relights; the first render does neither. */
+  const shifted = $derived(stage !== initialStage);
 
   $effect(() => {
     const shown = active;
@@ -222,14 +280,14 @@
   {:else if it.kind === 'thinking'}
     <details class="text-muted {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5"><summary>{@render when(it.at)}{$t('session.thinkingItem')}</summary>{#if renderable(it.text, mdView.session)}<div class="{compact ? 'prose compact' : 'prose'} font-sans break-words">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</details>
   {:else if it.kind === 'tool'}
-    <details class="border px-1.5 -mx-1.5 py-1 {TINT[logSender(it.kind)]} {it.tone === 'bad' ? 'border-bad' : 'border-line-soft'}">
+    <details class="border px-1.5 -mx-1.5 py-1 {TINT[logSender(it.kind)]} {it.tone === 'bad' ? 'border-bad' : 'border-line-soft'} {struck(log.arrivedAt(it.offset), ticker.now) ? 'strike' : ''}">
       <summary class="break-all">{@render when(it.at)}<span class="text-gleam">→ {it.name}</span> <span class="text-muted">{it.summary}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
       <div class="label mt-1">{$t('session.input')}</div>
       <pre class="whitespace-pre-wrap break-words border border-line-soft p-2">{it.input}</pre>
       {#if it.result}{@render result(it.result)}{/if}
     </details>
   {:else if it.kind === 'subagent'}
-    <details class="border border-info px-1.5 -mx-1.5 py-1 {TINT[logSender(it.kind)]}">
+    <details class="border border-info px-1.5 -mx-1.5 py-1 {TINT[logSender(it.kind)]} {struck(log.arrivedAt(it.offset), ticker.now) ? 'strike' : ''}">
       <summary class="break-all">{@render when(it.at)}<Chip tone={it.known ? 'info' : 'muted'} text={it.role} /> <span>{it.description}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.hidden} <span class="text-muted">{$t('session.hiddenLines', { count: it.hidden })}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
       {#if it.prompt}
         <details class="mt-1">
@@ -257,21 +315,25 @@
   {/if}
 {/snippet}
 
-<div class="flex flex-col gap-2 {fill ? 'min-h-0 flex-1' : ''}">
-  <!-- One row that wraps: the facts on the left, the controls pushed right as one group, so on a phone the group wraps
-       under the facts as a whole before its own buttons wrap. -->
+<div class="station flex flex-col gap-2 {hot ? 'hot' : ''} {fill ? 'min-h-0 flex-1' : ''}">
+  <!-- One row that wraps: the nameplate on the left, the controls pushed right as one group, so on a phone the group wraps
+       under the nameplate as a whole before its own buttons wrap. -->
   <div class="flex flex-wrap items-center gap-x-1.5 gap-y-2">
-    {#if transcript}
-      <span role="note" class="plain min-w-0 break-all px-2 py-1 text-xs text-muted">{transcript.label}</span>
-    {:else}
-      <Chip role="status" tone={pill.tone} extra="sm" title={pill.title} text={pill.label} />
-      <span class="text-xs text-muted">{$t('session.turns', { count: view.totals.turns })}</span>
-      {#if view.totals.results}<span class="text-xs text-muted" title={$t('session.costTitle')}>{$t('session.cost', { cost: usd(view.totals.costUsd) })}</span>{/if}
-      {#if scope === OFFICE_SCOPE}
-        <span class="text-xs text-muted">{$t('session.model', { model: officeModel })}</span>
-        <span class="text-xs text-muted" title={$t('session.effortHint')}>{$t('session.effort', { effort: officeEffort })}</span>
-      {/if}
-    {/if}
+    {#key stage}
+      <div class="nameplate" in:shutter={shifted ? { ready } : { duration: 0 }}>
+        <Lamp state={lamp} relit={shifted && settled(Date.now(), S.readyAt)} />
+        {#if jobId}<span class="min-w-0 break-all text-fg normal-case selectable">{jobId}</span>{/if}
+        {#if transcript}
+          <span role="note" class="min-w-0 break-all">{transcript.label}</span>
+        {:else}
+          <Chip role="status" tone={pill.tone} title={pill.title} text={pill.label} />
+          <span class="text-fg">{$t('session.turns', { count: view.totals.turns })}</span>
+          {#if view.totals.results}<span class="text-fg" title={$t('session.costTitle')}>{$t('session.cost', { cost: usd(view.totals.costUsd) })}</span>{/if}
+          <span class="min-w-0 break-all text-fg">{$t('session.model', { model })}</span>
+          {#if scope === OFFICE_SCOPE}<span class="text-fg" title={$t('session.effortHint')}>{$t('session.effort', { effort: officeEffort })}</span>{/if}
+        {/if}
+      </div>
+    {/key}
     <div class="ml-auto flex flex-wrap items-center justify-end gap-1.5">
       {#if !transcript}
         <!-- The Select stays enabled while its entries can't change, so it still opens and the hints stay readable. -->
@@ -297,25 +359,34 @@
     {#if mode.live !== null}<div role="status" class="text-xs text-muted">{$t('session.modeSwitching', { mode: modeName[mode.live] ?? mode.live })}</div>{/if}
     {#if mode.chosen === 'auto'}<div class="text-xs text-warn">{$t('session.modes.autoWarning')}</div>{/if}
   {/if}
-  {#if error !== null}
-    <Banner msg={error} />
-  {:else if loading && !entries.length}
-    <div class="text-sm text-muted {fill ? 'min-h-0 flex-1' : ''}">{$t('session.loading')}</div>
-  {:else if !entries.length}
-    {@const enabled = S.data?.daemons?.enabled === true}
-    <Empty>{#if transcript}{$t('session.transcriptEmpty')}{:else if scope === INBOX_SCOPE}{enabled ? $t('session.emptyInboxEnabled') : $t('session.emptyInbox')}{:else if scope === OFFICE_SCOPE}{$t('session.emptyOffice')}{:else}{enabled ? $t('session.emptyEnabled') : $t('session.empty')}{/if}</Empty>
-  {/if}
-  {#if entries.length}
-    <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->
-    <div bind:this={pane} onscroll={onScroll} role="log" aria-live="off" aria-label={$t('session.label')} tabindex="0" class="plate flat mono selectable px-2.5 pb-2.5 {compact ? 'text-[11px] leading-5' : 'text-[13px] leading-5'} {fill ? 'min-h-0 flex-1' : compact ? 'max-h-72' : 'max-h-[70vh]'} overflow-y-auto overscroll-contain">
-      {#if !view.turns.length}<div class="text-muted">{$t('session.noMatch')}</div>{/if}
-      {#each view.turns as g (g.offset)}
-        <section class="mb-2">
-          <h3 class="label sticky top-0 z-10 bg-panel pt-2 pb-1">{g.label}{#if g.at} <time datetime={g.at} title={g.at} class="font-normal tabular-nums">· {clock(g.at)}</time>{/if}</h3>
-          <div class="flex flex-col gap-1">{#each g.items as it, i (i)}{@render item(it)}{/each}</div>
-        </section>
-      {/each}
-    </div>
-  {/if}
+  {#if error !== null}<Banner msg={error} />{/if}
+  <!-- The screen always renders: with no lines it shows the loading, empty or no-match message as one muted line. -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->
+  <div
+    bind:this={pane}
+    onscroll={onScroll}
+    onanimationend={(e) => {
+      if (e.target === e.currentTarget) powering = false;
+    }}
+    role="log"
+    aria-live="off"
+    aria-label={$t('session.label')}
+    tabindex="0"
+    class="screen mono selectable px-2.5 pb-2.5 {LIVE_LAMPS.has(lamp) ? 'live' : ''} {powering ? 'powering' : ''} {compact ? 'text-[11px] leading-5' : 'text-[13px] leading-5'} {fill ? 'min-h-0 flex-1' : compact ? 'min-h-16 max-h-72' : 'min-h-16 max-h-[70vh]'} overscroll-contain"
+  >
+    {#if !entries.length}
+      {#if error === null}
+        {@const enabled = S.data?.daemons?.enabled === true}
+        <p class="pt-2 font-sans text-sm text-muted">{#if loading}{$t('session.loading')}{:else if transcript}{$t('session.transcriptEmpty')}{:else if scope === INBOX_SCOPE}{enabled ? $t('session.emptyInboxEnabled') : $t('session.emptyInbox')}{:else if scope === OFFICE_SCOPE}{$t('session.emptyOffice')}{:else}{enabled ? $t('session.emptyEnabled') : $t('session.empty')}{/if}</p>
+      {/if}
+    {:else if !view.turns.length}<p class="pt-2 text-muted">{$t('session.noMatch')}</p>{/if}
+    {#each view.turns as g (g.offset)}
+      <section class="mb-2">
+        <h3 class="label sticky top-0 z-10 bg-(--screen) pt-2 pb-1">{g.label}{#if g.at} <time datetime={g.at} title={g.at} class="font-normal tabular-nums">· {clock(g.at)}</time>{/if}</h3>
+        <div class="flex flex-col gap-1">{#each g.items as it, i (i)}{@render item(it)}{/each}</div>
+      </section>
+    {/each}
+    {#if cursor !== 'off'}<div class="pt-1" aria-hidden="true"><span class={CURSOR[cursor]}></span></div>{/if}
+  </div>
   {#if closed}<div role="status" class="text-xs text-muted">{$t('session.closed')}</div>{/if}
 </div>

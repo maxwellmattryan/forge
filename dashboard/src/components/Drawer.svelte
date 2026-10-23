@@ -206,7 +206,7 @@
         {:else if shown.tab === 'log'}
           <!-- Keyed by job id (and owner transcript), so the drawer's 2 s refresh never re-creates the log or its stream; `active`
                closes the stream as soon as the drawer closes, though its last view stays while it slides out. -->
-          {#key logKey}<SessionLog scope={j.id} active={open} transcript={ownerLog} fill />{/key}
+          {#key logKey}<SessionLog scope={j.id} active={open} transcript={ownerLog} stage={j.stage} fill />{/key}
         {:else if shown.tab === 'agents'}
           {#key j.id}<AgentsTab job={j.id} detail={d} active={open} />{/key}
         {:else if shown.tab === 'files'}

@@ -3,6 +3,7 @@
 // EventSource and fetch. A hidden document, a closed drawer or an unshown tab never holds one of the
 // server's few SSE slots.
 import { MAX_ENTRIES, mergeEntry } from './session-log.ts';
+import { isLiveLine } from './station.ts';
 import type { Entry } from './session-parse.ts';
 import type { DaemonLogPage } from './types.ts';
 
@@ -34,6 +35,8 @@ export interface SessionLogOptions {
    * (the drawer's Agents tab, an interactive owner's Log tab). `headers` go with each page fetch.
    */
   urls?: SessionLogUrls;
+  /** The clock live lines are stamped with (epoch ms). */
+  now?: () => number;
 }
 
 export interface SessionLogUrls {
@@ -49,6 +52,13 @@ export interface SessionLog {
   readonly note: string | null;
   readonly loading: boolean;
   readonly error: string | null;
+  /**
+   * When the newest live line arrived (epoch ms), or null. Live means merged from a `line` event at least SETTLE_MS after
+   * the stream was dialled or reopened: page fetches and the lines a (re)open replays are backlog, never heat.
+   */
+  readonly lastLiveAt: number | null;
+  /** When the line at `offset` arrived live, or null for backlog. */
+  arrivedAt(offset: number): number | null;
   sync(shown: boolean): void;
   loadOlder(): Promise<void>;
   visibilityChanged(): void;
@@ -79,7 +89,7 @@ async function fetchPage(url: string, headers?: Record<string, string>): Promise
 
 const toEntry = (l: { offset: unknown; line: unknown }): Entry => ({ offset: Number(l.offset), line: String(l.line) });
 
-export function createSessionLog({ scope, onState, onChange, connect, fetchPage: customPage, visible, urls }: SessionLogOptions): SessionLog {
+export function createSessionLog({ scope, onState, onChange, connect, fetchPage: customPage, visible, urls, now = Date.now }: SessionLogOptions): SessionLog {
   // Defaults resolve on use, so importing this module touches no DOM.
   const isVisible = (): boolean => {
     if (visible) return visible();
@@ -106,6 +116,15 @@ export function createSessionLog({ scope, onState, onChange, connect, fetchPage:
   let started = false;
   /** Bumped whenever the stream is torn down, so a fetch that resolves late is dropped. */
   let gen = 0;
+  /** When the stream was dialled or last (re)opened: lines within SETTLE_MS of it are replayed backlog. */
+  let openedAt: number | null = null;
+  let lastLiveAt: number | null = null;
+  /** Offset → when that line arrived live; never holds an offset older than the buffer. */
+  const arrivals = new Map<number, number>();
+  const forget = (): void => {
+    lastLiveAt = null;
+    arrivals.clear();
+  };
 
   /** Drops the oldest lines past MAX_ENTRIES; they stay reachable through Load older. */
   const cap = () => {
@@ -114,6 +133,7 @@ export function createSessionLog({ scope, onState, onChange, connect, fetchPage:
       buf.splice(0, drop);
       more = true;
       cursor = buf[0].offset;
+      for (const o of arrivals.keys()) if (o < cursor) arrivals.delete(o);
     }
   };
 
@@ -130,6 +150,7 @@ export function createSessionLog({ scope, onState, onChange, connect, fetchPage:
     const reset = last !== null && Number(p.end) < last && !lines.some((l) => held.has(l.offset));
     if (fresh || last === null || reset || Number(p.start) > last) {
       buf = [];
+      forget();
       more = Boolean(p.more);
       cursor = Number.isFinite(p.start) ? p.start : null;
     }
@@ -141,11 +162,14 @@ export function createSessionLog({ scope, onState, onChange, connect, fetchPage:
     if (es || myGen !== gen) return;
     const src = dial(streamUrl);
     es = src;
+    openedAt = now();
     let opens = 0;
     src.addEventListener('open', () => {
+      if (es !== src) return;
+      openedAt = now();
       // A browser reconnect resumes with Last-Event-ID; refetch as well, in case the server's
       // ring didn't cover the gap or the log was reset.
-      if (opens++ === 0 || es !== src) return;
+      if (opens++ === 0) return;
       page(scope)
         .then((p) => {
           if (es !== src || myGen !== gen) return;
@@ -156,7 +180,13 @@ export function createSessionLog({ scope, onState, onChange, connect, fetchPage:
     });
     src.addEventListener('line', (e) => {
       if (es !== src) return;
-      if (mergeEntry(buf, { offset: Number(e.lastEventId), line: String(e.data) })) {
+      const offset = Number(e.lastEventId);
+      if (mergeEntry(buf, { offset, line: String(e.data) })) {
+        const t = now();
+        if (isLiveLine(openedAt, t)) {
+          lastLiveAt = t;
+          arrivals.set(offset, t);
+        }
         cap();
         onChange();
       }
@@ -205,6 +235,8 @@ export function createSessionLog({ scope, onState, onChange, connect, fetchPage:
     loading = false;
     es?.close();
     es = null;
+    openedAt = null;
+    forget();
     if (had) onChange();
   }
 
@@ -234,6 +266,10 @@ export function createSessionLog({ scope, onState, onChange, connect, fetchPage:
     get error() {
       return error;
     },
+    get lastLiveAt() {
+      return lastLiveAt;
+    },
+    arrivedAt: (offset: number): number | null => arrivals.get(offset) ?? null,
     sync,
     async loadOlder() {
       if (!more || olderLoading || cursor === null) return;
