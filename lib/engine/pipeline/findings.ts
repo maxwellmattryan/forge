@@ -1,6 +1,6 @@
 // `forge job findings`: review findings raised per round and lens, the builder's answers to them
-// (fixed or disputed), and findings that recur. Computed on demand from the review files and
-// build.md; nothing is persisted, so it can never go stale.
+// (fixed or disputed), findings that recur, and the finding keys that group them across jobs.
+// Computed on demand from the review files and build.md; nothing is persisted, so it can never go stale.
 import fs from 'node:fs';
 import path from 'node:path';
 import { HEADING, unfenced } from './acs.ts';
@@ -14,6 +14,22 @@ export interface RaisedFinding {
   path: string | null;
   /** The digits after the location token's first `:` (`lib/x.ts:42` → 42), else null. */
   line: number | null;
+  /** The normalised title (findingTitle), the second half of the finding key; null when it has too few words. */
+  title: string | null;
+  /** The text after the severity tag, trimmed and capped at TEXT_CAP characters. Raw: callers sanitise it. */
+  text: string;
+}
+
+/** A finding key (lens and title) raised in 2 or more distinct jobs. */
+export interface RecurringGroup {
+  lens: string;
+  title: string;
+  /** Every occurrence, across rounds and review files. */
+  findings: number;
+  /** Distinct job ids, sorted ascending. */
+  jobs: string[];
+  /** The first finding's text in input order, raw. */
+  example: string;
 }
 
 /** One builder answer line, attributed to the review round it answers. */
@@ -37,6 +53,39 @@ const REVIEW_LINE = /^\s*[-*]\s*\[(blocker|major|minor|nit)\](.*)$/is;
 // The lens may be qualified (`lib:realtime`): the `:` ends the bounded repo run, so it stays linear.
 const ANSWER_LINE = /^\s*[-*]\s+((?:[A-Za-z0-9][A-Za-z0-9._-]{0,99}:)?[a-z0-9][a-z0-9_-]*)\s+\[?(blocker|major|minor|nit)\]?\s+(\S+)\s+(?:→|->)\s+(fixed\b|disagree:)/i;
 const UNSAFE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
+const TEXT_CAP = 1000;
+const TITLE_TOKENS = 64;
+// How far after the location token a ` \u2014 ` separator may sit (`lib/x.ts:1 (and :5) \u2014 \u2026`).
+const SEPARATOR_REACH = 8;
+const SEPARATORS = new Set(['\u2014', '\u2013', '-', '--', ':']);
+// Measured on this repo's 299 review findings over 68 jobs: 6 words grouped nothing across jobs,
+// 4 grouped 3 real classes (the over-long header comment among them), and 3 added noise.
+const TITLE_WORDS = 4;
+const STOP_WORDS = new Set('a an and are as at be by for in is it its no not now of on or still that the this to with'.split(' '));
+
+/**
+ * The normalised title of a finding (`rest` is the text after its `[severity]` tag): its first
+ * TITLE_WORDS words, lower-cased, without the location token, the text before a separator, code
+ * spans, paths, punctuation and stop words. Null below 2 words, so a vague finding never groups.
+ */
+export function findingTitle(rest: string): string | null {
+  let tokens = String(rest).slice(0, TEXT_CAP).trim().split(/\s+/).filter(Boolean).slice(0, TITLE_TOKENS);
+  if (tokens.length && cleanPath(tokens[0]) !== null) tokens = tokens.slice(1);
+  const sep = tokens.slice(0, SEPARATOR_REACH).findIndex((t) => SEPARATORS.has(t));
+  if (sep >= 0) tokens = tokens.slice(sep + 1);
+  const words = tokens
+    .join(' ')
+    .replace(/`[^`]{0,200}`/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t && !t.includes('/') && !/\.[a-z]/i.test(t))
+    .join(' ')
+    .toLowerCase()
+    .replace(/[^a-z]+/g, ' ')
+    .split(' ')
+    .filter((w) => w.length >= 2 && !STOP_WORDS.has(w))
+    .slice(0, TITLE_WORDS);
+  return words.length >= 2 ? words.join(' ') : null;
+}
 
 /**
  * The bare path of a location token (`lib/x.ts:42`, `` `README.md` ``, `docs/A.md:87,`), or null
@@ -63,7 +112,13 @@ export function parseReviewFindings(text: string): RaisedFinding[] {
     const m = REVIEW_LINE.exec(line);
     if (!m) continue;
     const first = m[2].trim().split(/\s+/)[0] ?? '';
-    out.push({ severity: m[1].toLowerCase() as Severity, path: first ? cleanPath(first) : null, line: first ? lineOf(first) : null });
+    out.push({
+      severity: m[1].toLowerCase() as Severity,
+      path: first ? cleanPath(first) : null,
+      line: first ? lineOf(first) : null,
+      title: findingTitle(m[2]),
+      text: m[2].trim().slice(0, TEXT_CAP),
+    });
   }
   return out;
 }
@@ -200,15 +255,20 @@ function entries(dir: string): fs.Dirent[] {
   }
 }
 
-/** Read-only. Integration reviews are excluded: only `review/round-<n>/<lens>.md` (or `<repo>.<lens>.md`) count. */
-export function jobFindings(root: string, id: string): JobFindings {
+export type LensFinding = RaisedFinding & { lens: string };
+
+/**
+ * A job's review findings by round (each round that has review files), in file-name then line order.
+ * Read-only. Integration reviews are excluded: only `review/round-<n>/<lens>.md` (or `<repo>.<lens>.md`) count.
+ */
+export function raisedFindings(root: string, id: string): Map<number, LensFinding[]> {
   const dir = jobDir(root, id);
-  const raised = new Map<number, { lens: string; severity: Severity; path: string | null }[]>();
+  const raised = new Map<number, LensFinding[]>();
   for (const d of entries(path.join(dir, 'review'))) {
     const m = ROUND_DIR.exec(d.name);
     if (!m || !d.isDirectory()) continue;
     const round = Number(m[1]);
-    const findings: { lens: string; severity: Severity; path: string | null }[] = [];
+    const findings: LensFinding[] = [];
     let files = 0;
     for (const f of entries(path.join(dir, 'review', d.name))) {
       const stem = f.name.endsWith('.md') ? f.name.slice(0, -3) : '';
@@ -222,6 +282,34 @@ export function jobFindings(root: string, id: string): JobFindings {
     }
     if (files) raised.set(round, findings);
   }
-  const build = readSmall(path.join(dir, 'build.md'));
-  return summariseFindings(raised, build === null ? [] : parseAddressed(build));
+  return raised;
+}
+
+/** Read-only: raisedFindings counted against the builder's answers in build.md. */
+export function jobFindings(root: string, id: string): JobFindings {
+  const build = readSmall(path.join(jobDir(root, id), 'build.md'));
+  return summariseFindings(raisedFindings(root, id), build === null ? [] : parseAddressed(build));
+}
+
+/**
+ * Pure: the finding keys (lens, title) raised in 2 or more distinct jobs, most jobs first, then most
+ * findings, then lens and title. Findings with a null title never group. The caller caps the list.
+ */
+export function recurringAcrossJobs(perJob: { id: string; findings: LensFinding[] }[]): RecurringGroup[] {
+  const groups = new Map<string, { lens: string; title: string; findings: number; jobs: Set<string>; example: string }>();
+  for (const { id, findings } of perJob) {
+    for (const f of findings) {
+      if (f.title === null) continue;
+      const key = JSON.stringify([f.lens, f.title]);
+      let g = groups.get(key);
+      if (!g) groups.set(key, (g = { lens: f.lens, title: f.title, findings: 0, jobs: new Set(), example: f.text }));
+      g.findings++;
+      g.jobs.add(id);
+    }
+  }
+  const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+  return [...groups.values()]
+    .filter((g) => g.jobs.size >= 2)
+    .map((g) => ({ lens: g.lens, title: g.title, findings: g.findings, jobs: [...g.jobs].sort(byText), example: g.example }))
+    .sort((a, b) => b.jobs.length - a.jobs.length || b.findings - a.findings || byText(a.lens, b.lens) || byText(a.title, b.title));
 }
