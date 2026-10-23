@@ -77,7 +77,15 @@ Every `lib/` file sits under `lib/<layer>/`, except the two deprecated tracker r
 
 | Module | Files |
 |---|---|
-| `types.ts` | ← `api-types.ts` |
+| `types.ts` | ← `api-types.ts`; now a type-only barrel over the owner modules below (#428) |
+| `enums.ts` | the unions the /api shapes share, derived from `constants.ts` |
+| `job.ts` | a job as job.json and events.jsonl hold it, as /api/state and /api/jobs/:id serve it |
+| `state.ts` | GET /api/state, /api/requests, /api/focus, /api/budget/ack, and the JSON error body |
+| `jobs.ts` | /api/jobs and /api/jobs/:id/*, and the environment routes with GET /api/environments |
+| `daemon.ts` | the session pool's /api/daemon* routes and the /api/events SSE frames |
+| `config.ts` | /api/config, /api/doctor and /api/about |
+| `stats.ts` | /api/stats, /api/evals and /api/evals/compare |
+| `repo.ts` | /api/project, /api/roster, /api/backlog with the tracker item, and /api/github/preview |
 | `constants.ts` | `constants.ts` |
 | `tracker.ts` | ← `trackers/status.ts`; `trackers/status.ts` and `trackers/status.mjs` stay as deprecated one-line re-exports for one minor release, and the stability contract in docs/RELEASES.md moved to `lib/api/tracker.ts` |
 
