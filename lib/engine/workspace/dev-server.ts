@@ -20,6 +20,7 @@ import { withLock, withLockAsync } from '#core/os/lock.ts';
 import { fill } from '#core/text.ts';
 import { now } from '#core/utils.ts';
 import { readSmallJson } from '#core/job/focus.ts';
+import { LOG_ROTATE_BYTES } from '#core/job/session-files.ts';
 
 /**
  * Long-running commands (dev servers) are detached and tracked by pid so a later session can stop them.
@@ -60,9 +61,7 @@ export async function startBackground(
     const applied = component ? applySinks(root, config, job, component, { env: baseEnv, fillCmd: (t) => fill(t, v) }) : null;
     if (applied) logEvent(root, id, 'config-sinks', applied.summary);
     const sh = posixShell();
-    const logFile = path.join(dir, 'logs', `${name}.log`);
-    fs.mkdirSync(path.dirname(logFile), { recursive: true });
-    const fd = fs.openSync(logFile, 'a');
+    const { fd, file: logFile } = openBackgroundLog(root, config, id, name);
     const child = spawn(sh, ['-lc', cmd], {
       cwd: job.worktree!,
       env: { ...baseEnv, ...applied?.env },
@@ -78,6 +77,64 @@ export async function startBackground(
   });
   const listening = port ? await portAnswers(port) : null;
   return { pid: rec.pid, port, log: rec.log, reused: rec.reused, listening };
+}
+
+const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
+const NONBLOCK = fs.constants.O_NONBLOCK ?? 0;
+
+/**
+ * A background command's log, `<jobDir>/logs/<name>.log`, opened for the child to append to. The
+ * job's agents write the job dir and the child runs unsandboxed, so a planted link must not aim its
+ * output anywhere else: the logs dir must resolve to where it should be under the real root, and the
+ * log must be a regular file with a single link. A refused log throws a ForgeError naming it, and
+ * the link and its target are left alone. A log at retention.logMaxBytes (null: past
+ * LOG_ROTATE_BYTES, as for session logs) is first renamed to `<name>.log.1`, replacing the older one.
+ */
+export function openBackgroundLog(root: string, config: Config, id: string, name: string): { fd: number; file: string } {
+  const logs = path.join(jobDir(root, id), 'logs');
+  const file = path.join(logs, `${name}.log`);
+  const refuse = (why: string): never => {
+    throw new ForgeError(`refusing to write ${file}: ${why}`);
+  };
+  try {
+    fs.mkdirSync(logs, { recursive: true });
+  } catch {
+    // A planted non-directory: the check below names it.
+  }
+  let real: string | null = null;
+  try {
+    real = fs.realpathSync(logs);
+  } catch {}
+  if (real !== path.join(fs.realpathSync(root), path.relative(root, logs))) refuse('its logs dir does not resolve to the job dir (a symlink?)');
+  let st: fs.Stats | null = null;
+  try {
+    st = fs.lstatSync(file);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') refuse((e as Error).message);
+  }
+  if (st && (!st.isFile() || st.nlink !== 1)) refuse('it is not a regular file with a single link');
+  const max = config.retention?.logMaxBytes;
+  const cap = Number.isSafeInteger(max) && (max as number) > 0 ? (max as number) : null;
+  if (st && (cap !== null ? st.size >= cap : st.size > LOG_ROTATE_BYTES)) {
+    try {
+      fs.renameSync(file, `${file}.1`);
+    } catch (e) {
+      refuse(`cannot rotate it: ${(e as Error).message}`);
+    }
+  }
+  let fd: number;
+  try {
+    // O_NOFOLLOW and O_NONBLOCK hold if a link or FIFO is swapped in since the lstat.
+    fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | NOFOLLOW | NONBLOCK, 0o644);
+  } catch (e) {
+    return refuse((e as Error).message);
+  }
+  const opened = fs.fstatSync(fd);
+  if (!opened.isFile() || opened.nlink !== 1) {
+    fs.closeSync(fd);
+    refuse('it is not a regular file with a single link');
+  }
+  return { fd, file };
 }
 
 const DEV_STOP_WAIT_MS = 5_000;
