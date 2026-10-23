@@ -68,15 +68,20 @@ export interface ThreadOpening {
   at: string | null;
   /** The job came from a tracker item, so the text is the issue's, not yours. */
   tracker: boolean;
+  /** `text` is the server's 2,000-character excerpt; the whole request is request.md. */
+  truncated: boolean;
 }
 
 /**
  * The opening message from GET /api/jobs/:id. It trusts `requestFromTracker`, never `job.issues`:
  * `forge job link` and `--create` add issues while request.md still holds your own words.
  */
-export function threadOpening(d: Pick<JobDetail, 'request' | 'requestFromTracker'> & { job: Pick<Job, 'createdAt'> }): ThreadOpening {
-  return { text: d.request ?? null, at: d.job.createdAt ?? null, tracker: d.requestFromTracker === true };
+export function threadOpening(d: Pick<JobDetail, 'request' | 'requestFromTracker'> & Partial<Pick<JobDetail, 'requestTruncated'>> & { job: Pick<Job, 'createdAt'> }): ThreadOpening {
+  return { text: d.request ?? null, at: d.job.createdAt ?? null, tracker: d.requestFromTracker === true, truncated: d.requestTruncated === true };
 }
+
+/** request.md as GET /api/jobs/:id/file serves it, without its `# title` line and trimmed, like the server's excerpt (lib/core/job/store.ts requestBody). */
+export const requestText = (raw: string): string => raw.replace(/^\s*# [^\n]*\n?/, '').trim();
 
 const STATUS: Record<ForgeRequest['status'], ThreadStatus> = { pending: 'queued', 'in-progress': 'handling', done: 'done', rejected: 'rejected' };
 
@@ -112,7 +117,7 @@ export function threadAction(r: Pick<ForgeRequest, 'type' | 'args' | 'from'>): T
 }
 
 /** The conversation, oldest first: the job's request, then its requests (ids start with their creation time), with the secret scanner's notes merged in by time. */
-export function threadItems(requests: ForgeRequest[] | null | undefined, opening: ThreadOpening | null = null, events: JobEvent[] | null | undefined = []): ThreadItem[] {
+export function threadItems(requests: ForgeRequest[] | null | undefined, opening: Pick<ThreadOpening, 'text' | 'at' | 'tracker'> | null = null, events: JobEvent[] | null | undefined = []): ThreadItem[] {
   const out: ThreadItem[] = [];
   if (opening?.text) out.push({ id: 'request', from: opening.tracker ? 'tracker' : 'you', action: { kind: opening.tracker ? 'imported' : 'request' }, text: opening.text, status: null, at: opening.at, result: null, secret: null });
   const rest = (requests ?? [])

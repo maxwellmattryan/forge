@@ -2,16 +2,23 @@
      actions and the session's permission prompts live in the drawer's ActionDock, on every tab. Request text and
      results are untrusted: they render only through the escape-first md(), or as plain text in Raw (and above 20k
      characters). The secret scanner's notes (secret-found events) are an ember plate whose masked findings and scan
-     error are plain text, never markdown. -->
+     error are plain text, never markdown. Progress lines (lib/thread-progress.ts) sit between the messages as one-line rows,
+     their agent and engine text plain; the Progress button hides them, and they never count as unread. The opening request
+     comes as the server's 2,000-character excerpt; when it was cut, a button loads the whole request.md, which goes
+     through the same md() or text view. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
   import { md } from '../lib/markdown.ts';
   import { renderable } from '../lib/md-view.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
-  import { ago } from '../lib/util.ts';
+  import { ago, api } from '../lib/util.ts';
+  import { toast } from '../lib/toast.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
-  import { secretLine, threadItems, threadMark, type ThreadAction, type ThreadFrom, type ThreadOpening, type ThreadSecret, type ThreadStatus } from '../lib/thread.ts';
+  import { STAGE_LABEL, WAIT_LABEL } from '../lib/labels.ts';
+  import { threadFeed, threadProgress, type Progress } from '../lib/thread-progress.ts';
+  import { pref } from '../lib/prefs.ts';
+  import { requestText, secretLine, threadItems, threadMark, type ThreadAction, type ThreadFrom, type ThreadOpening, type ThreadSecret, type ThreadStatus } from '../lib/thread.ts';
   import { TINT, threadSender } from '../lib/sender.ts';
   import type { ForgeRequest, Job, JobEvent } from '../lib/types.ts';
   import { t } from '../lib/locale.ts';
@@ -20,6 +27,101 @@
   let { job, requests, opening, events = [], baseline = null }: { job: Job; requests: ForgeRequest[]; opening: ThreadOpening; events?: JobEvent[]; baseline?: string[] | null } = $props();
   const items = $derived(threadItems(requests, opening, events));
   const seenAtOpen = $derived(baseline ? new Set(baseline) : null);
+  let showProgress = $state(pref.get('threadProgress', '1') !== '0');
+  $effect(() => pref.set('threadProgress', showProgress ? '1' : '0'));
+  /** The whole request.md, once loaded, and whether it is shown: both per job, as the drawer reuses this component. */
+  let whole = $state<{ job: string; text: string } | null>(null);
+  let expanded = $state<string | null>(null);
+  let loadingWhole = $state(false);
+  const showWhole = $derived(whole !== null && whole.job === job.id && expanded === job.id);
+
+  async function toggleWhole(): Promise<void> {
+    if (showWhole) {
+      expanded = null;
+      return;
+    }
+    const id = job.id;
+    if (whole?.job !== id) {
+      loadingWhole = true;
+      try {
+        whole = { job: id, text: requestText(await api<string>(`/api/jobs/${encodeURIComponent(id)}/file?path=request.md`)) };
+      } catch (err) {
+        toast($t('thread.wholeFailed', { error: err instanceof Error ? err.message : String(err) }), true);
+        return;
+      } finally {
+        loadingWhole = false;
+      }
+    }
+    expanded = id;
+  }
+
+  const rows = $derived(threadFeed(items, showProgress ? threadProgress(events) : []));
+
+  /** A progress line's dot: ok and bad for outcomes, spark where the job waits on a person, gleam for progress. */
+  function progressTone(m: Progress): string {
+    switch (m.kind) {
+      case 'stage':
+      case 'pr-opened':
+        return 'gleam plain';
+      case 'waiting':
+        return m.on === 'external' ? 'hollow' : 'spark';
+      case 'blocked':
+      case 'conflicts':
+        return 'warn';
+      case 'ended':
+        return m.state === 'done' ? 'ok' : m.state === 'failed' ? 'bad' : 'hollow';
+      case 'checks':
+        return m.ok ? 'ok' : 'bad';
+      case 'reviews':
+        return m.pass ? 'ok' : 'warn';
+      case 'decision':
+        return m.approve ? 'ok' : 'spark';
+      case 'pr-merged':
+        return 'ok';
+      default:
+        return 'hollow';
+    }
+  }
+
+  /** A progress line in words; an agent's role and reply, a reason and a note are added beside it as plain text. */
+  function progressText(m: Progress): string {
+    switch (m.kind) {
+      case 'stage':
+        return $t('thread.progress.stage', { stage: STAGE_LABEL[m.stage] });
+      case 'waiting':
+        return m.on ? $t('thread.progress.waiting', { on: WAIT_LABEL[m.on] }) : $t('thread.progress.waitingUnknown');
+      case 'blocked':
+        return $t('thread.progress.blocked');
+      case 'ended':
+        return { done: $t('thread.progress.done'), failed: $t('thread.progress.failed'), cancelled: $t('thread.progress.cancelled') }[m.state];
+      case 'round':
+        return $t('thread.progress.round', { round: m.round });
+      case 'agent':
+        return $t('thread.progress.agent');
+      case 'checks':
+        return m.ok ? $t('thread.progress.checksPass', { round: m.round }) : $t('thread.progress.checksFail', { round: m.round });
+      case 'reviews':
+        return m.pass ? $t('thread.progress.reviewsPass', { round: m.round }) : $t('thread.progress.reviewsFail', { round: m.round });
+      case 'decision':
+        return m.approve ? $t('thread.progress.approve') : $t('thread.progress.escalate');
+      case 'pr-opened':
+        return $t('thread.progress.prOpened', { number: m.number });
+      case 'pr-merged':
+        return $t('thread.progress.prMerged', { number: m.number });
+      case 'conflicts':
+        return $t('thread.progress.conflicts', { count: m.count });
+      case 'note':
+        return $t('thread.forge');
+    }
+  }
+
+  /** The plain text a progress line carries after its words: an agent's reply, a reason or a note. */
+  function progressDetail(m: Progress): string | null {
+    if (m.kind === 'agent') return m.summary;
+    if (m.kind === 'note') return m.text;
+    if (m.kind === 'waiting' || m.kind === 'blocked' || m.kind === 'ended' || m.kind === 'decision') return m.reason;
+    return null;
+  }
 
   const who = $derived<Record<ThreadFrom, string>>({ you: $t('thread.you'), cli: $t('thread.cli'), forge: $t('thread.forge'), tracker: $t('thread.tracker') });
   const statusText = $derived<Record<ThreadStatus, string>>({ queued: $t('thread.queued'), handling: $t('thread.handling'), done: $t('thread.done'), rejected: $t('thread.rejected') });
@@ -87,11 +189,21 @@
   <section class="flex flex-col gap-2" aria-labelledby="thread-conversation-{job.id}">
     <div class="flex items-center justify-between gap-2">
       <h3 id="thread-conversation-{job.id}" class="label callout">{$t('thread.conversation')}</h3>
-      {#if items.length}<MarkdownToggle surface="thread" />{/if}
+      <div class="flex items-center gap-1.5"><button type="button" class="btn sm {showProgress ? 'sel' : ''}" aria-pressed={showProgress ? 'true' : 'false'} title={$t('thread.progress.toggleTitle')} onclick={() => (showProgress = !showProgress)}>{$t('thread.progress.toggle')}</button>{#if items.length}<MarkdownToggle surface="thread" />{/if}</div>
     </div>
-    {#if items.length}
+    {#if rows.length}
       <ol class="flex flex-col gap-2">
-        {#each items as m (m.id)}
+        {#each rows as row (row.item.id)}
+          {#if row.kind === 'progress'}
+            {@const ms = row.item.line}
+            {@const detail = progressDetail(ms)}
+            <li class="flex items-baseline gap-2 px-3 text-sm">
+              <span class="dot {progressTone(ms)} size-1.5 shrink-0 self-center" aria-hidden="true"></span>
+              <span class="min-w-0 flex-1 break-words">{#if ms.kind === 'agent'}<span class="text-gleam">{ms.role}</span>{' '}{/if}<span class="text-fg">{progressText(ms)}</span>{#if detail}<span class="selectable text-muted">{' · '}{detail}</span>{/if}</span>
+              <span class="shrink-0 text-xs text-muted">{ago(row.item.at, ticker.now)}</span>
+            </li>
+          {:else}
+          {@const m = row.item}
           {#if m.secret}
             <li class="plate ember p-3 flex flex-col gap-1.5 {TINT.forge}">
               <div class="caption flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -111,7 +223,9 @@
               {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot spark size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="font-semibold text-fg">{who[m.from]}</span><span class="text-fg">{actionText(m.action)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.status}<Chip tone={TONE[m.status]} text={statusText[m.status]} />{/if}
             </div>
             {#if m.text}
-              {#if renderable(m.text, mdView.thread)}<div class="prose break-words">{@html md(m.text)}</div>{:else}<p class="selectable text-sm whitespace-pre-wrap break-words">{m.text}</p>{/if}
+              {@const text = m.id === 'request' && showWhole && whole ? whole.text : m.text}
+              {#if renderable(text, mdView.thread)}<div class="prose break-words">{@html md(text)}</div>{:else}<p class="selectable text-sm whitespace-pre-wrap break-words">{text}</p>{/if}
+              {#if m.id === 'request' && opening.truncated}<button type="button" class="btn sm self-start" aria-expanded={showWhole ? 'true' : 'false'} disabled={loadingWhole} onclick={toggleWhole}>{showWhole ? $t('thread.showLess') : loadingWhole ? $t('thread.loadingWhole') : $t('thread.showWhole')}</button>{/if}
             {/if}
             {#if m.result}
               {#if renderable(m.result, mdView.thread)}
@@ -121,6 +235,7 @@
               {/if}
             {/if}
           </li>
+          {/if}
           {/if}
         {/each}
       </ol>

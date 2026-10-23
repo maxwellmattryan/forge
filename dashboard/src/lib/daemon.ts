@@ -181,6 +181,15 @@ export function sessionToggle(controls: { canStart: boolean; canStop: boolean },
   return { action: 'stop', enabled: controls.canStop };
 }
 
+/** The pool's session for a scope (the inbox's, the office's or a job's; own keys only, so a job id never reads Object.prototype), or null. */
+export function scopeSession(pool: PoolInput, scope: string): Partial<DaemonSessionState> | null {
+  const p = obj(pool);
+  if (scope === INBOX_SCOPE) return p.inbox ?? null;
+  if (scope === OFFICE_SCOPE) return p.office ?? null;
+  const jobs = obj(p.jobs);
+  return Object.hasOwn(jobs, scope) ? (jobs[scope] ?? null) : null;
+}
+
 /** The modes a session can be switched to: lib/office/session/lifecycle.ts PERMISSION_MODES. */
 export const PERMISSION_MODES: readonly DaemonPermissionMode[] = ['default', 'auto', 'dontAsk'];
 

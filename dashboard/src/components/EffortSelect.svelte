@@ -1,4 +1,4 @@
-<!-- A job's reasoning effort, beside the Permissions dropdown in its Log tab: a small button Select naming the level.
+<!-- A job's reasoning effort, beside the Permissions dropdown in SessionControls (the job drawer's header): a small button Select naming the level.
      Inherit clears the job's own level. It works with the daemon off too, because an interactive orchestrator reads the
      level from `forge job step`. A running session keeps the level it started with until its next spawn, which the
      button's title and badge say. While a change saves every entry is disabled, but the button itself stays enabled, so
