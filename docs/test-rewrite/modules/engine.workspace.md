@@ -120,7 +120,7 @@ These are in this unit's primary old file but test code outside lib/engine/works
 - Editor: `fakeBin('stub-editor')` on PATH (records argv; `.calls()`), `FORGE_EDITOR` set per case (tests touching `process.env` run serially).
 - Dev server proof: `test/fixtures/dev-server.mjs`, detached `sleep 30` processes as planted pids written to `runtime.json` `{ dev: { pid, startedAt } }`; a pty-holding process via `script -q /dev/null sleep 30` (macOS) / `script -qfec 'sleep 30' /dev/null` (Linux).
 - Regeneration: repo with `gen.mjs` (builds `dist/out.txt` from `src/*.txt` plus one content-hashed `dist/assets/<sha8>.txt`, deleting older ones, appending to `.gen-runs`), `bad.mjs` (writes `dist/junk.txt`, prints `BUILD-BROKE on purpose`, exits 3), `src/a.txt`, `.gitignore` `.gen-runs`; config `commands { gen:'node gen.mjs', bad:'node bad.mjs', test:'true' }`, `worktrees { generated:['dist/**'], generatedBy:'gen' }`; each side adds a source, rebuilds and commits; run `forge integrate` with `GIT_EDITOR=true`. For the argv check, a `fakeBin`-style `git` wrapper that logs argv (`\x1f`-separated) and execs the real git.
-- Daemon env: `{ FORGE_DAEMON:'1', [TRUST_ENV]: trustDigest(root), FORGE_DAEMON_SCOPE:<id> }`; `sessionEnv(...)` from `#office/session/lifecycle.ts` for git pins.
+- Daemon env: `{ FORGE_DAEMON:'1', [TRUST_ENV]: trustDigest(root), FORGE_DAEMON_SCOPE:<id> }`; `sessionEnv(...)` from `#integrations/claude/argv.ts` for git pins.
 
 ## Dropped on purpose
 - integration/cli/verify.test.ts › "this repo's config groups lint, typecheck and test after build" — pins this repo's own `.forge/config.yml` (`verify: ['build', ['lint','typecheck','test']]` and the exact `commands.test` string); not module behaviour.

@@ -3,7 +3,7 @@ Source: lib/office/session/ (contract.ts, control.ts, holds.ts, launch.ts, lifec
 Old tests: test/daemon.test.ts, test/integration/pool/daemon.test.ts (per-session parts; pool-wide parts are in office.md), test/budget.test.ts (heldByBudget only), test/command-env.test.ts (sessionEnv pins only)
 Baseline coverage: 97.2% overall (1578/1624); `lifecycle.ts` 97.2%
 
-Most items are observed through `createPool` (lib/office/pool.ts), which owns the sessions; the pool is the cheapest harness for them (see Setup recipes). `lifecycle.ts` will be split (#416): name the exports, not the file.
+Most items are observed through `createPool` (lib/office/pool.ts), which owns the sessions; the pool is the cheapest harness for them (see Setup recipes). `lifecycle.ts` was split (#416): name the exports, not the file.
 
 ## Behaviours
 
