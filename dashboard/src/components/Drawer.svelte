@@ -2,7 +2,9 @@
      the view keeps its centred width underneath. It renders the drawerView snapshot, so it changes only where the old
      renderDrawer() ran. At md and up its width is the viewer's (pref paneWidth, one for every job), clamped so it never
      covers the sidebar column, and the separator on its left edge resizes it; below md it is full width. The backdrop,
-     Escape or the close button closes it; closed, it is invisible, so out of the tab order. -->
+     Escape or the close button closes it; closed, it is invisible, so out of the tab order. Its header is four rows: the
+     title with the close button, the meta line (id · round) with one right-aligned controls cluster, one badge row, and
+     the live agent line while agents run. Every row wraps, so it never scrolls sideways at any width. -->
 <script lang="ts">
   import { untrack } from 'svelte';
   import ActionDock from './ActionDock.svelte';
@@ -17,6 +19,7 @@
   import DepSection from './DepSection.svelte';
   import EffortChip from './EffortChip.svelte';
   import EnvironmentSection from './EnvironmentSection.svelte';
+  import LeaseChip from './LeaseChip.svelte';
   import LiveDot from './LiveDot.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
   import PrChip from './PrChip.svelte';
@@ -193,15 +196,20 @@
   {:else if shown && job}
     {@const d = shown.detail}
     {@const j = job}
+    {@const verbs = scopeVerbs(j).length > 0}
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div bind:this={head} class="shrink-0 max-h-[40%] overflow-y-auto overscroll-contain p-5 md:p-6 pb-3 md:pb-4 flex flex-col gap-2">
-        <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 bind:this={title} tabindex="-1" class="h sheet-title">{j.title}</h2><div class="mono text-[13px] muted selectable">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div></div>
-        <!-- A daemon-backed job's session controls sit here, not in its Log, so every tab has them; an interactive owner's
-             job has none, as its Log follows a transcript, and keeps the effort chip. -->
-        <div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-2"><div class="flex min-w-0 flex-wrap items-center gap-1.5"><Chip tone="gleam" text={STAGE_LABEL[j.stage] ?? j.stage} /><StateChip job={j} />{#if prot}<Chip tone="warn" extra="max-w-full flex-wrap whitespace-normal" text={$t('job.protectedDrawer', { reasons: prot.reasons.join(' · ') })} />{/if}{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}{#if ownerLog}<EffortChip level={effort} />{/if}{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>{#if !ownerLog}{#key j.id}<SessionControls scope={j.id} />{/key}{/if}</div>
-        {#if j.reason}<div class="text-sm text-muted truncate" title={j.reason}>{j.reason}</div>{/if}
+        <div class="flex items-start justify-between gap-3"><h2 bind:this={title} tabindex="-1" class="h sheet-title min-w-0">{j.title}</h2><CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div>
+        <!-- The meta line, then one right-aligned controls cluster: a daemon-backed job's session controls (here, not in its
+             Log, so every tab has them), then Command, nearest the close button. An interactive owner's job has no session
+             controls, as its Log follows a transcript, and keeps the effort chip. ml-auto keeps the cluster right-aligned
+             when it wraps under the meta line. -->
+        <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2"><div class="mono text-[13px] muted min-w-0 break-all"><span class="selectable">{j.id}</span>{#if j.round}{' · '}<span class="whitespace-nowrap">{$t('job.round', { round: j.round, max: j.maxRounds })}</span>{/if}</div>{#if !ownerLog || verbs}<div class="ml-auto flex min-w-0 flex-wrap items-start justify-end gap-1.5">{#if !ownerLog}{#key j.id}<SessionControls scope={j.id} />{/key}{/if}{#if verbs}<CommandTrigger job={j.id} />{/if}</div>{/if}</div>
+        <!-- One wrapping badge row: the job's chips, the lease, the session's activity, and last the reason, one truncated
+             line that wraps onto its own line here when there is no room. -->
+        <div class="flex min-w-0 flex-wrap items-center gap-1.5"><Chip tone="gleam" text={STAGE_LABEL[j.stage] ?? j.stage} /><StateChip job={j} />{#if prot}<Chip tone="warn" extra="max-w-full flex-wrap whitespace-normal" text={$t('job.protectedDrawer', { reasons: prot.reasons.join(' · ') })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}{#if ownerLog}<EffortChip level={effort} />{/if}<LeaseChip owner={j.ownerStatus} />{#if activity}<SessionActivity {activity} extra="caption" />{/if}{#if j.reason}<span class="caption muted min-w-0 max-w-full truncate" title={j.reason}>{j.reason}</span>{/if}</div>
         <!-- On the Thread the live line under the conversation says what runs, so the header doesn't say it twice. -->
-        {#if shown.tab !== 'thread' && (running.length || j.ownerStatus?.status !== 'none')}<AgentActivity activity={running} owner={j.ownerStatus} expandable={true} />{/if}
+        {#if shown.tab !== 'thread' && running.length}<AgentActivity activity={running} expandable={true} />{/if}
       </div>
       <!-- Outside the scroller, so it never moves; it scrolls sideways when the tabs outgrow a phone. -->
       <div role="tablist" tabindex="-1" aria-label={$t('drawer.tabs')} {@attach slideMarker('[aria-selected="true"]', 'bar-bottom')} class="tabs slide-marker shrink-0 z-20 solid px-5 md:px-6 overflow-x-auto overflow-y-hidden" onkeydown={stripKey}>{#each DRAWER_TABS as tab (tab)}<button role="tab" id="drawer-tab-{tab}" aria-selected={shown.tab === tab} aria-controls="drawer-panel-{tab}" tabindex={shown.tab === tab ? 0 : -1} class="tab shrink-0 whitespace-nowrap focus-visible:-outline-offset-2 {shown.tab === tab ? 'active' : ''}" onclick={() => selectTab(tab)}>{#if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<Chip extra="spark ml-1.5" text={$t('drawer.threadUnread', { count: unread })} />{/if}{:else if tab === 'log'}{$t('drawer.logTab')}{#if activity?.kind === 'working'}<span class="inline-flex ml-1.5 align-middle"><LiveDot on={true} /></span><span class="sr-only">{$t('live.working')}</span>{/if}{:else if tab === 'agents'}{$t('drawer.agentsTab')}{#if running.length}<span class="muted num ml-1">({running.length})</span>{/if}{:else if tab === 'files'}{$t('drawer.files')}{:else if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted num">({d.events.length})</span>{:else if tab === 'details'}{$t('drawer.detailsTab')}{/if}</button>{/each}</div>
