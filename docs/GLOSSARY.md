@@ -111,6 +111,7 @@ Some of these words already mean something in Forge. They keep those meanings:
 - A job's `dependsOn` is a job dependency. "Dependency" alone means a component edge.
 - "Environment" alone never means environment variables (say "environment variables"), and "focus" never means a test's focus marker or keyboard focus.
 - "Hand-off" alone means a session handing a job to another with `forge requests add resume`; the Foreman's always carries the name ("Foreman hand-off").
+- "File map" is a spec's `Files:` table; a folder's `AGENTS.md` is its "folder map".
 - "Integrations" never means the integrate stage or the integrator (bringing a branch up to date with its base), nor integration tests (`test/integration/`).
 - "Office" alone means the runtime; the Foreman's session is the "office session".
 - "Milestone" means a tracker milestone (a group of planned work). The Thread's one-line rows for a job's events are "progress lines".
@@ -145,4 +146,5 @@ The new words build on these, which exist today.
 | **settled experiment** | An experiment ledger entry whose status `forge experiment evaluate` wrote (`kept`, `reverted` or `inconclusive`, with its n, method and interval); it is history, and the notes check refuses any change to it. | `improve.experiments` |
 | **progress line** | A one-line row the job panel's Thread shows between the messages for a job event a person follows: a new stage, a parked gate, an agent's closing reply, a round's checks or reviews, the decision, the PR, merge conflicts or a note. It never counts as unread. | - |
 | **version step** | One named entry (`{ id, up }`, or `{ id }` for `/api`) in an append-only version list (`lib/core/versions/`, `lib/api/versions.ts`); a shape's version is its list's length plus one, so a shape change appends a step and never types a number. | - |
+| **file map** | The `Files:` table that ends a spec's Approach: one row per file the builder will touch or reuse, with its symbols, the change and the tests that cover it; `forge job acs` reports a spec without one as incomplete (`fileMap`, `incomplete`). | - |
 | **recall fixture** | A frozen diff in the main checkout's `.forge/evals/recall/<name>/`, with the lenses that review it and its planted defects (none for a clean fixture), that `forge eval recall` grades reviewer prompts against. | `evals.recall.paths` |
