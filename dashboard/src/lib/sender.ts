@@ -1,16 +1,18 @@
-// Who a Thread message or a session log line comes from, and the faint tint that shows it at a glance. Pure, so node:test
-// can pin it. The tint is never the only cue: the Thread names the sender and the log tags each line.
+// Who a Thread message or a session log line comes from, and how it shows at a glance: the log's faint tint, and each
+// Thread sender's own colour and icon. Pure, so node:test can pin it. Colour is never the only cue: the Thread names the
+// sender beside its icon and the log tags each line.
+import type { IconName } from './icons.ts';
 import type { ItemKind } from './session-parse.ts';
 import type { ThreadFrom } from './thread.ts';
 
-/** you: a person (the dashboard or the tracker); cli: the CLI, the supervisor and plumbing; agent: Claude; forge: Forge itself. */
-export type Sender = 'you' | 'cli' | 'agent' | 'forge';
+/** A log line's sender. cli: the CLI, the supervisor and plumbing; agent: Claude. */
+export type Sender = 'cli' | 'agent';
 
-/** Whole literals, so Tailwind sees them; `you` keeps the plain plate. */
-export const TINT: Record<Sender, string> = { you: '', cli: 'tint cli', agent: 'tint agent', forge: 'tint forge' };
+/** Whole literals, so Tailwind sees them. */
+export const TINT: Record<Sender, string> = { cli: 'tint cli', agent: 'tint agent' };
 
 /** A log line's sender: Claude's text, thinking, tool calls and subagents are the agent's; the rest is plumbing. */
-export function logSender(kind: ItemKind): 'agent' | 'cli' {
+export function logSender(kind: ItemKind): Sender {
   switch (kind) {
     case 'text':
     case 'thinking':
@@ -38,19 +40,14 @@ export function logSender(kind: ItemKind): 'agent' | 'cli' {
   }
 }
 
-/** A Thread message's sender: the dashboard and the tracker are a person, the CLI is plumbing, a daemon session is Forge. */
-export function threadSender(from: ThreadFrom): Sender {
-  switch (from) {
-    case 'you':
-    case 'tracker':
-      return 'you';
-    case 'cli':
-      return 'cli';
-    case 'forge':
-      return 'forge';
-    default: {
-      const never: never = from;
-      return never;
-    }
-  }
-}
+/**
+ * A Thread sender's mark: its icon and its `who` class (style.css), one colour per sender that never changes with the
+ * message. You are gleam, the CLI is the muted steel of a terminal, Forge is the ember of its fire, and a tracker has its
+ * own hue. Whole literals, so Tailwind sees them.
+ */
+export const WHO: Record<ThreadFrom, { icon: IconName; cls: string }> = {
+  you: { icon: 'agents', cls: 'who you' },
+  cli: { icon: 'terminal', cls: 'who cli' },
+  forge: { icon: 'anvil', cls: 'who forge' },
+  tracker: { icon: 'tracker', cls: 'who tracker' },
+};
