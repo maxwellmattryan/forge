@@ -38,6 +38,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # HEAD and its parents, so the touchpoints check has HEAD^1 to compare against.
+          fetch-depth: 2
       - name: Set up Node ${{ matrix.node }}
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -45,6 +47,11 @@ jobs:
           package-manager-cache: false
       - name: Install dependencies
         run: npm ci
+      - name: Check touchpoints
+        env:
+          # The merge commit's first parent on a PR, the previous commit on a push: what this run adds.
+          FORGE_TOUCHPOINTS_BASE: HEAD^1
+        run: npm run check:touchpoints
       - name: Typecheck engine and tests
         run: npm run typecheck
       - name: Check dashboard sources
