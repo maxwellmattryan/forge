@@ -5,7 +5,6 @@
 // reaches a manifest is checked first: a sha against FULL_SHA, a remote against isSafeRemote.
 // Must not import lib/engine/verify/gate.ts or integrity.ts: gate.ts imports this module.
 
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -50,6 +49,7 @@ import { logSecrets, refusalMessage, scanBranch, scanFiles, secretMode, secretsB
 import type { Config, InterimStrategy, Job, JobEvent, WaitingOn } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { findOnPath, run } from '#core/os/process.ts';
+import { writeAtomic } from '#core/os/fs.ts';
 import { SAFE_REF } from '#core/text.ts';
 import { verifiedSha } from '../verify/record.ts';
 
@@ -386,38 +386,22 @@ export interface InterimRefresh {
 // never reused. O_NOFOLLOW: never write through a link.
 const EXPORT_FLAGS = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0);
 
-const tempSuffix = (): string => crypto.randomBytes(8).toString('hex');
-
 /**
- * Writes `text` over `file` inside `worktree` through a random-named temp file in the manifest's real
- * parent, opened exclusive and no-follow, then renamed over it: a symlink at either path is replaced
- * or refused, never followed. The temp file is removed when anything after its creation fails.
- * `rand` exists for the test that plants a link at the temp path.
+ * Writes `text` over `file` inside `worktree` through writeAtomic in the manifest's real parent: a
+ * symlink at either path is replaced or refused, never followed. The manifest keeps its own mode,
+ * or gets 0600 when it is not a regular file. `rand` exists for the test that plants a link at the
+ * temp path.
  */
-export function writeManifest(worktree: string, rel: string, text: string, rand: () => string = tempSuffix): void {
+export function writeManifest(worktree: string, rel: string, text: string, rand?: () => string): void {
   const file = path.join(worktree, rel);
   const parent = fs.realpathSync.native(path.dirname(file));
   const inside = path.relative(fs.realpathSync.native(worktree), parent);
   if (inside.startsWith('..') || path.isAbsolute(inside)) throw new ForgeError(`${rel} resolves outside the worktree`);
-  const tmp = path.join(parent, `.${path.basename(file)}.forge-${rand()}.tmp`);
-  // A failed open created nothing of Forge's (EEXIST, ELOOP), so there is nothing to remove.
-  const fd = fs.openSync(tmp, EXPORT_FLAGS, 0o600);
+  let st: fs.Stats | null = null;
   try {
-    try {
-      fs.writeFileSync(fd, text);
-    } finally {
-      fs.closeSync(fd);
-    }
-    let st: fs.Stats | null = null;
-    try {
-      st = fs.lstatSync(file);
-    } catch {}
-    if (st?.isFile()) fs.chmodSync(tmp, st.mode & 0o777);
-    fs.renameSync(tmp, path.join(parent, path.basename(file)));
-  } catch (e) {
-    fs.rmSync(tmp, { force: true });
-    throw e;
-  }
+    st = fs.lstatSync(file);
+  } catch {}
+  writeAtomic(path.join(parent, path.basename(file)), text, { mode: st?.isFile() ? st.mode & 0o777 : 0o600, rand });
 }
 
 /** The scrub `pr open` runs on a repo's branch, run here first so the sha a consumer pins is the one pushed. */
