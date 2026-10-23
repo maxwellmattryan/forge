@@ -15,7 +15,9 @@ import { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, migrat
 import { CONFIG_STEPS } from '#core/versions/config.ts';
 import { JOB_STEPS } from '#core/versions/job.ts';
 import { EVENT_STEPS } from '#core/versions/event.ts';
+import { stepProblems } from '#core/versions/steps.ts';
 import type { Step } from '#core/versions/steps.ts';
+import { API_CHANGES } from '#api/versions.ts';
 import { createJob, jobDir, leaseStatus, loadJob, updateJob } from '#core/job/store.ts';
 import { issueLinkStatus } from '#core/job/issue-link.ts';
 import * as yaml from '#core/format/yaml.ts';
@@ -116,8 +118,7 @@ const CONFIG_ROWS: Row[] = [
     note: ONLY_VERSION,
   },
   { step: 'daemon-turn-timeout', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.turnTimeoutMinutes'], note: ONLY_VERSION },
-  { step: 'experiments-and-recall', input: { improve: { retroEvery: 5 }, evals: { testPattern: 'x' } }, fields: { improve: { retroEvery: 5 }, evals: { testPattern: 'x' } }, removed: ['improve.experiments', 'evals.recall'], note: ONLY_VERSION },
-];
+  { step: 'experiments-and-recall', input: { improve: { retroEvery: 5 }, evals: { testPattern: 'x' } }, fields: { improve: { retroEvery: 5 }, evals: { testPattern: 'x' } }, removed: ['improve.experiments', 'evals.recall'], note: ONLY_VERSION },];
 
 const JOB_ROWS: Row[] = [
   {
@@ -254,6 +255,74 @@ test('every migration has a table row', () => {
     });
   }
   assert.deepEqual(problems, [], problems.join('\n'));
+});
+
+// The ids each list must start with, so inserting, removing, reordering or renaming an existing step
+// fails while appending passes. Jobs never edit FROZEN: only a release commit or the 1.0 reset (#280)
+// extends it, and only with ids already on develop, so an append never re-pins anything.
+const FROZEN: Record<'config' | 'job' | 'event' | 'api', string[]> = {
+  config: [
+    'dashboard-launcher-to-daemon',
+    'parallel-verify-steps',
+    'runtime-efforts',
+    'foreman-block',
+    'policy-protected-paths',
+    'retention',
+    'notify',
+    'repo-budget',
+    'services-to-components',
+    'member-repos',
+    'depends-on-links',
+    'release-interim',
+    'downstream-verification',
+    'checkout',
+    'release-strategy',
+    'release-publish',
+    'reserved-gate-release',
+    'backing',
+    'config-sinks',
+    'builder-models-and-rework-panel',
+    'backing-database',
+    'secrets',
+    'outcomes-window',
+    'environments-max-running',
+    'scoring',
+    'loop-bounds',
+    'daemon-turn-timeout',
+    'experiments-and-recall',
+  ],
+  job: [
+    'verify-runs',
+    'budgets-and-verify-retries',
+    'no-issue',
+    'agent-import-cursor',
+    'split-mode',
+    'job-effort',
+    'human-gate',
+    'complexity',
+    'protected-paths',
+    'issues-list',
+    'member-repos',
+    'interim-override',
+    'component-ports',
+    'outcome',
+    'score',
+    'lease',
+  ],
+  event: ['actor-object', 'agent-start-provenance'],
+  api: Array.from({ length: 36 }, (_, i) => `api-${i + 2}`),
+};
+
+test('version lists only grow at the end', () => {
+  const lists: Record<keyof typeof FROZEN, readonly { readonly id: string }[]> = { config: CONFIG_STEPS, job: JOB_STEPS, event: EVENT_STEPS, api: API_CHANGES };
+  for (const [k, list] of Object.entries(lists) as [keyof typeof FROZEN, readonly { readonly id: string }[]][]) {
+    assert.deepEqual(
+      list.slice(0, FROZEN[k].length).map((s) => s.id),
+      FROZEN[k],
+      `the ${k} list must start with its frozen ids: append a new step at the end, never edit, insert, reorder or remove one`,
+    );
+    assert.deepEqual(stepProblems(list), [], `${k} list ids`);
+  }
 });
 
 test('no version literals outside schema.test.ts', () => {
