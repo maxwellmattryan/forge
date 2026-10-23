@@ -13,6 +13,9 @@ const CLI_OWNED = ['job.json', 'events.jsonl', '.lock'];
 /** Instructions a later agent would load, refused at any depth of a job folder. */
 const INSTRUCTIONS = ['claude.md', 'claude.local.md'];
 
+/** A `.git` segment, ignoring case: git's control path, refused anywhere inside a write root. */
+const isGit = (segment: string): boolean => segment.toLowerCase() === '.git';
+
 function refuse(text: string): never {
   process.stderr.write(`Blocked by Forge: ${text}\n`);
   process.exit(2);
@@ -21,7 +24,7 @@ function refuse(text: string): never {
 function outside(given: string, real: string): never {
   const shown = given === real ? JSON.stringify(given) : `${JSON.stringify(given)} (resolving to ${JSON.stringify(real)})`;
   refuse(
-    `a daemon session may write only inside a job folder under .forge/jobs/<id>/ (not job.json, events.jsonl, .lock or CLAUDE.md, which only the CLI writes) or a job worktree; ${shown} is outside them. ` +
+    `a daemon session may write only inside a job folder under .forge/jobs/<id>/ (not job.json, events.jsonl, .lock or CLAUDE.md, which only the CLI writes) or a job worktree (not a .git path or a ~ path); ${shown} is outside them. ` +
       'Write job outputs to the job folder and code to the worktree, and change Forge state through forge.',
   );
 }
@@ -91,6 +94,9 @@ function check(input: string): void {
   if (!roots) refuse('FORGE_DAEMON_WRITE_ROOTS is missing or malformed, so the write guard refuses every write; a human restarts the daemon from forge dash.');
   // The OS resolves `..` physically, through a symlink, while path.resolve collapses it lexically.
   if (given.split(/[/\\]/).includes('..')) outside(given, given);
+  // Claude Code's file tools expand a leading `~` (and `~user`) to a home directory before writing, but
+  // path.resolve takes it as a directory called `~` under the cwd, which may sit inside a write root.
+  if (given.startsWith('~')) outside(given, given);
   const cwd = typeof event?.cwd === 'string' && event.cwd ? event.cwd : process.cwd();
   let real: string;
   try {
@@ -102,10 +108,12 @@ function check(input: string): void {
   const job = under(roots.jobs, real);
   if (job) {
     // A job id and a file: .forge/jobs/stray.json is no job's.
-    if (job.length < 2 || CLI_OWNED.includes(job[1].toLowerCase()) || job.some((s) => INSTRUCTIONS.includes(s.toLowerCase()))) outside(given, real);
+    if (job.length < 2 || CLI_OWNED.includes(job[1].toLowerCase()) || job.some((s) => INSTRUCTIONS.includes(s.toLowerCase()) || isGit(s))) outside(given, real);
     return;
   }
-  if (roots.worktrees.some((w) => under(w, real))) return;
+  // A worktree's own `.git` file points git at its gitdir, and a rewritten one could name a config with a filter driver.
+  const worktree = roots.worktrees.map((w) => under(w, real)).find((s) => s);
+  if (worktree && !worktree.some(isGit)) return;
   outside(given, real);
 }
 

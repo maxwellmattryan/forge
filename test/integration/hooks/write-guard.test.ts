@@ -46,6 +46,14 @@ const REFUSED: Row[] = [
   write('learnings (Write)', (s) => path.join(s.root, '.forge', 'notes', 'learnings.md')),
   write('learnings (MultiEdit)', (s) => path.join(s.root, '.forge', 'notes', 'learnings.md'), { tool: 'MultiEdit' }),
   write('~/.ssh/config', () => path.join(os.homedir(), '.ssh', 'config')),
+  // Claude Code expands a leading ~ to $HOME, so these land outside the roots whatever the cwd.
+  write('a ~ path from the main checkout', () => '~/.ssh/config'),
+  write('a ~ path from a worktree', () => '~/.ssh/config', { cwd: (s) => s.wt }),
+  write('a ~ path from a job folder', () => '~/.ssh/config', { cwd: (s) => s.job }),
+  write('a ~user path from a worktree', () => '~root/.ssh/config', { cwd: (s) => s.wt }),
+  write('a worktree .git file', (s) => path.join(s.wt, '.git')),
+  write('a .GIT directory in the worktree', (s) => path.join(s.wt, 'a', '.GIT', 'config')),
+  write('a .git directory in a job folder', (s) => path.join(s.job, '.git', 'config')),
   write('job.json', (s) => path.join(s.job, 'job.json')),
   write('events.jsonl', (s) => path.join(s.job, 'events.jsonl')),
   write('JOB.JSON', (s) => path.join(s.job, 'JOB.JSON')),
@@ -63,6 +71,7 @@ const ALLOWED: Row[] = [
   write('a new file in the worktree', (s) => path.join(s.wt, 'src', 'a.ts')),
   write('a relative path from the worktree', () => 'src/a.ts', { cwd: (s) => s.wt }),
   write('a notebook in the worktree', (s) => path.join(s.wt, 'n.ipynb'), { tool: 'NotebookEdit' }),
+  write('git files that are not .git', (s) => path.join(s.wt, '.github', 'workflows', '.gitignore')),
   write('a review file in the job folder', (s) => path.join(s.job, 'review', 'round-1', 'code.md')),
 ];
 
