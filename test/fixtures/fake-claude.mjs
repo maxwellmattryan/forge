@@ -48,7 +48,7 @@ if (env.FAKE_CLAUDE_EXIT_SCOPE) {
   else serve();
 } else if (env.FAKE_CLAUDE_EXIT) process.exitCode = Number(env.FAKE_CLAUDE_EXIT);
 else if (resume && env.FAKE_CLAUDE_MISSING) {
-  // What claude 2.1 does (recorded in docs/ARCHITECTURE.md "Daemon"): one error result, then exit 1.
+  // What claude 2.1 does (recorded in docs/architecture/daemon-runtime.md "Recorded framing"): one error result, then exit 1.
   process.stdout.write(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, num_turns: 0, session_id: resume }) + '\n');
   process.stderr.write(`No conversation found with session ID: ${resume}\n`);
   process.exitCode = 1;

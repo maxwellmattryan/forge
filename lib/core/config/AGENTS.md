@@ -5,6 +5,7 @@
 - `load.ts` loads config.yml over `defaults()` (`defaults.ts`) and re-exports the split files, so its many importers keep one import.
 - `validate.ts` holds `validateConfig` and the sections with no file of their own. The validators in `validators/` sit apart because the job store imports `load.ts`: a section's validation that reached the job store (or a module that imports it) would close an import cycle.
 - `fields.ts` is the settings allowlist the dashboard shows, and `set.ts` the one write path `forge config set` and `/api/config` share. A new config key gets a `fields.ts` entry if the dashboard should show it; `test/invariants/config-set.test.ts` checks every entry against `defaults()` and docs/CONFIG.md.
+- Design: [Data and versioning](../../../docs/architecture/versioning.md), [Daemon security](../../../docs/architecture/daemon-security.md), [Foreman](../../../docs/architecture/foreman.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

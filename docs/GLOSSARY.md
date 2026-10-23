@@ -114,7 +114,7 @@ Some of these words already mean something in Forge. They keep those meanings:
 - "Integrations" never means the integrate stage or the integrator (bringing a branch up to date with its base), nor integration tests (`test/integration/`).
 - "Office" alone means the runtime; the Foreman's session is the "office session".
 - "Milestone" means a tracker milestone (a group of planned work). The Thread's one-line rows for a job's events are "progress lines".
-- "Layer" alone keeps [ARCHITECTURE.md's meaning](ARCHITECTURE.md#layers) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
+- "Layer" alone keeps [its meaning in the architecture docs](architecture/layers.md) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
 
 ## Existing terms
 

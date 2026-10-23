@@ -7,6 +7,7 @@ Forge's public contracts, with no Node imports: the `/api` and SSE shapes, the r
 - A new shape goes in the module that owns its endpoint or stream.
 - An `/api/*` or SSE shape change appends a named step (`{ id: '<kebab-id>' }`) to `API_CHANGES` in `versions.ts`, whose length + 1 is `API_VERSION`, and sets the dashboard's literal to match; on conflict keep both, in merge order. `npm run check:dashboard` shows what the dashboard must handle.
 - `tracker.ts` is a stable API for custom tracker adapters (docs/RELEASES.md): renaming or removing an export is a breaking change.
+- Design: [Data and versioning](../../docs/architecture/versioning.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

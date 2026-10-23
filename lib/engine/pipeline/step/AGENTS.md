@@ -5,6 +5,7 @@
 - `input.ts` is the only reader of disk and clock (`loadStepInput`); every other file here is pure.
 - A new rule is a row in `stages/<stage>.ts` or `gates.ts`, its ID in `RULES` (`rules.ts`), a row per transition in `test/step-rows.ts`, and the pinned order in `test/step-tables.test.ts`.
 - Each file's row below is the first sentence of its header comment: edit that, then run `npm run docs:map`.
+- Design: [Job model](../../../../docs/architecture/job-model.md), [Why a CLI does the bookkeeping](../../../../docs/architecture/cli-bookkeeping.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
