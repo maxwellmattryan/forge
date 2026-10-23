@@ -24,7 +24,6 @@ const ALLOWED: Record<string, number> = {
   'engine/release/plan.ts': 632,
   'core/job/schema.ts': 666,
   'engine/guard/secrets.ts': 705,
-  'engine/workspace/worktree.ts': 1320,
 };
 
 /** Lines as `wc -l` counts them for a newline-terminated file. */

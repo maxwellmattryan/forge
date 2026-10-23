@@ -14,7 +14,7 @@ import { validJobId } from '#core/job/requests.ts';
 import { redactContext, redactText } from '#engine/guard/redact.ts';
 import { isMap } from '#core/shape.ts';
 import { ForgeError } from '#core/errors.ts';
-import { startBackground, stopDevProven } from '#engine/workspace/worktree.ts';
+import { startBackground, stopDevProven } from '#engine/workspace/dev-server.ts';
 import { containerName, entriesOrNone, isManaged, projectSlug } from '#engine/environment/backing.ts';
 import { dockerSpawn } from '#integrations/docker/runner.ts';
 import { DOCKER_NAME, environmentsSnapshot, forgeJson, jobEnvironment, openDevLog } from '#engine/environment/status.ts';
