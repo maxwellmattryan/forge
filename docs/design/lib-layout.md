@@ -98,6 +98,7 @@ Every `lib/` file sits under `lib/<layer>/`, except the two deprecated tracker r
 | `config/validators/` | backing ← `backing-config.ts`, checkout ← `checkout-config.ts`, endpoints ← `endpoints-config.ts`, notify ← `notify-config.ts`, secret-refs ← `secret-refs-config.ts`, `policy-check.ts`, `deprecations.ts` (moved from `config/` in #413) |
 | `os/` | `platform.ts`, and process, fs and lock from `util.ts` |
 | `format/` | `yaml.ts`, `zip.ts`, `ansi.ts` |
+| `versions/` | `steps.ts`, `config.ts`, `job.ts`, `event.ts`: the append-only version step lists, moved out of `job/schema.ts` in #426 |
 | leaves | `types.ts` (transitional type-only barrel: re-exports `api/types.ts`, `job/types.ts` and `config/types.ts`, and declares the tracker contract), `paths.ts`, `shape.ts`, `glob.ts`, and errors, text and utils from `util.ts` |
 
 Why these sit in core, and why so:
