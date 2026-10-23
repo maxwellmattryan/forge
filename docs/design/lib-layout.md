@@ -60,9 +60,9 @@ These apply to all new `lib/` code, before and after the move.
 
 - **Folders.** Inside a layer: `lib/<layer>/<module>/<file>.ts`. A concept gets a sub-module only once it has 3 or more files. 3–12 entries per folder, where an entry is a subfolder or a `.ts`, `.mjs` or `.json` file (`AGENTS.md` and tests are not entries). Three kinds of folder are exempt: registries, folders whose files are entries in one table (`cli/commands/`, `cli/commands/render/`), may hold more; an `integrations/<system>/` folder may hold fewer, one folder per outside system; and the shrinking `SMALL` list in `test/invariants/layout.test.ts` may hold fewer until its split lands. `test/invariants/layout.test.ts` holds these rules.
 - **Standard names.** `types.ts` for a module's shapes, `constants.ts` for module-wide constants only. Helpers and files are named by purpose; `utils.ts` holds only small leftovers.
-- **No stutter, no `index.ts`, no barrels.** A file never repeats its folder's name (`plan/plan.ts`). A runtime barrel loads a whole folder on every CLI start, which undoes the start-up cache (ARCHITECTURE.md "Start-up cache") and makes cycles easier to hit; importers name the file they need. The one exception is the transitional type-only `core/types.ts`.
+- **No stutter, no `index.ts`, no barrels.** A file never repeats its folder's name (`plan/plan.ts`). A runtime barrel loads a whole folder on every CLI start, which undoes the start-up cache (docs/architecture/startup-cache.md) and makes cycles easier to hit; importers name the file they need. The one exception is the transitional type-only `core/types.ts`.
 - **Aliases.** Cross-layer imports use `package.json` subpath aliases (`#core/…`), never tsconfig `paths` (#370). `server` and `cli` have none. Inside a layer, imports stay relative.
-- **Folder maps.** Each module folder has an `AGENTS.md`: a few hand-written lines (what belongs here, the invariants), then a table of each file and the first sentence of its header comment, between the `forge:map` markers. `npm run docs:map` writes the tables and `test/invariants/docs-map.test.ts` fails when one is stale. `lib/engine/pipeline/step/AGENTS.md` was the first; `lib/`, each layer folder and each folder directly inside a layer has one, and a deeper folder is listed in its parent's table unless it has its own. Area gotchas move out of the root `AGENTS.md` into these, so each rule is stated in one place.
+- **Folder maps.** Each module folder has an `AGENTS.md`: a few hand-written lines (what belongs here, the invariants, and last a `Design:` bullet linking the `docs/architecture/` topics that govern the folder), then a table of each file and the first sentence of its header comment, between the `forge:map` markers. `npm run docs:map` writes the tables and `test/invariants/docs-map.test.ts` fails when one is stale. `lib/engine/pipeline/step/AGENTS.md` was the first; `lib/`, each layer folder and each folder directly inside a layer has one, and a deeper folder is listed in its parent's table unless it has its own. Area gotchas move out of the root `AGENTS.md` into these, so each rule is stated in one place.
 - **Header comments.** Every `lib/` source opens with a comment (after at most a shebang) whose first sentence says what the file holds; that sentence is its map row.
 - **Size.** No `lib/**/*.ts` file over 600 lines, except the pinned files on the shrinking allowlist in `test/invariants/file-size.test.ts`. The target for new files is 400.
 - **Glossary first.** A new word for a layer or module goes in `docs/GLOSSARY.md` before the code uses it.
@@ -77,7 +77,15 @@ Every `lib/` file sits under `lib/<layer>/`, except the two deprecated tracker r
 
 | Module | Files |
 |---|---|
-| `types.ts` | ← `api-types.ts` |
+| `types.ts` | ← `api-types.ts`; now a type-only barrel over the owner modules below (#428) |
+| `enums.ts` | the unions the /api shapes share, derived from `constants.ts` |
+| `job.ts` | a job as job.json and events.jsonl hold it, as /api/state and /api/jobs/:id serve it |
+| `state.ts` | GET /api/state, /api/requests, /api/focus, /api/budget/ack, and the JSON error body |
+| `jobs.ts` | /api/jobs and /api/jobs/:id/*, and the environment routes with GET /api/environments |
+| `daemon.ts` | the session pool's /api/daemon* routes and the /api/events SSE frames |
+| `config.ts` | /api/config, /api/doctor and /api/about |
+| `stats.ts` | /api/stats, /api/evals and /api/evals/compare |
+| `repo.ts` | /api/project, /api/roster, /api/backlog with the tracker item, and /api/github/preview |
 | `constants.ts` | `constants.ts` |
 | `tracker.ts` | ← `trackers/status.ts`; `trackers/status.ts` and `trackers/status.mjs` stay as deprecated one-line re-exports for one minor release, and the stability contract in docs/RELEASES.md moved to `lib/api/tracker.ts` |
 
@@ -90,6 +98,7 @@ Every `lib/` file sits under `lib/<layer>/`, except the two deprecated tracker r
 | `config/validators/` | backing ← `backing-config.ts`, checkout ← `checkout-config.ts`, endpoints ← `endpoints-config.ts`, notify ← `notify-config.ts`, secret-refs ← `secret-refs-config.ts`, `policy-check.ts`, `deprecations.ts` (moved from `config/` in #413) |
 | `os/` | `platform.ts`, and process, fs and lock from `util.ts` |
 | `format/` | `yaml.ts`, `zip.ts`, `ansi.ts` |
+| `versions/` | `steps.ts`, `config.ts`, `job.ts`, `event.ts`: the append-only version step lists, moved out of `job/schema.ts` in #426 |
 | leaves | `types.ts` (transitional type-only barrel: re-exports `api/types.ts`, `job/types.ts` and `config/types.ts`, and declares the tracker contract), `paths.ts`, `shape.ts`, `glob.ts`, and errors, text and utils from `util.ts` |
 
 Why these sit in core, and why so:

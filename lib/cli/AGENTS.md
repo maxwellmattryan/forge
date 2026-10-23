@@ -4,6 +4,7 @@ The `forge` command: the entry that routes, the command groups and the activity 
 
 - `bin/forge` turns on the start-up cache, then imports `main.ts`. `main.ts` only routes: no help or usage text of its own, and a new command goes in `commands/<group>.ts`, never here.
 - Nothing imports `cli`. It may import `server`, because `forge dash` starts it.
+- Design: [Why a CLI does the bookkeeping](../../docs/architecture/cli-bookkeeping.md), [Start-up cache](../../docs/architecture/startup-cache.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

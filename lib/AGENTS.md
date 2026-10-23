@@ -6,6 +6,7 @@ Forge's engine, in seven lib layers that import downward only: api, core, integr
 - A new file goes in `lib/<layer>/<module>/`, opens with a header comment whose first sentence says what it holds, and stays under 600 lines. Folders hold 3–12 entries, with no `index.ts` and no name that repeats its folder (`test/invariants/layout.test.ts`).
 - Read a folder's `AGENTS.md` before working in it. Each row below is a folder's first sentence or a file's header comment: edit those, then run `npm run docs:map`.
 - `trackers/status.ts` and `trackers/status.mjs` are deprecated re-exports of `api/tracker.ts` for custom tracker adapters, removed one minor release after the move ships.
+- Design: [Architecture](../docs/ARCHITECTURE.md), [Layers](../docs/architecture/layers.md), [Why a CLI does the bookkeeping](../docs/architecture/cli-bookkeeping.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

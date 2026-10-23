@@ -4,6 +4,7 @@ Tracker sync: the adapter loader with its security wrappers, mirrors, issue link
 
 - `load.ts` wraps every adapter, built-in or custom, so outgoing text is secret-scanned and incoming text is fenced as data; adapters never do either themselves (docs/TRACKERS.md).
 - The built-in adapters live in `lib/integrations/github/tracker.ts` and `lib/integrations/backlog/tracker.ts`; the contract is `lib/api/tracker.ts`.
+- Design: [Untrusted input](../../../docs/architecture/untrusted-input.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

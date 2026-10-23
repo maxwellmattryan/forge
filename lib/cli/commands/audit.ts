@@ -19,7 +19,7 @@ const AUDIT: HelpGroup = {
         ['--json', 'the rows as JSON (the default)'],
         ['--csv', "the rows as RFC 4180 CSV with CRLF line ends, formula-like cells prefixed with '"],
       ],
-      docs: ['Audit trail', 'docs/ARCHITECTURE.md#audit-trail'],
+      docs: ['Audit trail', 'docs/architecture/audit-trail.md'],
       readme: true,
     },
   ],

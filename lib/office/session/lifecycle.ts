@@ -3,7 +3,7 @@
 // child that, whenever its pool sees new work for its scope, gets the one fixed `/forge requests`
 // turn. A session never runs agents or writes job state itself: the claude child does, through the
 // same claims and CLI as a human's session. It never reads claude's output either: it reacts to the
-// ClaudeEvents lib/integrations/claude/ reports. docs/ARCHITECTURE.md "Daemon" and "Daemon security"
+// ClaudeEvents lib/integrations/claude/ reports. docs/architecture/daemon-runtime.md and daemon-security.md
 // describe the rules this file keeps.
 import crypto from 'node:crypto';
 import fs from 'node:fs';

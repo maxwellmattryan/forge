@@ -1,7 +1,7 @@
 // Every config key Forge reads, with its default: what loadConfig merges a repo's config.yml over.
-// Kept apart from config.ts (which re-exports it) so the defaults table reads on its own.
-import { CONFIG_SCHEMA_VERSION, EFFORT_ROLES, OFFICE_GATES } from '../job/schema.ts';
-import type { Config, Effort, EffortRole } from '../types.ts';
+// `load.ts` re-exports it, and each key's doc string is in `docs.ts` beside it.
+import { CONFIG_SCHEMA_VERSION, EFFORT_ROLES, OFFICE_GATES } from '../../job/schema.ts';
+import type { Config, Effort, EffortRole } from '../../types.ts';
 
 /** foreman.reserved's default: topics that always stay with a human. */
 export const DEFAULT_RESERVED = [
@@ -222,7 +222,7 @@ export function defaults(): Config {
       // --output), finishing a merge or rebase (`forge integrate --continue`) and commits, which go
       // through `forge git add|commit <job>` because the session's cwd is the main checkout, where a
       // bare `git add`/`git commit` would land on the base branch. Blanket git/gh would reach code
-      // execution and arbitrary GitHub writes (docs/ARCHITECTURE.md "Daemon security").
+      // execution and arbitrary GitHub writes (docs/architecture/daemon-security.md).
       allowedTools: [
         'Agent',
         'Skill',
@@ -254,7 +254,7 @@ export function defaults(): Config {
       jobBudget: { tokens: 600000000, usd: 150 },
     },
     // Opt-in: the `_office` daemon session decides gates through forge:assistant sub-agents;
-    // docs/ARCHITECTURE.md "Foreman". Whole-phrase, case-insensitive patterns: a match keeps the
+    // docs/architecture/foreman.md. Whole-phrase, case-insensitive patterns: a match keeps the
     // gate with a human, and a false positive errs that way on purpose.
     foreman: {
       enabled: false,

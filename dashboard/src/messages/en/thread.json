@@ -1,0 +1,171 @@
+{
+  "session": {
+    "label": "Session log",
+    "turns": {
+      "one": "{count} turn",
+      "other": "{count} turns"
+    },
+    "cost": "≈ {cost}",
+    "costTitle": "Sum of total_cost_usd over the results in the loaded log",
+    "start": "Start",
+    "stop": "Stop",
+    "failed": "Session {action} failed: {error}",
+    "filter": "Filter the log",
+    "filterTitle": "Filter",
+    "filterActive": "Filter the log (filters on)",
+    "tools": "Tools",
+    "thinking": "Thinking",
+    "subagents": "Subagents",
+    "follow": "Follow",
+    "loadOlder": "Load older",
+    "loading": "Loading session log…",
+    "empty": "No session log for this job yet. With daemon.enabled, each job gets its own headless session, and its stream shows here.",
+    "emptyInbox": "No inbox session log yet. With daemon.enabled, the inbox session handles requests without a job, and its stream shows here.",
+    "noMatch": "No lines match the filters.",
+    "closed": "Log stream closed. Reopen the tab to retry.",
+    "result": "Result",
+    "fullResult": "Full result",
+    "input": "Input",
+    "prompt": "Prompt",
+    "error": "error",
+    "thinkingItem": "Thinking",
+    "hiddenLines": {
+      "one": "({count} line hidden)",
+      "other": "({count} lines hidden)"
+    },
+    "startHint": "Re-enables this session; it starts on its next request",
+    "emptyEnabled": "No session log for this job yet. Its session starts with the job's next request.",
+    "emptyInboxEnabled": "No inbox session log yet. It starts with the next request that has no job.",
+    "emptyOffice": "No office session log yet. With foreman.enabled and the daemon on, the office session starts when a job parks at a gate the foreman decides.",
+    "modeLabel": "Permissions",
+    "modeFailed": "Changing the permission mode failed: {error}",
+    "modeSwitching": "The session still reports {mode}; the switch applies once claude confirms it.",
+    "modes": {
+      "default": "Ask",
+      "auto": "Auto",
+      "dontAsk": "Refuse",
+      "defaultHint": "Tool calls outside daemon.allowedTools wait for you in the dashboard",
+      "autoHint": "Claude Code approves routine calls itself and asks you only about risky ones. Lasts until forge dash restarts",
+      "dontAskHint": "Tool calls outside daemon.allowedTools are refused without asking",
+      "autoWarning": "Auto mode approves most tool calls without you",
+      "autoWarningHint": "Switch back to Ask when you stop watching"
+    },
+    "interactive": "Interactive session {session} · read-only",
+    "transcriptEmpty": "No transcript lines yet.",
+    "model": "Model: {model}",
+    "modelUnknown": "unknown",
+    "effort": "Effort: {effort}",
+    "effortHint": "Follows runtime.effort in Settings. Read-only here: the office session takes it at each spawn."
+  },
+  "thread": {
+    "conversation": "Conversation",
+    "you": "You",
+    "cli": "CLI",
+    "forge": "Forge",
+    "queued": "queued",
+    "handling": "handling",
+    "done": "done",
+    "rejected": "rejected",
+    "empty": "Requests about this job and the session's replies appear here.",
+    "showWhole": "Show the whole request",
+    "showLess": "Show less",
+    "loadingWhole": "Loading…",
+    "wholeFailed": "Couldn't load the whole request: {error}",
+    "progress": {
+      "toggle": "Progress",
+      "toggleTitle": "Show stage changes, agents' replies, checks, reviews and the PR between the messages",
+      "stage": "Moved to {stage}",
+      "waiting": "Waiting: {on}",
+      "waitingUnknown": "Waiting",
+      "blocked": "Blocked",
+      "done": "Job done",
+      "failed": "Job failed",
+      "cancelled": "Job cancelled",
+      "round": "Round {round} started",
+      "agent": "finished",
+      "checksPass": "Checks passed in round {round}",
+      "checksFail": "Checks failed in round {round}",
+      "reviewsPass": "Reviews passed in round {round}",
+      "reviewsFail": "Reviews asked for changes in round {round}",
+      "approve": "Approved for a PR",
+      "escalate": "Escalated to you",
+      "prOpened": "Opened PR #{number}",
+      "prMerged": "Merged PR #{number}",
+      "conflicts": {
+        "one": "{count} merge conflict",
+        "other": "{count} merge conflicts"
+      }
+    },
+    "live": {
+      "label": "Open this job's Log",
+      "session": "Session {state} · {ago}",
+      "sessionNow": "Session {state}",
+      "open": "Log →"
+    },
+    "tracker": "Tracker",
+    "action": {
+      "request": "New job",
+      "imported": "Issue this job came from",
+      "started": "Start this job",
+      "handoff": "Hand off to this job's session",
+      "resumed": "Continue the job",
+      "link": "Link issue {ref}",
+      "linkNew": "Create a new issue",
+      "linkNone": "No issue needed",
+      "next": {
+        "one": "Take the next ready item",
+        "other": "Take the next {count} ready items"
+      },
+      "run": "Start issue {ref}",
+      "approve": "Approve",
+      "revise": "Request spec changes",
+      "rework": "Another round",
+      "answer": "Answer",
+      "cancel": "Cancel the job",
+      "sync": "Sync",
+      "eval": "Run evals",
+      "retro": "Run a retro"
+    },
+    "secret": {
+      "verify": {
+        "one": "Possible secret in the branch",
+        "other": "{count} possible secrets in the branch"
+      },
+      "commit": {
+        "one": "Possible secret in a commit",
+        "other": "{count} possible secrets in a commit"
+      },
+      "pr": {
+        "one": "Possible secret in the PR",
+        "other": "{count} possible secrets in the PR"
+      },
+      "agentEnd": {
+        "one": "Possible secret in {role}'s output",
+        "other": "{count} possible secrets in {role}'s output"
+      },
+      "elsewhere": {
+        "one": "Possible secret found",
+        "other": "{count} possible secrets found"
+      },
+      "anAgent": "an agent",
+      "blocked": "blocked",
+      "noted": "noted",
+      "more": {
+        "one": "and {count} more",
+        "other": "and {count} more"
+      },
+      "findings": "Masked findings",
+      "error": "Secret scan could not finish"
+    }
+  },
+  "activity": {
+    "label": "Running agents",
+    "running": "running {elapsed}",
+    "more": "+{count} more",
+    "runningCount": {
+      "one": "{count} running",
+      "other": "{count} running"
+    },
+    "owner": "lease {status} · renewed {age}"
+  }
+}

@@ -3,7 +3,7 @@
 // names are re-exported here so the many importers of config.ts keep working.
 import fs from 'node:fs';
 import path from 'node:path';
-import { defaults } from './defaults.ts';
+import { defaults } from './keys/defaults.ts';
 import { paths, exists, resolveFrom } from '../paths.ts';
 import { migrateConfig } from '../job/schema.ts';
 import { deepMerge } from '../shape.ts';
@@ -13,7 +13,7 @@ import { readText } from '../os/fs.ts';
 import * as yaml from '../format/yaml.ts';
 
 // Re-exported, as jobs.ts re-exports jobDir from paths.ts: importers keep one place to import from.
-export { defaults } from './defaults.ts';
+export { defaults } from './keys/defaults.ts';
 export { modelProblems, modelFor, validModel, resolveModel, validEffort, resolveEffort } from './models.ts';
 export { daemonProblems, TRUST_ENV, trustDigest, trackerSymlinks, daemonTrust } from './trust.ts';
 export { RETENTION_DAYS, validateConfig, foremanProblems, verifyShapeProblems, verifyGroups, verifySteps, panelPathsProblems, pathsOnlyProblems, reviewerChecklist } from './validate.ts';

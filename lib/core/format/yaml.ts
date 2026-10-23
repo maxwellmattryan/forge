@@ -265,11 +265,27 @@ function needsQuote(v: any): boolean {
   return false;
 }
 
-function scalarOut(v: any): string {
+/** A scalar as `stringify` writes it: plain unless the subset would read it as something else. */
+export function stringifyScalar(v: any): string {
   if (v === null || v === undefined) return 'null';
   if (typeof v === 'boolean' || typeof v === 'number') return String(v);
   const str = String(v);
   return needsQuote(str) ? JSON.stringify(str) : str;
+}
+
+/**
+ * A value on one line as a flow collection, `[a, b]` or `{ k: v }`. A string that would break the
+ * collection is double-quoted, and so is one with a quote mark: the parser's comment stripping reads
+ * a bare `'` as the start of a quoted string, so a `# comment` after it would become part of the value.
+ */
+export function stringifyFlow(v: any): string {
+  if (Array.isArray(v)) return v.length ? `[${v.map(stringifyFlow).join(', ')}]` : '[]';
+  if (v && typeof v === 'object') {
+    const keys = Object.keys(v);
+    return keys.length ? `{ ${keys.map((k) => `${k}: ${stringifyFlow(v[k])}`).join(', ')} }` : '{}';
+  }
+  if (typeof v === 'string' && !needsQuote(v) && /[,:[\]{}'"]/.test(v)) return JSON.stringify(v);
+  return stringifyScalar(v);
 }
 
 export function stringify(value: any, indent = 0): string {
@@ -304,7 +320,7 @@ export function stringify(value: any, indent = 0): string {
       })
       .join('');
   }
-  return `${pad}${scalarOut(value)}\n`;
+  return `${pad}${stringifyScalar(value)}\n`;
 }
 
 function inline(v: any): string {
@@ -313,7 +329,7 @@ function inline(v: any): string {
     const keys = Object.keys(v);
     return keys.length ? `{ ${keys.map((k) => `${k}: ${inline(v[k])}`).join(', ')} }` : '{}';
   }
-  return scalarOut(v);
+  return stringifyScalar(v);
 }
 
 // ---------- setIn: one-value edits that keep the rest of the text ----------
@@ -460,7 +476,7 @@ export function setIn(src: string, path: string[], value: ConfigValue): string {
     }
     if (Array.isArray(value) && value.length) {
       const pad = ' '.repeat(dash);
-      return [...next.slice(0, n), ...value.map((v) => `${pad}- ${scalarOut(v)}`), ...next.slice(last + 1)];
+      return [...next.slice(0, n), ...value.map((v) => `${pad}- ${stringifyScalar(v)}`), ...next.slice(last + 1)];
     }
     next[k] = onKeyLine();
     return [...next.slice(0, n), ...next.slice(last + 1)];
@@ -474,8 +490,8 @@ export function setIn(src: string, path: string[], value: ConfigValue): string {
 
 /** A scalar as `stringify` writes it, or a list as `[a, b]` with items that would break it double-quoted. */
 function flowOut(v: ConfigValue): string {
-  if (Array.isArray(v)) return `[${v.map((x) => (/[,\[\]{}]/.test(String(x)) ? JSON.stringify(String(x)) : scalarOut(x))).join(', ')}]`;
-  return scalarOut(v);
+  if (Array.isArray(v)) return `[${v.map((x) => (/[,\[\]{}]/.test(String(x)) ? JSON.stringify(String(x)) : stringifyScalar(x))).join(', ')}]`;
+  return stringifyScalar(v);
 }
 
 /** The edit must set exactly `path` and leave every other key as it parsed before. */

@@ -1,6 +1,6 @@
 // Local links: while a multi-repo job is in progress, a consumer repo builds against the dependency's
-// job worktree instead of its released version (docs/CONFIG.md "Components", ARCHITECTURE.md "Job
-// repos"). Links are declared once on `dependsOn` edges and recomputed from config and the job's repos
+// job worktree instead of its released version (docs/CONFIG.md "Components",
+// docs/architecture/job-repos.md "Local links"). Links are declared once on `dependsOn` edges and recomputed from config and the job's repos
 // before every command; nothing is stored in job.json, and every rendered file lives in the job dir,
 // never in a worktree, so an override cannot reach a commit by accident (integrity.ts catches one on purpose).
 // Must not import run.ts, lib/engine/verify/gate.ts, steps.ts or integrity.ts: all four import this module.

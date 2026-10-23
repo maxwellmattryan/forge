@@ -4,7 +4,8 @@ One supervised headless Claude Code session (`createSession`) and the pieces it 
 
 - The session reacts to `ClaudeEvent`s from `lib/integrations/claude/` and never parses claude's output; it writes to claude only through the `ClaudeChild` handle, whose lines `lib/integrations/claude/stream.ts` builds from fixed text. Every `log` event goes through `logLine`, which redacts known secrets before the file, the ring and SSE see it.
 - `launch.ts`'s checks run before every spawn, on the one read of `.forge/config.yml` that argv is then built from: never add a second read between the digest and the argv.
-- A session runs with the repo as cwd, so its executable is a bare `claude` or an absolute path, never a relative one (docs/ARCHITECTURE.md "Daemon security").
+- A session runs with the repo as cwd, so its executable is a bare `claude` or an absolute path, never a relative one (docs/architecture/daemon-security.md).
+- Design: [Daemon runtime](../../../docs/architecture/daemon-runtime.md), [Daemon security](../../../docs/architecture/daemon-security.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

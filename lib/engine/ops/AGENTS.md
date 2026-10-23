@@ -4,6 +4,7 @@ Operating Forge itself: doctor, support bundles, updates, versions, retention, d
 
 - `detect.ts` suggests review lenses for a repo; a new lens offered at init also goes in `skills/forge/reference/init.md`'s presets.
 - A support bundle is shared outside the machine, so everything in it goes through redaction first.
+- Design: [Updating](../../../docs/architecture/updating.md), [Retention](../../../docs/architecture/retention.md), [Deleting a job](../../../docs/architecture/deleting-a-job.md), [Audit trail](../../../docs/architecture/audit-trail.md), [Release security](../../../docs/architecture/release-security.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
