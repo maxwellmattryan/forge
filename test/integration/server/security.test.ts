@@ -205,6 +205,10 @@ test('every guarded route refuses before its handler runs', async () => {
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': 'wrong', origin, 'content-type': 'application/json' }, status: 403, text: 'bad token' });
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': token, 'content-type': 'application/json' }, status: 403, text: 'bad origin' });
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': token, origin, 'content-type': 'text/plain' }, status: 415, text: 'json only' });
+      // A declared size over 64 KiB is refused before any byte is read; a wrong token still answers first.
+      const big = { 'x-forge-token': token, origin, 'content-type': 'application/json', 'content-length': '70000' };
+      rows.push({ method: 'POST', path: p, headers: big, status: 413, text: 'body too large' });
+      rows.push({ method: 'POST', path: p, headers: { ...big, 'x-forge-token': 'wrong' }, status: 403, text: 'bad token' });
     }
     const readRows = (p: string): Row[] => [
       { method: 'GET', path: p, headers: { 'sec-fetch-site': 'cross-site' }, status: 403, text: 'cross-site' },
