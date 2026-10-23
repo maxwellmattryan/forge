@@ -1,6 +1,6 @@
-// The dashboard's config field schema is an allowlist over keys docs/CONFIG.md documents, each with
-// defaults() as its default. Kept through the test rewrite (docs/test-rewrite/README.md): docs stay in
-// sync with code (docs/TESTING.md › Allowed source-text tests, entry 6).
+// The generated docs are what `npm run docs` writes, every config key has a doc string beside its
+// default, and the dashboard's settings allowlist covers only documented keys (folded from
+// config-set.test.ts). Docs stay in sync with code: docs/TESTING.md › Allowed source-text tests, entry 6.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -8,12 +8,34 @@ import path from 'node:path';
 import { defaults } from '#core/config/load.ts';
 import { FIELDS } from '#core/config/fields.ts';
 import { getPath } from '#core/shape.ts';
+import { KEY_DOCS } from '#core/config/keys/docs.ts';
+import { configDocProblems, renderConfigReference, syncConfigDoc } from '#core/config/keys/reference.ts';
+import { parse } from '#core/format/yaml.ts';
+import { syncCliDoc, syncReadme } from '../../lib/cli/commands/help.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
+const read = (file: string): string => fs.readFileSync(path.join(ROOT, file), 'utf8');
+
+test('generated docs are what npm run docs writes', () => {
+  for (const [file, sync] of [
+    ['README.md', syncReadme],
+    ['docs/CONFIG.md', syncConfigDoc],
+    ['docs/CLI.md', syncCliDoc],
+  ] as const) {
+    const text = read(file);
+    assert.ok(sync(text) === text, `${file} is stale: run npm run docs`);
+  }
+});
+
+test('every config key is documented beside its default', () => {
+  const problems = configDocProblems(defaults(), KEY_DOCS);
+  assert.deepEqual(problems, [], problems.join('\n'));
+  assert.deepEqual(parse(renderConfigReference()), defaults());
+});
 
 test('field schema is an allowlist over documented keys', async () => {
-  const docs = fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8');
   const base = defaults();
+  const documented = (key: string) => Boolean(KEY_DOCS[key]?.doc.trim()) || KEY_DOCS[key.split('.').slice(0, -1).join('.')]?.uniform === true;
   const forbidden = [
     'commands.', 'worktrees.', 'verify', 'git.', 'merge.', 'approver.', 'aiAttribution', 'infra.', 'resources', 'components', 'repos', 'checkout', 'usage.', 'evals.',
     'review.panel', 'tracker.kind', 'tracker.local.', 'tracker.github.repo', 'tracker.github.comments', 'tracker.github.project.',
@@ -24,8 +46,7 @@ test('field schema is an allowlist over documented keys', async () => {
     assert.notEqual(getPath(base, f.key), undefined, `${f.key} resolves in defaults()`);
     assert.deepEqual(f.default, getPath(base, f.key), `${f.key} default`);
     assert.ok(f.label.trim() && f.help.trim(), `${f.key} has a label and help`);
-    const seg = f.key.split('.').pop();
-    assert.ok(docs.includes(`${seg}:`), `${seg}: is documented in docs/CONFIG.md`);
+    assert.ok(documented(f.key), `${f.key} has a KEY_DOCS entry in lib/core/config/keys/docs.ts or sits under a uniform parent`);
     assert.equal(f.editable, f.lockedReason === null, `${f.key}: locked fields say why`);
     if (!f.editable) continue;
     // pr.integrationReview only chooses between reviewing and skipping a docs-only conflict review; the rest of pr.* stays locked.
@@ -45,6 +66,6 @@ test('field schema is an allowlist over documented keys', async () => {
     assert.equal(f.section, 'pipeline', key);
     assert.equal(f.lockedReason, reason, key);
   }
-  assert.ok(docs.includes('generated:') && docs.includes('generatedBy:'), 'docs/CONFIG.md documents worktrees.generated and generatedBy');
+  assert.ok(KEY_DOCS['worktrees.generated']?.doc.trim() && KEY_DOCS['worktrees.generatedBy']?.doc.trim(), 'worktrees.generated and worktrees.generatedBy have doc strings');
   assert.equal(FIELDS.filter((f) => f.key.startsWith('runtime.models.')).length, Object.keys(base.runtime.models).length, 'one field per role');
 });

@@ -1,7 +1,7 @@
 // Every config key Forge reads, with its default: what loadConfig merges a repo's config.yml over.
-// Kept apart from config.ts (which re-exports it) so the defaults table reads on its own.
-import { CONFIG_SCHEMA_VERSION, EFFORT_ROLES, OFFICE_GATES } from '../job/schema.ts';
-import type { Config, Effort, EffortRole } from '../types.ts';
+// `load.ts` re-exports it, and each key's doc string is in `docs.ts` beside it.
+import { CONFIG_SCHEMA_VERSION, EFFORT_ROLES, OFFICE_GATES } from '../../job/schema.ts';
+import type { Config, Effort, EffortRole } from '../../types.ts';
 
 /** foreman.reserved's default: topics that always stay with a human. */
 export const DEFAULT_RESERVED = [
