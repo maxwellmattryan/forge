@@ -2,9 +2,10 @@
 
 `.forge/config.yml`: loading over the defaults, validation, and the one write path.
 
-- `load.ts` loads config.yml over `defaults()` (`defaults.ts`) and re-exports the split files, so its many importers keep one import.
+- `load.ts` loads config.yml over `defaults()` (`keys/defaults.ts`) and re-exports the split files, so its many importers keep one import.
+- `keys/` holds each key's default (`defaults.ts`), its doc string (`docs.ts`) and the renderer that writes docs/CONFIG.md's reference block from both (`reference.ts`, `npm run docs`). A new key gets a default and a doc string; only `scripts/` and tests import `docs.ts` and `reference.ts`, so the CLI never loads them.
 - `validate.ts` holds `validateConfig` and the sections with no file of their own. The validators in `validators/` sit apart because the job store imports `load.ts`: a section's validation that reached the job store (or a module that imports it) would close an import cycle.
-- `fields.ts` is the settings allowlist the dashboard shows, and `set.ts` the one write path `forge config set` and `/api/config` share. A new config key gets a `fields.ts` entry if the dashboard should show it; `test/invariants/config-set.test.ts` checks every entry against `defaults()` and docs/CONFIG.md.
+- `fields.ts` is the settings allowlist the dashboard shows, and `set.ts` the one write path `forge config set` and `/api/config` share. A new config key gets a `fields.ts` entry if the dashboard should show it; `test/invariants/generated-docs.test.ts` checks every entry against `defaults()` and the doc strings in `keys/docs.ts`.
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

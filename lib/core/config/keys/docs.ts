@@ -9,7 +9,7 @@ export interface KeyDoc {
   more?: readonly string[];
   /** `flow` prints a map on one line; `block` prints a list of scalars one item per line. */
   layout?: 'flow' | 'block';
-  /** The children are alike (one per role or command), so each needs no entry of its own. */
+  /** The children are alike (one per role, command or complexity), so each needs no entry of its own. */
   uniform?: true;
 }
 
@@ -79,12 +79,12 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'runtime.efforts': { doc: 'per role; null falls through to effortByComplexity, then effort', uniform: true },
   'runtime.efforts.reviewer': { doc: 'default for lenses without their own effort' },
   'runtime.efforts.assistant': { doc: "the foreman's gate assistant" },
-  'runtime.effortByComplexity': { doc: "by the spec's Complexity: header, for roles without their own", layout: 'flow' },
+  'runtime.effortByComplexity': { doc: "by the spec's Complexity: header, for roles without their own", layout: 'flow', uniform: true },
   'runtime.models': { doc: 'per role; aliases (opus, sonnet, haiku, fable) or full model ids', uniform: true },
   'runtime.models.reviewer': { doc: 'default for lenses without their own model' },
   'runtime.models.verifier': { doc: "answers the repo's .forge/verifiers/ yes/no checks (docs/VERIFIERS.md)" },
   'runtime.models.assistant': { doc: 'the foreman\'s gate assistant (see "Foreman")' },
-  'runtime.modelByComplexity': { doc: 'the builder\'s model by the spec\'s Complexity: header; see "Builder model"', layout: 'flow' },
+  'runtime.modelByComplexity': { doc: 'the builder\'s model by the spec\'s Complexity: header; see "Builder model"', layout: 'flow', uniform: true },
   'runtime.reworkModel': { doc: 'the builder\'s model on a rework round that only addresses review findings; see "Builder model"' },
 
   tracker: { doc: 'where jobs come from and where their status is mirrored (docs/TRACKERS.md)' },
