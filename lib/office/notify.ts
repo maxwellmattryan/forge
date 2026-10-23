@@ -11,17 +11,17 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadConfig } from '../core/config/load.ts';
-import { openAppend } from '../core/job/session-files.ts';
-import { jobDir, loadJob, logEvent, onTransition } from '../core/job/store.ts';
-import { commandProblem, notifyConfigured, validCommand, validWebhooks, webhookHost, webhookProblem } from '../core/config/validators/notify.ts';
-import { PLUGIN_ROOT, exists, paths } from '../core/paths.ts';
-import { posixShell } from '../core/os/platform.ts';
-import { EVENT_SCHEMA_VERSION, NOTIFY_EVENTS, NOTIFY_GATES } from '../core/job/schema.ts';
-import type { Config, DoctorCheck, Job, NotifyEvent, NotifyWebhook, TransitionSide } from '../core/types.ts';
-import { readJson } from '../core/os/fs.ts';
+import { loadConfig } from '#core/config/load.ts';
+import { openAppend } from '#core/job/session-files.ts';
+import { jobDir, loadJob, logEvent, onTransition } from '#core/job/store.ts';
+import { commandProblem, notifyConfigured, validCommand, validWebhooks, webhookHost, webhookProblem } from '#core/config/validators/notify.ts';
+import { PLUGIN_ROOT, exists, paths } from '#core/paths.ts';
+import { posixShell } from '#core/os/platform.ts';
+import { EVENT_SCHEMA_VERSION, NOTIFY_EVENTS, NOTIFY_GATES } from '#core/job/schema.ts';
+import type { Config, DoctorCheck, Job, NotifyEvent, NotifyWebhook, TransitionSide } from '#core/types.ts';
+import { readJson } from '#core/os/fs.ts';
 
-export { notifyProblems, validWebhooks, validCommand, notifyConfigured, webhookHost } from '../core/config/validators/notify.ts';
+export { notifyProblems, validWebhooks, validCommand, notifyConfigured, webhookHost } from '#core/config/validators/notify.ts';
 
 /** Every reason code a notification can carry, with the fixed text the payload sends. */
 export const REASONS = {

@@ -58,6 +58,7 @@ describe('start-up cache', { concurrency: 4 }, () => {
       if (STRIPS) {
         const entries = fs.readdirSync(stripDir(cache));
         assert.ok(entries.includes(`${createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'lib', 'cli', 'main.ts'), 'utf8')).digest('hex')}.js`));
+        assert.ok(entries.includes(`${createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'lib', 'core', 'config', 'load.ts'), 'utf8')).digest('hex')}.js`), 'a module imported through #core/ is cached');
         assert.ok(entries.every((f) => /^[0-9a-f]{64}\.js$/.test(f)), 'no temp files left behind');
       } else {
         assert.ok(!fs.existsSync(path.join(cache, 'strip')));

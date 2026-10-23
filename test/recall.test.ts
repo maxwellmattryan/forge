@@ -4,13 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeSync, repoTemplate } from './helpers.ts';
-import { loadConfig } from '../lib/core/config/load.ts';
-import { createJob, loadJob, readEvents, setJob, updateJob } from '../lib/core/job/store.ts';
-import { loadStepInput } from '../lib/engine/pipeline/step/input.ts';
-import { PLUGIN_ROOT } from '../lib/core/paths.ts';
-import { pluginHash } from '../lib/engine/evals/provenance.ts';
-import { loadFixtures, recallDir } from '../lib/engine/evals/recall.ts';
-import { createWorktree } from '../lib/engine/workspace/worktree.ts';
+import { loadConfig } from '#core/config/load.ts';
+import { createJob, loadJob, readEvents, setJob, updateJob } from '#core/job/store.ts';
+import { loadStepInput } from '#engine/pipeline/step/input.ts';
+import { PLUGIN_ROOT } from '#core/paths.ts';
+import { pluginHash } from '#engine/evals/provenance.ts';
+import { loadFixtures, recallDir } from '#engine/evals/recall.ts';
+import { createWorktree } from '#engine/workspace/worktree.ts';
 
 const template = repoTemplate((dir) => {
   const answers = path.join(dir, '.answers.json');

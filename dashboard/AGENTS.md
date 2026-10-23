@@ -4,7 +4,7 @@ Read this before you change anything under `dashboard/`. The root [AGENTS.md](..
 
 ## Rules
 - **`dashboard/style.css` is the source of truth for the dashboard's look** (the Smithy design system: its tokens and `@utility` classes; the icons live in `dashboard/src/lib/icons.ts`). New classes are `@utility`s there, colours come from the token variables, and fonts are vendored in `dashboard/fonts/`, never linked.
-- **The dashboard imports the API types and never redefines them.** `src/lib/types.ts` re-exports the engine's `lib/api/types.ts` and holds only the runtime constants the bundle needs, each pinned with `satisfies` to `lib/api/constants.ts`. Anything from the engine's `lib/` comes in with `import type` or `export type` only: a value import would bundle engine code.
+- **The dashboard imports the API types and never redefines them.** `src/lib/types.ts` re-exports the engine's `#api/types.ts` and holds only the runtime constants the bundle needs, each pinned with `satisfies` to `#api/constants.ts`. Anything from the engine's `lib/` comes in with `import type` or `export type` only: a value import would bundle engine code.
 - Each page is one component in `src/views/`. Put shared pieces in `components/` and logic you want tested in plain `src/lib/*.ts`, not in a growing view.
 - **Never commit the built dashboard.** `dist/` is gitignored and never hand-edited. Rebuild it with `npm run build:dashboard` before the tests: the ones that read the build (token contrast, remote assets, the index) skip without it, and CI runs them. CI builds `dist/` for the main update into `main` (the root [AGENTS.md](../AGENTS.md) › Publishing).
 

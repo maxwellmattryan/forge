@@ -5,12 +5,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeSync, repoTemplate } from './helpers.ts';
-import { defaults, loadConfig, validateConfig } from '../lib/core/config/load.ts';
-import { bootstrap, checkNotes, evaluateExperiments, mulberry32, newcombe, seedFor, validMetricPath, validWrittenStatus, wilson } from '../lib/engine/evals/experiments.ts';
-import { createJob, loadJob, setJob } from '../lib/core/job/store.ts';
-import { parseExperiments } from '../lib/engine/evals/learnings.ts';
-import { createWorktree, verify } from '../lib/engine/workspace/worktree.ts';
-import type { Config } from '../lib/core/types.ts';
+import { defaults, loadConfig, validateConfig } from '#core/config/load.ts';
+import { bootstrap, checkNotes, evaluateExperiments, mulberry32, newcombe, seedFor, validMetricPath, validWrittenStatus, wilson } from '#engine/evals/experiments.ts';
+import { createJob, loadJob, setJob } from '#core/job/store.ts';
+import { parseExperiments } from '#engine/evals/learnings.ts';
+import { createWorktree, verify } from '#engine/workspace/worktree.ts';
+import type { Config } from '#core/types.ts';
 
 const template = repoTemplate((dir) => {
   const answers = path.join(dir, '.answers.json');

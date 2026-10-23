@@ -592,7 +592,7 @@ export type DaemonStatus = 'off' | 'idle' | 'busy' | 'stopping';
 
 /** One supervised session (the inbox or a job's): state() in lib/office/session/lifecycle.ts, or offState in lib/office/pool.ts. */
 export interface DaemonSessionState {
-  /** `_inbox` or a job id. */
+  /** `_inbox`, `_office`, a job id, or `_jobs` for the job sessions' default. */
   scope: string;
   wanted: boolean;
   running: boolean;
@@ -618,8 +618,7 @@ export interface DaemonSessionState {
 }
 
 /**
- * The permission modes a human may put one daemon session in from the dashboard: `default` asks in the
- * dashboard, `auto` lets Claude Code's classifier approve routine calls, `dontAsk` refuses. lib/office/session/lifecycle.ts PERMISSION_MODES.
+ * The permission modes a human may put a daemon session in from the dashboard (lib/office/session/lifecycle.ts PERMISSION_MODES): `default` asks in the dashboard, `auto` lets Claude Code's classifier approve routine calls, `dontAsk` refuses.
  */
 export type DaemonPermissionMode = 'default' | 'auto' | 'dontAsk';
 
@@ -666,8 +665,9 @@ export interface DaemonPoolState {
   jobs: Record<string, DaemonSessionState>;
   /** The permission mode daemon.command starts sessions in (`manual` reads as `default`). */
   permissionMode: string;
-  /** Sessions a human put in another mode from the dashboard, by scope. Held in memory only, so they end with `forge dash`. */
+  /** Sessions a human put in another mode, by scope, and the default for job sessions without an entry (null: daemon.command's). Held in memory only, so they end with `forge dash`. */
   permissionModes: Record<string, DaemonPermissionMode>;
+  jobPermissionMode: DaemonPermissionMode | null;
   /** Open /api/events streams across all sessions. */
   clients: number;
 }
@@ -773,8 +773,9 @@ export interface JobDetail {
   screenshots: string[];
   /** This job's requests in every status, oldest first, at most the last 50. */
   requests: ForgeRequest[];
-  /** request.md without its `# title` line, trimmed, at most 2,000 characters: the Thread's opening message. */
+  /** request.md without its `# title` line, trimmed, the Thread's opening message: cut at 2,000 characters, with `requestTruncated` set (the whole file is GET /api/jobs/:id/file). */
   request: string | null;
+  requestTruncated: boolean;
   /** The job's `created` event has a ref (from-ref), so `request` is the issue's text. A later `job link` doesn't count. */
   requestFromTracker: boolean;
   /** The current round's agent records plus any still running, newest start first. */
@@ -783,10 +784,7 @@ export interface JobDetail {
   ownerTranscript: { session: string } | null;
 }
 
-/**
- * GET /api/jobs/:id/file for a text file: the text/plain body (send in lib/server/start.ts). Images come
- * back as raw bytes and /raw as sandboxed HTML; neither goes through api().
- */
+/** GET /api/jobs/:id/file for a text file: the text/plain body (send in lib/server/start.ts); images come back as raw bytes and /raw as sandboxed HTML, neither through api(). */
 export type JobFileText = string;
 
 /** Usage per role or model in stats: computeStats in lib/engine/metrics/stats.ts. */

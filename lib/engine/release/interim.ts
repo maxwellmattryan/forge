@@ -5,13 +5,13 @@
 // `ready` for git-ref and canary) and every write live in lib/engine/release/interim-apply.ts.
 
 import path from 'node:path';
-import { INTERIM_STRATEGIES, isInterimStrategy, isLinkName } from '../../core/config/components.ts';
+import { INTERIM_STRATEGIES, isInterimStrategy, isLinkName } from '#core/config/components.ts';
 import { memberEntry } from '../project/job-repos.ts';
 import { declaredLinks } from '../project/links.ts';
 import type { DeclaredLink } from '../project/links.ts';
 import { jobRepoOrder } from '../project/repo-order.ts';
 import type { RepoKey } from '../project/repo-order.ts';
-import type { Config, InterimStrategy, Job } from '../../core/types.ts';
+import type { Config, InterimStrategy, Job } from '#core/types.ts';
 
 export { INTERIM_STRATEGIES, isInterimStrategy };
 

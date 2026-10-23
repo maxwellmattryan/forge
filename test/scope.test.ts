@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { inSpec } from '../lib/core/glob.ts';
-import { approachPaths, approachSection } from '../lib/engine/pipeline/scope.ts';
+import { inSpec } from '#core/glob.ts';
+import { approachPaths, approachSection } from '#engine/pipeline/scope.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const commitAll = (cwd, msg) => {

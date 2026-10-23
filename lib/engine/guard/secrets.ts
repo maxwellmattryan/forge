@@ -7,15 +7,15 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { git as runGit, historyEnv } from '../../integrations/git/runner.ts';
-import { inSpec } from '../../core/glob.ts';
+import { git as runGit, historyEnv } from '#integrations/git/runner.ts';
+import { inSpec } from '#core/glob.ts';
 import { PINNED_DIFF_OPTS, parseDiffLines } from './integrity.ts';
-import { defaultAgentOutput, jobDir, logEvent } from '../../core/job/store.ts';
+import { defaultAgentOutput, jobDir, logEvent } from '#core/job/store.ts';
 import { MIN_SECRET, knownValues } from './known-secrets.ts';
-import { queueNotify } from '../../office/notify.ts';
+import { queueNotify } from '#office/notify.ts';
 import { resolveBase } from '../pipeline/scope.ts';
-import type { CompactSecrets, Config, Job, SecretAllowlist, SecretFinding, SecretKind, SecretScan, TextUnit } from '../../core/types.ts';
-import { ForgeError } from '../../core/errors.ts';
+import type { CompactSecrets, Config, Job, SecretAllowlist, SecretFinding, SecretKind, SecretScan, TextUnit } from '#core/types.ts';
+import { ForgeError } from '#core/errors.ts';
 
 export const SECRET_KINDS = [
   'private-key',

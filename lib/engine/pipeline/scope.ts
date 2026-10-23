@@ -1,16 +1,16 @@
 // `forge job scope`: which files a job changed that its spec's Approach never named.
 import fs from 'node:fs';
 import path from 'node:path';
-import { STATUS_ARGV, git as runGit, historyEnv } from '../../integrations/git/runner.ts';
-import { inSpec } from '../../core/glob.ts';
-import { loadJob, jobDir, logEvent } from '../../core/job/store.ts';
+import { STATUS_ARGV, git as runGit, historyEnv } from '#integrations/git/runner.ts';
+import { inSpec } from '#core/glob.ts';
+import { loadJob, jobDir, logEvent } from '#core/job/store.ts';
 import { memberWorktree } from '../project/job-repos.ts';
-import { reviewedRepoNames } from '../../core/job/lens.ts';
-import { exists } from '../../core/paths.ts';
-import type { Config, Job } from '../../core/types.ts';
-import { matchPolicy, policyRules } from '../../core/config/validators/policy-check.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { now } from '../../core/utils.ts';
+import { reviewedRepoNames } from '#core/job/lens.ts';
+import { exists } from '#core/paths.ts';
+import type { Config, Job } from '#core/types.ts';
+import { matchPolicy, policyRules } from '#core/config/validators/policy-check.ts';
+import { ForgeError } from '#core/errors.ts';
+import { now } from '#core/utils.ts';
 
 const LIST_LIMIT = 20;
 

@@ -5,12 +5,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { defaults, loadConfig, validateConfig } from '../lib/core/config/load.ts';
-import { changedRepos, downstreamMembers, downstreamRepos } from '../lib/engine/project/downstream.ts';
+import { defaults, loadConfig, validateConfig } from '#core/config/load.ts';
+import { changedRepos, downstreamMembers, downstreamRepos } from '#engine/project/downstream.ts';
 import { migrate } from '../lib/cli/commands/init.ts';
-import { CONFIG_SCHEMA_VERSION, normalizeJob } from '../lib/core/job/schema.ts';
-import type { Config, Job, JobEvent, JobRepo } from '../lib/core/types.ts';
-import * as yaml from '../lib/core/format/yaml.ts';
+import { CONFIG_SCHEMA_VERSION, normalizeJob } from '#core/job/schema.ts';
+import type { Config, Job, JobEvent, JobRepo } from '#core/types.ts';
+import * as yaml from '#core/format/yaml.ts';
 
 const DEFAULT = { enabled: true, max: 5, skip: [] };
 const REPOS = ['app-a', 'app-b', 'app-c', 'lib2'].map((name) => ({ name, remote: `https://example.com/${name}.git`, defaultBranch: 'main' }));

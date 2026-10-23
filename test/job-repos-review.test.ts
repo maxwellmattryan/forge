@@ -7,8 +7,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { twoRepo } from './job-repos-fixture.ts';
 import type { TwoRepo } from './job-repos-fixture.ts';
-import * as yaml from '../lib/core/format/yaml.ts';
-import { updateJob } from '../lib/core/job/store.ts';
+import * as yaml from '#core/format/yaml.ts';
+import { updateJob } from '#core/job/store.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => cleanups.forEach((c) => c()));

@@ -2,7 +2,7 @@
 
 Forge's engine, in seven lib layers that import downward only: api, core, integrations, engine, office, server, cli.
 
-- A file imports its own layer and the ones below it (`cli` → `server` → `office` → `engine` → `integrations` → `core` → `api`); `test/invariants/layers.test.ts` holds the rule, with the shrinking upward edges in `test/invariants/layer-map.ts`. docs/design/lib-layout.md says what each layer holds.
+- A file imports its own layer and the ones below it (`cli` → `server` → `office` → `engine` → `integrations` → `core` → `api`); `test/invariants/layers.test.ts` holds the rule, with the shrinking upward edges in `test/invariants/layer-map.ts`. Imports across layers use the `package.json` aliases (`#core/…`; none for `server` or `cli`); imports inside a layer stay relative. docs/design/lib-layout.md says what each layer holds.
 - A new file goes in `lib/<layer>/<module>/`, opens with a header comment whose first sentence says what it holds, and stays under 600 lines. Folders hold 3–12 entries, with no `index.ts` and no name that repeats its folder (`test/invariants/layout.test.ts`).
 - Read a folder's `AGENTS.md` before working in it. Each row below is a folder's first sentence or a file's header comment: edit those, then run `npm run docs:map`.
 - `trackers/status.ts` and `trackers/status.mjs` are deprecated re-exports of `api/tracker.ts` for custom tracker adapters, removed one minor release after the move ships.

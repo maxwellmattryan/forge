@@ -2,13 +2,13 @@
 // it for every job) with per-job overrides on top. Checkpoints park an over-budget job at
 // waiting:budget; only a human raises or acknowledges it, and the orchestrator resumes it.
 import { configForJob } from '../evals/overlay.ts';
-import { git } from '../../integrations/git/runner.ts';
-import { loadJob, logEvent, logHumanEvent, setJob, updateJob } from '../../core/job/store.ts';
-import { exists } from '../../core/paths.ts';
-import { BUDGET_KEYS } from '../../core/job/schema.ts';
-import type { BudgetKey, BudgetLimits, BudgetUsed, Config, DaemonJobBudget, Job, JobBudget } from '../../core/types.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { now } from '../../core/utils.ts';
+import { git } from '#integrations/git/runner.ts';
+import { loadJob, logEvent, logHumanEvent, setJob, updateJob } from '#core/job/store.ts';
+import { exists } from '#core/paths.ts';
+import { BUDGET_KEYS } from '#core/job/schema.ts';
+import type { BudgetKey, BudgetLimits, BudgetUsed, Config, DaemonJobBudget, Job, JobBudget } from '#core/types.ts';
+import { ForgeError } from '#core/errors.ts';
+import { now } from '#core/utils.ts';
 
 const TERMINAL = ['done', 'cancelled', 'failed'];
 

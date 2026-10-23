@@ -1,5 +1,5 @@
 // `forge worktree create|remove` in human mode.
-import { isMap } from '../../../core/shape.ts';
+import { isMap } from '#core/shape.ts';
 import { blocks, fields, has, list, marked, paint, ports, section, txt, under } from './kit.ts';
 import type { Paint, Renderer } from './kit.ts';
 

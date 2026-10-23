@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { readEvents } from '../lib/core/job/store.ts';
+import { readEvents } from '#core/job/store.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 

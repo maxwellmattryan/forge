@@ -4,10 +4,10 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { defaults, loadConfig, validateConfig } from '../lib/core/config/load.ts';
-import { matchPolicy, policyProblems, policyRules } from '../lib/core/config/validators/policy-check.ts';
-import { hitLine, matchEntry, UNCHECKED_LINK } from '../lib/engine/guard/protected.ts';
-import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
+import { defaults, loadConfig, validateConfig } from '#core/config/load.ts';
+import { matchPolicy, policyProblems, policyRules } from '#core/config/validators/policy-check.ts';
+import { hitLine, matchEntry, UNCHECKED_LINK } from '#engine/guard/protected.ts';
+import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate, tempRepo } from './helpers.ts';
 

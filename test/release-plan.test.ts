@@ -8,10 +8,10 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { defaults } from '../lib/core/config/load.ts';
-import { type GitReader, type RepoInput, type ReleaseStep, planHash, planRelease, readManifestPackage, releaseFiles, renderReleaseMd, stepsFor, writeReleasePlan } from '../lib/engine/release/plan.ts';
-import { releaseStatus, releasedVersionFrom, runRelease } from '../lib/engine/release/run.ts';
-import type { Config } from '../lib/core/types.ts';
+import { defaults } from '#core/config/load.ts';
+import { type GitReader, type RepoInput, type ReleaseStep, planHash, planRelease, readManifestPackage, releaseFiles, renderReleaseMd, stepsFor, writeReleasePlan } from '#engine/release/plan.ts';
+import { releaseStatus, releasedVersionFrom, runRelease } from '#engine/release/run.ts';
+import type { Config } from '#core/types.ts';
 
 // A suite run from a daemon session inherits its marker; this file runs no CLI, so it drops it itself.
 delete process.env.FORGE_DAEMON;

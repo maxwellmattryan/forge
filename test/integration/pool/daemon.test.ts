@@ -11,22 +11,22 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { spawn as nodeSpawn, spawnSync } from 'node:child_process';
 import { repoTemplate, waitFor as waitUntil } from '../../helpers.ts';
-import { TRUST_ENV, defaults, trustDigest } from '../../../lib/core/config/load.ts';
-import { budgetCmd } from '../../../lib/engine/metrics/budget.ts';
+import { TRUST_ENV, defaults, trustDigest } from '#core/config/load.ts';
+import { budgetCmd } from '#engine/metrics/budget.ts';
 import { initWrite } from '../../../lib/cli/commands/init.ts';
-import { ackRepoBudget } from '../../../lib/engine/metrics/repo-budget.ts';
+import { ackRepoBudget } from '#engine/metrics/repo-budget.ts';
 import { dollarConfig, spend } from '../../repo-budget-fixture.ts';
-import { claimJob, createJob, jobDir, leaseStatus, loadJob, readEvents, recordAgent, setJob, setJobEffort, updateJob } from '../../../lib/core/job/store.ts';
-import { recordKnown } from '../../../lib/engine/guard/known-secrets.ts';
-import { loadStepInput, step } from '../../../lib/engine/pipeline/step.ts';
-import { PLUGIN_ROOT } from '../../../lib/core/paths.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, ackRequest, claimRequest, enqueue, listRequests, requestScope, validScope } from '../../../lib/core/job/requests.ts';
-import { DENY_TOOLS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, buildArgv, createSession, heldByBudget, parseTemplate, reapOrphans, sessionEnv, PROMPT_INPUT_CHARS, sessionOptions, LOST_SUMMARY } from '../../../lib/office/session/lifecycle.ts';
-import { sessionFiles } from '../../../lib/core/job/session-files.ts';
-import { sessionAgents } from '../../../lib/office/session-agents.ts';
-import type { SessionEvent } from '../../../lib/office/session/lifecycle.ts';
-import { createPool } from '../../../lib/office/pool.ts';
-import { REASONS, contextFor, deliver, queueNotify } from '../../../lib/office/notify.ts';
+import { claimJob, createJob, jobDir, leaseStatus, loadJob, readEvents, recordAgent, setJob, setJobEffort, updateJob } from '#core/job/store.ts';
+import { recordKnown } from '#engine/guard/known-secrets.ts';
+import { loadStepInput, step } from '#engine/pipeline/step.ts';
+import { PLUGIN_ROOT } from '#core/paths.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, ackRequest, claimRequest, enqueue, listRequests, requestScope, validScope } from '#core/job/requests.ts';
+import { DENY_TOOLS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, buildArgv, createSession, heldByBudget, parseTemplate, reapOrphans, sessionEnv, PROMPT_INPUT_CHARS, sessionOptions, LOST_SUMMARY } from '#office/session/lifecycle.ts';
+import { sessionFiles } from '#core/job/session-files.ts';
+import { sessionAgents } from '#office/session-agents.ts';
+import type { SessionEvent } from '#office/session/lifecycle.ts';
+import { createPool } from '#office/pool.ts';
+import { REASONS, contextFor, deliver, queueNotify } from '#office/notify.ts';
 import { hookServer } from '../../notify-server.ts';
 
 // Named claude, because daemon.command must run claude; it runs fake-claude.mjs.
@@ -367,6 +367,46 @@ test('a prompt is never shown cut short: an input too long to show whole, or an 
     assert.equal(shown[0].input, JSON.stringify({ command: 'echo ' + 'y'.repeat(PROMPT_INPUT_CHARS - 20) }), 'and it is shown in full');
     const log = d.recent(INBOX).map((x) => x.line).join('\n');
     for (const reason of ['too-large', 'unusable-tool-name']) assert.ok(log.includes(`"reason":"${reason}"`), reason);
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test("the job sessions' default mode: every job without its own choice, never the inbox", async () => {
+  const repo = scratch();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit, config({ command: 'claude {session} --permission-mode default --allowedTools {allowedTools}' }), { jobPermissionMode: 'auto' });
+  const modeOf = (args: string[]) => args[args.indexOf('--permission-mode') + 1];
+  const switches = (c) => c.written.split('\n').filter((l) => l.includes('set_permission_mode')).map((l) => JSON.parse(l).request.mode);
+  try {
+    const a = createJob(repo.dir, defaults(), { title: 'Job A' }).id;
+    const b = createJob(repo.dir, defaults(), { title: 'Job B' }).id;
+    d.start();
+    const inbox = kit.last(INBOX);
+    assert.equal(d.state().jobPermissionMode, 'auto', 'from forge dash --permission-mode');
+    assert.equal(modeOf(inbox.args), 'default', 'the inbox keeps daemon.command\'s mode');
+    // B's own choice overrides the default; one equal to the default holds no entry.
+    assert.deepEqual(d.setPermissionMode(b, 'default', DASH), { error: null });
+    assert.deepEqual(d.setPermissionMode(a, 'auto', DASH), { error: null });
+    assert.deepEqual(d.state().permissionModes, { [b]: 'default' });
+    for (const job of [a, b]) enqueue(repo.dir, null, { type: 'resume', job, from: 'dashboard' });
+    d.poke();
+    await waitFor(() => kit.of(a).length === 1 && kit.of(b).length === 1, 2000, 'both job sessions');
+    assert.equal(modeOf(kit.last(a).args), 'auto');
+    assert.equal(modeOf(kit.last(b).args), 'default');
+
+    // A new default switches the running sessions that follow it, and only those.
+    assert.deepEqual(d.setJobPermissionMode('dontAsk', DASH), { error: null });
+    assert.equal(d.state().jobPermissionMode, 'dontAsk');
+    assert.deepEqual(switches(kit.last(a)), ['dontAsk']);
+    assert.deepEqual(switches(kit.last(b)), []);
+    assert.deepEqual(switches(inbox), []);
+    assert.deepEqual(readEvents(repo.dir, a).filter((e) => e.type === 'daemon-mode').at(-1), { ...readEvents(repo.dir, a).filter((e) => e.type === 'daemon-mode').at(-1), mode: 'dontAsk', default: true, actor: DASH });
+    // daemon.command's own mode clears the default.
+    assert.deepEqual(d.setJobPermissionMode('default', DASH), { error: null });
+    assert.equal(d.state().jobPermissionMode, null);
+    assert.match(d.setJobPermissionMode('bypassPermissions' as any, DASH).error ?? '', /mode must be one of default, auto, dontAsk/);
   } finally {
     await d.close();
     repo.cleanup();

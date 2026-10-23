@@ -7,7 +7,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { repoTemplate } from './helpers.ts';
 import { startServer } from '../lib/server/start.ts';
-import * as yaml from '../lib/core/format/yaml.ts';
+import * as yaml from '#core/format/yaml.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 

@@ -4,11 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
-import { defaults } from '../lib/core/config/load.ts';
-import { createJob, jobDir, setJob } from '../lib/core/job/store.ts';
-import { cleanPath, parseAddressed, parseReviewFindings, summariseFindings } from '../lib/engine/pipeline/findings.ts';
-import { prepareRetro } from '../lib/engine/evals/retro.ts';
-import { utcMonday } from '../lib/engine/metrics/stats.ts';
+import { defaults } from '#core/config/load.ts';
+import { createJob, jobDir, setJob } from '#core/job/store.ts';
+import { cleanPath, parseAddressed, parseReviewFindings, summariseFindings } from '#engine/pipeline/findings.ts';
+import { prepareRetro } from '#engine/evals/retro.ts';
+import { utcMonday } from '#engine/metrics/stats.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 

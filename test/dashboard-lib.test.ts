@@ -12,7 +12,7 @@ import { readiness } from '../dashboard/src/lib/backlog.ts';
 import { bundleFilename } from '../dashboard/src/lib/diagnostics.ts';
 import { jobsSummary } from '../dashboard/src/lib/analytics.ts';
 import * as types from '../dashboard/src/lib/types.ts';
-import * as schema from '../lib/core/job/schema.ts';
+import * as schema from '#core/job/schema.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 

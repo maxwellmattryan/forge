@@ -8,9 +8,9 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { forgeAsync, tempRepo, waitFor } from './helpers.ts';
-import * as yaml from '../lib/core/format/yaml.ts';
-import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
-import { backgroundArgs } from '../lib/cli/commands/dash.ts';
+import * as yaml from '#core/format/yaml.ts';
+import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
+import { backgroundArgs, jobPermissionMode } from '../lib/cli/commands/dash.ts';
 
 const POSIX = { skip: process.platform === 'win32' && 'POSIX-only' };
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
@@ -109,6 +109,14 @@ describe('forge dash activity log', { concurrency: 4 }, () => {
   test('background child gets --quiet', () => {
     assert.deepEqual(backgroundArgs(7400, {}), ['dash', '--foreground', '--port', '7400', '--quiet']);
     assert.deepEqual(backgroundArgs(7401, { dev: true }), ['dash', '--foreground', '--port', '7401', '--dev', '--quiet']);
+    assert.deepEqual(backgroundArgs(7402, { 'permission-mode': 'auto' }), ['dash', '--foreground', '--port', '7402', '--permission-mode', 'auto', '--quiet']);
+  });
+
+  test('--permission-mode takes a mode the dashboard offers, and never from a daemon session', () => {
+    assert.equal(jobPermissionMode({}, {}), null);
+    for (const m of ['default', 'auto', 'dontAsk']) assert.equal(jobPermissionMode({ 'permission-mode': m }, {}), m);
+    for (const bad of ['bypassPermissions', 'acceptEdits', 'plan', true]) assert.throws(() => jobPermissionMode({ 'permission-mode': bad }, {}), /--permission-mode must be one of default, auto, dontAsk/);
+    assert.throws(() => jobPermissionMode({ 'permission-mode': 'auto' }, { FORGE_DAEMON: '1' }), /a daemon session may not do/);
   });
 
   test('help documents --quiet', async () => {

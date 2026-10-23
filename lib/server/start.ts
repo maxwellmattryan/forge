@@ -5,58 +5,57 @@ import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
-import { daemonProblems, loadConfig, resolveEffort, validateConfig } from '../core/config/load.ts';
-import { allKnownValues, isPrivateJobFile, isPrivateName, knownValues, redactDeep, redactKnown, scopeKnownValues } from '../engine/guard/known-secrets.ts';
-import { ConfigSetError, FIELDS } from '../core/config/fields.ts';
-import { dashboardActor } from '../integrations/github/actor.ts';
-import { setConfigValue } from '../core/config/set.ts';
-import { PERMISSION_MODES } from '../office/session/lifecycle.ts';
-import { UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from '../core/job/session-files.ts';
-import type { DaemonOptions } from '../office/session/lifecycle.ts';
-import { createPool } from '../office/pool.ts';
-import type { DaemonPool, PoolState } from '../office/pool.ts';
-import { buildBundle, bundleFileName } from '../engine/ops/bundle.ts';
-import { doctor } from '../engine/ops/doctor.ts';
-import { containedWorktree, editorArgv, openEditor } from '../engine/workspace/editor.ts';
-import { readSmallJson } from '../core/job/focus.ts';
-import { CheckoutError } from '../engine/workspace/checkout.ts';
-import { InactiveJobError, currentFocus, focusJob } from '../engine/workspace/focus-actions.ts';
-import { recordEnvironmentStopped } from '../engine/environment/lifecycle.ts';
-import { createPreviewer, ghRunner, parseGitHubUrl } from '../integrations/github/preview.ts';
-import type { GhRunner } from '../integrations/github/preview.ts';
-import { daemonSessionIds } from '../office/owner.ts';
-import { AGENT_LEASE_MS, createJob, isActive, leaseStatus, listJobs, loadJob, progress, readEvents, jobDir, requestBody, setJob, setJobEffort } from '../core/job/store.ts';
-import { deleteJob, deleteRefusal } from '../engine/ops/delete.ts';
-import { decideRepoProposals, isRepoProposalPark } from '../engine/project/repo-proposals.ts';
-import { REPO_NAME } from '../engine/project/member-repos.ts';
-import { parseIssueRef } from '../core/job/issue-ref.ts';
-import { paths, exists, BUILD_DASHBOARD, DEV_DIST_DIR, PLUGIN_ROOT } from '../core/paths.ts';
-import { API_VERSION, CONFIG_SCHEMA_VERSION, EFFORTS, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from '../core/job/schema.ts';
-import { computeStats } from '../engine/metrics/stats.ts';
-import { projectGraph } from '../engine/project/graph.ts';
-import { RepoBudgetAckError, ackRepoBudget, repoBudgetStatus, validPeriod } from '../engine/metrics/repo-budget.ts';
-import { jobBudgetOf } from '../engine/metrics/budget.ts';
-import { listRuns, listTasks, compareRuns, forgeVersion } from '../engine/evals/run.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, enqueue, listRequests, validJobId, validScope } from '../core/job/requests.ts';
-import { foremanHandoff, gateOwner } from '../office/foreman.ts';
-import { loadTracker } from '../engine/trackers/load.ts';
-import { roster } from '../engine/pipeline/roster.ts';
-import { readTriageCache } from '../engine/trackers/triage.ts';
-import { deriveTitle, normalizeTitle } from '../engine/ops/title.ts';
-import { agentTranscript, cachedActivity, claudeProjectsDir, openTranscript, ownerTranscript } from '../integrations/claude/transcripts.ts';
-import type { TranscriptHit } from '../integrations/claude/transcripts.ts';
-import { redactContext, redactText } from '../engine/guard/redact.ts';
-import { getPath, isMap } from '../core/shape.ts';
-import { ForgeError } from '../core/errors.ts';
-import { pidAlive } from '../core/os/process.ts';
-import { readJson, readText } from '../core/os/fs.ts';
-import { versionInfo } from '../engine/ops/version.ts';
-import { commandTemplate, startBackground, stopDevProven } from '../engine/workspace/worktree.ts';
-import { jobEndpoints } from '../engine/environment/endpoints.ts';
-import { containerName, entriesOrNone, isManaged, projectSlug } from '../engine/environment/backing.ts';
-import { dockerSpawn } from '../integrations/docker/runner.ts';
-import { DOCKER_NAME, environmentsSnapshot, forgeJson, jobEnvironment, openConfinedLog, openDevLog } from '../engine/environment/status.ts';
-import { zip } from '../core/format/zip.ts';
+import { daemonProblems, loadConfig, resolveEffort, validateConfig } from '#core/config/load.ts';
+import { allKnownValues, isPrivateJobFile, isPrivateName, knownValues, redactDeep, redactKnown, scopeKnownValues } from '#engine/guard/known-secrets.ts';
+import { ConfigSetError, FIELDS } from '#core/config/fields.ts';
+import { dashboardActor } from '#integrations/github/actor.ts';
+import { setConfigValue } from '#core/config/set.ts';
+import { PERMISSION_MODES } from '#office/session/lifecycle.ts';
+import { UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from '#core/job/session-files.ts';
+import { createPool } from '#office/pool.ts';
+import type { DaemonPool, PoolState } from '#office/pool.ts';
+import { buildBundle, bundleFileName } from '#engine/ops/bundle.ts';
+import { doctor } from '#engine/ops/doctor.ts';
+import { containedWorktree, editorArgv, openEditor } from '#engine/workspace/editor.ts';
+import { readSmallJson } from '#core/job/focus.ts';
+import { CheckoutError } from '#engine/workspace/checkout.ts';
+import { InactiveJobError, currentFocus, focusJob } from '#engine/workspace/focus-actions.ts';
+import { recordEnvironmentStopped } from '#engine/environment/lifecycle.ts';
+import { createPreviewer, ghRunner, parseGitHubUrl } from '#integrations/github/preview.ts';
+import type { GhRunner } from '#integrations/github/preview.ts';
+import { daemonSessionIds } from '#office/owner.ts';
+import { AGENT_LEASE_MS, createJob, isActive, leaseStatus, listJobs, loadJob, progress, readEvents, jobDir, requestBody, setJob, setJobEffort } from '#core/job/store.ts';
+import { deleteJob, deleteRefusal } from '#engine/ops/delete.ts';
+import { decideRepoProposals, isRepoProposalPark } from '#engine/project/repo-proposals.ts';
+import { REPO_NAME } from '#engine/project/member-repos.ts';
+import { parseIssueRef } from '#core/job/issue-ref.ts';
+import { paths, exists, BUILD_DASHBOARD, DEV_DIST_DIR, PLUGIN_ROOT } from '#core/paths.ts';
+import { API_VERSION, CONFIG_SCHEMA_VERSION, EFFORTS, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from '#core/job/schema.ts';
+import { computeStats } from '#engine/metrics/stats.ts';
+import { projectGraph } from '#engine/project/graph.ts';
+import { RepoBudgetAckError, ackRepoBudget, repoBudgetStatus, validPeriod } from '#engine/metrics/repo-budget.ts';
+import { jobBudgetOf } from '#engine/metrics/budget.ts';
+import { listRuns, listTasks, compareRuns, forgeVersion } from '#engine/evals/run.ts';
+import { INBOX_SCOPE, JOBS_SCOPE, OFFICE_SCOPE, enqueue, listRequests, validJobId, validScope } from '#core/job/requests.ts';
+import { foremanHandoff, gateOwner } from '#office/foreman.ts';
+import { loadTracker } from '#engine/trackers/load.ts';
+import { roster } from '#engine/pipeline/roster.ts';
+import { readTriageCache } from '#engine/trackers/triage.ts';
+import { deriveTitle, normalizeTitle } from '#engine/ops/title.ts';
+import { agentTranscript, cachedActivity, claudeProjectsDir, openTranscript, ownerTranscript } from '#integrations/claude/transcripts.ts';
+import type { TranscriptHit } from '#integrations/claude/transcripts.ts';
+import { redactContext, redactText } from '#engine/guard/redact.ts';
+import { getPath, isMap } from '#core/shape.ts';
+import { ForgeError } from '#core/errors.ts';
+import { pidAlive } from '#core/os/process.ts';
+import { readJson, readText } from '#core/os/fs.ts';
+import { versionInfo } from '#engine/ops/version.ts';
+import { commandTemplate, startBackground, stopDevProven } from '#engine/workspace/worktree.ts';
+import { jobEndpoints } from '#engine/environment/endpoints.ts';
+import { containerName, entriesOrNone, isManaged, projectSlug } from '#engine/environment/backing.ts';
+import { dockerSpawn } from '#integrations/docker/runner.ts';
+import { DOCKER_NAME, environmentsSnapshot, forgeJson, jobEnvironment, openConfinedLog, openDevLog } from '#engine/environment/status.ts';
+import { zip } from '#core/format/zip.ts';
 import type {
   AboutResponse,
   AgentActivity,
@@ -101,13 +100,13 @@ import type {
   RequestInfo,
   TranscriptPage,
   VersionInfo,
-} from '../core/types.ts';
+} from '#core/types.ts';
 
 /** startServer's options. `distDir` is a test seam like `sseMaxAgeMs`. */
 export interface ServerOptions {
   port?: number;
   host?: string;
-  daemon?: DaemonOptions;
+  daemon?: import('#office/modes.ts').PoolOptions;
   sseMaxAgeMs?: number;
   ssePingMs?: number;
   distDir?: string;
@@ -452,11 +451,12 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
           return jsonStatus(res, 400, { error: 'body is not JSON' });
         }
         const obj = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
-        if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office" or a job id' });
-        if (obj.scope !== INBOX_SCOPE && obj.scope !== OFFICE_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
+        const jobs = obj.scope === JOBS_SCOPE;
+        if (!jobs && !validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office", "_jobs" or a job id' });
+        if (!jobs && obj.scope !== INBOX_SCOPE && obj.scope !== OFFICE_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
         if (!PERMISSION_MODES.includes(obj.mode)) return jsonStatus(res, 400, { error: `mode must be one of ${PERMISSION_MODES.join(', ')}` });
         // Only a value from that fixed list travels on, to the supervisor's memory and the session's stdin.
-        const r = pool?.setPermissionMode(obj.scope, obj.mode, dashboardActor()) ?? { error: 'the daemon pool is not ready' };
+        const r = (jobs ? pool?.setJobPermissionMode(obj.mode, dashboardActor()) : pool?.setPermissionMode(obj.scope, obj.mode, dashboardActor())) ?? { error: 'the daemon pool is not ready' };
         if (r.error) return jsonStatus(res, 409, { error: r.error });
         return json(res, poolState() satisfies PostDaemonModeResponse);
       }
@@ -1233,7 +1233,7 @@ function offSessionState(_root: string, scope: string): DaemonSessionState {
 
 /** The pool block before a pool exists (never visible once the server is listening). */
 function idlePoolState(root: string): PoolState {
-  return { enabled: false, wanted: false, maxConcurrent: 1, live: 0, lastError: null, inbox: offSessionState(root, INBOX_SCOPE), office: offSessionState(root, OFFICE_SCOPE), foreman: false, jobs: {}, permissionMode: 'default', permissionModes: {} };
+  return { enabled: false, wanted: false, maxConcurrent: 1, live: 0, lastError: null, inbox: offSessionState(root, INBOX_SCOPE), office: offSessionState(root, OFFICE_SCOPE), foreman: false, jobs: {}, permissionMode: 'default', permissionModes: {}, jobPermissionMode: null };
 }
 
 /**
@@ -1564,18 +1564,18 @@ function jobDetail(root: string, id: string, projects: string, ownPoolSession: (
     files,
     screenshots: listScreenshots(dir),
     requests: listRequests(root).filter((r) => r.job === id).slice(-MAX_JOB_REQUESTS),
-    request: requestExcerpt(root, id),
+    ...requestExcerpt(root, id),
     requestFromTracker: fromTracker,
     agents: roundAgents(root, job, events, projects),
     ownerTranscript: ((o) => (o ? { session: o.session } : null))(interactiveOwner(root, job, projects)),
   }, knownValues(root, id, loadConfig(root).config));
 }
 
-/** request.md without its `# title` line, for the Thread's opening message; null when empty. */
-function requestExcerpt(root: string, id: string): string | null {
+/** request.md without its `# title` line, for the Thread's opening message (null when empty); the polled detail cuts a long one. */
+function requestExcerpt(root: string, id: string): Pick<JobDetail, 'request' | 'requestTruncated'> {
   const body = requestBody(root, id);
-  if (!body) return null;
-  return body.length > MAX_REQUEST_EXCERPT ? `${body.slice(0, MAX_REQUEST_EXCERPT)}…` : body;
+  const cut = body.length > MAX_REQUEST_EXCERPT;
+  return { request: !body ? null : cut ? `${body.slice(0, MAX_REQUEST_EXCERPT)}…` : body, requestTruncated: cut };
 }
 
 /**

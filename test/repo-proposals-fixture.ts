@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { twoRepo } from './job-repos-fixture.ts';
 import type { TwoRepo } from './job-repos-fixture.ts';
-import { TRUST_ENV, trustDigest } from '../lib/core/config/load.ts';
+import { TRUST_ENV, trustDigest } from '#core/config/load.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => cleanups.forEach((c) => c()));

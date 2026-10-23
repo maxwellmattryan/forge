@@ -11,15 +11,15 @@ import path from 'node:path';
 import { forgeAsync, repoTemplate, tempRepo } from './helpers.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
-import { defaults, loadConfig, validateConfig } from '../lib/core/config/load.ts';
-import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
-import { redactedConfig } from '../lib/core/config/fields.ts';
-import { doctor } from '../lib/engine/ops/doctor.ts';
-import { releaseChecks } from '../lib/engine/project/member-repos.ts';
-import { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_PUBLISH, RELEASE_REGISTRIES, RELEASE_VERSIONINGS, commandProgram, releaseMechanismCheck } from '../lib/core/config/release-strategy.ts';
-import { deepMerge } from '../lib/core/shape.ts';
-import { findOnPath } from '../lib/core/os/process.ts';
-import * as yaml from '../lib/core/format/yaml.ts';
+import { defaults, loadConfig, validateConfig } from '#core/config/load.ts';
+import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
+import { redactedConfig } from '#core/config/fields.ts';
+import { doctor } from '#engine/ops/doctor.ts';
+import { releaseChecks } from '#engine/project/member-repos.ts';
+import { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_PUBLISH, RELEASE_REGISTRIES, RELEASE_VERSIONINGS, commandProgram, releaseMechanismCheck } from '#core/config/release-strategy.ts';
+import { deepMerge } from '#core/shape.ts';
+import { findOnPath } from '#core/os/process.ts';
+import * as yaml from '#core/format/yaml.ts';
 
 const WIN = process.platform === 'win32';
 const POSIX_ONLY = WIN && 'Windows has no executable bit: any regular file with a PATHEXT extension runs';

@@ -4,10 +4,10 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, repoTemplate } from './helpers.ts';
-import { defaults, resolveModel, validateConfig } from '../lib/core/config/load.ts';
-import { CONFIG_DISCLOSURE, FIELDS } from '../lib/core/config/fields.ts';
-import { createJob, jobDir, loadJob, readEvents, setJob } from '../lib/core/job/store.ts';
-import { isSampled, parseScoreMd } from '../lib/engine/evals/scoring.ts';
+import { defaults, resolveModel, validateConfig } from '#core/config/load.ts';
+import { CONFIG_DISCLOSURE, FIELDS } from '#core/config/fields.ts';
+import { createJob, jobDir, loadJob, readEvents, setJob } from '#core/job/store.ts';
+import { isSampled, parseScoreMd } from '#engine/evals/scoring.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const SCORING = path.join(ROOT, 'lib', 'engine', 'evals', 'scoring.ts');

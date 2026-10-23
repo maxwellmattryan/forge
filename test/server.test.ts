@@ -13,11 +13,11 @@ import { budgetRepo } from './repo-budget-fixture.ts';
 import { twoRepo } from './job-repos-fixture.ts';
 import { broadcast, distAllowlist, distDirFor, startServer as serve } from '../lib/server/start.ts';
 import { FIXTURE_DIST } from './dist.ts';
-import { DEV_DIST_DIR } from '../lib/core/paths.ts';
-import { TURN_LINE } from '../lib/office/session/lifecycle.ts';
-import * as yaml from '../lib/core/format/yaml.ts';
+import { DEV_DIST_DIR } from '#core/paths.ts';
+import { TURN_LINE } from '#office/session/lifecycle.ts';
+import * as yaml from '#core/format/yaml.ts';
 import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
-import { API_VERSION, CONFIG_SCHEMA_VERSION, JOB_SCHEMA_VERSION, sanitizeLogin } from '../lib/core/job/schema.ts';
+import { API_VERSION, CONFIG_SCHEMA_VERSION, JOB_SCHEMA_VERSION, sanitizeLogin } from '#core/job/schema.ts';
 
 // Every server here serves the committed fixture dist unless a test names its own, so the page (and the token
 // in it) needs no real build: develop never commits dashboard/dist/.
@@ -918,6 +918,33 @@ test('POST /api/daemon/permission answers a prompt, guarded like every POST', as
   }
 });
 
+test("POST /api/daemon/mode with scope _jobs sets the job sessions' default, guarded like every POST", async () => {
+  const repo = tempRepo();
+  writeConfig(repo.dir, { enabled: true, command: 'claude {session} --permission-mode dontAsk' });
+  const kit = fakeChildren();
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: { ...kit.opts, jobPermissionMode: 'auto' } });
+  const port = Number(new URL(url).port);
+  try {
+    const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)[1];
+    const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body, headers: any = good) => hit(port, { method: 'POST', path: '/api/daemon/mode', headers, body: JSON.stringify({ scope: '_jobs', ...body }) });
+    const state = async () => JSON.parse((await hit(port, { path: '/api/state' })).text).daemons;
+    assert.equal((await state()).jobPermissionMode, 'auto', 'the start-up default');
+    assert.equal((await post({ mode: 'default' }, { ...good, 'x-forge-token': 'wrong' })).status, 403);
+    assert.equal((await post({ mode: 'default' }, { ...good, origin: 'http://evil.example' })).status, 403);
+    assert.equal((await post({ mode: 'default' }, { ...good, 'content-type': 'text/plain' })).status, 415);
+    for (const mode of ['bypassPermissions', 'acceptEdits', 'plan', '', null]) assert.equal((await post({ mode })).status, 400, String(mode));
+    const ok = await post({ mode: 'default' });
+    assert.equal(ok.status, 200);
+    assert.equal(JSON.parse(ok.text).jobPermissionMode, 'default');
+    assert.equal((await post({ mode: 'dontAsk' })).status, 200);
+    assert.equal((await state()).jobPermissionMode, null, "daemon.command's mode clears the default");
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
 test('POST /api/daemon/mode switches one session, guarded like every POST', async () => {
   const repo = tempRepo();
   writeConfig(repo.dir, { enabled: true, command: 'claude {session} --permission-mode dontAsk' });
@@ -972,7 +999,7 @@ test('POST /api/daemon starts and stops one session', async () => {
     const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)[1];
     const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
     const post = (body, headers: any = good) => hit(port, { method: 'POST', path: '/api/daemon', headers, body: JSON.stringify(body) });
-    const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'office', 'foreman', 'jobs', 'permissionMode', 'permissionModes', 'clients'];
+    const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'office', 'foreman', 'jobs', 'permissionMode', 'permissionModes', 'jobPermissionMode', 'clients'];
     assert.equal((await post({ action: 'stop', scope: jobA }, { ...good, 'x-forge-token': 'wrong' })).status, 403);
     assert.equal((await post({ action: 'stop', scope: jobA }, { ...good, origin: 'http://evil.example' })).status, 403);
     assert.equal((await post({ action: 'stop', scope: jobA }, { ...good, 'content-type': 'text/plain' })).status, 415);
@@ -1040,7 +1067,7 @@ test('/api/stats returns per-lens recall', async () => {
 
 test('/api/state exposes the session pool', async () => {
   const repo = tempRepo();
-  const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'office', 'foreman', 'jobs', 'permissionMode', 'permissionModes', 'clients'];
+  const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'office', 'foreman', 'jobs', 'permissionMode', 'permissionModes', 'jobPermissionMode', 'clients'];
   const sessionKeys = ['scope', 'wanted', 'running', 'status', 'sessionId', 'pid', 'lastTurnAt', 'lastResultAt', 'turns', 'failures', 'held', 'waiting', 'lastError', 'permissions', 'permissionMode', 'kept', 'effort'];
   const kitOff = fakeChildren();
   let srv = await startServer(repo.dir, { port: 0, daemon: kitOff.opts });
@@ -1164,7 +1191,7 @@ test('api/config masks notify webhook urls and the command', async () => {
 });
 
 test('/api/config reads the schema and writes only editable keys', async () => {
-  const { FIELDS } = await import('../lib/core/config/fields.ts');
+  const { FIELDS } = await import('#core/config/fields.ts');
   const bare = tempRepo();
   let srv = await startServer(bare.dir, { port: 0, daemon: fakeChildren().opts });
   try {
@@ -1286,9 +1313,9 @@ test('GET /api/doctor runs forge doctor behind the token', async () => {
 });
 
 test('GET /api/about reports versions', async () => {
-  const schema = await import('../lib/core/job/schema.ts');
-  const { PLUGIN_ROOT } = await import('../lib/core/paths.ts');
-  const { versionInfo } = await import('../lib/engine/ops/version.ts');
+  const schema = await import('#core/job/schema.ts');
+  const { PLUGIN_ROOT } = await import('#core/paths.ts');
+  const { versionInfo } = await import('#engine/ops/version.ts');
   const root = path.resolve(import.meta.dirname, '..');
   const repo = tempRepo();
   const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
@@ -1589,7 +1616,7 @@ test('job detail lists the job\'s requests', async () => {
   const repo = tempRepo();
   const a = seedJob(repo.dir, 'job-a');
   const b = seedJob(repo.dir, 'job-b');
-  const { enqueue, claimRequest, ackRequest } = await import('../lib/core/job/requests.ts');
+  const { enqueue, claimRequest, ackRequest } = await import('#core/job/requests.ts');
   const ids: string[] = [];
   for (let i = 0; i < 55; i++) {
     ids.push(enqueue(repo.dir, null, { type: 'answer', job: a, text: `answer ${i}`, from: 'dashboard' }).id);
@@ -1608,7 +1635,7 @@ test('job detail lists the job\'s requests', async () => {
   try {
     const detail = JSON.parse((await hit(port, { path: `/api/jobs/${a}` })).text);
     // The keys of JobDetail in lib/api-types.ts.
-    assert.deepEqual(Object.keys(detail).sort(), ['agents', 'events', 'files', 'job', 'ownerTranscript', 'request', 'requestFromTracker', 'requests', 'screenshots']);
+    assert.deepEqual(Object.keys(detail).sort(), ['agents', 'events', 'files', 'job', 'ownerTranscript', 'request', 'requestFromTracker', 'requestTruncated', 'requests', 'screenshots']);
     assert.equal(detail.requests.length, 50, 'capped at 50');
     assert.deepEqual(detail.requests.map((r) => r.id), ids.slice(-50), 'the newest 50, oldest first');
     assert.ok(detail.requests.every((r) => r.job === a));
@@ -1617,6 +1644,8 @@ test('job detail lists the job\'s requests', async () => {
     fs.writeFileSync(path.join(repo.dir, '.forge', 'jobs', b, 'request.md'), `# Title line\n\n  ${'w'.repeat(2500)}\n`);
     const other = JSON.parse((await hit(port, { path: `/api/jobs/${b}` })).text);
     assert.equal(other.request, `${'w'.repeat(2000)}…`, 'the request without its title, trimmed and capped');
+    assert.equal(other.requestTruncated, true, 'a capped request says so');
+    assert.equal(detail.requestTruncated, false);
     assert.equal(detail.requestFromTracker, false, 'no created event: not tracker text');
     // Created from the bar, then linked at the gate: the job has issues, but only the created event's count.
     const event = (type, data) => JSON.stringify({ v: 1, ts: new Date().toISOString(), type, ...data }) + '\n';

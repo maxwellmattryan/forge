@@ -9,26 +9,26 @@ import type { ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { effectiveLimits, exceededKeys, measureBudget } from '../../engine/metrics/budget.ts';
-import { configForJob } from '../../engine/evals/overlay.ts';
-import { TRUST_ENV, daemonProblems, defaults, loadConfig as defaultLoadConfig, trackerSymlinks, trustDigest } from '../../core/config/load.ts';
-import { UUID, logBaseOf, openAppend, readInfo, sessionFiles, sessionRecords } from '../../core/job/session-files.ts';
-import { expireLease, loadJob, markAgentsLost, requeueOrphanedRequests } from '../../core/job/store.ts';
+import { effectiveLimits, exceededKeys, measureBudget } from '#engine/metrics/budget.ts';
+import { configForJob } from '#engine/evals/overlay.ts';
+import { TRUST_ENV, daemonProblems, defaults, loadConfig as defaultLoadConfig, trackerSymlinks, trustDigest } from '#core/config/load.ts';
+import { UUID, logBaseOf, openAppend, readInfo, sessionFiles, sessionRecords } from '#core/job/session-files.ts';
+import { expireLease, loadJob, markAgentsLost, requeueOrphanedRequests } from '#core/job/store.ts';
 import type { SessionFacts } from '../reconcile.ts';
-import { redactKnown, scopeKnownValues } from '../../engine/guard/known-secrets.ts';
+import { redactKnown, scopeKnownValues } from '#engine/guard/known-secrets.ts';
 import { queueNotify } from '../notify.ts';
 import type { QueueNotify } from '../notify.ts';
-import { PLUGIN_ROOT, paths } from '../../core/paths.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, validJobId } from '../../core/job/requests.ts';
-import { repoBudgetExempt } from '../../engine/metrics/repo-budget.ts';
-import { EFFORTS } from '../../core/job/schema.ts';
+import { PLUGIN_ROOT, paths } from '#core/paths.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, validJobId } from '#core/job/requests.ts';
+import { repoBudgetExempt } from '#engine/metrics/repo-budget.ts';
+import { EFFORTS } from '#core/job/schema.ts';
 import { sessionAgents } from '../session-agents.ts';
-import { SESSION_PINS } from '../../integrations/git/runner.ts';
-import { START_SLACK_MS, isClaudeExecutable, killAndWait, pidAlive, processStartMs, run } from '../../core/os/process.ts';
-import { writeJsonAtomic } from '../../core/os/fs.ts';
-import { splitWords } from '../../core/text.ts';
-import { now } from '../../core/utils.ts';
-import type { Config, RepoBudgetStatus, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, Effort, EffortSource, EventActor, ForgeRequest, PermissionDecision } from '../../core/types.ts';
+import { SESSION_PINS } from '#integrations/git/runner.ts';
+import { START_SLACK_MS, isClaudeExecutable, killAndWait, pidAlive, processStartMs, run } from '#core/os/process.ts';
+import { writeJsonAtomic } from '#core/os/fs.ts';
+import { splitWords } from '#core/text.ts';
+import { now } from '#core/utils.ts';
+import type { Config, RepoBudgetStatus, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, Effort, EffortSource, EventActor, ForgeRequest, PermissionDecision } from '#core/types.ts';
 
 /** What a session reports to its pool: a log line as it is written, or its new state after a change. */
 export type SessionEvent = { kind: 'line'; scope: string; offset: number; line: string } | { kind: 'state'; scope: string; state: DaemonSessionState };
@@ -132,7 +132,7 @@ export interface SessionContext {
   onExit(scope: string): void;
   /** Something freed a slot or may have left work unserved: tick. */
   poke(): void;
-  /** The mode a human chose for this scope in the dashboard, or null to keep daemon.command's. */
+  /** The mode a human chose for this scope, or the job sessions' default; null keeps daemon.command's. */
   permissionMode(scope: string): DaemonPermissionMode | null;
   /** claude refused a switch to `mode`; `live` is the mode it still reports. */
   permissionModeRefused(scope: string, mode: DaemonPermissionMode, live: string | null): void;

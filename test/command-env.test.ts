@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { envFor } from '../lib/engine/workspace/job-command.ts';
-import { sessionEnv } from '../lib/office/session/lifecycle.ts';
-import { TRUST_ENV, trustDigest } from '../lib/core/config/load.ts';
+import { envFor } from '#engine/workspace/job-command.ts';
+import { sessionEnv } from '#office/session/lifecycle.ts';
+import { TRUST_ENV, trustDigest } from '#core/config/load.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const job = { id: 'j1', branch: 'forge/j1', base: 'main' } as any;

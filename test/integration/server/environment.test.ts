@@ -11,11 +11,11 @@ import { spawn, spawnSync } from 'node:child_process';
 import { forgeInProcess, forgeSync, repoTemplate, waitFor } from '../../helpers.ts';
 import { FIXTURE_DIST } from '../../dist.ts';
 import { startServer, textFrame } from '../../../lib/server/start.ts';
-import { recordKnown } from '../../../lib/engine/guard/known-secrets.ts';
-import { parseMemUsage, parsePercent } from '../../../lib/engine/environment/status.ts';
-import { pidAlive } from '../../../lib/core/os/process.ts';
-import { parseDevProbe } from '../../../lib/engine/workspace/worktree.ts';
-import * as yaml from '../../../lib/core/format/yaml.ts';
+import { recordKnown } from '#engine/guard/known-secrets.ts';
+import { parseMemUsage, parsePercent } from '#engine/environment/status.ts';
+import { pidAlive } from '#core/os/process.ts';
+import { parseDevProbe } from '#engine/workspace/worktree.ts';
+import * as yaml from '#core/format/yaml.ts';
 
 const DEV_SERVER = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'dev-server.mjs');
 const DOCKER_BIN = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'docker-bin');
@@ -650,7 +650,8 @@ test('a container log stream left during its status check holds no slot and star
       const req = http.request({ host: '127.0.0.1', port: s.port, path: `/api/jobs/${a}/environment/logs?${query}`, headers: { host: `127.0.0.1:${s.port}` } });
       req.on('error', () => {});
       req.end();
-      await waitFor(() => s.argv().filter((x) => x[0] === 'version').length > i, { what: `status check ${i + 1} started` });
+      // Each check spawns the CLI, which a loaded CI runner can take past waitFor's 10 s default to start.
+      await waitFor(() => s.argv().filter((x) => x[0] === 'version').length > i, { what: `status check ${i + 1} started`, timeoutMs: 30_000 });
       req.destroy();
     }
     // Each check inspects the two managed containers once Docker answers.

@@ -7,8 +7,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { prProject } from './job-repos-fixture.ts';
 import type { PrProject } from './job-repos-fixture.ts';
-import { loadJob, logEvent, readEvents, setJob, updateJob } from '../lib/core/job/store.ts';
-import { TRUST_ENV, trustDigest } from '../lib/core/config/load.ts';
+import { loadJob, logEvent, readEvents, setJob, updateJob } from '#core/job/store.ts';
+import { TRUST_ENV, trustDigest } from '#core/config/load.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => cleanups.forEach((c) => c()));

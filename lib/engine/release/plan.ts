@@ -7,20 +7,20 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { validateConfig } from '../../core/config/load.ts';
-import { git as runGit } from '../../integrations/git/runner.ts';
+import { validateConfig } from '#core/config/load.ts';
+import { git as runGit } from '#integrations/git/runner.ts';
 import { resolveInterim } from './interim.ts';
-import { loadJob } from '../../core/job/store.ts';
+import { loadJob } from '#core/job/store.ts';
 import { memberCheck, readLocalConfig, resolveMemberPath, shellWord } from '../project/member-repos.ts';
-import { paths } from '../../core/paths.ts';
+import { paths } from '#core/paths.ts';
 import { memberRepos } from '../project/job-repos.ts';
 import { prRepos, repoOrder, type RepoKey } from '../project/repo-order.ts';
-import { validJobId } from '../../core/job/requests.ts';
-import type { Config, ReleaseCadence, ReleaseMechanism, ReleaseRegistry, ReleaseStrategy } from '../../core/types.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { writeJsonAtomic, writeTextAtomic } from '../../core/os/fs.ts';
-import { assertSafeRef, fenced, safeText } from '../../core/text.ts';
-import { now } from '../../core/utils.ts';
+import { validJobId } from '#core/job/requests.ts';
+import type { Config, ReleaseCadence, ReleaseMechanism, ReleaseRegistry, ReleaseStrategy } from '#core/types.ts';
+import { ForgeError } from '#core/errors.ts';
+import { writeJsonAtomic, writeTextAtomic } from '#core/os/fs.ts';
+import { assertSafeRef, fenced, safeText } from '#core/text.ts';
+import { now } from '#core/utils.ts';
 
 /** The release.json and state.json format; a file of any other version is planned again, never read. */
 export const RELEASE_FILE_VERSION = 1;

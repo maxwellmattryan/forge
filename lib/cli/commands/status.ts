@@ -1,7 +1,7 @@
 // Human-readable summaries: `forge status` and the text form of `forge stats`.
-import { foremanHandoffFor } from '../../office/foreman.ts';
-import { isActive, listJobs, progress } from '../../core/job/store.ts';
-import type { HelpGroup, Job, Stats, StatusRow } from '../../core/types.ts';
+import { foremanHandoffFor } from '#office/foreman.ts';
+import { isActive, listJobs, progress } from '#core/job/store.ts';
+import type { HelpGroup, Job, Stats, StatusRow } from '#core/types.ts';
 
 export const HELP: HelpGroup[] = [
   {

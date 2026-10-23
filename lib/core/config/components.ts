@@ -11,10 +11,10 @@ import { isInsidePath } from '../os/fs.ts';
 import { SAFE_REF } from '../text.ts';
 import { sinkProblems } from './sinks.ts';
 import { declaredSecrets } from './validators/secret-refs.ts';
-import { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES } from '../../api/constants.ts';
+import { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES } from '#api/constants.ts';
 
 export { isInsidePath };
-export { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES } from '../../api/constants.ts';
+export { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES } from '#api/constants.ts';
 
 export const LINK_ECOSYSTEMS = ['cargo', 'cmake', 'npm'] as const;
 

@@ -1,11 +1,11 @@
 // Whether `forge verify` should run the e2e command: unit tests alone don't prove UI work, but a
 // browser suite is too slow to run on every backend-only change.
 // Must not import worktree.ts (it imports this module).
-import { verifySteps } from '../../core/config/load.ts';
-import { git } from '../../integrations/git/runner.ts';
-import { inSpec } from '../../core/glob.ts';
+import { verifySteps } from '#core/config/load.ts';
+import { git } from '#integrations/git/runner.ts';
+import { inSpec } from '#core/glob.ts';
 import { resolveBase } from './scope.ts';
-import type { Config, Job } from '../../core/types.ts';
+import type { Config, Job } from '#core/types.ts';
 
 const SHOWN = 3;
 

@@ -1,6 +1,6 @@
 // Verify: run the checks, then the repo's verifiers when it has some, then review or back to build.
 import { downstreamMembers } from '../../../project/downstream.ts';
-import type { JobEvent, VerifyRun } from '../../../../core/types.ts';
+import type { JobEvent, VerifyRun } from '#core/types.ts';
 import { run, spawn, toStage } from '../actions.ts';
 import { after, agent, ended, isPrRework, lastVerify, latestVerifiers, outputMissing } from '../facts.ts';
 import { inStage } from '../rules.ts';
