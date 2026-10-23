@@ -1,5 +1,6 @@
 <!-- The Needs-you popover's body (the page it replaced): every pending permission prompt in the pool, answered right here,
-     then decisions only a human can make, PRs awaiting review, jobs parked on their dependencies (listed apart: they resume by themselves, but a human may unblock one), and queued requests.
+     then decisions only a human can make, PRs awaiting review, jobs parked on their dependencies (listed apart: they resume
+     by themselves, but a human may unblock one), and queued requests.
      Opening a job opens its pane, and StatusBar closes the popover. Titles, reasons and request text are untrusted and
      render as text; the PR link goes through safeUrl. -->
 <script lang="ts">

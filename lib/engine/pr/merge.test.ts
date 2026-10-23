@@ -2,11 +2,11 @@
 // row is in-process with its own repo and GitHub, and the rows run concurrently.
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { ghPr, memoryGitHub, tempRepo } from '../../../test/helpers.ts';
+import { ghPr, memoryGitHub, parkedAt, tempRepo } from '../../../test/helpers.ts';
 import { mergePr } from './merge.ts';
 import type { MergeResult } from './merge.ts';
 import { defaults } from '#core/config/load.ts';
-import { createJob, readEvents, setJob } from '#core/job/store.ts';
+import { readEvents } from '#core/job/store.ts';
 
 // defaults(): a non-empty policy.protectedPaths and merge.method squash.
 const config = defaults();
@@ -22,8 +22,7 @@ const ROLLUP = {
 /** A single-repo job with PR #7 pushed at SHA, and GitHub's PR #7 at that head. */
 function scenario(rollup: keyof typeof ROLLUP, mergeStateStatus = 'CLEAN') {
   const repo = tempRepo();
-  const id = createJob(repo.dir, config, { title: 'merge me' }).id;
-  setJob(repo.dir, id, { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', owned: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', pushedSha: SHA } } });
+  const id = parkedAt(repo.dir, 'pr-review', { config, title: 'merge me', pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', pushedSha: SHA } }).id;
   const github = memoryGitHub();
   github.put(ghPr({ headRefOid: SHA, statusCheckRollup: ROLLUP[rollup], mergeStateStatus }));
   return { root: repo.dir, id, github, merges: () => github.calls.filter((c) => c.op === 'merge'), events: () => readEvents(repo.dir, id).map((e) => e.type), cleanup: repo.cleanup };

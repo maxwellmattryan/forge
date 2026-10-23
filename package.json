@@ -31,7 +31,7 @@
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\" \"lib/**/*.test.ts\" \"dashboard/src/**/*.test.ts\"",
-    "test:unit": "node --test \"test/*.test.ts\" \"lib/**/*.test.ts\" \"dashboard/src/**/*.test.ts\"",
+    "test:unit": "node --test \"test/*.test.ts\" \"test/support/*.test.ts\" \"lib/**/*.test.ts\" \"dashboard/src/**/*.test.ts\"",
     "test:integration": "node --test \"test/integration/**/*.test.ts\"",
     "test:e2e": "node --test \"test/e2e/**/*.test.ts\"",
     "test:invariants": "node --test \"test/invariants/**/*.test.ts\"",

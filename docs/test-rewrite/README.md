@@ -57,6 +57,8 @@ These are also in [docs/TESTING.md › Layout](../TESTING.md#layout).
 - **One test per behaviour**, with its edge cases as rows of a table inside it.
 - **In-process first.** At most one spawned-CLI test per command, for its routing, exit code and JSON.
 - **No tests of wording, markup, class names or one job's acceptance criteria.**
+- **Build job state with the builders.** `jobAt`, `parkedAt`, `withRound` and `withLease` from `test/helpers.ts`, never a hand-copied `createJob` + `setJob` block or a raw `job.json` write. They make no move: a test that needs the gate request or another move effect moves the job itself.
+- **No test file over 800 lines.** Split one by behaviour before it gets there (`test/invariants/file-size.test.ts`).
 - **Work from the inventory and the source.** Write each B, E and R item (an item may share a test with others); skip what an inventory marks kept. When an item no longer matches the source, check the code and say so in the job, rather than reading the tag.
 - **Inventory conventions.** `Old: <name> › <test>` means `test/<name>.test.ts` at the tag (or `test/<dir>/<name>.test.ts` when the inventory's `Old tests:` line lists it there). "Old: none (from source)" marks behaviour no old test covered, read from the code; write a test for it too. Some behaviours appear in two inventories because one old file reached several modules: the module that owns the code (named in the item's tag) writes it, and the other skips it.
 

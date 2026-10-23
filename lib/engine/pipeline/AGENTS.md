@@ -13,7 +13,7 @@ The pipeline: `forge job step`, agent briefs, review panels, verifiers and the f
 |---|---|
 | `acs.ts` | `forge job acs`: which spec acceptance criteria the builder's latest AC table proves. |
 | `brief.ts` | Agent briefs for `forge job step`: paths and config-derived lines only, never file contents, so text an agent wrote (after reading tracker or PR text) is never re-injected into another prompt. |
-| `findings.ts` | `forge job findings`: review findings raised per round and lens, the builder's answers to them (fixed or disputed), and findings that recur. |
+| `findings.ts` | `forge job findings`: review findings raised per round and lens, the builder's answers to them (fixed or disputed), findings that recur, and the finding keys that group them across jobs. |
 | `member-panel.ts` | Member review panels: the lenses a member repo of a job defines for itself. |
 | `moves/` | How a job moves between stages and states: the one move with its effects, the Foreman's gate policy, and dependency waits. |
 | `panel.ts` | `forge job panel`: this round's review lenses, computed from recorded inputs and the branch diff. |
