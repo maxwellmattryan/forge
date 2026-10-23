@@ -64,6 +64,21 @@ test('writeRoots lists the job folders and every worktrees root', (t) => {
     { name: 'a worktrees root that contains the checkout', edit: (p) => void (p.config.worktrees.root = '..'), throws: /contains it/ },
     { name: 'a worktrees root that is the checkout', edit: (p) => void (p.config.worktrees.root = '.'), throws: /contains it/ },
     { name: 'a worktrees root a rule cannot carry', edit: (p) => void (p.config.worktrees.root = '../wt(1)'), throws: /can't be a permission rule/ },
+    { name: 'a worktrees root that is .forge', edit: (p) => void (p.config.worktrees.root = '.forge'), throws: /lies inside/ },
+    { name: 'a worktrees root inside .forge', edit: (p) => void (p.config.worktrees.root = '.forge/runtime'), throws: /lies inside/ },
+    {
+      name: 'a worktrees root around an instruction file',
+      edit: (p) => {
+        p.config.project.instructions = { default: ['AGENTS.md'], reviewer: ['docs/RULES.md'] };
+        p.config.worktrees.root = 'docs';
+      },
+      throws: /lies inside/,
+    },
+    {
+      name: 'a worktrees root beside .forge in the checkout is allowed',
+      edit: (p) => void (p.config.worktrees.root = '.worktrees'),
+      want: (p) => ({ jobs: path.join(p.root, '.forge', 'jobs'), worktrees: [path.join(p.root, '.worktrees'), path.join(p.lib, '.worktrees')] }),
+    },
   ];
   for (const row of rows) {
     const p = project(t, { member: row.member });

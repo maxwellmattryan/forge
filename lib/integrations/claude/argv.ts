@@ -49,10 +49,12 @@ export const isFileTool = (tool: string): boolean => FILE_TOOLS.some((f) => tool
 /**
  * `p` as the path of an absolute permission rule: `//` and its POSIX form (`C:\x` becomes `//c/x`).
  * A rule can't carry a comma (it splits --allowedTools), parentheses, glob characters or a newline,
- * so a path holding one throws rather than becoming a rule that matches something else.
+ * nor a backslash off Windows (the rule syntax's escape character), so a path holding one throws
+ * rather than becoming a rule that matches something else.
  */
 export function absRule(p: string, platform: NodeJS.Platform = process.platform): string {
-  if (/[,()*?[\]{}\r\n\0]/.test(p)) throw new ForgeError(`${JSON.stringify(p)} can't be a permission rule: it contains one of , ( ) * ? [ ] { } or a newline; move it to a path without them`);
+  if (/[,()*?[\]{}\r\n\0]/.test(p) || (platform !== 'win32' && p.includes('\\')))
+    throw new ForgeError(`${JSON.stringify(p)} can't be a permission rule: it contains one of , ( ) * ? [ ] { } or a newline, or a backslash off Windows; move it to a path without them`);
   let posix = p;
   if (platform === 'win32') posix = p.replaceAll('\\', '/').replace(/^([A-Za-z]):/, (_m, d: string) => `/${d.toLowerCase()}`);
   return `/${posix}`;

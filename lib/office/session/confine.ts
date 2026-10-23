@@ -31,8 +31,9 @@ function inside(parent: string, child: string): boolean {
 /**
  * `<real root>/.forge/jobs` and the worktrees roots of the root and of each member repo whose clone
  * is set up on this machine (one that isn't is left out: its writes prompt, and the guard refuses
- * them). Throws when a worktrees root is the checkout or contains it, since the guard would then
- * allow every write in it, or when a root can't be written as a permission rule.
+ * them). Throws when a worktrees root is the checkout or contains it, or lies inside `.forge/` or on
+ * (or around) a protected path or instruction file, since the guard would then allow writes the
+ * deny rules are meant to refuse, or when a root can't be written as a permission rule.
  */
 export function writeRoots(root: string, config: Config): WriteRoots {
   const real = fs.realpathSync(root);
@@ -46,9 +47,14 @@ export function writeRoots(root: string, config: Config): WriteRoots {
     }
   }
   const worktrees = [...new Set(found.map(landing))];
-  for (const w of worktrees)
+  const forge = landing(path.join(real, '.forge'));
+  const guarded = [...PROTECTED.files, ...PROTECTED.dirs, ...allInstructionFiles(config)].map((p) => landing(path.join(real, p)));
+  for (const w of worktrees) {
     if (inside(w, real))
       throw new ForgeError(`the worktrees root ${w} is the checkout ${real} or contains it, so a daemon session could write anywhere in it; set worktrees.root outside the checkout (docs/CONFIG.md)`);
+    if (inside(forge, w) || guarded.some((p) => inside(p, w) || inside(w, p)))
+      throw new ForgeError(`the worktrees root ${w} lies inside ${forge} or on a path of the checkout that a daemon session may not write, so the write guard would allow it; set worktrees.root outside .forge and the protected files (docs/CONFIG.md)`);
+  }
   for (const w of [jobs, ...worktrees]) absRule(w);
   return { jobs, worktrees };
 }

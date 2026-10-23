@@ -28,7 +28,7 @@ test('absRule writes absolute permission rules', () => {
     { p: '/Users/a b/repo', platform: 'darwin', want: '//Users/a b/repo' },
     { p: '/home/x/repo.worktrees', platform: 'linux', want: '//home/x/repo.worktrees' },
     { p: 'C:\\Users\\a\\repo', platform: 'win32', want: '//c/Users/a/repo' },
-    ...[',', '(', ')', '*', '?', '[', ']', '{', '}', '\n'].map((ch) => ({ p: `/r/a${ch}b`, platform: 'linux' as NodeJS.Platform })),
+    ...[',', '(', ')', '*', '?', '[', ']', '{', '}', '\n', '\\'].map((ch) => ({ p: `/r/a${ch}b`, platform: 'linux' as NodeJS.Platform })),
   ];
   for (const row of rows) {
     if (row.want !== undefined) assert.equal(absRule(row.p, row.platform), row.want, row.p);
