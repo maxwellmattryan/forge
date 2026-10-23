@@ -268,7 +268,12 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
       if (rework.includes('pr-feedback')) inputs.push(p('prFeedback'));
       if (rework.includes('feedback')) inputs.push(p('feedback'));
       if (rework.includes('answer')) inputs.push(p('questions'));
-      return out([p('tasks'), p('build')], inputs, [...(rework.length ? [`Rework: ${rework.join(', ')}`] : []), infra, ...backingLines, ...secretLines, uiProof]);
+      // A CLI-computed count, never the table's text, so nothing the spec-writer wrote reaches the brief.
+      const rows = input.acs.fileMap;
+      const fileMap = rows
+        ? `File map: ${rows} rows in spec.md's Approach › Files · start from it; explore only what it does not cover`
+        : 'File map: none in spec.md · explore the code the Approach names';
+      return out([p('tasks'), p('build')], inputs, [...(rework.length ? [`Rework: ${rework.join(', ')}`] : []), infra, ...backingLines, ...secretLines, uiProof, fileMap]);
     }
     case 'reviewer': {
       const lens = ctx.lens ?? role.slice('reviewer:'.length);

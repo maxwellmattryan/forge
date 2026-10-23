@@ -6,6 +6,7 @@ import { shellLine, step } from '#engine/pipeline/step.ts';
 import type { Config, Job, VerifyRun } from '#core/types.ts';
 import type { StepInput } from '#engine/pipeline/types.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
+import { acCoverage } from '#engine/pipeline/acs.ts';
 import { JOB_DIR, RECALL_HASH, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
 import type { FixtureOpts } from './step-fixture.ts';
 
@@ -595,8 +596,25 @@ export const rows: Row[] = [
       assert.ok(!a.brief.includes('Reference:'));
       assert.ok(a.brief.includes('Infra: mode human · allowed []'));
       assert.ok(a.brief.split('\n').includes('UI proof: none · no AC needs a rendered UI, so do not use browser tools'));
-      assert.equal(a.brief.split('\n').length, 13);
+      assert.ok(a.brief.split('\n').includes('File map: none in spec.md · explore the code the Approach names'));
+      assert.equal(a.brief.split('\n').filter((l: string) => l.startsWith('File map:')).length, 1);
+      assert.equal(a.brief.split('\n').length, 14);
       assert.ok(a.brief.split('\n').includes(`Inputs: ${path.join(JOB_DIR, 'spec.md')}, ${path.join(JOB_DIR, 'tasks.md')}`));
+    },
+  },
+  {
+    name: "B4 the round-1 builder starts from the spec's file map",
+    fx: {
+      files: ['spec', 'tasks'],
+      acs: acCoverage('# S\n\n## Approach\nDo it.\n\nFiles:\n| Path | Symbols | Change | Tests |\n|---|---|---|---|\n| `a.ts` | `f` | new | `a.test.ts` |\n| `b.ts` | - | reuse | - |\n', null),
+      job: job({ stage: 'build', round: 1 }),
+      events: [ev('round', 4)],
+    },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => {
+      const lines = a.brief.split('\n');
+      assert.ok(lines.includes("File map: 2 rows in spec.md's Approach › Files · start from it; explore only what it does not cover"), a.brief);
+      assert.equal(lines.filter((l: string) => l.startsWith('File map:')).length, 1);
     },
   },
   {
@@ -616,6 +634,7 @@ export const rows: Row[] = [
       assert.ok(lines.includes('Rework: review, feedback'));
       assert.ok(lines.some((l: string) => l.startsWith('Rework scope: ')));
       assert.ok(lines.includes(`Reference: ${path.join(JOB_DIR, 'spec.md')}`));
+      assert.ok(!a.brief.includes('File map:'));
     },
   },
   {
