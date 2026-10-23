@@ -11,7 +11,7 @@ import { isLens, reviewFileName, reviewedRepoNames, splitLens } from '#core/job/
 import { lensChecklists } from './member-panel.ts';
 import { repoGraph } from '../project/graph.ts';
 import { paths, exists } from '#core/paths.ts';
-import { releaseFiles } from '../release/plan.ts';
+import { releaseFiles } from '../release/files.ts';
 import { SECRET_NAME, secretSourceOf } from '#core/config/validators/secret-refs.ts';
 import { recallLine } from './step/recall.ts';
 import { lastRun } from '../verify/record.ts';
