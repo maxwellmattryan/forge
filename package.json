@@ -48,7 +48,8 @@
     "dev": "node scripts/dev.ts",
     "dev:claude": "node scripts/dev-claude.ts",
     "release": "node scripts/release.ts",
-    "release:check": "node scripts/release-check.ts"
+    "release:check": "node scripts/release-check.ts",
+    "check:touchpoints": "node scripts/check-touchpoints.ts"
   },
   "repository": {
     "type": "git",
