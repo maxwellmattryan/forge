@@ -43,10 +43,13 @@ function listProblems(at: string, list: unknown): string[] {
 }
 
 /**
- * The files every Claude Code session reads whatever a brief says: folder maps and CLAUDE.md at any
- * depth, the project's settings, and its MCP servers. The bare `.claude` also covers a symlink of that name.
+ * The files every Claude Code session reads whatever a brief says: folder maps, CLAUDE.md and
+ * CLAUDE.local.md at any depth, the settings and skills of any `.claude/` directory (Claude Code loads
+ * a nested one when it works in that subtree), and the project's MCP servers. The bare `.claude`
+ * also covers a symlink of that name. A leading any-depth segment matches zero segments, so the
+ * nested-`.claude` glob covers the root's directory too.
  */
-export const INSTRUCTION_GLOBS = ['**/AGENTS.md', '**/CLAUDE.md', '.claude', '.claude/**', '.mcp.json'] as const;
+export const INSTRUCTION_GLOBS = ['**/AGENTS.md', '**/CLAUDE.md', '**/CLAUDE.local.md', '.claude', '**/.claude/**', '.mcp.json'] as const;
 
 /** defaults()' last `policy.protectedPaths` rule: a branch that changes an instruction file needs a human. */
 export const INSTRUCTIONS_RULE: ProtectedRule = {
@@ -67,7 +70,7 @@ export function changedInstructionFiles(config: Pick<Config, 'project'>, changed
 }
 
 /** The paths `forge doctor` checks a configured policy against: one per INSTRUCTION_GLOBS shape. */
-export const INSTRUCTION_PROBES = ['AGENTS.md', 'lib/AGENTS.md', 'CLAUDE.md', '.claude/settings.json', '.mcp.json'] as const;
+export const INSTRUCTION_PROBES = ['AGENTS.md', 'lib/AGENTS.md', 'CLAUDE.md', 'CLAUDE.local.md', '.claude/settings.json', 'lib/.claude/skills/x/SKILL.md', '.mcp.json'] as const;
 
 /** The probes no rule in `rules` matches. */
 export function uncoveredInstructionProbes(rules: ProtectedRule[]): string[] {

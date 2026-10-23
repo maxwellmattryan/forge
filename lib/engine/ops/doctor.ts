@@ -87,7 +87,7 @@ export function instructionsPolicyCheck(config: Config): DoctorCheck | null {
     name: 'protected instruction files',
     ok: true,
     warn: true,
-    detail: `policy.protectedPaths does not cover ${uncovered.join(', ')}: add an escalate rule for **/AGENTS.md, **/CLAUDE.md, .claude, .claude/** and .mcp.json by hand (docs/CONFIG.md "Protected paths")`,
+    detail: `policy.protectedPaths does not cover ${uncovered.join(', ')}: add an escalate rule for **/AGENTS.md, **/CLAUDE.md, **/CLAUDE.local.md, .claude, **/.claude/** and .mcp.json by hand (docs/CONFIG.md "Protected paths")`,
   };
 }
 

@@ -321,7 +321,7 @@ policy:                      # enforced by the CLI, not a prompt (see "Protected
     - { paths: ["**/.env*"], action: escalate, reason: environment files can hold credentials }
     - { paths: ["**/*.pem"], action: refuse, reason: private keys and certificates are never committed by Forge }
     - { paths: [.forge/config.yml, .forge/secrets-allow.txt, .forge/trackers/**, .forge/ci/**], action: refuse, reason: "Forge's own policy changes only by a human on the base branch" }
-    - { paths: ["**/AGENTS.md", "**/CLAUDE.md", .claude, .claude/**, .mcp.json], action: escalate, reason: "agent instructions and Claude Code settings: every session reads them" }
+    - { paths: ["**/AGENTS.md", "**/CLAUDE.md", "**/CLAUDE.local.md", .claude, "**/.claude/**", .mcp.json], action: escalate, reason: "agent instructions and Claude Code settings: every session reads them" }
 
 retention:                   # what Forge deletes and when; null keeps forever (see "Retention" below)
   jobsDays: null             # 1-3650: forge sync and forge dash archive finished jobs this many days old
@@ -367,7 +367,7 @@ project:
 
 `forge config validate` reports a key that is not a role, a value that is not a list, an entry that is not a non-empty string, an absolute path and a `..` segment; the briefs skip any such entry. `forge job paths <id>` prints the `default` list. A config at schemaVersion 30 or older still loads: its list reads as `{ default: <list> }`, and `forge migrate` writes it that way.
 
-**The main checkout's copies, never the branch's.** `paths.instructions` points at the main checkout's files, read as they are on disk, so a branch can't rewrite the conventions its own reviewers and approver follow. The worktree's copies are the branch's edits and part of its diff: data to review, never instructions. When the branch's committed diff changes an instruction file (`**/AGENTS.md`, `**/CLAUDE.md`, `.claude`, `.claude/**`, `.mcp.json`, or any role's `project.instructions` entry, matched case-insensitively), every brief but the scoring judge's carries an `Instructions changed by this branch (JSON): [...]` line naming them, or a `not checked` line when the diff can't be read. Verify records the same list in `verify/round-<n>.md`'s `## instructions` section, and the default policy escalates them ("Protected paths"). An eval job reads the main checkout's copies too, and those may postdate the task's base commit.
+**The main checkout's copies, never the branch's.** `paths.instructions` points at the main checkout's files, read as they are on disk, so a branch can't rewrite the conventions its own reviewers and approver follow. The worktree's copies are the branch's edits and part of its diff: data to review, never instructions. When the branch's committed diff changes an instruction file (`**/AGENTS.md`, `**/CLAUDE.md`, `**/CLAUDE.local.md`, `.claude`, `**/.claude/**`, `.mcp.json`, or any role's `project.instructions` entry, matched case-insensitively), every brief but the scoring judge's carries an `Instructions changed by this branch (JSON): [...]` line naming them, or a `not checked` line when the diff can't be read. Verify records the same list in `verify/round-<n>.md`'s `## instructions` section, and the default policy escalates them ("Protected paths"). An eval job reads the main checkout's copies too, and those may postdate the task's base commit.
 
 **Keep the auto-loaded file short.** Claude Code loads the root `AGENTS.md` (or `CLAUDE.md`) into every session as project instructions, the orchestrator and every agent included, and the brief tells an agent to skip a file already in its context. So naming fewer files per role saves little while that root file stays long. Keep it to what every session needs and move the reference into a file only the roles that need it are given, such as `docs/DEVELOPING.md` above.
 
@@ -584,13 +584,13 @@ Paths are code, judgement calls are prose. `approver.alwaysEscalate` is prose a 
 
 **Rules.** Each rule is `{ paths: [glob, …], action: escalate | refuse, reason: "<text>" }`, numbered from 1 in list order. Messages name a rule as `rule <n> (<glob that matched>): <reason>`. When a path matches both actions, `refuse` wins; within one action, the first matching rule is named. The defaults are the list above. `policy.protectedPaths: []` turns the policy off. The policy is read from the main checkout's `.forge/config.yml` only, never from the job's worktree, and `.forge/config.yml` itself is a refuse default. It is read-only in the dashboard and `forge config set` (`names what Forge refuses to write`).
 
-**Instruction files.** The default list ends with rule 8, an escalate rule for `**/AGENTS.md`, `**/CLAUDE.md`, `.claude`, `.claude/**` and `.mcp.json`: the files Claude Code loads into every session whatever a brief says ("Instruction files"), so a branch that changes one needs a human. It is appended last, so rules 1–7 keep their numbers. A config without a `policy` key, and a new `forge init`, get it. A config with its own `policy.protectedPaths` list keeps that list exactly as written: no migration or re-init adds the rule. `forge doctor` warns (`protected instruction files`) when a non-empty list leaves `AGENTS.md`, `lib/AGENTS.md`, `CLAUDE.md`, `.claude/settings.json` or `.mcp.json` unmatched; add the rule by hand:
+**Instruction files.** The default list ends with rule 8, an escalate rule for `**/AGENTS.md`, `**/CLAUDE.md`, `**/CLAUDE.local.md`, `.claude`, `**/.claude/**` and `.mcp.json`: the files Claude Code loads into every session whatever a brief says ("Instruction files"), the settings and skills of a nested `.claude/` directory included, so a branch that changes one needs a human. It is appended last, so rules 1–7 keep their numbers. A config without a `policy` key, and a new `forge init`, get it. A config with its own `policy.protectedPaths` list keeps that list exactly as written: no migration or re-init adds the rule. `forge doctor` warns (`protected instruction files`) when a non-empty list leaves `AGENTS.md`, `lib/AGENTS.md`, `CLAUDE.md`, `CLAUDE.local.md`, `.claude/settings.json`, `lib/.claude/skills/x/SKILL.md` or `.mcp.json` unmatched; add the rule by hand:
 
 ```yaml
 policy:
   protectedPaths:
     # … your rules …
-    - paths: ['**/AGENTS.md', '**/CLAUDE.md', .claude, '.claude/**', .mcp.json]
+    - paths: ['**/AGENTS.md', '**/CLAUDE.md', '**/CLAUDE.local.md', .claude, '**/.claude/**', .mcp.json]
       action: escalate
       reason: "agent instructions and Claude Code settings: every session reads them"
 ```

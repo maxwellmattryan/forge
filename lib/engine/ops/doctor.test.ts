@@ -26,7 +26,8 @@ test('doctor hints at an existing policy that leaves instruction files out', asy
     name: 'protected instruction files',
     ok: true,
     warn: true,
-    detail: 'policy.protectedPaths does not cover AGENTS.md, lib/AGENTS.md, CLAUDE.md, .claude/settings.json, .mcp.json: add an escalate rule for **/AGENTS.md, **/CLAUDE.md, .claude, .claude/** and .mcp.json by hand (docs/CONFIG.md "Protected paths")',
+    detail:
+      'policy.protectedPaths does not cover AGENTS.md, lib/AGENTS.md, CLAUDE.md, CLAUDE.local.md, .claude/settings.json, lib/.claude/skills/x/SKILL.md, .mcp.json: add an escalate rule for **/AGENTS.md, **/CLAUDE.md, **/CLAUDE.local.md, .claude, **/.claude/** and .mcp.json by hand (docs/CONFIG.md "Protected paths")',
   });
   const md = instructionsPolicyCheck(withPolicy([{ paths: ['**/*.md'], action: 'refuse', reason: 'docs' }]));
   assert.ok(md?.detail.startsWith('policy.protectedPaths does not cover .claude/settings.json, .mcp.json: '), md?.detail);
