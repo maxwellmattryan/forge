@@ -132,7 +132,7 @@ export interface SessionContext {
   onExit(scope: string): void;
   /** Something freed a slot or may have left work unserved: tick. */
   poke(): void;
-  /** The mode a human chose for this scope in the dashboard, or null to keep daemon.command's. */
+  /** The mode a human chose for this scope, or the job sessions' default; null keeps daemon.command's. */
   permissionMode(scope: string): DaemonPermissionMode | null;
   /** claude refused a switch to `mode`; `live` is the mode it still reports. */
   permissionModeRefused(scope: string, mode: DaemonPermissionMode, live: string | null): void;

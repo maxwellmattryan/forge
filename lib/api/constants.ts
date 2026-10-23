@@ -1,4 +1,4 @@
-// The runtime lists the /api shapes in types.ts derive from, plus the two daemon scopes the
+// The runtime lists the /api shapes in types.ts derive from, plus the daemon scopes the
 // dashboard pins. This file imports nothing, so the dashboard can type-check types.ts without
 // Node's types. schema.ts, requests.ts and components.ts re-export what they used to define here.
 
@@ -74,6 +74,8 @@ export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework',
 export const INBOX_SCOPE = '_inbox';
 /** The foreman's daemon session: it receives every `gate` request and never drives a job. */
 export const OFFICE_SCOPE = '_office';
+/** Not a session: POST /api/daemon/mode's name for the default of every job session without its own choice. */
+export const JOBS_SCOPE = '_jobs';
 
 export const COMPONENT_KINDS = ['library', 'service', 'app'] as const;
 export const DEPENDENCY_TYPES = ['build', 'runtime'] as const;

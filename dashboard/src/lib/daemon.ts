@@ -1,6 +1,7 @@
 // The status bar's Daemon popover's and the session log's pure, DOM-free half: session pills, the pool summary and POST /api/daemon.
 // Session state and errors come from session output, i.e. untrusted text: these return plain strings rendered as text.
 import { ago } from './util.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE } from './types.ts';
 import type { DaemonPermissionMode, DaemonPoolState, DaemonSessionState } from './types.ts';
 
 export const START_HINT = 'Set daemon.enabled: true in .forge/config.yml';
@@ -188,12 +189,24 @@ function chosenOverride(p: Record<string, any>, scope: string): DaemonPermission
   return PERMISSION_MODES.find((x) => x === m) ?? null;
 }
 
+/** The job sessions' default the human chose, or null when they follow daemon.command's mode. */
+export function jobDefaultMode(pool: PoolInput): DaemonPermissionMode | null {
+  const m = obj(pool).jobPermissionMode;
+  return PERMISSION_MODES.find((x) => x === m) ?? null;
+}
+
+/** The mode a job session without its own choice runs in: the job default, else daemon.command's. */
+export function jobFallbackMode(pool: PoolInput): string {
+  const p = obj(pool);
+  return jobDefaultMode(p) ?? (typeof p.permissionMode === 'string' && p.permissionMode ? p.permissionMode : 'default');
+}
+
 export interface SessionMode {
-  /** The mode the session runs in, or starts in next: the human's choice, else daemon.command's. */
+  /** The mode the session runs in, or starts in next: the human's choice for it, else the job default for a job, else daemon.command's. */
   chosen: string;
   /** The running child reports another mode: a switch claude hasn't confirmed yet. */
   live: string | null;
-  /** Whether a human chose it (as opposed to daemon.command). */
+  /** Whether a human chose it for this session (as opposed to the job default or daemon.command). */
   overridden: boolean;
 }
 
@@ -201,7 +214,8 @@ export interface SessionMode {
 export function sessionMode(pool: PoolInput, scope: string, session: SessionInput): SessionMode {
   const p = obj(pool);
   const override = chosenOverride(p, scope);
-  const chosen = override ?? (typeof p.permissionMode === 'string' && p.permissionMode ? p.permissionMode : 'default');
+  const shared = scope === INBOX_SCOPE || scope === OFFICE_SCOPE;
+  const chosen = override ?? (shared ? (typeof p.permissionMode === 'string' && p.permissionMode ? p.permissionMode : 'default') : jobFallbackMode(p));
   const s = obj(session);
   const reported = s.running === true && typeof s.permissionMode === 'string' && s.permissionMode ? s.permissionMode : null;
   return { chosen, live: reported !== null && reported !== chosen ? reported : null, overridden: override !== null };
@@ -217,7 +231,7 @@ export function mergeSessionState(prev: SessionInput, next: unknown): Partial<Da
   return { ...obj(prev), ...obj(next) };
 }
 
-/** POST /api/daemon/mode: puts one session in a permission mode. Resolves with the pool state; throws like postDaemon. */
+/** POST /api/daemon/mode: puts one session (or, as JOBS_SCOPE, the job sessions' default) in a permission mode. Resolves with the pool state; throws like postDaemon. */
 export async function postDaemonMode(scope: string, mode: DaemonPermissionMode, token: string, fetchImpl: typeof fetch = fetch): Promise<DaemonPoolState> {
   return postJson('/api/daemon/mode', { scope, mode }, token, fetchImpl);
 }
