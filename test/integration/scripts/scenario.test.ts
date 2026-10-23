@@ -11,6 +11,7 @@ import { SCENARIO_DIR, listScenarios, loadScenario, scenarioEnv, seedScenario } 
 const SCRIPT = path.resolve(import.meta.dirname, '..', '..', '..', 'scripts', 'scenario.ts');
 const MESSAGES = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, '..', '..', '..', 'dashboard', 'src', 'messages', 'en.json'), 'utf8'));
 const VIEW_IDS = ['pipeline', 'project', 'backlog', 'agents', 'analytics', 'evals'];
+const SEED_BUDGET_MS = 60_000;
 
 function tempDir(): string {
   return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-scenario-test-')));
@@ -121,11 +122,12 @@ describe('scripts/scenario.ts', () => {
   describe('every scenario seeds through the CLI and cleans up', { concurrency: 4 }, () => {
     for (const row of ROWS) {
       it(row.name, async () => {
-        const started = Date.now();
         // The daemon's markers must never reach the scratch repo's CLI: with them it would refuse.
         const seeded = await seedScenario(row.name, { env: { ...process.env, FORGE_DAEMON: '1', FORGE_DAEMON_TRUST: 'bogus-trust' } });
         try {
-          assert.ok(Date.now() - started < 20_000, `${row.name} took ${Date.now() - started} ms`);
+          // A seed is 20-40 CLI starts, 2-3 s on an idle machine; inside the whole suite on a busy one
+          // it took up to 32 s, so the budget catches a step that hangs, not ordinary load.
+          assert.ok(seeded.ms < SEED_BUDGET_MS, `${row.name} took ${seeded.ms} ms`);
           assert.equal(seeded.worktrees, `${seeded.root}.worktrees`);
           const jobs = await readJobs(seeded.root);
           const titles = loadScenario(row.name).jobs.map((j) => j.title);
@@ -231,7 +233,7 @@ describe('scripts/scenario.ts', () => {
     child.stdout.on('data', (d) => (stdout += d));
     child.stderr.on('data', (d) => (stderr += d));
     const exited = new Promise<number | null>((resolve) => child.on('exit', (code) => resolve(code)));
-    await waitFor(() => stdout.endsWith('\n'), { timeoutMs: 20_000, what: 'the scratch path' });
+    await waitFor(() => stdout.endsWith('\n'), { timeoutMs: SEED_BUDGET_MS, what: 'the scratch path' });
     const lines = stdout.trim().split('\n');
     assert.equal(lines.length, 1, stdout);
     const root = lines[0];

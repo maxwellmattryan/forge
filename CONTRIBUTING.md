@@ -12,11 +12,13 @@ Before you open a PR, run every command in [the verify list](AGENTS.md#verify-be
 
 Run `npm ci` once. After that, the dashboard and the CLI run your local source, with no release or version bump.
 
-- **`npm run dev [-- --port N]`** builds the dashboard from `dashboard/` into `node_modules/.cache/forge/dashboard-dev/` and rebuilds it on every save. This checkout's `forge dash --dev` serves that build on `dashboard.port` (7400), or the next free port, and prints its URL. Edit a component, then reload the page. Until the first build lands (about 10 s), the page answers 503. One Ctrl-C stops both.
-  - It serves the `.forge/` of the repo you ran it from. To keep a real repo's state out of it, run `FORGE_ROOT=<scratch> npm run dev`, or `cd <scratch> && npm --prefix <checkout> run dev`.
+- **`npm run dev [-- --port N] [--scenario NAME]`** builds the dashboard from `dashboard/` into `node_modules/.cache/forge/dashboard-dev/` and rebuilds it on every save. This checkout's `forge dash --dev` serves that build on `dashboard.port` (7400), or the next free port, and prints its URL. Edit a component, then reload the page. Until the first build lands (about 10 s), the page answers 503. One Ctrl-C stops both.
+  - Start from `npm run dev -- --scenario <name>`: it seeds a scratch repo with that dashboard scenario (`busy`, `gates`, `failures`, `costs` or `empty`; [docs/TESTING.md](docs/TESTING.md#dashboard-scenarios-and-the-render-check)), prints `[dev] scenario <name> at <path>`, serves it, and removes it when you stop dev.
+  - Without `--scenario`, it serves the `.forge/` of the repo you ran it from. To keep a real repo's state out of it, run `FORGE_ROOT=<scratch> npm run dev`, or `cd <scratch> && npm --prefix <checkout> run dev`.
   - It refuses to start while a dashboard is already running for that repo. Stop that one with `forge dash --stop`, or point it at a scratch repo.
   - The daemon stays off until you press Start, even with `daemon.enabled: true`. Its sessions then run this checkout's code.
   - `dashboard/dist/` is never written. The verify list builds it before the tests, and the tests that read it skip without it; it is gitignored, so never commit it.
+- **`npm run scenario -- <name> | --list`** seeds a scenario into a fresh scratch repo under the temp dir, prints its path, and waits; Ctrl-C removes it. Point `FORGE_ROOT` at that path to run the CLI or a second tool against it. `--list` names each scenario with its description.
 - **`npm run dev:claude [-- <claude args>]`** opens Claude Code on this checkout's plugin (`claude --plugin-dir <checkout>`, with the checkout's `bin/` first on PATH), from the directory you ran it in. The plugin, its skills, agents and hooks, and every `forge` call run the checkout. For that session it overrides an installed Forge. From another repo, run `npm --prefix <checkout> run dev:claude`.
 - In any Claude Code session with Forge enabled, `forge` is the loaded plugin's CLI: a SessionStart hook puts that plugin's `bin/` first on PATH, ahead of an `npm link` or another install.
 - `npm link`, then `forge help`, runs the CLI on its own.

@@ -29,6 +29,7 @@ A module has one unit file beside it and one integration (or e2e) file per entry
 - Put an assertion at the cheapest layer that proves it: a pure check belongs in the unit file, unless it sits in a test that still needs its server or CLI.
 - A unit file beside its module imports `test/helpers.ts` by its relative path (`../../../test/helpers.ts` from `lib/<layer>/<module>/`) and builds `import.meta.dirname` paths for that depth.
 - A file under `test/integration/` or `test/e2e/` imports lib layers through their aliases (`#core/…`), `lib/cli/` and `lib/server/` as `../../../lib/…`, and `../../helpers.ts`, and builds `import.meta.dirname` paths for that depth.
+- `test/fixtures/scenarios/` holds the dashboard scenarios, one JSON file each, which `npm run scenario`, `npm run dev -- --scenario` and the render check seed ([Dashboard scenarios and the render check](#dashboard-scenarios-and-the-render-check)). `test/fixtures/render-broken/` is the broken build the render check's own test runs against.
 
 ## Allowed source-text tests
 A test may read source, Svelte, CSS or Markdown text only to hold one of these invariants. Any other source-text test is a `minor` finding for the `tests` lens.
@@ -49,6 +50,59 @@ Entries 1-4 and 7 live in one file, `test/invariants/dashboard-invariants.test.t
 12. `lib/` folders follow the layout rules: `test/invariants/layout.test.ts` lists `lib/` folder and file names, counting source files only, not `*.test.ts` (no `index` files, no stutter, 3–12 entries with the registries, `integrations/<system>/` and its shrinking `SMALL` list apart, and an `AGENTS.md` map in `lib/`, each layer folder and each module folder) and reads no file text; no public function exposes the tree's shape.
 
 A new entry needs a reason a public function or the CLI's JSON can't hold the invariant, and lands in this list in the same change.
+
+## Dashboard scenarios and the render check
+A **scenario** is a named dashboard state, `test/fixtures/scenarios/<name>.json`, that `scripts/scenario.ts` seeds into a fresh scratch repo under the temp dir (`forge-scenario-*`) in a few seconds. The **render check**, `scripts/render-check.ts`, loads every view of every scenario in headless Chrome. Neither is part of `npm test` or its four kind scripts: the render check needs Chrome and a dashboard build, and CI's `render` job runs it ([CI.md](CI.md#the-other-jobs)).
+
+- `npm run scenario -- <name>` seeds one, prints its path as the only stdout line, logs `seeded <name> in <ms> ms` on stderr and waits; SIGINT, SIGTERM or SIGHUP removes the scratch repo and its `.worktrees` sibling and exits 0. `--list` prints `<name>  <description>` per scenario. An unknown name, a malformed file or bad arguments exit 2; a failed seed step removes both directories and exits 1, naming the step, its argv and both exit codes.
+- `npm run dev -- --scenario <name> [--port N]` seeds it before Vite starts and serves it; stopping dev removes it.
+- Cleanup also runs on a normal exit and an uncaught error. Only SIGKILL leaves a `forge-scenario-*` directory behind.
+
+**The format.** Keys outside these are refused at every level.
+
+```json
+{
+  "description": "Every human gate, one job each",
+  "config": { "commands": { "test": "echo 'expected 3, got 2' >&2; exit 1" } },
+  "jobs": [
+    {
+      "key": "spec",
+      "title": "Approve the widget spec",
+      "new": ["--kind", "bug"],
+      "files": { "spec.md": "# Widget\n" },
+      "steps": [
+        ["job", "set", "{id}", "--stage", "spec", "--state", "waiting", "--waiting-on", "spec-approval", "--reason", "spec ready"],
+        { "argv": ["verify", "{id}"], "exit": 1 }
+      ]
+    }
+  ],
+  "expect": {
+    "pipeline": ["Approve the widget spec", "Spec approval"],
+    "project": ["@project.empty"], "backlog": ["@backlog.empty"], "agents": ["@agents.noRunning"],
+    "analytics": ["@analytics.noUsage"], "evals": ["@evals.empty"],
+    "drawer": { "job": "spec", "text": ["Spec approval"] }
+  }
+}
+```
+
+- **Seeding** writes Forge state only through `bin/forge`: `forge init write`, then `forge job new --title <title> --slug <key>` per job (ids read `<key>-xxxx`), then each job's `files`, then each job's `steps`, in file order. It never writes `job.json`, `events.jsonl`, `.forge/runtime/` or `.forge/locks/`. Every child gets `FORGE_ROOT=<scratch>` and none of the caller's git location or `FORGE_DAEMON*`, `FORGE_PORT*`, `FORGE_ENDPOINT*`, `FORGE_BACKING*`, `FORGE_JOB*`, `FORGE_WORKTREE*`, `FORGE_ACTOR*`, `FORGE_NOTIFY*` or `FORGE_MODE` variables.
+- **`config`** is the partial config `forge init write --answers` merges, limited to `project`, `commands`, `verify`, `runtime`, `pipeline`, `review`, `components`, `budget` and `usage`. The seeder forces `tracker: none`, the daemon and Foreman off and worktrees in the `../{repo}.worktrees` sibling with no setup, so no scenario reaches GitHub, a webhook, the daemon or another repo. `project.name` defaults to `Scenario: <name>`.
+- **Names**: a scenario name and a job `key` match `^[a-z0-9][a-z0-9-]*$`, and keys are unique.
+- **`new`**: extra `forge job new` flags, never `--title`, `--slug`, `--session` or `--body-file`.
+- **Steps**: a `string[]` that must exit 0, or `{ "argv": [...], "exit": N }`. `argv[0]` is `job`, `worktree`, `verify` or `requests`, so a step never starts a server, a session or a release, and it never passes `--json` (the seeder appends it).
+- **Placeholders**: `{id}` is the step's own job and `{id:<key>}` another one; inside `new`, only a job listed earlier.
+- **`files`**: job-dir-relative paths (`spec.md`, `review/round-1/code.md`) of agent artifacts, never `job.json` or `events.jsonl`.
+- **`expect`**: each view in `VIEWS` (`dashboard/src/lib/nav.ts`) lists the texts it must show. A text starting with `@` is a key into `dashboard/src/messages/en.json`, which resolves to that message up to its first `{`; a plural message is refused. Use job titles and gate labels as literals and empty-state copy as `@` keys, so copy edits don't break scenarios. `drawer` is optional: the job (the first by default) whose drawer the check opens from the Pipeline, and texts beside its title, which is always expected. It needs a job.
+
+**Adding a scenario** is adding a file: no code changes. Seed it with `npm run scenario -- <name>`, look at each view with `npm run dev -- --scenario <name>`, fill `expect` from what the views show, then run `npm run test:render -- --scenario <name>`.
+
+**The render check.** `npm run test:render [-- --scenario NAME]... [--dist DIR]` checks every scenario, or only the named ones, against the build in DIR (`dashboard/dist` by default; run `npm run build:dashboard` first). Per scenario it seeds, serves the scratch repo in-process on a free loopback port (daemon off), loads each view as a fresh page at `/#/<view>` and opens the drawer from the Pipeline when the scenario has jobs. A view or the drawer fails on a console `error`, an uncaught page error, a same-origin response of 500 or more, an expected text not visible within 10 s, or a failed load.
+
+- **Output**: `ok   <scenario> › <view>  <ms> ms` per passing view on stdout, `FAIL <scenario> › <view>: <problem>` per problem on stderr, and a last stdout line `render check: <passed>/<total> views passed in <n> scenarios (<s> s)`.
+- **Exit codes**: 0 when every view passed; 1 on any problem, a DIR without `manifest.json` or a Chrome that won't start (neither ever passes or skips); 2 on usage or an unknown scenario.
+- **Chrome**: `FORGE_RENDER_CHROME` (a Chrome or Chromium executable) when set, else the installed Google Chrome. Nothing downloads a browser; `playwright-core` is a devDependency only `scripts/` and `test/` import.
+- **`FORGE_REQUIRE_BROWSER=1`** makes the render check's own test (`test/integration/scripts/render-check.test.ts`) fail instead of skipping when Chrome can't launch; CI's verify job sets it.
+- A console error the check finds is fixed in `dashboard/src`, never ignored.
 
 ## Coverage
 `npm run coverage` runs the whole suite under Node's built-in coverage and writes one line per `lib/` and `dashboard/src/lib/` source file (not `*.test.ts`) (path, line %, lines hit/found) and a total to `node_modules/.cache/forge/coverage.txt`. Its exit status is the test run's. A change that deletes or rewrites tests runs it before and after: no file's line coverage may drop more than 1 percentage point. Where one does, add a small test of that file's public function in the nearest existing test file. Code reached only through a spawned `bin/forge` may count low; the rule compares the same tool before and after, so that cancels out.
