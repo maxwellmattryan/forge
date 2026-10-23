@@ -454,6 +454,29 @@ const TEXT = ['fg', 'muted', 'gleam', 'ember', 'ok', 'warn', 'bad', 'info'];
 const TEXT_BY_THEME: Record<string, string[]> = { forge: [...TEXT, 'gleam-hot'], ash: TEXT, temper: [...TEXT, 'gleam-hot'], crucible: [...TEXT, 'gleam-hot'], patina: [...TEXT, 'gleam-hot'], obsidian: [...TEXT, 'gleam-hot'] };
 const DIM_FLOOR = 3.0;
 
+/**
+ * A token's colour in one theme scope: a literal, a `var()` of another token in the scope, or one of the two color-mix
+ * forms the derived tokens use, `color-mix(in srgb, var(--a), var(--b) N%)` and `color-mix(in srgb, var(--a) N%, transparent)`.
+ */
+function resolveColor(vars: Map<string, string>, raw: string, depth = 0): Rgba | null {
+  const t = raw.trim();
+  if (depth > 8) return null;
+  const ref = (name: string) => resolveColor(vars, vars.get(`--${name}`) ?? '', depth + 1);
+  const v = /^var\(--([\w-]+)\)$/.exec(t);
+  if (v) return ref(v[1]);
+  const two = /^color-mix\(in srgb,\s*var\(--([\w-]+)\),\s*var\(--([\w-]+)\)\s+(\d+(?:\.\d+)?)%\)$/.exec(t);
+  if (two) {
+    const [a, b] = [ref(two[1]), ref(two[2])];
+    return a && b ? mix(b, Number(two[3]) / 100, a) : null;
+  }
+  const fadeOut = /^color-mix\(in srgb,\s*var\(--([\w-]+)\)\s+(\d+(?:\.\d+)?)%,\s*transparent\)$/.exec(t);
+  if (fadeOut) {
+    const a = ref(fadeOut[1]);
+    return a ? [a[0], a[1], a[2], (a[3] * Number(fadeOut[2])) / 100] : null;
+  }
+  return parseColor(t);
+}
+
 /** The theme scopes of the style.css tokens, as a colour reader per theme. */
 function themeColors(): Record<string, (k: string) => Rgba> {
   const design = tokensCss();
@@ -461,7 +484,7 @@ function themeColors(): Record<string, (k: string) => Rgba> {
   for (const theme of THEMES) {
     const vars = scope(design, THEME_SCOPE[theme]);
     out[theme] = (k: string): Rgba => {
-      const c = parseColor(vars.get(`--${k}`) ?? '');
+      const c = resolveColor(vars, vars.get(`--${k}`) ?? '');
       assert.ok(c, `${theme} --${k} is a colour`);
       return c;
     };
@@ -491,12 +514,21 @@ test('text tokens meet 4.5:1 except the documented exceptions', (t) => {
 });
 
 // Each surface steps away from the ground: plates and overlays (panel), the anvil (chrome). raised and the sheen are
-// translucent and land on those opaque fills; a hovered control mixes 10–12% gleam into its own fill.
+// translucent and land on those opaque fills; a hovered control mixes 10–12% gleam into its own fill. A session log's
+// screen is opaque, with its scanlines over it and, while live, the halo of the heat glow behind each glyph (modelled as
+// a 12% heat wash).
 test('plates, chrome and sheen keep text at 4.5:1', (t) => {
+  assert.deepEqual(resolveColor(new Map([['--a', '#ff0000'], ['--b', '#0000ff']]), 'color-mix(in srgb, var(--a), var(--b) 25%)'), [191.25, 0, 63.75, 1], 'self-check: the two-colour mix');
+  assert.deepEqual(resolveColor(new Map([['--a', '#ffffff']]), 'color-mix(in srgb, var(--a) 4%, transparent)'), [255, 255, 255, 0.04], 'self-check: the fade to transparent');
   for (const [theme, color] of Object.entries(themeColors())) {
     const panel = color('panel');
     const chrome = color('chrome');
+    const screen = color('screen');
+    assert.equal(screen[3], 1, `${theme} --screen is opaque`);
     const surfaces: Record<string, Rgba> = {
+      screen,
+      'screen+scanline': over(color('scanline'), screen),
+      'screen+glow': mix(color('heat'), 0.12, screen),
       panel,
       'panel+raised': over(color('raised'), panel),
       'panel+sheen': over(color('sheen'), panel),

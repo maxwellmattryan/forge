@@ -7,6 +7,7 @@ import { activeSessions } from './live.ts';
 import { pendingPrompts } from './permissions.ts';
 import { OFFICE_SCOPE } from './types.ts';
 import type { Roster } from './types.ts';
+import type { LampState } from './station.ts';
 
 // ---------- models ----------
 
@@ -137,6 +138,33 @@ export function barModel(pool: PoolInput, opts: { pending: boolean }): BarModel 
     prompts,
     held: m ? m.held.length : 0,
     waiting: m ? m.waiting.length : 0,
+  };
+}
+
+/** The overseer's console: each indicator's pilot lamp (the terminals' Lamp). */
+export interface BarLamps {
+  needs: LampState;
+  foreman: LampState;
+  daemon: LampState;
+  model: LampState;
+  connection: LampState;
+}
+
+/**
+ * The bar's lamps. Needs: you while anything waits on a person. Foreman: dark while it or the daemon is off, you with
+ * office prompts, working while the office is busy, else done. Daemon: dark while off, you with any prompt in the pool,
+ * working while any session works, else done. Model: working while any session or agent works. Connection: done when
+ * live, dark while connecting, fault offline, you when the server is newer.
+ */
+export function barLamps(bar: BarModel, { needs, conn, working }: { needs: number; conn: ConnectionState; working: boolean }): BarLamps {
+  const f = bar.foreman;
+  const d = bar.daemon;
+  return {
+    needs: needs > 0 ? 'you' : 'idle',
+    foreman: !f.on || !f.daemon ? 'idle' : f.prompts > 0 ? 'you' : f.active ? 'working' : 'done',
+    daemon: d.off ? 'idle' : bar.prompts > 0 ? 'you' : d.active ? 'working' : 'done',
+    model: working ? 'working' : 'idle',
+    connection: conn === 'live' ? 'done' : conn === 'offline' ? 'fault' : conn === 'outdated' ? 'you' : 'idle',
   };
 }
 

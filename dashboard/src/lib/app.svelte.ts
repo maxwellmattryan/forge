@@ -31,7 +31,7 @@ import { toast } from './toast.svelte.ts';
 import { VIEWS } from './nav.ts';
 import { buildRequest, queuedMessage } from './requests.ts';
 import { statsQuery } from './analytics.ts';
-import { addFlashes, changedJobs } from './live.ts';
+import { addFlashes, pollChanges, type PollMemo } from './live.ts';
 import { threadItems, threadMarks, threadOpening } from './thread.ts';
 import { DEFAULT_DRAWER_TAB, PANE_DEFAULT, clampPaneWidth, pickDrawerFile, type DrawerTab } from './drawer.ts';
 import type { RequestBody, RequestInput } from './requests.ts';
@@ -111,6 +111,14 @@ class AppState {
   openNeeds = $state(false);
   /** Job id → when its card's change flash ends (epoch ms). */
   flashes = $state.raw<Record<string, number>>({});
+  /** Job id → when its card's cooling edge from a stage change ends (epoch ms). */
+  cooling = $state.raw<Record<string, number>>({});
+  /**
+   * When the first good poll landed, moved by the first good poll after a failed one (epoch ms); null before. Heat and
+   * entry effects wait SETTLE_MS past it (motion.ts settled()). It changes only on those polls, so reading it never
+   * re-renders on every poll.
+   */
+  readyAt = $state<number | null>(null);
   /** Job id → the Thread marks last shown, for the tab's unread count. In memory, so it lasts the page's lifetime. */
   threadSeen = $state.raw<Record<string, string[]>>({});
 }
@@ -123,7 +131,7 @@ let token: string | null = null;
 export const forgeToken = (): string => (token ??= TOKEN());
 
 /** The last poll's job signatures; null until the first poll, so the page's first load flashes nothing. */
-let sigs: Record<string, string> | null = null;
+let memo: PollMemo | null = null;
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -132,15 +140,20 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
 export async function refresh(): Promise<void> {
   try {
     const data = await api<ApiState>('/api/state');
+    // Read before this poll marks the connection good: the first poll after a failed one rebaselines.
+    const resumed = S.online === false;
+    const now = Date.now();
     S.online = true;
-    S.polledAt = new Date().toISOString();
+    S.polledAt = new Date(now).toISOString();
     S.error = data.apiVersion > API_VERSION ? 'This data was written by a newer Forge. Restart `forge dash` after updating the plugin.' : null;
+    if (S.readyAt === null || resumed) S.readyAt = now;
     const key = JSON.stringify({ ...data, now: undefined });
     if (key !== S.dataKey) {
       // Only a poll whose data changed gets here, so an identical poll never flashes.
-      const r = changedJobs(sigs, data.jobs);
-      sigs = r.sigs;
-      S.flashes = addFlashes(S.flashes, r.changed, Date.now());
+      const r = pollChanges(memo, data.jobs, resumed);
+      memo = r.memo;
+      S.flashes = addFlashes(S.flashes, r.changed, now);
+      S.cooling = addFlashes(S.cooling, r.staged, now, 1000);
       S.data = data;
       S.dataKey = key;
     }

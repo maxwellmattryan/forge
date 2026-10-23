@@ -2,7 +2,7 @@
 // heartbeat, column working counts, change flashes, fresh rows, Thread unread counts and the visibility-aware ticker.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activeSessions, addFlashes, changedJobs, freshCount, sessionActivity, startTicker, workingCount } from '../dashboard/src/lib/live.ts';
+import { activeSessions, addFlashes, changedJobs, freshCount, pollChanges, sessionActivity, startTicker, workingCount } from '../dashboard/src/lib/live.ts';
 import { threadItems, threadMarks, unreadCount, type ThreadItem } from '../dashboard/src/lib/thread.ts';
 
 /** A fake document and timers: `fire` runs every live interval once, `show`/`hide` flip visibility and dispatch the event. */
@@ -154,6 +154,28 @@ test('changedJobs flashes only real changes', () => {
   const removed = changedJobs(first.sigs, [jobs[0]]);
   assert.deepEqual(removed.changed, [], 'a removed job is not a change');
   assert.deepEqual(Object.keys(removed.sigs), ['a'], 'nor is it kept in sigs');
+});
+
+test('pollChanges: first load, event, state and stage changes, new jobs, resumed', () => {
+  const jobs = [
+    { id: 'a', eventCount: 3, state: 'running', stage: 'build' },
+    { id: 'b', eventCount: 1, state: 'waiting', stage: 'spec' },
+  ];
+  const first = pollChanges(null, jobs, false);
+  assert.deepEqual([first.changed, first.staged], [[], []], 'the first load reports nothing');
+  assert.deepEqual(Object.keys(first.memo.sigs), ['a', 'b'], 'but fills the memo');
+  const same = pollChanges(first.memo, structuredClone(jobs), false);
+  assert.deepEqual([same.changed, same.staged], [[], []], 'an identical poll');
+  const ev = pollChanges(first.memo, [{ ...jobs[0], eventCount: 4 }, { ...jobs[1], state: 'running' }], false);
+  assert.deepEqual([ev.changed, ev.staged], [['a', 'b'], []], 'event and state changes flash but do not cool');
+  const st = pollChanges(first.memo, [{ ...jobs[0], stage: 'review' }, jobs[1]], false);
+  assert.deepEqual([st.changed, st.staged], [['a'], ['a']], 'a stage change does both');
+  const added = pollChanges(first.memo, [...jobs, { id: 'c', eventCount: 0, state: 'queued', stage: 'intake' }], false);
+  assert.deepEqual([added.changed, added.staged], [['c'], []], 'a new job is changed, never staged');
+  const resumed = pollChanges(first.memo, [{ ...jobs[0], stage: 'review', eventCount: 9 }, jobs[1]], true);
+  assert.deepEqual([resumed.changed, resumed.staged], [[], []], 'the poll after a failed one reports nothing');
+  assert.equal(resumed.memo.stages.a, 'review', 'but rebaselines the memo');
+  assert.deepEqual(pollChanges(resumed.memo, [{ ...jobs[0], stage: 'review', eventCount: 9 }, jobs[1]], false).changed, [], 'so the next poll sees no change');
 });
 
 test('addFlashes expires after 3 s', () => {

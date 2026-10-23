@@ -10,7 +10,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { DIST, noDist } from './dist.ts';
-import { THEMES, THEME_CHOICES, SYSTEM_DARK, normalizeTheme, setTheme, currentTheme, themeChoice, chooseTheme, followSystemTheme, grainOn, currentGrain, setGrain } from '../dashboard/src/lib/theme.ts';
+import { THEMES, THEME_CHOICES, SYSTEM_DARK, normalizeTheme, setTheme, currentTheme, themeChoice, chooseTheme, followSystemTheme, grainOn, currentGrain, setGrain, screenOn, currentScreen, setScreen } from '../dashboard/src/lib/theme.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -86,9 +86,18 @@ for (const [name, file, opts] of [
           assert.equal(dataset.theme, normalizeTheme(saved, light), at);
           assert.equal(dataset.theme, want, at);
           assert.equal(dataset.grain, grainOn(grain, paper) ? 'on' : 'off', at);
-          assert.deepEqual(Object.keys(dataset).sort(), ['grain', 'theme'], `${at}: the old grid pref is ignored`);
+          assert.deepEqual(Object.keys(dataset).sort(), ['grain', 'screen', 'theme'], `${at}: the old grid pref is ignored`);
           assert.deepEqual(writes, [], 'loading the page never rewrites or deletes a pref');
         }
+      }
+    }
+    for (const screen of DRAWING_VALUES) {
+      for (const [saved, light] of CASES) {
+        const { dataset, writes } = runBootstrap(html, { 'forge.theme': saved, 'forge.screen': screen }, light);
+        const at = `${name} (${saved}, ${light}, screen ${screen})`;
+        assert.equal(dataset.screen, screenOn(screen) ? 'on' : 'off', at);
+        assert.deepEqual(Object.keys(dataset).sort(), ['grain', 'screen', 'theme'], at);
+        assert.deepEqual(writes, [], `${at}: loading the page never rewrites a pref`);
       }
     }
     // Storage that throws (some private modes) sets nothing, so the CSS defaults apply: forge, grain on.
@@ -287,6 +296,32 @@ test('grain pref defaults on, migrates paper and writes attribute and pref', () 
       assert.deepEqual(Object.keys(dataset), ['grain'], 'only data-grain is written');
       assert.deepEqual([...store.keys()].sort(), ['forge.grain', 'forge.grid', 'forge.paper'], 'the old prefs stay in localStorage, untouched');
       assert.equal(store.get('forge.paper'), 'off');
+    },
+  );
+});
+
+test('screen pref defaults on and writes attribute and pref', () => {
+  assert.equal(screenOn('off'), false);
+  for (const v of [null, undefined, '', 'on', 'bogus', 'OFF']) assert.equal(screenOn(v), true, String(v));
+  const store = new Map<string, string>([['forge.grain', 'off']]);
+  const dataset: Record<string, string> = { grain: 'off' };
+  withGlobals(
+    {
+      document: { documentElement: { dataset } },
+      localStorage: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) },
+    },
+    () => {
+      assert.equal(currentScreen(), true, 'an absent attribute counts as on');
+      setScreen(false);
+      assert.equal(dataset.screen, 'off');
+      assert.equal(store.get('forge.screen'), 'off');
+      assert.equal(currentScreen(), false);
+      setScreen(true);
+      assert.equal(dataset.screen, 'on');
+      assert.equal(store.get('forge.screen'), 'on');
+      assert.equal(currentScreen(), true);
+      assert.deepEqual(dataset, { grain: 'off', screen: 'on' }, 'only data-screen is written; grain is left alone');
+      assert.deepEqual([...store.keys()].sort(), ['forge.grain', 'forge.screen'], 'only forge.screen is written');
     },
   );
 });

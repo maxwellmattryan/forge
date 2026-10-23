@@ -36,6 +36,8 @@ export interface TurnGroup {
 export interface SessionView {
   turns: TurnGroup[];
   totals: { turns: number; costUsd: number; results: number };
+  /** The newest top-level item, before filtering, is a tool or subagent call still waiting on its result. */
+  openTool: boolean;
 }
 
 const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
@@ -179,9 +181,12 @@ export function buildSessionView(entries: readonly Entry[], filters: Filters = D
       }
     }
   }
+  // The last turn's last item: a turn that has just begun has none, and an older turn's call is no longer awaited.
+  const newest = turns.at(-1)?.items.at(-1);
+  const openTool = (newest?.kind === 'tool' || newest?.kind === 'subagent') && newest.result === null;
   const needle = filters.text.trim().toLowerCase();
   const filtered = turns.map((t) => ({ ...t, items: applyFilters(t.items, filters, needle) })).filter((t) => t.items.length || (!needle && t.label !== first));
-  return { turns: filtered, totals };
+  return { turns: filtered, totals, openTool };
 }
 
 /**

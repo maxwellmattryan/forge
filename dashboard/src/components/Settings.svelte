@@ -8,6 +8,8 @@
   import DiagnosticsTab from './settings/DiagnosticsTab.svelte';
   import GeneralTab from './settings/GeneralTab.svelte';
   import { t } from '../lib/locale.ts';
+  import { slideMarker } from '../lib/marker.ts';
+  import { EXIT, fade, pop } from '../lib/motion.ts';
   import { pref } from '../lib/prefs.ts';
   import { SETTINGS_TABS, isSettingsTab, moveTab, sectionOf, wrapFocus, type SettingsTabId } from '../lib/settings.ts';
   import { SettingsSession } from '../lib/settings-session.svelte.ts';
@@ -124,14 +126,14 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop; Escape and the close button close the dialog from the keyboard) -->
-<div class="fixed inset-0 z-45 flex md:items-center md:justify-center md:p-6 backdrop" onmousedown={backdropDown} onclick={backdrop}>
-  <div bind:this={dialog} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1" class="plate solid flex flex-col w-full h-full min-w-0 md:h-[min(80vh,720px)] md:max-w-(--size-dialog) md:shadow-(--shadow-overlay)" onkeydown={trap}>
+<div class="fixed inset-0 z-45 flex md:items-center md:justify-center md:p-6 backdrop" in:fade|global out:fade|global={EXIT} onmousedown={backdropDown} onclick={backdrop}>
+  <div bind:this={dialog} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1" in:pop|global class="plate solid flex flex-col w-full h-full min-w-0 md:h-[min(80vh,720px)] md:max-w-(--size-dialog) md:shadow-(--shadow-overlay)" onkeydown={trap}>
     <div class="flex items-center justify-between gap-3 border-b border-line px-4 py-2 md:px-5">
       <h2 id="settings-title" class="h sheet-title min-w-0">{$t('settings.title')}</h2>
       <CloseButton label={$t('settings.close')} onclick={requestClose} />
     </div>
     <div class="flex flex-col md:flex-row flex-1 min-h-0">
-      <div role="tablist" tabindex="-1" aria-label={$t('settings.sections')} aria-orientation={wide ? 'vertical' : 'horizontal'} class="navlist {wide ? '' : 'row'} shrink-0 overflow-x-auto md:overflow-y-auto overscroll-contain md:w-(--size-settings-rail) border-b md:border-b-0 md:border-r border-line p-2" onkeydown={railKey}>
+      <div role="tablist" tabindex="-1" aria-label={$t('settings.sections')} aria-orientation={wide ? 'vertical' : 'horizontal'} {@attach slideMarker('.active', 'bar-left')} class="navlist slide-marker {wide ? '' : 'row'} shrink-0 overflow-x-auto md:overflow-y-auto overscroll-contain md:w-(--size-settings-rail) border-b md:border-b-0 md:border-r border-line p-2" onkeydown={railKey}>
         {#each SETTINGS_TABS as item (item.id)}
           <button
             role="tab"

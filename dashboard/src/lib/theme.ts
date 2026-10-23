@@ -1,5 +1,5 @@
-// Appearance: <html>'s `data-theme` and `data-grain` (index.html sets them before first paint) and their `theme`
-// and `grain` prefs. Per browser, never in config.yml.
+// Appearance: <html>'s `data-theme`, `data-grain` and `data-screen` (index.html sets them before first paint) and
+// their `theme`, `grain` and `screen` prefs. Per browser, never in config.yml.
 // Touches `document` and `matchMedia` only inside functions so tests can import it under Node.
 import { pref } from './prefs.ts';
 
@@ -94,4 +94,15 @@ export function setGrain(on: boolean): void {
   const v = on ? 'on' : 'off';
   document.documentElement.dataset.grain = v;
   pref.set('grain', v);
+}
+
+/** Whether a session log's screen draws its scanlines and glow (`forge.screen`): on unless it says `off`. */
+export const screenOn = (v: string | null | undefined): boolean => v !== 'off';
+
+export const currentScreen = (): boolean => document.documentElement.dataset.screen !== 'off';
+
+export function setScreen(on: boolean): void {
+  const v = on ? 'on' : 'off';
+  document.documentElement.dataset.screen = v;
+  pref.set('screen', v);
 }

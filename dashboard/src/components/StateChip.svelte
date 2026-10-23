@@ -10,4 +10,5 @@
   const tone = $derived(stateTone(job));
 </script>
 
-{#if tone === 'you'}<Chip tone="you"><span aria-hidden="true">{$t('common.you')} ·</span> {stateText(job)}</Chip>{:else}<Chip {tone} text={stateText(job)} />{/if}
+<!-- One element across tones, so a tone change transitions (chip's base transition) instead of remounting. -->
+<Chip {tone}>{#if tone === 'you'}<span aria-hidden="true">{$t('common.you')} ·</span>{' '}{/if}{stateText(job)}</Chip>

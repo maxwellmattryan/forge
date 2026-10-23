@@ -6,6 +6,7 @@
   import { mdView, setMdView } from '../lib/md-view.svelte.ts';
   import IconButton from './IconButton.svelte';
   import { t } from '../lib/locale.ts';
+  import { slideMarker } from '../lib/marker.ts';
 
   let { surface, iconOnly = false }: { surface: MdSurface; iconOnly?: boolean } = $props();
 
@@ -18,7 +19,7 @@
 {#if iconOnly}
   <IconButton icon="markdown" label={$t('markdown.sessionRendered')} pressed={rendered} onclick={() => setMdView(surface, rendered ? 'raw' : 'rendered')} />
 {:else}
-  <div class="seg" role="group" aria-label={groupLabel[surface]}>
+  <div class="seg slide-marker" role="group" aria-label={groupLabel[surface]} {@attach slideMarker('.sel', 'fill')}>
     {#each MD_VIEWS as v (v)}{@const on = mdView[surface] === v}<button type="button" class="btn sm {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setMdView(surface, v)}>{viewLabel[v]}</button>{/each}
   </div>
 {/if}

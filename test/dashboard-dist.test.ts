@@ -132,6 +132,7 @@ const THEME_SCRIPT = `<script>
           saved === 'forge' || saved === 'cyanotype' || saved === 'dark' || saved === 'nightprint' ? 'forge' : ['temper', 'crucible', 'patina', 'obsidian'].includes(saved) ? saved : saved === 'ash' || saved === 'vellum' || saved === 'light' ? 'ash' : light ? 'ash' : 'forge';
         const grain = localStorage.getItem('forge.grain');
         document.documentElement.dataset.grain = (grain === null ? localStorage.getItem('forge.paper') : grain) === 'off' ? 'off' : 'on';
+        document.documentElement.dataset.screen = localStorage.getItem('forge.screen') === 'off' ? 'off' : 'on';
       } catch {}
     </script>`;
 

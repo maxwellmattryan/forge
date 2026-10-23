@@ -13,12 +13,13 @@
      The facts strip takes what the clusters leave (basis 0) and drops the FOCUS word as it runs short (see
      factsHidden). Each cluster holds its indicators in a max-content row; when the row is wider than the cluster, the next
      level of text goes sr-only (see fit()), so a visible label is always whole, never cut to an ellipsis. Below md every
-     indicator is a glyph or a dot. -->
+     indicator is a glyph or a lamp. Needs, Foreman, Daemon, Model and Connection each carry a pilot lamp (src/lib/statusbar.ts
+     barLamps), the one the session terminals use. -->
 <script lang="ts">
   import { tick, untrack } from 'svelte';
   import Chip from './Chip.svelte';
   import Icon from './Icon.svelte';
-  import LiveDot from './LiveDot.svelte';
+  import Lamp from './Lamp.svelte';
   import Popover from './Popover.svelte';
   import ConnectionPanel from './statusbar/ConnectionPanel.svelte';
   import DaemonPanel from './statusbar/DaemonPanel.svelte';
@@ -29,7 +30,8 @@
   import { API_VERSION } from '../lib/types.ts';
   import type { DaemonPoolState } from '../lib/types.ts';
   import { mergePoolState, poolModel, postDaemon } from '../lib/daemon.ts';
-  import { FACTS_MAX, barModel, connectionState, factsHidden, modelSummary, promptAnnouncement, summaryText } from '../lib/statusbar.ts';
+  import { FACTS_MAX, barLamps, barModel, connectionState, factsHidden, modelSummary, promptAnnouncement, summaryText } from '../lib/statusbar.ts';
+  import { runningAgents } from '../lib/agents.ts';
   import { inboxGroups } from '../lib/inbox.ts';
   import { S, forgeToken, openDrawer, refresh } from '../lib/app.svelte.ts';
   import { focusFact } from '../lib/focus.ts';
@@ -52,11 +54,13 @@
   // popover's first two sections).
   const needs = $derived(inboxGroups(S.data?.jobs ?? []).urgent.length);
   const needsTotal = $derived(needs + bar.prompts);
+  // The overseer's console: each indicator's pilot lamp, decorative beside its sr-only text and title.
+  const lamps = $derived(barLamps(bar, { needs: needsTotal, conn: conn.state, working: bar.daemon.active || runningAgents(S.data?.jobs ?? []).length > 0 }));
 
   /**
    * How much text each part hides, lowest value first. Left: 1 the "Daemon" word, 2 the reasons of held and waiting, 3 held
    * and waiting (the Daemon indicator takes them: its title, its sr-only text and a warn glyph), 4 the Daemon's live/cap
-   * (its glyph shows at every level), 5 the "Foreman" word (its glyph, live dot and prompt count stay): the supervisor keeps its name
+   * (its glyph shows at every level), 5 the "Foreman" word (its glyph, lamp and prompt count stay): the supervisor keeps its name
    * longest. The Needs-you bell is icon-only at every width, so it adds no level. Right: 1 the provider and the effort, 2 the model label, 3 the
    * connection's word while it is Live or Connecting, and "needed" after "Update", 4 the rest of the connection's word.
    * Facts, before either cluster: 1 the FOCUS word (src/lib/statusbar.ts factsHidden).
@@ -73,8 +77,6 @@
 
   /** Tone → text colour, whole literals so Tailwind sees them. */
   const TONE_TEXT: Record<string, string> = { ok: 'text-ok', warn: 'text-warn', bad: 'text-bad', info: 'text-info', gleam: 'text-gleam', live: 'text-gleam', muted: 'text-muted' };
-  /** Connection's static dot: only LiveDot pulses. */
-  const CONN_DOT: Record<string, string> = { muted: 'dot hollow', ok: 'dot ok', warn: 'dot bg-warn', bad: 'dot bg-bad' };
 
   /** Held and waiting jobs whose buttons are not shown (fit level 3, or below md): the Daemon indicator speaks for them. */
   const holdsOut = $derived((phone || left >= 3) && (bar.held > 0 || bar.waiting > 0));
@@ -88,7 +90,7 @@
   const connWord = $derived(
     conn.state === 'connecting' ? $t('statusbar.conn.connecting') : conn.state === 'offline' ? $t('statusbar.conn.offline') : conn.state === 'outdated' ? $t('statusbar.conn.outdated') : $t('statusbar.conn.live'),
   );
-  // Live and Connecting differ by shape (a filled or a hollow dot); Offline and Update needed keep their word at every width.
+  // Live and Connecting differ by their lamp (lit ok or dark); Offline and Update needed keep their word at every width.
   const connQuiet = $derived(conn.state === 'live' || conn.state === 'connecting');
   const modelText = $derived(summaryText(models, $t('statusbar.model.session'), (effort) => $t('statusbar.model.effort', { effort })));
   // Every icon button carries a tooltip at every width. Each adds the indicator's name to what is visible, so a screen
@@ -259,14 +261,15 @@
              badge speak; its words are sr-only), so it adds no fit level. The badge counts decisions plus pool-wide
              permission prompts. -->
         <button bind:this={needsButton} class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="needs" aria-haspopup="dialog" aria-expanded={expanded('needs')} aria-controls={controls('needs')} onclick={(e) => openPopover('needs', e.currentTarget)}>
+          <Lamp state={lamps.needs} />
           <span class="relative inline-flex {needsTotal > 0 ? 'text-fg' : 'text-muted'}"><Icon name="bell" />{#if needsTotal > 0}<Chip tone="you" extra="badge num" ariaHidden text={needsTotal} />{/if}</span>
           <span class="sr-only">{$t('statusbar.needs.name')}{#if needs > 0}{', '}{$t('statusbar.needs.count', { count: needs })}{/if}{#if bar.prompts > 0}{', '}{$t('permission.heading', { count: bar.prompts })}{/if}</span>
         </button>
         <!-- The supervisor: always shown, a ghost like the rest of the bar. Its state word is only in the sr-only text and title. -->
         <button class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="foreman" title={titles.foreman} aria-haspopup="dialog" aria-expanded={expanded('foreman')} aria-controls={controls('foreman')} onclick={(e) => openPopover('foreman', e.currentTarget)}>
           <span class="inline-flex {TONE_TEXT[foremanTone]}"><Icon name="foreman" /></span>
+          <Lamp state={lamps.foreman} />
           {#if bar.foreman.on}
-            <LiveDot on={bar.foreman.daemon && bar.foreman.active} />
             <span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''}">{$t('statusbar.foreman.name')}</span>
             <span class="sr-only">{', '}{bar.foreman.daemon ? bar.foreman.pill.label : $t('statusbar.daemon.off')}</span>
             {#if bar.foreman.prompts}<span class="num text-warn"><span aria-hidden="true">{bar.foreman.prompts}</span><span class="sr-only">{', '}{$t('statusbar.foreman.prompts', { count: bar.foreman.prompts })}</span></span>{/if}
@@ -277,7 +280,7 @@
         <!-- The pool: the Foreman's pair, its glyph at every width. -->
         <button class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="daemon" title={titles.daemon} aria-haspopup="dialog" aria-expanded={expanded('daemon')} aria-controls={controls('daemon')} onclick={(e) => openPopover('daemon', e.currentTarget)}>
           <span class="inline-flex {TONE_TEXT[daemonTone]}"><Icon name="daemon" /></span>
-          <LiveDot on={bar.daemon.active} />
+          <Lamp state={lamps.daemon} />
           <span class="max-md:sr-only {left >= 4 ? 'sr-only' : ''} {bar.daemon.off ? 'text-muted' : ''}"><span class={left >= 1 ? 'sr-only' : ''}>{$t('statusbar.daemon.title')}{' '}</span><span class="num">{bar.daemon.off ? 0 : bar.daemon.live}/{bar.daemon.cap}</span></span>
           <span class="sr-only">{' '}{$t('statusbar.daemon.sessions')}{', '}{bar.daemon.off ? $t('statusbar.daemon.off') : bar.daemon.pill.label}</span>
           {#if holdsOut}<span class="sr-only">{', '}{holdText}</span>{/if}
@@ -304,12 +307,13 @@
       {#if S.data}
         <button class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="model" title={titles.model} aria-haspopup="dialog" aria-expanded={expanded('model')} aria-controls={controls('model')} onclick={(e) => openPopover('model', e.currentTarget)}>
           <Icon name="agents" />
+          <Lamp state={lamps.model} />
           <span class="sr-only">{$t('statusbar.model.name')}{' '}</span>
           <span class="max-md:sr-only {right >= 2 ? 'sr-only' : ''}">{#if models.provider}<span class={right >= 1 ? 'sr-only' : ''}>{models.provider}{' · '}</span>{/if}{models.label ?? $t('statusbar.model.session')}{#if models.effort}<span class={right >= 1 ? 'sr-only' : ''}>{' · '}{$t('statusbar.model.effort', { effort: models.effort })}</span>{/if}</span>
         </button>
       {/if}
       <button class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="connection" title={titles.connection} aria-haspopup="dialog" aria-expanded={expanded('connection')} aria-controls={controls('connection')} onclick={(e) => openPopover('connection', e.currentTarget)}>
-        <span class={CONN_DOT[conn.tone]} aria-hidden="true"></span>
+        <Lamp state={lamps.connection} />
         <span class="sr-only">{$t('statusbar.conn.title')}{' '}</span>
         {#if conn.state === 'outdated'}
           <span class="text-warn {right >= 4 ? 'sr-only' : ''}">{$t('statusbar.conn.outdatedWord')}<span class={right >= 3 ? 'sr-only' : ''}>{$t('statusbar.conn.outdatedRest')}</span></span>
