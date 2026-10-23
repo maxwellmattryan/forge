@@ -11,6 +11,7 @@ The guards on what jobs write and publish: verify integrity, protected paths, se
 | File | What it holds |
 |---|---|
 | `attribution.ts` | AI-attribution policy. |
+| `command-env.ts` | What a configured command inherits (docs/CONFIG.md "Daemon" and "Secret references"): the environment every spawn site builds on, and the shell argv it runs under. |
 | `integrity.ts` | Verify's test-integrity report: what the committed diff did to the tests and to the config that runs them. |
 | `known-secrets.ts` | Known values (docs/CONFIG.md "Secret references"): every secret value a job's sink renders has resolved, kept in the 0600 `<jobDir>/known-secrets.json`, plus its job database passwords. |
 | `protected.ts` | `policy.protectedPaths`: paths only a human may change. |

@@ -6,9 +6,7 @@ import assert from 'node:assert/strict';
 import { jobAt, tempRepo } from '../../test/helpers.ts';
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildPayload, dashboardUrl, registerNotify, runCommand, type QueueNotify } from './notify.ts';
-import { token } from '../../test/secret-fixtures.ts';
-import { dashboardRecordFile } from '#engine/ops/dashboard-record.ts';
+import { buildPayload, dashboardUrl, registerNotify, runCommand, type QueueNotify } from './notify.ts';import { dashboardRecordFile } from '#engine/ops/dashboard-record.ts';
 import { setJob } from '#core/job/store.ts';
 import { runTransitionHooks } from '#core/job/transitions.ts';
 import type { LoadedJob } from '#core/types.ts';
@@ -47,7 +45,7 @@ test('notify.command gets the command environment and /bin/sh under the daemon',
     const out = path.join(repo.dir, 'notify-env.json');
     const template = `${JSON.stringify(process.execPath)} -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify(process.env))' ${JSON.stringify(out)}`;
     // A SHELL that does not exist: the command runs only if /bin/sh is used instead.
-    const base = { PATH: process.env.PATH, FORGE_DAEMON: '1', SHELL: '/nonexistent/sh', CMDENV_DB_SRC: 'planted-db-value', GH_TOKEN: token.github('notify') };
+    const base = { PATH: process.env.PATH, FORGE_DAEMON: '1', SHELL: '/nonexistent/sh', CMDENV_DB_SRC: 'planted-db-value', GH_TOKEN: 'planted-gh-value' };
     const payload = buildPayload('gate', { job: 'j1', title: 'a title', stage: 'build', prUrl: null, reason: 'input' }, 'http://127.0.0.1:7400/#/pipeline');
     const res = await runCommand(repo.dir, { secrets: { DB: { env: 'CMDENV_DB_SRC' } } }, template, payload, { env: base });
     assert.deepEqual(res, { ok: true, attempts: 1 });
