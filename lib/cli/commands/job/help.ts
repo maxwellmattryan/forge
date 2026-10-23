@@ -315,7 +315,12 @@ export const JOB: HelpGroup = {
         [5, 'git failed'],
       ],
     },
-    { command: 'job acs', args: '<id>', summary: "the spec's acceptance criteria and their proof in build.md", exits: [NO_JOB] },
+    {
+      command: 'job acs',
+      args: '<id>',
+      summary: "the spec's acceptance criteria and their proof in build.md, and the rows in its file map (fileMap; a spec without one reports incomplete: [\"files\"])",
+      exits: [NO_JOB],
+    },
     {
       command: 'job findings',
       args: '<id>',
