@@ -7,8 +7,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { archiveDir, hasLiveJob, readArchived } from '#core/job/archive.ts';
-import { jobDir, listJobs, parseEventLines } from '#core/job/store.ts';
-import { paths } from '#core/paths.ts';
+import { listJobs, parseEventLines } from '#core/job/store.ts';
+import { paths, stateFile } from '#core/paths.ts';
 import { estimateCost, pricing } from '#integrations/claude/pricing.ts';
 import type { Config, JobEvent } from '#core/types.ts';
 import type { SpendBucket } from './types.ts';
@@ -143,7 +143,8 @@ export function spendLedger(root: string, config: Config, { write = true, since 
   const live = new Set<string>();
   for (const job of listJobs(root)) {
     live.add(job.id);
-    const file = path.join(jobDir(root, job.id), 'events.jsonl');
+    // The CLI copy when the job has one: the job folder's events.jsonl is a mirror a session could append to.
+    const file = stateFile(root, job.id, 'events.jsonl');
     let st: fs.Stats | null = null;
     try {
       st = fs.lstatSync(file);

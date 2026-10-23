@@ -32,6 +32,8 @@ export interface ForgePaths {
   archive: string;
   locks: string;
   runtime: string;
+  /** The CLI copies of each job's job.json and events.jsonl, which Forge reads (jobRecordDir). */
+  records: string;
   backlog: string;
   notes: string;
   reviewers: string;
@@ -54,6 +56,7 @@ export function paths(root: string): ForgePaths {
     archive: path.join(dir, 'archive'),
     locks: path.join(dir, 'locks'),
     runtime: path.join(dir, 'runtime'),
+    records: path.join(dir, 'runtime', 'job-records'),
     backlog: path.join(dir, 'backlog.md'),
     notes: path.join(dir, 'notes'),
     reviewers: path.join(dir, 'reviewers'),
@@ -67,6 +70,52 @@ export function paths(root: string): ForgePaths {
 export function jobDir(root: string, id: string): string {
   if (!/^[a-z0-9][a-z0-9._-]*$/i.test(id)) throw new ForgeError(`invalid job id "${id}"`);
   return paths(root).job(id);
+}
+
+/**
+ * `.forge/runtime/job-records/<id>`: the CLI copy of a job's job.json and events.jsonl. A session's
+ * file tools can't reach `.forge/runtime/` (Claude Code's deny rules and hooks/write-guard.ts), so
+ * the copy is what Forge reads; the job folder's files are a mirror for agents to read. Jobs created
+ * before the copy existed have none and keep reading their job folder.
+ */
+export function jobRecordDir(root: string, id: string): string {
+  jobDir(root, id);
+  return path.join(paths(root).records, id);
+}
+
+const isDir = (p: string): boolean => fs.lstatSync(p, { throwIfNoEntry: false })?.isDirectory() === true;
+
+/** The job file Forge reads: the CLI copy's when the job has one, else the job folder's. */
+export function stateFile(root: string, id: string, name: 'job.json' | 'events.jsonl'): string {
+  const rec = jobRecordDir(root, id);
+  return isDir(rec) ? path.join(rec, name) : path.join(jobDir(root, id), name);
+}
+
+/** Every copy of a job file a store write updates, the CLI copy first. */
+export function jobFiles(root: string, id: string, name: 'job.json' | 'events.jsonl'): string[] {
+  const rec = jobRecordDir(root, id);
+  const folder = path.join(jobDir(root, id), name);
+  return isDir(rec) ? [path.join(rec, name), folder] : [folder];
+}
+
+/** Whether `.forge/runtime/` and `job-records/` are real directories, never symlinks a recursive delete would follow. */
+function recordsSafe(root: string): boolean {
+  const p = paths(root);
+  return isDir(p.runtime) && isDir(p.records);
+}
+
+/** An empty CLI copy for a job being created, replacing any stale one left without a job folder. */
+export function resetJobRecord(root: string, id: string): void {
+  const dir = jobRecordDir(root, id);
+  fs.mkdirSync(paths(root).records, { recursive: true });
+  if (!recordsSafe(root)) throw new ForgeError(`${paths(root).records} is not a directory (a symlink?); refusing to write job records there`);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir);
+}
+
+/** Removes a job's CLI copy, with its job folder (delete, archive). */
+export function removeJobRecord(root: string, id: string): void {
+  if (recordsSafe(root)) fs.rmSync(jobRecordDir(root, id), { recursive: true, force: true });
 }
 
 /** `<jobDir>/links/<key>`: the member name, or `_root` (a repo name cannot start with `_`). */

@@ -1,8 +1,9 @@
 // Job state and its event log: load, update and list jobs, and the job lease (claim, renew, expire,
-// the epoch fence). The CLI writes state only through here.
+// the epoch fence). The CLI writes state only through here: to the CLI copy first, which it reads
+// (stateFile in lib/core/paths.ts), then the job folder's mirror. A job is found by its folder.
 import fs from 'node:fs';
 import path from 'node:path';
-import { paths, exists, jobDir } from '../paths.ts';
+import { paths, exists, jobDir, jobFiles, resetJobRecord, stateFile } from '../paths.ts';
 import { currentActor } from '#integrations/github/actor.ts';
 import { clearFocusIf } from './focus.ts';
 import { knownRecordValues, redactDeep } from '#engine/guard/known-secrets.ts';
@@ -38,8 +39,7 @@ export interface Fence {
   session?: string;
 }
 
-// jobDir lives in paths.ts, a leaf, so low modules can use it without loading this one; most of lib/
-// still imports it from here, which loads nothing extra.
+// jobDir lives in paths.ts, a leaf, so low modules can use it without loading this one.
 export { jobDir } from '../paths.ts';
 
 /** request.md without the `# title` line createJob writes, trimmed and uncapped; callers cap it. */
@@ -50,7 +50,7 @@ export function requestBody(root: string, id: string): string {
 export function loadJob(root: string, id: string): LoadedJob {
   const file = path.join(jobDir(root, id), 'job.json');
   if (!exists(file)) throw new ForgeError(`no job "${id}" (looked in ${path.dirname(file)})`, 'not_found');
-  const job = normalizeJob(readJson(file));
+  const job = normalizeJob(readJson(stateFile(root, id, 'job.json')));
   if (job._unsupported) throw new ForgeError(`job ${id} was written by a newer Forge; update the plugin`);
   return job;
 }
@@ -62,13 +62,12 @@ export function loadJob(root: string, id: string): LoadedJob {
  * so a stale driver's write never lands.
  */
 export function updateJob(root: string, id: string, mutate: (job: LoadedJob) => void, fence?: Fence): LoadedJob {
-  const dir = jobDir(root, id);
-  return withLock(path.join(dir, '.lock'), () => {
+  return withLock(path.join(jobDir(root, id), '.lock'), () => {
     const job = loadJob(root, id);
     if (fence) assertEpoch(job, fence.epoch, fence.session);
     mutate(job);
     job.updatedAt = now();
-    writeJsonAtomic(path.join(dir, 'job.json'), serializeJob(job));
+    for (const f of jobFiles(root, id, 'job.json')) writeJsonAtomic(f, serializeJob(job));
     return job;
   });
 }
@@ -187,7 +186,7 @@ export function logEvent(root: string, id: string, type: string, data: Record<st
   // The job's recorded secret values never land in events.jsonl, which the dashboard and bundles read.
   const clean = redactDeep(data, knownRecordValues(root, id));
   const line = JSON.stringify({ v: EVENT_SCHEMA_VERSION, ts: now(), type, ...clean });
-  fs.appendFileSync(path.join(jobDir(root, id), 'events.jsonl'), line + '\n');
+  for (const f of jobFiles(root, id, 'events.jsonl')) fs.appendFileSync(f, line + '\n');
 }
 
 /** The repo-level audit log: human actions with no job, such as `forge config set`. Gitignored with runtime/. */
@@ -224,7 +223,7 @@ export function parseEventLines(text: string): JobEvent[] {
 }
 
 export function readEvents(root: string, id: string): JobEvent[] {
-  return parseEventLines(readText(path.join(jobDir(root, id), 'events.jsonl')));
+  return parseEventLines(readText(stateFile(root, id, 'events.jsonl')));
 }
 
 /**
@@ -280,7 +279,8 @@ export function createJob(
     createdAt: now(),
     updatedAt: now(),
   });
-  writeJsonAtomic(path.join(p.job(id), 'job.json'), serializeJob(job));
+  resetJobRecord(root, id);
+  for (const f of jobFiles(root, id, 'job.json')) writeJsonAtomic(f, serializeJob(job));
   fs.writeFileSync(path.join(p.job(id), 'request.md'), `# ${opts.title}\n\n${opts.body?.trim() ?? ''}\n`);
   logEvent(root, id, 'created', { title: opts.title, issues: job.issues, ...(opts.origin ? { origin: opts.origin } : {}), ...(job.effort ? { effort: job.effort } : {}) });
   if (opts.parent) {
@@ -326,7 +326,7 @@ export function listJobs(root: string): LoadedJob[] {
       .filter((d) => d.isDirectory() && exists(path.join(dir, d.name, 'job.json')))
       .map((d) => {
         try {
-          return normalizeJob(readJson(path.join(dir, d.name, 'job.json')));
+          return normalizeJob(readJson(stateFile(root, d.name, 'job.json')));
         } catch {
           return null;
         }
