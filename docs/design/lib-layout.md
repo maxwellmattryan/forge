@@ -211,7 +211,7 @@ Landed in #415. Most of the file was one closure inside `startServer`. The closu
 
 | File | Contents | ≈ lines |
 |---|---|---|
-| `start.ts` | `startServer`, `createContext`, `GUARDS`, `ROUTES`, `matchRoute`, dispatch, the activity-log hook | 235 |
+| `start.ts` | `startServer`, `createContext`, `GUARDS`, `ROUTES`, `matchRoute`, dispatch, the activity-log hook | 234 |
 | `types.ts` | `ServerOptions`, `RunningServer`, `RequestInfo`, `ServerCtx`, `Guard`, `RouteMatch`, `Handler`, `Route` | 100 |
 | `http.ts` | the loopback Host check, the token, Origin, JSON, read and query-token guards, body readers, `send`, `json`, `jsonStatus`, `safeJoin` | 115 |
 | `static.ts` | dist allowlist, page, immutable assets, the logo, images, screenshots | 170 |
