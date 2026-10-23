@@ -105,6 +105,19 @@
   --font-head: "Barlow Semi Condensed", "Barlow", "Arial Narrow", sans-serif;
   --font-sans: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Motion: anything between the user and a control takes at most slow. Entries ease out over base, exits ease in
+     over quick. src/lib/motion.ts mirrors the three durations for Svelte transitions. */
+  --motion-quick: 90ms;
+  --motion-base: 140ms;
+  --motion-slow: 200ms;
+  --ease-enter: cubic-bezier(.33, 1, .68, 1);
+  --ease-exit: cubic-bezier(.32, 0, .67, 0);
+  /* Heat is activity: ambient, never gating a control, so it may run longer. */
+  --heat-glow: 400ms;
+  --heat-cool: 1s;
+  --heat-bezel: 3s;
+  --heat-breathe: 2.4s;
+  --heat-blink: 1s;
 }
 
 :root, [data-theme="forge"] {
@@ -137,6 +150,11 @@
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
   --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  /* heat: activity (a working lamp, a hot bezel, the screen's glow). Ember on forge only: on crucible ember is the
+     carmine "waits on you", so elsewhere heat is the gleam. */
+  --heat: var(--ember);
+  --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
+  --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
   --shadow-bevel: inset 0 1px 0 0 rgba(220,232,250,0.08), inset 0 -1px 0 0 rgba(0,0,0,0.5);
   --shadow-primary: 0 2px 0 0 #4a6684;
   --shadow-overlay: 0 1px 0 0 rgba(0,0,0,0.6), 0 16px 40px 0 rgba(0,0,0,0.6);
@@ -175,6 +193,9 @@
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
   --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --heat: var(--gleam);
+  --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
+  --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
   --shadow-bevel: inset 0 1px 0 0 rgba(255,255,255,0.85), inset 0 -1px 0 0 rgba(30,38,50,0.14);
   --shadow-primary: 0 2px 0 0 #2a3746;
   --shadow-overlay: 0 1px 0 0 rgba(30,38,50,0.12), 0 16px 40px 0 rgba(20,28,40,0.22);
@@ -213,6 +234,9 @@
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
   --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --heat: var(--gleam);
+  --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
+  --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
   --shadow-bevel: inset 0 1px 0 0 rgba(220,215,255,0.10), inset 0 -1px 0 0 rgba(2,0,16,0.55);
   --shadow-primary: 0 2px 0 0 #1f6f78;
   --shadow-overlay: 0 1px 0 0 rgba(2,0,16,0.6), 0 16px 40px 0 rgba(2,0,16,0.6);
@@ -253,6 +277,9 @@
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
   --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --heat: var(--gleam);
+  --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
+  --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
   --shadow-bevel: inset 0 1px 0 0 rgba(255,226,206,0.08), inset 0 -1px 0 0 rgba(8,2,0,0.55);
   --shadow-primary: 0 2px 0 0 #8a5a12;
   --shadow-overlay: 0 1px 0 0 rgba(8,2,0,0.6), 0 16px 40px 0 rgba(8,2,0,0.6);
@@ -292,6 +319,9 @@
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
   --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --heat: var(--gleam);
+  --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
+  --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
   --shadow-bevel: inset 0 1px 0 0 rgba(210,245,228,0.07), inset 0 -1px 0 0 rgba(0,6,3,0.55);
   --shadow-primary: 0 2px 0 0 #1e6b52;
   --shadow-overlay: 0 1px 0 0 rgba(0,6,3,0.6), 0 16px 40px 0 rgba(0,6,3,0.6);
@@ -332,6 +362,9 @@
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
   --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --heat: var(--gleam);
+  --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
+  --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
   --shadow-bevel: inset 0 1px 0 0 rgba(236,232,255,0.09), inset 0 -1px 0 0 rgba(0,0,0,0.6);
   --shadow-primary: 0 2px 0 0 #4b3a8a;
   --shadow-overlay: 0 1px 0 0 rgba(0,0,0,0.7), 0 16px 40px 0 rgba(0,0,0,0.7);
@@ -653,7 +686,7 @@
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  transition: background-color .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease, transform .12s ease;
+  transition: background-color var(--motion-quick) var(--ease-enter), border-color var(--motion-quick) var(--ease-enter), color var(--motion-quick) var(--ease-enter), box-shadow var(--motion-quick) var(--ease-enter), transform var(--motion-quick) var(--ease-enter);
   white-space: nowrap;
   position: relative;
   & a { text-decoration: none; }
@@ -747,7 +780,9 @@
   &.sm { min-height: var(--control-sm); padding-inline: 9px; }
   /* A glyph struck on the slug: the PR chip's pull-request mark. */
   & .ic { width: 12px; height: 12px; }
-  &:is(button) { cursor: pointer; transition: border-color .12s ease, background-color .12s ease; }
+  /* A tone change (a state chip moving from live to ok) eases over base; a button chip's hover answers at quick. */
+  transition: color var(--motion-base) var(--ease-enter), border-color var(--motion-base) var(--ease-enter), background-color var(--motion-base) var(--ease-enter);
+  &:is(button) { cursor: pointer; transition-duration: var(--motion-quick); }
   @media (hover: hover) { &:is(button):hover { border-color: currentColor; } }
   &:is(button)[aria-expanded="true"] { outline: 2px solid currentColor; outline-offset: 1px; }
 }
@@ -758,7 +793,7 @@
   flex-direction: column;
   gap: 2px;
   text-decoration: none;
-  & a, & button { appearance: none; font-family: var(--font-mono); font-weight: 500; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px 9px 12px; border: 1px solid transparent; corner-shape: bevel; border-radius: 0 var(--radius-nick) 0 var(--radius-nick); background-color: var(--surface, var(--bg)); width: 100%; cursor: pointer; line-height: 16px; transition: background-color .12s ease, border-color .12s ease, color .12s ease; position: relative; text-align: left; }
+  & a, & button { appearance: none; font-family: var(--font-mono); font-weight: 500; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px 9px 12px; border: 1px solid transparent; corner-shape: bevel; border-radius: 0 var(--radius-nick) 0 var(--radius-nick); background-color: var(--surface, var(--bg)); width: 100%; cursor: pointer; line-height: 16px; transition: background-color var(--motion-quick) var(--ease-enter), border-color var(--motion-quick) var(--ease-enter), color var(--motion-quick) var(--ease-enter); position: relative; text-align: left; }
   @media (hover: hover) { & a:hover, & button:hover { color: var(--fg); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--gleam) 10%); border-color: color-mix(in srgb, var(--gleam) 40%, transparent); } }
   & a.hover { color: var(--fg); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--gleam) 10%); border-color: color-mix(in srgb, var(--gleam) 40%, transparent); }
   & a.active, & button.active { color: var(--fg); border-color: var(--line); background-color: var(--raised); box-shadow: inset var(--bar-rule) 0 0 0 var(--gleam), var(--shadow-bevel); }
@@ -890,7 +925,7 @@
   border: 0;
   border-bottom: 2px solid transparent;
   background-color: var(--surface, var(--bg));
-  transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+  transition: background-color var(--motion-quick) var(--ease-enter), border-color var(--motion-quick) var(--ease-enter), color var(--motion-quick) var(--ease-enter);
   cursor: pointer;
   margin-bottom: -1px;
   @media (hover: hover) { &:hover { color: var(--fg); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--gleam) 10%); } }
@@ -1054,8 +1089,9 @@
 @utility menu-pop {
   opacity: 0;
   scale: .96;
-  transition: opacity .12s ease, scale .12s ease, overlay .12s ease allow-discrete, display .12s ease allow-discrete;
-  &:popover-open { opacity: 1; scale: 1; }
+  /* The way out (quick, easing in) sits on the base rule; the way in (base, easing out) on :popover-open. */
+  transition: opacity var(--motion-quick) var(--ease-exit), scale var(--motion-quick) var(--ease-exit), overlay var(--motion-quick) var(--ease-exit) allow-discrete, display var(--motion-quick) var(--ease-exit) allow-discrete;
+  &:popover-open { opacity: 1; scale: 1; transition-duration: var(--motion-base); transition-timing-function: var(--ease-enter); }
   @starting-style { &:popover-open { opacity: 0; scale: .96; } }
 }
 /* The anvil, as shipped: a raster with its own light grey tile. */
@@ -1098,6 +1134,7 @@ input[type=checkbox]:focus-visible, input[type=radio]:focus-visible { outline: 2
 /* Reduced motion: nothing slides, fades or loops; every end state is unchanged. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
 }
 /* Phones: 44px touch targets. Inline links in prose and table text are exempt (WCAG 2.5.5). */
 @media (width < 48rem) {
