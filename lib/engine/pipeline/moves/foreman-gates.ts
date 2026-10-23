@@ -251,7 +251,7 @@ function prHasFeedback(job: Pick<Job, 'pr'>, trusted: number): boolean {
 export const isGateRequest = (r: ForgeRequest, job: string, gate: GateClass) => r.type === 'gate' && r.job === job && r.args?.gate === gate;
 
 /**
- * Called by `forge job set` after its write: a new park (or a different gate) on a class the foreman
+ * The gate effect of a move (effects.ts), after its write: a new park (or a different gate) on a class the foreman
  * decides queues one `gate` request, unless one for the same job and gate is pending or in progress.
  * pr-review parks go through enqueuePrFeedbackGate instead.
  */
