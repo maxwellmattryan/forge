@@ -11,7 +11,7 @@ import { createJob, jobDir } from '#core/job/store.ts';
 import { recordKnown } from '#engine/guard/known-secrets.ts';
 import { tempRepo } from './helpers.ts';
 import { ALNUM, DIGITS, LOWER, UPPER, base64Of, hexOf, inContext, pem, pick, token } from './secret-fixtures.ts';
-import type { TextUnit } from '#core/types.ts';
+import type { TextUnit } from '#engine/guard/types.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const unit = (text: string, p = 'src/app.ts', file = true): TextUnit => ({ path: p, line: 1, text, file, commit: null });

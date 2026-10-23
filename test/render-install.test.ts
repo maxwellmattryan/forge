@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { update } from '../lib/cli/commands/render/update.ts';
 import { version } from '../lib/cli/commands/render/version.ts';
 import { HOSTILE, assertSafe, hasLines, plain } from './render-helpers.ts';
-import type { UpdateCheck, UpdateResult } from '#core/types.ts';
+import type { UpdateCheck, UpdateResult } from '#engine/ops/types.ts';
 
 const result = (o: Partial<UpdateResult> = {}): UpdateResult => ({ kind: 'plugin', root: '/p/forge', from: '0.17.0', to: '0.18.0', updated: true, commands: [], next: [], ...o });
 const check = (o: Partial<UpdateCheck> = {}): UpdateCheck => ({ kind: 'git', root: '/src/forge', version: '0.18.0', commands: ['git pull --ff-only'], ...o });

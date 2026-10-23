@@ -15,7 +15,8 @@ import { isActive, jobDir, leaseStatus, listJobs, logEvent, readEvents } from '#
 import { paths } from '#core/paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, validScope } from '#core/job/requests.ts';
 import { ARCHIVE_SCHEMA_VERSION, normalizeJob } from '#core/job/schema.ts';
-import type { ArchiveRecord, ArchiveResult, Config, EventActor, Job, LoadedJob, PruneResult, RetentionTrigger } from '#core/types.ts';
+import type { ArchiveRecord, Config, EventActor, Job, LoadedJob, RetentionTrigger } from '#core/types.ts';
+import type { ArchiveResult, PruneResult } from './types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { pidAlive } from '#core/os/process.ts';
 import { withLock } from '#core/os/lock.ts';

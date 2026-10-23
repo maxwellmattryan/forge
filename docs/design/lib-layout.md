@@ -85,12 +85,12 @@ Every `lib/` file sits under `lib/<layer>/`, except the two deprecated tracker r
 
 | Module | Files |
 |---|---|
-| `job/` | store ← `jobs.ts`, `schema.ts`, `requests.ts`, `archive.ts`, fields ← `job-fields.ts`, `focus.ts`, `issue-ref.ts`, `issue-link.ts`, `lens.ts`, session-files ← `daemon-files.ts` |
-| `config/` | load ← `config.ts`, defaults ← `config-defaults.ts`, validate ← `config-validate.ts`, fields ← `config-fields.ts`, set ← `config-set.ts`, models ← `config-models.ts`, trust ← `config-trust.ts`, `deprecations.ts`, `components.ts`, sinks ← `config-sinks.ts`, `release-strategy.ts`, and `validators/` |
-| `config/validators/` | backing ← `backing-config.ts`, checkout ← `checkout-config.ts`, endpoints ← `endpoints-config.ts`, notify ← `notify-config.ts`, secret-refs ← `secret-refs-config.ts`, `policy-check.ts` |
+| `job/` | store ← `jobs.ts`, `schema.ts`, `requests.ts`, `archive.ts`, fields ← `job-fields.ts`, `focus.ts`, `issue-ref.ts`, `issue-link.ts`, `lens.ts`, session-files ← `daemon-files.ts`, `types.ts` (the job, findings and archive shapes) |
+| `config/` | load ← `config.ts`, defaults ← `config-defaults.ts`, validate ← `config-validate.ts`, fields ← `config-fields.ts`, set ← `config-set.ts`, models ← `config-models.ts`, trust ← `config-trust.ts`, `components.ts`, sinks ← `config-sinks.ts`, `release-strategy.ts`, `types.ts` (the config shapes), and `validators/` |
+| `config/validators/` | backing ← `backing-config.ts`, checkout ← `checkout-config.ts`, endpoints ← `endpoints-config.ts`, notify ← `notify-config.ts`, secret-refs ← `secret-refs-config.ts`, `policy-check.ts`, `deprecations.ts` (moved from `config/` in #413) |
 | `os/` | `platform.ts`, and process, fs and lock from `util.ts` |
 | `format/` | `yaml.ts`, `zip.ts`, `ansi.ts` |
-| leaves | `types.ts` (transitional type-only barrel), `paths.ts`, `shape.ts`, `glob.ts`, and errors, text and utils from `util.ts` |
+| leaves | `types.ts` (transitional type-only barrel: re-exports `api/types.ts`, `job/types.ts` and `config/types.ts`, and declares the tracker contract), `paths.ts`, `shape.ts`, `glob.ts`, and errors, text and utils from `util.ts` |
 
 Why these sit in core, and why so:
 - `requests.ts` and `daemon-files.ts` are stores that about 20 engine modules write or read. `office` is the layer that acts on them, so they sit below engine rather than in office.
@@ -106,7 +106,7 @@ Why these sit in core, and why so:
 | `git/` | runner ← `git.ts`, `repo-slug.ts` |
 | `github/` | `gh.ts`, tracker ← `trackers/github.ts`, preview ← `github-preview.ts`, `actor.ts`; `pull-requests.ts` arrives with #414 |
 | `claude/` | `transcripts.ts`, `pricing.ts` + `pricing.json`; the session argv arrives with #416 |
-| `docker/` | runner ← `docker.ts` |
+| `docker/` | runner ← `docker.ts`, `types.ts` |
 | `backlog/` | tracker ← `trackers/local.ts` |
 | `webhook/` | arrives when notify's transport splits out of `office/notify.ts` |
 
@@ -114,17 +114,17 @@ Why these sit in core, and why so:
 
 | Module | Files |
 |---|---|
-| `pipeline/` | `step/`, `step.ts`, `brief.ts`, `panel.ts`, `verifiers.ts`, `roster.ts`, `acs.ts`, `findings.ts`, `scope.ts`, `e2e.ts`, `member-panel.ts`, `deps.ts` |
-| `workspace/` | `worktree.ts`, `checkout.ts`, `focus-actions.ts`, `editor.ts`, `regenerate.ts`, `job-command.ts` |
-| `guard/` | `integrity.ts`, `protected.ts`, `secrets.ts`, `known-secrets.ts`, `secret-refs.ts`, `redact.ts`, `attribution.ts` |
-| `environment/` | `backing.ts`, `backing-db.ts`, `ports.ts`, `endpoints.ts`, status ← `environment.ts`, lifecycle ← `environment-lifecycle.ts`, record ← `environment-record.ts`, `config-sinks-apply.ts` |
+| `pipeline/` | `step/`, `step.ts`, `brief.ts`, `panel.ts`, `verifiers.ts`, `roster.ts`, `acs.ts`, `findings.ts`, `scope.ts`, `member-panel.ts`, `deps.ts`, `types.ts` (the step and verifier shapes: `step/` is at its entry cap) |
+| `workspace/` | `worktree.ts`, `checkout.ts`, `focus-actions.ts`, `editor.ts`, `regenerate.ts`, `job-command.ts`, `e2e.ts` (moved from `pipeline/` in #413; only verify reads it) |
+| `guard/` | `integrity.ts`, `protected.ts`, `secrets.ts`, `known-secrets.ts`, `secret-refs.ts`, `redact.ts`, `attribution.ts`, `types.ts` |
+| `environment/` | `backing.ts`, `backing-db.ts`, `ports.ts`, `endpoints.ts`, status ← `environment.ts`, lifecycle ← `environment-lifecycle.ts`, record ← `environment-record.ts`, `config-sinks-apply.ts`, `types.ts` |
 | `project/` | `member-repos.ts`, `member-trackers.ts`, `job-repos.ts`, graph ← `project.ts`, `repo-order.ts`, `repo-proposals.ts`, `links.ts`, `downstream.ts` |
 | `pr/` | lifecycle ← `pr.ts`, `delta.ts` |
 | `trackers/` | load ← `trackers/index.ts`, mirror ← `trackers/mirror.ts`, link ← `tracker-link.ts`, `triage.ts`, `request-refresh.ts` |
 | `release/` | plan ← `release-plan.ts`, run ← `release-run.ts`, approval ← `release-approval.ts`, `interim.ts`, `interim-apply.ts` |
-| `evals/` | run ← `evals.ts`, overlay ← `eval-overlay.ts`, stats ← `eval-stats.ts`, `experiments.ts`, `learnings.ts`, `retro.ts`, `recall.ts`, `scoring.ts`, `outcome.ts`, `autonomy.ts`, `provenance.ts` |
-| `metrics/` | `stats.ts`, `usage.ts`, `spend.ts`, `budget.ts`, `repo-budget.ts` |
-| `ops/` | `doctor.ts`, `bundle.ts`, `update.ts`, `version.ts`, `retention.ts`, `delete.ts`, `audit.ts`, `detect.ts`, `detect-components.ts`, `title.ts` |
+| `evals/` | run ← `evals.ts`, overlay ← `eval-overlay.ts`, stats ← `eval-stats.ts`, `experiments.ts`, `learnings.ts`, `retro.ts`, `recall.ts`, `scoring.ts`, `outcome.ts`, `autonomy.ts`, `provenance.ts`, `types.ts` |
+| `metrics/` | `stats.ts`, `usage.ts`, `spend.ts`, `budget.ts`, `repo-budget.ts`, `types.ts` |
+| `ops/` | `doctor.ts`, `bundle.ts`, `update.ts`, `version.ts`, `retention.ts`, `delete.ts`, `audit.ts`, `detect.ts`, `detect-components.ts`, `title.ts`, `types.ts` |
 
 ### office
 
@@ -140,6 +140,7 @@ Why these sit in core, and why so:
 | Module | Files |
 |---|---|
 | `start.ts` | ← `server.ts` (the rest of it splits out in #415) |
+| `types.ts` | the server's shapes outside `/api` (`RequestInfo`) |
 
 ### cli
 
@@ -147,7 +148,7 @@ Why these sit in core, and why so:
 |---|---|
 | main | ← `cli.ts` (`bin/forge` imports it) |
 | `commands/` | `commands/` (unchanged inside, except registry ← `render/index.ts`) |
-| leaves | `activity.ts` (only `commands/dash.ts` imports it, and it types against the server) |
+| leaves | `activity.ts` (only `commands/dash.ts` imports it, and it types against the server), `types.ts` (the CLI's own shapes) |
 
 Where the names differ from a plain prefix drop, the folder rules decided:
 - **No stutter.** A name that would repeat its folder takes the name the later split leaves: `git/runner.ts` (matching `docker/runner.ts`), `server/start.ts` (#415), `session/lifecycle.ts` (#416), `pr/lifecycle.ts`, `evals/run.ts`, `environment/status.ts` (the environment as the dashboard shows it) and `project/graph.ts` (the project graph).
@@ -155,11 +156,10 @@ Where the names differ from a plain prefix drop, the folder rules decided:
 
 ## Today's upward edges
 
-With the placement above, 26 imports point up a layer. `ALLOWED_EDGES` in `test/invariants/layer-map.ts` is the live list; it may only shrink, and an entry that no longer exists or no longer points up fails as stale.
+With the placement above, 22 imports point up a layer. `ALLOWED_EDGES` in `test/invariants/layer-map.ts` is the live list; it may only shrink, and an entry that no longer exists or no longer points up fails as stale.
 
 | Edges | What removes them |
 |---|---|
-| `core/types.ts` type-imports `engine/pipeline/acs.ts`, `engine/guard/secrets.ts` and `engine/pipeline/findings.ts`; `api/tracker.ts` type-imports `core/types.ts` | the types split (#413): each shape moves to the module that owns it |
 | `core/job/store.ts` reaches `engine/guard/known-secrets.ts`, `engine/evals/overlay.ts`, `engine/evals/provenance.ts`, `integrations/github/actor.ts`, `integrations/git/repo-slug.ts` and `integrations/claude/pricing.ts`; `core/paths.ts` reaches `integrations/git/runner.ts` | hooks or parameters in the job store (like `onTransition`), or the pieces moving down to a core leaf |
 | `core/job/schema.ts` reaches `engine/pr/delta.ts` and `engine/project/member-repos.ts`; `core/config/validate.ts` and `core/job/lens.ts` reach `engine/project/member-repos.ts` | the value validators (`isSha`, `REPO_NAME`, `isSafeBranch`, the repo problems) moving into `core/config/` |
 | `engine/pipeline/step/gates.ts`, `engine/pipeline/step/stages/build.ts`, `engine/pipeline/step/stages/decide.ts`, `engine/pr/lifecycle.ts` and `engine/release/approval.ts` reach `office/foreman.ts` | the Foreman's gate classes and round ceilings moving to engine, with office keeping the session |
@@ -232,7 +232,7 @@ One PR each.
 1. **Groundwork (#412, landed):** glossary words, header comments, `test/invariants/` with the layer, file-size and folder-map tests on today's flat tree, `npm run docs:map` with `lib/step/AGENTS.md`, and this doc.
 2. **The move (#421, landed):** `git mv` and an import-rewriting codemod into the seven layers, with no content edits beyond the `util.ts` split, renames and the paths computed from the plugin root. It leaves only the two deprecated tracker re-exports in `FLAT_LAYERS`, re-keys `ALLOWED_EDGES` and the size pins, and updates CODEOWNERS, the hook, `bin/forge`, prompts and doc paths (`ci.yml` names only `lib/trackers/status.mjs`, which stays). It adds each layer and module folder's `AGENTS.md` and slims the root one, and adds the folder layout test (`test/invariants/layout.test.ts`: 3–12 entries, no stutter, no `index.ts`, the maps).
 3. **Aliases (#370, landed):** the `#core/…` subpath map and its cross-layer relative-import test.
-4. **types.ts by owner (#413)**, with the transitional type-only barrel.
+4. **types.ts by owner (#413, landed)**, with the transitional type-only barrel. Each shape moved to the `types.ts` of the module that owns it; `core/types.ts` re-exports the api, job and config shapes and keeps the tracker contract. `e2e.ts` moved from `pipeline/` to `workspace/` and `deprecations.ts` from `config/` into `config/validators/` to make room, and the four types-split edges and the `core/types.ts` size pin are gone.
 5. **pr.ts (#414)**, **server.ts (#415)**, **daemon.ts (#416)**, **worktree.ts (#417)** (create/remove, command templating, `verify`, the dev server), **commands/job.ts (#418)** (`HELP` apart, one handler per subcommand), **the release splits (#419)** (`release-plan.ts`, `release-run.ts`). Each deletes its size pin and the upward edges it removes.
 6. **Tests (#420):** unit tests beside their modules, the rest into `test/{integration,e2e,invariants,support}/`, with the tsconfig includes and CI sharding by kind.
 

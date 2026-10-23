@@ -1121,7 +1121,7 @@ Tools run without a shell, each field one argument, with a 30 s timeout. One tra
 
 ## Deprecated keys
 
-A key on its way out is listed in `DEPRECATED_CONFIG_KEYS` in `lib/core/config/deprecations.ts` with the release that deprecated it, the release that removes it (at least one minor later) and what to use instead. While it is set in `.forge/config.yml`, `forge doctor` and Settings › Diagnostics show a warning row, `deprecated config key <key>`, that never fails the report. The policy is in [RELEASES.md](RELEASES.md#deprecation). Each deprecated key is listed below as `` `<key>` ``, and `test/version.test.ts` checks the list against the registry.
+A key on its way out is listed in `DEPRECATED_CONFIG_KEYS` in `lib/core/config/validators/deprecations.ts` with the release that deprecated it, the release that removes it (at least one minor later) and what to use instead. While it is set in `.forge/config.yml`, `forge doctor` and Settings › Diagnostics show a warning row, `deprecated config key <key>`, that never fails the report. The policy is in [RELEASES.md](RELEASES.md#deprecation). Each deprecated key is listed below as `` `<key>` ``, and `test/version.test.ts` checks the list against the registry.
 
 None today.
 

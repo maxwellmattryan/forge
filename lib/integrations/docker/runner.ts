@@ -4,7 +4,7 @@
 import { execFile, spawn } from 'node:child_process';
 import type { ChildProcessByStdio } from 'node:child_process';
 import type { Readable } from 'node:stream';
-import type { DockerResult, DockerRunner } from '#core/types.ts';
+import type { DockerResult, DockerRunner } from './types.ts';
 import { run } from '#core/os/process.ts';
 
 export type DockerStateName = 'ok' | 'missing' | 'stopped';

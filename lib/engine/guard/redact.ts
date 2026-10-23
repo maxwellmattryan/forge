@@ -7,7 +7,8 @@ import { worktreeRoot } from '#core/config/load.ts';
 import { git } from '#integrations/git/runner.ts';
 import { MIN_SECRET, allKnownValues } from './known-secrets.ts';
 import { secretSpans } from './secrets.ts';
-import type { Config, RedactCounts } from '#core/types.ts';
+import type { Config } from '#core/types.ts';
+import type { RedactCounts } from './types.ts';
 
 export interface RedactContext {
   root: string;

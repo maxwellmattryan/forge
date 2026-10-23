@@ -9,7 +9,8 @@ import { validJobId } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';
 import { zip } from '#core/format/zip.ts';
 import { str } from './args.ts';
-import type { BundleEntry, BundleResult, CliContext, Dispatched, HelpGroup } from '#core/types.ts';
+import type { BundleEntry, BundleResult } from '#engine/ops/types.ts';
+import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
 
 const DOCTOR: HelpGroup = {
   name: 'doctor',

@@ -12,7 +12,8 @@ import { isActive, jobDir, loadJob, logEvent, logHumanEvent } from '#core/job/st
 import { readFocusRecord, resolveFocus, setFocus } from '#core/job/focus.ts';
 import { validJobId } from '#core/job/requests.ts';
 import { ensureEnvironment } from '../environment/lifecycle.ts';
-import type { Config, EnvironmentUpResult, EventActor, FocusResponse, Job } from '#core/types.ts';
+import type { Config, EventActor, FocusResponse, Job } from '#core/types.ts';
+import type { EnvironmentUpResult } from '../environment/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { runCommandAsync } from './worktree.ts';
 

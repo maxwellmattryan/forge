@@ -2,7 +2,8 @@
 // too, so they live apart from the decide table and the brief: pure functions of the StepInput.
 import { isForemanActor } from '#core/job/store.ts';
 import { LENS_NAME } from '#core/job/lens.ts';
-import type { JobEvent, StepInput } from '#core/types.ts';
+import type { JobEvent } from '#core/types.ts';
+import type { StepInput } from '../types.ts';
 
 /** RC2's park reason: it names the prompts' hash, so a waiver never carries over to later prompt edits. */
 export const recallReason = (hash: string | null): string => `recall eval: no recorded run for prompts ${hash ?? 'unknown'}`;

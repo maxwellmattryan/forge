@@ -16,4 +16,5 @@ The guards on what jobs write and publish: verify integrity, protected paths, se
 | `redact.ts` | Redaction for the support bundle (lib/engine/ops/bundle.ts): what a user can attach to a public bug report. |
 | `secret-refs.ts` | Secret references (docs/CONFIG.md "Secret references"): the value of a declared secret, read from its source only when a config sink renders `{secret.NAME}`. |
 | `secrets.ts` | The secret scanner: Forge refuses to publish a likely credential. |
+| `types.ts` | The secret scanner's and the redactor's shapes, type-only: SecretKind derives from SECRET_KINDS in secrets.ts. |
 <!-- forge:map:end -->

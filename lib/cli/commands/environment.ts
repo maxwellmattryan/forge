@@ -10,7 +10,7 @@ import { validJobId } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';
 import { assertSafeRef } from '#core/text.ts';
 import { usageError } from './args.ts';
-import type { CliContext, Dispatched, HelpGroup } from '#core/types.ts';
+import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
 
 const DOCS: [string, string] = ['Backing services', 'docs/CONFIG.md#backing-services'];
 const REFUSED: [1, string] = [1, 'an invalid job id or no such job, or the inbox or office daemon session ran it'];

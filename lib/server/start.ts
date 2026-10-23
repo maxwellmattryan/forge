@@ -97,10 +97,10 @@ import type {
   PostRequestResponse,
   PostRunResponse,
   RepoBudgetStatus,
-  RequestInfo,
   TranscriptPage,
-  VersionInfo,
 } from '#core/types.ts';
+import type { RequestInfo } from './types.ts';
+import type { VersionInfo } from '#engine/ops/types.ts';
 
 /** startServer's options. `distDir` is a test seam like `sseMaxAgeMs`. */
 export interface ServerOptions {

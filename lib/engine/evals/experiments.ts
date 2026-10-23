@@ -15,7 +15,8 @@ import { resolveBase } from '../pipeline/scope.ts';
 import { PROTO_KEYS } from '#core/shape.ts';
 import { statsFrom, statsSources } from '../metrics/stats.ts';
 import type { StatsSource } from '../metrics/stats.ts';
-import type { Config, ExperimentEntry, ExperimentEvaluation, ExperimentResult, Job, NotesCheck, Stats } from '#core/types.ts';
+import type { Config, Job, Stats } from '#core/types.ts';
+import type { ExperimentEntry, ExperimentEvaluation, ExperimentResult, NotesCheck } from './types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { safeText } from '#core/text.ts';
 

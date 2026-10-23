@@ -4,7 +4,7 @@ import path from 'node:path';
 import { validateConfig, worktreeRoot } from '#core/config/load.ts';
 import { dockerCheck } from '../environment/backing.ts';
 import { apiKeyVars } from '#office/session/lifecycle.ts';
-import { deprecationChecks } from '#core/config/deprecations.ts';
+import { deprecationChecks } from '#core/config/validators/deprecations.ts';
 import { memberRepoChecks, releaseChecks, repoProblems } from '../project/member-repos.ts';
 import { isActive, listJobs } from '#core/job/store.ts';
 import { notifyChecks } from '#office/notify.ts';

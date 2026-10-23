@@ -7,7 +7,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import { exists } from '#core/paths.ts';
 import { step } from '#engine/pipeline/step.ts';
-import type { StepInput } from '#core/types.ts';
+import type { StepInput } from '#engine/pipeline/types.ts';
 import { fixture } from './step-fixture.ts';
 import { job, rows } from './step-rows.ts';
 

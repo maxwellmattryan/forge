@@ -14,7 +14,8 @@ import { paths, exists } from '#core/paths.ts';
 import { releaseFiles } from '../release/plan.ts';
 import { SECRET_NAME, secretSourceOf } from '#core/config/validators/secret-refs.ts';
 import { recallLine } from './step/recall.ts';
-import type { Config, GateClass, Job, JobEvent, StepInput } from '#core/types.ts';
+import type { Config, GateClass, Job, JobEvent } from '#core/types.ts';
+import type { StepInput } from './types.ts';
 
 /**
  * Absolute paths an agent prompt needs, keyed as `forge job paths` prints them. Reads (which

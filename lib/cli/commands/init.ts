@@ -14,7 +14,7 @@ import { ForgeError } from '#core/errors.ts';
 import { readJson, readText, writeJsonAtomic } from '#core/os/fs.ts';
 import { withLock } from '#core/os/lock.ts';
 import * as yaml from '#core/format/yaml.ts';
-import type { HelpGroup } from '#core/types.ts';
+import type { HelpGroup } from '../types.ts';
 
 export const HELP: HelpGroup[] = [
   {
