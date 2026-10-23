@@ -18,8 +18,8 @@ import { enqueue, listRequests, validJobId } from '#core/job/requests.ts';
 import { deriveTitle, normalizeTitle } from '#engine/ops/title.ts';
 import { isMap } from '#core/shape.ts';
 import { ForgeError } from '#core/errors.ts';
-import { readText } from '#core/os/fs.ts';
 import { startBackground } from '#engine/workspace/dev-server.ts';
+import { openConfinedLog } from '#engine/environment/status.ts';
 import type {
   Config,
   DeleteJobResult,
@@ -43,9 +43,14 @@ const MAX_FILE = 2 * 1024 * 1024;
 const REPO_NOTE_MAX = 2000;
 /** A decision lists at most this many repos: more than any project has members. */
 const REPO_LIST_MAX = 100;
-// Mockups must be self-contained (inline script and style, data: images and fonts), and the frame makes
-// no network request, so an agent misled into writing secrets into a mockup can't send them anywhere.
-const RAW_CSP = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:";
+// A mockup is agent-written HTML that may hold secrets an agent was misled into writing. It runs with
+// no script at all (a sandbox without allow-scripts), so it can't navigate itself, open WebRTC or
+// prefetch through script, and the sandbox also blocks meta refresh, popups, forms and top
+// navigation. It loads nothing but inline style and data: images and fonts, so no subresource or
+// connection leaves the machine. A clicked link can still navigate the frame, which the page's
+// `frame-src 'self'` blocks for any other origin. `frame-ancestors 'self'` rather than 'none',
+// because the dashboard's own Files tab frames it.
+const RAW_CSP = "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'self'";
 /** The newest requests a job's Thread shows. */
 const MAX_JOB_REQUESTS = 50;
 const MAX_REQUEST_EXCERPT = 2000;
@@ -74,26 +79,43 @@ export function getJob(ctx: ServerCtx, _req: http.IncomingMessage, res: http.Ser
   return json(res, jobDetail(root, id, projects, ctx.drive));
 }
 
-/** GET /api/jobs/:id/file and /raw: a text file or screenshot in the job dir, or a mockup in a sandboxed frame. */
+/**
+ * GET /api/jobs/:id/file and /raw: a text file or screenshot in the job dir, or an HTML mockup in a
+ * sandboxed frame. The job's agents write this dir, so every read goes through openConfinedLog: a
+ * link, FIFO, device or hard link, or a symlinked job dir, is a 404, and the file is read through
+ * the descriptor that check opened.
+ */
 export function getJobFile(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): void {
   const { root } = ctx;
-  const id = match.params[0];
-  const rel = match.url.searchParams.get('path') ?? '';
-  const file = safeJoin(jobDir(root, id), rel);
+  const [id, kind] = match.params;
+  if (!validJobId(id)) return send(res, 404, 'text/plain', 'not found');
+  const base = jobDir(root, id);
+  const file = safeJoin(base, match.url.searchParams.get('path') ?? '');
   // Private job files hold credentials: not served under any path that names them or links to them.
   if (!file || isPrivateJobFile(file)) return send(res, 404, 'text/plain', 'not found');
-  if (match.params[1] === 'file' && IMAGE_TYPES[path.extname(file).toLowerCase()]) return sendImage(res, jobDir(root, id), file);
-  if (!exists(file) || !TEXT_EXT.has(path.extname(file))) return send(res, 404, 'text/plain', 'not found');
-  // Background logs are written by the child itself, so known values are taken out here.
-  const known = knownValues(root, id, loadConfig(root).config);
-  if (match.params[1] === 'raw') {
-    res.setHeader('Content-Security-Policy', RAW_CSP);
-    const raw = fs.readFileSync(file);
-    return send(res, 200, 'text/html; charset=utf-8', known.length ? redactKnown(raw.toString('utf8'), known) : raw);
+  const ext = path.extname(file);
+  if (kind === 'file' && IMAGE_TYPES[ext.toLowerCase()]) return sendImage(res, root, base, file);
+  // /raw serves mockups only: a log or JSON file served as text/html would run as a page.
+  if (kind === 'raw' ? ext !== '.html' : !TEXT_EXT.has(ext)) return send(res, 404, 'text/plain', 'not found');
+  const opened = openConfinedLog(root, base, file);
+  if (typeof opened === 'string') return send(res, 404, 'text/plain', 'not found');
+  const { fd, size } = opened;
+  try {
+    // Half an HTML file is no use, so a mockup over the cap is refused rather than cut.
+    if (kind === 'raw' && size > MAX_FILE) return send(res, 413, 'text/plain', 'file too large');
+    // Background logs are written by the child itself, so known values are taken out here.
+    const known = knownValues(root, id, loadConfig(root).config);
+    if (kind === 'raw') {
+      const raw = readFdRange(fd, 0, size);
+      res.setHeader('Content-Security-Policy', RAW_CSP);
+      res.setHeader('X-DNS-Prefetch-Control', 'off');
+      return send(res, 200, 'text/html; charset=utf-8', known.length ? redactKnown(raw.toString('utf8'), known) : raw);
+    }
+    const text = size > MAX_FILE ? `…truncated (${size} bytes); showing the last 2 MB…\n` + readFdRange(fd, size - MAX_FILE, MAX_FILE).toString('utf8') : readFdRange(fd, 0, size).toString('utf8');
+    return send(res, 200, 'text/plain; charset=utf-8', redactKnown(text, known));
+  } finally {
+    fs.closeSync(fd);
   }
-  const size = fs.statSync(file).size;
-  const text = size > MAX_FILE ? `…truncated (${size} bytes); showing the last 2 MB…\n` + readTail(file, MAX_FILE) : readText(file);
-  return send(res, 200, 'text/plain; charset=utf-8', redactKnown(text, known));
 }
 
 /** GET /api/requests: the request queue. */
@@ -351,11 +373,14 @@ function requestExcerpt(root: string, id: string): Pick<JobDetail, 'request' | '
   return { request: !body ? null : cut ? `${body.slice(0, MAX_REQUEST_EXCERPT)}…` : body, requestTruncated: cut };
 }
 
-function readTail(file: string, bytes: number): string {
-  const fd = fs.openSync(file, 'r');
-  const size = fs.fstatSync(fd).size;
-  const buf = Buffer.alloc(Math.min(bytes, size));
-  fs.readSync(fd, buf, 0, buf.length, size - buf.length);
-  fs.closeSync(fd);
-  return buf.toString('utf8');
+/** Up to `length` bytes from `start` through an open descriptor, shorter when the file ends first. */
+function readFdRange(fd: number, start: number, length: number): Buffer {
+  const buf = Buffer.alloc(length);
+  let got = 0;
+  while (got < length) {
+    const n = fs.readSync(fd, buf, got, length - got, start + got);
+    if (n === 0) break;
+    got += n;
+  }
+  return buf.subarray(0, got);
 }
