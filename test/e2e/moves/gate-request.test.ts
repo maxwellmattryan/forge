@@ -1,13 +1,13 @@
 // Every writer that parks or finishes a job goes through the one move, so a park on a gate the
 // Foreman decides queues exactly one gate request whoever writes it, and each writer runs the effect
-// set it names. Serial: rows set process.env (the inbox scope, fakeGh first on PATH) and swap the
-// module-global move effects.
+// set it names. Serial: rows set process.env (the inbox scope) and swap the module-global move
+// effects. The syncPr rows read GitHub through the in-memory adapter.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { BIN, fakeGh, forgeInProcess, recordingMoveEffects, repoTemplate } from '../../helpers.ts';
+import { BIN, forgeInProcess, ghPr, memoryGitHub, recordingMoveEffects, repoTemplate } from '../../helpers.ts';
 import { parkRepeatedFailure } from '../../../lib/cli/commands/advance.ts';
 import { useMoveEffects } from '#engine/pipeline/moves/effects.ts';
 import { syncPr } from '#engine/pr/sync.ts';
@@ -31,22 +31,12 @@ const scratch = repoTemplate((dir) => {
   fs.rmSync(answers);
 });
 
-const HEAD = 'a'.repeat(40);
-const PR_VIEW = JSON.stringify({
-  number: 7,
-  url: 'https://github.com/o/r/pull/7',
-  state: 'OPEN',
-  isDraft: false,
-  headRefOid: HEAD,
-  mergeable: 'CONFLICTING',
-  mergeStateStatus: 'DIRTY',
-  reviewDecision: '',
-  statusCheckRollup: [],
-  mergedAt: null,
-  closedAt: null,
-  headRefName: 'forge/x',
-  baseRefName: 'main',
-});
+/** GitHub holding PR #7 open and conflicting with its base, with no feedback. */
+function conflictingPr() {
+  const github = memoryGitHub();
+  github.put(ghPr({ mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' }));
+  return github;
+}
 
 /** One scratch copy: its config, a running job and the helpers every row needs. */
 function repo() {
@@ -91,19 +81,6 @@ function repo() {
   return { ...r, config, job, set, gates, answers, prJob, reconcileTwice, failTwice };
 }
 
-/** Runs `fn` with fakeGh first on PATH, answering `pr view` with a conflicting PR that has no feedback. */
-async function withGh<T>(fn: () => Promise<T>): Promise<T> {
-  const gh = fakeGh({ 'pr view': PR_VIEW, 'api graphql': JSON.stringify({ data: { repository: { pullRequest: {} } } }) });
-  const saved = process.env.PATH;
-  process.env.PATH = gh.env.PATH;
-  try {
-    return await fn();
-  } finally {
-    process.env.PATH = saved;
-    fs.rmSync(gh.dir, { recursive: true, force: true });
-  }
-}
-
 type Repo = ReturnType<typeof repo>;
 
 interface GateRow {
@@ -125,8 +102,8 @@ const GATE_ROWS: GateRow[] = [
   },
   { name: 'parkRepeatedFailure', gate: 'escalation', park: (r, id) => r.failTwice(id) },
   { name: 'reconcile', gate: 'escalation', park: async (r, id) => (loadJob(r.dir, id).state === 'running' ? r.reconcileTwice(id) : reconcile(r.dir, r.config())) },
-  { name: 'syncPr (route: true)', gate: 'conflicts', start: (r) => r.prJob('sync me'), park: (r, id) => withGh(() => syncPr(r.dir, r.config(), id)) },
-  { name: 'syncPr (route: false, as forge pr merge calls it)', gate: 'conflicts', start: (r) => r.prJob('merge me'), park: (r, id) => withGh(() => syncPr(r.dir, r.config(), id, { route: false })) },
+  { name: 'syncPr (route: true)', gate: 'conflicts', start: (r) => r.prJob('sync me'), park: (r, id) => syncPr(r.dir, r.config(), conflictingPr(), id) },
+  { name: 'syncPr (route: false, as forge pr merge calls it)', gate: 'conflicts', start: (r) => r.prJob('merge me'), park: (r, id) => syncPr(r.dir, r.config(), conflictingPr(), id, { route: false }) },
 ];
 
 test('a park on a Foreman-decided gate queues exactly one gate request, whoever writes it', async () => {

@@ -193,7 +193,7 @@ Landed in #414. The `gh` mechanism sits in `integrations/github/pull-requests.ts
 
 | File | Contents | ≈ lines |
 |---|---|---|
-| `integrations/github/pull-requests.ts` | `repoSlug`, `requireGh`, the checks on gh's answers (`assertJobPr`, `safePrNumber`, `SLUG_RE`, `PR_STATES`), one wrapper per `gh` call (`viewPr`, `listPrs`, `closingPrs`, `createPr`, `editPrBase`, `editPrBody`, `markPrReady`, `submitMerge`), and the readers: `fetchFeedback`, `trustedFeedback`, `summarizeChecks`, `failingCheckNames`, `checksText` | 180 |
+| `integrations/github/pull-requests.ts` | the parsers that check each PR read once into a snapshot (`parsePr`, `parsePrBody`, `parseClosing`, `parseFeedback`), the gh adapter behind the `GitHub` interface in `types.ts` (`createGhGitHub`, `ghGitHub`, one gh call per operation), `repoSlug`, `assertJobPr`, the checks on gh's answers (`safePrNumber`, `SLUG_RE`, `PR_STATES`) and the check helpers (`summarizeChecks`, `failingCheckNames`, `checksText`) | 270 |
 | `engine/pr/adopt.ts` | `findPr`, `refuseUnsafeRefs` | 60 |
 | `engine/pr/body.ts` | PR text and body, escalation approval, sibling section, issue lines | 130 |
 | `engine/pr/branch.ts` | `refreshBase`, `pushBranch`, `pullPrHead` | 80 |

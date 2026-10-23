@@ -4,6 +4,7 @@ import { createJob, isActive, leaseStatus, listJobs, loadJob, logEvent, readEven
 import { approvedBy, escalationApproval } from '#engine/pr/body.ts';
 import { retargetPr } from '#engine/pr/open.ts';
 import { syncPr } from '#engine/pr/sync.ts';
+import { ghGitHub } from '#integrations/github/pull-requests.ts';
 import { measureOutcomes } from '#engine/evals/outcome.ts';
 import { queueScores } from '#engine/evals/scoring.ts';
 import { refreshRequest } from '#engine/trackers/request-refresh.ts';
@@ -34,10 +35,7 @@ const TRACKER_EXITS: [1 | 5, string][] = [
   [1, 'the tracker refused the call, no such item or job, or a likely secret in the text Forge would send (code secret_found)'],
   [5, 'gh failed (GitHub tracker)'],
 ];
-const BODY: [string, string][] = [
-  ['--body B', 'the text'],
-  ['--body-file F', 'read the text from F (- for stdin)'],
-];
+const BODY: [string, string][] = [['--body B', 'the text'], ['--body-file F', 'read the text from F (- for stdin)']];
 
 const TRACKER: HelpGroup = {
   name: 'tracker',
@@ -485,7 +483,7 @@ export async function syncAll(
     if (!watch || !config.pr.enabled) continue;
     try {
       const before: Partial<JobPr> = job.pr ?? {};
-      const r = await syncPr(root, config, job.id);
+      const r = await syncPr(root, config, ghGitHub, job.id);
       if (r.integrate) integrating.push(job.id);
       const after = loadJob(root, job.id);
       if (r.pr?.state === 'MERGED' && before.state !== 'MERGED') await commentApproval(root, config, after);
@@ -535,7 +533,7 @@ export async function syncAll(
   // Both passes are local git and job state, so they run even with PRs disabled.
   for (const p of retargetPlan(root, config)) {
     try {
-      retargetPr(root, config, p.id, p.to, p.dependency);
+      retargetPr(root, config, ghGitHub, p.id, p.to, p.dependency);
       results.push({ id: p.id, retargeted: { from: p.from, to: p.to, dependency: p.dependency } });
     } catch (e) {
       results.push({ id: p.id, error: (e as Error).message.slice(0, 300) });

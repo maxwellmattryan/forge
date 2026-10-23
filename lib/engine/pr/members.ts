@@ -3,21 +3,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { jobDir, loadJob, logEvent, readEvents, updateJob } from '#core/job/store.ts';
-import { isHttpsUrl } from '#core/job/schema.ts';
 import type { Config, Job, JobRepoPr, PrChecks } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { safeText } from '#core/text.ts';
 import { now } from '#core/utils.ts';
 import { git, historyEnv } from '#integrations/git/runner.ts';
 import { githubHost, slugFromRemote } from '#integrations/git/repo-slug.ts';
-import { PR_STATES, SLUG_RE, assertJobPr, createPr, editPrBody, listPrs, repoSlug, safePrNumber, summarizeChecks, viewPr } from '#integrations/github/pull-requests.ts';
+import { SLUG_RE, assertJobPr, safePrNumber } from '#integrations/github/pull-requests.ts';
+import type { GitHub, PrSnapshot } from '#integrations/github/types.ts';
 import { memberConfig, memberEntry, memberRepos, memberWorktree } from '../project/job-repos.ts';
 import { isLinkedJob, jobRepoOrder, siblingLine } from '../project/repo-order.ts';
 import type { PrStateKey, RepoKey } from '../project/repo-order.ts';
 import { attributionForbidden, scrubBranch } from '../guard/attribution.ts';
 import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretsBlock, textUnit } from '../guard/secrets.ts';
 import { FULL_SHA } from '../release/interim.ts';
-import { isSha } from './delta.ts';
 import { memberPrBody, spliceSiblings } from './body.ts';
 import { pushBranch, refreshBase } from './branch.ts';
 
@@ -79,7 +78,7 @@ export function checkMemberPr(root: string, config: Config, job: Job, name: stri
  * branch and finds its open PR by branch or creates one. The PR is recorded at once, so a failure in
  * a later repo keeps it, and a rerun finds it again. A failure names the repo.
  */
-export function openMemberPr(root: string, config: Config, job: Job, p: MemberPrPlan, title: string, draft: boolean | undefined): MemberPrResult {
+export function openMemberPr(root: string, config: Config, github: GitHub, job: Job, p: MemberPrPlan, title: string, draft: boolean | undefined): MemberPrResult {
   try {
     const remote = config.git.remote;
     let pushedSha = p.checked;
@@ -95,23 +94,21 @@ export function openMemberPr(root: string, config: Config, job: Job, p: MemberPr
       }
     }
     pushBranch({ ...job, worktree: p.worktree }, config, pushedSha, { force: rewritten });
-    const existing = memberPrByBranch(p.worktree, p.slug, job.branch!, 'open');
+    const existing = memberPrByBranch(github, p.worktree, p.slug, job.branch!, 'open');
     const at = now();
     if (existing) {
-      const number = safePrNumber(existing.number);
+      const number = existing.number;
       if (number === null) throw new ForgeError(`gh returned an unusable PR number for ${p.slug}`);
-      const url = isHttpsUrl(existing.url) ? existing.url : null;
-      recordMemberPr(root, job.id, p.repo, (prev) => ({ ...(prev ?? {}), number, url, state: 'OPEN', isDraft: existing.isDraft === true, openedAt: prev?.openedAt ?? at, lastSyncedAt: at, pushedSha }));
+      const url = existing.url;
+      recordMemberPr(root, job.id, p.repo, (prev) => ({ ...(prev ?? {}), number, url, state: 'OPEN', isDraft: existing.isDraft, openedAt: prev?.openedAt ?? at, lastSyncedAt: at, pushedSha }));
       logEvent(root, job.id, 'repo-pr-updated', { repo: p.repo, number });
       return { repo: p.repo, number, url, created: false };
     }
     const bodyFile = path.join(jobDir(root, job.id), `pr-body-${p.repo}.md`);
     fs.writeFileSync(bodyFile, p.body);
     const isDraft = Boolean(draft ?? config.pr.draft);
-    const out = createPr(p.worktree, { slug: p.slug, base: p.base, head: job.branch!, title, bodyFile, draft: isDraft, labels: config.pr.labels ?? [], reviewers: config.pr.reviewers ?? [] });
-    const number = safePrNumber(Number(out.match(/\/pull\/(\d+)/)?.[1]));
+    const { number, url } = github.create(p.worktree, { slug: p.slug, base: p.base, head: job.branch!, title, bodyFile, draft: isDraft, labels: config.pr.labels ?? [], reviewers: config.pr.reviewers ?? [] });
     if (number === null) throw new ForgeError(`gh pr create printed no PR url for ${p.slug}`);
-    const url = isHttpsUrl(out) ? out : null;
     recordMemberPr(root, job.id, p.repo, () => ({ number, url, state: 'OPEN', isDraft, openedAt: at, lastSyncedAt: at, pushedSha }));
     logEvent(root, job.id, 'repo-pr-opened', { repo: p.repo, number });
     return { repo: p.repo, number, url, created: true };
@@ -130,14 +127,13 @@ export function recordMemberPr(root: string, id: string, repo: string, make: (pr
 
 /**
  * The member PR on `branch` in `slug`, same repo only: a PR from a fork on a branch of the same name
- * is refused, never adopted. gh output: raw input.
+ * (or one not marked same-repo) is refused, never adopted.
  */
-function memberPrByBranch(cwd: string, slug: string, branch: string, which: 'open' | 'any'): any {
-  const list = listPrs(cwd, slug, branch, which === 'open' ? 'open' : 'all');
-  if (!Array.isArray(list)) return null;
-  const cross = list.find((x: any) => x?.isCrossRepository);
-  if (cross) throw new ForgeError(`PR #${Number(cross.number)} on ${branch} in ${slug} comes from a fork; Forge only uses branches in ${slug}`);
-  return list.find((x: any) => x?.state === 'OPEN') ?? (which === 'any' ? (list[0] ?? null) : null);
+function memberPrByBranch(github: GitHub, cwd: string, slug: string, branch: string, which: 'open' | 'any'): PrSnapshot | null {
+  const list = github.list(cwd, slug, branch, which === 'open' ? 'open' : 'all');
+  const cross = list.find((x) => x.isCrossRepository);
+  if (cross) throw new ForgeError(`PR #${cross.number ?? '?'} on ${branch} in ${slug} comes from a fork; Forge only uses branches in ${slug}`);
+  return list.find((x) => x.state === 'OPEN') ?? (which === 'any' ? (list[0] ?? null) : null);
 }
 
 /**
@@ -146,7 +142,7 @@ function memberPrByBranch(cwd: string, slug: string, branch: string, which: 'ope
  * PR not on the job's branch and base is never edited. A failure logs `pr-links-failed` and moves
  * on: links never fail `pr open` or `sync`.
  */
-function linkSiblingPrs(root: string, config: Config, id: string): void {
+function linkSiblingPrs(root: string, config: Config, github: GitHub, id: string): void {
   const job = loadJob(root, id);
   if (!isLinkedJob(job)) return;
   const { order, cycle } = jobRepoOrder(config, job);
@@ -154,7 +150,7 @@ function linkSiblingPrs(root: string, config: Config, id: string): void {
   for (const key of order) {
     let slug: string;
     try {
-      slug = key === null ? repoSlug(root, config) : memberSlug(config, key);
+      slug = key === null ? github.repoSlug(root, config) : memberSlug(config, key);
     } catch {
       continue;
     }
@@ -174,9 +170,9 @@ function linkSiblingPrs(root: string, config: Config, id: string): void {
     try {
       const base = p.repo === null ? job.base : (memberEntry(job, p.repo)?.base ?? null);
       const read = (): string => {
-        const view = viewPr(root, p.slug, p.number, 'body,headRefName,baseRefName');
+        const view = github.viewBody(root, p.slug, p.number);
         assertJobPr(view, job.branch, base, `PR #${p.number} in ${p.slug}`);
-        if (typeof view?.body !== 'string') throw new ForgeError('gh returned no body');
+        if (view.body === null) throw new ForgeError('gh returned no body');
         return view.body;
       };
       const body = read();
@@ -194,7 +190,7 @@ function linkSiblingPrs(root: string, config: Config, id: string): void {
           logEvent(root, id, 'pr-links-skipped', { ...repo, number: p.number, line, reason: 'changed' });
           continue;
         }
-        editPrBody(root, p.slug, p.number, file);
+        github.editBody(root, p.slug, p.number, file);
       }
       logEvent(root, id, 'pr-links-updated', { ...repo, number: p.number, line });
     } catch {
@@ -207,9 +203,9 @@ function linkSiblingPrs(root: string, config: Config, id: string): void {
  * linkSiblingPrs that cannot throw, even on a job it cannot load: links never fail `pr open` or
  * `sync`, so an error is logged as `pr-links-failed` (no number) and swallowed.
  */
-export function linkSiblingsQuietly(root: string, config: Config, id: string): void {
+export function linkSiblingsQuietly(root: string, config: Config, github: GitHub, id: string): void {
   try {
-    linkSiblingPrs(root, config, id);
+    linkSiblingPrs(root, config, github, id);
   } catch (e) {
     try {
       logEvent(root, id, 'pr-links-failed', { error: safeText(e instanceof Error ? e.message : String(e), 200) });
@@ -232,15 +228,14 @@ export interface MemberSync {
 }
 
 /**
- * Records each member PR's state: by its number, or found by branch when none is recorded yet. Only
- * checked values are stored (a safe number, an https url, a sha); a failure logs
+ * Records each member PR's state: by its number, or found by branch when none is recorded yet. The
+ * adapter's snapshot holds checked values only (a safe number, an https url, a sha); a failure logs
  * `repo-pr-sync-failed` and never stops the root sync. Returns what this call read, so the job's
  * transition and a merge decide on GitHub's answers now, never on a stored (writable) state.
  */
-export function syncMemberPrs(root: string, config: Config, id: string): Map<string, MemberSync> {
+export function syncMemberPrs(root: string, config: Config, github: GitHub, id: string): Map<string, MemberSync> {
   const job = loadJob(root, id);
   const out = new Map<string, MemberSync>();
-  const fields = 'number,url,state,isDraft,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,mergedAt,isCrossRepository,headRefName,baseRefName';
   for (const m of memberRepos(job).filter((x) => !x.verifyOnly)) {
     const unread: MemberSync = { repo: m.repo, number: safePrNumber(m.pr?.number), state: null, newlyClosed: false, headOid: null, checks: undefined, mergeState: null };
     out.set(m.repo, unread);
@@ -248,32 +243,32 @@ export function syncMemberPrs(root: string, config: Config, id: string): Map<str
       const slug = memberSlug(config, m.repo);
       let number = m.pr?.number ?? null;
       if (!number) {
-        const found = memberPrByBranch(root, slug, job.branch!, 'any');
+        const found = memberPrByBranch(github, root, slug, job.branch!, 'any');
         if (!found) continue;
-        number = safePrNumber(found.number);
+        number = found.number;
         if (number === null) throw new ForgeError('unusable PR number');
       }
-      const pr = viewPr(root, slug, number, fields);
-      if (pr?.isCrossRepository) throw new ForgeError(`PR #${number} in ${slug} comes from a fork`);
+      const pr = github.view(root, slug, number);
+      if (pr.isCrossRepository) throw new ForgeError(`PR #${number} in ${slug} comes from a fork`);
       assertJobPr(pr, job.branch, m.base, `PR #${number} in ${slug}`);
       const fresh = {
         // Null when gh returns an unusable number: cleanRepoPr then drops this record on the next
         // load, and the next sync finds the PR by branch again.
-        number: safePrNumber(pr.number),
-        url: isHttpsUrl(pr.url) ? pr.url : null,
-        state: PR_STATES.has(pr.state) ? pr.state : (m.pr?.state ?? 'OPEN'),
-        isDraft: pr.isDraft === true,
-        headOid: isSha(pr.headRefOid) ? pr.headRefOid : null,
-        mergeable: typeof pr.mergeable === 'string' ? safeText(pr.mergeable, 40) : undefined,
-        mergeState: typeof pr.mergeStateStatus === 'string' ? safeText(pr.mergeStateStatus, 40) : undefined,
-        checks: summarizeChecks(Array.isArray(pr.statusCheckRollup) ? pr.statusCheckRollup : []),
-        mergedAt: typeof pr.mergedAt === 'string' && pr.mergedAt ? safeText(pr.mergedAt, 40) : null,
+        number: pr.number,
+        url: pr.url,
+        state: pr.state ?? m.pr?.state ?? 'OPEN',
+        isDraft: pr.isDraft,
+        headOid: pr.headOid,
+        mergeable: pr.mergeable ?? undefined,
+        mergeState: pr.mergeState ?? undefined,
+        checks: pr.checks,
+        mergedAt: pr.mergedAt,
         lastSyncedAt: now(),
       };
       recordMemberPr(root, id, m.repo, (prev) => ({ ...(prev ?? {}), ...fresh }) as JobRepoPr);
       logEvent(root, id, 'repo-pr-synced', { repo: m.repo, state: fresh.state });
       // Only a state GitHub named counts: a fallback to the stored one is not this call's answer.
-      const state = fresh.number !== null && PR_STATES.has(pr.state) ? (pr.state as PrStateKey) : null;
+      const state: PrStateKey = fresh.number !== null ? pr.state : null;
       const newlyClosed = state === 'CLOSED' && m.pr?.state !== 'CLOSED';
       if (newlyClosed) logEvent(root, id, 'repo-pr-closed', { repo: m.repo, number: fresh.number });
       out.set(m.repo, { repo: m.repo, number: fresh.number, state, newlyClosed, headOid: fresh.headOid, checks: fresh.checks.state, mergeState: fresh.mergeState ?? null });

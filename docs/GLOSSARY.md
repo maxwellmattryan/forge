@@ -86,6 +86,8 @@ Words for Forge's own code, decided in #303 ([design/lib-layout.md](design/lib-l
 | **lib module** | A folder inside a lib layer (`lib/<layer>/<module>/`) that holds one concept's files, such as `lib/core/job/` or `lib/engine/pipeline/`. | - |
 | **layer alias** | A `package.json` subpath import (`#api/`, `#core/`, `#integrations/`, `#engine/`, `#office/`) that names a lib layer; imports across layers use one, imports inside a layer stay relative. | - |
 | **folder map** | A folder's `AGENTS.md`: a few hand-written lines, then the table that `npm run docs:map` generates from each file's header comment. | - |
+| **GitHub adapter** | The one interface (`GitHub`, in `lib/integrations/github/types.ts`) that `lib/engine/pr/` takes as a parameter for every pull request read and edit: the gh adapter (`ghGitHub`) in production, which `lib/cli/` passes, and `memoryGitHub` in tests, so PR policy code never runs `gh` itself. | - |
+| **PR snapshot** | What the GitHub adapter returns for a pull request (`PrSnapshot`): each field of gh's JSON checked once, so an unsafe ref or a malformed head arrives as `null` and a PR not known to be same-repo reads as cross-repository (a fork PR is never adopted), and policy code never reads raw gh output. | - |
 
 ## Dashboard look
 
