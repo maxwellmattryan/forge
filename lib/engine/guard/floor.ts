@@ -1,6 +1,7 @@
 // The escalate floor: paths no unattended merge lands, whatever policy.protectedPaths says.
-// Forge's own control files, the instruction files agents read, and the test, build and CI config
-// that decides whether a check passes. A builder writes these on its branch, so only a human merges them.
+// Forge's own control files, Claude Code's (`.claude/`, CLAUDE.md, AGENTS.md), the instruction files
+// agents read, and the test, build and CI config that decides whether a check passes. A builder writes
+// these on its branch, so only a human merges them.
 import path from 'node:path';
 import { git, historyEnv } from '#integrations/git/runner.ts';
 import { INSTRUCTION_ROLES, instructionsFor } from '#core/config/validators/instructions.ts';
@@ -26,9 +27,18 @@ export interface FloorInputs {
 const fold = (p: string): string => path.posix.normalize(p.replace(/\\/g, '/')).replace(/^\.\//, '').toLowerCase();
 
 /**
+ * What Claude Code reads on its own in every later session in the repo, whatever `project.instructions`
+ * names (it is unset by default): a `.claude` directory (settings, hooks, agents, commands), a
+ * `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md`, and the `.mcp.json` that starts MCP servers, each at
+ * any depth. Matched on the folded path.
+ */
+const CONTROL_FILE = /(^|\/)(\.claude(\/|$)|(claude|claude\.local|agents)\.md$|\.mcp\.json$)/;
+
+/**
  * The paths in `entries` (a `--no-renames` diff, so a rename shows both sides) that only a human
- * merges: anything under `.forge/` in any case, an instruction file (case-folded), and every change
- * integrity's configEdit counts as a test, build or CI config edit. Sorted, each once.
+ * merges: anything under `.forge/` in any case, Claude Code's own control files, an instruction file
+ * (case-folded), and every change integrity's configEdit counts as a test, build or CI config edit.
+ * Sorted, each once.
  */
 export function floorHits(entries: DiffEntry[], inputs: FloorInputs): string[] {
   const instructions = new Set(inputs.instructions.map(fold));
@@ -37,7 +47,7 @@ export function floorHits(entries: DiffEntry[], inputs: FloorInputs): string[] {
   for (const e of entries) {
     const low = fold(e.path);
     const change = { status: e.status, from: e.status === 'A' ? null : e.path, to: e.status === 'D' ? null : e.path };
-    if (low === '.forge' || low.startsWith('.forge/') || instructions.has(low) || configEdit(change, sources, inputs.read, inputs.mergeBase, inputs.head)) out.add(e.path);
+    if (low === '.forge' || low.startsWith('.forge/') || CONTROL_FILE.test(low) || instructions.has(low) || configEdit(change, sources, inputs.read, inputs.mergeBase, inputs.head)) out.add(e.path);
   }
   return [...out].sort();
 }

@@ -30,6 +30,22 @@ test('the escalate floor', () => {
     ['a doc', 'docs/x.md', false],
   ];
   for (const [name, p, want] of rows) assert.deepEqual(floorHits([entry(p)], inputs), want ? [p] : [], name);
+  // Claude Code reads these on its own, so they hit with project.instructions unset (the default), at any depth and in any case.
+  const unset = { ...inputs, instructions: [] };
+  const control: [string, string, boolean][] = [
+    ['a settings file under .claude/', '.claude/settings.json', true],
+    ['a .claude directory in a package', 'packages/web/.Claude/hooks/pre.sh', true],
+    ['a symlink named .claude', '.claude', true],
+    ['the root CLAUDE.md', 'CLAUDE.md', true],
+    ['a nested CLAUDE.md', 'packages/web/CLAUDE.md', true],
+    ['CLAUDE.local.md', 'CLAUDE.local.md', true],
+    ['a nested AGENTS.md in another case', 'lib/Agents.md', true],
+    ['the MCP server list', '.mcp.json', true],
+    ['a doc that only mentions agents', 'docs/agents-guide.md', false],
+    ['a directory that only starts with .claude', '.claudeish/x.md', false],
+    ['a file named like claude.md.txt', 'docs/claude.md.txt', false],
+  ];
+  for (const [name, p, want] of control) assert.deepEqual(floorHits([entry(p)], unset), want ? [p] : [], name);
   // A rename shows both sides (no renames in the diff): the deleted side alone still hits.
   assert.deepEqual(floorHits([entry('.forge/notes/x.md', 'D'), entry('docs/x.md', 'A')], inputs), ['.forge/notes/x.md']);
 });
