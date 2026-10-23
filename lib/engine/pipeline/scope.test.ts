@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from '../../../test/helpers.ts';
-import { renderDiff, writeRoundDiff } from './scope.ts';
+import { renderDiff, roundDiffText, writeRoundDiff } from './scope.ts';
 import type { DiffSection } from './scope.ts';
 import { ForgeError } from '#core/errors.ts';
 
@@ -49,6 +49,13 @@ test("round diff holds every section's stat, then its diff", () => {
     assert.equal(renderDiff(sections, { stat: false }), before);
     assert.equal(text, `${stat}${before}`);
     assert.ok(stat.endsWith('\n\n'));
+
+    // A diff git can't render (past run()'s 64 MiB output cap in practice) becomes a note, so RV2 still runs.
+    assert.equal(roundDiffText(sections), text);
+    const broken = [root.s, { ...lib.s, head: 'f'.repeat(40) }];
+    const note = roundDiffText(broken);
+    assert.ok(note.startsWith(`${head(root.s)}\n${head(broken[1])}\n\nThe diff was not rendered: `), note);
+    assert.ok(note.includes('`forge git diff --stat <merge base> <HEAD>`') && !note.includes('diff --git'), note);
   } finally {
     root.cleanup();
     lib.cleanup();
@@ -76,6 +83,14 @@ test('writes the round diff without following links', () => {
     fs.symlinkSync(elsewhere, linked);
     assert.throws(() => writeRoundDiff(linked, 'x'), ForgeError);
     assert.deepEqual(fs.readdirSync(elsewhere), []);
+
+    // So is a `review` dir swapped for a link: the round dir in the link's target is real.
+    const away = path.join(top, 'away');
+    fs.mkdirSync(path.join(away, 'round-1'), { recursive: true });
+    fs.mkdirSync(path.join(top, 'job2'));
+    fs.symlinkSync(away, path.join(top, 'job2', 'review'));
+    assert.throws(() => writeRoundDiff(path.join(top, 'job2', 'review', 'round-1'), 'x'), ForgeError);
+    assert.deepEqual(fs.readdirSync(path.join(away, 'round-1')), []);
   } finally {
     fs.rmSync(top, { recursive: true, force: true });
   }

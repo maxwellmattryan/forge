@@ -219,6 +219,8 @@ const DIFF_PINS = ['--no-ext-diff', '--no-textconv', '--no-color', '--no-relativ
 
 const STAT_GRAPH = 40;
 
+const sectionLine = (s: DiffSection): string => `# repo ${s.label} base ${s.baseRef} @ ${s.mergeBase} · HEAD ${s.head}`;
+
 /**
  * A `git diff --stat` summary counted from a section's own unified diff. git's --stat honours a
  * `-diff` or `binary` attribute even with --text and would print a changed text file as "Bin", so
@@ -244,8 +246,9 @@ function diffStat(diff: string, prefix: string): string {
     else if (cur && hunk && line.startsWith('-')) cur.del++;
   }
   if (!files.length) return '';
-  const width = Math.max(...files.map((f) => f.name.length));
-  const most = Math.max(...files.map((f) => f.add + f.del));
+  // reduce, not Math.max(...): a spread of ~100k changed files overflows the call stack.
+  const width = files.reduce((n, f) => Math.max(n, f.name.length), 0);
+  const most = files.reduce((n, f) => Math.max(n, f.add + f.del), 0);
   const digits = String(most).length;
   const scale = (n: number) => (most <= STAT_GRAPH ? n : n ? Math.max(1, Math.round((n * STAT_GRAPH) / most)) : 0);
   const add = files.reduce((n, f) => n + f.add, 0);
@@ -274,7 +277,7 @@ function diffStat(diff: string, prefix: string): string {
  */
 export function renderDiff(sections: DiffSection[], opts: { stat: boolean }): string {
   const env = historyEnv();
-  const header = (s: DiffSection) => `# repo ${s.label} base ${s.baseRef} @ ${s.mergeBase} · HEAD ${s.head}\n`;
+  const header = (s: DiffSection) => `${sectionLine(s)}\n`;
   const parts = sections.map((s) => ({
     s,
     out: runGit(s.cwd, ['diff', ...DIFF_PINS, '-U3', `--src-prefix=a/${s.prefix}`, `--dst-prefix=b/${s.prefix}`, s.mergeBase, s.head, '--'], { env }).stdout,
@@ -285,18 +288,42 @@ export function renderDiff(sections: DiffSection[], opts: { stat: boolean }): st
 }
 
 /**
- * Writes `<dir>/diff.patch` without following a planted link: `dir` must be a real directory, any
- * entry at the file's path is removed (a symlink itself, never its target), and the file is created
- * exclusively, so the job dir's agent-writable entries can't redirect the CLI's write.
+ * The round diff (renderDiff with its stat), or a note when git can't render it: each section's
+ * `# repo …` line, the reason, and the `forge git diff` reviewers read instead. A branch that commits
+ * a bundle or binary past run()'s 64 MiB output cap (--text prints it in full) must not stop RV2 for
+ * every job; scope.md and the scope event don't need the diff text.
+ */
+export function roundDiffText(sections: DiffSection[]): string {
+  try {
+    return renderDiff(sections, { stat: true });
+  } catch (e) {
+    const reason = String(e instanceof Error ? e.message : e).replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 200);
+    return [
+      ...sections.map(sectionLine),
+      '',
+      `The diff was not rendered: ${reason}`,
+      "Read each repo's diff in its worktree with the shas above: `forge git diff --stat <merge base> <HEAD>`, then `forge git diff <merge base> <HEAD> -- <paths>`.",
+      '',
+    ].join('\n');
+  }
+}
+
+/**
+ * Writes `<dir>/diff.patch` without following a planted link: `dir` and its `review` parent must be
+ * real directories, any entry at the file's path is removed (a symlink itself, never its target), and
+ * the file is created exclusively, so the job dir's agent-writable entries can't redirect the CLI's write.
  */
 export function writeRoundDiff(dir: string, text: string): string {
-  let st: fs.Stats;
-  try {
-    st = fs.lstatSync(dir);
-  } catch (e) {
-    throw new ForgeError(`review directory ${dir} is unreadable: ${(e as Error).message}`);
+  // The parent too: a linked `review/` holds a real `round-<n>` (ensureReviewDir made it) in the link's target.
+  for (const d of [path.dirname(dir), dir]) {
+    let st: fs.Stats;
+    try {
+      st = fs.lstatSync(d);
+    } catch (e) {
+      throw new ForgeError(`review directory ${d} is unreadable: ${(e as Error).message}`);
+    }
+    if (!st.isDirectory()) throw new ForgeError(`review directory ${d} is not a directory`);
   }
-  if (!st.isDirectory()) throw new ForgeError(`review directory ${dir} is not a directory`);
   const file = path.join(dir, 'diff.patch');
   fs.rmSync(file, { force: true });
   const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0), 0o644);
@@ -356,7 +383,7 @@ export function jobScope(root: string, config: Config, id: string): ScopeReport 
   // scope.diff is multi-repo only; a combined diff left by an earlier run would mislead a single-repo job's reviewers.
   else fs.rmSync(diffFile, { force: true });
   // Every job, once per round after verify (RV2): the reviewers' `Diff:` file, so none fetches the same diff itself.
-  const patch = writeRoundDiff(ensureReviewDir(root, job.id, Math.max(job.round, 1)), renderDiff(sections, { stat: true }));
+  const patch = writeRoundDiff(ensureReviewDir(root, job.id, Math.max(job.round, 1)), roundDiffText(sections));
   fs.writeFileSync(file, renderScope({ baseRef, mergeBase, head, dirty, approach, tokens, inside, outside, changed: changedFiles.length, prot, protectedError, members }));
   logEvent(root, job.id, 'scope', { round: job.round, head, ...(members.length ? { heads } : {}) });
   return {
