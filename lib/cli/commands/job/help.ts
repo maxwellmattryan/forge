@@ -1,4 +1,4 @@
-// `forge job`'s help table: every subcommand's usage, flags and exits, which `forge help job` prints and `npm run docs:commands` reads.
+// `forge job`'s help table: every subcommand's usage, flags and exits, which `forge help job` prints and `npm run docs` reads.
 import { OFFICE_GATES } from '#core/job/schema.ts';
 import type { HelpGroup } from '../../types.ts';
 

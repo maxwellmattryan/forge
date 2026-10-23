@@ -5,10 +5,10 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ghPr, memoryGitHub, tempRepo } from '../../../test/helpers.ts';
+import { ghPr, memoryGitHub, parkedAt, tempRepo } from '../../../test/helpers.ts';
 import { syncPr } from './sync.ts';
 import { defaults } from '#core/config/load.ts';
-import { createJob, jobDir, loadJob, readEvents, setJob } from '#core/job/store.ts';
+import { jobDir, loadJob, readEvents } from '#core/job/store.ts';
 import type { Job } from '#core/types.ts';
 
 const config = defaults();
@@ -18,8 +18,7 @@ const SHA = 'b'.repeat(40);
 /** A job parked on its PR #7 waiting for review, and a memory GitHub with no PR in it yet. */
 function scenario() {
   const repo = tempRepo();
-  const id = createJob(repo.dir, config, { title: 'sync me' }).id;
-  setJob(repo.dir, id, { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', owned: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', pushedSha: SHA } } });
+  const id = parkedAt(repo.dir, 'pr-review', { config, title: 'sync me', pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', pushedSha: SHA } }).id;
   return { root: repo.dir, id, github: memoryGitHub(), job: () => loadJob(repo.dir, id), cleanup: repo.cleanup };
 }
 

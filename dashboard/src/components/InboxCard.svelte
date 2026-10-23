@@ -1,5 +1,7 @@
-<!-- A "Needs you" card: the job, why it waits, who acted last, who owns the gate (with the foreman on) or that the Foreman left it for a human, what Approve does on a secret park (and whether the last one left it blocked), the protected paths it changes,
-     its doc link, a note and the request buttons. The title takes the width (grows from 16rem), so the chips drop to the next line before it would wrap word by word. -->
+<!-- A "Needs you" card: the job, why it waits, who acted last, who owns the gate (with the foreman on) or that the Foreman
+     left it for a human, what Approve does on a secret park (and whether the last one left it blocked), the protected paths
+     it changes, its doc link, a note and the request buttons. The title takes the width (grows from 16rem), so the chips
+     drop to the next line before it would wrap word by word. -->
 <script lang="ts">
   import JobActions from './JobActions.svelte';
   import StateChip from './StateChip.svelte';
