@@ -3,19 +3,22 @@
      results are untrusted: they render only through the escape-first md(), or as plain text in Raw (and above 20k
      characters). The secret scanner's notes (secret-found events) are an ember plate whose masked findings and scan
      error are plain text, never markdown. Progress lines (lib/thread-progress.ts) sit between the messages as one-line rows,
-     their agent and engine text plain; the Progress button hides them, and they never count as unread. -->
+     their agent and engine text plain; the Progress button hides them, and they never count as unread. The opening request
+     comes as the server's 2,000-character excerpt; when it was cut, a button loads the whole request.md, which goes
+     through the same md() or text view. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
   import { md } from '../lib/markdown.ts';
   import { renderable } from '../lib/md-view.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
-  import { ago } from '../lib/util.ts';
+  import { ago, api } from '../lib/util.ts';
+  import { toast } from '../lib/toast.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import { STAGE_LABEL, WAIT_LABEL } from '../lib/labels.ts';
   import { threadFeed, threadProgress, type Progress } from '../lib/thread-progress.ts';
   import { pref } from '../lib/prefs.ts';
-  import { secretLine, threadItems, threadMark, type ThreadAction, type ThreadFrom, type ThreadOpening, type ThreadSecret, type ThreadStatus } from '../lib/thread.ts';
+  import { requestText, secretLine, threadItems, threadMark, type ThreadAction, type ThreadFrom, type ThreadOpening, type ThreadSecret, type ThreadStatus } from '../lib/thread.ts';
   import { TINT, threadSender } from '../lib/sender.ts';
   import type { ForgeRequest, Job, JobEvent } from '../lib/types.ts';
   import { t } from '../lib/locale.ts';
@@ -26,6 +29,32 @@
   const seenAtOpen = $derived(baseline ? new Set(baseline) : null);
   let showProgress = $state(pref.get('threadProgress', '1') !== '0');
   $effect(() => pref.set('threadProgress', showProgress ? '1' : '0'));
+  /** The whole request.md, once loaded, and whether it is shown: both per job, as the drawer reuses this component. */
+  let whole = $state<{ job: string; text: string } | null>(null);
+  let expanded = $state<string | null>(null);
+  let loadingWhole = $state(false);
+  const showWhole = $derived(whole !== null && whole.job === job.id && expanded === job.id);
+
+  async function toggleWhole(): Promise<void> {
+    if (showWhole) {
+      expanded = null;
+      return;
+    }
+    const id = job.id;
+    if (whole?.job !== id) {
+      loadingWhole = true;
+      try {
+        whole = { job: id, text: requestText(await api<string>(`/api/jobs/${encodeURIComponent(id)}/file?path=request.md`)) };
+      } catch (err) {
+        toast($t('thread.wholeFailed', { error: err instanceof Error ? err.message : String(err) }), true);
+        return;
+      } finally {
+        loadingWhole = false;
+      }
+    }
+    expanded = id;
+  }
+
   const rows = $derived(threadFeed(items, showProgress ? threadProgress(events) : []));
 
   /** A progress line's dot: ok and bad for outcomes, spark where the job waits on a person, gleam for progress. */
@@ -194,7 +223,9 @@
               {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot spark size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="font-semibold text-fg">{who[m.from]}</span><span class="text-fg">{actionText(m.action)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.status}<Chip tone={TONE[m.status]} text={statusText[m.status]} />{/if}
             </div>
             {#if m.text}
-              {#if renderable(m.text, mdView.thread)}<div class="prose break-words">{@html md(m.text)}</div>{:else}<p class="selectable text-sm whitespace-pre-wrap break-words">{m.text}</p>{/if}
+              {@const text = m.id === 'request' && showWhole && whole ? whole.text : m.text}
+              {#if renderable(text, mdView.thread)}<div class="prose break-words">{@html md(text)}</div>{:else}<p class="selectable text-sm whitespace-pre-wrap break-words">{text}</p>{/if}
+              {#if m.id === 'request' && opening.truncated}<button type="button" class="btn sm self-start" aria-expanded={showWhole ? 'true' : 'false'} disabled={loadingWhole} onclick={toggleWhole}>{showWhole ? $t('thread.showLess') : loadingWhole ? $t('thread.loadingWhole') : $t('thread.showWhole')}</button>{/if}
             {/if}
             {#if m.result}
               {#if renderable(m.result, mdView.thread)}

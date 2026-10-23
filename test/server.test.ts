@@ -1635,7 +1635,7 @@ test('job detail lists the job\'s requests', async () => {
   try {
     const detail = JSON.parse((await hit(port, { path: `/api/jobs/${a}` })).text);
     // The keys of JobDetail in lib/api-types.ts.
-    assert.deepEqual(Object.keys(detail).sort(), ['agents', 'events', 'files', 'job', 'ownerTranscript', 'request', 'requestFromTracker', 'requests', 'screenshots']);
+    assert.deepEqual(Object.keys(detail).sort(), ['agents', 'events', 'files', 'job', 'ownerTranscript', 'request', 'requestFromTracker', 'requestTruncated', 'requests', 'screenshots']);
     assert.equal(detail.requests.length, 50, 'capped at 50');
     assert.deepEqual(detail.requests.map((r) => r.id), ids.slice(-50), 'the newest 50, oldest first');
     assert.ok(detail.requests.every((r) => r.job === a));
@@ -1644,6 +1644,8 @@ test('job detail lists the job\'s requests', async () => {
     fs.writeFileSync(path.join(repo.dir, '.forge', 'jobs', b, 'request.md'), `# Title line\n\n  ${'w'.repeat(2500)}\n`);
     const other = JSON.parse((await hit(port, { path: `/api/jobs/${b}` })).text);
     assert.equal(other.request, `${'w'.repeat(2000)}…`, 'the request without its title, trimmed and capped');
+    assert.equal(other.requestTruncated, true, 'a capped request says so');
+    assert.equal(detail.requestTruncated, false);
     assert.equal(detail.requestFromTracker, false, 'no created event: not tracker text');
     // Created from the bar, then linked at the gate: the job has issues, but only the created event's count.
     const event = (type, data) => JSON.stringify({ v: 1, ts: new Date().toISOString(), type, ...data }) + '\n';

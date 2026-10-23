@@ -853,6 +853,10 @@
     "done": "done",
     "rejected": "rejected",
     "empty": "Requests about this job and the session's replies appear here.",
+    "showWhole": "Show the whole request",
+    "showLess": "Show less",
+    "loadingWhole": "Loading…",
+    "wholeFailed": "Couldn't load the whole request: {error}",
     "progress": {
       "toggle": "Progress",
       "toggleTitle": "Show stage changes, agents' replies, checks, reviews and the PR between the messages",

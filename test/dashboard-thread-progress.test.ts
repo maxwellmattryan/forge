@@ -48,12 +48,13 @@ test('progressOf: no row for detail, repeats or malformed fields', () => {
   for (const [name, e] of rows) assert.equal(progressOf(e), null, name);
 });
 
-test('plainLine: one line of at most 300 characters', () => {
+test('plainLine: one line of at most 2,000 characters', () => {
   assert.equal(plainLine('a\nb c\t\td'), 'a b c d');
   assert.equal(plainLine(42), null);
   assert.equal(plainLine('\n'), null);
-  const long = plainLine('x'.repeat(400));
-  assert.equal(long?.length, 300);
+  assert.equal(plainLine('x'.repeat(1500))?.length, 1500, 'a long reply is kept whole');
+  const long = plainLine('x'.repeat(2500));
+  assert.equal(long?.length, 2000);
   assert.ok(long?.endsWith('…'));
 });
 

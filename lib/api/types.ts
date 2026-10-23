@@ -775,6 +775,8 @@ export interface JobDetail {
   requests: ForgeRequest[];
   /** request.md without its `# title` line, trimmed, at most 2,000 characters: the Thread's opening message. */
   request: string | null;
+  /** `request` was cut at 2,000 characters; the whole text is request.md, through GET /api/jobs/:id/file. */
+  requestTruncated: boolean;
   /** The job's `created` event has a ref (from-ref), so `request` is the issue's text. A later `job link` doesn't count. */
   requestFromTracker: boolean;
   /** The current round's agent records plus any still running, newest start first. */

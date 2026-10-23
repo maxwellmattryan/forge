@@ -1564,18 +1564,21 @@ function jobDetail(root: string, id: string, projects: string, ownPoolSession: (
     files,
     screenshots: listScreenshots(dir),
     requests: listRequests(root).filter((r) => r.job === id).slice(-MAX_JOB_REQUESTS),
-    request: requestExcerpt(root, id),
+    ...requestExcerpt(root, id),
     requestFromTracker: fromTracker,
     agents: roundAgents(root, job, events, projects),
     ownerTranscript: ((o) => (o ? { session: o.session } : null))(interactiveOwner(root, job, projects)),
   }, knownValues(root, id, loadConfig(root).config));
 }
 
-/** request.md without its `# title` line, for the Thread's opening message; null when empty. */
-function requestExcerpt(root: string, id: string): string | null {
+/**
+ * request.md without its `# title` line, for the Thread's opening message; null when empty. The detail is polled, so a long
+ * request is cut here and `requestTruncated` tells the Thread to load the whole file when asked.
+ */
+function requestExcerpt(root: string, id: string): Pick<JobDetail, 'request' | 'requestTruncated'> {
   const body = requestBody(root, id);
-  if (!body) return null;
-  return body.length > MAX_REQUEST_EXCERPT ? `${body.slice(0, MAX_REQUEST_EXCERPT)}…` : body;
+  if (!body) return { request: null, requestTruncated: false };
+  return body.length > MAX_REQUEST_EXCERPT ? { request: `${body.slice(0, MAX_REQUEST_EXCERPT)}…`, requestTruncated: true } : { request: body, requestTruncated: false };
 }
 
 /**

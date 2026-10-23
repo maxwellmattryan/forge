@@ -30,14 +30,14 @@ export interface ProgressItem {
 /** One Thread row: a message (a request, the opening, a secret note) or a progress line. */
 export type FeedRow = { kind: 'message'; item: ThreadItem } | { kind: 'progress'; item: ProgressItem };
 
-const MAX_TEXT = 300;
+const MAX_TEXT = 2000;
 const ROLE = /^[a-z0-9:-]{1,60}$/;
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 const int = (v: unknown, min: number): number | null => (typeof v === 'number' && Number.isInteger(v) && v >= min ? v : null);
 const stageOf = (v: unknown): Stage | null => (typeof v === 'string' && Object.hasOwn(STAGE_LABEL, v) ? (v as Stage) : null);
 const waitOf = (v: unknown): WaitingOn | null => (typeof v === 'string' && Object.hasOwn(WAIT_LABEL, v) ? (v as WaitingOn) : null);
 
-/** Agent or engine text on one line: control characters become spaces, at most 300 chars; null when nothing is left. */
+/** Agent or engine text on one line: control characters become spaces, at most 2,000 chars; null when nothing is left. */
 export function plainLine(v: unknown): string | null {
   if (typeof v !== 'string') return null;
   const text = v.replace(/[\x00-\x1f\x7f\u2028\u2029]/g, ' ').replace(/ {2,}/g, ' ').trim();
