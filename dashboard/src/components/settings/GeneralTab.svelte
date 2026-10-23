@@ -2,13 +2,14 @@
 <script lang="ts">
   import Select from '../Select.svelte';
   import { CATALOGS, locale, setLocale, t } from '../../lib/locale.ts';
-  import { THEME_CHOICES, chooseTheme, currentGrain, setGrain, themeChoice, type ThemeChoice } from '../../lib/theme.ts';
+  import { THEME_CHOICES, chooseTheme, currentGrain, currentScreen, setGrain, setScreen, themeChoice, type ThemeChoice } from '../../lib/theme.ts';
   import { pref } from '../../lib/prefs.ts';
   import { settingsShortcutLabel } from '../../lib/settings.ts';
   import { slideMarker } from '../../lib/marker.ts';
 
   let choice = $state<ThemeChoice>(themeChoice(pref.get('theme', '')));
   let grain = $state(currentGrain());
+  let screen = $state(currentScreen());
   const key = settingsShortcutLabel(typeof navigator === 'undefined' ? '' : navigator.platform);
   const codes = Object.keys(CATALOGS);
   const labels = $derived<Record<ThemeChoice, string>>({ forge: $t('settings.general.forge'), ash: $t('settings.general.ash'), temper: $t('settings.general.temper'), crucible: $t('settings.general.crucible'), patina: $t('settings.general.patina'), obsidian: $t('settings.general.obsidian'), system: $t('settings.general.system') });
@@ -37,6 +38,8 @@
       </div>
       <div id="settings-grain-label">{$t('settings.general.grain')}</div>
       <label class="field"><input type="checkbox" class="check" checked={grain} aria-labelledby="settings-grain-label" aria-describedby="settings-grain-hint" onchange={(e) => { grain = e.currentTarget.checked; setGrain(grain); }} /><span id="settings-grain-hint" class="muted">{$t('settings.general.grainHint')}</span></label>
+      <div id="settings-screen-label">{$t('settings.general.screen')}</div>
+      <label class="field"><input type="checkbox" class="check" checked={screen} aria-labelledby="settings-screen-label" aria-describedby="settings-screen-hint" onchange={(e) => { screen = e.currentTarget.checked; setScreen(screen); }} /><span id="settings-screen-hint" class="muted">{$t('settings.general.screenHint')}</span></label>
     </div>
   </section>
   <section class="flex flex-col gap-3">

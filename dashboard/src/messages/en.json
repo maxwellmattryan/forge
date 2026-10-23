@@ -656,6 +656,8 @@
       "languageKeyboard": "Language and keyboard",
       "grain": "Grain",
       "grainHint": "Film grain on the ground and plates",
+      "screen": "Screen effect",
+      "screenHint": "Scanlines and a soft glow on session logs",
       "hint": "Press {key} to open settings."
     },
     "field": {

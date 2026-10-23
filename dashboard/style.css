@@ -1132,6 +1132,107 @@
   &.seg[data-marker] .btn { position: relative; z-index: 1; }
   &.seg[data-marker] .btn.sel { background: transparent; box-shadow: none; }
 }
+/* ---------- the station terminal: every session and environment log (SessionLog, EnvironmentLog) ----------
+   A brushed-steel bezel (no hammer, no grain: text and controls sit on it) holding a stamped nameplate and a recessed
+   screen. Heat is activity: the bezel's top edge warms while output streams and cools slowly after. */
+@utility station {
+  border: 1px solid var(--line);
+  corner-shape: bevel;
+  border-radius: var(--radius-cut) var(--radius-1) var(--radius-cut) var(--radius-1);
+  background-color: var(--panel);
+  --surface: var(--panel);
+  background-image: linear-gradient(180deg, var(--sheen), transparent 45%);
+  box-shadow: var(--shadow-bevel);
+  padding: 8px;
+  @media (width < 48rem) { padding: 4px; }
+  min-width: 0;
+  transition: border-top-color var(--heat-bezel) var(--ease-enter), box-shadow var(--heat-bezel) var(--ease-enter);
+  /* Warms at base, cools over --heat-bezel (the base rule's timing). */
+  &.hot { border-top-color: var(--heat); box-shadow: inset 0 1px 0 0 color-mix(in srgb, var(--heat) 60%, transparent), var(--shadow-bevel); transition-duration: var(--motion-base); }
+}
+/* The terminal's tag: lamp, then the facts, stamped in the label type on the chrome. */
+@utility nameplate {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: .10em;
+  text-transform: uppercase;
+  line-height: 16px;
+  color: var(--muted);
+  background-color: var(--chrome);
+  --surface: var(--chrome);
+  border: 1px solid var(--line-strong);
+  corner-shape: bevel;
+  border-radius: var(--radius-nick) 0 var(--radius-nick) 0;
+  box-shadow: var(--shadow-bevel);
+  padding: 2px 8px;
+}
+/* The screen: an opaque recess the log scrolls in. Its scanlines are its own background, so they never draw outside a
+   screen, and the grain never draws on one. .live adds the phosphor glow, which fades over --heat-glow both ways.
+   Settings › General › Screen effect (data-screen="off") removes the scanlines and the glow only. */
+@utility screen {
+  background-color: var(--screen);
+  --surface: var(--screen);
+  background-image: repeating-linear-gradient(to bottom, var(--scanline) 0 1px, transparent 1px 3px);
+  border: 1px solid var(--line);
+  corner-shape: bevel;
+  border-radius: 0 var(--radius-nick) 0 var(--radius-nick);
+  box-shadow: inset 0 2px 6px 0 var(--edge-dark), inset 0 0 0 1px var(--line-soft);
+  isolation: isolate;
+  overflow-y: auto;
+  transition: text-shadow var(--heat-glow) var(--ease-exit);
+  &.live { text-shadow: 0 0 6px color-mix(in srgb, var(--heat) 35%, transparent); }
+  /* Clocking in: the first time a mounted terminal goes live, the picture opens from the centre line. */
+  &.powering { animation: power-on var(--motion-base) var(--ease-enter); }
+  html[data-screen="off"] & { background-image: none; text-shadow: none; }
+}
+@keyframes power-on { from { clip-path: inset(50% 0 50% 0); } to { clip-path: inset(0); } }
+/* The block cursor after the last line. Its rest state is lit, so reduced motion (no blink) leaves it visible. */
+@utility cursor {
+  display: inline-block;
+  width: .6em;
+  height: 1.1em;
+  vertical-align: text-bottom;
+  background-color: var(--heat);
+  opacity: 1;
+  &.blink { animation: blink var(--heat-blink) steps(1) infinite; }
+  &.hold { opacity: .45; }
+}
+@keyframes blink { 50% { opacity: 0; } }
+/* A tool or subagent call that arrived live: one quick spark tick in its left gutter. The tick's rest state is gone, so
+   reduced motion shows nothing. */
+@utility strike {
+  position: relative;
+  &::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--spark); opacity: 0; pointer-events: none; animation: strike var(--motion-quick) var(--ease-exit) both; }
+}
+@keyframes strike { from { opacity: 1; } to { opacity: 0; } }
+/* A lamp relit after its job moved stage: it comes back from dark. */
+@utility relight { animation: relight var(--motion-slow) var(--ease-enter) both; }
+@keyframes relight { from { opacity: .15; } }
+/* The pilot lamp: an 8px light in a dark ring. Lit states stay at full opacity, so reduced motion (which stops the
+   breathing) leaves it lit. you rings itself apart from working, which shares its hue on forge. */
+@utility lamp {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+  opacity: 1;
+  background: transparent;
+  box-shadow: 0 0 0 1px var(--edge-dark);
+  &.working { background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--heat), white 35%) 0%, var(--heat) 60%); animation: breathe var(--heat-breathe) ease-in-out infinite; }
+  &.waiting { background: color-mix(in srgb, var(--heat) 55%, var(--line-strong)); }
+  &.you { background: var(--ember); box-shadow: 0 0 0 1px var(--surface, var(--bg)), 0 0 0 2px var(--ember); }
+  &.done { background: var(--ok); }
+  &.idle { box-shadow: inset 0 0 0 1px var(--line-strong), 0 0 0 1px var(--edge-dark); }
+  &.fault { background: var(--bad); }
+}
+@keyframes breathe { 50% { opacity: .55; } }
 /* The anvil, as shipped: a raster with its own light grey tile. */
 @utility mark { width: 36px; height: 36px; }
 
