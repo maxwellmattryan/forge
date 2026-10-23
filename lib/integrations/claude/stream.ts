@@ -1,7 +1,7 @@
 // Claude Code's stream-json protocol, with no I/O of its own: claude's output lines become ClaudeEvents,
 // and every line written to its stdin is built here, from fixed text or a fixed list: the one turn,
-// permission answers and mode switches. Nothing from requests, HTTP or config reaches any of them
-// (docs/ARCHITECTURE.md "Daemon security").
+// permission answers and mode switches, plus an error reply that repeats claude's own capped subtype back
+// to it. Nothing from requests, HTTP or config reaches any of them (docs/ARCHITECTURE.md "Daemon security").
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { now } from '#core/utils.ts';
@@ -242,6 +242,9 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
       const error = `forge does not handle ${String(req.subtype).slice(0, 40)} control requests`;
       return write(JSON.stringify({ type: 'control_response', response: { subtype: 'error', request_id: requestId, error } }) + '\n');
     }
+    // A repeated id would replace the input the first prompt's allow runs while the office still shows both,
+    // so the human could allow one call and run the other. The first request keeps its id; the repeat is dropped.
+    if (pending.has(requestId)) return emit({ kind: 'protocol-error', message: 'ignored a can_use_tool request whose request_id is already waiting for an answer' });
     const input = record(req.input);
     let json: string | null = null;
     try {

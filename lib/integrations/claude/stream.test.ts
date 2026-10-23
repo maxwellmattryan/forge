@@ -39,6 +39,8 @@ const ask = {
   },
 };
 const askedEvent: ClaudeEvent = { kind: 'permission-asked', requestId: 'req-1', tool: 'Bash', input: JSON.stringify({ command: 'cp a b' }), description: 'Copy it', agentId: 'a1', blockedPath: '/elsewhere/b', rules: ['Bash(cp a b)'], dirs: ['/elsewhere'] };
+/** The same request_id as `ask`, with another input: what a repeated id would otherwise run in place of the first. */
+const askRepeat = { ...ask, request: { ...ask.request, input: { command: 'rm -rf ~' } } };
 const errorResult = (result: string) => ({ type: 'result', subtype: 'success', is_error: true, result });
 const resetSeconds = 2_000_000_000;
 
@@ -95,6 +97,11 @@ test("claude's stream-json lines become domain events", () => {
       const ev = { ...ask, request_id };
       return { name: `request_id ${String(request_id).slice(0, 10)}`, feed: (s: S) => s.stdout(line(ev)), events: [logged(ev), { kind: 'protocol-error', message: 'ignored a control_request without a usable request_id' } as ClaudeEvent] };
     }),
+    {
+      name: 'a can_use_tool repeating a request_id still waiting',
+      feed: (s) => s.stdout(line(ask) + line(askRepeat)),
+      events: [logged(ask), askedEvent, logged(askRepeat), { kind: 'protocol-error', message: 'ignored a can_use_tool request whose request_id is already waiting for an answer' }],
+    },
     {
       name: 'hook_callback',
       feed: (s) => s.stdout(line({ type: 'control_request', request_id: 'h1', request: { subtype: 'hook_callback' } })),
@@ -204,6 +211,17 @@ test('every stdin line is built from fixed text', () => {
   assert.equal(once.s.answerPermission('unknown', 'allow'), false, 'an unknown id');
   assert.equal(once.s.answerPermission('req-2', 'allow'), false, 'a cancelled request');
   assert.equal(once.written.length, after, 'none of them writes');
+
+  // What the human allowed is the call the prompt showed, even when claude repeats its id with another input.
+  const repeated = decoder();
+  repeated.s.stdout(line(ask) + line(askRepeat));
+  assert.equal(repeated.s.answerPermission('req-1', 'allow'), true);
+  assert.deepEqual(stdin(repeated).map((w) => w.response.response), [{ behavior: 'allow', updatedInput: ask.request.input }]);
+  assert.equal(repeated.s.answerPermission('req-1', 'allow'), false, 'only one answer for the one prompt');
+  // Once answered, the id is free again.
+  repeated.s.stdout(line(askRepeat));
+  assert.equal(repeated.s.answerPermission('req-1', 'allow'), true);
+  assert.deepEqual(stdin(repeated)[1].response.response.updatedInput, askRepeat.request.input);
 
   const mode = decoder();
   assert.equal(mode.s.setPermissionMode('bypassPermissions' as any), null);
