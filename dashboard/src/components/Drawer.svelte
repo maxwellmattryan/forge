@@ -193,12 +193,16 @@
   {:else if shown && job}
     {@const d = shown.detail}
     {@const j = job}
+    {@const verbs = scopeVerbs(j).length > 0}
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div bind:this={head} class="shrink-0 max-h-[40%] overflow-y-auto overscroll-contain p-5 md:p-6 pb-3 md:pb-4 flex flex-col gap-2">
-        <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 bind:this={title} tabindex="-1" class="h sheet-title">{j.title}</h2><div class="mono text-[13px] muted selectable">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div></div>
-        <!-- A daemon-backed job's session controls sit here, not in its Log, so every tab has them; an interactive owner's
-             job has none, as its Log follows a transcript, and keeps the effort chip. -->
-        <div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-2"><div class="flex min-w-0 flex-wrap items-center gap-1.5"><Chip tone="gleam" text={STAGE_LABEL[j.stage] ?? j.stage} /><StateChip job={j} />{#if prot}<Chip tone="warn" extra="max-w-full flex-wrap whitespace-normal" text={$t('job.protectedDrawer', { reasons: prot.reasons.join(' · ') })} />{/if}{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}{#if ownerLog}<EffortChip level={effort} />{/if}{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>{#if !ownerLog}{#key j.id}<SessionControls scope={j.id} />{/key}{/if}</div>
+        <div class="flex items-start justify-between gap-3"><h2 bind:this={title} tabindex="-1" class="h sheet-title min-w-0">{j.title}</h2><CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div>
+        <!-- The meta line, then one right-aligned controls cluster: a daemon-backed job's session controls (here, not in its
+             Log, so every tab has them), then Command, nearest the close button. An interactive owner's job has no session
+             controls, as its Log follows a transcript, and keeps the effort chip. ml-auto keeps the cluster right-aligned
+             when it wraps under the meta line. -->
+        <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2"><div class="mono text-[13px] muted min-w-0 break-all"><span class="selectable">{j.id}</span>{#if j.round}{' · '}{$t('job.round', { round: j.round, max: j.maxRounds })}{/if}</div>{#if !ownerLog || verbs}<div class="ml-auto flex min-w-0 flex-wrap items-start justify-end gap-1.5">{#if !ownerLog}{#key j.id}<SessionControls scope={j.id} />{/key}{/if}{#if verbs}<CommandTrigger job={j.id} />{/if}</div>{/if}</div>
+        <div class="flex min-w-0 flex-wrap items-center gap-1.5"><Chip tone="gleam" text={STAGE_LABEL[j.stage] ?? j.stage} /><StateChip job={j} />{#if prot}<Chip tone="warn" extra="max-w-full flex-wrap whitespace-normal" text={$t('job.protectedDrawer', { reasons: prot.reasons.join(' · ') })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}{#if ownerLog}<EffortChip level={effort} />{/if}{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>
         {#if j.reason}<div class="text-sm text-muted truncate" title={j.reason}>{j.reason}</div>{/if}
         <!-- On the Thread the live line under the conversation says what runs, so the header doesn't say it twice. -->
         {#if shown.tab !== 'thread' && (running.length || j.ownerStatus?.status !== 'none')}<AgentActivity activity={running} owner={j.ownerStatus} expandable={true} />{/if}

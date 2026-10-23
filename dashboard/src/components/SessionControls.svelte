@@ -1,5 +1,6 @@
-<!-- One daemon session's controls: the Permissions dropdown, a job's Effort dropdown and the Start/Stop icon toggle, with
-     the session's notes (its last error, a mode switch claude hasn't confirmed, the auto-mode warning) under them. The
+<!-- One daemon session's controls: in Auto, a warning icon whose tooltip is the reminder, then the Permissions dropdown, a
+     job's Effort dropdown and the Start/Stop icon toggle, with the session's notes (its last error, a mode switch claude
+     hasn't confirmed) under them, right-aligned. The
      session log shows them for the inbox and the office; the job drawer shows a job's in its header, so every tab has
      them. `live` is the caller's freshest session state (the log's stream), else the 2 s /api/state poll's; `onacted`
      runs after a Start or Stop so the caller can drop that state. The last error is session output: text only. -->
@@ -73,6 +74,9 @@
 
 <div class="flex min-w-0 flex-col items-end gap-1">
   <div class="flex flex-wrap items-center justify-end gap-1.5">
+    <!-- Left of Permissions, so turning Auto on or off never moves the dropdowns or Start/Stop under the pointer. It only
+         explains: pressing it toggles its tooltip and posts nothing. -->
+    {#if mode.chosen === 'auto'}<IconButton icon="warning" ghost class="text-warn" label={$t('session.modes.autoWarning')} hint={$t('session.modes.autoWarningHint')} tipToggle />{/if}
     <!-- The Select stays enabled while its entries can't change, so it still opens and the hints stay readable. -->
     <Select variant="button" icon="shield" align="end" label={$t('session.modeLabel')} value={shownMode} text={modeName[shownMode] ?? shownMode} options={modeOptions} onchange={setMode} />
     {#if scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE}<EffortSelect job={scope} />{/if}
@@ -80,5 +84,4 @@
   </div>
   {#if session?.lastError}<div role="status" class="text-xs text-bad text-right break-words">{session.lastError}</div>{/if}
   {#if mode.live !== null}<div role="status" class="text-xs text-muted text-right">{$t('session.modeSwitching', { mode: modeName[mode.live] ?? mode.live })}</div>{/if}
-  {#if mode.chosen === 'auto'}<div class="text-xs text-warn text-right">{$t('session.modes.autoWarning')}</div>{/if}
 </div>
