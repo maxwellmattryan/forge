@@ -1,6 +1,6 @@
 # lib/ layers and the big-file splits
 
-Status: decided 2026-10-21 (#303). The groundwork landed in #412: the glossary words, header comments, the tripwire tests in `test/invariants/`, `npm run docs:map` and this doc. The move landed in #421: every `lib/` file sits in its layer and module, with a folder map in each layer and module folder. The aliases landed in #370: imports across layers go through `package.json` "imports". The types split landed in #413, the PR split in #414, the server split in #415, the daemon split in #416 and the worktree split in #417; the other file splits (#418–#419) and the test layout (#420) are pending.
+Status: decided 2026-10-21 (#303). The groundwork landed in #412: the glossary words, header comments, the tripwire tests in `test/invariants/`, `npm run docs:map` and this doc. The move landed in #421: every `lib/` file sits in its layer and module, with a folder map in each layer and module folder. The aliases landed in #370: imports across layers go through `package.json` "imports". The types split landed in #413, the PR split in #414, the server split in #415, the daemon split in #416, the worktree split in #417 and the `forge job` split in #418; the release splits (#419) and the test layout (#420) are pending.
 
 This replaces the flat "~18 top-level modules" plan of 2026-10-19.
 
@@ -271,6 +271,26 @@ Landed in #458. `verify.ts`, `verify-steps.ts` and `e2e.ts` moved from `workspac
 
 Two seams make the gate testable without a worktree. `verify` and `verifyMember` take a `CommandRunner` (`COMMAND_RUNNER` outside tests), and both group loops share `runGroups` in `steps.ts`. In `workspace/`, `parseDevProbe` and `ownDevProcess` moved from `dev-server.ts` to `dev-probe.ts`, where `ownDevProcess` reads the OS through a `ProcessProbe` (`systemProbe`: ps, lsof and `/proc`). Folder counts: `engine/` 12, `workspace/` 9, `verify/` 4.
 
+### commands/job.ts → `cli/commands/job/` (#418)
+
+Landed in #418. The 1048-line file held `forge job`'s help table and one 500-line `switch` with every subcommand. Bodies moved verbatim into one handler function per subcommand; the only edits are `const id = rest[0]` where a body used `id`, imports, `export` and header comments, so every daemon, inbox and office refusal runs at the same point as in its `case`. `job.ts` keeps its header, `JOB_HANDLERS` (subcommand word → handler, in the help table's order) and `jobCmd`, which runs the office allowlist check, then an `Object.hasOwn` lookup (so `constructor` and its kind stay usage errors, as the `switch` default made them), then the handler. `lib/cli/main.ts` keeps its import path, and `advance` stays routed there, documented in the table but with no handler. `JobHandler` lives in `lib/cli/types.ts` beside `Dispatch`, so no handler file imports `job.ts`. Imports run one way: `help.ts` imports nothing in the folder, `lease.ts` (`epochFence`) ← `state.ts` and `agent.ts`, `state.ts` (`refuseEffortInDaemon`) ← `create.ts`, and every file that calls `usageError(JOB, …)` imports `JOB` from `help.ts`.
+
+| File | Contents | lines |
+|---|---|---|
+| `job.ts` | `JOB_HANDLERS`, `jobCmd` | 66 |
+| `job/help.ts` | `NO_JOB`, `BODY`, `JOB`, `HELP` | 354 |
+| `job/create.ts` | `newCmd` (`new`), `fromRef` (`from-ref`), `link`; `newJobIssues`, `FORCE_DAEMON_REFUSAL`, `refuseForceInDaemon` | 120 |
+| `job/read.ts` | `listCmd`, `show`, `get`, `audit`, `progressCmd`, `paths`, `links`, `scope`, `panel`, `acs`, `findings`; `jobPaths`, `compactJob` | 122 |
+| `job/state.ts` | `set`, `effort`, `note`, `refreshRequestCmd` (`refresh-request`), `budget`; `EFFORT_DAEMON_REFUSAL`, `refuseEffortInDaemon` | 91 |
+| `job/lease.ts` | `claim`, `release`, `stepCmd` (`step`); `epochFence`, `TERMINAL_STATES` | 70 |
+| `job/decide.ts` | `human`, `handoff`, `assistCmd` (`assist`, wrapping `assist`); `HUMAN_ACTIONS`, `REPO_ACTIONS` | 131 |
+| `job/repos.ts` | `repo`, `interim` | 70 |
+| `job/agent.ts` | `agent` | 88 |
+| `job/review.ts` | `round`, `verdicts`, `decision`, `score` | 89 |
+| `job/retention.ts` | `archive`, `deleteCmd` (`delete`), `pruneCmd` (`prune`); `refuseRetentionInDaemon` | 47 |
+
+Judgement calls: handlers are grouped by concern into 9 files rather than one file per subcommand, since thirty-five files of 3–30 lines would need a registry exception and scatter the shared helpers; "one handler per subcommand" is one function per subcommand in one dispatch table. A `Cmd` suffix marks a handler whose bare name is a reserved word or would shadow an import (`newCmd`, `deleteCmd`, `listCmd`, `pruneCmd`, `progressCmd`, `stepCmd`, `refreshRequestCmd`, `assistCmd`). `JOB_HANDLERS` is exported only so `lib/cli/commands/job.test.ts` can check it against the help table. `JobHandler` goes in `lib/cli/types.ts` rather than a `job/types.ts`, which would be an 11th entry for one type. The security lens's paths in `.forge/config.yml` gain `lib/cli/commands/job/**`, since the refusals now live there; Forge's own policy changes only by a human on the base branch, so that line lands outside this job.
+
 ## Order of work
 
 One PR each.
@@ -279,7 +299,7 @@ One PR each.
 2. **The move (#421, landed):** `git mv` and an import-rewriting codemod into the seven layers, with no content edits beyond the `util.ts` split, renames and the paths computed from the plugin root. It leaves only the two deprecated tracker re-exports in `FLAT_LAYERS`, re-keys `ALLOWED_EDGES` and the size pins, and updates CODEOWNERS, the hook, `bin/forge`, prompts and doc paths (`ci.yml` names only `lib/trackers/status.mjs`, which stays). It adds each layer and module folder's `AGENTS.md` and slims the root one, and adds the folder layout test (`test/invariants/layout.test.ts`: 3–12 entries, no stutter, no `index.ts`, the maps).
 3. **Aliases (#370, landed):** the `#core/…` subpath map and its cross-layer relative-import test.
 4. **types.ts by owner (#413, landed)**, with the transitional type-only barrel. Each shape moved to the `types.ts` of the module that owns it; `core/types.ts` re-exports the api, job and config shapes and keeps the tracker contract. `e2e.ts` moved from `pipeline/` to `workspace/` and `deprecations.ts` from `config/` into `config/validators/` to make room, and the four types-split edges and the `core/types.ts` size pin are gone.
-5. **pr.ts (#414, landed)**, **server.ts (#415, landed)**, **daemon.ts (#416, landed)**, **worktree.ts (#417, landed)** (create/remove, command templating, `verify`, the dev server), **commands/job.ts (#418)** (`HELP` apart, one handler per subcommand), **the release splits (#419)** (`release-plan.ts`, `release-run.ts`). Each deletes its size pin and the upward edges it removes.
+5. **pr.ts (#414, landed)**, **server.ts (#415, landed)**, **daemon.ts (#416, landed)**, **worktree.ts (#417, landed)** (create/remove, command templating, `verify`, the dev server), **commands/job.ts (#418, landed)** (`HELP` apart, one handler per subcommand), **the release splits (#419)** (`release-plan.ts`, `release-run.ts`). Each deletes its size pin and the upward edges it removes.
 6. **Tests (#420):** unit tests beside their modules, the rest into `test/{integration,e2e,invariants,support}/`, with the tsconfig includes and CI sharding by kind.
 
 ## Timing

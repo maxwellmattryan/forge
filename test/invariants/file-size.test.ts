@@ -14,7 +14,6 @@ const CAP = 600;
 const ALLOWED: Record<string, number> = {
   'api/types.ts': 1499,
   'engine/environment/backing.ts': 751,
-  'cli/commands/job.ts': 1048,
   'cli/commands/tracker.ts': 612,
   'office/pool.ts': 632,
   'engine/guard/integrity.ts': 832,

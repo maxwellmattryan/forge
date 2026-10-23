@@ -260,7 +260,7 @@ export interface JobRepo {
   interim?: InterimStrategy | null;
 }
 
-/** A reviewer's settled verdict for a round: the verdicts case in lib/cli/commands/job.ts (via roundVerdicts in lib/core/job/store.ts). */
+/** A reviewer's settled verdict for a round: `verdicts` in lib/cli/commands/job/review.ts (via roundVerdicts in lib/core/job/store.ts). */
 export type Verdict = 'PASS' | 'CHANGES' | 'MALFORMED';
 
 /** A job record: normalizeJob in lib/core/job/schema.ts. */
@@ -375,7 +375,7 @@ export interface TransitionSide {
   waitingOn: WaitingOn | null;
 }
 
-/** Usage an agent reported at agent-end: the agent case in lib/cli/commands/job.ts (transcript fields from importClaudeCodeTranscript in lib/engine/metrics/usage.ts). */
+/** Usage an agent reported at agent-end: `agent` in lib/cli/commands/job/agent.ts (transcript fields from importClaudeCodeTranscript in lib/engine/metrics/usage.ts). */
 export interface AgentUsage {
   model?: string | null;
   outputEstimated?: boolean;

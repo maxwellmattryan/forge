@@ -1,0 +1,120 @@
+// `forge job new|from-ref|link`: creating a job, starting one from a tracker item, and the issues it carries.
+import path from 'node:path';
+import { checkRepoBudget, parkForRepoBudget, repoBudgetBlock } from '#engine/metrics/repo-budget.ts';
+import { claimJob, createJob, jobDir, logEvent, logHumanEvent } from '#core/job/store.ts';
+import { issueLinkStatus } from '#core/job/issue-link.ts';
+import { checkIssueRef, isSafeUrl, issueUrl } from '#core/job/issue-ref.ts';
+import { githubHost, localRepoSlug } from '#integrations/git/repo-slug.ts';
+import { EFFORTS } from '#core/job/schema.ts';
+import { createAndLink, linkJob, markNoIssue, suggestLink, unlinkJob } from '#engine/trackers/link.ts';
+import { loadTracker } from '#engine/trackers/load.ts';
+import { ForgeError } from '#core/errors.ts';
+import type { Config, Effort, JobIssue } from '#core/types.ts';
+import { bodyFrom, list, oneOf, req, str, usageError } from '../args.ts';
+import { startFromRef } from '../tracker.ts';
+import { JOB } from './help.ts';
+import { refuseEffortInDaemon } from './state.ts';
+
+// The repo budget caps unattended spend: a session misled by tracker or PR text must not force work past it.
+const FORCE_DAEMON_REFUSAL = 'forge job new --force starts work past the repo budget, which a daemon session may not do; a human runs it in their own session';
+const refuseForceInDaemon = () => {
+  if (process.env.FORGE_DAEMON === '1') throw new ForgeError(FORCE_DAEMON_REFUSAL);
+};
+
+/**
+ * `forge job new`'s issue flags as createJob's list, checked before anything is written. Refs are
+ * recorded as given, with no tracker call or claim (from-ref and link make those).
+ */
+function newJobIssues(root: string, config: Config, flags: Record<string, any>): { issues: JobIssue[]; noIssue: { reason: string | null } | null } {
+  const typed = list(flags.issue);
+  const ref = str(flags.ref, '--ref');
+  const url = str(flags.url, '--url');
+  const wantsNone = flags['no-issue'] === true;
+  const reason = str(flags.reason, '--reason');
+  if ((ref !== undefined || url !== undefined) && (typed.length || flags.issue !== undefined)) throw usageError(JOB, 'new');
+  if (wantsNone && (typed.length || ref !== undefined || flags.issue !== undefined)) throw usageError(JOB, 'new');
+  if (reason !== undefined && !wantsNone) throw usageError(JOB, 'new');
+  if (wantsNone && config.tracker.kind === 'none') throw new ForgeError('tracker.kind is "none": no issue is needed, so there is nothing to waive (drop --no-issue)');
+  if (url !== undefined && !isSafeUrl(url)) throw new ForgeError(`invalid url ${JSON.stringify(String(url).slice(0, 100))}: expected http(s) with no whitespace`);
+  const tracker = str(flags.tracker, '--tracker') ?? config.tracker.kind;
+  const slug = tracker === 'github' ? localRepoSlug(root, config) : null;
+  const parse = (raw: string): string => {
+    const r = checkIssueRef(raw, { tracker, slug });
+    if ('error' in r) throw new ForgeError(r.error);
+    return r.ref;
+  };
+  const issues: JobIssue[] = ref !== undefined || url !== undefined ? [{ tracker, ref: ref === undefined ? null : parse(ref), url: url ?? null }] : typed.map((raw) => {
+    const r = parse(raw);
+    return { tracker, ref: r, url: tracker === 'github' ? issueUrl(r, githubHost()) : null };
+  });
+  return { issues, noIssue: wantsNone ? { reason: reason ?? null } : null };
+}
+
+export function newCmd(root: string, config: Config, rest: string[], flags: Record<string, any>) {
+  // Read before createJob, so a bare --session fails instead of claiming as session "true".
+  const session = str(flags.session, '--session');
+  // Every issue check runs before createJob, so a refused flag leaves no job dir.
+  const { issues, noIssue } = newJobIssues(root, config, flags);
+  let effort: Effort | undefined;
+  if (flags.effort !== undefined) {
+    refuseEffortInDaemon();
+    effort = oneOf(str(flags.effort, '--effort'), EFFORTS, 'effort');
+  }
+  const force = flags.force !== undefined && flags.force !== false;
+  if (force) refuseForceInDaemon();
+  // Checked before the job exists, so release never frees the job being created.
+  const status = checkRepoBudget(root, config);
+  const job = createJob(root, config, {
+    title: req(flags.title, '--title'),
+    issues,
+    body: bodyFrom(flags),
+    parent: flags.parent,
+    branch: flags.branch,
+    kind: flags.kind,
+    slug: flags.slug,
+    services: list(flags.services),
+    effort,
+  });
+  const waived = noIssue ? markNoIssue(root, job.id, noIssue.reason).noIssue : null;
+  const created = { id: job.id, branch: job.branch, dir: path.relative(root, jobDir(root, job.id)), issueLink: issueLinkStatus({ ...job, noIssue: waived }, config) };
+  if (force) logHumanEvent(root, job.id, 'budget-override', { day: status.day, month: status.month, spent: status.spent, caps: status.caps });
+  const limited = Boolean(status.reason) && !force && job.kind !== 'retro';
+  // Still created, so the human's request is kept, but parked and unclaimed until the budget allows it.
+  if (limited && status.held) {
+    parkForRepoBudget(root, job.id, status);
+    return { ...created, repoBudget: repoBudgetBlock(status) };
+  }
+  // A split child starts unowned: the session claims each child only when it runs it.
+  if (session && !flags.parent) claimJob(root, job.id, session, false);
+  if (!limited) return created;
+  logEvent(root, job.id, 'repo-budget-warn', { reason: status.reason });
+  return { ...created, repoBudget: repoBudgetBlock(status) };
+}
+
+export async function link(root: string, config: Config, rest: string[], flags: Record<string, any>) {
+  const id = rest[0];
+  const jobId = req(id, 'job id');
+  const refs = rest.slice(1);
+  const removes = list(flags.remove);
+  const modes = [refs.length > 0, flags.remove !== undefined, flags.create === true, flags.none === true, flags.suggest === true].filter(Boolean).length;
+  if (modes !== 1 || (flags.remove !== undefined && !removes.length)) throw usageError(JOB, 'link');
+  if (flags.suggest) return suggestLink(root, config, jobId, () => loadTracker(root, config));
+  if (flags.none) return markNoIssue(root, jobId, typeof flags.reason === 'string' ? flags.reason : null);
+  if (removes.length) return unlinkJob(root, config, jobId, removes);
+  const tracker = await loadTracker(root, config);
+  return flags.create ? createAndLink(root, config, tracker, jobId) : linkJob(root, config, tracker, jobId, refs);
+}
+
+export async function fromRef(root: string, config: Config, rest: string[], flags: Record<string, any>) {
+  const id = rest[0];
+  const ref = req(id, 'tracker ref');
+  // A human named the item, so a hold is an error rather than an empty result.
+  const status = checkRepoBudget(root, config);
+  if (status.held) throw new ForgeError(status.reason!, 'blocked', 'forge budget');
+  const tracker = await loadTracker(root, config);
+  // An issue the human picked is planned as one job, whatever pipeline.split says.
+  const r = await startFromRef(root, config, tracker, ref, flags, { splitMode: 'never' });
+  if (!status.reason || 'existing' in r) return r;
+  logEvent(root, r.id, 'repo-budget-warn', { reason: status.reason });
+  return { ...r, repoBudget: repoBudgetBlock(status) };
+}

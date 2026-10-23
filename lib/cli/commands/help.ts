@@ -20,7 +20,7 @@ import { HELP as EXPERIMENT } from './experiment.ts';
 import { HELP as FOCUS } from './focus.ts';
 import { HELP as GIT } from './git.ts';
 import { HELP as INIT } from './init.ts';
-import { HELP as JOB } from './job.ts';
+import { HELP as JOB } from './job/help.ts';
 import { HELP as NOTIFY } from './notify.ts';
 import { HELP as RELEASE } from './release.ts';
 import { HELP as REQUESTS } from './requests.ts';
