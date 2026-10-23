@@ -4,9 +4,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { forgeAsync, tempRepo } from '../../helpers.ts';
+import { forgeAsync, tempRepo, waitFor } from '../../helpers.ts';
 import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
 import { processStartMs } from '#core/os/process.ts';
 import { writeJsonAtomic } from '#core/os/fs.ts';
@@ -94,5 +95,49 @@ test('dash --stop signals only a proven dashboard', async () => {
   } finally {
     for (const c of children) c.kill('SIGKILL');
     for (const r of repos) r.cleanup();
+  }
+});
+
+async function freePort(): Promise<number> {
+  const server = net.createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as net.AddressInfo;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
+}
+
+// Native Windows proves no record, so --stop could never stop the child there.
+test('a stale record does not block dash --dev, and --stop stops the real background child', { skip: process.platform === 'win32' }, async () => {
+  const repo = setupRepo();
+  const stale = spawnIdle(repo.dir, 'wordsAfterE');
+  const stalePid = stale.pid!;
+  let devPid: number | undefined;
+  try {
+    const file = dashboardRecordFile(repo.dir);
+    writeJsonAtomic(file, { pid: stalePid, url: 'http://127.0.0.1:7999', startedAt: new Date(processStartMs(stalePid) ?? Date.now()).toISOString() });
+
+    const port = await freePort();
+    const dev = await forgeAsync(repo.dir, ['dash', '--dev', '--background', '--port', String(port), '--json']);
+    assert.equal(dev.status, 0, dev.stderr);
+    assert.ok(!`${dev.stdout}${dev.stderr}`.includes('already running'), 'a stale record does not refuse --dev');
+    const started = json(dev.stdout);
+    assert.equal(started.started, true);
+    assert.equal(typeof started.pid, 'number');
+    assert.notEqual(started.pid, stalePid);
+    devPid = started.pid as number;
+
+    await waitFor(() => JSON.parse(fs.readFileSync(file, 'utf8')).pid === devPid, { what: "the dev child's record" });
+    const stop = await forgeAsync(repo.dir, ['dash', '--stop', '--json']);
+    assert.equal(stop.status, 0, stop.stderr);
+    assert.deepEqual(json(stop.stdout), { stopped: true, daemonReaped: false });
+    await waitFor(() => !alive(devPid!), { what: 'the dev child to exit' });
+    assert.ok(alive(stalePid), 'the stale process was not signalled');
+  } finally {
+    for (const pid of [devPid, stalePid]) {
+      try {
+        if (pid) process.kill(pid, 'SIGKILL');
+      } catch {}
+    }
+    repo.cleanup();
   }
 });
