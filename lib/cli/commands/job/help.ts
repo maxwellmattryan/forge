@@ -1,4 +1,4 @@
-// `forge job`'s help table: every subcommand's usage, flags and exits, which `forge help job` prints and `npm run docs:commands` reads.
+// `forge job`'s help table: every subcommand's usage, flags and exits, which `forge help job` prints and `npm run docs` reads.
 import { OFFICE_GATES } from '#core/job/schema.ts';
 import type { HelpGroup } from '../../types.ts';
 
@@ -131,7 +131,7 @@ export const JOB: HelpGroup = {
           'no such job, a done job or one at stage pr, an unknown or duplicate repo, a failing clone check, a repo with a PR or a worktree, or a daemon session; for interim, a done or cancelled job, an unknown or verify-only repo, canary for a repo a cargo or cmake link depends on, or a daemon session; for propose: a missing or long --reason, an eval job, a repo rejected on this job, or a daemon session other than the job\'s own; for downstream: an eval job, a job at stage pr or later, or a daemon session other than the job\'s own',
         ],
       ],
-      docs: ['Job repos', 'docs/ARCHITECTURE.md#job-repos'],
+      docs: ['Job repos', 'docs/architecture/job-repos.md'],
       readme: true,
     },
     {
@@ -231,7 +231,7 @@ export const JOB: HelpGroup = {
         ['--csv', 'the rows as RFC 4180 CSV with CRLF line ends, formula-like cells prefixed with \''],
       ],
       exits: [NO_JOB],
-      docs: ['Audit trail', 'docs/ARCHITECTURE.md#audit-trail'],
+      docs: ['Audit trail', 'docs/architecture/audit-trail.md'],
       readme: true,
     },
     {
@@ -244,7 +244,7 @@ export const JOB: HelpGroup = {
         ['--older-than D', 'with --done: days since the job finished (an integer, 0 or more)'],
       ],
       exits: [[1, 'not eligible, or a daemon session']],
-      docs: ['Retention', 'docs/ARCHITECTURE.md#retention'],
+      docs: ['Retention', 'docs/architecture/retention.md'],
       readme: true,
     },
     {
@@ -253,7 +253,7 @@ export const JOB: HelpGroup = {
       summary: "delete a job started by mistake, for good: releases its tracker claim, removes its worktrees, per-job backing services and the branch Forge named for it, rejects its open requests and deletes its job folder and session logs, keeping no archive record. A job with a PR, split children or an active dependent is refused: cancel and archive real work instead",
       flags: [['--force', 'delete it even while a live interactive session owns it']],
       exits: [[1, 'no such job, not eligible (the message says why), a worktree or backing teardown that failed (rerun once fixed), or a daemon session']],
-      docs: ['Deleting a job', 'docs/ARCHITECTURE.md#deleting-a-job'],
+      docs: ['Deleting a job', 'docs/architecture/deleting-a-job.md'],
       readme: true,
     },
     {
@@ -265,7 +265,7 @@ export const JOB: HelpGroup = {
         ['--dry-run', 'list the jobs, refusals and logs with their sizes; change nothing'],
       ],
       exits: [[1, 'not eligible, or a daemon session']],
-      docs: ['Retention', 'docs/ARCHITECTURE.md#retention'],
+      docs: ['Retention', 'docs/architecture/retention.md'],
       readme: true,
     },
     {

@@ -1,6 +1,6 @@
 // Claude Code's command line and environment for a headless session: the permission-mode and effort
 // flags, `daemon.command` to argv, and the child's env. createSession (lib/office/session/lifecycle.ts)
-// spawns with them; docs/ARCHITECTURE.md "Daemon security" describes the rules they keep.
+// spawns with them; docs/architecture/daemon-security.md describes the rules they keep.
 import path from 'node:path';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { EFFORTS } from '#core/job/schema.ts';
@@ -13,7 +13,7 @@ import type { DaemonAuth, DaemonPermissionMode, Effort } from '#core/types.ts';
  * whatever `daemon.command` says. Claude Code checks file writes against Edit(path) rules,
  * anchors relative paths at the session's cwd (the main checkout, so job worktrees are
  * unaffected) and lets deny beat allow. This stops the Edit/Write route only; trustDigest is the
- * check that also covers writes made through Bash (docs/ARCHITECTURE.md "Daemon security").
+ * check that also covers writes made through Bash (docs/architecture/daemon-security.md).
  */
 export const DENY_TOOLS = Object.freeze([
   'Edit(.forge/config.yml)',

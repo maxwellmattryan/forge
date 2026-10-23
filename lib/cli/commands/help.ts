@@ -4,7 +4,9 @@
 import path from 'node:path';
 import { forgeVersion } from '#engine/evals/run.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
-import { ERROR_CODES, ForgeError } from '#core/errors.ts';
+import { ERROR_CODE_DOCS, ERROR_CODES, ForgeError } from '#core/errors.ts';
+import type { ErrorCode } from '#core/errors.ts';
+import { replaceRegion } from '#core/format/region.ts';
 import { jsonFlag, lenientOutputMode, out, parseArgs, usageError } from './args.ts';
 import { colorEnabled, renderError } from './render.ts';
 import { HELP as AUDIT } from './audit.ts';
@@ -339,10 +341,57 @@ export function readmeTable(): string {
 
 /** README.md's text with the lines between the markers replaced by readmeTable(). */
 export function syncReadme(readme: string): string {
-  const start = readme.indexOf(README_START);
-  const end = readme.indexOf(README_END);
-  if (start < 0 || end < start) throw new ForgeError(`README.md has no ${README_START} … ${README_END} region`);
-  return `${readme.slice(0, start + README_START.length)}\n${readmeTable()}\n${readme.slice(end)}`;
+  return replaceRegion(readme, README_START, README_END, readmeTable(), 'README.md');
+}
+
+export const CLI_START = '<!-- forge:cli:start (generated from lib/cli/commands/*.ts by npm run docs:cli; edit those tables) -->';
+export const CLI_END = '<!-- forge:cli:end -->';
+export const ERRORS_START = '<!-- forge:errors:start (generated from ERROR_CODE_DOCS in lib/core/errors.ts by npm run docs:cli; edit that) -->';
+export const ERRORS_END = '<!-- forge:errors:end -->';
+
+/** Help text as markdown prose: outside backtick spans, `<` and `*` would start HTML or emphasis. */
+const mdText = (text: string): string =>
+  text
+    .split(/(`[^`]*`)/)
+    .map((part) => (part.startsWith('`') && part.endsWith('`') && part.length > 1 ? part : part.replace(/</g, '&lt;').replace(/\*/g, '\\*')))
+    .join('');
+/** Help text in a table cell, where every `|`, in code spans too, would end the cell. */
+const mdCell = (text: string): string => mdText(text).replace(/\|/g, '\\|');
+const flagRows = (rows: readonly [string, string][]): string[] => rows.map(([f, m]) => `| ${mdCell(`\`${f}\``)} | ${mdCell(m)} |`);
+/** A help table's docs link from docs/CLI.md: docs/ paths are siblings, everything else sits one level up. */
+const docsHref = (href: string): string => (href.startsWith('docs/') ? href.slice('docs/'.length) : `../${href}`);
+
+function commandReference(c: CommandHelp): string[] {
+  const blocks = [`**\`${usageLine(c)}\`**: ${mdText(c.summary)}`];
+  if (c.flags?.length) blocks.push(['| Flag | Meaning |', '|---|---|', ...flagRows(c.flags)].join('\n'));
+  if (c.exits?.length) blocks.push(['| Exit | When |', '|---|---|', ...c.exits.map(([code, when]) => `| ${code} | ${mdCell(when)} |`)].join('\n'));
+  if (c.docs) blocks.push(`See [${mdText(c.docs[0])}](${docsHref(c.docs[1])}).`);
+  return blocks;
+}
+
+/** docs/CLI.md's command reference: every group and command in `forge help` order, with its flags, exits and docs link. */
+export function cliReference(groups: readonly HelpGroup[] = GROUPS): string {
+  const blocks = [
+    `Every command also takes these flags, and exits 0 when it did what it was asked or 2 (\`usage\`) when ${USAGE_EXIT}.`,
+    ['| Global flag | Meaning |', '|---|---|', ...flagRows(GLOBAL_FLAGS)].join('\n'),
+  ];
+  for (const g of groups) {
+    blocks.push(`### \`forge ${g.name}\``, `${mdText(g.summary.charAt(0).toUpperCase() + g.summary.slice(1))}.`);
+    for (const c of g.commands) blocks.push(...commandReference(c));
+  }
+  return blocks.join('\n\n');
+}
+
+/** docs/CLI.md's "Error codes" table, in ERROR_CODES order. */
+export function errorCodeTable(): string {
+  const rows = (Object.keys(ERROR_CODES) as ErrorCode[]).map((code) => `| \`${code}\` | ${ERROR_CODES[code]} | ${ERROR_CODE_DOCS[code].replace(/\|/g, '\\|')} |`);
+  return ['| Code | Exit | Meaning |', '|---|---|---|', ...rows].join('\n');
+}
+
+/** docs/CLI.md's text with the command reference and the error-code table regenerated. */
+export function syncCliDoc(text: string): string {
+  const withErrors = replaceRegion(text, ERRORS_START, ERRORS_END, errorCodeTable(), 'docs/CLI.md');
+  return replaceRegion(withErrors, CLI_START, CLI_END, cliReference(), 'docs/CLI.md');
 }
 
 /** A `usage:` error for a group in these tables (lib/cli/main.ts routes some groups itself). */

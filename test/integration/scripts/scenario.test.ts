@@ -6,10 +6,14 @@ import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { forgeAsync, waitFor } from '../../helpers.ts';
 import { NOTIFY_GATES, STAGES } from '#core/job/schema.ts';
+import { mergeCatalogs } from '../../../dashboard/src/lib/i18n.ts';
 import { SCENARIO_DIR, listScenarios, loadScenario, scenarioEnv, seedScenario } from '../../../scripts/scenario.ts';
 
 const SCRIPT = path.resolve(import.meta.dirname, '..', '..', '..', 'scripts', 'scenario.ts');
-const MESSAGES = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, '..', '..', '..', 'dashboard', 'src', 'messages', 'en.json'), 'utf8'));
+const MESSAGE_DIR = path.resolve(import.meta.dirname, '..', '..', '..', 'dashboard', 'src', 'messages', 'en');
+const MESSAGES = mergeCatalogs(Object.fromEntries(
+  fs.readdirSync(MESSAGE_DIR).filter((f) => f.endsWith('.json')).map((f) => [f, JSON.parse(fs.readFileSync(path.join(MESSAGE_DIR, f), 'utf8'))]),
+)) as any;
 const VIEW_IDS = ['pipeline', 'project', 'backlog', 'agents', 'analytics', 'evals'];
 const SEED_BUDGET_MS = 60_000;
 

@@ -1,7 +1,7 @@
 // The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests with no job, an office
 // session for gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job sessions, each spawned on demand
 // for the job its requests name. Sessions fail, hold and stop on their own (lib/office/session/lifecycle.ts); the pool owns
-// what is repo-wide: the trust snapshot, routing, the cap and the stops config changes force. docs/ARCHITECTURE.md "Daemon" describes the rules.
+// what is repo-wide: the trust snapshot, routing, the cap and the stops config changes force. docs/architecture/daemon.md describes the rules.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';

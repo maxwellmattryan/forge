@@ -2,16 +2,20 @@
 
 `.forge/config.yml`: loading over the defaults, validation, and the one write path.
 
-- `load.ts` loads config.yml over `defaults()` (`defaults.ts`) and re-exports the split files, so its many importers keep one import.
+- `load.ts` loads config.yml over `defaults()` (`keys/defaults.ts`) and re-exports the split files, so its many importers keep one import.
+- `keys/` holds each key's default (`defaults.ts`), its doc string (`docs.ts`) and the renderer that writes docs/CONFIG.md's reference block from both (`reference.ts`, `npm run docs`). A new key gets a default and a doc string; only `scripts/` and tests import `docs.ts` and `reference.ts`, so the CLI never loads them.
 - `validate.ts` holds `validateConfig` and the sections with no file of their own. The validators in `validators/` sit apart because the job store imports `load.ts`: a section's validation that reached the job store (or a module that imports it) would close an import cycle.
-- `fields.ts` is the settings allowlist the dashboard shows, and `set.ts` the one write path `forge config set` and `/api/config` share. A new config key gets a `fields.ts` entry if the dashboard should show it; `test/invariants/config-set.test.ts` checks every entry against `defaults()` and docs/CONFIG.md.
+- `fields.ts` is the settings allowlist the dashboard shows, and `set.ts` the one write path `forge config set` and `/api/config` share. A new config key gets a `fields.ts` entry if the dashboard should show it; `test/invariants/generated-docs.test.ts` checks every entry against `defaults()` and the doc strings in `keys/docs.ts`.
+- Design: [Data and versioning](../../../docs/architecture/versioning.md), [Daemon security](../../../docs/architecture/daemon-security.md), [Foreman](../../../docs/architecture/foreman.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
 |---|---|
 | `components.ts` | Components: the parts of a repo (`config.components`), what kind each is and what it depends on. |
-| `defaults.ts` | Every config key Forge reads, with its default: what loadConfig merges a repo's config.yml over. |
 | `fields.ts` | The settings schema: which config keys `forge config set` and POST /api/config may write, and how each one is parsed, validated and shown in the dashboard. |
+| `keys/defaults.ts` | Every config key Forge reads, with its default: what loadConfig merges a repo's config.yml over. |
+| `keys/docs.ts` | Every config key's doc string: the comment docs/CONFIG.md's reference block shows beside its default (npm run docs:config). |
+| `keys/reference.ts` | docs/CONFIG.md's per-key reference: defaults() rendered as commented YAML from the doc strings in docs.ts, and the sync npm run docs:config writes. |
 | `load.ts` | Loading `.forge/config.yml` over the defaults, and the small readers of a loaded config. |
 | `models.ts` | runtime.model* and runtime.effort*: their validation, and the one place each resolves for a spawn (resolveModel, resolveEffort). |
 | `release-strategy.ts` | A repo's release strategy (docs/CONFIG.md "Release strategy"): how it versions, which tool cuts a release, where it publishes and how often. |

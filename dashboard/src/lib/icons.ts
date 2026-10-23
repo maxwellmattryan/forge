@@ -55,6 +55,8 @@ export const ICONS = {
   // A console and its prompt: a process's or container's log.
   terminal: [{ el: 'rect', x: '3', y: '4', width: '18', height: '16', rx: '1' }, { el: 'path', d: 'M7 9l3 3-3 3M12.5 15H17' }],
   tracker: [{ el: 'path', d: 'M3 4h10l8 8-8 8H3z' }, { el: 'circle', cx: '7', cy: '12', r: '1.5' }],
+  // A triangle with a stem and a dot: a reach you chose that is wider than usual (a session in Auto).
+  warning: [{ el: 'path', d: 'M12 3.5 21.5 20h-19z' }, { el: 'path', d: 'M12 10v4.5' }, { el: 'circle', cx: '12', cy: '17.3', r: '.7', fill: 'current' }],
 } as const satisfies Record<string, IconDef>;
 
 export type IconName = keyof typeof ICONS;

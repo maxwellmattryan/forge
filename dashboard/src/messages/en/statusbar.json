@@ -1,0 +1,183 @@
+{
+  "daemon": {
+    "pill": "Daemon {label}",
+    "live": "{live}/{cap} job sessions",
+    "held": "held: budget ({count})",
+    "waiting": "waiting for slot ({count})",
+    "start": "Start",
+    "stop": "Stop",
+    "failed": "Daemon {action} failed: {error}",
+    "modeTitle": "Permission mode: {mode}",
+    "rows": {
+      "label": "Sessions",
+      "inbox": "Inbox session",
+      "inboxAbout": "Handles requests without a job",
+      "foremanRow": "Foreman",
+      "foremanRowAbout": "Supervises this pool"
+    }
+  },
+  "statusbar": {
+    "label": "Status",
+    "close": "Close",
+    "needs": {
+      "name": "Needs you",
+      "title": "Needs you",
+      "tooltip": "Notifications",
+      "count": {
+        "one": "{count} decision waiting",
+        "other": "{count} decisions waiting"
+      }
+    },
+    "facts": {
+      "focus": "FOCUS"
+    },
+    "daemon": {
+      "title": "Daemon",
+      "off": "Daemon off",
+      "sessions": "job sessions",
+      "disabled": "The daemon is off. Set daemon.enabled: true in .forge/config.yml, then start it here.",
+      "jobMode": "Job sessions' permissions",
+      "jobModeAbout": "Every job without its own choice, now and from its next start. A job's own choice in its panel header overrides it",
+      "jobModeAutoWarning": "Auto for every job: unattended sessions approve most tool calls without you. Prompts claude still raises wait until someone answers.",
+      "inboxLog": "Inbox session log"
+    },
+    "foreman": {
+      "name": "Foreman",
+      "title": "Foreman",
+      "off": "Foreman off",
+      "daemonOff": "Foreman · daemon off",
+      "prompts": {
+        "one": "{count} prompt",
+        "other": "{count} prompts"
+      },
+      "about": "Supervises the pool: decides parked gates through assistant sub-agents and hands each job back.",
+      "tag": "Foreman",
+      "offTitle": "The Foreman is off.",
+      "offBody": "Without it, every parked gate (spec approval, escalation, PR feedback) waits for you.",
+      "offHow": "To turn it on, set {key} (and {daemonKey}) in {file} by hand. It is locked in Settings and in forge config set, because it lets the daemon decide gates unattended.",
+      "daemonOffHow": "The Foreman runs inside the daemon. Set {daemonKey} in {file}, then start the daemon."
+    },
+    "held": {
+      "word": "held",
+      "rest": ": budget"
+    },
+    "waiting": {
+      "word": "waiting",
+      "rest": " for slot"
+    },
+    "model": {
+      "title": "Models",
+      "name": "Model",
+      "session": "Session default",
+      "inherits": "inherits the orchestrator",
+      "roles": "Roles",
+      "reviewers": "Reviewers",
+      "loading": "Loading reviewers…",
+      "failed": "Couldn't load reviewers: {error}",
+      "noReviewers": "No review panel configured.",
+      "edit": "Change models in Settings › Agents.",
+      "effort": "{effort}",
+      "builder": "Builder"
+    },
+    "conn": {
+      "title": "Connection",
+      "connecting": "Connecting…",
+      "live": "Live",
+      "offline": "Offline",
+      "outdated": "Update needed",
+      "outdatedWord": "Update",
+      "outdatedRest": " needed",
+      "connectingText": "Waiting for the first reply from forge dash.",
+      "liveText": "Connected: the dashboard polls forge dash every 2 seconds.",
+      "offlineText": "The last poll of forge dash failed.",
+      "outdatedText": "forge dash serves a newer API than this dashboard. Reload the page; if that does not help, restart forge dash after updating the plugin.",
+      "server": "Server: Forge {forge}, API {api}",
+      "client": "Dashboard API {api}",
+      "last": "Last update {ago}",
+      "never": "No update yet",
+      "retry": "Retry now"
+    },
+    "focus": {
+      "title": "Focus · {id} · {title}"
+    }
+  },
+  "permission": {
+    "heading": {
+      "one": "{count} tool call waiting for permission",
+      "other": "{count} tool calls waiting for permission"
+    },
+    "chip": "needs permission",
+    "inbox": "Inbox session",
+    "asks": "The session asks to use {tool}",
+    "asksSubagent": "A subagent asks to use {tool}",
+    "agentSays": "The agent says:",
+    "outside": "Outside its folders:",
+    "allow": "Allow once",
+    "allowSession": "Allow for this session",
+    "deny": "Deny",
+    "sessionGrants": "For this session also allows: {grants}",
+    "failed": "Permission answer failed: {error}"
+  },
+  "needs": {
+    "urgent": "Decisions only you can make",
+    "empty": "Nothing needs you right now",
+    "noDecisions": "No decisions waiting"
+  },
+  "inbox": {
+    "read": "Read {doc} →",
+    "prs": "Open PRs awaiting review",
+    "parks": "Waiting on dependencies",
+    "threads": "{count} unresolved thread(s)",
+    "noThreads": "no open threads",
+    "behind": " · {count} behind",
+    "openPr": "Open PR",
+    "addressFeedback": "Address feedback",
+    "queued": "Queued requests",
+    "handling": "handling ({session})",
+    "queuedStatus": "queued",
+    "protectedPaths": "Protected paths",
+    "protectedMore": "+{count} more",
+    "protectedDiff": "View diff",
+    "lastActed": "Last acted: {who} · {ago}",
+    "foreman": "Foreman",
+    "secretRescan": "Approve runs the secret scan again. First remove or allowlist the value, or fix what stopped the scan.",
+    "stillBlocked": "Still blocked",
+    "stillBlockedNote": "The last approve ran the scan again and it still found a problem."
+  },
+  "gate": {
+    "foreman": "Foreman deciding",
+    "human": "Human-owned",
+    "foremanTitle": "The foreman decides this gate through an assistant sub-agent",
+    "humanTitle": "This gate stays with a human: a reserved topic, or a gate the foreman does not decide",
+    "leftForHuman": "Left for a human",
+    "leftForHumanTitle": "The Foreman looked at this gate and left it for a person",
+    "handoff": {
+      "reserved": "Foreman left this for a human (reserved): {reason}",
+      "escalated": "Foreman left this for a human (escalated): {reason}",
+      "refused": "Foreman left this for a human (decision refused): {reason}"
+    }
+  },
+  "budget": {
+    "meterTitle": "Repo spend · {month}",
+    "meterLabel": "Month spend against the cap",
+    "holding": "Holding new work",
+    "warnOnly": "Over the cap · warn only",
+    "ofCap": "of {cap} this month",
+    "unlimited": "this month · no monthly cap, spend is unlimited",
+    "remaining": "{amount} left",
+    "projected": "Projected month-end {amount}",
+    "today": "Today",
+    "todayOf": "{spent} of {cap}",
+    "todayUncapped": "{spent} · no daily cap",
+    "dayLabel": "Today's spend against the daily cap",
+    "section": "Repo budget",
+    "heldJobs": "Held jobs",
+    "noHeldJobs": "No job is parked yet; new work waits until the cap allows it.",
+    "acknowledge": "Acknowledge {period}",
+    "ackHelp": "Grants one more period of budget and releases the held jobs whose own budget is fine.",
+    "cardPointer": "Held by the repo budget: acknowledge it in Repo budget above, or cancel the job.",
+    "valueText": "{spent} of {cap}",
+    "acked": "Acknowledged {period}",
+    "ackFailed": "Acknowledge failed: {error}"
+  }
+}

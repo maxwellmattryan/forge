@@ -114,7 +114,7 @@ Some of these words already mean something in Forge. They keep those meanings:
 - "Integrations" never means the integrate stage or the integrator (bringing a branch up to date with its base), nor integration tests (`test/integration/`).
 - "Office" alone means the runtime; the Foreman's session is the "office session".
 - "Milestone" means a tracker milestone (a group of planned work). The Thread's one-line rows for a job's events are "progress lines".
-- "Layer" alone keeps [ARCHITECTURE.md's meaning](ARCHITECTURE.md#layers) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
+- "Layer" alone keeps [its meaning in the architecture docs](architecture/layers.md) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
 
 ## Existing terms
 
@@ -146,4 +146,5 @@ The new words build on these, which exist today.
 | **progress line** | A one-line row the job panel's Thread shows between the messages for a job event a person follows: a new stage, a parked gate, an agent's closing reply, a round's checks or reviews, the decision, the PR, merge conflicts or a note. It never counts as unread. | - |
 | **scenario** | A named dashboard state, one JSON file in `test/fixtures/scenarios/`, that `npm run scenario`, `npm run dev -- --scenario` and the render check seed into a scratch repo through the CLI alone, with the texts each view must show (docs/TESTING.md "Dashboard scenarios and the render check"). | - |
 | **render check** | `npm run test:render`: every view of every scenario, and the job drawer, loaded in headless Chrome against a dashboard build, failing on a console or page error, a 5xx or missing text; CI's `render` job runs it, outside the verify list. | - |
+| **version step** | One named entry (`{ id, up }`, or `{ id }` for `/api`) in an append-only version list (`lib/core/versions/`, `lib/api/versions.ts`); a shape's version is its list's length plus one, so a shape change appends a step and never types a number. | - |
 | **recall fixture** | A frozen diff in the main checkout's `.forge/evals/recall/<name>/`, with the lenses that review it and its planted defects (none for a clean fixture), that `forge eval recall` grades reviewer prompts against. | `evals.recall.paths` |

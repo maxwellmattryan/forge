@@ -14,9 +14,24 @@ export interface Plural {
   other: string;
 }
 
-/** A nested message catalog: messages/<locale>.json. */
+/** A nested message catalog: messages/<locale>/*.json, merged by mergeCatalogs. */
 export interface Catalog {
   [key: string]: string | Plural | Catalog;
+}
+
+/** One catalog from per-area parts keyed by file name. A top-level key in two parts throws, naming both. */
+export function mergeCatalogs(parts: Record<string, Catalog>): Catalog {
+  const out: Catalog = {};
+  const owner = new Map<string, string>();
+  for (const name of Object.keys(parts).sort()) {
+    for (const [key, value] of Object.entries(parts[name])) {
+      const first = owner.get(key);
+      if (first !== undefined) throw new Error(`message key "${key}" is in both ${first} and ${name}`);
+      owner.set(key, name);
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 export type Params = Record<string, string | number | null | undefined>;

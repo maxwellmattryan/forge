@@ -6,6 +6,7 @@ How a job moves between stages and states: the one move with its effects, the Fo
 - Only tests call `useMoveEffects`; production always runs `realMoveEffects`.
 - `deps.ts` imports nothing from this folder: `lib/engine/workspace/worktree.ts` imports it, and anything more would risk a cycle.
 - Import order: `foreman-gates.ts` ← `effects.ts` ← `apply.ts`.
+- Design: [Job model](../../../../docs/architecture/job-model.md), [Foreman](../../../../docs/architecture/foreman.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Agents run `forge` hundreds of times a job, so start-up time is paid on every call. Uncached,
-// Node re-parses all of lib/ each start (about 140 ms); docs/ARCHITECTURE.md "Start-up cache" has
+// Node re-parses all of lib/ each start (about 140 ms); docs/architecture/startup-cache.md has
 // the measurements. Plain JS on purpose: anything in lib/ would load the type stripper first.
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';

@@ -160,7 +160,7 @@ export function processStartMs(pid: number): number | null {
  * The daemon's executable: a bare `claude` (found on PATH) or an absolute path to one. Relative
  * paths are refused because the child runs with the repo as cwd, where they would name repo files.
  * This catches mistakes such as a migrated shell template; it is not a security boundary (see
- * docs/ARCHITECTURE.md "Daemon security").
+ * docs/architecture/daemon-security.md).
  */
 export function isClaudeExecutable(word: string): boolean {
   if (/^claude(?:\.exe)?$/.test(word)) return true;

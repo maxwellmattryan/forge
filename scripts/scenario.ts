@@ -10,13 +10,15 @@ import { fileURLToPath } from 'node:url';
 import { PLUGIN_ROOT, jobDir } from '../lib/core/paths.ts';
 import { gitEnv } from '../lib/integrations/git/runner.ts';
 import { VIEWS } from '../dashboard/src/lib/nav.ts';
+import { mergeCatalogs } from '../dashboard/src/lib/i18n.ts';
+import type { Catalog } from '../dashboard/src/lib/i18n.ts';
 import type { ViewId } from '../dashboard/src/lib/nav.ts';
 import { gitSync } from './git.ts';
 
 export const SCENARIO_DIR = path.join(PLUGIN_ROOT, 'test', 'fixtures', 'scenarios');
 export const SCENARIO_NAME = /^[a-z0-9][a-z0-9-]*$/;
 const BIN = path.join(PLUGIN_ROOT, 'bin', 'forge');
-const MESSAGES = path.join(PLUGIN_ROOT, 'dashboard', 'src', 'messages', 'en.json');
+const MESSAGES = path.join(PLUGIN_ROOT, 'dashboard', 'src', 'messages', 'en');
 const USAGE = 'usage: npm run scenario -- <name> | --list';
 const PREFIX = 'forge-scenario-';
 // The scratch repo's directory inside its private parent; the worktrees sibling is `repo.worktrees`.
@@ -95,9 +97,13 @@ function onlyKeys(o: Record<string, unknown>, allowed: string[], where: string, 
   for (const k of Object.keys(o)) if (!allowed.includes(k)) fail(`unknown key "${k}"${where ? ` in ${where}` : ''}`);
 }
 
+// The dashboard's English catalog is split by area (messages/en/*.json) and merged as the app does.
 let messages: unknown = null;
 function message(key: string, fail: (m: string) => never): string {
-  messages ??= JSON.parse(fs.readFileSync(MESSAGES, 'utf8'));
+  messages ??= mergeCatalogs(Object.fromEntries(
+    fs.readdirSync(MESSAGES).filter((f) => f.endsWith('.json')).sort()
+      .map((f) => [f, JSON.parse(fs.readFileSync(path.join(MESSAGES, f), 'utf8')) as Catalog]),
+  ));
   let v: unknown = messages;
   for (const part of key.split('.')) {
     if (!isObject(v) || !Object.prototype.hasOwnProperty.call(v, part)) fail(`unknown message key "${key}"`);
@@ -111,7 +117,7 @@ function message(key: string, fail: (m: string) => never): string {
 }
 
 /**
- * Reads and checks `<dir>/<name>.json`, resolving each `@key` in expect against en.json. Throws
+ * Reads and checks `<dir>/<name>.json`, resolving each `@key` in expect against the English catalog. Throws
  * `scenario <name>: <problem>` before anything is seeded.
  */
 export function loadScenario(name: string, dir: string = SCENARIO_DIR): Scenario {
