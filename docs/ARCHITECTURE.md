@@ -4,7 +4,7 @@ Terms for projects with several repos are defined in [GLOSSARY.md](GLOSSARY.md).
 
 - [Layers](architecture/layers.md): the engine, roster, repo layer and runtime state, where each lives and when it changes, and which `forge` runs. Read it to decide where something outside `lib/` belongs.
 - [Why a CLI does the bookkeeping](architecture/cli-bookkeeping.md): why every decision with one right answer is CLI code and agents only judge. Read it before moving work between an agent and the CLI.
-- [Start-up cache](architecture/startup-cache.md): `bin/forge`'s code and stripped-module caches, their timings, and why they sit beside the code. Read it before touching `bin/forge` or start-up time.
+- [Start-up cache](architecture/startup-cache.md): `bin/forge`'s code and stripped-module caches, their timings, and why they sit beside the code, plus the worktree seeds that share their directory and trust argument. Read it before touching `bin/forge`, start-up time or `lib/engine/workspace/seed.ts`.
 - [Data and versioning](architecture/versioning.md): how every persisted shape is versioned and migrated, and the history of job, event, config and API versions. Read it before any shape change.
 - [Updating](architecture/updating.md): `forge update`: detection, commands, refusals, versions and provenance. Read it when changing how Forge updates itself.
 - [Job model](architecture/job-model.md): stages, states and `waitingOn`, moves, answered gates, the lease, evidence, budgets, dependencies and the inbox. Read it before changing how a job moves or who drives it.
