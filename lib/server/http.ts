@@ -10,6 +10,20 @@ export function isLoopbackHost(host: string | undefined): boolean {
   return name === '127.0.0.1' || name === 'localhost' || name === '[::1]';
 }
 
+const LOOPBACK_V4 = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+/**
+ * Whether a socket's peer address is loopback: IPv4 127.0.0.0/8, `::1`, or IPv4 loopback mapped
+ * into IPv6. Defence in depth behind the 127.0.0.1 bind, should the bind ever change.
+ */
+export function isLoopbackAddress(addr: string | undefined): boolean {
+  if (!addr) return false;
+  const a = addr.toLowerCase();
+  if (a === '::1') return true;
+  const m = LOOPBACK_V4.exec(a.startsWith('::ffff:') ? a.slice(7) : a);
+  return Boolean(m && m.slice(1).every((n) => Number(n) <= 255));
+}
+
 /**
  * Token, then Origin, then JSON: the checks every POST shares. Returns true when it has
  * already answered the request.

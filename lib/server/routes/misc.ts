@@ -49,7 +49,7 @@ import type {
   RepoBudgetStatus,
 } from '#core/types.ts';
 import type { VersionInfo } from '#engine/ops/types.ts';
-import { json, jsonStatus, readJsonBody } from '../http.ts';
+import { json, jsonStatus, readJsonBody, tokenMatches } from '../http.ts';
 import type { RouteMatch, ServerCtx } from '../types.ts';
 import { jobActivity } from './transcripts.ts';
 
@@ -90,9 +90,13 @@ export function getProject(ctx: ServerCtx, _req: http.IncomingMessage, res: http
 }
 
 /** GET /api/backlog: the tracker's items, reused for a minute, with each one's triage verdict. */
-export async function getBacklog(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): Promise<void> {
+export async function getBacklog(ctx: ServerCtx, req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): Promise<void> {
   const { root } = ctx;
-  if (!ctx.backlogCache || Date.now() - ctx.backlogCache.at > 60_000 || match.url.searchParams.has('refresh')) {
+  // A refetch spends the tracker's rate limit: without the page's token, `refresh` is ignored, so a
+  // no-cors GET from another site can't loop it (and it still gets no reply to read).
+  const header = req.headers['x-forge-token'];
+  const refresh = match.url.searchParams.has('refresh') && tokenMatches(typeof header === 'string' ? header : null, ctx.token);
+  if (!ctx.backlogCache || Date.now() - ctx.backlogCache.at > 60_000 || refresh) {
     const { config } = loadConfig(root);
     try {
       const tracker = await loadTracker(root, config);

@@ -214,7 +214,8 @@ test('every guarded route refuses before its handler runs', async () => {
       rows.push({ method: 'GET', path: p, headers: {}, status: 403, text: 'bad token' });
       rows.push({ method: 'GET', path: p, headers: { 'x-forge-token': token, origin: evil }, status: 403, text: 'bad origin' });
     }
-    for (const p of ['/api/events?session=_inbox', '/api/daemons/log?session=_inbox', '/api/jobs/j-1']) rows.push(...readRows(p));
+    const reads = ['/api/state', '/api/stats', '/api/evals', '/api/evals/compare', '/api/requests', '/api/roster', '/api/project', '/api/backlog?refresh=1', '/api/config', '/api/about'];
+    for (const p of [...reads, '/api/events?session=_inbox', '/api/daemons/log?session=_inbox', '/api/jobs/j-1', '/api/jobs/j-1/file?path=x.md', '/api/jobs/j-1/raw?path=x.html']) rows.push(...readRows(p));
     for (const p of ['/api/environments', '/api/jobs/j-1/environment', '/api/jobs/j-1/transcript', '/api/doctor/bundle']) {
       rows.push(...readRows(p), { method: 'GET', path: p, headers: { 'sec-fetch-site': 'same-origin' }, status: 403, text: 'bad token' });
     }
@@ -237,6 +238,27 @@ test('every guarded route refuses before its handler runs', async () => {
     const covered = new Set(rows.map((r) => matchRoute(ROUTES, r.method, r.path.split('?')[0])?.route));
     const missing = ROUTES.filter((r) => (r.method === 'POST' || r.guards?.length) && !covered.has(r)).map((r) => `${r.method} ${r.path}`);
     assert.deepEqual(missing, [], 'every guarded route has a row');
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
+test('backlog refresh needs the token', async () => {
+  const repo = tempRepo();
+  const backlog = path.join(repo.dir, '.forge', 'backlog.md');
+  fs.mkdirSync(path.dirname(backlog), { recursive: true });
+  fs.writeFileSync(backlog, '# Backlog\n- [ ] Item A\n');
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: daemonKit().opts });
+  const port = Number(new URL(url).port);
+  try {
+    const titles = async (p: string, headers: Record<string, string> = {}) => JSON.parse((await hit(port, { path: p, headers })).text).items.map((i: { title: string }) => i.title);
+    assert.deepEqual(await titles('/api/backlog'), ['Item A']);
+    fs.writeFileSync(backlog, '# Backlog\n- [ ] Item B\n');
+    // Without the token, `refresh` is ignored and the cache answers.
+    assert.deepEqual(await titles('/api/backlog?refresh=1'), ['Item A']);
+    assert.deepEqual(await titles('/api/backlog?refresh=1', { 'x-forge-token': 'wrong' }), ['Item A']);
+    assert.deepEqual(await titles('/api/backlog?refresh=1', { 'x-forge-token': await tokenOf(port) }), ['Item B']);
   } finally {
     await close();
     repo.cleanup();

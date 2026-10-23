@@ -13,7 +13,7 @@ import { repoBudgetStatus } from '#engine/metrics/repo-budget.ts';
 import { claudeProjectsDir } from '#integrations/claude/transcripts.ts';
 import { versionInfo } from '#engine/ops/version.ts';
 import type { ApiError, DaemonPoolState, RepoBudgetStatus } from '#core/types.ts';
-import { guardPost, guardQueryToken, guardToken, isLoopbackHost, readGuard, send } from './http.ts';
+import { guardPost, guardQueryToken, guardToken, isLoopbackAddress, isLoopbackHost, readGuard, send } from './http.ts';
 import { SSE_SLOW_CLIENT_BYTES, broadcast, lineFrame, stateFrame } from './sse.ts';
 import { DEV_NOT_BUILT, NOT_BUILT, distDirFor, getAsset, getLogo, getPage } from './static.ts';
 import { postJobEnvironment, getEnvironmentLogs, getEnvironments, getJobEnvironment } from './routes/environment.ts';
@@ -72,18 +72,20 @@ export const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/index.html', handler: getPage },
   { method: 'GET', path: /^\/assets\//, handler: getAsset },
   { method: 'GET', path: '/forge.png', handler: getLogo },
-  { method: 'GET', path: '/api/state', handler: getState },
+  // Every GET under /api takes the read guard: a no-cors GET from another site can't read the reply,
+  // but without it could still loop the expensive reads.
+  { method: 'GET', path: '/api/state', guards: ['read'], handler: getState },
   { method: 'GET', path: '/api/events', guards: ['read'], handler: getEvents },
   { method: 'GET', path: '/api/daemons/log', guards: ['read'], handler: getSessionLog },
-  { method: 'GET', path: '/api/stats', handler: getStats },
-  { method: 'GET', path: '/api/evals', handler: getEvals },
-  { method: 'GET', path: '/api/evals/compare', handler: getEvalsCompare },
-  { method: 'GET', path: '/api/requests', handler: getRequests },
-  { method: 'GET', path: '/api/roster', handler: getRoster },
-  { method: 'GET', path: '/api/project', handler: getProject },
-  { method: 'GET', path: '/api/backlog', handler: getBacklog },
-  { method: 'GET', path: '/api/config', handler: getConfig },
-  { method: 'GET', path: '/api/about', handler: getAbout },
+  { method: 'GET', path: '/api/stats', guards: ['read'], handler: getStats },
+  { method: 'GET', path: '/api/evals', guards: ['read'], handler: getEvals },
+  { method: 'GET', path: '/api/evals/compare', guards: ['read'], handler: getEvalsCompare },
+  { method: 'GET', path: '/api/requests', guards: ['read'], handler: getRequests },
+  { method: 'GET', path: '/api/roster', guards: ['read'], handler: getRoster },
+  { method: 'GET', path: '/api/project', guards: ['read'], handler: getProject },
+  { method: 'GET', path: '/api/backlog', guards: ['read'], handler: getBacklog },
+  { method: 'GET', path: '/api/config', guards: ['read'], handler: getConfig },
+  { method: 'GET', path: '/api/about', guards: ['read'], handler: getAbout },
   { method: 'GET', path: '/api/environments', guards: ['read', 'token'], handler: getEnvironments },
   { method: 'GET', path: /^\/api\/jobs\/([^/]+)\/environment$/, guards: ['read', 'token'], handler: getJobEnvironment },
   { method: 'GET', path: /^\/api\/jobs\/([^/]+)\/environment\/logs$/, guards: ['read', 'queryToken'], handler: getEnvironmentLogs },
@@ -97,7 +99,7 @@ export const ROUTES: readonly Route[] = [
   { method: 'GET', path: /^\/api\/jobs\/([A-Za-z0-9._-]+)$/, guards: ['read'], handler: getJob },
   { method: 'GET', path: /^\/api\/jobs\/([A-Za-z0-9._-]+)\/transcript$/, guards: ['read', 'token'], handler: getTranscript },
   { method: 'GET', path: /^\/api\/jobs\/([A-Za-z0-9._-]+)\/transcript\/events$/, guards: ['read', 'queryToken'], handler: getTranscriptEvents },
-  { method: 'GET', path: /^\/api\/jobs\/([A-Za-z0-9._-]+)\/(file|raw)$/, handler: getJobFile },
+  { method: 'GET', path: /^\/api\/jobs\/([A-Za-z0-9._-]+)\/(file|raw)$/, guards: ['read'], handler: getJobFile },
   { method: 'POST', path: '/api/requests', handler: postRequest },
   { method: 'POST', path: '/api/config', handler: postConfig },
   { method: 'POST', path: '/api/budget/ack', handler: postBudgetAck },
@@ -176,6 +178,8 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   const server = http.createServer(async (req, res) => {
     if (opts.onRequest) observeRequest(req, res, opts.onRequest);
     try {
+      // The bind is 127.0.0.1; this holds if that ever changes.
+      if (!isLoopbackAddress(req.socket.remoteAddress)) return send(res, 403, 'text/plain', 'not loopback');
       if (!isLoopbackHost(req.headers.host)) return send(res, 421, 'text/plain', 'misdirected request');
       const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
       const hit = matchRoute(ROUTES, req.method, url.pathname);
