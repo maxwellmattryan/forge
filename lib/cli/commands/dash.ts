@@ -14,7 +14,7 @@ import { readJson, readText, writeJsonAtomic } from '#core/os/fs.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { out, outputMode } from './args.ts';
 import { colorEnabled } from './render.ts';
-import type { RunningServer } from '../../server/start.ts';
+import type { RunningServer } from '../../server/types.ts';
 import type { Config, DaemonPermissionMode } from '#core/types.ts';
 import type { HelpGroup } from '../types.ts';
 

@@ -19,7 +19,6 @@ const REGISTRIES = ['cli/commands/', 'cli/commands/render/'];
 /** Folders allowed under MIN entries for now. The list only shrinks: each comment says what grows or removes the folder. */
 const SMALL = [
   'office/session/', // #416 splits lifecycle.ts
-  'server/', // #415 splits start.ts
   'trackers/', // the deprecated status re-exports, removed one minor release after the move
 ];
 

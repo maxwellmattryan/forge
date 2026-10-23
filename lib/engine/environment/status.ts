@@ -90,7 +90,7 @@ function recordedDev(root: string, id: string): { pid: number | null; startedAt:
   return { pid: typeof pid === 'number' && Number.isInteger(pid) && pid > 1 ? pid : null, startedAt: typeof startedAt === 'string' ? startedAt : null };
 }
 
-/** The port the dev command serves: the first component's (job.port), as endpointsFor in lib/server/start.ts reads it. */
+/** The port the dev command serves: the first component's (job.port), as endpointsFor in lib/server/routes/misc.ts reads it. */
 function devPort(root: string, config: Config, job: LoadedJob): number | null {
   return jobEndpoints(root, config, job).components.find((c) => c.port === job.port)?.port ?? null;
 }

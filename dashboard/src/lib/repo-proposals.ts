@@ -1,6 +1,6 @@
 // A job's repo proposals as the dashboard shows them: the RP1 park (lib/engine/pipeline/step/gates.ts) that tells this `human` wait
 // apart, the rows of repo-proposals.json (agent-written job state, so parsed defensively and rendered as text),
-// and the POST that decides them (lib/server/start.ts). Plain TS, so a test can pin it.
+// and the POST that decides them (lib/server/routes/jobs.ts). Plain TS, so a test can pin it.
 import type { Job, PostJobReposBody, PostJobReposResponse, RepoProposal } from './types.ts';
 
 /** RP1's reason prefix, as lib/engine/project/repo-proposals.ts PARK_PREFIX. */

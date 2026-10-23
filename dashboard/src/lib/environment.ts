@@ -1,5 +1,5 @@
 // A job's environment as the dashboard shows it (issue #199): the Environment card's dev server row, backing services
-// list and log viewer, and the Project page's Running environments section, over the routes in lib/server/start.ts. Plain TS,
+// list and log viewer, and the Project page's Running environments section, over the routes in lib/server/routes/environment.ts. Plain TS,
 // so a test can pin it. Log lines are untrusted text: they only ever reach `{line}`.
 import { post } from './focus.ts';
 import type { DevState, EnvironmentAction, EnvironmentRow, EnvironmentService, EnvironmentsResponse, EnvironmentTarget, JobEnvironmentResponse, PostEnvironmentResponse } from './types.ts';

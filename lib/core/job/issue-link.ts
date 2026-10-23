@@ -1,5 +1,5 @@
 // A job's issue link: the pure half. Its only runtime import is the equally pure lib/core/job/issue-ref.ts,
-// because lib/engine/pr/, lib/server/start.ts and the trackers import it; the
+// because lib/engine/pr/, lib/server/routes/jobs.ts and the trackers import it; the
 // operations that touch trackers and job state live in lib/engine/trackers/link.ts.
 import { REF, linkedIssues } from './issue-ref.ts';
 import type { Config, Job, TrackerItem } from '../types.ts';
