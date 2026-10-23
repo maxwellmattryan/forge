@@ -1,0 +1,67 @@
+{
+  "job": {
+    "round": "round {round}/{max}",
+    "usage": "{tokens} tok · {ago}",
+    "runningReviewers": {
+      "one": "{count} reviewer",
+      "other": "{count} reviewers"
+    },
+    "runningAgents": {
+      "one": "{count} agent",
+      "other": "{count} agents"
+    },
+    "protected": "Protected",
+    "protectedTitle": "Protected paths: {reasons}",
+    "protectedDrawer": "Protected · {reasons}"
+  },
+  "table": {
+    "stage": "Stage",
+    "state": "State",
+    "round": "Round",
+    "tasks": "Tasks",
+    "verdicts": "Verdicts",
+    "pr": "PR",
+    "budget": "Budget",
+    "updated": "Updated"
+  },
+  "deps": {
+    "after": "after {label}",
+    "title": "Dependencies",
+    "dependsOn": "Depends on",
+    "blocks": "Blocks"
+  },
+  "compare": {
+    "summary": "config {a} → {b} · Forge v{va} → v{vb}",
+    "metric": "Metric",
+    "a": "A",
+    "b": "B"
+  },
+  "pipeline": {
+    "title": "Pipeline",
+    "active": "{count} active",
+    "base": "base",
+    "tracker": "tracker {tracker}",
+    "filter": {
+      "active": "Active",
+      "waiting": "Waiting",
+      "done": "Done",
+      "all": "All"
+    },
+    "layout": {
+      "board": "Board",
+      "table": "Table"
+    },
+    "group": {
+      "queued": "Queued",
+      "plan": "Plan",
+      "build": "Build",
+      "ship": "Ship",
+      "done": "Done"
+    },
+    "stepper": "Stage {n} of {total}: {stage}",
+    "empty": "No jobs here yet. Start one with",
+    "cmdFeature": "/forge <feature>",
+    "or": "or",
+    "cmdNext": "/forge next"
+  }
+}

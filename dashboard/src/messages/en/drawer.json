@@ -1,0 +1,257 @@
+{
+  "deleteJob": {
+    "title": "Delete job",
+    "open": "Delete…",
+    "hint": "For a job started by mistake: stops its session, removes its worktree, backing services and branch, releases its issues and deletes its record for good. Nothing is archived, so stats never count it.",
+    "hasPr": "This job has a PR, so it is real work: cancel it and archive it instead.",
+    "eval": "Eval jobs stay with their run.",
+    "typeId": "Type {id} to confirm",
+    "confirm": "Delete for good",
+    "keep": "Keep it",
+    "done": "Deleted {id}"
+  },
+  "environment": {
+    "title": "Environment",
+    "focus": "Focus",
+    "unfocus": "Unfocus",
+    "editor": "Open in editor",
+    "editorNone": "This job has no worktree yet",
+    "editorOpened": "Opening the worktree in {editor}",
+    "open": "Open",
+    "live": "running",
+    "stopped": "not running",
+    "none": "No endpoint yet: the job needs a worktree and its ports",
+    "loading": "Loading…",
+    "start": "Start",
+    "stop": "Stop",
+    "restart": "Restart",
+    "logs": "Logs",
+    "failed": "The action failed",
+    "pollFailed": "Could not refresh: {error}",
+    "dev": {
+      "title": "Dev server",
+      "states": {
+        "running": "running",
+        "starting": "starting",
+        "down": "down",
+        "stopped": "stopped"
+      },
+      "listening": "listening",
+      "notAnswering": "not answering",
+      "lastLines": "Last lines before it stopped"
+    },
+    "backing": {
+      "title": "Backing services",
+      "states": {
+        "running": "running",
+        "stopped": "stopped",
+        "missing": "missing",
+        "unknown": "unknown",
+        "external": "external"
+      },
+      "health": {
+        "healthy": "healthy",
+        "unhealthy": "unhealthy",
+        "starting": "starting"
+      },
+      "isolation": {
+        "perJob": "per-job",
+        "shared": "shared",
+        "external": "external"
+      },
+      "dockerDown": "Docker is not reachable: start Docker to see and control these services."
+    },
+    "hints": {
+      "inactive": "Only an active job's environment can be started",
+      "noWorktree": "This job has no worktree yet",
+      "noManaged": "No backing service here is run by Forge",
+      "stopKeeps": "Stops this job's containers and keeps their data",
+      "notRunning": "Nothing is running",
+      "logsMissing": "No container yet: start the backing services to see its log",
+      "logsUnknown": "Its container can't be read: Docker is not reachable or the container isn't this job's"
+    },
+    "toasts": {
+      "devStarted": "Dev server started",
+      "devStopped": "Dev server stopped",
+      "devRestarted": "Dev server restarted",
+      "backingStarted": "Backing services started",
+      "backingStopped": "Backing services stopped",
+      "backingRestarted": "Backing services restarted"
+    },
+    "log": {
+      "title": "{source} log",
+      "aria": "{source} log lines",
+      "follow": "Follow",
+      "pauseHint": "Press to pause and keep your place",
+      "followHint": "Press to follow new lines",
+      "close": "Close log",
+      "ended": "Stream ended",
+      "waiting": "Waiting for lines…",
+      "emptyEnded": "No lines",
+      "failedDev": "No dev log to show: start the dev server, then open its log again.",
+      "failedBacking": "This log can't be shown: the container is gone or Docker is not reachable. Close it and try again."
+    }
+  },
+  "dock": {
+    "label": "Your move"
+  },
+  "drawer": {
+    "label": "Job panel",
+    "resize": "Resize job panel",
+    "close": "Close",
+    "branch": "Branch",
+    "base": "Base",
+    "port": "Port",
+    "worktree": "Worktree",
+    "pr": "PR",
+    "repos": "Repos",
+    "repo": "Repo",
+    "verifyOnly": "verify only",
+    "issues": "Issues",
+    "link": "link",
+    "session": "Session",
+    "created": "Created",
+    "updated": "Updated",
+    "budgetCard": "Budget",
+    "screenshotsCard": "Screenshots",
+    "verify": "Verify",
+    "verifiers": "Verifiers",
+    "verifiersTitle": "{blocking} · {warnings}",
+    "verifiersBlocking": "{count} blocking",
+    "verifiersWarnings": {
+      "one": "{count} warning",
+      "other": "{count} warnings"
+    },
+    "agent": "Agent",
+    "output": "Output",
+    "tools": "Tools",
+    "time": "Time",
+    "total": "Total",
+    "files": "Files",
+    "timeline": "Timeline",
+    "noFiles": "No files yet.",
+    "threadTab": "Thread",
+    "logTab": "Log",
+    "detailsTab": "Details",
+    "tabs": "Job sections",
+    "reason": "Reason",
+    "resume": "Resume",
+    "ownerLive": "Held by session {session} (claimed {since}, lease renewed {renewed}).",
+    "ownerExpired": "Session {session}'s lease expired {expired}. Resume takes the job over.",
+    "threadUnread": {
+      "one": "{count} new",
+      "other": "{count} new"
+    },
+    "agentsTab": "Agents",
+    "foreman": "foreman",
+    "by": "by {login}",
+    "actorSource": "recorded from {source}"
+  },
+  "issueLink": {
+    "prompt": "Link this job to an issue so its PR closes it, or say none is needed.",
+    "candidates": "Issues that may fit",
+    "link": "Link",
+    "linkRef": "Link {ref}",
+    "otherRef": "Other issue",
+    "otherPlaceholder": "#123, owner/repo#123 or a backlog ref",
+    "create": "Create a new issue",
+    "none": "No issue needed",
+    "noMatches": "No matching open issues were found.",
+    "promptSpec": "Approving the spec also links its issue. Pick one Forge found, another, a new one, or say none is needed.",
+    "approveLink": "Approve & link",
+    "approveLinkRef": "Approve the spec and link {ref}",
+    "approveCreate": "Approve & create an issue",
+    "approveNone": "Approve, no issue needed"
+  },
+  "repoProposal": {
+    "prompt": "An agent proposes adding these repos to the job. Approving gives each its own worktree, branch and PR; rejecting keeps the work in the job's repos.",
+    "list": "Proposed repos",
+    "status": {
+      "pending": "pending",
+      "approved": "approved",
+      "rejected": "rejected"
+    },
+    "approve": "Approve repos",
+    "reject": "Reject repos",
+    "approved": "Approved {repos}",
+    "rejected": "Rejected {repos}",
+    "failed": "Could not decide the proposal: {error}"
+  },
+  "github": {
+    "kind": {
+      "pull": "Pull request",
+      "issue": "Issue",
+      "repo": "Repository",
+      "commit": "Commit"
+    },
+    "state": {
+      "open": "Open",
+      "draft": "Draft",
+      "merged": "Merged",
+      "closed": "Closed",
+      "notPlanned": "Not planned",
+      "duplicate": "Duplicate"
+    },
+    "checks": {
+      "success": "Checks pass",
+      "failure": "Checks fail",
+      "pending": "Checks running"
+    },
+    "review": {
+      "approved": "Approved",
+      "changesRequested": "Changes requested",
+      "required": "Review required"
+    },
+    "repo": {
+      "private": "Private",
+      "fork": "Fork",
+      "archived": "Archived"
+    },
+    "facts": {
+      "files": {
+        "one": "{n} file",
+        "other": "{n} files"
+      },
+      "comments": {
+        "one": "{n} comment",
+        "other": "{n} comments"
+      },
+      "stars": {
+        "one": "{n} star",
+        "other": "{n} stars"
+      },
+      "forks": {
+        "one": "{n} fork",
+        "other": "{n} forks"
+      },
+      "openIssues": {
+        "one": "{n} open issue",
+        "other": "{n} open issues"
+      },
+      "openPulls": {
+        "one": "{n} open PR",
+        "other": "{n} open PRs"
+      },
+      "openedBy": "opened {ago} by {author}",
+      "opened": "opened {ago}",
+      "committedBy": "committed {ago} by {author}",
+      "committed": "committed {ago}",
+      "pushed": "pushed {ago}",
+      "assigned": "assigned to {names}"
+    },
+    "error": {
+      "ghMissing": "Install the GitHub CLI (gh) to preview GitHub links.",
+      "notFound": "GitHub has no such page, or this login can’t see it.",
+      "failed": "Couldn’t load the preview: {message}"
+    },
+    "open": "Open on GitHub ↗"
+  },
+  "agentsTab": {
+    "role": "Role",
+    "status": "Status",
+    "duration": "Duration",
+    "empty": "No agents in this round yet",
+    "noTranscript": "No transcript for this agent",
+    "transcript": "{role} transcript · read-only"
+  }
+}
