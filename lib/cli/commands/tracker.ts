@@ -40,7 +40,7 @@ const BODY: [string, string][] = [['--body B', 'the text'], ['--body-file F', 'r
 
 const TRACKER: HelpGroup = {
   name: 'tracker',
-  summary: 'the configured issue tracker (tracker.kind): items, claims, comments',
+  summary: 'the configured issue tracker (tracker.kind): items, claims, comments; under github a <ref> is an issue in this repo (12, #12 or owner/repo#12)',
   commands: [
     {
       command: 'tracker list',

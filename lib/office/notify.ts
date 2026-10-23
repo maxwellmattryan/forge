@@ -20,7 +20,7 @@ import { PLUGIN_ROOT, exists, paths } from '#core/paths.ts';
 import { posixShell } from '#core/os/platform.ts';
 import { EVENT_SCHEMA_VERSION, NOTIFY_EVENTS, NOTIFY_GATES } from '#core/job/schema.ts';
 import type { Config, DoctorCheck, Job, NotifyEvent, NotifyWebhook, TransitionSide } from '#core/types.ts';
-import { readJson } from '#core/os/fs.ts';
+import { loopbackOrigin, readDashboardRecord } from '#engine/ops/dashboard-record.ts';
 
 export { notifyProblems, validWebhooks, validCommand, notifyConfigured, webhookHost } from '#core/config/validators/notify.ts';
 
@@ -112,17 +112,13 @@ export function cleanText(text: unknown, max: number): string {
   return chars.length > max ? chars.slice(0, max - 1).join('').trimEnd() + '…' : chars.join('');
 }
 
-const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
-
-/** The running dashboard's pipeline page when that is a loopback http URL, else the configured port's. */
+/**
+ * The running dashboard's pipeline page when its record's url is a loopback origin, else the
+ * configured port's. Only a link is built, so the pid is not proven here.
+ */
 export function dashboardUrl(root: string, config: Pick<Config, 'dashboard'>): string {
-  try {
-    const rt = readJson(path.join(paths(root).runtime, 'dashboard.json'), null);
-    if (typeof rt?.url === 'string') {
-      const u = new URL(rt.url);
-      if (u.protocol === 'http:' && LOOPBACK.has(u.hostname)) return `${u.origin}/#/pipeline`;
-    }
-  } catch {}
+  const origin = loopbackOrigin(readDashboardRecord(root)?.url);
+  if (origin) return `${origin}/#/pipeline`;
   const port = Number(config?.dashboard?.port);
   return `http://127.0.0.1:${Number.isInteger(port) && port > 0 && port < 65536 ? port : 7400}/#/pipeline`;
 }

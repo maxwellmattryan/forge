@@ -14,6 +14,7 @@ A job's pull requests: open, update, sync, merge and adopt them, and the human d
 | `branch.ts` | The job branch against its remote: the base refresh before the secret scan, the base's tip for a merge's checks, the push of the checked commit, and pulling a PR head that moved. |
 | `delta.ts` | The human delta: what people changed on a PR branch after Forge's last push. |
 | `eligible.ts` | Whether a job's PR may merge without a person: the recorded decision bound to its head, recomputed protected paths and the escalate floor. |
+| `feedback.ts` | pr-feedback.md: people's PR feedback rendered as quoted data, filtered by tracker.github.comments. |
 | `integrate.ts` | Bringing a job branch up to date with its base: merge or rebase, generated-path rebuilds, and finishing a kept conflict. |
 | `members.ts` | Member-repo PRs of a linked job: check, open, record and sync them, and keep their sibling links current. |
 | `merge.ts` | Merging a job's PRs once CI allows it, in dependency order for a linked job, and marking drafts ready. |

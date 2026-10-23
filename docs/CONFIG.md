@@ -117,7 +117,7 @@ tracker:                     # where jobs come from and where their status is mi
       projectStatus: null    # e.g. "🔖 Todo" (needs a project; see below)
     claim:                   # what claiming an issue does
       assign: true           # assign the issue to you when a job claims it
-    comments: collaborators  # collaborators | all: whose issue comments reach agents (anyone can comment on public repos)
+    comments: collaborators  # collaborators | all: whose issue and PR comments reach agents (anyone can comment on public repos)
     statusSync: none         # none | labels | project | both
     labels:                  # status labels (statusSync: labels or both)
       prefix: "forge:"       # labels mode: forge:in-progress, forge:review, …
@@ -652,7 +652,7 @@ Files (gitignored, under `.forge/runtime/daemons/`): `<scope>.json` (session id,
 
 - **`retention.jobsDays`** (null, or an integer from 1 to 3650): `forge sync` and `forge dash` startup archive every eligible finished job whose `finishedAt` (else `updatedAt`) is at least this many days old. Archiving writes `.forge/archive/<id>.json` (the job.json as stored, every event, ending with an `archived` event that names the actor, and a summary) and deletes the job's folder: its agents' markdown, reviews, verify reports, logs and screenshots. A job is skipped while it is active, an eval job, owned by a live session, has a running daemon session, has an open PR, still has a worktree (`forge worktree remove <id>` first), or is named in an unfinished job's `dependsOn` or `children`. Read-only in Settings (`deletes job files`).
 - **`retention.logsDays`** (null, or an integer from 1 to 3650): the same runs delete `<scope>.log` and `<scope>.log.1` under `.forge/runtime/daemons/` when the newer of the two is at least this old, the session record names no live process, and the scope is not an active job; a job scope with no job folder left loses its `<scope>.json` too. Read-only in Settings (`deletes session logs`).
-- **`retention.logMaxBytes`** (null, or an integer from 1048576 (1 MiB) to 1073741824 (1 GiB)): the supervisor rotates a session log to `<scope>.log.1` as soon as it reaches this size, mid-session, replacing the older `.log.1`. Null keeps today's rule: rotate only at spawn, past 20 MiB. Editable in Settings; it takes effect at the session's next spawn.
+- **`retention.logMaxBytes`** (null, or an integer from 1048576 (1 MiB) to 1073741824 (1 GiB)): the supervisor rotates a session log to `<scope>.log.1` as soon as it reaches this size, mid-session, replacing the older `.log.1`. Null keeps today's rule: rotate only at spawn, past 20 MiB. Editable in Settings; it takes effect at the session's next spawn. `startBackground` (the dashboard's Run, `forge run <job> <cmd> --background`) rotates a job's background log `logs/<name>.log` to `.log.1` before starting the command once it has reached this size, or past 20 MiB when null.
 
 Archived jobs leave the board, the Done filter, `forge status`, `forge job list --all` and `/api/state`, but `forge stats`, `/api/stats` (which counts them in `counts.archived`), `forge audit`, `forge job audit <id>`, `forge retro due` and the dependency check still read them. Every archived job and deleted log adds one JSON line to `.forge/runtime/retention.log`, and so does every job `forge job delete` removes (docs/architecture/deleting-a-job.md). `forge job archive <id>|--done --older-than D` and `forge job prune --older-than D [--dry-run]` do the same by hand (and are refused in daemon sessions); `forge doctor` warns when `.forge/jobs`, `.forge/archive` or `.forge/runtime` passes 500 MiB.
 
@@ -1220,13 +1220,13 @@ Tools run without a shell, each field one argument, with a 30 s timeout. One tra
 | `events.jsonl` (every string in an event's data) | at write | the job's recorded ones |
 | daemon session logs, their SSE line frames and replay ring | at write | a job session's own; `_inbox` and `_office` every job's |
 | `/api/state` (every string) | at serve | every job's |
-| `/api/jobs/<id>`, `/file` and `/raw` (including background logs `logs/<name>.log`, which the child writes itself) | at serve | that job's |
+| `/api/jobs/<id>`, `/file` (including background logs `logs/<name>.log`, which the child writes itself) and `/raw` (HTML mockups only) | at serve | that job's |
 | `/api/daemons/log` pages, `/api/jobs/<id>/transcript` pages and their event frames | at serve | the session's or the job's |
 | `/api/events` state frames (permission inputs, errors) | at serve | a job session's own; `_inbox` and `_office` every job's |
 | `forge daemon log` | at print | the session's |
 | the support bundle | at build, as `<secret:known>` before the pattern passes | every job's |
 
-`known-secrets.json` and `backing-db.json` are **private job files**: `/file` and `/raw` answer 404 for them (in any letter case, and for a path whose link resolves to one), the job's file list leaves them out, and the support bundle never includes them. `forge worktree remove` deletes `known-secrets.json`. A record that is missing, a symlink, not a regular file, over 1 MiB or malformed counts as empty and is never followed or blocked on; the job database passwords still apply. The secret scanner reports a known value as `known-secret` (see [Secret scanning](#secret-scanning)).
+`known-secrets.json` and `backing-db.json` are **private job files**: `/file` and `/raw` answer 404 for them (in any letter case, for a path whose link resolves to one, and for a hard link, since a job file with more than one link is never served), the job's file list leaves them out, and the support bundle never includes them. `forge worktree remove` deletes `known-secrets.json`. A record that is missing, a symlink, not a regular file, over 1 MiB or malformed counts as empty and is never followed or blocked on; the job database passwords still apply. The secret scanner reports a known value as `known-secret` (see [Secret scanning](#secret-scanning)).
 
 **Briefs.** With `secrets` declared, builder and reviewer briefs carry one line of names and source kinds, never an env var, keychain service, op reference or file path: `Secrets: DB_PASSWORD (env), STRIPE_KEY (keychain), API_TOKEN (op), LOCAL_KEY (file) · values reach commands only through config sinks ({secret.NAME}); never print, log, copy or commit them`.
 

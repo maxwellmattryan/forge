@@ -21,7 +21,7 @@ import { setPath } from '../shape.ts';
 import { ForgeError } from '../errors.ts';
 import { readJson, readText, writeJsonAtomic } from '../os/fs.ts';
 import { withLock } from '../os/lock.ts';
-import { assertSafeRef, slugify } from '../text.ts';
+import { assertSafeRef, oneLineTitle, slugify } from '../text.ts';
 import { now, shortId } from '../utils.ts';
 
 /** How long a claim or the driver's own activity keeps a lease live. */
@@ -244,13 +244,13 @@ export function createJob(
   config: Config,
   opts: { title: string; issues?: JobIssue[]; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[]; origin?: string; splitMode?: 'never' | null; effort?: Effort | null },
 ): LoadedJob {
-  if (!opts.title) throw new ForgeError('a job needs a title');
-  if (opts.effort != null && !isEffort(opts.effort)) throw new ForgeError(effortError(opts.effort));
+  const title = oneLineTitle(opts.title);
+  if (!title || (opts.effort != null && !isEffort(opts.effort))) throw new ForgeError(title ? effortError(opts.effort) : 'a job needs a title');
   // A PR's headRefName arrives here as --branch, and the branch later fills shell templates.
   if (opts.branch !== undefined) assertSafeRef(opts.branch, '--branch');
   const p = paths(root);
   fs.mkdirSync(p.jobs, { recursive: true });
-  const slug = opts.slug ? slugify(opts.slug) : slugify(opts.title, 5);
+  const slug = opts.slug ? slugify(opts.slug) : slugify(title, 5);
   const issues = cleanIssues(opts.issues ?? []);
   // A foreign `owner/repo#12` must not take the `12-<slug>` id this repo's issue 12 would get.
   const primary = issues.find((i) => i.ref) ?? null;
@@ -267,7 +267,7 @@ export function createJob(
   }
   const job = normalizeJob({
     id,
-    title: opts.title,
+    title,
     kind: opts.kind ?? 'feature',
     issues,
     parent: opts.parent ?? null,
@@ -281,8 +281,8 @@ export function createJob(
     updatedAt: now(),
   });
   writeJsonAtomic(path.join(p.job(id), 'job.json'), serializeJob(job));
-  fs.writeFileSync(path.join(p.job(id), 'request.md'), `# ${opts.title}\n\n${opts.body?.trim() ?? ''}\n`);
-  logEvent(root, id, 'created', { title: opts.title, issues: job.issues, ...(opts.origin ? { origin: opts.origin } : {}), ...(job.effort ? { effort: job.effort } : {}) });
+  fs.writeFileSync(path.join(p.job(id), 'request.md'), `# ${title}\n\n${opts.body?.trim() ?? ''}\n`);
+  logEvent(root, id, 'created', { title, issues: job.issues, ...(opts.origin ? { origin: opts.origin } : {}), ...(job.effort ? { effort: job.effort } : {}) });
   if (opts.parent) {
     updateJob(root, opts.parent, (parent) => {
       if (!parent.children.includes(id)) parent.children.push(id);

@@ -231,7 +231,7 @@
               {#if file && content}
                 {#if 'html' in content}
                   <!-- svelte-ignore a11y_missing_attribute (no title, as on main: the iframe sits under the file list that names it) -->
-                  <iframe sandbox="allow-scripts" class="w-full h-[70vh] border border-line bg-white" src="/api/jobs/{encodeURIComponent(j.id)}/raw?path={encodeURIComponent(file)}"></iframe>
+                  <iframe sandbox="" class="w-full h-[70vh] border border-line bg-white" src="/api/jobs/{encodeURIComponent(j.id)}/raw?path={encodeURIComponent(file)}"></iframe>
                 {:else if file.endsWith('.md')}
                   <div class="flex justify-end mb-2"><MarkdownToggle surface="files" /></div>
                   {#if mdView.files === 'rendered'}

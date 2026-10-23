@@ -109,7 +109,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'tracker.github.ready.projectStatus': { doc: 'e.g. "🔖 Todo" (needs a project; see below)' },
   'tracker.github.claim': { doc: 'what claiming an issue does' },
   'tracker.github.claim.assign': { doc: 'assign the issue to you when a job claims it' },
-  'tracker.github.comments': { doc: 'collaborators | all: whose issue comments reach agents (anyone can comment on public repos)' },
+  'tracker.github.comments': { doc: 'collaborators | all: whose issue and PR comments reach agents (anyone can comment on public repos)' },
   'tracker.github.statusSync': { doc: 'none | labels | project | both' },
   'tracker.github.labels': { doc: 'status labels (statusSync: labels or both)' },
   'tracker.github.labels.prefix': { doc: 'labels mode: forge:in-progress, forge:review, …' },

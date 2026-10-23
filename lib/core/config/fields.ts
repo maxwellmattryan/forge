@@ -175,7 +175,7 @@ export const FIELDS: ConfigField[] = [
   field('tracker.github.ready.milestone', 'tracker', 'Ready milestone', 'Only issues in this milestone.', { type: 'string', nullable: true }),
   field('tracker.github.ready.projectStatus', 'tracker', 'Ready project status', 'Only issues with this project status (needs a project).', { type: 'string', nullable: true }),
   field('tracker.github.claim.assign', 'tracker', 'Assign on claim', 'Assign the issue to you when a job claims it.', { type: 'boolean' }),
-  field('tracker.github.comments', 'tracker', 'Comments', 'Whose issue comments reach agents: collaborators or all.', { type: 'enum', options: ['collaborators', 'all'], locked: 'decides whose untrusted text reaches agents' }),
+  field('tracker.github.comments', 'tracker', 'Comments', 'Whose issue and PR comments reach agents: collaborators or all.', { type: 'enum', options: ['collaborators', 'all'], locked: 'decides whose untrusted text reaches agents' }),
   field('tracker.github.statusSync', 'tracker', 'Status sync', 'How job status is mirrored on GitHub.', { type: 'enum', options: ['none', 'labels', 'project', 'both'] }),
   field('tracker.github.labels.prefix', 'tracker', 'Label prefix', 'Prefix for status labels in labels mode, for example forge:in-progress. At least 2 characters, ending in : / or -.', { type: 'string' }),
   field('tracker.github.project.config', 'tracker', 'Project config', 'File to read the project owner, number and status field from.', { type: 'string', locked: 'points status writes at a project' }),

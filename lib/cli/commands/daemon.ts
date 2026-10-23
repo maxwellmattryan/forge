@@ -5,13 +5,12 @@ import path from 'node:path';
 import { loadConfig } from '#core/config/load.ts';
 import { openRead, readInfo, sessionFiles, sessionRecords, tailLines } from '#core/job/session-files.ts';
 import { redactKnown, scopeKnownValues } from '#engine/guard/known-secrets.ts';
-import { paths } from '#core/paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '#core/job/requests.ts';
 import { sessionAgents } from '#office/session-agents.ts';
 import { recordIds } from '#office/driver.ts';
 import { ForgeError } from '#core/errors.ts';
 import { pidAlive } from '#core/os/process.ts';
-import { readJson } from '#core/os/fs.ts';
+import { provenDashboard, readDashboardRecord } from '#engine/ops/dashboard-record.ts';
 import { usageError } from './args.ts';
 import type { HelpGroup } from '../types.ts';
 
@@ -77,8 +76,14 @@ function str(v: unknown): string | null {
 }
 
 function status(root: string): DaemonStatusOut {
-  const dash = readJson(path.join(paths(root).runtime, 'dashboard.json'), null);
-  const dashboard = dash && Number.isInteger(dash.pid) ? { pid: dash.pid, url: str(dash.url), alive: pidAlive(dash.pid) } : null;
+  // A record that is not proven still shows its pid, so the human sees something is there, but never its url.
+  const proven = provenDashboard(root);
+  const raw = proven ? null : readDashboardRecord(root);
+  const dashboard = proven
+    ? { pid: proven.pid, url: proven.url, alive: true }
+    : raw && typeof raw.pid === 'number' && Number.isInteger(raw.pid)
+      ? { pid: raw.pid, url: null, alive: false }
+      : null;
   // _inbox, then _office, before every job id ('_' > 'Z' in code points, so they are placed first explicitly).
   const rank = (s: string) => (s === INBOX_SCOPE ? 0 : s === OFFICE_SCOPE ? 1 : 2);
   const records = sessionRecords(root).sort((a, b) => rank(a.scope) - rank(b.scope) || (a.scope < b.scope ? -1 : a.scope > b.scope ? 1 : 0));

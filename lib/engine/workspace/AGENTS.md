@@ -3,7 +3,7 @@
 Job worktrees and what runs in them: checkouts, focus, the editor, regeneration and configured job commands.
 
 - `job-command.ts` builds the environment, placeholders and shell (sync `shell` and async `shellAsync`) of a configured command Forge runs for a job, apart from `run.ts` and `worktree.ts` so callers can build one without loading them.
-- `forge verify` lives in `lib/engine/verify/`, which imports `run.ts`; nothing here imports it. `worktree.ts` imports `run.ts` for the checkout undo, `dev-server.ts` imports `dev-probe.ts`, and `dev-probe.ts` imports none of the others.
+- `forge verify` lives in `lib/engine/verify/`, which imports `run.ts`; nothing here imports it. `worktree.ts` imports `run.ts` for the checkout undo and `editor.ts` for `containedWorktree`, `dev-server.ts` imports `dev-probe.ts`, and `dev-probe.ts` imports none of the others.
 - `seed.ts` imports only `#core/`; `worktree.ts` imports it. A seed holds code later runs execute, so read its trust argument before changing where it lives, what may write it or how it is cloned.
 - **Worktrees live outside the repo** on purpose: a nested worktree inside a Cargo workspace breaks Cargo, and bundlers and watchers pick up the copies. Don't "simplify" this to an in-repo `.worktrees/`.
 - Design: [Concurrency](../../../docs/architecture/concurrency.md), [Dashboard security](../../../docs/architecture/dashboard-security.md), [Start-up cache › Worktree seeds](../../../docs/architecture/startup-cache.md#worktree-seeds).

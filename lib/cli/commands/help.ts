@@ -56,10 +56,10 @@ export const CORE: HelpGroup[] = [
         summary: "remove the job's worktree and every member repo worktree, or with --repo only that member's; without --repo also its per-job backing containers and volumes (listed as backing)",
         flags: [
           ['--repo NAME', 'only the worktree of member repo NAME'],
-          ['--delete-branch', "delete the job's branch too (not in a verify-only repo)"],
+          ['--delete-branch', "delete the job's branch too, only the one Forge named (git.branchPrefix + id; another is kept and listed as branchKept), not in a verify-only repo"],
           ['--force', 'remove it with uncommitted changes'],
         ],
-        exits: [[1, 'no such job or repo, a member worktree that could not be removed (the result names it), or a backing teardown that failed (backing.json is kept for a retry)'], GIT_FAILED],
+        exits: [[1, "no such job or repo, a stored worktree that is not the job's own <worktrees.root>/<id>, an unsafe branch name with --delete-branch, a member worktree that could not be removed (the result names it), or a backing teardown that failed (backing.json is kept for a retry)"], GIT_FAILED],
       },
       {
         command: 'worktree path',
