@@ -26,6 +26,7 @@ Keep the repo and its worktrees on the Linux filesystem (for example `~/src/<rep
 
 - **Refused**: the daemon (the session pool `forge dash` runs) and `forge update`. The daemon needs POSIX process groups and `ps` to stop and prove its sessions, so the pool refuses to start and the dashboard serves without it. `forge update` exits 1 without detecting the install: update the plugin from Claude Code, or `git pull` your clone.
 - **Runs, but not supported**: the rest of the CLI and the dashboard.
+- **`forge dash --stop` stops nothing.** Forge proves the dashboard's record with `ps` before it signals its pid, so on native Windows every record is stale: `--stop` clears it without stopping a background dashboard, and `forge dash` starts another one on the next free port. Stop a dashboard there with Ctrl-C in its terminal.
 - **Command templates** (`commands.*`, `worktrees.setup`, eval checks) are POSIX `sh`. Off Windows they run as `$SHELL -lc <cmd>` (`/bin/sh` when `$SHELL` is unset). On native Windows they run under Git for Windows' `sh` (Git Bash): the first `sh.exe` on PATH, else `%ProgramFiles%\Git\bin\sh.exe`. Without one, the command is refused with a message saying so.
 - **CI**: none. Forge's CI runs on Linux only, so nothing guards the Windows fixes against regressions.
 
