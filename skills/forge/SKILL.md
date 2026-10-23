@@ -28,7 +28,7 @@ forge sync     # PRs and trackers; cleans merged worktrees
 forge requests # inbox requests: reference/requests.md, before new work
 ```
 No `.forge/config.yml` (exit 2) → **init** unless told otherwise.
-Report `sync`, a line each: merges, PR feedback, conflicts, finished umbrellas, `unblocked: true`/`integrating` (`/forge continue <id>`), `retargeted`. For each `mergeDeferred: true`, run `forge pr merge <id>`.
+Report `sync`, a line each: merges, PR feedback, conflicts, finished umbrellas, `unblocked: true`/`integrating` (`/forge continue <id>`), `retargeted`. `forge sync` continues deferred merges itself (`merge` on the row).
 
 ## Commands (route on the first word)
 | Arguments | Do |
