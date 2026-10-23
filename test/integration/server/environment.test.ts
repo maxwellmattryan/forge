@@ -47,7 +47,8 @@ interface Hit {
 function hit(port: number, o: { path: string; method?: string; headers?: Record<string, string>; body?: string }): Promise<Hit> {
   const t0 = Date.now();
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, path: o.path, method: o.method ?? 'GET', headers: { host: `127.0.0.1:${port}`, ...(o.headers ?? {}) } }, (res) => {
+    // A fresh socket per request: a pooled keep-alive socket the server times out under load resets.
+    const req = http.request({ host: '127.0.0.1', port, path: o.path, method: o.method ?? 'GET', agent: false, headers: { host: `127.0.0.1:${port}`, ...(o.headers ?? {}) } }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8'), ms: Date.now() - t0 }));
@@ -68,7 +69,7 @@ interface Stream {
 /** An SSE client: each frame's fields, and the JSON-string data of its plain data frames. */
 function sse(port: number, p: string, headers: Record<string, string> = {}): Promise<Stream> {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, path: p, headers: { host: `127.0.0.1:${port}`, ...headers } }, (res) => {
+    const req = http.request({ host: '127.0.0.1', port, path: p, agent: false, headers: { host: `127.0.0.1:${port}`, ...headers } }, (res) => {
       let raw = '';
       const client: Stream = {
         status: res.statusCode!,

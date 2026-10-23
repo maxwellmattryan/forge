@@ -1736,6 +1736,7 @@ test('a waiting job keeps waiting while every slot drives agents', async () => {
     agentEnd(repo.dir, a, 'builder');
     d.poke();
     await waitFor(() => kit.last(b), 2000, 'B to get the slot once the agent ended');
+    await logged(repo.dir, a, 'idle-stop');
     assert.equal(eventsIn(logOf(repo.dir, a), 'idle-stop')[0].reason, 'slot');
     assert.equal(kit.maxJobsLive, 1);
   } finally {
@@ -1758,6 +1759,7 @@ test('an idle session with no running agents gives its slot up at once: there is
     // Its result's own tick frees the slot: nothing holds A once it is idle.
     kit.last(a).line({ type: 'result' });
     await waitFor(() => kit.last(b), 2000, 'B to get the slot straight after A went idle');
+    await logged(repo.dir, a, 'idle-stop');
     const stop = eventsIn(logOf(repo.dir, a), 'idle-stop');
     assert.equal(stop.length, 1);
     assert.equal(stop[0].reason, 'slot');
