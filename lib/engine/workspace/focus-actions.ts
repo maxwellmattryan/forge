@@ -15,7 +15,7 @@ import { ensureEnvironment } from '../environment/lifecycle.ts';
 import type { Config, EventActor, FocusResponse, Job } from '#core/types.ts';
 import type { EnvironmentUpResult } from '../environment/types.ts';
 import { ForgeError } from '#core/errors.ts';
-import { runCommandAsync } from './worktree.ts';
+import { runCommandAsync } from './run.ts';
 
 /** Refused because the job is done or cancelled: a `usage` error the server answers with 409. */
 export class InactiveJobError extends ForgeError {}

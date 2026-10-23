@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.20.0
+
+- Instructions per role, and a builder brief that points at the folder maps first (#484)
+- Warm worktrees: clone dependencies and test caches instead of a fresh npm ci (#483)
+- Touchpoints check: a diff names the companions it is missing (#480)
+- Structured hand-offs: a spec file map, the round diff written once, failing tests by name (#481)
+- Dashboard scenarios and a render check for UI jobs (#479)
+- Recurring review findings become checks verify runs (#478)
+- Tidy the job view header: grouped controls, auto-mode icon, one badge row (#477)
+- Split the two slowest test files and add job-state builders for tests (#476)
+- Generate the config and CLI reference from code (#475)
+- Version bumps that merge safely: named migration steps, versions derived from the list (#474)
+- Split ARCHITECTURE.md into topic docs that the folder maps link (#473)
+- Split the dashboard message catalog and lib/api/types.ts by area (#471)
+- Comment lamp out
+- Give the security lens the files M017's splits moved its guards into
+- Name the move's gate effect as maybeEnqueueGate's caller
+- Typed PR snapshots behind a GitHub seam, with an in-memory adapter for tests (#469)
+- One module moves a job, with its effects: gate request, environment, tracker mirror, notify (#468)
+- Split release-plan.ts and release-run.ts (#467)
+- Split commands/job.ts (#466)
+- One owner for the verify record, and verify out of worktree.ts (#465)
+- Split worktree.ts (#464)
+- One answer to who drives a job, and one release when a session exits (#463)
+- A Claude session module owns the stream-json protocol; the office session reacts to domain events (#462)
+- Point references at the files #416 split lifecycle.ts into
+- Split daemon.ts into office/session/ (#461)
+- Versions: config schema 29 → 31.
+
 ## 0.19.1
 
 - Point the builder note's O_NOFOLLOW example at lib/server/static.ts

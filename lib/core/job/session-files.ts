@@ -1,6 +1,6 @@
 // The daemon's session records and logs under .forge/runtime/daemons/, opened without following
 // links or blocking on a FIFO. A leaf, so the modules that read a session's files (notify,
-// transcripts, retention, the server) don't load the supervisor in daemon.ts.
+// transcripts, retention, the server) don't load the supervisor in lib/office/session/lifecycle.ts.
 import fs from 'node:fs';
 import path from 'node:path';
 import { paths } from '../paths.ts';

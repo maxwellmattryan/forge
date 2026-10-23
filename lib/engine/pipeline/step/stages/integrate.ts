@@ -8,6 +8,7 @@ import { park, run, set, spawn, toStage } from '../actions.ts';
 import { after, afterIdx, agent, approvedSinceReview, isPrRework, lastEvent, lastIdx, p } from '../facts.ts';
 import type { Facts } from '../facts.ts';
 import { missingOutputRows, needsInputRows } from '../generic.ts';
+import { lastRun, roundRuns, runsSince } from '../../../verify/record.ts';
 import { inStage } from '../rules.ts';
 import type { Ctx, Table } from '../rules.ts';
 
@@ -44,7 +45,7 @@ export function integrationReviewSkippable(x: StepInput, first: JobEvent): numbe
   // after. What it actually changed must be known, for the sides this episode merged and the sha the
   // passing verify checked, or the review stays.
   const touched = x.integrationTouched;
-  const verified = x.job.verifyRuns.at(-1);
+  const verified = lastRun(x.job);
   if (!touched || !Array.isArray(touched.files) || touched.head !== first.head || touched.upstream !== first.upstream || !verified?.ok || touched.sha !== verified.sha) return 0;
   if (!touched.files.every(SAFE_CONFLICT)) return 0;
   const all = new Set([...conflicted, ...regenerated, ...touched.files]);
@@ -65,7 +66,7 @@ function firstIntegration(x: StepInput, f: Facts): number {
   const entry = f.stageEntry;
   if (entry) return x.events.findIndex((e, i) => i > entry.i && integrating(e));
   const decided = lastEvent(x, (e) => e.type === 'decision')?.ts ?? null;
-  const verified = x.job.verifyRuns.find((r) => r.round === x.job.round && r.ok)?.at ?? null;
+  const verified = roundRuns(x.job).find((r) => r.ok)?.at ?? null;
   const since = after(decided, verified) ? decided : verified;
   return x.events.findIndex((e) => integrating(e) && after(e.ts, since));
 }
@@ -97,9 +98,9 @@ function context(c: Ctx): IntegrateCtx {
     ...c,
     at,
     first,
-    merged: x.job.verifyRuns.filter((r) => after(r.at, first?.ts)),
+    merged: runsSince(x.job, first?.ts),
     integrator,
-    checks: x.job.verifyRuns.filter((r) => after(r.at, integrator?.endedAt)),
+    checks: runsSince(x.job, integrator?.endedAt),
     reviewer,
     fresh: reviewEv && after(reviewEv.ts, reviewer?.endedAt) ? reviewEv : null,
     next: afterIntegration(x, f),

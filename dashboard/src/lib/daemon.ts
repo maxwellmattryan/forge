@@ -190,7 +190,7 @@ export function scopeSession(pool: PoolInput, scope: string): Partial<DaemonSess
   return Object.hasOwn(jobs, scope) ? (jobs[scope] ?? null) : null;
 }
 
-/** The modes a session can be switched to: lib/office/session/lifecycle.ts PERMISSION_MODES. */
+/** The modes a session can be switched to: lib/integrations/claude/argv.ts PERMISSION_MODES. */
 export const PERMISSION_MODES: readonly DaemonPermissionMode[] = ['default', 'auto', 'dontAsk'];
 
 function chosenOverride(p: Record<string, any>, scope: string): DaemonPermissionMode | null {

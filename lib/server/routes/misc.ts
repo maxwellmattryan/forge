@@ -28,7 +28,7 @@ import { isMap } from '#core/shape.ts';
 import { ForgeError } from '#core/errors.ts';
 import { pidAlive } from '#core/os/process.ts';
 import { readJson } from '#core/os/fs.ts';
-import { commandTemplate } from '#engine/workspace/worktree.ts';
+import { commandTemplate } from '#engine/workspace/run.ts';
 import { jobEndpoints } from '#engine/environment/endpoints.ts';
 import { zip } from '#core/format/zip.ts';
 import type {

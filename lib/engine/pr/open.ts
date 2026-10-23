@@ -8,7 +8,8 @@ import type { Config, Job, JobRepoPr } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { now } from '#core/utils.ts';
 import { git, historyEnv } from '#integrations/git/runner.ts';
-import { PR_STATES, assertJobPr, createPr, editPrBase, repoSlug, requireGh, safePrNumber, viewPr } from '#integrations/github/pull-requests.ts';
+import { assertJobPr, safePrNumber } from '#integrations/github/pull-requests.ts';
+import type { GitHub } from '#integrations/github/types.ts';
 import { queueNotify } from '#office/notify.ts';
 import { memberEntry, memberRepos } from '../project/job-repos.ts';
 import { unpromotedDownstream } from '../project/downstream.ts';
@@ -18,7 +19,7 @@ import { checkBranch, logEscalated, protectedApproved, refusalText } from '../gu
 import type { MemberBranch } from '../guard/protected.ts';
 import { attributionForbidden, scrubBranch } from '../guard/attribution.ts';
 import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, secretsBlock, textUnit } from '../guard/secrets.ts';
-import { verifiedHead } from '../workspace/worktree.ts';
+import { verifiedHead } from '../verify/gate.ts';
 import { FULL_SHA, heldConsumers, releaseGates, repoLabel, resolveInterim } from '../release/interim.ts';
 import type { Deferral } from '../release/interim.ts';
 import { interimStatus } from '../release/interim-apply.ts';
@@ -31,6 +32,7 @@ import type { MemberPrResult } from './members.ts';
 export function openPr(
   root: string,
   config: Config,
+  github: GitHub,
   id: string,
   opts: { title?: string; draft?: boolean; force?: boolean } = {},
 ): { number: number | null; url: string | null; created: boolean; unlinked?: true; repos?: MemberPrResult[]; deferred?: Deferral[] } {
@@ -38,7 +40,7 @@ export function openPr(
   // job.json is session-writable: a downstream consumer becomes a pushed repo only through a promotion event.
   const unpromoted = unpromotedDownstream(job, readEvents(root, id));
   if (unpromoted.length) throw new ForgeError(`repo ${unpromoted.join(', ')} joined job ${id} as a downstream consumer and was never promoted, so forge pr open won't push it; propose it (forge job repo propose ${id} <repo> --reason "…") for a human to approve`);
-  requireGh();
+  github.require();
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree`);
   // A PR branch moved on GitHub (an "Update branch", a person's push) would reject the push as
   // non-fast-forward. Merge it in rather than force over it, and send the job back through verify for
@@ -52,7 +54,7 @@ export function openPr(
   // commits as the builder left them were verified.
   const evidence = verifiedHead(root, id);
   if (!evidence.verified) {
-    const last = evidence.last ? `last verify: round ${evidence.last.round} attempt ${evidence.last.attempt}, ${evidence.last.ok ? 'PASS' : 'FAIL'} on ${String(evidence.last.sha).slice(0, 12)}` : 'never verified';
+    const last = evidence.last ? `last verify: round ${evidence.last.round} attempt ${evidence.last.attempt}, ${evidence.last.ok ? 'PASS' : 'FAIL'} on ${String(evidence.last.sha).slice(0, 12)}` : `no verify run in round ${Number(job.round)}`;
     // With job repos the root HEAD can match while a member's does not: name what moved.
     const repoNote = evidence.heads && evidence.last?.ok && evidence.last.sha === evidence.head ? `, but a job repo HEAD is not the one it checked` : '';
     if (!opts.force) throw new ForgeError(`HEAD ${evidence.head.slice(0, 12)} of ${id} is not verified (${last}${repoNote}); run: forge verify ${id}, or pass --force`);
@@ -85,13 +87,13 @@ export function openPr(
   // the checks (a stale session, a process the builder left behind) must not ride along.
   const checked = evidence.head;
   if (!FULL_SHA.test(checked)) throw new ForgeError(`HEAD of ${id} is not a commit id`);
-  const slug = repoSlug(root, config);
+  const slug = github.repoSlug(root, config);
   const ahead = git(job.worktree!, ['rev-list', '--count', `${config.git.remote}/${job.base}..${checked}`, '--'], { allowFail: true });
   if (ahead.ok && ahead.stdout.trim() === '0') throw new ForgeError(`branch ${job.branch} has no commits ahead of ${job.base}`);
   // Interim strategies, judged against the checked commits before anything is pushed.
   // A merged member is not re-checked, but a consumer may still pin it: its HEAD now stands in.
   const heads = new Map<RepoKey, string>([[null, checked], ...Object.entries(evidence.heads ?? {}), ...plans.map((p): [RepoKey, string] => [p.repo, p.checked])]);
-  const interim = interimOpenPlan(root, config, job, heads);
+  const interim = interimOpenPlan(root, config, github, job, heads);
   const isDeferred = (k: RepoKey) => interim.deferred.some((d) => d.repo === k);
   plans.sort((a, b) => interim.order.indexOf(a.repo) - interim.order.indexOf(b.repo));
   let rootPushed: string | null = null;
@@ -119,7 +121,7 @@ export function openPr(
   const rootMerged = job.pr?.state === 'MERGED';
   // A consumer pins the root's sha (git-ref), so the root's branch exists before any member's.
   if (interim.rootFirst && !rootMerged && !isDeferred(null)) pushRoot();
-  const memberResults = plans.filter((p) => !isDeferred(p.repo)).map((p) => openMemberPr(root, config, job, p, text.title, interim.drafts.has(p.repo) ? true : opts.draft));
+  const memberResults = plans.filter((p) => !isDeferred(p.repo)).map((p) => openMemberPr(root, config, github, job, p, text.title, interim.drafts.has(p.repo) ? true : opts.draft));
   const repos = memberRepos(job).length ? { repos: memberResults } : {};
   const deferred = interim.deferred.length ? { deferred: interim.deferred } : {};
   const logDeferred = () => {
@@ -127,17 +129,17 @@ export function openPr(
   };
   if (isDeferred(null) || rootMerged) {
     logDeferred();
-    linkSiblingsQuietly(root, config, id);
+    linkSiblingsQuietly(root, config, github, id);
     const pr = rootMerged ? { number: job.pr!.number, url: job.pr!.url } : { number: null, url: null };
     return { ...pr, created: false, ...prLinkNote(job, config), ...repos, ...deferred };
   }
   const pushedSha = pushRoot();
-  const existing = findPr(root, config, id);
+  const existing = findPr(root, config, github, id);
   if (existing && existing.state === 'OPEN') {
     setJob(root, id, { owned: { 'pr.pushedSha': pushedSha } });
     logEvent(root, id, 'pr-updated', { number: existing.number });
     logDeferred();
-    linkSiblingsQuietly(root, config, id);
+    linkSiblingsQuietly(root, config, github, id);
     return { number: existing.number, url: existing.url, created: false, ...prLinkNote(job, config), ...repos, ...deferred };
   }
   const bodyFile = path.join(jobDir(root, id), 'pr-body.md');
@@ -145,13 +147,13 @@ export function openPr(
   // A consumer on a local edge has nothing CI can resolve, and one on a sequential edge waits for the
   // dependency's release: its PR is held as a draft.
   const isDraft = interim.drafts.has(null) || Boolean(opts.draft ?? config.pr.draft);
-  const url = createPr(job.worktree!, { slug, base: job.base!, head: job.branch!, title: text.title, bodyFile, draft: isDraft, labels: config.pr.labels ?? [], reviewers: config.pr.reviewers ?? [] });
-  const number = Number(url.match(/\/pull\/(\d+)/)?.[1]);
+  const { number, url } = github.create(job.worktree!, { slug, base: job.base!, head: job.branch!, title: text.title, bodyFile, draft: isDraft, labels: config.pr.labels ?? [], reviewers: config.pr.reviewers ?? [] });
+  if (number === null) throw new ForgeError(`gh pr create printed no PR url for ${slug}`);
   setJob(root, id, { owned: { pr: { number, url, state: 'OPEN', isDraft, openedAt: now(), lastSyncedAt: now(), pushedSha } } });
   logEvent(root, id, 'pr-opened', { number, url });
   logDeferred();
   queueNotify(root, ['pr-opened'], { job: job.id, reason: 'pr-opened' });
-  linkSiblingsQuietly(root, config, id);
+  linkSiblingsQuietly(root, config, github, id);
   return { number, url, created: true, ...prLinkNote(job, config), ...repos, ...deferred };
 }
 
@@ -172,7 +174,7 @@ interface InterimOpenPlan {
  * PR merged (asked of GitHub now), a canary consumer until the version is published, and every repo
  * that depends on a waiting one through a sequential, git-ref or canary edge.
  */
-function interimOpenPlan(root: string, config: Config, job: Job, heads: Map<RepoKey, string>): InterimOpenPlan {
+function interimOpenPlan(root: string, config: Config, github: GitHub, job: Job, heads: Map<RepoKey, string>): InterimOpenPlan {
   const { edges } = interimStatus(root, config, job, heads);
   const { order } = jobRepoOrder(config, job);
   const blocked = edges.find((e) => e.state === 'blocked');
@@ -186,7 +188,7 @@ function interimOpenPlan(root: string, config: Config, job: Job, heads: Map<Repo
     );
   const merged = new Map<RepoKey, boolean>();
   const isMerged = (k: RepoKey): boolean => {
-    if (!merged.has(k)) merged.set(k, freshMerged(root, config, job, k));
+    if (!merged.has(k)) merged.set(k, freshMerged(root, config, github, job, k));
     return merged.get(k)!;
   };
   const deferred: Deferral[] = [];
@@ -215,16 +217,16 @@ function interimOpenPlan(root: string, config: Config, job: Job, heads: Map<Repo
  * otherwise step would see a merged dependency, run pr open (PR7), and pr open would defer again,
  * forever. A record GitHub can't confirm either way stops pr open instead.
  */
-function freshMerged(root: string, config: Config, job: Job, key: RepoKey): boolean {
+function freshMerged(root: string, config: Config, github: GitHub, job: Job, key: RepoKey): boolean {
   const pr = key === null ? job.pr : memberEntry(job, key)?.pr;
   const number = safePrNumber(pr?.number);
   if (number === null) return false;
-  let live: PrStateKey | null = null;
+  let live: PrStateKey = null;
   try {
-    const slug = key === null ? repoSlug(root, config) : memberSlug(config, key);
-    const view = viewPr(root, slug, number, 'state,headRefName,baseRefName');
+    const slug = key === null ? github.repoSlug(root, config) : memberSlug(config, key);
+    const view = github.view(root, slug, number);
     assertJobPr(view, job.branch, key === null ? job.base : (memberEntry(job, key)?.base ?? null), `PR #${number} in ${slug}`);
-    live = PR_STATES.has(view?.state) ? (view.state as PrStateKey) : null;
+    live = view.state;
   } catch {}
   if (pr?.state === 'MERGED' && live !== 'MERGED') {
     if (live === null) throw new ForgeError(`${repoLabel(key)}'s PR #${number} is recorded MERGED, but GitHub can't confirm its state; run: forge pr sync ${job.id}`, 'external');
@@ -259,6 +261,7 @@ function refuseProtected(root: string, config: Config, job: Job, head: string, m
 export function retargetPr(
   root: string,
   config: Config,
+  github: GitHub,
   id: string,
   base: string,
   dependency?: string,
@@ -267,8 +270,8 @@ export function retargetPr(
   const from = job.base;
   const number = config.pr.enabled && job.pr?.number && job.pr.state === 'OPEN' ? job.pr.number : null;
   if (number) {
-    requireGh();
-    editPrBase(root, repoSlug(root, config), number, base);
+    github.require();
+    github.editBase(root, github.repoSlug(root, config), number, base);
   }
   setJob(root, id, { owned: { base } });
   logEvent(root, id, 'retargeted', { from, to: base, dependency, pr: number });

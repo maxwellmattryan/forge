@@ -43,12 +43,6 @@ export const ALLOWED_EDGES: string[] = [
   'core/paths.ts → integrations/git/runner.ts', // core reaches integrations: the main checkout's root
   'engine/guard/secrets.ts → office/notify.ts', // engine reaches office: notify transport
   'engine/ops/doctor.ts → office/notify.ts', // engine reaches office: notify transport
-  'engine/ops/doctor.ts → office/session/lifecycle.ts', // engine reaches office: the session's API-key variables
-  'engine/pipeline/step/gates.ts → office/foreman.ts', // engine reaches office: the Foreman's round ceilings
-  'engine/pipeline/step/stages/build.ts → office/foreman.ts', // engine reaches office: the Foreman's round ceilings
-  'engine/pipeline/step/stages/decide.ts → office/foreman.ts', // engine reaches office: the Foreman's round ceilings
   'engine/pr/open.ts → office/notify.ts', // engine reaches office: notify transport
-  'engine/pr/sync.ts → office/foreman.ts', // engine reaches office: the Foreman's gate classes
-  'engine/release/approval.ts → office/foreman.ts', // engine reaches office: the Foreman's gate classes
   'integrations/github/tracker.ts → engine/guard/attribution.ts', // integrations reach engine: tracker security wrappers
 ];

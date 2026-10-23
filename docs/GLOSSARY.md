@@ -27,6 +27,7 @@ Planned in M005, except where a config key exists today.
 |---|---|---|
 | **job repo** | A repo the job changes, the root repo first and then each member repo a human adds with `forge job repo add`, so it gets its own worktree, verify evidence, branch and PR. | - |
 | **repo proposal** | A planner's or spec-writer's request, made with `forge job repo propose`, to add a member repo to its job, which parks the job until a human (or the foreman, when `repo-proposal` is in `foreman.decides`) approves or rejects it. | `foreman.decides` |
+| **verify record** | A job's verify runs, one per `forge verify` attempt (and per verifiers CHANGES), each bound to the commit it checked; this round's last run is the job's latest verify, and a HEAD is verified only when that run passed on it and on every member HEAD. Only `lib/engine/verify/record.ts` reads it. | - |
 | **verify-only repo** | A job repo added with `--verify-only`, which the job checks out at its base to build and test against its changes without branching, pushing or opening a PR there. | - |
 | **downstream repo** | A verify-only repo Forge adds to a job because it consumes, through a declared link, a repo the job changes, so verify runs its tests against the job's changes and names it when they break. | `downstream` |
 | **checkout hook** | A command run once when a job's checkout of a repo is created (today's single-repo form; per-repo hooks are planned). | `worktrees.setup` |
@@ -84,7 +85,10 @@ Words for Forge's own code, decided in #303 ([design/lib-layout.md](design/lib-l
 | **integrations** | The code that knows an outside system's API, CLI or file format (git, GitHub, Claude Code, Docker, webhooks, and the built-in backlog that implements the same contract), one folder per system in `lib/integrations/`; it holds mechanism, never pipeline policy. | - |
 | **lib module** | A folder inside a lib layer (`lib/<layer>/<module>/`) that holds one concept's files, such as `lib/core/job/` or `lib/engine/pipeline/`. | - |
 | **layer alias** | A `package.json` subpath import (`#api/`, `#core/`, `#integrations/`, `#engine/`, `#office/`) that names a lib layer; imports across layers use one, imports inside a layer stay relative. | - |
+| **touchpoint rule** | A row of the rule table in `scripts/check-touchpoints.ts`: a change a diff can recognise and the companion change it needs, which `npm run check:touchpoints` reports as missing with the fix; companions only a person can judge stay in docs/DEVELOPING.md › Where a change goes. | - |
 | **folder map** | A folder's `AGENTS.md`: a few hand-written lines, then the table that `npm run docs:map` generates from each file's header comment. | - |
+| **GitHub adapter** | The one interface (`GitHub`, in `lib/integrations/github/types.ts`) that `lib/engine/pr/` takes as a parameter for every pull request read and edit: the gh adapter (`ghGitHub`) in production, which `lib/cli/` passes, and `memoryGitHub` in tests, so PR policy code never runs `gh` itself. | - |
+| **PR snapshot** | What the GitHub adapter returns for a pull request (`PrSnapshot`): each field of gh's JSON checked once, so an unsafe ref or a malformed head arrives as `null` and a PR not known to be same-repo reads as cross-repository (a fork PR is never adopted), and policy code never reads raw gh output. | - |
 
 ## Dashboard look
 
@@ -108,10 +112,11 @@ Some of these words already mean something in Forge. They keep those meanings:
 - A job's `dependsOn` is a job dependency. "Dependency" alone means a component edge.
 - "Environment" alone never means environment variables (say "environment variables"), and "focus" never means a test's focus marker or keyboard focus.
 - "Hand-off" alone means a session handing a job to another with `forge requests add resume`; the Foreman's always carries the name ("Foreman hand-off").
+- "File map" is a spec's `Files:` table; a folder's `AGENTS.md` is its "folder map".
 - "Integrations" never means the integrate stage or the integrator (bringing a branch up to date with its base), nor integration tests (`test/integration/`).
 - "Office" alone means the runtime; the Foreman's session is the "office session".
 - "Milestone" means a tracker milestone (a group of planned work). The Thread's one-line rows for a job's events are "progress lines".
-- "Layer" alone keeps [ARCHITECTURE.md's meaning](ARCHITECTURE.md#layers) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
+- "Layer" alone keeps [its meaning in the architecture docs](architecture/layers.md) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
 
 ## Existing terms
 
@@ -120,6 +125,7 @@ The new words build on these, which exist today.
 | Term | Meaning | Config key |
 |---|---|---|
 | **job** | One unit of work that Forge takes from request to PR, in its own worktree. | - |
+| **move** | A change to a job's stage, state or `waitingOn` made through `lib/engine/pipeline/moves/apply.ts`, which then stops or tears down its environment, queues the Foreman's gate request and mirrors it to its tracker; notifications follow every transition. | - |
 | **output mode** | How a `forge` call prints: `human` (rendered text for a person at a terminal) or `agent` (compact JSON, the CLI's contract), chosen by `--json`, `--mode`, `FORGE_MODE`, then whether stdout is a terminal (docs/CLI.md "Output mode"). | - |
 | **activity log** | The timestamped lines a foreground `forge dash` prints after its banner in human mode, of three kinds: `session` (session transitions), `http` (requests worth noting) and `job` (newly appended job events); `--quiet` and agent mode leave only the banner (docs/CLI.md "Output mode"). | - |
 | **Foreman** | The office session that decides gates for jobs under `foreman.decides`. | `foreman.decides` |
@@ -140,4 +146,11 @@ The new words build on these, which exist today.
 | **prompt cohort** | The jobs whose last start of one role ran on the same prompt hash (`promptHash` on `agent-start`), grouped by `forge stats --by prompt` so a prompt change can be compared with the prompts before it. | - |
 | **settled experiment** | An experiment ledger entry whose status `forge experiment evaluate` wrote (`kept`, `reverted` or `inconclusive`, with its n, method and interval); it is history, and the notes check refuses any change to it. | `improve.experiments` |
 | **progress line** | A one-line row the job panel's Thread shows between the messages for a job event a person follows: a new stage, a parked gate, an agent's closing reply, a round's checks or reviews, the decision, the PR, merge conflicts or a note. It never counts as unread. | - |
+| **scenario** | A named dashboard state, one JSON file in `test/fixtures/scenarios/`, that `npm run scenario`, `npm run dev -- --scenario` and the render check seed into a scratch repo through the CLI alone, with the texts each view must show (docs/TESTING.md "Dashboard scenarios and the render check"). | - |
+| **render check** | `npm run test:render`: every view of every scenario, and the job drawer, loaded in headless Chrome against a dashboard build, failing on a console or page error, a 5xx or missing text; CI's `render` job runs it, outside the verify list. | - |
+| **version step** | One named entry (`{ id, up }`, or `{ id }` for `/api`) in an append-only version list (`lib/core/versions/`, `lib/api/versions.ts`); a shape's version is its list's length plus one, so a shape change appends a step and never types a number. | - |
+| **file map** | The `Files:` table that ends a spec's Approach: one row per file the builder will touch or reuse, with its symbols, the change and the tests that cover it; `forge job acs` reports a spec without one as incomplete (`fileMap`, `incomplete`). | - |
 | **recall fixture** | A frozen diff in the main checkout's `.forge/evals/recall/<name>/`, with the lenses that review it and its planted defects (none for a clean fixture), that `forge eval recall` grades reviewer prompts against. | `evals.recall.paths` |
+| **worktree seed** | A private, Forge-owned copy of a fresh base worktree's dependency paths and caches, which new job worktrees clone copy-on-write while their key files match, instead of running setup. | `worktrees.seed` |
+| **finding key** | A review finding's lens plus the first four words of its title, lower-cased, without its location, code spans, paths, punctuation and stop words; `forge retro prepare` lists findings that share one in 2 or more jobs under `## Recurring findings across jobs`. | - |
+| **mechanical finding** | A recurring finding a script could decide from the diff or the tree, for which the retro proposes a check (an invariant test, a lint rule or a verifier) instead of a learning; every other finding is a judgement finding. | - |

@@ -11,18 +11,21 @@ import { isLens, reviewFileName, reviewedRepoNames, splitLens } from '#core/job/
 import { lensChecklists } from './member-panel.ts';
 import { repoGraph } from '../project/graph.ts';
 import { paths, exists } from '#core/paths.ts';
-import { releaseFiles } from '../release/plan.ts';
+import { releaseFiles } from '../release/files.ts';
 import { SECRET_NAME, secretSourceOf } from '#core/config/validators/secret-refs.ts';
+import { instructionsFor } from '#core/config/validators/instructions.ts';
 import { recallLine } from './step/recall.ts';
+import { lastRun } from '../verify/record.ts';
 import type { Config, GateClass, Job, JobEvent } from '#core/types.ts';
 import type { StepInput } from './types.ts';
 
 /**
  * Absolute paths an agent prompt needs, keyed as `forge job paths` prints them. Reads (which
  * instruction files and checklists exist) but never creates anything: `jobPaths` in
- * lib/cli/commands/job.ts adds the review directories.
+ * lib/cli/commands/job/read.ts adds the review directories. `instructions` is `role`'s list
+ * (instructionsFor), the default list without one.
  */
-export function jobPathMap(root: string, config: Config, job: Job): Record<string, unknown> {
+export function jobPathMap(root: string, config: Config, job: Job, role?: string): Record<string, unknown> {
   const dir = jobDir(root, job.id);
   const p = paths(root);
   const round = Math.max(job.round, 1);
@@ -41,8 +44,10 @@ export function jobPathMap(root: string, config: Config, job: Job): Record<strin
     verifierInput: path.join(dir, 'verify', `round-${job.round}-verifiers-input.md`),
     verifierAnswers: path.join(dir, 'verify', `round-${job.round}-verifier-answers.md`),
     scope: path.join(dir, 'scope.md'),
-    // Only with a reviewed member: single-repo reviewers read `forge git diff` as before.
+    // Only with a reviewed member; every job's reviewers read roundDiff.
     ...(reviewedRepoNames(job).length ? { scopeDiff: path.join(dir, 'scope.diff') } : {}),
+    // `forge job scope` writes it once per round, after verify and before any reviewer starts.
+    roundDiff: path.join(reviewDir(root, job.id, round), 'diff.patch'),
     screenshots: path.join(dir, 'screenshots'),
     reviewDir: reviewDir(root, job.id, round),
     previousReviewDir: round > 1 ? path.join(dir, 'review', `round-${round - 1}`) : null,
@@ -57,7 +62,7 @@ export function jobPathMap(root: string, config: Config, job: Job): Record<strin
     learnings: path.join(p.notes, 'learnings.md'),
     notesDir: p.notes,
     config: p.config,
-    instructions: (config.project.instructions ?? []).map((f: string) => path.join(job.worktree ?? root, f)).filter(exists),
+    instructions: instructionsFor(config, role).map((f) => path.join(job.worktree ?? root, f)).filter(exists),
     checklists: lensChecklists(root, config, job, job.reviewers ?? []),
     ...(memberRepos(job).length ? { repos: Object.fromEntries(memberRepos(job).map((m) => [m.repo, m.worktree])) } : {}),
     // The post-merge score run's output and input (lib/engine/evals/scoring.ts); an eval job is graded instead.
@@ -146,7 +151,7 @@ function protectedLine(job: Pick<Job, 'protectedPaths'>): string {
 function downstreamFailuresLine(input: Pick<StepInput, 'job' | 'events'>): string | null {
   const j = input.job;
   const downstream = downstreamMembers(j, input.events);
-  const last = j.verifyRuns.at(-1);
+  const last = lastRun(j);
   const failed = (Array.isArray(last?.repos) ? last.repos : [])
     .filter((r) => !r.ok && downstream.has(r.repo))
     .map((r) => ({ repo: r.repo, failure: typeof r.failure === 'string' ? r.failure.slice(0, 64) : null }));
@@ -265,7 +270,17 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
       if (rework.includes('pr-feedback')) inputs.push(p('prFeedback'));
       if (rework.includes('feedback')) inputs.push(p('feedback'));
       if (rework.includes('answer')) inputs.push(p('questions'));
-      return out([p('tasks'), p('build')], inputs, [...(rework.length ? [`Rework: ${rework.join(', ')}`] : []), infra, ...backingLines, ...secretLines, uiProof]);
+      // A CLI-computed count, never the table's text, so nothing the spec-writer wrote reaches the brief.
+      const rows = input.acs.fileMap;
+      const fileMap = rows
+        ? `File map: ${rows} rows in spec.md's Approach › Files · start from it; explore only what it does not cover`
+        : 'File map: none in spec.md · explore the code the Approach names';
+      // JSON, and only existing worktree paths loadStepInput checked, so nothing a map or the spec says starts a line.
+      const fm = input.folderMaps;
+      const maps = fm && (fm.maps.length || fm.topics.length)
+        ? [`Maps (JSON): ${JSON.stringify(fm)} · read these before you search: the folder maps say where code lives, the topics the rules behind it`]
+        : [];
+      return out([p('tasks'), p('build')], inputs, [...(rework.length ? [`Rework: ${rework.join(', ')}`] : []), infra, ...backingLines, ...secretLines, uiProof, ...maps, fileMap]);
     }
     case 'reviewer': {
       const lens = ctx.lens ?? role.slice('reviewer:'.length);
@@ -283,7 +298,8 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
       }
       extra.push(...backingLines, ...secretLines);
       // The integration review stays root-only and has its own Diff line below.
-      if (input.paths.scopeDiff && !ctx.integration) extra.push(`Diff: ${p('scopeDiff')} (every job repo; member paths are prefixed <repo>/)`);
+      if (!ctx.integration)
+        extra.push(`Diff: ${p('roundDiff')} ${input.paths.scopeDiff ? '(every job repo; member paths are prefixed <repo>/)' : "(stat, then the branch's diff from its merge base)"}`);
       if (ctx.integration) {
         // JSON, so a conflicted file name can't start a line of its own in the brief.
         extra.push(`Integration review: conflicted files ${JSON.stringify(ctx.integration.conflicts)}`);
@@ -349,7 +365,11 @@ export function renderBrief(input: StepInput, spec: BriefSpec): string {
   const present = spec.inputs.filter((p) => input.present.includes(p));
   const downstream = downstreamMembers(j, input.events);
   const keys = spec.pathKeys;
-  const paths = keys ? Object.fromEntries(Object.entries(input.paths).filter(([k]) => keys.includes(k))) : input.paths;
+  const all = keys ? Object.fromEntries(Object.entries(input.paths).filter(([k]) => keys.includes(k))) : input.paths;
+  // The role's own files; loadStepInput put every role's existing ones in `present`, so this reads nothing.
+  const paths = 'instructions' in all
+    ? { ...all, instructions: instructionsFor(input.config, spec.role).map((f) => path.join(j.worktree ?? input.root, f)).filter((f) => input.present.includes(f)) }
+    : all;
   const lines = [
     `Job id: ${j.id}`,
     `Role: ${spec.role}${spec.lens ? ` · lens ${spec.lens}` : ''}`,

@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { daemonProblems, loadConfig } from '#core/config/load.ts';
 import { scopeKnownValues } from '#engine/guard/known-secrets.ts';
 import { createPool } from '#office/pool.ts';
+import { whoDrives } from '#office/driver.ts';
 import { createPreviewer, ghRunner } from '#integrations/github/preview.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { repoBudgetStatus } from '#engine/metrics/repo-budget.ts';
@@ -147,15 +148,8 @@ function createContext(root: string, opts: ServerOptions): ServerCtx {
     pool: null,
     ping: null,
     poolState: (): DaemonPoolState => ({ ...(ctx.pool ? ctx.pool.state() : idlePoolState(root)), clients: ctx.clients.size }),
-    /**
-     * The lease's driver is this job's own pool session and that session runs: a resume reaches exactly
-     * it, so its live lease doesn't hold the resume. Asked of the pool, never of ps or the session records.
-     */
-    ownPoolSession: (job) => {
-      if (!ctx.pool || !job.lease.driver) return false;
-      const s = ctx.pool.sessionState(job.id);
-      return s.running && s.sessionId === job.lease.driver;
-    },
+    // Asked of the pool's session for this job, under every id it has had, never of ps or the session records.
+    drive: (job) => whoDrives(job, ctx.pool?.facts(job.id) ?? null),
     // Polls come every few seconds and the ledger stats every job's events, so the status is reused for 5 s.
     // write: false, so a GET never writes .forge/runtime/.
     budgetCache: null,

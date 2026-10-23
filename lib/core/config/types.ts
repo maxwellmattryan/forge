@@ -16,7 +16,7 @@ export interface ProtectedRule {
   reason: string;
 }
 
-/** One review lens: an entry of review.panel in defaults() (lib/core/config/defaults.ts). */
+/** One review lens: an entry of review.panel in defaults() (lib/core/config/keys/defaults.ts). */
 export interface PanelEntry {
   name: string;
   always?: boolean;
@@ -129,7 +129,7 @@ export interface MemberRepoConfig {
   release?: ({ interim?: InterimStrategy } & ReleaseStrategy) | null;
 }
 
-/** What `forge run <job> <name>` executes: defaults().commands in lib/core/config/defaults.ts. */
+/** What `forge run <job> <name>` executes: defaults().commands in lib/core/config/keys/defaults.ts. */
 export interface CommandsConfig {
   setup: string | null;
   build: string | null;
@@ -145,14 +145,15 @@ export interface CommandsConfig {
 /** One `verify` entry: a step name, or a group of step names that run at the same time (config schemaVersion 3). */
 export type VerifyEntry = string | string[];
 
-/** The effective config: defaults() in lib/core/config/defaults.ts merged with .forge/config.yml by loadConfig. docs/CONFIG.md documents each key. */
+/** The effective config: defaults() in lib/core/config/keys/defaults.ts merged with .forge/config.yml by loadConfig. docs/CONFIG.md documents each key. */
 export interface Config {
   schemaVersion: number;
   project: {
     name: string | null;
     description: string | null;
     kinds: string[];
-    instructions: string[];
+    /** A list every role reads, or a map: `default` plus role lists (INSTRUCTION_ROLES) that replace it (instructionsFor). */
+    instructions: string[] | Record<string, string[]>;
     notes: string | null;
   };
   git: {
@@ -164,6 +165,8 @@ export interface Config {
     root: string;
     copy: string[];
     setup: string[];
+    /** The worktree seed (lib/engine/workspace/seed.ts): off while `paths` is empty. */
+    seed: { paths: string[]; key: string[]; setup: string[]; warm: string[] };
     cleanup: 'on-merge' | 'manual';
     cargo: { sharedTarget: boolean; targetDir: string | null };
     generated: string[];

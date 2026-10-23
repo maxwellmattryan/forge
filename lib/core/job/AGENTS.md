@@ -3,9 +3,10 @@
 The job store and what it persists: job.json, events and the lease, schema versions and migrations, requests, archives and session files.
 
 - `store.ts` holds job state and events, and the job lease: claim, renew, expire, the epoch fence. The CLI is the only writer of this state: new state means a new CLI command, never an agent editing `job.json`.
-- `schema.ts` holds the versions, normalisers and migrations. Every shape change bumps its constant there with a migration keyed by the old version and a row in `test/schema.test.ts`; only one in-flight change may bump each constant.
+- `schema.ts` holds the normalisers and re-exports the versions, which `lib/core/versions/` derives from its step lists. Every shape change appends a named step to its list there, with a row keyed by the step id in `test/schema.test.ts`; on conflict keep both, in merge order.
 - `fields.ts` holds the job-field rules `setJob` enforces for every caller.
 - **Issue refs** live in `job.issues` (`issue-ref.ts`): GitHub refs are stored qualified (`owner/repo#12`), local refs are title slugs, custom refs are the adapter's own. Only `nativeRef` output reaches a tracker call. Job ids: this repo's GitHub issue gives `<n>-<slug>`, a foreign `owner/repo#n` gives `repo-<n>-<slug>`, any other ref is the ref itself slugified.
+- Design: [Data and versioning](../../../docs/architecture/versioning.md), [Job model](../../../docs/architecture/job-model.md), [Concurrency](../../../docs/architecture/concurrency.md), [Retention](../../../docs/architecture/retention.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
@@ -20,5 +21,6 @@ The job store and what it persists: job.json, events and the lease, schema versi
 | `schema.ts` | Versioned data shapes. |
 | `session-files.ts` | The daemon's session records and logs under .forge/runtime/daemons/, opened without following links or blocking on a FIFO. |
 | `store.ts` | Job state and its event log: load, update and list jobs, and the job lease (claim, renew, expire, the epoch fence). |
+| `transitions.ts` | Transition hooks: what setJob calls once per stage, state or waitingOn change, so a higher layer (notify, registered by lib/cli/main.ts at start) can follow every writer without core importing it. |
 | `types.ts` | The job shapes the store, the archive and the findings summary share, type-only: re-exported by lib/core/types.ts. |
 <!-- forge:map:end -->

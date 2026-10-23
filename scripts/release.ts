@@ -28,7 +28,7 @@ const NOTE = '<!--';
 const APPEAR_MS = 3 * 60_000;
 const FINISH_MS = 45 * 60_000;
 const POLL_MS = 15_000;
-// lib/core/job/schema.ts constants the notes report when they move, with the words CHANGELOG uses for them.
+// The versions the notes report when they move (versionsAt), with the words CHANGELOG uses for them.
 const VERSION_LABELS: Record<string, string> = {
   CONFIG_SCHEMA_VERSION: 'config schema',
   JOB_SCHEMA_VERSION: 'job schema',
@@ -83,15 +83,42 @@ export function setVersion(root: string, from: string, to: string): void {
 /** Where the schema file has lived, newest first: a tag from before the lib/ layers (#421) has the second. */
 export const SCHEMA_FILES = ['lib/core/job/schema.ts', 'lib/schema.ts'];
 
-/** The first of SCHEMA_FILES that `has` finds, or null when none is there. */
-export function schemaFileAt(has: (rel: string) => boolean): string | null {
-  return SCHEMA_FILES.find(has) ?? null;
-}
+/** The version lists (#426) that replaced the literal constants, by the constant each gives. */
+export const VERSION_LISTS: Record<string, string> = {
+  CONFIG_SCHEMA_VERSION: 'lib/core/versions/config.ts',
+  JOB_SCHEMA_VERSION: 'lib/core/versions/job.ts',
+  EVENT_SCHEMA_VERSION: 'lib/core/versions/event.ts',
+  API_VERSION: 'lib/api/versions.ts',
+};
 
 /** `export const X_VERSION = n;` constants in a schema file's text. */
 export function schemaVersions(text: string): Record<string, number> {
   const out: Record<string, number> = {};
   for (const m of text.matchAll(/^export const (\w+) = (\d+);/gm)) if (m[1] in VERSION_LABELS) out[m[1]] = Number(m[2]);
+  return out;
+}
+
+/** The version a list file gives: 1 + its entries, each starting its own line as `  { id: '`. */
+export const listVersion = (text: string): number => 1 + (text.match(/^ {2}\{ id: '/gm)?.length ?? 0);
+
+/**
+ * The versions a tree holds, through `read` (a repo-relative path's text, or null when absent): the
+ * literal constants of its schema file, then each version list that exists in place of its constant.
+ * A tag from before the lists has only the constants; a tree after them has both, ARCHIVE from schema.ts.
+ */
+export function versionsAt(read: (rel: string) => string | null): Record<string, number> {
+  let out: Record<string, number> = {};
+  for (const rel of SCHEMA_FILES) {
+    const text = read(rel);
+    if (text !== null) {
+      out = schemaVersions(text);
+      break;
+    }
+  }
+  for (const [key, rel] of Object.entries(VERSION_LISTS)) {
+    const text = read(rel);
+    if (text !== null) out[key] = listVersion(text);
+  }
   return out;
 }
 
@@ -195,9 +222,11 @@ function editNotes(file: string): void {
 function prepare(current: string, next: string, notesFile: string | null): void {
   const since = lastTag();
   const subjects = git('log', '--first-parent', '--format=%s', ...(since ? [`${since}..HEAD`] : ['HEAD'])).split('\n').filter(Boolean);
-  const old = since ? schemaFileAt((rel) => gitOk(['cat-file', '-e', `${since}:${rel}`])) : null;
-  const before = since && old ? schemaVersions(gitOut(['show', `${since}:${old}`])) : {};
-  const after = schemaVersions(fs.readFileSync(path.join(ROOT, SCHEMA_FILES[0]!), 'utf8'));
+  const before = since ? versionsAt((rel) => (gitOk(['cat-file', '-e', `${since}:${rel}`]) ? gitOut(['show', `${since}:${rel}`]) : null)) : {};
+  const after = versionsAt((rel) => {
+    const file = path.join(ROOT, rel);
+    return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  });
   const changelogFile = path.join(ROOT, 'CHANGELOG.md');
   const changelog = fs.readFileSync(changelogFile, 'utf8');
 

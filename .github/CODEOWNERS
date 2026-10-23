@@ -5,6 +5,7 @@
 /.forge/trackers/** @maxwellmattryan
 /lib/server/** @maxwellmattryan
 /lib/office/session/** @maxwellmattryan
+/lib/integrations/claude/argv.ts @maxwellmattryan
 /lib/office/pool.ts @maxwellmattryan
 /hooks/** @maxwellmattryan
 /lib/engine/guard/attribution.ts @maxwellmattryan

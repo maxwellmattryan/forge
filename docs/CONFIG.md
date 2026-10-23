@@ -1,30 +1,40 @@
 # `.forge/config.yml`
 
-`/forge init` writes this file. Every key is optional; anything omitted takes the default shown. The file uses a strict YAML subset (block maps and lists, quoted or plain scalars, `[a, b]` / `{a: 1}` flow collections, `|` blocks, comments; no anchors or tags). `forge config validate` checks it, `forge config show` prints the effective config, `forge config get <key>` prints one effective value, and `forge config set <key> <value>` changes one editable key (see [Changing settings](#changing-settings)).
+`/forge init` writes this file. Every key is optional; anything omitted takes the default shown. The file uses a strict YAML subset (block maps and lists, quoted or plain scalars, `[a, b]` / `{a: 1}` flow collections, `|` blocks, comments; no anchors or tags). `forge config validate` checks it, `forge config show` prints the effective config, `forge config get <key>` prints one effective value, and `forge config set <key> <value>` changes one editable key (see [Changing settings](#changing-settings)). The reference block below is generated from `lib/core/config/keys/` by `npm run docs` (to change a key's comment, edit its doc string in `lib/core/config/keys/docs.ts`); the sections after it are hand-written.
 
 Command templates are POSIX `sh`: each runs as `$SHELL -lc <cmd>` (`/bin/sh` when `$SHELL` is unset), and on native Windows under Git for Windows' `sh` (Git Bash; the first `sh.exe` on PATH, else `%ProgramFiles%\Git\bin\sh.exe`), or is refused with an error when there is none (see [SUPPORT.md](SUPPORT.md)). Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}`, `{base}`, `{args}`, `{endpoint.<component>}`, `{backing.<name>.port}` and `{backing.<name>.url}` (the last three under [Ports and endpoints](#ports-and-endpoints) and [Backing services](#backing-services)). `{args}` holds the extra arguments of `forge run <job> <name> -- <args…>`, each already in single quotes, and arguments go only where a template has it: `forge run` refuses arguments for a template without `{args}`, so a command takes none unless you opt in. Write `{args}` unquoted, as a whole word: after the start, a space, a tab, a newline or `(`, and before the end, a space, a tab, a newline, `;`, `&`, `|` or `)`. Arguments for a template where it sits inside `'…'` or `"…"` or touches another word (`x{args}`, `\{args}`) are refused, and so are arguments for any template containing a heredoc (`<<`), `$'` or `\'`, where the quoting would not hold. The arguments become words of whatever command surrounds `{args}`, so `exec {args}`, `env {args}` or `time {args}` runs the first one as a program. An argument containing a quote, backslash or control character is refused too. Every refusal comes before anything runs. Only `forge run` has arguments: `forge verify`, worktree setup, `forge run --background`, `forge integrate`'s rebuild and `forge eval grade` fill `{args}` with nothing. The other placeholders are filled in unquoted, so `{job}`, `{branch}` and `{base}` are checked first: each must start with a letter or digit and use only `A-Z a-z 0-9 . _ / -` (at most 200 characters), and an unsafe value stops the command before it runs, with an error naming the field. `{worktree}` is filled only with the path Forge computes for the job, `<worktrees.root>/<job id>`: a command whose template uses it stops before it runs when the job's stored `worktree` is anything else, for the same reason. Commands that don't use `{worktree}` are not affected. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB`, `FORGE_WORKTREE`, `FORGE_PORT_<C>` and `FORGE_ENDPOINT_<C>` (one pair per port-bearing component) in their environment, and never the daemon session's `FORGE_DAEMON*` variables, so a command that calls `forge` behaves the same under the daemon as for a human.
 
+<!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 28
+schemaVersion: 31            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+                             # older than it refuses the file ("update the plugin")
 
-project:
+project:                     # the project every agent works on
   name: null                 # display name
-  description: null
+  description: null          # a one-line summary of the project (informational)
   kinds: []                  # free-form tags (web-ui, rust, embedded, …); help pick lenses
-  instructions: [AGENTS.md, CLAUDE.md]   # files every agent reads first, if present
+  instructions:              # files each agent reads first, if present: `default` for every role, or a role name
+                             # (planner, spec-writer, builder, reviewer, …) whose list replaces it; a plain list is every role's
+    default: [AGENTS.md, CLAUDE.md]
   notes: null                # one-paragraph context every agent should know
 
-git:
+git:                         # the branches and remote jobs work against
   base: main                 # PR target / integration branch
-  remote: origin
-  branchPrefix: forge/     # job branches are <prefix><job-id>
+  remote: origin             # the remote Forge fetches the base from and pushes job branches to
+  branchPrefix: forge/       # job branches are <prefix><job-id>
 
-worktrees:
+worktrees:                   # one git worktree per job: where it lives, what it gets and when it goes
   root: ../{repo}.worktrees  # outside the repo on purpose (bundlers, watchers, cargo workspaces)
   copy: []                   # untracked files/dirs copied from the main checkout, e.g. [CLAUDE.md, .env, "packages/*/CLAUDE.md"]
   setup: []                  # commands run once in a new worktree, e.g. ["yarn install --frozen-lockfile"]
+  seed:                      # warm worktrees: clone untracked paths from a private seed instead of running setup
+                             # (docs/CONFIG.md › Worktree seed); off while paths is empty
+    paths: []                # untracked paths a new worktree clones from the seed instead of building, e.g. [node_modules]
+    key: []                  # files whose contents decide whether the seed fits, e.g. [package-lock.json]
+    setup: []                # commands run instead of worktrees.setup when the seed was cloned, e.g. ["npm ls"]
+    warm: []                 # commands run in a fresh base worktree before it refreshes the seed, e.g. ["npm run typecheck"]
   cleanup: on-merge          # on-merge | manual
-  cargo:
+  cargo:                     # Rust repos: where job worktrees build
     sharedTarget: false      # one Cargo target dir for every job worktree
     targetDir: null          # null → <worktrees.root>/.cargo-target · "main" → <repo>/target · or a path
   generated: []              # committed paths/globs a command regenerates, e.g. ["dashboard/dist/**"]; matched
@@ -42,23 +52,27 @@ commands:                    # what `forge run <job> <name>` executes inside the
   typecheck: null
   dev: null                  # e.g. "yarn dev --port {port}"
   e2e: null                  # browser/e2e suite; `forge run <job> e2e`, and verify runs it per verifyE2e below
+
 verify: [build, lint, test]  # the deterministic gate before review, in order; unset commands are skipped. A list
                              # entry such as [lint, test] is a group whose steps run at the same time ("Verify groups")
+
 verifyE2e:                   # after every verify step passes, also run commands.e2e (nothing runs when it is unset,
                              # and nothing extra when e2e is already listed in verify)
   when: ui                   # ui: only when the job's diff touches `paths` · always · never
-  paths: ["*.html", "*.css", "*.scss", "*.sass", "*.less", "*.svelte", "*.vue", "*.jsx", "*.tsx", "*.astro"]
-                             # `forge job scope` matching: exact path, `dir/` prefix, * ** ? globs; a slash-free
+  paths: ["*.html", "*.css", "*.scss", "*.sass", "*.less", "*.svelte", "*.vue", "*.jsx", "*.tsx", "*.astro"]  # `forge job scope` matching: exact path, `dir/` prefix, * ** ? globs; a slash-free
                              # glob also matches the basename. A list here replaces the default.
+
 verifyIntegrity: warn        # warn | block: block fails verify on deleted test files or added skip/focus markers
+
 verifySecrets: block         # block | warn: block fails verify, and refuses commits and pr open, on a likely
                              # credential ("Secret scanning"); warn only reports it. Text Forge sends is always refused
+
 ports: { base: 4100, span: 100 }  # one per service/app component and per backing port: "Ports and endpoints"
 
-runtime:
+runtime:                     # the agent runtime: how many jobs run, and each role's model and effort
   provider: anthropic        # informational; the roster is provider-neutral markdown
-  host: claude-code
-  maxParallelJobs: 3
+  host: claude-code          # the agent host Forge runs in (informational)
+  maxParallelJobs: 3         # jobs the orchestrator runs at once (1-16)
   diversity: false           # warn when the approver or a lens shares the builder's model family (never blocks)
   effort: null               # low | medium | high | xhigh | max: the default reasoning effort for jobs (null: Claude Code's own setting); see "Effort"
   efforts:                   # per role; null falls through to effortByComplexity, then effort
@@ -72,7 +86,7 @@ runtime:
     retro: null
     judge: null
     assistant: null          # the foreman's gate assistant
-  effortByComplexity: { low: null, medium: null, high: null }   # by the spec's Complexity: header, for roles without their own
+  effortByComplexity: { low: null, medium: null, high: null }  # by the spec's Complexity: header, for roles without their own
   models:                    # per role; aliases (opus, sonnet, haiku, fable) or full model ids
     orchestrator: inherit
     planner: opus
@@ -86,36 +100,36 @@ runtime:
     judge: opus
     verifier: haiku          # answers the repo's .forge/verifiers/ yes/no checks (docs/VERIFIERS.md)
     assistant: sonnet        # the foreman's gate assistant (see "Foreman")
-  modelByComplexity: { low: null, medium: null, high: null }   # the builder's model by the spec's Complexity: header; see "Builder model"
+  modelByComplexity: { low: null, medium: null, high: null }  # the builder's model by the spec's Complexity: header; see "Builder model"
   reworkModel: null          # the builder's model on a rework round that only addresses review findings; see "Builder model"
 
-tracker:
+tracker:                     # where jobs come from and where their status is mirrored (docs/TRACKERS.md)
   kind: local                # local | github | none | <name of .forge/trackers/<name>.mjs or .ts>
-  local:
-    path: .forge/backlog.md
-  github:
+  local:                     # the local tracker
+    path: .forge/backlog.md  # the markdown backlog it reads and writes
+  github:                    # the GitHub tracker
     repo: null               # owner/name; default: the gh-resolved repo of the checkout
     ready:                   # what counts as "ready" for /forge next
       labels: []             # all must match
-      excludeLabels: []
+      excludeLabels: []      # any one keeps an issue out
       assignee: null         # e.g. "@me"
-      milestone: null
+      milestone: null        # only issues in this milestone
       projectStatus: null    # e.g. "🔖 Todo" (needs a project; see below)
-    claim:
+    claim:                   # what claiming an issue does
       assign: true           # assign the issue to you when a job claims it
     comments: collaborators  # collaborators | all: whose issue comments reach agents (anyone can comment on public repos)
     statusSync: none         # none | labels | project | both
-    labels:
-      prefix: "forge:"     # labels mode: forge:in-progress, forge:review, …
-    project:
-      config: .github/project-config.yml   # read owner/number/status field from here when present
+    labels:                  # status labels (statusSync: labels or both)
+      prefix: "forge:"       # labels mode: forge:in-progress, forge:review, …
+    project:                 # the GitHub Project status is mirrored to (statusSync: project or both)
+      config: .github/project-config.yml  # read owner/number/status field from here when present
       owner: null            # or set explicitly
-      number: null
-      statusField: Status
+      number: null           # the project number, when the config file doesn't set it
+      statusField: Status    # the project field Forge sets
       statusMap: {}          # Forge status → option name; unset keys are matched by meaning
                              # keys: queued, in-progress, review, blocked, done, cancelled
 
-pipeline:
+pipeline:                    # how a job moves from request to PR
   plan: auto                 # auto | always | never (auto: a planner when the request is over 600 characters or has 3+ list or heading lines)
   split: ask                 # ask | auto | never (what a SPLIT plan does; see "Split gate" below)
   specApproval: always       # always | large | never
@@ -128,10 +142,10 @@ pipeline:
     minutes: null            # agent minutes: summed agent run time, never human waits
     changedLines: null       # committed lines added + deleted vs the base branch
     verifyRetries: 2         # failed `forge verify` runs allowed per round beyond the first
-                             # `forge job budget <id> --ack` grants one more full budget past the
-                             # current use; `--set key=value` overrides a limit for one job
+  # `forge job budget <id> --ack` grants one more full budget past the current use;
+  # `--set key=value` overrides a limit for one job
 
-review:
+review:                      # the review panel, and which lenses re-run
   blockOn: [blocker, major]  # severities that force another round; blocker and major are required, minor and nit optional
   panel:                     # lenses: built-in names or .forge/reviewers/<name>.md
     - { name: code, always: true }
@@ -143,15 +157,15 @@ review:
   #   - { name: design, when: "user-visible UI changes" }
   #   - { name: realtime, checklist: .forge/reviewers/realtime.md, when: "audio thread code" }
   #   needsApp: true|false     # start commands.dev before the round and give this lens the URL;
-                             # defaults to true for ui, ux, accessibility and design
+  #                          # defaults to true for ui, ux, accessibility and design
   #   pathsOnly: true          # chosen only by always, a paths hit or carry, never by Suggested reviewers
-                             # or the Approach; needs non-empty paths
+  #                          # or the Approach; needs non-empty paths
   #   alwaysOnRework: true|false  # re-run on every rework round under onRework: narrow;
-                             # defaults to true for security (see "Rework panel")
+  #                          # defaults to true for security (see "Rework panel")
   onPrFeedback: changed      # changed | full | none (which lenses re-run after PR feedback; changed = the always: true lenses)
   onRework: narrow           # narrow | full: rounds 2+ re-run only the rework panel, or every lens (see "Rework panel")
 
-approver:
+approver:                    # what the approver never approves on its own
   alwaysEscalate:            # plain-language classes the approver must escalate
     - changes to CI/CD, deploy, release or infrastructure config
     - database or data migrations
@@ -159,31 +173,32 @@ approver:
     - public API or protocol breaking changes
     - anything touching credentials, auth or permissions
 
-pr:
-  enabled: true
-  draft: false
+pr:                          # the pull request each job opens
+  enabled: true              # false: no PRs; an approved job finishes on its branch
+  draft: false               # open every PR as a draft
   closeIssue: true           # add "Closes #n" for GitHub-tracked jobs
-  labels: []
+  labels: []                 # labels added to every PR Forge opens
   reviewers: []              # GitHub handles/teams to request
   conflicts: ask             # ask | fix | defer (see "Open PRs")
   updateStrategy: merge      # merge | rebase: how forge integrate brings a branch up to date with its base
   integrationReview: code-only  # always | code-only: skip the integration review when only docs or generated files conflicted
   maxCiReworks: 3            # the CI rework cap: CI reworks forge sync starts in a row before a red head waits for a person (0: always a person; see "Open PRs")
 
-merge:
+merge:                       # whether and how Forge merges approved PRs
   auto: false                # let Forge merge approved PRs (waits for CI, even without branch protection; see README)
   method: squash             # squash | merge | rebase
   autoWhen: []               # plain-language conditions, e.g. ["docs-only changes", "test-only changes"]
 
 aiAttribution: forbid        # forbid | allow: whether commits, PRs, issues and comments may credit an AI (see README)
 
-release:
+release:                     # how this (root) repo releases (see Release strategy)
   interim: local             # canary | git-ref | local | sequential: what a consumer's PR points at while this (root) repo's change is unmerged (see Interim strategies)
   versioning: null           # semver | calver; null = undeclared (see Release strategy)
   mechanism: null            # release-please | cargo-release | changesets | tag: the tool that cuts a release; doctor checks it is installed
   command: null              # with mechanism: tag only, the one-line command a human runs to release (never run by Forge)
   registry: null             # crates.io | npm | none
   cadence: null              # on-merge | scheduled | manual
+  publish: null              # confirm | allow: whether forge release run asks on a terminal before a publish step (null: asks)
 
 resources: []                # what agents should know exists, e.g.
 #  - { name: App designs, kind: figma, url: "https://www.figma.com/design/…", use: "source of truth for UI" }
@@ -196,30 +211,33 @@ components: []               # the parts of a monorepo (see Components), e.g.
 
 repos: []                    # member repos of the project; the root repo is implicit (see Repos), e.g.
 #  - { name: ui-kit, remote: "git@github.com:acme/ui-kit.git", defaultBranch: main }
+
 checkout: []                 # steps forge focus applies to the focused job (see Checkout steps), e.g.
 #  - { link: build/MyPlugin.vst3, to: ~/Library/Audio/Plug-Ins/VST3/MyPlugin.vst3 }
 #  - { run: install-plugin, undo: uninstall-plugin }   # names commands.* entries
+
 backing: []                  # databases, caches and queues jobs run against (see Backing services), e.g.
 #  - { name: postgres, isolation: per-job, image: "postgres:16", ports: [5432], env: { POSTGRES_PASSWORD: forge } }
 #  - { name: queue, isolation: external, url: "amqp://mq.internal:5672" }
+
 secrets: {}                  # named development credentials config sinks reach as {secret.NAME} (see Secret references), e.g.
 #  DB_PASSWORD: { env: MYAPP_DB_PASSWORD }
 
 downstream:                  # a changed library's linked consumers join the job verify-only (see Downstream verification)
-  enabled: true
+  enabled: true              # false: no consumer repo joins a job
   max: 5                     # at most this many downstream repos per job
   skip: []                   # repos names never added
 
-infra:
+infra:                       # what agents may do to infrastructure; their briefs carry mode and allowed
   mode: human                # human | plan-only | agent
   allowed: []                # commands agents may run under plan-only/agent, e.g. ["terraform plan", "kubectl get"]
-  notes: null
+  notes: null                # free-form notes on how infrastructure is run here (informational)
 
-usage:
-  track: true
+usage:                       # token and cost accounting
+  track: true                # informational: agent runs' usage is recorded either way
   pricing: {}                # overrides for lib/integrations/claude/pricing.json: { models: { <id>: {input, output, cacheRead, cacheWrite} }, aliases: {…} }
 
-improve:
+improve:                     # retros and the experiment ledger (docs/IMPROVEMENT.md)
   retroEvery: 10             # a retro is due after this many finished jobs (with the foreman on, forge sync queues it)
   maxLearnings: 30           # cap on .forge/notes/learnings.md entries
   experiments:               # forge experiment evaluate (docs/IMPROVEMENT.md "Settling experiments")
@@ -228,35 +246,70 @@ improve:
 
 evals:                       # a run's variant is an overlay, never an edit here (see "Eval overlays" below)
   testPattern: null          # regex for test files: mining PRs into eval tasks, and verify's integrity report (null: a built-in default)
-  recall:
-    paths: [agents/, reviewers/, lib/engine/pipeline/brief.ts]   # committed paths (spec-path tokens) that make decide ask for a reviewer recall eval, when the main checkout has fixtures
+  recall:                    # reviewer recall evals (docs/IMPROVEMENT.md "Reviewer recall evals")
+    paths: [agents/, reviewers/, lib/engine/pipeline/brief.ts]  # committed paths (spec-path tokens) that make decide ask for a reviewer recall eval, when the main checkout has fixtures
 
-dashboard:
-  port: 7400
+dashboard:                   # forge dash, the local dashboard
+  port: 7400                 # the first port forge dash tries (--port overrides it)
 
 daemon:                      # opt-in headless sessions supervised by `forge dash`: an inbox plus one per job (see "Daemon" below)
   enabled: false             # true: `forge dash` starts it, and POST /api/daemon may start it again after a stop
-  command: claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode default --allowedTools {allowedTools}
+  command: claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode default --allowedTools {allowedTools}  # the claude command each session runs, split into words without a shell (see "Daemon" below)
   allowedTools:              # refused if it names blanket git/gh (see "Daemon" below)
-    [Agent, Skill, Read, Glob, Grep, Edit, Write, "Bash(forge:*)",
-     "Bash(git rev-parse:*)", "Bash(git merge --abort:*)", "Bash(git rebase --abort:*)",
-     "Bash(gh pr view:*)", "Bash(gh pr list:*)", "Bash(gh pr checks:*)", "Bash(gh run view:*)"]
+    - Agent
+    - Skill
+    - Read
+    - Glob
+    - Grep
+    - Edit
+    - Write
+    - Bash(forge:*)
+    - Bash(git rev-parse:*)
+    - Bash(git merge --abort:*)
+    - Bash(git rebase --abort:*)
+    - Bash(gh pr view:*)
+    - Bash(gh pr list:*)
+    - Bash(gh pr checks:*)
+    - Bash(gh run view:*)
   maxConcurrent: 3           # job sessions at once (1-16), besides the inbox
   idleStopMinutes: 30        # stop an idle session after this long (null: never); new work resumes it
   turnTimeoutMinutes: 60     # stop a turn still running after this long and requeue its work (null: no limit)
   auth: subscription         # what sessions run on: your Claude login, or api-key for an ANTHROPIC_API_KEY in forge dash's shell
   jobBudget:                 # with enabled: true, the limits of a job whose budget sets no tokens, usd or minutes (null: off; see "Daemon" below)
-    tokens: 600000000
-    usd: 150
+    tokens: 600000000        # total tokens per job
+    usd: 150                 # estimated USD per job
 
 foreman:                     # opt-in: an office daemon session decides gates through assistant sub-agents (see "Foreman" below)
   enabled: false             # true (with daemon.enabled): parked gates become `gate` requests for the `_office` session
-  decides: [spec-approval, split-approval, escalation, rounds-exhausted, conflicts, pr-feedback]   # add repo-proposal to let it widen a job's repos; release (with gate:release out of reserved) to let it approve a release plan
+  decides: [spec-approval, split-approval, escalation, rounds-exhausted, conflicts, pr-feedback]  # add repo-proposal to let it widen a job's repos; release (with gate:release out of reserved) to let it approve a release plan
                              # the gate classes it may decide; a class left out stays a plain human gate
-  reserved: [credential, credentials, secret, secrets, token, tokens, password, auth, authentication, authorization,
-             oauth, permission, permissions, security, CI, CI/CD, workflow, workflows, GitHub Actions,
-             payment, payments, PII, crypto, cryptography, encryption, gate:release]
-                             # whole-phrase, case-insensitive: a match keeps the gate with a human; gate:<class> keeps a whole class
+  reserved:                  # whole-phrase, case-insensitive: a match keeps the gate with a human; gate:<class> keeps a whole class
+    - credential
+    - credentials
+    - secret
+    - secrets
+    - token
+    - tokens
+    - password
+    - auth
+    - authentication
+    - authorization
+    - oauth
+    - permission
+    - permissions
+    - security
+    - CI
+    - CI/CD
+    - workflow
+    - workflows
+    - GitHub Actions
+    - payment
+    - payments
+    - PII
+    - crypto
+    - cryptography
+    - encryption
+    - gate:release
   ship: propose              # propose | merge: merge counts as merge.auto for PRs the approver marks eligible
 
 policy:                      # enforced by the CLI, not a prompt (see "Protected paths" below)
@@ -293,6 +346,56 @@ budget:                      # repo-wide spend caps per UTC day and month; null 
   usdPerMonth: null          # estimated USD across every job per UTC month
   tokensPerMonth: null       # total tokens across every job per UTC month
   onExceeded: hold           # hold: park and refuse new work at the cap · warn: report it only
+```
+<!-- forge:config:end -->
+
+## Instruction files
+
+`project.instructions` names the files each agent reads first, relative to the repo root; a brief lists only those that exist in the job's worktree. It takes one of two forms:
+
+- **A list**: every role reads the same files.
+- **A map**: `default` (the list for every role the map doesn't name) plus any of `planner`, `spec-writer`, `designer`, `builder`, `reviewer` (every lens), `approver`, `integrator`, `verifier` and `judge`. A role's list **replaces** `default`; it doesn't add to it, so repeat a file the role still needs. A role mapped to `[]` gets no instruction files. A map without `default` keeps the default list, `[AGENTS.md, CLAUDE.md]`.
+
+```yaml
+project:
+  instructions:
+    default: [AGENTS.md]
+    builder: [AGENTS.md, docs/DEVELOPING.md]
+    spec-writer: [AGENTS.md, docs/DEVELOPING.md]
+```
+
+`forge config validate` reports a key that is not a role, a value that is not a list, an entry that is not a non-empty string, an absolute path and a `..` segment; the briefs skip any such entry. `forge job paths <id>` prints the `default` list. A config at schemaVersion 30 or older still loads: its list reads as `{ default: <list> }`, and `forge migrate` writes it that way.
+
+**Keep the auto-loaded file short.** Claude Code loads the root `AGENTS.md` (or `CLAUDE.md`) into every session as project instructions, the orchestrator and every agent included, and the brief tells an agent to skip a file already in its context. So naming fewer files per role saves little while that root file stays long. Keep it to what every session needs and move the reference into a file only the roles that need it are given, such as `docs/DEVELOPING.md` above.
+
+## Worktree seed
+
+`worktrees.setup` (an `npm ci`, say) runs in every new job worktree and starts it cold: dependencies rebuilt, test and type-check caches empty. A **worktree seed** lets a new worktree start warm instead. Forge keeps a private copy of a fresh base worktree's untracked paths (`worktrees.seed.paths`, such as `node_modules` with its `.cache`), and a new worktree clones it copy-on-write whenever its key files (`worktrees.seed.key`, such as `package-lock.json`) hash the same. It is off while `paths` is empty, and applies only to the root repo's worktree in `forge worktree create`: never to member repos or eval clones, whose results have no `seed`.
+
+**On create**, after `worktrees.copy`, ports and backing services:
+
+- **Key.** A sha256 of the new worktree's key files, `worktrees.setup`, `seed.paths`, and the platform, arch and Node ABI. A missing key file (or one that is not a regular file) gives `reason: "no-key"`.
+- **Where.** `<cache>/seeds/<repoId>/<key>/`, where `<cache>` is the start-up cache's directory (`.cache/` in the plugin root, or `$FORGE_CACHE_DIR`) and `<repoId>` is the first 16 hex characters of a hash of the main checkout's real path. Every level must be a real directory you own that nobody else can write, else `reason: "cache-unusable"` (see [Start-up cache › Worktree seeds](architecture/startup-cache.md#worktree-seeds)).
+- **Hit.** Each path is cloned (`cp -c` on macOS, `cp --reflink=auto` on Linux, else a plain copy; `method` is `"copy"` when any path fell back), then `seed.setup` runs instead of `worktrees.setup`, with the same placeholders, environment, tail and redaction. A seed path already in the worktree (`reason: "exists"`), a path that won't copy (`"clone-failed"`) or a failing `seed.setup` (`"check-failed"`: the clone is removed and that seed deleted) falls back to `worktrees.setup` as if there were no seed.
+- **Miss and refresh.** On a clean miss (`"no-seed"`) setup runs as usual. If it succeeds and this create made the job's branch new at the tip of `git.base` (not an existing branch, not stacked, not `--from`, and the job's base still `git.base`), Forge takes the seed lock, runs `seed.warm` in the worktree (a failed warm command is reported and the rest still run), re-checks that HEAD has not moved, no tracked file changed (both `not-base`) and the key is unchanged, and stores the paths as the seed for that key. Anything else skips the refresh and says why in `refreshSkipped`; so does a seed path that was already in the worktree before setup (`exists`, from `worktrees.copy` say), since only what setup built may become a seed. A symlink in the paths that is absolute, leaves the tree or has a `..` after another segment (`symlink-out`) refuses it too. A miss after `exists`, `clone-failed` or `check-failed` never refreshes: the next clean miss does.
+
+A seed problem never fails the create. A failing `worktrees.setup` behaves as it always has (`ok: false`, step rule I4).
+
+**Result.** `forge worktree create` adds `seed: { used, key (first 16 hex, or null), method?, reason?, checks?, warm?, refreshed?, refreshSkipped?, durationMs }`, where `reason` is `no-key | cache-unusable | no-seed | exists | clone-failed | check-failed`, `refreshSkipped` is `not-base | no-key | cache-unusable | busy | key-changed | missing-path | symlink-out | exists | failed`, `checks` and `warm` are `{ cmd, ok, tail }` lists, and `durationMs` covers everything from the key to the end of the refresh, setup included. On a hit `setup` is `[]`. Each create logs one `worktree-seed` event with the same fields minus the command tails.
+
+**Disk.** One copy of the paths per key, the newest two kept per repo. Each plugin version starts with an empty `.cache/`, like the start-up cache, and deleting `<cache>/seeds/` by hand is always safe.
+
+**Turning it on** for an npm repo:
+
+```yaml
+worktrees:
+  setup:
+    - npm ci
+  seed:
+    paths: [node_modules]       # node_modules/.cache travels with it
+    key: [package-lock.json]
+    setup: ["npm ls"]           # a quick check that the cloned tree fits
+    warm: ["npm run typecheck"] # fills the caches the seed carries
 ```
 
 ## Changing settings
@@ -454,7 +557,7 @@ A refusal exits 1 with error code `secret_found` and a one-line message such as 
 
 **Masking and fingerprints.** A finding shows the first 4 and last 2 characters of a value of 16 or more (`AKIA…XY`), the first 2 of one of 8 to 15 (`hu…`), and nothing of a shorter one (`…`); a backtick, `|`, whitespace or control character in what is shown becomes `?`. The full value is never printed, logged, written to a file or put in an event. Each finding carries `fingerprint`: `sha256:` and the hex sha256 of the full value (of a PEM key, its body without whitespace). The fingerprint is not secret material and appears in output, errors, verify files and events.
 
-**Allowlist.** `.forge/secrets-allow.txt`, read from the main checkout only: a copy in the job's worktree, or committed on its branch, is ignored, and a daemon session can't edit it (it is in the trust digest and denied to `Edit`; see ARCHITECTURE.md "Daemon security"). A branch that edits it shows up as a config edit in the integrity report. One entry per line:
+**Allowlist.** `.forge/secrets-allow.txt`, read from the main checkout only: a copy in the job's worktree, or committed on its branch, is ignored, and a daemon session can't edit it (it is in the trust digest and denied to `Edit`; see docs/architecture/daemon-security.md). A branch that edits it shows up as a config edit in the integrity report. One entry per line:
 
 ```text
 # Comments and blank lines are ignored; a comment takes its own line.
@@ -489,7 +592,7 @@ Paths are code, judgement calls are prose. `approver.alwaysEscalate` is prose a 
 | `forge pr open` | exits 1 with `protected_path` before any `gh` call or push, `--force` included | recomputes the set (it never trusts the stored flag) and exits 1 with `protected_path` until a human approved it |
 | `forge pr merge` | exits 1 with `protected_path` when the PR's head is not the commit `forge pr open` last checked and pushed (someone pushed since), unless a human passes `--now` | the same |
 
-**Member repos.** A job's [member repos](ARCHITECTURE.md#job-repos) get the same rules at the same gates, each over its own branch from its own base: `forge git add|commit --repo <name>` previews the member's index, and verify's `protected` step and `forge pr open` check every non-verify-only member's branch. A member's paths are named `<repo>:<path>` in messages, events and the one job flag, and its patch sits under a `# repo <name>` line in `protected.diff`, so one human approval at PP1 covers every repo, and a refusal or a missing approval in any repo stops `pr open` before anything is pushed.
+**Member repos.** A job's [member repos](architecture/job-repos.md) get the same rules at the same gates, each over its own branch from its own base: `forge git add|commit --repo <name>` previews the member's index, and verify's `protected` step and `forge pr open` check every non-verify-only member's branch. A member's paths are named `<repo>:<path>` in messages, events and the one job flag, and its patch sits under a `# repo <name>` line in `protected.diff`, so one human approval at PP1 covers every repo, and a refusal or a missing approval in any repo stops `pr open` before anything is pushed.
 
 **Approval.** The flag (`job.protectedPaths`, written by the CLI only; `forge job set` refuses it) holds the escalate paths with their blob ids (up to 200, the rest counted, with a digest over all of them) and `at`, which moves only when a path or its content is new; past 200 paths, any change to the set moves it. `forge job step` parks the job on `waitingOn: human` with the reason `protected paths: <paths>` (rule PP1) in `decide`, even after an `APPROVE`, and in `pr`, and never auto-merges it (PR4). While the policy has rules, `forge pr merge` merges only the PR head `forge pr open` checked and pushed, and defers instead of queueing GitHub auto-merge. Only a human `approve` given at that park after `at` counts: a foreman decision, an approve at another gate, or one older than the last content change doesn't. The approver's brief names the paths, and `protected.diff` in the job dir holds the patch of every one of them (capped at 1 MiB). A refusal at verify (PP2) or pr open (PP2b) sends the job back to build.
 
@@ -501,9 +604,9 @@ Paths are code, judgement calls are prose. `approver.alwaysEscalate` is prose a 
 
 With `daemon.enabled: true`, `forge dash` supervises headless orchestrator sessions, so requests queued from the dashboard get handled without a Claude Code window open: one **inbox** session for requests without a job (`next`, `run`, `sync`, `retro`, `eval-run`), which only does intake and hands each new job off, and one session **per job**, started when that job has work. Whenever a session's pending requests change and it is idle, it gets one fixed turn, `/forge requests`, on stdin; the session claims and handles them exactly as yours would, seeing only its own scope's requests. Each session fails, idles and logs on its own. They spend tokens unattended, under the permissions `allowedTools` grants, so the daemon is off by default.
 
-While the daemon runs, `forge dash` also runs `forge sync` itself every 2 minutes (one at a time, as you), so CI results, PR feedback and conflicts reach the job sessions and the [Foreman](#foreman) without anyone syncing (docs/ARCHITECTURE.md "Periodic sync").
+While the daemon runs, `forge dash` also runs `forge sync` itself every 2 minutes (one at a time, as you), so CI results, PR feedback and conflicts reach the job sessions and the [Foreman](#foreman) without anyone syncing (docs/architecture/daemon.md "Periodic sync").
 
-- **`command`** is split into argv like a shell would split words (whitespace; `'…'` literal; `"…"` with `\"` and `\\`), then run directly, with no shell: no pipes, globbing, `$VARS` or `~`. Its first word must be a bare `claude` (found on PATH) or an absolute path to `claude` outside the repo; relative paths are refused because the session runs with the repo as its working directory. This catches mistakes; it isn't a security boundary: whoever can edit this file can run code through the daemon (docs/ARCHITECTURE.md "Daemon security"), so give the `daemon` keys code-owner review. The session's PATH starts with this plugin's `bin/`, so its `forge` is the same version as `forge dash`'s. Placeholders expand after splitting, so each stays one argument even with spaces in it:
+- **`command`** is split into argv like a shell would split words (whitespace; `'…'` literal; `"…"` with `\"` and `\\`), then run directly, with no shell: no pipes, globbing, `$VARS` or `~`. Its first word must be a bare `claude` (found on PATH) or an absolute path to `claude` outside the repo; relative paths are refused because the session runs with the repo as its working directory. This catches mistakes; it isn't a security boundary: whoever can edit this file can run code through the daemon (docs/architecture/daemon-security.md), so give the `daemon` keys code-owner review. The session's PATH starts with this plugin's `bin/`, so its `forge` is the same version as `forge dash`'s. Placeholders expand after splitting, so each stays one argument even with spaces in it:
   - `{pluginRoot}`: this plugin's directory. Pass it with `--plugin-dir` so the session has the `/forge` skill and the `forge:*` agents; `--resume` doesn't restore it, so it is passed on every spawn.
   - `{session}` (required, as its own word): `--session-id <uuid>` for a new session, or `--resume <uuid>` to continue the stored one after a restart or an idle stop.
   - `{allowedTools}`: the `allowedTools` list joined with commas, as one argument.
@@ -512,30 +615,30 @@ While the daemon runs, `forge dash` also runs `forge sync` itself every 2 minute
 - **`allowedTools`** must include `Agent` (every role runs as a subagent), and entries can't contain commas. Subagents inherit the list. A tool call it doesn't cover is sent to you: see **Permission prompts** below. The default allows Bash only for `forge` and the git/gh forms the skill and agents name: `rev-parse`, aborting a merge or rebase, and reading PRs and CI runs. Everything else goes through `forge`: staging and committing (`forge git add <job> -- <paths>` and `forge git commit <job> --message …`, which run git in the job's worktree, because the session's cwd is the main checkout, where a bare `git add`/`git commit` would land on the base branch; they take no git options and refuse paths outside the worktree), checks (`forge run`, `forge verify`, so build tools need no entry), pushes, PRs and tracker writes, history reads (`forge git diff|log|show|range-diff`, which refuses `--output`, `--ext-diff`, `--textconv` and `--open-files-in-pager` and forces external diff and textconv off, because `git log --output=.git/config` could rewrite git config), and starting and finishing a merge or rebase (`forge integrate --keep-conflicts` / `--continue`; `--continue` refuses a rebase todo with anything but picks). Validation refuses entries that reach arbitrary execution, file writes or GitHub writes on their own: unscoped `Bash`/`Bash(*)`, `git` or `gh` with no subcommand, `git -…` (`-c`), `git config|grep|submodule|bisect|difftool|mergetool|filter-branch`, `git diff|log|show|range-diff|whatchanged|format-patch` (`--output`), `git mv` (a `x/../.git/…` destination is renamed even though git reports it invalid), `git rebase` other than `--continue|--abort|--skip` (`--exec`), and `gh api|extension|alias|auth|secret|codespace`. That list catches the known forms; it is not exhaustive, so add any other `Bash(<cmd> <sub>:*)` entry deliberately. The list replaces the default as a whole, so write every entry you want. Older defaults also listed `Bash(git status|add|rm|commit:*)`; they still validate, but in a daemon session they act on the main checkout, so drop them.
 - **Flags `daemon.command` may not pass**, because they widen the session past `allowedTools`: `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--permission-mode` other than `default` (or `manual`, the name current Claude Code lists for it), `dontAsk` or `plan` (so no `bypassPermissions`, `acceptEdits` or `auto`; a human can still put one session in `auto` from the dashboard, see **Permission mode per session** below), `--settings`, `--mcp-config`, `--add-dir`, `--permission-prompt-tool` (Forge passes its own), `--agents`, a `--plugin-dir` other than `{pluginRoot}`, and `--allowedTools`/`--allowed-tools` with anything but `{allowedTools}`. Both `--flag value` and `--flag=value` are checked. claude reads `--allowedTools` and `--plugin-dir` values variadically, so a bare word right after their value (other than `{session}`) is refused too: it would become one more tool or plugin dir.
 - **Permission prompts.** Forge appends `--permission-prompt-tool stdio` to every daemon command, so a tool call outside `allowedTools` (a `cp` in a worktree, a folder outside the checkout, a compound command) reaches the supervisor instead of failing. Under the default `--permission-mode default`, the session waits while the dashboard shows the call in the status bar's Needs-you popover and in the job drawer's dock: the tool, its exact input, the agent's own description of it (untrusted text), and any path outside the session's folders. **Allow once** runs it. **Allow for this session** also adds the rules and folders Claude Code suggested, for that session only: they are never written to a settings file, and they end when the session restarts. A suggestion that would allow a tool's every call (a bare `Bash`, or a wildcard-only pattern) is dropped, so a session grant is only ever a pattern you read, such as `Bash(cp:*)`. The input shown is exactly what an allow runs, never cut short: a call whose input is over 4,000 characters is denied unasked. **Deny** returns a fixed message telling the agent not to retry or work around it. Nothing you type reaches the session; only your choice does. A prompt nobody answers waits as long as the session runs, and goes away when it stops. With `--permission-mode dontAsk`, nothing is ever asked: anything `allowedTools` doesn't list is refused, as the old default did. A session holds at most 20 prompts; more are denied unasked. Allowing a call is a real grant: read the command, and expect protected paths (`.git/`, `.claude/`) and commands prefixed with variables to show up here too, because `dontAsk` refused them outright.
-- **Permission mode per session.** Each session (a job's panel header, on every tab, or the Inbox session log in the status bar's Daemon popover) has a **Permissions** button, which opens a small popover with one choice per mode: **Ask** (`default`: prompts as above), **Auto** (Claude Code's `auto` mode: its classifier approves routine calls on its own and still sends risky ones to you as prompts) and **Refuse** (`dontAsk`). It starts at `daemon.command`'s mode. A change applies at once to a running session, through Claude Code's `set_permission_mode` control request, and the log records claude's confirmation; a session that isn't running starts in it. The choice is held by `forge dash` in memory only, never in a file (a session can write files in the repo, so it could otherwise pick its own mode), so it lasts until `forge dash` stops, and the Daemon popover names the mode on the rows of the job sessions you switched. If claude refuses a switch or doesn't confirm it within 15 seconds, the log says why. A switch to a wider mode (`auto` isn't available on every account or model) falls back: the button shows the mode the session still runs in. A switch to a narrower mode stops the session instead, and it starts in the mode you chose with its next request, so a session never keeps more reach than you picked. `bypassPermissions` and `acceptEdits` are never offered. `daemon.allowedTools`, the `.forge/config.yml` deny rules and the trust check apply in every mode.
-- **Default for job sessions.** The Daemon popover's **Job sessions' permissions** picks a mode for every job session without its own choice: the running ones switch at once, as if each were switched one by one, and the rest, including jobs created later, start in it. A job's own choice in its panel header overrides it, and stays when the default changes again; choosing the default's mode in a job's panel header drops that job's own choice, so it follows the default again. The inbox and office sessions keep `daemon.command`'s mode. `forge dash --permission-mode default|auto|dontAsk` sets the default at start-up, so an overnight run can start in Auto with nothing to click; a daemon session can't pass it. Like every choice of mode it is held in memory, never in `.forge/config.yml` (which would put every machine's sessions in it, and which a branch can edit), and lasts until `forge dash` stops. Even Auto still waits for you on the calls Claude Code's classifier sends as prompts, so an unattended run can still pause; `dontAsk` never waits, and refuses whatever `allowedTools` doesn't list. Auto approves most calls with nobody reading them, so use it on a session you are watching, and switch back to Ask when you leave. It isn't contained to that session either: a call that runs unread can reach the dashboard's own API and switch or answer for the others (docs/ARCHITECTURE.md "Daemon security").
+- **Permission mode per session.** Each session (a job's panel header, on every tab, or the Inbox session log in the status bar's Daemon popover) has a **Permissions** button, which opens a small popover with one choice per mode: **Ask** (`default`: prompts as above), **Auto** (Claude Code's `auto` mode: its classifier approves routine calls on its own and still sends risky ones to you as prompts) and **Refuse** (`dontAsk`). While a session is in Auto, a warning icon sits beside its Permissions button, and hovering, focusing or tapping it shows the reminder to switch back to Ask when you stop watching. It starts at `daemon.command`'s mode. A change applies at once to a running session, through Claude Code's `set_permission_mode` control request, and the log records claude's confirmation; a session that isn't running starts in it. The choice is held by `forge dash` in memory only, never in a file (a session can write files in the repo, so it could otherwise pick its own mode), so it lasts until `forge dash` stops, and the Daemon popover names the mode on the rows of the job sessions you switched. If claude refuses a switch or doesn't confirm it within 15 seconds, the log says why. A switch to a wider mode (`auto` isn't available on every account or model) falls back: the button shows the mode the session still runs in. A switch to a narrower mode stops the session instead, and it starts in the mode you chose with its next request, so a session never keeps more reach than you picked. `bypassPermissions` and `acceptEdits` are never offered. `daemon.allowedTools`, the `.forge/config.yml` deny rules and the trust check apply in every mode.
+- **Default for job sessions.** The Daemon popover's **Job sessions' permissions** picks a mode for every job session without its own choice: the running ones switch at once, as if each were switched one by one, and the rest, including jobs created later, start in it. A job's own choice in its panel header overrides it, and stays when the default changes again; choosing the default's mode in a job's panel header drops that job's own choice, so it follows the default again. The inbox and office sessions keep `daemon.command`'s mode. `forge dash --permission-mode default|auto|dontAsk` sets the default at start-up, so an overnight run can start in Auto with nothing to click; a daemon session can't pass it. Like every choice of mode it is held in memory, never in `.forge/config.yml` (which would put every machine's sessions in it, and which a branch can edit), and lasts until `forge dash` stops. Even Auto still waits for you on the calls Claude Code's classifier sends as prompts, so an unattended run can still pause; `dontAsk` never waits, and refuses whatever `allowedTools` doesn't list. Auto approves most calls with nobody reading them, so use it on a session you are watching, and switch back to Ask when you leave. It isn't contained to that session either: a call that runs unread can reach the dashboard's own API and switch or answer for the others (docs/architecture/daemon-security.md).
 - **Git inside the session** runs with `core.hooksPath=/dev/null` and `core.fsmonitor=false` pinned through `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` (appended after any you already export), plus `GIT_EDITOR=true`. That covers subagents, `forge` and your verify commands too: **no git hooks run in daemon mode**, including your pre-commit and pre-push hooks and Git LFS's pre-push upload, so repos that depend on hooks should keep those checks in `commands.*`/`verify`, and LFS repos should not push from the daemon.
-- **What the session may not change.** Forge always appends `--disallowedTools Edit(.forge/config.yml),Edit(.forge/trackers/**),Edit(.forge/secrets-allow.txt),Edit(.forge/verifiers/**),Edit(.forge/runtime/spend.json),Edit(.forge/runtime/audit.jsonl)` to `command`. Every `forge` call in the session also checks that those files are the ones a human started the daemon with, and refuses if they changed (`forge init write`, `forge migrate` and `forge config set` always refuse there). If they change while the daemon runs, by the session or by you, the supervisor stops it with an error in the dashboard and never restarts it on its own: review `git diff .forge/`, then press Start, which takes a fresh snapshot. docs/ARCHITECTURE.md "Daemon security" explains the layers.
+- **What the session may not change.** Forge always appends `--disallowedTools Edit(.forge/config.yml),Edit(.forge/trackers/**),Edit(.forge/secrets-allow.txt),Edit(.forge/verifiers/**),Edit(.forge/runtime/spend.json),Edit(.forge/runtime/audit.jsonl)` to `command`. Every `forge` call in the session also checks that those files are the ones a human started the daemon with, and refuses if they changed (`forge init write`, `forge migrate` and `forge config set` always refuse there). If they change while the daemon runs, by the session or by you, the supervisor stops it with an error in the dashboard and never restarts it on its own: review `git diff .forge/`, then press Start, which takes a fresh snapshot. docs/architecture/daemon-security.md explains the layers.
 - **`enabled`** means the daemon may run and starts with `forge dash`, except `forge dash --dev` (what `npm run dev` runs), which leaves it off until you press Start. `POST /api/daemon {"action":"stop"}` stops it until the next `start` or the next `forge dash`; to keep it off across restarts, set `enabled: false`.
 - **`maxConcurrent`** (an integer from 1 to 16, default 3) caps how many job sessions run at once; the inbox session is not counted. A job with work beyond the cap waits for a slot, and an idle job session gives its slot up to a waiting job (it resumes its conversation the next time it has work). A session whose job has agents running (reviewers it started in the background, say) is kept: it is never stopped for a slot, though it still counts toward the cap, so the waiting job gets the next slot that frees. So is a session for 30 s after its last turn or agent ended. Each job session drives one job, so `runtime.maxParallelJobs` (how many jobs your own interactive session runs at once) does not apply to the pool. Spend scales with the number of live sessions: set `maxConcurrent: 1` for one job session at a time. The dashboard shows this key read-only.
 - **`auth`** (`subscription`, the default, or `api-key`): which credential the sessions run on. claude prefers an `ANTHROPIC_API_KEY` (or `ANTHROPIC_AUTH_TOKEN`) in its environment over the Claude login, and a headless session never asks, so a key exported in the shell that ran `forge dash` (often for some other tool) would quietly bill that API account, and its spend cap then fails every turn with `last turn failed: API Error: 400 … usage limits`. With `subscription`, both variables are dropped from the sessions' environment and they run on the login, like your own sessions. The first time `forge dash` starts a daemon-enabled repo from a terminal with a key set and no `auth` in this file, it asks once and writes the answer; started anywhere else (from `/forge dash`, a script), it assumes `subscription` and says so in its output. A session's log records an `auth` event whenever a key was present, with whether it was passed on; `forge doctor` reports the same.
 - **`idleStopMinutes`**: a session with no turn in flight for this long is stopped. The time counts from its last turn or the last agent of its job ending, whichever is later, and a session is never idle-stopped while its job's agents run. It stays wanted, and its next request resumes the same conversation. `null` never stops it. A job session also stops once its job is done, cancelled or failed and nothing is left for it.
-- **`turnTimeoutMinutes`** (default 60): a job, inbox or office session's turn still running this long after it started is stopped (`turn-timeout` in its log): the child is killed, its agents are marked lost, its job's lease expires and the requests it claimed go back to pending, and the session stays wanted, so the pool starts it again for that work and the reconciler watches the job (docs/ARCHITECTURE.md "Daemon"). `null` means no limit; any other value must be a number greater than 0. Editable with `forge config set` and in the dashboard.
+- **`turnTimeoutMinutes`** (default 60): a job, inbox or office session's turn still running this long after it started is stopped (`turn-timeout` in its log): the child is killed, its agents are marked lost, its job's lease expires and the requests it claimed go back to pending, and the session stays wanted, so the pool starts it again for that work and the reconciler watches the job (docs/architecture/daemon.md). `null` means no limit; any other value must be a number greater than 0. Editable with `forge config set` and in the dashboard.
 - **`jobBudget`** (default `{ tokens: 600000000, usd: 150 }`, or `null` to turn it off): with `enabled: true`, a job whose limits set no spend key (`tokens`, `usd` and `minutes` all null in `pipeline.budget`, and none of them in the job's own `forge job budget --set` overrides) gets this map's non-null keys as its limits, so an unattended job never loops without a spend ceiling. If any spend key is set anywhere, it is not applied at all. It goes through the one limits rule every check uses: budget stops, the budget hold below, the repo budget, scoring, `forge job budget` and the dashboard all see the same limits. It keys on `daemon.enabled`, not on whether a session drives the job, so a job you drive yourself in a daemon-enabled repo gets the same backstop. The default is roughly twice the costliest jobs Forge itself has run. Raise it for one job with `forge job budget <id> --set usd=…`, for every job with `pipeline.budget.*` or here, or turn it off with `jobBudget: null`. A map you write is merged over the default, so write `tokens: null` to drop the token limit. Each key is `null` or a number ≥ 0, `tokens` an integer; any other key is a config problem. The dashboard shows it read-only.
 - **Budget hold.** `pipeline.budget` limits are per job, so a budget stop is pending per request: a `resume`, `rework`, `answer` or `revise-spec` request whose job is at `waiting: budget` and still over a limit sends no turn. Once you raise or acknowledge the budget (`forge job budget <id> --set … | --ack`), the next tick sends it. `approve` is never held (approving a budget-parked job is the acknowledgement), nor are `cancel` and requests without a job. The repo budget (`budget:`, "Repo budget" below) holds more: while it is exceeded under `hold`, every pending `resume`, `rework`, `answer`, `revise-spec` and `approve` of a job that isn't exempt waits, and the session reports `held: "repo-budget"`.
 - **Migration from `dashboard.launcher`** (config `schemaVersion` 1 → 2): a non-empty launcher moves to `daemon.command` (an existing `daemon.command` wins) and `dashboard.launcher` is removed; `enabled` is never set, so upgrading never turns the daemon on. A launcher was a shell template with `{prompt}`, run once per request; `forge config validate` and `forge doctor` reject a `{prompt}` command until you rewrite it in the form above (usually: take the default `command` and add your flags), because the daemon sends its turn on stdin and never through a shell. A launcher that ran some other agent CLI cannot be migrated: the daemon supervises only Claude Code's stream-json mode. The migration happens in memory on every read; `forge migrate` writes it to disk.
 
-Files (gitignored, under `.forge/runtime/daemons/`): `<scope>.json` (session id, the last 20 ids it replaced in `pastSessionIds`, pids, the log's base offset; `forge job claim` reads these to let a daemon owner that provably let go yield without `--force`) and `<scope>.log` (every stdout event plus `forge-daemon`/`forge-stderr` lines; rotated to `<scope>.log.1` past 20 MiB at spawn, or at `retention.logMaxBytes` as soon as it is reached; one older generation is kept, and the dashboard pages back into it), where the scope is `_inbox` or a job id. The session learns its scope only from `FORGE_DAEMON_SCOPE` in its environment. A `daemon.json` / `daemon.log` left by a Forge older than the pool is not read; delete it. `forge daemon status` lists the sessions and `forge daemon log <job>|--inbox [--lines N] [--follow]` prints one's log. docs/ARCHITECTURE.md "Daemon" covers the lifecycle and "Daemon security" the threat model.
+Files (gitignored, under `.forge/runtime/daemons/`): `<scope>.json` (session id, the last 20 ids it replaced in `pastSessionIds`, pids, the log's base offset; `forge job claim` reads these to let a daemon owner that provably let go yield without `--force`) and `<scope>.log` (every stdout event plus `forge-daemon`/`forge-stderr` lines; rotated to `<scope>.log.1` past 20 MiB at spawn, or at `retention.logMaxBytes` as soon as it is reached; one older generation is kept, and the dashboard pages back into it), where the scope is `_inbox` or a job id. The session learns its scope only from `FORGE_DAEMON_SCOPE` in its environment. A `daemon.json` / `daemon.log` left by a Forge older than the pool is not read; delete it. `forge daemon status` lists the sessions and `forge daemon log <job>|--inbox [--lines N] [--follow]` prints one's log. docs/architecture/daemon.md and daemon-runtime.md cover the lifecycle and docs/architecture/daemon-security.md the threat model.
 
 ## Retention
 
-`.forge/jobs/` and `.forge/runtime/` only grow until something removes them. Retention is off by default: every key is `null`, which keeps everything forever. docs/ARCHITECTURE.md "Retention" covers the archive format and the threat model.
+`.forge/jobs/` and `.forge/runtime/` only grow until something removes them. Retention is off by default: every key is `null`, which keeps everything forever. docs/architecture/retention.md covers the archive format and the threat model.
 
 - **`retention.jobsDays`** (null, or an integer from 1 to 3650): `forge sync` and `forge dash` startup archive every eligible finished job whose `finishedAt` (else `updatedAt`) is at least this many days old. Archiving writes `.forge/archive/<id>.json` (the job.json as stored, every event, ending with an `archived` event that names the actor, and a summary) and deletes the job's folder: its agents' markdown, reviews, verify reports, logs and screenshots. A job is skipped while it is active, an eval job, owned by a live session, has a running daemon session, has an open PR, still has a worktree (`forge worktree remove <id>` first), or is named in an unfinished job's `dependsOn` or `children`. Read-only in Settings (`deletes job files`).
 - **`retention.logsDays`** (null, or an integer from 1 to 3650): the same runs delete `<scope>.log` and `<scope>.log.1` under `.forge/runtime/daemons/` when the newer of the two is at least this old, the session record names no live process, and the scope is not an active job; a job scope with no job folder left loses its `<scope>.json` too. Read-only in Settings (`deletes session logs`).
 - **`retention.logMaxBytes`** (null, or an integer from 1048576 (1 MiB) to 1073741824 (1 GiB)): the supervisor rotates a session log to `<scope>.log.1` as soon as it reaches this size, mid-session, replacing the older `.log.1`. Null keeps today's rule: rotate only at spawn, past 20 MiB. Editable in Settings; it takes effect at the session's next spawn.
 
-Archived jobs leave the board, the Done filter, `forge status`, `forge job list --all` and `/api/state`, but `forge stats`, `/api/stats` (which counts them in `counts.archived`), `forge audit`, `forge job audit <id>`, `forge retro due` and the dependency check still read them. Every archived job and deleted log adds one JSON line to `.forge/runtime/retention.log`, and so does every job `forge job delete` removes (docs/ARCHITECTURE.md "Deleting a job"). `forge job archive <id>|--done --older-than D` and `forge job prune --older-than D [--dry-run]` do the same by hand (and are refused in daemon sessions); `forge doctor` warns when `.forge/jobs`, `.forge/archive` or `.forge/runtime` passes 500 MiB.
+Archived jobs leave the board, the Done filter, `forge status`, `forge job list --all` and `/api/state`, but `forge stats`, `/api/stats` (which counts them in `counts.archived`), `forge audit`, `forge job audit <id>`, `forge retro due` and the dependency check still read them. Every archived job and deleted log adds one JSON line to `.forge/runtime/retention.log`, and so does every job `forge job delete` removes (docs/architecture/deleting-a-job.md). `forge job archive <id>|--done --older-than D` and `forge job prune --older-than D [--dry-run]` do the same by hand (and are refused in daemon sessions); `forge doctor` warns when `.forge/jobs`, `.forge/archive` or `.forge/runtime` passes 500 MiB.
 
 **Migration** (config `schemaVersion` 6 → 7): nothing changes. v7 adds `retention`, whose defaults keep everything; the bump lets older Forges refuse a config whose retention policy they would ignore. A repo upgraded from an older Forge gets `.forge/archive/.gitignore` (`*`) on its first archive, so records are never committed.
 
@@ -637,7 +740,7 @@ A budget transition carries `[budget-exceeded, gate]`: each webhook gets at most
 With `foreman.enabled: true` and `daemon.enabled: true`, `forge dash` runs one more supervised session, the **office** (scope `_office`), beside the inbox. It never counts against `daemon.maxConcurrent`, and it shares the pool's trust check, deny rules, budget holds and failure handling. When `forge job set` parks a job on a gate whose class is in `decides`, the CLI queues a `gate` request; `forge pr sync` does the same for a job waiting on `pr-review` with changes requested or unresolved threads from someone with write access to the repo (`pr-feedback`, once per PR head; feedback only from others stays with a human). Failing checks need no judgement, so they skip the office: while the foreman decides `pr-feedback`, `forge pr sync` itself records a foreman `rework` (once per PR head, any head, a GitHub "Update branch" included), writes a fixed `feedback.md` pointing the builder at `gh pr checks`, moves the job to `build` and queues a `resume` for its session. A reserved match (a security review that isn't `PASS`, or a `reserved` pattern in the job's reason) still goes through the `pr-feedback` gate. After `pr.maxCiReworks` CI reworks in a row the next red head waits for a person instead, with no gate queued (see [Open PRs](#open-prs)), and a `rounds-exhausted` park past the [total-round ceiling](#total-round-ceiling) is a person's alone. Every rework round on an open PR starts from the PR's head: `forge job round` fetches the job's branch and fast-forwards or merges it into the worktree (a conflicting merge is aborted, logged as `pr-head-pulled`, and left for the next push to surface). When `forge pr open` finds the PR branch moved, it merges it in and step re-verifies the merged HEAD (PR2b); a conflicting one is aborted, and step parks the job on `human` (PR11) until a person merges it in the worktree and runs `forge verify <id>`. The office session hands each one to a `forge:assistant` sub-agent (model `runtime.models.assistant`, effort `runtime.efforts.assistant`) that reads the job's files, then records the verdict with `forge job human … --actor foreman` and queues a `resume` for the job's session. It never reads a job file itself.
 
 - **`enabled`** (default `false`): nothing changes while it is off. No `gate` request is written and no office session runs. The status bar's Foreman indicator still shows, dashed, as **Foreman off**, and its popover says how to turn it on here (the key is locked in Settings and `forge config set`).
-- **`decides`**: the classes it may decide, from `spec-approval`, `split-approval`, `escalation`, `rounds-exhausted`, `conflicts`, `pr-feedback`, `repo-proposal` and `release`. The default lists every class but `repo-proposal` and `release`: approving an agent's repo proposal widens the repos a job pushes to (ARCHITECTURE.md "Job repos"), and a release publishes what can't be unpublished (RELEASES.md "Releasing a project"), so an owner adds them deliberately. `release` is a job's `forge release plan --job` awaiting approval: the Foreman's approval stands in for `forge release run`'s publish prompt when there is no terminal, for that exact plan only. `input`, `issue-link`, `infra`, `budget`, `human` and `external` are never foreman gates. An unknown entry is reported by `forge config validate` / `forge doctor` and ignored at run time.
+- **`decides`**: the classes it may decide, from `spec-approval`, `split-approval`, `escalation`, `rounds-exhausted`, `conflicts`, `pr-feedback`, `repo-proposal` and `release`. The default lists every class but `repo-proposal` and `release`: approving an agent's repo proposal widens the repos a job pushes to (docs/architecture/job-repos.md), and a release publishes what can't be unpublished (RELEASES.md "Releasing a project"), so an owner adds them deliberately. `release` is a job's `forge release plan --job` awaiting approval: the Foreman's approval stands in for `forge release run`'s publish prompt when there is no terminal, for that exact plan only. `input`, `issue-link`, `infra`, `budget`, `human` and `external` are never foreman gates. An unknown entry is reported by `forge config validate` / `forge doctor` and ignored at run time.
 - **`reserved`**: patterns matched as whole phrases, case-insensitively, against the job's reason, the `## Why` and `## For the human` sections of `decision.md` (escalation and rounds-exhausted) and the foreman's own note. A match leaves the gate with a human, and the CLI refuses the foreman's decision even if the request said otherwise. Security always has to pass: while the latest recorded security verdict is anything but `PASS` (`CHANGES`, or `MALFORMED`), the CLI refuses every foreman action that accepts the job (`approve`, `approve-spec`, `approve-split`, `approve-repos`, `approve-release`), whatever the texts say, and allows the ones that fix it (`rework`, `revise-spec`, `revise-split`, `reject-repos`). The gate still reaches the assistant, whose brief carries a `Security review:` line, so it chooses how to fix the findings. A gate with no fixing action (`conflicts`, `release`) stays with a human. A value that isn't a list of non-empty strings fails closed: every gate stays with a human until it is fixed. An entry `gate:<class>` (lowercase `gate:`, then a class from `decides`' list, whitespace trimmed) is never matched as text: it reserves that whole class. The form is exact: any other entry that starts like one (`Gate:release`, `gate: release`, `gate:Release`) is reported by `forge config validate` and fails closed like an invalid `reserved`, never read as text. The default list ends with `gate:release`.
 - **Reserved wins.** The Foreman decides a class only when `enabled` is true, the class is in `decides`, and `reserved` has no `gate:<class>` entry. Listing `release` in `decides` while keeping the default `reserved` still leaves releases with a human; to hand the class over, *move* it: add `release` to `decides` and remove `gate:release` from `reserved`. `gate:` works for every class (`gate:repo-proposal` keeps repo proposals with a human whatever `decides` says). A `gate:` entry naming no class (`gate:relase`) is reported by `forge config validate` / `forge doctor`, and at run time fails closed like any invalid `reserved`. A plain `release` text pattern would not do the same job: it would keep every gate whose reason mentions "release" with a human, and still not reserve the class.
 - **`ship`** (`propose` or `merge`): `merge` (with `enabled`) counts as `merge.auto: true` in the approver's brief and in step rule PR4, so a PR the approver marks `Auto-merge eligible: yes` under `merge.autoWhen` is merged, and `forge pr merge` still enforces CI. The office session itself can never run `forge pr merge`.
@@ -645,7 +748,7 @@ With `foreman.enabled: true` and `daemon.enabled: true`, `forge dash` runs one m
 All four keys are read-only in the settings: edit them by hand.
 
 - **Migration** (config `schemaVersion` 17 → 18): a `foreman.reserved` list without `gate:release` gains it at the end; nothing else changes. `deepMerge` replaces lists, so a config that wrote out its own `reserved` would otherwise miss the new default. A v17 `decides` can't name `release` (it was invalid there), so no delegation is taken away, and the bump lets older Forges refuse a config whose `decides` names a class they would ignore.
-- **Migration** (config `schemaVersion` 4 → 5): nothing changes. v5 adds `foreman.*` (off by default), `runtime.models.assistant` and `runtime.efforts.assistant`; the bump lets older Forges refuse a config whose foreman policy they would ignore. docs/ARCHITECTURE.md "Foreman" covers routing and the authority checks.
+- **Migration** (config `schemaVersion` 4 → 5): nothing changes. v5 adds `foreman.*` (off by default), `runtime.models.assistant` and `runtime.efforts.assistant`; the bump lets older Forges refuse a config whose foreman policy they would ignore. docs/architecture/foreman.md covers routing and the authority checks.
 
 ## Components
 
@@ -708,7 +811,7 @@ components:
   - { name: engine-core, repo: engine, path: crates/core, kind: library }
 ```
 
-- **Active rule.** A link is active for a job only when the consumer's repo and the dependency's repo are both [job repos](ARCHITECTURE.md#job-repos) with a worktree Forge trusts (the root's is `<worktrees.root>/<id>`, a member's the path Forge computes for it, never a value read from job.json alone) and `<dependency worktree>/<path>` is a directory there. Otherwise it is inactive, with a reason. `forge job links <id>` lists every declared link and its state (docs/CLI.md "Local links"). Links are recomputed before every command and never stored, so removing a job repo removes its links.
+- **Active rule.** A link is active for a job only when the consumer's repo and the dependency's repo are both [job repos](architecture/job-repos.md) with a worktree Forge trusts (the root's is `<worktrees.root>/<id>`, a member's the path Forge computes for it, never a value read from job.json alone) and `<dependency worktree>/<path>` is a directory there. Otherwise it is inactive, with a reason. `forge job links <id>` lists every declared link and its state (docs/CLI.md "Local links"). Links are recomputed before every command and never stored, so removing a job repo removes its links.
 - **What a command gets.** Before `forge run` (with or without `--repo`), each verify step and verify's e2e, Forge renders the links of the repo the command runs in into `<jobDir>/links/<repo or _root>/`, never into a worktree, rewriting a file only when it changed and deleting what is no longer needed. Then it runs `PATH=<that dir>/bin:"$PATH"` after the login profile, so a profile that puts `~/.cargo/bin` first cannot shadow the shims, and calls through PATH from make, scripts or `cargo xtask` go through them too:
   - **cargo** (an active cargo link): `cargo-links.toml` holds a `[patch."<source>"]` table per source with `"<name>" = { path = "<dir>" }`, and the `cargo` shim runs the real cargo with `--config <that file>` (a leading `+toolchain` stays first). `FORGE_CARGO_CONFIG` holds its path.
   - **cmake** (any declared cmake link): a configure (no `--build`, `--install`, `--open`, `-E`, `-P`, `--workflow`, `--find-package`, `--help`, `-h`, `--version` or `--system-information`) gets `-DFETCHCONTENT_SOURCE_DIR_<NAME>=<dir>` per active link and `-UFETCHCONTENT_SOURCE_DIR_<NAME>` per inactive one, `NAME` upper-cased; the `-U` clears what an earlier configure cached once a link goes away, so declaring a link hands that cache variable to Forge. `FORGE_CMAKE_ARGS` holds the same arguments as quoted shell words.
@@ -831,7 +934,7 @@ The hints: `npm install --save-dev release-please`, `npm install --save-dev @cha
 
 ### Interim strategies
 
-A multi-repo job's consumer PR has to point at *something* while its dependency's change is unmerged or unreleased, and projects release differently, so each dependency repo has an **interim strategy**. An **edge** is a consumer job repo and a dependency job repo, from `components[].dependsOn` (the merge order [Job repos](ARCHITECTURE.md#job-repos) uses, transitive through repos outside the job); its **links** are the `link`s joining the two repos. A verify-only member is unchanged, so it is never a dependency. The strategy is per dependency and every edge into it shares it, resolved as: the job's override (`forge job repo interim <id> <name>|--root <strategy>`, human-only), then config (`repos[].release.interim` for a member, the top-level `release.interim` for the root repo), then `local`.
+A multi-repo job's consumer PR has to point at *something* while its dependency's change is unmerged or unreleased, and projects release differently, so each dependency repo has an **interim strategy**. An **edge** is a consumer job repo and a dependency job repo, from `components[].dependsOn` (the merge order [Job repos](architecture/job-repos.md) uses, transitive through repos outside the job); its **links** are the `link`s joining the two repos. A verify-only member is unchanged, so it is never a dependency. The strategy is per dependency and every edge into it shares it, resolved as: the job's override (`forge job repo interim <id> <name>|--root <strategy>`, human-only), then config (`repos[].release.interim` for a member, the top-level `release.interim` for the root repo), then `local`.
 
 ```yaml
 release:
@@ -853,12 +956,12 @@ repos:
 - **The manifest** is the link's `manifest`, or the ecosystem's file (`Cargo.toml`, `CMakeLists.txt`, `package.json`) in the consumer component's `path`. The remote is the member's `remote`, or the root's `git.remote` URL; an absolute path becomes `file://<path>` (one in your home directory leaves the edge `blocked`, since a pushed manifest must not name it), `user@host:path` becomes `ssh://user@host/path`, and a URL loses its password under every scheme, and its whole `user:password@` under http(s).
 - **Verify** refreshes the pins first, dependencies first, before it reads any HEAD: when `aiAttribution` is `forbid` it scrubs the dependency's branch as `pr open` will (so the pinned sha is the one pushed), then commits the changed manifests as `forge: interim pins for job <id>`. Nothing is committed when nothing changed, or when a worktree involved is dirty (`worktree-clean` then fails the run). A pin that can't be written (no link, a `[patch."<source>"]` table outside the Forge block, zero or several matching `FetchContent_Declare` or `GIT_TAG`, an npm package below its repo's root, a dependsOn cycle) fails the `interim` step, which runs after `protected` and, like it, stops every configured step. With only `local` and `sequential` edges verify has no `interim` step.
 - **`forge pr open`** refuses before pushing anything when an edge is blocked, and with `interim_stale` (hint `forge verify <id>`) when a pin in the checked commits is not the dependency's checked HEAD. It opens member PRs dependencies first, pushes the root's branch before any member's when the root is a git-ref or canary dependency, and lists what it held back as `deferred: [{ repo, why, waitingOn, version? }]` (a `pr-deferred` event). A repo that depends on a deferred one through a sequential, git-ref or canary edge is deferred too.
-- **Publishing a canary** (`forge job interim publish`) is refused in a daemon session, with `--confirm` when stdin is not a terminal, for a repo that is not the dependency of a canary edge whose links are all npm, unless the repo's HEAD is the one the latest passing verify checked and git shows it on the job's branch, and for a package that tracks a symlink or npm, yarn or pnpm config anywhere (`.npmrc`, `.yarnrc*`, `.pnpmrc`, matched in any case and Unicode form); the secret scan runs over its commits (`verifySecrets: block` refuses a finding or an incomplete scan). Without `--confirm` it only lists what it would publish. With it, each npm link's package is exported from the verified commit's git objects into a fresh temporary directory outside the repo (nothing untracked or ignored, no checkout filter; removed afterwards), every exported file is scanned for secrets (base content ships too), its `package.json` `name` must equal the link's, its `version` is set to the canary version and its `publishConfig` is dropped, and `npm publish <dir> --ignore-scripts --workspaces=false --tag canary --prefix <empty dir>` runs from that empty dir with no shell and the global config pointed at an empty file, so none of the package's lifecycle scripts runs and npm reads only your user config (`~/.npmrc` or `npm_config_userconfig`), never project or global config. Each publish logs `canary-published`; a version already published is skipped, and a job parked for it resumes.
+- **Publishing a canary** (`forge job interim publish`) is refused in a daemon session, with `--confirm` when stdin is not a terminal, for a repo that is not the dependency of a canary edge whose links are all npm, unless the repo's HEAD is the one this round's last verify run passed on and git shows it on the job's branch, and for a package that tracks a symlink or npm, yarn or pnpm config anywhere (`.npmrc`, `.yarnrc*`, `.pnpmrc`, matched in any case and Unicode form); the secret scan runs over its commits (`verifySecrets: block` refuses a finding or an incomplete scan). Without `--confirm` it only lists what it would publish. With it, each npm link's package is exported from the verified commit's git objects into a fresh temporary directory outside the repo (nothing untracked or ignored, no checkout filter; removed afterwards), every exported file is scanned for secrets (base content ships too), its `package.json` `name` must equal the link's, its `version` is set to the canary version and its `publishConfig` is dropped, and `npm publish <dir> --ignore-scripts --workspaces=false --tag canary --prefix <empty dir>` runs from that empty dir with no shell and the global config pointed at an empty file, so none of the package's lifecycle scripts runs and npm reads only your user config (`~/.npmrc` or `npm_config_userconfig`), never project or global config. Each publish logs `canary-published`; a version already published is skipped, and a job parked for it resumes.
 - **Limits.** crates.io refuses to publish a crate with git dependencies, so `git-ref` suits consumers that are not published themselves. Lockfiles (`Cargo.lock`, `package-lock.json`) are not rewritten for a pin, so `cargo --locked` or `npm ci` in the consumer's CI needs a lockfile update by hand. npm installs a git dependency only from its repo's root, so an npm `git-ref` needs the package there. `canary` is npm-only, and is refused for a dependency a cargo or cmake link depends on. Submodule bumps are not a `git-ref` form. The seeded [release gate](#release-gate) check fails while a pin remains; recording the dependency's release (below) is what replaces the pin. The release bump's lockfile refresh needs `cargo` (for a tracked `Cargo.lock`) or `npm` (for a tracked `package-lock.json`) on PATH where verify runs, and registry access, since it resolves the released version; on native Windows an `npm` that resolves to a `.cmd` can't run without a shell, so the step fails and you refresh that lockfile by hand. The bump refuses what it can't rewrite safely: a renamed cargo dependency (`foo = { package = "lib" }`), a multi-line inline table, a dotted `<name>.version` key and an entry with no version. A changed lockfile is a default [protected path](#protected-paths), so `forge pr open` asks a human to approve the bump commit's lockfile.
 - **Inspect.** `forge job interim <id>` lists every edge with its strategy, `source` (`job` or `config`), links, `state` and a one-line `detail`, with no network call: `held` (local), `waiting` (an unmerged sequential dependency, an unpublished canary), `ready`, `blocked` (can't be pinned or bumped), `stale` (verify has not pinned the dependency's HEAD yet, or, after a recorded release, the consumer's manifests at HEAD don't name it: `<files> in <consumer> does not name the released version <V> of <dependency>; run: forge verify <id>`) or `released` (a recorded release the manifests at HEAD name; a release edge also carries `release: <V>`). Its `gates` list each edge's release gate: `ci` (git-ref, canary, no release recorded: the seeded check guards it), `held` (local, sequential, no release recorded), `bump-due` with the `version` (a release is recorded, the edge has links, the consumer's PR is not merged, and no `interim-bumped` for that version came after the record) or `released` with the `version`.
 - **Recording a release.** `forge job interim release <id> <name>|--root <version>` is how a human says the dependency of an edge of any strategy shipped. It is refused in a daemon session (before anything is read), for a done or cancelled job, an unknown repo, a repo that no edge depends on, a version that is not semver (`1.2.0`, `v1.2.0`, `1.2.0-rc.1`, at most 120 characters) or names a canary, and a dependency whose recorded PR is not `MERGED` (run `forge pr sync <id>` first). It logs `interim-released` `{ repo, version }` (`repo` null for the root) and returns `{ id, repo, version, recorded, clear, bump, resumed? }`: `clear` lists the consumers whose gates are all `released`, `bump` the ones with a `bump-due` gate, and `resumed: true` says a job waiting on `pr-review` at stage `pr` was set running (with a `resume` request when the daemon is on and none is pending; no other wait is touched). The same version again records nothing (`recorded: false`), and a later different version wins and makes the gate `bump-due` again. A `--job` `forge release run` records it too (docs/RELEASES.md "Consumers after a release").
 - **The release bump.** Once a release is recorded, an edge with links whose consumer PR is not `MERGED` is a *release edge*: `forge verify`'s interim pre-step writes the released form instead of a pin, alongside any pins in one consumer pass and one commit. cargo: the crate leaves the Forge `[patch]` block (the block goes when it is left empty), and every entry for it in `[dependencies]`, `[dev-dependencies]`, `[build-dependencies]`, `[workspace.dependencies]` and `[target.*.dependencies]` (a string, a one-line inline table's `version`, a `[dependencies.<name>]` table) gets the requirement, its `=`, `^` or `~` kept, a leading `v` and `+build` dropped, `workspace = true` left alone. cmake: the `GIT_TAG` becomes the version exactly as recorded (`v1.2.0` stays `v1.2.0`), and the tag must exist in the dependency's worktree or clone (`tag <version> is not in <dependency>; fetch its tags, or record the version as the tag names it`). npm: `^`/`~` kept before a numeric range, the bare version for an exact one, `^<version>` for anything else (a git, canary, file or tag spec). When a manifest changed and a tracked `Cargo.lock` or `package-lock.json` sits in its directory or an ancestor, Forge refreshes it with a fixed argv and no shell: `cargo update -p <name> --precise <version>` in the manifest's directory, or `npm install --package-lock-only --ignore-scripts --no-audit --no-fund` in the lockfile's (10-minute timeout). A missing tool, a non-zero exit, a timeout, a lockfile that isn't a regular file, or a refresh that changes any other path puts the consumer's manifests and lockfiles back at their HEAD text, commits nothing, and fails the `interim` step with `<consumer> on <dependency> (release <V>): <tool> <why>: <output tail>`. Otherwise the manifests and lockfile are committed as `forge: release bump for job <id>`, one `<dep>: release <version>` line per edge (pins in the same commit keep their lines), the step's `reason` says `release bump committed in <repo> (<sha12>)`, and verify logs `interim-bumped` `{ repo, dependency, version, sha }` once per consumer, dependency and version, which turns the gate `released`. A recorded release whose dependency's recorded PR is not `MERGED` fails the step and writes nothing. A consumer whose PR already merged is left alone, and a dependency with no links goes straight to `released`. Verify's configured steps still build through local links; the lockfile refresh and the consumer's CI on the pushed commit prove the released version. Then step pushes the bumped commit (`forge pr open`, PR3, after PR9 ran verify) and, for a draft consumer whose gates are all `released`, runs `forge pr ready <id> --repo <name>|--root` (PR10).
-- **What the gates block.** `forge pr ready` refuses a `held` or `bump-due` consumer, and one whose manifests at HEAD don't name a recorded release (git, no network), with code `release_gate` before any `gh` call (bump-due: `<consumer>'s manifests don't name <dependency>'s released version <V> yet; run: forge verify <id>, then forge pr open <id>`). `forge pr merge` refuses them after the merge-order check (`action: refused`, `reason: release`; `--now` never bypasses it). `forge pr open`'s `interim_stale` covers release edges too. Step never auto-merges a job while a gate is `held` or `bump-due`, a `local` edge's gate is not `released`, or one of its PRs is a draft. events.jsonl is writable outside the CLI, so only records whose `repo`, `dependency` and `version` pass these checks count; a well-formed `interim-released` written by hand still opens a gate, and a forged `interim-bumped` is caught by the git check in `pr open` and `pr ready` (docs/ARCHITECTURE.md "Untrusted input").
+- **What the gates block.** `forge pr ready` refuses a `held` or `bump-due` consumer, and one whose manifests at HEAD don't name a recorded release (git, no network), with code `release_gate` before any `gh` call (bump-due: `<consumer>'s manifests don't name <dependency>'s released version <V> yet; run: forge verify <id>, then forge pr open <id>`). `forge pr merge` refuses them after the merge-order check (`action: refused`, `reason: release`; `--now` never bypasses it). `forge pr open`'s `interim_stale` covers release edges too. Step never auto-merges a job while a gate is `held` or `bump-due`, a `local` edge's gate is not `released`, or one of its PRs is a draft. events.jsonl is writable outside the CLI, so only records whose `repo`, `dependency` and `version` pass these checks count; a well-formed `interim-released` written by hand still opens a gate, and a forged `interim-bumped` is caught by the git check in `pr open` and `pr ready` (docs/architecture/untrusted-input.md).
 
 #### Release gate
 
@@ -923,7 +1026,7 @@ A relative path resolves against the root repo, a leading `~/` is the home direc
 
 Remotes match when they are equal after dropping any `user:password@`, a trailing `/` and `.git`, or name the same GitHub `owner/name` (`git@github.com:acme/x.git` and `https://github.com/acme/x` match). Paths are single-quoted when they contain anything outside `A-Za-z0-9._/~-`. A `local.yml` check appears only when that file has a problem: unparsable YAML, a `repos` that isn't a map, or an entry without a non-empty string `path` fails it (and every member then reads as having no entry), and names that aren't in `repos` give a warning. With no `repos` and no `local.yml` there are no new checks. Doctor only reads: it never clones, fetches or checks out, runs git with `core.fsmonitor=false` and `GIT_OPTIONAL_LOCKS=0` so `status` never rewrites a member's index, and never passes `remote` to git. After these checks come the `release mechanism <name>` checks for members that declare a mechanism ([Release strategy](#release-strategy)).
 
-**Using a member in a job.** A human adds a member to one job with `forge job repo add <id> <name> [--verify-only]` (refused unless the member passes the doctor check above, and refused in a daemon session), or a job started from the member's own issue gets it at creation; the job then changes that repo too ([Job repos](ARCHITECTURE.md#job-repos)). `forge worktree create` makes the member's worktree at `worktrees.root` with `{repo}` set to the clone's directory name, resolved from the clone (by default `../<clone>.worktrees/<id>`), on the job's branch, or detached at `defaultBranch` for a verify-only member. A member's commands are its components' `commands` (`forge run <id> <cmd> --repo <name>`; `forge verify` runs each `verify` step as the member component's command, and skips a step none defines). `forge pr open` opens the member's PR in `tracker.repo` when `tracker.kind` is `github`, else in the `owner/name` its `remote` names on github.com (or `GH_HOST`). Members get no `worktrees.copy`, `worktrees.setup` or shared Cargo target; a member component of kind `service` or `app` is port-bearing like a root one ([Ports and endpoints](#ports-and-endpoints)), so its `--repo` commands get its port as `{port}` and `$PORT`, and a member `library` sees `{port}` empty. `policy.protectedPaths` applies to every member the job commits to exactly as to the root ("Protected paths" above).
+**Using a member in a job.** A human adds a member to one job with `forge job repo add <id> <name> [--verify-only]` (refused unless the member passes the doctor check above, and refused in a daemon session), or a job started from the member's own issue gets it at creation; the job then changes that repo too ([Job repos](architecture/job-repos.md)). `forge worktree create` makes the member's worktree at `worktrees.root` with `{repo}` set to the clone's directory name, resolved from the clone (by default `../<clone>.worktrees/<id>`), on the job's branch, or detached at `defaultBranch` for a verify-only member. A member's commands are its components' `commands` (`forge run <id> <cmd> --repo <name>`; `forge verify` runs each `verify` step as the member component's command, and skips a step none defines). `forge pr open` opens the member's PR in `tracker.repo` when `tracker.kind` is `github`, else in the `owner/name` its `remote` names on github.com (or `GH_HOST`). Members get no `worktrees.copy`, `worktrees.setup` or shared Cargo target; a member component of kind `service` or `app` is port-bearing like a root one ([Ports and endpoints](#ports-and-endpoints)), so its `--repo` commands get its port as `{port}` and `$PORT`, and a member `library` sees `{port}` empty. `policy.protectedPaths` applies to every member the job commits to exactly as to the root ("Protected paths" above).
 
 **Member review panels.** A member that a job reviews (one not added `--verify-only`) brings its own lenses: `forge job panel` reads `review.panel` from the member clone's `.forge/config.yml`, with checklists from the clone's `.forge/reviewers/<name>.md`, never from the job's worktree of it. Each entry becomes the lens `<repo>:<name>` (review file `review/round-<n>/<repo>.<name>.md`), selected by its `always`, a `Suggested reviewers:` entry naming `<repo>:<name>`, its `when`/`paths` covering an Approach path under `<repo>/`, or its `paths` matching the member's changed files (repo-relative; reasons cite `<repo>/<file>`). **Subsumption:** an entry named like a root panel lens, with no `checklist:` and no `.forge/reviewers/<name>.md` in the clone, is not a lens of its own; its matches add reasons to the root lens, which reviews the combined diff. So a member that lists `code` with `paths: [src/**]` brings the root `code` lens in for its changes, and one with its own `realtime.md` gets `<repo>:realtime`. A member entry's `model`, `effort` and `needsApp` are ignored (`runtime.models.reviewer`, the reviewer effort layers, no app). A member config that is not a regular file, is over 256 KiB, isn't valid YAML or has a `review.panel` that isn't a list fails `forge job panel` with `repo <name>: …`; an entry with a bad name or `paths`, no checklist, or a `checklist` outside the clone is dropped and listed in the result's `problems`. A member without `.forge/config.yml` or `review.panel` adds no lenses.
 
@@ -933,7 +1036,7 @@ Remotes match when they are equal after dropping any `user:password@`, a trailin
 
 ## Downstream verification
 
-When a job changes a library, every repo that consumes it can break, including repos the job never edits. `downstream` adds those consumers to the job as **downstream repos**: verify-only members ([Job repos](ARCHITECTURE.md#job-repos)) whose tests verify runs against the job's changes through [local links](#local-links). It is edited by hand; Settings shows the three keys locked, since turning the check off or capping it at 0 loosens a verification gate and `skip` names repositories.
+When a job changes a library, every repo that consumes it can break, including repos the job never edits. `downstream` adds those consumers to the job as **downstream repos**: verify-only members ([Job repos](architecture/job-repos.md)) whose tests verify runs against the job's changes through [local links](#local-links). It is edited by hand; Settings shows the three keys locked, since turning the check off or capping it at 0 loosens a verification gate and `skip` names repositories.
 
 ```yaml
 downstream:

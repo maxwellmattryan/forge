@@ -6,7 +6,7 @@ import path from 'node:path';
 import { loadConfig } from '#core/config/load.ts';
 import { knownValues, redactKnown } from '#engine/guard/known-secrets.ts';
 import { UUID, readLogPage } from '#core/job/session-files.ts';
-import { daemonSessionIds } from '#office/owner.ts';
+import { daemonSessionIds } from '#office/driver.ts';
 import { AGENT_LEASE_MS, loadJob, jobDir } from '#core/job/store.ts';
 import { exists } from '#core/paths.ts';
 import { validJobId } from '#core/job/requests.ts';

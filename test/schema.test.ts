@@ -1,7 +1,9 @@
-// Every schema migration, one table per versioned shape. A row runs the real reader from its `from`
-// version to the current one and checks only the fields that migration (and the later ones it
-// chains through) is about. This is the only test file that may state a version number: a bump
-// adds one row here and edits nothing else (`every migration has a table row` names a missing one).
+// Every schema migration, one table per versioned shape. Rows are keyed by step id (the lists in
+// lib/core/versions/): a row runs the real reader from the version its step upgrades (the step's
+// position + 1, which the runner sets) to the current one, and checks only the fields that step (and
+// the later ones it chains through) is about. This is the only test file that may state a version
+// number: a new step adds one row here and edits nothing else (`every migration has a table row`
+// names a missing one).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -10,11 +12,17 @@ import { tempRepo } from './helpers.ts';
 import { defaults, loadConfig, validateConfig } from '#core/config/load.ts';
 import { disclosureOf } from '#core/config/fields.ts';
 import { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, migrateConfig, normalizeEvent, normalizeJob, serializeJob } from '#core/job/schema.ts';
+import { CONFIG_STEPS } from '#core/versions/config.ts';
+import { JOB_STEPS } from '#core/versions/job.ts';
+import { EVENT_STEPS } from '#core/versions/event.ts';
+import { stepProblems } from '#core/versions/steps.ts';
+import type { Step } from '#core/versions/steps.ts';
+import { API_CHANGES } from '#api/versions.ts';
 import { createJob, jobDir, leaseStatus, loadJob, updateJob } from '#core/job/store.ts';
 import { issueLinkStatus } from '#core/job/issue-link.ts';
 import * as yaml from '#core/format/yaml.ts';
 
-type Row = { from: number; input: Record<string, unknown>; fields: Record<string, unknown>; removed?: string[]; note?: string };
+type Row = { step: string; input: Record<string, unknown>; fields: Record<string, unknown>; removed?: string[]; note?: string };
 
 const MISSING = Symbol('missing');
 /** The value at a dotted path, or MISSING when any segment is absent. */
@@ -42,95 +50,101 @@ const ONLY_VERSION = 'only bumps the version: the new keys come from defaults()'
 
 const CONFIG_ROWS: Row[] = [
   {
-    from: 1,
-    input: { schemaVersion: 1, dashboard: { port: 7411, launcher: 'claude -p "{prompt}"' } },
+    step: 'dashboard-launcher-to-daemon',
+    input: { dashboard: { port: 7411, launcher: 'claude -p "{prompt}"' } },
     fields: { 'daemon.command': 'claude -p "{prompt}"', 'dashboard.port': 7411 },
     removed: ['dashboard.launcher', 'daemon.enabled'],
     note: 'a launcher becomes daemon.command, never enabled',
   },
-  { from: 2, input: { schemaVersion: 2, verify: ['build', 'lint'] }, fields: { verify: ['build', 'lint'] }, note: 'every v2 verify list is a valid v3 list' },
-  { from: 3, input: { schemaVersion: 3, git: { base: 'trunk' } }, fields: { 'git.base': 'trunk' }, removed: ['runtime'], note: ONLY_VERSION },
+  { step: 'parallel-verify-steps', input: { verify: ['build', 'lint'] }, fields: { verify: ['build', 'lint'] }, note: 'every v2 verify list is a valid v3 list' },
+  { step: 'runtime-efforts', input: { git: { base: 'trunk' } }, fields: { 'git.base': 'trunk' }, removed: ['runtime'], note: ONLY_VERSION },
   {
-    from: 4,
-    input: { schemaVersion: 4, git: { base: 'trunk' }, runtime: { models: { builder: 'sonnet' } } },
+    step: 'foreman-block',
+    input: { git: { base: 'trunk' }, runtime: { models: { builder: 'sonnet' } } },
     fields: { 'runtime.models': { builder: 'sonnet' }, repos: [], downstream: DOWNSTREAM },
     removed: ['foreman', 'runtime.models.assistant'],
     note: ONLY_VERSION,
   },
-  { from: 5, input: { schemaVersion: 5, git: { base: 'trunk' }, approver: { alwaysEscalate: ['x'] } }, fields: { 'approver.alwaysEscalate': ['x'], repos: [], downstream: DOWNSTREAM }, removed: ['policy'], note: ONLY_VERSION },
-  { from: 6, input: { schemaVersion: 6, git: { base: 'trunk' }, daemon: { maxConcurrent: 2 } }, fields: { 'daemon.maxConcurrent': 2, repos: [], downstream: DOWNSTREAM }, removed: ['retention'], note: ONLY_VERSION },
-  { from: 7, input: { schemaVersion: 7, git: { base: 'trunk' }, retention: { jobsDays: 30 } }, fields: { 'retention.jobsDays': 30, repos: [], downstream: DOWNSTREAM }, removed: ['notify'], note: ONLY_VERSION },
-  { from: 8, input: { schemaVersion: 8, git: { base: 'trunk' }, notify: { webhooks: [], command: null } }, fields: { notify: { webhooks: [], command: null }, repos: [], downstream: DOWNSTREAM }, removed: ['budget'], note: ONLY_VERSION },
+  { step: 'policy-protected-paths', input: { git: { base: 'trunk' }, approver: { alwaysEscalate: ['x'] } }, fields: { 'approver.alwaysEscalate': ['x'], repos: [], downstream: DOWNSTREAM }, removed: ['policy'], note: ONLY_VERSION },
+  { step: 'retention', input: { git: { base: 'trunk' }, daemon: { maxConcurrent: 2 } }, fields: { 'daemon.maxConcurrent': 2, repos: [], downstream: DOWNSTREAM }, removed: ['retention'], note: ONLY_VERSION },
+  { step: 'notify', input: { git: { base: 'trunk' }, retention: { jobsDays: 30 } }, fields: { 'retention.jobsDays': 30, repos: [], downstream: DOWNSTREAM }, removed: ['notify'], note: ONLY_VERSION },
+  { step: 'repo-budget', input: { git: { base: 'trunk' }, notify: { webhooks: [], command: null } }, fields: { notify: { webhooks: [], command: null }, repos: [], downstream: DOWNSTREAM }, removed: ['budget'], note: ONLY_VERSION },
   {
-    from: 9,
-    input: { schemaVersion: 9, services: [SERVICE] },
+    step: 'services-to-components',
+    input: { services: [SERVICE] },
     fields: { components: [{ ...SERVICE, kind: 'service', dependsOn: [] }], repos: [], downstream: DOWNSTREAM },
     removed: ['services'],
     note: 'each service becomes a service component with no dependencies',
   },
-  { from: 10, input: { schemaVersion: 10, tracker: { kind: 'none' }, components: [] }, fields: { components: [], repos: [], downstream: DOWNSTREAM }, note: 'member repos start empty' },
-  { from: 11, input: { schemaVersion: 11, repos: REPOS, components: LINKED }, fields: { repos: REPOS, components: LINKED, downstream: DOWNSTREAM }, note: 'dependsOn links are kept as written' },
-  { from: 12, input: { schemaVersion: 12, repos: REPOS, components: LINKED, aiAttribution: 'forbid' }, fields: { components: LINKED, aiAttribution: 'forbid', downstream: DOWNSTREAM }, removed: ['release'], note: ONLY_VERSION },
-  { from: 13, input: { schemaVersion: 13, repos: REPOS, git: { base: 'trunk' } }, fields: { repos: REPOS, 'git.base': 'trunk', downstream: DOWNSTREAM }, note: 'gains the downstream default' },
-  { from: 14, input: { schemaVersion: 14, git: { base: 'trunk' }, components: [], repos: [], downstream: DOWNSTREAM }, fields: { 'git.base': 'trunk', downstream: DOWNSTREAM }, removed: ['checkout'], note: ONLY_VERSION },
-  { from: 15, input: { schemaVersion: 15, release: { interim: 'canary' }, checkout: [] }, fields: { release: { interim: 'canary' }, checkout: [] }, removed: ['release.mechanism'], note: ONLY_VERSION },
+  { step: 'member-repos', input: { tracker: { kind: 'none' }, components: [] }, fields: { components: [], repos: [], downstream: DOWNSTREAM }, note: 'member repos start empty' },
+  { step: 'depends-on-links', input: { repos: REPOS, components: LINKED }, fields: { repos: REPOS, components: LINKED, downstream: DOWNSTREAM }, note: 'dependsOn links are kept as written' },
+  { step: 'release-interim', input: { repos: REPOS, components: LINKED, aiAttribution: 'forbid' }, fields: { components: LINKED, aiAttribution: 'forbid', downstream: DOWNSTREAM }, removed: ['release'], note: ONLY_VERSION },
+  { step: 'downstream-verification', input: { repos: REPOS, git: { base: 'trunk' } }, fields: { repos: REPOS, 'git.base': 'trunk', downstream: DOWNSTREAM }, note: 'gains the downstream default' },
+  { step: 'checkout', input: { git: { base: 'trunk' }, components: [], repos: [], downstream: DOWNSTREAM }, fields: { 'git.base': 'trunk', downstream: DOWNSTREAM }, removed: ['checkout'], note: ONLY_VERSION },
+  { step: 'release-strategy', input: { release: { interim: 'canary' }, checkout: [] }, fields: { release: { interim: 'canary' }, checkout: [] }, removed: ['release.mechanism'], note: ONLY_VERSION },
   {
-    from: 16,
-    input: { schemaVersion: 16, release: { interim: 'canary', mechanism: 'tag', command: 'git tag v1' }, repos: [{ ...REPOS[0], release: { mechanism: 'changesets' } }] },
+    step: 'release-publish',
+    input: { release: { interim: 'canary', mechanism: 'tag', command: 'git tag v1' }, repos: [{ ...REPOS[0], release: { mechanism: 'changesets' } }] },
     fields: { release: { interim: 'canary', mechanism: 'tag', command: 'git tag v1' }, 'repos.0.release': { mechanism: 'changesets' } },
     removed: ['release.publish'],
     note: ONLY_VERSION,
   },
-  { from: 17, input: { schemaVersion: 17, foreman: { enabled: true, reserved: ['secret'] } }, fields: { foreman: { enabled: true, reserved: ['secret', 'gate:release'] } }, note: 'a written-out reserved list gains gate:release' },
-  { from: 18, input: { schemaVersion: 18, git: { base: 'trunk' }, foreman: { reserved: ['secret'] } }, fields: { 'foreman.reserved': ['secret'], 'git.base': 'trunk' }, removed: ['backing'], note: 'a v18 reserved list is left as written' },
-  { from: 19, input: { schemaVersion: 19, components: SINKS }, fields: { components: SINKS }, note: ONLY_VERSION },
+  { step: 'reserved-gate-release', input: { foreman: { enabled: true, reserved: ['secret'] } }, fields: { foreman: { enabled: true, reserved: ['secret', 'gate:release'] } }, note: 'a written-out reserved list gains gate:release' },
+  { step: 'backing', input: { git: { base: 'trunk' }, foreman: { reserved: ['secret'] } }, fields: { 'foreman.reserved': ['secret'], 'git.base': 'trunk' }, removed: ['backing'], note: 'a v18 reserved list is left as written' },
+  { step: 'config-sinks', input: { components: SINKS }, fields: { components: SINKS }, note: ONLY_VERSION },
   {
-    from: 20,
-    input: { schemaVersion: 20, tracker: { kind: 'none' }, runtime: { models: { builder: 'opus' } }, review: { onPrFeedback: 'full' } },
+    step: 'builder-models-and-rework-panel',
+    input: { tracker: { kind: 'none' }, runtime: { models: { builder: 'opus' } }, review: { onPrFeedback: 'full' } },
     fields: { 'runtime.models': { builder: 'opus' }, review: { onPrFeedback: 'full' } },
     removed: ['runtime.modelByComplexity', 'runtime.reworkModel', 'review.onRework'],
     note: ONLY_VERSION,
   },
   {
-    from: 21,
-    input: { schemaVersion: 21, git: { base: 'trunk' }, backing: [{ name: 'redis', isolation: 'shared', image: 'redis:7', ports: [6379] }] },
+    step: 'backing-database',
+    input: { git: { base: 'trunk' }, backing: [{ name: 'redis', isolation: 'shared', image: 'redis:7', ports: [6379] }] },
     fields: { backing: [{ name: 'redis', isolation: 'shared', image: 'redis:7', ports: [6379] }] },
     removed: ['backing.0.database'],
     note: ONLY_VERSION,
   },
-  { from: 22, input: { schemaVersion: 22, tracker: { kind: 'none' }, backing: [] }, fields: { backing: [], 'tracker.kind': 'none' }, removed: ['secrets'], note: ONLY_VERSION },
-  { from: 23, input: { schemaVersion: 23, tracker: { kind: 'none' }, secrets: {}, outcomes: { windowDays: 7 } }, fields: { secrets: {}, outcomes: { windowDays: 7 } }, note: 'a written outcome window is kept' },
-  { from: 24, input: { schemaVersion: 24, tracker: { kind: 'none' }, outcomes: { windowDays: 14 } }, fields: { outcomes: { windowDays: 14 } }, removed: ['environments'], note: ONLY_VERSION },
-  { from: 25, input: { schemaVersion: 25, tracker: { kind: 'none' } }, fields: { 'tracker.kind': 'none' }, removed: ['scoring'], note: ONLY_VERSION },
+  { step: 'secrets', input: { tracker: { kind: 'none' }, backing: [] }, fields: { backing: [], 'tracker.kind': 'none' }, removed: ['secrets'], note: ONLY_VERSION },
+  { step: 'outcomes-window', input: { tracker: { kind: 'none' }, secrets: {}, outcomes: { windowDays: 7 } }, fields: { secrets: {}, outcomes: { windowDays: 7 } }, note: 'a written outcome window is kept' },
+  { step: 'environments-max-running', input: { tracker: { kind: 'none' }, outcomes: { windowDays: 14 } }, fields: { outcomes: { windowDays: 14 } }, removed: ['environments'], note: ONLY_VERSION },
+  { step: 'scoring', input: { tracker: { kind: 'none' } }, fields: { 'tracker.kind': 'none' }, removed: ['scoring'], note: ONLY_VERSION },
   {
-    from: 26,
-    input: { schemaVersion: 26, pipeline: { maxRounds: 2 }, pr: { enabled: false }, daemon: { enabled: true } },
+    step: 'loop-bounds',
+    input: { pipeline: { maxRounds: 2 }, pr: { enabled: false }, daemon: { enabled: true } },
     fields: { pipeline: { maxRounds: 2 }, pr: { enabled: false }, daemon: { enabled: true } },
     removed: ['pipeline.maxTotalRounds', 'pr.maxCiReworks', 'daemon.jobBudget'],
     note: ONLY_VERSION,
   },
-  { from: 27, input: { schemaVersion: 27, daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.turnTimeoutMinutes'], note: ONLY_VERSION },
-  { from: 28, input: { schemaVersion: 28, improve: { retroEvery: 5 }, evals: { testPattern: 'x' } }, fields: { improve: { retroEvery: 5 }, evals: { testPattern: 'x' } }, removed: ['improve.experiments', 'evals.recall'], note: ONLY_VERSION },
+  { step: 'daemon-turn-timeout', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.turnTimeoutMinutes'], note: ONLY_VERSION },
+  { step: 'experiments-and-recall', input: { improve: { retroEvery: 5 }, evals: { testPattern: 'x' } }, fields: { improve: { retroEvery: 5 }, evals: { testPattern: 'x' } }, removed: ['improve.experiments', 'evals.recall'], note: ONLY_VERSION },
+  { step: 'worktree-seed', input: { worktrees: { setup: ['npm ci'] } }, fields: { worktrees: { setup: ['npm ci'] } }, removed: ['worktrees.seed'], note: ONLY_VERSION },
+  {
+    step: 'instructions-per-role',
+    input: { project: { name: 'x', instructions: ['AGENTS.md', 'docs/DEVELOPING.md'] } },
+    fields: { 'project.instructions': { default: ['AGENTS.md', 'docs/DEVELOPING.md'] }, 'project.name': 'x' },
+    note: "a list becomes the role map's default",
+  },
 ];
 
 const JOB_ROWS: Row[] = [
   {
-    from: 1,
-    input: { schemaVersion: 1, id: 'x', verify: { 1: 'FAIL', 2: 'PASS' } },
+    step: 'verify-runs',
+    input: { id: 'x', verify: { 1: 'FAIL', 2: 'PASS' } },
     fields: { verifyRuns: [run(1, 1, false), run(2, 1, true)], 'verify.1': 'FAIL', verifyRetries: { 1: 1 }, outcome: null, score: null },
     note: 'per-round results become attempt 1 with no sha; a v1 job walks every later migration',
   },
   {
-    from: 2,
-    input: { schemaVersion: 2, id: 'x', verifyRuns: [run(1, 1, false), run(1, 2, false), run(1, 3, true), run(2, 1, false), run(2, 2, true)] },
+    step: 'budgets-and-verify-retries',
+    input: { id: 'x', verifyRuns: [run(1, 1, false), run(1, 2, false), run(1, 3, true), run(2, 1, false), run(2, 2, true)] },
     fields: { verifyRetries: { 1: 2, 2: 1 }, budget: { limits: {}, ack: {}, lastCheck: null }, 'verifyRuns.length': 5 },
     note: 'failed verifies per round are recovered from the run history',
   },
-  { from: 3, input: { schemaVersion: 3, id: 'x' }, fields: { noIssue: null } },
+  { step: 'no-issue', input: { id: 'x' }, fields: { noIssue: null } },
   {
-    from: 4,
+    step: 'agent-import-cursor',
     input: {
-      schemaVersion: 4,
       id: 'x',
       agents: { builder: { runs: 1, status: 'done', agentId: 'a1', endedAt: '2026-10-01T10:02:00.000Z' }, 'reviewer:code': { runs: 1, status: 'running', agentId: null, endedAt: null } },
     },
@@ -139,43 +153,43 @@ const JOB_ROWS: Row[] = [
     note: 'an ended agent gains an import cursor at its end',
   },
   {
-    from: 5,
-    input: { schemaVersion: 5, id: 'x', agents: AGENTS, verifyRuns: [run(1, 1, false, 'abc')] },
+    step: 'split-mode',
+    input: { id: 'x', agents: AGENTS, verifyRuns: [run(1, 1, false, 'abc')] },
     fields: { splitMode: null, effort: null, agents: AGENTS, verifyRuns: [run(1, 1, false, 'abc')] },
   },
-  { from: 6, input: { schemaVersion: 6, id: 'x' }, fields: { effort: null } },
+  { step: 'job-effort', input: { id: 'x' }, fields: { effort: null } },
   {
-    from: 7,
-    input: { schemaVersion: 7, id: 'x', effort: 'high', state: 'waiting', waitingOn: 'escalation', reason: 'r' },
+    step: 'human-gate',
+    input: { id: 'x', effort: 'high', state: 'waiting', waitingOn: 'escalation', reason: 'r' },
     fields: { effort: 'high', state: 'waiting', waitingOn: 'escalation', reason: 'r' },
     removed: ['_unsupported'],
     note: 'v8 only adds the human gate',
   },
-  { from: 8, input: { schemaVersion: 8, id: 'x' }, fields: { complexity: null } },
-  { from: 9, input: { schemaVersion: 9, id: 'x' }, fields: { protectedPaths: null } },
+  { step: 'complexity', input: { id: 'x' }, fields: { complexity: null } },
+  { step: 'protected-paths', input: { id: 'x' }, fields: { protectedPaths: null } },
   {
-    from: 10,
-    input: { schemaVersion: 10, id: 'x', source: { tracker: 'github', ref: '12', url: 'https://github.com/acme/web/issues/12' } },
+    step: 'issues-list',
+    input: { id: 'x', source: { tracker: 'github', ref: '12', url: 'https://github.com/acme/web/issues/12' } },
     fields: { issues: [{ tracker: 'github', ref: 'acme/web#12', url: 'https://github.com/acme/web/issues/12' }] },
     removed: ['source'],
   },
   {
-    from: 11,
-    input: { schemaVersion: 11, id: 'x', branch: 'forge/x', base: 'main', worktree: '/tmp/x.worktrees/j', pr: PR },
+    step: 'member-repos',
+    input: { id: 'x', branch: 'forge/x', base: 'main', worktree: '/tmp/x.worktrees/j', pr: PR },
     fields: { repos: [{ repo: null, worktree: '/tmp/x.worktrees/j', branch: 'forge/x', base: 'main', pr: PR, verifyOnly: false, interim: null }], interim: null, ports: {}, outcome: null, score: null },
     note: 'a v11 job becomes a one-repo job',
   },
   {
-    from: 12,
-    input: { schemaVersion: 12, id: 'x', branch: 'forge/x', base: 'main', repos: [{}, { repo: 'lib', worktree: null, base: 'main', pr: null, verifyOnly: false }] },
+    step: 'interim-override',
+    input: { id: 'x', branch: 'forge/x', base: 'main', repos: [{}, { repo: 'lib', worktree: null, base: 'main', pr: null, verifyOnly: false }] },
     fields: { interim: null, 'repos.0.interim': null, 'repos.1.interim': null, 'repos.1.repo': 'lib' },
   },
-  { from: 13, input: { schemaVersion: 13, id: 'x', port: 4103 }, fields: { ports: {}, port: 4103 }, note: 'read as not allocated until the next worktree create' },
-  { from: 14, input: { schemaVersion: 14, id: 'x', state: 'done', pr: { number: 1, state: 'MERGED' } }, fields: { outcome: null, state: 'done' } },
-  { from: 15, input: { schemaVersion: 15, id: 'x', state: 'done', pr: { number: 1, state: 'MERGED' }, outcome: null }, fields: { score: null, outcome: null } },
+  { step: 'component-ports', input: { id: 'x', port: 4103 }, fields: { ports: {}, port: 4103 }, note: 'read as not allocated until the next worktree create' },
+  { step: 'outcome', input: { id: 'x', state: 'done', pr: { number: 1, state: 'MERGED' } }, fields: { outcome: null, state: 'done' } },
+  { step: 'score', input: { id: 'x', state: 'done', pr: { number: 1, state: 'MERGED' }, outcome: null }, fields: { score: null, outcome: null } },
   {
-    from: 16,
-    input: { schemaVersion: 16, id: 'x', title: 'Old', state: 'running', owner: OWNER },
+    step: 'lease',
+    input: { id: 'x', title: 'Old', state: 'running', owner: OWNER },
     fields: { lease: { driver: 'S-old', epoch: 1, since: OWNER.since, renewedAt: OWNER.heartbeat, expiresAt: '2026-10-01T11:30:00.000Z' }, state: 'running' },
     removed: ['owner'],
     note: 'the owner keeps driving as epoch 1 for the 30 minutes its heartbeat gave it',
@@ -184,40 +198,48 @@ const JOB_ROWS: Row[] = [
 
 const EVENT_ROWS: Row[] = [
   {
-    from: 1,
-    input: { v: 1, ts: 't', type: 'human', action: 'approve', actor: 'foreman' },
+    step: 'actor-object',
+    input: { ts: 't', type: 'human', action: 'approve', actor: 'foreman' },
     fields: { actor: FOREMAN, action: 'approve', type: 'human', ts: 't' },
     note: 'a legacy actor string becomes the { login, source } object',
   },
   {
-    from: 2,
-    input: { v: 2, ts: 't', type: 'agent-start', role: 'builder', model: 'opus', output: 'build.md', actor: { login: 'al', source: 'env' } },
+    step: 'agent-start-provenance',
+    input: { ts: 't', type: 'agent-start', role: 'builder', model: 'opus', output: 'build.md', actor: { login: 'al', source: 'env' } },
     fields: { type: 'agent-start', ts: 't', role: 'builder', model: 'opus', output: 'build.md', actor: { login: 'al', source: 'env' } },
     removed: ['pluginHash', 'promptHash', 'configHash'],
     note: 'an agent-start from before provenance keeps every field and gains no hash',
   },
 ];
 
-const TABLES: [string, Row[], number, (input: Record<string, unknown>) => { out: any; from: unknown }][] = [
+/** One versioned shape: its rows, its step list, its current version, the field that holds it, and its reader. */
+type Table = [string, Row[], readonly Step[], number, 'schemaVersion' | 'v', (input: Record<string, unknown>) => { out: any; from: unknown }];
+
+const TABLES: Table[] = [
   [
     'config',
     CONFIG_ROWS,
+    CONFIG_STEPS,
     CONFIG_SCHEMA_VERSION,
+    'schemaVersion',
     (input) => {
       const m = migrateConfig(input);
       return { out: m.config, from: m.from };
     },
   ],
-  ['job', JOB_ROWS, JOB_SCHEMA_VERSION, (input) => ({ out: normalizeJob(input), from: undefined })],
-  ['event', EVENT_ROWS, EVENT_SCHEMA_VERSION, (input) => ({ out: normalizeEvent(input), from: undefined })],
+  ['job', JOB_ROWS, JOB_STEPS, JOB_SCHEMA_VERSION, 'schemaVersion', (input) => ({ out: normalizeJob(input), from: undefined })],
+  ['event', EVENT_ROWS, EVENT_STEPS, EVENT_SCHEMA_VERSION, 'v', (input) => ({ out: normalizeEvent(input), from: undefined })],
 ];
 
-for (const [name, rows, current, read] of TABLES) {
+for (const [name, rows, steps, current, key, read] of TABLES) {
   for (const row of rows) {
-    test(`${name} v${row.from} → v${row.from + 1}`, () => {
-      const { out, from } = read(structuredClone(row.input));
-      if (name === 'config') assert.equal(from, row.from, 'migratedFrom names the old version');
-      assert.equal(out[name === 'event' ? 'v' : 'schemaVersion'], current, 'reaches the current version');
+    // The version a row starts from is its step's position + 1, so no row states a number.
+    const from = steps.findIndex((s) => s.id === row.step) + 1;
+    test(`${name} ${row.step}: v${from} → v${from + 1}`, () => {
+      assert.ok(from > 0, `${row.step} is a step in the ${name} list`);
+      const { out, from: migratedFrom } = read({ ...structuredClone(row.input), [key]: from });
+      if (name === 'config') assert.equal(migratedFrom, from, 'migratedFrom names the old version');
+      assert.equal(out[key], current, 'reaches the current version');
       for (const [p, want] of Object.entries(row.fields)) assert.deepStrictEqual(get(out, p), want, p);
       for (const p of row.removed ?? []) assert.equal(get(out, p), MISSING, `${p} is absent`);
     });
@@ -226,18 +248,89 @@ for (const [name, rows, current, read] of TABLES) {
 
 test('every migration has a table row', () => {
   const problems: string[] = [];
-  for (const [name, rows, current] of TABLES) {
-    const seen = new Set<number>();
+  for (const [name, rows, steps] of TABLES) {
+    const ids = new Set(steps.map((s) => s.id));
+    const seen = new Set<string>();
     for (const row of rows) {
-      if (seen.has(row.from)) problems.push(`${name} migration table has two rows for v${row.from}`);
-      seen.add(row.from);
-      if (row.from < 1 || row.from >= current) problems.push(`${name} migration table has a row for v${row.from}, outside 1..${current - 1}`);
+      if (seen.has(row.step)) problems.push(`${name} migration table has two rows for ${row.step}`);
+      seen.add(row.step);
+      if (!ids.has(row.step)) problems.push(`${name} migration table has a row for ${row.step}, which is not a step in its list`);
       if (!Object.keys(row.fields).length && !row.removed?.length && !row.note?.trim())
-        problems.push(`${name} v${row.from} row checks nothing: add a note saying the migration only bumps the version`);
+        problems.push(`${name} ${row.step} row checks nothing: add a note saying the step only bumps the version`);
     }
-    for (let v = 1; v < current; v++) if (!seen.has(v)) problems.push(`${name} migration table has no row for v${v} (v${v} → v${v + 1})`);
+    steps.forEach((s, i) => {
+      if (!seen.has(s.id)) problems.push(`${name} migration table has no row for ${s.id} (v${i + 1} → v${i + 2})`);
+    });
   }
   assert.deepEqual(problems, [], problems.join('\n'));
+});
+
+// The ids each list must start with, so inserting, removing, reordering or renaming an existing step
+// fails while appending passes. Jobs never edit FROZEN: only a release commit or the 1.0 reset (#280)
+// extends it, and only with ids already on develop, so an append never re-pins anything.
+const FROZEN: Record<'config' | 'job' | 'event' | 'api', string[]> = {
+  config: [
+    'dashboard-launcher-to-daemon',
+    'parallel-verify-steps',
+    'runtime-efforts',
+    'foreman-block',
+    'policy-protected-paths',
+    'retention',
+    'notify',
+    'repo-budget',
+    'services-to-components',
+    'member-repos',
+    'depends-on-links',
+    'release-interim',
+    'downstream-verification',
+    'checkout',
+    'release-strategy',
+    'release-publish',
+    'reserved-gate-release',
+    'backing',
+    'config-sinks',
+    'builder-models-and-rework-panel',
+    'backing-database',
+    'secrets',
+    'outcomes-window',
+    'environments-max-running',
+    'scoring',
+    'loop-bounds',
+    'daemon-turn-timeout',
+    'experiments-and-recall',
+  ],
+  job: [
+    'verify-runs',
+    'budgets-and-verify-retries',
+    'no-issue',
+    'agent-import-cursor',
+    'split-mode',
+    'job-effort',
+    'human-gate',
+    'complexity',
+    'protected-paths',
+    'issues-list',
+    'member-repos',
+    'interim-override',
+    'component-ports',
+    'outcome',
+    'score',
+    'lease',
+  ],
+  event: ['actor-object', 'agent-start-provenance'],
+  api: Array.from({ length: 36 }, (_, i) => `api-${i + 2}`),
+};
+
+test('version lists only grow at the end', () => {
+  const lists: Record<keyof typeof FROZEN, readonly { readonly id: string }[]> = { config: CONFIG_STEPS, job: JOB_STEPS, event: EVENT_STEPS, api: API_CHANGES };
+  for (const [k, list] of Object.entries(lists) as [keyof typeof FROZEN, readonly { readonly id: string }[]][]) {
+    assert.deepEqual(
+      list.slice(0, FROZEN[k].length).map((s) => s.id),
+      FROZEN[k],
+      `the ${k} list must start with its frozen ids: append a new step at the end, never edit, insert, reorder or remove one`,
+    );
+    assert.deepEqual(stepProblems(list), [], `${k} list ids`);
+  }
 });
 
 test('no version literals outside schema.test.ts', () => {

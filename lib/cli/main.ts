@@ -6,6 +6,7 @@
 // Command groups live in lib/cli/commands/; this file only routes.
 import { daemonTrust, loadConfig } from '#core/config/load.ts';
 import { refuseInOffice, refuseInboxDrive } from '#office/owner.ts';
+import { registerNotify } from '#office/notify.ts';
 import { NEED_INIT } from '#core/config/set.ts';
 import { detect } from '#engine/ops/detect.ts';
 import { stopBackground } from '#engine/environment/lifecycle.ts';
@@ -18,12 +19,14 @@ import { openPr } from '#engine/pr/open.ts';
 import { syncPr } from '#engine/pr/sync.ts';
 import { integrate, integrateContinue } from '#engine/pr/integrate.ts';
 import { mergePr, mergeTarget, readyPr } from '#engine/pr/merge.ts';
+import { ghGitHub } from '#integrations/github/pull-requests.ts';
 import { prepareRetro, retroDue } from '#engine/evals/retro.ts';
 import { roster } from '#engine/pipeline/roster.ts';
 import { computeStats, statsByPromptCmd, statsCsv } from '#engine/metrics/stats.ts';
 import { ForgeError } from '#core/errors.ts';
 import { readJson } from '#core/os/fs.ts';
-import * as wt from '#engine/workspace/worktree.ts';
+import { createWorktree, removeWorktree } from '#engine/workspace/worktree.ts';
+import { verify } from '#engine/verify/gate.ts';
 import { advanceCmd } from './commands/advance.ts';
 import { auditCmd } from './commands/audit.ts';
 import { backingCmd } from './commands/backing.ts';
@@ -88,6 +91,8 @@ export async function main(rawArgv: string[]): Promise<void> {
     loadOpts = { text: trust.configText };
   }
   const { config, initialized } = loadConfig(root, loadOpts);
+  // Here, not in dispatch, so advance's in-process commands and forgeInProcess never register twice.
+  registerNotify();
   const r = await dispatch(argv, { root, config, initialized });
   if (!r.printed) out(r.data, r.pretty ? { ...flags, pretty: true } : flags);
   // Only a failure is written: `config validate` sets process.exitCode itself and returns printed.
@@ -147,12 +152,12 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       if (sub === 'create') {
         const id = req(rest[0], 'job id');
         refuseInboxDrive(id);
-        const res = wt.createWorktree(root, config, id);
+        const res = createWorktree(root, config, id);
         return { data: res, exitCode: res.repos?.some((r) => !r.ok) ? 1 : 0 };
       }
       const repo = flags.repo === undefined ? undefined : req(typeof flags.repo === 'string' ? flags.repo : undefined, '--repo');
       if (sub === 'remove') {
-        const res = await wt.removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force), repo });
+        const res = await removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force), repo });
         return { data: res, exitCode: res.repos?.some((r) => r.error) || res.backing?.ok === false ? 1 : 0 };
       }
       if (sub === 'path') return ok(repo === undefined ? (loadJob(root, req(rest[0], 'job id')).worktree ?? '') : (trustedMemberWorktree(root, config, loadJob(root, req(rest[0], 'job id')), repo) ?? ''));
@@ -175,7 +180,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       return ok(await focusCmd(root, config, pos.slice(1), flags));
     case 'verify': {
       needInit();
-      const r = await wt.verify(root, config, req(sub, 'job id'));
+      const r = await verify(root, config, req(sub, 'job id'));
       return { data: r, exitCode: r.ok ? 0 : 1 };
     }
     case 'secrets':
@@ -198,17 +203,17 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       if (sub === 'merge') mergeTarget(flags);
       if (sub === 'ready') mergeTarget(flags, 'ready');
       const id = req(rest[0], 'job id');
-      if (sub === 'find') return ok(findPr(root, config, id));
-      if (sub === 'open') return ok(openPr(root, config, id, { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) }));
-      if (sub === 'sync') return ok(syncPr(root, config, id));
+      if (sub === 'find') return ok(findPr(root, config, ghGitHub, id));
+      if (sub === 'open') return ok(openPr(root, config, ghGitHub, id, { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) }));
+      if (sub === 'sync') return ok(await syncPr(root, config, ghGitHub, id));
       if (sub === 'merge') {
         // Strictly `true`: `--now <id>` would make parseArgs swallow the id as the flag's value,
         // and that mistake must not silently bypass CI.
         refuseInOffice('the foreman never merges; foreman.ship merge only feeds the approver and step PR4');
-        const r = mergePr(root, config, id, { now: flags.now === true, ...mergeTarget(flags) });
+        const r = await mergePr(root, config, ghGitHub, id, { now: flags.now === true, ...mergeTarget(flags) });
         return { data: r, exitCode: r.action === 'refused' || r.action === 'failed' ? 1 : 0 };
       }
-      if (sub === 'ready') return ok(readyPr(root, config, id, mergeTarget(flags, 'ready')));
+      if (sub === 'ready') return ok(readyPr(root, config, ghGitHub, id, mergeTarget(flags, 'ready')));
       throw usage('pr');
     }
     case 'release':

@@ -6,6 +6,7 @@ import { shellLine, step } from '#engine/pipeline/step.ts';
 import type { Config, Job, VerifyRun } from '#core/types.ts';
 import type { StepInput } from '#engine/pipeline/types.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
+import { acCoverage } from '#engine/pipeline/acs.ts';
 import { JOB_DIR, RECALL_HASH, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
 import type { FixtureOpts } from './step-fixture.ts';
 
@@ -116,6 +117,18 @@ const PANEL_SET = ev('fields', 3, { fields: { reviewers: ['code', 'tests'] } });
 const PROPOSED = (n: number) => ev('repo-proposed', n, { repo: 'lib', reason: 'core API' });
 /** The job's repos once lib was added: the root mirror, then lib. */
 const WITH_LIB = [{ repo: null }, { repo: 'lib', worktree: '/lib.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }] as Job['repos'];
+
+/** A per-role project.instructions map, with both files in the worktree (AC5 of #433). */
+const ROLE_INSTRUCTIONS: Pick<FixtureOpts, 'config' | 'present'> = {
+  config: (c) => (c.project.instructions = { default: ['AGENTS.md'], 'spec-writer': ['AGENTS.md', 'docs/DEVELOPING.md'], approver: [] }),
+  present: [path.join(WT, 'AGENTS.md'), path.join(WT, 'docs', 'DEVELOPING.md')],
+};
+/** The brief's `Job paths (JSON)` instructions, and whether it has the Instructions: line. */
+const briefInstructions = (brief: string): { files: unknown; line: boolean } => {
+  const lines = brief.split('\n');
+  const json = lines.find((l) => l.startsWith('Job paths (JSON): '))!.slice('Job paths (JSON): '.length);
+  return { files: JSON.parse(json).instructions, line: lines.some((l) => l.startsWith('Instructions: ')) };
+};
 
 /** A job in review, round 1: builder done, verify passed, panel and scope written. */
 const inReview = (agents: Job['agents'] = {}, more: Partial<Job> = {}): Partial<Job> =>
@@ -445,6 +458,12 @@ export const rows: Row[] = [
 
   // ---- Plan
   { name: 'P1 spawns the planner', fx: { job: job({ stage: 'plan' }) }, want: { action: 'spawn', role: 'planner', output: path.join(JOB_DIR, 'plan.md') }, check: (a) => assert.ok(a.brief.includes('Split mode: ask')) },
+  {
+    name: 'P1 the planner gets the default instruction files',
+    fx: { ...ROLE_INSTRUCTIONS, job: job({ stage: 'plan' }) },
+    want: { action: 'spawn', rule: 'P1', role: 'planner' },
+    check: (a) => assert.deepEqual(briefInstructions(a.brief), { files: [path.join(WT, 'AGENTS.md')], line: true }),
+  },
   { name: 'P1 re-plans after revise-split with split mode never', fx: { job: job({ stage: 'plan', splitMode: 'never', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SPLIT', jobs: 2 }, events: [ev('human', 3, { action: 'revise-split' })] }, want: { action: 'spawn', role: 'planner' }, check: (a) => assert.ok(a.brief.includes('Split mode: never')) },
   { name: 'P2 a split under auto follows split.md', fx: { config: (c) => (c.pipeline.split = 'auto'), job: job({ stage: 'plan', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SPLIT', jobs: 3 } }, want: { action: 'procedure', why: 'PLAN: SPLIT under pipeline.split auto' }, check: (a) => assert.ok(a.reference.endsWith(path.join('reference', 'split.md'))) },
   { name: 'P2b approve-split recorded → split.md', fx: { job: job({ stage: 'plan', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SPLIT', jobs: 3 }, events: [ev('human', 5, { action: 'approve-split', actor: 'foreman' })] }, want: { action: 'procedure', rule: 'P2b', why: 'PLAN: SPLIT approved' }, check: (a) => assert.ok(a.reference.endsWith(path.join('reference', 'split.md'))) },
@@ -467,6 +486,12 @@ export const rows: Row[] = [
 
   // ---- Spec
   { name: 'SP1 spawns the spec-writer', fx: { files: ['request'], job: job({ stage: 'spec' }) }, want: { action: 'spawn', role: 'spec-writer', agent: 'forge:spec-writer', model: 'opus', output: path.join(JOB_DIR, 'spec.md') }, check: (a) => assert.ok(a.brief.includes('Review panel: code, tests, security')) },
+  {
+    name: "SP1 the spec-writer gets its role's instruction files",
+    fx: { ...ROLE_INSTRUCTIONS, files: ['request'], job: job({ stage: 'spec' }) },
+    want: { action: 'spawn', rule: 'SP1', role: 'spec-writer' },
+    check: (a) => assert.deepEqual(briefInstructions(a.brief), { files: [path.join(WT, 'AGENTS.md'), path.join(WT, 'docs', 'DEVELOPING.md')], line: true }),
+  },
   { name: 'SP2 a revise-spec re-runs the spec-writer with feedback', fx: { files: ['feedback'], job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'revise-spec' })] }, want: { action: 'spawn', role: 'spec-writer' }, check: (a) => assert.ok(a.brief.includes(path.join(JOB_DIR, 'feedback.md'))) },
   { name: 'SP3 panel always lenses', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }) }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]') },
   { name: 'SP3 panel adds suggested lenses that exist', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { suggested: ['security', 'docs'] } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests","security"]') },
@@ -595,15 +620,58 @@ export const rows: Row[] = [
       assert.ok(!a.brief.includes('Reference:'));
       assert.ok(a.brief.includes('Infra: mode human · allowed []'));
       assert.ok(a.brief.split('\n').includes('UI proof: none · no AC needs a rendered UI, so do not use browser tools'));
-      assert.equal(a.brief.split('\n').length, 13);
+      assert.ok(a.brief.split('\n').includes('File map: none in spec.md · explore the code the Approach names'));
+      assert.equal(a.brief.split('\n').filter((l: string) => l.startsWith('File map:')).length, 1);
+      assert.equal(a.brief.split('\n').length, 14);
       assert.ok(a.brief.split('\n').includes(`Inputs: ${path.join(JOB_DIR, 'spec.md')}, ${path.join(JOB_DIR, 'tasks.md')}`));
     },
+  },
+  {
+    name: "B4 the round-1 builder starts from the spec's file map",
+    fx: {
+      files: ['spec', 'tasks'],
+      acs: acCoverage('# S\n\n## Approach\nDo it.\n\nFiles:\n| Path | Symbols | Change | Tests |\n|---|---|---|---|\n| `a.ts` | `f` | new | `a.test.ts` |\n| `b.ts` | - | reuse | - |\n', null),
+      job: job({ stage: 'build', round: 1 }),
+      events: [ev('round', 4)],
+    },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => {
+      const lines = a.brief.split('\n');
+      assert.ok(lines.includes("File map: 2 rows in spec.md's Approach › Files · start from it; explore only what it does not cover"), a.brief);
+      assert.equal(lines.filter((l: string) => l.startsWith('File map:')).length, 1);
+    },
+  },
+  {
+    name: 'B4 the round-1 builder reads the folder maps first',
+    fx: {
+      files: ['spec', 'tasks'],
+      folderMaps: { maps: [path.join(WT, 'lib', 'engine', 'AGENTS.md')], topics: [path.join(WT, 'docs', 'architecture', 'x.md')], more: 2 },
+      job: job({ stage: 'build', round: 1 }),
+      events: [ev('round', 4)],
+    },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => {
+      const lines: string[] = a.brief.split('\n');
+      const i = lines.findIndex((l) => l.startsWith('Maps (JSON): '));
+      assert.ok(i >= 0, a.brief);
+      assert.ok(lines[i + 1].startsWith('File map: '), 'directly before File map:');
+      const json = lines[i].slice('Maps (JSON): '.length, lines[i].indexOf(' · read these before you search'));
+      assert.deepEqual(JSON.parse(json), { maps: [path.join(WT, 'lib', 'engine', 'AGENTS.md')], topics: [path.join(WT, 'docs', 'architecture', 'x.md')], more: 2 });
+      assert.equal(lines.length, 15);
+    },
+  },
+  {
+    name: 'B4 empty folder maps add no line',
+    fx: { files: ['spec', 'tasks'], folderMaps: { maps: [], topics: [] }, job: job({ stage: 'build', round: 1 }), events: [ev('round', 4)] },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => assert.ok(!a.brief.includes('Maps (JSON):'), a.brief),
   },
   {
     name: 'B4 a review rework spawns a fresh builder with a findings-first brief',
     fx: {
       files: ['spec', 'feedback', 'tasks', 'build'],
       present: [path.join(JOB_DIR, 'review', 'round-1', 'code.md'), path.join(JOB_DIR, 'review', 'round-1', 'tests.md')],
+      folderMaps: { maps: [path.join(WT, 'lib', 'AGENTS.md')], topics: [] },
       job: job({ stage: 'build', round: 2, verdicts: { 1: { code: 'CHANGES', tests: 'PASS' } }, agents: { builder: ag(1, 5, 6, { agentId: 'b1' }) } }),
       events: [ev('round', 7)],
     },
@@ -616,6 +684,8 @@ export const rows: Row[] = [
       assert.ok(lines.includes('Rework: review, feedback'));
       assert.ok(lines.some((l: string) => l.startsWith('Rework scope: ')));
       assert.ok(lines.includes(`Reference: ${path.join(JOB_DIR, 'spec.md')}`));
+      assert.ok(!a.brief.includes('File map:'));
+      assert.ok(!a.brief.includes('Maps (JSON):'));
     },
   },
   {
@@ -779,6 +849,20 @@ export const rows: Row[] = [
     check: (a) => {
       argvMatch(a.start, ['job', 'agent', 'j', 'start', '--role', 'reviewer:code', '--model', 'sonnet', '--output', path.join(JOB_DIR, 'review', 'round-1', 'code.md')], 'start');
       assert.ok(a.brief.includes('Lens: code') && a.brief.includes(`Scope: ${path.join(JOB_DIR, 'scope.md')}`) && a.brief.includes('Checklist: '));
+      const diff = path.join(JOB_DIR, 'review', 'round-1', 'diff.patch');
+      assert.ok(a.brief.split('\n').includes(`Diff: ${diff} (stat, then the branch's diff from its merge base)`), a.brief);
+      assert.ok(a.brief.includes(`"roundDiff":${JSON.stringify(diff)}`), a.brief);
+    },
+  },
+  {
+    name: 'RV4 a job with a reviewed member names the round diff for every repo',
+    fx: { job: inReview({}, { repos: [{ repo: null, worktree: WT, branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }, { repo: 'lib', worktree: '/lib.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }] }), events: scoped },
+    want: { action: 'spawn', role: 'reviewer:code' },
+    check: (a) => {
+      const lines = a.brief.split('\n');
+      assert.ok(lines.includes(`Diff: ${path.join(JOB_DIR, 'review', 'round-1', 'diff.patch')} (every job repo; member paths are prefixed <repo>/)`), a.brief);
+      assert.equal(lines.filter((l: string) => l.startsWith('Diff: ')).length, 1);
+      assert.ok(!lines.some((l: string) => l.startsWith('Diff: ') && l.includes('scope.diff')), a.brief);
     },
   },
   { name: 'RV4 spawns the next lens while one runs', fx: { job: inReview({ 'reviewer:code': ag(1, 12) }), events: scoped }, want: { action: 'spawn', role: 'reviewer:tests' }, check: (a) => assert.ok(!Object.hasOwn(a, 'spawns')) },
@@ -906,6 +990,12 @@ export const rows: Row[] = [
     fx: { job: job({ stage: 'decide', round: 1 }), files: ['spec'], present: [path.join(JOB_DIR, 'review', 'integration', 'code.md')] },
     want: { action: 'spawn', role: 'approver' },
     check: (a) => assert.ok(a.brief.split('\n').find((l: string) => l.startsWith('Inputs: '))!.includes(path.join(JOB_DIR, 'review', 'integration', 'code.md')), a.brief),
+  },
+  {
+    name: 'DC1 an approver mapped to [] gets no instruction files and no Instructions: line',
+    fx: { ...ROLE_INSTRUCTIONS, job: job({ stage: 'decide', round: 1 }) },
+    want: { action: 'spawn', rule: 'DC1', role: 'approver' },
+    check: (a) => assert.deepEqual(briefInstructions(a.brief), { files: [], line: false }),
   },
   { name: 'DC1 no integration review, no input line for it', fx: { job: job({ stage: 'decide', round: 1 }), files: ['spec'] }, want: { action: 'spawn', role: 'approver' }, check: (a) => assert.ok(!a.brief.split('\n').find((l: string) => l.startsWith('Inputs: '))!.includes(path.join('review', 'integration', 'code.md')), a.brief) },
   { name: 'DC2 records the decision', fx: { job: atDecide(), decision: { decision: 'APPROVE' } }, want: run('job', 'decision', 'j') },
@@ -1058,6 +1148,7 @@ export const rows: Row[] = [
       assert.equal(a.parallel, undefined);
       assert.ok(a.brief.includes('Integration review: conflicted files ["a.ts","`x`"]'));
       assert.ok(a.brief.includes("Diff: use the Before/Merge shas in build.md's ## Integration block, as in "));
+      assert.ok(!a.brief.split('\n').some((l: string) => l.startsWith('Diff: ') && l.includes('diff.patch')), a.brief);
     },
   },
   { name: 'IG9 records the integration review', fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true)], agents: { integrator: ag(1, 33, 36), 'reviewer:code': ag(1, 38, 39, { outputMissing: false }) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' })], verdicts: { integration: verdicts({ code: 'PASS' }) } }, want: run('job', 'verdicts', 'j', '--round', 'integration') },
@@ -1138,6 +1229,7 @@ export const rows: Row[] = [
   // ---- PR
   { name: 'PR1 pr.enabled false finishes on the branch', fx: { config: (c) => (c.pr.enabled = false), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }) }, want: { ...run('job', 'set', 'j', '--stage', 'done', '--state', 'done'), tell: 'j finished on branch forge/j' } },
   { name: 'PR2 an unverified HEAD is verified first', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, false)] }) }, want: run('verify', 'j') },
+  { name: "PR2 a pass from an earlier round does not verify this round's HEAD", fx: { job: job({ stage: 'pr', round: 2, verifyRuns: [vr(1, 10, true)] }) }, want: { ...run('verify', 'j'), rule: 'PR2' } },
   { name: 'PR2b a PR branch merged in after verify is verified again', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-head-pulled', 12, { pulled: 'fast-forward', head: 'a'.repeat(40) })] }, want: run('verify', 'j') },
   { name: 'PR3 a pull the last verify already covered opens the PR', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 14, true)] }), events: [ev('pr-head-pulled', 12, { pulled: 'merge', head: 'a'.repeat(40) })] }, want: run('pr', 'open', 'j') },
   {

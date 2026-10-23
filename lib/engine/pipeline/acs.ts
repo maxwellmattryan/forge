@@ -3,7 +3,8 @@
 import path from 'node:path';
 import { loadJob, jobDir } from '#core/job/store.ts';
 import { exists } from '#core/paths.ts';
-import { readText } from '#core/os/fs.ts';
+import { isInsidePath, readText } from '#core/os/fs.ts';
+import { approachSection } from './scope.ts';
 
 const FENCE = /^\s*(```|~~~)/;
 // Linear on purpose: spec.md and build.md carry agent- and tracker-authored text, and a lazy group
@@ -34,6 +35,10 @@ export interface AcCoverage {
   table: boolean;
   spec: boolean;
   build: boolean;
+  /** Rows in the file map, the `Files:` table that ends the spec's Approach (specFileMap); 0 without one. */
+  fileMap: number;
+  /** `["files"]` when spec.md exists and has no file map. A report, never a gate: no step rule reads it. */
+  incomplete: string[];
 }
 
 /**
@@ -113,6 +118,67 @@ function cells(line: string): string[] {
   return parts;
 }
 
+const FILES_LINE = /^\s*(?:Files:|\*\*Files:\*\*|\*\*Files\*\*:)\s*$/;
+
+/**
+ * The non-empty first cells of the file map's rows, in order: inside Approach, a `Files:` line
+ * (`**Files:**` and `**Files**:` too), then after optional blank lines a table whose first header
+ * cell is `Path` and whose next row is a separator. A table in a code fence counts as none.
+ */
+function fileMapCells(text: string): string[] {
+  const section = approachSection(text);
+  if (section === null) return [];
+  const lines = unfenced(section);
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] === null || !FILES_LINE.test(lines[i] as string)) continue;
+    let h = i + 1;
+    while (h < lines.length && lines[h] !== null && (lines[h] as string).trim() === '') h++;
+    const header = lines[h];
+    const sep = lines[h + 1];
+    if (header == null || sep == null || !header.includes('|') || !SEPARATOR.test(sep) || !/^path$/i.test(cells(header)[0] ?? '')) continue;
+    const out: string[] = [];
+    for (let j = h + 2; j < lines.length && lines[j] !== null && (lines[j] as string).includes('|'); j++) {
+      const first = cells(lines[j] as string)[0];
+      if (first) out.push(first);
+    }
+    return out;
+  }
+  return [];
+}
+
+/** Rows in the spec's file map (fileMapCells): a row counts when its first cell is not empty. */
+export function specFileMap(text: string): number {
+  return fileMapCells(text).length;
+}
+
+const MAX_MAP_PATH = 300;
+const MAX_MAP_PATHS = 100;
+
+/**
+ * The file map's paths, in table order: each row's first backtick span (else the cell), cut at the
+ * first whitespace or glob character, a glob cut down to its directory. Only relative paths with no
+ * `..` segment, at most 300 characters, deduplicated, at most 100: the spec is agent-written.
+ */
+export function specFileMapPaths(text: string): string[] {
+  const out: string[] = [];
+  for (const cell of fileMapCells(text)) {
+    if (out.length >= MAX_MAP_PATHS) break;
+    const span = /`([^`]+)`/.exec(cell);
+    let p = (span ? span[1] : cell.replace(/`/g, '')).trim();
+    const cut = p.search(/[\s*?[{]/);
+    if (cut >= 0) {
+      const glob = '*?[{'.includes(p[cut]);
+      p = p.slice(0, cut);
+      if (glob) p = p.slice(0, p.lastIndexOf('/') + 1);
+    }
+    if (!p || p.length > MAX_MAP_PATH || !isInsidePath(p)) continue;
+    p = path.posix.normalize(p);
+    if (!isInsidePath(p) || p === '.' || p === './') continue;
+    if (!out.includes(p)) out.push(p);
+  }
+  return out;
+}
+
 /**
  * The AC table of the latest round in build.md. Never falls back to an earlier round: proof has to
  * be current, so a round without a table maps nothing.
@@ -190,7 +256,9 @@ export function acCoverage(specText: string | null, buildText: string | null): A
     else failing.push(id);
   }
   const extra = specText === null ? [] : t.order.filter((id) => !ids.includes(id));
-  return { total: ids.length, covered, unmapped, failing, extra, round: t.round, table: t.table, spec: specText !== null, build: buildText !== null };
+  const fileMap = specText === null ? 0 : specFileMap(specText);
+  const incomplete = specText !== null && !fileMap ? ['files'] : [];
+  return { total: ids.length, covered, unmapped, failing, extra, round: t.round, table: t.table, spec: specText !== null, build: buildText !== null, fileMap, incomplete };
 }
 
 /** Read-only: no event, no job.json change, no file written. */

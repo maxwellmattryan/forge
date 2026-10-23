@@ -1,0 +1,62 @@
+{
+  "app": {
+    "title": "Forge",
+    "titleRepo": "Forge · {repo}",
+    "brand": "Forge",
+    "tagline": "software factory",
+    "repo": "repo",
+    "view": "{view}",
+    "noConfig": "This repo has no .forge/config.yml yet. Run /forge init."
+  },
+  "nav": {
+    "pipeline": "Pipeline",
+    "backlog": "Backlog",
+    "agents": "Agents",
+    "analytics": "Analytics",
+    "evals": "Evals",
+    "project": "Project"
+  },
+  "sidebar": {
+    "resize": "Resize sidebar"
+  },
+  "command": {
+    "open": "New job or command",
+    "forJob": "Command for this job",
+    "scope": "For {job}",
+    "clearScope": "Remove the job scope",
+    "newJobScoped": "Starts a new job; it doesn't message {job}",
+    "title": "New job or command",
+    "label": "Describe a new job, or type a command",
+    "placeholder": "Describe a job, or type next, approve <job>, issue <ref>…",
+    "suggestions": "Suggestions",
+    "close": "Close",
+    "titleLabel": "Title (optional)",
+    "titlePlaceholder": "Derived from the text when left empty",
+    "run": "Run",
+    "start": "Start job",
+    "send": "Send",
+    "working": "Working…",
+    "hints": {
+      "next": "Take the next ready backlog items: next [n]",
+      "issue": "Start a job from a tracker item: issue <ref>",
+      "continue": "Resume a queued, failed or stalled job: continue <job> (or resume <job>)",
+      "approve": "Approve a waiting job: approve <job> [note]",
+      "answer": "Answer a job's question: answer <job> <text>",
+      "revise": "Ask for spec changes: revise <job> <note>",
+      "rework": "Run another build round: rework <job> [note]",
+      "cancel": "Cancel a job: cancel <job>",
+      "sync": "Sync PRs and the tracker",
+      "retro": "Propose improvements from recent jobs"
+    },
+    "count": {
+      "one": "{count} suggestion",
+      "other": "{count} suggestions"
+    },
+    "empty": "No suggestions",
+    "verbLike": "No command matches; this starts a new job",
+    "noJobs": "No open jobs match",
+    "noItems": "No open backlog items match",
+    "backlogLoading": "Loading the backlog…",
+    "backlogFailed": "Couldn't load the backlog: {error}"
+  }
+}

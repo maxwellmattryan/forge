@@ -11,6 +11,7 @@ Closes #
 Run every command from AGENTS.md "Verify before claiming it works", checking engine changes on Node 22.18 itself:
 
 - [ ] `npm ci`
+- [ ] `npm run check:touchpoints`
 - [ ] `npm run build:dashboard`
 - [ ] `npm run check:dashboard`
 - [ ] `npm run typecheck`

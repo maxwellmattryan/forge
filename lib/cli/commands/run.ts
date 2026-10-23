@@ -2,7 +2,8 @@
 import type { Config } from '#core/types.ts';
 import type { Dispatched } from '../types.ts';
 import { ForgeError } from '#core/errors.ts';
-import * as wt from '#engine/workspace/worktree.ts';
+import { startBackground } from '#engine/workspace/dev-server.ts';
+import { runCommand } from '#engine/workspace/run.ts';
 import { num, parseArgs, req } from './args.ts';
 
 const AFTER_DASHES = 'forge run takes extra arguments only after --: forge run <job> <command> -- <args…>';
@@ -28,8 +29,8 @@ export async function runCmd(root: string, config: Config, argv: string[]): Prom
   if (flags.background) {
     // A reused server could not take them anyway: it is already running with its own.
     if (args.length) throw new ForgeError('forge run --background takes no extra arguments');
-    return { data: await wt.startBackground(root, config, id, name), exitCode: 0 };
+    return { data: await startBackground(root, config, id, name), exitCode: 0 };
   }
-  const r = wt.runCommand(root, config, id, name, { tail, args, ...(repo !== undefined ? { repo } : {}) });
+  const r = runCommand(root, config, id, name, { tail, args, ...(repo !== undefined ? { repo } : {}) });
   return { data: r, exitCode: r.ok ? 0 : 1 };
 }

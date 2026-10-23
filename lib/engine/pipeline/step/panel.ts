@@ -8,6 +8,7 @@ import { inSpec } from '#core/glob.ts';
 import type { Config, Job, PanelEntry } from '#core/types.ts';
 import type { StepInput } from '../types.ts';
 import { after } from './facts.ts';
+import { lastRun } from '../../verify/record.ts';
 
 const alwaysLenses = (config: Config) => config.review.panel.filter((p) => p.always).map((p) => p.name);
 
@@ -34,7 +35,7 @@ export function roundLenses(job: Pick<Job, 'reviewers' | 'pr'> & { repos?: Job['
 export function currentRerun(x: Pick<StepInput, 'job' | 'config' | 'events'>): string[] | null {
   const j = x.job;
   if (j.round < 2 || x.config.review?.onRework !== 'narrow' || j.pr?.state === 'OPEN') return null;
-  const lv = j.verifyRuns.filter((r) => r.round === j.round).at(-1);
+  const lv = lastRun(j);
   const ev = x.events.findLast((e) => e.type === 'panel' && e.round === j.round);
   if (!ev || !after(ev.ts, lv?.at)) return null;
   const rerun: unknown = ev.rerun;

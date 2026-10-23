@@ -2,11 +2,11 @@
 // write, are further down). These subcommands take
 // `--output=<file>`, which writes anywhere git can, `.git/config` included (where a textconv or
 // filter driver then runs on the next diff or add). A Bash prefix rule can't exclude one flag,
-// so the daemon allows this wrapper instead of `Bash(git diff:*)` (docs/ARCHITECTURE.md "Daemon security").
+// so the daemon allows this wrapper instead of `Bash(git diff:*)` (docs/architecture/daemon-security.md).
 import fs from 'node:fs';
 import path from 'node:path';
 import { attributionForbidden, findAttribution } from '#engine/guard/attribution.ts';
-import { sessionEnv } from '#office/session/lifecycle.ts';
+import { sessionEnv } from '#integrations/claude/argv.ts';
 import { git as runGit, gitEnv, gitSpawnSync, historyEnv } from '#integrations/git/runner.ts';
 import { PINNED_DIFF_OPTS } from '#engine/guard/integrity.ts';
 import { jobDir, loadJob } from '#core/job/store.ts';

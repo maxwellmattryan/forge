@@ -1,19 +1,23 @@
-// The dashboard server's request guards: it answers loopback Hosts only, and its POSTs need the token,
-// a matching Origin and a JSON body (docs/ARCHITECTURE.md "Dashboard security"). Kept through the test
+// The dashboard server's request guards: it answers loopback Hosts only, its POSTs need the token,
+// a matching Origin and a JSON body (docs/architecture/dashboard-security.md), and a resume bounces
+// off a live lease only when that lease is not the job's own pool session's. Kept through the test
 // rewrite (docs/test-rewrite/README.md): the security posture AGENTS.md says to preserve.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
-import { tempRepo } from '../../helpers.ts';
+import { fakeClaude, tempRepo, waitFor, type FakeClaudeChild } from '../../helpers.ts';
+import type { ClaudeAdapter } from '#integrations/claude/types.ts';
 import { startServer as serve } from '../../../lib/server/start.ts';
 import { ROUTES, matchRoute } from '../../../lib/server/start.ts';
 import { FIXTURE_DIST } from '../../dist.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
+import { loadConfig } from '#core/config/load.ts';
+import { createJob, updateJob } from '#core/job/store.ts';
+import { listRequests } from '#core/job/requests.ts';
 
 // Every server here serves the committed fixture dist unless a test names its own, so the page (and the token
 // in it) needs no real build: develop never commits dashboard/dist/.
@@ -49,7 +53,7 @@ test('dashboard server rejects DNS-rebound hosts and cross-origin posts', async 
   }
 });
 
-// ---- Daemon endpoints. Every pool here gets in-memory children: nothing real is spawned or signalled.
+// ---- Daemon endpoints. Every pool here gets fake claude children: nothing real is spawned or signalled.
 
 /** @param {number} port @param {{method?:string, path:string, headers?:Record<string,string>, body?:string}} o */
 function hit(port, o): any {
@@ -64,28 +68,19 @@ function hit(port, o): any {
   });
 }
 
-function fakeChildren() {
-  const children = [];
-  const spawn: any = (cmd, args, opts) => {
-    const c: any = new EventEmitter();
-    Object.assign(c, { cmd, args, opts, scope: opts.env.FORGE_DAEMON_SCOPE, pid: 4_100_000 + children.length, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), written: '' });
-    c.stdin.on('data', (d) => (c.written += d.toString()));
-    c.exit = (code, signal) => {
-      if (c.exited) return;
-      c.exited = true;
-      c.stdout.end();
-      c.stderr.end();
-      c.emit('exit', code, signal);
-      c.emit('close', code, signal);
-    };
-    c.line = (obj) => c.stdout.write(JSON.stringify(obj) + '\n');
-    children.push(c);
-    const live = children.filter((x) => !x.exited && x.scope === c.scope).length;
-    if (live > kit.maxLive) kit.maxLive = live;
-    return c;
+/** A pool's daemon options over fakeClaude, tracking the most children of one scope alive at once. */
+function daemonKit() {
+  const fake = fakeClaude();
+  const children: FakeClaudeChild[] = fake.children;
+  const claude: ClaudeAdapter = {
+    start(argv, o, onEvent) {
+      const c = fake.adapter.start(argv, o, onEvent) as FakeClaudeChild;
+      const live = children.filter((x) => !x.exited && x.scope === c.scope).length;
+      if (live > kit.maxLive) kit.maxLive = live;
+      return c;
+    },
   };
-  const killTree = (c, signal) => setTimeout(() => c.exit(null, signal), 5);
-  const kit = { children, maxLive: 0, of: (scope) => children.filter((c) => c.scope === scope), opts: { spawn, killTree, pollMs: 3_600_000, graceMs: 500 } };
+  const kit = { children, maxLive: 0, opts: { claude, pollMs: 3_600_000, graceMs: 500 } };
   return kit;
 }
 
@@ -99,7 +94,7 @@ const tokenOf = async (port) => /name="forge-token" content="([0-9a-f]+)"/.exec(
 
 test('POST /api/daemon is token, origin and JSON guarded', async () => {
   const repo = tempRepo();
-  const kit = fakeChildren();
+  const kit = daemonKit();
   const { url, close } = await startServer(repo.dir, { port: 0, daemon: kit.opts });
   const port = Number(new URL(url).port);
   try {
@@ -153,7 +148,7 @@ test('POST /api/config is token, origin and JSON guarded', async () => {
   writeConfig(repo.dir, { enabled: false });
   const file = path.join(repo.dir, '.forge', 'config.yml');
   const before = fs.readFileSync(file);
-  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: daemonKit().opts });
   const port = Number(new URL(url).port);
   try {
     const good = { 'x-forge-token': await tokenOf(port), origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
@@ -195,7 +190,7 @@ const filesOf = (dir: string): string[] => (fs.readdirSync(dir, { recursive: tru
 
 test('every guarded route refuses before its handler runs', async () => {
   const repo = tempRepo();
-  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: daemonKit().opts });
   const port = Number(new URL(url).port);
   try {
     const token = await tokenOf(port);
@@ -248,12 +243,69 @@ test('every guarded route refuses before its handler runs', async () => {
   }
 });
 
+test("a resume reaches the job's own session under any id it has had", async () => {
+  const repo = tempRepo();
+  writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
+  const kit = daemonKit();
+  const { url, close, pool } = await startServer(repo.dir, { port: 0, daemon: kit.opts });
+  const port = Number(new URL(url).port);
+  try {
+    const good = { 'x-forge-token': await tokenOf(port), origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (p: string, body: unknown) => hit(port, { method: 'POST', path: p, headers: good, body: JSON.stringify(body) });
+    const resume = (job: string) => post('/api/requests', { type: 'resume', job });
+    const jobSession = async (job: string) => JSON.parse((await hit(port, { path: `/api/jobs/${job}` })).text).job.ownerStatus.jobSession;
+    const lease = (job: string, driver: string) =>
+      updateJob(repo.dir, job, (j) => {
+        const at = new Date().toISOString();
+        j.lease = { driver, epoch: 1, since: at, renewedAt: at, expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() };
+      });
+    const { config } = loadConfig(repo.dir);
+    const a = createJob(repo.dir, config, { title: 'the job its session drives' }).id;
+    const b = createJob(repo.dir, config, { title: 'a job with no session' }).id;
+    assert.equal((await post('/api/daemon', { action: 'start' })).status, 200);
+    // A request for the job makes the pool spawn its session.
+    assert.equal((await resume(a)).status, 200);
+    await waitFor(() => pool.sessionState(a).running, { what: "the job's session" });
+    const s = pool.sessionState(a).sessionId!;
+    lease(a, s);
+    const y = crypto.randomUUID();
+    kit.children.find((c) => c.scope === a)!.emit({ kind: 'session-id', id: y });
+    assert.equal(pool.sessionState(a).sessionId, y);
+
+    const queued = listRequests(repo.dir).length;
+    const own = await resume(a);
+    assert.equal(own.status, 200, own.text);
+    assert.equal(listRequests(repo.dir).length, queued + 1, 'the resume is queued');
+    assert.equal(await jobSession(a), true);
+
+    // A stranger's live lease still holds the resume, and queues nothing.
+    const stranger = crypto.randomUUID();
+    lease(a, stranger);
+    const held = await resume(a);
+    assert.equal(held.status, 409);
+    assert.match(JSON.parse(held.text).error, new RegExp(`^job ${a} is held by session ${stranger} \\(claimed .+\\); resume it from that session or wait until its lease expires$`));
+    assert.equal(listRequests(repo.dir).length, queued + 1, 'nothing more is queued');
+    assert.equal(await jobSession(a), false);
+
+    // The session's id driving another job is a stranger there: only the job's own session counts.
+    lease(b, s);
+    const elsewhere = await resume(b);
+    assert.equal(elsewhere.status, 409);
+    assert.match(JSON.parse(elsewhere.text).error, new RegExp(`^job ${b} is held by session ${s} `));
+    assert.equal(await jobSession(b), false);
+    assert.equal(listRequests(repo.dir).length, queued + 1);
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
 test('a route that throws answers 500 and the server keeps serving', async () => {
   const repo = tempRepo();
   // An agent can leave job.json unreadable; the environment route is async, so its throw is a rejection.
   fs.mkdirSync(path.join(repo.dir, '.forge', 'jobs', 'j-1'), { recursive: true });
   fs.writeFileSync(path.join(repo.dir, '.forge', 'jobs', 'j-1', 'job.json'), '{');
-  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: daemonKit().opts });
   const port = Number(new URL(url).port);
   try {
     const token = await tokenOf(port);

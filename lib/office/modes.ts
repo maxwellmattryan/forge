@@ -3,8 +3,8 @@
 // repo, runtime records included, so a mode read back from disk would be one the session could pick
 // for itself.
 import { INBOX_SCOPE, OFFICE_SCOPE } from '#core/job/requests.ts';
-import { PERMISSION_MODES, commandPermissionMode } from './session/lifecycle.ts';
-import type { DaemonOptions } from './session/lifecycle.ts';
+import { PERMISSION_MODES, commandPermissionMode } from '#integrations/claude/argv.ts';
+import type { DaemonOptions } from './session/contract.ts';
 import type { DaemonPermissionMode, DaemonPoolState } from '#core/types.ts';
 
 /** createPool's options. `jobPermissionMode` is `forge dash --permission-mode`: the human's own command line. */

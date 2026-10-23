@@ -1,97 +1,143 @@
 // findPr never adopts a fork's PR, even on the job's own branch: untrusted code must not become the
-// job's PR (docs/ARCHITECTURE.md "Untrusted input"). Kept through the test rewrite
-// (docs/test-rewrite/README.md): the security posture AGENTS.md says to preserve.
-import test from 'node:test';
+// job's PR (docs/architecture/untrusted-input.md). Kept through the test rewrite
+// (docs/test-rewrite/README.md): the security posture AGENTS.md says to preserve. GitHub is the
+// in-memory adapter, so no gh script, PATH or env change, and the table runs concurrently.
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { tempRepo } from '../../../test/helpers.ts';
+import { ghPr, memoryGitHub, tempRepo } from '../../../test/helpers.ts';
 import { findPr } from './adopt.ts';
 import { defaults } from '#core/config/load.ts';
-import { claimJob, createJob, loadJob, setJob, readEvents } from '#core/job/store.ts';
+import { createJob, loadJob, readEvents, setJob } from '#core/job/store.ts';
+import { parsePr } from '#integrations/github/pull-requests.ts';
+import type { PrSnapshot } from '#integrations/github/types.ts';
 
-// A stand-in `gh` on PATH: answers `pr view` from env, records every call, and can fail `pr merge`.
-const FAKE_GH = `#!/bin/sh
-echo "$*" >> "$FAKE_GH_LOG"
-case "$1 $2" in
-  "pr view") printf '{"number":7,"url":"https://github.com/o/r/pull/7","state":"%s","isDraft":false,"headRefOid":"%s","mergeable":"%s","mergeStateStatus":"%s","reviewDecision":"","statusCheckRollup":%s,"mergedAt":null,"closedAt":null,"headRefName":"%s","baseRefName":"%s"}' "$FAKE_PR_STATE" "\${FAKE_HEAD_OID:-abc123}" "\${FAKE_MERGEABLE:-MERGEABLE}" "$FAKE_MERGE_STATE" "$FAKE_ROLLUP" "\${FAKE_HEAD_REF:-forge/x}" "\${FAKE_BASE_REF:-main}" ;;
-  "pr list") printf '[{"number":7,"url":"https://github.com/o/r/pull/7","state":"OPEN","isDraft":false,"isCrossRepository":%s,"headRefName":"%s","baseRefName":"%s"}]' "\${FAKE_CROSS:-false}" "\${FAKE_HEAD_REF:-forge/x}" "\${FAKE_BASE_REF:-main}" ;;
-  "repo view") echo o/r ;;
-  "api graphql") echo '{"data":{"repository":{"pullRequest":{}}}}' ;;
-  "pr merge") if [ -n "$FAKE_MERGE_FAIL" ]; then echo "auto-merge is not allowed" >&2; exit 1; fi ;;
-  "issue comment") cat >> "$FAKE_GH_LOG.body" ;;
-esac
-`;
+const config = defaults();
+config.tracker.github.repo = 'o/r';
 
-const ROLLUP = {
-  passing: [{ conclusion: 'SUCCESS' }],
-  pending: [{ status: 'IN_PROGRESS' }],
-  failing: [{ conclusion: 'FAILURE' }],
-  none: [],
-};
-
-function ghHarness() {
+/** A scratch repo with one job linked to issue o/r#5, and an empty memory GitHub. */
+function scenario() {
   const repo = tempRepo();
-  const bin = path.join(repo.dir, '..', `fakebin-${path.basename(repo.dir)}`);
-  fs.mkdirSync(bin);
-  fs.writeFileSync(path.join(bin, 'gh'), FAKE_GH, { mode: 0o755 });
-  const log = path.join(bin, 'calls.log');
-  const saved = { ...process.env };
-  const config = defaults();
-  config.tracker.github.repo = 'o/r';
-  let n = 0;
-  // mergeable/head are what gh reports; pushedSha, at and owner are the job's own state.
-  const scenario = ({
-    state = 'OPEN',
-    checks = 'passing' as keyof typeof ROLLUP,
-    mergeState = 'CLEAN',
-    fail = false,
-    mergeable = '',
-    head = '',
-    pushedSha = undefined as string | undefined,
-    at = undefined as { stage: string; state: string; waitingOn?: string } | undefined,
-    owner = undefined as string | undefined,
-  } = {}) => {
-    const job = createJob(repo.dir, config, { title: `job ${++n}`, issues: [{ tracker: config.tracker.kind, ref: `${n}`, url: null }] });
-    setJob(repo.dir, job.id, { owned: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', ...(pushedSha !== undefined ? { pushedSha } : {}) } } });
-    if (at) setJob(repo.dir, job.id, at);
-    if (owner) claimJob(repo.dir, job.id, owner);
-    fs.writeFileSync(log, '');
-    Object.assign(process.env, {
-      PATH: `${bin}${path.delimiter}${saved.PATH}`,
-      FAKE_GH_LOG: log,
-      FAKE_PR_STATE: state,
-      FAKE_MERGE_STATE: mergeState,
-      FAKE_ROLLUP: JSON.stringify(ROLLUP[checks]),
-      FAKE_MERGE_FAIL: fail ? '1' : '',
-      FAKE_MERGEABLE: mergeable,
-      FAKE_HEAD_OID: head,
-    });
-    return job.id;
-  };
-  const done = () => {
-    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
-    Object.assign(process.env, saved);
-    fs.rmSync(bin, { recursive: true, force: true });
-    repo.cleanup();
-  };
-  return { repo, config, scenario, done };
+  const id = createJob(repo.dir, config, { title: 'adopt me', issues: [{ tracker: 'github', ref: 'o/r#5', url: null }] }).id;
+  const github = memoryGitHub();
+  return { root: repo.dir, id, github, job: () => loadJob(repo.dir, id), events: () => readEvents(repo.dir, id), cleanup: repo.cleanup };
 }
 
-test("findPr never adopts a fork PR on the job's branch", { skip: process.platform === 'win32' }, () => {
-  const h = ghHarness();
+type Scenario = ReturnType<typeof scenario>;
+
+test("findPr never adopts a fork PR on the job's branch", () => {
+  const s = scenario();
   try {
-    const root = h.repo.dir;
-    const id = h.scenario();
-    // No recorded PR, so the lookup goes by branch, and gh lists only a fork's PR on it.
+    const root = s.root;
+    const id = s.id;
+    // No recorded PR, so the lookup goes by branch, and GitHub lists only a fork's PR on it.
     setJob(root, id, { owned: { pr: null } });
-    process.env.FAKE_CROSS = 'true';
-    assert.equal(findPr(root, h.config, id), null);
+    s.github.put(ghPr({ headRefName: s.job().branch, isCrossRepository: true }));
+    assert.equal(findPr(root, config, s.github, id), null);
     assert.equal(loadJob(root, id).pr, null);
     const evs = readEvents(root, id);
     assert.ok(evs.some((e) => e.type === 'pr-find' && e.found === false));
     assert.ok(!evs.some((e) => e.type === 'pr-adopted'));
   } finally {
-    h.done();
+    s.cleanup();
+  }
+});
+
+const closing = (number: number, over: Record<string, unknown> = {}) => ({ number, state: 'OPEN', headRefName: 'forge/x', isCrossRepository: false, authorAssociation: 'MEMBER', ...over });
+const pr9 = ghPr({ number: 9, url: 'https://github.com/o/r/pull/9' });
+
+/** Nothing adopted: null back, the lookup recorded, no pr-adopted, no PR on the job. */
+function notAdopted(s: Scenario, result: PrSnapshot | null): void {
+  assert.equal(result, null);
+  assert.equal(s.job().pr, null);
+  assert.ok(s.events().some((e) => e.type === 'pr-find' && e.found === false));
+  assert.ok(!s.events().some((e) => e.type === 'pr-adopted'));
+  assert.ok(!s.github.calls.some((c) => c.op === 'view'), 'no PR is viewed');
+}
+
+const ROWS: { name: string; arrange: (s: Scenario) => void; check: (s: Scenario, run: () => PrSnapshot | null) => void }[] = [
+  {
+    name: '(a) a branch-listed PR with no isCrossRepository counts as a fork',
+    arrange: (s) => {
+      const raw = ghPr({ headRefName: s.job().branch });
+      delete raw.isCrossRepository;
+      s.github.put(raw);
+    },
+    check: (s, run) => notAdopted(s, run()),
+  },
+  {
+    name: '(b) a closing PR from a fork is not adopted',
+    arrange: (s) => {
+      s.github.setClosing(5, [closing(9, { isCrossRepository: true })]);
+      s.github.put(pr9);
+    },
+    check: (s, run) => notAdopted(s, run()),
+  },
+  {
+    name: '(b) a closing PR by a CONTRIBUTOR is not adopted',
+    arrange: (s) => {
+      s.github.setClosing(5, [closing(9, { authorAssociation: 'CONTRIBUTOR' })]);
+      s.github.put(pr9);
+    },
+    check: (s, run) => notAdopted(s, run()),
+  },
+  {
+    name: '(c) a trusted same-repo closing PR is viewed and adopted',
+    arrange: (s) => {
+      s.github.setClosing(5, [closing(8, { isCrossRepository: true }), closing(10, { authorAssociation: 'NONE' }), closing(9)]);
+      s.github.put(pr9);
+    },
+    check: (s, run) => {
+      assert.equal(run()?.number, 9);
+      assert.deepEqual(s.github.calls.filter((c) => c.op === 'view').map((c) => c.number), [9]);
+      assert.equal(s.job().pr?.number, 9);
+      assert.ok(s.events().some((e) => e.type === 'pr-adopted' && e.number === 9));
+    },
+  },
+  {
+    name: '(d) a same-repo PR with an option-like headRefName is refused',
+    arrange: (s) => {
+      s.github.setClosing(5, [closing(7)]);
+      s.github.put(ghPr({ headRefName: '--upload-pack=x' }));
+    },
+    check: (s, run) => {
+      assert.throws(run, /unsafe headRefName/);
+      const refused = s.events().filter((e) => e.type === 'pr-adopt-refused');
+      assert.deepEqual(
+        refused.map((e) => ({ number: e.number, field: e.field })),
+        [{ number: 7, field: 'headRefName' }],
+      );
+      assert.equal(s.job().pr, null);
+      assert.ok(!s.events().some((e) => e.type === 'pr-adopted'));
+    },
+  },
+  {
+    name: '(e) a same-repo PR on forge/x → main is adopted',
+    arrange: (s) => {
+      s.github.setClosing(5, [closing(7)]);
+      s.github.put(ghPr());
+    },
+    check: (s, run) => {
+      const result = run();
+      assert.deepEqual(result, parsePr(ghPr()));
+      const pr = s.job().pr!;
+      assert.equal(typeof pr.lastSyncedAt, 'string');
+      assert.deepEqual(pr, { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', isDraft: false, lastSyncedAt: pr.lastSyncedAt });
+      assert.equal(s.job().branch, 'forge/x');
+      assert.ok(s.events().some((e) => e.type === 'pr-adopted' && e.number === 7 && e.branch === 'forge/x'));
+    },
+  },
+];
+
+describe('findPr adopts only a same-repo PR with safe refs', { concurrency: 4 }, () => {
+  for (const row of ROWS) {
+    test(row.name, () => {
+      const s = scenario();
+      try {
+        row.arrange(s);
+        row.check(s, () => findPr(s.root, config, s.github, s.id));
+      } finally {
+        s.cleanup();
+      }
+    });
   }
 });

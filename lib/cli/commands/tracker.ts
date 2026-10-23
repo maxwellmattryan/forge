@@ -1,9 +1,10 @@
 // Tracker commands, starting jobs from tracker refs, and `forge sync` (PRs + trackers for every job).
-import { DEP_REASON, claimRespectingDeps, refreshDependencyWait, retargetPlan, unmetDependencies } from '#engine/pipeline/deps.ts';
-import { createJob, isActive, leaseStatus, listJobs, loadJob, logEvent, readEvents, setJob, claimJob } from '#core/job/store.ts';
+import { DEP_REASON, claimRespectingDeps, refreshDependencyWait, retargetPlan, unmetDependencies } from '#engine/pipeline/moves/deps.ts';
+import { createJob, isActive, leaseStatus, listJobs, loadJob, logEvent, readEvents, claimJob } from '#core/job/store.ts';
 import { approvedBy, escalationApproval } from '#engine/pr/body.ts';
 import { retargetPr } from '#engine/pr/open.ts';
 import { syncPr } from '#engine/pr/sync.ts';
+import { ghGitHub } from '#integrations/github/pull-requests.ts';
 import { measureOutcomes } from '#engine/evals/outcome.ts';
 import { queueScores } from '#engine/evals/scoring.ts';
 import { refreshRequest } from '#engine/trackers/request-refresh.ts';
@@ -11,7 +12,7 @@ import { listRequests } from '#core/job/requests.ts';
 import { checkRepoBudget, isRepoHold, repoBudgetBlock } from '#engine/metrics/repo-budget.ts';
 import { applyRetention } from '#engine/ops/retention.ts';
 import { queueRetro } from '#engine/evals/retro.ts';
-import { finishEnvironment } from '#engine/environment/lifecycle.ts';
+import { mirrorJob, moveJob } from '#engine/pipeline/moves/apply.ts';
 import { searchTerms } from '#core/job/issue-link.ts';
 import { checkIssueRef, isSafeUrl, nativeRef, nativeRefs, parseIssueRef, primaryIssue, sameIssue } from '#core/job/issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
@@ -20,12 +21,12 @@ import { memberClone, memberConfig, memberRepos, recordJobRepo } from '#engine/p
 import { memberCheck, readLocalConfig } from '#engine/project/member-repos.ts';
 import { clampLimit, publicHits, searchTracker } from '#engine/trackers/link.ts';
 import { loadTracker, memberTracker } from '#engine/trackers/load.ts';
-import { memberIssues, mirrorToTracker } from '#engine/trackers/mirror.ts';
+import { memberIssues } from '#engine/trackers/mirror.ts';
 import { memberForRef, memberTrackerConfig, memberTrackers, qualify, type MemberTracker } from '#engine/project/member-trackers.ts';
 import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '#engine/trackers/triage.ts';
 import { dashRunning, reconcile, type ReconcileResult } from '#office/reconcile.ts';
 import { ForgeError } from '#core/errors.ts';
-import * as wt from '#engine/workspace/worktree.ts';
+import { removeWorktree } from '#engine/workspace/worktree.ts';
 import { bodyFrom, list, num, req, str, usageError } from './args.ts';
 import type { Config, Job, JobPr, Tracker, TrackerItem } from '#core/types.ts';
 import type { HelpGroup } from '../types.ts';
@@ -34,10 +35,7 @@ const TRACKER_EXITS: [1 | 5, string][] = [
   [1, 'the tracker refused the call, no such item or job, or a likely secret in the text Forge would send (code secret_found)'],
   [5, 'gh failed (GitHub tracker)'],
 ];
-const BODY: [string, string][] = [
-  ['--body B', 'the text'],
-  ['--body-file F', 'read the text from F (- for stdin)'],
-];
+const BODY: [string, string][] = [['--body B', 'the text'], ['--body-file F', 'read the text from F (- for stdin)']];
 
 const TRACKER: HelpGroup = {
   name: 'tracker',
@@ -339,7 +337,7 @@ export async function startFromRef(root: string, config: Config, tracker: Tracke
   const job = createJob(root, config, { title: item.title, issues, body: item.body ?? '', splitMode: opts.splitMode, origin: 'issue' });
   const claim = tracker.claim(ctx, item.ref, job);
   if (!claim.ok) {
-    finishEnvironment(root, config, job, setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` }));
+    await moveJob(root, config, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` }, { mirror: false });
     throw new ForgeError(`could not claim ${ref}: ${claim.reason}`, 3);
   }
   if (session) claimJob(root, job.id, session, false);
@@ -373,7 +371,7 @@ async function startFromMemberRef(
   recordJobRepo(root, config, job.id, member.name, false);
   const claim = tracker.claim(ctx, member.n, loadJob(root, job.id));
   if (!claim.ok) {
-    finishEnvironment(root, config, job, setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` }));
+    await moveJob(root, config, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` }, { mirror: false });
     throw new ForgeError(`could not claim ${ref}: ${claim.reason}`, 3);
   }
   if (session) claimJob(root, job.id, session, false);
@@ -485,15 +483,14 @@ export async function syncAll(
     if (!watch || !config.pr.enabled) continue;
     try {
       const before: Partial<JobPr> = job.pr ?? {};
-      const r = syncPr(root, config, job.id);
+      const r = await syncPr(root, config, ghGitHub, job.id);
       if (r.integrate) integrating.push(job.id);
       const after = loadJob(root, job.id);
-      await mirrorToTracker(root, config, after);
       if (r.pr?.state === 'MERGED' && before.state !== 'MERGED') await commentApproval(root, config, after);
       let cleaned = false;
       if (after.state === 'done' && config.worktrees.cleanup === 'on-merge' && after.worktree) {
         try {
-          await wt.removeWorktree(root, job.id, { deleteBranch: true });
+          await removeWorktree(root, job.id, { deleteBranch: true });
           cleaned = true;
         } catch {}
       }
@@ -536,7 +533,7 @@ export async function syncAll(
   // Both passes are local git and job state, so they run even with PRs disabled.
   for (const p of retargetPlan(root, config)) {
     try {
-      retargetPr(root, config, p.id, p.to, p.dependency);
+      retargetPr(root, config, ghGitHub, p.id, p.to, p.dependency);
       results.push({ id: p.id, retargeted: { from: p.from, to: p.to, dependency: p.dependency } });
     } catch (e) {
       results.push({ id: p.id, error: (e as Error).message.slice(0, 300) });
@@ -546,7 +543,7 @@ export async function syncAll(
     try {
       if (!refreshDependencyWait(root, job.id).released) continue;
       results.push({ id: job.id, unblocked: true });
-      await mirrorToTracker(root, config, loadJob(root, job.id));
+      await mirrorJob(root, config, loadJob(root, job.id));
     } catch (e) {
       results.push({ id: job.id, error: (e as Error).message.slice(0, 300) });
     }
@@ -561,7 +558,7 @@ export async function syncAll(
     }).filter(Boolean);
     // filter(Boolean) above dropped the children that failed to load.
     if (kids.length && kids.every((k) => ['done', 'cancelled'].includes(k!.state))) {
-      finishEnvironment(root, config, job, setJob(root, job.id, { stage: 'done', state: 'done', reason: 'all child jobs finished' }));
+      await moveJob(root, config, job.id, { stage: 'done', state: 'done', reason: 'all child jobs finished' });
       results.push({ id: job.id, umbrellaDone: true });
     }
   }
@@ -581,7 +578,7 @@ export async function syncAll(
   }
   // The human's retention policy runs in any session, daemon ones included: they set it, not a request.
   const retention = applyRetention(root, config, 'policy');
-  const reconciled = syncReconcile(root, config);
+  const reconciled = await syncReconcile(root, config);
   // Counted last, so it includes the resumes sync and the reconciler queued.
   return {
     synced: results.length,
@@ -602,10 +599,10 @@ export async function syncAll(
  * Read, never taken: a dash starting that instant must not find it held. A failed pass is reported,
  * not thrown, since every other sync step has already run.
  */
-function syncReconcile(root: string, config: Config): ReconcileResult | 'skipped (forge dash owns it)' | { error: string } {
+async function syncReconcile(root: string, config: Config): Promise<ReconcileResult | 'skipped (forge dash owns it)' | { error: string }> {
   if (dashRunning(root)) return 'skipped (forge dash owns it)';
   try {
-    return reconcile(root, config);
+    return await reconcile(root, config);
   } catch (e) {
     return { error: (e as Error).message.slice(0, 300) };
   }

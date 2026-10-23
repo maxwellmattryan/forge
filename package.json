@@ -1,6 +1,6 @@
 {
   "name": "@maxwellmattryan/forge",
-  "version": "0.19.1",
+  "version": "0.20.0",
   "description": "Forge: a lightweight, self-improving software factory for AI coding agents: orchestrator, agent roster, worktrees, PR sync, trackers, evals and a live dashboard.",
   "type": "module",
   "license": "MIT",
@@ -31,7 +31,7 @@
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\" \"lib/**/*.test.ts\" \"dashboard/src/**/*.test.ts\"",
-    "test:unit": "node --test \"test/*.test.ts\" \"lib/**/*.test.ts\" \"dashboard/src/**/*.test.ts\"",
+    "test:unit": "node --test \"test/*.test.ts\" \"test/support/*.test.ts\" \"lib/**/*.test.ts\" \"dashboard/src/**/*.test.ts\"",
     "test:integration": "node --test \"test/integration/**/*.test.ts\"",
     "test:e2e": "node --test \"test/e2e/**/*.test.ts\"",
     "test:invariants": "node --test \"test/invariants/**/*.test.ts\"",
@@ -42,10 +42,16 @@
     "typecheck": "tsc -p tsconfig.json --incremental --tsBuildInfoFile node_modules/.cache/forge/tsc-engine.tsbuildinfo && tsc -p test/tsconfig.json --incremental --tsBuildInfoFile node_modules/.cache/forge/tsc-test.tsbuildinfo",
     "docs:commands": "node scripts/docs-commands.ts",
     "docs:map": "node scripts/docs-map.ts",
+    "docs:config": "node scripts/docs-config.ts",
+    "docs:cli": "node scripts/docs-cli.ts",
+    "docs": "npm run docs:commands && npm run docs:map && npm run docs:config && npm run docs:cli",
     "dev": "node scripts/dev.ts",
     "dev:claude": "node scripts/dev-claude.ts",
+    "scenario": "node scripts/scenario.ts",
+    "test:render": "node scripts/render-check.ts",
     "release": "node scripts/release.ts",
-    "release:check": "node scripts/release-check.ts"
+    "release:check": "node scripts/release-check.ts",
+    "check:touchpoints": "node scripts/check-touchpoints.ts"
   },
   "repository": {
     "type": "git",
@@ -64,6 +70,7 @@
     "@sveltejs/vite-plugin-svelte": "7.3.1",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "22.18.13",
+    "playwright-core": "1.64.1",
     "svelte": "5.57.2",
     "svelte-check": "4.7.6",
     "tailwindcss": "4.3.3",

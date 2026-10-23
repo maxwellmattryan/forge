@@ -5,6 +5,7 @@ What Forge does: the pipeline, worktrees, PRs, tracker sync, guards, releases, e
 - Engine holds policy and integrations hold mechanism: `lib/integrations/github/` opens a PR and reads its checks, while when to retarget, rework on a red CI or merge stays here.
 - Engine runs the repo's own configured commands (verify, dev servers); Node built-ins and OS process tools stay in `lib/core/`.
 - Engine treats its inputs as hostile: job state, repo files, git and `gh` output and config may all be written by an agent or a checkout.
+- Design: [Job model](../../docs/architecture/job-model.md), [Untrusted input](../../docs/architecture/untrusted-input.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
@@ -19,5 +20,6 @@ What Forge does: the pipeline, worktrees, PRs, tracker sync, guards, releases, e
 | `project/` | Multi-repo projects: member repos and trackers, a job's repos and their order, proposals, links and downstream checks. |
 | `release/` | Releases: plans, runs and approvals, and interim releases across member repos. |
 | `trackers/` | Tracker sync: the adapter loader with its security wrappers, mirrors, issue links, triage and request refresh. |
+| `verify/` | `forge verify` and the verify record: the gate's steps, and the one reader of `job.verifyRuns`. |
 | `workspace/` | Job worktrees and what runs in them: checkouts, focus, the editor, regeneration and configured job commands. |
 <!-- forge:map:end -->

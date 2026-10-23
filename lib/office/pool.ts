@@ -1,22 +1,22 @@
-// The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests
-// with no job, an office session for gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job sessions, each spawned on demand for the job
-// its requests name. Sessions fail, hold and stop on their own (lib/office/session/lifecycle.ts); the pool owns what
-// is repo-wide: the trust snapshot, routing, the cap and the stops config changes force.
-// docs/ARCHITECTURE.md "Daemon" describes the rules.
+// The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests with no job, an office
+// session for gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job sessions, each spawned on demand
+// for the job its requests name. Sessions fail, hold and stop on their own (lib/office/session/lifecycle.ts); the pool owns
+// what is repo-wide: the trust snapshot, routing, the cap and the stops config changes force. docs/architecture/daemon.md describes the rules.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveEffort, trustDigest } from '#core/config/load.ts';
-import { PERMISSION_MODES, TRUST_CHANGED, createSession, otherOwner, reapOrphans, sessionOptions } from './session/lifecycle.ts';
+import { TRUST_CHANGED, createSession } from './session/lifecycle.ts';
+import { sessionOptions, type DaemonOptions, type Session, type SessionContext, type SessionEvent } from './session/contract.ts';
+import { otherOwner, reapOrphans } from './session/records.ts';
+import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
 import { createModeBook, type PoolOptions } from './modes.ts';
 import { UUID, readInfo, sessionFiles } from '#core/job/session-files.ts';
-import type { DaemonOptions, Session, SessionContext, SessionEvent } from './session/lifecycle.ts';
-import { daemonSessionIds } from './owner.ts';
+import { daemonSessionIds, releaseSession } from './driver.ts';
 import { configForJob } from '#engine/evals/overlay.ts';
-import { expireLease, listJobs, loadJob, logHumanEvent, repoAuditFile, requeueOrphanedRequests } from '#core/job/store.ts';
+import { loadJob, logHumanEvent, repoAuditFile } from '#core/job/store.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
-import { RECONCILE_MS, daemonLockDir, reconcile } from './reconcile.ts';
-import type { SessionFacts } from './reconcile.ts';
+import { RECONCILE_MS, daemonLockDir, reconcile, type SessionFacts } from './reconcile.ts';
 import { tryLock } from '#core/os/lock.ts';
 import { repoBudgetStatus } from '#engine/metrics/repo-budget.ts';
 import { daemonPlatformProblem } from '#core/os/platform.ts';
@@ -44,6 +44,8 @@ export interface DaemonPool {
   poke(): void;
   state(): PoolState;
   sessionState(scope: string): DaemonSessionState;
+  /** What the pool knows about one scope's session (lib/office/driver.ts whoDrives reads it), or null with none. */
+  facts(scope: string): SessionFacts | null;
   subscribe(fn: (e: SessionEvent) => void): () => void;
   recent(scope: string, afterOffset?: number): { offset: number; line: string }[];
   close(): Promise<void>;
@@ -306,12 +308,12 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
    * One reconciler pass (lib/office/reconcile.ts), for every job or only `only`. Never throws: a failed
    * pass is logged once per distinct failure and retried at the next timer.
    */
-  function runReconcile(only?: string): void {
+  async function runReconcile(only?: string): Promise<void> {
     if (closed || !fs.existsSync(root)) return;
     try {
       // Inbox and office sessions too: their requests have no lease, so only this keeps a long turn's claim.
       const busy = [...sessions.values()].filter((s) => s.status === 'busy' || s.status === 'stopping').flatMap((s) => s.facts().ids);
-      const r = reconcile(root, config(), { facts: sessionFacts(), busy, ...(only !== undefined ? { only } : {}) });
+      const r = await reconcile(root, config(), { facts: sessionFacts(), busy, ...(only !== undefined ? { only } : {}) });
       for (const id of r.resumed) sessions.get(id)?.logEvent('reconcile', { action: 'resume' });
       for (const id of r.escalated) sessions.get(id)?.logEvent('reconcile', { action: 'escalate' });
       lastReconcileError = null;
@@ -422,26 +424,16 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
 
   /**
    * No earlier `forge dash`'s child can still run once this one holds the daemon lock and has
-   * reaped orphans, so every lease one of their ids holds is expired and every request they
-   * claimed requeued. A lease held by an interactive session (in no record) is left alone.
+   * reaped orphans, so everything one of their ids held is released (lib/office/driver.ts), as
+   * their exits would have. A lease held by an interactive session (in no record) is left alone.
    */
   function expireBootLeases(): void {
-    const ids = daemonSessionIds(root);
-    if (!ids.length) return;
-    for (const j of listJobs(root)) {
-      if (!j.lease.driver || !ids.includes(j.lease.driver)) continue;
-      try {
-        const session = expireLease(root, j.id, ids, 'dash-start');
-        if (session) inbox.logEvent('lease-expired', { job: j.id, session, reason: 'dash-start' });
-      } catch (e) {
-        inbox.logEvent('error', { message: `expiring ${j.id}'s lease: ${(e as Error).message}` });
-      }
+    const r = releaseSession(root, daemonSessionIds(root), { reason: 'dash-start', config: config(), byAge: true });
+    for (const j of r.jobs) {
+      if (j.lost.length) inbox.logEvent('agents-lost', { job: j.job, roles: j.lost });
+      if (j.expired) inbox.logEvent('lease-expired', { job: j.job, session: j.expired, reason: 'dash-start' });
     }
-    try {
-      requeueOrphanedRequests(root, { exited: ids });
-    } catch (e) {
-      inbox.logEvent('error', { message: `requeueing claimed requests: ${(e as Error).message}` });
-    }
+    for (const message of r.errors) inbox.logEvent('error', { message });
   }
 
   /**
@@ -607,6 +599,9 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     state,
     sessionState(scope) {
       return sessions.get(scope)?.state() ?? offState(root, scope);
+    },
+    facts(scope) {
+      return sessions.get(scope)?.facts() ?? null;
     },
     subscribe(fn) {
       subscribers.add(fn);

@@ -11,7 +11,7 @@ import { exists, resolveWorktreePaths } from '#core/paths.ts';
 import { inSpec } from '#core/glob.ts';
 import type { Config, Job } from '#core/types.ts';
 import type { RunResult } from '#core/os/process.ts';
-import { commandTemplate, runCommand } from './worktree.ts';
+import { commandTemplate, runCommand } from './run.ts';
 
 export type Strategy = 'merge' | 'rebase';
 

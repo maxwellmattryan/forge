@@ -1,0 +1,59 @@
+{
+  "project": {
+    "title": "Project",
+    "sub": "The configured components by repo, their backing services, and the build and runtime edges between them. Pick a job to see what it touches and what depends on that.",
+    "loading": "Loading the project graph…",
+    "empty": "No components are configured. The graph is drawn from components in .forge/config.yml (docs/CONFIG.md, “Components”).",
+    "job": "Highlight a job",
+    "noJob": "No job",
+    "noMatch": "This job names no configured components",
+    "problems": {
+      "one": "components has {count} problem. Run forge config validate.",
+      "other": "components has {count} problems. Run forge config validate."
+    },
+    "thisRepo": "This repo",
+    "backing": "Backing services",
+    "aria": "{components} components in {repos} repos, {backing} backing services",
+    "legend": {
+      "title": "Legend",
+      "build": "Build dependency",
+      "runtime": "Runtime dependency",
+      "touched": "Touched by the job",
+      "consumer": "Depends on what it touches"
+    },
+    "kind": {
+      "library": "Library",
+      "service": "Service",
+      "app": "App",
+      "backing": "Backing"
+    },
+    "table": {
+      "component": "Component",
+      "repo": "Repo",
+      "kind": "Kind",
+      "dependsOn": "Depends on",
+      "highlight": "Highlight",
+      "touched": "Touched",
+      "consumer": "Consumer"
+    },
+    "environments": {
+      "title": "Running environments",
+      "loading": "Loading…",
+      "empty": "No environment is running.",
+      "dockerDown": "Docker is not reachable: containers are not listed.",
+      "failed": "Could not load the running environments: {error}",
+      "shared": "Shared services",
+      "aria": "Running environments",
+      "table": {
+        "job": "Job",
+        "state": "State",
+        "devPort": "Dev server",
+        "devCpu": "CPU",
+        "devMem": "Memory",
+        "containers": "Containers",
+        "cpu": "Containers CPU",
+        "mem": "Containers memory"
+      }
+    }
+  }
+}

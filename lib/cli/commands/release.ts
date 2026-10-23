@@ -3,7 +3,8 @@
 import readline from 'node:readline/promises';
 import { refuseRun, releaseStatus, runRelease } from '#engine/release/run.ts';
 import { noteReleasePlanned } from '#engine/release/approval.ts';
-import { selectionFrom, writeReleasePlan } from '#engine/release/plan.ts';
+import { selectionFrom } from '#engine/release/plan.ts';
+import { writeReleasePlan } from '#engine/release/files.ts';
 import { ForgeError } from '#core/errors.ts';
 import { usageError } from './args.ts';
 import type { CliContext, Dispatched, HelpGroup } from '../types.ts';

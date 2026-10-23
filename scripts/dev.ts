@@ -1,12 +1,16 @@
-// `npm run dev [-- --port N]`: a watching Vite build of the dashboard into the gitignored dev build
-// dir, served by this checkout's `forge dash --dev` for the repo npm was run from. One Ctrl-C stops
-// both. The real build is never written: only `npm run build:dashboard` produces that.
+// `npm run dev [-- --port N] [--scenario NAME]`: a watching Vite build of the dashboard into the
+// gitignored dev build dir, served by this checkout's `forge dash --dev` for the repo npm was run
+// from, or for a scratch repo seeded with scenario NAME (scripts/scenario.ts). One Ctrl-C stops
+// both and removes the scratch repo. The real build is never written: only `npm run build:dashboard`
+// produces that.
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { DEV_DIST_DIR, PLUGIN_ROOT } from '../lib/core/paths.ts';
+import { SCENARIO_NAME, loadScenario, scenarioEnv, seedScenario } from './scenario.ts';
+import type { Seeded } from './scenario.ts';
 
 /** One child the supervisor runs. */
 export interface DevProc {
@@ -14,18 +18,28 @@ export interface DevProc {
   command: string;
   args: string[];
   cwd: string;
+  /** The child's environment; the inherited one without it. */
+  env?: NodeJS.ProcessEnv;
 }
 
-const USAGE = 'usage: npm run dev [-- --port N]';
+const USAGE = 'usage: npm run dev [-- --port N] [--scenario NAME]';
 // Run through node and its bin path, never npx or an import: no PATH lookup, no runtime dependency.
 const VITE_BIN = path.join(PLUGIN_ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
 
-/** The two children for `argv`; throws the usage line on anything but `--port <0-65535>`. */
-export function devPlan(argv: string[], env: NodeJS.ProcessEnv = process.env): { vite: DevProc; dash: DevProc } {
+/**
+ * The two children for `argv`, and the scenario to seed (null for none); throws the usage line on
+ * anything but `--port <0-65535>` and `--scenario <name>`, each at most once, in either order.
+ * Pure: whether the scenario exists is main()'s check.
+ */
+export function devPlan(argv: string[], env: NodeJS.ProcessEnv = process.env): { vite: DevProc; dash: DevProc; scenario: string | null } {
   const port: string[] = [];
-  if (argv.length) {
-    if (argv.length !== 2 || argv[0] !== '--port' || !/^\d{1,5}$/.test(argv[1]) || Number(argv[1]) > 65535) throw new Error(USAGE);
-    port.push('--port', String(Number(argv[1])));
+  let scenario: string | null = null;
+  for (let i = 0; i < argv.length; i += 2) {
+    const [flag, value] = [argv[i], argv[i + 1]];
+    if (value === undefined) throw new Error(USAGE);
+    if (flag === '--port' && !port.length && /^\d{1,5}$/.test(value) && Number(value) <= 65535) port.push('--port', String(Number(value)));
+    else if (flag === '--scenario' && scenario === null && SCENARIO_NAME.test(value)) scenario = value;
+    else throw new Error(USAGE);
   }
   const vite: DevProc = {
     name: 'vite',
@@ -40,7 +54,7 @@ export function devPlan(argv: string[], env: NodeJS.ProcessEnv = process.env): {
     args: [path.join(PLUGIN_ROOT, 'bin', 'forge'), 'dash', '--dev', ...port],
     cwd: path.resolve(env.INIT_CWD || process.cwd()),
   };
-  return { vite, dash };
+  return { vite, dash, scenario };
 }
 
 const STOP_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
@@ -120,7 +134,7 @@ export function supervise(procs: DevProc[], opts: { killAfterMs?: number; log?: 
     for (const p of procs) {
       // Not detached: a terminal Ctrl-C reaches the children directly too, so `forge dash` runs its
       // own SIGINT shutdown and stops its sessions.
-      const child = spawn(p.command, p.args, { cwd: p.cwd, stdio: 'inherit' });
+      const child = spawn(p.command, p.args, { cwd: p.cwd, env: p.env ?? process.env, stdio: 'inherit' });
       live.set(p.name, child);
       child.on('exit', (code, signal) => exited(p.name, code, signal));
       child.on('error', (e) => {
@@ -145,9 +159,36 @@ async function main(): Promise<void> {
     process.stderr.write('vite is not installed in this checkout: run npm ci\n');
     process.exit(1);
   }
+  let seeded: Seeded | null = null;
+  if (plan.scenario) {
+    try {
+      loadScenario(plan.scenario);
+    } catch (e) {
+      process.stderr.write(`${(e as Error).message}\n`);
+      process.exit(2);
+    }
+    // A Ctrl-C mid-seed must still run the exit handler that removes the half-made repo; a default
+    // signal death never emits 'exit'.
+    const bail = () => process.exit(130);
+    for (const s of STOP_SIGNALS) process.on(s, bail);
+    try {
+      seeded = await seedScenario(plan.scenario);
+    } catch (e) {
+      process.stderr.write(`${(e as Error).message}\n`);
+      process.exit(1);
+    }
+    for (const s of STOP_SIGNALS) process.removeListener(s, bail);
+    // seedScenario registers this too; naming it here keeps the dev script's own exit path obvious.
+    process.on('exit', seeded.cleanup);
+    plan.dash.cwd = seeded.root;
+    plan.dash.env = scenarioEnv(process.env, seeded.root);
+    process.stderr.write(`[dev] scenario ${plan.scenario} at ${seeded.root}\n`);
+  }
   fs.rmSync(DEV_DIST_DIR, { recursive: true, force: true });
   process.stderr.write(`[dev] building the dashboard into ${DEV_DIST_DIR}; the page answers 503 until the first build lands (about 10 s)\n`);
-  process.exit(await supervise([plan.vite, plan.dash]));
+  const code = await supervise([plan.vite, plan.dash]);
+  seeded?.cleanup();
+  process.exit(code);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

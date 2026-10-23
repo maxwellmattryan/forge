@@ -25,22 +25,17 @@ import {
   type ReleaseStep,
   type StepState,
   RELEASE_FILE_VERSION,
-  assertNoSymlinks,
   cloneGit,
-  doneCount,
   freshPlan,
   planHash,
   planRelease,
-  planSteps,
-  readManifestPackage,
-  readPlanFile,
-  readState,
-  releaseFiles,
   repoBase,
   repoRemote,
-  stepCommand,
   strategyOf,
 } from './plan.ts';
+import { assertNoSymlinks, doneCount, planSteps, readPlanFile, readState, releaseFiles } from './files.ts';
+import { readManifestPackage } from './manifest.ts';
+import { stepCommand } from './render.ts';
 import { foremanReleaseApproval, releaseApprovalStatus } from './approval.ts';
 import type { RepoKey } from '../project/repo-order.ts';
 import type { Config } from '#core/types.ts';

@@ -10,7 +10,7 @@ import type { RunResult } from '#core/os/process.ts';
 import { git, gitEnv } from '#integrations/git/runner.ts';
 import { cleanGenerated, generatedConfig, generatedPaths, partitionConflicts, rebuild, regenerateProblem, takeBaseSide } from '../workspace/regenerate.ts';
 import type { Strategy } from '../workspace/regenerate.ts';
-import { commandTemplate } from '../workspace/worktree.ts';
+import { commandTemplate } from '../workspace/run.ts';
 
 /** What `forge integrate` returns. `regenerated` / `regenerateError` appear only when non-empty. */
 export type IntegrateResult =

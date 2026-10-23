@@ -8,9 +8,13 @@ import { BIN, type CliResult } from './support/cli.ts';
 // Tests import the shared helpers from here, never from test/support/ directly: this module's
 // import side effects (below) are what pin git config, SHELL, FORGE_MODE and NODE_OPTIONS.
 export { BIN, cliEnv, forgeSync, type CliResult } from './support/cli.ts';
+export { fakeClaude, type FakeClaudeChild } from './support/claude-adapter.ts';
 export { fakeBin } from './support/fake-bin.ts';
 export { fakeGh, type GhReply } from './support/fake-gh.ts';
 export { forgeInProcess, type InProcessResult } from './support/in-process.ts';
+export { jobAt, parkedAt, withLease, withRound, type JobAtOptions } from './support/job-state.ts';
+export { ghPr, memoryGitHub, type GitHubCall, type MemoryGitHub } from './support/memory-github.ts';
+export { recordingMoveEffects, type MoveEffectCall, type MoveSide } from './support/move-effects.ts';
 
 /**
  * Repo-local settings every scratch repo needs. A user's global `commit.gpgsign` would otherwise

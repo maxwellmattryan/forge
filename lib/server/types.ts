@@ -2,6 +2,7 @@
 // every route gets, the route table's rows, and what the onRequest hook reports.
 import type http from 'node:http';
 import type { DaemonPool } from '#office/pool.ts';
+import type { Drive } from '#office/driver.ts';
 import type { GhRunner, GitHubTarget } from '#integrations/github/preview.ts';
 import type { VersionInfo } from '#engine/ops/types.ts';
 import type {
@@ -79,7 +80,8 @@ export interface ServerCtx {
   envMemo: Map<string, { at: number; p: Promise<JobEnvironmentResponse> }>;
   envsCache: { at: number; p: Promise<EnvironmentsResponse> } | null;
   poolState: () => DaemonPoolState;
-  ownPoolSession: (job: Pick<LoadedJob, 'id' | 'lease'>) => boolean;
+  /** Who drives a job, asked of the pool session whose scope is that job (lib/office/driver.ts whoDrives). */
+  drive: (job: Pick<LoadedJob, 'id' | 'lease'>) => Drive;
   budget: () => RepoBudgetStatus;
 }
 

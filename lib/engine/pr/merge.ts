@@ -9,7 +9,8 @@ import { exists } from '#core/paths.ts';
 import type { Config, Job, JobPr, JobRepoPr, PrChecks } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { git } from '#integrations/git/runner.ts';
-import { PR_STATES, SLUG_RE, markPrReady, repoSlug, requireGh, safePrNumber, submitMerge } from '#integrations/github/pull-requests.ts';
+import { PR_STATES, SLUG_RE, safePrNumber } from '#integrations/github/pull-requests.ts';
+import type { GitHub } from '#integrations/github/types.ts';
 import { memberClone, memberEntry, memberRepos } from '../project/job-repos.ts';
 import { REPO_NAME } from '../project/member-repos.ts';
 import { isLinkedJob, jobRepoOrder } from '../project/repo-order.ts';
@@ -116,7 +117,7 @@ const prLabel = (repo: string | null, number: number | null): string => (repo ==
  * when failing. Exactly one `gh pr merge` call, never a fallback between direct and `--auto`,
  * because a fallback is how unverified code got merged. `tag` goes on every event (repo, target).
  */
-function mergeOne(root: string, config: Config, id: string, t: MergeTarget, opts: { now: boolean; tag: Record<string, unknown> }): MergeResult {
+function mergeOne(root: string, config: Config, github: GitHub, id: string, t: MergeTarget, opts: { now: boolean; tag: Record<string, unknown> }): MergeResult {
   const { number, checks, tag } = { ...t, tag: opts.tag };
   const label = prLabel(t.repo, number);
   if (t.state === 'MERGED') return { merged: true, action: 'already-merged', checks };
@@ -156,9 +157,10 @@ function mergeOne(root: string, config: Config, id: string, t: MergeTarget, opts
   // Logged before the call so a human override is on record even if the merge then fails.
   if (now) logEvent(root, id, 'pr-merge-bypass', { ...tag, number, checks, ...by });
   // matchHead pins the commit whose checks were just read, so a push after the sync cannot ride along.
-  const res = submitMerge(root, slug, number, { method: config.merge.method, auto: action === 'auto', matchHead: t.headOid });
-  if (!res.ok) {
-    const error = (res.stderr || res.stdout).trim();
+  const res = github.merge(root, slug, number, { method: config.merge.method, auto: action === 'auto', matchHead: t.headOid });
+  // `=== false`, not `!`: the tests' loose type check narrows the union only on the literal.
+  if (res.ok === false) {
+    const error = res.error;
     logEvent(root, id, 'pr-merge-failed', { ...tag, number, error, ...by });
     return { merged: false, autoMerge: false, action: 'failed', checks, error };
   }
@@ -176,8 +178,8 @@ function mergeOne(root: string, config: Config, id: string, t: MergeTarget, opts
  * every dependency's PR is MERGED by this call's own sync, so a consumer never lands first and a
  * hand-edited job.json state counts for nothing. `repo` (a member) or `root` merges only that PR.
  */
-export function mergePr(root: string, config: Config, id: string, opts: { now?: boolean; repo?: string; root?: boolean } = {}): MergeResult {
-  requireGh();
+export async function mergePr(root: string, config: Config, github: GitHub, id: string, opts: { now?: boolean; repo?: string; root?: boolean } = {}): Promise<MergeResult> {
+  github.require();
   const job = loadJob(root, id);
   if (opts.repo !== undefined && opts.root) throw new ForgeError('pass --repo or --root, not both');
   if (opts.repo !== undefined) {
@@ -188,21 +190,21 @@ export function mergePr(root: string, config: Config, id: string, opts: { now?: 
   }
   if (!job.pr?.number) throw new ForgeError(`job ${id} has no PR`);
   const now = opts.now === true;
-  if (isLinkedJob(job)) return mergeLinked(root, config, id, { now, target: opts.repo !== undefined ? opts.repo : opts.root ? null : undefined });
+  if (isLinkedJob(job)) return mergeLinked(root, config, github, id, { now, target: opts.repo !== undefined ? opts.repo : opts.root ? null : undefined });
   // A merge never routes: a conflicting PR parks as before, and the next forge sync routes it.
-  const { pr: synced } = syncPr(root, config, id, { route: false });
+  const { pr: synced } = await syncPr(root, config, github, id, { route: false });
   const number = synced?.number ?? job.pr.number;
   const checks = synced?.checks?.state;
   if (synced?.state === 'MERGED') return { merged: true, action: 'already-merged', checks };
-  return mergeOne(root, config, id, rootTarget(root, config, id, number, synced), { now, tag: {} });
+  return mergeOne(root, config, github, id, rootTarget(root, config, github, id, number, synced), { now, tag: {} });
 }
 
-function rootTarget(root: string, config: Config, id: string, number: number, synced: JobPr | null): MergeTarget {
+function rootTarget(root: string, config: Config, github: GitHub, id: string, number: number, synced: JobPr | null): MergeTarget {
   const job = loadJob(root, id);
   return {
     repo: null,
     number,
-    slug: () => repoSlug(root, config),
+    slug: () => github.repoSlug(root, config),
     state: synced?.state,
     checks: synced?.checks?.state,
     mergeState: synced?.mergeState ?? null,
@@ -251,8 +253,8 @@ export function mergeTarget(flags: Record<string, unknown>, sub: 'merge' | 'read
 }
 
 /** mergePr for a linked job: the walk in merge order, or one `target` PR (null: the root). */
-function mergeLinked(root: string, config: Config, id: string, opts: { now: boolean; target: RepoKey | undefined }): MergeResult {
-  const { result, members } = syncPrDetailed(root, config, id, { route: false });
+async function mergeLinked(root: string, config: Config, github: GitHub, id: string, opts: { now: boolean; target: RepoKey | undefined }): Promise<MergeResult> {
+  const { result, members } = await syncPrDetailed(root, config, github, id, { route: false });
   const job = loadJob(root, id);
   const { order, deps, cycle } = jobRepoOrder(config, job);
   const gates = releaseGates(resolveInterim(config, job).edges, readEvents(root, id), job);
@@ -306,8 +308,8 @@ function mergeLinked(root: string, config: Config, id: string, opts: { now: bool
     // recorded its dependency's release, and a bump-due one only once verify bumped it to that release.
     const gate = gates.find((g) => g.consumer === k && (g.gate === 'held' || g.gate === 'bump-due'));
     if (gate) return refuse(k, 'release', releaseGateMessage(id, gate));
-    const t = k === null ? rootTarget(root, config, id, rootNumber, synced) : memberTarget(root, config, job, members.get(k)!);
-    const r = mergeOne(root, config, id, t, { now: opts.now, tag: tag(k) });
+    const t = k === null ? rootTarget(root, config, github, id, rootNumber, synced) : memberTarget(root, config, job, members.get(k)!);
+    const r = mergeOne(root, config, github, id, t, { now: opts.now, tag: tag(k) });
     parts.push({ repo: k, number: t.number, action: r.action, checks: r.checks, ...(r.mergeState !== undefined ? { mergeState: r.mergeState } : {}), ...(r.error !== undefined ? { error: r.error } : {}) });
     if (r.action !== 'merged') break;
     states.set(k, 'MERGED');
@@ -336,7 +338,7 @@ export interface ReadyResult {
  * Refused (`release_gate`) before any gh call while a targeted repo's release gate is held or bump-due,
  * or its manifests at HEAD don't name a recorded release yet.
  */
-export function readyPr(root: string, config: Config, id: string, target: { repo?: string; root?: true } = {}): ReadyResult {
+export function readyPr(root: string, config: Config, github: GitHub, id: string, target: { repo?: string; root?: true } = {}): ReadyResult {
   const job = loadJob(root, id);
   if (target.repo !== undefined) {
     const m = memberEntry(job, target.repo);
@@ -383,15 +385,15 @@ export function readyPr(root: string, config: Config, id: string, target: { repo
     else pending.push({ repo: k, number });
   }
   if (!pending.length) return out;
-  requireGh();
+  github.require();
   for (const { repo, number } of pending) {
     let slug: string;
-    if (repo === null) slug = repoSlug(root, config);
+    if (repo === null) slug = github.repoSlug(root, config);
     else {
       slug = memberSlug(config, repo);
       if (!SLUG_RE.test(slug)) throw new ForgeError(`repo ${repo} has an unusable GitHub repository ${JSON.stringify(slug).slice(0, 80)}`);
     }
-    markPrReady(root, slug, number);
+    github.ready(root, slug, number);
     if (repo === null) setJob(root, id, { owned: { 'pr.isDraft': false } });
     else recordMemberPr(root, id, repo, (prev) => ({ ...(prev ?? {}), isDraft: false }) as JobRepoPr);
     logEvent(root, id, 'pr-ready', { ...(repo !== null ? { repo } : {}), number });

@@ -5,7 +5,8 @@ import path from 'node:path';
 import { isForemanActor, listJobs, readEvents, jobDir } from '#core/job/store.ts';
 import { listArchived } from '#core/job/archive.ts';
 import { listRuns } from './run.ts';
-import { jobFindings } from '../pipeline/findings.ts';
+import { jobFindings, raisedFindings, recurringAcrossJobs } from '../pipeline/findings.ts';
+import type { RecurringGroup } from '../pipeline/findings.ts';
 import { reviewFileName } from '#core/job/lens.ts';
 import { evaluateExperiments } from './experiments.ts';
 import { expiredLearnings, metricValue, parseNoteEntries, readExperiments } from './learnings.ts';
@@ -89,6 +90,19 @@ function expiredLine(l: LearningEntry & { file: string }, ledger: Map<string, Ex
 function recallLine(lens: string, s: ReviewerStats): string {
   const trend = (s.severityTrend ?? []).slice(-4).map((t) => `${t.week}:${t.share ?? '-'}`).join(', ') || '-';
   return `- ${safeText(lens, 100)}: missed ${s.missed}/${s.missChecked} (${s.missRate ?? '-'}) · blocker/major ${s.blockerMajor}/${s.severityKnown} (${s.blockerMajorShare ?? '-'}) · trend ${trend}`;
+}
+
+const GROUP_CAP = 20;
+const GROUP_JOBS_CAP = 10;
+
+/**
+ * One finding key's line for `## Recurring findings across jobs`. The title is `[a-z ]` by
+ * construction and job ids come from listJobs; the lens and example are reviewer text, so safeText.
+ */
+function groupLine(g: RecurringGroup): string {
+  const more = g.jobs.length > GROUP_JOBS_CAP ? ` +${g.jobs.length - GROUP_JOBS_CAP} more` : '';
+  const ids = g.jobs.slice(0, GROUP_JOBS_CAP).join(', ') + more;
+  return `- ${safeText(g.lens, 100)} · ${g.title} · ${g.jobs.length} jobs, ${g.findings} findings · ${ids} · e.g. ${safeText(g.example.trim(), 200)}`;
 }
 
 /** One open entry's dry-run result for `## Experiment verdicts`. */
@@ -181,6 +195,16 @@ export function prepareRetro(
   if (open.length) out.push('## Experiment verdicts', ...open.map(verdictLine), '');
   const recall = Object.entries(stats.reviewers).filter(([, s]) => s.missChecked > 0 || s.findings > 0);
   if (recall.length) out.push('## Per-lens recall', ...recall.map(([lens, s]) => recallLine(lens, s)), '');
+  const perJob = jobs.map((j) => ({
+    id: j.id,
+    findings: [...raisedFindings(root, j.id)].sort(([a], [b]) => a - b).flatMap(([, found]) => found),
+  }));
+  const groups = recurringAcrossJobs(perJob);
+  if (groups.length) {
+    out.push('## Recurring findings across jobs', ...groups.slice(0, GROUP_CAP).map(groupLine));
+    if (groups.length > GROUP_CAP) out.push(`- … and ${groups.length - GROUP_CAP} more recurring group(s)`);
+    out.push('');
+  }
   for (const j of jobs) {
     const jd = jobDir(root, j.id);
     const events = readEvents(root, j.id);

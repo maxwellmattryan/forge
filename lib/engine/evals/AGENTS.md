@@ -4,6 +4,7 @@ Evals and self-improvement: eval runs and stats, experiments, learnings, retros,
 
 - `provenance.ts` hashes the files that shape what agents do (agents, reviewers, the skill, `lib/engine/pipeline/step/`, `step.ts` and `brief.ts`); moving any of them changes the plugin hash.
 - Prefer measuring a prompt or policy change here (evals, `forge stats`) over arguing about it (docs/IMPROVEMENT.md).
+- Design: [Job model](../../../docs/architecture/job-model.md), [Data and versioning](../../../docs/architecture/versioning.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

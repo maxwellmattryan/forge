@@ -1,11 +1,11 @@
 // Renders a component's config sinks (lib/core/config/sinks.ts) into the job's worktree right before one
 // of its commands runs: env vars for the command, env files and config files written at 0o600
 // through a temp file plus rename, and project scripts run with the values. The checkout is hostile
-// (ARCHITECTURE.md "Untrusted input"): every output stays inside the job's own worktree, a symlink
+// (docs/architecture/untrusted-input.md): every output stays inside the job's own worktree, a symlink
 // there is replaced rather than followed, a symlinked parent or `from` leading outside is refused,
 // and an output git tracks or does not ignore is refused so job values never reach a commit. No
-// rendered value is ever put in an error, an event or a log header. Must not import worktree.ts
-// (it imports this module): the caller passes the command's env and its template filler.
+// rendered value is ever put in an error, an event or a log header. Must not import run.ts or
+// dev-server.ts (both import this module): the caller passes the command's env and its template filler.
 
 import fs from 'node:fs';
 import path from 'node:path';

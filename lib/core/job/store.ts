@@ -13,6 +13,7 @@ import type { AgentUsage, Config, Effort, EventActor, ForgeRequest, Job, JobAgen
 import { estimateCost } from '#integrations/claude/pricing.ts';
 import { reviewFileName } from './lens.ts';
 import { requeueOrphans } from './requests.ts';
+import { runTransitionHooks } from './transitions.ts';
 import { configForJob } from '#engine/evals/overlay.ts';
 import { configHash, pluginHash, promptHash } from '#engine/evals/provenance.ts';
 import { checkJobFields, checkOwnedFields } from './fields.ts';
@@ -348,14 +349,6 @@ function checkChange(change: JobChange): void {
     throw new ForgeError(`unknown waiting-on "${change.waitingOn}" (${WAITING_ON.join(', ')})`, 'usage');
 }
 
-/** Called once per stage, state or waitingOn change setJob makes; notify.ts registers here when it loads. */
-export type TransitionHook = (root: string, job: LoadedJob, from: TransitionSide, to: TransitionSide) => void;
-let transitionHook: TransitionHook | null = null;
-
-export function onTransition(hook: TransitionHook | null): void {
-  transitionHook = hook;
-}
-
 /**
  * `derive` decides part of the change from the job as stored at write time, inside the lock, so a
  * claim or edit that lands between a caller's load and its write is what the decision sees. Its
@@ -413,10 +406,7 @@ export function setJob(
     const to = { stage: job.stage, state: job.state, waitingOn: job.waitingOn };
     logEvent(root, id, 'transition', { from: b, to, reason: c.reason ?? undefined });
     // Once per state change: a repeated set with the same state and waitingOn logs no transition.
-    // A hook must never fail the state change it observes.
-    try {
-      transitionHook?.(root, job, b, to);
-    } catch {}
+    runTransitionHooks(root, job, b, to);
   }
   for (const role of lost) {
     const a = job.agents[role];
@@ -591,14 +581,14 @@ export function attachAgent(root: string, id: string, role: string, agentId: str
  * Ends each role still marked running with status `lost`, as `forge job agent <id> end --role
  * <role> --status lost` would, minus the transcript import and budget check: a lost agent carries
  * no usage. Each role is re-read first, so one another writer ended meanwhile keeps its status, and
- * with `driver`, so is one whose job another session has claimed since.
- * Returns the roles it ended.
+ * with `drivers` (every id of the session that drove it), so is one whose job another session has
+ * claimed since. Returns the roles it ended.
  */
-export function markAgentsLost(root: string, id: string, roles: string[], summary: string, config: Config, driver?: string): string[] {
+export function markAgentsLost(root: string, id: string, roles: string[], summary: string, config: Config, drivers?: readonly string[]): string[] {
   const ended: string[] = [];
   for (const role of roles) {
     const job = loadJob(root, id);
-    if (driver !== undefined && job.lease.driver !== driver) break;
+    if (drivers !== undefined && !(job.lease.driver && drivers.includes(job.lease.driver))) break;
     const a = job.agents[role];
     if (a?.status !== 'running') continue;
     const outputMissing = agentOutputMissing(root, id, role, a, undefined);

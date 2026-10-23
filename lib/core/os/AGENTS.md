@@ -3,7 +3,8 @@
 OS helpers on Node built-ins: the platform tiers, child processes and pids, small file reads and writes, and the mkdir lock.
 
 - `run` starts a binary without a shell, so arguments are never reinterpreted. git, gh and docker have their own runners in `lib/integrations/`, which add their pins and timeouts.
-- Locks are broken only when their holder is provably dead, never for their age (docs/ARCHITECTURE.md "Locks prove death").
+- Locks are broken only when their holder is provably dead, never for their age (docs/architecture/concurrency.md "Locks prove death").
+- Design: [Concurrency](../../../docs/architecture/concurrency.md), [Daemon security](../../../docs/architecture/daemon-security.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

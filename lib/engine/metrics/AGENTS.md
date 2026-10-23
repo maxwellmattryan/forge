@@ -3,6 +3,7 @@
 Stats, token usage, spend and budgets.
 
 - **Claude Code transcripts** (`~/.claude/projects/*/<session>/subagents/agent-<id>.jsonl`) log each content block as its own line sharing one `message.id`. Their `usage.output_tokens` is the stream's opening snapshot, not the final count, which is why `usage.ts` dedupes by message id, counts tools by block id, and estimates output from content.
+- Design: [Policies](../../../docs/architecture/policies.md), [Job model](../../../docs/architecture/job-model.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

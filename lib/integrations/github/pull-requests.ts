@@ -1,15 +1,20 @@
-// Pull requests through gh: the calls Forge makes on a PR and what it reads back (checks and review
-// feedback), with no pipeline policy. When to adopt, open, rework, retarget or merge is lib/engine/pr/'s.
+// Pull requests on GitHub, behind the typed seam lib/engine/pr/ takes as a parameter: the parsers that
+// check every PR read once into a snapshot, and the gh adapter that makes the calls. No pipeline
+// policy: when to adopt, open, rework, retarget or merge is lib/engine/pr/'s.
 import { ForgeError } from '#core/errors.ts';
+import { isSafeUrl } from '#core/job/issue-ref.ts';
 import { hasBinary } from '#core/os/process.ts';
 import type { RunResult } from '#core/os/process.ts';
+import { SAFE_REF, isSha, safeText } from '#core/text.ts';
 import type { Config, PrChecks } from '#core/types.ts';
-import { gh, ghGraphql, ghJson } from './gh.ts';
+import { gh, graphqlArgs, parseJsonOutput } from './gh.ts';
+import type { ClosingPr, FeedbackComment, FeedbackReview, FeedbackThread, GitHub, PrBody, PrFeedback, PrSnapshot, PrState } from './types.ts';
+
+export type { ClosingPr, FeedbackComment, FeedbackReview, FeedbackThread, GitHub, MergeOutcome, PrBody, PrCreate, PrFeedback, PrSnapshot, PrState } from './types.ts';
 
 export const MARKER = '<!-- forge -->';
 
-const PR_FIELDS = 'number,url,state,isDraft,title,headRefName,baseRefName,mergedAt,closedAt,isCrossRepository,author';
-export const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+const TRUSTED_ASSOCIATIONS: ReadonlySet<unknown> = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 
 export const PR_STATES = new Set(['OPEN', 'CLOSED', 'MERGED']);
 
@@ -17,15 +22,18 @@ export const SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
 export const safePrNumber = (n: unknown): number | null => (typeof n === 'number' && Number.isSafeInteger(n) && n > 0 ? n : null);
 
-export function requireGh(): void {
-  if (!hasBinary('gh')) throw new ForgeError('the GitHub CLI (gh) is required for PR features; install it or set pr.enabled: false', 'external');
+/** gh's arguments for a PR runner: `gh` itself in production, so every call keeps GH_TIMEOUT_MS. */
+export type GhRun = typeof gh;
+
+function slugVia(run: GhRun, root: string, config: Config): string {
+  if (config.tracker?.github?.repo) return config.tracker.github.repo;
+  const r = run(root, ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], { allowFail: true });
+  if (r.ok && r.stdout.trim()) return r.stdout.trim();
+  throw new ForgeError('cannot determine the GitHub repository; set tracker.github.repo or run `gh auth login`', 'external');
 }
 
 export function repoSlug(root: string, config: Config): string {
-  if (config.tracker?.github?.repo) return config.tracker.github.repo;
-  const r = gh(root, ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], { allowFail: true });
-  if (r.ok && r.stdout.trim()) return r.stdout.trim();
-  throw new ForgeError('cannot determine the GitHub repository; set tracker.github.repo or run `gh auth login`', 'external');
+  return slugVia(gh, root, config);
 }
 
 /**
@@ -33,115 +41,121 @@ export function repoSlug(root: string, config: Config): string {
  * repo's base. A PR number in job.json is agent-writable, so without this a rewritten number would
  * let a merged PR elsewhere satisfy the merge order, or send a merge or body edit to an unrelated PR.
  */
-export function assertJobPr(pr: any, branch: string | null, base: string | null, label: string): void {
-  if (!branch || pr?.headRefName !== branch) throw new ForgeError(`${label} is not on the job's branch ${branch}`);
-  if (!base || pr?.baseRefName !== base) throw new ForgeError(`${label} does not target ${base}`);
+export function assertJobPr(pr: Pick<PrSnapshot, 'headRefName' | 'baseRefName'>, branch: string | null, base: string | null, label: string): void {
+  if (!branch || pr.headRefName !== branch) throw new ForgeError(`${label} is not on the job's branch ${branch}`);
+  if (!base || pr.baseRefName !== base) throw new ForgeError(`${label} does not target ${base}`);
 }
 
-/** `gh pr view` of PR `number` in `slug`, with `fields`. gh output: raw input. */
-export function viewPr(cwd: string, slug: string, number: number, fields: string = PR_FIELDS): any {
-  return ghJson(cwd, ['pr', 'view', String(number), '-R', slug, '--json', fields]);
+// ---- Parsers: gh's JSON and GitHub's GraphQL are raw input; only checked values leave them. ----
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** `v[k1][k2]…`, undefined as soon as a step is not an object. */
+function dig(v: unknown, ...keys: string[]): unknown {
+  let cur = v;
+  for (const k of keys) cur = isRecord(cur) ? cur[k] : undefined;
+  return cur;
 }
 
-/** Up to 5 PRs in `slug` whose head is `branch`, forks included. gh output: raw input. */
-export function listPrs(cwd: string, slug: string, branch: string, state: 'open' | 'all'): any {
-  return ghJson(cwd, ['pr', 'list', '-R', slug, '--head', branch, '--state', state, '--json', PR_FIELDS, '--limit', '5']);
+const httpsUrl = (u: unknown): string | null => (isSafeUrl(u) && u.startsWith('https://') ? u : null);
+const prState = (s: unknown): PrState | null => (typeof s === 'string' && PR_STATES.has(s) ? (s as PrState) : null);
+const safeRef = (v: unknown): string | null => (typeof v === 'string' && SAFE_REF.test(v) ? v : null);
+const shortText = (v: unknown): string | null => (typeof v === 'string' && v ? safeText(v, 40) || null : null);
+const text = (v: unknown): string => (typeof v === 'string' ? v : '');
+
+function record(raw: unknown, what: string): Record<string, unknown> {
+  if (!isRecord(raw)) throw new ForgeError(`gh returned ${what} that is not an object`, 'external');
+  return raw;
 }
 
-/** The PRs that close issue `issue` in `slug`, closed ones and forks included, unfiltered. GitHub's GraphQL: raw input. */
-export function closingPrs(cwd: string, slug: string, issue: number): any[] {
-  const [owner, name] = slug.split('/');
-  const data = ghGraphql(
-    cwd,
-    `query($owner:String!,$name:String!,$num:Int!){repository(owner:$owner,name:$name){issue(number:$num){closedByPullRequestsReferences(first:10,includeClosedPrs:true){nodes{number state headRefName isCrossRepository authorAssociation}}}}}`,
-    { owner, name, num: issue },
-  );
-  return data?.repository?.issue?.closedByPullRequestsReferences?.nodes ?? [];
-}
-
-/** `gh pr create`, throwing when it fails. Returns the last line gh printed, the new PR's URL (raw input). */
-export function createPr(
-  cwd: string,
-  pr: { slug: string; base: string; head: string; title: string; bodyFile: string; draft: boolean; labels: readonly string[]; reviewers: readonly string[] },
-): string {
-  const args = ['pr', 'create', '-R', pr.slug, '--base', pr.base, '--head', pr.head, '--title', pr.title, '--body-file', pr.bodyFile];
-  if (pr.draft) args.push('--draft');
-  for (const l of pr.labels) args.push('--label', l);
-  for (const r of pr.reviewers) args.push('--reviewer', r);
-  return gh(cwd, args).stdout.trim().split('\n').pop() ?? '';
-}
-
-/** Moves PR `number` onto `base`, throwing when gh fails. */
-export function editPrBase(cwd: string, slug: string, number: number, base: string): void {
-  gh(cwd, ['pr', 'edit', String(number), '-R', slug, '--base', base]);
-}
-
-/** Replaces PR `number`'s body with `bodyFile`'s text, throwing when gh fails. */
-export function editPrBody(cwd: string, slug: string, number: number, bodyFile: string): void {
-  gh(cwd, ['pr', 'edit', String(number), '-R', slug, '--body-file', bodyFile]);
-}
-
-/** Marks draft PR `number` ready for review, throwing when gh fails. */
-export function markPrReady(cwd: string, slug: string, number: number): void {
-  gh(cwd, ['pr', 'ready', String(number), '-R', slug]);
-}
-
-/**
- * One `gh pr merge` call: `--auto` when asked, pinned with `--match-head-commit` when `matchHead` is
- * set. It never throws on a failed merge: the result says so, and its output is raw input.
- */
-export function submitMerge(cwd: string, slug: string, number: number, opts: { method: string; auto: boolean; matchHead: string | null }): RunResult {
-  const args = ['pr', 'merge', String(number), '-R', slug, `--${opts.method}`];
-  if (opts.auto) args.push('--auto');
-  if (opts.matchHead) args.push('--match-head-commit', opts.matchHead);
-  return gh(cwd, args, { allowFail: true });
-}
-
-/** Human feedback on a PR, as GitHub's GraphQL returns it (raw input): fetchFeedback. */
-export interface PrFeedback {
-  threads: any[];
-  reviews: any[];
-  comments: any[];
-}
-
-export function fetchFeedback(root: string, slug: string, num: number): PrFeedback {
-  const [owner, name] = slug.split('/');
-  const data = ghGraphql(
-    root,
-    `query($owner:String!,$name:String!,$num:Int!){repository(owner:$owner,name:$name){pullRequest(number:$num){
-      reviewThreads(first:100){nodes{isResolved isOutdated path line comments(first:20){nodes{author{login} authorAssociation body createdAt url}}}}
-      reviews(last:30){nodes{state body author{login} authorAssociation submittedAt url}}
-      comments(last:50){nodes{author{login} authorAssociation body createdAt url}}}}}`,
-    { owner, name, num },
-  );
-  const pr = data?.repository?.pullRequest ?? {};
+/** gh's PR JSON as a PrSnapshot. A field with a bad value becomes null; a PR not marked same-repo counts as a fork. */
+export function parsePr(raw: unknown): PrSnapshot {
+  const pr = record(raw, 'a PR');
+  const rollup = Array.isArray(pr.statusCheckRollup) ? pr.statusCheckRollup : [];
   return {
-    threads: (pr.reviewThreads?.nodes ?? []).filter((t: any) => !t.isResolved && t.comments.nodes.some(human)),
-    reviews: (pr.reviews?.nodes ?? []).filter((r: any) => human(r) && (r.body?.trim() || r.state === 'CHANGES_REQUESTED')),
-    comments: (pr.comments?.nodes ?? []).filter(human),
+    number: safePrNumber(pr.number),
+    url: httpsUrl(pr.url),
+    state: prState(pr.state),
+    isDraft: pr.isDraft === true,
+    isCrossRepository: pr.isCrossRepository !== false,
+    headRefName: safeRef(pr.headRefName),
+    baseRefName: safeRef(pr.baseRefName),
+    headOid: isSha(pr.headRefOid) ? pr.headRefOid : null,
+    mergeable: shortText(pr.mergeable),
+    mergeState: shortText(pr.mergeStateStatus),
+    reviewDecision: shortText(pr.reviewDecision),
+    mergedAt: shortText(pr.mergedAt),
+    checks: summarizeChecks(rollup),
+    failingChecks: failingCheckNames(rollup),
   };
 }
 
+export function parsePrBody(raw: unknown): PrBody {
+  const pr = record(raw, 'a PR');
+  return { number: safePrNumber(pr.number), headRefName: safeRef(pr.headRefName), baseRefName: safeRef(pr.baseRefName), body: typeof pr.body === 'string' ? pr.body : null };
+}
+
+/** GitHub's closedByPullRequestsReferences nodes. A node not marked same-repo counts as a fork. */
+export function parseClosing(nodes: unknown): ClosingPr[] {
+  if (!Array.isArray(nodes)) return [];
+  return nodes.filter(isRecord).map((n) => ({
+    number: safePrNumber(n.number),
+    state: prState(n.state),
+    isCrossRepository: n.isCrossRepository !== false,
+    trusted: TRUSTED_ASSOCIATIONS.has(n.authorAssociation),
+  }));
+}
+
+const login = (c: Record<string, unknown>): string => text(dig(c, 'author', 'login'));
 /** A person's comment or review, not a bot's or Forge's own (which carries MARKER). */
-const human = (c: any): boolean => !String(c.author?.login ?? '').endsWith('[bot]') && !String(c.body ?? '').includes(MARKER);
-/** Written by someone with write access to the repo: only that may start an unattended foreman rework. */
-const trusted = (c: any): boolean => human(c) && TRUSTED_ASSOCIATIONS.has(c?.authorAssociation);
+const human = (c: Record<string, unknown>): boolean => !login(c).endsWith('[bot]') && !text(c.body).includes(MARKER);
+const nodesOf = (v: unknown, key: string): Record<string, unknown>[] => {
+  const n = dig(v, key, 'nodes');
+  return Array.isArray(n) ? n.filter(isRecord) : [];
+};
+const comment = (c: Record<string, unknown>): FeedbackComment => ({
+  login: safeText(login(c), 100),
+  // Written by someone with write access to the repo: only that may start an unattended foreman rework.
+  trusted: TRUSTED_ASSOCIATIONS.has(c.authorAssociation),
+  body: text(c.body),
+  createdAt: shortText(c.createdAt),
+  url: httpsUrl(c.url),
+});
 
 /**
- * Unresolved threads with a trusted comment plus trusted CHANGES_REQUESTED reviews. The pr-feedback gate
- * counts only these (and failing checks): a stranger's comment on a public repo stays a human's call.
+ * People's feedback on a PR from GitHub's GraphQL `.data`: bots' and Forge's own comments dropped,
+ * unresolved threads kept only with a person's comment, reviews kept with a body or a change request.
+ * `trusted` counts only what someone with write access wrote: a stranger's comment on a public repo
+ * stays a human's call.
  */
-export function trustedFeedback(fb: Pick<PrFeedback, 'threads' | 'reviews'>): number {
-  const threads = fb.threads.filter((t: any) => (t?.comments?.nodes ?? []).some(trusted)).length;
-  const reviews = fb.reviews.filter((r: any) => r?.state === 'CHANGES_REQUESTED' && trusted(r)).length;
-  return threads + reviews;
+export function parseFeedback(data: unknown): PrFeedback {
+  const pr = dig(data, 'repository', 'pullRequest');
+  const threads: FeedbackThread[] = nodesOf(pr, 'reviewThreads')
+    .filter((t) => t.isResolved !== true)
+    .map((t) => ({
+      path: safeText(text(t.path), 300),
+      // A line number is a positive integer like a PR number.
+      line: safePrNumber(t.line),
+      isOutdated: t.isOutdated === true,
+      comments: nodesOf(t, 'comments').filter(human).map(comment),
+    }))
+    .filter((t) => t.comments.length > 0);
+  const reviews: FeedbackReview[] = nodesOf(pr, 'reviews')
+    .filter((r) => human(r) && (text(r.body).trim() || r.state === 'CHANGES_REQUESTED'))
+    .map((r) => {
+      const c = comment(r);
+      return { state: safeText(text(r.state), 40), login: c.login, trusted: c.trusted, body: c.body, submittedAt: shortText(r.submittedAt), url: c.url };
+    });
+  const comments = nodesOf(pr, 'comments').filter(human).map(comment);
+  const trusted = threads.filter((t) => t.comments.some((c) => c.trusted)).length + reviews.filter((r) => r.state === 'CHANGES_REQUESTED' && r.trusted).length;
+  return { threads, reviews, comments, trusted };
 }
 
 const FAILING_STATES = ['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE'];
-const checkState = (c: any): string => String(c?.conclusion || c?.state || c?.status || '').toUpperCase();
+const checkState = (c: unknown): string => String(dig(c, 'conclusion') || dig(c, 'state') || dig(c, 'status') || '').toUpperCase();
 
-// gh's statusCheckRollup: raw input.
-export function summarizeChecks(rollup: any[]): PrChecks {
+/** gh's statusCheckRollup (raw input) counted as passing, failing and pending. */
+export function summarizeChecks(rollup: readonly unknown[]): PrChecks {
   let passing = 0, failing = 0, pending = 0;
   for (const c of rollup) {
     const s = checkState(c);
@@ -166,9 +180,11 @@ export function failingCheckNames(rollup: unknown): { names: string[]; more: num
   let more = 0;
   for (const c of Array.isArray(rollup) ? rollup : []) {
     if (!FAILING_STATES.includes(checkState(c))) continue;
-    const raw = typeof c?.name === 'string' && c.name ? c.name : typeof c?.context === 'string' ? c.context : '';
-    const name = raw.trim();
-    if (names.length < MAX_CHECK_NAMES && CHECK_NAME.test(name)) names.push(name);
+    const name = dig(c, 'name');
+    const context = dig(c, 'context');
+    const raw = typeof name === 'string' && name ? name : typeof context === 'string' ? context : '';
+    const trimmed = raw.trim();
+    if (names.length < MAX_CHECK_NAMES && CHECK_NAME.test(trimmed)) names.push(trimmed);
     else more++;
   }
   return { names, more };
@@ -179,3 +195,78 @@ export function checksText(f: { names: string[]; more: number }): string {
   if (!f.names.length) return `${f.more} checks`;
   return f.names.join(', ') + (f.more ? ` and ${f.more} more` : '');
 }
+
+// ---- The gh adapter ----
+
+/** Every PR view reads these: one list, so one parser and one snapshot type serve every caller. */
+const VIEW_FIELDS = 'number,url,state,isDraft,isCrossRepository,headRefName,baseRefName,headRefOid,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,mergedAt';
+const LIST_FIELDS = 'number,url,state,isDraft,isCrossRepository,headRefName,baseRefName';
+const BODY_FIELDS = 'number,body,headRefName,baseRefName';
+const CLOSING_QUERY = `query($owner:String!,$name:String!,$num:Int!){repository(owner:$owner,name:$name){issue(number:$num){closedByPullRequestsReferences(first:10,includeClosedPrs:true){nodes{number state headRefName isCrossRepository authorAssociation}}}}}`;
+const FEEDBACK_QUERY = `query($owner:String!,$name:String!,$num:Int!){repository(owner:$owner,name:$name){pullRequest(number:$num){
+      reviewThreads(first:100){nodes{isResolved isOutdated path line comments(first:20){nodes{author{login} authorAssociation body createdAt url}}}}
+      reviews(last:30){nodes{state body author{login} authorAssociation submittedAt url}}
+      comments(last:50){nodes{author{login} authorAssociation body createdAt url}}}}}`;
+
+/** `gh pr create`'s last line as `{number, url}`: both null unless it is an https url with `/pull/<n>`. */
+function parseCreated(stdout: string): { number: number | null; url: string | null } {
+  const url = httpsUrl(stdout.trim().split('\n').pop()?.trim() ?? '');
+  const number = url === null ? null : safePrNumber(Number(/\/pull\/(\d+)/.exec(url)?.[1]));
+  return number === null ? { number: null, url: null } : { number, url };
+}
+
+/** The GitHub adapter over `run` (gh by default): one call per operation, every read checked by the parsers above. */
+export function createGhGitHub(run: GhRun = gh): GitHub {
+  // gh itself throws on a failed call without allowFail; a runner that returns one fails the same way.
+  const call = (cwd: string, args: string[]): RunResult => {
+    const r = run(cwd, args);
+    if (!r.ok) throw new ForgeError(`gh ${args.slice(0, 2).join(' ')} failed: ${(r.stderr || r.stdout).trim().slice(0, 300)}`, 'external');
+    return r;
+  };
+  const json = (cwd: string, args: string[]): unknown => parseJsonOutput(call(cwd, args), args);
+  const graphql = (cwd: string, query: string, slug: string, num: number): unknown => {
+    const [owner, name] = slug.split('/');
+    return dig(json(cwd, graphqlArgs(query, { owner, name, num })), 'data');
+  };
+  return {
+    require() {
+      if (!hasBinary('gh')) throw new ForgeError('the GitHub CLI (gh) is required for PR features; install it or set pr.enabled: false', 'external');
+    },
+    repoSlug: (root, config) => slugVia(run, root, config),
+    view: (cwd, slug, number) => parsePr(json(cwd, ['pr', 'view', String(number), '-R', slug, '--json', VIEW_FIELDS])),
+    viewBody: (cwd, slug, number) => parsePrBody(json(cwd, ['pr', 'view', String(number), '-R', slug, '--json', BODY_FIELDS])),
+    list(cwd, slug, branch, state) {
+      const out = json(cwd, ['pr', 'list', '-R', slug, '--head', branch, '--state', state, '--json', LIST_FIELDS, '--limit', '5']);
+      return Array.isArray(out) ? out.filter(isRecord).map(parsePr) : [];
+    },
+    closing: (cwd, slug, issue) => parseClosing(dig(graphql(cwd, CLOSING_QUERY, slug, issue), 'repository', 'issue', 'closedByPullRequestsReferences', 'nodes')),
+    feedback: (cwd, slug, number) => parseFeedback(graphql(cwd, FEEDBACK_QUERY, slug, number)),
+    create(cwd, pr) {
+      const args = ['pr', 'create', '-R', pr.slug, '--base', pr.base, '--head', pr.head, '--title', pr.title, '--body-file', pr.bodyFile];
+      if (pr.draft) args.push('--draft');
+      for (const l of pr.labels) args.push('--label', l);
+      for (const r of pr.reviewers) args.push('--reviewer', r);
+      return parseCreated(call(cwd, args).stdout);
+    },
+    editBase(cwd, slug, number, base) {
+      call(cwd, ['pr', 'edit', String(number), '-R', slug, '--base', base]);
+    },
+    editBody(cwd, slug, number, bodyFile) {
+      call(cwd, ['pr', 'edit', String(number), '-R', slug, '--body-file', bodyFile]);
+    },
+    ready(cwd, slug, number) {
+      call(cwd, ['pr', 'ready', String(number), '-R', slug]);
+    },
+    // One `gh pr merge`: `--auto` when asked, pinned with `--match-head-commit` when matchHead is set.
+    merge(cwd, slug, number, opts) {
+      const args = ['pr', 'merge', String(number), '-R', slug, `--${opts.method}`];
+      if (opts.auto) args.push('--auto');
+      if (opts.matchHead) args.push('--match-head-commit', opts.matchHead);
+      const r = run(cwd, args, { allowFail: true });
+      return r.ok ? { ok: true } : { ok: false, error: (r.stderr || r.stdout).trim() };
+    },
+  };
+}
+
+/** The production adapter. Only lib/cli/ passes it in; lib/engine/pr/ receives it as a parameter. */
+export const ghGitHub: GitHub = createGhGitHub();

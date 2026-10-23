@@ -1,7 +1,7 @@
 // Job databases (docs/CONFIG.md "Backing services"): a shared Postgres entry with `database` gives
 // each job its own database and login role on the one server, cloned from a template database the
 // project's migrate and seed commands build. A leaf beside lib/engine/environment/backing.ts, which passes in the docker
-// runner, the container and a command callback, so this module never imports backing.ts or worktree.ts.
+// runner, the container and a command callback, so this module never imports backing.ts or job-command.ts.
 //
 // Every name is derived (from the job id, or the hash of what builds the template), checked against
 // PG_IDENT and double-quoted; SQL reaches psql only on stdin; Postgres only ever gets a SCRAM-SHA-256
