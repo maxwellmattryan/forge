@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.19.1
+
+- Point the builder note's O_NOFOLLOW example at lib/server/static.ts
+- Split server.ts into lib/server/ (#455)
+- Tear down the test suite for the rewrite (#447)
+- Split pr.ts into mechanism and policy (#446)
+- Dashboard polish: station terminals, heat and quick transitions (#445)
+- Line up the session log on one grid (#443)
+- Split types.ts by owning module (#444)
+- Thread progress lines, a live line, and session controls in the drawer header (#440)
+- Cross-layer imports through package.json subpath aliases (#core/*, …) (#439)
+- A default permission mode for job sessions (#438)
+- Widen the security lens to the github, guard and office folders
+- Point the Forge config, notes and code checklist at the lib layers
+- The move into layers (#423)
+- Groundwork for the lib/ layers (#422)
+- One validation layer: shared helpers, job-field rules in setJob, config.ts split (#411)
+- One wrapper each for git, gh and Docker, with gh timeouts (#410)
+- Dashboard: split view.ts, replace {@html} builders with components, one data path (#409)
+- Break lib/ import cycles and keep domain modules off the CLI layer (#408)
+- Dashboard imports the API types instead of mirroring them (#407)
+- Update forge config
+- Versions: `API_VERSION` 35 → 37.
+
 ## 0.19.0
 
 - Close the improvement loop: prompt provenance per job, experiment settlement, scheduled retros, reviewer recall evals (#406)
