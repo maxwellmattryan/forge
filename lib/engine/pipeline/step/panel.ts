@@ -1,11 +1,12 @@
 // The review panel and the lenses each round reviews: pure helpers step, `forge job panel` and
 // loadStepInput share.
 import path from 'node:path';
-import { lensAlwaysOnRework } from '../../../core/config/load.ts';
-import { LENS_NAME, isLens, lensRepoAllowed, reviewFileName, splitLens } from '../../../core/job/lens.ts';
+import { lensAlwaysOnRework } from '#core/config/load.ts';
+import { LENS_NAME, isLens, lensRepoAllowed, reviewFileName, splitLens } from '#core/job/lens.ts';
 import type { MemberLens } from '../member-panel.ts';
-import { inSpec } from '../../../core/glob.ts';
-import type { Config, Job, PanelEntry, StepInput } from '../../../core/types.ts';
+import { inSpec } from '#core/glob.ts';
+import type { Config, Job, PanelEntry } from '#core/types.ts';
+import type { StepInput } from '../types.ts';
 import { after } from './facts.ts';
 
 const alwaysLenses = (config: Config) => config.review.panel.filter((p) => p.always).map((p) => p.name);

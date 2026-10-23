@@ -16,4 +16,5 @@ A job's runtime environment: backing services, ports, endpoints, the dev server'
 | `ports.ts` | Job ports: one stable port per port-bearing component (lib/engine/environment/endpoints.ts turns them into placeholders and env), chosen with the worktree under the same lock as backing ports. |
 | `record.ts` | The environment record (docs/CONFIG.md "Backing services" › Lifecycle): what Forge last did to each job's environment, `running` or `stopped`, with when it was last used. |
 | `status.ts` | A job's environment as the dashboard shows it (issue #199): its dev server's state and last log lines, its backing services, and every running environment in the checkout with its CPU and memory. |
+| `types.ts` | The environment and backing-service records and results, type-only. |
 <!-- forge:map:end -->

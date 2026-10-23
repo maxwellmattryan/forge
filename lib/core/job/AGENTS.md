@@ -20,4 +20,5 @@ The job store and what it persists: job.json, events and the lease, schema versi
 | `schema.ts` | Versioned data shapes. |
 | `session-files.ts` | The daemon's session records and logs under .forge/runtime/daemons/, opened without following links or blocking on a FIFO. |
 | `store.ts` | Job state and its event log: load, update and list jobs, and the job lease (claim, renew, expire, the epoch fence). |
+| `types.ts` | The job shapes the store, the archive and the findings summary share, type-only: re-exported by lib/core/types.ts. |
 <!-- forge:map:end -->

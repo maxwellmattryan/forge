@@ -11,14 +11,14 @@ import { execFileSync } from 'node:child_process';
 import { repoTemplate } from '../../helpers.ts';
 import { FIXTURE_DIST } from '../../dist.ts';
 import { startServer, stateFrame } from '../../../lib/server/start.ts';
-import type { DaemonSessionState } from '../../../lib/core/types.ts';
-import { defaults } from '../../../lib/core/config/load.ts';
-import { sessionFiles } from '../../../lib/core/job/session-files.ts';
-import { attachAgent, claimJob, createJob, jobDir, recordAgent } from '../../../lib/core/job/store.ts';
-import { recordKnown } from '../../../lib/engine/guard/known-secrets.ts';
-import { fingerprint, mask, refuseSecrets, textUnit } from '../../../lib/engine/guard/secrets.ts';
-import { projectSlug } from '../../../lib/integrations/claude/transcripts.ts';
-import { hasBinary } from '../../../lib/core/os/process.ts';
+import type { DaemonSessionState } from '#core/types.ts';
+import { defaults } from '#core/config/load.ts';
+import { sessionFiles } from '#core/job/session-files.ts';
+import { attachAgent, claimJob, createJob, jobDir, recordAgent } from '#core/job/store.ts';
+import { recordKnown } from '#engine/guard/known-secrets.ts';
+import { fingerprint, mask, refuseSecrets, textUnit } from '#engine/guard/secrets.ts';
+import { projectSlug } from '#integrations/claude/transcripts.ts';
+import { hasBinary } from '#core/os/process.ts';
 
 const OWNER = '11111111-2222-4333-8444-555555555555';
 

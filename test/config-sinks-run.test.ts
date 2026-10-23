@@ -8,11 +8,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate, waitFor } from './helpers.ts';
-import { loadConfig } from '../lib/core/config/load.ts';
-import { createJob, jobDir, logEvent, updateJob } from '../lib/core/job/store.ts';
-import { run } from '../lib/core/os/process.ts';
-import { createWorktree } from '../lib/engine/workspace/worktree.ts';
-import * as yaml from '../lib/core/format/yaml.ts';
+import { loadConfig } from '#core/config/load.ts';
+import { createJob, jobDir, logEvent, updateJob } from '#core/job/store.ts';
+import { run } from '#core/os/process.ts';
+import { createWorktree } from '#engine/workspace/worktree.ts';
+import * as yaml from '#core/format/yaml.ts';
 
 const API = path.join('services', 'api');
 const EXAMPLE = { server: { host: 'h', port: 1, tags: ['a'] }, keep: true };

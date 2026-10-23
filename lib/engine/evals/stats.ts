@@ -1,6 +1,6 @@
 // Eval statistics: where a job's time went, and n / mean / min / max over a run's repeats, so an
 // A/B comparison shows the sample behind every number. Pure: no I/O, so every rule is a test row.
-import type { EvalDelta, EvalResult, EvalRun, EvalStat, EvalTaskAggregate, EvalTaskMetric, JobEvent, Stage } from '../../core/types.ts';
+import type { EvalDelta, EvalResult, EvalRun, EvalStat, EvalTaskAggregate, EvalTaskMetric, JobEvent, Stage } from '#core/types.ts';
 
 export const TASK_METRICS = [
   'checkPass',

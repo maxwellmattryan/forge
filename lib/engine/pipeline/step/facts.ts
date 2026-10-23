@@ -1,6 +1,7 @@
 // What step reads off a StepInput: agent records, events and the facts derived from them.
 import path from 'node:path';
-import type { JobAgent, JobEvent, StepInput, VerifyRun, WaitingOn } from '../../../core/types.ts';
+import type { JobAgent, JobEvent, VerifyRun, WaitingOn } from '#core/types.ts';
+import type { StepInput } from '../types.ts';
 
 export const ended = (a: JobAgent | undefined): a is JobAgent => Boolean(a?.endedAt && a.status !== 'running');
 export const endedIn = (a: JobAgent | undefined, round: number): a is JobAgent => ended(a) && a.round === round;

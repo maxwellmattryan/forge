@@ -24,8 +24,10 @@
   import RepoSection from './RepoSection.svelte';
   import ScreenshotsPanel from './ScreenshotsPanel.svelte';
   import SessionActivity from './SessionActivity.svelte';
+  import SessionControls from './SessionControls.svelte';
   import SessionLog from './SessionLog.svelte';
   import StateChip from './StateChip.svelte';
+  import ThreadLive from './ThreadLive.svelte';
   import ThreadPanel from './ThreadPanel.svelte';
   import Icon from './Icon.svelte';
   import type { IconName } from '../lib/icons.ts';
@@ -194,9 +196,12 @@
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div bind:this={head} class="shrink-0 max-h-[40%] overflow-y-auto overscroll-contain p-5 md:p-6 pb-3 md:pb-4 flex flex-col gap-2">
         <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 bind:this={title} tabindex="-1" class="h sheet-title">{j.title}</h2><div class="mono text-[13px] muted selectable">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div></div>
-        <div class="flex flex-wrap items-center gap-1.5"><Chip tone="gleam" text={STAGE_LABEL[j.stage] ?? j.stage} /><StateChip job={j} />{#if prot}<Chip tone="warn" extra="max-w-full flex-wrap whitespace-normal" text={$t('job.protectedDrawer', { reasons: prot.reasons.join(' · ') })} />{/if}{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}<EffortChip level={effort} />{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>
+        <!-- A daemon-backed job's session controls sit here, not in its Log, so every tab has them; an interactive owner's
+             job has none, as its Log follows a transcript, and keeps the effort chip. -->
+        <div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-2"><div class="flex min-w-0 flex-wrap items-center gap-1.5"><Chip tone="gleam" text={STAGE_LABEL[j.stage] ?? j.stage} /><StateChip job={j} />{#if prot}<Chip tone="warn" extra="max-w-full flex-wrap whitespace-normal" text={$t('job.protectedDrawer', { reasons: prot.reasons.join(' · ') })} />{/if}{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}{#if ownerLog}<EffortChip level={effort} />{/if}{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>{#if !ownerLog}{#key j.id}<SessionControls scope={j.id} />{/key}{/if}</div>
         {#if j.reason}<div class="text-sm text-muted truncate" title={j.reason}>{j.reason}</div>{/if}
-        {#if running.length || j.ownerStatus?.status !== 'none'}<AgentActivity activity={running} owner={j.ownerStatus} expandable={true} />{/if}
+        <!-- On the Thread the live line under the conversation says what runs, so the header doesn't say it twice. -->
+        {#if shown.tab !== 'thread' && (running.length || j.ownerStatus?.status !== 'none')}<AgentActivity activity={running} owner={j.ownerStatus} expandable={true} />{/if}
       </div>
       <!-- Outside the scroller, so it never moves; it scrolls sideways when the tabs outgrow a phone. -->
       <div role="tablist" tabindex="-1" aria-label={$t('drawer.tabs')} {@attach slideMarker('[aria-selected="true"]', 'bar-bottom')} class="tabs slide-marker shrink-0 z-20 solid px-5 md:px-6 overflow-x-auto overflow-y-hidden" onkeydown={stripKey}>{#each DRAWER_TABS as tab (tab)}<button role="tab" id="drawer-tab-{tab}" aria-selected={shown.tab === tab} aria-controls="drawer-panel-{tab}" tabindex={shown.tab === tab ? 0 : -1} class="tab shrink-0 whitespace-nowrap focus-visible:-outline-offset-2 {shown.tab === tab ? 'active' : ''}" onclick={() => selectTab(tab)}>{#if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<Chip extra="spark ml-1.5" text={$t('drawer.threadUnread', { count: unread })} />{/if}{:else if tab === 'log'}{$t('drawer.logTab')}{#if activity?.kind === 'working'}<span class="inline-flex ml-1.5 align-middle"><LiveDot on={true} /></span><span class="sr-only">{$t('live.working')}</span>{/if}{:else if tab === 'agents'}{$t('drawer.agentsTab')}{#if running.length}<span class="muted num ml-1">({running.length})</span>{/if}{:else if tab === 'files'}{$t('drawer.files')}{:else if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted num">({d.events.length})</span>{:else if tab === 'details'}{$t('drawer.detailsTab')}{/if}</button>{/each}</div>
@@ -206,7 +211,7 @@
         {:else if shown.tab === 'log'}
           <!-- Keyed by job id (and owner transcript), so the drawer's 2 s refresh never re-creates the log or its stream; `active`
                closes the stream as soon as the drawer closes, though its last view stays while it slides out. -->
-          {#key logKey}<SessionLog scope={j.id} active={open} transcript={ownerLog} stage={j.stage} fill />{/key}
+          {#key logKey}<SessionLog scope={j.id} active={open} transcript={ownerLog} stage={j.stage} controls={false} fill />{/key}
         {:else if shown.tab === 'agents'}
           {#key j.id}<AgentsTab job={j.id} detail={d} active={open} />{/key}
         {:else if shown.tab === 'files'}
@@ -306,6 +311,7 @@
           {#key j.id}<DeleteJobSection job={j} />{/key}
         {/if}
       </div>
+      {#if shown.tab === 'thread'}<ThreadLive agents={running} session={activity} cost={j.usage?.estCostUsd} onopen={() => selectTab('log', true)} />{/if}
     </div>
     <ActionDock job={j} />
   {/if}

@@ -7,8 +7,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { RULES, hasSpecDeltas, listLineCount, parsePlan, parseSpecHeader, roundLenses, selectPanel, shellLine, step } from '../lib/engine/pipeline/step.ts';
-import type { Job, StepAction } from '../lib/core/types.ts';
+import { RULES, hasSpecDeltas, listLineCount, parsePlan, parseSpecHeader, roundLenses, selectPanel, shellLine, step } from '#engine/pipeline/step.ts';
+import type { Job } from '#core/types.ts';
+import type { StepAction } from '#engine/pipeline/types.ts';
 import { fixture, verdicts } from './step-fixture.ts';
 import { DS_CHECKED, DS_VERIFY, OPEN_PR, PANEL_SET, SPEC_DONE, ag, argvMatch, assertWant, atIntegrate, dsConfig, entered, ev, inReview, job, panelled, recallSkips, rows, run, scoped, vr } from './step-rows.ts';
 import type { Row } from './step-rows.ts';

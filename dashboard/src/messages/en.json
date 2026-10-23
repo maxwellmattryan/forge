@@ -198,7 +198,7 @@
       "sessions": "job sessions",
       "disabled": "The daemon is off. Set daemon.enabled: true in .forge/config.yml, then start it here.",
       "jobMode": "Job sessions' permissions",
-      "jobModeAbout": "Every job without its own choice, now and from its next start. A job's Log tab overrides it",
+      "jobModeAbout": "Every job without its own choice, now and from its next start. A job's own choice in its panel header overrides it",
       "jobModeAutoWarning": "Auto for every job: unattended sessions approve most tool calls without you. Prompts claude still raises wait until someone answers.",
       "inboxLog": "Inbox session log"
     },
@@ -855,6 +855,41 @@
     "done": "done",
     "rejected": "rejected",
     "empty": "Requests about this job and the session's replies appear here.",
+    "showWhole": "Show the whole request",
+    "showLess": "Show less",
+    "loadingWhole": "Loading…",
+    "wholeFailed": "Couldn't load the whole request: {error}",
+    "progress": {
+      "toggle": "Progress",
+      "toggleTitle": "Show stage changes, agents' replies, checks, reviews and the PR between the messages",
+      "stage": "Moved to {stage}",
+      "waiting": "Waiting: {on}",
+      "waitingUnknown": "Waiting",
+      "blocked": "Blocked",
+      "done": "Job done",
+      "failed": "Job failed",
+      "cancelled": "Job cancelled",
+      "round": "Round {round} started",
+      "agent": "finished",
+      "checksPass": "Checks passed in round {round}",
+      "checksFail": "Checks failed in round {round}",
+      "reviewsPass": "Reviews passed in round {round}",
+      "reviewsFail": "Reviews asked for changes in round {round}",
+      "approve": "Approved for a PR",
+      "escalate": "Escalated to you",
+      "prOpened": "Opened PR #{number}",
+      "prMerged": "Merged PR #{number}",
+      "conflicts": {
+        "one": "{count} merge conflict",
+        "other": "{count} merge conflicts"
+      }
+    },
+    "live": {
+      "label": "Open this job's Log",
+      "session": "Session {state} · {ago}",
+      "sessionNow": "Session {state}",
+      "open": "Log →"
+    },
     "tracker": "Tracker",
     "action": {
       "request": "New job",

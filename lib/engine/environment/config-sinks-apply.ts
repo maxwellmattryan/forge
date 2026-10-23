@@ -9,19 +9,19 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { isOwnWorktreePath } from '../../core/config/load.ts';
-import { renderEnvFile, renderMerge, renderTemplate, resolveString, sinkProblems } from '../../core/config/sinks.ts';
-import type { ExprContext } from '../../core/config/sinks.ts';
-import { git } from '../../integrations/git/runner.ts';
-import { jobDir } from '../../core/job/store.ts';
+import { isOwnWorktreePath } from '#core/config/load.ts';
+import { renderEnvFile, renderMerge, renderTemplate, resolveString, sinkProblems } from '#core/config/sinks.ts';
+import type { ExprContext } from '#core/config/sinks.ts';
+import { git } from '#integrations/git/runner.ts';
+import { jobDir } from '#core/job/store.ts';
 import { recordKnown, redactKnown } from '../guard/known-secrets.ts';
 import { writeIfChanged } from '../project/links.ts';
-import { posixShell } from '../../core/os/platform.ts';
+import { posixShell } from '#core/os/platform.ts';
 import { resolveSecret } from '../guard/secret-refs.ts';
-import { declaredSecrets } from '../../core/config/validators/secret-refs.ts';
-import type { ComponentConfig, Config, ConfigSink, Job } from '../../core/types.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { run } from '../../core/os/process.ts';
+import { declaredSecrets } from '#core/config/validators/secret-refs.ts';
+import type { ComponentConfig, Config, ConfigSink, Job } from '#core/types.ts';
+import { ForgeError } from '#core/errors.ts';
+import { run } from '#core/os/process.ts';
 
 /** What a `forge run` result and the `config-sinks` event carry: names, paths and a count, never values. */
 export interface SinkSummary {

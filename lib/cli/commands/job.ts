@@ -1,56 +1,57 @@
 // `forge job …`: every write to a job's state goes through here.
 import fs from 'node:fs';
 import path from 'node:path';
-import { jobAcs } from '../../engine/pipeline/acs.ts';
-import { jobFindings } from '../../engine/pipeline/findings.ts';
-import { assistantBrief, jobPathMap } from '../../engine/pipeline/brief.ts';
-import { budgetCmd, enforceBudget } from '../../engine/metrics/budget.ts';
-import { OFFICE_REFUSAL, inInboxOrOffice, refuseInOffice, refuseInboxDrive } from '../../office/owner.ts';
-import { OFFICE_JOB_COMMANDS, checkForemanDecision, classReservation, checkOfficeSetFor, cleanHandoffReason, foremanHandoffFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor, securityHold } from '../../office/foreman.ts';
-import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../../engine/pipeline/deps.ts';
-import { AGENT_LEASE_MS, agentOutputMissing, attachAgent, checkFence, claimJob, createJob, leaseStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, renewLease, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, updateJob, jobDir, readEvents } from '../../core/job/store.ts';
-import type { Fence } from '../../core/job/store.ts';
-import { checkFieldKey, checkJobFields } from '../../core/job/fields.ts';
-import { logSecrets, scanAgentOutputs } from '../../engine/guard/secrets.ts';
-import { issueLinkStatus } from '../../core/job/issue-link.ts';
-import { checkIssueRef, isSafeUrl, issueUrl } from '../../core/job/issue-ref.ts';
-import { githubHost, localRepoSlug } from '../../integrations/git/repo-slug.ts';
-import { exists } from '../../core/paths.ts';
-import { addJobRepo, refuseInterimInDaemon, refuseJobRepoInDaemon, removeJobRepo, trustedMemberWorktree } from '../../engine/project/job-repos.ts';
-import { decideRepoProposals, pendingRepoProposals, proposeJobRepo } from '../../engine/project/repo-proposals.ts';
-import { addDownstreamRepos } from '../../engine/project/downstream.ts';
-import { RELEASE_DAEMON_REFUSAL, interimStatus, publishCanary, recordRelease, setRepoInterim } from '../../engine/release/interim-apply.ts';
-import { releaseGates } from '../../engine/release/interim.ts';
-import { RELEASE_APPROVAL, checkReleaseDecision, pendingReleaseHash } from '../../engine/release/approval.ts';
-import { isLens, lensRepoAllowed, reviewedRepoNames } from '../../core/job/lens.ts';
-import { resolveLinks } from '../../engine/project/links.ts';
-import { EFFORTS, HANDOFF_CLASSES, OFFICE_GATES } from '../../core/job/schema.ts';
-import { daemonScope } from '../../core/job/requests.ts';
-import { recordScore } from '../../engine/evals/scoring.ts';
-import { jobPanel } from '../../engine/pipeline/panel.ts';
-import { jobScope } from '../../engine/pipeline/scope.ts';
-import { loadStepInput, step } from '../../engine/pipeline/step.ts';
-import { createAndLink, linkJob, markNoIssue, suggestLink, unlinkJob } from '../../engine/trackers/link.ts';
-import { loadTracker } from '../../engine/trackers/load.ts';
-import { mirrorToTracker } from '../../engine/trackers/mirror.ts';
-import { AGENT_ID } from '../../integrations/claude/transcripts.ts';
-import { importClaudeCodeTranscript } from '../../engine/metrics/usage.ts';
-import { modelFor, resolveEffort } from '../../core/config/load.ts';
-import { git } from '../../integrations/git/runner.ts';
-import { getPath } from '../../core/shape.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { coerce } from '../../core/text.ts';
+import { jobAcs } from '#engine/pipeline/acs.ts';
+import { jobFindings } from '#engine/pipeline/findings.ts';
+import { assistantBrief, jobPathMap } from '#engine/pipeline/brief.ts';
+import { budgetCmd, enforceBudget } from '#engine/metrics/budget.ts';
+import { OFFICE_REFUSAL, inInboxOrOffice, refuseInOffice, refuseInboxDrive } from '#office/owner.ts';
+import { OFFICE_JOB_COMMANDS, checkForemanDecision, classReservation, checkOfficeSetFor, cleanHandoffReason, foremanHandoffFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor, securityHold } from '#office/foreman.ts';
+import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '#engine/pipeline/deps.ts';
+import { AGENT_LEASE_MS, agentOutputMissing, attachAgent, checkFence, claimJob, createJob, leaseStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, renewLease, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, updateJob, jobDir, readEvents, type Fence } from '#core/job/store.ts';
+import { checkFieldKey, checkJobFields } from '#core/job/fields.ts';
+import { logSecrets, scanAgentOutputs } from '#engine/guard/secrets.ts';
+import { issueLinkStatus } from '#core/job/issue-link.ts';
+import { checkIssueRef, isSafeUrl, issueUrl } from '#core/job/issue-ref.ts';
+import { githubHost, localRepoSlug } from '#integrations/git/repo-slug.ts';
+import { exists } from '#core/paths.ts';
+import { addJobRepo, refuseInterimInDaemon, refuseJobRepoInDaemon, removeJobRepo, trustedMemberWorktree } from '#engine/project/job-repos.ts';
+import { decideRepoProposals, pendingRepoProposals, proposeJobRepo } from '#engine/project/repo-proposals.ts';
+import { addDownstreamRepos } from '#engine/project/downstream.ts';
+import { RELEASE_DAEMON_REFUSAL, interimStatus, publishCanary, recordRelease, setRepoInterim } from '#engine/release/interim-apply.ts';
+import { releaseGates } from '#engine/release/interim.ts';
+import { RELEASE_APPROVAL, checkReleaseDecision, pendingReleaseHash } from '#engine/release/approval.ts';
+import { isLens, lensRepoAllowed, reviewedRepoNames } from '#core/job/lens.ts';
+import { resolveLinks } from '#engine/project/links.ts';
+import { EFFORTS, HANDOFF_CLASSES, OFFICE_GATES } from '#core/job/schema.ts';
+import { daemonScope } from '#core/job/requests.ts';
+import { recordScore } from '#engine/evals/scoring.ts';
+import { jobPanel } from '#engine/pipeline/panel.ts';
+import { jobScope } from '#engine/pipeline/scope.ts';
+import { loadStepInput, step } from '#engine/pipeline/step.ts';
+import { createAndLink, linkJob, markNoIssue, suggestLink, unlinkJob } from '#engine/trackers/link.ts';
+import { loadTracker } from '#engine/trackers/load.ts';
+import { mirrorToTracker } from '#engine/trackers/mirror.ts';
+import { AGENT_ID } from '#integrations/claude/transcripts.ts';
+import { importClaudeCodeTranscript } from '#engine/metrics/usage.ts';
+import { modelFor, resolveEffort } from '#core/config/load.ts';
+import { git } from '#integrations/git/runner.ts';
+import { getPath } from '#core/shape.ts';
+import { ForgeError } from '#core/errors.ts';
+import { coerce } from '#core/text.ts';
 import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './args.ts';
 import { startFromRef } from './tracker.ts';
-import { refreshRequest } from '../../engine/trackers/request-refresh.ts';
-import { TeardownRefusal, archiveJob, archiveOlder, prune } from '../../engine/ops/retention.ts';
-import { deleteJob } from '../../engine/ops/delete.ts';
-import { finishEnvironment, finishEnvironmentStopOnly } from '../../engine/environment/lifecycle.ts';
-import type { AgentUsage, ArchiveResult, Config, Effort, HelpGroup, Job, JobIssue } from '../../core/types.ts';
-import { pullPrHead } from '../../engine/pr/lifecycle.ts';
-import { FOREMAN_ACTOR, currentActor } from '../../integrations/github/actor.ts';
-import { jobAudit, toCsv } from '../../engine/ops/audit.ts';
-import { checkRepoBudget, isRepoHold, parkForRepoBudget, repoBudgetBlock, repoBudgetExempt } from '../../engine/metrics/repo-budget.ts';
+import { refreshRequest } from '#engine/trackers/request-refresh.ts';
+import { TeardownRefusal, archiveJob, archiveOlder, prune } from '#engine/ops/retention.ts';
+import { deleteJob } from '#engine/ops/delete.ts';
+import { finishEnvironment, finishEnvironmentStopOnly } from '#engine/environment/lifecycle.ts';
+import type { AgentUsage, Config, Effort, Job, JobIssue } from '#core/types.ts';
+import type { ArchiveResult } from '#engine/ops/types.ts';
+import type { HelpGroup } from '../types.ts';
+import { pullPrHead } from '#engine/pr/lifecycle.ts';
+import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
+import { jobAudit, toCsv } from '#engine/ops/audit.ts';
+import { checkRepoBudget, isRepoHold, parkForRepoBudget, repoBudgetBlock, repoBudgetExempt } from '#engine/metrics/repo-budget.ts';
 
 const NO_JOB: [1, string] = [1, 'no such job'];
 const BODY: [string, string][] = [
@@ -971,9 +972,8 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
 }
 
 /**
- * `forge job assist`: what the office session spawns for one gate. Read-only. `stale` when the job
- * no longer waits on that gate (someone acted meanwhile); `reserved` is re-checked now, not taken
- * from the request.
+ * `forge job assist`: what the office session spawns for one gate. Read-only. `stale` when the job no longer
+ * waits on that gate (someone acted meanwhile); `reserved` is re-checked now, not taken from the request.
  */
 function assist(root: string, config: Config, job: Job, rawGate: unknown) {
   const s = daemonScope();

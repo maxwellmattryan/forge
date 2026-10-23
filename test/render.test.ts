@@ -1,7 +1,7 @@
 // lib/commands/render.ts: the generic human-mode renderer (docs/CLI.md "Output mode").
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { paint, sanitize } from '../lib/core/format/ansi.ts';
+import { paint, sanitize } from '#core/format/ansi.ts';
 import { colorEnabled, render, renderError } from '../lib/cli/commands/render.ts';
 
 const plain = (v: unknown) => render(v, { color: false });

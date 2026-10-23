@@ -1,7 +1,7 @@
 // Deterministic job titles from dashboard free text (lib/title.ts).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deriveTitle, normalizeTitle } from '../lib/engine/ops/title.ts';
+import { deriveTitle, normalizeTitle } from '#engine/ops/title.ts';
 
 test('deriveTitle examples', () => {
   const cases: [string, string | null][] = [

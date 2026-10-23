@@ -1,24 +1,24 @@
 // `forge doctor` and GET /api/doctor: is this machine and repo ready for Forge?
 import fs from 'node:fs';
 import path from 'node:path';
-import { validateConfig, worktreeRoot } from '../../core/config/load.ts';
+import { validateConfig, worktreeRoot } from '#core/config/load.ts';
 import { dockerCheck } from '../environment/backing.ts';
-import { apiKeyVars } from '../../office/session/lifecycle.ts';
-import { deprecationChecks } from '../../core/config/deprecations.ts';
+import { apiKeyVars } from '#office/session/lifecycle.ts';
+import { deprecationChecks } from '#core/config/validators/deprecations.ts';
 import { memberRepoChecks, releaseChecks, repoProblems } from '../project/member-repos.ts';
-import { isActive, listJobs } from '../../core/job/store.ts';
-import { notifyChecks } from '../../office/notify.ts';
-import { paths, exists, BUILD_DASHBOARD, PLUGIN_ROOT } from '../../core/paths.ts';
+import { isActive, listJobs } from '#core/job/store.ts';
+import { notifyChecks } from '#office/notify.ts';
+import { paths, exists, BUILD_DASHBOARD, PLUGIN_ROOT } from '#core/paths.ts';
 import { dirBytes } from './retention.ts';
 import { secretAvailability } from '../guard/secret-refs.ts';
 import type { ResolveOptions } from '../guard/secret-refs.ts';
-import { SUPPORT_URL, hostInfo, platformTier, posixShell, tierDetail, versionAtLeast } from '../../core/os/platform.ts';
-import type { HostInfo } from '../../core/os/platform.ts';
-import type { Config, DoctorCheck, DoctorReport } from '../../core/types.ts';
-import { gh } from '../../integrations/github/gh.ts';
-import { git } from '../../integrations/git/runner.ts';
-import { hasBinary } from '../../core/os/process.ts';
-import { readText } from '../../core/os/fs.ts';
+import { SUPPORT_URL, hostInfo, platformTier, posixShell, tierDetail, versionAtLeast } from '#core/os/platform.ts';
+import type { HostInfo } from '#core/os/platform.ts';
+import type { Config, DoctorCheck, DoctorReport } from '#core/types.ts';
+import { gh } from '#integrations/github/gh.ts';
+import { git } from '#integrations/git/runner.ts';
+import { hasBinary } from '#core/os/process.ts';
+import { readText } from '#core/os/fs.ts';
 import { latestReleaseCheck } from './version.ts';
 
 /** package.json `engines`: Node 22.18 is the first with type stripping on by default. */

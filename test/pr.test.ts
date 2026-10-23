@@ -4,14 +4,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { approvedBy, findPr, mergeAction, hasCiWorkflows, mergePr, prText, pullPrHead, syncPr, syncTransition } from '../lib/engine/pr/lifecycle.ts';
-import type { MemberPrState } from '../lib/engine/pr/lifecycle.ts';
-import { stripAttribution } from '../lib/engine/guard/attribution.ts';
-import { defaults } from '../lib/core/config/load.ts';
-import { claimJob, createJob, loadJob, logEvent, setJob, readEvents, updateJob } from '../lib/core/job/store.ts';
-import { listRequests } from '../lib/core/job/requests.ts';
+import { approvedBy, findPr, mergeAction, hasCiWorkflows, mergePr, prText, pullPrHead, syncPr, syncTransition } from '#engine/pr/lifecycle.ts';
+import type { MemberPrState } from '#engine/pr/lifecycle.ts';
+import { stripAttribution } from '#engine/guard/attribution.ts';
+import { defaults } from '#core/config/load.ts';
+import { claimJob, createJob, loadJob, logEvent, setJob, readEvents, updateJob } from '#core/job/store.ts';
+import { listRequests } from '#core/job/requests.ts';
 import { syncAll } from '../lib/cli/commands/tracker.ts';
-import type { Job, JobPr } from '../lib/core/types.ts';
+import type { Job, JobPr } from '#core/types.ts';
 
 test('mergeAction: direct merge only when CI passed or the repo has none', () => {
   const B = { mergeState: 'BLOCKED' };

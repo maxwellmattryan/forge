@@ -2,14 +2,14 @@
 // questions. Everything here is a suggestion; the human confirms during the interview.
 import fs from 'node:fs';
 import path from 'node:path';
-import { defaults } from '../../core/config/load.ts';
+import { defaults } from '#core/config/load.ts';
 import { cargoMembers as membersOf, detectComponents, npmWorkspaces } from './detect-components.ts';
-import { git as runGit } from '../../integrations/git/runner.ts';
-import { exists } from '../../core/paths.ts';
-import type { ProtectedRule } from '../../core/types.ts';
-import { hasBinary } from '../../core/os/process.ts';
-import { readText } from '../../core/os/fs.ts';
-import * as yaml from '../../core/format/yaml.ts';
+import { git as runGit } from '#integrations/git/runner.ts';
+import { exists } from '#core/paths.ts';
+import type { ProtectedRule } from '#core/types.ts';
+import { hasBinary } from '#core/os/process.ts';
+import { readText } from '#core/os/fs.ts';
+import * as yaml from '#core/format/yaml.ts';
 
 /** .github/project-config.yml as read for init: its fields are raw YAML, or `error` when it does not parse. */
 export interface DetectedProject {

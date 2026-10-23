@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { forgeAsync, forgeInProcess } from './helpers.ts';
-import { createJob, setJob } from '../lib/core/job/store.ts';
-import { statsCsv } from '../lib/engine/metrics/stats.ts';
+import { createJob, setJob } from '#core/job/store.ts';
+import { statsCsv } from '#engine/metrics/stats.ts';
 import { parseArgs } from '../lib/cli/commands/args.ts';
 import { budgetRepo, spend } from './repo-budget-fixture.ts';
 

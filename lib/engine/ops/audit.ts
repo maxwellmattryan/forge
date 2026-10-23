@@ -1,13 +1,14 @@
 // The audit trail export: who did what to a job, and when its gates opened and closed.
 // `forge job audit` reads one job, `forge audit` every job plus the repo-level log. Rows are
 // derived from events.jsonl on read; nothing here writes.
-import { hasLiveJob, listArchived, readArchived } from '../../core/job/archive.ts';
-import { listJobs, loadJob, parseEventLines, readEvents, repoAuditFile } from '../../core/job/store.ts';
+import { hasLiveJob, listArchived, readArchived } from '#core/job/archive.ts';
+import { listJobs, loadJob, parseEventLines, readEvents, repoAuditFile } from '#core/job/store.ts';
 import { REPO_NAME } from '../project/member-repos.ts';
-import type { AuditRow, JobAudit, JobEvent, LoadedJob, RepoAudit, TransitionSide } from '../../core/types.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { readText } from '../../core/os/fs.ts';
-import { safeText } from '../../core/text.ts';
+import type { JobEvent, LoadedJob, TransitionSide } from '#core/types.ts';
+import type { AuditRow, JobAudit, RepoAudit } from './types.ts';
+import { ForgeError } from '#core/errors.ts';
+import { readText } from '#core/os/fs.ts';
+import { safeText } from '#core/text.ts';
 
 const PR_EVENTS = new Set(['pr-opened', 'pr-merged', 'pr-auto-merge']);
 

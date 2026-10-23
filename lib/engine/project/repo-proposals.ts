@@ -8,16 +8,16 @@
 // repo-proposals.json, which a session could edit.
 import path from 'node:path';
 import { addJobRepo, memberClone, memberConfig, memberEntry, memberRepos, promoteCheck, promoteJobRepo } from './job-repos.ts';
-import { jobDir, loadJob, logEvent, logHumanEvent, readEvents } from '../../core/job/store.ts';
+import { jobDir, loadJob, logEvent, logHumanEvent, readEvents } from '#core/job/store.ts';
 import { REPO_NAME } from './member-repos.ts';
-import { paths } from '../../core/paths.ts';
+import { paths } from '#core/paths.ts';
 import { repoGraph } from './graph.ts';
-import { daemonScope } from '../../core/job/requests.ts';
-import type { Config, EventActor, Job, JobEvent, RepoProposal } from '../../core/types.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { writeJsonAtomic, writeTextAtomic } from '../../core/os/fs.ts';
-import { withLock } from '../../core/os/lock.ts';
-import { fenced, safeText } from '../../core/text.ts';
+import { daemonScope } from '#core/job/requests.ts';
+import type { Config, EventActor, Job, JobEvent, RepoProposal } from '#core/types.ts';
+import { ForgeError } from '#core/errors.ts';
+import { writeJsonAtomic, writeTextAtomic } from '#core/os/fs.ts';
+import { withLock } from '#core/os/lock.ts';
+import { fenced, safeText } from '#core/text.ts';
 
 const PROPOSALS_MD = 'repo-proposals.md';
 const PROPOSALS_JSON = 'repo-proposals.json';

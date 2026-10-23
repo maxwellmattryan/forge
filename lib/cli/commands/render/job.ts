@@ -1,8 +1,8 @@
 // `forge job list|show|step|claim|note` in human mode.
-import { isMap } from '../../../core/shape.ts';
+import { isMap } from '#core/shape.ts';
 import { blocks, fields, has, hang, line, list, mark, marked, paint, ports, section, short, stateSeg, table, txt } from './kit.ts';
 import type { Paint, Renderer, Val } from './kit.ts';
-import type { StepAction, StepSpawn } from '../../../core/types.ts';
+import type { StepAction, StepSpawn } from '#engine/pipeline/types.ts';
 
 export const jobList: Renderer = (d, o) => {
   if (!Array.isArray(d) || !d.every((r) => has(r, 'id', 'title', 'stage', 'state', 'waitingOn', 'round', 'pr', 'owner', 'effort'))) return null;

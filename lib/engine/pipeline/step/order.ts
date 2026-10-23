@@ -5,7 +5,7 @@
 //
 // Precedence is the order below: the tables in TABLES, then the rows within each table. The first
 // row whose `when` holds decides, and each row is one transition with its own rule ID.
-import type { StepAction, StepInput } from '../../../core/types.ts';
+import type { StepAction, StepInput } from '../types.ts';
 import { computeFacts } from './facts.ts';
 import { DOWNSTREAM, PROPOSALS, PROTECTED, SECRETS } from './gates.ts';
 import { X1 } from './generic.ts';

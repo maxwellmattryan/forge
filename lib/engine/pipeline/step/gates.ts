@@ -2,12 +2,13 @@
 // downstream verification) and what step tells a human at a gate.
 import path from 'node:path';
 import { downstreamRepos } from '../../project/downstream.ts';
-import { pastTotalCeiling, totalRoundCeiling } from '../../../office/foreman.ts';
-import { issueLinkStatus, prLinkNote } from '../../../core/job/issue-link.ts';
+import { pastTotalCeiling, totalRoundCeiling } from '#office/foreman.ts';
+import { issueLinkStatus, prLinkNote } from '#core/job/issue-link.ts';
 import { protectedApproved, protectedReason } from '../../guard/protected.ts';
 import { pendingRepoProposals } from '../../project/repo-proposals.ts';
-import type { StepInput, VerifyRun, WaitingOn } from '../../../core/types.ts';
-import { SAFE_REF } from '../../../core/text.ts';
+import type { VerifyRun, WaitingOn } from '#core/types.ts';
+import type { StepInput } from '../types.ts';
+import { SAFE_REF } from '#core/text.ts';
 import { SAFE_URL, park, run, safe, set, toStage } from './actions.ts';
 import { after, afterIdx, agent, human, lastEvent, lastIdx, orNull, p, ref } from './facts.ts';
 import type { Ctx, Rule, RuleId, Table } from './rules.ts';

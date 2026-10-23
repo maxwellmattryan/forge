@@ -1,9 +1,10 @@
 // `forge budget`: repo spend against the day and month caps (config `budget:`), and a human's
 // acknowledgement that grants one more period. Per-job budgets are `forge job budget`.
-import { currentActor } from '../../integrations/github/actor.ts';
-import { ackRepoBudget, checkRepoBudget } from '../../engine/metrics/repo-budget.ts';
-import type { Config, HelpGroup, RepoBudgetStatus } from '../../core/types.ts';
-import { ForgeError } from '../../core/errors.ts';
+import { currentActor } from '#integrations/github/actor.ts';
+import { ackRepoBudget, checkRepoBudget } from '#engine/metrics/repo-budget.ts';
+import type { Config, RepoBudgetStatus } from '#core/types.ts';
+import type { HelpGroup } from '../types.ts';
+import { ForgeError } from '#core/errors.ts';
 import { str } from './args.ts';
 
 const BUDGET: HelpGroup = {

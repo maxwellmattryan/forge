@@ -1,8 +1,8 @@
 // Config keys on their way out (docs/RELEASES.md "Deprecation"). `forge doctor` warns while one is
 // set; docs/CONFIG.md "Deprecated keys" lists the same entries, and test/version.test.ts checks both.
-import { parse } from '../format/yaml.ts';
-import { getPath } from '../shape.ts';
-import type { DoctorCheck } from '../types.ts';
+import { parse } from '../../format/yaml.ts';
+import { getPath } from '../../shape.ts';
+import type { DoctorCheck } from '../../types.ts';
 
 export interface DeprecatedKey {
   /** Dotted path, as `forge config get` takes it. */

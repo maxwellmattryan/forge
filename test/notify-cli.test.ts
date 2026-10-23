@@ -5,8 +5,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
 import { hookServer } from './notify-server.ts';
-import { listJobs, readEvents } from '../lib/core/job/store.ts';
-import * as yaml from '../lib/core/format/yaml.ts';
+import { listJobs, readEvents } from '#core/job/store.ts';
+import * as yaml from '#core/format/yaml.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 

@@ -1,7 +1,7 @@
 // Hover previews of github.com pages for the dashboard: a strict URL parse, one `gh api graphql` call per page, and a
 // small folded shape. Everything GitHub returns is untrusted text; the dashboard renders it as text, never as HTML.
 import { ghAsync } from './gh.ts';
-import type { GitHubChecks, GitHubPreview, GitHubPreviewResponse } from '../../core/types.ts';
+import type { GitHubChecks, GitHubPreview, GitHubPreviewResponse } from '#core/types.ts';
 
 /** A github.com page previewGitHub can describe. Owner and name are as GitHub spells them in the URL. */
 export type GitHubTarget =

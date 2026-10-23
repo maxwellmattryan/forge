@@ -12,7 +12,6 @@ The pipeline: `forge job step`, agent briefs, review panels, verifiers and the f
 | `acs.ts` | `forge job acs`: which spec acceptance criteria the builder's latest AC table proves. |
 | `brief.ts` | Agent briefs for `forge job step`: paths and config-derived lines only, never file contents, so text an agent wrote (after reading tracker or PR text) is never re-injected into another prompt. |
 | `deps.ts` | Dependencies between jobs (`job.dependsOn`): validation, parking, claim refusal, stacked branches and retargeting. |
-| `e2e.ts` | Whether `forge verify` should run the e2e command: unit tests alone don't prove UI work, but a browser suite is too slow to run on every backend-only change. |
 | `findings.ts` | `forge job findings`: review findings raised per round and lens, the builder's answers to them (fixed or disputed), and findings that recur. |
 | `member-panel.ts` | Member review panels: the lenses a member repo of a job defines for itself. |
 | `panel.ts` | `forge job panel`: this round's review lenses, computed from recorded inputs and the branch diff. |
@@ -20,5 +19,6 @@ The pipeline: `forge job step`, agent briefs, review panels, verifiers and the f
 | `scope.ts` | `forge job scope`: which files a job changed that its spec's Approach never named. |
 | `step.ts` | `forge job step` lives in lib/engine/pipeline/step/: start at lib/engine/pipeline/step/order.ts, which walks the rule tables in order. |
 | `step/` | `forge job step`, the pure decider of the next pipeline action. |
+| `types.ts` | What `forge job step` reads and prints, and the verifier shapes, type-only: step/ is at its entry cap, so they live here. |
 | `verifiers.ts` | Verifiers: repo-local yes/no checks scoped to file globs, answered by a small model against only the matching hunks, after `forge verify` passes and before any reviewer starts (docs/VERIFIERS.md). |
 <!-- forge:map:end -->

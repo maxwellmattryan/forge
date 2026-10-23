@@ -1,8 +1,8 @@
 // Review: pick the panel, write the scope report, run the lenses, record their verdicts, move on.
 import path from 'node:path';
-import { lensNeedsApp } from '../../../../core/config/load.ts';
-import { reviewFileName } from '../../../../core/job/lens.ts';
-import type { StepInput, StepVerdicts } from '../../../../core/types.ts';
+import { lensNeedsApp } from '#core/config/load.ts';
+import { reviewFileName } from '#core/job/lens.ts';
+import type { StepInput, StepVerdicts } from '../../types.ts';
 import { run, spawn, toStage } from '../actions.ts';
 import { after, agent, endedIn, isPrRework, lastVerify, outputMissing, startedIn } from '../facts.ts';
 import { missingOutputRows } from '../generic.ts';

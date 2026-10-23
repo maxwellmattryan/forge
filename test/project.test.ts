@@ -1,8 +1,8 @@
 // projectGraph (lib/project.ts): the config-derived graph GET /api/project serves (issue #175).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { projectGraph, repoGraph } from '../lib/engine/project/graph.ts';
-import { componentProblems } from '../lib/core/config/components.ts';
+import { projectGraph, repoGraph } from '#engine/project/graph.ts';
+import { componentProblems } from '#core/config/components.ts';
 
 const g = (components: unknown) => projectGraph({ components } as any);
 

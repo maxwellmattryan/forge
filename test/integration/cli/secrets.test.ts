@@ -9,14 +9,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fakeBin, forgeAsync, repoTemplate } from '../../helpers.ts';
-import { renderBrief, roleBrief } from '../../../lib/engine/pipeline/brief.ts';
-import { defaults, loadConfig } from '../../../lib/core/config/load.ts';
-import { secretsCheck } from '../../../lib/engine/ops/doctor.ts';
-import { createJob, jobDir, updateJob } from '../../../lib/core/job/store.ts';
-import { knownRecordValues } from '../../../lib/engine/guard/known-secrets.ts';
-import { loadStepInput } from '../../../lib/engine/pipeline/step.ts';
-import { createWorktree } from '../../../lib/engine/workspace/worktree.ts';
-import * as yaml from '../../../lib/core/format/yaml.ts';
+import { renderBrief, roleBrief } from '#engine/pipeline/brief.ts';
+import { defaults, loadConfig } from '#core/config/load.ts';
+import { secretsCheck } from '#engine/ops/doctor.ts';
+import { createJob, jobDir, updateJob } from '#core/job/store.ts';
+import { knownRecordValues } from '#engine/guard/known-secrets.ts';
+import { loadStepInput } from '#engine/pipeline/step.ts';
+import { createWorktree } from '#engine/workspace/worktree.ts';
+import * as yaml from '#core/format/yaml.ts';
 
 const NODE = JSON.stringify(process.execPath);
 

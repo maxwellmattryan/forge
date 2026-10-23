@@ -3,17 +3,18 @@
 // the job store imports, so this module may import the job store without a cycle.
 import fs from 'node:fs';
 import path from 'node:path';
-import { currentActor } from '../../integrations/github/actor.ts';
+import { currentActor } from '#integrations/github/actor.ts';
 import { CheckoutError, applyCheckout, failureLine, readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
 import type { CheckoutReport, StepRunner } from './checkout.ts';
-import { loadConfig } from '../../core/config/load.ts';
+import { loadConfig } from '#core/config/load.ts';
 import { containedWorktree } from './editor.ts';
-import { isActive, jobDir, loadJob, logEvent, logHumanEvent } from '../../core/job/store.ts';
-import { readFocusRecord, resolveFocus, setFocus } from '../../core/job/focus.ts';
-import { validJobId } from '../../core/job/requests.ts';
+import { isActive, jobDir, loadJob, logEvent, logHumanEvent } from '#core/job/store.ts';
+import { readFocusRecord, resolveFocus, setFocus } from '#core/job/focus.ts';
+import { validJobId } from '#core/job/requests.ts';
 import { ensureEnvironment } from '../environment/lifecycle.ts';
-import type { Config, EnvironmentUpResult, EventActor, FocusResponse, Job } from '../../core/types.ts';
-import { ForgeError } from '../../core/errors.ts';
+import type { Config, EventActor, FocusResponse, Job } from '#core/types.ts';
+import type { EnvironmentUpResult } from '../environment/types.ts';
+import { ForgeError } from '#core/errors.ts';
 import { runCommandAsync } from './worktree.ts';
 
 /** Refused because the job is done or cancelled: a `usage` error the server answers with 409. */

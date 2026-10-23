@@ -10,4 +10,5 @@ The dashboard's HTTP server: `/api` endpoints, server-sent events and the built 
 | File | What it holds |
 |---|---|
 | `start.ts` | The dashboard's HTTP server (`forge dash`): the `/api` endpoints, server-sent events and the built dashboard, for loopback Hosts only, with token- and Origin-checked POSTs. |
+| `types.ts` | The server's shapes outside /api, type-only: what startServer's onRequest hook reports. |
 <!-- forge:map:end -->

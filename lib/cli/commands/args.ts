@@ -1,10 +1,11 @@
 // Argument parsing and output helpers shared by every command module.
 import fs from 'node:fs';
-import { loadJob } from '../../core/job/store.ts';
-import { ForgeError } from '../../core/errors.ts';
+import { loadJob } from '#core/job/store.ts';
+import { ForgeError } from '#core/errors.ts';
 import { colorEnabled, render } from './render.ts';
 import { RENDERERS } from './render/registry.ts';
-import type { HelpGroup, LoadedJob } from '../../core/types.ts';
+import type { LoadedJob } from '#core/types.ts';
+import type { HelpGroup } from '../types.ts';
 
 /**
  * Flags that take no value, so `forge --json job list` doesn't read `job` as the value of --json,

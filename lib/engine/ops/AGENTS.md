@@ -16,6 +16,7 @@ Operating Forge itself: doctor, support bundles, updates, versions, retention, d
 | `doctor.ts` | `forge doctor` and GET /api/doctor: is this machine and repo ready for Forge? |
 | `retention.ts` | Retention: archive finished jobs into compact records, delete stale daemon session logs, and apply the human's `retention` policy. |
 | `title.ts` | Short, deterministic job titles from free text (POST /api/jobs). |
+| `types.ts` | What the audit, support-bundle, update, version, archive and prune commands print, type-only. |
 | `update.ts` | `forge update`: update the Forge install that is running, whether Claude Code installed it as a plugin or it is a git clone (npm link, --plugin-dir). |
 | `version.ts` | `forge version --json`: which Forge is running, down to the commit, so an install can be pinned, audited and rolled back (docs/RELEASES.md "Provenance and pinning"). |
 <!-- forge:map:end -->

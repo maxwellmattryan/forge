@@ -1,12 +1,12 @@
 // `forge release plan|run|status`: a release a human runs from the CLI, single- or multi-repo
 // (lib/engine/release/plan.ts plans it, lib/engine/release/run.ts runs it; docs/RELEASES.md "Releasing a project").
 import readline from 'node:readline/promises';
-import { refuseRun, releaseStatus, runRelease } from '../../engine/release/run.ts';
-import { noteReleasePlanned } from '../../engine/release/approval.ts';
-import { selectionFrom, writeReleasePlan } from '../../engine/release/plan.ts';
-import { ForgeError } from '../../core/errors.ts';
+import { refuseRun, releaseStatus, runRelease } from '#engine/release/run.ts';
+import { noteReleasePlanned } from '#engine/release/approval.ts';
+import { selectionFrom, writeReleasePlan } from '#engine/release/plan.ts';
+import { ForgeError } from '#core/errors.ts';
 import { usageError } from './args.ts';
-import type { CliContext, Dispatched, HelpGroup } from '../../core/types.ts';
+import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
 
 const DOCS: [string, string] = ['Releasing a project', 'docs/RELEASES.md#releasing-a-project'];
 

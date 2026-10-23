@@ -5,13 +5,13 @@
 // a stop (never a removal) or lose a job its place: a future `usedAt` reads as now.
 import fs from 'node:fs';
 import path from 'node:path';
-import { readSmallJson } from '../../core/job/focus.ts';
-import { isActive, jobDir, loadJob } from '../../core/job/store.ts';
-import { paths } from '../../core/paths.ts';
-import { validJobId } from '../../core/job/requests.ts';
-import type { EnvironmentEntry, EnvironmentRecord, EnvironmentState } from '../../core/types.ts';
-import { writeJsonAtomic } from '../../core/os/fs.ts';
-import { withLock } from '../../core/os/lock.ts';
+import { readSmallJson } from '#core/job/focus.ts';
+import { isActive, jobDir, loadJob } from '#core/job/store.ts';
+import { paths } from '#core/paths.ts';
+import { validJobId } from '#core/job/requests.ts';
+import type { EnvironmentEntry, EnvironmentRecord, EnvironmentState } from './types.ts';
+import { writeJsonAtomic } from '#core/os/fs.ts';
+import { withLock } from '#core/os/lock.ts';
 
 const EPOCH = new Date(0).toISOString();
 

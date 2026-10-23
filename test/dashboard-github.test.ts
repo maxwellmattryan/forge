@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CARD_WIDTH, cardKey, cardResult, checksTone, countShort, leftBoth, placeCard, previewable, reviewTone, stateTone } from '../dashboard/src/lib/github.ts';
 import { shellEscape } from '../dashboard/src/lib/command.ts';
-import { parseGitHubUrl } from '../lib/integrations/github/preview.ts';
+import { parseGitHubUrl } from '#integrations/github/preview.ts';
 import type { GitHubPreview } from '../dashboard/src/lib/types.ts';
 
 const URLS = [

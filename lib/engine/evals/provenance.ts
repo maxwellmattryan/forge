@@ -4,11 +4,11 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { reviewerChecklist } from '../../core/config/load.ts';
-import { LENS_NAME } from '../../core/job/lens.ts';
-import { paths, exists, PLUGIN_ROOT } from '../../core/paths.ts';
-import type { Config } from '../../core/types.ts';
-import { readText } from '../../core/os/fs.ts';
+import { reviewerChecklist } from '#core/config/load.ts';
+import { LENS_NAME } from '#core/job/lens.ts';
+import { paths, exists, PLUGIN_ROOT } from '#core/paths.ts';
+import type { Config } from '#core/types.ts';
+import { readText } from '#core/os/fs.ts';
 
 /** The plugin files that shape what agents do and how the pipeline drives them. */
 const PLUGIN_DIRS: { dir: string; recursive: boolean; md: boolean }[] = [

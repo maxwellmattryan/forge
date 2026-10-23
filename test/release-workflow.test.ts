@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { isDeepStrictEqual } from 'node:util';
-import { findAttribution } from '../lib/engine/guard/attribution.ts';
+import { findAttribution } from '#engine/guard/attribution.ts';
 import { tempRepo } from './helpers.ts';
 import { credentialRefs, dependencyCaches, excessPermissions, forbiddenTriggers, loadWorkflow, persistedCredentials, runExpressions, secretLeaks, triggersOf, unpinnedActions } from './workflow-lint.ts';
 import * as stampModule from '../dashboard/build-stamp.mjs';

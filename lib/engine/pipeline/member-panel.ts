@@ -3,14 +3,14 @@
 // job's worktree of it, which the builder writes: a build must not choose or rewrite its own lenses.
 import fs from 'node:fs';
 import path from 'node:path';
-import { panelPathsProblems, reviewerChecklist } from '../../core/config/load.ts';
+import { panelPathsProblems, reviewerChecklist } from '#core/config/load.ts';
 import { memberClone, within } from '../project/job-repos.ts';
-import { LENS_NAME, QUALIFIED_LENS, lensRepoAllowed, splitLens } from '../../core/job/lens.ts';
-import { PLUGIN_ROOT, exists, resolveFrom } from '../../core/paths.ts';
-import { isMap, show } from '../../core/shape.ts';
-import type { Config, Job, PanelEntry } from '../../core/types.ts';
-import { ForgeError } from '../../core/errors.ts';
-import * as yaml from '../../core/format/yaml.ts';
+import { LENS_NAME, QUALIFIED_LENS, lensRepoAllowed, splitLens } from '#core/job/lens.ts';
+import { PLUGIN_ROOT, exists, resolveFrom } from '#core/paths.ts';
+import { isMap, show } from '#core/shape.ts';
+import type { Config, Job, PanelEntry } from '#core/types.ts';
+import { ForgeError } from '#core/errors.ts';
+import * as yaml from '#core/format/yaml.ts';
 
 /** One usable entry of a member's panel. */
 export interface MemberLens {

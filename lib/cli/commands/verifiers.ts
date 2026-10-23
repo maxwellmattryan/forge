@@ -2,9 +2,9 @@
 // (lib/engine/pipeline/verifiers.ts, docs/VERIFIERS.md). `run` and `record` are what `forge job step` emits as VF1
 // and VF3; the verifier agent in between only reads the input and writes the answers.
 import path from 'node:path';
-import { loadVerifiers, verifiersRecord, verifiersRun } from '../../engine/pipeline/verifiers.ts';
+import { loadVerifiers, verifiersRecord, verifiersRun } from '#engine/pipeline/verifiers.ts';
 import { usageError } from './args.ts';
-import type { CliContext, Dispatched, HelpGroup } from '../../core/types.ts';
+import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
 
 const VERIFIERS: HelpGroup = {
   name: 'verifiers',

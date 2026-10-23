@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, forgeSync, repoTemplate } from '../../helpers.ts';
-import { jobDir, loadJob, readEvents } from '../../../lib/core/job/store.ts';
+import { jobDir, loadJob, readEvents } from '#core/job/store.ts';
 
 /** What every scratch repo is initialised with; a test's own answers replace these keys whole. */
 const BASE = {

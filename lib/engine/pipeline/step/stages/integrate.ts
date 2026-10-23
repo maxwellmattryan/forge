@@ -1,8 +1,9 @@
 // Integrate: bring the branch up to date with its base, resolve conflicts per pr.conflicts, and
 // review the resolution before the approver or the PR.
 import { generatedConfig } from '../../../workspace/regenerate.ts';
-import { inSpec } from '../../../../core/glob.ts';
-import type { JobAgent, JobEvent, StepInput, VerifyRun } from '../../../../core/types.ts';
+import { inSpec } from '#core/glob.ts';
+import type { JobAgent, JobEvent, VerifyRun } from '#core/types.ts';
+import type { StepInput } from '../../types.ts';
 import { park, run, set, spawn, toStage } from '../actions.ts';
 import { after, afterIdx, agent, approvedSinceReview, isPrRework, lastEvent, lastIdx, p } from '../facts.ts';
 import type { Facts } from '../facts.ts';

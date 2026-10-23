@@ -18,7 +18,7 @@ A feature has one unit file and one integration (or e2e) file per entry point, s
 - Check each case of a validation, refusal or formatting table in-process, through the domain function or `forgeInProcess` (which runs the CLI's router, `dispatch`, without a process), and keep one spawned-CLI test per command for its routing, exit code and JSON. A `forgeInProcess` call with `env` changes `process.env`, so it never runs inside `describe(…, { concurrency })`.
 - Build scratch repos from one `repoTemplate` per distinct init, not with `tempRepo()` plus `forge init write` in every test.
 - Put an assertion at the cheapest layer that proves it: a pure check belongs in the unit file, unless it sits in a test that still needs its server or CLI.
-- A file under `test/integration/` or `test/e2e/` imports `../../../lib/…` and `../../helpers.ts`, and builds `import.meta.dirname` paths for that depth.
+- A file under `test/integration/` or `test/e2e/` imports lib layers through their aliases (`#core/…`), `lib/cli/` and `lib/server/` as `../../../lib/…`, and `../../helpers.ts`, and builds `import.meta.dirname` paths for that depth.
 
 ## Allowed source-text tests
 A test may read source, Svelte, CSS or Markdown text only to hold one of these invariants. Any other source-text test is a `minor` finding for the `tests` lens.
@@ -34,7 +34,7 @@ Entries 1-4 and 7 live in one file, `test/dashboard-invariants.test.ts`.
 7. Segments, nav links and icon-only buttons stay accessible: "segments and nav expose their selected state", "every icon-only button has a tooltip and a label" and "the icon-button sweep finds a planted button without a tooltip". Tests can't render a `.svelte` component, so only its markup can hold this.
 8. The engine compiles strict and erasable-only: `test/engine-ts.test.ts` › "engine tsconfig is strict and erasable-only" reads `tsconfig.json`'s `strict` and `erasableSyntaxOnly`. No public function exposes the compiler flags.
 9. Agents that read untrusted text keep their tool limits: `test/foreman.test.ts` › "assistant agent has no Bash" and `test/roster.test.ts`'s triage check read the `disallowedTools` frontmatter of `agents/assistant.md` and `agents/triage.md`, which Claude Code enforces and no Forge function reads.
-10. `lib/` keeps its layers: `test/invariants/layers.test.ts` reads the import declarations of `lib/` sources (directions by layer, no runtime cycle, no Node imports in `api`); no public function exposes the module graph.
+10. `lib/` keeps its layers: `test/invariants/layers.test.ts` reads the import declarations of `lib/` sources (directions by layer, no runtime cycle, no Node imports in `api`), and that cross-layer imports in `lib/`, `test/` and `dashboard/src/` use the `package.json` aliases (it reads `package.json` `imports` and the tsconfigs' `paths`); no public function exposes the module graph.
 11. `lib/` files stay small: `test/invariants/file-size.test.ts` counts the lines of `lib/` sources against the 600-line cap and its shrinking allowlist.
 12. `lib/` folders follow the layout rules: `test/invariants/layout.test.ts` lists `lib/` folder and file names (no `index` files, no stutter, 3–12 entries with the registries, `integrations/<system>/` and its shrinking `SMALL` list apart, and an `AGENTS.md` map in `lib/`, each layer folder and each module folder) and reads no file text; no public function exposes the tree's shape.
 

@@ -1,16 +1,16 @@
 // `forge environment up|stop|down|list`: a job's environment on demand (lib/engine/environment/lifecycle.ts,
 // docs/CONFIG.md "Backing services" › Lifecycle). Forge does the same on its own: teardown when a job
 // finishes or is archived, stop on a park, start on resume, verify, run --background and focus.
-import { currentFocus } from '../../engine/workspace/focus-actions.ts';
-import { refuseInboxDrive } from '../../office/owner.ts';
-import { ensureEnvironment, stopEnvironment, teardownEnvironment } from '../../engine/environment/lifecycle.ts';
-import { liveJob, readEnvironments } from '../../engine/environment/record.ts';
-import { isActive, loadJob } from '../../core/job/store.ts';
-import { validJobId } from '../../core/job/requests.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { assertSafeRef } from '../../core/text.ts';
+import { currentFocus } from '#engine/workspace/focus-actions.ts';
+import { refuseInboxDrive } from '#office/owner.ts';
+import { ensureEnvironment, stopEnvironment, teardownEnvironment } from '#engine/environment/lifecycle.ts';
+import { liveJob, readEnvironments } from '#engine/environment/record.ts';
+import { isActive, loadJob } from '#core/job/store.ts';
+import { validJobId } from '#core/job/requests.ts';
+import { ForgeError } from '#core/errors.ts';
+import { assertSafeRef } from '#core/text.ts';
 import { usageError } from './args.ts';
-import type { CliContext, Dispatched, HelpGroup } from '../../core/types.ts';
+import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
 
 const DOCS: [string, string] = ['Backing services', 'docs/CONFIG.md#backing-services'];
 const REFUSED: [1, string] = [1, 'an invalid job id or no such job, or the inbox or office daemon session ran it'];

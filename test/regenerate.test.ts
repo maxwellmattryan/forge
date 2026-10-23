@@ -6,8 +6,8 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, tempRepo } from './helpers.ts';
-import { defaults, validateConfig } from '../lib/core/config/load.ts';
-import { jobWorktreeProblem, partitionConflicts } from '../lib/engine/workspace/regenerate.ts';
+import { defaults, validateConfig } from '#core/config/load.ts';
+import { jobWorktreeProblem, partitionConflicts } from '#engine/workspace/regenerate.ts';
 
 test('validateConfig checks worktrees.generated and generatedBy', () => {
   const repo = tempRepo();

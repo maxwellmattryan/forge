@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { jobDir, loadJob, readEvents } from '../../../lib/core/job/store.ts';
+import { jobDir, loadJob, readEvents } from '#core/job/store.ts';
 import { assertAgents, drive, play, scratch, stagesOf } from './drive.ts';
 import { token } from '../../secret-fixtures.ts';
 

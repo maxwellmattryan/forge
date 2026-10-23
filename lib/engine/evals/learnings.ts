@@ -2,11 +2,12 @@
 // still moves its metric instead of letting stale lessons cost tokens on every run forever.
 // Both files are edited by people and agents, so every parser here is linear and tolerant.
 import path from 'node:path';
-import { paths } from '../../core/paths.ts';
+import { paths } from '#core/paths.ts';
 import { agentRoles } from './provenance.ts';
-import { PROTO_KEYS } from '../../core/shape.ts';
-import type { ExperimentEntry, LearningEntry, Stats } from '../../core/types.ts';
-import { readText } from '../../core/os/fs.ts';
+import { PROTO_KEYS } from '#core/shape.ts';
+import type { Stats } from '#core/types.ts';
+import type { ExperimentEntry, LearningEntry } from './types.ts';
+import { readText } from '#core/os/fs.ts';
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 export const METRIC_PATH = /^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+$/;

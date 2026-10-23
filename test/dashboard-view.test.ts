@@ -11,10 +11,10 @@ import { agentSessions, runningAgents } from '../dashboard/src/lib/agents.ts';
 import { compareRows, jobMs, statsQuery, topJobsByUsage, usageBars } from '../dashboard/src/lib/analytics.ts';
 import { actorLabel, eventDetail, isForemanEvent, pickDrawerFile, verdictMatrix, verifierRounds, verifierTone } from '../dashboard/src/lib/drawer.ts';
 import { PARK_LABEL, WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
-import { cleanRef, parseCandidates, secretItems, secretLine, threadAction, threadItems, threadMarks, threadOpening } from '../dashboard/src/lib/thread.ts';
+import { cleanRef, parseCandidates, requestText, secretItems, secretLine, threadAction, threadItems, threadMarks, threadOpening } from '../dashboard/src/lib/thread.ts';
 import { dur, tokensShort } from '../dashboard/src/lib/util.ts';
-import { STAGES, STATES, WAITING_ON } from '../lib/core/job/schema.ts';
-import { DEP_REASON } from '../lib/engine/pipeline/deps.ts';
+import { STAGES, STATES, WAITING_ON } from '#core/job/schema.ts';
+import { DEP_REASON } from '#engine/pipeline/deps.ts';
 
 // Per waiting kind: its buttons as `type` (`*` primary, `!` needs a note), whether it has a textarea, and the doc
 // its "Read …" link opens.
@@ -309,6 +309,10 @@ test('thread items', () => {
   );
   assert.equal(threadItems([], threadOpening({ ...linkedLater, request: 'Issue body', requestFromTracker: true }))[0].from, 'tracker', 'from-ref: the issue\'s text');
   assert.equal(threadOpening({ job: { createdAt: null }, request: null } as any).tracker, false, 'an older server without the flag');
+  assert.equal(threadOpening(linkedLater).truncated, false, 'an older server without requestTruncated');
+  assert.equal(threadOpening({ ...linkedLater, requestTruncated: true }).truncated, true);
+  assert.equal(requestText('# Title line\n\n  Body\n\nmore  \n'), 'Body\n\nmore', 'request.md without its title, trimmed like the excerpt');
+  assert.equal(requestText('No title\n'), 'No title');
   assert.deepEqual(threadItems([], { text: null, at: null, tracker: false }), [], 'no request text, no opening message');
   // Every answer to the issue-link gate reads differently, and next says how many.
   const a = (type: string, args: Record<string, unknown>, from = 'dashboard') => threadAction({ type, args, from } as any);

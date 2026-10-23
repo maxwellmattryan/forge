@@ -4,10 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { evalScratch, forgeAsync } from './helpers.ts';
-import { aggregateTasks, jobTiming, stat } from '../lib/engine/evals/stats.ts';
-import { compareRuns, listRuns, pluginHash, summarize } from '../lib/engine/evals/run.ts';
-import { loadJob } from '../lib/core/job/store.ts';
-import { PLUGIN_ROOT } from '../lib/core/paths.ts';
+import { aggregateTasks, jobTiming, stat } from '#engine/evals/stats.ts';
+import { compareRuns, listRuns, pluginHash, summarize } from '#engine/evals/run.ts';
+import { loadJob } from '#core/job/store.ts';
+import { PLUGIN_ROOT } from '#core/paths.ts';
 
 const T0 = Date.parse('2026-01-01T00:00:00.000Z');
 const at = (min: number) => new Date(T0 + min * 60_000).toISOString();

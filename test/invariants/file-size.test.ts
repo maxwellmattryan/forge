@@ -12,7 +12,7 @@ const CAP = 600;
 
 /** Lib-relative path → its line count when pinned. Lower a pin when a file shrinks; never raise one. */
 const ALLOWED: Record<string, number> = {
-  'api/types.ts': 1501,
+  'api/types.ts': 1499,
   'engine/environment/backing.ts': 751,
   'cli/commands/job.ts': 1048,
   'cli/commands/tracker.ts': 612,
@@ -27,7 +27,6 @@ const ALLOWED: Record<string, number> = {
   'core/job/schema.ts': 666,
   'engine/guard/secrets.ts': 705,
   'server/start.ts': 1762,
-  'core/types.ts': 1174,
   'engine/workspace/worktree.ts': 1320,
 };
 

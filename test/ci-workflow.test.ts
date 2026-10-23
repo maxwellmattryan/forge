@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { parse } from '../lib/core/format/yaml.ts';
+import { parse } from '#core/format/yaml.ts';
 import { credentialRefs, dependencyCaches, excessPermissions, forbiddenTriggers, loadWorkflow, persistedCredentials, runExpressions, secretLeaks, unpinnedActions } from './workflow-lint.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');

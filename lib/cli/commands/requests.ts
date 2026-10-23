@@ -2,14 +2,15 @@
 // orchestrators draining the inbox at once cannot both act on the same one. Inside a daemon session
 // (FORGE_DAEMON=1) the session sees and claims only the requests routed to its scope.
 import path from 'node:path';
-import { inboxSessionIds } from '../../office/owner.ts';
-import { releaseJob, requeueOrphanedRequests } from '../../core/job/store.ts';
-import { exists, paths } from '../../core/paths.ts';
-import { dashRunning } from '../../office/reconcile.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, ackRequest, claimRequest, daemonScope, enqueue, listRequests, requestScope, validJobId } from '../../core/job/requests.ts';
-import { ForgeError } from '../../core/errors.ts';
+import { inboxSessionIds } from '#office/owner.ts';
+import { releaseJob, requeueOrphanedRequests } from '#core/job/store.ts';
+import { exists, paths } from '#core/paths.ts';
+import { dashRunning } from '#office/reconcile.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, ackRequest, claimRequest, daemonScope, enqueue, listRequests, requestScope, validJobId } from '#core/job/requests.ts';
+import { ForgeError } from '#core/errors.ts';
 import { req, str, usageError } from './args.ts';
-import type { Config, ForgeRequest, HelpGroup } from '../../core/types.ts';
+import type { Config, ForgeRequest } from '#core/types.ts';
+import type { HelpGroup } from '../types.ts';
 
 const REQUESTS: HelpGroup = {
   name: 'requests',

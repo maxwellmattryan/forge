@@ -3,7 +3,8 @@
 // resume is the whole recipe from any session. A decision answers only the park it was given at
 // (gateAnswer), and only with an action this table lists for that gate; anything else waits (G4b).
 import { isRepoProposalPark } from '../../project/repo-proposals.ts';
-import type { StepInput, WaitingOn } from '../../../core/types.ts';
+import type { WaitingOn } from '#core/types.ts';
+import type { StepInput } from '../types.ts';
 import { set } from './actions.ts';
 import { gateAnswer } from './facts.ts';
 import type { Ctx, Rule, RuleId } from './rules.ts';

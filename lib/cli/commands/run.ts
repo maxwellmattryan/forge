@@ -1,7 +1,8 @@
 // `forge run <job> <command> [--repo R] [--tail N] [-- <args…>]` and `forge run <job> <command> --background`.
-import type { Config, Dispatched } from '../../core/types.ts';
-import { ForgeError } from '../../core/errors.ts';
-import * as wt from '../../engine/workspace/worktree.ts';
+import type { Config } from '#core/types.ts';
+import type { Dispatched } from '../types.ts';
+import { ForgeError } from '#core/errors.ts';
+import * as wt from '#engine/workspace/worktree.ts';
 import { num, parseArgs, req } from './args.ts';
 
 const AFTER_DASHES = 'forge run takes extra arguments only after --: forge run <job> <command> -- <args…>';

@@ -11,11 +11,11 @@ import { spawn, spawnSync } from 'node:child_process';
 import { forgeInProcess, forgeSync, repoTemplate, waitFor } from '../../helpers.ts';
 import { FIXTURE_DIST } from '../../dist.ts';
 import { startServer, textFrame } from '../../../lib/server/start.ts';
-import { recordKnown } from '../../../lib/engine/guard/known-secrets.ts';
-import { parseMemUsage, parsePercent } from '../../../lib/engine/environment/status.ts';
-import { pidAlive } from '../../../lib/core/os/process.ts';
-import { parseDevProbe } from '../../../lib/engine/workspace/worktree.ts';
-import * as yaml from '../../../lib/core/format/yaml.ts';
+import { recordKnown } from '#engine/guard/known-secrets.ts';
+import { parseMemUsage, parsePercent } from '#engine/environment/status.ts';
+import { pidAlive } from '#core/os/process.ts';
+import { parseDevProbe } from '#engine/workspace/worktree.ts';
+import * as yaml from '#core/format/yaml.ts';
 
 const DEV_SERVER = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'dev-server.mjs');
 const DOCKER_BIN = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'docker-bin');
@@ -109,7 +109,12 @@ async function scratch(opts: { sseMaxAgeMs?: number } = {}) {
   process.env.FAKE_DOCKER_LOG = path.join(tmp, 'argv.log');
   process.env.FAKE_DOCKER_PIDS = path.join(tmp, 'pids');
   const dockerState = () => JSON.parse(fs.readFileSync(process.env.FAKE_DOCKER_STATE!, 'utf8'));
-  const setDocker = (patch: Record<string, unknown>) => fs.writeFileSync(process.env.FAKE_DOCKER_STATE!, JSON.stringify({ ...dockerState(), ...patch }));
+  // Written aside and renamed, as the fake docker does: a docker call starting meanwhile must never read half a file.
+  const setDocker = (patch: Record<string, unknown>) => {
+    const tmp = `${process.env.FAKE_DOCKER_STATE!}.test.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ ...dockerState(), ...patch }));
+    fs.renameSync(tmp, process.env.FAKE_DOCKER_STATE!);
+  };
   const patchContainer = (name: string, patch: Record<string, unknown>) => {
     const st = dockerState();
     setDocker({ containers: { ...st.containers, [name]: { ...st.containers[name], ...patch } } });
@@ -650,7 +655,8 @@ test('a container log stream left during its status check holds no slot and star
       const req = http.request({ host: '127.0.0.1', port: s.port, path: `/api/jobs/${a}/environment/logs?${query}`, headers: { host: `127.0.0.1:${s.port}` } });
       req.on('error', () => {});
       req.end();
-      await waitFor(() => s.argv().filter((x) => x[0] === 'version').length > i, { what: `status check ${i + 1} started` });
+      // Each check spawns the CLI, which a loaded CI runner can take past waitFor's 10 s default to start.
+      await waitFor(() => s.argv().filter((x) => x[0] === 'version').length > i, { what: `status check ${i + 1} started`, timeoutMs: 30_000 });
       req.destroy();
     }
     // Each check inspects the two managed containers once Docker answers.

@@ -1,10 +1,11 @@
 <!-- One session's structured log (a job's, or the inbox's in the status bar's Daemon popover): one compact control row
-     (status facts, then the Permissions and Effort dropdowns, one Start/Stop icon toggle, the Filter button, the rendered/raw
+     (status facts, then SessionControls' Permissions and Effort dropdowns and Start/Stop toggle, the Filter button, the rendered/raw
      icon toggle, Follow and Load older; the filters sit in a MenuButton popover), and turns with tool calls
      and subagents, followed live. Every log string is untrusted session output: text and thinking bodies and a
      subagent's prompt and result render only through the escape-first md() (as text in Raw or above 20k characters); tool
      input, tool results and every other line render as text. With `transcript`, it follows a job's Claude Code transcript
      instead (an agent's, or an interactive owner's): read-only, with no status, Start/Stop, mode or effort controls.
+     With `controls` false (the job drawer, whose header holds them) it leaves out SessionControls.
      With `fill` (the drawer's Log tab, the Foreman popover), it takes its container's remaining height and its log pane is the one scroller,
      instead of capping the pane's height. Every daemon-scoped header also states its model (from the newest init line), and
      the office's its effort, both read-only: the daemon passes no --model, and the office's effort follows runtime.effort.
@@ -16,15 +17,12 @@
   import { onDestroy, tick, untrack } from 'svelte';
   import Banner from './Banner.svelte';
   import Chip from './Chip.svelte';
-  import EffortSelect from './EffortSelect.svelte';
-  import IconButton from './IconButton.svelte';
+  import Icon from './Icon.svelte';
   import Lamp from './Lamp.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
   import MenuButton from './MenuButton.svelte';
-  import Select from './Select.svelte';
+  import SessionControls from './SessionControls.svelte';
   import { md } from '../lib/markdown.ts';
-  import { keepFocus } from '../lib/menu.ts';
-  import type { SelectOption } from '../lib/select.ts';
   import { renderable } from '../lib/md-view.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
   import { TONE_CLASS, clock, usd } from '../lib/util.ts';
@@ -40,13 +38,12 @@
   import { TINT, logSender } from '../lib/sender.ts';
   import type { SessionLogUrls } from '../lib/daemon-log.ts';
   import { promptRefreshKey } from '../lib/permissions.ts';
-  import { PERMISSION_MODES, mergeSessionState, postDaemon, postDaemonMode, sessionControls, sessionMode, sessionPill, sessionToggle } from '../lib/daemon.ts';
+  import { mergeSessionState, scopeSession, sessionPill } from '../lib/daemon.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import { settled, shutter } from '../lib/motion.ts';
   import { LIVE_LAMPS, cursorState, lampState, streaming, struck } from '../lib/station.ts';
   import { pref } from '../lib/prefs.ts';
-  import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
 
   /** A transcript to follow in place of the daemon session: the job, the agent's role (null for the owner) and the banner text. */
@@ -57,6 +54,7 @@
     active = true,
     transcript = null,
     fill = false,
+    controls = true,
     stage = null,
     finished = false,
   }: {
@@ -65,6 +63,8 @@
     active?: boolean;
     transcript?: Transcript | null;
     fill?: boolean;
+    /** False in the job drawer, whose header holds the session controls. */
+    controls?: boolean;
     /** The job's stage (the drawer's Log tab): a change drops the nameplate's shutter and relights the lamp. */
     stage?: string | null;
     /** A transcript's agent has finished (the Agents tab), so its lamp is done. */
@@ -84,27 +84,9 @@
 
   // The stream's state frames are freshest; the 2 s /api/state poll covers the rest.
   let live = $state<Partial<DaemonSessionState> | null>(null);
-  const polled = $derived(scope === INBOX_SCOPE ? (S.data?.daemons?.inbox ?? null) : scope === OFFICE_SCOPE ? (S.data?.daemons?.office ?? null) : (S.data?.daemons?.jobs?.[scope] ?? null));
+  const polled = $derived(scopeSession(S.data?.daemons ?? null, scope));
   const session = $derived(live ?? polled);
-  const poolWanted = $derived(S.data?.daemons?.wanted === true);
-  let pending = $state(false);
   const pill = $derived(sessionPill(session));
-  const controls = $derived(sessionControls(session, poolWanted, pending));
-  const toggle = $derived(sessionToggle(controls, session));
-  // The choice lives in the pool, so it shows (and applies at the next spawn) even while no child runs.
-  const mode = $derived(sessionMode(S.data?.daemons ?? null, scope, session));
-  /** Shown until the next /api/state carries the new choice, so the trigger doesn't jump back meanwhile. */
-  let picked = $state<string | null>(null);
-  const modeName = $derived<Record<string, string>>({ default: $t('session.modes.default'), auto: $t('session.modes.auto'), dontAsk: $t('session.modes.dontAsk') });
-  const modeHint = $derived<Record<string, string>>({ default: $t('session.modes.defaultHint'), auto: $t('session.modes.autoHint'), dontAsk: $t('session.modes.dontAskHint') });
-  const shownMode = $derived(picked ?? mode.chosen);
-  const modeLocked = $derived(pending || S.data?.daemons?.enabled !== true);
-  // modeLocked covers a change that is saving (pending). A chosen mode this dashboard doesn't know shows last, selected
-  // and disabled.
-  const modeOptions = $derived<SelectOption[]>([
-    ...PERMISSION_MODES.map((m) => ({ value: m, label: modeName[m], hint: modeHint[m], disabled: modeLocked })),
-    ...(PERMISSION_MODES.some((m) => m === mode.chosen) ? [] : [{ value: mode.chosen, label: mode.chosen, disabled: true, separator: true }]),
-  ]);
 
   let filters = $state<Filters>(readFilters(pref.get('sessionFilters', '')));
   const filtering = $derived(filtersActive(filters));
@@ -221,48 +203,27 @@
     follow = true;
     if (pane) pane.scrollTop = pane.scrollHeight;
   }
-
-  async function act(action: 'start' | 'stop', el: HTMLButtonElement): Promise<void> {
-    const restore = keepFocus(el);
-    pending = true;
-    try {
-      await postDaemon(action, forgeToken(), scope);
-      live = null;
-      refresh();
-    } catch (err) {
-      toast($t('session.failed', { action, error: err instanceof Error ? err.message : String(err) }), true);
-    } finally {
-      pending = false;
-      await tick();
-      restore();
-    }
-  }
-
-  async function setMode(value: string): Promise<void> {
-    const next = PERMISSION_MODES.find((m) => m === value);
-    if (!next || next === mode.chosen) return;
-    picked = next;
-    pending = true;
-    try {
-      await postDaemonMode(scope, next, forgeToken());
-      await refresh();
-    } catch (err) {
-      toast($t('session.modeFailed', { error: err instanceof Error ? err.message : String(err) }), true);
-    } finally {
-      picked = null;
-      pending = false;
-    }
-  }
 </script>
 
 <svelte:document onvisibilitychange={() => log.visibilityChanged()} />
 
+<!-- Every line is a log-row (style.css): time, caret, tag, body, each in its own column whatever the line's kind, so the
+     times, tags and bodies line up down the pane. A line that expands is a log-fold whose open content sits in the body
+     column; the summary's one-line preview hides while it is open. -->
 {#snippet when(at: string | null)}
-  <time datetime={at ?? undefined} title={at ?? undefined} class="inline-block w-[8ch] shrink-0 font-mono text-muted tabular-nums">{clock(at)}</time>
+  <time datetime={at ?? undefined} title={at ?? undefined} class="log-time">{clock(at)}</time>
+{/snippet}
+
+{#snippet caret()}
+  <span class="log-caret"><Icon name="chevron-down" /></span>
+{/snippet}
+
+{#snippet chip(tone: string | null, tag: string, title: string = tag)}
+  <span class="log-tag"><Chip tone={tone && TONE_CLASS[tone] ? tone : 'muted'} extra="max-w-full" {title}><span class="truncate">{tag}</span></Chip></span>
 {/snippet}
 
 {#snippet line(at: string | null, tone: string | null, tag: string, text: string)}
-  <div class="flex items-start gap-2 {TINT.cli} px-1.5 -mx-1.5 py-0.5">{@render when(at)}<Chip tone={tone && TONE_CLASS[tone] ? tone : 'muted'} text={tag} extra="shrink-0" /><span class="min-w-0 whitespace-pre-wrap break-words">{text}</span></div>
+  <div class="log-row {TINT.cli} px-1.5 -mx-1.5 py-0.5">{@render when(at)}{@render chip(tone, tag)}<span class="log-body whitespace-pre-wrap break-words">{text}</span></div>
 {/snippet}
 
 {#snippet result(r: NonNullable<Extract<Item, { kind: 'tool' }>['result']>)}
@@ -276,31 +237,47 @@
 {#snippet item(it: Item)}
   {#if it.kind === 'text'}
     {@const prose = renderable(it.text, mdView.session)}
-    <div class="flex items-baseline gap-2 font-sans {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5">{@render when(it.at)}{#if it.long}<details class="min-w-0"><summary class="whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text.slice(0, 200)}…</summary>{#if prose}<div class="{compact ? 'prose compact' : 'prose'} break-words">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</details>{:else if prose}<div class="{compact ? 'prose compact' : 'prose'} min-w-0 break-words [&>:first-child]:mt-0 [&>:last-child]:mb-0 {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{@html md(it.text)}</div>{:else}<div class="min-w-0 whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text}</div>{/if}</div>
+    {@const toneText = it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}
+    {#if it.long}
+      <details class="log-fold group font-sans {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5">
+        <summary class="log-row">{@render when(it.at)}{@render caret()}<span class="log-body whitespace-pre-wrap break-words group-open:hidden {toneText}">{it.text.slice(0, 200)}…</span></summary>
+        <div class="log-row"><div class="log-body">{#if prose}<div class="{compact ? 'prose compact' : 'prose'} break-words [&>:first-child]:mt-0 {toneText}">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words {toneText}">{it.text}</div>{/if}</div></div>
+      </details>
+    {:else}
+      <div class="log-row font-sans {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5">{@render when(it.at)}{#if prose}<div class="log-body {compact ? 'prose compact' : 'prose'} break-words [&>:first-child]:mt-0 [&>:last-child]:mb-0 {toneText}">{@html md(it.text)}</div>{:else}<div class="log-body whitespace-pre-wrap break-words {toneText}">{it.text}</div>{/if}</div>
+    {/if}
   {:else if it.kind === 'thinking'}
-    <details class="text-muted {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5"><summary>{@render when(it.at)}{$t('session.thinkingItem')}</summary>{#if renderable(it.text, mdView.session)}<div class="{compact ? 'prose compact' : 'prose'} font-sans break-words">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</details>
+    <details class="log-fold group text-muted {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5">
+      <summary class="log-row">{@render when(it.at)}{@render caret()}<span class="log-tag"><span>{$t('session.thinkingItem')}</span></span><span class="log-body truncate italic group-open:hidden">{it.text.trim().split('\n', 1)[0]}</span></summary>
+      <div class="log-row"><div class="log-body">{#if renderable(it.text, mdView.session)}<div class="{compact ? 'prose compact' : 'prose'} font-sans break-words [&>:first-child]:mt-0">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</div></div>
+    </details>
   {:else if it.kind === 'tool'}
-    <details class="border px-1.5 -mx-1.5 py-1 {TINT[logSender(it.kind)]} {it.tone === 'bad' ? 'border-bad' : 'border-line-soft'} {struck(log.arrivedAt(it.offset), ticker.now) ? 'strike' : ''}">
-      <summary class="break-all">{@render when(it.at)}<span class="text-gleam">→ {it.name}</span> <span class="text-muted">{it.summary}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
-      <div class="label mt-1">{$t('session.input')}</div>
-      <pre class="whitespace-pre-wrap break-words border border-line-soft p-2">{it.input}</pre>
-      {#if it.result}{@render result(it.result)}{/if}
+    <details class="log-fold {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5 {struck(log.arrivedAt(it.offset), ticker.now) ? 'strike' : ''}">
+      <summary class="log-row">{@render when(it.at)}{@render caret()}<span class="log-tag" title={it.name}><span class={it.result?.isError ? 'text-bad' : 'text-gleam'}>{it.name}</span></span><span class="log-body flex items-baseline gap-2"><span class="min-w-0 truncate" title={it.summary}>{it.summary}</span>{#if it.task?.text}<span class="min-w-0 shrink-[3] truncate text-muted" title={it.task.text}>{it.task.text}</span>{/if}{#if it.result?.isError}<Chip tone="bad" text={$t('session.error')} extra="shrink-0" />{/if}</span></summary>
+      <div class="log-row pb-1"><div class="log-body">
+        <div class="label mt-1">{$t('session.input')}</div>
+        <pre class="whitespace-pre-wrap break-words border border-line-soft p-2">{it.input}</pre>
+        {#if it.result}{@render result(it.result)}{/if}
+      </div></div>
     </details>
   {:else if it.kind === 'subagent'}
-    <details class="border border-info px-1.5 -mx-1.5 py-1 {TINT[logSender(it.kind)]} {struck(log.arrivedAt(it.offset), ticker.now) ? 'strike' : ''}">
-      <summary class="break-all">{@render when(it.at)}<Chip tone={it.known ? 'info' : 'muted'} text={it.role} /> <span>{it.description}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.hidden} <span class="text-muted">{$t('session.hiddenLines', { count: it.hidden })}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
-      {#if it.prompt}
-        <details class="mt-1">
-          <summary class="text-muted">{$t('session.prompt')}</summary>
-          {#if renderable(it.prompt, mdView.session)}<div class="prose compact break-words border border-line-soft p-2">{@html md(it.prompt)}</div>{:else}<pre class="whitespace-pre-wrap break-words border border-line-soft p-2">{it.prompt}</pre>{/if}
-        </details>
-      {/if}
-      {#if it.items.length}<div class="mt-1 flex flex-col gap-1 border-l border-info/40 pl-2">{#each it.items as child, i (i)}{@render item(child)}{/each}</div>{/if}
-      {#if it.result}
-        {#if renderable(it.result.full, mdView.session)}
-          <div class="mt-1"><div class="label">{$t('session.result')}</div><div class="prose compact break-words border border-line-soft p-2 {it.result.isError ? 'text-bad' : ''}">{@html md(it.result.full)}</div></div>
-        {:else}{@render result(it.result)}{/if}
-      {/if}
+    <details class="log-fold {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5 {struck(log.arrivedAt(it.offset), ticker.now) ? 'strike' : ''}">
+      <!-- A Forge role drops its plugin prefix so it fits the tag column; the chip's title keeps the full name. -->
+      <summary class="log-row">{@render when(it.at)}{@render caret()}{@render chip(it.known ? 'info' : 'muted', it.role.replace(/^forge:/, ''), it.role)}<span class="log-body flex items-baseline gap-2"><span class="min-w-0 truncate" title={it.description}>{it.description}</span>{#if it.task?.text}<span class="min-w-0 shrink-[3] truncate text-muted" title={it.task.text}>{it.task.text}</span>{/if}{#if it.hidden}<span class="shrink-0 text-muted">{$t('session.hiddenLines', { count: it.hidden })}</span>{/if}{#if it.result?.isError}<Chip tone="bad" text={$t('session.error')} extra="shrink-0" />{/if}</span></summary>
+      <div class="log-row pb-1">
+        {#if it.prompt}
+          <details class="log-body mt-1">
+            <summary class="text-muted">{$t('session.prompt')}</summary>
+            {#if renderable(it.prompt, mdView.session)}<div class="prose compact break-words border border-line-soft p-2">{@html md(it.prompt)}</div>{:else}<pre class="whitespace-pre-wrap break-words border border-line-soft p-2">{it.prompt}</pre>{/if}
+          </details>
+        {/if}
+        {#if it.items.length}<div class="log-nest mt-1 flex flex-col gap-1 border-l border-info/40 pl-2">{#each it.items as child, i (i)}{@render item(child)}{/each}</div>{/if}
+        {#if it.result}
+          {#if renderable(it.result.full, mdView.session)}
+            <div class="log-body mt-1"><div class="label">{$t('session.result')}</div><div class="prose compact break-words border border-line-soft p-2 {it.result.isError ? 'text-bad' : ''}">{@html md(it.result.full)}</div></div>
+          {:else}<div class="log-body">{@render result(it.result)}</div>{/if}
+        {/if}
+      </div>
     </details>
   {:else if it.kind === 'init'}
     {@render line(it.at, 'muted', 'init', [it.model, it.session].filter(Boolean).join(' · '))}
@@ -337,13 +314,8 @@
     <!-- The pill's live region stays mounted outside the key: a region remounted with its text, as the key does on a stage
          change, is often not read. The visible chip is aria-hidden so nothing is read twice. -->
     {#if !transcript}<span role="status" class="sr-only">{pill.label}</span>{/if}
-    <div class="ml-auto flex flex-wrap items-center justify-end gap-1.5">
-      {#if !transcript}
-        <!-- The Select stays enabled while its entries can't change, so it still opens and the hints stay readable. -->
-        <Select variant="button" icon="shield" align="end" label={$t('session.modeLabel')} value={shownMode} text={modeName[shownMode] ?? shownMode} options={modeOptions} onchange={setMode} />
-        {#if scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE}<EffortSelect job={scope} />{/if}
-        <IconButton icon={toggle.action === 'start' ? 'play' : 'stop'} label={toggle.action === 'start' ? $t('session.start') : $t('session.stop')} hint={toggle.action === 'start' ? $t('session.startHint') : null} disabled={!toggle.enabled} onclick={(e) => act(toggle.action, e.currentTarget)} />
-      {/if}
+    <div class="ml-auto flex flex-wrap items-start justify-end gap-1.5">
+      {#if !transcript && controls}<SessionControls {scope} {live} onacted={() => (live = null)} />{/if}
       <MenuButton label={filtering ? $t('session.filterActive') : $t('session.filter')} title={$t('session.filterTitle')} icon="filter" iconOnly badge={filtering}>
         <input class="input sm w-full" type="search" placeholder={$t('session.filter')} aria-label={$t('session.filter')} bind:value={filters.text} />
         <div class="flex flex-col gap-1">
@@ -357,11 +329,6 @@
       {#if more}<button class="btn sm" onclick={() => log.loadOlder()}>{$t('session.loadOlder')}</button>{/if}
     </div>
   </div>
-  {#if !transcript}
-    {#if session?.lastError}<div role="status" class="text-xs text-bad break-words">{session.lastError}</div>{/if}
-    {#if mode.live !== null}<div role="status" class="text-xs text-muted">{$t('session.modeSwitching', { mode: modeName[mode.live] ?? mode.live })}</div>{/if}
-    {#if mode.chosen === 'auto'}<div class="text-xs text-warn">{$t('session.modes.autoWarning')}</div>{/if}
-  {/if}
   {#if error !== null}<Banner msg={error} />{/if}
   <!-- The screen always renders: with no lines it shows the loading, empty or no-match message as one muted line. -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->
@@ -375,7 +342,7 @@
     aria-live="off"
     aria-label={$t('session.label')}
     tabindex="0"
-    class="screen mono selectable px-2.5 pb-2.5 {LIVE_LAMPS.has(lamp) ? 'live' : ''} {powering ? 'powering' : ''} {compact ? 'text-[11px] leading-5' : 'text-[13px] leading-5'} {fill ? 'min-h-0 flex-1' : compact ? 'min-h-16 max-h-72' : 'min-h-16 max-h-[70vh]'} overscroll-contain"
+    class="screen log-pane mono selectable px-2.5 pb-2.5 {LIVE_LAMPS.has(lamp) ? 'live' : ''} {powering ? 'powering' : ''} {compact ? 'text-[11px] leading-5' : 'text-[13px] leading-5'} {fill ? 'min-h-0 flex-1' : compact ? 'min-h-16 max-h-72' : 'min-h-16 max-h-[70vh]'} overscroll-contain"
   >
     {#if !entries.length}
       {#if error === null}

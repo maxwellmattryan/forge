@@ -4,13 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { defaults, validateConfig } from '../lib/core/config/load.ts';
-import { createJob, jobDir, loadJob, readEvents, setJob, updateJob } from '../lib/core/job/store.ts';
-import { budgetCmd, effectiveLimits, enforceBudget, exceededKeys, formatReason } from '../lib/engine/metrics/budget.ts';
-import { heldByBudget } from '../lib/office/session/lifecycle.ts';
+import { defaults, validateConfig } from '#core/config/load.ts';
+import { createJob, jobDir, loadJob, readEvents, setJob, updateJob } from '#core/job/store.ts';
+import { budgetCmd, effectiveLimits, enforceBudget, exceededKeys, formatReason } from '#engine/metrics/budget.ts';
+import { heldByBudget } from '#office/session/lifecycle.ts';
 import { jobCmd } from '../lib/cli/commands/job.ts';
 import { migrate } from '../lib/cli/commands/init.ts';
-import { API_VERSION, BUDGET_KEYS, JOB_SCHEMA_VERSION, WAITING_ON } from '../lib/core/job/schema.ts';
+import { API_VERSION, BUDGET_KEYS, JOB_SCHEMA_VERSION, WAITING_ON } from '#core/job/schema.ts';
 import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
 import { WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
 

@@ -6,11 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, forgeInProcess, repoTemplate } from './helpers.ts';
-import { loadConfig } from '../lib/core/config/load.ts';
-import { UNTRUSTED_LINE } from '../lib/engine/trackers/link.ts';
-import { applyTriage, prepareTriage, readTriageCache } from '../lib/engine/trackers/triage.ts';
-import { ForgeError } from '../lib/core/errors.ts';
-import type { Tracker, TrackerItem } from '../lib/core/types.ts';
+import { loadConfig } from '#core/config/load.ts';
+import { UNTRUSTED_LINE } from '#engine/trackers/link.ts';
+import { applyTriage, prepareTriage, readTriageCache } from '#engine/trackers/triage.ts';
+import { ForgeError } from '#core/errors.ts';
+import type { Tracker, TrackerItem } from '#core/types.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const skip = process.platform === 'win32';
