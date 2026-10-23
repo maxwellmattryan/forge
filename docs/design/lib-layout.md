@@ -1,6 +1,6 @@
 # lib/ layers and the big-file splits
 
-Status: decided 2026-10-21 (#303). The groundwork landed in #412: the glossary words, header comments, the tripwire tests in `test/invariants/`, `npm run docs:map` and this doc. The move landed in #421: every `lib/` file sits in its layer and module, with a folder map in each layer and module folder. Aliases (#370), the file splits (#413–#419) and the test layout (#420) are pending.
+Status: decided 2026-10-21 (#303). The groundwork landed in #412: the glossary words, header comments, the tripwire tests in `test/invariants/`, `npm run docs:map` and this doc. The move landed in #421: every `lib/` file sits in its layer and module, with a folder map in each layer and module folder. The aliases landed in #370: imports across layers go through `package.json` "imports". The file splits (#413–#419) and the test layout (#420) are pending.
 
 This replaces the flat "~18 top-level modules" plan of 2026-10-19.
 
@@ -36,7 +36,7 @@ Rules:
 - `office` starts long-running listeners (a Slack Socket Mode connection, later); their client code lives in `integrations`.
 - Node built-ins and OS process tools stay in `core`; the repo's own configured commands (verify, dev servers) stay in `engine`.
 
-`test/invariants/layers.test.ts` holds these rules, through `test/invariants/layer-map.ts`. For #370: its alias map gives `#server` no alias, so `cli/commands/dash.ts → server/` needs either a relative-import exception or an alias.
+`test/invariants/layers.test.ts` holds these rules, through `test/invariants/layer-map.ts`. Decided in #370: `server` and `cli` get no alias, because nothing below them may import them. The imports from `lib/cli/` into `lib/server/` (`cli/activity.ts` and `cli/commands/dash.ts` → `server/start.ts`), and the tests' imports of `lib/cli/` and `lib/server/`, stay relative. That needs no exception list: the alias check flags only a relative import that crosses into an aliased layer's folder.
 
 ## `lib/integrations/`
 
@@ -61,7 +61,7 @@ These apply to all new `lib/` code, before and after the move.
 - **Folders.** Inside a layer: `lib/<layer>/<module>/<file>.ts`. A concept gets a sub-module only once it has 3 or more files. 3–12 entries per folder, where an entry is a subfolder or a `.ts`, `.mjs` or `.json` file (`AGENTS.md` and tests are not entries). Three kinds of folder are exempt: registries, folders whose files are entries in one table (`cli/commands/`, `cli/commands/render/`, later `server/routes/`), may hold more; an `integrations/<system>/` folder may hold fewer, one folder per outside system; and the shrinking `SMALL` list in `test/invariants/layout.test.ts` may hold fewer until its split lands. `test/invariants/layout.test.ts` holds these rules.
 - **Standard names.** `types.ts` for a module's shapes, `constants.ts` for module-wide constants only. Helpers and files are named by purpose; `utils.ts` holds only small leftovers.
 - **No stutter, no `index.ts`, no barrels.** A file never repeats its folder's name (`plan/plan.ts`). A runtime barrel loads a whole folder on every CLI start, which undoes the start-up cache (ARCHITECTURE.md "Start-up cache") and makes cycles easier to hit; importers name the file they need. The one exception is the transitional type-only `core/types.ts`.
-- **Aliases.** Cross-layer imports use `package.json` subpath aliases (`#core/…`), never tsconfig `paths` (#370). Inside a layer, imports stay relative.
+- **Aliases.** Cross-layer imports use `package.json` subpath aliases (`#core/…`), never tsconfig `paths` (#370). `server` and `cli` have none. Inside a layer, imports stay relative.
 - **Folder maps.** Each module folder has an `AGENTS.md`: a few hand-written lines (what belongs here, the invariants), then a table of each file and the first sentence of its header comment, between the `forge:map` markers. `npm run docs:map` writes the tables and `test/invariants/docs-map.test.ts` fails when one is stale. `lib/engine/pipeline/step/AGENTS.md` was the first; `lib/`, each layer folder and each folder directly inside a layer has one, and a deeper folder is listed in its parent's table unless it has its own. Area gotchas move out of the root `AGENTS.md` into these, so each rule is stated in one place.
 - **Header comments.** Every `lib/` source opens with a comment (after at most a shebang) whose first sentence says what the file holds; that sentence is its map row.
 - **Size.** No `lib/**/*.ts` file over 600 lines, except the pinned files on the shrinking allowlist in `test/invariants/file-size.test.ts`. The target for new files is 400.
@@ -231,7 +231,7 @@ One PR each.
 
 1. **Groundwork (#412, landed):** glossary words, header comments, `test/invariants/` with the layer, file-size and folder-map tests on today's flat tree, `npm run docs:map` with `lib/step/AGENTS.md`, and this doc.
 2. **The move (#421, landed):** `git mv` and an import-rewriting codemod into the seven layers, with no content edits beyond the `util.ts` split, renames and the paths computed from the plugin root. It leaves only the two deprecated tracker re-exports in `FLAT_LAYERS`, re-keys `ALLOWED_EDGES` and the size pins, and updates CODEOWNERS, the hook, `bin/forge`, prompts and doc paths (`ci.yml` names only `lib/trackers/status.mjs`, which stays). It adds each layer and module folder's `AGENTS.md` and slims the root one, and adds the folder layout test (`test/invariants/layout.test.ts`: 3–12 entries, no stutter, no `index.ts`, the maps).
-3. **Aliases (#370):** the `#core/…` subpath map and its cross-layer relative-import test.
+3. **Aliases (#370, landed):** the `#core/…` subpath map and its cross-layer relative-import test.
 4. **types.ts by owner (#413)**, with the transitional type-only barrel.
 5. **pr.ts (#414)**, **server.ts (#415)**, **daemon.ts (#416)**, **worktree.ts (#417)** (create/remove, command templating, `verify`, the dev server), **commands/job.ts (#418)** (`HELP` apart, one handler per subcommand), **the release splits (#419)** (`release-plan.ts`, `release-run.ts`). Each deletes its size pin and the upward edges it removes.
 6. **Tests (#420):** unit tests beside their modules, the rest into `test/{integration,e2e,invariants,support}/`, with the tsconfig includes and CI sharding by kind.
