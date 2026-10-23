@@ -11,16 +11,20 @@
 // (readiness triage, lib/engine/trackers/triage.ts). Triage writes one indented `Needs info: …` line under such an
 // item; that line is Forge's, never part of the item's body.
 // An item's ref is the slug of its title, so refs survive reordering.
+// Titles and descriptions are outside text: list and search return them cleaned by visibleText, and
+// get fences the description behind `>` under Forge's column-0 provenance line, as GitHub's get does.
 import fs from 'node:fs';
 import path from 'node:path';
 import { queryTerms, scoreItems } from '#core/job/issue-link.ts';
 import { paths, resolveFrom, exists } from '#core/paths.ts';
 import { ForgeError } from '#core/errors.ts';
 import { withLock } from '#core/os/lock.ts';
-import { slugify } from '#core/text.ts';
+import { importHeader, oneLineTitle, quote, slugify, visibleText } from '#core/text.ts';
+import type { Hidden } from '#core/text.ts';
 import type { Tracker, TrackerCtx, TrackerItem } from '#core/types.ts';
 
-const ITEM_RE = /^([-*])\s+\[([ xX~?\-])\]\s+(.*?)(?:\s+→\s+(\S+))?\s*$/;
+// `[^\n]`, not `.`: a title holding U+2028 is still an item, and oneLineTitle makes it one line.
+const ITEM_RE = /^([-*])\s+\[([ xX~?\-])\]\s+([^\n]*?)(?:\s+→\s+(\S+))?\s*$/;
 
 /** A parsed backlog line: its checkbox mark, the job it points at and its indented description. */
 interface BacklogEntry {
@@ -73,10 +77,13 @@ function edit<T>(ctx: TrackerCtx, fn: (doc: BacklogDoc) => T): T {
   });
 }
 
+/** An item's description: its indented lines without triage's note. */
+const description = (item: BacklogEntry): string => item.body.filter((l) => !isNote(l)).join('\n');
+
 const toItem = (item: BacklogEntry): TrackerItem => ({
   ref: item.ref,
-  title: item.title,
-  body: item.body.filter((l) => !isNote(l)).join('\n'),
+  title: oneLineTitle(item.title),
+  body: visibleText(description(item)).text,
   status: statusOf(item.mark),
   claimedBy: item.job,
   url: null,
@@ -113,7 +120,12 @@ export default {
     const f = file(ctx);
     if (!exists(f)) return null;
     const it = parse(fs.readFileSync(f, 'utf8')).items.find((i) => i.ref === ref);
-    return it ? toItem(it) : null;
+    if (!it) return null;
+    const hidden: Hidden = { removed: 0, smuggled: false };
+    const title = oneLineTitle(it.title, hidden);
+    const desc = description(it);
+    const quoted = desc.trim() ? quote(desc, hidden) : '';
+    return { ...toItem(it), title, body: `${importHeader(`the local backlog item "${it.ref}"`, hidden)}\n\n${quoted}` };
   },
   claim(ctx, ref, job) {
     return edit(ctx, (doc) => {
