@@ -18,5 +18,6 @@ Job worktrees and what runs in them: checkouts, focus, the editor, regeneration 
 | `job-command.ts` | The environment, placeholders and shell of a configured command Forge runs for a job, with the shell's async twin verify runs steps through. |
 | `regenerate.ts` | Committed build output (`worktrees.generated`) that conflicts during `forge integrate`: Forge takes the base side, runs `worktrees.generatedBy` and stages the result, instead of handing generated files to the integrator. |
 | `run.ts` | Configured commands: fill a command's template and run it in the job's or a member's worktree, synchronously for `forge run` and without blocking for verify, logging each run alike. |
+| `seed.ts` | Worktree seeds (`worktrees.seed`): a private, Forge-owned copy of a fresh base worktree's untracked dependency paths and caches, which new job worktrees clone copy-on-write while their key files match. |
 | `worktree.ts` | Job worktrees: create and remove the root's and members' worktrees, outside the repo under `worktrees.root`. |
 <!-- forge:map:end -->

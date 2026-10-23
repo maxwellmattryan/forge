@@ -17,6 +17,8 @@ import { allocatePorts, portBearing } from '../environment/ports.ts';
 import { commandPort } from '../environment/endpoints.ts';
 import { memberClone, memberEntry, memberRepos, memberWorktreePath } from '../project/job-repos.ts';
 import { runCommandAsync } from './run.ts';
+import { applySeed, dropSeed, lockSeed, refreshSeed, removeSeeded, seedKey, seedRoot, seedTaken } from './seed.ts';
+import type { SeedCommandLog, WorktreeSeedResult } from './seed.ts';
 import type { Config, Job } from '#core/types.ts';
 import type { BackingDownResult, BackingUpEntry } from '../environment/types.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -47,6 +49,8 @@ export type CreateWorktreeResult =
       backing?: BackingUpEntry[];
       setup: { cmd: string; ok: boolean; tail: string }[];
       ok: boolean;
+      /** Only when `worktrees.seed.paths` is set: what the worktree seed did (seed.ts). */
+      seed?: WorktreeSeedResult;
       repos?: MemberWorktreeResult[];
     };
 
@@ -85,11 +89,17 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   const stack = st && !st.local && !st.remote && !opts.from ? stackSource(root, config, job) : null;
   fs.mkdirSync(wtRoot, { recursive: true });
   const defaultStart = () => opts.from ?? (runGit(root, ['rev-parse', '--verify', '--quiet', `${remote}/${job.base}`], { allowFail: true }).ok ? `${remote}/${job.base}` : job.base!);
+  // Never an eval clone's, or a member's (createMemberWorktrees).
+  const seeding = !opts.isolate && Array.isArray(config.worktrees.seed?.paths) && config.worktrees.seed.paths.length > 0;
+  // Only a branch this call creates new at the base tip may refresh the seed: never a job's own
+  // commits, a stack, --from, or a base job.json moved off the main checkout's config.
+  const fresh = seeding && Boolean(st && !st.local && !st.remote && !stack && !opts.from) && job.base === config.git.base;
   if (opts.isolate || !st) {
     cloneIsolated(root, defaultStart(), dir, job.branch!, job.base!, opts.sparseExclude ?? []);
   } else {
     addWorktree(root, dir, job, remote, st, opts.sparseExclude ?? [], stack ? () => stack.start : defaultStart);
   }
+  const startSha = fresh ? commitOf(root, defaultStart()) : null;
   // job.base is what PRs target, integrate merges from and reviewers diff against.
   const stacked = stack ? { stackedOn: stack.dependency, base: stack.base } : {};
   if (stack) {
@@ -117,19 +127,99 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
     logEvent(root, id, 'worktree-setup-failed', { backing: down.name });
     return { path: dir, created: true, port, ports, ...stacked, ...backing, setup: [], ok: false };
   }
-  const setupLog: { cmd: string; ok: boolean; tail: string }[] = [];
   const setupPort = commandPort(config, job, jobComponent(config, job));
   // Setup sees the job database's url; its stored tail never holds the password or another known value.
   const known = knownValues(root, id, config);
-  for (const cmd of config.worktrees.setup ?? []) {
-    const res = shell(fill(cmd, vars(root, config, job, dir, setupPort, cmd)), dir, jobEnv(root, config, job, dir, setupPort));
-    setupLog.push({ cmd, ok: res.ok, tail: redactKnown(tail(res.output, 15), known) });
-    if (!res.ok) {
-      logEvent(root, id, 'worktree-setup-failed', { cmd });
-      return { path: dir, created: true, port, ports, ...stacked, ...backing, setup: setupLog, ok: false };
+  // Setup and a failed check stop at the first failure; warm runs every command.
+  const runCommands: RunCommands = (cmds, keepGoing = false) => {
+    const log: SeedCommandLog[] = [];
+    for (const cmd of cmds) {
+      const res = shell(fill(cmd, vars(root, config, job, dir, setupPort, cmd)), dir, jobEnv(root, config, job, dir, setupPort));
+      log.push({ cmd, ok: res.ok, tail: redactKnown(tail(res.output, 15), known) });
+      if (!res.ok && !keepGoing) break;
     }
+    return { log, ok: log.every((l) => l.ok) };
+  };
+  const plain = (r: { log: SeedCommandLog[]; ok: boolean }) => ({ setup: r.log, ok: r.ok, seed: undefined });
+  const { setup, ok, seed } = seeding ? seededSetup(root, config, dir, startSha, runCommands) : plain(runCommands(config.worktrees.setup ?? []));
+  const failed = setup.find((s) => !s.ok);
+  if (failed) logEvent(root, id, 'worktree-setup-failed', { cmd: failed.cmd });
+  if (seed) {
+    // The command tails stay in the result: events carry no output.
+    const { used, key, method, reason, refreshed, refreshSkipped, durationMs } = seed;
+    logEvent(root, id, 'worktree-seed', { used, key, method, reason, refreshed, refreshSkipped, durationMs });
   }
-  return { path: dir, created: true, port, ports, ...stacked, ...backing, setup: setupLog, ok: true };
+  return { path: dir, created: true, port, ports, ...stacked, ...backing, setup, ok, ...(seed ? { seed } : {}) };
+}
+
+type RunCommands = (cmds: readonly string[], keepGoing?: boolean) => { log: SeedCommandLog[]; ok: boolean };
+
+/**
+ * `worktrees.setup` with the seed (lib/engine/workspace/seed.ts, docs/CONFIG.md › Worktree seed):
+ * clone the seed and run `seed.setup` on a hit, else run setup and, from a fresh base worktree
+ * (`startSha` set), refresh the seed. A seed problem never fails the create by itself.
+ */
+function seededSetup(root: string, config: Config, dir: string, startSha: string | null, runCommands: RunCommands): { setup: SeedCommandLog[]; ok: boolean; seed: WorktreeSeedResult } {
+  const started = Date.now();
+  const cfg = config.worktrees.seed;
+  const key = seedKey(dir, config);
+  const sroot = key ? seedRoot(root) : null;
+  const seed: WorktreeSeedResult = { used: false, key: key ? key.slice(0, 16) : null, durationMs: 0 };
+  const done = (setup: SeedCommandLog[], ok: boolean, over: Partial<WorktreeSeedResult> = {}) => ({ setup, ok, seed: { ...seed, ...over, durationMs: Date.now() - started } });
+  if (!key) seed.reason = 'no-key';
+  else if (!sroot) seed.reason = 'cache-unusable';
+  else {
+    const hit = applySeed(sroot, key, dir, cfg.paths);
+    if (hit.used) {
+      const checks = runCommands(cfg.setup);
+      seed.checks = checks.log;
+      if (checks.ok) return done([], true, { used: true, method: hit.method });
+      // Before setup runs, so it builds into an empty path; the seed goes too, as it failed its check.
+      removeSeeded(dir, cfg.paths);
+      dropSeed(sroot, key);
+      seed.reason = 'check-failed';
+    } else seed.reason = hit.reason;
+  }
+  const setup = runCommands(config.worktrees.setup ?? []);
+  if (!setup.ok) return done(setup.log, false);
+  // Only a clean miss refreshes. After `exists` the paths may be the main checkout's copies, and a
+  // seed that failed its check, or failed to clone, would only be replaced at the next miss.
+  if (seed.reason === 'no-key' || seed.reason === 'cache-unusable' || seed.reason === 'no-seed') Object.assign(seed, refresh(config, dir, key, sroot, startSha, runCommands));
+  return done(setup.log, true);
+}
+
+/**
+ * Writes the seed from this worktree, only when it is a new branch at the base tip whose HEAD has
+ * not moved through setup and warm, and whose key files warm left alone.
+ */
+function refresh(config: Config, dir: string, key: string | null, sroot: string | null, startSha: string | null, runCommands: RunCommands): Pick<WorktreeSeedResult, 'warm' | 'refreshed' | 'refreshSkipped'> {
+  if (!key) return { refreshSkipped: 'no-key' };
+  if (!sroot) return { refreshSkipped: 'cache-unusable' };
+  if (!startSha || headOf(dir) !== startSha) return { refreshSkipped: 'not-base' };
+  const lock = lockSeed(sroot);
+  if (!lock) return { refreshSkipped: 'busy' };
+  try {
+    // Checked before warm, which can take minutes, though refreshSeed would refuse it too.
+    if (seedTaken(sroot, key)) return { refreshSkipped: 'exists' };
+    const warm = runCommands(config.worktrees.seed.warm, true).log;
+    if (headOf(dir) !== startSha) return { warm, refreshSkipped: 'not-base' };
+    if (seedKey(dir, config) !== key) return { warm, refreshSkipped: 'key-changed' };
+    const r = refreshSeed(sroot, key, dir, config.worktrees.seed.paths, startSha);
+    return r.refreshed ? { warm, refreshed: true } : { warm, refreshSkipped: r.reason ?? 'failed' };
+  } catch {
+    return { refreshSkipped: 'failed' };
+  } finally {
+    lock.release();
+  }
+}
+
+const headOf = (dir: string): string | null => commitOf(dir, 'HEAD');
+
+/** The commit `rev` names in `cwd`, or null. `rev` is HEAD or a ref checkRefs has passed, never an option. */
+function commitOf(cwd: string, rev: string): string | null {
+  const r = runGit(cwd, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`], { allowFail: true });
+  const sha = r.ok ? r.stdout.trim() : '';
+  return /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(sha) ? sha : null;
 }
 
 /**
