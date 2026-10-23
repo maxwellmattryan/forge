@@ -1003,6 +1003,7 @@
   &.spark { background: var(--spark); }
   &.ember { background: var(--ember); }
   &.warn { background: var(--warn); }
+  &.bad { background: var(--bad); }
   &.hollow { border: 1px solid var(--line-strong); }
   /* A gleam dot without the glow: the stepper's past steps, the agent role dot. */
   &.plain { box-shadow: none; }

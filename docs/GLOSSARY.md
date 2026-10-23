@@ -100,6 +100,7 @@ Some of these words already mean something in Forge. They keep those meanings:
 - "Hand-off" alone means a session handing a job to another with `forge requests add resume`; the Foreman's always carries the name ("Foreman hand-off").
 - "Integrations" never means the integrate stage or the integrator (bringing a branch up to date with its base), nor integration tests (`test/integration/`).
 - "Office" alone means the runtime; the Foreman's session is the "office session".
+- "Milestone" means a tracker milestone (a group of planned work). The Thread's one-line rows for a job's events are "progress lines".
 - "Layer" alone keeps [ARCHITECTURE.md's meaning](ARCHITECTURE.md#layers) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
 
 ## Existing terms
@@ -128,4 +129,5 @@ The new words build on these, which exist today.
 | **`release` gate class** | The Foreman's approval of one job's release plan (`forge release plan --job`), which stands in for `forge release run`'s publish prompt without a terminal, for that exact plan only, which stays a human's unless a project adds `release` to `foreman.decides` and removes `gate:release` from `foreman.reserved` (not the **release gate**, the CI check on interim references). | `foreman.reserved` |
 | **prompt cohort** | The jobs whose last start of one role ran on the same prompt hash (`promptHash` on `agent-start`), grouped by `forge stats --by prompt` so a prompt change can be compared with the prompts before it. | - |
 | **settled experiment** | An experiment ledger entry whose status `forge experiment evaluate` wrote (`kept`, `reverted` or `inconclusive`, with its n, method and interval); it is history, and the notes check refuses any change to it. | `improve.experiments` |
+| **progress line** | A one-line row the job panel's Thread shows between the messages for a job event a person follows: a new stage, a parked gate, an agent's closing reply, a round's checks or reviews, the decision, the PR, merge conflicts or a note. It never counts as unread. | - |
 | **recall fixture** | A frozen diff in the main checkout's `.forge/evals/recall/<name>/`, with the lenses that review it and its planted defects (none for a clean fixture), that `forge eval recall` grades reviewer prompts against. | `evals.recall.paths` |

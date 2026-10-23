@@ -773,8 +773,9 @@ export interface JobDetail {
   screenshots: string[];
   /** This job's requests in every status, oldest first, at most the last 50. */
   requests: ForgeRequest[];
-  /** request.md without its `# title` line, trimmed, at most 2,000 characters: the Thread's opening message. */
+  /** request.md without its `# title` line, trimmed, the Thread's opening message: cut at 2,000 characters, with `requestTruncated` set (the whole file is GET /api/jobs/:id/file). */
   request: string | null;
+  requestTruncated: boolean;
   /** The job's `created` event has a ref (from-ref), so `request` is the issue's text. A later `job link` doesn't count. */
   requestFromTracker: boolean;
   /** The current round's agent records plus any still running, newest start first. */
@@ -783,10 +784,7 @@ export interface JobDetail {
   ownerTranscript: { session: string } | null;
 }
 
-/**
- * GET /api/jobs/:id/file for a text file: the text/plain body (send in lib/server/start.ts). Images come
- * back as raw bytes and /raw as sandboxed HTML; neither goes through api().
- */
+/** GET /api/jobs/:id/file for a text file: the text/plain body (send in lib/server/start.ts); images come back as raw bytes and /raw as sandboxed HTML, neither through api(). */
 export type JobFileText = string;
 
 /** Usage per role or model in stats: computeStats in lib/engine/metrics/stats.ts. */

@@ -8,7 +8,7 @@ import type { EFFORTS as ENGINE_EFFORTS, INBOX_SCOPE as ENGINE_INBOX_SCOPE, JOBS
 export type * from '#api/types.ts';
 
 /** lib/core/job/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 36;
+export const API_VERSION = 37;
 /** lib/core/job/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox' satisfies typeof ENGINE_INBOX_SCOPE;
 /** lib/core/job/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */

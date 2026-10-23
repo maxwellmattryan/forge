@@ -1564,18 +1564,18 @@ function jobDetail(root: string, id: string, projects: string, ownPoolSession: (
     files,
     screenshots: listScreenshots(dir),
     requests: listRequests(root).filter((r) => r.job === id).slice(-MAX_JOB_REQUESTS),
-    request: requestExcerpt(root, id),
+    ...requestExcerpt(root, id),
     requestFromTracker: fromTracker,
     agents: roundAgents(root, job, events, projects),
     ownerTranscript: ((o) => (o ? { session: o.session } : null))(interactiveOwner(root, job, projects)),
   }, knownValues(root, id, loadConfig(root).config));
 }
 
-/** request.md without its `# title` line, for the Thread's opening message; null when empty. */
-function requestExcerpt(root: string, id: string): string | null {
+/** request.md without its `# title` line, for the Thread's opening message (null when empty); the polled detail cuts a long one. */
+function requestExcerpt(root: string, id: string): Pick<JobDetail, 'request' | 'requestTruncated'> {
   const body = requestBody(root, id);
-  if (!body) return null;
-  return body.length > MAX_REQUEST_EXCERPT ? `${body.slice(0, MAX_REQUEST_EXCERPT)}…` : body;
+  const cut = body.length > MAX_REQUEST_EXCERPT;
+  return { request: !body ? null : cut ? `${body.slice(0, MAX_REQUEST_EXCERPT)}…` : body, requestTruncated: cut };
 }
 
 /**
