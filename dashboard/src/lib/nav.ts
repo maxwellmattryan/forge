@@ -2,7 +2,7 @@
 import { isOpen, needsHuman } from './job-state.ts';
 import type { JobLike } from './job-state.ts';
 
-// Labels come from messages/en.json (nav.<id>), through Nav.svelte.
+// Labels come from messages/en/app.json (nav.<id>), through Nav.svelte.
 export const VIEWS = [
   { id: 'pipeline', icon: 'pipeline' },
   { id: 'project', icon: 'graph' },

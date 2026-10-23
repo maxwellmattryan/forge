@@ -1,0 +1,129 @@
+{
+  "settings": {
+    "open": "Settings",
+    "title": "Settings",
+    "close": "Close settings",
+    "discard": "Discard unsaved changes?",
+    "loading": "Loading settings…",
+    "retry": "Retry",
+    "locked": "The daemon is running. Close settings and stop it from the Daemon indicator in the status bar to change settings: any change to .forge/config.yml stops it, and only a human may start it again.",
+    "tabs": {
+      "general": "General",
+      "pipeline": "Pipeline",
+      "review": "Review",
+      "agents": "Agents",
+      "tracker": "Tracker",
+      "dashboard": "Dashboard",
+      "daemon": "Daemon",
+      "diagnostics": "Diagnostics",
+      "about": "About",
+      "hasError": "(needs fixing)",
+      "hasChanges": "(unsaved changes)"
+    },
+    "general": {
+      "language": "Language",
+      "theme": "Theme",
+      "forge": "Forge",
+      "ash": "Ash",
+      "temper": "Temper",
+      "crucible": "Crucible",
+      "patina": "Patina",
+      "obsidian": "Obsidian",
+      "system": "System",
+      "appearance": "Appearance",
+      "languageKeyboard": "Language and keyboard",
+      "grain": "Grain",
+      "grainHint": "Film grain on the ground and plates",
+      "screen": "Screen effect",
+      "screenHint": "Scanlines and a soft glow on session logs",
+      "hint": "Press {key} to open settings."
+    },
+    "field": {
+      "default": "Default: {value}",
+      "none": "none",
+      "readOnly": "Read-only: {reason}. Edit .forge/config.yml by hand.",
+      "on": "On",
+      "off": "Off",
+      "onePerLine": "One per line",
+      "required": "Always on: {items}. Findings of these severities always force another round.",
+      "unset": "Not set"
+    },
+    "form": {
+      "required": "Enter a value.",
+      "integer": "Enter a whole number.",
+      "number": "Enter a number.",
+      "min": "Enter {min} or more.",
+      "max": "Enter {max} or less.",
+      "option": "Pick one of the listed options.",
+      "listOption": "\"{item}\" is not one of the options.",
+      "tooLong": "Keep it to {max} characters or fewer.",
+      "readOnly": "This setting is read-only.",
+      "greater": "Enter a number greater than {min}.",
+      "listRequired": "Keep {items} selected."
+    },
+    "save": {
+      "unsaved": {
+        "one": "{count} unsaved change",
+        "other": "{count} unsaved changes"
+      },
+      "reset": "Reset",
+      "save": "Save",
+      "done": {
+        "one": "Saved {count} setting",
+        "other": "Saved {count} settings"
+      },
+      "partial": "Saved {saved} of {total} settings. Couldn’t save {label}.",
+      "invalid": {
+        "one": "{count} field needs fixing",
+        "other": "{count} fields need fixing"
+      },
+      "failed": "Couldn’t save {label}. See the Save bar for why.",
+      "failedHere": "Couldn’t save {label}: {error}",
+      "fixHere": "Fix {label} to save."
+    },
+    "diagnostics": {
+      "running": "Running forge doctor…",
+      "passed": "All checks passed",
+      "failed": {
+        "one": "{count} check failed",
+        "other": "{count} checks failed"
+      },
+      "warnings": {
+        "one": "{count} warning",
+        "other": "{count} warnings"
+      },
+      "ok": "OK",
+      "warn": "Warning",
+      "fail": "Failed",
+      "again": "Run again",
+      "copy": "Copy report",
+      "copied": "Report copied",
+      "copyFailed": "Couldn't copy the report; select it and copy by hand",
+      "report": "Report",
+      "bundle": "Download support bundle",
+      "bundling": "Preparing bundle…",
+      "bundleHint": "A redacted zip of these checks, versions, config and active jobs' logs and events, for a bug report. Agent text and diffs stay out.",
+      "bundleSaved": "Support bundle downloaded",
+      "bundleFailed": "Could not build the support bundle"
+    },
+    "about": {
+      "version": "Forge version",
+      "commit": "Commit",
+      "installedAs": "Installed as",
+      "install": {
+        "plugin": "Claude Code plugin",
+        "clone": "Git clone",
+        "unknown": "Unknown"
+      },
+      "pluginRoot": "Plugin root",
+      "api": "API version",
+      "schemas": "Schema versions",
+      "schemaValues": "config {config} · job {job} · event {event}",
+      "pricing": "Pricing as of",
+      "node": "Node version",
+      "repo": "Repository",
+      "docs": "Documentation"
+    },
+    "sections": "Settings sections"
+  }
+}

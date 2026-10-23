@@ -1,0 +1,40 @@
+{
+  "agents": {
+    "title": "Agents",
+    "sub": "Who is working on what, and the roster every job draws from.",
+    "running": "Running now",
+    "modelUnknown": "model?",
+    "runningMeta": "round {round} · started {started}",
+    "noRunning": "No agents running.",
+    "sessions": "Orchestrator sessions",
+    "session": "Session",
+    "jobs": "Jobs",
+    "lastSeen": "Lease renewed",
+    "noSessions": "No session holds a live lease on a job right now.",
+    "roster": "Roster",
+    "role": "Role",
+    "promptHash": "Prompt hash",
+    "addendum": "Repo addendum",
+    "panel": "Review panel",
+    "runsWhen": "Runs when",
+    "checklist": "Checklist",
+    "hash": "Hash",
+    "always": "always",
+    "whenRelevant": "when relevant",
+    "missing": "missing",
+    "learnings": "Every agent also reads",
+    "effortDefault": "Default effort for jobs:",
+    "effort": "Effort",
+    "effortFrom": {
+      "panel": "panel entry",
+      "role": "role setting",
+      "config": "default"
+    },
+    "modelBy": {
+      "low": "low complexity: {model}",
+      "medium": "medium complexity: {model}",
+      "high": "high complexity: {model}",
+      "rework": "review rework: {model}"
+    }
+  }
+}

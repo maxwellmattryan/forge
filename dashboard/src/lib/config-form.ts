@@ -1,5 +1,5 @@
 // The settings form's model: field values as editable drafts, drafts parsed back into config
-// values, and which keys a Save would write. Errors are en.json message keys.
+// values, and which keys a Save would write. Errors are message keys, in messages/en/settings.json.
 import type { ConfigField, ConfigSection, ConfigValue } from './types.ts';
 
 /** A control's raw state: text for inputs and selects, a flag for checkboxes, the ticked options for a checkbox group. */
@@ -22,7 +22,7 @@ export function draftOf(f: ConfigField, value: unknown): Draft {
   return value === null || value === undefined ? '' : String(value);
 }
 
-/** The value a draft stands for, or the en.json key of why it is invalid. */
+/** The value a draft stands for, or the message key (messages/en/settings.json) of why it is invalid. */
 export function parseDraft(f: ConfigField, draft: Draft): Parsed {
   switch (f.type) {
     case 'boolean':
