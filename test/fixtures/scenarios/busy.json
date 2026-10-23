@@ -1,0 +1,81 @@
+{
+  "description": "A job in every stage, a builder running, and a title carrying markup",
+  "jobs": [
+    { "key": "backlog", "title": "Sort the import queue" },
+    {
+      "key": "escape",
+      "title": "Escape <img src=x onerror=\"console.error('unescaped')\"> titles",
+      "steps": [["job", "set", "{id}", "--stage", "plan", "--state", "running"]]
+    },
+    {
+      "key": "spec",
+      "title": "Spec the retry policy",
+      "steps": [["job", "set", "{id}", "--stage", "spec", "--state", "running"]]
+    },
+    {
+      "key": "design",
+      "title": "Design the settings page",
+      "steps": [["job", "set", "{id}", "--stage", "design", "--state", "running"]]
+    },
+    {
+      "key": "build",
+      "title": "Build the export command",
+      "files": { "spec.md": "# Export command\n\n## Acceptance criteria\n- [ ] AC1 — `forge export` writes one file\n", "tasks.md": "- [x] Parse the flags\n- [ ] Write the file\n" },
+      "steps": [
+        ["job", "set", "{id}", "--stage", "build", "--state", "running"],
+        ["job", "agent", "{id}", "start", "--role", "builder", "--model", "sonnet"]
+      ]
+    },
+    {
+      "key": "verify",
+      "title": "Verify the cache fix",
+      "steps": [["job", "set", "{id}", "--stage", "verify", "--state", "running"]]
+    },
+    {
+      "key": "review",
+      "title": "Review the parser rewrite",
+      "steps": [["job", "set", "{id}", "--stage", "review", "--state", "running"]]
+    },
+    {
+      "key": "integrate",
+      "title": "Integrate the release branch",
+      "steps": [["job", "set", "{id}", "--stage", "integrate", "--state", "running"]]
+    },
+    {
+      "key": "decide",
+      "title": "Decide on the log format",
+      "steps": [["job", "set", "{id}", "--stage", "decide", "--state", "running"]]
+    },
+    {
+      "key": "pr",
+      "title": "Ship the theme switcher",
+      "steps": [["job", "set", "{id}", "--stage", "pr", "--state", "waiting", "--waiting-on", "pr-review", "--reason", "PR open"]]
+    },
+    {
+      "key": "done",
+      "title": "Fix the flaky clock test",
+      "steps": [["job", "set", "{id}", "--stage", "done", "--state", "done"]]
+    }
+  ],
+  "expect": {
+    "pipeline": [
+      "Escape <img src=x onerror=\"console.error('unescaped')\"> titles",
+      "Sort the import queue",
+      "Spec the retry policy",
+      "Design the settings page",
+      "Build the export command",
+      "Verify the cache fix",
+      "Review the parser rewrite",
+      "Integrate the release branch",
+      "Decide on the log format",
+      "Ship the theme switcher",
+      "PR review"
+    ],
+    "project": ["@project.empty"],
+    "backlog": ["@backlog.empty"],
+    "agents": ["@agents.running", "Build the export command"],
+    "analytics": ["@analytics.jobs", "@analytics.noUsage"],
+    "evals": ["@evals.empty"],
+    "drawer": { "job": "build", "text": ["@thread.progress.stage", "builder"] }
+  }
+}

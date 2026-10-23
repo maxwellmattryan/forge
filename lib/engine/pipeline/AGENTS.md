@@ -13,12 +13,12 @@ The pipeline: `forge job step`, agent briefs, review panels, verifiers and the f
 |---|---|
 | `acs.ts` | `forge job acs`: which spec acceptance criteria the builder's latest AC table proves. |
 | `brief.ts` | Agent briefs for `forge job step`: paths and config-derived lines only, never file contents, so text an agent wrote (after reading tracker or PR text) is never re-injected into another prompt. |
-| `findings.ts` | `forge job findings`: review findings raised per round and lens, the builder's answers to them (fixed or disputed), and findings that recur. |
+| `findings.ts` | `forge job findings`: review findings raised per round and lens, the builder's answers to them (fixed or disputed), findings that recur, and the finding keys that group them across jobs. |
 | `member-panel.ts` | Member review panels: the lenses a member repo of a job defines for itself. |
 | `moves/` | How a job moves between stages and states: the one move with its effects, the Foreman's gate policy, and dependency waits. |
 | `panel.ts` | `forge job panel`: this round's review lenses, computed from recorded inputs and the branch diff. |
 | `roster.ts` | The agent roster: every role's prompt, the model it runs on, and a content hash of the prompt plus the repo's addendum for that role. |
-| `scope.ts` | `forge job scope`: which files a job changed that its spec's Approach never named. |
+| `scope.ts` | `forge job scope`: which files a job changed that its spec's Approach never named, and the round diff reviewers read. |
 | `step.ts` | `forge job step` lives in lib/engine/pipeline/step/: start at lib/engine/pipeline/step/order.ts, which walks the rule tables in order. |
 | `step/` | `forge job step`, the pure decider of the next pipeline action. |
 | `types.ts` | What `forge job step` reads and prints, and the verifier shapes, type-only: step/ is at its entry cap, so they live here. |

@@ -47,7 +47,8 @@
       "defaultHint": "Tool calls outside daemon.allowedTools wait for you in the dashboard",
       "autoHint": "Claude Code approves routine calls itself and asks you only about risky ones. Lasts until forge dash restarts",
       "dontAskHint": "Tool calls outside daemon.allowedTools are refused without asking",
-      "autoWarning": "Auto mode: this unattended session approves most tool calls without you. Switch back to Ask when you are done watching it."
+      "autoWarning": "Auto mode approves most tool calls without you",
+      "autoWarningHint": "Switch back to Ask when you stop watching"
     },
     "interactive": "Interactive session {session} · read-only",
     "transcriptEmpty": "No transcript lines yet.",

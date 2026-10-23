@@ -1,0 +1,42 @@
+{
+  "description": "Done and running jobs whose agents spent tokens on opus, sonnet and haiku",
+  "jobs": [
+    {
+      "key": "opus",
+      "title": "Rewrite the scheduler",
+      "steps": [
+        ["job", "agent", "{id}", "start", "--role", "builder", "--model", "opus"],
+        ["job", "agent", "{id}", "end", "--role", "builder", "--model", "opus", "--status", "done", "--tokens", "420000", "--duration-ms", "900000", "--tool-uses", "80"],
+        ["job", "set", "{id}", "--stage", "done", "--state", "done"]
+      ]
+    },
+    {
+      "key": "sonnet",
+      "title": "Add the CSV export",
+      "steps": [
+        ["job", "agent", "{id}", "start", "--role", "builder", "--model", "sonnet"],
+        ["job", "agent", "{id}", "end", "--role", "builder", "--model", "sonnet", "--status", "done", "--tokens", "260000", "--duration-ms", "600000", "--tool-uses", "55"],
+        ["job", "set", "{id}", "--stage", "done", "--state", "done"]
+      ]
+    },
+    {
+      "key": "haiku",
+      "title": "Tidy the changelog script",
+      "steps": [
+        ["job", "set", "{id}", "--stage", "build", "--state", "running"],
+        ["job", "agent", "{id}", "start", "--role", "spec-writer", "--model", "haiku"],
+        ["job", "agent", "{id}", "end", "--role", "spec-writer", "--model", "haiku", "--status", "done", "--tokens", "90000", "--duration-ms", "120000", "--tool-uses", "12"],
+        ["job", "agent", "{id}", "start", "--role", "builder", "--model", "sonnet"]
+      ]
+    }
+  ],
+  "expect": {
+    "pipeline": ["Tidy the changelog script", "90k tok"],
+    "project": ["@project.empty"],
+    "backlog": ["@backlog.empty"],
+    "agents": ["@agents.running", "Tidy the changelog script"],
+    "analytics": ["@analytics.byModel", "Rewrite the scheduler", "Add the CSV export", "Tidy the changelog script"],
+    "evals": ["@evals.empty"],
+    "drawer": { "job": "haiku", "text": ["spec-writer", "@thread.progress.agent"] }
+  }
+}

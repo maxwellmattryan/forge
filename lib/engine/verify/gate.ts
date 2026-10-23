@@ -6,6 +6,7 @@ import { ensureEnvironment, hasManagedBacking } from '../environment/lifecycle.t
 import { enforceBudget } from '../metrics/budget.ts';
 import { loadConfig, verifyGroups } from '#core/config/load.ts';
 import { e2ePlan } from './e2e.ts';
+import { failingLines } from './failing.ts';
 import { configForJob } from '../evals/overlay.ts';
 import { STATUS_ARGV, git as runGit } from '#integrations/git/runner.ts';
 import { blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from '../guard/integrity.ts';
@@ -183,6 +184,16 @@ export async function verify(root: string, base: Config, id: string, runner: Com
   const ok = results.every((r) => r.ok) && memberRuns.every((m) => m.rec.ok);
   const attempt = nextAttempt(job);
   const lines = [`VERIFY: ${ok ? 'PASS' : 'FAIL'}`, '', `Round ${job.round} · attempt ${attempt} · ${sha.slice(0, 12)} · ${now()}`, ''];
+  // First, so a rework builder reads the failing tests by name before any log tail.
+  lines.push(
+    ...failingLines(
+      [
+        ...results.map((step) => ({ label: step.name, step, cwd: job.worktree! })),
+        ...memberRuns.flatMap((m, i) => m.results.map((step) => ({ label: `${m.rec.repo}:${step.name}`, step, cwd: members[i].worktree }))),
+      ],
+      jobDir(root, id),
+    ),
+  );
   const brokenDownstream = memberRuns.filter((m) => !m.rec.ok && downstream.has(m.rec.repo));
   for (const m of brokenDownstream)
     lines.push(`Downstream consumer \`${m.rec.repo}\` failed \`${m.rec.failure}\`: fix the library on this job, or propose changing the consumer: forge job repo propose ${id} ${m.rec.repo} --reason "…"`);

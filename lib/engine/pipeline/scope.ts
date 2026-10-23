@@ -1,9 +1,10 @@
-// `forge job scope`: which files a job changed that its spec's Approach never named.
+// `forge job scope`: which files a job changed that its spec's Approach never named, and the round
+// diff reviewers read.
 import fs from 'node:fs';
 import path from 'node:path';
 import { STATUS_ARGV, git as runGit, historyEnv } from '#integrations/git/runner.ts';
 import { inSpec } from '#core/glob.ts';
-import { loadJob, jobDir, logEvent } from '#core/job/store.ts';
+import { ensureReviewDir, loadJob, jobDir, logEvent } from '#core/job/store.ts';
 import { memberWorktree } from '../project/job-repos.ts';
 import { reviewedRepoNames } from '#core/job/lens.ts';
 import { exists } from '#core/paths.ts';
@@ -33,6 +34,8 @@ export interface ScopeReport {
   /** Set instead when the policy is invalid; scope itself never fails on it. */
   protectedError?: string;
   file: string;
+  /** This round's diff for reviewers, every job: `review/round-<n>/diff.patch`, relative to the job dir. */
+  patch: string;
   /** Only in a job with a reviewed member: each member's comparison point and counts, in job.repos order. */
   repos?: RepoScope[];
   /** Each reviewed member's HEAD; the root's is `head`. */
@@ -201,7 +204,7 @@ export function reviewedRepoDiffs(root: string, config: Config, job: Pick<Job, '
   });
 }
 
-/** One section of scope.diff: `prefix` is '' for the root and `<repo>/` for a member. */
+/** One section of scope.diff and the round diff: `prefix` is '' for the root and `<repo>/` for a member. */
 export interface DiffSection {
   label: string;
   cwd: string;
@@ -211,23 +214,125 @@ export interface DiffSection {
   prefix: string;
 }
 
+// Renames, external drivers, textconv, submodules, binary detection, colour and diff.relative.
+const DIFF_PINS = ['--no-ext-diff', '--no-textconv', '--no-color', '--no-relative', '--no-renames', '--ignore-submodules=none', '--text'];
+
+const STAT_GRAPH = 40;
+
+const sectionLine = (s: DiffSection): string => `# repo ${s.label} base ${s.baseRef} @ ${s.mergeBase} · HEAD ${s.head}`;
+
 /**
- * The combined unified diff reviewers read. Prefixes, context, colour, renames, external drivers,
- * textconv, submodules and binary detection are all pinned on the command line, because the worktree's
- * git config and attributes are builder-writable and could otherwise drop the repo prefix, substitute a
- * driver's output for the real change, or turn a hunk into "Binary files differ" (`-diff`, `binary`).
+ * A `git diff --stat` summary counted from a section's own unified diff. git's --stat honours a
+ * `-diff` or `binary` attribute even with --text and would print a changed text file as "Bin", so
+ * the stat comes from the pinned diff text instead. Renames are off, so a header's a/ and b/ paths
+ * are the same; a quoted path is shown as git prints it.
  */
-function writeScopeDiff(file: string, sections: DiffSection[]): void {
+function diffStat(diff: string, prefix: string): string {
+  const files: { name: string; add: number; del: number }[] = [];
+  let cur: (typeof files)[number] | null = null;
+  let hunk = false;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('diff --git ')) {
+      const rest = line.slice('diff --git '.length);
+      const half = (rest.length - 1) / 2;
+      const a = rest.slice(0, half);
+      const b = rest.slice(half + 1);
+      const name = Number.isInteger(half) && a === `a/${prefix}${b.slice(2 + prefix.length)}` && b.startsWith(`b/${prefix}`) ? b.slice(2 + prefix.length) : rest;
+      cur = { name, add: 0, del: 0 };
+      files.push(cur);
+      hunk = false;
+    } else if (cur && line.startsWith('@@')) hunk = true;
+    else if (cur && hunk && line.startsWith('+')) cur.add++;
+    else if (cur && hunk && line.startsWith('-')) cur.del++;
+  }
+  if (!files.length) return '';
+  // reduce, not Math.max(...): a spread of ~100k changed files overflows the call stack.
+  const width = files.reduce((n, f) => Math.max(n, f.name.length), 0);
+  const most = files.reduce((n, f) => Math.max(n, f.add + f.del), 0);
+  const digits = String(most).length;
+  const scale = (n: number) => (most <= STAT_GRAPH ? n : n ? Math.max(1, Math.round((n * STAT_GRAPH) / most)) : 0);
+  const add = files.reduce((n, f) => n + f.add, 0);
+  const del = files.reduce((n, f) => n + f.del, 0);
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  // git's summary: a zero count is left out unless both are zero.
+  const summary = [
+    `${plural(files.length, 'file', 'files')} changed`,
+    ...(add || !del ? [plural(add, 'insertion(+)', 'insertions(+)')] : []),
+    ...(del || !add ? [plural(del, 'deletion(-)', 'deletions(-)')] : []),
+  ];
+  return [
+    ...files.map((f) => ` ${f.name.padEnd(width)} | ${String(f.add + f.del).padStart(digits)} ${'+'.repeat(scale(f.add))}${'-'.repeat(scale(f.del))}`.trimEnd()),
+    ` ${summary.join(', ')}`,
+    '',
+  ].join('\n');
+}
+
+/**
+ * The combined unified diff reviewers read: one `# repo …` section per repo. Prefixes, context and
+ * every DIFF_PINS option are pinned on the command line, because the worktree's git config and
+ * attributes are builder-writable and could otherwise drop the repo prefix, substitute a driver's
+ * output for the real change, or turn a hunk into "Binary files differ" (`-diff`, `binary`).
+ * With `stat`, every section's `# repo …` line and its stat (diffStat) come first, then a blank
+ * line, then the same text: the round diff. Without it, scope.diff's text.
+ */
+export function renderDiff(sections: DiffSection[], opts: { stat: boolean }): string {
   const env = historyEnv();
-  const parts = sections.map((s) => {
-    const out = runGit(
-      s.cwd,
-      ['diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-relative', '--no-renames', '--ignore-submodules=none', '--text', '-U3', `--src-prefix=a/${s.prefix}`, `--dst-prefix=b/${s.prefix}`, s.mergeBase, s.head, '--'],
-      { env },
-    ).stdout;
-    return `# repo ${s.label} base ${s.baseRef} @ ${s.mergeBase} · HEAD ${s.head}\n${out}`;
-  });
-  fs.writeFileSync(file, parts.join(''));
+  const header = (s: DiffSection) => `${sectionLine(s)}\n`;
+  const parts = sections.map((s) => ({
+    s,
+    out: runGit(s.cwd, ['diff', ...DIFF_PINS, '-U3', `--src-prefix=a/${s.prefix}`, `--dst-prefix=b/${s.prefix}`, s.mergeBase, s.head, '--'], { env }).stdout,
+  }));
+  const diff = parts.map((p) => header(p.s) + p.out).join('');
+  if (!opts.stat) return diff;
+  return `${parts.map((p) => header(p.s) + diffStat(p.out, p.s.prefix)).join('')}\n${diff}`;
+}
+
+/**
+ * The round diff (renderDiff with its stat), or a note when git can't render it: each section's
+ * `# repo …` line, the reason, and the `forge git diff` reviewers read instead. A branch that commits
+ * a bundle or binary past run()'s 64 MiB output cap (--text prints it in full) must not stop RV2 for
+ * every job; scope.md and the scope event don't need the diff text.
+ */
+export function roundDiffText(sections: DiffSection[]): string {
+  try {
+    return renderDiff(sections, { stat: true });
+  } catch (e) {
+    const reason = String(e instanceof Error ? e.message : e).replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 200);
+    return [
+      ...sections.map(sectionLine),
+      '',
+      `The diff was not rendered: ${reason}`,
+      "Read each repo's diff in its worktree with the shas above: `forge git diff --stat <merge base> <HEAD>`, then `forge git diff <merge base> <HEAD> -- <paths>`.",
+      '',
+    ].join('\n');
+  }
+}
+
+/**
+ * Writes `<dir>/diff.patch` without following a planted link: `dir` and its `review` parent must be
+ * real directories, any entry at the file's path is removed (a symlink itself, never its target), and
+ * the file is created exclusively, so the job dir's agent-writable entries can't redirect the CLI's write.
+ */
+export function writeRoundDiff(dir: string, text: string): string {
+  // The parent too: a linked `review/` holds a real `round-<n>` (ensureReviewDir made it) in the link's target.
+  for (const d of [path.dirname(dir), dir]) {
+    let st: fs.Stats;
+    try {
+      st = fs.lstatSync(d);
+    } catch (e) {
+      throw new ForgeError(`review directory ${d} is unreadable: ${(e as Error).message}`);
+    }
+    if (!st.isDirectory()) throw new ForgeError(`review directory ${d} is not a directory`);
+  }
+  const file = path.join(dir, 'diff.patch');
+  fs.rmSync(file, { force: true });
+  const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0), 0o644);
+  try {
+    fs.writeFileSync(fd, text);
+  } finally {
+    fs.closeSync(fd);
+  }
+  return file;
 }
 
 /**
@@ -270,13 +375,15 @@ export function jobScope(root: string, config: Config, id: string): ScopeReport 
   const file = path.join(dir, 'scope.md');
   const diffFile = path.join(dir, 'scope.diff');
   const heads = Object.fromEntries(members.map((m) => [m.repo, m.head]));
-  if (members.length)
-    writeScopeDiff(diffFile, [
-      { label: 'root', cwd, baseRef, mergeBase, head, prefix: '' },
-      ...members.map((m) => ({ label: m.repo, cwd: m.cwd, baseRef: m.baseRef, mergeBase: m.mergeBase, head: m.head, prefix: `${m.repo}/` })),
-    ]);
-  // A single-repo job's reviewers read `forge git diff`; a combined diff left by an earlier run would mislead them.
+  const sections: DiffSection[] = [
+    { label: 'root', cwd, baseRef, mergeBase, head, prefix: '' },
+    ...members.map((m) => ({ label: m.repo, cwd: m.cwd, baseRef: m.baseRef, mergeBase: m.mergeBase, head: m.head, prefix: `${m.repo}/` })),
+  ];
+  if (members.length) fs.writeFileSync(diffFile, renderDiff(sections, { stat: false }));
+  // scope.diff is multi-repo only; a combined diff left by an earlier run would mislead a single-repo job's reviewers.
   else fs.rmSync(diffFile, { force: true });
+  // Every job, once per round after verify (RV2): the reviewers' `Diff:` file, so none fetches the same diff itself.
+  const patch = writeRoundDiff(ensureReviewDir(root, job.id, Math.max(job.round, 1)), roundDiffText(sections));
   fs.writeFileSync(file, renderScope({ baseRef, mergeBase, head, dirty, approach, tokens, inside, outside, changed: changedFiles.length, prot, protectedError, members }));
   logEvent(root, job.id, 'scope', { round: job.round, head, ...(members.length ? { heads } : {}) });
   return {
@@ -295,6 +402,7 @@ export function jobScope(root: string, config: Config, id: string): ScopeReport 
     protectedMore: Math.max(0, prot.length - LIST_LIMIT),
     ...(protectedError ? { protectedError } : {}),
     file: path.relative(root, file),
+    patch: path.relative(dir, patch),
     ...(members.length
       ? { repos: members.map((m) => ({ repo: m.repo, base: m.baseRef, mergeBase: m.mergeBase, head: m.head, dirty: m.dirty, changed: m.changed.length })), heads, diff: path.relative(dir, diffFile) }
       : {}),

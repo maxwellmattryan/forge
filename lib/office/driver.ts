@@ -1,6 +1,7 @@
 // Who drives a job and whether that driver is one of this pool's sessions, by every id the session
-// has had; and the one release of everything a gone session held. Every check of a lease's driver against a session's ids in lib/office/ and lib/server/ asks here,
-// so the server, the reconciler and a session's exit never disagree after a session-changed.
+// has had; and the one release of everything a gone session held. Every check of a lease's driver
+// against a session's ids in lib/office/ and lib/server/ asks here, so the server, the reconciler
+// and a session's exit never disagree after a session-changed.
 import fs from 'node:fs';
 import path from 'node:path';
 import { UUID, readInfo, sessionRecords } from '#core/job/session-files.ts';

@@ -300,7 +300,7 @@ export const JOB: HelpGroup = {
     {
       command: 'job scope',
       args: '<id>',
-      summary: "files the branch changed outside the spec's Approach, across every reviewed job repo (member paths prefixed <repo>/), plus scope.diff for a multi-repo job",
+      summary: "files the branch changed outside the spec's Approach, across every reviewed job repo (member paths prefixed <repo>/), plus this round's review/round-<n>/diff.patch for every job and scope.diff for a multi-repo job",
       exits: [
         [1, 'no such job, no worktree or no spec.md'],
         [5, 'git failed'],
@@ -315,7 +315,12 @@ export const JOB: HelpGroup = {
         [5, 'git failed'],
       ],
     },
-    { command: 'job acs', args: '<id>', summary: "the spec's acceptance criteria and their proof in build.md", exits: [NO_JOB] },
+    {
+      command: 'job acs',
+      args: '<id>',
+      summary: "the spec's acceptance criteria and their proof in build.md, and the rows in its file map (fileMap; a spec without one reports incomplete: [\"files\"])",
+      exits: [NO_JOB],
+    },
     {
       command: 'job findings',
       args: '<id>',
