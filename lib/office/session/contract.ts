@@ -100,9 +100,11 @@ export function sessionOptions(opts: DaemonOptions = {}): SessionOptions {
 export interface SessionContext {
   /** The trustDigest a human's pool start took. */
   trusted(): string | null;
+  /** The confineDigest (./confine.ts) the same pool start took; every turn's end and every spawn compare against it. */
+  confined(): string | null;
   poolWanted(): boolean;
   config(): Config;
-  /** .forge/config.yml, .forge/trackers/ or .forge/verifiers/ changed: the pool stops every session. */
+  /** A file the trust or confine digest covers changed: the pool stops every session. */
   untrusted(): void;
   /** A repo-wide refusal (config, daemon.enabled, tracker symlinks): the pool stops every session. */
   fatal(message: string): void;

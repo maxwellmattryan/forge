@@ -9,7 +9,7 @@ import path from 'node:path';
 import { scratchGitConfig } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
 import { DENY_TOOLS } from '#integrations/claude/argv.ts';
-import { denyRules, writeRoots } from './confine.ts';
+import { confineDigest, denyRules, writeRoots } from './confine.ts';
 import type { Config } from '#core/types.ts';
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe', encoding: 'utf8' });
@@ -138,5 +138,43 @@ test('denyRules covers the protected paths, the instruction files and an in-chec
     const deny = denyRules(p.root, p.config);
     for (const r of row.has(p)) assert.ok(deny.includes(r), `${row.name}: has ${r}`);
     for (const r of row.lacks?.(p) ?? []) assert.ok(!deny.includes(r), `${row.name}: lacks ${r}`);
+  }
+});
+
+test('confineDigest sees content changes under the protected pathspecs', (t) => {
+  const put = (root: string, rel: string, text: string) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  };
+  type P = ReturnType<typeof project>;
+  const rows: { name: string; before?: (p: P) => void; change: (p: P) => void; changes: boolean }[] = [
+    { name: 'a committed learnings file edited', change: (p) => put(p.root, '.forge/notes/learnings.md', 'two\n'), changes: true },
+    { name: 'a committed learnings file deleted', change: (p) => fs.rmSync(path.join(p.root, '.forge/notes/learnings.md')), changes: true },
+    { name: 'a new untracked lib/CLAUDE.md', change: (p) => put(p.root, 'lib/CLAUDE.md', 'x\n'), changes: true },
+    { name: 'a nested CLAUDE.local.md', change: (p) => put(p.root, 'a/b/CLAUDE.local.md', 'x\n'), changes: true },
+    { name: 'a dirty notes file edited again', before: (p) => put(p.root, '.forge/notes/draft.md', 'one\n'), change: (p) => put(p.root, '.forge/notes/draft.md', 'two\n'), changes: true },
+    { name: 'a reviewer checklist created', change: (p) => put(p.root, '.forge/reviewers/code.md', 'x\n'), changes: true },
+    { name: 'a configured instruction file', before: (p) => void (p.config.project.instructions = ['docs/RULES.md']), change: (p) => put(p.root, 'docs/RULES.md', 'x\n'), changes: true },
+    {
+      name: 'a new file in an in-checkout hooks dir',
+      before: (p) => void git(p.root, 'config', 'core.hooksPath', '.githooks'),
+      change: (p) => put(p.root, '.githooks/post-checkout', '#!/bin/sh\n'),
+      changes: true,
+    },
+    { name: 'source code', change: (p) => put(p.root, 'src/app.ts', 'x\n'), changes: false },
+    { name: 'an eval run record', change: (p) => put(p.root, '.forge/evals/runs/r.json', '{}\n'), changes: false },
+    { name: 'a recall run record', change: (p) => put(p.root, '.forge/evals/recall/runs/x.json', '{}\n'), changes: false },
+    { name: 'a job folder file', change: (p) => put(p.root, '.forge/jobs/j1/build.md', 'x\n'), changes: false },
+  ];
+  for (const row of rows) {
+    const p = project(t, { member: false });
+    put(p.root, '.forge/notes/learnings.md', 'one\n');
+    git(p.root, 'add', '-A');
+    git(p.root, 'commit', '-qm', 'forge');
+    row.before?.(p);
+    const before = confineDigest(p.root, p.config);
+    assert.equal(confineDigest(p.root, p.config), before, `${row.name}: stable`);
+    row.change(p);
+    assert.equal(confineDigest(p.root, p.config) !== before, row.changes, row.name);
   }
 });

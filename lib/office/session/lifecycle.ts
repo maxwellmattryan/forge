@@ -18,7 +18,7 @@ import type { ClaudeChild, ClaudeEvent } from '#integrations/claude/types.ts';
 import type { ChildMeta, DaemonChild, Session, SessionContext, SessionCore, SessionOptions } from './contract.ts';
 import { createControl } from './control.ts';
 import { routeHolds } from './holds.ts';
-import { spawnConfinement } from './confine.ts';
+import { confineDigest, spawnConfinement } from './confine.ts';
 import { checkLaunch } from './launch.ts';
 import { createSessionLog } from './log.ts';
 import { createOwned } from './owned.ts';
@@ -28,7 +28,7 @@ import type { Config, DaemonSessionState, DaemonStatus, Effort } from '#core/typ
 
 /** Why the supervisor stopped: shown in the dashboard, so it speaks to the human. */
 export const TRUST_CHANGED =
-  'daemon stopped: .forge/config.yml, .forge/trackers/ or .forge/verifiers/ changed while it was running. The session can write files in this checkout, so only a human may approve that change: review `git diff .forge/`, then start the daemon again.';
+  'daemon stopped: a file Forge trusts (.forge/config.yml, .forge/secrets-allow.txt, .forge/trackers/, .forge/verifiers/, .forge/notes/, .forge/reviewers/, .forge/evals/, .forge/ci/, a CLAUDE.md, AGENTS.md, an instruction file or the hooks dir) changed while it was running, seen by the supervisor or the check after a turn. The session can run commands in this checkout, so only a human may approve that change: review `git status` and `git diff`, then start the daemon again.';
 
 const MAX_FAILURES = 3;
 
@@ -319,6 +319,12 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
         armIdle(ctx.config());
       } catch {}
     }
+    // The post-turn check: a protected path this turn changed (through forge, git or a nested CLAUDE.md) stops the pool.
+    let same = false;
+    try {
+      same = confineDigest(root, ctx.config()) === ctx.confined();
+    } catch {}
+    if (!same) return ctx.untrusted();
     ctx.onResult(scope);
   }
 

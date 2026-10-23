@@ -1,10 +1,11 @@
 // What a daemon session may write: its write roots (the job folders and every worktrees root), the
-// deny rules for the checkout's protected paths, and the env that tells hooks/write-guard.ts the same
-// roots. lifecycle.ts builds every spawn from spawnConfinement. docs/architecture/daemon-security.md
-// describes the layers.
+// deny rules for the checkout's protected paths, the env that tells hooks/write-guard.ts the same
+// roots, and the confine digest the post-turn check compares. lifecycle.ts builds every spawn from
+// spawnConfinement. docs/architecture/daemon-security.md describes the layers.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { allInstructionFiles, worktreeRoot } from '#core/config/load.ts';
+import { PROTECTED, allInstructionFiles, worktreeRoot } from '#core/config/load.ts';
 import { ForgeError } from '#core/errors.ts';
 import { landing } from '#core/paths.ts';
 import { memberWorktreesRoot } from '#engine/project/job-repos.ts';
@@ -94,6 +95,52 @@ export function denyRules(root: string, config: Config, roots: WriteRoots = writ
     both(`${hooks}/**`);
   }
   return [...new Set(out)];
+}
+
+/**
+ * What a turn may not change in the main checkout, as one hash: `git status` over every PROTECTED
+ * path (minus what `forge` writes there), `**\/CLAUDE.md` and `**\/CLAUDE.local.md` at any depth, the
+ * configured instruction files and an in-checkout hooks dir, plus the content of each path it lists,
+ * so a file that was already dirty and changes again still counts. The pool takes it when a human
+ * starts it; every turn's end and every spawn compare against it. Never throws: a failure hashes a marker.
+ */
+export function confineDigest(root: string, config: Config): string {
+  const h = crypto.createHash('sha256');
+  const add = (label: string, data: string | Buffer) => h.update(`${label}\0${Buffer.byteLength(data)}\0`).update(data);
+  try {
+    const hooks = hooksDir(root);
+    const specs = [
+      ...[...PROTECTED.files, ...PROTECTED.dirs].map((p) => `:(top,literal)${p}`),
+      ...PROTECTED.forgeWrites.map((p) => `:(exclude,top,literal)${p}`),
+      ...PROTECTED.anyDepth.map((f) => `:(top,glob)**/${f}`),
+      ...allInstructionFiles(config).map((f) => `:(top,literal)${f}`),
+      ...(hooks !== null ? [`:(top,literal)${hooks}`] : []),
+    ];
+    const r = git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none', '--', ...specs], { allowFail: true });
+    if (!r.ok) {
+      add('status', '!git');
+      return h.digest('hex');
+    }
+    add('status', r.stdout);
+    const parts = r.stdout.split('\0');
+    for (let i = 0; i < parts.length; i++) {
+      const entry = parts[i];
+      if (entry.length < 4) continue;
+      // A rename or copy is followed by its source path, which is gone or unchanged.
+      if (entry[0] === 'R' || entry[0] === 'C') i++;
+      const rel = entry.slice(3);
+      const f = path.join(root, rel);
+      try {
+        const st = fs.lstatSync(f);
+        add(rel, st.isSymbolicLink() ? `link ${fs.readlinkSync(f)}` : st.isFile() ? fs.readFileSync(f) : `!${st.isDirectory() ? 'dir' : 'special'}`);
+      } catch (e) {
+        add(rel, `!${(e as NodeJS.ErrnoException).code ?? 'unreadable'}`);
+      }
+    }
+  } catch (e) {
+    add('error', `!${(e as Error).message}`);
+  }
+  return h.digest('hex');
 }
 
 /** Everything a spawn needs to confine its session: the write roots, the extra deny rules and the guard's env. */
