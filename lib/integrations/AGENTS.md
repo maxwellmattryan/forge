@@ -5,6 +5,7 @@ Code that knows an outside system's API, CLI or file format, one folder per syst
 - Each system has one client (auth, timeouts, output parsing) that everything using it shares. A git, gh or docker process starts only in `git/runner.ts`, `github/gh.ts` or `docker/runner.ts`.
 - Integrations import only `core` and `api`. When to retarget, rework or merge stays in `lib/engine/`.
 - The security wrappers (secret scanning of outgoing text, fencing of incoming text) live in engine's loaders around every adapter, never inside one adapter here.
+- Design: [Untrusted input](../../docs/architecture/untrusted-input.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

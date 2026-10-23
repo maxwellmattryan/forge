@@ -5,6 +5,7 @@ Releases: plans, runs and approvals, and interim releases across member repos.
 - `interim.ts` is pure (no fs or git), so `forge job step` can import it; the git-dependent half is `interim-apply.ts`.
 - `plan.ts` was split in #419, with runtime imports one way: `manifest.ts` imports nothing here, `steps.ts` imports only types from `plan.ts`, `plan.ts` imports `steps.ts` and `manifest.ts`, `render.ts` imports `plan.ts`, and `files.ts` imports `plan.ts` and `render.ts`.
 - This is the release flow Forge runs for the repos it works on; Forge's own release is `scripts/release.ts` (docs/RELEASES.md).
+- Design: [Interim strategies](../../../docs/architecture/interim-strategies.md), [Foreman](../../../docs/architecture/foreman.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

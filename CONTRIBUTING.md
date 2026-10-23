@@ -31,7 +31,7 @@ Run `npm ci` once. After that, the dashboard and the CLI run your local source, 
 - **Leave versions and the changelog alone.** Don't touch the `version` fields in `package.json` and `.claude-plugin/plugin.json`, or `CHANGELOG.md`: the release commit at the end of a wave adds them. Describe user-visible changes in the PR description instead.
 - **Branch from `develop` and open PRs into `develop`.** `main` takes only the main update, which the maintainer's `npm run release` pushes with the CI-built `dashboard/dist/`, and hotfixes; leave `dist/` out of every other PR.
 - Paths listed in [.github/CODEOWNERS](.github/CODEOWNERS) need the maintainer's review.
-- Forge never adopts a PR from a fork (see [Untrusted input](docs/ARCHITECTURE.md#untrusted-input)), so the maintainer reviews those by hand.
+- Forge never adopts a PR from a fork (see [Untrusted input](docs/architecture/untrusted-input.md)), so the maintainer reviews those by hand.
 
 ## Dependencies
 

@@ -3,7 +3,7 @@
 // sessions), never at which event happened, so a missed event can't strand a job. Its only memory,
 // one record per job it resumed, lives on disk, so a restarted dashboard keeps its count. A job it
 // finds undriven gets one resume; undriven again with no progress since, it is parked on escalation
-// for the foreman or a person. docs/ARCHITECTURE.md "Reconciler".
+// for the foreman or a person. docs/architecture/daemon.md "Reconciler".
 import path from 'node:path';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
 import { whoDrives } from './driver.ts';

@@ -1,5 +1,5 @@
 // The dashboard's Open in editor: which command runs, and the only directory it may be given.
-// job.json's `worktree` is agent-writable (docs/ARCHITECTURE.md "Dashboard security"), so the
+// job.json's `worktree` is agent-writable (docs/architecture/dashboard-security.md), so the
 // path the editor gets is the job's own worktree under the worktrees root, resolved, or nothing.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';

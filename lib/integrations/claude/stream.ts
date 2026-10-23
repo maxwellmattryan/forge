@@ -1,7 +1,7 @@
 // Claude Code's stream-json protocol, with no I/O of its own: claude's output lines become ClaudeEvents,
 // and every line written to its stdin is built here, from fixed text or a fixed list: the one turn,
 // permission answers and mode switches, plus an error reply that repeats claude's own capped subtype back
-// to it. Nothing from requests, HTTP or config reaches any of them (docs/ARCHITECTURE.md "Daemon security").
+// to it. Nothing from requests, HTTP or config reaches any of them (docs/architecture/daemon-security.md).
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { now } from '#core/utils.ts';

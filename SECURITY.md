@@ -35,9 +35,9 @@ Only the latest minor release line (the newest `x.y`; see [CHANGELOG.md](CHANGEL
 
 Forge acts with your git, `gh` and Claude Code permissions, and it reads text written by people outside your session. Each boundary below is a summary; the linked section of the architecture doc has the full design.
 
-- **Tracker and PR text is untrusted.** Issue bodies, comments and reviews reach agents only fenced and labelled as data, and Forge never adopts a PR from a fork. See [Untrusted input](docs/ARCHITECTURE.md#untrusted-input).
-- **The dashboard is reachable from loopback only.** Every POST must carry the page's token, a matching Origin and a JSON body. See [Dashboard security](docs/ARCHITECTURE.md#dashboard-security).
-- **The daemon runs unattended.** It uses the tools in `daemon.allowedTools` on its own, and any other tool call is refused or waits for a human, unless a human switched that session to Auto. A trust digest of the config stops its sessions when `.forge/config.yml` or a tracker module changes under them. See [Daemon security](docs/ARCHITECTURE.md#daemon-security).
+- **Tracker and PR text is untrusted.** Issue bodies, comments and reviews reach agents only fenced and labelled as data, and Forge never adopts a PR from a fork. See [Untrusted input](docs/architecture/untrusted-input.md).
+- **The dashboard is reachable from loopback only.** Every POST must carry the page's token, a matching Origin and a JSON body. See [Dashboard security](docs/architecture/dashboard-security.md).
+- **The daemon runs unattended.** It uses the tools in `daemon.allowedTools` on its own, and any other tool call is refused or waits for a human, unless a human switched that session to Auto. A trust digest of the config stops its sessions when `.forge/config.yml` or a tracker module changes under them. See [Daemon security](docs/architecture/daemon-security.md).
 - **Supply chain.** Forge has zero runtime dependencies and its devDependencies are exact-pinned. Installing the plugin runs nothing: no install scripts and no build. [Dependabot](.github/dependabot.yml) proposes toolchain updates as reviewed PRs.
 
 Not vulnerabilities:

@@ -1,5 +1,5 @@
 // findPr never adopts a fork's PR, even on the job's own branch: untrusted code must not become the
-// job's PR (docs/ARCHITECTURE.md "Untrusted input"). Kept through the test rewrite
+// job's PR (docs/architecture/untrusted-input.md). Kept through the test rewrite
 // (docs/test-rewrite/README.md): the security posture AGENTS.md says to preserve. GitHub is the
 // in-memory adapter, so no gh script, PATH or env change, and the table runs concurrently.
 import test, { describe } from 'node:test';
