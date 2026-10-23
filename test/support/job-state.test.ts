@@ -6,7 +6,7 @@ import { jobAt, parkedAt, repoTemplate, withLease, withRound } from '../helpers.
 import { jobDir, leaseStatus, loadJob, readEvents } from '#core/job/store.ts';
 import { listRequests } from '#core/job/requests.ts';
 import { WAITING_ON } from '#api/constants.ts';
-import { defaults } from '#core/config/defaults.ts';
+import { defaults } from '#core/config/load.ts';
 
 const repo = repoTemplate(() => {});
 
