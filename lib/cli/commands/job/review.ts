@@ -1,12 +1,15 @@
 // `forge job round|verdicts|decision|score`: review rounds, the reviewers' and approver's verdicts, and the post-merge score.
 import { enforceBudget } from '#engine/metrics/budget.ts';
-import { ensureReviewDir, loadJob, logEvent, parseDecision, roundVerdicts, setJob, updateJob } from '#core/job/store.ts';
+import { ensureReviewDir, loadJob, logEvent, parseDecision, readEvents, roundVerdicts, setJob, updateJob } from '#core/job/store.ts';
 import { exists } from '#core/paths.ts';
-import { trustedMemberWorktree } from '#engine/project/job-repos.ts';
+import { isMap } from '#core/shape.ts';
+import { memberRepos, trustedMemberWorktree } from '#engine/project/job-repos.ts';
 import { isLens, lensRepoAllowed, reviewedRepoNames } from '#core/job/lens.ts';
 import { recordScore } from '#engine/evals/scoring.ts';
-import { git } from '#integrations/git/runner.ts';
+import { git, historyEnv } from '#integrations/git/runner.ts';
 import { pullPrHead } from '#engine/pr/branch.ts';
+import { FULL_SHA, lastDecision } from '#engine/pr/eligible.ts';
+import { after } from '#engine/pipeline/step/facts.ts';
 import { ForgeError } from '#core/errors.ts';
 import type { Config } from '#core/types.ts';
 import { list, req, requireJob, usageError } from '../args.ts';
@@ -72,15 +75,34 @@ export function verdicts(root: string, config: Config, rest: string[], flags: Re
   return { ...v, sha, ...heads };
 }
 
+/**
+ * Records the approver's decision bound to the commits it saw: the worktree HEAD and each PR
+ * member's. Once per approver run: a decision.md edited after the record changes nothing until the
+ * approver runs again.
+ */
 export function decision(root: string, config: Config, rest: string[], flags: Record<string, any>) {
   const id = rest[0];
-  const jobId = requireJob(root, id).id;
-  const d = parseDecision(root, jobId);
-  if (d.decision) {
-    setJob(root, jobId, { fields: { decision: d.decision } });
-    logEvent(root, jobId, 'decision', d);
+  const job = requireJob(root, id);
+  const jobId = job.id;
+  const events = readEvents(root, jobId);
+  const last = events.findLast((e) => e.type === 'decision');
+  if (last && after(last.ts, job.agents.approver?.endedAt)) {
+    const r = lastDecision(events)!;
+    return { decision: r.decision, reason: typeof last.reason === 'string' ? last.reason : null, autoMerge: r.autoMerge, head: r.head, ...(isMap(last.heads) ? { heads: r.heads } : {}), recorded: false };
   }
-  return d;
+  const d = parseDecision(root, jobId);
+  const headOf = (wt: string | null | undefined): string | null => {
+    if (!wt || !exists(wt)) return null;
+    const out = git(wt, ['rev-parse', '--verify', 'HEAD^{commit}'], { env: historyEnv(), allowFail: true }).stdout.trim();
+    return FULL_SHA.test(out) ? out : null;
+  };
+  const members = memberRepos(job).filter((m) => !m.verifyOnly);
+  const heads = members.length ? { heads: Object.fromEntries(members.map((m) => [m.repo, headOf(trustedMemberWorktree(root, config, job, m.repo))])) } : {};
+  const record = { decision: d.decision, reason: d.reason, autoMerge: d.autoMerge, head: headOf(job.worktree), ...heads };
+  if (!d.decision) return { ...record, recorded: false };
+  setJob(root, jobId, { fields: { decision: d.decision } });
+  logEvent(root, jobId, 'decision', record);
+  return { ...record, recorded: true };
 }
 
 export function score(root: string, config: Config, rest: string[], flags: Record<string, any>) {

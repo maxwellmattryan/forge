@@ -800,9 +800,9 @@ function reviewerEnded(root: string, id: string, round: number | 'integration'):
   };
 }
 
-export function parseDecision(root: string, id: string): { decision: string | null; reason: string | null } {
+export function parseDecision(root: string, id: string): { decision: string | null; reason: string | null; autoMerge: boolean } {
   const text = readText(path.join(jobDir(root, id), 'decision.md'));
   const first = text.split('\n').find((l) => l.trim()) ?? '';
   const m = first.match(/^\s*(APPROVE|ESCALATE)\b\s*[:\-–]?\s*(.*)$/i);
-  return m ? { decision: m[1].toUpperCase(), reason: m[2].trim() || null } : { decision: null, reason: null };
+  return { ...(m ? { decision: m[1].toUpperCase(), reason: m[2].trim() || null } : { decision: null, reason: null }), autoMerge: /^\s*(?:[-*]\s*)?Auto-merge eligible:\s*yes\b/im.test(text) };
 }

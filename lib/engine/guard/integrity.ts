@@ -698,26 +698,22 @@ export function testIntegrity(root: string, config: Config, job: Pick<Job, 'id' 
   return report;
 }
 
-function configEdit(
-  c: { status: string; from: string | null; to: string | null },
-  sources: Set<string>,
-  show: (rev: string, p: string | null) => string | null,
-  mergeBase: string,
-): { path: string; detail: string } | null {
+/** A test, build or CI config edit, or null; `head` is the commit `to` is read at. Also the escalate floor's config rule (floor.ts). */
+export function configEdit(c: { status: string; from: string | null; to: string | null }, sources: Set<string>, show: (rev: string, p: string | null) => string | null, mergeBase: string, head = 'HEAD'): { path: string; detail: string } | null {
   const p = (c.to ?? c.from) as string;
   const detail = c.status === 'A' || c.status === 'C' ? 'added' : c.status === 'D' ? 'deleted' : c.status === 'R' ? `renamed from ${c.from}` : 'edited';
   const names = [c.from, c.to].filter((x) => x !== null);
   const base = path.posix.basename(p);
   if (base === 'package.json') {
     const before = c.from ? show(mergeBase, c.from) : '';
-    const after = c.to ? show('HEAD', c.to) : '';
+    const after = c.to ? show(head, c.to) : '';
     if (before === null || after === null) return { path: p, detail: 'edited (unparseable)' };
     const d = packageJsonDetail(before, after);
     return d ? { path: p, detail: d } : null;
   }
   if (base === 'Cargo.toml') {
     const before = devDepsSection((c.from && show(mergeBase, c.from)) || '');
-    const after = devDepsSection((c.to && show('HEAD', c.to)) || '');
+    const after = devDepsSection((c.to && show(head, c.to)) || '');
     return before !== after ? { path: p, detail: '[dev-dependencies] changed' } : null;
   }
   if (names.some((n) => isConfigPath(n) || sources.has(n))) return { path: p, detail };
