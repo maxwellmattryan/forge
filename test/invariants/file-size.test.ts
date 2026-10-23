@@ -25,7 +25,6 @@ const ALLOWED: Record<string, number> = {
   'engine/release/plan.ts': 632,
   'core/job/schema.ts': 666,
   'engine/guard/secrets.ts': 705,
-  'server/start.ts': 1762,
   'engine/workspace/worktree.ts': 1320,
 };
 
