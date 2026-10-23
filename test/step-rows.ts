@@ -6,6 +6,7 @@ import { shellLine, step } from '#engine/pipeline/step.ts';
 import type { Config, Job, VerifyRun } from '#core/types.ts';
 import type { StepInput } from '#engine/pipeline/types.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
+import { acCoverage } from '#engine/pipeline/acs.ts';
 import { JOB_DIR, RECALL_HASH, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
 import type { FixtureOpts } from './step-fixture.ts';
 
@@ -595,8 +596,25 @@ export const rows: Row[] = [
       assert.ok(!a.brief.includes('Reference:'));
       assert.ok(a.brief.includes('Infra: mode human · allowed []'));
       assert.ok(a.brief.split('\n').includes('UI proof: none · no AC needs a rendered UI, so do not use browser tools'));
-      assert.equal(a.brief.split('\n').length, 13);
+      assert.ok(a.brief.split('\n').includes('File map: none in spec.md · explore the code the Approach names'));
+      assert.equal(a.brief.split('\n').filter((l: string) => l.startsWith('File map:')).length, 1);
+      assert.equal(a.brief.split('\n').length, 14);
       assert.ok(a.brief.split('\n').includes(`Inputs: ${path.join(JOB_DIR, 'spec.md')}, ${path.join(JOB_DIR, 'tasks.md')}`));
+    },
+  },
+  {
+    name: "B4 the round-1 builder starts from the spec's file map",
+    fx: {
+      files: ['spec', 'tasks'],
+      acs: acCoverage('# S\n\n## Approach\nDo it.\n\nFiles:\n| Path | Symbols | Change | Tests |\n|---|---|---|---|\n| `a.ts` | `f` | new | `a.test.ts` |\n| `b.ts` | - | reuse | - |\n', null),
+      job: job({ stage: 'build', round: 1 }),
+      events: [ev('round', 4)],
+    },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => {
+      const lines = a.brief.split('\n');
+      assert.ok(lines.includes("File map: 2 rows in spec.md's Approach › Files · start from it; explore only what it does not cover"), a.brief);
+      assert.equal(lines.filter((l: string) => l.startsWith('File map:')).length, 1);
     },
   },
   {
@@ -616,6 +634,7 @@ export const rows: Row[] = [
       assert.ok(lines.includes('Rework: review, feedback'));
       assert.ok(lines.some((l: string) => l.startsWith('Rework scope: ')));
       assert.ok(lines.includes(`Reference: ${path.join(JOB_DIR, 'spec.md')}`));
+      assert.ok(!a.brief.includes('File map:'));
     },
   },
   {
@@ -779,6 +798,20 @@ export const rows: Row[] = [
     check: (a) => {
       argvMatch(a.start, ['job', 'agent', 'j', 'start', '--role', 'reviewer:code', '--model', 'sonnet', '--output', path.join(JOB_DIR, 'review', 'round-1', 'code.md')], 'start');
       assert.ok(a.brief.includes('Lens: code') && a.brief.includes(`Scope: ${path.join(JOB_DIR, 'scope.md')}`) && a.brief.includes('Checklist: '));
+      const diff = path.join(JOB_DIR, 'review', 'round-1', 'diff.patch');
+      assert.ok(a.brief.split('\n').includes(`Diff: ${diff} (stat, then the branch's diff from its merge base)`), a.brief);
+      assert.ok(a.brief.includes(`"roundDiff":${JSON.stringify(diff)}`), a.brief);
+    },
+  },
+  {
+    name: 'RV4 a job with a reviewed member names the round diff for every repo',
+    fx: { job: inReview({}, { repos: [{ repo: null, worktree: WT, branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }, { repo: 'lib', worktree: '/lib.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }] }), events: scoped },
+    want: { action: 'spawn', role: 'reviewer:code' },
+    check: (a) => {
+      const lines = a.brief.split('\n');
+      assert.ok(lines.includes(`Diff: ${path.join(JOB_DIR, 'review', 'round-1', 'diff.patch')} (every job repo; member paths are prefixed <repo>/)`), a.brief);
+      assert.equal(lines.filter((l: string) => l.startsWith('Diff: ')).length, 1);
+      assert.ok(!lines.some((l: string) => l.startsWith('Diff: ') && l.includes('scope.diff')), a.brief);
     },
   },
   { name: 'RV4 spawns the next lens while one runs', fx: { job: inReview({ 'reviewer:code': ag(1, 12) }), events: scoped }, want: { action: 'spawn', role: 'reviewer:tests' }, check: (a) => assert.ok(!Object.hasOwn(a, 'spawns')) },
@@ -1058,6 +1091,7 @@ export const rows: Row[] = [
       assert.equal(a.parallel, undefined);
       assert.ok(a.brief.includes('Integration review: conflicted files ["a.ts","`x`"]'));
       assert.ok(a.brief.includes("Diff: use the Before/Merge shas in build.md's ## Integration block, as in "));
+      assert.ok(!a.brief.split('\n').some((l: string) => l.startsWith('Diff: ') && l.includes('diff.patch')), a.brief);
     },
   },
   { name: 'IG9 records the integration review', fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true)], agents: { integrator: ag(1, 33, 36), 'reviewer:code': ag(1, 38, 39, { outputMissing: false }) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' })], verdicts: { integration: verdicts({ code: 'PASS' }) } }, want: run('job', 'verdicts', 'j', '--round', 'integration') },

@@ -812,7 +812,7 @@ Bring a job branch up to date with its base.
 
 One job's state, agents and reviews; forge job step &lt;id> returns its next action.
 
-**`forge job acs <id>`**: the spec's acceptance criteria and their proof in build.md
+**`forge job acs <id>`**: the spec's acceptance criteria and their proof in build.md, and the rows in its file map (fileMap; a spec without one reports incomplete: ["files"])
 
 | Exit | When |
 |---|---|
@@ -1142,7 +1142,7 @@ See [Job repos](architecture/job-repos.md).
 |---|---|
 | 1 | no such job |
 
-**`forge job scope <id>`**: files the branch changed outside the spec's Approach, across every reviewed job repo (member paths prefixed &lt;repo>/), plus scope.diff for a multi-repo job
+**`forge job scope <id>`**: files the branch changed outside the spec's Approach, across every reviewed job repo (member paths prefixed &lt;repo>/), plus this round's review/round-&lt;n>/diff.patch for every job and scope.diff for a multi-repo job
 
 | Exit | When |
 |---|---|
