@@ -2,10 +2,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { YamlError, parse } from './yaml.ts';
-import { loadConfig } from '#core/config/load.ts';
-import { paths } from '#core/paths.ts';
-import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
-import { ForgeError } from '#core/errors.ts';
+import { loadConfig } from '../config/load.ts';
+import { paths } from '../paths.ts';
+import { CONFIG_SCHEMA_VERSION } from '../job/schema.ts';
+import { ForgeError } from '../errors.ts';
 
 function refused(src: string, line: number, message: string): void {
   assert.throws(
