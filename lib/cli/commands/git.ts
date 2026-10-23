@@ -18,7 +18,8 @@ import { knownValues } from '#engine/guard/known-secrets.ts';
 import { applyAllowlist, diffUnits, loadAllowlist, logSecrets, refusalMessage, refuseSecrets, scanUnits, secretMode, secretsBlock, textUnit } from '#engine/guard/secrets.ts';
 import { ForgeError } from '#core/errors.ts';
 import { usageError } from './args.ts';
-import type { CommandHelp, Config, HelpGroup, Job, ProtectedHit } from '#core/types.ts';
+import type { Config, Job, ProtectedHit } from '#core/types.ts';
+import type { CommandHelp, HelpGroup } from '../types.ts';
 
 // Re-exported: callers (and tests) imported it from here before it moved to lib/core/paths.ts.
 export { resolveWorktreePaths };

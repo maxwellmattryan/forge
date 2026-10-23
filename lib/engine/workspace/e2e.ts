@@ -4,7 +4,7 @@
 import { verifySteps } from '#core/config/load.ts';
 import { git } from '#integrations/git/runner.ts';
 import { inSpec } from '#core/glob.ts';
-import { resolveBase } from './scope.ts';
+import { resolveBase } from '../pipeline/scope.ts';
 import type { Config, Job } from '#core/types.ts';
 
 const SHOWN = 3;

@@ -48,7 +48,7 @@ import { statsText, statusRows, statusTable, statusView } from './commands/statu
 import { nextCmd, syncAll, trackerCmd } from './commands/tracker.ts';
 import { updateCmd } from './commands/update.ts';
 import { versionCmd } from './commands/version.ts';
-import type { CliContext, Dispatched } from '#core/types.ts';
+import type { CliContext, Dispatched } from './types.ts';
 
 export { reportError } from './commands/help.ts';
 

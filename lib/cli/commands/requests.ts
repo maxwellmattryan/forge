@@ -9,7 +9,8 @@ import { dashRunning } from '#office/reconcile.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, ackRequest, claimRequest, daemonScope, enqueue, listRequests, requestScope, validJobId } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';
 import { req, str, usageError } from './args.ts';
-import type { Config, ForgeRequest, HelpGroup } from '#core/types.ts';
+import type { Config, ForgeRequest } from '#core/types.ts';
+import type { HelpGroup } from '../types.ts';
 
 const REQUESTS: HelpGroup = {
   name: 'requests',

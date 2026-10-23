@@ -14,7 +14,8 @@ import { defaults } from '#core/config/load.ts';
 import { createJob, jobDir, loadJob, logEvent, logHumanEvent, readEvents, setJob } from '#core/job/store.ts';
 import { JOB_SCHEMA_VERSION } from '#core/job/schema.ts';
 import { loadStepInput, step } from '#engine/pipeline/step.ts';
-import type { EventActor, JobChange, StepAction } from '#core/types.ts';
+import type { EventActor, JobChange } from '#core/types.ts';
+import type { StepAction } from '#engine/pipeline/types.ts';
 
 /** One template per tracker kind: `local` is the default `forge init` writes, `none` skips issue links. */
 function initTemplate(tracker: 'local' | 'none') {

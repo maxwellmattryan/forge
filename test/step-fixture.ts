@@ -8,7 +8,8 @@ import { jobEndpoints } from '#engine/environment/endpoints.ts';
 import { normalizeJob } from '#core/job/schema.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { recallGate } from '#engine/pipeline/step/input.ts';
-import type { Config, Job, JobAgent, JobEvent, StepFile, StepInput } from '#core/types.ts';
+import type { Config, Job, JobAgent, JobEvent } from '#core/types.ts';
+import type { StepFile, StepInput } from '#engine/pipeline/types.ts';
 
 export const ROOT = '/repo';
 export const JOB_DIR = path.join(ROOT, '.forge', 'jobs', 'j');

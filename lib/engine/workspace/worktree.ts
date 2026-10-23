@@ -6,13 +6,12 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { backingDown, hasJobBacking, portsLock } from '../environment/backing.ts';
 import { ensureEnvironment, hasManagedBacking, stopBackground } from '../environment/lifecycle.ts';
-import { checkRefs, joinOutput, jobEnv, shell, vars } from './job-command.ts';
-import type { ShellResult } from './job-command.ts';
+import { checkRefs, joinOutput, jobEnv, shell, vars, type ShellResult } from './job-command.ts';
 import { knownValues, redactKnown, removeKnown } from '../guard/known-secrets.ts';
 import { enforceBudget } from '../metrics/budget.ts';
 import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
 import { loadConfig, verifyGroups, worktreeRoot } from '#core/config/load.ts';
-import { e2ePlan } from '../pipeline/e2e.ts';
+import { e2ePlan } from './e2e.ts';
 import { checkNotes, checkedNotes } from '../evals/experiments.ts';
 import { committedChanges, resolveBase } from '../pipeline/scope.ts';
 import { configForJob } from '../evals/overlay.ts';
@@ -37,7 +36,9 @@ import { refreshInterim } from '../release/interim-apply.ts';
 import { applyLinks, consumerLockfiles, pathPrelude, resolveLinks, restoreLockfiles, snapshotLockfiles } from '../project/links.ts';
 import type { AppliedLinks, LockSnapshot } from '../project/links.ts';
 import { memberClone, memberEntry, memberRepos, memberWorktree, memberWorktreePath, trustedMemberWorktree } from '../project/job-repos.ts';
-import type { BackingDownResult, BackingUpEntry, ComponentConfig, CompactSecrets, Config, EventActor, Job, JobRepo, SecretScan, VerifyRun, VerifyRunRepo } from '#core/types.ts';
+import type { ComponentConfig, Config, EventActor, Job, JobRepo, VerifyRun, VerifyRunRepo } from '#core/types.ts';
+import type { BackingDownResult, BackingUpEntry } from '../environment/types.ts';
+import type { CompactSecrets, SecretScan } from '../guard/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { killAndWaitAsync, pidAlive, run } from '#core/os/process.ts';
 import { readJson, writeJsonAtomic } from '#core/os/fs.ts';
@@ -822,7 +823,6 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
     ...(budget ? { budget } : {}),
   };
 }
-
 
 /**
  * The `notes` step: when the committed diff (merge base..`sha`) touches a learnings, ledger or

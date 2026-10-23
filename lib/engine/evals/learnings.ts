@@ -5,7 +5,8 @@ import path from 'node:path';
 import { paths } from '#core/paths.ts';
 import { agentRoles } from './provenance.ts';
 import { PROTO_KEYS } from '#core/shape.ts';
-import type { ExperimentEntry, LearningEntry, Stats } from '#core/types.ts';
+import type { Stats } from '#core/types.ts';
+import type { ExperimentEntry, LearningEntry } from './types.ts';
 import { readText } from '#core/os/fs.ts';
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;

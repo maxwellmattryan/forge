@@ -5,8 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { forgeAsync, tempRepo } from './helpers.ts';
-import { DEPRECATED_CONFIG_KEYS, deprecationChecks } from '#core/config/deprecations.ts';
-import type { DeprecatedKey } from '#core/config/deprecations.ts';
+import { DEPRECATED_CONFIG_KEYS, deprecationChecks } from '#core/config/validators/deprecations.ts';
+import type { DeprecatedKey } from '#core/config/validators/deprecations.ts';
 import { detectInstall } from '#engine/ops/update.ts';
 import { latestReleaseCheck, readCommitFile, releaseRepo, versionInfo } from '#engine/ops/version.ts';
 

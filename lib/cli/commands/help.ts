@@ -29,7 +29,7 @@ import { HELP as STATUS } from './status.ts';
 import { HELP as TRACKER } from './tracker.ts';
 import { HELP as UPDATE } from './update.ts';
 import { HELP as VERIFIERS } from './verifiers.ts';
-import type { CliError, CommandHelp, HelpGroup } from '#core/types.ts';
+import type { CliError, CommandHelp, HelpGroup } from '../types.ts';
 
 const NO_JOB: [1, string] = [1, 'no such job'];
 const GIT_FAILED: [5, string] = [5, 'git failed'];

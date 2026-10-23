@@ -7,7 +7,8 @@ import { detectInstall } from './update.ts';
 import { ghJson } from '#integrations/github/gh.ts';
 import { git, gitEnv } from '#integrations/git/runner.ts';
 import { readJson } from '#core/os/fs.ts';
-import type { DoctorCheck, InstallInfo, InstalledAs, VersionInfo } from '#core/types.ts';
+import type { DoctorCheck, InstalledAs } from '#core/types.ts';
+import type { InstallInfo, VersionInfo } from './types.ts';
 
 /** At the plugin root; `git archive` stamps it through `.gitattributes` `export-subst`. */
 const COMMIT_FILE = 'COMMIT';

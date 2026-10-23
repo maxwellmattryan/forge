@@ -4,7 +4,7 @@
 import { listArchived } from '#core/job/archive.ts';
 import { judgeAutonomy } from '../evals/autonomy.ts';
 import { jobFindings } from '../pipeline/findings.ts';
-import type { JobFindings } from '../pipeline/findings.ts';
+import type { JobFindings } from '#core/job/types.ts';
 import { isForemanActor, listJobs, readEvents } from '#core/job/store.ts';
 import { csvCell, parseAuditDate } from '../ops/audit.ts';
 import { LEDGER_BY, ledgerRows, spendLedger } from './spend.ts';
@@ -13,7 +13,8 @@ import { LENS_NAME } from '#core/job/lens.ts';
 import { agentRoles } from '../evals/provenance.ts';
 import { inSpec } from '#core/glob.ts';
 import { whenTokens } from '../pipeline/step/panel.ts';
-import type { Config, Job, JobEvent, PromptCohort, PromptStats, ReviewerStats, Stats, UsageRow, VerifierStats } from '#core/types.ts';
+import type { Config, Job, JobEvent, ReviewerStats, Stats, UsageRow, VerifierStats } from '#core/types.ts';
+import type { PromptCohort, PromptStats } from './types.ts';
 import { ForgeError } from '#core/errors.ts';
 
 /** One job stats reads: live (its files on disk) or archived (its record), with the same accessors. */

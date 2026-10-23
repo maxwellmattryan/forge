@@ -6,9 +6,7 @@ import path from 'node:path';
 import { HEADING, unfenced } from './acs.ts';
 import { jobDir } from '#core/job/store.ts';
 import { lensFromReviewFile } from '#core/job/lens.ts';
-import type { SEVERITIES } from '#core/job/schema.ts';
-
-export type Severity = (typeof SEVERITIES)[number];
+import type { FindingCounts, JobFindings, Severity } from '#core/job/types.ts';
 
 /** One tagged finding in a review file. */
 export interface RaisedFinding {
@@ -25,25 +23,6 @@ export interface FindingAnswer {
   severity: Severity;
   path: string | null;
   outcome: 'fixed' | 'disputed';
-}
-
-interface Counts {
-  raised: number;
-  fixed: number;
-  disputed: number;
-}
-
-/** CLI output of `forge job findings`, without the id. */
-export interface JobFindings {
-  rounds: (Counts & { round: number })[];
-  /**
-   * `severity`: the lens's raised findings by severity, present once it raised one. Archive records
-   * written before it carry none, and stats leaves those out of its severity counts.
-   */
-  byLens: Record<string, Counts & { recurring: number; severity?: Record<Severity, number> }>;
-  totals: Counts & { recurring: number };
-  recurring: { lens: string; path: string; rounds: number[] }[];
-  disputed: { round: number; lens: string; severity: Severity; path: string | null }[];
 }
 
 const LIST_CAP = 20;
@@ -140,11 +119,11 @@ function lensKey(raw: string): string {
   return colon < 0 ? raw.toLowerCase() : `${raw.slice(0, colon)}:${raw.slice(colon + 1).toLowerCase()}`;
 }
 
-const zero = (): Counts => ({ raised: 0, fixed: 0, disputed: 0 });
+const zero = (): FindingCounts => ({ raised: 0, fixed: 0, disputed: 0 });
 
 /** All the counting, pure: `raised` maps each review round that has files to its lenses' findings. */
 export function summariseFindings(raised: Map<number, { lens: string; severity: Severity; path: string | null }[]>, answers: FindingAnswer[]): JobFindings {
-  const perRound = new Map<number, Counts>();
+  const perRound = new Map<number, FindingCounts>();
   const byLens: JobFindings['byLens'] = {};
   const lensOf = (lens: string) => (byLens[lens] ??= { ...zero(), recurring: 0 });
   const roundOf = (r: number) => {

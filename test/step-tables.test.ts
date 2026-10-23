@@ -11,7 +11,7 @@ import { PP1 } from '#engine/pipeline/step/gates.ts';
 import { M1, M2, N1, N1b, N2, X1 } from '#engine/pipeline/step/generic.ts';
 import { firstMatch, flatRows } from '#engine/pipeline/step/rules.ts';
 import type { Ctx, Row, Rule } from '#engine/pipeline/step/rules.ts';
-import type { StepInput } from '#core/types.ts';
+import type { StepInput } from '#engine/pipeline/types.ts';
 import { fixture } from './step-fixture.ts';
 import { rows } from './step-rows.ts';
 

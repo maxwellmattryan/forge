@@ -4,7 +4,8 @@
 import { hasLiveJob, listArchived, readArchived } from '#core/job/archive.ts';
 import { listJobs, loadJob, parseEventLines, readEvents, repoAuditFile } from '#core/job/store.ts';
 import { REPO_NAME } from '../project/member-repos.ts';
-import type { AuditRow, JobAudit, JobEvent, LoadedJob, RepoAudit, TransitionSide } from '#core/types.ts';
+import type { JobEvent, LoadedJob, TransitionSide } from '#core/types.ts';
+import type { AuditRow, JobAudit, RepoAudit } from './types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { readText } from '#core/os/fs.ts';
 import { safeText } from '#core/text.ts';

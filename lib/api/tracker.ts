@@ -1,6 +1,6 @@
 // The tracker adapter contract: the handful of statuses a job's stage and state collapse to. Custom
 // adapters import it, so its exports are a stable API (docs/RELEASES.md, docs/TRACKERS.md).
-import type { Job } from '#core/types.ts';
+import type { Job } from './types.ts';
 
 /**
  * Collapses Forge's stage/state into the handful of statuses trackers understand.

@@ -3,7 +3,7 @@
 import { paint, sanitize } from '#core/format/ansi.ts';
 import type { Paint, Style } from '#core/format/ansi.ts';
 import { isMap } from '#core/shape.ts';
-import type { CliError } from '#core/types.ts';
+import type { CliError } from '../types.ts';
 
 /** Colour only on a terminal, and never when NO_COLOR is set to anything (https://no-color.org). */
 export function colorEnabled(isTTY: boolean, env: NodeJS.ProcessEnv): boolean {

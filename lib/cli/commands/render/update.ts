@@ -1,7 +1,7 @@
 // `forge update` and `forge update --check` in human mode.
 import { blocks, has, line, marked, paint, section, txt } from './kit.ts';
 import type { Paint, Renderer } from './kit.ts';
-import type { UpdateCheck, UpdateResult } from '#core/types.ts';
+import type { UpdateCheck, UpdateResult } from '#engine/ops/types.ts';
 
 const warnings = (w: unknown, p: Paint): string | null => section('Warnings', Array.isArray(w) ? w.map((x) => marked('warn', [{ text: txt(x) }], p)) : [], p);
 

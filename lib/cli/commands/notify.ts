@@ -2,7 +2,8 @@
 // sender lib/office/notify.ts queueNotify spawns. Delivery itself lives in lib/office/notify.ts.
 import { contextFor, deliver, isNotifyEvent, isReasonCode, notifyConfigured } from '#office/notify.ts';
 import { NOTIFY_EVENTS } from '#core/job/schema.ts';
-import type { CliContext, Dispatched, HelpGroup, NotifyEvent } from '#core/types.ts';
+import type { NotifyEvent } from '#core/types.ts';
+import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { list, usageError } from './args.ts';
 

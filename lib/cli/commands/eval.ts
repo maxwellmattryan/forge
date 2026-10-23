@@ -4,7 +4,8 @@ import * as evals from '#engine/evals/run.ts';
 import * as recall from '#engine/evals/recall.ts';
 import { ForgeError } from '#core/errors.ts';
 import { bodyFrom, list, num, req, requireJob, usageError } from './args.ts';
-import type { Config, HelpGroup } from '#core/types.ts';
+import type { Config } from '#core/types.ts';
+import type { HelpGroup } from '../types.ts';
 
 const EVAL: HelpGroup = {
   name: 'eval',

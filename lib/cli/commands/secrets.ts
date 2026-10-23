@@ -10,7 +10,9 @@ import { checkSecret } from '#engine/guard/secret-refs.ts';
 import { secretSourceOf } from '#core/config/validators/secret-refs.ts';
 import { ForgeError } from '#core/errors.ts';
 import { list, usageError } from './args.ts';
-import type { CliContext, Config, Dispatched, HelpGroup, SecretScan } from '#core/types.ts';
+import type { Config } from '#core/types.ts';
+import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
+import type { SecretScan } from '#engine/guard/types.ts';
 
 const SECRETS: HelpGroup = {
   name: 'secrets',

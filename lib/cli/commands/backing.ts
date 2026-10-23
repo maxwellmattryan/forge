@@ -8,7 +8,7 @@ import { databaseCommands } from '#engine/workspace/job-command.ts';
 import { ForgeError } from '#core/errors.ts';
 import { assertSafeRef } from '#core/text.ts';
 import { usageError } from './args.ts';
-import type { CliContext, Dispatched, HelpGroup } from '#core/types.ts';
+import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
 
 const DOCS: [string, string] = ['Backing services', 'docs/CONFIG.md#backing-services'];
 const DOCKER_FAILED: [5, string] = [5, "Docker missing, its daemon stopped, a docker command failed, or a same-named container that is not this job's"];

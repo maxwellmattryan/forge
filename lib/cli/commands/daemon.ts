@@ -12,7 +12,7 @@ import { ForgeError } from '#core/errors.ts';
 import { pidAlive } from '#core/os/process.ts';
 import { readJson } from '#core/os/fs.ts';
 import { usageError } from './args.ts';
-import type { HelpGroup } from '#core/types.ts';
+import type { HelpGroup } from '../types.ts';
 
 const DAEMON: HelpGroup = {
   name: 'daemon',

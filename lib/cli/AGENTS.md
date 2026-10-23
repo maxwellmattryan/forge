@@ -11,4 +11,5 @@ The `forge` command: the entry that routes, the command groups and the activity 
 | `activity.ts` | `forge dash`'s activity log: one timestamped line per session transition, notable request and job event, printed in the foreground in human mode only (docs/CLI.md "Output mode"). |
 | `commands/` | One module per command group, each with its `HELP` table, and the human-mode renderers. |
 | `main.ts` | The `forge` CLI: the only writer of Forge state. |
+| `types.ts` | The CLI's own shapes, type-only: the dispatcher, its context and errors, status rows and the help tables. |
 <!-- forge:map:end -->

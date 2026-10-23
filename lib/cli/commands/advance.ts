@@ -9,7 +9,8 @@ import { loadStepInput, step } from '#engine/pipeline/step.ts';
 import { ForgeError } from '#core/errors.ts';
 import { safeText } from '#core/text.ts';
 import { num, req, str } from './args.ts';
-import type { AdvanceRan, CliContext, Dispatch, Dispatched, Job } from '#core/types.ts';
+import type { Job } from '#core/types.ts';
+import type { AdvanceRan, CliContext, Dispatch, Dispatched } from '../types.ts';
 
 /**
  * The command groups advance runs: every group lib/engine/pipeline/step/ emits. Anything else (config writes,
