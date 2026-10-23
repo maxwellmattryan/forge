@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { cloneTree, seedRoot, SYSTEM_SEED_OPS } from './seed.ts';
+import { cloneTree, refreshSeed, seedRoot, SYSTEM_SEED_OPS } from './seed.ts';
 import type { SeedOps } from './seed.ts';
 
 const repoId = (root: string) => crypto.createHash('sha256').update(fs.realpathSync(root)).digest('hex').slice(0, 16);
@@ -153,6 +153,29 @@ test('cloneTree falls back from copy-on-write to a plain copy, then to nothing',
         assert.equal(fs.existsSync(to), false, `${row.name}: no dst`);
       }
     }
+  } finally {
+    s.cleanup();
+  }
+});
+
+// The refusals (absolute, out of the tree, a chain that climbs out) are rows of worktree.test.ts'
+// "only a fresh worktree at the base tip refreshes the seed"; this pins what the link check lets through.
+test('refreshSeed keeps the links that stay inside the seed, as written', { skip: process.platform === 'win32' }, () => {
+  const s = scratch();
+  try {
+    const seedDir = path.join(s.tmp, 'seeds');
+    fs.mkdirSync(seedDir, { mode: 0o700 });
+    const dir = path.join(s.tmp, 'wt');
+    fs.mkdirSync(path.join(dir, 'deps', 'pkg', 'bin'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'deps', '.bin'));
+    fs.writeFileSync(path.join(dir, 'deps', 'pkg', 'bin', 'x.js'), 'x');
+    // npm's .bin links, a link to a sibling, and one up to the tree's root.
+    const links = { 'deps/.bin/x': '../pkg/bin/x.js', 'deps/sibling': './pkg', 'deps/up': '..' };
+    for (const [from, to] of Object.entries(links)) fs.symlinkSync(to, path.join(dir, from));
+    const key = 'c'.repeat(64);
+    assert.deepEqual(refreshSeed(seedDir, key, dir, ['deps'], 'd'.repeat(40)), { refreshed: true });
+    for (const [from, to] of Object.entries(links)) assert.equal(fs.readlinkSync(path.join(seedDir, key, from)), to, `${from} is kept as written`);
+    assert.equal(fs.readFileSync(path.join(seedDir, key, 'deps', 'pkg', 'bin', 'x.js'), 'utf8'), 'x');
   } finally {
     s.cleanup();
   }

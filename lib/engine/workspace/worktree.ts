@@ -17,7 +17,7 @@ import { allocatePorts, portBearing } from '../environment/ports.ts';
 import { commandPort } from '../environment/endpoints.ts';
 import { memberClone, memberEntry, memberRepos, memberWorktreePath } from '../project/job-repos.ts';
 import { runCommandAsync } from './run.ts';
-import { applySeed, dropSeed, lockSeed, refreshSeed, removeSeeded, seedKey, seedRoot, seedTaken } from './seed.ts';
+import { applySeed, dropSeed, lockSeed, refreshSeed, removeSeeded, seedKey, seedPathsPresent, seedRoot, seedTaken } from './seed.ts';
 import type { SeedCommandLog, WorktreeSeedResult } from './seed.ts';
 import type { Config, Job } from '#core/types.ts';
 import type { BackingDownResult, BackingUpEntry } from '../environment/types.ts';
@@ -165,7 +165,10 @@ function seededSetup(root: string, config: Config, dir: string, startSha: string
   const key = seedKey(dir, config);
   const sroot = key ? seedRoot(root) : null;
   const seed: WorktreeSeedResult = { used: false, key: key ? key.slice(0, 16) : null, durationMs: 0 };
-  const done = (setup: SeedCommandLog[], ok: boolean, over: Partial<WorktreeSeedResult> = {}) => ({ setup, ok, seed: { ...seed, ...over, durationMs: Date.now() - started } });
+  // Before a clone or setup touches the seed paths: whatever is there now came with the checkout or
+  // from worktrees.copy, so it must never reach a seed, on a miss any more than on a hit.
+  const preexisting = seedPathsPresent(dir, cfg.paths);
+  const done =(setup: SeedCommandLog[], ok: boolean, over: Partial<WorktreeSeedResult> = {}) => ({ setup, ok, seed: { ...seed, ...over, durationMs: Date.now() - started } });
   if (!key) seed.reason = 'no-key';
   else if (!sroot) seed.reason = 'cache-unusable';
   else {
@@ -184,25 +187,35 @@ function seededSetup(root: string, config: Config, dir: string, startSha: string
   if (!setup.ok) return done(setup.log, false);
   // Only a clean miss refreshes. After `exists` the paths may be the main checkout's copies, and a
   // seed that failed its check, or failed to clone, would only be replaced at the next miss.
-  if (seed.reason === 'no-key' || seed.reason === 'cache-unusable' || seed.reason === 'no-seed') Object.assign(seed, refresh(config, dir, key, sroot, startSha, runCommands));
+  if (seed.reason === 'no-key' || seed.reason === 'cache-unusable' || seed.reason === 'no-seed') Object.assign(seed, refresh(config, dir, key, sroot, startSha, preexisting, runCommands));
   return done(setup.log, true);
 }
 
 /**
- * Writes the seed from this worktree, only when it is a new branch at the base tip whose HEAD has
- * not moved through setup and warm, and whose key files warm left alone.
+ * Writes the seed from this worktree, only when it is a new branch at the base tip whose seed
+ * paths were not there before setup, whose HEAD and tracked files have not changed through setup and
+ * warm, and whose key files warm left alone.
  */
-function refresh(config: Config, dir: string, key: string | null, sroot: string | null, startSha: string | null, runCommands: RunCommands): Pick<WorktreeSeedResult, 'warm' | 'refreshed' | 'refreshSkipped'> {
+function refresh(
+  config: Config,
+  dir: string,
+  key: string | null,
+  sroot: string | null,
+  startSha: string | null,
+  preexisting: boolean,
+  runCommands: RunCommands,
+): Pick<WorktreeSeedResult, 'warm' | 'refreshed' | 'refreshSkipped'> {
   if (!key) return { refreshSkipped: 'no-key' };
   if (!sroot) return { refreshSkipped: 'cache-unusable' };
   if (!startSha || headOf(dir) !== startSha) return { refreshSkipped: 'not-base' };
+  if (preexisting) return { refreshSkipped: 'exists' };
   const lock = lockSeed(sroot);
   if (!lock) return { refreshSkipped: 'busy' };
   try {
     // Checked before warm, which can take minutes, though refreshSeed would refuse it too.
     if (seedTaken(sroot, key)) return { refreshSkipped: 'exists' };
     const warm = runCommands(config.worktrees.seed.warm, true).log;
-    if (headOf(dir) !== startSha) return { warm, refreshSkipped: 'not-base' };
+    if (headOf(dir) !== startSha || !trackedClean(dir)) return { warm, refreshSkipped: 'not-base' };
     if (seedKey(dir, config) !== key) return { warm, refreshSkipped: 'key-changed' };
     const r = refreshSeed(sroot, key, dir, config.worktrees.seed.paths, startSha);
     return r.refreshed ? { warm, refreshed: true } : { warm, refreshSkipped: r.reason ?? 'failed' };
@@ -214,6 +227,17 @@ function refresh(config: Config, dir: string, key: string | null, sroot: string 
 }
 
 const headOf = (dir: string): string | null => commitOf(dir, 'HEAD');
+
+/**
+ * Whether no tracked file in `dir` differs from HEAD or the index: setup and warm run the base
+ * checkout's own files (test files, scripts) unsandboxed, so a change to one means somebody wrote
+ * the worktree meanwhile. Untracked and ignored paths are the seed's content and don't count.
+ * Fails closed, and shows submodule changes whatever the worktree's config says.
+ */
+function trackedClean(dir: string): boolean {
+  const r = runGit(dir, ['status', '--porcelain', '--untracked-files=no', '--ignore-submodules=none'], { allowFail: true });
+  return r.ok && r.stdout.trim() === '';
+}
 
 /** The commit `rev` names in `cwd`, or null. `rev` is HEAD or a ref checkRefs has passed, never an option. */
 function commitOf(cwd: string, rev: string): string | null {

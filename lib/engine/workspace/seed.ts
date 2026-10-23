@@ -153,6 +153,15 @@ function readRegular(dir: string, rel: string): Buffer | null {
   }
 }
 
+/**
+ * Whether any seed path is already in the worktree `dir`, or sits behind a link or a file. Called
+ * before setup runs, so what it finds came with the checkout or from `worktrees.copy` (which a
+ * sandboxed agent can steer through the main checkout), never from a build Forge ran.
+ */
+export function seedPathsPresent(dir: string, paths: readonly string[]): boolean {
+  return paths.some((p) => !linkFreeParents(dir, p) || lexists(path.join(dir, p)));
+}
+
 /** Whether every existing ancestor of `rel` under `dir` is a real directory, so writing or deleting `rel` stays inside `dir`. */
 function linkFreeParents(dir: string, rel: string): boolean {
   const segs = rel.split('/');
@@ -242,7 +251,7 @@ export function applySeed(seedDir: string, key: string, dir: string, paths: read
   const keyDir = path.join(seedDir, key);
   const meta = KEY_RE.test(key) && isRealDir(keyDir) ? readSeedJson(keyDir) : null;
   if (!meta || JSON.stringify(meta.paths) !== JSON.stringify(paths) || !paths.every((p) => lexists(path.join(keyDir, p)))) return { used: false, reason: 'no-seed' };
-  if (paths.some((p) => !linkFreeParents(dir, p) || lexists(path.join(dir, p)))) return { used: false, reason: 'exists' };
+  if (seedPathsPresent(dir, paths)) return { used: false, reason: 'exists' };
   const done: string[] = [];
   let copied = false;
   for (const p of paths) {
@@ -293,8 +302,9 @@ export function seedTaken(seedDir: string, key: string): boolean {
 
 /**
  * Writes the seed for `key` from the worktree `dir`, whose HEAD is `commit`. The caller holds the
- * seed lock. Paths are staged beside the seed, any symlink that is absolute or leaves the staging
- * dir refuses the refresh, and seed.json is written last before one rename makes the seed visible.
+ * seed lock. Paths are staged beside the seed, any symlink that is absolute, climbs after a descent
+ * or leaves the staging dir refuses the refresh, and seed.json is written last before one rename
+ * makes the seed visible.
  */
 export function refreshSeed(seedDir: string, key: string, dir: string, paths: readonly string[], commit: string, ops: SeedOps = SYSTEM_SEED_OPS): { refreshed: boolean; reason?: SeedRefreshSkip } {
   if (!KEY_RE.test(key) || !COMMIT_RE.test(commit)) return { refreshed: false, reason: 'failed' };
@@ -321,7 +331,13 @@ export function refreshSeed(seedDir: string, key: string, dir: string, paths: re
   }
 }
 
-/** Whether any symlink under `stage` is absolute or resolves, lexically, outside it. */
+/**
+ * Whether any symlink under `stage` is absolute, climbs with `..` after a descent, or resolves,
+ * lexically, outside it. The first two matter because the kernel follows a link before the `..`
+ * after it: `x -> y/../../outside` beside `y -> ..` looks like `<stage>/outside` to path.resolve but
+ * physically leaves. With every `..` leading, each climbs a real directory this walk has seen
+ * (it never enters a link), so the lexical check below is the physical one.
+ */
 function linkLeaves(stage: string): boolean {
   const dirs = [stage];
   while (dirs.length) {
@@ -330,11 +346,22 @@ function linkLeaves(stage: string): boolean {
       const p = path.join(d, e.name);
       if (e.isSymbolicLink()) {
         const target = fs.readlinkSync(p);
-        if (path.isAbsolute(target)) return true;
+        if (path.isAbsolute(target) || climbsAfterDescent(target)) return true;
         const rel = path.relative(stage, path.resolve(d, target));
         if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return true;
       } else if (e.isDirectory()) dirs.push(p);
     }
+  }
+  return false;
+}
+
+/** Whether `target` has a `..` after a segment that is not `..`; empty and `.` segments climb nowhere. Both slashes split, so it only over-refuses. */
+function climbsAfterDescent(target: string): boolean {
+  let descended = false;
+  for (const seg of target.split(/[\\/]/)) {
+    if (seg === '' || seg === '.') continue;
+    if (seg !== '..') descended = true;
+    else if (descended) return true;
   }
   return false;
 }

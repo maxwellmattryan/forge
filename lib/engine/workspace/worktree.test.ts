@@ -194,6 +194,17 @@ test('seed misses fall back to worktrees.setup', () => {
       },
     },
     {
+      name: 'a seed path copied in before the first seed',
+      reason: 'no-seed',
+      refreshSkipped: 'exists',
+      // SETUP builds over the copied deps/ without wiping it, so nothing but this check keeps the main checkout's files out of a seed.
+      arrange: (root, config) => {
+        fs.mkdirSync(path.join(root, 'deps'));
+        fs.writeFileSync(path.join(root, 'deps', 'local.txt'), 'local\n');
+        return { ...config, worktrees: { ...config.worktrees, copy: ['deps'] } };
+      },
+    },
+    {
       name: 'a failing seed.setup',
       reason: 'check-failed',
       arrange: (root, config) => {
@@ -258,6 +269,9 @@ test('only a fresh worktree at the base tip refreshes the seed', () => {
     },
     { name: 'an absolute symlink in a seed path', skip: 'symlink-out', arrange: () => seedConfig({}, [SETUP, `ln -s ${JSON.stringify(os.tmpdir())} deps/out`]) },
     { name: 'a relative symlink out of a seed path', skip: 'symlink-out', arrange: () => seedConfig({}, [SETUP, 'ln -s ../../elsewhere deps/out']) },
+    // Lexically <root>/outside, but the kernel follows `up` before the `..` after it, so it leaves the tree.
+    { name: 'a chain of symlinks that climbs out after a descent', skip: 'symlink-out', arrange: () => seedConfig({}, [SETUP, 'ln -s .. deps/up && ln -s up/../../outside deps/out']) },
+    { name: 'a tracked file changed during warm', skip: 'not-base', arrange: () => seedConfig({ warm: ['echo warm > deps/warm.txt', 'echo edit >> README.md'] }) },
   ];
   for (const row of rows) {
     const root = newRepo();
