@@ -22,6 +22,7 @@ import type { StepFile, StepInput, StepVerdicts } from '../types.ts';
 import { readJson, readText } from '#core/os/fs.ts';
 import { verifierCount } from '../verifiers.ts';
 import { currentRerun, reworkReviewFiles, roundLenses } from './panel.ts';
+import { lastRun } from '../../verify/record.ts';
 
 /** Request bodies above this, or with this many list or heading lines, get a planner under `pipeline.plan: auto`. */
 export const PLAN_AUTO_CHARS = 600;
@@ -143,7 +144,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
 /** Only when a skip is possible: integrate, code-only, the last verify passed, and the last conflicts event names both sides. */
 export function loadIntegrationTouched(job: Job, config: Config, events: JobEvent[]): StepInput['integrationTouched'] {
   if (job.stage !== 'integrate' || config.pr.integrationReview !== 'code-only' || !job.worktree || !exists(job.worktree)) return null;
-  const last = job.verifyRuns.at(-1);
+  const last = lastRun(job);
   const ev = events.findLast((e) => e.type === 'integrate-conflicts');
   if (!last?.ok || !last.sha || !ev || typeof ev.head !== 'string' || typeof ev.upstream !== 'string') return null;
   return { head: ev.head, upstream: ev.upstream, sha: last.sha, files: integrationTouched(job.worktree, ev.head, ev.upstream, last.sha) };

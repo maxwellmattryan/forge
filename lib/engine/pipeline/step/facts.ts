@@ -2,6 +2,7 @@
 import path from 'node:path';
 import type { JobAgent, JobEvent, VerifyRun, WaitingOn } from '#core/types.ts';
 import type { StepInput } from '../types.ts';
+import { lastRun } from '../../verify/record.ts';
 
 export const ended = (a: JobAgent | undefined): a is JobAgent => Boolean(a?.endedAt && a.status !== 'running');
 export const endedIn = (a: JobAgent | undefined, round: number): a is JobAgent => ended(a) && a.round === round;
@@ -12,7 +13,7 @@ export const after = (ts: string | null | undefined, than: string | null | undef
 export const agent = (x: StepInput, role: string): JobAgent | undefined => x.job.agents[role];
 export const lastEvent = (x: StepInput, pred: (e: JobEvent) => boolean): JobEvent | undefined => x.events.findLast(pred);
 export const human = (x: StepInput, action: string) => lastEvent(x, (e) => e.type === 'human' && e.action === action);
-export const lastVerify = (x: StepInput): VerifyRun | undefined => x.job.verifyRuns.filter((r) => r.round === x.job.round).at(-1);
+export const lastVerify = (x: StepInput): VerifyRun | undefined => lastRun(x.job);
 export const p = (x: StepInput, key: string) => String(x.paths[key]);
 export const ref = (x: StepInput, name: string) => path.join(x.pluginRoot, 'skills', 'forge', 'reference', name);
 

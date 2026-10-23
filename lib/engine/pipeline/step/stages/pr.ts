@@ -2,6 +2,7 @@
 import { autoMerge } from '#core/config/load.ts';
 import { deferralStatus, readDeferrals, releaseGates, releaseIndex, resolveInterim } from '../../../release/interim.ts';
 import { memberRepos } from '../../../project/job-repos.ts';
+import { lastRun, runsSince } from '../../../verify/record.ts';
 import type { JobEvent, VerifyRun } from '#core/types.ts';
 import type { StepInput } from '../../types.ts';
 import { SAFE_REF } from '#core/text.ts';
@@ -40,7 +41,7 @@ function releaseBump(x: StepInput, gates: Gate[]): Bump | null {
     }
   }
   const since = x.events[latestAt]?.ts ?? null;
-  return { first, what: `${repoWord(first.dependency)} ${safe(first.version, SAFE_VERSION, 'version')}`, runs: x.job.verifyRuns.filter((r) => after(r.at, since)) };
+  return { first, what: `${repoWord(first.dependency)} ${safe(first.version, SAFE_VERSION, 'version')}`, runs: runsSince(x.job, since) };
 }
 
 interface PrCtx extends Ctx {
@@ -64,7 +65,7 @@ function context(c: Ctx): PrCtx {
   const j = x.job;
   const res = resolveInterim(x.config, j);
   const gates = releaseGates(res.edges, x.events, j);
-  const last = j.verifyRuns.at(-1);
+  const last = lastRun(j);
   const pulled = lastEvent(x, (e) => e.type === 'pr-head-pulled');
   const openedAt = lastIdx(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated' || e.type === 'pr-deferred');
   const opened = x.events[openedAt] as JobEvent | undefined;

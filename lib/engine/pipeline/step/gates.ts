@@ -10,7 +10,7 @@ import type { VerifyRun, WaitingOn } from '#core/types.ts';
 import type { StepInput } from '../types.ts';
 import { SAFE_REF } from '#core/text.ts';
 import { SAFE_URL, park, run, safe, set, toStage } from './actions.ts';
-import { after, afterIdx, agent, human, lastEvent, lastIdx, orNull, p, ref } from './facts.ts';
+import { after, afterIdx, agent, human, lastEvent, lastIdx, lastVerify, orNull, p, ref } from './facts.ts';
 import type { Ctx, Rule, RuleId, Table } from './rules.ts';
 
 const CI_CAP_REASON = /^CI rework cap: [A-Za-z0-9 ._/,:#?-]{1,600}$/;
@@ -110,7 +110,7 @@ interface SecretCtx extends Ctx {
 
 function secretContext(c: Ctx): SecretCtx {
   const { x } = c;
-  const last = x.job.verifyRuns.at(-1);
+  const last = lastVerify(x);
   const blocked = Boolean(last && !last.ok && last.failure === 'secrets' && !['builder', 'integrator'].some((r) => after(agent(x, r)?.endedAt, last.at)));
   let refused = false;
   if (x.job.stage === 'pr') {
@@ -171,7 +171,7 @@ export const PROTECTED: Table = {
     {
       id: 'PP2',
       when: ({ x }) => {
-        const last = x.job.verifyRuns.at(-1);
+        const last = lastVerify(x);
         return Boolean(last && !last.ok && last.failure === 'protected' && !after(agent(x, 'builder')?.endedAt, last.at));
       },
       then: ({ x }) => toStage(x, 'PP2', 'build', BACK),
@@ -181,7 +181,7 @@ export const PROTECTED: Table = {
       when: ({ x }) => {
         const at = lastIdx(x, (e) => e.type === 'protected-path' && e.gate === 'pr' && e.action === 'refuse');
         const opened = lastIdx(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
-        return afterIdx(at, orNull(opened)) && after(x.events[at].ts, x.job.verifyRuns.at(-1)?.at);
+        return afterIdx(at, orNull(opened)) && after(x.events[at].ts, lastVerify(x)?.at);
       },
       then: ({ x }) => toStage(x, 'PP2b', 'build', BACK),
     },

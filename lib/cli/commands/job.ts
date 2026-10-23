@@ -51,6 +51,7 @@ import type { HelpGroup } from '../types.ts';
 import { pullPrHead } from '#engine/pr/branch.ts';
 import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
 import { jobAudit, toCsv } from '#engine/ops/audit.ts';
+import { lastRun } from '#engine/verify/record.ts';
 import { checkRepoBudget, isRepoHold, parkForRepoBudget, repoBudgetBlock, repoBudgetExempt } from '#engine/metrics/repo-budget.ts';
 
 const NO_JOB: [1, string] = [1, 'no such job'];
@@ -125,8 +126,7 @@ const JOB: HelpGroup = {
     {
       command: 'job set',
       args: '<id> [--stage S] [--state S] [--waiting-on W|none] [--reason R] [--note N] [--field key=value]...',
-      summary:
-        "change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox or office daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry",
+      summary: "change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox or office daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry",
       flags: [
         ['--stage S', 'the pipeline stage'],
         ['--state S', 'queued, running, waiting, blocked, failed, cancelled or done'],
@@ -171,8 +171,7 @@ const JOB: HelpGroup = {
     {
       command: 'job repo',
       args: 'add <id> <name> [--verify-only] | remove <id> <name> | propose <id> <name> --reason R | downstream <id> | interim <id> (<name> | --root) canary|git-ref|local|sequential|inherit',
-      summary:
-        "add a member repo (a config repos entry whose clone passes doctor's check) to a job, which then gets its own worktree, verify evidence and PR on the job's branch; remove drops one that has no PR and no worktree left; interim sets one job repo's interim strategy as a dependency (what a consumer's PR points at while it is unmerged: docs/CONFIG.md \"Interim strategies\"), overriding release.interim, and inherit clears it (add, remove and interim are human-only). propose records an agent's proposal of a repos entry with its reason in repo-proposals.md; the job then waits until a human, or the foreman when allowed, runs forge job human <id> approve-repos|reject-repos (approving a verify-only member promotes it to an edited one). downstream adds the changed repos' linked consumers as verify-only repos, so verify runs their tests against the job's changes, and prints what it added and skipped with each reason (docs/CONFIG.md \"Downstream verification\"); it takes no repo name, and the job's own session may run it",
+      summary: "add a member repo (a config repos entry whose clone passes doctor's check) to a job, which then gets its own worktree, verify evidence and PR on the job's branch; remove drops one that has no PR and no worktree left; interim sets one job repo's interim strategy as a dependency (what a consumer's PR points at while it is unmerged: docs/CONFIG.md \"Interim strategies\"), overriding release.interim, and inherit clears it (add, remove and interim are human-only). propose records an agent's proposal of a repos entry with its reason in repo-proposals.md; the job then waits until a human, or the foreman when allowed, runs forge job human <id> approve-repos|reject-repos (approving a verify-only member promotes it to an edited one). downstream adds the changed repos' linked consumers as verify-only repos, so verify runs their tests against the job's changes, and prints what it added and skipped with each reason (docs/CONFIG.md \"Downstream verification\"); it takes no repo name, and the job's own session may run it",
       flags: [
         ['--verify-only', 'with add: verify the repo at its base with the job, but give it no branch, push or PR'],
         ['--reason R', 'with propose: what changes in that repo and which component needs it (at most 200 characters)'],
@@ -1014,7 +1013,8 @@ export function jobPaths(root: string, config: Config, job: Job): Record<string,
 
 /** The job as `forge job show` prints it without --full. */
 export function compactJob(root: string, job: Job): Record<string, unknown> {
-  const lastVerify = job.verifyRuns[job.verifyRuns.length - 1] ?? null;
+  // This round's last run: null at the start of a round, until verify runs.
+  const lastVerify = lastRun(job) ?? null;
   return {
     id: job.id,
     title: job.title,

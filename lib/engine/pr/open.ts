@@ -18,7 +18,7 @@ import { checkBranch, logEscalated, protectedApproved, refusalText } from '../gu
 import type { MemberBranch } from '../guard/protected.ts';
 import { attributionForbidden, scrubBranch } from '../guard/attribution.ts';
 import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, secretsBlock, textUnit } from '../guard/secrets.ts';
-import { verifiedHead } from '../workspace/verify.ts';
+import { verifiedHead } from '../verify/gate.ts';
 import { FULL_SHA, heldConsumers, releaseGates, repoLabel, resolveInterim } from '../release/interim.ts';
 import type { Deferral } from '../release/interim.ts';
 import { interimStatus } from '../release/interim-apply.ts';

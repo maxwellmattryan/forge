@@ -218,7 +218,7 @@ export interface JobBudget {
   lastCheck: { at: string; checkpoint: string; used: BudgetUsed } | null;
 }
 
-/** One verify attempt: verify in lib/engine/workspace/verify.ts. */
+/** One verify attempt: verify in lib/engine/verify/gate.ts. */
 export interface VerifyRun {
   round: number;
   attempt: number;
@@ -228,7 +228,7 @@ export interface VerifyRun {
   file: string;
   /** The name of the step that failed (`test`, `integrity`, `secrets`, `protected`, …), null on a pass. */
   failure?: string | null;
-  /** One record per member repo, only when the job has members: verify in lib/engine/workspace/verify.ts. */
+  /** One record per member repo, only when the job has members: verify in lib/engine/verify/gate.ts. */
   repos?: VerifyRunRepo[];
 }
 

@@ -24,7 +24,7 @@ import { computeStats, statsByPromptCmd, statsCsv } from '#engine/metrics/stats.
 import { ForgeError } from '#core/errors.ts';
 import { readJson } from '#core/os/fs.ts';
 import { createWorktree, removeWorktree } from '#engine/workspace/worktree.ts';
-import { verify } from '#engine/workspace/verify.ts';
+import { verify } from '#engine/verify/gate.ts';
 import { advanceCmd } from './commands/advance.ts';
 import { auditCmd } from './commands/audit.ts';
 import { backingCmd } from './commands/backing.ts';

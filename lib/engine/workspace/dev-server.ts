@@ -13,7 +13,8 @@ import { applySinks } from '../environment/config-sinks-apply.ts';
 import { commandPort } from '../environment/endpoints.ts';
 import type { Config, EventActor } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
-import { killAndWaitAsync, pidAlive, run } from '#core/os/process.ts';
+import { killAndWaitAsync, pidAlive } from '#core/os/process.ts';
+import { ownDevProcess } from './dev-probe.ts';
 import { readJson, writeJsonAtomic } from '#core/os/fs.ts';
 import { withLock, withLockAsync } from '#core/os/lock.ts';
 import { fill } from '#core/text.ts';
@@ -79,67 +80,7 @@ export async function startBackground(
   return { pid: rec.pid, port, log: rec.log, reused: rec.reused, listening };
 }
 
-/** How far the process's start time may be from runtime.json's `startedAt` (ps reports whole seconds). */
-const DEV_START_SLACK_MS = 30_000;
 const DEV_STOP_WAIT_MS = 5_000;
-const PROBE_TIMEOUT_MS = 5_000;
-
-/** The process's working directory, or null when it can't be read (no /proc, no lsof, not ours to inspect). */
-function processCwd(pid: number): string | null {
-  if (process.platform === 'linux') {
-    try {
-      return fs.readlinkSync(`/proc/${pid}/cwd`);
-    } catch {
-      return null;
-    }
-  }
-  if (process.platform !== 'darwin') return null;
-  const r = run('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { allowFail: true, timeoutMs: PROBE_TIMEOUT_MS });
-  if (!r.ok) return null;
-  const line = r.stdout.split('\n').find((l) => l.startsWith('n'));
-  return line ? line.slice(1) : null;
-}
-
-/**
- * One `ps -o pgid= -o tty= -o lstart=` row: the process group, whether the process has a controlling
- * terminal (`?` on Linux and `??` on macOS mean none), and its start time; null for anything else.
- */
-export function parseDevProbe(stdout: string): { pgid: number; tty: boolean; started: number } | null {
-  const m = /^\s*(\d+)\s+(\S+)\s+(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})\s*$/.exec(stdout.trim());
-  if (!m) return null;
-  const started = Date.parse(m[3]);
-  return Number.isFinite(started) ? { pgid: Number(m[1]), tty: !/^\?+$/.test(m[2]), started } : null;
-}
-
-/**
- * Whether runtime.json's dev record names the dev server Forge started for this job. The record is in
- * the job dir, which the job's agents can write, so it is proved rather than trusted (as isOurChild in
- * lib/office/session/records.ts proves a session): the pid is not 1 or ours, leads its own group and has no controlling
- * terminal (startBackground spawns detached, which starts a new session; a shell the human opened in the
- * worktree, and anything it runs, keeps its terminal), is not our group, started within 30 s of
- * `startedAt`, and runs inside the job's contained worktree. The command line is not compared:
- * `sh -lc '<one command>'` execs that command, so the shell is often gone from it. Always false on
- * Windows, which has none of these probes.
- */
-export function ownDevProcess(worktree: string, rec: unknown): boolean {
-  if (process.platform === 'win32' || !rec || typeof rec !== 'object') return false;
-  const { pid, startedAt } = rec as { pid?: unknown; startedAt?: unknown };
-  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1 || pid === process.pid) return false;
-  const recorded = typeof startedAt === 'string' ? Date.parse(startedAt) : NaN;
-  if (!Number.isFinite(recorded)) return false;
-  const env = { ...process.env, LC_ALL: 'C' };
-  const ps = run('ps', ['-o', 'pgid=', '-o', 'tty=', '-o', 'lstart=', '-p', String(pid)], { allowFail: true, env, timeoutMs: PROBE_TIMEOUT_MS });
-  const probe = ps.ok ? parseDevProbe(ps.stdout) : null;
-  if (!probe || probe.pgid !== pid || probe.tty) return false;
-  const own = run('ps', ['-o', 'pgid=', '-p', String(process.pid)], { allowFail: true, env, timeoutMs: PROBE_TIMEOUT_MS });
-  if (!own.ok || Number(own.stdout.trim()) === pid) return false;
-  if (Math.abs(probe.started - recorded) > DEV_START_SLACK_MS) return false;
-  const cwd = processCwd(pid);
-  if (!cwd) return false;
-  const base = realpath(worktree);
-  const real = realpath(cwd);
-  return real === base || real.startsWith(base + path.sep);
-}
 
 /**
  * The dashboard's Stop: SIGTERM to the dev server's process group, SIGKILL after 5 s if it is still
@@ -194,12 +135,4 @@ export async function portAnswers(port: number): Promise<boolean> {
     if (ok) return true;
   }
   return false;
-}
-
-function realpath(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return path.resolve(p);
-  }
 }

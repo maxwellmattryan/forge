@@ -1,5 +1,5 @@
 // Verify's steps beside the root's run: the notes step, a member repo's checks, the lockfile
-// snapshot and restore around a group, and the report's step sections. verify.ts imports this module.
+// snapshot and restore around a group, and the report's step sections. gate.ts imports this module.
 import { committedChanges, resolveBase } from '../pipeline/scope.ts';
 import { checkNotes, checkedNotes } from '../evals/experiments.ts';
 import { STATUS_ARGV, git as runGit, historyEnv } from '#integrations/git/runner.ts';
@@ -10,7 +10,8 @@ import type { BranchCheck } from '../guard/protected.ts';
 import { renderSecrets, scanBranch, secretMode, secretsOk, secretsTail } from '../guard/secrets.ts';
 import { consumerLockfiles, snapshotLockfiles } from '../project/links.ts';
 import type { LockSnapshot } from '../project/links.ts';
-import { memberComponent, restoreLocks, runCommandAsync } from './run.ts';
+import { memberComponent, restoreLocks } from '../workspace/run.ts';
+import type { CommandResult, RunOptions } from '../workspace/run.ts';
 import type { Config, Job, JobRepo, VerifyRunRepo } from '#core/types.ts';
 import type { SecretScan } from '../guard/types.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -28,6 +29,34 @@ export interface VerifyStep {
   durationMs?: number;
   links?: string[];
   restored?: string[];
+}
+
+/** How verify runs a configured command: `runCommand` and `runCommandAsync` in production, a stub in tests. */
+export interface CommandRunner {
+  sync: (root: string, config: Config, id: string, name: string, opts?: RunOptions) => CommandResult;
+  async: (root: string, config: Config, id: string, name: string, opts?: RunOptions) => Promise<CommandResult>;
+}
+
+/**
+ * Runs verify's groups in config order: a group's steps run at once, and the next group waits for
+ * all of them. A failing step never stops its siblings: each finishes and keeps its own log. One that
+ * throws is reported only once the others have settled, so none writes after verify returns, and its
+ * group's `afterGroup` is not called. Results stay in config order whatever finishes first, and no
+ * group starts after one with a failure.
+ */
+export async function runGroups(groups: string[][], runStep: (step: string) => Promise<VerifyStep>, afterGroup: (ran: VerifyStep[]) => void): Promise<VerifyStep[]> {
+  const results: VerifyStep[] = [];
+  for (const group of groups) {
+    // async: a step that throws before its promise exists still lets its siblings run.
+    const settled = await Promise.allSettled(group.map(async (step) => runStep(step)));
+    const thrown = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+    if (thrown) throw thrown.reason;
+    const ran = settled.map((s) => (s as PromiseFulfilledResult<VerifyStep>).value);
+    afterGroup(ran);
+    results.push(...ran);
+    if (ran.some((r) => !r.ok)) break;
+  }
+  return results;
 }
 
 /** Verify's snapshot of one consumer repo's lockfiles, taken before its first group. */
@@ -101,7 +130,8 @@ export async function verifyMember(
   groups: string[][],
   mode: ReturnType<typeof secretMode>,
   m: { member: JobRepo & { repo: string }; worktree: string; head: string },
-  inactiveLinks: string | null = null,
+  inactiveLinks: string | null,
+  runner: CommandRunner,
 ): Promise<MemberVerify> {
   const repo = m.member.repo;
   const cwd = m.worktree;
@@ -136,21 +166,11 @@ export async function verifyMember(
   if (!dirty) {
     const locks = runSteps ? verifyLockSnapshot(root, config, job, repo) : null;
     try {
-      for (const group of runSteps ? groups : []) {
-        const settled = await Promise.allSettled(
-          group.map((step): Promise<VerifyStep> =>
-            memberComponent(config, repo, step)
-              ? runCommandAsync(root, config, job.id, step, { label: `verify-${repo}-${step}`, repo, lockGuard: false })
-              : Promise.resolve({ name: step, ok: true, skipped: true, reason: `no ${step} command for repo ${repo}` }),
-          ),
-        );
-        const thrown = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
-        if (thrown) throw thrown.reason;
-        const ran = settled.map((s) => (s as PromiseFulfilledResult<VerifyStep>).value);
-        restoreGroup(root, job.id, repo, locks, ran);
-        results.push(...ran);
-        if (ran.some((r) => !r.ok)) break;
-      }
+      const runStep = async (step: string): Promise<VerifyStep> =>
+        memberComponent(config, repo, step)
+          ? runner.async(root, config, job.id, step, { label: `verify-${repo}-${step}`, repo, lockGuard: false })
+          : { name: step, ok: true, skipped: true, reason: `no ${step} command for repo ${repo}` };
+      results.push(...(await runGroups(runSteps ? groups : [], runStep, (ran) => restoreGroup(root, job.id, repo, locks, ran))));
     } finally {
       restoreLocks(root, job.id, repo, locks);
     }

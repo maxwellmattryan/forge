@@ -3,7 +3,7 @@
 // command in Forge that publishes anything, `forge job interim publish`. Worktrees are recomputed
 // (isOwnWorktreePath, trustedMemberWorktree), never read from job.json alone, and every value that
 // reaches a manifest is checked first: a sha against FULL_SHA, a remote against isSafeRemote.
-// Must not import verify.ts or integrity.ts: verify.ts imports this module.
+// Must not import lib/engine/verify/gate.ts or integrity.ts: gate.ts imports this module.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -51,6 +51,7 @@ import type { Config, InterimStrategy, Job, JobEvent, WaitingOn } from '#core/ty
 import { ForgeError } from '#core/errors.ts';
 import { findOnPath, run } from '#core/os/process.ts';
 import { SAFE_REF } from '#core/text.ts';
+import { verifiedSha } from '../verify/record.ts';
 
 const PIN_STRATEGIES = new Set(['git-ref', 'canary']);
 
@@ -772,8 +773,7 @@ export function publishCanary(root: string, config: Config, id: string, key: Rep
   const wt = repoWorktree(root, config, job, key);
   if (!wt) throw new ForgeError(`${repoLabel(key)} has no worktree; run: forge worktree create ${id}`);
   const head = headOf(wt);
-  const last = job.verifyRuns.filter((r) => r.ok).at(-1);
-  const verified = key === null ? last?.sha : last?.repos?.find((r) => r.repo === key)?.sha;
+  const verified = verifiedSha(job, key);
   if (!head || !verified || head !== verified)
     throw new ForgeError(`${repoLabel(key)}'s HEAD ${String(head).slice(0, 12)} is not the commit the latest passing verify checked (${String(verified ?? 'none').slice(0, 12)}); run: forge verify ${id}`);
   // job.json is writable by the session this guards against: git says whether the verified commit is

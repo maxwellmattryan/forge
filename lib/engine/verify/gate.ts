@@ -1,5 +1,5 @@
-// `forge verify`, the gate between build and review, and verifiedHead, which asks whether the
-// worktree's HEAD is the commit the latest verify run passed on.
+// `forge verify`, the gate between build and review, and verifiedHead, which asks the verify record
+// whether the worktree's HEAD is verified.
 import fs from 'node:fs';
 import path from 'node:path';
 import { ensureEnvironment, hasManagedBacking } from '../environment/lifecycle.ts';
@@ -20,13 +20,19 @@ import { logSecrets, scanBranch, secretMode, secretsOk, secretsTail, compactSecr
 import { refreshInterim } from '../release/interim-apply.ts';
 import { resolveLinks } from '../project/links.ts';
 import { memberRepos, memberWorktree, trustedMemberWorktree } from '../project/job-repos.ts';
-import { commandTemplate, restoreLocks, runCommand, runCommandAsync } from './run.ts';
-import { notesStep, renderSteps, restoreGroup, verifyLockSnapshot, verifyMember } from './verify-steps.ts';
-import type { MemberVerify, VerifyStep } from './verify-steps.ts';
+import { commandTemplate, restoreLocks, runCommand, runCommandAsync } from '../workspace/run.ts';
+import { headVerified, nextAttempt, recordRun, reportRun } from './record.ts';
+import { notesStep, renderSteps, restoreGroup, runGroups, verifyLockSnapshot, verifyMember } from './steps.ts';
+import type { CommandRunner, MemberVerify, VerifyStep } from './steps.ts';
 import type { Config, VerifyRun, VerifyRunRepo } from '#core/types.ts';
 import type { CompactSecrets } from '../guard/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { now } from '#core/utils.ts';
+
+export type { CommandRunner };
+
+/** The runner `forge verify` uses outside tests. */
+export const COMMAND_RUNNER: CommandRunner = { sync: runCommand, async: runCommandAsync };
 
 /** What `forge verify` returns: verify. */
 export interface VerifyResult {
@@ -57,7 +63,7 @@ export interface VerifyResult {
  * them, and none runs after a group with a failure. Results stay in config order whatever finishes
  * first, so `failure` is the first failing step as configured, not the first to fail.
  */
-export async function verify(root: string, base: Config, id: string): Promise<VerifyResult> {
+export async function verify(root: string, base: Config, id: string, runner: CommandRunner = COMMAND_RUNNER): Promise<VerifyResult> {
   // Every refusal comes before the clean check, so a config this Forge can't read records nothing:
   // guessing at it could pass a gate whose steps never ran.
   if (base.schemaVersion > CONFIG_SCHEMA_VERSION)
@@ -140,25 +146,13 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
     // One snapshot before the first group: steps of a group run at once, so each restores only after all settle.
     const locks = gatesOk ? verifyLockSnapshot(root, config, job, null) : null;
     try {
-      for (const group of gatesOk ? groups : []) {
-        // A failing step never stops its siblings: each finishes and keeps its own log. One that
-        // throws is reported only once the others have settled, so none writes after verify returns.
-        const settled = await Promise.allSettled(
-          group.map((step): Promise<VerifyStep> =>
-            config.commands[step] ? runCommandAsync(root, config, id, step, { label: `verify-${step}`, lockGuard: false }) : Promise.resolve({ name: step, ok: true, skipped: true }),
-          ),
-        );
-        const thrown = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
-        if (thrown) throw thrown.reason;
-        const ran = settled.map((s) => (s as PromiseFulfilledResult<VerifyStep>).value);
-        restoreGroup(root, id, null, locks, ran);
-        results.push(...ran);
-        if (ran.some((r) => !r.ok)) break;
-      }
+      const runStep = async (step: string): Promise<VerifyStep> =>
+        config.commands[step] ? runner.async(root, config, id, step, { label: `verify-${step}`, lockGuard: false }) : { name: step, ok: true, skipped: true };
+      results.push(...(await runGroups(gatesOk ? groups : [], runStep, (ran) => restoreGroup(root, id, null, locks, ran))));
       if (results.every((r) => r.ok)) {
         const plan = e2ePlan(config, job, commandTemplate(config, job, 'e2e'));
         if (plan?.run) {
-          const e2e: VerifyStep = { ...runCommand(root, config, id, 'e2e', { label: 'verify-e2e', lockGuard: false }), reason: plan.reason };
+          const e2e: VerifyStep = { ...runner.sync(root, config, id, 'e2e', { label: 'verify-e2e', lockGuard: false }), reason: plan.reason };
           restoreGroup(root, id, null, locks, [e2e]);
           results.push(e2e);
         } else if (plan) results.push({ name: 'e2e', ok: true, skipped: true, reason: plan.reason });
@@ -184,10 +178,10 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   };
   // A failure in the root never skips a member, nor one member another.
   const memberRuns: MemberVerify[] = [];
-  for (const m of members) memberRuns.push(await verifyMember(root, config, job, interimStep.ok ? groups : [], mode, m, linkGuard(m.member.repo)));
+  for (const m of members) memberRuns.push(await verifyMember(root, config, job, interimStep.ok ? groups : [], mode, m, linkGuard(m.member.repo), runner));
   const rootFailure = results.find((r) => !r.ok);
   const ok = results.every((r) => r.ok) && memberRuns.every((m) => m.rec.ok);
-  const attempt = job.verifyRuns.filter((r) => r.round === job.round).length + 1;
+  const attempt = nextAttempt(job);
   const lines = [`VERIFY: ${ok ? 'PASS' : 'FAIL'}`, '', `Round ${job.round} · attempt ${attempt} · ${sha.slice(0, 12)} · ${now()}`, ''];
   const brokenDownstream = memberRuns.filter((m) => !m.rec.ok && downstream.has(m.rec.repo));
   for (const m of brokenDownstream)
@@ -204,18 +198,14 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   fs.mkdirSync(dir, { recursive: true });
   const latest = path.join(dir, `round-${job.round}.md`);
   // round-<n>.md is the last report verify wrote; a verifiers failure appends a run with its own file.
-  const previous = job.verifyRuns.filter((r) => r.round === job.round && r.failure !== 'verifiers').pop();
+  const previous = reportRun(job);
   if (previous && exists(latest)) fs.renameSync(latest, path.join(dir, `round-${job.round}-attempt-${previous.attempt}.md`));
   fs.writeFileSync(latest, lines.join('\n'));
   const memberFailure = memberRuns.find((m) => !m.rec.ok);
   const repos = memberRuns.length ? { repos: memberRuns.map((m) => m.rec) } : {};
   const rec: VerifyRun = { round: job.round, attempt, sha, ok, at: now(), file: path.relative(jobDir(root, id), latest), failure: rootFailure?.name ?? memberFailure?.rec.failure ?? null, ...repos };
-  updateJob(root, id, (j) => {
-    j.verify[job.round] = ok ? 'PASS' : 'FAIL';
-    j.verifyRuns.push(rec);
-    // Every failure, a dirty worktree included, asks for one retry; a pass does not reset it.
-    if (!ok) j.verifyRetries[String(job.round)] = (j.verifyRetries[String(job.round)] ?? 0) + 1;
-  });
+  // Every failure, a dirty worktree included, asks for one retry; a pass does not reset it.
+  updateJob(root, id, (j) => recordRun(j, rec));
   logEvent(root, id, 'verify', rec);
   logSecrets(root, id, 'verify', secrets, { blocked: mode === 'block', round: job.round });
   for (const m of memberRuns) logSecrets(root, id, 'verify', m.secrets, { blocked: mode === 'block', round: job.round });
@@ -239,30 +229,22 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
 }
 
 /**
- * Whether the worktree's HEAD is the commit the latest verify run passed on. Anything that
- * publishes a branch should refuse when it is not: evidence for an older commit is not evidence.
+ * Whether the worktree's HEAD is verified (lib/engine/verify/record.ts headVerified): this round's
+ * last verify run passed on it and on every member HEAD. Anything that publishes a branch should
+ * refuse when it is not: evidence for an older commit, or from before this round's review, is not evidence.
  */
 export function verifiedHead(root: string, id: string): { head: string; last: VerifyRun | null; verified: boolean; heads?: Record<string, string> } {
   const job = loadJob(root, id);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree`);
   const head = runGit(job.worktree, ['rev-parse', 'HEAD']).stdout.trim();
-  const last = job.verifyRuns[job.verifyRuns.length - 1] ?? null;
-  const verified = Boolean(last && last.ok && last.sha === head);
   const members = memberRepos(job);
-  if (!members.length) return { head, last, verified };
-  // Every member HEAD must be the one the run checked; a member without its worktree is not verified.
+  if (!members.length) return { head, ...headVerified(job, { root: head }) };
+  // A member without its trusted worktree has no HEAD here, so the record reads it as not verified.
   const config = loadConfig(root).config;
   const heads: Record<string, string> = {};
-  let all = verified;
   for (const m of members) {
     const wt = trustedMemberWorktree(root, config, job, m.repo);
-    if (!wt) {
-      all = false;
-      continue;
-    }
-    heads[m.repo] = runGit(wt, ['rev-parse', 'HEAD']).stdout.trim();
-    const rec = last?.repos?.find((r) => r.repo === m.repo);
-    if (!rec || rec.sha !== heads[m.repo]) all = false;
+    if (wt) heads[m.repo] = runGit(wt, ['rev-parse', 'HEAD']).stdout.trim();
   }
-  return { head, last, verified: all, heads };
+  return { head, ...headVerified(job, { root: head, repos: heads }), heads };
 }
