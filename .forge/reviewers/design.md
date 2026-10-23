@@ -13,7 +13,7 @@ If a dev server is configured, its port is in your brief: `forge run <job> dev -
 
 ## Flow and copy
 - The primary flow from the spec works end to end; count the steps.
-- Copy comes from `dashboard/src/messages/en.json`, is consistent with existing terminology, and is actionable in errors and empty states.
+- Copy comes from `dashboard/src/messages/en/`, is consistent with existing terminology, and is actionable in errors and empty states.
 - Destructive actions confirm or allow undo; forms keep input on error; validation is inline and specific.
 - Feedback for every action (pending, success, failure); no dead ends; behaviour matches similar features elsewhere.
 

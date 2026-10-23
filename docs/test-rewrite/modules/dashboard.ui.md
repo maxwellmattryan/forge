@@ -19,7 +19,7 @@ Tests can't import or render `.svelte` components (runes need the compiler), so 
 - B11. mockups render only in the sandboxed /raw iframe (kept, not rewritten: test/invariants/dashboard-invariants.test.ts)
 - B12. dynamic URLs go through safeUrl (kept, not rewritten: test/invariants/dashboard-invariants.test.ts)
 - B13. the URL guard rejects shorthand, spreads and unchecked src/action/formaction/xlink:href (kept, not rewritten: test/invariants/dashboard-invariants.test.ts)
-- B14. en.json is a catalog of strings and plural objects, and every message is used (kept, not rewritten: test/invariants/dashboard-invariants.test.ts)
+- B14. the en catalog is strings and plural objects, and every message is used (kept, not rewritten: test/invariants/dashboard-invariants.test.ts)
 - B15. components carry no hard-coded user-facing text (kept, not rewritten: test/invariants/dashboard-invariants.test.ts)
 - B16. the text guard catches what it should (kept, not rewritten: test/invariants/dashboard-invariants.test.ts)
 - B17. dist loads nothing from another origin, BUILT (kept, not rewritten: test/invariants/dashboard-invariants.test.ts)
