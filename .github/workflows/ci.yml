@@ -2,6 +2,8 @@
 # test/invariants/ci-workflow.test.ts fails when the two drift, so edit both together. It runs on Linux only.
 # release.yml calls this whole workflow (workflow_call) before it tags a release, and `npm run release`
 # waits for its push run on the release commit before it pushes main (docs/RELEASES.md, docs/CI.md).
+# The render job runs `npm run test:render` beside it: it needs Chrome, so it stays outside the verify
+# list every change runs (docs/TESTING.md, "Dashboard scenarios and the render check").
 name: CI
 
 on:
@@ -63,6 +65,8 @@ jobs:
           TEST_SHARD: ${{ matrix.shard }}
           # The tests of the real build run here (it was just built) instead of skipping (test/dist.ts).
           FORGE_REQUIRE_DIST: '1'
+          # The runner ships Google Chrome, so the render check's own test fails here instead of skipping.
+          FORGE_REQUIRE_BROWSER: '1'
         run: node --test --test-shard="$TEST_SHARD" "test/**/*.test.ts" "lib/**/*.test.ts" "dashboard/src/**/*.test.ts"
       - name: Syntax-check JavaScript entry points
         run: for f in bin/forge lib/trackers/status.mjs dashboard/*.mjs; do node --check "$f"; done
@@ -92,6 +96,28 @@ jobs:
       - name: Audit devDependencies (report only)
         continue-on-error: true
         run: npm audit
+
+  render:
+    name: render check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install dependencies
+        run: npm ci
+      - name: Build dashboard
+        run: npm run build:dashboard
+      # Every view of every dashboard scenario in the runner's Google Chrome (scripts/render-check.ts).
+      - name: Render check
+        run: npm run test:render
 
   release-check:
     name: release check
