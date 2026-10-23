@@ -81,11 +81,17 @@ export function seedRoot(root: string, env: NodeJS.ProcessEnv = process.env): st
 
 /**
  * bin/forge's cacheRoot(), copied rather than shared: bin/forge runs before the type stripper loads,
- * so it can't import lib/. Keep the two in step.
+ * so it can't import lib/. Keep the two in step, the containment check on FORGE_CACHE_DIR included.
  */
 function cacheRoot(env: NodeJS.ProcessEnv): string | null {
   try {
-    const root = path.resolve(env.FORGE_CACHE_DIR || path.join(PLUGIN_ROOT, '.cache'));
+    let root = path.join(PLUGIN_ROOT, '.cache');
+    if (env.FORGE_CACHE_DIR) {
+      const wanted = path.resolve(env.FORGE_CACHE_DIR);
+      root = path.join(fs.realpathSync(path.dirname(wanted)), path.basename(wanted));
+      const rel = path.relative(fs.realpathSync(PLUGIN_ROOT), root);
+      if (!rel || path.isAbsolute(rel) || rel.split(path.sep)[0] === '..') return null;
+    }
     fs.mkdirSync(root, { recursive: true, mode: 0o700 });
     const uid = process.getuid?.();
     if (uid !== undefined) {

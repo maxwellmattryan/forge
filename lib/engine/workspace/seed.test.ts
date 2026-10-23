@@ -6,6 +6,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { cacheScratch } from '../../../test/helpers.ts';
+import { PLUGIN_ROOT } from '#core/paths.ts';
 import { cloneTree, refreshSeed, seedRoot, SYSTEM_SEED_OPS } from './seed.ts';
 import type { SeedOps } from './seed.ts';
 
@@ -28,20 +30,21 @@ function plantedSeed(dir: string): string[] {
 }
 
 test('the seed root must be a private directory', { skip: process.platform === 'win32' }, () => {
-  const rows: { name: string; arrange: (s: ReturnType<typeof scratch>) => { cache: string; check?: () => void } }[] = [
+  // `c` is a scratch dir inside the plugin root, so these refusals come from the permission checks.
+  const rows: { name: string; arrange: (s: ReturnType<typeof scratch>, c: string) => { cache: string; check?: () => void } }[] = [
     {
       name: 'FORGE_CACHE_DIR is a symlink',
-      arrange: (s) => {
-        const real = path.join(s.tmp, 'real');
+      arrange: (_s, c) => {
+        const real = path.join(c, 'real');
         fs.mkdirSync(real, { mode: 0o700 });
-        fs.symlinkSync(real, path.join(s.tmp, 'cache'));
-        return { cache: path.join(s.tmp, 'cache'), check: () => assert.deepEqual(fs.readdirSync(real), [], 'nothing written through the link') };
+        fs.symlinkSync(real, path.join(c, 'cache'));
+        return { cache: path.join(c, 'cache'), check: () => assert.deepEqual(fs.readdirSync(real), [], 'nothing written through the link') };
       },
     },
     {
       name: 'the cache dir is group-writable',
-      arrange: (s) => {
-        const cache = path.join(s.tmp, 'cache');
+      arrange: (_s, c) => {
+        const cache = path.join(c, 'cache');
         fs.mkdirSync(cache);
         fs.chmodSync(cache, 0o770);
         return { cache, check: () => assert.deepEqual(fs.readdirSync(cache), []) };
@@ -49,8 +52,8 @@ test('the seed root must be a private directory', { skip: process.platform === '
     },
     {
       name: 'the cache dir is world-writable',
-      arrange: (s) => {
-        const cache = path.join(s.tmp, 'cache');
+      arrange: (_s, c) => {
+        const cache = path.join(c, 'cache');
         fs.mkdirSync(cache);
         fs.chmodSync(cache, 0o707);
         return { cache };
@@ -58,8 +61,8 @@ test('the seed root must be a private directory', { skip: process.platform === '
     },
     {
       name: 'seeds/<repoId> is group-writable',
-      arrange: (s) => {
-        const cache = path.join(s.tmp, 'cache');
+      arrange: (s, c) => {
+        const cache = path.join(c, 'cache');
         const dir = path.join(cache, 'seeds', repoId(s.root));
         fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
         fs.chmodSync(dir, 0o770);
@@ -68,8 +71,8 @@ test('the seed root must be a private directory', { skip: process.platform === '
     },
     {
       name: 'seeds/<repoId> is a symlink to a directory holding a valid seed',
-      arrange: (s) => {
-        const cache = path.join(s.tmp, 'cache');
+      arrange: (s, c) => {
+        const cache = path.join(c, 'cache');
         fs.mkdirSync(path.join(cache, 'seeds'), { recursive: true, mode: 0o700 });
         const elsewhere = path.join(s.tmp, 'elsewhere');
         fs.mkdirSync(elsewhere, { mode: 0o700 });
@@ -78,27 +81,46 @@ test('the seed root must be a private directory', { skip: process.platform === '
         return { cache, check: () => assert.deepEqual(fs.readdirSync(elsewhere, { recursive: true }), before, 'the linked seed is left as it was') };
       },
     },
+    {
+      name: 'FORGE_CACHE_DIR is a temp dir outside the plugin root',
+      arrange: (s) => {
+        const cache = path.join(s.tmp, 'cache');
+        return { cache, check: () => assert.equal(fs.existsSync(cache), false, 'nothing is created there') };
+      },
+    },
+    {
+      name: 'FORGE_CACHE_DIR is the plugin root itself',
+      arrange: () => {
+        const seeds = path.join(PLUGIN_ROOT, 'seeds');
+        const had = fs.existsSync(seeds);
+        return { cache: PLUGIN_ROOT, check: () => assert.equal(fs.existsSync(seeds), had, 'nothing is created there') };
+      },
+    },
   ];
   for (const row of rows) {
     const s = scratch();
+    const c = cacheScratch();
     try {
-      const { cache, check } = row.arrange(s);
+      const { cache, check } = row.arrange(s, c.dir);
       assert.equal(seedRoot(s.root, { FORGE_CACHE_DIR: cache }), null, row.name);
       check?.();
     } finally {
       s.cleanup();
+      c.cleanup();
     }
   }
 
   const s = scratch();
+  const c = cacheScratch();
   try {
-    const cache = path.join(s.tmp, 'fresh', 'cache');
+    const cache = path.join(c.dir, 'fresh', 'cache');
     fs.mkdirSync(path.dirname(cache), { mode: 0o700 });
     const dir = seedRoot(s.root, { FORGE_CACHE_DIR: cache });
     assert.equal(dir, path.join(cache, 'seeds', repoId(s.root)), 'a fresh private cache dir is used');
     for (const level of [cache, path.join(cache, 'seeds'), dir!]) assert.equal(fs.lstatSync(level).mode & 0o777, 0o700, `${level} is created 0700`);
   } finally {
     s.cleanup();
+    c.cleanup();
   }
 });
 
