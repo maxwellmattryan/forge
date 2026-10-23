@@ -43,9 +43,14 @@ const MAX_FILE = 2 * 1024 * 1024;
 const REPO_NOTE_MAX = 2000;
 /** A decision lists at most this many repos: more than any project has members. */
 const REPO_LIST_MAX = 100;
-// Mockups must be self-contained (inline script and style, data: images and fonts), and the frame makes
-// no network request, so an agent misled into writing secrets into a mockup can't send them anywhere.
-const RAW_CSP = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:";
+// A mockup is agent-written HTML that may hold secrets an agent was misled into writing. It runs with
+// no script at all (a sandbox without allow-scripts), so it can't navigate itself, open WebRTC or
+// prefetch through script, and the sandbox also blocks meta refresh, popups, forms and top
+// navigation. It loads nothing but inline style and data: images and fonts, so no subresource or
+// connection leaves the machine. A clicked link can still navigate the frame, which the page's
+// `frame-src 'self'` blocks for any other origin. `frame-ancestors 'self'` rather than 'none',
+// because the dashboard's own Files tab frames it.
+const RAW_CSP = "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'self'";
 /** The newest requests a job's Thread shows. */
 const MAX_JOB_REQUESTS = 50;
 const MAX_REQUEST_EXCERPT = 2000;
@@ -103,6 +108,7 @@ export function getJobFile(ctx: ServerCtx, _req: http.IncomingMessage, res: http
     if (kind === 'raw') {
       const raw = readFdRange(fd, 0, size);
       res.setHeader('Content-Security-Policy', RAW_CSP);
+      res.setHeader('X-DNS-Prefetch-Control', 'off');
       return send(res, 200, 'text/html; charset=utf-8', known.length ? redactKnown(raw.toString('utf8'), known) : raw);
     }
     const text = size > MAX_FILE ? `…truncated (${size} bytes); showing the last 2 MB…\n` + readFdRange(fd, size - MAX_FILE, MAX_FILE).toString('utf8') : readFdRange(fd, 0, size).toString('utf8');

@@ -23,9 +23,18 @@ export function distDirFor(opts: ServerOptions): string {
   return opts.distDir ?? (opts.dev ? DEV_DIST_DIR : DIST_DIR);
 }
 
+/**
+ * The page's own CSP, kept to framing so the inline theme script needs no hash: no other site may
+ * frame the page (its scripts send token-bearing POSTs, so a framed page could be clickjacked), and
+ * the page frames only its own origin, so a link clicked inside a mockup can't load another site.
+ */
+export const PAGE_CSP = "frame-src 'self'; frame-ancestors 'none'";
+
 /** GET / and /index.html: the page, with this server's token in it. */
 export function getPage(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse): void {
   const { token, distDir, notBuilt } = ctx;
+  res.setHeader('Content-Security-Policy', PAGE_CSP);
+  res.setHeader('X-DNS-Prefetch-Control', 'off');
   return page(res, token, distDir, notBuilt);
 }
 

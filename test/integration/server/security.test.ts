@@ -265,6 +265,31 @@ test('backlog refresh needs the token', async () => {
   }
 });
 
+test('the page and mockups carry the framing headers', async () => {
+  const repo = tempRepo();
+  const id = createJob(repo.dir, loadConfig(repo.dir).config, { title: 'a mockup' }).id;
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'jobs', id, 'mockup.html'), '<p>mockup</p>');
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: daemonKit().opts });
+  const port = Number(new URL(url).port);
+  try {
+    const framing = async (p: string) => {
+      const r = await hit(port, { path: p });
+      return { status: r.status, csp: r.headers['content-security-policy'], dns: r.headers['x-dns-prefetch-control'] };
+    };
+    const page = { status: 200, csp: "frame-src 'self'; frame-ancestors 'none'", dns: 'off' };
+    assert.deepEqual(await framing('/'), page);
+    assert.deepEqual(await framing('/index.html'), page);
+    assert.deepEqual(await framing(`/api/jobs/${id}/raw?path=mockup.html`), {
+      status: 200,
+      csp: "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'self'",
+      dns: 'off',
+    });
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
 test("a resume reaches the job's own session under any id it has had", async () => {
   const repo = tempRepo();
   writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
