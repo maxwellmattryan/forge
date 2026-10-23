@@ -13,6 +13,7 @@
   import Banner from './Banner.svelte';
   import Chip from './Chip.svelte';
   import EffortSelect from './EffortSelect.svelte';
+  import Icon from './Icon.svelte';
   import IconButton from './IconButton.svelte';
   import Empty from './Empty.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
@@ -199,12 +200,23 @@
 
 <svelte:document onvisibilitychange={() => log.visibilityChanged()} />
 
+<!-- Every line is a log-row (style.css): time, caret, tag, body, each in its own column whatever the line's kind, so the
+     times, tags and bodies line up down the pane. A line that expands is a log-fold whose open content sits in the body
+     column; the summary's one-line preview hides while it is open. -->
 {#snippet when(at: string | null)}
-  <time datetime={at ?? undefined} title={at ?? undefined} class="inline-block w-[8ch] shrink-0 font-mono text-muted tabular-nums">{clock(at)}</time>
+  <time datetime={at ?? undefined} title={at ?? undefined} class="log-time">{clock(at)}</time>
+{/snippet}
+
+{#snippet caret()}
+  <span class="log-caret"><Icon name="chevron-down" /></span>
+{/snippet}
+
+{#snippet chip(tone: string | null, tag: string, title: string = tag)}
+  <span class="log-tag"><Chip tone={tone && TONE_CLASS[tone] ? tone : 'muted'} extra="max-w-full" {title}><span class="truncate">{tag}</span></Chip></span>
 {/snippet}
 
 {#snippet line(at: string | null, tone: string | null, tag: string, text: string)}
-  <div class="flex items-start gap-2 {TINT.cli} px-1.5 -mx-1.5 py-0.5">{@render when(at)}<Chip tone={tone && TONE_CLASS[tone] ? tone : 'muted'} text={tag} extra="shrink-0" /><span class="min-w-0 whitespace-pre-wrap break-words">{text}</span></div>
+  <div class="log-row {TINT.cli} px-1.5 -mx-1.5 py-0.5">{@render when(at)}{@render chip(tone, tag)}<span class="log-body whitespace-pre-wrap break-words">{text}</span></div>
 {/snippet}
 
 {#snippet result(r: NonNullable<Extract<Item, { kind: 'tool' }>['result']>)}
@@ -218,31 +230,47 @@
 {#snippet item(it: Item)}
   {#if it.kind === 'text'}
     {@const prose = renderable(it.text, mdView.session)}
-    <div class="flex items-baseline gap-2 font-sans {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5">{@render when(it.at)}{#if it.long}<details class="min-w-0"><summary class="whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text.slice(0, 200)}…</summary>{#if prose}<div class="{compact ? 'prose compact' : 'prose'} break-words">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</details>{:else if prose}<div class="{compact ? 'prose compact' : 'prose'} min-w-0 break-words [&>:first-child]:mt-0 [&>:last-child]:mb-0 {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{@html md(it.text)}</div>{:else}<div class="min-w-0 whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text}</div>{/if}</div>
+    {@const toneText = it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}
+    {#if it.long}
+      <details class="log-fold group font-sans {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5">
+        <summary class="log-row">{@render when(it.at)}{@render caret()}<span class="log-body whitespace-pre-wrap break-words group-open:hidden {toneText}">{it.text.slice(0, 200)}…</span></summary>
+        <div class="log-row"><div class="log-body">{#if prose}<div class="{compact ? 'prose compact' : 'prose'} break-words [&>:first-child]:mt-0 {toneText}">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words {toneText}">{it.text}</div>{/if}</div></div>
+      </details>
+    {:else}
+      <div class="log-row font-sans {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5">{@render when(it.at)}{#if prose}<div class="log-body {compact ? 'prose compact' : 'prose'} break-words [&>:first-child]:mt-0 [&>:last-child]:mb-0 {toneText}">{@html md(it.text)}</div>{:else}<div class="log-body whitespace-pre-wrap break-words {toneText}">{it.text}</div>{/if}</div>
+    {/if}
   {:else if it.kind === 'thinking'}
-    <details class="text-muted {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5"><summary>{@render when(it.at)}{$t('session.thinkingItem')}</summary>{#if renderable(it.text, mdView.session)}<div class="{compact ? 'prose compact' : 'prose'} font-sans break-words">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</details>
+    <details class="log-fold group text-muted {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5">
+      <summary class="log-row">{@render when(it.at)}{@render caret()}<span class="log-tag"><span>{$t('session.thinkingItem')}</span></span><span class="log-body truncate italic group-open:hidden">{it.text.trim().split('\n', 1)[0]}</span></summary>
+      <div class="log-row"><div class="log-body">{#if renderable(it.text, mdView.session)}<div class="{compact ? 'prose compact' : 'prose'} font-sans break-words [&>:first-child]:mt-0">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</div></div>
+    </details>
   {:else if it.kind === 'tool'}
-    <details class="border px-1.5 -mx-1.5 py-1 {TINT[logSender(it.kind)]} {it.tone === 'bad' ? 'border-bad' : 'border-line-soft'}">
-      <summary class="break-all">{@render when(it.at)}<span class="text-gleam">→ {it.name}</span> <span class="text-muted">{it.summary}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
-      <div class="label mt-1">{$t('session.input')}</div>
-      <pre class="whitespace-pre-wrap break-words border border-line-soft p-2">{it.input}</pre>
-      {#if it.result}{@render result(it.result)}{/if}
+    <details class="log-fold {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5">
+      <summary class="log-row">{@render when(it.at)}{@render caret()}<span class="log-tag" title={it.name}><span class={it.result?.isError ? 'text-bad' : 'text-gleam'}>{it.name}</span></span><span class="log-body flex items-baseline gap-2"><span class="min-w-0 truncate" title={it.summary}>{it.summary}</span>{#if it.task?.text}<span class="min-w-0 shrink-[3] truncate text-muted" title={it.task.text}>{it.task.text}</span>{/if}{#if it.result?.isError}<Chip tone="bad" text={$t('session.error')} extra="shrink-0" />{/if}</span></summary>
+      <div class="log-row pb-1"><div class="log-body">
+        <div class="label mt-1">{$t('session.input')}</div>
+        <pre class="whitespace-pre-wrap break-words border border-line-soft p-2">{it.input}</pre>
+        {#if it.result}{@render result(it.result)}{/if}
+      </div></div>
     </details>
   {:else if it.kind === 'subagent'}
-    <details class="border border-info px-1.5 -mx-1.5 py-1 {TINT[logSender(it.kind)]}">
-      <summary class="break-all">{@render when(it.at)}<Chip tone={it.known ? 'info' : 'muted'} text={it.role} /> <span>{it.description}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.hidden} <span class="text-muted">{$t('session.hiddenLines', { count: it.hidden })}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
-      {#if it.prompt}
-        <details class="mt-1">
-          <summary class="text-muted">{$t('session.prompt')}</summary>
-          {#if renderable(it.prompt, mdView.session)}<div class="prose compact break-words border border-line-soft p-2">{@html md(it.prompt)}</div>{:else}<pre class="whitespace-pre-wrap break-words border border-line-soft p-2">{it.prompt}</pre>{/if}
-        </details>
-      {/if}
-      {#if it.items.length}<div class="mt-1 flex flex-col gap-1 border-l border-info/40 pl-2">{#each it.items as child, i (i)}{@render item(child)}{/each}</div>{/if}
-      {#if it.result}
-        {#if renderable(it.result.full, mdView.session)}
-          <div class="mt-1"><div class="label">{$t('session.result')}</div><div class="prose compact break-words border border-line-soft p-2 {it.result.isError ? 'text-bad' : ''}">{@html md(it.result.full)}</div></div>
-        {:else}{@render result(it.result)}{/if}
-      {/if}
+    <details class="log-fold {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5">
+      <!-- A Forge role drops its plugin prefix so it fits the tag column; the chip's title keeps the full name. -->
+      <summary class="log-row">{@render when(it.at)}{@render caret()}{@render chip(it.known ? 'info' : 'muted', it.role.replace(/^forge:/, ''), it.role)}<span class="log-body flex items-baseline gap-2"><span class="min-w-0 truncate" title={it.description}>{it.description}</span>{#if it.task?.text}<span class="min-w-0 shrink-[3] truncate text-muted" title={it.task.text}>{it.task.text}</span>{/if}{#if it.hidden}<span class="shrink-0 text-muted">{$t('session.hiddenLines', { count: it.hidden })}</span>{/if}{#if it.result?.isError}<Chip tone="bad" text={$t('session.error')} extra="shrink-0" />{/if}</span></summary>
+      <div class="log-row pb-1">
+        {#if it.prompt}
+          <details class="log-body mt-1">
+            <summary class="text-muted">{$t('session.prompt')}</summary>
+            {#if renderable(it.prompt, mdView.session)}<div class="prose compact break-words border border-line-soft p-2">{@html md(it.prompt)}</div>{:else}<pre class="whitespace-pre-wrap break-words border border-line-soft p-2">{it.prompt}</pre>{/if}
+          </details>
+        {/if}
+        {#if it.items.length}<div class="log-nest mt-1 flex flex-col gap-1 border-l border-info/40 pl-2">{#each it.items as child, i (i)}{@render item(child)}{/each}</div>{/if}
+        {#if it.result}
+          {#if renderable(it.result.full, mdView.session)}
+            <div class="log-body mt-1"><div class="label">{$t('session.result')}</div><div class="prose compact break-words border border-line-soft p-2 {it.result.isError ? 'text-bad' : ''}">{@html md(it.result.full)}</div></div>
+          {:else}<div class="log-body">{@render result(it.result)}</div>{/if}
+        {/if}
+      </div>
     </details>
   {:else if it.kind === 'init'}
     {@render line(it.at, 'muted', 'init', [it.model, it.session].filter(Boolean).join(' · '))}
@@ -307,7 +335,7 @@
   {/if}
   {#if entries.length}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->
-    <div bind:this={pane} onscroll={onScroll} role="log" aria-live="off" aria-label={$t('session.label')} tabindex="0" class="plate flat mono selectable px-2.5 pb-2.5 {compact ? 'text-[11px] leading-5' : 'text-[13px] leading-5'} {fill ? 'min-h-0 flex-1' : compact ? 'max-h-72' : 'max-h-[70vh]'} overflow-y-auto overscroll-contain">
+    <div bind:this={pane} onscroll={onScroll} role="log" aria-live="off" aria-label={$t('session.label')} tabindex="0" class="log-pane plate flat mono selectable px-2.5 pb-2.5 {compact ? 'text-[11px] leading-5' : 'text-[13px] leading-5'} {fill ? 'min-h-0 flex-1' : compact ? 'max-h-72' : 'max-h-[70vh]'} overflow-y-auto overscroll-contain">
       {#if !view.turns.length}<div class="text-muted">{$t('session.noMatch')}</div>{/if}
       {#each view.turns as g (g.offset)}
         <section class="mb-2">
