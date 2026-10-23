@@ -109,7 +109,12 @@ async function scratch(opts: { sseMaxAgeMs?: number } = {}) {
   process.env.FAKE_DOCKER_LOG = path.join(tmp, 'argv.log');
   process.env.FAKE_DOCKER_PIDS = path.join(tmp, 'pids');
   const dockerState = () => JSON.parse(fs.readFileSync(process.env.FAKE_DOCKER_STATE!, 'utf8'));
-  const setDocker = (patch: Record<string, unknown>) => fs.writeFileSync(process.env.FAKE_DOCKER_STATE!, JSON.stringify({ ...dockerState(), ...patch }));
+  // Written aside and renamed, as the fake docker does: a docker call starting meanwhile must never read half a file.
+  const setDocker = (patch: Record<string, unknown>) => {
+    const tmp = `${process.env.FAKE_DOCKER_STATE!}.test.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ ...dockerState(), ...patch }));
+    fs.renameSync(tmp, process.env.FAKE_DOCKER_STATE!);
+  };
   const patchContainer = (name: string, patch: Record<string, unknown>) => {
     const st = dockerState();
     setDocker({ containers: { ...st.containers, [name]: { ...st.containers[name], ...patch } } });
