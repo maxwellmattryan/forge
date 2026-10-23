@@ -4,6 +4,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 
 - A command or JSON output change edits its group's module and `HELP` table (`CORE` in `help.ts` for what `main.ts` routes), then `npm run docs:commands` regenerates README's CLI table. New commands return compact JSON; large outputs go to files in the job dir, and the CLI returns their paths.
 - Only this folder and `lib/cli/main.ts` import it (`test/invariants/layers.test.ts`). It is a registry, so it may hold more than 12 entries; so is `render/`.
+- **`job/`** holds `forge job`'s help table (`help.ts`) and one handler function per subcommand, grouped by concern; `job.ts` only routes, through `JOB_HANDLERS`.
 - **CLI output**: string results print raw (e.g. `forge worktree path`), everything else prints compact JSON.
 - **`--field` values** are not comma-split, because JSON arrays contain commas. Other list flags are.
 
@@ -27,6 +28,16 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `help.ts` | `forge help`, `--help` and the CLI's error contract (docs/CLI.md). |
 | `init.ts` | `forge init write` and `forge migrate`: setting a repo up and keeping its files current. |
 | `job.ts` | `forge job …`: every write to a job's state goes through here. |
+| `job/agent.ts` | `forge job agent start\|end\|attach`: recording an agent's run, its usage and the secret scan of what it wrote. |
+| `job/create.ts` | `forge job new\|from-ref\|link`: creating a job, starting one from a tracker item, and the issues it carries. |
+| `job/decide.ts` | `forge job human\|handoff\|assist`: recording a human's or the foreman's decision at a gate, a Foreman hand-off, and the office's assistant spawn. |
+| `job/help.ts` | `forge job`'s help table: every subcommand's usage, flags and exits, which `forge help job` prints and `npm run docs:commands` reads. |
+| `job/lease.ts` | `forge job claim\|release\|step`: a job's lease and its driver's epoch, and the `--epoch` fence other handlers share. |
+| `job/read.ts` | `forge job list\|show\|get\|progress\|paths\|links\|scope\|panel\|acs\|findings\|audit`: the read-only views of one job, or of every job. |
+| `job/repos.ts` | `forge job repo\|interim`: a job's member repos, their interim strategies, canary publishes and recorded releases. |
+| `job/retention.ts` | `forge job archive\|delete\|prune`: archiving finished jobs, deleting a mistaken one, and pruning old jobs and session logs; never from a daemon session. |
+| `job/review.ts` | `forge job round\|verdicts\|decision\|score`: review rounds, the reviewers' and approver's verdicts, and the post-merge score. |
+| `job/state.ts` | `forge job set\|effort\|note\|refresh-request\|budget`: a job's stage, state, fields, effort, notes, request and budget limits. |
 | `notify.ts` | `forge notify test\|send`: a sample notification to every configured target, and the detached sender lib/office/notify.ts queueNotify spawns. |
 | `release.ts` | `forge release plan\|run\|status`: a release a human runs from the CLI, single- or multi-repo (lib/engine/release/plan.ts plans it, lib/engine/release/run.ts runs it; docs/RELEASES.md "Releasing a project"). |
 | `render.ts` | Human output mode (docs/CLI.md "Output mode"): the generic renderer for results and errors. |

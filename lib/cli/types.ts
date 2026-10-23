@@ -20,6 +20,9 @@ export interface Dispatched {
 /** The dispatcher, passed in so lib/cli/commands/ never imports lib/cli/main.ts. */
 export type Dispatch = (argv: string[], ctx: CliContext) => Promise<Dispatched>;
 
+/** One `forge job <sub>` handler: rest[0] is usually the job id. Its result is printed as JSON. */
+export type JobHandler = (root: string, config: Config, rest: string[], flags: Record<string, any>) => unknown;
+
 /** One command `forge job advance` ran: `result`/`error` are one line of at most 200 characters. */
 export interface AdvanceRan {
   rule: string;

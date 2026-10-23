@@ -21,7 +21,7 @@ import type { StepInput } from './types.ts';
 /**
  * Absolute paths an agent prompt needs, keyed as `forge job paths` prints them. Reads (which
  * instruction files and checklists exist) but never creates anything: `jobPaths` in
- * lib/cli/commands/job.ts adds the review directories.
+ * lib/cli/commands/job/read.ts adds the review directories.
  */
 export function jobPathMap(root: string, config: Config, job: Job): Record<string, unknown> {
   const dir = jobDir(root, job.id);
