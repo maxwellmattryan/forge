@@ -18,6 +18,7 @@ import { PINNED_DIFF_OPTS, unquote } from '../guard/integrity.ts';
 import { fileVerdict, jobDir, loadJob, logEvent, readEvents, updateJob } from '#core/job/store.ts';
 import { exists, paths } from '#core/paths.ts';
 import { resolveBase } from './scope.ts';
+import { lastRun, nextAttempt, recordRun } from '../verify/record.ts';
 import type { Config, Job, JobEvent, VerifyRun } from '#core/types.ts';
 import type { Verifier, VerifierAnswer, VerifierProblem, VerifierSet, VerifiersRecord, VerifiersRun } from './types.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -438,7 +439,6 @@ function verifierFiles(round: number): { report: string; input: string; run: str
   };
 }
 
-const lastVerify = (job: Job): VerifyRun | undefined => job.verifyRuns.filter((r) => r.round === job.round).at(-1);
 const after = (ts: unknown, than: string | null | undefined) => typeof ts === 'string' && (!than || ts > than);
 
 /** This round's `verifiers` events newer than the round's last verify run, oldest first. */
@@ -450,7 +450,7 @@ function roundEvents(root: string, job: Job, lv: VerifyRun | undefined): JobEven
 function verifiedJob(root: string, id: string): { job: Job; lv: VerifyRun & { sha: string } } {
   const job = loadJob(root, id);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${job.id} has no worktree yet; run: forge worktree create ${job.id}`);
-  const lv = lastVerify(job);
+  const lv = lastRun(job);
   if (!lv?.ok || !lv.sha || !FULL_SHA.test(lv.sha)) throw new ForgeError(`job ${job.id} has no passing verify in round ${job.round}; run: forge verify ${job.id}`);
   return { job, lv: lv as VerifyRun & { sha: string } };
 }
@@ -509,7 +509,7 @@ export function verifiersRun(root: string, base: Config, id: string): VerifiersR
  */
 export function verifiersRecord(root: string, base: Config, id: string): VerifiersRecord {
   const job0 = loadJob(root, id);
-  const lv0 = lastVerify(job0);
+  const lv0 = lastRun(job0);
   const pending = roundEvents(root, job0, lv0).at(-1);
   const f = verifierFiles(job0.round);
   const dir = jobDir(root, job0.id);
@@ -533,11 +533,8 @@ export function verifiersRecord(root: string, base: Config, id: string): Verifie
   if (r.outcome === 'CHANGES') {
     let rec: VerifyRun | null = null;
     updateJob(root, job.id, (j) => {
-      const attempt = j.verifyRuns.filter((x) => x.round === job.round).length + 1;
-      rec = { round: job.round, attempt, sha: lv.sha, ok: false, at: now(), file: f.report, failure: 'verifiers' };
-      j.verifyRuns.push(rec);
-      j.verify[job.round] = 'FAIL';
-      j.verifyRetries[String(job.round)] = (j.verifyRetries[String(job.round)] ?? 0) + 1;
+      rec = { round: job.round, attempt: nextAttempt(j), sha: lv.sha, ok: false, at: now(), file: f.report, failure: 'verifiers' };
+      recordRun(j, rec);
     });
     logEvent(root, job.id, 'verify', rec!);
   }

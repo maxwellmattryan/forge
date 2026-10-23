@@ -18,7 +18,7 @@ import { checkBranch, logEscalated, protectedApproved, refusalText } from '../gu
 import type { MemberBranch } from '../guard/protected.ts';
 import { attributionForbidden, scrubBranch } from '../guard/attribution.ts';
 import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, secretsBlock, textUnit } from '../guard/secrets.ts';
-import { verifiedHead } from '../workspace/verify.ts';
+import { verifiedHead } from '../verify/gate.ts';
 import { FULL_SHA, heldConsumers, releaseGates, repoLabel, resolveInterim } from '../release/interim.ts';
 import type { Deferral } from '../release/interim.ts';
 import { interimStatus } from '../release/interim-apply.ts';
@@ -52,7 +52,7 @@ export function openPr(
   // commits as the builder left them were verified.
   const evidence = verifiedHead(root, id);
   if (!evidence.verified) {
-    const last = evidence.last ? `last verify: round ${evidence.last.round} attempt ${evidence.last.attempt}, ${evidence.last.ok ? 'PASS' : 'FAIL'} on ${String(evidence.last.sha).slice(0, 12)}` : 'never verified';
+    const last = evidence.last ? `last verify: round ${evidence.last.round} attempt ${evidence.last.attempt}, ${evidence.last.ok ? 'PASS' : 'FAIL'} on ${String(evidence.last.sha).slice(0, 12)}` : `no verify run in round ${Number(job.round)}`;
     // With job repos the root HEAD can match while a member's does not: name what moved.
     const repoNote = evidence.heads && evidence.last?.ok && evidence.last.sha === evidence.head ? `, but a job repo HEAD is not the one it checked` : '';
     if (!opts.force) throw new ForgeError(`HEAD ${evidence.head.slice(0, 12)} of ${id} is not verified (${last}${repoNote}); run: forge verify ${id}, or pass --force`);

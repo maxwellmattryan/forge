@@ -13,6 +13,7 @@ import { LENS_NAME } from '#core/job/lens.ts';
 import { agentRoles } from '../evals/provenance.ts';
 import { inSpec } from '#core/glob.ts';
 import { whenTokens } from '../pipeline/step/panel.ts';
+import { firstVerifyRun } from '../verify/record.ts';
 import type { Config, Job, JobEvent, ReviewerStats, Stats, UsageRow, VerifierStats } from '#core/types.ts';
 import type { PromptCohort, PromptStats } from './types.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -54,16 +55,6 @@ function covers(config: Config | undefined, lens: string, file: string): boolean
   if (entry.always) return true;
   if (Array.isArray(entry.paths) && inSpec(file, entry.paths)) return true;
   return !entry.pathsOnly && inSpec(file, whenTokens(entry.when));
-}
-
-/**
- * Whether the very first verify attempt of round 1 passed, or null when the job never got there.
- * Later attempts in the same round are retries and must not count as a first pass.
- */
-export function firstVerifyRun(job: Pick<Job, 'verifyRuns' | 'verify'>): boolean | null {
-  const first = (job.verifyRuns ?? []).find((r) => r.round === 1 && r.attempt === 1);
-  if (first) return Boolean(first.ok);
-  return job.verify?.[1] ? job.verify[1] === 'PASS' : null;
 }
 
 /**

@@ -3,8 +3,8 @@ import { cell } from '../render.ts';
 import { isMap } from '#core/shape.ts';
 import { blocks, duration, fields, has, line, marked, paint, section, short, txt, under } from './kit.ts';
 import type { Paint, Renderer, Seg, Val } from './kit.ts';
-import type { VerifyResult } from '#engine/workspace/verify.ts';
-import type { VerifyStep } from '#engine/workspace/verify-steps.ts';
+import type { VerifyResult } from '#engine/verify/gate.ts';
+import type { VerifyStep } from '#engine/verify/steps.ts';
 
 function step(s: Omit<VerifyStep, 'tail'>, failure: VerifyStep | undefined, p: Paint): string {
   const name = txt(s.name);

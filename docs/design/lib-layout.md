@@ -115,7 +115,8 @@ Why these sit in core, and why so:
 | Module | Files |
 |---|---|
 | `pipeline/` | `step/`, `step.ts`, `brief.ts`, `panel.ts`, `verifiers.ts`, `roster.ts`, `acs.ts`, `findings.ts`, `scope.ts`, `member-panel.ts`, `deps.ts`, `types.ts` (the step and verifier shapes: `step/` is at its entry cap) |
-| `workspace/` | `worktree.ts`, split in #417 into `worktree.ts` (create and remove), `run.ts`, `verify.ts`, `verify-steps.ts` and `dev-server.ts`; `checkout.ts`, `focus-actions.ts`, `editor.ts`, `regenerate.ts`, `job-command.ts`, `e2e.ts` (moved from `pipeline/` in #413; only verify reads it) |
+| `workspace/` | `worktree.ts`, split in #417 into `worktree.ts` (create and remove), `run.ts` and `dev-server.ts` (its process proof in `dev-probe.ts` since #458); `checkout.ts`, `focus-actions.ts`, `editor.ts`, `regenerate.ts`, `job-command.ts` |
+| `verify/` | `gate.ts`, `steps.ts` and `e2e.ts` (moved from `workspace/` in #458), `record.ts` (the one reader of `job.verifyRuns`) |
 | `guard/` | `integrity.ts`, `protected.ts`, `secrets.ts`, `known-secrets.ts`, `secret-refs.ts`, `redact.ts`, `attribution.ts`, `types.ts` |
 | `environment/` | `backing.ts`, `backing-db.ts`, `ports.ts`, `endpoints.ts`, status ← `environment.ts`, lifecycle ← `environment-lifecycle.ts`, record ← `environment-record.ts`, `config-sinks-apply.ts`, `types.ts` |
 | `project/` | `member-repos.ts`, `member-trackers.ts`, `job-repos.ts`, graph ← `project.ts`, `repo-order.ts`, `repo-proposals.ts`, `links.ts`, `downstream.ts` |
@@ -263,6 +264,12 @@ Landed in #417. The 1320-line file held four concerns: worktree create and remov
 | `job-command.ts` (existing) | adds `MAX_OUTPUT` and `shellAsync`, the async twin of `shell` | +53 |
 
 Judgement calls: no `workspace/types.ts`, so each shape sits with the function that returns it and the folder stays at 11 entries under the cap of 12. `VerifyStep` lives in `verify-steps.ts` because both verify files need it and `verify-steps.ts` must not import `verify.ts`. `realpath` is copied into `dev-server.ts` rather than shared, matching the private copies in `ops/update.ts` and `ops/version.ts`. Verify splits in two so neither file passes the 400-line target. `MemberVerify` is exported, beside the functions verify imports, because `verify.ts` annotates its member runs with it.
+
+### verify out of workspace (#458)
+
+Landed in #458. `verify.ts`, `verify-steps.ts` and `e2e.ts` moved from `workspace/` to a new `engine/verify/` module as `gate.ts`, `steps.ts` and `e2e.ts` (`pipeline/` is at its entry cap). `record.ts` is new: the one reader of `job.verifyRuns`. It answers this round's runs, the last run, the next attempt and whether a HEAD is verified, from job data alone, and appends a run with its legacy `verify` and `verifyRetries` writes. A job's latest verify run is this round's last run, and a HEAD is verified only when that run has `ok === true` on the root HEAD and on every member HEAD, so step, `pr open`, `forge job show` and `forge job interim publish` give one answer. Imports run one way: `record.ts` imports nothing in the folder, and `steps.ts` ← `gate.ts`.
+
+Two seams make the gate testable without a worktree. `verify` and `verifyMember` take a `CommandRunner` (`COMMAND_RUNNER` outside tests), and both group loops share `runGroups` in `steps.ts`. In `workspace/`, `parseDevProbe` and `ownDevProcess` moved from `dev-server.ts` to `dev-probe.ts`, where `ownDevProcess` reads the OS through a `ProcessProbe` (`systemProbe`: ps, lsof and `/proc`). Folder counts: `engine/` 12, `workspace/` 9, `verify/` 4.
 
 ## Order of work
 

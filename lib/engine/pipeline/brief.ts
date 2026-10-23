@@ -14,6 +14,7 @@ import { paths, exists } from '#core/paths.ts';
 import { releaseFiles } from '../release/plan.ts';
 import { SECRET_NAME, secretSourceOf } from '#core/config/validators/secret-refs.ts';
 import { recallLine } from './step/recall.ts';
+import { lastRun } from '../verify/record.ts';
 import type { Config, GateClass, Job, JobEvent } from '#core/types.ts';
 import type { StepInput } from './types.ts';
 
@@ -146,7 +147,7 @@ function protectedLine(job: Pick<Job, 'protectedPaths'>): string {
 function downstreamFailuresLine(input: Pick<StepInput, 'job' | 'events'>): string | null {
   const j = input.job;
   const downstream = downstreamMembers(j, input.events);
-  const last = j.verifyRuns.at(-1);
+  const last = lastRun(j);
   const failed = (Array.isArray(last?.repos) ? last.repos : [])
     .filter((r) => !r.ok && downstream.has(r.repo))
     .map((r) => ({ repo: r.repo, failure: typeof r.failure === 'string' ? r.failure.slice(0, 64) : null }));

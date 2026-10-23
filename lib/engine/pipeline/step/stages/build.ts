@@ -5,6 +5,7 @@ import type { JobAgent, JobEvent, VerifyRun } from '#core/types.ts';
 import { park, run, set, spawn, toStage } from '../actions.ts';
 import { after, afterIdx, agent, endedIn, lastIdx, lastVerify, startedIn } from '../facts.ts';
 import { needsInputRows } from '../generic.ts';
+import { roundRuns } from '../../../verify/record.ts';
 import { inStage } from '../rules.ts';
 import type { Ctx, Table } from '../rules.ts';
 
@@ -54,7 +55,7 @@ const ROUNDS_WHY = 'an eval job has no human to clear rounds-exhausted: grade it
 
 /** Verify failed twice on test integrity around one builder run. */
 function integrityTwice({ x, b, lv }: BuildCtx): boolean {
-  const prev = x.job.verifyRuns.filter((r) => r.round === x.job.round).at(-2);
+  const prev = roundRuns(x.job).at(-2);
   return Boolean(lv && prev && !lv.ok && !prev.ok && lv.failure === 'integrity' && prev.failure === 'integrity' && b?.endedAt && after(b.endedAt, prev.at) && !after(b.endedAt, lv.at));
 }
 

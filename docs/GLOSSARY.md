@@ -27,6 +27,7 @@ Planned in M005, except where a config key exists today.
 |---|---|---|
 | **job repo** | A repo the job changes, the root repo first and then each member repo a human adds with `forge job repo add`, so it gets its own worktree, verify evidence, branch and PR. | - |
 | **repo proposal** | A planner's or spec-writer's request, made with `forge job repo propose`, to add a member repo to its job, which parks the job until a human (or the foreman, when `repo-proposal` is in `foreman.decides`) approves or rejects it. | `foreman.decides` |
+| **verify record** | A job's verify runs, one per `forge verify` attempt (and per verifiers CHANGES), each bound to the commit it checked; this round's last run is the job's latest verify, and a HEAD is verified only when that run passed on it and on every member HEAD. Only `lib/engine/verify/record.ts` reads it. | - |
 | **verify-only repo** | A job repo added with `--verify-only`, which the job checks out at its base to build and test against its changes without branching, pushing or opening a PR there. | - |
 | **downstream repo** | A verify-only repo Forge adds to a job because it consumes, through a declared link, a repo the job changes, so verify runs its tests against the job's changes and names it when they break. | `downstream` |
 | **checkout hook** | A command run once when a job's checkout of a repo is created (today's single-repo form; per-repo hooks are planned). | `worktrees.setup` |
