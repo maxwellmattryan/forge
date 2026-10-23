@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `$SHELL -lc <cmd>` (`/bin/sh` whe
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 29            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 30            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -25,6 +25,12 @@ worktrees:                   # one git worktree per job: where it lives, what it
   root: ../{repo}.worktrees  # outside the repo on purpose (bundlers, watchers, cargo workspaces)
   copy: []                   # untracked files/dirs copied from the main checkout, e.g. [CLAUDE.md, .env, "packages/*/CLAUDE.md"]
   setup: []                  # commands run once in a new worktree, e.g. ["yarn install --frozen-lockfile"]
+  seed:                      # warm worktrees: clone untracked paths from a private seed instead of running setup
+                             # (docs/CONFIG.md › Worktree seed); off while paths is empty
+    paths: []                # untracked paths a new worktree clones from the seed instead of building, e.g. [node_modules]
+    key: []                  # files whose contents decide whether the seed fits, e.g. [package-lock.json]
+    setup: []                # commands run instead of worktrees.setup when the seed was cloned, e.g. ["npm ls"]
+    warm: []                 # commands run in a fresh base worktree before it refreshes the seed, e.g. ["npm run typecheck"]
   cleanup: on-merge          # on-merge | manual
   cargo:                     # Rust repos: where job worktrees build
     sharedTarget: false      # one Cargo target dir for every job worktree
@@ -340,6 +346,36 @@ budget:                      # repo-wide spend caps per UTC day and month; null 
   onExceeded: hold           # hold: park and refuse new work at the cap · warn: report it only
 ```
 <!-- forge:config:end -->
+
+## Worktree seed
+
+`worktrees.setup` (an `npm ci`, say) runs in every new job worktree and starts it cold: dependencies rebuilt, test and type-check caches empty. A **worktree seed** lets a new worktree start warm instead. Forge keeps a private copy of a fresh base worktree's untracked paths (`worktrees.seed.paths`, such as `node_modules` with its `.cache`), and a new worktree clones it copy-on-write whenever its key files (`worktrees.seed.key`, such as `package-lock.json`) hash the same. It is off while `paths` is empty, and applies only to the root repo's worktree in `forge worktree create`: never to member repos or eval clones, whose results have no `seed`.
+
+**On create**, after `worktrees.copy`, ports and backing services:
+
+- **Key.** A sha256 of the new worktree's key files, `worktrees.setup`, `seed.paths`, and the platform, arch and Node ABI. A missing key file (or one that is not a regular file) gives `reason: "no-key"`.
+- **Where.** `<cache>/seeds/<repoId>/<key>/`, where `<cache>` is the start-up cache's directory (`.cache/` in the plugin root, or `$FORGE_CACHE_DIR`) and `<repoId>` is the first 16 hex characters of a hash of the main checkout's real path. Every level must be a real directory you own that nobody else can write, else `reason: "cache-unusable"` (see [Start-up cache › Worktree seeds](architecture/startup-cache.md#worktree-seeds)).
+- **Hit.** Each path is cloned (`cp -c` on macOS, `cp --reflink=auto` on Linux, else a plain copy; `method` is `"copy"` when any path fell back), then `seed.setup` runs instead of `worktrees.setup`, with the same placeholders, environment, tail and redaction. A seed path already in the worktree (`reason: "exists"`), a path that won't copy (`"clone-failed"`) or a failing `seed.setup` (`"check-failed"`: the clone is removed and that seed deleted) falls back to `worktrees.setup` as if there were no seed.
+- **Miss and refresh.** On a clean miss (`"no-seed"`) setup runs as usual. If it succeeds and this create made the job's branch new at the tip of `git.base` (not an existing branch, not stacked, not `--from`, and the job's base still `git.base`), Forge takes the seed lock, runs `seed.warm` in the worktree (a failed warm command is reported and the rest still run), re-checks that HEAD has not moved, no tracked file changed (both `not-base`) and the key is unchanged, and stores the paths as the seed for that key. Anything else skips the refresh and says why in `refreshSkipped`; so does a seed path that was already in the worktree before setup (`exists`, from `worktrees.copy` say), since only what setup built may become a seed. A symlink in the paths that is absolute, leaves the tree or has a `..` after another segment (`symlink-out`) refuses it too. A miss after `exists`, `clone-failed` or `check-failed` never refreshes: the next clean miss does.
+
+A seed problem never fails the create. A failing `worktrees.setup` behaves as it always has (`ok: false`, step rule I4).
+
+**Result.** `forge worktree create` adds `seed: { used, key (first 16 hex, or null), method?, reason?, checks?, warm?, refreshed?, refreshSkipped?, durationMs }`, where `reason` is `no-key | cache-unusable | no-seed | exists | clone-failed | check-failed`, `refreshSkipped` is `not-base | no-key | cache-unusable | busy | key-changed | missing-path | symlink-out | exists | failed`, `checks` and `warm` are `{ cmd, ok, tail }` lists, and `durationMs` covers everything from the key to the end of the refresh, setup included. On a hit `setup` is `[]`. Each create logs one `worktree-seed` event with the same fields minus the command tails.
+
+**Disk.** One copy of the paths per key, the newest two kept per repo. Each plugin version starts with an empty `.cache/`, like the start-up cache, and deleting `<cache>/seeds/` by hand is always safe.
+
+**Turning it on** for an npm repo:
+
+```yaml
+worktrees:
+  setup:
+    - npm ci
+  seed:
+    paths: [node_modules]       # node_modules/.cache travels with it
+    key: [package-lock.json]
+    setup: ["npm ls"]           # a quick check that the cloned tree fits
+    warm: ["npm run typecheck"] # fills the caches the seed carries
+```
 
 ## Changing settings
 

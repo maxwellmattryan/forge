@@ -1671,7 +1671,7 @@ This install's version.
 
 A job's git worktree.
 
-**`forge worktree create <id>`**: create the job's worktree and branch (stacked on its one unmerged dependency, if any) bring its backing services up (a failed one skips setup and fails the result, listed as backing), and run worktrees.setup there, then each missing member repo worktree (forge job repo add) on the job's branch, or detached at its base for a verify-only repo; with members, the result lists them as repos
+**`forge worktree create <id>`**: create the job's worktree and branch (stacked on its one unmerged dependency, if any) bring its backing services up (a failed one skips setup and fails the result, listed as backing), and run worktrees.setup there; with worktrees.seed and matching key files it clones the seed and runs seed.setup instead of worktrees.setup, listed as seed; then each missing member repo worktree (forge job repo add) on the job's branch, or detached at its base for a verify-only repo; with members, the result lists them as repos
 
 | Exit | When |
 |---|---|

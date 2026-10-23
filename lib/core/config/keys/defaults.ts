@@ -55,6 +55,8 @@ export function defaults(): Config {
       root: '../{repo}.worktrees',
       copy: [],
       setup: [],
+      // Off while paths is empty: a new worktree clones these from a private seed instead of running setup.
+      seed: { paths: [], key: [], setup: [], warm: [] },
       cleanup: 'on-merge',
       cargo: { sharedTarget: false, targetDir: null },
       // Committed paths a command regenerates: `forge integrate` rebuilds them instead of asking the integrator.
