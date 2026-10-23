@@ -11,7 +11,7 @@ import { validModel } from '#core/config/load.ts';
 import { configForJob } from './overlay.ts';
 import { jobDir, listJobs, loadJob, logEvent, setJob, updateJob } from '#core/job/store.ts';
 import type { GhFn } from './outcome.ts';
-import { repoSlug } from '../pr/lifecycle.ts';
+import { repoSlug } from '#integrations/github/pull-requests.ts';
 import { repoBudgetStatus } from '../metrics/repo-budget.ts';
 import { enqueue, listRequests } from '#core/job/requests.ts';
 import type { Config, Job, JobScore } from '#core/types.ts';

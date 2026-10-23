@@ -13,5 +13,5 @@ Code that knows an outside system's API, CLI or file format, one folder per syst
 | `claude/` | Claude Code's files and prices: session transcripts and the model price table. |
 | `docker/` | The one Docker runner: sync, async and streaming. |
 | `git/` | The one git runner, with its config pins and clean environment, and the offline repo slug. |
-| `github/` | GitHub through `gh`: the runner, the GitHub tracker, issue previews and the actor. |
+| `github/` | GitHub through `gh`: the runner, pull requests, the GitHub tracker, issue previews and the actor. |
 <!-- forge:map:end -->

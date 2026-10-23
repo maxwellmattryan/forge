@@ -4,8 +4,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { approvedBy, findPr, mergeAction, hasCiWorkflows, mergePr, prText, pullPrHead, syncPr, syncTransition } from '#engine/pr/lifecycle.ts';
-import type { MemberPrState } from '#engine/pr/lifecycle.ts';
+import { findPr } from '#engine/pr/adopt.ts';
+import { approvedBy, prText } from '#engine/pr/body.ts';
+import { pullPrHead } from '#engine/pr/branch.ts';
+import { syncPr, syncTransition } from '#engine/pr/sync.ts';
+import type { MemberPrState } from '#engine/pr/sync.ts';
+import { mergeAction, hasCiWorkflows, mergePr } from '#engine/pr/merge.ts';
 import { stripAttribution } from '#engine/guard/attribution.ts';
 import { defaults } from '#core/config/load.ts';
 import { claimJob, createJob, loadJob, logEvent, setJob, readEvents, updateJob } from '#core/job/store.ts';
@@ -68,7 +72,7 @@ const FAKE_GH = `#!/bin/sh
 echo "$*" >> "$FAKE_GH_LOG"
 case "$1 $2" in
   "pr view") printf '{"number":7,"url":"https://github.com/o/r/pull/7","state":"%s","isDraft":false,"headRefOid":"%s","mergeable":"%s","mergeStateStatus":"%s","reviewDecision":"","statusCheckRollup":%s,"mergedAt":null,"closedAt":null,"headRefName":"%s","baseRefName":"%s"}' "$FAKE_PR_STATE" "\${FAKE_HEAD_OID:-abc123}" "\${FAKE_MERGEABLE:-MERGEABLE}" "$FAKE_MERGE_STATE" "$FAKE_ROLLUP" "\${FAKE_HEAD_REF:-forge/x}" "\${FAKE_BASE_REF:-main}" ;;
-  "pr list") printf '[{"number":7,"url":"https://github.com/o/r/pull/7","state":"OPEN","isDraft":false,"isCrossRepository":false,"headRefName":"%s","baseRefName":"%s"}]' "\${FAKE_HEAD_REF:-forge/x}" "\${FAKE_BASE_REF:-main}" ;;
+  "pr list") printf '[{"number":7,"url":"https://github.com/o/r/pull/7","state":"OPEN","isDraft":false,"isCrossRepository":%s,"headRefName":"%s","baseRefName":"%s"}]' "\${FAKE_CROSS:-false}" "\${FAKE_HEAD_REF:-forge/x}" "\${FAKE_BASE_REF:-main}" ;;
   "repo view") echo o/r ;;
   "api graphql") echo '{"data":{"repository":{"pullRequest":{}}}}' ;;
   "pr merge") if [ -n "$FAKE_MERGE_FAIL" ]; then echo "auto-merge is not allowed" >&2; exit 1; fi ;;
@@ -364,6 +368,24 @@ test('findPr refuses to adopt a PR with an unsafe ref name', { skip: process.pla
     assert.equal(findPr(root, h.config, id).headRefName, 'forge/x', 'safe refs are still adopted');
     assert.equal(loadJob(root, id).branch, 'forge/x');
     assert.ok(h.events(id).includes('pr-adopted'));
+  } finally {
+    h.done();
+  }
+});
+
+test("findPr never adopts a fork PR on the job's branch", { skip: process.platform === 'win32' }, () => {
+  const h = ghHarness();
+  try {
+    const root = h.repo.dir;
+    const id = h.scenario();
+    // No recorded PR, so the lookup goes by branch, and gh lists only a fork's PR on it.
+    setJob(root, id, { owned: { pr: null } });
+    process.env.FAKE_CROSS = 'true';
+    assert.equal(findPr(root, h.config, id), null);
+    assert.equal(loadJob(root, id).pr, null);
+    const evs = readEvents(root, id);
+    assert.ok(evs.some((e) => e.type === 'pr-find' && e.found === false));
+    assert.ok(!evs.some((e) => e.type === 'pr-adopted'));
   } finally {
     h.done();
   }

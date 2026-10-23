@@ -15,7 +15,7 @@ import { ensureEnvironment, pickVictims, stopEnvironment } from '#engine/environ
 import { forgeJson, openConfinedLog, openDevLog } from '#engine/environment/status.ts';
 import { setFocus } from '#core/job/focus.ts';
 import { createJob, loadJob, readEvents, setJob } from '#core/job/store.ts';
-import { syncPr } from '#engine/pr/lifecycle.ts';
+import { syncPr } from '#engine/pr/sync.ts';
 import { emptyState, handle } from './fixtures/fake-docker.mjs';
 import { fakeGh, forgeSync, repoTemplate } from './helpers.ts';
 

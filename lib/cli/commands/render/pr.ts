@@ -3,7 +3,7 @@ import { cell } from '../render.ts';
 import { isMap } from '#core/shape.ts';
 import { blocks, fields, has, hang, line, marked, paint, section, table, txt } from './kit.ts';
 import type { Paint, Renderer, Val } from './kit.ts';
-import type { MergeResult } from '#engine/pr/lifecycle.ts';
+import type { MergeResult } from '#engine/pr/merge.ts';
 
 export const prOpen: Renderer = (d, o) => {
   if (!has(d, 'number', 'url', 'created')) return null;

@@ -13,7 +13,11 @@ import { git } from '#integrations/git/runner.ts';
 import { loadJob } from '#core/job/store.ts';
 import { trustedMemberWorktree } from '#engine/project/job-repos.ts';
 import { mainRoot } from '#core/paths.ts';
-import * as pr from '#engine/pr/lifecycle.ts';
+import { findPr } from '#engine/pr/adopt.ts';
+import { openPr } from '#engine/pr/open.ts';
+import { syncPr } from '#engine/pr/sync.ts';
+import { integrate, integrateContinue } from '#engine/pr/integrate.ts';
+import { mergePr, mergeTarget, readyPr } from '#engine/pr/merge.ts';
 import { prepareRetro, retroDue } from '#engine/evals/retro.ts';
 import { roster } from '#engine/pipeline/roster.ts';
 import { computeStats, statsByPromptCmd, statsCsv } from '#engine/metrics/stats.ts';
@@ -184,27 +188,27 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     case 'integrate': {
       needInit();
       const id = req(sub, 'job id');
-      const r = flags.continue ? pr.integrateContinue(root, config, id) : pr.integrate(root, config, id, { strategy: flags.strategy, keepConflicts: Boolean(flags['keep-conflicts']) });
+      const r = flags.continue ? integrateContinue(root, config, id) : integrate(root, config, id, { strategy: flags.strategy, keepConflicts: Boolean(flags['keep-conflicts']) });
       return { data: r, exitCode: r.ok ? 0 : 1 };
     }
     case 'pr': {
       needInit();
       // Before the id: `--root <id>` makes parseArgs swallow the id as the flag's value, and a
       // misread merge target must be refused, never guessed.
-      if (sub === 'merge') pr.mergeTarget(flags);
-      if (sub === 'ready') pr.mergeTarget(flags, 'ready');
+      if (sub === 'merge') mergeTarget(flags);
+      if (sub === 'ready') mergeTarget(flags, 'ready');
       const id = req(rest[0], 'job id');
-      if (sub === 'find') return ok(pr.findPr(root, config, id));
-      if (sub === 'open') return ok(pr.openPr(root, config, id, { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) }));
-      if (sub === 'sync') return ok(pr.syncPr(root, config, id));
+      if (sub === 'find') return ok(findPr(root, config, id));
+      if (sub === 'open') return ok(openPr(root, config, id, { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) }));
+      if (sub === 'sync') return ok(syncPr(root, config, id));
       if (sub === 'merge') {
         // Strictly `true`: `--now <id>` would make parseArgs swallow the id as the flag's value,
         // and that mistake must not silently bypass CI.
         refuseInOffice('the foreman never merges; foreman.ship merge only feeds the approver and step PR4');
-        const r = pr.mergePr(root, config, id, { now: flags.now === true, ...pr.mergeTarget(flags) });
+        const r = mergePr(root, config, id, { now: flags.now === true, ...mergeTarget(flags) });
         return { data: r, exitCode: r.action === 'refused' || r.action === 'failed' ? 1 : 0 };
       }
-      if (sub === 'ready') return ok(pr.readyPr(root, config, id, pr.mergeTarget(flags, 'ready')));
+      if (sub === 'ready') return ok(readyPr(root, config, id, mergeTarget(flags, 'ready')));
       throw usage('pr');
     }
     case 'release':

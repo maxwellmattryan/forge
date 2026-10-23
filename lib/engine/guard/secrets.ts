@@ -2,7 +2,7 @@
 // the machine (verify's branch scan, `forge git commit`, `forge pr open`, tracker writes) and reports what agents
 // write into the job dir. Findings never hold the value: the excerpt is masked and the fingerprint is its sha256
 // (a known value's is neither: see scanUnit). docs/CONFIG.md "Secret scanning".
-// Must not import worktree.ts, pr.ts or commands/: worktree.ts and pr.ts import this module.
+// Must not import worktree.ts, lib/engine/pr/ or commands/: worktree.ts and lib/engine/pr/ import this module.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';

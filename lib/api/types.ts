@@ -38,7 +38,7 @@ export interface JobIssue {
   url: string | null;
 }
 
-/** GitHub check rollup: summarizeChecks in lib/engine/pr/lifecycle.ts. */
+/** GitHub check rollup: summarizeChecks in lib/integrations/github/pull-requests.ts. */
 export interface PrChecks {
   state: 'passing' | 'failing' | 'pending' | 'none';
   passing: number;
@@ -46,7 +46,7 @@ export interface PrChecks {
   pending: number;
 }
 
-/** Commits humans pushed after Forge: measureOnMerge in lib/engine/pr/lifecycle.ts (shape from lib/engine/pr/delta.ts). */
+/** Commits humans pushed after Forge: measureOnMerge in lib/engine/pr/sync.ts (shape from lib/engine/pr/delta.ts). */
 export interface HumanDelta {
   status: 'measured' | 'rewritten' | 'unavailable';
   reason?: string;
@@ -94,7 +94,7 @@ export interface JobScore {
   reason?: 'budget exceeded' | 'repo budget' | 'no score.md' | 'malformed score.md';
 }
 
-/** A job's pull request: findPr, openPr and syncPr in lib/engine/pr/lifecycle.ts; sync-only fields are optional. */
+/** A job's pull request: findPr, openPr and syncPr in lib/engine/pr/{adopt,open,sync}.ts; sync-only fields are optional. */
 export interface JobPr {
   number: number;
   url: string;

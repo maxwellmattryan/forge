@@ -1,6 +1,6 @@
 // This repo's `owner/repo`, read offline: lib/core/job/issue-ref.ts needs it to tell this repo's issues from
 // foreign ones on every job read and link, so it must never wait on `gh` or the network.
-// lib/engine/pr/lifecycle.ts keeps its gh-backed repoSlug for the operations that call gh anyway.
+// The gh-backed repoSlug, for the operations that call gh anyway, lives in lib/integrations/github/pull-requests.ts.
 import { git } from './runner.ts';
 import type { Config } from '#core/types.ts';
 

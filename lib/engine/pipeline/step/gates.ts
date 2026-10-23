@@ -92,7 +92,7 @@ export function prReviewTell(x: StepInput): string {
   const j = x.job;
   const lines = [`${j.id} PR ${safe(j.pr?.url, SAFE_URL, `#${Number(j.pr?.number) || '?'}`)} waits on review`];
   if (prLinkNote(j, x.config).unlinked) lines.push(`${j.id} has no linked issue: \`forge job link ${j.id} <ref>\` or \`--none\``);
-  // The reason's check names passed lib/engine/pr/lifecycle.ts CHECK_NAME; this pattern holds it to that class again.
+  // The reason's check names passed CHECK_NAME in lib/integrations/github/pull-requests.ts; this pattern holds it to that class again.
   if (j.reason?.startsWith('CI rework cap:'))
     lines.push(`${j.id}: ${safe(j.reason, CI_CAP_REASON, 'CI rework cap reached')}. /forge rework ${j.id} <note> once a human has looked`);
   return lines.join('\n');

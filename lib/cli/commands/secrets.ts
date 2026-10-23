@@ -1,9 +1,9 @@
 // `forge secrets scan`: what the secret scanner (lib/engine/guard/secrets.ts) finds in a job's branch and PR
-// text, or in the main checkout's tracked files. This module, not lib/engine/guard/secrets.ts, imports lib/engine/pr/lifecycle.ts:
-// pr.ts imports the scanner.
+// text, or in the main checkout's tracked files. This module, not lib/engine/guard/secrets.ts, imports lib/engine/pr/body.ts:
+// the guard modules sit below lib/engine/pr/.
 import { loadJob } from '#core/job/store.ts';
 import { exists } from '#core/paths.ts';
-import { prText } from '#engine/pr/lifecycle.ts';
+import { prText } from '#engine/pr/body.ts';
 import { applyAllowlist, findingLine, scanBranch, scanPaths, scanUnits, textUnit } from '#engine/guard/secrets.ts';
 import { knownValues } from '#engine/guard/known-secrets.ts';
 import { checkSecret } from '#engine/guard/secret-refs.ts';

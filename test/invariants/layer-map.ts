@@ -47,9 +47,8 @@ export const ALLOWED_EDGES: string[] = [
   'engine/pipeline/step/gates.ts → office/foreman.ts', // engine reaches office: the Foreman's round ceilings
   'engine/pipeline/step/stages/build.ts → office/foreman.ts', // engine reaches office: the Foreman's round ceilings
   'engine/pipeline/step/stages/decide.ts → office/foreman.ts', // engine reaches office: the Foreman's round ceilings
-  'engine/pr/lifecycle.ts → office/foreman.ts', // engine reaches office: the Foreman's gate classes
-  'engine/pr/lifecycle.ts → office/notify.ts', // engine reaches office: notify transport
+  'engine/pr/open.ts → office/notify.ts', // engine reaches office: notify transport
+  'engine/pr/sync.ts → office/foreman.ts', // engine reaches office: the Foreman's gate classes
   'engine/release/approval.ts → office/foreman.ts', // engine reaches office: the Foreman's gate classes
   'integrations/github/tracker.ts → engine/guard/attribution.ts', // integrations reach engine: tracker security wrappers
-  'integrations/github/tracker.ts → engine/pr/lifecycle.ts', // integrations reach engine: repoSlug
 ];

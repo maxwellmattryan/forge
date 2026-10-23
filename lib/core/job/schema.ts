@@ -445,7 +445,7 @@ function cleanRepoPr(raw: unknown): JobRepoPr | null {
   return { ...(out as unknown as JobRepoPr), url: isHttpsUrl(pr.url) ? pr.url : null };
 }
 
-/** What openMemberPr and syncMemberPrs record (lib/engine/pr/lifecycle.ts). */
+/** What openMemberPr and syncMemberPrs record (lib/engine/pr/members.ts). */
 const REPO_PR_KEYS = ['number', 'url', 'state', 'isDraft', 'openedAt', 'lastSyncedAt', 'pushedSha', 'headOid', 'mergeable', 'mergeState', 'checks', 'mergedAt'] as const;
 
 /**
