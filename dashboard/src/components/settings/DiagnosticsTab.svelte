@@ -1,4 +1,5 @@
-<!-- Settings › Diagnostics: forge doctor's checks through GET /api/doctor, a plain-text report to copy, and the redacted support bundle (GET /api/doctor/bundle). -->
+<!-- Settings › Diagnostics: forge doctor's checks through GET /api/doctor, a plain-text report to copy, and the redacted
+     support bundle (GET /api/doctor/bundle). -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import Banner from '../Banner.svelte';

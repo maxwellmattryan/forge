@@ -25,7 +25,7 @@
 | tokens, API-equivalent cost (by role, by model), usage coverage | spend, and how trustworthy the spend numbers are |
 | per-lens change rate | lenses that never find anything are candidates to narrow or drop |
 | **per-lens dispute rate** | share of the lens's answered findings the builder disputed (`→ disagree:` in build.md's `Findings addressed`, over fixed plus disputed): a reviewer-precision signal. A lens builders often dispute may need a sharper checklist |
-| **recurring findings** | (lens, path) pairs the same lens raised in two consecutive review rounds of one job, ignoring line numbers and severity: oscillation, where a fix didn't hold or the reviewer keeps moving the goalposts |
+| **recurring findings** | (lens, path) pairs the same lens raised in two consecutive review rounds of one job, ignoring line numbers and severity: oscillation, where a fix didn't hold or the reviewer keeps moving the goalposts. Across jobs, `forge retro prepare` groups findings by finding key (§3) |
 | **per-lens miss rate** | `reviewers.<lens>.missRate`: of the merged jobs a lens reviewed whose escape status is known (a measured human delta or a final outcome), the share with an escape it covered. A revert or a follow-up bug counts against every lens that reviewed the job; a human-delta file counts against a lens only when today's panel entry covers it (`always`, its `paths`, or unless `pathsOnly` the path tokens of its `when`). A lens no longer on the panel, or a member repo's lens, covers nothing |
 | **per-lens blocker/major share** | `reviewers.<lens>.blockerMajorShare`: blocker and major findings over all of the lens's findings, with `blockers` and a weekly `severityTrend` (UTC Monday of each job's creation, the last 12 weeks with findings). Archive records written before severities were counted are left out of it |
 
@@ -93,11 +93,12 @@ Both files must be regular files of at most 256 KiB. An unknown key, a bad slug 
 
 With `foreman.enabled`, `forge sync` (which `forge dash` runs every two minutes) queues one `retro` request for the inbox once `forge retro due` says a retro is due, unless a retro request is pending or in progress or a retro job is still open. With the foreman off, the orchestrator tells the human once. Either way a retro job's spec gate stays with a human: no gate request reaches the office, and `--actor foreman` is refused there.
 
-The retro agent reads the metrics (per-lens dispute, miss and blocker/major rates and recurring findings among them), a digest of human interventions, the human delta after Forge's last push and each job's recurring findings as oscillation signals, and from `forge retro prepare`'s `signals.md`: `## Experiment verdicts` (a dry run of `forge experiment evaluate`), `## Per-lens recall`, and `## Learnings past review-by`. It then:
+The retro agent reads the metrics (per-lens dispute, miss and blocker/major rates and recurring findings among them), a digest of human interventions, the human delta after Forge's last push and each job's recurring findings as oscillation signals, and from `forge retro prepare`'s `signals.md`: `## Experiment verdicts` (a dry run of `forge experiment evaluate`), `## Per-lens recall`, `## Recurring findings across jobs` (findings that share a **finding key**, the lens and the first four words of the title, in 2 or more jobs, with counts, job ids and one example) and `## Learnings past review-by`. It then:
 1. proposes reverting changes whose experiment was `reverted`
 2. retires expired learnings and addenda whose experiment did not keep
 3. finds patterns (not anecdotes) across jobs
-4. proposes at most five small edits to `.forge/notes/learnings.md`, role addenda, reviewer checklists or config, each with evidence, a target metric and a baseline
+4. turns each mechanical recurring finding into a check (an invariant test, lint rule or `mode: warn` verifier) instead of a learning, and deletes the learnings it enforces
+5. proposes at most five small edits to `.forge/notes/learnings.md`, role addenda, reviewer checklists, verifiers, config or the checks of step 4, each with evidence, a target metric and a baseline
 
 Its proposals become a normal Forge job that always waits for spec approval and ships as a PR. The job's first task is `forge experiment evaluate <job>`, committed, and new changes are logged in `.forge/notes/experiments.md` as open entries. Generic lessons are flagged as candidates for upstreaming into the plugin.
 
