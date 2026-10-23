@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `$SHELL -lc <cmd>` (`/bin/sh` whe
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 29            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 30            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -25,6 +25,12 @@ worktrees:                   # one git worktree per job: where it lives, what it
   root: ../{repo}.worktrees  # outside the repo on purpose (bundlers, watchers, cargo workspaces)
   copy: []                   # untracked files/dirs copied from the main checkout, e.g. [CLAUDE.md, .env, "packages/*/CLAUDE.md"]
   setup: []                  # commands run once in a new worktree, e.g. ["yarn install --frozen-lockfile"]
+  seed:                      # warm worktrees: clone untracked paths from a private seed instead of running setup
+                             # (docs/CONFIG.md › Worktree seed); off while paths is empty
+    paths: []                # untracked paths a new worktree clones from the seed instead of building, e.g. [node_modules]
+    key: []                  # files whose contents decide whether the seed fits, e.g. [package-lock.json]
+    setup: []                # commands run instead of worktrees.setup when the seed was cloned, e.g. ["npm ls"]
+    warm: []                 # commands run in a fresh base worktree before it refreshes the seed, e.g. ["npm run typecheck"]
   cleanup: on-merge          # on-merge | manual
   cargo:                     # Rust repos: where job worktrees build
     sharedTarget: false      # one Cargo target dir for every job worktree

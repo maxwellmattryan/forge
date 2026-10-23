@@ -119,6 +119,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // defaults, so no v28 config changes; the bump lets older Forges refuse a config whose experiment
   // thresholds and recall gate they would ignore.
   { id: 'experiments-and-recall', up: (c) => c },
+  // v30 adds worktrees.seed (off while its paths are empty), filled from defaults, so no v29 config
+  // changes; the bump lets older Forges refuse a config whose seed they would ignore.
+  { id: 'worktree-seed', up: (c) => c },
 ];
 
 export const CONFIG_SCHEMA_VERSION = versionOf(CONFIG_STEPS);

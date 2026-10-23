@@ -164,6 +164,8 @@ export interface Config {
     root: string;
     copy: string[];
     setup: string[];
+    /** The worktree seed (lib/engine/workspace/seed.ts): off while `paths` is empty. */
+    seed: { paths: string[]; key: string[]; setup: string[]; warm: string[] };
     cleanup: 'on-merge' | 'manual';
     cargo: { sharedTarget: boolean; targetDir: string | null };
     generated: string[];

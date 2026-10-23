@@ -25,6 +25,9 @@ export function placeholderProblems(c: unknown): string[] {
     ...Object.entries(isMap(cfg.commands) ? cfg.commands : {}).map(([k, v]): [string, unknown] => [`commands.${k}`, v]),
     ...components.flatMap((x) => Object.entries(isMap(x.commands) ? x.commands : {}).map(([k, v]): [string, unknown] => [`components "${x.name}".commands.${k}`, v])),
     ...(Array.isArray(cfg.worktrees?.setup) ? cfg.worktrees.setup.map((v: unknown, i: number): [string, unknown] => [`worktrees.setup[${i}]`, v]) : []),
+    ...(['setup', 'warm'] as const).flatMap((k) =>
+      Array.isArray(cfg.worktrees?.seed?.[k]) ? cfg.worktrees.seed[k].map((v: unknown, i: number): [string, unknown] => [`worktrees.seed.${k}[${i}]`, v]) : [],
+    ),
   ];
   for (const [at, template] of templates) {
     if (typeof template !== 'string') continue;

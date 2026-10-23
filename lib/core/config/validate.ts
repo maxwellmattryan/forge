@@ -158,6 +158,7 @@ export function validateConfig(c: unknown, root: string): string[] {
   if (!Array.isArray(e2ePaths) || e2ePaths.some((p: any) => typeof p !== 'string' || !p.trim()))
     problems.push(`verifyE2e.paths must be a list of non-empty strings (got ${JSON.stringify(e2ePaths)})`);
   problems.push(...generatedProblems(c));
+  problems.push(...worktreeSeedProblems(c));
   problems.push(...verifyProblems(c));
   problems.push(...effortProblems(c));
   problems.push(...modelProblems(c));
@@ -306,6 +307,54 @@ export function pathsOnlyProblems(r: { name?: unknown; pathsOnly?: unknown; path
   if (typeof r.pathsOnly !== 'boolean') return [`${key} must be true or false (got ${JSON.stringify(r.pathsOnly)})`];
   const hasPaths = Array.isArray(r.paths) && r.paths.some((p) => typeof p === 'string' && p.trim());
   return r.pathsOnly && !hasPaths ? [`${key} needs non-empty paths: a pathsOnly lens with none would never run`] : [];
+}
+
+/**
+ * Why `p` can't be a `worktrees.seed.paths` or `.key` entry, or null. Each becomes a `cp` argument
+ * and a path Forge deletes, so it must stay a plain relative path inside the worktree: never an
+ * option, a glob, `..` or the worktree's `.git`. seed.ts checks again before it touches a path.
+ */
+export function seedPathProblem(p: unknown, at: string): string | null {
+  const shown = JSON.stringify(p)?.slice(0, 80);
+  if (typeof p !== 'string' || !p || p.length > 200) return `${at} must be a non-empty path of at most 200 characters (got ${shown})`;
+  if (/^[/-]|[\\*?[]|[\x00-\x1f\x7f]/.test(p)) return `${at} must be a relative path with no leading / or -, and no \\, glob characters or control characters (got ${shown})`;
+  const segs = p.split('/');
+  if (segs.some((s) => s === '' || s === '.' || s === '..')) return `${at} must have no empty, . or .. segment (got ${shown})`;
+  if (segs[0].toLowerCase() === '.git') return `${at} must not be inside .git (got ${shown})`;
+  return null;
+}
+
+/** worktrees.seed: a map of relative-path lists (no duplicates, no nested paths) and command lists, with key files whenever paths are set. */
+function worktreeSeedProblems(c: unknown): string[] {
+  const cfg: Record<string, any> = isMap(c) ? c : {};
+  const s = cfg.worktrees?.seed;
+  if (s === undefined) return [];
+  if (!isMap(s)) return [`worktrees.seed must be a map (got ${show(s)})`];
+  const problems: string[] = [];
+  const pathList = (k: 'paths' | 'key'): string[] => {
+    const v = s[k];
+    if (!Array.isArray(v)) {
+      problems.push(`worktrees.seed.${k} must be a list of relative paths (got ${show(v)})`);
+      return [];
+    }
+    const ok: string[] = [];
+    v.forEach((p: unknown, i: number) => {
+      const bad = seedPathProblem(p, `worktrees.seed.${k}[${i}]`);
+      if (bad) problems.push(bad);
+      else if (ok.includes(p as string)) problems.push(`worktrees.seed.${k} lists ${JSON.stringify(p)} more than once`);
+      else ok.push(p as string);
+    });
+    return ok;
+  };
+  const paths = pathList('paths');
+  const key = pathList('key');
+  for (const a of paths) for (const b of paths) if (b.startsWith(`${a}/`)) problems.push(`worktrees.seed.paths entry ${JSON.stringify(b)} sits inside ${JSON.stringify(a)}`);
+  for (const k of ['setup', 'warm'] as const) {
+    const v = s[k];
+    if (!Array.isArray(v) || v.some((x: unknown) => typeof x !== 'string' || !x.trim())) problems.push(`worktrees.seed.${k} must be a list of non-empty commands (got ${show(v)})`);
+  }
+  if (Array.isArray(s.paths) && s.paths.length && Array.isArray(s.key) && !s.key.length) problems.push('worktrees.seed.key must name at least one file when worktrees.seed.paths is set');
+  return problems;
 }
 
 /** `worktrees.generated` and `generatedBy`: each glob usable, and a configured command to rebuild them. */
