@@ -72,6 +72,35 @@ export function secretsCheck(root: string, config: Config, opts: ResolveOptions 
 }
 
 /**
+ * One path segment as copyUntracked's glob (globFiles in lib/engine/workspace/worktree.ts) reads it:
+ * `*` and `?` never cross a `/`. Duplicated rather than imported, which would load the whole worktree module.
+ */
+function segmentGlob(segment: string): RegExp {
+  return new RegExp('^' + segment.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]') + '$');
+}
+
+/**
+ * The `worktrees.copy` warning, when an entry can copy a `.env*` file into every worktree: its last
+ * path segment (trailing `/` removed) starts with `.env`, or is a glob that matches `.env`. Null
+ * when no entry can.
+ */
+export function envCopyCheck(config: Pick<Config, 'worktrees'>): DoctorCheck | null {
+  const entries: unknown[] = Array.isArray(config?.worktrees?.copy) ? config.worktrees.copy : [];
+  const hits = entries.filter((e): e is string => {
+    if (typeof e !== 'string') return false;
+    const last = e.replace(/\/+$/, '').split('/').at(-1) ?? '';
+    return last.startsWith('.env') || (/[*?]/.test(last) && segmentGlob(last).test('.env'));
+  });
+  if (!hits.length) return null;
+  return {
+    name: 'worktrees.copy',
+    ok: true,
+    warn: true,
+    detail: `${hits.join(', ')} can copy .env files into every worktree, where every configured command reads them; declare the values under secrets and pass them through a config sink instead`,
+  };
+}
+
+/**
  * The `dashboard built` check: a plugin checkout off `main` (develop, a clone) has no dashboard/dist/
  * until it is built. Always ok, so a source checkout never fails doctor; a warning until it is built.
  */
@@ -131,6 +160,8 @@ export async function doctor(root: string, config: Config, initialized: boolean,
     if (docker) checks.push(docker);
     const secrets = secretsCheck(root, config);
     if (secrets) checks.push(secrets);
+    const envCopy = envCopyCheck(config);
+    if (envCopy) checks.push(envCopy);
   }
   const keys = apiKeyVars(process.env);
   if (initialized && config.daemon.enabled && keys.length) {

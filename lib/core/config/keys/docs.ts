@@ -34,7 +34,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
 
   worktrees: { doc: 'one git worktree per job: where it lives, what it gets and when it goes' },
   'worktrees.root': { doc: 'outside the repo on purpose (bundlers, watchers, cargo workspaces)' },
-  'worktrees.copy': { doc: 'untracked files/dirs copied from the main checkout, e.g. [CLAUDE.md, .env, "packages/*/CLAUDE.md"]' },
+  'worktrees.copy': { doc: 'untracked files/dirs copied from the main checkout, e.g. [CLAUDE.md, "packages/*/CLAUDE.md"]' },
   'worktrees.setup': { doc: 'commands run once in a new worktree, e.g. ["yarn install --frozen-lockfile"]' },
   'worktrees.seed': { doc: 'warm worktrees: clone untracked paths from a private seed instead of running setup\n(docs/CONFIG.md › Worktree seed); off while paths is empty' },
   'worktrees.seed.paths': { doc: 'untracked paths a new worktree clones from the seed instead of building, e.g. [node_modules]' },
