@@ -758,7 +758,7 @@ const PUBLISH_TTY_REFUSAL = 'forge job interim publish --confirm needs a human a
 /**
  * `forge job interim publish`: the only path in Forge that publishes anything. Refused in a daemon
  * session, with `confirm` when stdin is not a terminal, for a repo that is not the dependency of an
- * npm-only canary edge, for a HEAD that is not the one the latest passing verify recorded or not on
+ * npm-only canary edge, for a HEAD that this round's last verify run did not pass on (verifiedSha) or not on
  * the job branch, for a package that carries npm or yarn config, and for a secret in the commits or
  * in the exported files under `verifySecrets: block`. Without `confirm` it only says what it would
  * publish.
