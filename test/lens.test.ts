@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isLens, lensFromReviewFile, lensRepoAllowed, reviewFileName, splitLens } from '../lib/core/job/lens.ts';
+import { isLens, lensFromReviewFile, lensRepoAllowed, reviewFileName, splitLens } from '#core/job/lens.ts';
 
 test('qualified lens names and review file names', () => {
   assert.equal(reviewFileName('lib.v2:realtime'), 'lib.v2.realtime.md');

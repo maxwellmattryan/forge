@@ -4,8 +4,8 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { tempRepo } from './helpers.ts';
-import { createPreviewer, excerpt, foldPreview, ghArgs, parseGitHubUrl, targetKey, toResponse } from '../lib/integrations/github/preview.ts';
-import type { GhResult, GhRunner, GitHubTarget } from '../lib/integrations/github/preview.ts';
+import { createPreviewer, excerpt, foldPreview, ghArgs, parseGitHubUrl, targetKey, toResponse } from '#integrations/github/preview.ts';
+import type { GhResult, GhRunner, GitHubTarget } from '#integrations/github/preview.ts';
 import { startServer } from '../lib/server/start.ts';
 import { FIXTURE_DIST } from './dist.ts';
 

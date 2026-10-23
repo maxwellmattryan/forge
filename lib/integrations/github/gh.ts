@@ -2,9 +2,9 @@
 // network, an auth prompt) can't block `pr sync` or a tracker call forever, and JSON it prints is
 // parsed in one place.
 import { execFile } from 'node:child_process';
-import { ForgeError } from '../../core/errors.ts';
-import { run, timedOutMessage } from '../../core/os/process.ts';
-import type { RunResult } from '../../core/os/process.ts';
+import { ForgeError } from '#core/errors.ts';
+import { run, timedOutMessage } from '#core/os/process.ts';
+import type { RunResult } from '#core/os/process.ts';
 
 /** The default: `pr create` and `project item-list --limit 1000` can take several seconds. */
 export const GH_TIMEOUT_MS = 60_000;

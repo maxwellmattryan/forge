@@ -1,8 +1,8 @@
 // The one definition of an autonomous job: Forge 1.0's test is a weekend unattended run with no
 // human fixes, and this judges each merged job against it once its outcome is final. Stats and
 // the retro read it from here, so the rule can't drift between them.
-import { isForemanActor } from '../../core/job/store.ts';
-import type { Job, JobEvent } from '../../core/types.ts';
+import { isForemanActor } from '#core/job/store.ts';
+import type { Job, JobEvent } from '#core/types.ts';
 
 /** Why a merged job was not autonomous, in the order judgeAutonomy checks them. */
 export const AUTONOMY_REASONS = ['person-rework', 'person-revise', 'person-decision', 'escalation-person', 'pr-feedback', 'human-delta', 'reverted', 'follow-up'] as const;

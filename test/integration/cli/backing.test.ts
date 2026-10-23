@@ -7,11 +7,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import * as b from '../../../lib/engine/environment/backing.ts';
-import type { DockerRunner } from '../../../lib/engine/environment/backing.ts';
-import { TRUST_ENV, loadConfig, trustDigest } from '../../../lib/core/config/load.ts';
-import { createJob, loadJob } from '../../../lib/core/job/store.ts';
-import { createWorktree } from '../../../lib/engine/workspace/worktree.ts';
+import * as b from '#engine/environment/backing.ts';
+import type { DockerRunner } from '#engine/environment/backing.ts';
+import { TRUST_ENV, loadConfig, trustDigest } from '#core/config/load.ts';
+import { createJob, loadJob } from '#core/job/store.ts';
+import { createWorktree } from '#engine/workspace/worktree.ts';
 import { emptyState, handle } from '../../fixtures/fake-docker.mjs';
 import { forgeAsync, forgeSync, repoTemplate, waitFor } from '../../helpers.ts';
 

@@ -1,7 +1,7 @@
 // The human delta: what people changed on a PR branch after Forge's last push. It is the
 // escape rate that review threads only approximate, and the retro's strongest signal.
-import { git } from '../../integrations/git/runner.ts';
-import type { HumanDelta } from '../../core/types.ts';
+import { git } from '#integrations/git/runner.ts';
+import type { HumanDelta } from '#core/types.ts';
 
 const MAX_FILES = 100;
 // Shas reach git as arguments, and the head comes from GitHub: anything else could read as an option.

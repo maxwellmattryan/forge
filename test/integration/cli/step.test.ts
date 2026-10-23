@@ -8,13 +8,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, forgeSync, repoTemplate } from '../../helpers.ts';
-import { FOREMAN_ACTOR } from '../../../lib/integrations/github/actor.ts';
-import { budgetCmd } from '../../../lib/engine/metrics/budget.ts';
-import { defaults } from '../../../lib/core/config/load.ts';
-import { createJob, jobDir, loadJob, logEvent, logHumanEvent, readEvents, setJob } from '../../../lib/core/job/store.ts';
-import { JOB_SCHEMA_VERSION } from '../../../lib/core/job/schema.ts';
-import { loadStepInput, step } from '../../../lib/engine/pipeline/step.ts';
-import type { EventActor, JobChange, StepAction } from '../../../lib/core/types.ts';
+import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
+import { budgetCmd } from '#engine/metrics/budget.ts';
+import { defaults } from '#core/config/load.ts';
+import { createJob, jobDir, loadJob, logEvent, logHumanEvent, readEvents, setJob } from '#core/job/store.ts';
+import { JOB_SCHEMA_VERSION } from '#core/job/schema.ts';
+import { loadStepInput, step } from '#engine/pipeline/step.ts';
+import type { EventActor, JobChange, StepAction } from '#core/types.ts';
 
 /** One template per tracker kind: `local` is the default `forge init` writes, `none` skips issue links. */
 function initTemplate(tracker: 'local' | 'none') {

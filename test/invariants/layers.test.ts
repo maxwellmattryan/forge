@@ -1,19 +1,47 @@
 // lib/ keeps its layers: every file has one lib layer, imports point down the order in
 // test/invariants/layer-map.ts (docs/design/lib-layout.md) except the shrinking ALLOWED_EDGES, `api`
 // imports nothing outside `api`, no runtime import cycle exists, and only the CLI reaches
-// lib/cli/commands/. No public function exposes the module graph, so this reads the import declarations
-// of lib/ sources (docs/TESTING.md › Allowed source-text tests, entry 10).
+// lib/cli/commands/, and imports across layers (from lib/, test/ and dashboard/src/) go through the
+// package.json "imports" aliases. No public function exposes the module graph, so this reads the import
+// declarations of lib/, test/ and dashboard/src/ sources, package.json "imports" and the tsconfigs' `paths`
+// (docs/TESTING.md › Allowed source-text tests, entry 10).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
-import { ALLOWED_EDGES, FLAT_LAYERS, LAYERS } from './layer-map.ts';
+import { ALLOWED_EDGES, FLAT_LAYERS, LAYERS, UNALIASED } from './layer-map.ts';
 import type { Layer } from './layer-map.ts';
 
-const LIB = path.resolve(import.meta.dirname, '..', '..', 'lib');
+const ROOT = path.resolve(import.meta.dirname, '..', '..');
+const LIB = path.join(ROOT, 'lib');
+const readJson = (file: string): any => JSON.parse(fs.readFileSync(path.join(ROOT, file), 'utf8'));
 
 interface Edge { target: string; typeOnly: boolean; dynamic: boolean }
+interface Spec { spec: string; typeOnly: boolean; dynamic: boolean }
+
+/** An alias prefix and the lib-relative folder it names: `#core/` → `core/`. */
+type Aliases = Map<string, string>;
+
+/** package.json `imports` as a prefix table; only `#<name>/*` → `./lib/<folder>/*` entries count. */
+function aliasesFrom(pkg: { imports?: Record<string, unknown> }): Aliases {
+  const table: Aliases = new Map();
+  for (const [key, target] of Object.entries(pkg.imports ?? {})) {
+    const from = /^(#[\w-]+\/)\*$/.exec(key)?.[1];
+    const to = typeof target === 'string' ? /^\.\/lib\/([\w-]+\/)\*$/.exec(target)?.[1] : undefined;
+    if (from && to) table.set(from, to);
+  }
+  return table;
+}
+const ALIASES = aliasesFrom(readJson('package.json'));
+
+/** The lib-relative target an aliased specifier names, or null when no alias prefix matches. */
+function unalias(spec: string, aliases: Aliases): string | null {
+  for (const [prefix, folder] of aliases) {
+    if (spec.startsWith(prefix)) return path.posix.normalize(folder + spec.slice(prefix.length));
+  }
+  return null;
+}
 
 /** Every module specifier `text` names, as Node loads them: imports, re-exports, side effects, `import()`. */
 function walk(file: string, text: string, add: (spec: string, typeOnly: boolean, dynamic: boolean) => void): void {
@@ -32,23 +60,35 @@ function walk(file: string, text: string, add: (spec: string, typeOnly: boolean,
   visit(source);
 }
 
-/** The lib/ files `file` (a path relative to lib/) imports, as Node loads them. */
-function importsOf(file: string, text: string): Edge[] {
+function specsOf(file: string, text: string): Spec[] {
+  const found: Spec[] = [];
+  walk(file, text, (spec, typeOnly, dynamic) => found.push({ spec, typeOnly, dynamic }));
+  return found;
+}
+
+const isExternal = (spec: string): boolean => !spec.startsWith('.') && !spec.startsWith('#');
+
+/** The lib/ files `file` (a path relative to lib/) reaches through `specs`, relative or aliased. */
+function edgesFrom(file: string, specs: Spec[], aliases: Aliases): Edge[] {
   const edges: Edge[] = [];
-  walk(file, text, (spec, typeOnly, dynamic) => {
-    if (!spec.startsWith('.')) return;
-    const target = path.posix.normalize(path.posix.join(path.posix.dirname(file), spec));
-    if (target.startsWith('../') || target === '..') return;
+  for (const { spec, typeOnly, dynamic } of specs) {
+    // An unknown `#` prefix is left to aliasProblems, which names it.
+    const target = spec.startsWith('.') ? path.posix.normalize(path.posix.join(path.posix.dirname(file), spec))
+      : spec.startsWith('#') ? unalias(spec, aliases) : null;
+    if (target === null || target.startsWith('../') || target === '..') continue;
     edges.push({ target, typeOnly, dynamic });
-  });
+  }
   return edges;
 }
 
-/** The non-relative specifiers `file` imports (Node built-ins, packages), type-only and dynamic included. */
+/** The lib/ files `file` (a path relative to lib/) imports, as Node loads them. */
+function importsOf(file: string, text: string, aliases: Aliases = ALIASES): Edge[] {
+  return edgesFrom(file, specsOf(file, text), aliases);
+}
+
+/** The specifiers `file` imports that are neither relative nor aliases (Node built-ins, packages). */
 function externalsOf(file: string, text: string): string[] {
-  const found: string[] = [];
-  walk(file, text, (spec) => { if (!spec.startsWith('.')) found.push(spec); });
-  return found;
+  return specsOf(file, text).filter((s) => isExternal(s.spec)).map((s) => s.spec);
 }
 
 /** Strongly connected components of more than one node, plus self-loops; each one sorted. */
@@ -159,21 +199,70 @@ function layerProblems(files: string[], edges: [string, string][], flat: Flat, a
   return problems;
 }
 
-let scanned: { edges: Map<string, Edge[]>; externals: Map<string, string[]> } | undefined;
-function scan(): { edges: Map<string, Edge[]>; externals: Map<string, string[]> } {
+/**
+ * Specifiers that break the alias rules, as `${file} → ${spec}: …` with `file` repo-relative: a relative
+ * import that crosses into an aliased lib/<layer>/ folder, an alias into the importer's own layer, and a
+ * `#` prefix that is no alias. Files outside lib/ have no layer, so all their imports into aliased layers
+ * cross.
+ */
+function aliasProblems(pairs: [file: string, spec: string][], aliases: Aliases): string[] {
+  const keyOf = new Map([...aliases].map(([prefix, folder]) => [folder, prefix]));
+  const known = [...aliases.keys()].join(', ');
+  const problems: string[] = [];
+  for (const [file, spec] of pairs) {
+    const own = file.startsWith('lib/') ? layerOf(file.slice('lib/'.length), FLAT_LAYERS) : null;
+    if (spec.startsWith('#')) {
+      const target = unalias(spec, aliases);
+      if (target === null) problems.push(`${file} → ${spec}: no such alias (the aliases are ${known})`);
+      else if (pathLayer(target) === own) problems.push(`${file} → ${spec}: same layer: use a relative import`);
+    } else if (spec.startsWith('.')) {
+      const target = path.posix.normalize(path.posix.join(path.posix.dirname(file), spec));
+      if (!target.startsWith('lib/')) continue;
+      const rest = target.slice('lib/'.length);
+      const layer = pathLayer(rest);
+      const prefix = layer && keyOf.get(`${layer}/`);
+      if (prefix && layer !== own) problems.push(`${file} → ${spec}: crosses into lib/${layer}/: import ${prefix}${rest.slice(layer.length + 1)}`);
+    }
+  }
+  return problems;
+}
+
+interface Scan { edges: Map<string, Edge[]>; externals: Map<string, string[]>; specs: [string, string][] }
+
+const listFiles = (dir: string, pattern: RegExp): string[] => (fs.readdirSync(dir, { recursive: true }) as string[])
+  .map((f) => f.split(path.sep).join('/'))
+  .filter((f) => pattern.test(f) && !f.split('/').includes('node_modules'))
+  .sort();
+
+let scanned: Scan | undefined;
+function scan(): Scan {
   if (scanned) return scanned;
-  const files = (fs.readdirSync(LIB, { recursive: true }) as string[])
-    .map((f) => f.split(path.sep).join('/'))
-    .filter((f) => /\.(ts|mjs)$/.test(f))
-    .sort();
-  const texts = new Map(files.map((f) => [f, fs.readFileSync(path.join(LIB, f), 'utf8')]));
+  const files = listFiles(LIB, /\.(ts|mjs)$/);
+  const specs = new Map(files.map((f) => [f, specsOf(f, fs.readFileSync(path.join(LIB, f), 'utf8'))]));
   scanned = {
-    edges: new Map(files.map((f) => [f, importsOf(f, texts.get(f)!)])),
-    externals: new Map(files.map((f) => [f, externalsOf(f, texts.get(f)!)])),
+    edges: new Map(files.map((f) => [f, edgesFrom(f, specs.get(f)!, ALIASES)])),
+    externals: new Map(files.map((f) => [f, specs.get(f)!.filter((s) => isExternal(s.spec)).map((s) => s.spec)])),
+    specs: files.flatMap((f) => specs.get(f)!.map((s): [string, string] => [`lib/${f}`, s.spec])),
   };
   return scanned;
 }
 const libEdges = (): Map<string, Edge[]> => scan().edges;
+
+/** The text of a Svelte component's `<script>` blocks, which is all of it that imports anything. */
+const scripts = (svelte: string): string => [...svelte.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join('\n');
+
+let outside: [string, string][] | undefined;
+/** Every `[file, specifier]` in test/ and dashboard/src/, with `file` repo-relative. */
+function outsideSpecs(): [string, string][] {
+  if (outside) return outside;
+  const roots: [string, RegExp][] = [['test', /\.(ts|mjs)$/], ['dashboard/src', /\.(ts|svelte)$/]];
+  outside = roots.flatMap(([dir, pattern]) => listFiles(path.join(ROOT, dir), pattern).flatMap((f) => {
+    const file = `${dir}/${f}`;
+    const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    return specsOf(file, file.endsWith('.svelte') ? scripts(text) : text).map((s): [string, string] => [file, s.spec]);
+  }));
+  return outside;
+}
 
 test('every lib/ file has one layer', () => {
   const problems = layerProblems([...libEdges().keys()], [], FLAT_LAYERS, []);
@@ -227,6 +316,52 @@ test('the layer check reads post-move paths and refuses planted violations', () 
   ]);
 });
 
+test('package.json aliases each lib layer below server, and no tsconfig uses paths', () => {
+  const expected = Object.fromEntries(LAYERS.filter((l) => !UNALIASED.includes(l)).map((l) => [`#${l}/*`, `./lib/${l}/*`]));
+  assert.deepEqual(readJson('package.json').imports, expected);
+  for (const file of ['tsconfig.json', 'test/tsconfig.json', 'dashboard/tsconfig.json']) {
+    assert.equal(readJson(file).compilerOptions?.paths, undefined, `${file} sets compilerOptions.paths: use package.json "imports"`);
+  }
+});
+
+test('cross-layer imports go through the aliases', () => {
+  const problems = aliasProblems([...scan().specs, ...outsideSpecs()], ALIASES);
+  assert.deepEqual(problems, [], problems.join('\n'));
+});
+
+test('the alias check refuses planted violations', () => {
+  const aliases = aliasesFrom({ imports: { '#api/*': './lib/api/*', '#core/*': './lib/core/*', '#engine/*': './lib/engine/*', '#odd': './x.ts' } });
+  assert.deepEqual([...aliases], [['#api/', 'api/'], ['#core/', 'core/'], ['#engine/', 'engine/']], 'only #<name>/* → ./lib/<folder>/* entries count');
+  const refused: [string, string][] = [
+    ['lib/engine/x/a.ts', '../../core/b.ts'],
+    ['test/a.test.ts', '../lib/engine/c.ts'],
+    ['dashboard/src/lib/t.ts', '../../../lib/api/types.ts'],
+    ['lib/engine/x/a.ts', '#engine/y.ts'],
+    ['lib/engine/x/a.ts', '#server/start.ts'],
+    ['test/a.test.ts', '#cli/main.ts'],
+    ['test/a.test.ts', '#nope/x.ts'],
+  ];
+  const accepted: [string, string][] = [
+    ['lib/cli/commands/dash.ts', '../../server/start.ts'],
+    ['test/a.test.ts', '../lib/cli/main.ts'],
+    ['test/a.test.ts', '../lib/trackers/status.mjs'],
+    ['lib/trackers/status.ts', '../api/tracker.ts'],
+    ['lib/engine/x/a.ts', '#core/b.ts'],
+    ['lib/engine/x/a.ts', './y.ts'],
+    ['test/a.test.ts', 'node:fs'],
+  ];
+  const none = 'no such alias (the aliases are #api/, #core/, #engine/)';
+  assert.deepEqual(aliasProblems([...refused, ...accepted], aliases), [
+    'lib/engine/x/a.ts → ../../core/b.ts: crosses into lib/core/: import #core/b.ts',
+    'test/a.test.ts → ../lib/engine/c.ts: crosses into lib/engine/: import #engine/c.ts',
+    'dashboard/src/lib/t.ts → ../../../lib/api/types.ts: crosses into lib/api/: import #api/types.ts',
+    'lib/engine/x/a.ts → #engine/y.ts: same layer: use a relative import',
+    `lib/engine/x/a.ts → #server/start.ts: ${none}`,
+    `test/a.test.ts → #cli/main.ts: ${none}`,
+    `test/a.test.ts → #nope/x.ts: ${none}`,
+  ]);
+});
+
 test('lib/ has no runtime import cycles', () => {
   const graph = new Map([...libEdges()].map(([file, edges]) => [file, edges.filter((e) => !e.typeOnly).map((e) => e.target)]));
   const found = cycles(graph);
@@ -254,13 +389,19 @@ test('the import scan reads what Node loads and finds a planted cycle', () => {
     "import fs from 'node:fs';",
     "import ts from 'typescript';",
     "import up from '../../outside.ts';",
+    "import { c } from '#core/x.ts';",
+    "import type { K } from '#integrations/k.ts';",
+    "const late = () => import('#engine/late.ts');",
+    "import n from '#nope/n.ts';",
   ].join('\n');
   const edges = importsOf('sub/file.ts', fixture);
   assert.deepEqual(edges.filter((e) => !e.typeOnly).map((e) => e.target), [
     'sub/default.ts', 'sub/mixed.ts', 'sub/inline-type.ts', 'sub/star.ts', 'sub/named.ts', 'sub/side.ts', 'sub/lazy.ts',
+    'core/x.ts', 'engine/late.ts',
   ]);
-  assert.deepEqual(edges.filter((e) => e.typeOnly).map((e) => e.target), ['sub/type-only.ts', 'sub/type-export.ts']);
-  assert.deepEqual(edges.filter((e) => e.dynamic).map((e) => e.target), ['sub/lazy.ts']);
+  assert.deepEqual(edges.filter((e) => e.typeOnly).map((e) => e.target), ['sub/type-only.ts', 'sub/type-export.ts', 'integrations/k.ts']);
+  assert.deepEqual(edges.filter((e) => e.dynamic).map((e) => e.target), ['sub/lazy.ts', 'engine/late.ts']);
+  assert.deepEqual(importsOf('sub/file.ts', "import x from '#core/x.ts'"), [{ target: 'core/x.ts', typeOnly: false, dynamic: false }]);
   assert.deepEqual(importsOf('file.ts', "import y from '../lib-sibling.ts';"), [], 'targets outside lib/ are dropped');
   assert.deepEqual(externalsOf('sub/file.ts', fixture), ['node:fs', 'typescript']);
 

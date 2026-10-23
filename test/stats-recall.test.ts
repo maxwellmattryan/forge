@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
-import { defaults } from '../lib/core/config/load.ts';
-import { createJob, jobDir, setJob } from '../lib/core/job/store.ts';
-import { prepareRetro } from '../lib/engine/evals/retro.ts';
-import { ARCHIVE_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
-import { computeStats, utcMonday } from '../lib/engine/metrics/stats.ts';
-import type { Config } from '../lib/core/types.ts';
+import { defaults } from '#core/config/load.ts';
+import { createJob, jobDir, setJob } from '#core/job/store.ts';
+import { prepareRetro } from '#engine/evals/retro.ts';
+import { ARCHIVE_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from '#core/job/schema.ts';
+import { computeStats, utcMonday } from '#engine/metrics/stats.ts';
+import type { Config } from '#core/types.ts';
 
 const SHA = 'c'.repeat(40);
 const delta = (files: string[]) => ({ status: 'measured', commits: 1, linesAdded: 3, linesDeleted: 1, lines: 4, fileCount: files.length, files });

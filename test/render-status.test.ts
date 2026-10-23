@@ -5,7 +5,7 @@ import { requests, stats, status } from '../lib/cli/commands/render/status.ts';
 import { statsSections, statsText } from '../lib/cli/commands/status.ts';
 import { HOSTILE, NOW, assertSafe, hasLines, plain } from './render-helpers.ts';
 import type { StatusView } from '../lib/cli/commands/status.ts';
-import type { ForgeRequest, ReviewerStats, Stats } from '../lib/core/types.ts';
+import type { ForgeRequest, ReviewerStats, Stats } from '#core/types.ts';
 
 const row = (o: Partial<StatusView>): StatusView => ({ id: 'j', stage: 'build', state: 'running', waitingOn: null, round: 0, tasks: { done: 0, total: 0 }, pr: null, session: null, reason: null, handoff: null, ...o });
 const ROWS = [

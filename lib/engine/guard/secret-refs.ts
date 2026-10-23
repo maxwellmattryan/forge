@@ -5,13 +5,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { MIN_SECRET } from './known-secrets.ts';
-import { git } from '../../integrations/git/runner.ts';
-import { secretEntryProblems, secretSourceOf } from '../../core/config/validators/secret-refs.ts';
-import type { SecretSourceKind } from '../../core/config/validators/secret-refs.ts';
-import type { Config, SecretSource } from '../../core/types.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { findOnPath, run } from '../../core/os/process.ts';
-import { isInsidePath } from '../../core/os/fs.ts';
+import { git } from '#integrations/git/runner.ts';
+import { secretEntryProblems, secretSourceOf } from '#core/config/validators/secret-refs.ts';
+import type { SecretSourceKind } from '#core/config/validators/secret-refs.ts';
+import type { Config, SecretSource } from '#core/types.ts';
+import { ForgeError } from '#core/errors.ts';
+import { findOnPath, run } from '#core/os/process.ts';
+import { isInsidePath } from '#core/os/fs.ts';
 
 const MAX_FILE = 64 * 1024;
 const TOOL_TIMEOUT_MS = 30_000;

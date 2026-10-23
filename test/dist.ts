@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BUILD_DASHBOARD } from '../lib/core/paths.ts';
+import { BUILD_DASHBOARD } from '#core/paths.ts';
 
 export const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dashboard', 'dist');
 /** A small hand-written dist for the server's serving tests (startServer's distDir seam). */

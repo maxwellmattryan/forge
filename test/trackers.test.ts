@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
-import { loadTracker } from '../lib/engine/trackers/load.ts';
+import { loadTracker } from '#engine/trackers/load.ts';
 import { token } from './secret-fixtures.ts';
-import { defaults } from '../lib/core/config/load.ts';
-import { createJob, setJob } from '../lib/core/job/store.ts';
-import local from '../lib/integrations/backlog/tracker.ts';
-import { statusKey } from '../lib/api/tracker.ts';
-import { statusMap } from '../lib/integrations/github/tracker.ts';
-import { scoreItems, searchTerms } from '../lib/core/job/issue-link.ts';
+import { defaults } from '#core/config/load.ts';
+import { createJob, setJob } from '#core/job/store.ts';
+import local from '#integrations/backlog/tracker.ts';
+import { statusKey } from '#api/tracker.ts';
+import { statusMap } from '#integrations/github/tracker.ts';
+import { scoreItems, searchTerms } from '#core/job/issue-link.ts';
 import { execFileSync } from 'node:child_process';
 
 test('local backlog: create, list, claim, update, close', () => {
@@ -295,8 +295,8 @@ test('mirror and approval comment act on each native issue', async () => {
   const repo = tempRepo();
   try {
     const { commentApproval } = await import('../lib/cli/commands/tracker.ts');
-    const { mirrorToTracker } = await import('../lib/engine/trackers/mirror.ts');
-    const { logEvent, loadJob } = await import('../lib/core/job/store.ts');
+    const { mirrorToTracker } = await import('#engine/trackers/mirror.ts');
+    const { logEvent, loadJob } = await import('#core/job/store.ts');
     const calls: string[] = [];
     (globalThis as any).__issueRefsCalls = calls;
     fs.mkdirSync(path.join(repo.dir, '.forge', 'trackers'), { recursive: true });
@@ -325,7 +325,7 @@ export default { name: 'acme', list: () => [], get: () => null, claim: () => ({ 
     await commentApproval(repo.dir, config, loadJob(repo.dir, a.id));
     await commentApproval(repo.dir, config, loadJob(repo.dir, a.id));
     assert.deepEqual(calls.splice(0), ['comment A-1', 'comment A-2'], 'each native issue, once');
-    const { readEvents } = await import('../lib/core/job/store.ts');
+    const { readEvents } = await import('#core/job/store.ts');
     const ev = readEvents(repo.dir, a.id).filter((e) => e.type === 'tracker-approval-comment') as any[];
     assert.deepEqual(ev.map((e) => [e.refs, e.pr]), [[['A-1', 'A-2'], 7]]);
   } finally {

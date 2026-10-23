@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { checkoutProblems, resolveTarget } from '../lib/core/config/validators/checkout.ts';
-import { defaults, loadConfig } from '../lib/core/config/load.ts';
-import { CONFIG_SCHEMA_VERSION } from '../lib/core/job/schema.ts';
+import { checkoutProblems, resolveTarget } from '#core/config/validators/checkout.ts';
+import { defaults, loadConfig } from '#core/config/load.ts';
+import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
 import { tempRepo } from './helpers.ts';
 
 const base = { commands: { install: 'make install', uninstall: 'make uninstall', gone: null }, components: [{ name: 'ui', path: 'ui', kind: 'app', commands: { deploy: 'x' } }] };

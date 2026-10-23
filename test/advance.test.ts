@@ -6,10 +6,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { claimJob, jobDir, loadJob, readEvents, setJob } from '../lib/core/job/store.ts';
-import { loadConfig } from '../lib/core/config/load.ts';
+import { claimJob, jobDir, loadJob, readEvents, setJob } from '#core/job/store.ts';
+import { loadConfig } from '#core/config/load.ts';
 import { dispatch } from '../lib/cli/main.ts';
-import { listRequests } from '../lib/core/job/requests.ts';
+import { listRequests } from '#core/job/requests.ts';
 import { advance, parkRepeatedFailure, runnableInProcess, summarize } from '../lib/cli/commands/advance.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');

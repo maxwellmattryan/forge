@@ -1,7 +1,7 @@
 // `forge doctor` in human mode: what is broken first, each with its fix under it.
 import { blocks, has, line, marked, paint, section, txt, under } from './kit.ts';
 import type { Paint, Renderer, Seg } from './kit.ts';
-import type { DoctorCheck } from '../../../core/types.ts';
+import type { DoctorCheck } from '#core/types.ts';
 
 function count(n: number, word: string, style: (s: string) => string): Seg[] {
   return [{ text: String(n), style: n ? style : undefined }, { text: ` ${word}${n === 1 ? '' : 's'}` }];

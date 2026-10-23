@@ -6,18 +6,18 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { git, historyEnv } from '../../integrations/git/runner.ts';
-import { LENS_NAME } from '../../core/job/lens.ts';
+import { git, historyEnv } from '#integrations/git/runner.ts';
+import { LENS_NAME } from '#core/job/lens.ts';
 import { METRIC_PATH, ledgerItems, metricValue, noteFiles, noteItems, parseLearnings, validDate } from './learnings.ts';
 import type { LedgerItem } from './learnings.ts';
-import { exists } from '../../core/paths.ts';
+import { exists } from '#core/paths.ts';
 import { resolveBase } from '../pipeline/scope.ts';
-import { PROTO_KEYS } from '../../core/shape.ts';
+import { PROTO_KEYS } from '#core/shape.ts';
 import { statsFrom, statsSources } from '../metrics/stats.ts';
 import type { StatsSource } from '../metrics/stats.ts';
-import type { Config, ExperimentEntry, ExperimentEvaluation, ExperimentResult, Job, NotesCheck, Stats } from '../../core/types.ts';
-import { ForgeError } from '../../core/errors.ts';
-import { safeText } from '../../core/text.ts';
+import type { Config, ExperimentEntry, ExperimentEvaluation, ExperimentResult, Job, NotesCheck, Stats } from '#core/types.ts';
+import { ForgeError } from '#core/errors.ts';
+import { safeText } from '#core/text.ts';
 
 export type Method = 'two-proportion' | 'wilson' | 'bootstrap';
 type Verdict = 'kept' | 'reverted' | 'inconclusive' | 'pending';

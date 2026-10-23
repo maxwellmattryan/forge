@@ -1,9 +1,9 @@
 // Shared pieces of the hand-written human-mode renderers (docs/CLI.md "Output mode").
 // Every string that comes from a result goes through sanitize here, and every line a section holds
 // is indented, so untrusted text can't drive the terminal or forge a column-0 line of Forge's own.
-import { paint, sanitize } from '../../../core/format/ansi.ts';
-import type { Paint, Style } from '../../../core/format/ansi.ts';
-import { isMap } from '../../../core/shape.ts';
+import { paint, sanitize } from '#core/format/ansi.ts';
+import type { Paint, Style } from '#core/format/ansi.ts';
+import { isMap } from '#core/shape.ts';
 import { line, pad } from '../render.ts';
 import type { Seg } from '../render.ts';
 

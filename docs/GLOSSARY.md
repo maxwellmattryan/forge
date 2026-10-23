@@ -83,6 +83,7 @@ Words for Forge's own code, decided in #303 ([design/lib-layout.md](design/lib-l
 | **office** | Forge's long-running runtime, which `forge dash` keeps up: the session pool (the inbox session, per-job sessions and the office session where the Foreman decides gates), the reconciler and notifications; its code lives in `lib/office/`. | - |
 | **integrations** | The code that knows an outside system's API, CLI or file format (git, GitHub, Claude Code, Docker, webhooks, and the built-in backlog that implements the same contract), one folder per system in `lib/integrations/`; it holds mechanism, never pipeline policy. | - |
 | **lib module** | A folder inside a lib layer (`lib/<layer>/<module>/`) that holds one concept's files, such as `lib/core/job/` or `lib/engine/pipeline/`. | - |
+| **layer alias** | A `package.json` subpath import (`#api/`, `#core/`, `#integrations/`, `#engine/`, `#office/`) that names a lib layer; imports across layers use one, imports inside a layer stay relative. | - |
 | **folder map** | A folder's `AGENTS.md`: a few hand-written lines, then the table that `npm run docs:map` generates from each file's header comment. | - |
 
 ## Collisions we avoid

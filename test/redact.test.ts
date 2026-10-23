@@ -3,11 +3,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
-import { defaults } from '../lib/core/config/load.ts';
-import { createJob } from '../lib/core/job/store.ts';
-import { recordKnown } from '../lib/engine/guard/known-secrets.ts';
-import { daemonSkeleton, omitProse, redactContext, redactText } from '../lib/engine/guard/redact.ts';
-import type { RedactContext } from '../lib/engine/guard/redact.ts';
+import { defaults } from '#core/config/load.ts';
+import { createJob } from '#core/job/store.ts';
+import { recordKnown } from '#engine/guard/known-secrets.ts';
+import { daemonSkeleton, omitProse, redactContext, redactText } from '#engine/guard/redact.ts';
+import type { RedactContext } from '#engine/guard/redact.ts';
 import { pem, token } from './secret-fixtures.ts';
 import { tempRepo } from './helpers.ts';
 

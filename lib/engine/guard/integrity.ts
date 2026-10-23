@@ -5,13 +5,13 @@
 // It also reports local link overrides (lib/engine/project/links.ts) that reached a commit.
 import fs from 'node:fs';
 import path from 'node:path';
-import { git as runGit, historyEnv } from '../../integrations/git/runner.ts';
-import { jobDir } from '../../core/job/store.ts';
+import { git as runGit, historyEnv } from '#integrations/git/runner.ts';
+import { jobDir } from '#core/job/store.ts';
 import { linkLeakPaths } from '../project/links.ts';
-import { exists } from '../../core/paths.ts';
+import { exists } from '#core/paths.ts';
 import { approachPaths, approachSection, resolveBase } from '../pipeline/scope.ts';
-import type { Config, Job } from '../../core/types.ts';
-import { ForgeError } from '../../core/errors.ts';
+import type { Config, Job } from '#core/types.ts';
+import { ForgeError } from '#core/errors.ts';
 
 export const DEFAULT_TEST_PATTERN = '(^|/)(tests?|__tests__|spec|specs)/|[._-](test|spec)s?\\.[A-Za-z0-9]+$|_test\\.(go|py|rs)$|(^|/)test_[^/]+\\.py$';
 

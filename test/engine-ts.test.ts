@@ -62,7 +62,7 @@ test('lib/core/types.ts and lib/api/types.ts are type-only', () => {
 
 // Custom tracker adapters may still import the old status paths; both must stay the same functions as lib/api/tracker.ts.
 test('the deprecated tracker status paths re-export lib/api/tracker.ts', async () => {
-  const real = await import('../lib/api/tracker.ts');
+  const real = await import('#api/tracker.ts');
   assert.deepEqual(Object.keys(real).sort(), ['STATUS_KEYS', 'statusKey']);
   for (const shim of [await import('../lib/trackers/status.mjs'), await import('../lib/trackers/status.ts')]) {
     assert.deepEqual(Object.keys(shim).sort(), ['STATUS_KEYS', 'statusKey']);

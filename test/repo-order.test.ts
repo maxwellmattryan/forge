@@ -1,8 +1,8 @@
 // The merge order of a multi-repo job's PRs and its sibling line: pure, no repo or gh needed.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { jobRepoOrder, nextMergeable, siblingLine } from '../lib/engine/project/repo-order.ts';
-import type { RepoKey } from '../lib/engine/project/repo-order.ts';
+import { jobRepoOrder, nextMergeable, siblingLine } from '#engine/project/repo-order.ts';
+import type { RepoKey } from '#engine/project/repo-order.ts';
 
 const repo = (name: string, verifyOnly = false) => ({ repo: name, worktree: null, branch: null, base: 'main', pr: null, verifyOnly });
 const job = (...members: ReturnType<typeof repo>[]) => ({ repos: [{ ...repo('x'), repo: null }, ...members] }) as any;
