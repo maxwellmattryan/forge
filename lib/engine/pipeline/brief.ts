@@ -42,8 +42,10 @@ export function jobPathMap(root: string, config: Config, job: Job): Record<strin
     verifierInput: path.join(dir, 'verify', `round-${job.round}-verifiers-input.md`),
     verifierAnswers: path.join(dir, 'verify', `round-${job.round}-verifier-answers.md`),
     scope: path.join(dir, 'scope.md'),
-    // Only with a reviewed member: single-repo reviewers read `forge git diff` as before.
+    // Only with a reviewed member; every job's reviewers read roundDiff.
     ...(reviewedRepoNames(job).length ? { scopeDiff: path.join(dir, 'scope.diff') } : {}),
+    // `forge job scope` writes it once per round, after verify and before any reviewer starts.
+    roundDiff: path.join(reviewDir(root, job.id, round), 'diff.patch'),
     screenshots: path.join(dir, 'screenshots'),
     reviewDir: reviewDir(root, job.id, round),
     previousReviewDir: round > 1 ? path.join(dir, 'review', `round-${round - 1}`) : null,
@@ -284,7 +286,8 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
       }
       extra.push(...backingLines, ...secretLines);
       // The integration review stays root-only and has its own Diff line below.
-      if (input.paths.scopeDiff && !ctx.integration) extra.push(`Diff: ${p('scopeDiff')} (every job repo; member paths are prefixed <repo>/)`);
+      if (!ctx.integration)
+        extra.push(`Diff: ${p('roundDiff')} ${input.paths.scopeDiff ? '(every job repo; member paths are prefixed <repo>/)' : "(stat, then the branch's diff from its merge base)"}`);
       if (ctx.integration) {
         // JSON, so a conflicted file name can't start a line of its own in the brief.
         extra.push(`Integration review: conflicted files ${JSON.stringify(ctx.integration.conflicts)}`);
