@@ -10,7 +10,15 @@ Forge's public contracts, with no Node imports: the `/api` and SSE shapes, the r
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
 |---|---|
+| `config.ts` | The Settings modal's endpoints: /api/config, /api/doctor and /api/about. |
 | `constants.ts` | The runtime lists the /api shapes in types.ts derive from, plus the daemon scopes the dashboard pins. |
+| `daemon.ts` | The session pool: /api/daemon, /api/daemon/mode, /api/daemon/permission, /api/daemons/log and the /api/events SSE frames. |
+| `enums.ts` | The unions the /api shapes share, each derived from its runtime list in constants.ts; the only type module that imports constants.ts. |
+| `job.ts` | A job as job.json and events.jsonl hold it, as /api/state and /api/jobs/:id serve it. |
+| `jobs.ts` | /api/jobs and /api/jobs/:id/*: the job detail, transcript and files, the job POSTs, and the environment routes with GET /api/environments. |
+| `repo.ts` | What the repo holds outside any job: /api/project, /api/roster, /api/backlog with the tracker item, and /api/github/preview. |
+| `state.ts` | GET /api/state, plus /api/requests, /api/focus and /api/budget/ack, whose replies are slices of it; and the shared JSON error body. |
+| `stats.ts` | GET /api/stats, /api/evals and /api/evals/compare: the Analytics and Evals pages. |
 | `tracker.ts` | The tracker adapter contract: the handful of statuses a job's stage and state collapse to. |
-| `types.ts` | The /api/* and SSE shapes `forge dash` serves, type-only. |
+| `types.ts` | The /api/* and SSE shapes `forge dash` serves, type-only: a barrel over the owner modules mapped in lib/api/AGENTS.md. |
 <!-- forge:map:end -->
