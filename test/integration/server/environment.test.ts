@@ -650,7 +650,8 @@ test('a container log stream left during its status check holds no slot and star
       const req = http.request({ host: '127.0.0.1', port: s.port, path: `/api/jobs/${a}/environment/logs?${query}`, headers: { host: `127.0.0.1:${s.port}` } });
       req.on('error', () => {});
       req.end();
-      await waitFor(() => s.argv().filter((x) => x[0] === 'version').length > i, { what: `status check ${i + 1} started` });
+      // Each check spawns the CLI, which a loaded CI runner can take past waitFor's 10 s default to start.
+      await waitFor(() => s.argv().filter((x) => x[0] === 'version').length > i, { what: `status check ${i + 1} started`, timeoutMs: 30_000 });
       req.destroy();
     }
     // Each check inspects the two managed containers once Docker answers.
