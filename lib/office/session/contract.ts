@@ -1,10 +1,12 @@
 // The session's contract with its pool: the events it reports, the context and options it is built
 // with (sessionOptions fills in the real defaults), the child it supervises and the Session it returns.
+// SessionCore is what createSession's pieces share.
 import { spawn as nodeSpawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import { loadConfig as defaultLoadConfig } from '#core/config/load.ts';
 import { openAppend } from '#core/job/session-files.ts';
+import type { sessionFiles } from '#core/job/session-files.ts';
 import type { SessionFacts } from '../reconcile.ts';
 import { scopeKnownValues } from '#engine/guard/known-secrets.ts';
 import { queueNotify } from '../notify.ts';
@@ -180,6 +182,29 @@ export interface Session {
   recent(afterOffset?: number): { offset: number; line: string }[];
   close(): Promise<void>;
   killSync(): void;
+}
+
+/**
+ * What createSession's pieces (log, owned, control, timers) share: accessors over createSession's own
+ * variables, so each piece reads and writes the session's state where createSession keeps it.
+ */
+export interface SessionCore {
+  readonly root: string;
+  readonly scope: string;
+  readonly ctx: SessionContext;
+  readonly o: SessionOptions;
+  readonly files: ReturnType<typeof sessionFiles>;
+  readonly child: DaemonChild | null;
+  readonly status: DaemonStatus;
+  readonly closed: boolean;
+  readonly lastResultAt: string | null;
+  readonly liveMode: string | null;
+  /** The session record; read and replaced, never mutated (a log rotation advances its logBase). */
+  info: any;
+  persist(): void;
+  changed(): void;
+  logEvent(event: string, extra?: Record<string, unknown>): void;
+  kill(event: string, endStdin: boolean, reason?: string): Promise<void>;
 }
 
 function defaultKillTree(child: DaemonChild, signal: NodeJS.Signals): void {

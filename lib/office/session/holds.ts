@@ -5,7 +5,7 @@ import { configForJob } from '#engine/evals/overlay.ts';
 import { loadJob } from '#core/job/store.ts';
 import { validJobId } from '#core/job/requests.ts';
 import { repoBudgetExempt } from '#engine/metrics/repo-budget.ts';
-import type { Config, RepoBudgetStatus } from '#core/types.ts';
+import type { Config, ForgeRequest, RepoBudgetStatus } from '#core/types.ts';
 
 /** Request types that act on a job a budget stop may have parked. `approve` is the acknowledgement, so it is never held. */
 const HOLD_TYPES: string[] = ['resume', 'rework', 'answer', 'revise-spec'];
@@ -64,7 +64,7 @@ export function heldByBudget(root: string, config: Config, rec: { type: string; 
 }
 
 /** A request is held while the repo budget holds new work and its job is not exempt (retro, or forced past the cap this month). */
-export function heldByRepoBudget(root: string, repo: RepoBudgetStatus | null | undefined, rec: { type: string; job: string | null }): boolean {
+function heldByRepoBudget(root: string, repo: RepoBudgetStatus | null | undefined, rec: { type: string; job: string | null }): boolean {
   if (!repo?.held || !REPO_HOLD_TYPES.includes(rec?.type) || !validJobId(rec.job)) return false;
   let job;
   try {
@@ -73,4 +73,17 @@ export function heldByRepoBudget(root: string, repo: RepoBudgetStatus | null | u
     return false;
   }
   return !repoBudgetExempt(root, job, repo);
+}
+
+/** Which of a tick's pending requests a budget holds: the hold to show, and the ids still eligible. */
+export function routeHolds(root: string, c: Config, pending: ForgeRequest[], repo: RepoBudgetStatus | null | undefined): { held: 'budget' | 'repo-budget' | null; eligible: string[] } {
+  // The repo budget reads first when both hold: it is the one a per-job ack can't clear.
+  let next: 'budget' | 'repo-budget' | null = null;
+  const eligible: string[] = [];
+  for (const r of pending) {
+    if (heldByRepoBudget(root, repo, r)) next = 'repo-budget';
+    else if (heldByBudget(root, c, r)) next ??= 'budget';
+    else eligible.push(r.id);
+  }
+  return { held: next, eligible };
 }

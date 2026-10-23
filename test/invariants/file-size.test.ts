@@ -17,7 +17,6 @@ const ALLOWED: Record<string, number> = {
   'cli/commands/job.ts': 1048,
   'cli/commands/tracker.ts': 612,
   'office/pool.ts': 637,
-  'office/session/lifecycle.ts': 1624,
   'engine/guard/integrity.ts': 832,
   'engine/release/interim-apply.ts': 921,
   'engine/release/interim.ts': 698,

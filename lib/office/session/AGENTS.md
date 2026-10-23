@@ -1,8 +1,9 @@
 # lib/office/session/
 
-One supervised headless Claude Code session (`createSession`), split further in #416.
+One supervised headless Claude Code session (`createSession`) and the pieces it is built from.
 
-- `lifecycle.ts` is pinned in `test/invariants/file-size.test.ts`; #416 splits it into this folder and `lib/integrations/claude/` (docs/design/lib-layout.md).
+- Every line the supervisor writes to claude's stdin is built in `control.ts` from fixed text or a fixed list: the one turn, permission answers and mode switches. Nothing from requests, HTTP or config reaches one (docs/ARCHITECTURE.md "Daemon security").
+- `launch.ts`'s checks run before every spawn, on the one read of `.forge/config.yml` that argv is then built from: never add a second read between the digest and the argv.
 - A session runs with the repo as cwd, so its executable is a bare `claude` or an absolute path, never a relative one (docs/ARCHITECTURE.md "Daemon security").
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
@@ -11,7 +12,10 @@ One supervised headless Claude Code session (`createSession`), split further in 
 | `contract.ts` | The session's contract with its pool: the events it reports, the context and options it is built with (sessionOptions fills in the real defaults), the child it supervises and the Session it returns. |
 | `control.ts` | Every line the supervisor writes to claude's stdin, and the control channel: the one fixed turn, permission answers and mode switches. |
 | `holds.ts` | What keeps a request or a turn waiting: a job parked on its budget, the repo budget, and the quota limits a failed turn reports. |
+| `launch.ts` | The checks every spawn passes before claude starts, on the one read of `.forge/config.yml` that argv is then built from. |
 | `lifecycle.ts` | One supervised headless session. |
 | `log.ts` | A session's log: `<scope>.log` on disk, the replay ring the dashboard reads, and the byte-capped splitting and stamping of the child's output lines. |
+| `owned.ts` | What a session answers for: whether its job's agents keep it, the reconciler's facts, and what its exit lets go (agents lost, lease, claimed requests). |
 | `records.ts` | What a session record (`.forge/runtime/daemons/<scope>.json`) says about its child, and reaping the children a dead `forge dash` left behind. |
+| `timers.ts` | A session's two timers: the turn limit (daemon.turnTimeoutMinutes), which stops a hung turn, and the idle stop (daemon.idleStopMinutes), which stops a child nothing keeps. |
 <!-- forge:map:end -->

@@ -6,32 +6,27 @@
 // describe the rules this file keeps.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import { TRUST_ENV, daemonProblems, defaults, trackerSymlinks, trustDigest } from '#core/config/load.ts';
+import { TRUST_ENV } from '#core/config/load.ts';
 import { UUID, logBaseOf, readInfo, sessionFiles } from '#core/job/session-files.ts';
-import { expireLease, markAgentsLost, requeueOrphanedRequests } from '#core/job/store.ts';
-import type { SessionFacts } from '../reconcile.ts';
-import { redactKnown } from '#engine/guard/known-secrets.ts';
-import { PLUGIN_ROOT, paths } from '#core/paths.ts';
+import { PLUGIN_ROOT } from '#core/paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, validJobId } from '#core/job/requests.ts';
-import { sessionAgents } from '../session-agents.ts';
 import { writeJsonAtomic } from '#core/os/fs.ts';
 import { now } from '#core/utils.ts';
-import { PERMISSION_MODES, apiKeyVars, buildArgv, commandPermissionMode, modeReach, sessionEnv } from '#integrations/claude/argv.ts';
-import type { ChildMeta, DaemonChild, LogSink, Session, SessionContext, SessionOptions } from './contract.ts';
-import { MAX_PROMPTS, PROMPT_INPUT_CHARS, PROMPT_PATH_CHARS, PROMPT_TEXT_CHARS, TURN_LINE, cap, modeRequest, permissionResponse, record, ruleText, sessionGrant } from './control.ts';
-import type { SessionGrant } from './control.ts';
-import { LIMIT_TEXT, heldByBudget, heldByRepoBudget, parseRateLimit } from './holds.ts';
+import { apiKeyVars, buildArgv, commandPermissionMode, sessionEnv } from '#integrations/claude/argv.ts';
+import type { ChildMeta, DaemonChild, Session, SessionContext, SessionCore, SessionOptions } from './contract.ts';
+import { TURN_LINE, cap, createControl } from './control.ts';
+import { LIMIT_TEXT, parseRateLimit, routeHolds } from './holds.ts';
 import type { RateLimitInfo } from './holds.ts';
-import { RING_SIZE, STDERR_CAP, capLine, splitter, stamped } from './log.ts';
+import { checkLaunch } from './launch.ts';
+import { STDERR_CAP, createSessionLog, splitter, stamped } from './log.ts';
+import { createOwned } from './owned.ts';
 import { withSessionId } from './records.ts';
-import type { Config, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, Effort, EventActor, PermissionDecision } from '#core/types.ts';
+import { createTimers } from './timers.ts';
+import type { Config, DaemonSessionState, DaemonStatus, Effort } from '#core/types.ts';
 
 /** Why the supervisor stopped: shown in the dashboard, so it speaks to the human. */
 export const TRUST_CHANGED =
   'daemon stopped: .forge/config.yml, .forge/trackers/ or .forge/verifiers/ changed while it was running. The session can write files in this checkout, so only a human may approve that change: review `git diff .forge/`, then start the daemon again.';
-
-/** The summary an agent gets when its session's child exits under it. */
-export const LOST_SUMMARY = 'lost: its daemon session ended';
 
 const MAX_FAILURES = 3;
 
@@ -60,40 +55,23 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   let strikes = 0;
   /** The last rate_limit_event of the turn in flight. */
   let rateLimit: RateLimitInfo | null = null;
-  let sink: LogSink | null = null;
-  /** Offset of the next line: logBase plus its byte position in <scope>.log. */
-  let pos = info.logBase;
-  /** retention.logMaxBytes as of the last spawn: rotate mid-session at this size. null rotates only at spawn. */
-  let rotateAt: number | null = null;
   /** A session that stopped on its own says so; a job scope's stop is recorded on the job. Never throws. */
   const announceStop = (reason: 'failed-turns' | 'failed-starts') => {
     try {
       o.notify(root, ['daemon-stopped'], { job: scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE && validJobId(scope) ? scope : null, reason });
     } catch {}
   };
-  /** Resumes stdout paused on a full sink; a rotation ends that sink, which then never drains. */
-  let resumeStdout: (() => void) | null = null;
-  const ring: { offset: number; line: string }[] = [];
-  let idleTimer: NodeJS.Timeout | null = null;
-  /** When the idle timer was last armed (spawn or result), in ms. */
-  let idleSince = 0;
   /** Last computed by refreshKept: running agents of its job keep it. */
   let kept: 'agents' | null = null;
   let closed = false;
-  /** Permission prompts waiting on a human, by the supervisor's id, oldest first. */
-  const prompts = new Map<string, { proc: DaemonChild; requestId: string; input: Record<string, unknown>; grant: SessionGrant; prompt: DaemonPermissionPrompt }>();
   /**
    * The mode the current child runs in: the one it was launched with until claude reports one (it
    * does so only at its first turn's init), then claude's word. Never null while a child runs, so a
    * refused switch can't make the pool forget a more permissive launch mode.
    */
   let liveMode: string | null = null;
-  /** Mode switches sent to the current child and not yet answered, by request id, each with its confirmation deadline. */
-  const modeRequests = new Map<string, { mode: DaemonPermissionMode; timer: NodeJS.Timeout }>();
   /** The --effort the current child was spawned with (null: none passed). A later change waits for the next spawn. */
   let spawnEffort: Effort | null = null;
-  /** Armed at each written turn, cleared by its result or the child's exit: daemon.turnTimeoutMinutes. */
-  let turnTimer: NodeJS.Timeout | null = null;
 
   // Never recreate a repo that was deleted under a running supervisor (or a test's temp repo).
   const persist = () => {
@@ -101,46 +79,44 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   };
   const changed = () => ctx.emit({ kind: 'state', scope, state: state() });
 
-  function logSink(): LogSink {
-    if (!sink) {
-      if (!fs.existsSync(root)) return { write: () => true };
-      fs.mkdirSync(f.dir, { recursive: true });
-      let size = 0;
-      try {
-        size = fs.statSync(f.log).size;
-      } catch {}
-      pos = info.logBase + size;
-      try {
-        sink = o.openLog(f.log);
-      } catch {
-        // A symlink or non-file planted as the log: keep supervising, just without the file.
-        sink = { write: () => true };
-      }
-      sink.on?.('error', () => {});
-    }
-    return sink;
-  }
-
-  /** Appends one line to the session log and the replay ring; returns the sink's write() result. */
-  function logLine(raw: string): boolean {
-    // Before the offset is taken: the ring, the SSE frame and the file all carry the same redacted bytes.
-    let line = raw;
-    try {
-      line = redactKnown(raw, o.redactor(root, scope, ctx.config()));
-    } catch {}
-    const s = logSink();
-    const offset = pos;
-    const ok = s.write(line + '\n');
-    pos += Buffer.byteLength(line) + 1;
-    ring.push({ offset, line: capLine(line) });
-    if (ring.length > RING_SIZE) ring.shift();
-    ctx.emit({ kind: 'line', scope, offset, line });
-    // The ended sink flushes what it holds, so the caller has nothing to wait for.
-    if (rotateAt !== null && pos - info.logBase >= rotateAt && rotate(rotateAt)) return true;
-    return ok;
-  }
-
-  const logEvent = (event: string, extra: Record<string, unknown> = {}) => void logLine(JSON.stringify({ type: 'forge-daemon', at: now(), event, ...extra }));
+  const core: SessionCore = {
+    root,
+    scope,
+    ctx,
+    o,
+    files: f,
+    get child() {
+      return child;
+    },
+    get status() {
+      return status;
+    },
+    get closed() {
+      return closed;
+    },
+    get lastResultAt() {
+      return lastResultAt;
+    },
+    get liveMode() {
+      return liveMode;
+    },
+    get info() {
+      return info;
+    },
+    set info(next) {
+      info = next;
+    },
+    persist,
+    changed,
+    logEvent: (event, extra) => log.logEvent(event, extra),
+    kill,
+  };
+  const log = createSessionLog(core);
+  const { logLine, logEvent } = log;
+  const { agents, computeKept, keptBy, facts, loseAgents, letGo } = createOwned(core);
+  const control = createControl(core);
+  const { onControl, onControlCancel, onControlResponse, setPermissionMode, answerPermission, clearModeRequests } = control;
+  const { armTurn, clearTurn, armIdle, clearIdle } = createTimers(core, agents);
 
   function state(): DaemonSessionState {
     return {
@@ -157,17 +133,11 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       held,
       waiting,
       lastError,
-      permissions: [...prompts.values()].map((p) => p.prompt),
+      permissions: control.permissions(),
       permissionMode: child ? liveMode : null,
       kept,
       effort: child ? spawnEffort : null,
     };
-  }
-
-  const agents = (at?: number) => sessionAgents(root, scope, typeof info.sessionId === 'string' ? info.sessionId : null, at);
-
-  function computeKept(): 'agents' | null {
-    return child && status !== 'stopping' && agents().keeps ? 'agents' : null;
   }
 
   function refreshKept(): void {
@@ -177,262 +147,10 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     changed();
   }
 
-  /**
-   * The child is gone, so every agent it drove is too: marking them lost lets the next session's
-   * step respawn or retry them instead of waiting on phantoms. Only agents of a job this session
-   * owns (sessionAgents), so another driver's agents are never touched. Never throws: an exit
-   * must finish whatever job.json says.
-   */
-  function loseAgents(): void {
-    if (!fs.existsSync(root)) return;
-    try {
-      const { running } = agents();
-      if (!running.length) return;
-      let cfg: Config;
-      try {
-        cfg = o.readConfig(root).config;
-      } catch {
-        cfg = defaults();
-      }
-      const roles = markAgentsLost(root, scope, running, LOST_SUMMARY, cfg, info.sessionId);
-      if (roles.length) logEvent('agents-lost', { roles });
-    } catch (e) {
-      logEvent('error', { message: `marking agents lost: ${(e as Error).message}` });
-    }
-  }
-
-  function keptBy(at = Date.now()): 'agents' | null {
-    return agents(at).keeps ? 'agents' : null;
-  }
-
-  /** Every id this scope's sessions ran under: current, past and the one its child was spawned with. */
-  function sessionIds(): string[] {
-    const ids = [info.sessionId, info.spawnSessionId, ...(Array.isArray(info.pastSessionIds) ? info.pastSessionIds : [])];
-    return [...new Set(ids.filter((s): s is string => typeof s === 'string' && UUID.test(s)))];
-  }
-
-  function facts(): SessionFacts {
-    const background = child?._forge.background;
-    return { ids: sessionIds(), status, background: typeof background === 'number' ? background : -1, idleSince: status === 'idle' ? lastResultAt : null };
-  }
-
-  /**
-   * The child is gone, so nothing it held is driven: its job's lease expires when one of its ids
-   * drives it (driver and epoch kept: anyone may now claim), and requests it claimed go back to
-   * pending (lib/core/job/requests.ts requeueOrphans). Never throws: an exit must finish.
-   */
-  function letGo(reason: string): void {
-    if (!fs.existsSync(root)) return;
-    const ids = sessionIds();
-    if (scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE && validJobId(scope)) {
-      try {
-        const session = expireLease(root, scope, ids, reason);
-        if (session) logEvent('lease-expired', { session, reason });
-      } catch (e) {
-        logEvent('error', { message: `expiring the lease: ${(e as Error).message}` });
-      }
-    }
-    try {
-      // No claim-age rule here: this session can't see which of the pool's others are mid-turn; the pool's reconciler can.
-      const { requeued, rejected } = requeueOrphanedRequests(root, { exited: ids, byAge: false });
-      if (requeued.length || rejected.length) logEvent('requeued', { requests: requeued.map((r) => r.id), rejected: rejected.map((r) => r.id) });
-    } catch (e) {
-      logEvent('error', { message: `requeueing claimed requests: ${(e as Error).message}` });
-    }
-  }
-
-  function clearTurn(): void {
-    if (turnTimer) clearTimeout(turnTimer);
-    turnTimer = null;
-  }
-
-  /**
-   * A turn still busy past daemon.turnTimeoutMinutes (or turnTimeoutMs) is stopped: the exit lets go
-   * of its agents, lease and claims, and the session stays wanted, so the pool respawns it for the
-   * requeued work. setTimeout is monotonic, so a wall-clock jump never fires it.
-   */
-  function armTurn(proc: DaemonChild): void {
-    clearTurn();
-    let ms = o.turnTimeoutMs;
-    if (ms === null) {
-      let minutes: unknown;
-      try {
-        minutes = ctx.config().daemon?.turnTimeoutMinutes;
-      } catch {}
-      if (typeof minutes !== 'number' || !(minutes > 0)) return;
-      ms = minutes * 60_000;
-    }
-    // setTimeout's own ceiling (about 24.8 days); a longer limit is no limit.
-    if (!(ms > 0) || ms > 2 ** 31 - 1) return;
-    const limit = ms;
-    turnTimer = setTimeout(() => {
-      turnTimer = null;
-      if (closed || child !== proc || status !== 'busy') return;
-      logEvent('turn-timeout', { minutes: Math.round((limit / 60_000) * 1000) / 1000 });
-      void kill('stop', true, 'turn-timeout');
-    }, limit);
-    turnTimer.unref?.();
-  }
-
   /** Its child is gone, so nothing can answer them, and nothing it reported about its mode holds. */
   function dropPrompts(): void {
-    prompts.clear();
-    clearModeRequests();
+    control.dropPrompts();
     liveMode = null;
-  }
-
-  function clearModeRequests(): void {
-    for (const r of modeRequests.values()) clearTimeout(r.timer);
-    modeRequests.clear();
-  }
-
-  function writeControl(proc: DaemonChild, line: string): void {
-    proc.stdin?.write(line);
-  }
-
-  /**
-   * A `control_request` from claude. `can_use_tool` becomes a prompt the dashboard shows until a
-   * human answers it; claude sends no other subtype unless asked to, so any other gets an error
-   * rather than leaving claude waiting.
-   */
-  function onControl(proc: DaemonChild, ev: Record<string, any>): void {
-    const requestId = ev.request_id;
-    if (typeof requestId !== 'string' || !requestId || requestId.length > 200) return void logEvent('error', { message: 'ignored a control_request without a usable request_id' });
-    const req = record(ev.request);
-    if (req.subtype !== 'can_use_tool') {
-      const error = `forge does not handle ${String(req.subtype).slice(0, 40)} control requests`;
-      return writeControl(proc, JSON.stringify({ type: 'control_response', response: { subtype: 'error', request_id: requestId, error } }) + '\n');
-    }
-    const tool = cap(req.tool_name, 200) ?? 'unknown';
-    const input = record(req.input);
-    const deny = (reason: string) => {
-      logEvent('permission', { tool, decision: 'deny', reason });
-      writeControl(proc, permissionResponse(requestId, 'deny', input, { rules: [], dirs: [] }));
-    };
-    if (prompts.size >= MAX_PROMPTS) return deny('too-many');
-    let json: string | undefined;
-    try {
-      json = JSON.stringify(input);
-    } catch {}
-    // The dashboard must show the whole input, because an allow runs all of it: a call it can't show
-    // whole is refused rather than shown cut short, and so is one whose tool name was cut.
-    if (typeof json !== 'string') return deny('unserialisable-input');
-    if (json.length > PROMPT_INPUT_CHARS) return deny('too-large');
-    if (tool === 'unknown' || tool.endsWith('…')) return deny('unusable-tool-name');
-    const grant = sessionGrant(req.permission_suggestions);
-    const id = crypto.randomUUID();
-    const prompt: DaemonPermissionPrompt = {
-      id,
-      tool,
-      input: json,
-      description: cap(req.description, PROMPT_TEXT_CHARS),
-      agentId: cap(req.agent_id, 64),
-      blockedPath: cap(req.blocked_path, PROMPT_PATH_CHARS),
-      sessionRules: grant.rules.map(ruleText),
-      sessionDirs: grant.dirs,
-      at: now(),
-    };
-    prompts.set(id, { proc, requestId, input, grant, prompt });
-    logEvent('permission-asked', { id, tool });
-    changed();
-  }
-
-  /** claude withdrew a request (its turn was interrupted): the prompt goes away unanswered. */
-  function onControlCancel(ev: Record<string, any>): void {
-    for (const [id, p] of prompts) {
-      if (p.requestId !== ev.request_id) continue;
-      prompts.delete(id);
-      logEvent('permission-cancelled', { id, tool: p.prompt.tool });
-      changed();
-    }
-  }
-
-  function setPermissionMode(mode: DaemonPermissionMode): boolean {
-    if (!child || !PERMISSION_MODES.includes(mode)) return false;
-    const requestId = `forge-mode-${crypto.randomUUID()}`;
-    const proc = child;
-    const timer = setTimeout(() => {
-      if (!modeRequests.delete(requestId) || child !== proc) return;
-      modeFailed(mode, `claude did not confirm permission mode ${mode}`);
-    }, o.modeConfirmMs);
-    timer.unref?.();
-    modeRequests.set(requestId, { mode, timer });
-    writeControl(child, modeRequest(requestId, mode));
-    logEvent('permission-mode-requested', { mode });
-    return true;
-  }
-
-  /** claude's answer to a control_request the supervisor sent: only mode switches are ever sent. */
-  function onControlResponse(ev: Record<string, any>): void {
-    const res = record(ev.response);
-    const requestId = res.request_id;
-    if (typeof requestId !== 'string') return;
-    const pending = modeRequests.get(requestId);
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    modeRequests.delete(requestId);
-    const { mode } = pending;
-    if (res.subtype === 'success') return void logEvent('permission-mode', { mode });
-    modeFailed(mode, `claude refused permission mode ${mode}: ${cap(res.error, PROMPT_TEXT_CHARS) ?? 'no reason given'}`);
-  }
-
-  /**
-   * A switch claude refused or never confirmed. One that would have widened the session falls back:
-   * the dashboard shows the mode the session still runs in. One that would have narrowed it stops
-   * the child instead, so the session never keeps more reach than the human chose: its next spawn
-   * starts in the chosen mode.
-   */
-  function modeFailed(mode: DaemonPermissionMode, why: string): void {
-    if (modeReach(mode) < modeReach(liveMode)) {
-      logEvent('error', { message: `${why}; stopping the session so it starts in ${mode}` });
-      void kill('stop', true, 'permission-mode');
-      return;
-    }
-    logEvent('error', { message: why });
-    ctx.permissionModeRefused(scope, mode, liveMode);
-    changed();
-  }
-
-  function answerPermission(id: string, decision: PermissionDecision, actor?: EventActor): string | null {
-    const p = prompts.get(id);
-    if (!p || p.proc !== child) return null;
-    prompts.delete(id);
-    writeControl(p.proc, permissionResponse(p.requestId, decision, p.input, p.grant));
-    logEvent('permission', { id, tool: p.prompt.tool, decision, ...(actor ? { actor } : {}) });
-    changed();
-    return p.prompt.tool;
-  }
-
-  function clearIdle() {
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = null;
-  }
-
-  function armIdle(c: Config): void {
-    clearIdle();
-    const minutes = c?.daemon?.idleStopMinutes;
-    if (typeof minutes !== 'number' || !(minutes > 0)) return;
-    idleSince = Date.now();
-    idleAfter(minutes * 60_000, minutes * 60_000);
-  }
-
-  /**
-   * The window counts from the later of the arming and the last agent end, and never runs out while
-   * an agent keeps the session: an orchestrator waiting on background reviewers is idle, not done.
-   */
-  function idleAfter(delay: number, ms: number): void {
-    idleTimer = setTimeout(() => {
-      idleTimer = null;
-      if (status !== 'idle' || !child) return;
-      const a = agents();
-      if (a.keeps) return idleAfter(ms, ms);
-      const end = a.lastEndAt ? Date.parse(a.lastEndAt) : NaN;
-      const left = Math.max(idleSince, Number.isFinite(end) ? end : 0) + ms - Date.now();
-      // Never longer than the window, so no job.json time can push setTimeout past its 2^31-1 ms limit.
-      if (left > 0) return idleAfter(Math.min(left, ms), ms);
-      void kill('idle-stop', true, 'idle');
-    }, delay);
-    idleTimer.unref?.();
   }
 
   /** This session can't start (its executable is missing, say): stop wanting it, and only it. */
@@ -444,83 +162,13 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     changed();
   }
 
-  /**
-   * Moves <scope>.log over <scope>.log.1 once it holds at least `limit` bytes (one older generation
-   * is kept), and advances logBase by its size so offsets keep growing. Returns whether it rotated.
-   */
-  function rotate(limit: number): boolean {
-    let size: number;
-    try {
-      size = fs.statSync(f.log).size;
-    } catch {
-      return false;
-    }
-    // An open sink may still hold writes the file doesn't show yet; offsets must count them. Those
-    // writes land in .log.1: the open descriptor follows the renamed file.
-    if (sink) size = Math.max(size, pos - info.logBase);
-    if (size < limit) return false;
-    if (sink) {
-      sink.end?.();
-      sink = null;
-    }
-    try {
-      fs.renameSync(f.log, `${f.log}.1`);
-    } catch {
-      return false;
-    }
-    info = { ...info, logBase: info.logBase + size };
-    pos = info.logBase;
-    persist();
-    if (resumeStdout) {
-      const resume = resumeStdout;
-      resumeStdout = null;
-      resume();
-    }
-    return true;
-  }
-
   function spawnChild(c: Config, reason?: string): boolean {
     if (child) return true;
     if (closed) return false;
-    const links = trackerSymlinks(root);
-    if (links.length) {
-      ctx.fatal(`cannot start daemon: .forge/trackers/ contains symlinks (${links.join(', ')}), whose targets the daemon can't pin; replace them with files`);
-      return false;
-    }
-    // Respawns (idle stop, resume failure, new work) happen without a human, so they reuse the
-    // pool start's snapshot. config.yml is read once, hashed, and that same text is what argv is
-    // built from: a file swapped and restored between two reads (by a job's background process,
-    // say) can't slip in.
-    let bytes: Buffer | null = null;
-    try {
-      bytes = fs.readFileSync(paths(root).config);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') bytes = Buffer.from(`!${(e as NodeJS.ErrnoException).code}`);
-    }
-    const trusted = ctx.trusted();
-    if (!trusted || trustDigest(root, bytes) !== trusted) {
-      ctx.untrusted();
-      return false;
-    }
-    try {
-      c = o.readConfig(root, { text: bytes === null ? null : bytes.toString('utf8') }).config;
-    } catch (e) {
-      ctx.fatal(`cannot start daemon: ${(e as Error).message}`);
-      return false;
-    }
-    if (c.daemon?.enabled !== true) {
-      ctx.fatal('daemon.enabled is false in .forge/config.yml');
-      return false;
-    }
-    const problem = daemonProblems(c, root)[0];
-    if (problem) {
-      ctx.fatal(problem);
-      return false;
-    }
-    const max = c.retention?.logMaxBytes;
-    rotateAt = Number.isSafeInteger(max) && (max as number) > 0 ? (max as number) : null;
-    // Without a limit, today's rule: past rotateBytes, and only here.
-    rotate(rotateAt ?? o.rotateBytes + 1);
+    const launch = checkLaunch(root, ctx, o);
+    if (!launch) return false;
+    c = launch.config;
+    log.armRotation(c.retention?.logMaxBytes);
     // The record is a local file anyone with repo access can edit; only a uuid may follow --resume.
     const resume = Boolean(info.resumable && typeof info.sessionId === 'string' && UUID.test(info.sessionId));
     if (!resume) info = { ...withSessionId(info, crypto.randomUUID()), resumable: false };
@@ -537,7 +185,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     let c2;
     try {
       // The scope reaches the session only through its environment, never stdin or argv.
-      c2 = o.spawn(argv[0], argv.slice(1), { cwd: root, detached: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...sessionEnv(o.env, c.daemon.auth), [TRUST_ENV]: trusted, [SCOPE_ENV]: scope } });
+      c2 = o.spawn(argv[0], argv.slice(1), { cwd: root, detached: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...sessionEnv(o.env, c.daemon.auth), [TRUST_ENV]: launch.trusted, [SCOPE_ENV]: scope } });
     } catch (e) {
       sessionFatal(`cannot start daemon: ${(e as Error).message}`);
       return false;
@@ -599,17 +247,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       ev = JSON.parse(line);
     } catch {}
     const ok = ev && typeof ev === 'object' ? logLine(stamped(ev, line)) : logLine(JSON.stringify({ type: 'forge-raw', at: now(), text: line }));
-    if (!ok && proc.stdout && !proc.stdout.isPaused()) {
-      proc.stdout.pause();
-      // write() returned false, so the sink is a real stream (the stand-in never does), and stdout was
-      // checked just above, where the callback can't see the narrowing.
-      const resume = () => {
-        if (resumeStdout === resume) resumeStdout = null;
-        proc.stdout!.resume();
-      };
-      resumeStdout = resume;
-      logSink().once!('drain', resume);
-    }
+    if (!ok) log.backpressure(proc);
     if (child !== proc) return;
     if (!meta.stdout) {
       meta.stdout = true;
@@ -893,14 +531,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     route(c, pending, repo = null) {
       const ids = new Set(pending.map((r) => r.id));
       for (const id of committed) if (!ids.has(id)) committed.delete(id);
-      // The repo budget reads first when both hold: it is the one a per-job ack can't clear.
-      let next: 'budget' | 'repo-budget' | null = null;
-      const eligible: string[] = [];
-      for (const r of pending) {
-        if (heldByRepoBudget(root, repo, r)) next = 'repo-budget';
-        else if (heldByBudget(root, c, r)) next ??= 'budget';
-        else eligible.push(r.id);
-      }
+      const { held: next, eligible } = routeHolds(root, c, pending, repo);
       if (next !== held) {
         held = next;
         logEvent('held', { held: next });
@@ -937,12 +568,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       lastError = null;
       changed();
     },
-    /** Buffered lines after `afterOffset`; all of them when it is missing or ahead of us (a restarted server). */
-    recent(afterOffset) {
-      const last = ring.length ? ring[ring.length - 1].offset : -1;
-      if (afterOffset === undefined || !Number.isFinite(afterOffset) || afterOffset > last) return ring.slice();
-      return ring.filter((r) => r.offset > afterOffset);
-    },
+    recent: log.recent,
     async close() {
       await kill('stop', false);
       closed = true;
@@ -953,14 +579,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
         info = { ...info, pid: null, serverPid: null };
         persist();
       }
-      if (sink) {
-        const s = sink;
-        sink = null;
-        await new Promise((resolve) => {
-          if (typeof s.end !== 'function') return resolve(undefined);
-          s.end(() => resolve(undefined));
-        });
-      }
+      await log.close();
     },
     /** Last resort from a process `exit` handler: synchronous, so it can't wait for the grace period. */
     killSync() {
