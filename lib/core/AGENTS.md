@@ -4,7 +4,7 @@ Foundations with no pipeline policy: shared shapes, the job store and schema, co
 
 - Shapes live in their module's `types.ts`, type-only: import them with `import type`. `types.ts` here is the transitional barrel: it re-exports `lib/api/types.ts`, `job/types.ts` and `config/types.ts`, and declares the tracker contract. A shape a higher layer owns is imported from that module's `types.ts`, never through this barrel.
 - `errors.ts` imports nothing local and `utils.ts` nothing at all, so every module can use them. `os/` and `format/` stay leaves too: Node built-ins and OS process tools live here, never the repo's own configured commands (those are `engine/`).
-- When a module here needs something from a higher layer, move the shared piece down to a leaf or take it as a parameter or a hook (`onTransition` in `job/store.ts`), rather than adding an upward import.
+- When a module here needs something from a higher layer, move the shared piece down to a leaf or take it as a parameter or a hook (`onTransition` in `job/transitions.ts`), rather than adding an upward import.
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

@@ -114,7 +114,7 @@ Why these sit in core, and why so:
 
 | Module | Files |
 |---|---|
-| `pipeline/` | `step/`, `step.ts`, `brief.ts`, `panel.ts`, `verifiers.ts`, `roster.ts`, `acs.ts`, `findings.ts`, `scope.ts`, `member-panel.ts`, `deps.ts`, `types.ts` (the step and verifier shapes: `step/` is at its entry cap) |
+| `pipeline/` | `step/`, `step.ts`, `brief.ts`, `panel.ts`, `verifiers.ts`, `roster.ts`, `acs.ts`, `findings.ts`, `scope.ts`, `member-panel.ts`, `moves/` (the one move `moveJob` and its effects, the Foreman's gate policy, and `deps.ts`), `types.ts` (the step and verifier shapes: `step/` is at its entry cap) |
 | `workspace/` | `worktree.ts`, split in #417 into `worktree.ts` (create and remove), `run.ts` and `dev-server.ts` (its process proof in `dev-probe.ts` since #458); `checkout.ts`, `focus-actions.ts`, `editor.ts`, `regenerate.ts`, `job-command.ts` |
 | `verify/` | `gate.ts`, `steps.ts` and `e2e.ts` (moved from `workspace/` in #458), `record.ts` (the one reader of `job.verifyRuns`) |
 | `guard/` | `integrity.ts`, `protected.ts`, `secrets.ts`, `known-secrets.ts`, `secret-refs.ts`, `redact.ts`, `attribution.ts`, `types.ts` |
@@ -162,13 +162,12 @@ Where the names differ from a plain prefix drop, the folder rules decided:
 
 ## Today's upward edges
 
-With the placement above, 20 imports point up a layer. `ALLOWED_EDGES` in `test/invariants/layer-map.ts` is the live list; it may only shrink, and an entry that no longer exists or no longer points up fails as stale.
+With the placement above, 15 imports point up a layer. `ALLOWED_EDGES` in `test/invariants/layer-map.ts` is the live list; it may only shrink, and an entry that no longer exists or no longer points up fails as stale.
 
 | Edges | What removes them |
 |---|---|
 | `core/job/store.ts` reaches `engine/guard/known-secrets.ts`, `engine/evals/overlay.ts`, `engine/evals/provenance.ts`, `integrations/github/actor.ts`, `integrations/git/repo-slug.ts` and `integrations/claude/pricing.ts`; `core/paths.ts` reaches `integrations/git/runner.ts` | hooks or parameters in the job store (like `onTransition`), or the pieces moving down to a core leaf |
 | `core/job/schema.ts` reaches `engine/pr/delta.ts` and `engine/project/member-repos.ts`; `core/config/validate.ts` and `core/job/lens.ts` reach `engine/project/member-repos.ts` | the value validators (`isSha`, `REPO_NAME`, `isSafeBranch`, the repo problems) moving into `core/config/` |
-| `engine/pipeline/step/gates.ts`, `engine/pipeline/step/stages/build.ts`, `engine/pipeline/step/stages/decide.ts`, `engine/pr/sync.ts` and `engine/release/approval.ts` reach `office/foreman.ts` | the Foreman's gate classes and round ceilings moving to engine, with office keeping the session |
 | `engine/ops/doctor.ts`, `engine/pr/open.ts` and `engine/guard/secrets.ts` reach `office/notify.ts` | notify's transport splitting to `integrations/webhook/` and the queue to engine |
 | `integrations/github/tracker.ts` reaches `engine/guard/attribution.ts` | the tracker loader's security wrappers (attribution stripping applied in engine) |
 

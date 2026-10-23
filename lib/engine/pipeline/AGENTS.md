@@ -3,6 +3,7 @@
 The pipeline: `forge job step`, agent briefs, review panels, verifiers and the facts they read.
 
 - `step/` is the one decider of transitions (its own map); `step.ts` only re-exports it.
+- `moves/` holds the one move (`moveJob`) every caller that needs a move's effects uses (its own map).
 - `brief.ts` renders each agent's brief. Briefs carry paths, never file contents, so text an agent wrote never becomes another agent's prompt. A pipeline rule or brief change gets a row per transition in `test/step-rows.ts`.
 - `brief.ts` and `step/` count toward the plugin hash (`lib/engine/evals/provenance.ts`), and `brief.ts` is in the default `evals.recall.paths`.
 

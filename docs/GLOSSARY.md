@@ -121,6 +121,7 @@ The new words build on these, which exist today.
 | Term | Meaning | Config key |
 |---|---|---|
 | **job** | One unit of work that Forge takes from request to PR, in its own worktree. | - |
+| **move** | A change to a job's stage, state or `waitingOn` made through `lib/engine/pipeline/moves/apply.ts`, which then stops or tears down its environment, queues the Foreman's gate request and mirrors it to its tracker; notifications follow every transition. | - |
 | **output mode** | How a `forge` call prints: `human` (rendered text for a person at a terminal) or `agent` (compact JSON, the CLI's contract), chosen by `--json`, `--mode`, `FORGE_MODE`, then whether stdout is a terminal (docs/CLI.md "Output mode"). | - |
 | **activity log** | The timestamped lines a foreground `forge dash` prints after its banner in human mode, of three kinds: `session` (session transitions), `http` (requests worth noting) and `job` (newly appended job events); `--quiet` and agent mode leave only the banner (docs/CLI.md "Output mode"). | - |
 | **Foreman** | The office session that decides gates for jobs under `foreman.decides`. | `foreman.decides` |
