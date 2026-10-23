@@ -512,7 +512,7 @@ The live dashboard and its session pool.
 | Flag | Meaning |
 |---|---|
 | `--background` | start it detached and print {url, pid} |
-| `--dev` | serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist; the daemon stays off until Start; refused while a dashboard runs for this repo |
+| `--dev` | serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist; the daemon stays off until Start; refused while a proven dashboard runs for this repo (a stale dashboard.json does not block it) |
 | `--foreground` | run in the foreground even when one is running |
 | `--permission-mode MODE` | the job sessions' default permission mode until it stops: default (ask), auto or dontAsk (refuse); refused in a daemon session |
 | `--port N` | the first port to try (default: dashboard.port, 7400) |
@@ -521,7 +521,7 @@ The live dashboard and its session pool.
 
 | Exit | When |
 |---|---|
-| 1 | no free port near N, --dev while a dashboard is already running for this repo, or --permission-mode in a daemon session |
+| 1 | no free port near N, --dev while a proven dashboard is running for this repo, or --permission-mode in a daemon session |
 
 ### `forge doctor`
 

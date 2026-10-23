@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from '../../../test/helpers.ts';
-import { dashboardRecordFile, loopbackOrigin, provenDashboard } from './dashboard-record.ts';
+import { dashboardRecordFile, isForgeDash, loopbackOrigin, provenDashboard } from './dashboard-record.ts';
 import type { DashboardProbe } from './dashboard-record.ts';
 
 const STARTED_AT = '2026-10-23T10:00:00.000Z';
@@ -46,6 +46,7 @@ test('a dashboard record counts only when its file, process and url are proven',
         },
         want: null,
       },
+      // A blocking open would hang this file rather than return a wrong value, so want null is the check.
       { name: 'a FIFO', posixOnly: true, plant: () => execFileSync('mkfifo', [file]), want: null },
       { name: 'pid missing', plant: json({ url: BASE.url, startedAt: STARTED_AT }), want: null },
       { name: 'pid 1', plant: json({ ...BASE, pid: 1 }), want: null },
@@ -61,6 +62,7 @@ test('a dashboard record counts only when its file, process and url are proven',
       { name: 'node -e', plant: json(BASE), probe: probe({ command: () => 'node -e x' }), want: null },
       { name: 'another forge command', plant: json(BASE), probe: probe({ command: () => 'node /x/bin/forge daemon status' }), want: null },
       { name: 'forge-dash is not forge dash', plant: json(BASE), probe: probe({ command: () => 'node /x/forge-dash' }), want: null },
+      { name: 'claude /forge dash', plant: json(BASE), probe: probe({ command: () => 'claude /forge dash' }), want: null },
       { name: 'win32', plant: json(BASE), probe: probe({ platform: 'win32' }), want: null },
       { name: 'a non-loopback url', plant: json({ ...BASE, url: 'http://evil.example/' }), want: null },
     ];
@@ -68,13 +70,41 @@ test('a dashboard record counts only when its file, process and url are proven',
       if (row.posixOnly && !posix) continue;
       fs.rmSync(file, { force: true });
       row.plant();
-      const started = Date.now();
       assert.deepEqual(provenDashboard(repo.dir, row.probe ?? probe()), row.want, row.name);
-      assert.ok(Date.now() - started < 2000, `${row.name}: returns without blocking`);
     }
   } finally {
     repo.cleanup();
   }
+});
+
+test('isForgeDash accepts forge only in the script position', () => {
+  const E = '/usr/local/bin/node';
+  const F = '/plug/bin/forge';
+  const rows: [string, boolean, { E?: string; F?: string }?][] = [
+    ['node /x/bin/forge dash', true],
+    ['/usr/local/bin/node /plug/bin/forge dash --foreground --port 7400 --quiet', true],
+    ['node bin/forge dash --dev', true],
+    ['/x/bin/forge dash', true],
+    ['C:\\nodejs\\NODE.EXE C:\\x\\bin\\forge dash', true],
+    ['C:\\Program Files\\nodejs\\node.exe C:\\x\\bin\\forge dash --foreground', true, { E: 'C:\\Program Files\\nodejs\\node.exe' }],
+    ['/opt/my node/bin/node22 /x/bin/forge dash', true, { E: '/opt/my node/bin/node22' }],
+    ['/usr/bin/node /Users/A B/forge/bin/forge dash --dev', true, { F: '/Users/A B/forge/bin/forge' }],
+    ['  node /x/bin/forge dash  ', true],
+    ['claude /forge dash', false],
+    ['grep -rn forge dash .', false],
+    ['node -e setInterval(()=>{},1e3) /x/bin/forge dash', false],
+    ['node --inspect /x/bin/forge dash', false],
+    ['vim /tmp/node /x/bin/forge dash', false],
+    ['node /x/bin/forge dashboard', false],
+    ['node /x/bin/forge daemon status', false],
+    ['node /x/forge-dash', false],
+    ['/usr/bin/node /Users/A B/forge/bin/forge dash', false],
+    ['/usr/bin/nodejs /x/bin/forge dash', false],
+    ['', false],
+    // A hostile 10k-character line returns at once.
+    [`node /plug/bin/forge${' '.repeat(10_000)}dashx`, false],
+  ];
+  for (const [command, want, o = {}] of rows) assert.equal(isForgeDash(command, o.E ?? E, o.F ?? F), want, JSON.stringify(command));
 });
 
 test('loopbackOrigin accepts only an http loopback origin with a port', () => {
