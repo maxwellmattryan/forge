@@ -2,14 +2,13 @@
 // returns in-process and hands back only the next action that needs judgement, so a stretch of
 // bookkeeping costs the orchestrator one call instead of a turn per command. `step` stays pure.
 import { refuseInboxDrive } from '#office/owner.ts';
-import { maybeEnqueueGate } from '#office/foreman.ts';
-import { assertEpoch, leaseStatus, loadJob, logEvent, readEvents, renewLease, setJob } from '#core/job/store.ts';
+import { moveJob } from '#engine/pipeline/moves/apply.ts';
+import { assertEpoch, leaseStatus, loadJob, logEvent, readEvents, renewLease } from '#core/job/store.ts';
 import { progressMark } from '#office/reconcile.ts';
 import { loadStepInput, step } from '#engine/pipeline/step.ts';
 import { ForgeError } from '#core/errors.ts';
 import { safeText } from '#core/text.ts';
 import { num, req, str } from './args.ts';
-import type { Job } from '#core/types.ts';
 import type { AdvanceRan, CliContext, Dispatch, Dispatched } from '../types.ts';
 
 /**
@@ -96,7 +95,7 @@ export async function advance(ctx: CliContext, id: string, opts: { session: stri
       }
     }
     ran.push({ rule: a.rule, command: a.command, ok: error === null, ...(error === null ? { result } : { error }), ...(a.tell ? { tell: a.tell } : {}) });
-    if (error !== null) return { data: { ...a, failed: true, error, ran, ...(parkRepeatedFailure(ctx, jobId, a.rule, a.command, error) ? { parked: true } : {}) }, exitCode: 1 };
+    if (error !== null) return { data: { ...a, failed: true, error, ran, ...((await parkRepeatedFailure(ctx, jobId, a.rule, a.command, error)) ? { parked: true } : {}) }, exitCode: 1 };
   }
 }
 
@@ -107,7 +106,7 @@ export async function advance(ctx: CliContext, id: string, opts: { session: stri
  * The running check is made under the job lock: a job a human or another session moved since the
  * events were read is left exactly as it is. `hooks.beforePark` is a test seam, run just before.
  */
-export function parkRepeatedFailure(ctx: CliContext, id: string, rule: string, command: readonly string[], error: string, hooks: { beforePark?: () => void } = {}): boolean {
+export async function parkRepeatedFailure(ctx: CliContext, id: string, rule: string, command: readonly string[], error: string, hooks: { beforePark?: () => void } = {}): Promise<boolean> {
   const { root, config } = ctx;
   const events = readEvents(root, id);
   const mark = progressMark(events);
@@ -116,18 +115,15 @@ export function parkRepeatedFailure(ctx: CliContext, id: string, rule: string, c
   if (!prev || prev.rule !== rule || JSON.stringify(prev.command) !== JSON.stringify(command) || prev.mark !== mark) return false;
   const reason = safeText(`${rule}: forge ${command.slice(0, 2).join(' ')} failed twice: ${error}`).slice(0, 200);
   hooks.beforePark?.();
-  // Set inside derive, so `as` keeps the type from narrowing to null.
-  let before = null as Pick<Job, 'state' | 'waitingOn'> | null;
-  const after = setJob(root, id, {
+  let parked = false;
+  await moveJob(root, config, id, {
     derive: (j) => {
       if (j.state !== 'running') return null;
-      before = { state: j.state, waitingOn: j.waitingOn };
+      parked = true;
       return { state: 'waiting', waitingOn: 'escalation', reason };
     },
   });
-  if (!before) return false;
-  maybeEnqueueGate(root, config, before, after);
-  return true;
+  return parked;
 }
 
 export async function advanceCmd(ctx: CliContext, rest: string[], flags: Record<string, any>, dispatch: Dispatch): Promise<Dispatched> {

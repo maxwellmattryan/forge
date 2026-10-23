@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { currentActor } from '#integrations/github/actor.ts';
 import { exists } from '#core/paths.ts';
-import { mirrorToTracker } from '../trackers/mirror.ts';
+import { mirrorJob } from '../pipeline/moves/apply.ts';
 import { isActive, jobDir, leaseStatus, listJobs } from '#core/job/store.ts';
 import { ackRequest, listRequests } from '#core/job/requests.ts';
 import { appendRetentionLog, daemonRunning, readableJob } from './retention.ts';
@@ -51,7 +51,7 @@ export async function deleteJob(root: string, config: Config, id: string, opts: 
   if (refusal) throw new ForgeError(`cannot delete ${id}: ${refusal}`, 1);
 
   // A finished job releases its issues, so the tracker sees it as cancelled before the record goes.
-  await mirrorToTracker(root, config, { ...job, state: 'cancelled', reason: 'deleted' }).catch(() => {});
+  await mirrorJob(root, config, { ...job, state: 'cancelled', reason: 'deleted' }).catch(() => {});
 
   // Only the branch Forge named for this job: one given with --branch may be a human's own.
   const ownBranch = job.branch === `${config.git.branchPrefix}${id}`;

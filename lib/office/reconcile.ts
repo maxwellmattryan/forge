@@ -5,13 +5,13 @@
 // finds undriven gets one resume; undriven again with no progress since, it is parked on escalation
 // for the foreman or a person. docs/ARCHITECTURE.md "Reconciler".
 import path from 'node:path';
-import { maybeEnqueueGate } from './foreman.ts';
+import { moveJob } from '#engine/pipeline/moves/apply.ts';
 import { whoDrives } from './driver.ts';
-import { listJobs, loadJob, logEvent, readEvents, requeueOrphanedRequests, setJob } from '#core/job/store.ts';
+import { listJobs, loadJob, logEvent, readEvents, requeueOrphanedRequests } from '#core/job/store.ts';
 import { paths } from '#core/paths.ts';
 import { enqueue, listRequests, requestScope, validJobId } from '#core/job/requests.ts';
 import { readJson, writeJsonAtomic } from '#core/os/fs.ts';
-import { lockHeld, withLock } from '#core/os/lock.ts';
+import { lockHeld, withLockAsync } from '#core/os/lock.ts';
 import type { Config, ForgeRequest, Job, JobEvent, LoadedJob } from '#core/types.ts';
 
 /** Event types that mean the pipeline moved; renewals, syncs, notes and failures don't count. */
@@ -114,11 +114,12 @@ export interface ReconcileResult {
  * sessions mid-turn, whose claims stay however old. A session's exit requeues its own claims
  * (lib/office/driver.ts releaseSession).
  */
-export function reconcile(root: string, config: Config, opts: { at?: number; facts?: Map<string, SessionFacts>; only?: string; busy?: readonly string[] } = {}): ReconcileResult {
+export async function reconcile(root: string, config: Config, opts: { at?: number; facts?: Map<string, SessionFacts>; only?: string; busy?: readonly string[] } = {}): Promise<ReconcileResult> {
   const at = opts.at ?? Date.now();
   const out: ReconcileResult = { resumed: [], escalated: [], requeued: [] };
   out.requeued = requeueOrphanedRequests(root, { at, busy: opts.busy }).requeued.map((r) => r.id);
-  withLock(memoryLock(root), () => {
+  // Async so the escalation's move, mirror included, stays inside the memory lock.
+  await withLockAsync(memoryLock(root), async () => {
     const mem = readMemory(root);
     let jobs: LoadedJob[];
     if (opts.only !== undefined) {
@@ -153,10 +154,9 @@ export function reconcile(root: string, config: Config, opts: { at?: number; fac
       delete mem.jobs[job.id];
       const reason = `undriven at ${job.stage}: resumed once with no progress since`;
       // Decided again under the job lock: a job that parked or moved meanwhile is left alone.
-      const after = setJob(root, job.id, { derive: (j) => (j.state === 'running' && j.stage === job.stage ? { state: 'waiting', waitingOn: 'escalation', reason } : null) });
+      const { job: after } = await moveJob(root, config, job.id, { derive: (j) => (j.state === 'running' && j.stage === job.stage ? { state: 'waiting', waitingOn: 'escalation', reason } : null) });
       if (after.state !== 'waiting' || after.reason !== reason) continue;
       logEvent(root, job.id, 'reconcile', { action: 'escalate', stage: job.stage });
-      maybeEnqueueGate(root, config, job, after);
       out.escalated.push(job.id);
     }
     writeJsonAtomic(memoryFile(root), mem);

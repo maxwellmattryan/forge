@@ -13,7 +13,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig } from '#core/config/load.ts';
 import { openAppend } from '#core/job/session-files.ts';
-import { jobDir, loadJob, logEvent, onTransition } from '#core/job/store.ts';
+import { jobDir, loadJob, logEvent } from '#core/job/store.ts';
+import { onTransition } from '#core/job/transitions.ts';
 import { commandProblem, notifyConfigured, validCommand, validWebhooks, webhookHost, webhookProblem } from '#core/config/validators/notify.ts';
 import { PLUGIN_ROOT, exists, paths } from '#core/paths.ts';
 import { posixShell } from '#core/os/platform.ts';
@@ -445,10 +446,14 @@ export async function notifyChecks(config: Pick<Config, 'notify'>, opts: { timeo
   return checks;
 }
 
-// jobs.ts sits below this module, so it can't call queueNotify itself: it calls this hook once per
-// transition instead. Every `forge` process loads this module (lib/cli/main.ts imports commands/notify.ts),
-// so no state change goes unnoticed.
-onTransition((root, job, from, to) => {
-  const n = transitionEvents(from, to, job);
-  if (n) queueNotify(root, n.events, { job: job.id, reason: n.reason });
-});
+/**
+ * Notifies on every transition through setJob's hook list (the store sits below this module, so it
+ * can't call queueNotify itself). lib/cli/main.ts registers it once at start; importing this module
+ * registers nothing. Returns the remover.
+ */
+export function registerNotify(queue: QueueNotify = queueNotify): () => void {
+  return onTransition((root, job, from, to) => {
+    const n = transitionEvents(from, to, job);
+    if (n) queue(root, n.events, { job: job.id, reason: n.reason });
+  });
+}

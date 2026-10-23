@@ -13,6 +13,7 @@ import type { AgentUsage, Config, Effort, EventActor, ForgeRequest, Job, JobAgen
 import { estimateCost } from '#integrations/claude/pricing.ts';
 import { reviewFileName } from './lens.ts';
 import { requeueOrphans } from './requests.ts';
+import { runTransitionHooks } from './transitions.ts';
 import { configForJob } from '#engine/evals/overlay.ts';
 import { configHash, pluginHash, promptHash } from '#engine/evals/provenance.ts';
 import { checkJobFields, checkOwnedFields } from './fields.ts';
@@ -348,14 +349,6 @@ function checkChange(change: JobChange): void {
     throw new ForgeError(`unknown waiting-on "${change.waitingOn}" (${WAITING_ON.join(', ')})`, 'usage');
 }
 
-/** Called once per stage, state or waitingOn change setJob makes; notify.ts registers here when it loads. */
-export type TransitionHook = (root: string, job: LoadedJob, from: TransitionSide, to: TransitionSide) => void;
-let transitionHook: TransitionHook | null = null;
-
-export function onTransition(hook: TransitionHook | null): void {
-  transitionHook = hook;
-}
-
 /**
  * `derive` decides part of the change from the job as stored at write time, inside the lock, so a
  * claim or edit that lands between a caller's load and its write is what the decision sees. Its
@@ -413,10 +406,7 @@ export function setJob(
     const to = { stage: job.stage, state: job.state, waitingOn: job.waitingOn };
     logEvent(root, id, 'transition', { from: b, to, reason: c.reason ?? undefined });
     // Once per state change: a repeated set with the same state and waitingOn logs no transition.
-    // A hook must never fail the state change it observes.
-    try {
-      transitionHook?.(root, job, b, to);
-    } catch {}
+    runTransitionHooks(root, job, b, to);
   }
   for (const role of lost) {
     const a = job.agents[role];

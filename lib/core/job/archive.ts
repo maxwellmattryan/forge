@@ -1,7 +1,7 @@
 // The read side of retention: archive records in `.forge/archive/<id>.json`, which keep a
 // finished job's job.json, events and a summary after its directory is deleted. Stats, audit,
 // retro and the dependency check read them here. Imports only jobs/schema/paths/util, because
-// deps.ts imports this module and its header forbids anything that could form a cycle.
+// lib/engine/pipeline/moves/deps.ts imports this module and its header forbids anything that could form a cycle.
 import fs from 'node:fs';
 import path from 'node:path';
 import { jobDir } from './store.ts';

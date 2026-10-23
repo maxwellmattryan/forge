@@ -1,5 +1,5 @@
 // `forge job claim|release|step`: a job's lease and its driver's epoch, and the `--epoch` fence other handlers share.
-import { claimRespectingDeps } from '#engine/pipeline/deps.ts';
+import { claimRespectingDeps } from '#engine/pipeline/moves/deps.ts';
 import { checkFence, leaseStatus, loadJob, logEvent, releaseJob, renewLease, type Fence } from '#core/job/store.ts';
 import { refuseInOffice } from '#office/owner.ts';
 import { loadStepInput, step } from '#engine/pipeline/step.ts';

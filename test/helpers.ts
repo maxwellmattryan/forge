@@ -12,6 +12,7 @@ export { fakeClaude, type FakeClaudeChild } from './support/claude-adapter.ts';
 export { fakeBin } from './support/fake-bin.ts';
 export { fakeGh, type GhReply } from './support/fake-gh.ts';
 export { forgeInProcess, type InProcessResult } from './support/in-process.ts';
+export { recordingMoveEffects, type MoveEffectCall, type MoveSide } from './support/move-effects.ts';
 
 /**
  * Repo-local settings every scratch repo needs. A user's global `commit.gpgsign` would otherwise

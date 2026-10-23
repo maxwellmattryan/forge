@@ -51,6 +51,12 @@ export function daemonScope(env: NodeJS.ProcessEnv = process.env): { daemon: fal
   return { daemon: true, scope };
 }
 
+/** The daemon scope this call runs in is the office session. */
+export function inOffice(env: NodeJS.ProcessEnv = process.env): boolean {
+  const s = daemonScope(env);
+  return 'daemon' in s && s.daemon && s.scope === OFFICE_SCOPE;
+}
+
 function dir(root: string): string {
   return path.join(paths(root).runtime, 'requests');
 }
