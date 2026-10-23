@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import type http from 'node:http';
 import path from 'node:path';
 import { exists, BUILD_DASHBOARD, DEV_DIST_DIR, PLUGIN_ROOT } from '#core/paths.ts';
+import { openConfinedLog } from '#engine/environment/status.ts';
 import { send } from './http.ts';
 import type { RouteMatch, ServerCtx, ServerOptions } from './types.ts';
 
@@ -68,33 +69,26 @@ export function listScreenshots(dir: string): string[] {
 
 /**
  * Screenshots are agent-written files, so they are confined twice: the request path must sit under
- * `screenshots/`, and the resolved file (after symlinks) must stay inside the job dir.
+ * `screenshots/`, and openConfinedLog must find the job dir where it should be and the file inside
+ * it, a regular file with a single link, read through the descriptor that check opened.
  */
-export function sendImage(res: http.ServerResponse, base: string, file: string): void {
+export function sendImage(res: http.ServerResponse, root: string, base: string, file: string): void {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Security-Policy', "default-src 'none'");
   // The Host check can't stop another site from embedding an <img> of this URL; CORP makes the
   // browser refuse cross-origin loads, so screenshots of real data never reach a foreign page.
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
   if (path.relative(base, file).split(path.sep)[0] !== 'screenshots') return send(res, 404, 'text/plain', 'not found');
+  const opened = openConfinedLog(root, base, file);
+  if (typeof opened === 'string') return send(res, 404, 'text/plain', 'not found');
   let reply: [number, string, string | Buffer] = [404, 'text/plain', 'not found'];
-  let fd: number | undefined;
   try {
-    // Resolve once, then check, stat and read through one descriptor, so a symlink swapped in
-    // between the check and the read can't redirect it.
-    const real = fs.realpathSync(file);
-    if (real.startsWith(fs.realpathSync(base) + path.sep)) {
-      // O_NONBLOCK: opening a FIFO planted under screenshots/ must not hang the server; fstat rejects it.
-      // `real` is fully resolved, so O_NOFOLLOW only refuses a link swapped in since the check.
-      fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
-      const stat = fs.fstatSync(fd);
-      if (stat.isFile() && stat.size > MAX_IMAGE) reply = [413, 'text/plain', 'image too large'];
-      else if (stat.isFile()) reply = [200, IMAGE_TYPES[path.extname(file).toLowerCase()], fs.readFileSync(fd)];
-    }
+    if (opened.size > MAX_IMAGE) reply = [413, 'text/plain', 'image too large'];
+    else reply = [200, IMAGE_TYPES[path.extname(file).toLowerCase()], fs.readFileSync(opened.fd)];
   } catch {
-    // A missing file, a dangling link or an unreadable one is simply not there.
+    // An unreadable file is simply not there.
   } finally {
-    if (fd !== undefined) fs.closeSync(fd);
+    fs.closeSync(opened.fd);
   }
   return send(res, ...reply);
 }
