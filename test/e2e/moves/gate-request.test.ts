@@ -7,14 +7,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { BIN, forgeInProcess, ghPr, memoryGitHub, recordingMoveEffects, repoTemplate } from '../../helpers.ts';
+import { BIN, forgeInProcess, ghPr, jobAt, memoryGitHub, parkedAt, recordingMoveEffects, repoTemplate } from '../../helpers.ts';
 import { parkRepeatedFailure } from '../../../lib/cli/commands/advance.ts';
 import { useMoveEffects } from '#engine/pipeline/moves/effects.ts';
 import { syncPr } from '#engine/pr/sync.ts';
 import { reconcile } from '#office/reconcile.ts';
 import { loadConfig } from '#core/config/load.ts';
 import { ackRequest, listRequests } from '#core/job/requests.ts';
-import { createJob, listJobs, loadJob, setJob } from '#core/job/store.ts';
+import { listJobs, loadJob } from '#core/job/store.ts';
 import type { Config, GateClass } from '#core/types.ts';
 
 const scratch = repoTemplate((dir) => {
@@ -42,11 +42,7 @@ function conflictingPr() {
 function repo() {
   const r = scratch();
   const config = (): Config => loadConfig(r.dir).config;
-  const job = (title: string, state: 'running' | null = 'running'): string => {
-    const id = createJob(r.dir, config(), { title }).id;
-    if (state) setJob(r.dir, id, { state });
-    return id;
-  };
+  const job = (title: string, state: 'running' | null = 'running'): string => jobAt(r.dir, 'backlog', { title, state: state ?? 'queued' }).id;
   const set = async (id: string, args: string[], env?: NodeJS.ProcessEnv) => {
     const res = await forgeInProcess(r.dir, ['job', 'set', id, ...args], env ? { env } : {});
     assert.equal(res.status, 0, JSON.stringify(res.error));
@@ -62,11 +58,7 @@ function repo() {
     assert.equal(res.status, 0, JSON.stringify(res.error));
   };
   /** The job parked on the PR, waiting for review, as a sync finds it. */
-  const prJob = (title: string): string => {
-    const id = job(title, null);
-    setJob(r.dir, id, { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', owned: { pr: { number: 7 } } });
-    return id;
-  };
+  const prJob = (title: string): string => parkedAt(r.dir, 'pr-review', { title, pr: { number: 7 } }).id;
   /** Two undriven reconciler passes: the first resumes, the second (the resume handled, no progress) escalates. */
   const reconcileTwice = async (id: string) => {
     assert.deepEqual((await reconcile(r.dir, config())).resumed, [id]);
@@ -199,11 +191,8 @@ const EFFECT_ROWS: EffectRow[] = [
   {
     name: 'forge sync marking an umbrella done',
     arrange: async (r) => {
-      const kids = [r.job('child one', null), r.job('child two', null)];
-      setJob(r.dir, kids[0], { stage: 'done', state: 'done' });
-      setJob(r.dir, kids[1], { state: 'cancelled' });
-      const id = r.job('umbrella', null);
-      setJob(r.dir, id, { fields: { children: kids } });
+      const kids = [jobAt(r.dir, 'done', { title: 'child one' }).id, jobAt(r.dir, 'backlog', { title: 'child two', state: 'cancelled' }).id];
+      const id = jobAt(r.dir, 'backlog', { title: 'umbrella', state: 'queued', fields: { children: kids } }).id;
       return {
         id,
         write: async () => {

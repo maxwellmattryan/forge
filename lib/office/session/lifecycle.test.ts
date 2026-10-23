@@ -8,9 +8,9 @@ import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fakeClaude, repoTemplate, waitFor, type FakeClaudeChild } from '../../../test/helpers.ts';
+import { fakeClaude, repoTemplate, waitFor, withLease, type FakeClaudeChild } from '../../../test/helpers.ts';
 import { defaults, trustDigest } from '#core/config/load.ts';
-import { createJob, loadJob, readEvents, recordAgent, updateJob } from '#core/job/store.ts';
+import { createJob, loadJob, readEvents, recordAgent } from '#core/job/store.ts';
 import { INBOX_SCOPE, claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
 import { sessionFiles } from '#core/job/session-files.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
@@ -414,10 +414,7 @@ test("an exit lets go of its job's agents and lease", async (t) => {
     const s = r.s.state().sessionId!;
     const y = crypto.randomUUID();
     r.children[0].emit({ kind: 'session-id', id: y });
-    const at = new Date().toISOString();
-    updateJob(r.root, r.scope, (j) => {
-      j.lease = { driver: s, epoch: 1, since: at, renewedAt: at, expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() };
-    });
+    withLease(r.root, r.scope, s);
     recordAgent(r.root, r.scope, { role: 'builder', phase: 'start' }, defaults());
     const req = enqueue(r.root, r.cfg, { type: 'resume', job: r.scope, from: 'dashboard' });
     claimRequest(r.root, req.id, s);

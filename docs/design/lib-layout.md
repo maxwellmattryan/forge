@@ -188,9 +188,9 @@ With the placement above, 15 imports point up a layer. `ALLOWED_EDGES` in `test/
 | Integration | One entry point for real (a CLI command, an HTTP endpoint, a pool session, an adapter), with outside systems faked | `test/integration/<entry point>/` |
 | E2E | A whole flow across layers in a scratch git repo | `test/e2e/<flow>/` |
 | Invariants | Rules about the repository itself, not behaviour: workflow security, docs sync, the dashboard invariants, the layer and file-size tripwires | `test/invariants/` |
-| Support | Helpers, fake binaries and fixtures; no tests | `test/support/` |
+| Support | Helpers, fake binaries and fixtures; no tests but the job-state builders' own table test | `test/support/` |
 
-`test/invariants/` has started: `layers.test.ts` (with `layer-map.ts`), `file-size.test.ts` and `docs-map.test.ts`, run by `npm run test:invariants`. The other invariant tests (`ci-workflow`, `governance`, `dashboard-invariants` and the rest) move there with #420, along with the tsconfig includes and CI sharding by kind. A `*.test.ts` under `lib/` is scanned for imports and given a layer, but is outside the size cap and the maps.
+`test/invariants/` has started: `layers.test.ts` (with `layer-map.ts`), `file-size.test.ts` and `docs-map.test.ts`, run by `npm run test:invariants`. The other invariant tests (`ci-workflow`, `governance`, `dashboard-invariants` and the rest) move there with #420, along with the tsconfig includes and CI sharding by kind. A `*.test.ts` under `lib/` is scanned for imports and given a layer, but is outside the 600-line cap (tests have their own 800-line cap) and the maps.
 
 ## The big-file splits
 

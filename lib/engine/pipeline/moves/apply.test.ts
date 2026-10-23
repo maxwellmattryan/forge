@@ -2,17 +2,17 @@
 // job as the write's lock read it; the named inputs; and mirrorJob, which runs the mirror alone.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { recordingMoveEffects, repoTemplate, type MoveEffectCall, type MoveSide } from '../../../../test/helpers.ts';
+import { jobAt, recordingMoveEffects, repoTemplate, type MoveEffectCall, type MoveSide } from '../../../../test/helpers.ts';
 import { mirrorJob, moveJob, type MoveResult } from './apply.ts';
 import { currentMoveEffects, realMoveEffects, useMoveEffects } from './effects.ts';
 import { defaults } from '#core/config/load.ts';
-import { claimJob, createJob, loadJob, readEvents, setJob } from '#core/job/store.ts';
+import { claimJob, loadJob, readEvents, setJob } from '#core/job/store.ts';
 import type { Config } from '#core/types.ts';
 
 const config: Config = defaults();
 let jobId = '';
 const scratch = repoTemplate((dir) => {
-  jobId = createJob(dir, config, { title: 'move me' }).id;
+  jobId = jobAt(dir, 'backlog', { config, title: 'move me' }).id;
 });
 
 const side = (stage: string, state: string, waitingOn: string | null = null): MoveSide => ({ stage, state, waitingOn });
@@ -128,7 +128,6 @@ test('moveJob runs the effects once each against the job as its lock read it', a
     const r = scratch();
     const fake = recordingMoveEffects();
     try {
-      setJob(r.dir, jobId, { state: 'running' });
       row.prepare?.(r.dir, jobId);
       const start = loadJob(r.dir, jobId);
       const restore = useMoveEffects(fake);
