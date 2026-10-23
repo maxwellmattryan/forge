@@ -1,7 +1,8 @@
 // createWorktree with a worktree seed (docs/CONFIG.md › Worktree seed): a hit clones the seed instead
 // of running setup, every miss falls back to setup, and only a fresh worktree at the base tip refreshes
-// the seed. In-process on scratch repos; each test points FORGE_CACHE_DIR at its own private dir, so
-// the tests in this file run one at a time.
+// the seed. removeWorktree acts only on the worktree and branch Forge computes for the job, whatever
+// job.json says. In-process on scratch repos; each test points FORGE_CACHE_DIR at its own private dir,
+// so the tests in this file run one at a time.
 import { afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -9,10 +10,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { repoTemplate } from '../../../test/helpers.ts';
-import { createWorktree } from './worktree.ts';
+import { createWorktree, removeWorktree } from './worktree.ts';
 import { seedKey, seedRoot } from './seed.ts';
 import { defaults } from '#core/config/load.ts';
-import { createJob, readEvents, setJob } from '#core/job/store.ts';
+import { createJob, loadJob, readEvents, setJob } from '#core/job/store.ts';
 import type { Config } from '#core/types.ts';
 
 const repo = repoTemplate((dir) => {
@@ -296,4 +297,158 @@ test('only a fresh worktree at the base tip refreshes the seed', () => {
   assert.equal(res.ok, true);
   assert.equal('seed' in res, false);
   assert.equal(fs.existsSync(path.join(cache, 'seeds')), false);
+});
+
+/** A repo with no .forge/config.yml: loadConfig falls back to defaults(), so removal computes the root create used. */
+function removalRepo(): { root: string; config: Config; wtRoot: string } {
+  const r = repo();
+  scratch.push(r.dir, `${r.dir}.worktrees`);
+  return { root: r.dir, config: defaults(), wtRoot: `${r.dir}.worktrees` };
+}
+
+function hasBranch(root: string, name: string): boolean {
+  try {
+    execGit(root, 'rev-parse', '--verify', '--quiet', `refs/heads/${name}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A job with its worktree created; returns its id and worktree path. */
+function withWorktree(root: string, config: Config, title: string, opts: Parameters<typeof createWorktree>[3] = {}): { id: string; wt: string } {
+  const id = createJob(root, config, { title }).id;
+  const res = createWorktree(root, config, id, opts);
+  return { id, wt: res.path };
+}
+
+const removedEvents = (root: string, id: string) => readEvents(root, id).filter((e) => e.type === 'worktree-removed');
+
+test("removeWorktree acts only on the job's own worktree", async () => {
+  // Refusals: job A's stored worktree points at something that is not A's own.
+  const refusals: { name: string; arrange: (root: string, config: Config, wtRoot: string, a: string, b: { id: string; wt: string }) => string | null; ownA: boolean }[] = [
+    { name: "another job's worktree", arrange: (_root, _config, _wtRoot, _a, b) => b.wt, ownA: true },
+    { name: 'the main checkout', arrange: (root) => root, ownA: true },
+    {
+      name: "the job's own path string, a symlink to another job's worktree",
+      arrange: (_root, _config, wtRoot, a, b) => {
+        const link = path.join(wtRoot, a);
+        if (process.platform === 'win32') return null;
+        try {
+          fs.symlinkSync(b.wt, link, 'dir');
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code === 'EPERM') return null;
+          throw e;
+        }
+        return link;
+      },
+      ownA: false,
+    },
+  ];
+  for (const row of refusals) {
+    const { root, config, wtRoot } = removalRepo();
+    const b = withWorktree(root, config, 'job b');
+    fs.writeFileSync(path.join(b.wt, 'untracked.txt'), 'mine\n');
+    fs.appendFileSync(path.join(b.wt, 'README.md'), 'modified\n');
+    const a = row.ownA ? withWorktree(root, config, 'job a') : { id: createJob(root, config, { title: 'job a' }).id, wt: '' };
+    const stored = row.arrange(root, config, wtRoot, a.id, b);
+    if (stored === null) continue;
+    setJob(root, a.id, { owned: { worktree: stored } });
+    await assert.rejects(removeWorktree(root, a.id, { force: true, deleteBranch: true }), /not this job's worktree/, row.name);
+    assert.equal(fs.readFileSync(path.join(b.wt, 'untracked.txt'), 'utf8'), 'mine\n', `${row.name}: B's untracked file`);
+    assert.match(fs.readFileSync(path.join(b.wt, 'README.md'), 'utf8'), /modified\n$/, `${row.name}: B's modified file`);
+    assert.ok(hasBranch(root, `forge/${b.id}`), `${row.name}: B's branch`);
+    assert.ok(fs.existsSync(path.join(root, '.git')) && fs.existsSync(path.join(root, 'README.md')), `${row.name}: the main checkout`);
+    if (row.ownA) {
+      assert.ok(fs.existsSync(a.wt), `${row.name}: A's own worktree`);
+      assert.ok(hasBranch(root, `forge/${a.id}`), `${row.name}: A's own branch`);
+    }
+    assert.equal(loadJob(root, a.id).worktree, stored, `${row.name}: A's stored worktree is unchanged`);
+    assert.deepEqual(removedEvents(root, a.id), [], `${row.name}: no worktree-removed event`);
+  }
+
+  // Removals that still happen.
+  {
+    const { root, config } = removalRepo();
+    const a = withWorktree(root, config, 'own worktree');
+    const res = await removeWorktree(root, a.id);
+    assert.equal(res.removed, a.wt);
+    assert.equal(fs.existsSync(a.wt), false);
+    assert.equal(loadJob(root, a.id).worktree, null);
+  }
+  {
+    const { root, config } = removalRepo();
+    const id = createJob(root, config, { title: 'eval clone' }).id;
+    setJob(root, id, { owned: { eval: { run: 'r', task: 't' } } });
+    const wt = createWorktree(root, config, id, { isolate: true }).path;
+    assert.ok(fs.statSync(path.join(wt, '.git')).isDirectory(), 'a standalone clone');
+    fs.writeFileSync(path.join(wt, 'scratch.txt'), 'untracked\n');
+    const res = await removeWorktree(root, id, { force: true });
+    assert.equal(res.removed, wt);
+    assert.equal(fs.existsSync(wt), false);
+    assert.equal(loadJob(root, id).worktree, null);
+  }
+  {
+    const { root, config, wtRoot } = removalRepo();
+    const id = createJob(root, config, { title: 'stale worktree' }).id;
+    setJob(root, id, { owned: { worktree: path.join(`${wtRoot}-old`, id) } });
+    const res = await removeWorktree(root, id, { force: true });
+    assert.equal(res.removed, null);
+    assert.equal(loadJob(root, id).worktree, null);
+  }
+});
+
+test("--delete-branch deletes only the job's own branch", async () => {
+  {
+    const { root, config } = removalRepo();
+    const a = withWorktree(root, config, 'own branch');
+    const res = await removeWorktree(root, a.id, { deleteBranch: true });
+    assert.equal(hasBranch(root, `forge/${a.id}`), false);
+    assert.equal('branchKept' in res, false);
+    assert.equal(removedEvents(root, a.id).at(-1)?.branchDeleted, true);
+  }
+  const kept: { name: string; arrange: (root: string, config: Config) => string }[] = [
+    {
+      name: "another job's branch",
+      arrange: (root, config) => {
+        const b = createJob(root, config, { title: 'job b' }).id;
+        execGit(root, 'branch', `forge/${b}`);
+        return `forge/${b}`;
+      },
+    },
+    {
+      name: 'the base',
+      arrange: (root) => {
+        execGit(root, 'checkout', '-q', '--detach');
+        return 'main';
+      },
+    },
+    {
+      name: 'a human branch',
+      arrange: (root) => {
+        execGit(root, 'branch', 'feature/human');
+        return 'feature/human';
+      },
+    },
+  ];
+  for (const row of kept) {
+    const { root, config } = removalRepo();
+    const a = withWorktree(root, config, 'job a');
+    const branch = row.arrange(root, config);
+    setJob(root, a.id, { owned: { branch } });
+    const res = await removeWorktree(root, a.id, { force: true, deleteBranch: true });
+    assert.ok(hasBranch(root, branch), `${row.name}: ${branch} survives`);
+    assert.equal(res.removed, a.wt, row.name);
+    assert.equal(fs.existsSync(a.wt), false, `${row.name}: A's worktree is removed`);
+    assert.ok(res.branchKept?.includes(branch), `${row.name}: branchKept names it`);
+    assert.equal(removedEvents(root, a.id).at(-1)?.branchDeleted, false, row.name);
+  }
+  {
+    const { root, config } = removalRepo();
+    const a = withWorktree(root, config, 'unsafe branch');
+    setJob(root, a.id, { owned: { branch: '--force' } });
+    await assert.rejects(removeWorktree(root, a.id, { force: true, deleteBranch: true }), /not a safe branch name/);
+    assert.ok(fs.existsSync(a.wt));
+    assert.deepEqual(removedEvents(root, a.id), []);
+  }
 });
