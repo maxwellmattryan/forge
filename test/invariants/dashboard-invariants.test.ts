@@ -1,6 +1,6 @@
 // The dashboard invariants a public function can't hold, so these tests read source and build text (docs/TESTING.md
 // "Allowed source-text tests"): raw HTML and URLs stay confined to the escape-first helpers, every message comes from
-// en.json, the build loads nothing from another origin, theme colours keep text readable, and controls expose their
+// messages/en/, the build loads nothing from another origin, theme colours keep text readable, and controls expose their
 // state and names to assistive tech. Each check has a self-test that a planted break fails it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { CLOSE, endOf, literals, markup, soleCall, tags } from '../svelte-markup.ts';
 import { builtCss } from '../built-css.ts';
 import { DIST, noDist } from '../dist.ts';
-import { isPlural } from '../../dashboard/src/lib/i18n.ts';
+import { isPlural, mergeCatalogs } from '../../dashboard/src/lib/i18n.ts';
 import { TONE_CLASS } from '../../dashboard/src/lib/util.ts';
 import { THEMES } from '../../dashboard/src/lib/theme.ts';
 
@@ -209,9 +209,18 @@ test('the URL guard rejects shorthand, spreads and unchecked src/action/formacti
   for (const m of bad) assert.ok(urlProblems('bad.svelte', m).problems.length > 0, m);
 });
 
-// ---------- 2. i18n: every user-facing string comes from en.json through $t('literal.key') ----------
+// ---------- 2. i18n: every user-facing string comes from messages/en/ through $t('literal.key') ----------
 
-const EN = JSON.parse(readSrc('messages/en.json'));
+/** Every *.json directly in messages/en/ (not recursive, as the dashboard's glob), merged into one catalog. */
+const EN = mergeCatalogs(
+  Object.fromEntries(
+    fs
+      .readdirSync(path.join(SRC, 'messages', 'en'))
+      .filter((f) => f.endsWith('.json'))
+      .sort()
+      .map((f) => [f, JSON.parse(readSrc(`messages/en/${f}`))]),
+  ),
+);
 /** Every .svelte file under dashboard/src, as [path relative to src, text]. */
 const svelte = fs
   .readdirSync(SRC, { recursive: true })
@@ -243,7 +252,12 @@ const resolves = (key: string) => {
   return typeof v === 'string' || isPlural(v);
 };
 
-test('en.json is a catalog of strings and plural objects, and every message is used', () => {
+test('the catalog merge rejects a top-level key in two files', () => {
+  assert.deepEqual(mergeCatalogs({ 'a.json': { x: 'X' }, 'b.json': { y: { one: '1', other: 'n' } } }), { x: 'X', y: { one: '1', other: 'n' } });
+  assert.throws(() => mergeCatalogs({ 'a.json': { x: 'X' }, 'b.json': { x: 'Y' } }), /"x".*a\.json.*b\.json/);
+});
+
+test('the en catalog is strings and plural objects, and every message is used', () => {
   const all = leaves(EN);
   assert.ok(all.length > 50, `${all.length} messages`);
   const used = new Set<string>();
@@ -251,7 +265,7 @@ test('en.json is a catalog of strings and plural objects, and every message is u
     for (const m of text.matchAll(/\$t\(/g)) {
       const lit = /^\$t\(\s*(['"])([^'"\\]+)\1/.exec(text.slice(m.index));
       assert.ok(lit, `${f}: $t( needs a string-literal key: ${text.slice(m.index, m.index + 50)}`);
-      assert.ok(resolves(lit[2]), `${f}: $t('${lit[2]}') is not in en.json`);
+      assert.ok(resolves(lit[2]), `${f}: $t('${lit[2]}') is not in messages/en/`);
       used.add(lit[2]);
     }
   }
