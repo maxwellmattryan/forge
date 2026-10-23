@@ -1,0 +1,67 @@
+{
+  "description": "Every human gate, one job each",
+  "jobs": [
+    {
+      "key": "spec",
+      "title": "Approve the widget spec",
+      "files": { "spec.md": "# Widget\n\n## Acceptance criteria\n- [ ] AC1 — the widget renders\n" },
+      "steps": [["job", "set", "{id}", "--stage", "spec", "--state", "waiting", "--waiting-on", "spec-approval", "--reason", "spec ready"]]
+    },
+    {
+      "key": "split",
+      "title": "Split the billing overhaul",
+      "steps": [["job", "set", "{id}", "--stage", "plan", "--state", "waiting", "--waiting-on", "split-approval", "--reason", "three jobs proposed"]]
+    },
+    {
+      "key": "link",
+      "title": "Link the search fix to its issue",
+      "steps": [["job", "set", "{id}", "--stage", "spec", "--state", "waiting", "--waiting-on", "issue-link", "--reason", "no issue yet"]]
+    },
+    {
+      "key": "input",
+      "title": "Answer the cache question",
+      "files": { "questions.md": "1. Should the cache survive a restart?\n" },
+      "steps": [["job", "set", "{id}", "--stage", "build", "--state", "waiting", "--waiting-on", "input", "--reason", "one question"]]
+    },
+    {
+      "key": "escalation",
+      "title": "Escalated auth change",
+      "steps": [["job", "set", "{id}", "--stage", "decide", "--state", "waiting", "--waiting-on", "escalation", "--reason", "touches auth"]]
+    },
+    {
+      "key": "infra",
+      "title": "Run the bucket migration",
+      "files": { "runbook.md": "1. Create the bucket.\n" },
+      "steps": [["job", "set", "{id}", "--stage", "build", "--state", "waiting", "--waiting-on", "infra", "--reason", "runbook ready"]]
+    },
+    {
+      "key": "conflicts",
+      "title": "Resolve the router conflicts",
+      "steps": [["job", "set", "{id}", "--stage", "integrate", "--state", "waiting", "--waiting-on", "conflicts", "--reason", "two files conflict"]]
+    },
+    {
+      "key": "rounds",
+      "title": "Rounds ran out on the parser",
+      "steps": [["job", "set", "{id}", "--stage", "review", "--state", "waiting", "--waiting-on", "rounds-exhausted", "--reason", "three rounds"]]
+    },
+    {
+      "key": "budget",
+      "title": "Over budget on the importer",
+      "steps": [["job", "set", "{id}", "--stage", "build", "--state", "waiting", "--waiting-on", "budget", "--reason", "token cap reached"]]
+    },
+    {
+      "key": "human",
+      "title": "Check the protected paths",
+      "steps": [["job", "set", "{id}", "--stage", "verify", "--state", "waiting", "--waiting-on", "human", "--reason", "protected path changed"]]
+    }
+  ],
+  "expect": {
+    "pipeline": ["Approve the widget spec", "Spec approval", "Check the protected paths", "Human check"],
+    "project": ["@project.empty"],
+    "backlog": ["@backlog.empty"],
+    "agents": ["@agents.noRunning"],
+    "analytics": ["@analytics.jobs"],
+    "evals": ["@evals.empty"],
+    "drawer": { "job": "spec", "text": ["Spec approval"] }
+  }
+}

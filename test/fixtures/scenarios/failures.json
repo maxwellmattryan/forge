@@ -1,0 +1,53 @@
+{
+  "description": "A failed verify, a review sent back, a failed agent, a failed job and a blocked one",
+  "config": { "commands": { "test": "echo 'expected 3, got 2' >&2; exit 1" } },
+  "jobs": [
+    {
+      "key": "verify",
+      "title": "Verify fails on the date parser",
+      "steps": [
+        ["job", "set", "{id}", "--stage", "verify", "--state", "running"],
+        ["worktree", "create", "{id}"],
+        { "argv": ["verify", "{id}"], "exit": 1 }
+      ]
+    },
+    {
+      "key": "review",
+      "title": "Review sends back the queue rewrite",
+      "files": { "review/round-1/code.md": "VERDICT: CHANGES\n\n## Findings\n- [major] lib/queue.ts:42 — the retry loop never ends when the queue is empty\n" },
+      "steps": [
+        ["job", "set", "{id}", "--stage", "review", "--state", "running"],
+        ["job", "round", "{id}"],
+        ["job", "verdicts", "{id}", "--reviewers", "code"]
+      ]
+    },
+    {
+      "key": "agent",
+      "title": "Builder crashed on the upload page",
+      "steps": [
+        ["job", "set", "{id}", "--stage", "build", "--state", "running"],
+        ["job", "agent", "{id}", "start", "--role", "builder"],
+        ["job", "agent", "{id}", "end", "--role", "builder", "--status", "failed", "--summary", "BUILD: failed"]
+      ]
+    },
+    {
+      "key": "failed",
+      "title": "Migrate the old exports",
+      "steps": [["job", "set", "{id}", "--stage", "build", "--state", "failed", "--reason", "the worktree could not be created"]]
+    },
+    {
+      "key": "blocked",
+      "title": "Wire the payments webhook",
+      "steps": [["job", "set", "{id}", "--stage", "spec", "--state", "blocked", "--reason", "waiting on the payments team"]]
+    }
+  ],
+  "expect": {
+    "pipeline": ["Verify fails on the date parser", "Migrate the old exports", "Wire the payments webhook"],
+    "project": ["@project.empty"],
+    "backlog": ["@backlog.empty"],
+    "agents": ["@agents.noRunning"],
+    "analytics": ["@analytics.jobs"],
+    "evals": ["@evals.empty"],
+    "drawer": { "job": "verify", "text": ["Verify fails on the date parser"] }
+  }
+}
