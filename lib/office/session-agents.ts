@@ -3,6 +3,7 @@
 import { AGENT_LEASE_MS, loadJob } from '#core/job/store.ts';
 import { INBOX_SCOPE, validJobId } from '#core/job/requests.ts';
 import type { JobAgent } from '#core/types.ts';
+import { drivenBy } from './driver.ts';
 
 /** What a job session's agents say about keeping it: sessionAgents. */
 export interface SessionAgents {
@@ -26,22 +27,22 @@ const noAgents = (): SessionAgents => ({ running: [], keeps: false, lastEndAt: n
 const CLOCK_SKEW_MS = 60_000;
 
 /**
- * The agents a job session drives: those in its job.json, only while the job's lease driver is this
- * session. Another driver's agents (a human's terminal session, say), the inbox, and a missing or
- * unreadable job all give none, so a session can never be kept, or have agents marked lost, on
- * the strength of agents it doesn't drive. A running agent keeps it only for AGENT_LEASE_MS
+ * The agents a job session drives: those in its job.json, only while the job's lease driver is one
+ * of this session's ids (recordIds). Another driver's agents (a human's terminal session, say), the
+ * inbox, and a missing or unreadable job all give none, so a session can never be kept on the
+ * strength of agents it doesn't drive. A running agent keeps it only for AGENT_LEASE_MS
  * after its start, the lease agent start gives, so a phantom can't hold a slot forever.
  */
-export function sessionAgents(root: string, scope: string, sessionId: string | null, at = Date.now()): SessionAgents {
+export function sessionAgents(root: string, scope: string, ids: readonly string[], at = Date.now()): SessionAgents {
   // The office's scope is not a job id either, so it never has agents to keep it.
-  if (scope === INBOX_SCOPE || !validJobId(scope) || !sessionId) return noAgents();
+  if (scope === INBOX_SCOPE || !validJobId(scope) || !ids.length) return noAgents();
   let job;
   try {
     job = loadJob(root, scope);
   } catch {
     return noAgents();
   }
-  if (job.lease.driver !== sessionId) return noAgents();
+  if (!drivenBy(job, ids)) return noAgents();
   const running: string[] = [];
   const keeping: string[] = [];
   let lastEnd = -Infinity;

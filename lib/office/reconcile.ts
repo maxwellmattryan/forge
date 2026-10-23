@@ -6,7 +6,8 @@
 // for the foreman or a person. docs/ARCHITECTURE.md "Reconciler".
 import path from 'node:path';
 import { maybeEnqueueGate } from './foreman.ts';
-import { leaseStatus, listJobs, loadJob, logEvent, readEvents, requeueOrphanedRequests, setJob } from '#core/job/store.ts';
+import { whoDrives } from './driver.ts';
+import { listJobs, loadJob, logEvent, readEvents, requeueOrphanedRequests, setJob } from '#core/job/store.ts';
 import { paths } from '#core/paths.ts';
 import { enqueue, listRequests, requestScope, validJobId } from '#core/job/requests.ts';
 import { readJson, writeJsonAtomic } from '#core/os/fs.ts';
@@ -52,9 +53,9 @@ export type SessionFacts = { ids: string[]; status: string; background: number; 
 export function judge(job: Pick<Job, 'lease' | 'agents'>, routed: readonly Pick<ForgeRequest, 'status'>[], facts: SessionFacts | null | undefined, at: number): { driven: boolean; why: string } {
   if (routed.some((r) => r.status === 'pending' || r.status === 'in-progress')) return { driven: true, why: 'request' };
   if (facts && (facts.status === 'busy' || facts.status === 'stopping')) return { driven: true, why: 'session busy' };
-  const lease = leaseStatus(job, at);
-  if (lease.status !== 'live') return { driven: false, why: lease.status === 'expired' ? 'lease expired' : 'no driver' };
-  const own = Boolean(facts && job.lease.driver && facts.ids.includes(job.lease.driver));
+  const d = whoDrives(job, facts, at);
+  if (d.lease !== 'live') return { driven: false, why: d.lease === 'expired' ? 'lease expired' : 'no driver' };
+  const own = d.own;
   if (own && facts!.status === 'off') return { driven: false, why: 'its session is off' };
   const idle = facts?.idleSince ? Date.parse(facts.idleSince) : NaN;
   if (own && facts!.status === 'idle' && Number.isFinite(idle) && at - idle >= IDLE_UNDRIVEN_MS) {
@@ -109,18 +110,14 @@ export interface ReconcileResult {
  * One pass: requeue orphaned requests, then judge every running job (or only `only`). An undriven
  * job is resumed the first time and whenever it made progress since the last resume, and escalated
  * when it is undriven again at the same mark with nothing routed to it. Jobs in any other state
- * lose their record. `facts` are the dash's sessions by job id; `exited`, session ids just seen
- * exiting (their claimed requests go back to pending); `busy`, the ids of the dash's sessions
- * mid-turn, whose claims stay however old.
+ * lose their record. `facts` are the dash's sessions by job id; `busy`, the ids of the dash's
+ * sessions mid-turn, whose claims stay however old. A session's exit requeues its own claims
+ * (lib/office/driver.ts releaseSession).
  */
-export function reconcile(
-  root: string,
-  config: Config,
-  opts: { at?: number; facts?: Map<string, SessionFacts>; only?: string; exited?: string[]; busy?: readonly string[] } = {},
-): ReconcileResult {
+export function reconcile(root: string, config: Config, opts: { at?: number; facts?: Map<string, SessionFacts>; only?: string; busy?: readonly string[] } = {}): ReconcileResult {
   const at = opts.at ?? Date.now();
   const out: ReconcileResult = { resumed: [], escalated: [], requeued: [] };
-  out.requeued = requeueOrphanedRequests(root, { at, exited: opts.exited, busy: opts.busy }).requeued.map((r) => r.id);
+  out.requeued = requeueOrphanedRequests(root, { at, busy: opts.busy }).requeued.map((r) => r.id);
   withLock(memoryLock(root), () => {
     const mem = readMemory(root);
     let jobs: LoadedJob[];

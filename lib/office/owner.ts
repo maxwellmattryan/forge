@@ -1,32 +1,7 @@
-// What the daemon's session records say about who drives what: the ids `forge dash` sessions ran
-// under (the supervisor expires their leases when they exit, lib/office/session/owned.ts and lib/office/pool.ts),
-// and the refusals that keep the inbox and office sessions from driving a job.
-// A separate module because lib/office/session/owned.ts imports lib/core/job/store.ts, which must not import it back.
-import { UUID, readInfo, sessionRecords } from '#core/job/session-files.ts';
+// The refusals that keep the inbox and office daemon sessions from driving a job: the inbox only
+// routes and the office only decides gates. Who drives a job is lib/office/driver.ts.
 import { INBOX_SCOPE, OFFICE_SCOPE, daemonScope } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';
-
-const uuids = (xs: unknown[]): string[] => xs.filter((s): s is string => typeof s === 'string' && UUID.test(s));
-
-/** Ids a record held before its current one: its past list and the id its child was spawned with. */
-const pastIds = (info: any): string[] => uuids([...(Array.isArray(info.pastSessionIds) ? info.pastSessionIds : []), info.spawnSessionId]);
-
-/** Every id, current or past, of the inbox session's record. */
-export function inboxSessionIds(root: string): string[] {
-  const rec = sessionRecords(root).find((r) => r.scope === INBOX_SCOPE);
-  if (!rec) return [];
-  const info = readInfo(rec.info);
-  return [...new Set(uuids([info.sessionId, ...pastIds(info)]))];
-}
-
-/** Every id, current or past, of every session record: the sessions `forge dash` ran, as opposed to interactive ones. */
-export function daemonSessionIds(root: string): string[] {
-  const ids = sessionRecords(root).flatMap((r) => {
-    const info = readInfo(r.info);
-    return uuids([info.sessionId, ...pastIds(info)]);
-  });
-  return [...new Set(ids)];
-}
 
 export const OFFICE_REFUSAL = 'the office session decides gates and does not drive jobs';
 

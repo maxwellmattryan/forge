@@ -26,7 +26,7 @@ const MAX_PAST_SESSION_IDS = 20;
 /**
  * The record after its session id becomes `next`: the old id (a uuid only, since the record is a
  * local file anyone with repo access can edit) joins `pastSessionIds`, deduped and capped. A record
- * runs one child at a time, so a past id names a session that has exited (lib/office/owner.ts).
+ * runs one child at a time, so a past id names a session that has exited (lib/office/driver.ts).
  */
 export function withSessionId(info: any, next: string): any {
   const kept = [...(Array.isArray(info.pastSessionIds) ? info.pastSessionIds : []), info.sessionId].filter((s: unknown): s is string => typeof s === 'string' && UUID.test(s) && s !== next);

@@ -133,7 +133,7 @@ Why these sit in core, and why so:
 | `session/` | lifecycle ← `daemon.ts`, split in #416 into `contract.ts`, `control.ts`, `holds.ts`, `launch.ts`, `log.ts`, `owned.ts`, `records.ts` and `timers.ts` |
 | pool | ← `daemon-pool.ts` |
 | owner | ← `daemon-owner.ts` |
-| leaves | `session-agents.ts`, `reconcile.ts`, `foreman.ts`, `notify.ts` |
+| leaves | `driver.ts` (#459: the id helpers out of `owner.ts`, and the one release), `session-agents.ts`, `reconcile.ts`, `foreman.ts`, `notify.ts` |
 
 ### server
 

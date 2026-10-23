@@ -71,7 +71,7 @@ export async function postJob(ctx: ServerCtx, req: http.IncomingMessage, res: ht
 export function getJob(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): void {
   const { root, projects } = ctx;
   const id = match.params[0];
-  return json(res, jobDetail(root, id, projects, ctx.ownPoolSession));
+  return json(res, jobDetail(root, id, projects, ctx.drive));
 }
 
 /** GET /api/jobs/:id/file and /raw: a text file or screenshot in the job dir, or a mockup in a sandboxed frame. */
@@ -112,7 +112,7 @@ export async function postRequest(ctx: ServerCtx, req: http.IncomingMessage, res
   if (body.type === 'gate') return jsonStatus(res, 400, { error: 'gate requests are written only by forge job set and forge pr sync' });
   const problem = requestArgsProblem(body, loadConfig(root).config.tracker.kind);
   if (problem) return jsonStatus(res, 400, { error: problem });
-  const held = resumeHeld(root, body, ctx.ownPoolSession);
+  const held = resumeHeld(root, body, ctx.drive);
   if (held) return jsonStatus(res, 409, { error: held });
   const { config } = loadConfig(root);
   const rec = enqueue(root, config, { type: body.type, job: body.job, text: body.text, args: body.args, from: 'dashboard' });
@@ -182,7 +182,7 @@ export async function postJobRepos(ctx: ServerCtx, req: http.IncomingMessage, re
   if (!decided.pending.length && isRepoProposalPark(loadJob(root, id))) {
     setJob(root, id, { state: 'running' });
     // A live session that holds the job picks the decision up at its next step.
-    if (resumeHeld(root, { type: 'resume', job: id }, ctx.ownPoolSession) === null) {
+    if (resumeHeld(root, { type: 'resume', job: id }, ctx.drive) === null) {
       enqueue(root, null, { type: 'resume', job: id, from: 'dashboard' });
       ctx.pool?.poke();
       resumed = true;
@@ -266,11 +266,12 @@ function hasSlugText(title: string): boolean {
 }
 
 /**
- * POST /api/requests: why a resume would only bounce off another driver's live lease, or null.
- * Advisory: the job session's own claim (inside the job lock) decides. Any `args` are ignored here,
- * so `force` or `intake` cannot switch it off. A bad or unknown id is left to enqueue and the inbox.
+ * POST /api/requests: why a resume would only bounce off a live lease that is not the job's own
+ * running pool session's (Drive.held), or null. Advisory: the job session's own claim (inside the
+ * job lock) decides. Any `args` are ignored here, so `force` or `intake` cannot switch it off. A bad
+ * or unknown id is left to enqueue and the inbox.
  */
-function resumeHeld(root: string, body: Record<string, any>, ownPoolSession: (job: LoadedJob) => boolean): string | null {
+function resumeHeld(root: string, body: Record<string, any>, drive: ServerCtx['drive']): string | null {
   if (body.type !== 'resume' || !validJobId(body.job) || !exists(path.join(jobDir(root, body.job), 'job.json'))) return null;
   let job: LoadedJob;
   try {
@@ -279,8 +280,8 @@ function resumeHeld(root: string, body: Record<string, any>, ownPoolSession: (jo
     // A job.json from a newer Forge or a broken one: the inbox reports it, as for an unknown id.
     return null;
   }
+  if (!drive(job).held) return null;
   const o = leaseStatus(job);
-  if (o.status !== 'live' || ownPoolSession(job)) return null;
   return `job ${job.id} is held by session ${o.session} (claimed ${o.since}, lease renewed ${o.renewedAt}, until ${o.expiresAt}); resume it from that session or wait until its lease expires`;
 }
 
@@ -303,7 +304,7 @@ function requestArgsProblem(body: Record<string, any>, trackerKind: string): str
   return null;
 }
 
-function jobDetail(root: string, id: string, projects: string, ownPoolSession: (job: LoadedJob) => boolean): JobDetail {
+function jobDetail(root: string, id: string, projects: string, drive: ServerCtx['drive']): JobDetail {
   const job = loadJob(root, id);
   const dir = jobDir(root, id);
   const files: string[] = [];
@@ -331,7 +332,7 @@ function jobDetail(root: string, id: string, projects: string, ownPoolSession: (
   const createdSource = created?.source as { ref?: unknown } | null | undefined;
   const fromTracker = createdIssues.some((i) => Boolean(i && typeof i === 'object' && (i as { ref?: unknown }).ref)) || Boolean(createdSource?.ref);
   return redactDeep<JobDetail>({
-    job: { ...job, progress: progress(root, id), ownerStatus: { ...leaseStatus(job), jobSession: ownPoolSession(job) } },
+    job: { ...job, progress: progress(root, id), ownerStatus: { ...leaseStatus(job), jobSession: drive(job).jobSession } },
     events: events.slice(-400),
     files,
     screenshots: listScreenshots(dir),

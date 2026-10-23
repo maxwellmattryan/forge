@@ -10,8 +10,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fakeClaude, repoTemplate, waitFor, type FakeClaudeChild } from '../../../test/helpers.ts';
 import { defaults, trustDigest } from '#core/config/load.ts';
-import { createJob, loadJob, recordAgent, updateJob } from '#core/job/store.ts';
-import { INBOX_SCOPE } from '#core/job/requests.ts';
+import { createJob, loadJob, readEvents, recordAgent, updateJob } from '#core/job/store.ts';
+import { INBOX_SCOPE, claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
 import { sessionFiles } from '#core/job/session-files.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { buildArgv } from '#integrations/claude/argv.ts';
@@ -19,7 +19,7 @@ import { PROMPT_INPUT_CHARS } from '#integrations/claude/stream.ts';
 import type { ClaudeEvent } from '#integrations/claude/types.ts';
 import { createSession } from './lifecycle.ts';
 import { sessionOptions, type LogSink, type SessionContext } from './contract.ts';
-import { LOST_SUMMARY } from './owned.ts';
+import { LOST_SUMMARY } from '../driver.ts';
 import type { Config, DaemonPermissionMode } from '#core/types.ts';
 
 const CONFIG_TEXT = 'daemon:\n  enabled: true\n  command: claude {session}\n';
@@ -46,6 +46,9 @@ interface RigOpts {
   secrets?: string[];
   /** A session record written before the session is created. */
   record?: Record<string, unknown>;
+  graceMs?: number;
+  /** false: a signalled child never closes (fakeClaude's exitOnSignal). */
+  exitOnSignal?: boolean;
 }
 
 const MAX_LINE_BYTES = 123_456;
@@ -65,7 +68,7 @@ function rig(t: any, opts: RigOpts = {}) {
     fs.mkdirSync(f.dir, { recursive: true });
     fs.writeFileSync(f.info, JSON.stringify(opts.record));
   }
-  const calls = { emit: [] as any[], fatal: [] as string[], untrusted: 0, refused: [] as any[], loadConfig: [] as any[] };
+  const calls = { emit: [] as any[], fatal: [] as string[], untrusted: 0, refused: [] as any[], loadConfig: [] as any[], onExit: 0 };
   const ctx: SessionContext = {
     trusted: () => digest,
     poolWanted: () => true,
@@ -74,17 +77,17 @@ function rig(t: any, opts: RigOpts = {}) {
     fatal: (m) => void calls.fatal.push(m),
     emit: (e) => void calls.emit.push(e),
     onResult: () => {},
-    onExit: () => {},
+    onExit: () => void calls.onExit++,
     poke: () => {},
     permissionMode: () => opts.mode ?? null,
     permissionModeRefused: (s, mode, live) => void calls.refused.push({ scope: s, mode, live }),
     effort: () => ({ level: null, source: 'none' }),
   };
-  const claude = fakeClaude();
+  const claude = fakeClaude(opts.exitOnSignal === undefined ? {} : { exitOnSignal: opts.exitOnSignal });
   const mem = memorySink();
   const o = sessionOptions({
     claude: claude.adapter,
-    graceMs: 500,
+    graceMs: opts.graceMs ?? 500,
     maxLineBytes: MAX_LINE_BYTES,
     env: { PATH: process.env.PATH },
     redactor: () => opts.secrets ?? [],
@@ -395,26 +398,53 @@ test('a hung turn and an idle session are stopped', async (t) => {
   }
 });
 
-// B28 (kept by its job's running agent), B30 (that agent lost on exit), B33 (the lease expires),
-// B29 (facts' ids hold the spawn id).
+// B28 (kept by its job's running agent, under its spawn id after a session-changed), B29 (facts'
+// ids hold the current and spawn ids), B30 (that agent lost on exit), B31 (its claims requeued),
+// B33 (the lease expires): one release, however the child went.
 test("an exit lets go of its job's agents and lease", async (t) => {
-  const r = rig(t, { job: true });
-  r.s.spawn(r.cfg);
-  const sid = r.s.state().sessionId!;
-  const at = new Date().toISOString();
-  updateJob(r.root, r.scope, (j) => {
-    j.lease = { driver: sid, epoch: 1, since: at, renewedAt: at, expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() };
-  });
-  recordAgent(r.root, r.scope, { role: 'builder', phase: 'start' }, defaults());
-  r.s.refreshKept();
-  assert.equal(r.s.kept, 'agents');
-  r.children[0].exit(1, null);
-  await waitFor(() => !r.s.running, { what: 'the exit' });
-  const job = loadJob(r.root, r.scope);
-  assert.equal(job.agents.builder?.status, 'lost');
-  assert.equal(job.agents.builder?.summary, LOST_SUMMARY);
-  assert.ok(Date.parse(job.lease.expiresAt!) <= Date.now(), 'the lease is expired');
-  assert.ok(r.s.facts().ids.includes(sid));
+  type Rig = ReturnType<typeof rig>;
+  const rows: { name: string; opts?: RigOpts; end: (r: Rig) => Promise<void> | void; reason: string }[] = [
+    { name: 'the child exits on its own', end: (r) => r.children[0].exit(1, null), reason: 'exited (code 1, signal null)' },
+    { name: 'a kill whose child closes', end: (r) => r.s.kill('stop', true, 'job-finished'), reason: 'job-finished' },
+    { name: 'a kill whose child never closes', opts: { exitOnSignal: false, graceMs: 20 }, end: (r) => r.s.kill('stop', true, 'job-finished'), reason: 'job-finished' },
+  ];
+  for (const row of rows) {
+    const r = rig(t, { job: true, ...row.opts });
+    r.s.spawn(r.cfg);
+    const s = r.s.state().sessionId!;
+    const y = crypto.randomUUID();
+    r.children[0].emit({ kind: 'session-id', id: y });
+    const at = new Date().toISOString();
+    updateJob(r.root, r.scope, (j) => {
+      j.lease = { driver: s, epoch: 1, since: at, renewedAt: at, expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() };
+    });
+    recordAgent(r.root, r.scope, { role: 'builder', phase: 'start' }, defaults());
+    const req = enqueue(r.root, r.cfg, { type: 'resume', job: r.scope, from: 'dashboard' });
+    claimRequest(r.root, req.id, s);
+    r.s.refreshKept();
+    assert.equal(r.s.kept, 'agents', row.name);
+    assert.ok(r.s.facts().ids.includes(y) && r.s.facts().ids.includes(s), `${row.name}: facts hold Y and S`);
+
+    await row.end(r);
+    await waitFor(() => !r.s.running && r.s.status === 'off' && r.calls.onExit > 0, { what: `${row.name}: the session is gone` });
+    const job = loadJob(r.root, r.scope);
+    const { driver, expiresAt } = job.lease;
+    assert.equal(job.agents.builder?.status, 'lost', row.name);
+    assert.equal(job.agents.builder?.summary, LOST_SUMMARY, row.name);
+    assert.equal(driver, s, `${row.name}: the driver is kept`);
+    assert.ok(Date.parse(expiresAt!) <= Date.now(), `${row.name}: the lease is expired`);
+    assert.deepEqual(
+      readEvents(r.root, r.scope).filter((e) => e.type === 'lease-expired').map((e) => ({ session: e.session, reason: e.reason })),
+      [{ session: s, reason: row.reason }],
+      row.name,
+    );
+    const after = listRequests(r.root).find((x) => x.id === req.id)!;
+    assert.deepEqual({ status: after.status, requeues: after.requeues, session: after.session }, { status: 'pending', requeues: 1, session: undefined }, row.name);
+    assert.deepEqual(r.event('agents-lost').map((l) => ({ job: l.job, roles: l.roles })), [{ job: r.scope, roles: ['builder'] }], row.name);
+    assert.deepEqual(r.event('lease-expired').map((l) => ({ job: l.job, session: l.session, reason: l.reason })), [{ job: r.scope, session: s, reason: row.reason }], row.name);
+    assert.deepEqual(r.event('requeued').map((l) => ({ requests: l.requests, rejected: l.rejected })), [{ requests: [req.id], rejected: [] }], row.name);
+    assert.equal(r.calls.onExit, 1, `${row.name}: onExit ran once`);
+  }
 });
 
 // B8 (argv, cwd and env), B10 (argv from the bytes it hashed, no second read), E7 (a config changed
