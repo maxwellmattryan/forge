@@ -261,7 +261,7 @@
              badge speak; its words are sr-only), so it adds no fit level. The badge counts decisions plus pool-wide
              permission prompts. -->
         <button bind:this={needsButton} class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="needs" aria-haspopup="dialog" aria-expanded={expanded('needs')} aria-controls={controls('needs')} onclick={(e) => openPopover('needs', e.currentTarget)}>
-          <Lamp state={lamps.needs} />
+<!--          <Lamp state={lamps.needs} />-->
           <span class="relative inline-flex {needsTotal > 0 ? 'text-fg' : 'text-muted'}"><Icon name="bell" />{#if needsTotal > 0}<Chip tone="you" extra="badge num" ariaHidden text={needsTotal} />{/if}</span>
           <span class="sr-only">{$t('statusbar.needs.name')}{#if needs > 0}{', '}{$t('statusbar.needs.count', { count: needs })}{/if}{#if bar.prompts > 0}{', '}{$t('permission.heading', { count: bar.prompts })}{/if}</span>
         </button>
