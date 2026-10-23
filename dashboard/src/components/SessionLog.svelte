@@ -326,7 +326,7 @@
         {#if transcript}
           <span role="note" class="min-w-0 break-all">{transcript.label}</span>
         {:else}
-          <Chip role="status" tone={pill.tone} title={pill.title} text={pill.label} />
+          <Chip ariaHidden tone={pill.tone} title={pill.title} text={pill.label} />
           <span class="text-fg">{$t('session.turns', { count: view.totals.turns })}</span>
           {#if view.totals.results}<span class="text-fg" title={$t('session.costTitle')}>{$t('session.cost', { cost: usd(view.totals.costUsd) })}</span>{/if}
           <span class="min-w-0 break-all text-fg">{$t('session.model', { model })}</span>
@@ -334,6 +334,9 @@
         {/if}
       </div>
     {/key}
+    <!-- The pill's live region stays mounted outside the key: a region remounted with its text, as the key does on a stage
+         change, is often not read. The visible chip is aria-hidden so nothing is read twice. -->
+    {#if !transcript}<span role="status" class="sr-only">{pill.label}</span>{/if}
     <div class="ml-auto flex flex-wrap items-center justify-end gap-1.5">
       {#if !transcript}
         <!-- The Select stays enabled while its entries can't change, so it still opens and the hints stay readable. -->

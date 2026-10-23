@@ -51,8 +51,8 @@
   function place(): void {
     if (!panel || !trigger) return;
     const r = trigger.getBoundingClientRect();
-    const p = panel.getBoundingClientRect();
-    at = placeMenu({ top: r.top, bottom: r.bottom, right: r.right, vw: document.documentElement.clientWidth, vh: window.innerHeight, width: p.width, height: p.height });
+    // Offset sizes: menu-pop opens at scale .96, which would shrink a bounding rect and misplace a menu that opens above.
+    at = placeMenu({ top: r.top, bottom: r.bottom, right: r.right, vw: document.documentElement.clientWidth, vh: window.innerHeight, width: panel.offsetWidth, height: panel.offsetHeight });
     origin = at.top < r.top ? 'bottom right' : 'top right';
   }
 

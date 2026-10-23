@@ -443,10 +443,12 @@
   :focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
   /* The status bar is fixed over the viewport's bottom: a control scrolled into view by focus stops clear of it. */
   html { scroll-padding-bottom: calc(var(--size-statusbar) + env(safe-area-inset-bottom) + var(--space-2)); }
-  /* A <details> opens with a height transition where the browser can animate to auto; elsewhere it opens at once. */
+  /* A <details> opens with a height transition where the browser can animate to auto; elsewhere it opens at once.
+     The 4px clip margin is a focus ring's reach (2px outline, 2px offset), so a control flush with the content's edge,
+     such as a nested summary, keeps its ring. */
   :root { interpolate-size: allow-keywords; }
   @supports selector(::details-content) {
-    details::details-content { block-size: 0; overflow: clip; transition: block-size var(--motion-base) var(--ease-enter), content-visibility var(--motion-base) allow-discrete; }
+    details::details-content { block-size: 0; overflow: clip; overflow-clip-margin: 4px; transition: block-size var(--motion-base) var(--ease-enter), content-visibility var(--motion-base) allow-discrete; }
     details[open]::details-content { block-size: auto; }
   }
 }
@@ -1086,9 +1088,16 @@
 @utility trace-draw { animation: trace-draw var(--motion-slow) var(--ease-enter) both; }
 @keyframes trace-draw { from { stroke-dashoffset: 34.56; } to { stroke-dashoffset: 0; } }
 /* A board card whose stage just changed: its edge starts at spark with a soft glow and cools to its own over --heat-cool,
-   once. No `to` frame, so it settles on the card's own border and shadow, ember included. Nothing moves or fades. */
-@utility cooling { animation: edge-cool var(--heat-cool) var(--ease-enter) both; }
-@keyframes edge-cool { from { border-color: var(--spark); box-shadow: 0 0 0 1px var(--spark), 0 0 12px 0 color-mix(in srgb, var(--spark) 45%, transparent), var(--shadow-bevel); } }
+   once. No `to` frame, so it settles on the card's own border and shadow, ember included. Nothing moves or fades.
+   A shadow list interpolates only when its entries line up with the card's own ([bevel] or [ember bar, bevel]) by
+   position and inset-ness, else it flips at once. So each `from` lists the card's own shadows first, then the ring and
+   glow, which pad against the shorter list and fade out. */
+@utility cooling {
+  animation: edge-cool var(--heat-cool) var(--ease-enter) both;
+  &.ember { animation-name: edge-cool-ember; }
+}
+@keyframes edge-cool { from { border-color: var(--spark); box-shadow: var(--shadow-bevel), 0 0 0 1px var(--spark), 0 0 12px 0 color-mix(in srgb, var(--spark) 45%, transparent); } }
+@keyframes edge-cool-ember { from { border-color: var(--spark); box-shadow: inset var(--bar-rule) 0 0 0 var(--ember), var(--shadow-bevel), 0 0 0 1px var(--spark), 0 0 12px 0 color-mix(in srgb, var(--spark) 45%, transparent); } }
 @utility backdrop {
   background: rgba(5,7,10,.72);
   [data-theme="ash"] & { background: rgba(20,24,30,.45); }
@@ -1127,8 +1136,10 @@
   position: relative;
   &[data-marker]::before { content: ""; position: absolute; left: 0; top: 0; translate: var(--mk-x) var(--mk-y); width: var(--mk-w); height: var(--mk-h); pointer-events: none; }
   &[data-marker="on"]::before { transition: translate var(--motion-base) var(--ease-enter), width var(--motion-base) var(--ease-enter), height var(--motion-base) var(--ease-enter); }
-  /* The nav: a 3px gleam bar over the active item's left edge, in place of its own inset bar. */
-  &.navlist[data-marker]::before { background: var(--gleam); z-index: 2; }
+  /* The nav: a 3px gleam bar over the active item's left edge, in place of its own inset bar. The clip follows the
+     item's bottom-left chamfer (a --radius-nick bevel: its diagonal is 5px up the bar's left edge and 2px up its right
+     edge), so the bar's corner doesn't poke past it. */
+  &.navlist[data-marker]::before { background: var(--gleam); z-index: 2; clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--radius-nick) + var(--bar-rule)), 0 calc(100% - var(--radius-nick))); }
   &.navlist[data-marker] :is(a, button).active { box-shadow: var(--shadow-bevel); }
   /* The tab strip: a 2px gleam baseline in place of the active tab's own. */
   &.tabs[data-marker]::before { background: var(--gleam); z-index: 2; }
@@ -1281,6 +1292,9 @@ input[type=checkbox]:focus-visible, input[type=radio]:focus-visible { outline: 2
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+  /* `*` does not match ::details-content, and a selector list with a pseudo-element the browser lacks is dropped whole,
+     so it gets its own rule. */
+  details::details-content { transition: none !important; }
 }
 /* Phones: 44px touch targets. Inline links in prose and table text are exempt (WCAG 2.5.5). */
 @media (width < 48rem) {
