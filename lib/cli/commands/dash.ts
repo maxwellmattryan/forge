@@ -11,7 +11,8 @@ import { daemonPlatformProblem } from '#core/os/platform.ts';
 import { getPath } from '#core/shape.ts';
 import { ForgeError } from '#core/errors.ts';
 import { pidAlive, sleepSync } from '#core/os/process.ts';
-import { readJson, readText, writeJsonAtomic } from '#core/os/fs.ts';
+import { readText, writeJsonAtomic } from '#core/os/fs.ts';
+import { dashboardRecordFile, loopbackOrigin, provenDashboard, readDashboardRecord } from '#engine/ops/dashboard-record.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { out, outputMode } from './args.ts';
 import { colorEnabled } from './render.ts';
@@ -30,7 +31,7 @@ export const HELP: HelpGroup[] = [
         summary: 'start the dashboard in the foreground (prints its URL), or detached with --background; --stop stops it and its sessions',
         flags: [
           ['--background', 'start it detached and print {url, pid}'],
-          ['--stop', 'stop it and reap its sessions'],
+          ['--stop', 'stop it and reap its sessions; a dashboard.json whose pid is not provably that dashboard is cleared without signalling anything'],
           ['--port N', 'the first port to try (default: dashboard.port, 7400)'],
           ['--foreground', 'run in the foreground even when one is running'],
           ['--permission-mode MODE', "the job sessions' default permission mode until it stops: default (ask), auto or dontAsk (refuse); refused in a daemon session"],
@@ -117,11 +118,12 @@ export function jobPermissionMode(flags: Record<string, any>, env: NodeJS.Proces
 
 export async function dash(root: string, config: Config, flags: Record<string, any>): Promise<void> {
   const mode = jobPermissionMode(flags);
-  const rtFile = path.join(paths(root).runtime, 'dashboard.json');
-  const current = readJson(rtFile, null);
-  const alive = pidAlive(current?.pid);
+  const rtFile = dashboardRecordFile(root);
+  // Sessions can write the runtime dir, so a record that is not provably this repo's dashboard is
+  // never signalled and its url never shown: it counts as no dashboard at all.
+  const current = provenDashboard(root);
   if (flags.stop) {
-    if (alive) {
+    if (current) {
       // pidAlive checks the group first, so the server itself may already be gone.
       try {
         process.kill(current.pid, 'SIGTERM');
@@ -133,18 +135,18 @@ export async function dash(root: string, config: Config, flags: Record<string, a
     writeJsonAtomic(rtFile, {});
     // Whatever the server could not stop (it was SIGKILLed, or hung) is reaped here.
     const { reaped } = reapOrphans(root);
-    return out({ stopped: Boolean(alive), daemonReaped: reaped.length > 0 }, flags);
+    return out({ stopped: Boolean(current), daemonReaped: reaped.length > 0 }, flags);
   }
   // A dev dashboard must never take over (or silently stand beside) the repo's live one: they would
   // share dashboard.json and the session pool's records.
-  if (flags.dev && alive) {
+  if (flags.dev && current) {
     throw new ForgeError(
       `a dashboard is already running for this repo at ${current.url} (pid ${current.pid}); stop it with forge dash --stop, or point npm run dev at a scratch repo with FORGE_ROOT=<dir>`,
       'failed',
       'forge dash --stop',
     );
   }
-  if (alive && !flags.foreground) return out({ url: current.url, pid: current.pid, running: true }, flags);
+  if (current && !flags.foreground) return out({ url: current.url, pid: current.pid, running: true }, flags);
   const port = Number(flags.port ?? config.dashboard.port ?? 7400);
   const note = await dashNotes(root, config, flags);
   if (flags.background) {
@@ -155,8 +157,10 @@ export async function dash(root: string, config: Config, flags: Record<string, a
     });
     child.unref();
     for (let i = 0; i < 60; i++) {
-      const rt = readJson(rtFile, null);
-      if (rt?.pid === child.pid) return out({ url: rt.url, pid: child.pid, started: true, ...note }, flags);
+      // The pid is the child just spawned, so only the url needs proving.
+      const rt = readDashboardRecord(root);
+      const url = rt && rt.pid === child.pid ? loopbackOrigin(rt.url) : null;
+      if (url) return out({ url, pid: child.pid, started: true, ...note }, flags);
       sleepSync(50);
     }
     return out({ url: `http://127.0.0.1:${port}`, pid: child.pid, started: true, unconfirmed: true, ...note }, flags);

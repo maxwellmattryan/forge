@@ -148,8 +148,8 @@ export interface Roster {
   warnings: string[];
 }
 
-/** A readiness rubric key a triage verdict can name: TRIAGE_MISSING in lib/engine/trackers/triage.ts. */
-export type TriageMissing = 'outcome' | 'acceptance' | 'scope' | 'duplicate';
+/** A readiness rubric key a triage verdict can name: TRIAGE_MISSING in lib/engine/trackers/triage.ts. `hidden-text` is Forge's own. */
+export type TriageMissing = 'outcome' | 'acceptance' | 'scope' | 'duplicate' | 'hidden-text';
 
 /** The last triage verdict for an item, from the triage cache (lib/engine/trackers/triage.ts). */
 export interface TriageInfo {
