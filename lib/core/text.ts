@@ -17,6 +17,12 @@ export function redact(text: string, secrets: readonly string[]): string {
  */
 export const SAFE_REF = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
 
+// Shas reach git as arguments, and a PR head comes from GitHub: anything else could read as an option.
+const SHA = /^[0-9a-f]{7,64}$/i;
+
+/** A commit sha (7 to 64 hex digits), so it can never read as a git option. */
+export const isSha = (s: unknown): s is string => typeof s === 'string' && SHA.test(s);
+
 /** `value` when it matches SAFE_REF; otherwise a one-line ForgeError naming `field`. */
 export function assertSafeRef(value: unknown, field: string): string {
   if (typeof value === 'string' && SAFE_REF.test(value)) return value;

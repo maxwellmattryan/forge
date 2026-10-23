@@ -242,7 +242,7 @@ export function reservedFor(
 
 /**
  * A PR with feedback the foreman may act on: trusted feedback (threads or change requests from someone
- * with write access, counted by trustedFeedback in lib/integrations/github/pull-requests.ts) or failing checks.
+ * with write access, counted as PrFeedback.trusted by parseFeedback in lib/integrations/github/pull-requests.ts) or failing checks.
  */
 function prHasFeedback(job: Pick<Job, 'pr'>, trusted: number): boolean {
   return trusted > 0 || job.pr?.checks?.state === 'failing';

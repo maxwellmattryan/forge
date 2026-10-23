@@ -25,21 +25,30 @@ export function gh(cwd: string | undefined, args: string[], opts: GhOpts = {}): 
  * throws ForgeError `external`; under `allowFail` a failed call or such output is null instead.
  */
 export function ghJson<T = any>(cwd: string | undefined, args: string[], opts: GhOpts = {}): T {
-  const r = gh(cwd, args, opts);
-  if (!r.ok) return null as T;
+  return parseJsonOutput(gh(cwd, args, opts), args, opts) as T;
+}
+
+/** ghJson's parse of one finished gh call `r` made with `args`: the one JSON.parse of gh output in lib/. */
+export function parseJsonOutput(r: RunResult, args: string[], opts: Pick<GhOpts, 'allowFail'> = {}): unknown {
+  if (!r.ok) return null;
   try {
     return JSON.parse(r.stdout);
   } catch {
-    if (opts.allowFail) return null as T;
+    if (opts.allowFail) return null;
     throw new ForgeError(`gh ${args[0]} printed output that is not JSON`, 'external');
   }
 }
 
-/** `gh api graphql`'s `.data`. Strings go as `-f` (never read as a number or a file), numbers as `-F`. */
-export function ghGraphql(cwd: string | undefined, query: string, vars: Record<string, string | number>, opts: GhOpts = {}): any {
+/** `gh api graphql`'s argv. Strings go as `-f` (never read as a number or a file), numbers as `-F`. */
+export function graphqlArgs(query: string, vars: Record<string, string | number>): string[] {
   const args = ['api', 'graphql', '-f', `query=${query}`];
   for (const [k, v] of Object.entries(vars)) args.push(typeof v === 'number' ? '-F' : '-f', `${k}=${v}`);
-  return ghJson(cwd, args, opts)?.data;
+  return args;
+}
+
+/** `gh api graphql`'s `.data`: graphqlArgs, run and parsed as ghJson does. */
+export function ghGraphql(cwd: string | undefined, query: string, vars: Record<string, string | number>, opts: GhOpts = {}): any {
+  return ghJson(cwd, graphqlArgs(query, vars), opts)?.data;
 }
 
 export interface GhAsyncResult {

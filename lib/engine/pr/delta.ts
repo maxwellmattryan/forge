@@ -1,15 +1,15 @@
 // The human delta: what people changed on a PR branch after Forge's last push. It is the
 // escape rate that review threads only approximate, and the retro's strongest signal.
 import { git } from '#integrations/git/runner.ts';
+import { isSha } from '#core/text.ts';
 import type { HumanDelta } from '#core/types.ts';
 
+// Re-exported for the modules that read it from here (core/job/schema.ts, evals/outcome.ts, sync, members).
+export { isSha };
+
 const MAX_FILES = 100;
-// Shas reach git as arguments, and the head comes from GitHub: anything else could read as an option.
-const SHA = /^[0-9a-f]{7,64}$/i;
 // A missing commit can be a transient fetch failure, so a merged PR gets a few more syncs to find it.
 const MAX_ATTEMPTS = 3;
-
-export const isSha = (s: unknown): s is string => typeof s === 'string' && SHA.test(s);
 
 /**
  * Fetches one commit by sha. GitHub keeps serving a PR's head after its branch is deleted.

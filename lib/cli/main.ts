@@ -19,6 +19,7 @@ import { openPr } from '#engine/pr/open.ts';
 import { syncPr } from '#engine/pr/sync.ts';
 import { integrate, integrateContinue } from '#engine/pr/integrate.ts';
 import { mergePr, mergeTarget, readyPr } from '#engine/pr/merge.ts';
+import { ghGitHub } from '#integrations/github/pull-requests.ts';
 import { prepareRetro, retroDue } from '#engine/evals/retro.ts';
 import { roster } from '#engine/pipeline/roster.ts';
 import { computeStats, statsByPromptCmd, statsCsv } from '#engine/metrics/stats.ts';
@@ -202,17 +203,17 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       if (sub === 'merge') mergeTarget(flags);
       if (sub === 'ready') mergeTarget(flags, 'ready');
       const id = req(rest[0], 'job id');
-      if (sub === 'find') return ok(findPr(root, config, id));
-      if (sub === 'open') return ok(openPr(root, config, id, { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) }));
-      if (sub === 'sync') return ok(await syncPr(root, config, id));
+      if (sub === 'find') return ok(findPr(root, config, ghGitHub, id));
+      if (sub === 'open') return ok(openPr(root, config, ghGitHub, id, { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) }));
+      if (sub === 'sync') return ok(await syncPr(root, config, ghGitHub, id));
       if (sub === 'merge') {
         // Strictly `true`: `--now <id>` would make parseArgs swallow the id as the flag's value,
         // and that mistake must not silently bypass CI.
         refuseInOffice('the foreman never merges; foreman.ship merge only feeds the approver and step PR4');
-        const r = await mergePr(root, config, id, { now: flags.now === true, ...mergeTarget(flags) });
+        const r = await mergePr(root, config, ghGitHub, id, { now: flags.now === true, ...mergeTarget(flags) });
         return { data: r, exitCode: r.action === 'refused' || r.action === 'failed' ? 1 : 0 };
       }
-      if (sub === 'ready') return ok(readyPr(root, config, id, mergeTarget(flags, 'ready')));
+      if (sub === 'ready') return ok(readyPr(root, config, ghGitHub, id, mergeTarget(flags, 'ready')));
       throw usage('pr');
     }
     case 'release':
