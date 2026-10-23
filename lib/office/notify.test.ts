@@ -3,7 +3,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { jobAt, tempRepo } from '../../test/helpers.ts';
-import { registerNotify, type QueueNotify } from './notify.ts';
+import fs from 'node:fs';
+import path from 'node:path';
+import { dashboardUrl, registerNotify, type QueueNotify } from './notify.ts';
+import { dashboardRecordFile } from '#engine/ops/dashboard-record.ts';
 import { setJob } from '#core/job/store.ts';
 import { runTransitionHooks } from '#core/job/transitions.ts';
 import type { LoadedJob } from '#core/types.ts';
@@ -31,6 +34,28 @@ test('notifications follow registerNotify, not imports', () => {
     setJob(repo.dir, id, { state: 'running' });
     setJob(repo.dir, id, { state: 'failed' });
     assert.equal(calls.length, 1, 'a transition after the remover ran calls nothing');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('dashboardUrl links only a loopback dashboard origin', () => {
+  const repo = tempRepo();
+  try {
+    const file = dashboardRecordFile(repo.dir);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const rows: [string, string | null, { dashboard: { port?: number } }, string][] = [
+      ['a loopback record', 'http://localhost:7401', { dashboard: {} }, 'http://localhost:7401/#/pipeline'],
+      ['a non-loopback record', 'http://evil.example/', { dashboard: {} }, 'http://127.0.0.1:7400/#/pipeline'],
+      ['userinfo that looks loopback', 'http://127.0.0.1:7400@evil.example/', { dashboard: {} }, 'http://127.0.0.1:7400/#/pipeline'],
+      ['no record, no port', null, { dashboard: {} }, 'http://127.0.0.1:7400/#/pipeline'],
+      ['no record, a configured port', null, { dashboard: { port: 7450 } }, 'http://127.0.0.1:7450/#/pipeline'],
+    ];
+    for (const [name, url, config, want] of rows) {
+      fs.rmSync(file, { force: true });
+      if (url !== null) fs.writeFileSync(file, JSON.stringify({ pid: 4242, url, startedAt: new Date().toISOString() }));
+      assert.equal(dashboardUrl(repo.dir, config as never), want, name);
+    }
   } finally {
     repo.cleanup();
   }
