@@ -2,7 +2,7 @@
 // the CLI enforces these rules when a change is staged or committed (`forge git add|commit`), again
 // over the whole branch at `forge verify` and `forge pr open`, and `forge job step` parks a job whose
 // escalate paths no human approved (PP1). docs/CONFIG.md "Protected paths" has the user-facing rules.
-// No imports from worktree.ts or evals.ts: worktree.ts imports this module.
+// No imports from verify.ts, verify-steps.ts or evals.ts: verify.ts and verify-steps.ts import this module.
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';

@@ -3,7 +3,7 @@
 // command in Forge that publishes anything, `forge job interim publish`. Worktrees are recomputed
 // (isOwnWorktreePath, trustedMemberWorktree), never read from job.json alone, and every value that
 // reaches a manifest is checked first: a sha against FULL_SHA, a remote against isSafeRemote.
-// Must not import worktree.ts or integrity.ts: worktree.ts imports this module.
+// Must not import verify.ts or integrity.ts: verify.ts imports this module.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';

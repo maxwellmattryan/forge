@@ -1,7 +1,8 @@
 // Secret references (docs/CONFIG.md "Secret references"): the value of a declared secret, read from
 // its source only when a config sink renders `{secret.NAME}`. Tools run without a shell, with every
 // field in argv after validation refused a leading `-`. An error names the secret, its source kind
-// and the tool's last stderr line, never stdout or the value. Must not import worktree.ts.
+// and the tool's last stderr line, never stdout or the value. Must not import run.ts or
+// dev-server.ts: both reach this module through config-sinks-apply.ts.
 import fs from 'node:fs';
 import path from 'node:path';
 import { MIN_SECRET } from './known-secrets.ts';

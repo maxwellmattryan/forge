@@ -3,7 +3,7 @@
 // repos"). Links are declared once on `dependsOn` edges and recomputed from config and the job's repos
 // before every command; nothing is stored in job.json, and every rendered file lives in the job dir,
 // never in a worktree, so an override cannot reach a commit by accident (integrity.ts catches one on purpose).
-// Must not import worktree.ts or integrity.ts: both import this module.
+// Must not import run.ts, verify.ts, verify-steps.ts or integrity.ts: all four import this module.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';

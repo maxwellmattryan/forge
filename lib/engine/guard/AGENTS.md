@@ -2,7 +2,7 @@
 
 The guards on what jobs write and publish: verify integrity, protected paths, secret scanning and redaction, and AI attribution.
 
-- These modules sit below the worktree and PR code that calls them, so they never import `lib/engine/workspace/worktree.ts`, `lib/engine/pr/` or `lib/engine/evals/`.
+- These modules sit below the worktree and PR code that calls them, so they never import `lib/engine/workspace/` (worktree, run, verify), `lib/engine/pr/` or `lib/engine/evals/`.
 - `attribution.ts` is what the no-AI-attribution hook (`hooks/no-ai-attribution.ts`) imports; `.github/CODEOWNERS` names it.
 - When a guard parses git output, it pins the config that reshapes it (`--no-ext-diff`, `--no-textconv`, `core.quotepath=off`): repo and worktree config are builder-writable.
 

@@ -2,8 +2,8 @@
 // read one place (a DAW's plug-in folder) follow the focused job. The steps come only from the main
 // checkout's config. The record in .forge/runtime/checkout.json is agent-writable, so it only ever
 // steers undo for targets and command pairs the current config names, and the aside path is always
-// derived, never read from it. worktree.ts imports this module, so it must never import worktree.ts:
-// callers inject the command runner.
+// derived, never read from it. worktree.ts imports this module, so it must never import worktree.ts
+// or run.ts: callers inject the command runner.
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveTarget } from '#core/config/validators/checkout.ts';
@@ -18,7 +18,7 @@ import { ForgeError } from '#core/errors.ts';
 import { writeJsonAtomic } from '#core/os/fs.ts';
 import { withLockAsync } from '#core/os/lock.ts';
 
-/** What a step needs from `forge run`'s result (lib/engine/workspace/worktree.ts CommandResult). */
+/** What a step needs from `forge run`'s result (lib/engine/workspace/run.ts CommandResult). */
 export interface StepRun {
   ok: boolean;
   exit: number | null;

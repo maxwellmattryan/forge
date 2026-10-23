@@ -2,7 +2,8 @@
 
 Job worktrees and what runs in them: checkouts, focus, the editor, regeneration and configured job commands.
 
-- `job-command.ts` builds the environment, placeholders and shell of a configured command Forge runs for a job, apart from `worktree.ts` so callers can build one without loading it.
+- `job-command.ts` builds the environment, placeholders and shell (sync `shell` and async `shellAsync`) of a configured command Forge runs for a job, apart from `run.ts` and `worktree.ts` so callers can build one without loading them.
+- Import order, kept acyclic: `run.ts` ← `verify-steps.ts` ← `verify.ts` (which also imports `run.ts`), and `worktree.ts` imports `run.ts` for the checkout undo. `verify-steps.ts` never imports `verify.ts`, and `dev-server.ts` imports none of the four.
 - **Worktrees live outside the repo** on purpose: a nested worktree inside a Cargo workspace breaks Cargo, and bundlers and watchers pick up the copies. Don't "simplify" this to an in-repo `.worktrees/`.
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
