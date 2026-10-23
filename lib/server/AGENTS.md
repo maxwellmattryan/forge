@@ -3,7 +3,7 @@
 The dashboard's HTTP server: `/api` endpoints, server-sent events and the built dashboard, for loopback Hosts only, with token- and Origin-checked POSTs.
 
 - Preserve the security posture (docs/ARCHITECTURE.md "Dashboard security"): answer loopback Hosts only; every POST needs the token, a matching Origin and JSON.
-- The static allowlist is `dashboard/dist/manifest.json`, so a new dashboard module needs no server change. An `/api` shape change bumps `API_VERSION` and changes `lib/api/types.ts`.
+- The static allowlist is `dashboard/dist/manifest.json`, so a new dashboard module needs no server change. An `/api` shape change appends a named step to `API_CHANGES` in `lib/api/versions.ts` (on conflict keep both, in merge order) and changes `lib/api/types.ts`.
 - `http.ts` holds every guard, and the route table in `start.ts` names each route's guards: dispatch runs the POST guard on every POST route, and a GET that does work or reads logs lists `read`, `token` or `queryToken`. A new route is a row there and a handler in `routes/`.
 - Per-server state lives in `ServerCtx` (`types.ts`), built once per `startServer`, never at module level.
 
