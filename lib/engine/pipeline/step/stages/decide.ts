@@ -1,5 +1,5 @@
 // Decide: the approver (or, for an eval, the judge and the grade) and the gates its decision opens.
-import { pastTotalCeiling } from '#office/foreman.ts';
+import { pastTotalCeiling } from '../../moves/foreman-gates.ts';
 import type { JobAgent, WaitingOn } from '#core/types.ts';
 import { park, procedure, run, spawn, toStage } from '../actions.ts';
 import { recallEvents, recallReason, recallRecorded, recallWaived } from '../recall.ts';

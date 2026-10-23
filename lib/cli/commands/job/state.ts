@@ -1,14 +1,14 @@
 // `forge job set|effort|note|refresh-request|budget`: a job's stage, state, fields, effort, notes, request and budget limits.
 import { budgetCmd } from '#engine/metrics/budget.ts';
 import { inInboxOrOffice } from '#office/owner.ts';
-import { checkOfficeSetFor, inOffice, maybeEnqueueGate } from '#office/foreman.ts';
-import { refreshDependencyWait, validateDependsOn } from '#engine/pipeline/deps.ts';
-import { loadJob, logEvent, setJob, setJobEffort } from '#core/job/store.ts';
+import { checkOfficeSetFor } from '#office/foreman.ts';
+import { inOffice } from '#core/job/requests.ts';
+import { refreshDependencyWait, validateDependsOn } from '#engine/pipeline/moves/deps.ts';
+import { moveJob } from '#engine/pipeline/moves/apply.ts';
+import { loadJob, logEvent, setJobEffort } from '#core/job/store.ts';
 import { checkFieldKey, checkJobFields } from '#core/job/fields.ts';
 import { EFFORTS } from '#core/job/schema.ts';
-import { mirrorToTracker } from '#engine/trackers/mirror.ts';
 import { refreshRequest } from '#engine/trackers/request-refresh.ts';
-import { finishEnvironment, finishEnvironmentStopOnly } from '#engine/environment/lifecycle.ts';
 import { ForgeError } from '#core/errors.ts';
 import { coerce } from '#core/text.ts';
 import type { Config } from '#core/types.ts';
@@ -53,24 +53,18 @@ export async function set(root: string, config: Config, rest: string[], flags: R
   const waitingOn = flags['waiting-on'] === undefined ? undefined : flags['waiting-on'] === 'none' ? null : flags['waiting-on'];
   if (inOffice()) checkOfficeSetFor(root, before, { stage: flags.stage, state: flags.state, waitingOn, reason: flags.reason, fields });
   if ('dependsOn' in fields) fields.dependsOn = validateDependsOn(root, jobId, fields.dependsOn);
-  let job = setJob(root, jobId, {
-    stage: flags.stage,
-    state: flags.state,
-    waitingOn,
-    reason: flags.reason,
-    note,
-    fields,
-    fence: epochFence(flags),
-  });
-  if ('dependsOn' in fields) {
-    refreshDependencyWait(root, job.id);
-    job = loadJob(root, job.id);
-  }
-  // After the write, which a failed teardown never rolls back: the result says so and any later teardown path retries.
+  // A failed teardown is never rolled back: the result says so and any later teardown path retries.
   // The inbox and office sessions only stop it, as `forge environment down` is refused there.
-  const environment = inInboxOrOffice() ? finishEnvironmentStopOnly(root, config, before, job) : finishEnvironment(root, config, before, job);
-  const gate = maybeEnqueueGate(root, config, before, job);
-  await mirrorToTracker(root, config, job);
+  const { job, gate, environment } = await moveJob(
+    root,
+    config,
+    jobId,
+    { stage: flags.stage, state: flags.state, waitingOn, reason: flags.reason, note, fields, fence: epochFence(flags) },
+    {
+      environment: inInboxOrOffice() ? 'stop' : 'teardown',
+      afterWrite: 'dependsOn' in fields ? (j) => (refreshDependencyWait(root, j.id), loadJob(root, j.id)) : undefined,
+    },
+  );
   return { id: job.id, stage: job.stage, state: job.state, waitingOn: job.waitingOn, ...(gate ? { gateRequest: gate.id } : {}), ...(environment ? { environment } : {}) };
 }
 

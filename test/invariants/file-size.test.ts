@@ -14,12 +14,12 @@ const CAP = 600;
 const ALLOWED: Record<string, number> = {
   'api/types.ts': 1499,
   'engine/environment/backing.ts': 751,
-  'cli/commands/tracker.ts': 612,
+  'cli/commands/tracker.ts': 611,
   'office/pool.ts': 632,
   'engine/guard/integrity.ts': 832,
   'engine/release/interim-apply.ts': 921,
   'engine/release/interim.ts': 698,
-  'core/job/store.ts': 818,
+  'core/job/store.ts': 808,
   'core/job/schema.ts': 666,
   'engine/guard/secrets.ts': 705,
 };

@@ -176,7 +176,7 @@ function mergeOne(root: string, config: Config, id: string, t: MergeTarget, opts
  * every dependency's PR is MERGED by this call's own sync, so a consumer never lands first and a
  * hand-edited job.json state counts for nothing. `repo` (a member) or `root` merges only that PR.
  */
-export function mergePr(root: string, config: Config, id: string, opts: { now?: boolean; repo?: string; root?: boolean } = {}): MergeResult {
+export async function mergePr(root: string, config: Config, id: string, opts: { now?: boolean; repo?: string; root?: boolean } = {}): Promise<MergeResult> {
   requireGh();
   const job = loadJob(root, id);
   if (opts.repo !== undefined && opts.root) throw new ForgeError('pass --repo or --root, not both');
@@ -190,7 +190,7 @@ export function mergePr(root: string, config: Config, id: string, opts: { now?: 
   const now = opts.now === true;
   if (isLinkedJob(job)) return mergeLinked(root, config, id, { now, target: opts.repo !== undefined ? opts.repo : opts.root ? null : undefined });
   // A merge never routes: a conflicting PR parks as before, and the next forge sync routes it.
-  const { pr: synced } = syncPr(root, config, id, { route: false });
+  const { pr: synced } = await syncPr(root, config, id, { route: false });
   const number = synced?.number ?? job.pr.number;
   const checks = synced?.checks?.state;
   if (synced?.state === 'MERGED') return { merged: true, action: 'already-merged', checks };
@@ -251,8 +251,8 @@ export function mergeTarget(flags: Record<string, unknown>, sub: 'merge' | 'read
 }
 
 /** mergePr for a linked job: the walk in merge order, or one `target` PR (null: the root). */
-function mergeLinked(root: string, config: Config, id: string, opts: { now: boolean; target: RepoKey | undefined }): MergeResult {
-  const { result, members } = syncPrDetailed(root, config, id, { route: false });
+async function mergeLinked(root: string, config: Config, id: string, opts: { now: boolean; target: RepoKey | undefined }): Promise<MergeResult> {
+  const { result, members } = await syncPrDetailed(root, config, id, { route: false });
   const job = loadJob(root, id);
   const { order, deps, cycle } = jobRepoOrder(config, job);
   const gates = releaseGates(resolveInterim(config, job).edges, readEvents(root, id), job);

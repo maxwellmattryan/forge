@@ -22,11 +22,11 @@ import {
   viewPr,
 } from '#integrations/github/pull-requests.ts';
 import type { PrFeedback } from '#integrations/github/pull-requests.ts';
-import { decides, enqueuePrFeedbackGate, foremanEnabled, maybeEnqueueGate, reservedFor } from '#office/foreman.ts';
+import { decides, enqueuePrFeedbackGate, foremanEnabled, reservedFor } from '../pipeline/moves/foreman-gates.ts';
+import { moveJob } from '../pipeline/moves/apply.ts';
 import { memberRepos } from '../project/job-repos.ts';
 import { isLinkedJob } from '../project/repo-order.ts';
 import type { PrStateKey, RepoKey } from '../project/repo-order.ts';
-import { finishEnvironment } from '../environment/lifecycle.ts';
 import { deferralStatus, pendingDeferral, readDeferrals } from '../release/interim.ts';
 import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from './delta.ts';
 import { findPr } from './adopt.ts';
@@ -148,7 +148,7 @@ function ciReworkStreak(events: JobEvent[]): number {
  * After `pr.maxCiReworks` in a row with no person's event between, a red head starts nothing: the
  * reason says so, a `ci-rework-capped` event is logged once per head, and the caller queues no gate.
  */
-function startCiRework(root: string, config: Config, job: Job, failing: { names: string[]; more: number } = { names: [], more: 0 }): 'started' | 'capped' | false {
+async function startCiRework(root: string, config: Config, job: Job, failing: { names: string[]; more: number } = { names: [], more: 0 }): Promise<'started' | 'capped' | false> {
   if (config.daemon?.enabled !== true || !foremanEnabled(config) || !decides(config).includes('pr-feedback')) return false;
   const head = job.pr?.headOid;
   if (job.pr?.checks?.state !== 'failing' || typeof head !== 'string' || !isSha(head)) return false;
@@ -179,7 +179,7 @@ function startCiRework(root: string, config: Config, job: Job, failing: { names:
     return 'capped';
   }
   let started = false;
-  setJob(root, job.id, {
+  await moveJob(root, config, job.id, {
     derive: (j) => {
       if (!parked(j) || j.pr?.headOid !== head || leaseStatus(j).status === 'live') return null;
       started = true;
@@ -227,12 +227,12 @@ export interface SyncResult {
  * pick a job back up with an accurate picture.
  * `route: false` (mergePr) syncs without ever moving the job to integrate.
  */
-export function syncPr(root: string, config: Config, id: string, opts: { route?: boolean } = {}): SyncResult {
-  return syncPrDetailed(root, config, id, opts).result;
+export async function syncPr(root: string, config: Config, id: string, opts: { route?: boolean } = {}): Promise<SyncResult> {
+  return (await syncPrDetailed(root, config, id, opts)).result;
 }
 
 /** syncPr, plus each non-verify-only member PR as this call read it (mergePr decides on these). */
-export function syncPrDetailed(root: string, config: Config, id: string, opts: { route?: boolean } = {}): { result: SyncResult; members: Map<string, MemberSync> } {
+export async function syncPrDetailed(root: string, config: Config, id: string, opts: { route?: boolean } = {}): Promise<{ result: SyncResult; members: Map<string, MemberSync> }> {
   const route = opts.route !== false;
   requireGh();
   // Member PRs first: a failure there never stops the root sync, and counts as not merged.
@@ -245,7 +245,7 @@ export function syncPrDetailed(root: string, config: Config, id: string, opts: {
       // The root was deferred, so it has no PR: its dependencies' merges still reopen it.
       let reopen = false;
       if (route && deferredOpenable(root, id, memberState)) {
-        setJob(root, id, {
+        await moveJob(root, config, id, {
           derive: (j) => {
             if (!reopenable(j, { route, ownerLive: () => leaseStatus(j).status === 'live' })) return null;
             reopen = true;
@@ -299,7 +299,9 @@ export function syncPrDetailed(root: string, config: Config, id: string, opts: {
   const reopenReady = route && deferredOpenable(root, id, (k) => (k === null ? (PR_STATES.has(pr.state) ? (pr.state as PrStateKey) : null) : memberState(k)));
   // Decided inside the job lock, from the job as stored then: a session that claimed it during the
   // network calls above is the owner this judges, so sync never flips a job someone else drives.
-  setJob(root, id, {
+  // The move's effects: a merged or closed PR's environment goes (never undoing the state change), a
+  // park on a class the foreman decides queues its gate (from mergePr too), and the tracker mirrors.
+  const { job: after } = await moveJob(root, config, id, {
     derive: (j) => {
       const merged: JobPr = { ...j.pr, ...fresh, ...(humanDelta ? { humanDelta } : {}) };
       const t = syncTransition(j, merged, config, { route, ownerLive: () => leaseStatus(j).status === 'live', members: memberStates, reopen: reopenReady });
@@ -310,8 +312,6 @@ export function syncPrDetailed(root: string, config: Config, id: string, opts: {
       return { ...t.change, owned: { pr: synced } };
     },
   });
-  // A merged or closed PR finished the job: its environment goes, without undoing the state change.
-  finishEnvironment(root, config, job, loadJob(root, id));
   const prev: Partial<JobPr> = job.pr ?? {};
   logEvent(root, id, 'pr-synced', {
     state: pr.state,
@@ -331,12 +331,10 @@ export function syncPrDetailed(root: string, config: Config, id: string, opts: {
   if (reopen) enqueueReopen(root, config, id);
   // After the root PR's state is recorded, so a merged or closed PR is never edited.
   if (isLinkedJob(job)) linkSiblingsQuietly(root, config, id);
-  // The foreman's gates: a park on conflicts, or feedback on a PR waiting for review. Never from mergePr.
+  // Feedback on a PR waiting for review: a CI rework or the pr-feedback gate. Never from mergePr.
   if (route) {
-    const after = loadJob(root, id);
-    maybeEnqueueGate(root, config, job, after);
     // At the CI rework cap no gate is queued either, so the foreman can't rework that head through the office.
-    if (startCiRework(root, config, after, failingCheckNames(pr.statusCheckRollup)) === false) enqueuePrFeedbackGate(root, config, after, trustedFeedback(feedback));
+    if ((await startCiRework(root, config, after, failingCheckNames(pr.statusCheckRollup))) === false) enqueuePrFeedbackGate(root, config, after, trustedFeedback(feedback));
   }
   return { result: integrate ? { id, pr: synced, integrate: true } : reopen ? { id, pr: synced, reopen: true } : { id, pr: synced }, members };
 }

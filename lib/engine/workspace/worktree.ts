@@ -8,7 +8,7 @@ import { checkRefs, jobEnv, shell, vars } from './job-command.ts';
 import { knownValues, redactKnown, removeKnown } from '../guard/known-secrets.ts';
 import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
 import { loadConfig, worktreeRoot } from '#core/config/load.ts';
-import { stackSource } from '../pipeline/deps.ts';
+import { stackSource } from '../pipeline/moves/deps.ts';
 import { git as runGit } from '#integrations/git/runner.ts';
 import { loadJob, logEvent, setJob, updateJob } from '#core/job/store.ts';
 import { exists, resolveFrom } from '#core/paths.ts';

@@ -308,12 +308,12 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
    * One reconciler pass (lib/office/reconcile.ts), for every job or only `only`. Never throws: a failed
    * pass is logged once per distinct failure and retried at the next timer.
    */
-  function runReconcile(only?: string): void {
+  async function runReconcile(only?: string): Promise<void> {
     if (closed || !fs.existsSync(root)) return;
     try {
       // Inbox and office sessions too: their requests have no lease, so only this keeps a long turn's claim.
       const busy = [...sessions.values()].filter((s) => s.status === 'busy' || s.status === 'stopping').flatMap((s) => s.facts().ids);
-      const r = reconcile(root, config(), { facts: sessionFacts(), busy, ...(only !== undefined ? { only } : {}) });
+      const r = await reconcile(root, config(), { facts: sessionFacts(), busy, ...(only !== undefined ? { only } : {}) });
       for (const id of r.resumed) sessions.get(id)?.logEvent('reconcile', { action: 'resume' });
       for (const id of r.escalated) sessions.get(id)?.logEvent('reconcile', { action: 'escalate' });
       lastReconcileError = null;

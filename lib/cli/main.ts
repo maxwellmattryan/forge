@@ -6,6 +6,7 @@
 // Command groups live in lib/cli/commands/; this file only routes.
 import { daemonTrust, loadConfig } from '#core/config/load.ts';
 import { refuseInOffice, refuseInboxDrive } from '#office/owner.ts';
+import { registerNotify } from '#office/notify.ts';
 import { NEED_INIT } from '#core/config/set.ts';
 import { detect } from '#engine/ops/detect.ts';
 import { stopBackground } from '#engine/environment/lifecycle.ts';
@@ -89,6 +90,8 @@ export async function main(rawArgv: string[]): Promise<void> {
     loadOpts = { text: trust.configText };
   }
   const { config, initialized } = loadConfig(root, loadOpts);
+  // Here, not in dispatch, so advance's in-process commands and forgeInProcess never register twice.
+  registerNotify();
   const r = await dispatch(argv, { root, config, initialized });
   if (!r.printed) out(r.data, r.pretty ? { ...flags, pretty: true } : flags);
   // Only a failure is written: `config validate` sets process.exitCode itself and returns printed.
@@ -201,12 +204,12 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       const id = req(rest[0], 'job id');
       if (sub === 'find') return ok(findPr(root, config, id));
       if (sub === 'open') return ok(openPr(root, config, id, { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) }));
-      if (sub === 'sync') return ok(syncPr(root, config, id));
+      if (sub === 'sync') return ok(await syncPr(root, config, id));
       if (sub === 'merge') {
         // Strictly `true`: `--now <id>` would make parseArgs swallow the id as the flag's value,
         // and that mistake must not silently bypass CI.
         refuseInOffice('the foreman never merges; foreman.ship merge only feeds the approver and step PR4');
-        const r = mergePr(root, config, id, { now: flags.now === true, ...mergeTarget(flags) });
+        const r = await mergePr(root, config, id, { now: flags.now === true, ...mergeTarget(flags) });
         return { data: r, exitCode: r.action === 'refused' || r.action === 'failed' ? 1 : 0 };
       }
       if (sub === 'ready') return ok(readyPr(root, config, id, mergeTarget(flags, 'ready')));

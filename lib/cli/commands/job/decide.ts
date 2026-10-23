@@ -1,13 +1,14 @@
 // `forge job human|handoff|assist`: recording a human's or the foreman's decision at a gate, a Foreman hand-off, and the office's assistant spawn.
 import { assistantBrief } from '#engine/pipeline/brief.ts';
-import { checkForemanDecision, classReservation, cleanHandoffReason, foremanHandoffFor, gateClassFor, inOffice, isGateClass, reservedFor, securityHold } from '#office/foreman.ts';
+import { checkForemanDecision, cleanHandoffReason, foremanHandoffFor } from '#office/foreman.ts';
+import { classReservation, gateClassFor, isGateClass, reservedFor, securityHold } from '#engine/pipeline/moves/foreman-gates.ts';
 import { loadJob, logHumanEvent, readEvents, setJob } from '#core/job/store.ts';
 import { checkIssueRef } from '#core/job/issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import { decideRepoProposals, pendingRepoProposals } from '#engine/project/repo-proposals.ts';
 import { RELEASE_APPROVAL, checkReleaseDecision, pendingReleaseHash } from '#engine/release/approval.ts';
 import { HANDOFF_CLASSES, OFFICE_GATES } from '#core/job/schema.ts';
-import { daemonScope } from '#core/job/requests.ts';
+import { daemonScope, inOffice } from '#core/job/requests.ts';
 import { createAndLink, linkJob, markNoIssue } from '#engine/trackers/link.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { modelFor, resolveEffort } from '#core/config/load.ts';
