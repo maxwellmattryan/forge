@@ -46,6 +46,34 @@ test('the escalate floor', () => {
     ['a file named like claude.md.txt', 'docs/claude.md.txt', false],
   ];
   for (const [name, p, want] of control) assert.deepEqual(floorHits([entry(p)], unset), want ? [p] : [], name);
+  // macOS and Windows open a name another way than toLowerCase folds it: `ſ` (U+017F) is `s` and `ı` (U+0131) is `i` there, and fullwidth forms are compatibility look-alikes.
+  const lookalike: [string, string, boolean][] = [
+    ['a long s in AGENTS.md', 'agentſ.md', true],
+    ['a long s in a nested AGENTS.md', 'lib/AGENTſ.md', true],
+    ['a long s in .mcp.json', '.mcp.jſon', true],
+    ['a long s in a nested package.json', 'app/package.jſon', true],
+    ['a dotless i in a runner config', 'jest.confıg.js', true],
+    ['fullwidth letters in CLAUDE.md', 'ＣＬＡＵＤＥ.md', true],
+    ['a long s in a doc that only mentions agents', 'docs/agentſ-guide.md', false],
+  ];
+  for (const [name, p, want] of lookalike) assert.deepEqual(floorHits([entry(p)], unset), want ? [p] : [], name);
+  // Test, build and CI config is read in any case by a case-insensitive checkout, though CI on Linux would not load it.
+  const respelled: [string, string, boolean][] = [
+    ['Jest.config.js', 'Jest.config.js', true],
+    ['a nested Vitest.config.ts', 'config/Vitest.config.ts', true],
+    ['MAKEFILE', 'MAKEFILE', true],
+    ['GNUMAKEFILE', 'GNUMAKEFILE', true],
+    ['JENKINSFILE', 'JENKINSFILE', true],
+    ['Pytest.ini', 'Pytest.ini', true],
+    ['a workflow under .GitHub/Workflows/', '.GitHub/Workflows/ci.yml', true],
+    ['a script a commands entry runs, in another case', 'Scripts/Test.sh', true],
+    ['PACKAGE.JSON', 'PACKAGE.JSON', true],
+    ['a nested Package.json', 'app/Package.json', true],
+    ['cargo.toml', 'cargo.toml', true],
+    ['a doc about makefiles', 'docs/makefile-guide.md', false],
+    ['a doc named like a runner config', 'docs/jest-config.md', false],
+  ];
+  for (const [name, p, want] of respelled) assert.deepEqual(floorHits([entry(p)], inputs), want ? [p] : [], name);
   // A rename shows both sides (no renames in the diff): the deleted side alone still hits.
   assert.deepEqual(floorHits([entry('.forge/notes/x.md', 'D'), entry('docs/x.md', 'A')], inputs), ['.forge/notes/x.md']);
 });

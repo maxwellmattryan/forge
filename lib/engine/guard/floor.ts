@@ -8,7 +8,7 @@ import { INSTRUCTION_ROLES, instructionsFor } from '#core/config/validators/inst
 import type { Config, Job } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { resolveBase } from '../pipeline/scope.ts';
-import { commandSources, configEdit } from './integrity.ts';
+import { commandSources, configEdit, isConfigPath } from './integrity.ts';
 import { diffEntries } from './protected.ts';
 import type { DiffEntry } from './protected.ts';
 
@@ -23,8 +23,14 @@ export interface FloorInputs {
   head: string;
 }
 
-/** A path as checkouts on case-insensitive file systems see it: `./` dropped, lower-cased. */
-const fold = (p: string): string => path.posix.normalize(p.replace(/\\/g, '/')).replace(/^\.\//, '').toLowerCase();
+/**
+ * A path as checkouts on case-insensitive file systems see it: `./` dropped and the case folded the
+ * way macOS and Windows fold it. `toLowerCase` alone leaves `ſ` (U+017F) and `ı` (U+0131) alone, yet
+ * APFS opens `agentſ.md` as `AGENTS.md` and NTFS's upcase table maps both letters to ASCII, so the name
+ * goes through NFKC (compatibility forms) and then upper case and back. It can only over-match, which
+ * escalates a look-alike name too, never the reverse.
+ */
+const fold = (p: string): string => path.posix.normalize(p.normalize('NFKC').replace(/\\/g, '/')).replace(/^\.\//, '').toUpperCase().toLowerCase();
 
 /**
  * What Claude Code reads on its own in every later session in the repo, whatever `project.instructions`
@@ -34,20 +40,30 @@ const fold = (p: string): string => path.posix.normalize(p.replace(/\\/g, '/')).
  */
 const CONTROL_FILE = /(^|\/)(\.claude(\/|$)|(claude|claude\.local|agents)\.md$|\.mcp\.json$)/;
 
+/** The manifests configEdit reads by their exact name, folded → as spelled. Any other spelling is a hit whatever it holds. */
+const MANIFESTS = new Map([
+  ['package.json', 'package.json'],
+  ['cargo.toml', 'Cargo.toml'],
+]);
+
 /**
  * The paths in `entries` (a `--no-renames` diff, so a rename shows both sides) that only a human
- * merges: anything under `.forge/` in any case, Claude Code's own control files, an instruction file
- * (case-folded), and every change integrity's configEdit counts as a test, build or CI config edit.
- * Sorted, each once.
+ * merges: anything under `.forge/` in any case, Claude Code's own control files, an instruction file,
+ * and every change integrity's configEdit counts as a test, build or CI config edit, each folded as a
+ * case-insensitive checkout reads it (a `Jest.config.js`, a `MAKEFILE` or a `Package.json` is config
+ * there, though it would not be on Linux). Sorted, each once.
  */
 export function floorHits(entries: DiffEntry[], inputs: FloorInputs): string[] {
   const instructions = new Set(inputs.instructions.map(fold));
   const sources = new Set(inputs.sources);
+  const foldedSources = new Set(inputs.sources.map(fold));
   const out = new Set<string>();
   for (const e of entries) {
     const low = fold(e.path);
     const change = { status: e.status, from: e.status === 'A' ? null : e.path, to: e.status === 'D' ? null : e.path };
-    if (low === '.forge' || low.startsWith('.forge/') || CONTROL_FILE.test(low) || instructions.has(low) || configEdit(change, sources, inputs.read, inputs.mergeBase, inputs.head)) out.add(e.path);
+    const manifest = MANIFESTS.get(path.posix.basename(low));
+    const respelled = manifest !== undefined && path.posix.basename(e.path) !== manifest;
+    if (low === '.forge' || low.startsWith('.forge/') || CONTROL_FILE.test(low) || instructions.has(low) || foldedSources.has(low) || respelled || isConfigPath(low, true) || configEdit(change, sources, inputs.read, inputs.mergeBase, inputs.head)) out.add(e.path);
   }
   return [...out].sort();
 }

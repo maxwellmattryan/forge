@@ -261,11 +261,13 @@ function packageOverrides(file: string, beforeText: string | null, afterText: st
   return out;
 }
 
-/** Paths that are test, build or CI config whatever their content. */
-export function isConfigPath(p: string): boolean {
-  const base = path.posix.basename(p);
-  if (/^(Makefile|makefile|GNUmakefile|justfile|Justfile)$/.test(base) || base.endsWith('.mk')) return true;
-  if (/^(\.github\/workflows|\.circleci|\.buildkite|\.forge\/ci)\//.test(p) || ['.gitlab-ci.yml', 'azure-pipelines.yml', 'Jenkinsfile', '.forge/config.yml', '.forge/secrets-allow.txt'].includes(p)) return true;
+/** Paths that are test, build or CI config whatever their content; `fold` reads the name as a case-insensitive checkout does (the escalate floor, floor.ts). */
+export function isConfigPath(p: string, fold = false): boolean {
+  const f = (s: string): string => (fold ? s.toLowerCase() : s);
+  const q = f(p);
+  const base = path.posix.basename(q);
+  if (['Makefile', 'makefile', 'GNUmakefile', 'justfile', 'Justfile'].some((n) => f(n) === base) || base.endsWith('.mk')) return true;
+  if (/^(\.github\/workflows|\.circleci|\.buildkite|\.forge\/ci)\//.test(q) || ['.gitlab-ci.yml', 'azure-pipelines.yml', 'Jenkinsfile', '.forge/config.yml', '.forge/secrets-allow.txt'].some((n) => f(n) === q)) return true;
   if (/^(jest\.config|vitest\.config|vitest\.workspace|playwright\.config|karma\.conf)\./.test(base) || /^\.(mocharc|nycrc)/.test(base)) return true;
   // Attributes can mark test files `-diff`/`binary`, which would hide their changed lines.
   return base === 'pytest.ini' || base === 'tox.ini' || base === '.gitattributes';
