@@ -1,10 +1,11 @@
 <!-- One session's structured log (a job's, or the inbox's in the status bar's Daemon popover): one compact control row
-     (status facts, then the Permissions and Effort dropdowns, one Start/Stop icon toggle, the Filter button, the rendered/raw
+     (status facts, then SessionControls' Permissions and Effort dropdowns and Start/Stop toggle, the Filter button, the rendered/raw
      icon toggle, Follow and Load older; the filters sit in a MenuButton popover), and turns with tool calls
      and subagents, followed live. Every log string is untrusted session output: text and thinking bodies and a
      subagent's prompt and result render only through the escape-first md() (as text in Raw or above 20k characters); tool
      input, tool results and every other line render as text. With `transcript`, it follows a job's Claude Code transcript
      instead (an agent's, or an interactive owner's): read-only, with no status, Start/Stop, mode or effort controls.
+     With `controls` false (the job drawer, whose header holds them) it leaves out SessionControls.
      With `fill` (the drawer's Log tab, the Foreman popover), it takes its container's remaining height and its log pane is the one scroller,
      instead of capping the pane's height. The office's header also states its model (from the newest init line) and its
      effort, both read-only: the daemon passes no --model, and the office's effort follows runtime.effort. -->
@@ -12,15 +13,11 @@
   import { onDestroy, tick, untrack } from 'svelte';
   import Banner from './Banner.svelte';
   import Chip from './Chip.svelte';
-  import EffortSelect from './EffortSelect.svelte';
-  import IconButton from './IconButton.svelte';
   import Empty from './Empty.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
   import MenuButton from './MenuButton.svelte';
-  import Select from './Select.svelte';
+  import SessionControls from './SessionControls.svelte';
   import { md } from '../lib/markdown.ts';
-  import { keepFocus } from '../lib/menu.ts';
-  import type { SelectOption } from '../lib/select.ts';
   import { renderable } from '../lib/md-view.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
   import { TONE_CLASS, clock, usd } from '../lib/util.ts';
@@ -36,15 +33,14 @@
   import { TINT, logSender } from '../lib/sender.ts';
   import type { SessionLogUrls } from '../lib/daemon-log.ts';
   import { promptRefreshKey } from '../lib/permissions.ts';
-  import { PERMISSION_MODES, mergeSessionState, postDaemon, postDaemonMode, sessionControls, sessionMode, sessionPill, sessionToggle } from '../lib/daemon.ts';
+  import { mergeSessionState, scopeSession, sessionPill } from '../lib/daemon.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
   import { pref } from '../lib/prefs.ts';
-  import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
 
   /** A transcript to follow in place of the daemon session: the job, the agent's role (null for the owner) and the banner text. */
   type Transcript = { job: string; agent: string | null; label: string };
-  let { scope, compact = false, active = true, transcript = null, fill = false }: { scope: string; compact?: boolean; active?: boolean; transcript?: Transcript | null; fill?: boolean } = $props();
+  let { scope, compact = false, active = true, transcript = null, fill = false, controls = true }: { scope: string; compact?: boolean; active?: boolean; transcript?: Transcript | null; fill?: boolean; controls?: boolean } = $props();
 
   /** The transcript routes: the page takes the token as a header, the stream (EventSource sends none) as a query parameter. */
   function transcriptUrls(tr: Transcript): SessionLogUrls {
@@ -59,27 +55,9 @@
 
   // The stream's state frames are freshest; the 2 s /api/state poll covers the rest.
   let live = $state<Partial<DaemonSessionState> | null>(null);
-  const polled = $derived(scope === INBOX_SCOPE ? (S.data?.daemons?.inbox ?? null) : scope === OFFICE_SCOPE ? (S.data?.daemons?.office ?? null) : (S.data?.daemons?.jobs?.[scope] ?? null));
+  const polled = $derived(scopeSession(S.data?.daemons ?? null, scope));
   const session = $derived(live ?? polled);
-  const poolWanted = $derived(S.data?.daemons?.wanted === true);
-  let pending = $state(false);
   const pill = $derived(sessionPill(session));
-  const controls = $derived(sessionControls(session, poolWanted, pending));
-  const toggle = $derived(sessionToggle(controls, session));
-  // The choice lives in the pool, so it shows (and applies at the next spawn) even while no child runs.
-  const mode = $derived(sessionMode(S.data?.daemons ?? null, scope, session));
-  /** Shown until the next /api/state carries the new choice, so the trigger doesn't jump back meanwhile. */
-  let picked = $state<string | null>(null);
-  const modeName = $derived<Record<string, string>>({ default: $t('session.modes.default'), auto: $t('session.modes.auto'), dontAsk: $t('session.modes.dontAsk') });
-  const modeHint = $derived<Record<string, string>>({ default: $t('session.modes.defaultHint'), auto: $t('session.modes.autoHint'), dontAsk: $t('session.modes.dontAskHint') });
-  const shownMode = $derived(picked ?? mode.chosen);
-  const modeLocked = $derived(pending || S.data?.daemons?.enabled !== true);
-  // modeLocked covers a change that is saving (pending). A chosen mode this dashboard doesn't know shows last, selected
-  // and disabled.
-  const modeOptions = $derived<SelectOption[]>([
-    ...PERMISSION_MODES.map((m) => ({ value: m, label: modeName[m], hint: modeHint[m], disabled: modeLocked })),
-    ...(PERMISSION_MODES.some((m) => m === mode.chosen) ? [] : [{ value: mode.chosen, label: mode.chosen, disabled: true, separator: true }]),
-  ]);
 
   let filters = $state<Filters>(readFilters(pref.get('sessionFilters', '')));
   const filtering = $derived(filtersActive(filters));
@@ -163,38 +141,6 @@
     follow = true;
     if (pane) pane.scrollTop = pane.scrollHeight;
   }
-
-  async function act(action: 'start' | 'stop', el: HTMLButtonElement): Promise<void> {
-    const restore = keepFocus(el);
-    pending = true;
-    try {
-      await postDaemon(action, forgeToken(), scope);
-      live = null;
-      refresh();
-    } catch (err) {
-      toast($t('session.failed', { action, error: err instanceof Error ? err.message : String(err) }), true);
-    } finally {
-      pending = false;
-      await tick();
-      restore();
-    }
-  }
-
-  async function setMode(value: string): Promise<void> {
-    const next = PERMISSION_MODES.find((m) => m === value);
-    if (!next || next === mode.chosen) return;
-    picked = next;
-    pending = true;
-    try {
-      await postDaemonMode(scope, next, forgeToken());
-      await refresh();
-    } catch (err) {
-      toast($t('session.modeFailed', { error: err instanceof Error ? err.message : String(err) }), true);
-    } finally {
-      picked = null;
-      pending = false;
-    }
-  }
 </script>
 
 <svelte:document onvisibilitychange={() => log.visibilityChanged()} />
@@ -272,13 +218,8 @@
         <span class="text-xs text-muted" title={$t('session.effortHint')}>{$t('session.effort', { effort: officeEffort })}</span>
       {/if}
     {/if}
-    <div class="ml-auto flex flex-wrap items-center justify-end gap-1.5">
-      {#if !transcript}
-        <!-- The Select stays enabled while its entries can't change, so it still opens and the hints stay readable. -->
-        <Select variant="button" icon="shield" align="end" label={$t('session.modeLabel')} value={shownMode} text={modeName[shownMode] ?? shownMode} options={modeOptions} onchange={setMode} />
-        {#if scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE}<EffortSelect job={scope} />{/if}
-        <IconButton icon={toggle.action === 'start' ? 'play' : 'stop'} label={toggle.action === 'start' ? $t('session.start') : $t('session.stop')} hint={toggle.action === 'start' ? $t('session.startHint') : null} disabled={!toggle.enabled} onclick={(e) => act(toggle.action, e.currentTarget)} />
-      {/if}
+    <div class="ml-auto flex flex-wrap items-start justify-end gap-1.5">
+      {#if !transcript && controls}<SessionControls {scope} {live} onacted={() => (live = null)} />{/if}
       <MenuButton label={filtering ? $t('session.filterActive') : $t('session.filter')} title={$t('session.filterTitle')} icon="filter" iconOnly badge={filtering}>
         <input class="input sm w-full" type="search" placeholder={$t('session.filter')} aria-label={$t('session.filter')} bind:value={filters.text} />
         <div class="flex flex-col gap-1">
@@ -292,11 +233,6 @@
       {#if more}<button class="btn sm" onclick={() => log.loadOlder()}>{$t('session.loadOlder')}</button>{/if}
     </div>
   </div>
-  {#if !transcript}
-    {#if session?.lastError}<div role="status" class="text-xs text-bad break-words">{session.lastError}</div>{/if}
-    {#if mode.live !== null}<div role="status" class="text-xs text-muted">{$t('session.modeSwitching', { mode: modeName[mode.live] ?? mode.live })}</div>{/if}
-    {#if mode.chosen === 'auto'}<div class="text-xs text-warn">{$t('session.modes.autoWarning')}</div>{/if}
-  {/if}
   {#if error !== null}
     <Banner msg={error} />
   {:else if loading && !entries.length}

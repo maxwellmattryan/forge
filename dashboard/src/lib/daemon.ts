@@ -1,6 +1,7 @@
 // The status bar's Daemon popover's and the session log's pure, DOM-free half: session pills, the pool summary and POST /api/daemon.
 // Session state and errors come from session output, i.e. untrusted text: these return plain strings rendered as text.
 import { ago } from './util.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE } from './types.ts';
 import type { DaemonPermissionMode, DaemonPoolState, DaemonSessionState } from './types.ts';
 
 export const START_HINT = 'Set daemon.enabled: true in .forge/config.yml';
@@ -178,6 +179,15 @@ export function sessionToggle(controls: { canStart: boolean; canStop: boolean },
   if (controls.canStart) return { action: 'start', enabled: true };
   if (session && obj(session).wanted === false) return { action: 'start', enabled: false };
   return { action: 'stop', enabled: controls.canStop };
+}
+
+/** The pool's session for a scope (the inbox's, the office's or a job's; own keys only, so a job id never reads Object.prototype), or null. */
+export function scopeSession(pool: PoolInput, scope: string): Partial<DaemonSessionState> | null {
+  const p = obj(pool);
+  if (scope === INBOX_SCOPE) return p.inbox ?? null;
+  if (scope === OFFICE_SCOPE) return p.office ?? null;
+  const jobs = obj(p.jobs);
+  return Object.hasOwn(jobs, scope) ? (jobs[scope] ?? null) : null;
 }
 
 /** The modes a session can be switched to: lib/office/session/lifecycle.ts PERMISSION_MODES. */

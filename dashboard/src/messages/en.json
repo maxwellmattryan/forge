@@ -851,6 +851,37 @@
     "done": "done",
     "rejected": "rejected",
     "empty": "Requests about this job and the session's replies appear here.",
+    "progress": {
+      "toggle": "Progress",
+      "toggleTitle": "Show stage changes, agents' replies, checks, reviews and the PR between the messages",
+      "stage": "Moved to {stage}",
+      "waiting": "Waiting: {on}",
+      "waitingUnknown": "Waiting",
+      "blocked": "Blocked",
+      "done": "Job done",
+      "failed": "Job failed",
+      "cancelled": "Job cancelled",
+      "round": "Round {round} started",
+      "agent": "finished",
+      "checksPass": "Checks passed in round {round}",
+      "checksFail": "Checks failed in round {round}",
+      "reviewsPass": "Reviews passed in round {round}",
+      "reviewsFail": "Reviews asked for changes in round {round}",
+      "approve": "Approved for a PR",
+      "escalate": "Escalated to you",
+      "prOpened": "Opened PR #{number}",
+      "prMerged": "Merged PR #{number}",
+      "conflicts": {
+        "one": "{count} merge conflict",
+        "other": "{count} merge conflicts"
+      }
+    },
+    "live": {
+      "label": "Open this job's Log",
+      "session": "Session {state} · {ago}",
+      "sessionNow": "Session {state}",
+      "open": "Log →"
+    },
     "tracker": "Tracker",
     "action": {
       "request": "New job",

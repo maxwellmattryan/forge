@@ -1,7 +1,7 @@
 // The status bar's Daemon popover's and the session log's models (dashboard/src/lib/daemon.ts). The log-line cases live in dashboard-session-log.test.ts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PERMISSION_MODES, START_HINT, daemonRows, mergePoolState, mergeSessionState, poolModel, postDaemon, postDaemonMode, sessionControls, sessionMode, sessionPill, sessionToggle } from '../dashboard/src/lib/daemon.ts';
+import { PERMISSION_MODES, START_HINT, daemonRows, mergePoolState, mergeSessionState, poolModel, postDaemon, postDaemonMode, scopeSession, sessionControls, sessionMode, sessionPill, sessionToggle } from '../dashboard/src/lib/daemon.ts';
 
 const XSS = '<script>alert(1)</script><img src=x onerror=alert(2)>';
 const session = (o: any = {}): any => ({ scope: 'job', wanted: true, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false, lastError: null, ...o });
@@ -224,6 +224,19 @@ test('sessionMode: the choice comes from the pool, the report from the running s
   assert.deepEqual(sessionMode(pool({ permissionMode: 'plan' }), 'job-c', null), { chosen: 'plan', live: null, overridden: false }, "daemon.command's mode, even one the selector can't set");
   assert.deepEqual(sessionMode(null, 'job-c', undefined), { chosen: 'default', live: null, overridden: false });
   assert.deepEqual(PERMISSION_MODES, ['default', 'auto', 'dontAsk']);
+});
+
+test('scopeSession: the inbox, the office or a job, own keys only', () => {
+  const inbox = session({ scope: '_inbox' });
+  const office = session({ scope: '_office' });
+  const job = session({ scope: 'job-a' });
+  const p = pool({ inbox, office, jobs: { 'job-a': job } });
+  assert.equal(scopeSession(p, '_inbox'), inbox);
+  assert.equal(scopeSession(p, '_office'), office);
+  assert.equal(scopeSession(p, 'job-a'), job);
+  assert.equal(scopeSession(p, 'job-b'), null);
+  assert.equal(scopeSession(p, 'toString'), null, 'a job id never reads Object.prototype');
+  assert.equal(scopeSession(null, 'job-a'), null);
 });
 
 test('poolModel marks job chips a human switched to another mode', () => {
