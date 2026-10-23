@@ -2,7 +2,7 @@
 // pid or shows its URL.
 import fs from 'node:fs';
 import path from 'node:path';
-import { paths } from '#core/paths.ts';
+import { paths, PLUGIN_ROOT } from '#core/paths.ts';
 import { pidAlive, processStartMs, run, START_SLACK_MS } from '#core/os/process.ts';
 
 /** A proven record: `url` is the loopback origin, with no trailing slash. */
@@ -25,6 +25,7 @@ export interface DashboardProbe {
 const RECORD_MAX_BYTES = 4096;
 const PROBE_TIMEOUT_MS = 5000;
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
+const FORGE_BIN = path.join(PLUGIN_ROOT, 'bin', 'forge');
 
 export const systemProbe: DashboardProbe = {
   platform: process.platform,
@@ -83,24 +84,43 @@ export function loopbackOrigin(url: unknown): string | null {
   return u.href === `${u.origin}/` ? u.origin : null;
 }
 
+const wordBasename = (w: string): string => path.posix.basename(w.replace(/\\/g, '/'));
+
 /**
- * Whether the command line runs `forge dash`: a word whose basename is `forge`, then `dash`. That
- * covers `node …/bin/forge dash`, the --background child and npm run dev's `bin/forge dash --dev`.
+ * Whether the command line has `forge` in the script position, then `dash`: the first word is the
+ * forge script (basename `forge`, or this install's `bin/forge`), or it is a node executable
+ * (basename `node`/`node.exe`, or Node's own `execPath`) and the forge script is the very next
+ * word. That covers a human's `forge dash` (shebang: `node …/bin/forge dash`), the --background
+ * child (`<execPath> <PLUGIN_ROOT>/bin/forge dash --foreground …`) and npm run dev's
+ * `<execPath> <PLUGIN_ROOT>/bin/forge dash --dev`. A pair anywhere else in the line would let a
+ * forged record name an unrelated process such as `claude /forge dash` or the words after a
+ * `node -e` script. Forge never puts node options before the script, so none is skipped: such a
+ * launch, or one with whitespace in any path but `execPath` and `forgeBin`, fails closed (stale).
  */
-function isForgeDash(command: string): boolean {
-  const words = command.trim().split(/\s+/);
-  for (let i = 0; i < words.length - 1; i++) {
-    if (path.posix.basename(words[i].replace(/\\/g, '/')) === 'forge' && words[i + 1] === 'dash') return true;
-  }
+export function isForgeDash(command: string, execPath: string = process.execPath, forgeBin: string = FORGE_BIN): boolean {
+  const scriptThenDash = (s: string): boolean => {
+    if (forgeBin && s.startsWith(forgeBin) && /^\s+dash(\s|$)/.test(s.slice(forgeBin.length))) return true;
+    const [w, next] = s.split(/\s+/, 2);
+    return next === 'dash' && wordBasename(w) === 'forge';
+  };
+  const line = command.trim();
+  if (scriptThenDash(line)) return true;
+  // execPath first and as a prefix, since it may contain spaces that splitting would break.
+  if (execPath && line.startsWith(execPath) && /^\s/.test(line.slice(execPath.length))) return scriptThenDash(line.slice(execPath.length).trimStart());
+  const w0 = line.split(/\s+/, 1)[0];
+  const node = wordBasename(w0).toLowerCase();
+  if (node === 'node' || node === 'node.exe') return scriptThenDash(line.slice(w0.length).trimStart());
   return false;
 }
 
 /**
  * The dashboard record, only when it is proven to name the `forge dash` process serving this repo:
  * a readable record, a live pid that is not 1 or ours, a process start within START_SLACK_MS of
- * `startedAt` (so a reused pid fails), a `forge dash` command line (start times are public, so a
- * forged `startedAt` alone could name any process), and a loopback url. Anything else is stale:
- * never signalled, its url never shown. Always null on Windows, which has no start-time probe.
+ * `startedAt` (so a reused pid fails), a command line with `forge` in the script position, then
+ * `dash` (isForgeDash: start times are public, so a forged `startedAt` alone could name any
+ * process), and a loopback url. Anything else is stale: never signalled, its url never shown.
+ * Always null on Windows, which has no start-time probe. The url is not bound to the pid: a record
+ * copying the live dashboard's pid and startedAt may name any loopback port.
  */
 export function provenDashboard(root: string, probe: DashboardProbe = systemProbe): DashboardRecord | null {
   if (probe.platform === 'win32') return null;
