@@ -18,6 +18,7 @@ import type { ClaudeChild, ClaudeEvent } from '#integrations/claude/types.ts';
 import type { ChildMeta, DaemonChild, Session, SessionContext, SessionCore, SessionOptions } from './contract.ts';
 import { createControl } from './control.ts';
 import { routeHolds } from './holds.ts';
+import { spawnConfinement } from './confine.ts';
 import { checkLaunch } from './launch.ts';
 import { createSessionLog } from './log.ts';
 import { createOwned } from './owned.ts';
@@ -172,11 +173,15 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     const resume = Boolean(info.resumable && typeof info.sessionId === 'string' && UUID.test(info.sessionId));
     if (!resume) info = { ...withSessionId(info, crypto.randomUUID()), resumable: false };
     let argv;
+    let confined: ReturnType<typeof spawnConfinement>;
     const launchMode = ctx.permissionMode(scope);
     // From the config bytes just hashed (never a second read) and the job.json read now, so a change made since the last spawn applies.
     const effort = ctx.effort(scope, c);
     try {
-      argv = buildArgv(c.daemon.command, { pluginRoot: PLUGIN_ROOT, session: { id: info.sessionId, resume }, allowedTools: c.daemon.allowedTools, permissionMode: launchMode, effort: effort.level });
+      confined = spawnConfinement(root, c);
+      const { roots, deny } = confined;
+      const vars = { allowedTools: c.daemon.allowedTools, permissionMode: launchMode, effort: effort.level, writeRoots: [roots.jobs, ...roots.worktrees], deny };
+      argv = buildArgv(c.daemon.command, { pluginRoot: PLUGIN_ROOT, session: { id: info.sessionId, resume }, ...vars });
     } catch (e) {
       ctx.fatal(`cannot start daemon: ${(e as Error).message}`);
       return false;
@@ -187,7 +192,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     let claude: ClaudeChild;
     try {
       // The scope reaches the session only through its environment, never stdin or argv.
-      const env = { ...sessionEnv(o.env, c.daemon.auth), [TRUST_ENV]: launch.trusted, [SCOPE_ENV]: scope };
+      const env = { ...sessionEnv(o.env, c.daemon.auth), ...confined.env, [TRUST_ENV]: launch.trusted, [SCOPE_ENV]: scope };
       claude = o.claude.start(argv, { cwd: root, env, maxLineBytes: o.maxLineBytes }, (e) => onEvent(proc, e));
     } catch (e) {
       sessionFatal(`cannot start daemon: ${(e as Error).message}`);

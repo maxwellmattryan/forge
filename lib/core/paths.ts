@@ -100,7 +100,7 @@ export const DEV_DIST_DIR: string = path.join(PLUGIN_ROOT, 'node_modules', '.cac
 export const BUILD_DASHBOARD = 'npm ci && npm run build:dashboard';
 
 /** realpath of the deepest existing ancestor, with the rest re-appended: where `p` would land. */
-function landing(p: string): string {
+export function landing(p: string): string {
   let dir = p;
   const rest: string[] = [];
   while (!fs.existsSync(dir)) {

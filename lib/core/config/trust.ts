@@ -84,6 +84,20 @@ function jobBudgetProblems(b: unknown): string[] {
   return problems;
 }
 
+/**
+ * The main-checkout paths that decide what `forge` runs or what every later agent reads with no
+ * review: the trust digest hashes them, the post-turn check (lib/office/session/confine.ts) watches
+ * them, and a daemon session's file tools may not write them. `forgeWrites` are the entries under
+ * them that `forge` itself writes, which neither check counts. `anyDepth` names files watched
+ * wherever they sit in the checkout.
+ */
+export const PROTECTED = Object.freeze({
+  files: Object.freeze(['.forge/config.yml', '.forge/secrets-allow.txt', 'CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md']),
+  dirs: Object.freeze(['.forge/trackers', '.forge/verifiers', '.forge/notes', '.forge/reviewers', '.forge/evals', '.forge/ci']),
+  forgeWrites: Object.freeze(['.forge/evals/runs', '.forge/evals/recall/runs']),
+  anyDepth: Object.freeze(['CLAUDE.md', 'CLAUDE.local.md']),
+});
+
 /** Carries the supervisor's trustDigest into the daemon session's environment. */
 export const TRUST_ENV = 'FORGE_DAEMON_TRUST';
 

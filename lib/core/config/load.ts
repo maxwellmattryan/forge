@@ -15,7 +15,8 @@ import * as yaml from '../format/yaml.ts';
 // Re-exported, as jobs.ts re-exports jobDir from paths.ts: importers keep one place to import from.
 export { defaults } from './keys/defaults.ts';
 export { modelProblems, modelFor, validModel, resolveModel, validEffort, resolveEffort } from './models.ts';
-export { daemonProblems, TRUST_ENV, trustDigest, trackerSymlinks, daemonTrust } from './trust.ts';
+export { daemonProblems, PROTECTED, TRUST_ENV, trustDigest, trackerSymlinks, daemonTrust } from './trust.ts';
+export { allInstructionFiles } from './validators/instructions.ts';
 export { RETENTION_DAYS, validateConfig, foremanProblems, verifyShapeProblems, verifyGroups, verifySteps, panelPathsProblems, pathsOnlyProblems, reviewerChecklist } from './validate.ts';
 export { globProblem } from './validators/policy-check.ts';
 

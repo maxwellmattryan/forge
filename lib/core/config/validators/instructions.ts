@@ -33,6 +33,14 @@ export function instructionsFor(config: Pick<Config, 'project'>, role?: string):
   return [...new Set(list.filter((f): f is string => entryProblem(f) === null))];
 }
 
+/**
+ * Every role's instruction files: the default list's, then each role's, in first-seen order. Built
+ * from instructionsFor, so it only ever holds entries the validator accepts.
+ */
+export function allInstructionFiles(config: Pick<Config, 'project'>): string[] {
+  return [...new Set([undefined, ...INSTRUCTION_ROLES].flatMap((role) => instructionsFor(config, role)))];
+}
+
 function listProblems(at: string, list: unknown): string[] {
   if (!Array.isArray(list)) return [`${at} must be a list of files (got ${show(list)})`];
   return list.flatMap((f, i) => {
