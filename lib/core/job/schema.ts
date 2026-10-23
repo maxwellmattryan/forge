@@ -17,14 +17,10 @@ export { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, OFF
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from '../config/components.ts';
 export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from '../config/validators/backing.ts';
 export { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, noLease };
+export { API_VERSION } from '#api/versions.ts';
 
 /** `.forge/archive/<id>.json` records (lib/core/job/archive.ts); a reader skips a record from a newer Forge. */
 export const ARCHIVE_SCHEMA_VERSION = 1;
-/**
- * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
- * served by the same plugin version.
- */
-export const API_VERSION = 37;
 
 export const SEVERITIES = ['blocker', 'major', 'minor', 'nit'] as const;
 

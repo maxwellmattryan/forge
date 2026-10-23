@@ -30,6 +30,6 @@ All in-process: import `#api/tracker.ts`, `#api/constants.ts`, and `../lib/track
 ## Dropped on purpose
 - trackers › status keys and project option matching: the `statusMap` half (project option matching) belongs to integrations/github (engine.trackers).
 - split-gate (all but the statusKey assert): pipeline.split validation is in core.config.md; the waiting-reason CLI and step rows belong to cli.commands and engine.pipeline.
-- budget › AC1/AC2/AC16: `DASH_API_VERSION === API_VERSION` and `WAIT_LABEL` are dashboard checks; `API_VERSION` lives in lib/core/job/schema.ts.
+- budget › AC1/AC2/AC16: `DASH_API_VERSION === API_VERSION` and `WAIT_LABEL` are dashboard checks; `API_VERSION` lives in lib/api/versions.ts (the length of `API_CHANGES` + 1, re-exported by lib/core/job/schema.ts), and the dashboard's literal is pinned to it with `satisfies`.
 - effort › effort levels…: `DASH_EFFORTS` mirror is the dashboard's.
 - engine-ts › engine tsconfig is strict and erasable-only (kept, not rewritten: test/invariants/engine-ts.test.ts) — not an api behaviour; listed here only because the file was in this unit's candidates.
