@@ -6,6 +6,7 @@ GitHub through `gh`: the runner, pull requests, the GitHub tracker, issue previe
 - `pull-requests.ts` is the typed PR seam: the parsers that check every PR read once into a snapshot (`types.ts`), and the gh adapter (`createGhGitHub`, `ghGitHub`) behind the `GitHub` interface. Only `lib/cli/` passes the gh adapter; tests pass the in-memory one (`test/support/memory-github.ts`). When to adopt, open, rework, retarget or merge stays in `lib/engine/pr/`.
 - Everything GitHub returns is untrusted text: it is fenced as data before an agent reads it, and the dashboard renders it as text.
 - Read-only checks against real repos are fine while developing; anything that writes (PRs, labels, Project fields, comments, issues) goes only to a throwaway repo the maintainer approves.
+- Design: [Untrusted input](../../../docs/architecture/untrusted-input.md), [Audit trail](../../../docs/architecture/audit-trail.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

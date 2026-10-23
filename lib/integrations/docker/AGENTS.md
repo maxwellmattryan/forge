@@ -3,6 +3,7 @@
 The one Docker runner: sync, async and streaming.
 
 - Every docker process starts in `runner.ts`. Docker's state is read from the result's fields, never from its error text.
+- Design: [Untrusted input](../../../docs/architecture/untrusted-input.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

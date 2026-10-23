@@ -70,7 +70,25 @@ function anchors(md: string): Set<string> {
  * both targets of a nested badge such as `[![CI](img.svg)](url)`.
  */
 function links(md: string): string[] {
-  return prose(md).flatMap((l) => [...l.replace(/`[^`]*`/g, '').matchAll(/\]\(\s*<?([^)\s>]+)/g)].map((m) => m[1]));
+  // A code span closes on a backtick run of its opening run's length, so ``a `b` c`` is one span.
+  const code = /(`+)[^`][\s\S]*?\1(?!`)/g;
+  return prose(md).flatMap((l) => [...l.replace(code, '').matchAll(/\]\(\s*<?([^)\s>]+)/g)].map((m) => m[1]));
+}
+
+/** Every markdown file whose relative links the link test checks, grouped by the root that yields it. */
+function markdownFiles(): Map<string, string[]> {
+  const walk = (dir: string, keep: (name: string) => boolean): string[] =>
+    (fs.readdirSync(path.join(ROOT, dir), { recursive: true }) as string[])
+      .filter((p) => !p.split(path.sep).some((s) => s === 'node_modules' || s === 'dist') && keep(path.basename(p)))
+      .map((p) => path.join(dir, p).split(path.sep).join('/'))
+      .sort();
+  const md = (name: string) => name.endsWith('.md');
+  const roots = new Map<string, string[]>();
+  for (const rel of ['README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'CODE_OF_CONDUCT.md', 'AGENTS.md', 'dashboard/AGENTS.md'])
+    roots.set(rel, fs.existsSync(path.join(ROOT, rel)) ? [rel] : []);
+  for (const dir of ['docs', 'skills/forge', 'agents', 'reviewers']) roots.set(`${dir}/`, walk(dir, md));
+  roots.set('lib/**/AGENTS.md', walk('lib', (name) => name === 'AGENTS.md'));
+  return roots;
 }
 
 /** The command lines of the AGENTS.md verify block, each without its trailing ` # comment`. */
@@ -144,29 +162,34 @@ test("the PR template's checklist mirrors the AGENTS.md verify commands", () => 
     );
 });
 
-test('relative links and anchors in the governance docs and README resolve', () => {
+test('relative links and anchors in the docs, AGENTS files, skills and prompts resolve', () => {
   let checked = 0;
-  for (const rel of ['README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'CODE_OF_CONDUCT.md']) {
-    const from = path.join(ROOT, rel);
-    for (const target of links(read(rel))) {
-      if (/^(https?|mailto):/i.test(target)) continue;
-      const hash = target.indexOf('#');
-      const file = hash === 0 ? from : path.resolve(path.dirname(from), decodeURIComponent(hash === -1 ? target : target.slice(0, hash)));
-      assert.ok(fs.existsSync(file), `${rel}: ${target} names a path that does not exist`);
-      if (hash !== -1) {
-        const anchor = target.slice(hash + 1);
-        assert.ok(anchors(fs.readFileSync(file, 'utf8')).has(anchor), `${rel}: ${target} names no heading in ${path.relative(ROOT, file)}`);
+  for (const [root, files] of markdownFiles()) {
+    assert.ok(files.length > 0, `${root} yields at least one markdown file`);
+    for (const rel of files) {
+      const from = path.join(ROOT, rel);
+      for (const target of links(read(rel))) {
+        if (/^(https?|mailto):/i.test(target)) continue;
+        const hash = target.indexOf('#');
+        const file = hash === 0 ? from : path.resolve(path.dirname(from), decodeURIComponent(hash === -1 ? target : target.slice(0, hash)));
+        assert.ok(fs.existsSync(file), `${rel}: ${target} names a path that does not exist`);
+        if (hash !== -1) {
+          assert.ok(fs.statSync(file).isFile(), `${rel}: ${target} puts an anchor on a directory`);
+          const anchor = target.slice(hash + 1);
+          assert.ok(anchors(fs.readFileSync(file, 'utf8')).has(anchor), `${rel}: ${target} names no heading in ${path.relative(ROOT, file)}`);
+        }
+        checked++;
       }
-      checked++;
     }
   }
-  assert.ok(checked >= 20, `checked ${checked} links`);
+  assert.ok(checked >= 200, `checked ${checked} links`);
   // The slug rules the anchors above rely on.
   assert.equal(slug('Verify before claiming it works'), 'verify-before-claiming-it-works');
   assert.equal(slug('`.forge/config.yml`'), 'forgeconfigyml');
   assert.equal(slug('Split gate: why 2 ways?'), 'split-gate-why-2-ways');
   assert.deepEqual([...anchors('# A\n## A\n```\n# B\n```\n')], ['a', 'a-1']);
   assert.deepEqual(links('[![CI](ci.svg)](docs/CI.md "CI") and `[x](code.md)`\n```\n[y](fenced.md)\n```\n'), ['ci.svg', 'docs/CI.md']);
+  assert.deepEqual(links("``'`a` [x](y)'`` and [b](b.md)"), ['b.md']);
 });
 
 test('governance files carry no AI attribution lines', () => {

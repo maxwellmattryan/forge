@@ -3,7 +3,7 @@
 // project lists it in foreman.decides and drops `gate:release` from foreman.reserved. Nothing here
 // trusts release.json, the request inbox or events.jsonl alone: every check recomputes the plan
 // (freshPlan) and re-reads the policy, at approval time and again at run time.
-// docs/RELEASES.md "Releasing a project", docs/ARCHITECTURE.md "Foreman".
+// docs/RELEASES.md "Releasing a project", docs/architecture/foreman.md.
 import { isForemanActor, loadJob, logEvent, readEvents } from '#core/job/store.ts';
 import { classReservation, decides, foremanEnabled, reservedFor } from '../pipeline/moves/foreman-gates.ts';
 import { freshPlan, type ReleasePlan } from './plan.ts';
@@ -81,7 +81,7 @@ export function pendingReleaseHash(root: string, id: string, events: JobEvent[] 
 
 /**
  * Every check on `forge job human <job> approve-release --actor foreman`, before anything is written,
- * in the order docs/ARCHITECTURE.md "Foreman" lists them. Returns the plan hash to record. Throws
+ * in the order docs/architecture/foreman.md lists them. Returns the plan hash to record. Throws
  * ForgeError (exit 1).
  */
 export function checkReleaseDecision(
