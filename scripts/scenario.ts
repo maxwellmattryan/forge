@@ -32,7 +32,7 @@ const FILE_PATH = /^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
 const STATE_FILES = new Set(['job.json', 'events.jsonl']);
 // The variables that would point a child CLI at another root, the daemon's session or a job's own
 // ports and actor; the git location variables go through gitEnv.
-const FORGE_DROPPED = /^FORGE_(DAEMON|PORT|ENDPOINT|BACKING|ROOT|JOB|WORKTREE|ACTOR|NOTIFY|MODE)(_|$)/;
+export const SCENARIO_ENV_DROPPED = /^FORGE_(DAEMON|PORT|ENDPOINT|BACKING|ROOT|JOB|WORKTREE|ACTOR|NOTIFY|MODE)(_|$)/;
 
 export interface ScenarioStep {
   argv: string[];
@@ -224,7 +224,7 @@ export function loadScenario(name: string, dir: string = SCENARIO_DIR): Scenario
  */
 export function scenarioEnv(env: NodeJS.ProcessEnv, root: string): NodeJS.ProcessEnv {
   const out = gitEnv(env);
-  for (const k of Object.keys(out)) if (FORGE_DROPPED.test(k)) delete out[k];
+  for (const k of Object.keys(out)) if (SCENARIO_ENV_DROPPED.test(k)) delete out[k];
   out.FORGE_ROOT = root;
   return out;
 }

@@ -56,12 +56,25 @@
     }
   ],
   "expect": {
-    "pipeline": ["Approve the widget spec", "Spec approval", "Check the protected paths", "Human check"],
+    "pipeline": [
+      "Approve the widget spec",
+      "Check the protected paths",
+      "Spec approval",
+      "Split approval",
+      "Issue to link",
+      "Question for you",
+      "Escalated",
+      "Infra steps",
+      "Merge conflicts",
+      "Review rounds exhausted",
+      "Budget exceeded",
+      "Human check"
+    ],
     "project": ["@project.empty"],
     "backlog": ["@backlog.empty"],
-    "agents": ["@agents.noRunning"],
-    "analytics": ["@analytics.jobs"],
+    "agents": ["@agents.noRunning", "@agents.noSessions"],
+    "analytics": ["@analytics.jobs", "@analytics.noUsage"],
     "evals": ["@evals.empty"],
-    "drawer": { "job": "spec", "text": ["Spec approval"] }
+    "drawer": { "job": "spec", "text": ["Spec approval", "spec ready", "@dock.label"] }
   }
 }

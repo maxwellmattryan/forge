@@ -58,12 +58,24 @@
     }
   ],
   "expect": {
-    "pipeline": ["Build the export command", "Escape <img src=x onerror=\"console.error('unescaped')\"> titles"],
+    "pipeline": [
+      "Escape <img src=x onerror=\"console.error('unescaped')\"> titles",
+      "Sort the import queue",
+      "Spec the retry policy",
+      "Design the settings page",
+      "Build the export command",
+      "Verify the cache fix",
+      "Review the parser rewrite",
+      "Integrate the release branch",
+      "Decide on the log format",
+      "Ship the theme switcher",
+      "PR review"
+    ],
     "project": ["@project.empty"],
     "backlog": ["@backlog.empty"],
     "agents": ["@agents.running", "Build the export command"],
-    "analytics": ["@analytics.jobs"],
+    "analytics": ["@analytics.jobs", "@analytics.noUsage"],
     "evals": ["@evals.empty"],
-    "drawer": { "job": "build", "text": ["Build the export command"] }
+    "drawer": { "job": "build", "text": ["@thread.progress.stage", "builder"] }
   }
 }

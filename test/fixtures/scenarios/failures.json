@@ -42,12 +42,18 @@
     }
   ],
   "expect": {
-    "pipeline": ["Verify fails on the date parser", "Migrate the old exports", "Wire the payments webhook"],
+    "pipeline": [
+      "Verify fails on the date parser",
+      "Review sends back the queue rewrite",
+      "Builder crashed on the upload page",
+      "Migrate the old exports",
+      "Wire the payments webhook"
+    ],
     "project": ["@project.empty"],
     "backlog": ["@backlog.empty"],
-    "agents": ["@agents.noRunning"],
-    "analytics": ["@analytics.jobs"],
+    "agents": ["@agents.noRunning", "@agents.noSessions"],
+    "analytics": ["@analytics.jobs", "@analytics.lenses"],
     "evals": ["@evals.empty"],
-    "drawer": { "job": "verify", "text": ["Verify fails on the date parser"] }
+    "drawer": { "job": "failed", "text": ["the worktree could not be created"] }
   }
 }

@@ -31,12 +31,12 @@
     }
   ],
   "expect": {
-    "pipeline": ["Rewrite the scheduler", "Tidy the changelog script"],
+    "pipeline": ["Tidy the changelog script", "90k tok"],
     "project": ["@project.empty"],
     "backlog": ["@backlog.empty"],
     "agents": ["@agents.running", "Tidy the changelog script"],
-    "analytics": ["@analytics.byModel"],
+    "analytics": ["@analytics.byModel", "Rewrite the scheduler", "Add the CSV export", "Tidy the changelog script"],
     "evals": ["@evals.empty"],
-    "drawer": { "job": "opus", "text": ["Rewrite the scheduler"] }
+    "drawer": { "job": "haiku", "text": ["spec-writer", "@thread.progress.agent"] }
   }
 }
