@@ -120,6 +120,12 @@ const CONFIG_ROWS: Row[] = [
   { step: 'daemon-turn-timeout', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.turnTimeoutMinutes'], note: ONLY_VERSION },
   { step: 'experiments-and-recall', input: { improve: { retroEvery: 5 }, evals: { testPattern: 'x' } }, fields: { improve: { retroEvery: 5 }, evals: { testPattern: 'x' } }, removed: ['improve.experiments', 'evals.recall'], note: ONLY_VERSION },
   { step: 'worktree-seed', input: { worktrees: { setup: ['npm ci'] } }, fields: { worktrees: { setup: ['npm ci'] } }, removed: ['worktrees.seed'], note: ONLY_VERSION },
+  {
+    step: 'instructions-per-role',
+    input: { project: { name: 'x', instructions: ['AGENTS.md', 'docs/DEVELOPING.md'] } },
+    fields: { 'project.instructions': { default: ['AGENTS.md', 'docs/DEVELOPING.md'] }, 'project.name': 'x' },
+    note: "a list becomes the role map's default",
+  },
 ];
 
 const JOB_ROWS: Row[] = [

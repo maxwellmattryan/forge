@@ -1,6 +1,6 @@
 # Dependabot keeps Forge's exact-pinned build toolchain current through reviewed PRs.
 #
-# Forge has zero runtime dependencies by rule (AGENTS.md "Rules"). Only devDependencies, the
+# Forge has zero runtime dependencies by rule (docs/DEVELOPING.md "Rules"). Only devDependencies, the
 # dashboard build and type-check toolchain, are updated here, and any PR that adds or bumps a
 # runtime dependency is closed.
 #

@@ -1,6 +1,6 @@
 // `npm run check:touchpoints [-- --base <ref>] [--head <ref>]`: the companion changes a diff is missing
 // (a version step, a doc page), each named with its fix. RULES below is the table of touchpoint rules;
-// the companions only a person can judge stay in AGENTS.md › Where a change goes. Read-only and offline.
+// the companions only a person can judge stay in docs/DEVELOPING.md › Where a change goes. Read-only and offline.
 // The diff runs from the merge base with the base to the working tree plus untracked files, or to `--head`
 // alone. Exit 0 when nothing is missing, 1 with findings, 2 on any error, so a broken run never reads as a
 // pass (docs/CI.md). There is no skip: a rule that fires on a complete diff gets a narrower trigger here.

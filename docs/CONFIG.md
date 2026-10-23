@@ -6,14 +6,16 @@ Command templates are POSIX `sh`: each runs as `$SHELL -lc <cmd>` (`/bin/sh` whe
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 30            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 31            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
   name: null                 # display name
   description: null          # a one-line summary of the project (informational)
   kinds: []                  # free-form tags (web-ui, rust, embedded, …); help pick lenses
-  instructions: [AGENTS.md, CLAUDE.md]  # files every agent reads first, if present
+  instructions:              # files each agent reads first, if present: `default` for every role, or a role name
+                             # (planner, spec-writer, builder, reviewer, …) whose list replaces it; a plain list is every role's
+    default: [AGENTS.md, CLAUDE.md]
   notes: null                # one-paragraph context every agent should know
 
 git:                         # the branches and remote jobs work against
@@ -346,6 +348,25 @@ budget:                      # repo-wide spend caps per UTC day and month; null 
   onExceeded: hold           # hold: park and refuse new work at the cap · warn: report it only
 ```
 <!-- forge:config:end -->
+
+## Instruction files
+
+`project.instructions` names the files each agent reads first, relative to the repo root; a brief lists only those that exist in the job's worktree. It takes one of two forms:
+
+- **A list**: every role reads the same files.
+- **A map**: `default` (the list for every role the map doesn't name) plus any of `planner`, `spec-writer`, `designer`, `builder`, `reviewer` (every lens), `approver`, `integrator`, `verifier` and `judge`. A role's list **replaces** `default`; it doesn't add to it, so repeat a file the role still needs. A role mapped to `[]` gets no instruction files. A map without `default` keeps the default list, `[AGENTS.md, CLAUDE.md]`.
+
+```yaml
+project:
+  instructions:
+    default: [AGENTS.md]
+    builder: [AGENTS.md, docs/DEVELOPING.md]
+    spec-writer: [AGENTS.md, docs/DEVELOPING.md]
+```
+
+`forge config validate` reports a key that is not a role, a value that is not a list, an entry that is not a non-empty string, an absolute path and a `..` segment; the briefs skip any such entry. `forge job paths <id>` prints the `default` list. A config at schemaVersion 30 or older still loads: its list reads as `{ default: <list> }`, and `forge migrate` writes it that way.
+
+**Keep the auto-loaded file short.** Claude Code loads the root `AGENTS.md` (or `CLAUDE.md`) into every session as project instructions, the orchestrator and every agent included, and the brief tells an agent to skip a file already in its context. So naming fewer files per role saves little while that root file stays long. Keep it to what every session needs and move the reference into a file only the roles that need it are given, such as `docs/DEVELOPING.md` above.
 
 ## Worktree seed
 

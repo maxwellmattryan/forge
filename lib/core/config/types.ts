@@ -152,7 +152,8 @@ export interface Config {
     name: string | null;
     description: string | null;
     kinds: string[];
-    instructions: string[];
+    /** A list every role reads, or a map: `default` plus role lists (INSTRUCTION_ROLES) that replace it (instructionsFor). */
+    instructions: string[] | Record<string, string[]>;
     notes: string | null;
   };
   git: {

@@ -43,7 +43,7 @@ export function defaults(): Config {
       name: null,
       description: null,
       kinds: [],
-      instructions: ['AGENTS.md', 'CLAUDE.md'],
+      instructions: { default: ['AGENTS.md', 'CLAUDE.md'] },
       notes: null,
     },
     git: {
