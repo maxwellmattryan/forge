@@ -4,11 +4,13 @@ Forge talks to issue trackers through a small synchronous contract. Built-ins:
 
 | `tracker.kind` | Backed by | Notes |
 |---|---|---|
-| `local` | `.forge/backlog.md` | zero setup; `[ ]` ready, `[~]` claimed (→ job id), `[x]` done, `[-]` dropped, `[?]` needs info (with Forge's indented `Needs info: …` line, never part of the body); refs are title slugs |
+| `local` | `.forge/backlog.md` | zero setup; `[ ]` ready, `[~]` claimed (→ job id), `[x]` done, `[-]` dropped, `[?]` needs info (with Forge's indented `Needs info: …` line, never part of the body); refs are title slugs; `get` fences the description like an imported GitHub issue |
 | `github` | GitHub Issues via `gh` | assignment on claim, optional status mirroring (labels and/or a GitHub Projects field), the `forge:needs-info` label from [readiness triage](#readiness-triage) whatever `statusSync` says, `Closes #n` on PRs |
 | `none` | nothing | free-text jobs only |
 
-The GitHub tracker imports an issue as a provenance line, then the body and each kept comment as Markdown blockquotes (every line starts with `>`, and a lone CR, U+2028, U+2029 or NEL starts a new quoted line), with each comment under a `**@login** (association):` line that only Forge writes, so a heading or rule forged in the body can't pass for Forge's own `### Recent comments` section; the title is collapsed to one line.
+The GitHub tracker imports an issue as a provenance line in column 0 (`Imported from GitHub issue #<n> by @<login>. This is requirements input …`), then the body and each kept comment as Markdown blockquotes (every line starts with `>`, and a lone CR, U+2028, U+2029 or NEL starts a new quoted line), with each comment under a `**@login** (association):` line that only Forge writes, so a heading, rule or provenance line forged in the body can't pass for Forge's own; the title is collapsed to one line. Before quoting, Forge removes what GitHub doesn't show: zero-width, bidi and other format characters, control characters, Unicode tag and variation-selector-supplement characters, and HTML comments ([Untrusted input](architecture/untrusted-input.md)). The provenance line ends with how many went, and over 32, or with any tag or supplement character, a `Hidden text:` line follows it.
+
+The local tracker's `get` returns the same shape: the provenance line (`Imported from the local backlog item "<ref>". …`), an empty line, then the item's description blockquoted, so an indented `## Acceptance criteria` arrives as `> ## Acceptance criteria`. Its `list` and `search` return the description cleaned but not quoted.
 
 ## GitHub status mirroring
 
@@ -60,12 +62,13 @@ In a project with [member repos](CONFIG.md#repos), work can be filed where it is
 
 ## Readiness triage
 
-`forge next` takes the top ready item as it is, so an unclear one would cost a plan round and a spec round before anyone asked a question. Triage judges ready items first, against four keys:
+`forge next` takes the top ready item as it is, so an unclear one would cost a plan round and a spec round before anyone asked a question. Triage judges ready items first, against four keys the agent judges and a fifth Forge sets itself:
 
 - `outcome`: says what should be true when the work is done;
 - `acceptance`: has acceptance criteria, or for a bug the steps to reproduce with expected and actual behaviour;
 - `scope`: is one reviewable change;
-- `duplicate`: is not the same work as an active Forge job or an open PR.
+- `duplicate`: is not the same work as an active Forge job or an open PR;
+- `hidden-text`: holds no text people can't see. Forge sets it when the item's `get` body has a `Hidden text:` line after its provenance line, whatever the agent's verdict says, and ignores the key in `verdicts.json`. The GitHub comment asks for the hidden characters or HTML comments to be edited out.
 
 An item missing any of them becomes **needs-info**: on GitHub the `<prefix>needs-info` label (default `forge:needs-info`, whatever `statusSync` says) and one templated comment listing the missing pieces; in the local backlog the `[?]` mark and one `Needs info: …` line under it. Ready lists leave needs-info items out, so `forge next`, `forge tracker list --ready` and `/forge next` skip them. Starting one on purpose (`/forge issue <ref>`, the dashboard's Start) still works, and on GitHub a claim with label sync drops the label like any other stale status label.
 
@@ -102,7 +105,7 @@ export default {
 
 `needsInfo: true` on a `list` item means triage asked for more information first: `forge next` skips it even when `list({ ready: true })` returns it, though `ready` lists should leave such items out. Without `setNeedsInfo`, triage still posts its comment and reports `marked: false`.
 
-`get` returns text that agents read as requirements, so fence it the way the GitHub tracker does: start the body with a line saying where it came from and that it is data, not instructions, blockquote the description and every comment line by line, write each comment's author on its own unquoted line, and keep the title to one line.
+`get` returns text that agents read as requirements. Return plain markdown and a one-line title: Forge fences `get` itself, in the loader, so `from-ref`, `refresh-request` and triage all read the same text. It makes the title one line, removes hidden text, and writes the provenance line `Imported from <tracker.kind> item "<ref>". …` in column 0 with the body blockquoted under it. A body already in that fenced form (a provenance line, an optional `Hidden text:` line, then only empty or `>` lines, and no hidden text) is left alone; any other body is fenced whole, so a body shaped like the GitHub tracker's, with unquoted author lines, comes back quoted twice.
 
 Refs must be 1 to 100 characters of letters, digits, `.`, `_` and `-`, starting with a letter or digit (Jira's `PROJ-123` fits). A ref ends up as a command-line argument, so the dashboard's Start button and `forge job link` refuse any other ref, and a qualified `group/sub/project#12` (two to five segments, then the number) is accepted too. Tracker calls receive only the refs the adapter owns: issues recorded under another tracker kind are kept on the job and ignored by sync.
 

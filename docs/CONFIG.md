@@ -117,7 +117,7 @@ tracker:                     # where jobs come from and where their status is mi
       projectStatus: null    # e.g. "🔖 Todo" (needs a project; see below)
     claim:                   # what claiming an issue does
       assign: true           # assign the issue to you when a job claims it
-    comments: collaborators  # collaborators | all: whose issue comments reach agents (anyone can comment on public repos)
+    comments: collaborators  # collaborators | all: whose issue and PR comments reach agents (anyone can comment on public repos)
     statusSync: none         # none | labels | project | both
     labels:                  # status labels (statusSync: labels or both)
       prefix: "forge:"       # labels mode: forge:in-progress, forge:review, …
