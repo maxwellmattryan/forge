@@ -1,6 +1,7 @@
 <!-- An icon-only button: its name is `label` (aria-label and the tooltip's first line), and `hint`, when set, is the
      tooltip's second line and the button's description (aria-describedby on an sr-only span). The tooltip anchors on the
-     wrapper, and a disabled button lets pointer events through to it, so a disabled button still says why on hover. -->
+     wrapper, and a disabled button lets pointer events through to it, so a disabled button still says why on hover.
+     `tipToggle` passes Tooltip's `toggle`: a click or tap flips the tip, for a button that only explains something. -->
 <script lang="ts">
   import Icon from './Icon.svelte';
   import Tooltip from './Tooltip.svelte';
@@ -16,6 +17,7 @@
     size = 'sm',
     ghost = false,
     class: cls = '',
+    tipToggle = false,
   }: {
     icon: IconName;
     label: string;
@@ -26,6 +28,7 @@
     size?: 'sm' | 'md';
     ghost?: boolean;
     class?: string;
+    tipToggle?: boolean;
   } = $props();
 
   const uid = $props.id();
@@ -40,4 +43,4 @@
     aria-pressed={pressed === undefined ? undefined : pressed}
     aria-describedby={hint ? hintId : undefined}
     {disabled}
-    {onclick}><Icon name={icon} /></button>{#if hint}<span id={hintId} class="sr-only">{hint}</span>{/if}<Tooltip anchor={wrap} text={label} {hint} /></span>
+    {onclick}><Icon name={icon} /></button>{#if hint}<span id={hintId} class="sr-only">{hint}</span>{/if}<Tooltip anchor={wrap} text={label} {hint} toggle={tipToggle} /></span>

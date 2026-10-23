@@ -1,5 +1,5 @@
 // docs/GLOSSARY.md names config keys; they must stay in sync with defaults(), as docs/CONFIG.md does
-// in config-set.test.ts (a docs-sync invariant on the docs/TESTING.md list).
+// in generated-docs.test.ts (a docs-sync invariant on the docs/TESTING.md list).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
