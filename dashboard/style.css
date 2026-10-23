@@ -443,6 +443,12 @@
   :focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
   /* The status bar is fixed over the viewport's bottom: a control scrolled into view by focus stops clear of it. */
   html { scroll-padding-bottom: calc(var(--size-statusbar) + env(safe-area-inset-bottom) + var(--space-2)); }
+  /* A <details> opens with a height transition where the browser can animate to auto; elsewhere it opens at once. */
+  :root { interpolate-size: allow-keywords; }
+  @supports selector(::details-content) {
+    details::details-content { block-size: 0; overflow: clip; transition: block-size var(--motion-base) var(--ease-enter), content-visibility var(--motion-base) allow-discrete; }
+    details[open]::details-content { block-size: auto; }
+  }
 }
 
 /* ---------- the ground: soot, grained, dark at the corners ----------
@@ -895,6 +901,7 @@
   border-radius: 0 3px 0 3px;
   box-shadow: var(--gleam-spec), var(--shadow-glow);
   position: relative;
+  transition: width var(--motion-slow) var(--ease-enter);
   &.ok { background: var(--ok); box-shadow: none; }
   &.warn { background: var(--warn); box-shadow: none; }
   &.bad { background: var(--bad); box-shadow: none; }
@@ -1032,6 +1039,8 @@
   border-radius: 50%;
   display: inline-block;
   flex: none;
+  /* A stepper dot moving from future to current to past eases its colour, outline and glow. */
+  transition: background-color var(--motion-base) var(--ease-enter), outline-color var(--motion-base) var(--ease-enter), box-shadow var(--motion-base) var(--ease-enter);
   &.ok { background: var(--ok); }
   /* A small lit sphere, with the gleam's glow. */
   &.gleam { background: radial-gradient(circle at 35% 30%, var(--gleam-hot) 0%, var(--gleam) 55%, var(--gleam-deep) 100%); box-shadow: var(--shadow-glow); }
@@ -1093,6 +1102,35 @@
   transition: opacity var(--motion-quick) var(--ease-exit), scale var(--motion-quick) var(--ease-exit), overlay var(--motion-quick) var(--ease-exit) allow-discrete, display var(--motion-quick) var(--ease-exit) allow-discrete;
   &:popover-open { opacity: 1; scale: 1; transition-duration: var(--motion-base); transition-timing-function: var(--ease-enter); }
   @starting-style { &:popover-open { opacity: 0; scale: .96; } }
+}
+/* A tooltip: a fade only, quick both ways (Tooltip.svelte). */
+@utility tip-fade {
+  opacity: 0;
+  transition: opacity var(--motion-quick) var(--ease-exit), overlay var(--motion-quick) var(--ease-exit) allow-discrete, display var(--motion-quick) var(--ease-exit) allow-discrete;
+  &:popover-open { opacity: 1; transition-timing-function: var(--ease-enter); }
+  @starting-style { &:popover-open { opacity: 0; } }
+}
+/* A status bar popover's top edge flashes gleam as it opens and cools to its seam; it is usable long before. */
+@utility shutter-edge { animation: gleam-cool var(--heat-glow) var(--ease-enter); }
+@keyframes gleam-cool { from { border-top-color: var(--gleam); } }
+/* A selected marker that slides between items: the nav's bar, the tab strip's baseline, a seg's fill. src/lib/marker.ts
+   measures the selected item into --mk-*, sets data-marker="set" for the first placement (no slide), then "on". Without
+   data-marker (before the first measurement, or without JS) the items' own selected styles show, as they always did. */
+@utility slide-marker {
+  position: relative;
+  &[data-marker]::before { content: ""; position: absolute; left: 0; top: 0; translate: var(--mk-x) var(--mk-y); width: var(--mk-w); height: var(--mk-h); pointer-events: none; }
+  &[data-marker="on"]::before { transition: translate var(--motion-base) var(--ease-enter), width var(--motion-base) var(--ease-enter), height var(--motion-base) var(--ease-enter); }
+  /* The nav: a 3px gleam bar over the active item's left edge, in place of its own inset bar. */
+  &.navlist[data-marker]::before { background: var(--gleam); z-index: 2; }
+  &.navlist[data-marker] :is(a, button).active { box-shadow: var(--shadow-bevel); }
+  /* The tab strip: a 2px gleam baseline in place of the active tab's own. */
+  &.tabs[data-marker]::before { background: var(--gleam); z-index: 2; }
+  &.tabs[data-marker] .tab.active { border-bottom-color: transparent; }
+  /* A seg: the gleam slug (with its cooled bottom edge) slides under the buttons and shows through the selected one,
+     which keeps its on-gleam text, so it wipes into the newly selected button. */
+  &.seg[data-marker]::before { background: var(--gleam-fill); box-shadow: inset 0 -2px 0 0 var(--gleam-deep), var(--gleam-spec); corner-shape: bevel; border-radius: var(--mk-r, 0); z-index: 0; }
+  &.seg[data-marker] .btn { position: relative; z-index: 1; }
+  &.seg[data-marker] .btn.sel { background: transparent; box-shadow: none; }
 }
 /* The anvil, as shipped: a raster with its own light grey tile. */
 @utility mark { width: 36px; height: 36px; }

@@ -33,6 +33,8 @@
   let panel = $state<HTMLDivElement>();
   let open = $state(false);
   let at = $state<{ left: number; top: number }>({ left: 0, top: 0 });
+  // menu-pop grows from the edge nearest the trigger: the panel's right edge meets the trigger's, above or below it.
+  let origin = $state('top right');
 
   const within = (n: Node | null): boolean => n !== null && Boolean(panel?.contains(n) || trigger?.contains(n));
 
@@ -51,6 +53,7 @@
     const r = trigger.getBoundingClientRect();
     const p = panel.getBoundingClientRect();
     at = placeMenu({ top: r.top, bottom: r.bottom, right: r.right, vw: document.documentElement.clientWidth, vh: window.innerHeight, width: p.width, height: p.height });
+    origin = at.top < r.top ? 'bottom right' : 'top right';
   }
 
   function hide(refocus: boolean): void {
@@ -125,8 +128,8 @@
   role="dialog"
   aria-labelledby={titleId}
   tabindex="-1"
-  class="plate solid fixed inset-auto m-0 p-0 text-fg hidden open:flex flex-col w-[min(16rem,calc(100vw_-_16px))] max-h-[calc(100dvh_-_16px)] shadow-(--shadow-overlay)"
-  style="left: {at.left}px; top: {at.top}px"
+  class="plate solid menu-pop fixed inset-auto m-0 p-0 text-fg hidden open:flex flex-col w-[min(16rem,calc(100vw_-_16px))] max-h-[calc(100dvh_-_16px)] shadow-(--shadow-overlay)"
+  style="left: {at.left}px; top: {at.top}px; transform-origin: {origin}"
   onkeydown={key}
   onfocusout={focusOut}
 >
