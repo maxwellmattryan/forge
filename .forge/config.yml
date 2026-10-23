@@ -32,11 +32,11 @@ commands:
   setup: npm ci
   build: npm run build:dashboard && test -z "$(git status --porcelain -- dashboard/dist)"
   test: set -- {args}; [ $# -gt 0 ] || set -- 'test/**/*.test.ts'; node --test "$@"
-  lint: for f in $(find lib/trackers dashboard -maxdepth 1 -name '*.mjs') bin/forge; do node --check "$f" || exit 1; done && claude plugin validate . --strict
+  lint: npm run check:touchpoints && for f in $(find lib/trackers dashboard -maxdepth 1 -name '*.mjs') bin/forge; do node --check "$f" || exit 1; done && claude plugin validate . --strict
   format: null
   typecheck: npm run check:dashboard && npm run typecheck
   dev: null
-  e2e: null
+  e2e: if [ -f scripts/render-check.ts ]; then npm run test:render; else echo "no render check on this branch"; fi
   dist: npm run build:dashboard
 verify:
   - build
@@ -57,6 +57,13 @@ verifyE2e:
     - "*.jsx"
     - "*.tsx"
     - "*.astro"
+    - "dashboard/"
+    - "lib/api/"
+    - "lib/server/"
+    - "test/fixtures/scenarios/"
+    - "test/fixtures/render-broken/"
+    - "scripts/scenario.ts"
+    - "scripts/render-check.ts"
 verifyIntegrity: warn
 ports:
   base: 4100
