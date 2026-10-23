@@ -1,7 +1,8 @@
 # lib/integrations/claude/
 
-Claude Code's files and prices: session transcripts and the model price table.
+Claude Code's command line, files and prices: the session argv and env, transcripts and the model price table.
 
+- `DENY_TOOLS` and `PROMPT_TOOL` end every argv, and API keys are dropped unless `daemon.auth` is `api-key` (docs/ARCHITECTURE.md "Daemon security").
 - `pricing.json` holds the model prices: take them from Anthropic's current pricing, never from memory, and bump `asOf`. `pricing()` and `/api/about` read it through `PLUGIN_ROOT`.
 - Transcript paths come from job state only, which an agent or a checkout can write, so each id is checked before it becomes a path segment.
 
