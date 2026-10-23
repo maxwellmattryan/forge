@@ -515,7 +515,7 @@ The live dashboard and its session pool.
 | `--permission-mode MODE` | the job sessions' default permission mode until it stops: default (ask), auto or dontAsk (refuse); refused in a daemon session |
 | `--port N` | the first port to try (default: dashboard.port, 7400) |
 | `--quiet` | in the foreground in human mode, print only the banner (no activity log) |
-| `--stop` | stop it and reap its sessions |
+| `--stop` | stop it and reap its sessions; a dashboard.json whose pid is not provably that dashboard is cleared without signalling anything |
 
 | Exit | When |
 |---|---|

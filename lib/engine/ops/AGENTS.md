@@ -11,6 +11,7 @@ Operating Forge itself: doctor, support bundles, updates, versions, retention, d
 |---|---|
 | `audit.ts` | The audit trail export: who did what to a job, and when its gates opened and closed. |
 | `bundle.ts` | The support bundle: `forge doctor --bundle` and GET /api/doctor/bundle. |
+| `dashboard-record.ts` | The running dashboard's record (`.forge/runtime/dashboard.json`), proven before anyone signals its pid or shows its URL. |
 | `delete.ts` | `forge job delete`: removes a job that should never have existed (a mistaken start, a duplicate) and everything Forge made for it, keeping no archive record, so stats and retro never count it. |
 | `detect-components.ts` | Component suggestions for `forge init detect`: one per npm/yarn/pnpm/bun workspace package, Cargo workspace member and CMake subproject, with the build edges their manifests make obvious. |
 | `detect.ts` | Inspects a repository so `/forge init` can propose answers instead of asking blind questions. |
