@@ -2,10 +2,9 @@
 // nothing, a registered queue hears each new failure once, and its remover stops it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tempRepo } from '../../test/helpers.ts';
+import { jobAt, tempRepo } from '../../test/helpers.ts';
 import { registerNotify, type QueueNotify } from './notify.ts';
-import { defaults } from '#core/config/load.ts';
-import { createJob, setJob } from '#core/job/store.ts';
+import { setJob } from '#core/job/store.ts';
 import { runTransitionHooks } from '#core/job/transitions.ts';
 import type { LoadedJob } from '#core/types.ts';
 
@@ -20,8 +19,7 @@ test('notifications follow registerNotify, not imports', () => {
   const calls: { events: readonly string[]; job?: string | null; reason: string }[] = [];
   const queue: QueueNotify = (_root, events, opts) => (calls.push({ events, job: opts.job, reason: opts.reason }), true);
   try {
-    const id = createJob(repo.dir, defaults(), { title: 'notify me' }).id;
-    setJob(repo.dir, id, { state: 'running' });
+    const id = jobAt(repo.dir, 'backlog', { title: 'notify me' }).id;
     const remove = registerNotify(queue);
     try {
       setJob(repo.dir, id, { state: 'failed' });
