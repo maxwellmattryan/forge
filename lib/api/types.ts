@@ -626,8 +626,8 @@ export type DaemonPermissionMode = 'default' | 'auto' | 'dontAsk';
 export type PermissionDecision = 'allow' | 'session' | 'deny';
 
 /**
- * A tool call a daemon session's permission check sent to the supervisor instead of refusing:
- * lib/office/session/control.ts. Every field but id and at comes from the session, so it is untrusted text.
+ * A tool call a daemon session's permission check sent to the supervisor instead of refusing, read by
+ * lib/integrations/claude/stream.ts and shown or denied by lib/office/session/control.ts. Untrusted text but id and at.
  */
 export interface DaemonPermissionPrompt {
   /** The supervisor's id for the prompt, not claude's request id. */

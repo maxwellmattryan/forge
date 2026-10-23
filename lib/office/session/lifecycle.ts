@@ -2,7 +2,8 @@
 // the inbox and one per job with work. Each is a long-lived `claude -p --input-format stream-json`
 // child that, whenever its pool sees new work for its scope, gets the one fixed `/forge requests`
 // turn. A session never runs agents or writes job state itself: the claude child does, through the
-// same claims and CLI as a human's session. docs/ARCHITECTURE.md "Daemon" and "Daemon security"
+// same claims and CLI as a human's session. It never reads claude's output either: it reacts to the
+// ClaudeEvents lib/integrations/claude/ reports. docs/ARCHITECTURE.md "Daemon" and "Daemon security"
 // describe the rules this file keeps.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -13,12 +14,12 @@ import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, validJobId } from '#core/job/requ
 import { writeJsonAtomic } from '#core/os/fs.ts';
 import { now } from '#core/utils.ts';
 import { apiKeyVars, buildArgv, commandPermissionMode, sessionEnv } from '#integrations/claude/argv.ts';
+import type { ClaudeChild, ClaudeEvent } from '#integrations/claude/types.ts';
 import type { ChildMeta, DaemonChild, Session, SessionContext, SessionCore, SessionOptions } from './contract.ts';
-import { TURN_LINE, cap, createControl } from './control.ts';
-import { LIMIT_TEXT, parseRateLimit, routeHolds } from './holds.ts';
-import type { RateLimitInfo } from './holds.ts';
+import { createControl } from './control.ts';
+import { routeHolds } from './holds.ts';
 import { checkLaunch } from './launch.ts';
-import { STDERR_CAP, createSessionLog, splitter, stamped } from './log.ts';
+import { createSessionLog } from './log.ts';
 import { createOwned } from './owned.ts';
 import { withSessionId } from './records.ts';
 import { createTimers } from './timers.ts';
@@ -53,8 +54,6 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   let turnFailures = 0;
   /** Failed turns in a row that were not a quota limit: at MAX_FAILURES the session stops wanting itself. */
   let strikes = 0;
-  /** The last rate_limit_event of the turn in flight. */
-  let rateLimit: RateLimitInfo | null = null;
   /** A session that stopped on its own says so; a job scope's stop is recorded on the job. Never throws. */
   const announceStop = (reason: 'failed-turns' | 'failed-starts') => {
     try {
@@ -115,7 +114,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   const { logLine, logEvent } = log;
   const { agents, computeKept, keptBy, facts, loseAgents, letGo } = createOwned(core);
   const control = createControl(core);
-  const { onControl, onControlCancel, onControlResponse, setPermissionMode, answerPermission, clearModeRequests } = control;
+  const { setPermissionMode, answerPermission, clearModeRequests } = control;
   const { armTurn, clearTurn, armIdle, clearIdle } = createTimers(core, agents);
 
   function state(): DaemonSessionState {
@@ -125,7 +124,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       running: Boolean(child),
       status,
       sessionId: info.sessionId ?? null,
-      pid: child?.pid ?? null,
+      pid: child?.claude.pid ?? null,
       lastTurnAt: info.lastTurnAt ?? null,
       lastResultAt,
       turns,
@@ -182,34 +181,100 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       ctx.fatal(`cannot start daemon: ${(e as Error).message}`);
       return false;
     }
-    let c2;
+    const meta: ChildMeta = { resume, stdout: false, init: false, result: false, asked: false, committed: [], background: null, reason: null };
+    // Assigned as soon as start returns, before any event arrives.
+    let proc!: DaemonChild;
+    let claude: ClaudeChild;
     try {
       // The scope reaches the session only through its environment, never stdin or argv.
-      c2 = o.spawn(argv[0], argv.slice(1), { cwd: root, detached: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...sessionEnv(o.env, c.daemon.auth), [TRUST_ENV]: launch.trusted, [SCOPE_ENV]: scope } });
+      const env = { ...sessionEnv(o.env, c.daemon.auth), [TRUST_ENV]: launch.trusted, [SCOPE_ENV]: scope };
+      claude = o.claude.start(argv, { cwd: root, env, maxLineBytes: o.maxLineBytes }, (e) => onEvent(proc, e));
     } catch (e) {
       sessionFatal(`cannot start daemon: ${(e as Error).message}`);
       return false;
     }
-    // _forge is attached on the next lines, before anything reads it.
-    const proc = c2 as DaemonChild;
+    proc = { claude, meta };
     child = proc;
     status = 'idle';
     waiting = false;
     liveMode = launchMode ?? commandPermissionMode(c.daemon.command);
     spawnEffort = effort.level;
     clearModeRequests();
-    const meta: ChildMeta = { resume, stdout: false, init: false, result: false, asked: false, committed: [], background: null, reason: null };
-    proc._forge = meta;
-    info = { ...info, pid: proc.pid ?? null, serverPid: process.pid, argv0: argv[0], startedAt: now(), spawnSessionId: info.sessionId };
+    info = { ...info, pid: claude.pid, serverPid: process.pid, argv0: argv[0], startedAt: now(), spawnSessionId: info.sessionId };
     persist();
-    logEvent('spawn', { pid: proc.pid ?? null, sessionId: info.sessionId, resume, ...(reason ? { reason } : {}) });
+    logEvent('spawn', { pid: claude.pid, sessionId: info.sessionId, resume, ...(reason ? { reason } : {}) });
     logEvent('effort', { level: effort.level ?? 'inherit', source: effort.source });
     const keys = apiKeyVars(o.env);
     if (keys.length) logEvent('auth', { auth: c.daemon.auth, vars: keys, passed: c.daemon.auth === 'api-key' });
+    armIdle(c);
+    changed();
+    return true;
+  }
 
-    proc.on('error', (e: Error) => {
-      if (child !== proc) return;
-      if (!proc.pid) {
+  /** What one of the child's events changes. A log line is always logged; the rest count only from the current child. */
+  function onEvent(proc: DaemonChild, e: ClaudeEvent): void {
+    if (e.kind === 'log') {
+      if (!logLine(e.line) && e.stream === 'stdout') log.backpressure(proc.claude);
+      if (e.stream === 'stdout' && child === proc && !proc.meta.stdout) {
+        proc.meta.stdout = true;
+        if (!info.resumable) {
+          info = { ...info, resumable: true };
+          persist();
+        }
+      }
+      return;
+    }
+    if (child !== proc) return;
+    const meta = proc.meta;
+    switch (e.kind) {
+      case 'turn-started':
+        meta.init = true;
+        if (status === 'idle' && meta.result) {
+          // A turn nobody wrote: a background agent finished and its notification woke the orchestrator.
+          // turn-started alone is the signal, so a stray line after a result can never leave the session busy.
+          status = 'busy';
+          clearIdle();
+          // A woken turn can hang like a written one, and a busy session counts as driving its job.
+          armTurn(proc);
+          logEvent('wake');
+          kept = computeKept();
+          changed();
+        }
+        return;
+      case 'session-id': {
+        if (e.id === info.sessionId) return;
+        // It becomes the value after --resume on the next spawn, so it must be a uuid, never a flag.
+        if (!UUID.test(e.id)) return void logEvent('error', { message: `ignored a non-uuid session id: ${JSON.stringify(e.id.slice(0, 80))}` });
+        const from = info.sessionId;
+        info = withSessionId(info, e.id);
+        persist();
+        logEvent('session-changed', { from, to: e.id });
+        return changed();
+      }
+      case 'permission-mode':
+        if (e.mode === liveMode) return;
+        liveMode = e.mode;
+        return changed();
+      case 'background':
+        // The reconciler reads it (facts): an idle session with none left and agents marked running is undriven.
+        meta.background = e.count;
+        return;
+      case 'permission-asked':
+        return control.onAsked(proc.claude, e);
+      case 'permission-cancelled':
+        return control.onCancelled(e.requestId);
+      case 'mode-answer':
+        return control.onModeAnswer(e);
+      case 'turn-ended':
+        return onResult(proc, e);
+      case 'protocol-error':
+        return logEvent('error', { message: e.message });
+      case 'line-too-long':
+        return logEvent('line-truncated', { bytes: e.bytes });
+      case 'stdin-error':
+        return logEvent('error', { message: `stdin: ${e.message}` });
+      case 'process-error':
+        if (e.started) return logEvent('error', { message: e.message });
         // Never started (ENOENT, EACCES): retrying can't help, so stop wanting this session.
         child = null;
         clearIdle();
@@ -217,88 +282,14 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
         inFlight = [];
         info = { ...info, pid: null };
         persist();
-        sessionFatal(`cannot start daemon: ${e.message}`);
-      } else logEvent('error', { message: e.message });
-    });
-    // EPIPE on a child that died mid-write must not take the server down.
-    proc.stdin?.on('error', (e: Error) => {
-      if (child === proc) logEvent('error', { message: `stdin: ${e.message}` });
-    });
-    proc.stdout?.on(
-      'data',
-      splitter(o.maxLineBytes, (line) => onStdout(proc, line), (n) => {
-        if (child === proc) logEvent('line-truncated', { bytes: n });
-      }),
-    );
-    proc.stderr?.on(
-      'data',
-      splitter(STDERR_CAP, (text) => void logLine(JSON.stringify({ type: 'forge-stderr', at: now(), text })), null),
-    );
-    proc.on('close', (code: number | null, signal: string | null) => onExit(proc, code, signal));
-    armIdle(c);
-    changed();
-    return true;
+        return sessionFatal(`cannot start daemon: ${e.message}`);
+      case 'exit':
+        return onExit(proc, e.code, e.signal);
+    }
   }
 
-  function onStdout(proc: DaemonChild, line: string): void {
-    const meta = proc._forge;
-    let ev: any = null;
-    try {
-      ev = JSON.parse(line);
-    } catch {}
-    const ok = ev && typeof ev === 'object' ? logLine(stamped(ev, line)) : logLine(JSON.stringify({ type: 'forge-raw', at: now(), text: line }));
-    if (!ok) log.backpressure(proc);
-    if (child !== proc) return;
-    if (!meta.stdout) {
-      meta.stdout = true;
-      if (!info.resumable) {
-        info = { ...info, resumable: true };
-        persist();
-      }
-    }
-    if (!ev || typeof ev !== 'object') return;
-    if (ev.type === 'system' && ev.subtype === 'init') meta.init = true;
-    if (ev.type === 'system' && ev.subtype === 'init' && status === 'idle' && meta.result) {
-      // A turn nobody wrote: a background agent finished and its notification woke the orchestrator.
-      // init alone is the signal, so a stray line after a result can never leave the session busy.
-      status = 'busy';
-      clearIdle();
-      // A woken turn can hang like a written one, and a busy session counts as driving its job.
-      armTurn(proc);
-      logEvent('wake');
-      kept = computeKept();
-      changed();
-    }
-    if (ev.type === 'system' && ev.subtype === 'init' && typeof ev.session_id === 'string' && ev.session_id && ev.session_id !== info.sessionId) {
-      // It becomes the value after --resume on the next spawn, so it must be a uuid, never a flag.
-      if (!UUID.test(ev.session_id)) return void logEvent('error', { message: `ignored a non-uuid session_id: ${JSON.stringify(ev.session_id.slice(0, 80))}` });
-      const from = info.sessionId;
-      info = withSessionId(info, ev.session_id);
-      persist();
-      logEvent('session-changed', { from, to: ev.session_id });
-      changed();
-    }
-    // claude reports its mode at each turn's init and in a status event after every switch.
-    if (ev.type === 'system' && (ev.subtype === 'init' || ev.subtype === 'status') && typeof ev.permissionMode === 'string') {
-      const mode = cap(ev.permissionMode, 40);
-      if (mode !== liveMode) {
-        liveMode = mode;
-        changed();
-      }
-    }
-    if (ev.type === 'system' && ev.subtype === 'background_tasks_changed' && Array.isArray(ev.tasks)) {
-      // The reconciler reads it (facts): an idle session with none left and agents marked running is undriven.
-      meta.background = ev.tasks.length;
-    }
-    if (ev.type === 'control_request') onControl(proc, ev);
-    if (ev.type === 'control_response') onControlResponse(ev);
-    if (ev.type === 'control_cancel_request') onControlCancel(ev);
-    if (ev.type === 'rate_limit_event') rateLimit = parseRateLimit(ev.rate_limit_info) ?? rateLimit;
-    if (ev.type === 'result') onResult(proc, ev);
-  }
-
-  function onResult(proc: DaemonChild, ev: Record<string, any>): void {
-    proc._forge.result = true;
+  function onResult(proc: DaemonChild, e: Extract<ClaudeEvent, { kind: 'turn-ended' }>): void {
+    proc.meta.result = true;
     failures = 0;
     // A result clears errors from earlier exits and failed turns; a refusal or fatal error stays.
     if (lastError && /^(daemon exited|last turn failed)/.test(lastError)) lastError = null;
@@ -308,9 +299,9 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     if (status === 'busy') status = 'idle';
     clearTurn();
     kept = computeKept();
-    if (ev.is_error === true) failedTurn(proc, ev, ids);
+    if (e.ok === false) failedTurn(proc, e, ids);
     else {
-      proc._forge.committed.push(...ids);
+      proc.meta.committed.push(...ids);
       for (const id of ids) committed.add(id);
       turnFailures = 0;
       strikes = 0;
@@ -327,15 +318,14 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   }
 
   /**
-   * claude reports an API failure (an expired login, an exhausted quota) as a result with is_error,
-   * often with subtype "success": the session is alive but no request made progress. Nothing is
-   * committed, so the requests stay fresh, and the session waits before its next turn: until the
-   * rate-limit window resets when claude said which one refused it, otherwise with a doubling
-   * backoff. A limit is retried for as long as it takes; any other error strikes out at MAX_FAILURES.
+   * A failed turn (an expired login, an exhausted quota): the session is alive but no request made
+   * progress. Nothing is committed, so the requests stay fresh, and the session waits before its next
+   * turn: until the quota window resets when claude said when, otherwise with a doubling backoff. A
+   * limit is retried for as long as it takes; any other error strikes out at MAX_FAILURES.
    */
-  function failedTurn(proc: DaemonChild, ev: Record<string, any>, ids: string[]): void {
-    const why = (typeof ev.result === 'string' && ev.result.trim() ? ev.result.trim() : String(ev.subtype ?? 'error')).slice(0, 300);
-    const meta = proc._forge;
+  function failedTurn(proc: DaemonChild, e: { reason: string; limit: boolean; resetsAt: number | null }, ids: string[]): void {
+    const why = e.reason;
+    const meta = proc.meta;
     const t = Date.now();
     if (meta.resume && !meta.init) {
       // A lost transcript on --resume prints this result and exits 1; onExit then starts over and
@@ -344,9 +334,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       lastError = `last turn failed: ${why}`;
       return;
     }
-    const rejected = rateLimit?.status === 'rejected';
-    const reset = rejected && rateLimit!.resetsAt !== null && rateLimit!.resetsAt > t ? rateLimit!.resetsAt : null;
-    const limit = rejected || LIMIT_TEXT.test(why);
+    const { limit } = e;
+    const reset = e.resetsAt !== null && e.resetsAt > t ? e.resetsAt : null;
     turnFailures++;
     if (!limit) strikes++;
     if (!limit && strikes >= MAX_FAILURES) {
@@ -378,7 +367,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   }
 
   function exited(proc: DaemonChild, code: number | null, signal: string | null): void {
-    const meta = proc._forge;
+    const meta = proc.meta;
     child = null;
     clearIdle();
     clearTurn();
@@ -399,9 +388,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     }
     if (meta.resume && !meta.init && code !== 0 && code !== null) {
       // The transcript is gone (or unreadable): start over once rather than counting a failure.
-      // Real claude still prints one `result` (subtype error_during_execution, is_error) before
-      // exiting 1, so the test is "no system/init", and whatever that result committed is undone:
-      // no turn actually ran.
+      // Real claude still ends the turn, failed (error_during_execution), before exiting 1, so the
+      // test is "no turn-started", and whatever that turn committed is undone: no turn actually ran.
       for (const id of meta.committed) committed.delete(id);
       if (lastError?.startsWith('last turn failed')) lastError = null;
       retryAt = null;
@@ -440,29 +428,25 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       }
       return;
     }
-    proc._forge.asked = true;
-    proc._forge.reason = reason ?? event;
+    proc.meta.asked = true;
+    proc.meta.reason = reason ?? event;
     clearIdle();
     clearTurn();
     status = 'stopping';
     kept = null;
-    logEvent(event, { pid: proc.pid ?? null, ...(reason ? { reason } : {}) });
+    logEvent(event, { pid: proc.claude.pid, ...(reason ? { reason } : {}) });
     changed();
-    const closedP = new Promise((resolve) => proc.once('close', () => resolve(true)));
+    const closedP = proc.claude.closed.then(() => true);
     const wait = (ms: number) => {
       let timer: NodeJS.Timeout | undefined;
       const timeout = new Promise((r) => (timer = setTimeout(() => r(false), ms)));
       // Cleared once the child closes, so a pending grace timer never holds the process open.
       return Promise.race([closedP, timeout]).finally(() => clearTimeout(timer));
     };
-    if (endStdin) {
-      try {
-        proc.stdin?.end();
-      } catch {}
-    }
-    o.killTree(proc, 'SIGTERM');
+    if (endStdin) proc.claude.endInput();
+    proc.claude.signal('SIGTERM');
     if (!(await wait(o.graceMs))) {
-      o.killTree(proc, 'SIGKILL');
+      proc.claude.signal('SIGKILL');
       await wait(o.graceMs);
     }
     if (child === proc) {
@@ -473,7 +457,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       info = { ...info, pid: null };
       persist();
       loseAgents();
-      letGo(proc._forge.reason ?? event);
+      letGo(proc.meta.reason ?? event);
       if (!closed) ctx.onExit(scope);
     }
     if (!child) status = 'off';
@@ -483,11 +467,10 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   }
 
   function writeTurn(ids: string[]): void {
-    // The pool only calls this once a child is running, and its stdin is a pipe.
-    child!.stdin!.write(TURN_LINE);
+    // The pool only calls this once a child is running.
+    child!.claude.writeTurn();
     status = 'busy';
     inFlight = ids;
-    rateLimit = null;
     retryAt = null;
     turns++;
     info = { ...info, lastTurnAt: now() };
@@ -583,7 +566,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     },
     /** Last resort from a process `exit` handler: synchronous, so it can't wait for the grace period. */
     killSync() {
-      if (child) o.killTree(child, 'SIGTERM');
+      if (child) child.claude.signal('SIGTERM');
     },
   };
 }

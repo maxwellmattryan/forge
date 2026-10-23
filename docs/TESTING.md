@@ -20,7 +20,7 @@ A module has one unit file beside it and one integration (or e2e) file per entry
 | `test/integration/<entry>/` | **Integration**: one entry point with outside systems faked. The entries are `cli` (spawns `bin/forge`), `server` (HTTP against `lib/server/start.ts`), `pool` (`createPool`/`createSession` with a stub `claude`), and the code outside `lib/`: `scripts` (`scripts/*.ts`), `hooks` (`hooks/`) and `release-gate` (`templates/release-gate/`). | `npm run test:integration` |
 | `test/e2e/<flow>/` | **E2E**: a scratch-repo flow across layers, such as `release` or `pipeline`. | `npm run test:e2e` |
 | `test/invariants/` | **Invariants**: rules about the repository itself, not behaviour, each on the Allowed source-text tests list. | `npm run test:invariants` |
-| `test/support/` | **Support**: the shared helpers, `forgeSync` and `BIN` (`cli.ts`), `forgeInProcess` (`in-process.ts`), `fakeBin` (`fake-bin.ts`) and `fakeGh` (`fake-gh.ts`). | - |
+| `test/support/` | **Support**: the shared helpers, `forgeSync` and `BIN` (`cli.ts`), `forgeInProcess` (`in-process.ts`), `fakeBin` (`fake-bin.ts`), `fakeGh` (`fake-gh.ts`) and `fakeClaude` (`claude-adapter.ts`), the daemon's claude children driven by `ClaudeEvent`s. | - |
 
 - Tests import support helpers only through `test/helpers.ts`, which re-exports them. Its import side effects pin git config, `SHELL`, `FORGE_MODE` and `NODE_OPTIONS` for every spawn.
 - Start the CLI with `forgeAsync` or `forgeSync`, never with a `bin/forge` path of your own. Fake `gh` with `fakeGh` (or `test/job-repos-fixture.ts`'s `prProject` for its stateful per-repo fake), and any other tool with `fakeBin`.

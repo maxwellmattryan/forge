@@ -1,19 +1,24 @@
 // createSession in-process, through the seams #416 cut it into (log, owned, control, timers, launch):
-// a stub SessionContext, in-memory children and a log sink stand-in, so no CLI and no real claude.
-// Each test names the docs/test-rewrite/modules/office.session.md items it covers.
+// a stub SessionContext, fakeClaude children driven by ClaudeEvents, and a log sink stand-in, so no
+// CLI, no real claude and no stream-json. Each test names the docs/test-rewrite/modules/office.session.md
+// items it covers.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PassThrough } from 'node:stream';
-import { repoTemplate, waitFor } from '../../../test/helpers.ts';
+import { fakeClaude, repoTemplate, waitFor, type FakeClaudeChild } from '../../../test/helpers.ts';
 import { defaults, trustDigest } from '#core/config/load.ts';
 import { createJob, loadJob, recordAgent, updateJob } from '#core/job/store.ts';
 import { INBOX_SCOPE } from '#core/job/requests.ts';
+import { sessionFiles } from '#core/job/session-files.ts';
+import { PLUGIN_ROOT } from '#core/paths.ts';
+import { buildArgv } from '#integrations/claude/argv.ts';
+import { PROMPT_INPUT_CHARS } from '#integrations/claude/stream.ts';
+import type { ClaudeEvent } from '#integrations/claude/types.ts';
 import { createSession } from './lifecycle.ts';
 import { sessionOptions, type LogSink, type SessionContext } from './contract.ts';
-import { PERMISSION_DENIED, PROMPT_INPUT_CHARS, TURN_LINE } from './control.ts';
 import { LOST_SUMMARY } from './owned.ts';
 import type { Config, DaemonPermissionMode } from '#core/types.ts';
 
@@ -23,29 +28,6 @@ const repo = repoTemplate((dir) => {
   fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), CONFIG_TEXT);
 });
 
-/** In-memory children, modelled on test/integration/server/security.test.ts's fakeChildren. */
-function children() {
-  const list: any[] = [];
-  const spawn: any = (cmd: string, args: string[], opts: any) => {
-    const c: any = new EventEmitter();
-    Object.assign(c, { cmd, args, opts, pid: 4_200_000 + list.length, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), written: '' });
-    c.stdin.on('data', (d: Buffer) => (c.written += d.toString()));
-    c.exit = (code: number | null, signal: string | null) => {
-      if (c.exited) return;
-      c.exited = true;
-      c.stdout.end();
-      c.stderr.end();
-      c.emit('exit', code, signal);
-      c.emit('close', code, signal);
-    };
-    c.line = (obj: unknown) => c.stdout.write(JSON.stringify(obj) + '\n');
-    list.push(c);
-    return c;
-  };
-  const killTree = (c: any, signal: string) => setTimeout(() => c.exit(null, signal), 5);
-  return { list, spawn, killTree };
-}
-
 /** A sink stand-in; a `full` one returns false from every write, as a stream past its highWaterMark does. */
 function memorySink(full = false) {
   const em = new EventEmitter();
@@ -54,16 +36,19 @@ function memorySink(full = false) {
   return { sink, written, drain: () => em.emit('drain') };
 }
 
-/** The lines claude's stdin received, parsed. */
-const stdinLines = (c: any): any[] => c.written.split('\n').filter(Boolean).map((l: string) => JSON.parse(l));
-
 interface RigOpts {
   job?: boolean;
   mode?: DaemonPermissionMode | null;
   turnTimeoutMs?: number;
   daemon?: Record<string, unknown>;
   sink?: LogSink;
+  /** Known values the redactor returns. */
+  secrets?: string[];
+  /** A session record written before the session is created. */
+  record?: Record<string, unknown>;
 }
+
+const MAX_LINE_BYTES = 123_456;
 
 function rig(t: any, opts: RigOpts = {}) {
   const r = repo();
@@ -75,6 +60,11 @@ function rig(t: any, opts: RigOpts = {}) {
   const cfg: Config = defaults();
   cfg.daemon = { ...cfg.daemon, enabled: true, command: 'claude {session}', idleStopMinutes: null, ...opts.daemon } as Config['daemon'];
   const scope = opts.job ? createJob(root, cfg, { title: 'kept by its agents' }).id : INBOX_SCOPE;
+  if (opts.record) {
+    const f = sessionFiles(root, scope);
+    fs.mkdirSync(f.dir, { recursive: true });
+    fs.writeFileSync(f.info, JSON.stringify(opts.record));
+  }
   const calls = { emit: [] as any[], fatal: [] as string[], untrusted: 0, refused: [] as any[], loadConfig: [] as any[] };
   const ctx: SessionContext = {
     trusted: () => digest,
@@ -90,17 +80,17 @@ function rig(t: any, opts: RigOpts = {}) {
     permissionModeRefused: (s, mode, live) => void calls.refused.push({ scope: s, mode, live }),
     effort: () => ({ level: null, source: 'none' }),
   };
-  const kids = children();
-  const sink = opts.sink ?? memorySink().sink;
+  const claude = fakeClaude();
+  const mem = memorySink();
   const o = sessionOptions({
-    spawn: kids.spawn,
-    killTree: kids.killTree,
+    claude: claude.adapter,
     graceMs: 500,
+    maxLineBytes: MAX_LINE_BYTES,
     env: { PATH: process.env.PATH },
-    redactor: () => [],
+    redactor: () => opts.secrets ?? [],
     notify: (() => {}) as any,
     turnTimeoutMs: opts.turnTimeoutMs,
-    openLog: () => sink,
+    openLog: () => opts.sink ?? mem.sink,
     loadConfig: (_root, o2) => {
       calls.loadConfig.push(o2);
       return { config: cfg };
@@ -110,29 +100,45 @@ function rig(t: any, opts: RigOpts = {}) {
   t.after(() => s.close());
   const lineEvents = () => calls.emit.filter((e) => e.kind === 'line');
   const event = (name: string) => lineEvents().map((e) => JSON.parse(e.line)).filter((l) => l.type === 'forge-daemon' && l.event === name);
-  return { root, scope, configFile, cfg, calls, kids, s, lineEvents, event };
+  const record = () => JSON.parse(fs.readFileSync(sessionFiles(root, scope).info, 'utf8'));
+  return { root, scope, digest, configFile, cfg, calls, children: claude.children, s, written: mem.written, lineEvents, event, record };
 }
 
 const pending = [{ id: 'r1', type: 'new', job: null, status: 'pending' }] as any[];
+
+/** A permission-asked event with the given fields over a plain Bash call. */
+const asked = (requestId: string, over: Partial<Extract<ClaudeEvent, { kind: 'permission-asked' }>> = {}): ClaudeEvent => ({
+  kind: 'permission-asked',
+  requestId,
+  tool: 'Bash',
+  input: JSON.stringify({ command: 'cp a b' }),
+  description: 'copy',
+  agentId: null,
+  blockedPath: null,
+  rules: ['Bash(cp a b)'],
+  dirs: [],
+  ...over,
+});
+const failed = (reason: string, limit = false, resetsAt: number | null = null): ClaudeEvent => ({ kind: 'turn-ended', ok: false, reason, limit, resetsAt });
 
 // B11 (a fresh child gets nothing until a request; one written turn; a result makes it idle and
 // commits the request), B43 (offsets and recent), B44 (backpressure until drain).
 test('a session spawns, takes a turn and logs it', async (t) => {
   const r = rig(t);
   assert.equal(r.s.spawn(r.cfg), true);
-  const [c] = r.kids.list;
-  assert.equal(c.written, '');
+  const [c] = r.children;
+  assert.equal(c.turns, 0);
   assert.deepEqual(r.s.route(r.cfg, pending), { eligible: ['r1'], fresh: true });
   r.s.writeTurn(['r1']);
-  await waitFor(() => c.written === TURN_LINE, { what: 'the turn on stdin' });
+  assert.equal(c.turns, 1);
   assert.equal(r.s.status, 'busy');
-  c.line({ type: 'result', subtype: 'success', is_error: false, result: 'done' });
-  await waitFor(() => r.s.status === 'idle', { what: 'idle after the result' });
-  assert.equal(c.written, TURN_LINE, 'a result writes nothing');
+  c.emit({ kind: 'turn-ended', ok: true });
+  assert.equal(r.s.status, 'idle');
+  assert.equal(c.turns, 1, 'a result writes nothing');
   assert.deepEqual(r.s.route(r.cfg, pending), { eligible: ['r1'], fresh: false });
 
   const lines = r.lineEvents();
-  assert.ok(lines.length >= 4, 'spawn, effort, turn, the result line and result');
+  assert.ok(lines.length >= 4, 'spawn, effort, turn and result');
   for (let i = 1; i < lines.length; i++) assert.ok(lines[i].offset > lines[i - 1].offset, `offset ${i} grows`);
   const after = lines[1].offset;
   assert.deepEqual(
@@ -143,39 +149,51 @@ test('a session spawns, takes a turn and logs it', async (t) => {
   const full = memorySink(true);
   const b = rig(t, { sink: full.sink });
   b.s.spawn(b.cfg);
-  const [bc] = b.kids.list;
-  bc.line({ type: 'system', subtype: 'status', n: 1 });
-  await waitFor(() => bc.stdout.isPaused(), { what: 'stdout paused on a full sink' });
-  const held = full.written.length;
-  bc.line({ type: 'system', subtype: 'status', n: 2 });
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(full.written.length, held, 'nothing is read while the sink is full');
+  const [bc] = b.children;
+  bc.emit({ kind: 'log', stream: 'stdout', line: JSON.stringify({ n: 1 }) });
+  assert.equal(bc.paused, true, 'paused while the sink is full');
   full.drain();
-  await waitFor(() => full.written.length > held, { what: 'the held line after drain' });
-  assert.match(full.written[held], /"n":2/);
+  assert.equal(bc.paused, false, 'resumed after drain');
 });
 
-// B35, B36 (a prompt and its one answer), E5 (an input too large to show whole), B39, B40 (a mode
-// switch, and a refused one that narrows or widens).
+// B35, B36 (a prompt and its one answer), E4 (past 20 waiting), E5 (an input too large to show
+// whole, an unusable tool name), B39, B40 (a mode switch, and a refused one that narrows or widens).
 test('permission prompts and mode switches go through the control channel', async (t) => {
   const r = rig(t);
   r.s.spawn(r.cfg);
-  const [c] = r.kids.list;
-  const input = { command: 'cp a b', description: 'copy' };
-  c.line({ type: 'control_request', request_id: 'req-1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input } });
-  const [prompt] = await waitFor(() => r.s.state().permissions.length > 0 && r.s.state().permissions, { what: 'the prompt' });
-  assert.equal(prompt.tool, 'Bash');
-  assert.equal(prompt.input, JSON.stringify(input));
+  const [c] = r.children;
+  c.emit(asked('req-1', { agentId: 'a1', blockedPath: '/elsewhere/x', dirs: ['/elsewhere'] }));
+  const [prompt] = r.s.state().permissions;
+  assert.deepEqual(
+    { tool: prompt.tool, input: prompt.input, description: prompt.description, agentId: prompt.agentId, blockedPath: prompt.blockedPath, sessionRules: prompt.sessionRules, sessionDirs: prompt.sessionDirs },
+    { tool: 'Bash', input: JSON.stringify({ command: 'cp a b' }), description: 'copy', agentId: 'a1', blockedPath: '/elsewhere/x', sessionRules: ['Bash(cp a b)'], sessionDirs: ['/elsewhere'] },
+  );
   assert.equal(r.s.answerPermission(prompt.id, 'allow'), 'Bash');
-  await waitFor(() => stdinLines(c).length === 1, { what: 'the answer on stdin' });
-  assert.deepEqual(stdinLines(c), [{ type: 'control_response', response: { subtype: 'success', request_id: 'req-1', response: { behavior: 'allow', updatedInput: input } } }]);
+  assert.deepEqual(c.answers, [{ requestId: 'req-1', decision: 'allow' }]);
   assert.equal(r.s.answerPermission(prompt.id, 'allow'), null);
   assert.deepEqual(r.s.state().permissions, []);
 
-  c.line({ type: 'control_request', request_id: 'req-2', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'x'.repeat(PROMPT_INPUT_CHARS) } } });
-  await waitFor(() => stdinLines(c).length === 2, { what: 'the denial on stdin' });
-  assert.deepEqual(stdinLines(c)[1].response, { subtype: 'success', request_id: 'req-2', response: { behavior: 'deny', message: PERMISSION_DENIED } });
-  assert.deepEqual(r.s.state().permissions, [], 'a prompt it cannot show whole is never shown');
+  const denies: { name: string; setup?: (c: FakeClaudeChild) => void; ev: ClaudeEvent; reason: string }[] = [
+    { name: 'an input too large to show whole', ev: asked('big', { input: JSON.stringify({ command: 'x'.repeat(PROMPT_INPUT_CHARS) }) }), reason: 'too-large' },
+    { name: 'an unusable tool name', ev: asked('nameless', { tool: null }), reason: 'unusable-tool-name' },
+    { name: 'a 21st waiting prompt', setup: (k) => Array.from({ length: 20 }, (_, i) => k.emit(asked(`w-${i}`))), ev: asked('w-20'), reason: 'too-many' },
+  ];
+  for (const row of denies) {
+    const d = rig(t);
+    d.s.spawn(d.cfg);
+    const [dc] = d.children;
+    row.setup?.(dc);
+    const shown = d.s.state().permissions.length;
+    dc.emit(row.ev);
+    const id = (row.ev as { requestId: string }).requestId;
+    assert.deepEqual(dc.answers, [{ requestId: id, decision: 'deny' }], row.name);
+    assert.equal(d.s.state().permissions.length, shown, `${row.name}: never shown`);
+    assert.deepEqual(
+      d.event('permission').map((l) => ({ decision: l.decision, reason: l.reason })),
+      [{ decision: 'deny', reason: row.reason }],
+      row.name,
+    );
+  }
 
   const rows: { launch: DaemonPermissionMode; to: DaemonPermissionMode; stops: boolean }[] = [
     { launch: 'auto', to: 'dontAsk', stops: true },
@@ -184,21 +202,178 @@ test('permission prompts and mode switches go through the control channel', asyn
   for (const row of rows) {
     const m = rig(t, { mode: row.launch });
     m.s.spawn(m.cfg);
-    const [mc] = m.kids.list;
+    const [mc] = m.children;
     assert.equal(m.s.setPermissionMode(row.to), true);
-    await waitFor(() => stdinLines(mc).length === 1, { what: 'the mode request' });
-    const [ask] = stdinLines(mc);
-    assert.equal(ask.type, 'control_request');
-    assert.deepEqual(ask.request, { subtype: 'set_permission_mode', mode: row.to });
-    mc.line({ type: 'control_response', response: { subtype: 'error', request_id: ask.request_id, error: 'refused' } });
+    assert.deepEqual(mc.modes, [{ requestId: 'fake-mode-1', mode: row.to }]);
+    mc.emit({ kind: 'mode-answer', requestId: 'fake-mode-1', ok: false, error: 'refused' });
     if (row.stops) {
       await waitFor(() => !m.s.running, { what: `the ${row.launch} child stopped` });
       assert.equal(m.event('stop').at(-1)?.reason, 'permission-mode');
       assert.deepEqual(m.calls.refused, []);
     } else {
-      await waitFor(() => m.calls.refused.length === 1, { what: 'the refusal reported' });
       assert.deepEqual(m.calls.refused, [{ scope: INBOX_SCOPE, mode: row.to, live: row.launch }]);
       assert.equal(m.s.running, true);
+    }
+  }
+});
+
+// B12 (wake), B15 (session-changed), B17 (resume-failed), E8 (a child that never starts, EPIPE),
+// E10 (background), and redaction on every path into the log.
+test('each Claude event changes the session', async (t) => {
+  const uuid = crypto.randomUUID();
+  type Rig = ReturnType<typeof rig>;
+  const rows: { name: string; opts?: RigOpts; run: (r: Rig, c: FakeClaudeChild) => void | Promise<void> }[] = [
+    {
+      name: 'turn-started after a result while idle is a wake',
+      run: (r, c) => {
+        r.s.writeTurn(['r1']);
+        c.emit({ kind: 'turn-started' });
+        c.emit({ kind: 'turn-ended', ok: true });
+        assert.equal(r.s.status, 'idle');
+        assert.equal(r.event('wake').length, 0);
+        c.emit({ kind: 'turn-started' });
+        assert.equal(r.s.status, 'busy');
+        assert.equal(r.event('wake').length, 1);
+      },
+    },
+    {
+      name: 'a uuid session-id switches the session',
+      run: (r, c) => {
+        const from = r.s.state().sessionId;
+        c.emit({ kind: 'session-id', id: uuid });
+        assert.equal(r.s.state().sessionId, uuid);
+        assert.equal(r.record().sessionId, uuid);
+        assert.deepEqual(r.event('session-changed').map((l) => ({ from: l.from, to: l.to })), [{ from, to: uuid }]);
+      },
+    },
+    {
+      name: 'a non-uuid session-id changes nothing',
+      run: (r, c) => {
+        const before = r.s.state().sessionId;
+        c.emit({ kind: 'session-id', id: '--dangerously-skip-permissions' });
+        assert.equal(r.s.state().sessionId, before);
+        assert.equal(r.record().sessionId, before);
+        assert.equal(r.event('error').length, 1);
+        assert.equal(r.event('session-changed').length, 0);
+      },
+    },
+    {
+      name: 'permission-mode',
+      run: (r, c) => {
+        c.emit({ kind: 'permission-mode', mode: 'auto' });
+        assert.equal(r.s.state().permissionMode, 'auto');
+      },
+    },
+    {
+      name: 'background',
+      run: (r, c) => {
+        assert.equal(r.s.facts().background, -1);
+        c.emit({ kind: 'background', count: 2 });
+        assert.equal(r.s.facts().background, 2);
+      },
+    },
+    {
+      name: 'permission-cancelled',
+      run: (r, c) => {
+        c.emit(asked('req-1'));
+        assert.equal(r.s.state().permissions.length, 1);
+        c.emit({ kind: 'permission-cancelled', requestId: 'req-1' });
+        assert.deepEqual(r.s.state().permissions, []);
+        assert.equal(r.event('permission-cancelled').length, 1);
+      },
+    },
+    {
+      name: 'process-error before it started',
+      run: (r, c) => {
+        c.emit({ kind: 'process-error', message: 'spawn claude ENOENT', started: false });
+        assert.equal(r.s.wanted, false);
+        assert.equal(r.s.running, false);
+        assert.match(r.s.lastError ?? '', /^cannot start daemon:/);
+      },
+    },
+    {
+      name: 'line-too-long',
+      run: (r, c) => {
+        c.emit({ kind: 'line-too-long', bytes: 9_000_000 });
+        assert.deepEqual(r.event('line-truncated').map((l) => l.bytes), [9_000_000]);
+      },
+    },
+    {
+      name: 'stdin-error',
+      run: (r, c) => {
+        c.emit({ kind: 'stdin-error', message: 'write EPIPE' });
+        assert.deepEqual(r.event('error').map((l) => l.message), ['stdin: write EPIPE']);
+        assert.equal(r.s.running, true);
+      },
+    },
+    {
+      name: 'a resume whose transcript is gone starts one fresh session',
+      opts: { record: { sessionId: uuid, resumable: true } },
+      run: (r, c) => {
+        assert.deepEqual(c.argv.slice(1, 3), ['--resume', uuid]);
+        c.emit(failed('error_during_execution'));
+        c.exit(1, null);
+        assert.equal(r.event('resume-failed').length, 1);
+        assert.equal(r.children.length, 2);
+        const fresh = r.children[1].argv;
+        const i = fresh.indexOf('--session-id');
+        assert.ok(i > 0 && fresh[i + 1] !== uuid && /^[0-9a-f-]{36}$/.test(fresh[i + 1]), 'a new uuid');
+        assert.equal(r.s.state().sessionId, fresh[i + 1]);
+        assert.equal(r.s.lastError, null);
+      },
+    },
+    {
+      name: 'a known secret on stdout or stderr never reaches the log',
+      // A known value is at least MIN_SECRET (8) characters; shorter ones are never redacted.
+      opts: { secrets: ['s3cret-value'] },
+      run: (r, c) => {
+        c.emit({ kind: 'log', stream: 'stdout', line: JSON.stringify({ text: 'token s3cret-value here' }) });
+        c.emit({ kind: 'log', stream: 'stderr', line: JSON.stringify({ type: 'forge-stderr', text: 'leaked s3cret-value' }) });
+        const sink = r.written.join('');
+        const ring = r.s.recent().map((l) => l.line).join('\n');
+        const frames = r.lineEvents().map((e) => e.line).join('\n');
+        for (const [where, text] of Object.entries({ sink, ring, frames })) {
+          assert.ok(text.includes('token') && text.includes('leaked'), `${where} has both lines`);
+          assert.ok(!text.includes('s3cret'), `${where} is redacted`);
+        }
+      },
+    },
+  ];
+  for (const row of rows) {
+    const r = rig(t, row.opts);
+    assert.equal(r.s.spawn(r.cfg), true, row.name);
+    await row.run(r, r.children[0]);
+  }
+});
+
+// B22 (a failed turn backs off), B23 (three strikes), B24 (a limit waits for its reset).
+test('a failed turn backs off, and a limit waits for its reset', async (t) => {
+  const resetsAt = Date.now() + 60_000;
+  const rows: { name: string; turns: ClaudeEvent[]; error: RegExp; retry?: { reason: string; attempt: number }; wanted: boolean }[] = [
+    { name: 'an error', turns: [failed('boom')], error: /^last turn failed: boom; retry at \d{4}-/, retry: { reason: 'error', attempt: 1 }, wanted: true },
+    {
+      name: 'a limit with a reset',
+      turns: [failed("You've hit your limit", true, resetsAt)],
+      error: new RegExp(`retry at ${new Date(resetsAt).toISOString().replace(/[.]/g, '\\.')}$`),
+      retry: { reason: 'limit', attempt: 1 },
+      wanted: true,
+    },
+    { name: 'three errors in a row', turns: [failed('a'), failed('b'), failed('c')], error: /^daemon stopped after 3 failed turns/, wanted: false },
+  ];
+  for (const row of rows) {
+    const r = rig(t);
+    r.s.spawn(r.cfg);
+    const [c] = r.children;
+    for (const ev of row.turns) {
+      r.s.writeTurn(['r1']);
+      c.emit(ev);
+    }
+    assert.match(r.s.lastError ?? '', row.error, row.name);
+    assert.equal(r.s.wanted, row.wanted, row.name);
+    if (row.retry) {
+      const last = r.event('retry').at(-1);
+      assert.deepEqual({ reason: last?.reason, attempt: last?.attempt }, row.retry, row.name);
+      assert.deepEqual(r.s.route(r.cfg, pending), { eligible: ['r1'], fresh: false }, `${row.name}: no turn while it waits`);
     }
   }
 });
@@ -233,7 +408,7 @@ test("an exit lets go of its job's agents and lease", async (t) => {
   recordAgent(r.root, r.scope, { role: 'builder', phase: 'start' }, defaults());
   r.s.refreshKept();
   assert.equal(r.s.kept, 'agents');
-  r.kids.list[0].exit(1, null);
+  r.children[0].exit(1, null);
   await waitFor(() => !r.s.running, { what: 'the exit' });
   const job = loadJob(r.root, r.scope);
   assert.equal(job.agents.builder?.status, 'lost');
@@ -242,7 +417,8 @@ test("an exit lets go of its job's agents and lease", async (t) => {
   assert.ok(r.s.facts().ids.includes(sid));
 });
 
-// B10 (argv from the bytes it hashed, no second read), E7 (a config changed since the digest, daemon.enabled false).
+// B8 (argv, cwd and env), B10 (argv from the bytes it hashed, no second read), E7 (a config changed
+// since the digest, daemon.enabled false).
 test('a spawn starts only on the trusted config it hashed', (t) => {
   const rows: { name: string; before: (r: ReturnType<typeof rig>) => void; spawned: boolean; untrusted: number; fatal: string[] }[] = [
     { name: 'config changed after the digest', before: (r) => fs.appendFileSync(r.configFile, '# edited\n'), spawned: false, untrusted: 1, fatal: [] },
@@ -253,9 +429,17 @@ test('a spawn starts only on the trusted config it hashed', (t) => {
     const r = rig(t);
     row.before(r);
     assert.equal(r.s.spawn(r.cfg), row.spawned, row.name);
-    assert.equal(r.kids.list.length, row.spawned ? 1 : 0, row.name);
+    assert.equal(r.children.length, row.spawned ? 1 : 0, row.name);
     assert.equal(r.calls.untrusted, row.untrusted, row.name);
     assert.deepEqual(r.calls.fatal, row.fatal, row.name);
-    if (row.spawned) assert.deepEqual(r.calls.loadConfig, [{ text: fs.readFileSync(r.configFile, 'utf8') }], row.name);
+    if (!row.spawned) continue;
+    assert.deepEqual(r.calls.loadConfig, [{ text: fs.readFileSync(r.configFile, 'utf8') }], row.name);
+    const [c] = r.children;
+    const argv = buildArgv(r.cfg.daemon.command, { pluginRoot: PLUGIN_ROOT, session: { id: r.s.state().sessionId!, resume: false }, allowedTools: r.cfg.daemon.allowedTools, permissionMode: null, effort: null });
+    assert.deepEqual(c.argv, argv, row.name);
+    assert.equal(c.cwd, r.root, row.name);
+    assert.equal(c.env.FORGE_DAEMON_SCOPE, r.scope, row.name);
+    assert.equal(c.env.FORGE_DAEMON_TRUST, r.digest, row.name);
+    assert.equal(c.maxLineBytes, MAX_LINE_BYTES, row.name);
   }
 });

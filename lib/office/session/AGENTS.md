@@ -2,7 +2,7 @@
 
 One supervised headless Claude Code session (`createSession`) and the pieces it is built from.
 
-- Every line the supervisor writes to claude's stdin is built in `control.ts` from fixed text or a fixed list: the one turn, permission answers and mode switches. Nothing from requests, HTTP or config reaches one (docs/ARCHITECTURE.md "Daemon security").
+- The session reacts to `ClaudeEvent`s from `lib/integrations/claude/` and never parses claude's output; it writes to claude only through the `ClaudeChild` handle, whose lines `lib/integrations/claude/stream.ts` builds from fixed text. Every `log` event goes through `logLine`, which redacts known secrets before the file, the ring and SSE see it.
 - `launch.ts`'s checks run before every spawn, on the one read of `.forge/config.yml` that argv is then built from: never add a second read between the digest and the argv.
 - A session runs with the repo as cwd, so its executable is a bare `claude` or an absolute path, never a relative one (docs/ARCHITECTURE.md "Daemon security").
 
@@ -10,11 +10,11 @@ One supervised headless Claude Code session (`createSession`) and the pieces it 
 | File | What it holds |
 |---|---|
 | `contract.ts` | The session's contract with its pool: the events it reports, the context and options it is built with (sessionOptions fills in the real defaults), the child it supervises and the Session it returns. |
-| `control.ts` | Every line the supervisor writes to claude's stdin, and the control channel: the one fixed turn, permission answers and mode switches. |
-| `holds.ts` | What keeps a request or a turn waiting: a job parked on its budget, the repo budget, and the quota limits a failed turn reports. |
+| `control.ts` | The permission-prompt and mode-switch policy: which prompts a human sees and which are denied unasked, and what a refused or unconfirmed mode switch does. |
+| `holds.ts` | What keeps a request waiting: a job parked on its budget, or the repo budget. |
 | `launch.ts` | The checks every spawn passes before claude starts, on the one read of `.forge/config.yml` that argv is then built from. |
 | `lifecycle.ts` | One supervised headless session. |
-| `log.ts` | A session's log: `<scope>.log` on disk, the replay ring the dashboard reads, and the byte-capped splitting and stamping of the child's output lines. |
+| `log.ts` | A session's log: `<scope>.log` on disk, the replay ring the dashboard reads, and the redaction every line gets on its way into both. |
 | `owned.ts` | What a session answers for: whether its job's agents keep it, the reconciler's facts, and what its exit lets go (agents lost, lease, claimed requests). |
 | `records.ts` | What a session record (`.forge/runtime/daemons/<scope>.json`) says about its child, and reaping the children a dead `forge dash` left behind. |
 | `timers.ts` | A session's two timers: the turn limit (daemon.turnTimeoutMinutes), which stops a hung turn, and the idle stop (daemon.idleStopMinutes), which stops a child nothing keeps. |
