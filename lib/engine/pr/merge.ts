@@ -8,7 +8,7 @@ import { policyRules } from '#core/config/validators/policy-check.ts';
 import { exists } from '#core/paths.ts';
 import type { Config, Job, JobPr, JobRepoPr, PrChecks } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
-import { git } from '#integrations/git/runner.ts';
+import { git, historyEnv } from '#integrations/git/runner.ts';
 import { PR_STATES, SLUG_RE, safePrNumber } from '#integrations/github/pull-requests.ts';
 import type { GitHub } from '#integrations/github/types.ts';
 import { memberClone, memberEntry, memberRepos } from '../project/job-repos.ts';
@@ -18,7 +18,7 @@ import type { PrStateKey, RepoKey } from '../project/repo-order.ts';
 import { bumpsOnRelease, releaseGates, repoLabel, resolveInterim } from '../release/interim.ts';
 import type { ReleaseGate } from '../release/interim.ts';
 import { interimStatus } from '../release/interim-apply.ts';
-import { autoMergeGate } from './eligible.ts';
+import { FULL_SHA, autoMergeGate } from './eligible.ts';
 import type { GateReason, GateResult } from './eligible.ts';
 import { memberSlug, recordMemberPr } from './members.ts';
 import type { MemberSync } from './members.ts';
@@ -130,6 +130,8 @@ interface MergeTarget {
   headOid: string | null;
   /** The ts of the job's last pr-opened/pr-updated event (one forge pr open pushes every repo), or null. */
   pushedAt: string | null;
+  /** When the live head was committed, in ms, or null when it can't be read. Asked only for a head that moved on. */
+  headAt: () => number | null;
   /** Whether the PR's base has workflows, asked only when the checks rollup is empty. */
   hasWorkflows: () => boolean;
 }
@@ -138,6 +140,14 @@ interface MergeTarget {
 function lastPushAt(root: string, id: string): string | null {
   const e = readEvents(root, id).findLast((x) => x.type === 'pr-opened' || x.type === 'pr-updated');
   return typeof e?.ts === 'string' ? e.ts : null;
+}
+
+/** When commit `sha` was committed in `cwd`, in ms, or null (not a commit id, absent or unreadable). */
+function commitTime(cwd: string, sha: string | null): number | null {
+  if (sha === null || !FULL_SHA.test(sha)) return null;
+  const out = git(cwd, ['log', '-1', '--format=%ct', sha, '--'], { env: historyEnv(), allowFail: true });
+  const secs = Number(out.stdout.trim());
+  return out.ok && Number.isInteger(secs) && secs > 0 ? secs * 1000 : null;
 }
 
 const prLabel = (repo: string | null, number: number | null): string => (repo === null ? `PR #${number ?? '?'}` : number === null ? `repo ${repo} (no PR)` : `repo ${repo} PR #${number}`);
@@ -156,6 +166,8 @@ function mergeOne(root: string, config: Config, github: GitHub, id: string, t: M
   if (t.state === 'MERGED') return { merged: true, action: 'already-merged', checks };
   if (t.state === 'CLOSED') throw new ForgeError(`${label} is closed; reopen it before merging`);
   const now = opts.now;
+  // The live head carries base merges Forge did not push (GitHub's "Update branch", a person's push).
+  let moved = false;
   if (!now) {
     let gate: GateResult;
     try {
@@ -168,12 +180,14 @@ function mergeOne(root: string, config: Config, github: GitHub, id: string, t: M
       logEvent(root, id, 'pr-merge-refused', { ...tag, number, checks, head: t.headOid, reason: gate.reason });
       return { merged: false, autoMerge: false, action: 'refused', checks, reason: gate.reason, error: gate.error };
     }
+    moved = gate.moved;
   }
   const hasWorkflows = checks === 'none' ? t.hasWorkflows() : false;
   const mergeState = t.mergeState;
-  const pushedAt = t.pushedAt === null ? NaN : Date.parse(t.pushedAt);
-  // No push event (or an unreadable one) never settles: such a PR waits on a human or --now.
-  const settled = Number.isFinite(pushedAt) && opts.clock() - pushedAt >= CI_SETTLE_MS;
+  const old = (at: number | null): boolean => at !== null && Number.isFinite(at) && opts.clock() - at >= CI_SETTLE_MS;
+  // No push event (or an unreadable one) never settles: such a PR waits on a human or --now. A head
+  // that is not the decided one is as young as its newest commit, whenever Forge last pushed.
+  const settled = old(t.pushedAt === null ? null : Date.parse(t.pushedAt)) && (!moved || old(t.headAt()));
   const decided = mergeAction(checks, { hasWorkflows, now, mergeState, settled });
   const settling = decided !== 'merge' && !settled && mergeAction(checks, { hasWorkflows, mergeState, settled: true }) === 'merge';
   // Once --auto is queued, GitHub merges on its own, and whether it still holds
@@ -273,6 +287,7 @@ function rootTarget(root: string, config: Config, github: GitHub, id: string, nu
     mergeState: synced?.mergeState ?? null,
     headOid: synced?.headOid ?? null,
     pushedAt: lastPushAt(root, id),
+    headAt: () => commitTime(root, synced?.headOid ?? null),
     hasWorkflows: () => hasCiWorkflows(root, `${config.git.remote}/${job.base}`),
   };
 }
@@ -292,6 +307,13 @@ function memberTarget(root: string, config: Config, job: Job, m: MemberSync): Me
     mergeState: m.mergeState,
     headOid: m.headOid,
     pushedAt: lastPushAt(root, job.id),
+    headAt: () => {
+      try {
+        return commitTime(memberClone(root, config, m.repo), m.headOid);
+      } catch {
+        return null;
+      }
+    },
     // A clone Forge can't check is treated as having CI: an empty rollup then waits, never merges.
     hasWorkflows: () => {
       try {

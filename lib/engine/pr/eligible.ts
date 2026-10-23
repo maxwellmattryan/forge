@@ -11,6 +11,7 @@ import { branchFloor } from '../guard/floor.ts';
 import { branchHits, clean, prefixHits, protectedApproved, refusalText } from '../guard/protected.ts';
 import { integrationTouched, resolveBase } from '../pipeline/scope.ts';
 import { memberClone, memberEntry, memberRepos, trustedMemberWorktree } from '../project/job-repos.ts';
+import { remoteBaseTip } from './branch.ts';
 
 /** A full commit id (SHA-1 or SHA-256): every head is checked against it before it reaches git. */
 export const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
@@ -29,7 +30,8 @@ export interface DecisionRecord {
 /** Why autoMergeGate refused: MergeResult's reasons it owns. */
 export type GateReason = 'auto-off' | 'decision' | 'floor';
 
-export type GateResult = { ok: true } | { ok: false; reason: GateReason; error: string };
+/** `moved`: the live head is not the decided one but carries base merges on it, so its age is the base merge's, not the push's. */
+export type GateResult = { ok: true; moved: boolean } | { ok: false; reason: GateReason; error: string };
 
 const sha = (v: unknown): string | null => (typeof v === 'string' && FULL_SHA.test(v) ? v : null);
 
@@ -81,7 +83,7 @@ export function headFollows(cwd: string, config: Config, base: Pick<Job, 'base'>
     for (const [commit, p1, p2, ...rest] of chain) {
       if (rest.length || !p2 || p1 !== prev || ![commit, p1, p2].every((s) => FULL_SHA.test(s))) return false;
       if (!yes(cwd, ['merge-base', '--is-ancestor', p2, tip])) return false;
-      const touched = integrationTouched(cwd, p1, p2, commit);
+      const touched = integrationTouched(cwd, p1, p2, commit, { conflictFree: true });
       if (touched === null || touched.length) return false;
       prev = commit;
     }
@@ -132,6 +134,8 @@ export interface GateTarget {
  * last decision event is eligible, the live head follows the decided head, protected paths recomputed
  * at the live head are all approved (throws `protected_path` otherwise, as forge pr open does), and
  * the escalate floor finds nothing. A check that can't be computed refuses under its own reason.
+ * Checks 3 to 5 compare against the base as the push remote holds it now (remoteBaseTip), never a
+ * local ref the job's worktree could have moved; a base that can't be read refuses under `decision`.
  */
 export function autoMergeGate(root: string, config: Config, job: Job, events: JobEvent[], target: GateTarget): GateResult {
   if (!autoMerge(config)) return { ok: false, reason: 'auto-off', error: 'merge.auto is off: a human merges this PR on GitHub, or runs forge pr merge <id> --now in their own terminal' };
@@ -148,8 +152,15 @@ export function autoMergeGate(root: string, config: Config, job: Job, events: Jo
   } catch (e) {
     return { ok: false, reason: 'decision', error: `repo ${target.repo} can't be checked against the approved head: ${(e as Error).message}; a human reviews and merges it` };
   }
-  if (live === null || !headFollows(cwd, config, base, decided, live))
-    return { ok: false, reason: 'decision', error: `the PR head ${short(target.headOid)} is not the commit the approver approved (${short(decided)}); a human reviews and merges it` };
+  const notApproved = (): GateResult => ({ ok: false, reason: 'decision', error: `the PR head ${short(target.headOid)} is not the commit the approver approved (${short(decided)}); a human reviews and merges it` });
+  if (live === null) return notApproved();
+  // From here the base is a commit id read from the remote, which resolveBase takes as it is.
+  try {
+    base = { base: remoteBaseTip(cwd, config, job.id, base.base) };
+  } catch (e) {
+    return { ok: false, reason: 'decision', error: `the PR head can't be checked against the base: ${clean((e as Error).message).slice(0, 200)}; retry, or a human reviews and merges it` };
+  }
+  if (!headFollows(cwd, config, base, decided, live)) return notApproved();
   protectedGate(cwd, config, job, events, base, live, target.repo);
   let floor: string[];
   try {
@@ -158,7 +169,7 @@ export function autoMergeGate(root: string, config: Config, job: Job, events: Jo
     return { ok: false, reason: 'floor', error: `the escalate floor could not be checked at ${short(live)} (${clean((e as Error).message).slice(0, 200)}), so only a human merges it` };
   }
   if (floor.length) return { ok: false, reason: 'floor', error: `the PR changes ${pathList(floor)}, which only a human merges` };
-  return { ok: true };
+  return { ok: true, moved: live !== decided };
 }
 
 /**

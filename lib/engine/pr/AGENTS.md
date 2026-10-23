@@ -11,7 +11,7 @@ A job's pull requests: open, update, sync, merge and adopt them, and the human d
 |---|---|
 | `adopt.ts` | Adopting a PR that already exists for a job's work: same repository, safe ref names, trusted closing PRs only. |
 | `body.ts` | The PR title and body Forge sends: summary, escalation approval, sibling links and issue lines. |
-| `branch.ts` | The job branch against its remote: the base refresh before the secret scan, the push of the checked commit, and pulling a PR head that moved. |
+| `branch.ts` | The job branch against its remote: the base refresh before the secret scan, the base's tip for a merge's checks, the push of the checked commit, and pulling a PR head that moved. |
 | `delta.ts` | The human delta: what people changed on a PR branch after Forge's last push. |
 | `eligible.ts` | Whether a job's PR may merge without a person: the recorded decision bound to its head, recomputed protected paths and the escalate floor. |
 | `integrate.ts` | Bringing a job branch up to date with its base: merge or rebase, generated-path rebuilds, and finishing a kept conflict. |

@@ -84,6 +84,37 @@ test('headFollows: only the decided head or clean base merges on it', () => {
   }
 });
 
+test("headFollows: a merge whose tree is git's own conflict-marker output is not a clean merge", () => {
+  const repo = tempRepo();
+  try {
+    const rev = (r: string) => repo.git('rev-parse', r).toString().trim();
+    const edit = (text: string) => {
+      fs.writeFileSync(path.join(repo.dir, 'c.txt'), text);
+      repo.git('add', '-A');
+      repo.git('commit', '-qm', text);
+    };
+    edit('base\n');
+    repo.git('checkout', '-q', '-b', 'feat');
+    edit('feat\n');
+    const decided = rev('HEAD');
+    repo.git('checkout', '-q', 'main');
+    edit('main\n');
+    let out = '';
+    try {
+      repo.git('merge-tree', '--write-tree', '--no-messages', decided, 'main');
+    } catch (e) {
+      // Exit 1: the merge conflicts, and the tree with its markers is still written.
+      out = String((e as { stdout: Buffer }).stdout);
+    }
+    const tree = out.split('\n')[0].trim();
+    assert.match(tree, /^[0-9a-f]{40}$/);
+    const merge = repo.git('commit-tree', tree, '-p', decided, '-p', rev('main'), '-m', 'merge').toString().trim();
+    assert.equal(headFollows(repo.dir, config, { base: 'main' }, decided, merge), false);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("a v3 events file's APPROVE is not eligible", () => {
   const repo = tempRepo();
   try {

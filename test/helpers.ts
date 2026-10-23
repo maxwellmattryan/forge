@@ -89,6 +89,18 @@ export function tempRepo() {
 }
 
 /**
+ * A bare repo inside the repo's own .git as its `origin`, with `main` pushed: the push remote a merge
+ * re-reads the base from. Removed with the repo. Returns the bare repo's path.
+ */
+export function addOrigin(repo: ReturnType<typeof tempRepo>): string {
+  const bare = path.join(repo.dir, '.git', 'origin.git');
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', bare], { stdio: 'pipe' });
+  repo.git('remote', 'add', 'origin', bare);
+  repo.git('push', '-q', 'origin', 'main');
+  return bare;
+}
+
+/**
  * tempRepo's shape, built once per file by `init` and then copied for each caller: a directory copy
  * instead of git init, a commit and `forge init write` every time. Copies are made before any
  * worktree exists (worktrees record absolute paths), so `init` must not create one, and config that

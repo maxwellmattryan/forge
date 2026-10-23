@@ -5,7 +5,7 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ghPr, memoryGitHub, parkedAt, tempRepo } from '../../../test/helpers.ts';
+import { addOrigin, ghPr, memoryGitHub, parkedAt, tempRepo } from '../../../test/helpers.ts';
 import { CI_SETTLE_MS, hasCiWorkflows, mergeAction, mergePr } from './merge.ts';
 import type { MergeResult } from './merge.ts';
 import { defaults } from '#core/config/load.ts';
@@ -34,11 +34,20 @@ interface ScenarioOpts {
   decision?: Record<string, unknown> | null;
   /** A commit after the decided head: the PR's live head moves on, the decision stays. */
   commitAfter?: boolean;
+  /**
+   * The PR head is the decided head with a merge of main on top. `pushed`: main moved on at the remote
+   * (the local remote-tracking ref stays stale); `forged`: a commit nobody pushed, behind a remote-tracking
+   * ref moved to it. `at`: the merge commit's committer date.
+   */
+  merged?: { base: 'pushed' | 'forged'; at?: number };
+  /** The push remote no longer answers: the base can't be re-read. */
+  remoteGone?: boolean;
 }
 
 /** A single-repo job with PR #7 opened, a decision bound to its head, and GitHub's PR #7 at that head. */
 function scenario(rollup: keyof typeof ROLLUP, mergeStateStatus = 'CLEAN', opts: ScenarioOpts = {}) {
   const repo = tempRepo();
+  addOrigin(repo);
   const rev = (r: string) => repo.git('rev-parse', r).toString().trim();
   const commit = (files: Record<string, string>) => {
     for (const [rel, text] of Object.entries(files)) {
@@ -49,10 +58,28 @@ function scenario(rollup: keyof typeof ROLLUP, mergeStateStatus = 'CLEAN', opts:
     repo.git('commit', '-qm', 'work');
     return rev('HEAD');
   };
+  const init = rev('main');
   repo.git('checkout', '-q', '-b', 'feat');
   const decided = commit(opts.files ?? { 'src.txt': 'work\n' });
-  const head = opts.commitAfter ? commit({ 'later.txt': 'after the approval\n' }) : decided;
+  let head = opts.commitAfter ? commit({ 'later.txt': 'after the approval\n' }) : decided;
+  if (opts.merged) {
+    repo.git('checkout', '-q', '-b', 'other', 'main');
+    commit({ 'other.txt': 'the base moved on\n' });
+    if (opts.merged.base === 'pushed') repo.git('push', '-q', 'origin', 'other:main');
+    // Whatever the push left, the clone's remote-tracking ref says the base is still where it was.
+    repo.git('update-ref', 'refs/remotes/origin/main', opts.merged.base === 'pushed' ? init : rev('other'));
+    repo.git('checkout', '-q', 'feat');
+    const date = opts.merged.at === undefined ? undefined : new Date(opts.merged.at).toISOString();
+    if (date) process.env.GIT_COMMITTER_DATE = date;
+    try {
+      repo.git('merge', '-q', '--no-ff', '--no-edit', 'other');
+    } finally {
+      delete process.env.GIT_COMMITTER_DATE;
+    }
+    head = rev('HEAD');
+  }
   repo.git('checkout', '-q', 'main');
+  if (opts.remoteGone) repo.git('remote', 'set-url', '--push', 'origin', path.join(repo.dir, 'no-such-remote.git'));
   const id = parkedAt(repo.dir, 'pr-review', { config, title: 'merge me', pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', pushedSha: head } }).id;
   logEvent(repo.dir, id, 'pr-opened', { number: 7 });
   if (opts.decision !== null) logEvent(repo.dir, id, 'decision', { decision: 'APPROVE', reason: null, autoMerge: true, head: decided, ...opts.decision });
@@ -142,6 +169,42 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
     check: (s, r) => {
       refusedFor('decision')(s, r);
       assert.match((r as MergeResult).error ?? '', /is not the commit the approver approved/);
+    },
+  },
+  {
+    name: 'decision: a merge of a commit nobody pushed, behind a remote-tracking ref moved to it, is not the approved head',
+    arrange: () => scenario('passing', 'CLEAN', { merged: { base: 'forged' } }),
+    check: (s, r) => {
+      refusedFor('decision')(s, r);
+      assert.match((r as MergeResult).error ?? '', /is not the commit the approver approved/);
+    },
+  },
+  {
+    name: 'decision: the base is re-read from the remote, so a clean merge of a base that moved on merges whatever the stale ref says',
+    arrange: () => scenario('passing', 'CLEAN', { merged: { base: 'pushed' } }),
+    opts: { clock: () => Date.now() + 6 * 60_000 },
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([r.action, s.merges().length], ['merged', 1]);
+      assert.deepEqual(s.merges()[0].matchHead, s.head);
+    },
+  },
+  {
+    name: 'decision: a base that cannot be re-read from the remote refuses',
+    arrange: () => scenario('passing', 'CLEAN', { remoteGone: true }),
+    check: (s, r) => {
+      refusedFor('decision')(s, r);
+      assert.match((r as MergeResult).error ?? '', /can't be checked against the base/);
+    },
+  },
+  {
+    name: 'settling: a base merge committed minutes ago defers even though Forge pushed six minutes ago',
+    arrange: () => scenario('passing', 'CLEAN', { merged: { base: 'pushed', at: Date.now() + 3 * 60_000 } }),
+    opts: { clock: () => Date.now() + 6 * 60_000 },
+    check: (s, r) => {
+      assert.deepEqual(s.merges(), []);
+      assert.equal((r as MergeResult).action, 'deferred');
+      assert.ok(s.all().some((e) => e.type === 'pr-merge-deferred' && e.reason === 'settling'));
     },
   },
   {

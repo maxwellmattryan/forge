@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fakeGh, forgeAsync, ghPr, tempRepo } from '../../helpers.ts';
+import { addOrigin, fakeGh, forgeAsync, ghPr, tempRepo } from '../../helpers.ts';
 import { TRUST_ENV, loadConfig, trustDigest } from '#core/config/load.ts';
 import { EVENT_SCHEMA_VERSION } from '#core/job/schema.ts';
 import { createJob, jobDir, setJob } from '#core/job/store.ts';
@@ -66,6 +66,8 @@ test('forge pr merge refuses --now and a broken scope under the daemon, with no 
 
 test('forge sync continues a deferred merge through mergePr', { skip: process.platform === 'win32' }, async () => {
   const { repo, id, head } = await prRepo('deferred merge', { merge: { auto: true } });
+  // The gate re-reads the base from the push remote.
+  addOrigin(repo);
   const gh = fakeGh({
     'pr view': JSON.stringify(ghPr({ headRefOid: head, statusCheckRollup: [{ name: 'test', conclusion: 'SUCCESS' }] })),
     'api graphql': JSON.stringify({ data: { repository: { pullRequest: {} } } }),
