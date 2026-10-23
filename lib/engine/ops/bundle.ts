@@ -19,7 +19,9 @@ import { addCounts, daemonSkeleton, omitProse, omitted, redactContext, redactTex
 import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '#core/job/requests.ts';
 import { resolveBase } from '../pipeline/scope.ts';
 import { loadStepInput, step } from '../pipeline/step.ts';
-import type { BundleManifest, BundleSkip, Config, Job, RedactCounts } from '#core/types.ts';
+import type { Config, Job } from '#core/types.ts';
+import type { BundleManifest, BundleSkip } from './types.ts';
+import type { RedactCounts } from '../guard/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { hasBinary, run } from '#core/os/process.ts';
 import type { ZipEntry } from '#core/format/zip.ts';

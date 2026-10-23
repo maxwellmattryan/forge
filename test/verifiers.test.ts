@@ -12,7 +12,7 @@ import { computeStats } from '#engine/metrics/stats.ts';
 import { statsText } from '../lib/cli/commands/status.ts';
 import { loadVerifiers, parseAnswers, readAnswers, renderInput, renderReport, splitDiff } from '#engine/pipeline/verifiers.ts';
 import type { VerifierResult } from '#engine/pipeline/verifiers.ts';
-import type { Verifier } from '#core/types.ts';
+import type { Verifier } from '#engine/pipeline/types.ts';
 
 function scratch(): { root: string; dir: string; put: (name: string, text: string) => string; cleanup: () => void } {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-verifiers-')));

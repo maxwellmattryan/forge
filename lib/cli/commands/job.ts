@@ -8,8 +8,7 @@ import { budgetCmd, enforceBudget } from '#engine/metrics/budget.ts';
 import { OFFICE_REFUSAL, inInboxOrOffice, refuseInOffice, refuseInboxDrive } from '#office/owner.ts';
 import { OFFICE_JOB_COMMANDS, checkForemanDecision, classReservation, checkOfficeSetFor, cleanHandoffReason, foremanHandoffFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor, securityHold } from '#office/foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '#engine/pipeline/deps.ts';
-import { AGENT_LEASE_MS, agentOutputMissing, attachAgent, checkFence, claimJob, createJob, leaseStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, renewLease, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, updateJob, jobDir, readEvents } from '#core/job/store.ts';
-import type { Fence } from '#core/job/store.ts';
+import { AGENT_LEASE_MS, agentOutputMissing, attachAgent, checkFence, claimJob, createJob, leaseStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, renewLease, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, updateJob, jobDir, readEvents, type Fence } from '#core/job/store.ts';
 import { checkFieldKey, checkJobFields } from '#core/job/fields.ts';
 import { logSecrets, scanAgentOutputs } from '#engine/guard/secrets.ts';
 import { issueLinkStatus } from '#core/job/issue-link.ts';
@@ -46,7 +45,9 @@ import { refreshRequest } from '#engine/trackers/request-refresh.ts';
 import { TeardownRefusal, archiveJob, archiveOlder, prune } from '#engine/ops/retention.ts';
 import { deleteJob } from '#engine/ops/delete.ts';
 import { finishEnvironment, finishEnvironmentStopOnly } from '#engine/environment/lifecycle.ts';
-import type { AgentUsage, ArchiveResult, Config, Effort, HelpGroup, Job, JobIssue } from '#core/types.ts';
+import type { AgentUsage, Config, Effort, Job, JobIssue } from '#core/types.ts';
+import type { ArchiveResult } from '#engine/ops/types.ts';
+import type { HelpGroup } from '../types.ts';
 import { pullPrHead } from '#engine/pr/lifecycle.ts';
 import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
 import { jobAudit, toCsv } from '#engine/ops/audit.ts';
@@ -971,9 +972,8 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
 }
 
 /**
- * `forge job assist`: what the office session spawns for one gate. Read-only. `stale` when the job
- * no longer waits on that gate (someone acted meanwhile); `reserved` is re-checked now, not taken
- * from the request.
+ * `forge job assist`: what the office session spawns for one gate. Read-only. `stale` when the job no longer
+ * waits on that gate (someone acted meanwhile); `reserved` is re-checked now, not taken from the request.
  */
 function assist(root: string, config: Config, job: Job, rawGate: unknown) {
   const s = daemonScope();

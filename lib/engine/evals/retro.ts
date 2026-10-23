@@ -12,7 +12,8 @@ import { expiredLearnings, metricValue, parseNoteEntries, readExperiments } from
 import { paths, exists } from '#core/paths.ts';
 import { enqueue, listRequests } from '#core/job/requests.ts';
 import { computeStats } from '../metrics/stats.ts';
-import type { Config, ExperimentEntry, ExperimentResult, HumanDelta, LearningEntry, LoadedJob, ReviewerStats, Stats } from '#core/types.ts';
+import type { Config, HumanDelta, LoadedJob, ReviewerStats, Stats } from '#core/types.ts';
+import type { ExperimentEntry, ExperimentResult, LearningEntry } from './types.ts';
 import { readText, writeJsonAtomic } from '#core/os/fs.ts';
 import { withLock } from '#core/os/lock.ts';
 import { safeText } from '#core/text.ts';

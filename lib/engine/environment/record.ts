@@ -9,7 +9,7 @@ import { readSmallJson } from '#core/job/focus.ts';
 import { isActive, jobDir, loadJob } from '#core/job/store.ts';
 import { paths } from '#core/paths.ts';
 import { validJobId } from '#core/job/requests.ts';
-import type { EnvironmentEntry, EnvironmentRecord, EnvironmentState } from '#core/types.ts';
+import type { EnvironmentEntry, EnvironmentRecord, EnvironmentState } from './types.ts';
 import { writeJsonAtomic } from '#core/os/fs.ts';
 import { withLock } from '#core/os/lock.ts';
 

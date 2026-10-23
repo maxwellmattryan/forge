@@ -9,6 +9,7 @@ Job worktrees and what runs in them: checkouts, focus, the editor, regeneration 
 | File | What it holds |
 |---|---|
 | `checkout.ts` | Checkout steps: what `forge focus` does to fixed paths and with configured commands so tools that read one place (a DAW's plug-in folder) follow the focused job. |
+| `e2e.ts` | Whether `forge verify` should run the e2e command: unit tests alone don't prove UI work, but a browser suite is too slow to run on every backend-only change. |
 | `editor.ts` | The dashboard's Open in editor: which command runs, and the only directory it may be given. |
 | `focus-actions.ts` | The one write path for focus, shared by `forge focus` and POST /api/focus (as core/config/set.ts is for config): validation, the locked write and the events. |
 | `job-command.ts` | The environment, placeholders and shell of a configured command Forge runs for a job. |

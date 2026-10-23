@@ -10,7 +10,7 @@ import { ForgeError } from '#core/errors.ts';
 import { pidAlive, run } from '#core/os/process.ts';
 import { readJson } from '#core/os/fs.ts';
 import { tail } from '#core/text.ts';
-import type { InstallInfo, UpdateCheck, UpdateDashboard, UpdateResult } from '#core/types.ts';
+import type { InstallInfo, UpdateCheck, UpdateDashboard, UpdateResult } from './types.ts';
 
 // No leading `-`: these names come from the install's path and become argv for `claude`.
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;

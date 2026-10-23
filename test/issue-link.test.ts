@@ -14,7 +14,7 @@ import { issueLinkStatus, prLinkNote, queryTerms } from '#core/job/issue-link.ts
 import { searchTracker } from '#engine/trackers/link.ts';
 import github, { inRepo, quote } from '#integrations/github/tracker.ts';
 import { gateTell, step } from '#engine/pipeline/step.ts';
-import type { StepFile } from '#core/types.ts';
+import type { StepFile } from '#engine/pipeline/types.ts';
 import { fixture } from './step-fixture.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');

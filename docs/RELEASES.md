@@ -24,7 +24,7 @@ Only the latest minor release line gets fixes, security fixes included, as patch
 
 A config key or CLI flag on its way out is announced in CHANGELOG.md at least one minor release before it is removed. While it still works:
 
-- it is listed in `DEPRECATED_CONFIG_KEYS` in `lib/core/config/deprecations.ts`, with the release that deprecated it, the release that removes it and what to use instead, and in [CONFIG.md](CONFIG.md#deprecated-keys) "Deprecated keys";
+- it is listed in `DEPRECATED_CONFIG_KEYS` in `lib/core/config/validators/deprecations.ts`, with the release that deprecated it, the release that removes it and what to use instead, and in [CONFIG.md](CONFIG.md#deprecated-keys) "Deprecated keys";
 - `forge doctor` (and Settings › Diagnostics) shows a warning row, `deprecated config key <key>`, whenever it is set in `.forge/config.yml`. A warning never fails the report.
 
 ## Releasing

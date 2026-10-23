@@ -10,7 +10,8 @@ import { archiveDir, hasLiveJob, readArchived } from '#core/job/archive.ts';
 import { jobDir, listJobs, parseEventLines } from '#core/job/store.ts';
 import { paths } from '#core/paths.ts';
 import { estimateCost, pricing } from '#integrations/claude/pricing.ts';
-import type { Config, JobEvent, SpendBucket } from '#core/types.ts';
+import type { Config, JobEvent } from '#core/types.ts';
+import type { SpendBucket } from './types.ts';
 import { writeJsonAtomic } from '#core/os/fs.ts';
 
 export const SPEND_CACHE_VERSION = 1;

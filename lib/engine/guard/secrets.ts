@@ -1,8 +1,7 @@
-// The secret scanner: Forge refuses to publish a likely credential. It runs wherever Forge sends
-// something off the machine (verify's branch scan, `forge git commit`, `forge pr open`, tracker
-// writes) and reports what agents write into the job dir. Findings never hold the value: the
-// excerpt is masked and the fingerprint is its sha256 (a known value's is neither: see scanUnit).
-// docs/CONFIG.md "Secret scanning".
+// The secret scanner: Forge refuses to publish a likely credential. It runs wherever Forge sends something off
+// the machine (verify's branch scan, `forge git commit`, `forge pr open`, tracker writes) and reports what agents
+// write into the job dir. Findings never hold the value: the excerpt is masked and the fingerprint is its sha256
+// (a known value's is neither: see scanUnit). docs/CONFIG.md "Secret scanning".
 // Must not import worktree.ts, pr.ts or commands/: worktree.ts and pr.ts import this module.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -14,7 +13,8 @@ import { defaultAgentOutput, jobDir, logEvent } from '#core/job/store.ts';
 import { MIN_SECRET, knownValues } from './known-secrets.ts';
 import { queueNotify } from '#office/notify.ts';
 import { resolveBase } from '../pipeline/scope.ts';
-import type { CompactSecrets, Config, Job, SecretAllowlist, SecretFinding, SecretKind, SecretScan, TextUnit } from '#core/types.ts';
+import type { Config, Job } from '#core/types.ts';
+import type { CompactSecrets, SecretAllowlist, SecretFinding, SecretKind, SecretScan, TextUnit } from './types.ts';
 import { ForgeError } from '#core/errors.ts';
 
 export const SECRET_KINDS = [

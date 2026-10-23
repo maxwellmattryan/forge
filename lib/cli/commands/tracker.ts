@@ -23,12 +23,12 @@ import { memberIssues, mirrorToTracker } from '#engine/trackers/mirror.ts';
 import { memberForRef, memberTrackerConfig, memberTrackers, qualify } from '#engine/project/member-trackers.ts';
 import type { MemberTracker } from '#engine/project/member-trackers.ts';
 import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '#engine/trackers/triage.ts';
-import { dashRunning, reconcile } from '#office/reconcile.ts';
-import type { ReconcileResult } from '#office/reconcile.ts';
+import { dashRunning, reconcile, type ReconcileResult } from '#office/reconcile.ts';
 import { ForgeError } from '#core/errors.ts';
 import * as wt from '#engine/workspace/worktree.ts';
 import { bodyFrom, list, num, req, str, usageError } from './args.ts';
-import type { Config, HelpGroup, Job, JobPr, Tracker, TrackerItem } from '#core/types.ts';
+import type { Config, Job, JobPr, Tracker, TrackerItem } from '#core/types.ts';
+import type { HelpGroup } from '../types.ts';
 
 const TRACKER_EXITS: [1 | 5, string][] = [
   [1, 'the tracker refused the call, no such item or job, or a likely secret in the text Forge would send (code secret_found)'],

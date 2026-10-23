@@ -6,7 +6,7 @@ import { noteReleasePlanned } from '#engine/release/approval.ts';
 import { selectionFrom, writeReleasePlan } from '#engine/release/plan.ts';
 import { ForgeError } from '#core/errors.ts';
 import { usageError } from './args.ts';
-import type { CliContext, Dispatched, HelpGroup } from '#core/types.ts';
+import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
 
 const DOCS: [string, string] = ['Releasing a project', 'docs/RELEASES.md#releasing-a-project'];
 

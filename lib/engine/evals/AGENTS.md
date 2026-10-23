@@ -19,4 +19,5 @@ Evals and self-improvement: eval runs and stats, experiments, learnings, retros,
 | `run.ts` | Forge evaluation. |
 | `scoring.ts` | Post-merge scoring: a sampled share of merged jobs gets one run of the judge against the spec's acceptance criteria and the merged PR's diff, so real work has a quality score beside the evals'. |
 | `stats.ts` | Eval statistics: where a job's time went, and n / mean / min / max over a run's repeats, so an A/B comparison shows the sample behind every number. |
+| `types.ts` | The notes layer's shapes, type-only: learnings and experiment entries and what `forge experiment` prints. |
 <!-- forge:map:end -->

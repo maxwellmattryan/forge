@@ -47,9 +47,13 @@ test('incremental typecheck caches stay out of git', () => {
   }
 });
 
-test('lib/core/types.ts and lib/api/types.ts are type-only', () => {
+test('every lib/**/types.ts is type-only', () => {
   const ts = createRequire(path.join(ROOT, 'package.json'))('typescript');
-  for (const name of ['core/types.ts', 'api/types.ts']) {
+  const names = (fs.readdirSync(path.join(ROOT, 'lib'), { recursive: true }) as string[])
+    .map((f) => f.split(path.sep).join('/'))
+    .filter((f) => f === 'types.ts' || f.endsWith('/types.ts'));
+  assert.ok(names.includes('core/types.ts') && names.includes('api/types.ts'), names.join(', '));
+  for (const name of names) {
     const src = fs.readFileSync(path.join(ROOT, 'lib', name), 'utf8');
     // What Node would run after stripping types: nothing but the module marker.
     const out = ts.transpileModule(src, {

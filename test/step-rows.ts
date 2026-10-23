@@ -3,7 +3,8 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { shellLine, step } from '#engine/pipeline/step.ts';
-import type { Config, Job, StepInput, VerifyRun } from '#core/types.ts';
+import type { Config, Job, VerifyRun } from '#core/types.ts';
+import type { StepInput } from '#engine/pipeline/types.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { JOB_DIR, RECALL_HASH, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
 import type { FixtureOpts } from './step-fixture.ts';

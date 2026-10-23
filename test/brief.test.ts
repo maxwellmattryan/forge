@@ -11,7 +11,8 @@ import { defaults } from '#core/config/load.ts';
 import { createJob, jobDir, updateJob } from '#core/job/store.ts';
 import { WAITING_ON, normalizeJob } from '#core/job/schema.ts';
 import { gateTell, loadStepInput, step } from '#engine/pipeline/step.ts';
-import type { Stage, StepFile, StepInput, VerifyRun } from '#core/types.ts';
+import type { Stage, VerifyRun } from '#core/types.ts';
+import type { StepFile, StepInput } from '#engine/pipeline/types.ts';
 import { JOB_DIR, ag, ev, fixture } from './step-fixture.ts';
 
 const SENTINEL = 'ZZSENTINEL-7f3a';
