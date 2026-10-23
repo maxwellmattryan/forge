@@ -7,7 +7,8 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveEffort, trustDigest } from '#core/config/load.ts';
-import { PERMISSION_MODES, TRUST_CHANGED, commandPermissionMode, createSession, otherOwner, reapOrphans, sessionOptions } from './session/lifecycle.ts';
+import { PERMISSION_MODES, TRUST_CHANGED, createSession, otherOwner, reapOrphans, sessionOptions } from './session/lifecycle.ts';
+import { createModeBook, type PoolOptions } from './modes.ts';
 import { UUID, readInfo, sessionFiles } from '#core/job/session-files.ts';
 import type { DaemonOptions, Session, SessionContext, SessionEvent } from './session/lifecycle.ts';
 import { daemonSessionIds } from './owner.ts';
@@ -38,6 +39,8 @@ export interface DaemonPool {
   answerPermission(scope: string, id: string, decision: PermissionDecision, actor: EventActor): boolean;
   /** Puts one session in a permission mode as `actor`: now if its child runs, else from its next spawn. */
   setPermissionMode(scope: string, mode: DaemonPermissionMode, actor: EventActor): { error: string | null };
+  /** Sets the job sessions' default as `actor`: every job session without its own choice, the running ones now. */
+  setJobPermissionMode(mode: DaemonPermissionMode, actor: EventActor): { error: string | null };
   poke(): void;
   state(): PoolState;
   sessionState(scope: string): DaemonSessionState;
@@ -106,7 +109,7 @@ export function offState(root: string, scope: string): DaemonSessionState {
   };
 }
 
-export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
+export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
   const o = sessionOptions(opts);
   const pollMs = opts.pollMs ?? 2000;
   const syncMs = opts.syncMs ?? SYNC_MS;
@@ -171,13 +174,7 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
     repoMemo = { at: Date.now(), key, status };
     return status;
   };
-  /**
-   * Modes a human chose in the dashboard, by scope; only those that differ from daemon.command's.
-   * In memory on purpose: a session can write files in the repo, runtime records included, so a
-   * mode read back from disk would be one the session could pick for itself.
-   */
-  const modes = new Map<string, DaemonPermissionMode>();
-  let baseMode = 'default';
+  const modes = createModeBook(opts.jobPermissionMode);
   const subscribers = new Set<(e: SessionEvent) => void>();
 
   const emit = (e: SessionEvent) => {
@@ -203,15 +200,8 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       tick();
     },
     poke: () => tick(),
-    permissionMode: (scope) => modes.get(scope) ?? null,
-    permissionModeRefused(scope, mode, live) {
-      // The refused choice may be daemon.command's own mode, which holds no entry; a later choice wins.
-      if ((modes.get(scope) ?? baseMode) !== mode) return;
-      // Show what the session is really in rather than a choice claude turned down.
-      const kept = PERMISSION_MODES.find((m) => m === live);
-      if (kept && kept !== baseMode) modes.set(scope, kept);
-      else modes.delete(scope);
-    },
+    permissionMode: (scope) => modes.launch(scope),
+    permissionModeRefused: (scope, mode, live) => modes.refused(scope, mode, live),
     // Read at every spawn and never pushed to a running session: a change applies at its next spawn.
     // No role: a session runs the orchestrator, so per-role, panel and complexity levels never
     // reach its argv; only job.effort and runtime.effort do.
@@ -260,7 +250,7 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
     const m = c.daemon?.maxConcurrent;
     // An out-of-range value is a daemonProblems refusal at spawn; until then count it as 1.
     maxConcurrent = Number.isInteger(m) && m >= 1 && m <= 16 ? m : 1;
-    baseMode = commandPermissionMode(c.daemon?.command);
+    modes.setCommand(c.daemon?.command);
     return c;
   }
   try {
@@ -483,8 +473,7 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       office: office.state(),
       foreman,
       jobs,
-      permissionMode: baseMode,
-      permissionModes: Object.fromEntries([...modes].sort(([a], [b]) => (a < b ? -1 : 1))),
+      ...modes.state(),
     };
   }
 
@@ -592,13 +581,24 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       if (!validScope(scope)) return { error: 'invalid scope' };
       if (!PERMISSION_MODES.includes(mode)) return { error: `mode must be one of ${PERMISSION_MODES.join(', ')}` };
       if (closed) return { error: 'the dashboard is shutting down' };
-      if (mode === baseMode) modes.delete(scope);
-      else modes.set(scope, mode);
+      modes.choose(scope, mode);
       const s = sessions.get(scope);
       s?.logEvent('permission-mode-set', { mode, actor });
       jobAudit(scope, 'daemon-mode', { mode }, actor);
       // A running child switches now; claude confirms with a status event, which updates its state.
       s?.setPermissionMode(mode);
+      return { error: null };
+    },
+    setJobPermissionMode(mode, actor) {
+      if (!PERMISSION_MODES.includes(mode)) return { error: `mode must be one of ${PERMISSION_MODES.join(', ')}` };
+      if (closed) return { error: 'the dashboard is shutting down' };
+      modes.chooseJobs(mode);
+      // A job with its own choice keeps it; the rest switch as if each were chosen one by one.
+      for (const s of jobSessions().filter((j) => !modes.chosen(j.scope))) {
+        s.logEvent('permission-mode-set', { mode, actor, default: true });
+        jobAudit(s.scope, 'daemon-mode', { mode, default: true }, actor);
+        s.setPermissionMode(mode);
+      }
       return { error: null };
     },
     poke() {

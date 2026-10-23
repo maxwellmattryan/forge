@@ -22,7 +22,7 @@ export const ARCHIVE_SCHEMA_VERSION = 1;
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 35;
+export const API_VERSION = 36;
 
 export const SEVERITIES = ['blocker', 'major', 'minor', 'nit'] as const;
 

@@ -10,7 +10,7 @@ Forge's public contracts, with no Node imports: the `/api` and SSE shapes, the r
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
 |---|---|
-| `constants.ts` | The runtime lists the /api shapes in types.ts derive from, plus the two daemon scopes the dashboard pins. |
+| `constants.ts` | The runtime lists the /api shapes in types.ts derive from, plus the daemon scopes the dashboard pins. |
 | `tracker.ts` | The tracker adapter contract: the handful of statuses a job's stage and state collapse to. |
 | `types.ts` | The /api/* and SSE shapes `forge dash` serves, type-only. |
 <!-- forge:map:end -->

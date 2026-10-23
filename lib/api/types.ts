@@ -592,7 +592,7 @@ export type DaemonStatus = 'off' | 'idle' | 'busy' | 'stopping';
 
 /** One supervised session (the inbox or a job's): state() in lib/office/session/lifecycle.ts, or offState in lib/office/pool.ts. */
 export interface DaemonSessionState {
-  /** `_inbox` or a job id. */
+  /** `_inbox`, `_office`, a job id, or `_jobs` for the job sessions' default. */
   scope: string;
   wanted: boolean;
   running: boolean;
@@ -618,8 +618,7 @@ export interface DaemonSessionState {
 }
 
 /**
- * The permission modes a human may put one daemon session in from the dashboard: `default` asks in the
- * dashboard, `auto` lets Claude Code's classifier approve routine calls, `dontAsk` refuses. lib/office/session/lifecycle.ts PERMISSION_MODES.
+ * The permission modes a human may put a daemon session in from the dashboard (lib/office/session/lifecycle.ts PERMISSION_MODES): `default` asks in the dashboard, `auto` lets Claude Code's classifier approve routine calls, `dontAsk` refuses.
  */
 export type DaemonPermissionMode = 'default' | 'auto' | 'dontAsk';
 
@@ -666,8 +665,9 @@ export interface DaemonPoolState {
   jobs: Record<string, DaemonSessionState>;
   /** The permission mode daemon.command starts sessions in (`manual` reads as `default`). */
   permissionMode: string;
-  /** Sessions a human put in another mode from the dashboard, by scope. Held in memory only, so they end with `forge dash`. */
+  /** Sessions a human put in another mode, by scope, and the default for job sessions without an entry (null: daemon.command's). Held in memory only, so they end with `forge dash`. */
   permissionModes: Record<string, DaemonPermissionMode>;
+  jobPermissionMode: DaemonPermissionMode | null;
   /** Open /api/events streams across all sessions. */
   clients: number;
 }

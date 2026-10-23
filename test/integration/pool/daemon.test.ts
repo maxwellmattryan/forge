@@ -373,6 +373,46 @@ test('a prompt is never shown cut short: an input too long to show whole, or an 
   }
 });
 
+test("the job sessions' default mode: every job without its own choice, never the inbox", async () => {
+  const repo = scratch();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit, config({ command: 'claude {session} --permission-mode default --allowedTools {allowedTools}' }), { jobPermissionMode: 'auto' });
+  const modeOf = (args: string[]) => args[args.indexOf('--permission-mode') + 1];
+  const switches = (c) => c.written.split('\n').filter((l) => l.includes('set_permission_mode')).map((l) => JSON.parse(l).request.mode);
+  try {
+    const a = createJob(repo.dir, defaults(), { title: 'Job A' }).id;
+    const b = createJob(repo.dir, defaults(), { title: 'Job B' }).id;
+    d.start();
+    const inbox = kit.last(INBOX);
+    assert.equal(d.state().jobPermissionMode, 'auto', 'from forge dash --permission-mode');
+    assert.equal(modeOf(inbox.args), 'default', 'the inbox keeps daemon.command\'s mode');
+    // B's own choice overrides the default; one equal to the default holds no entry.
+    assert.deepEqual(d.setPermissionMode(b, 'default', DASH), { error: null });
+    assert.deepEqual(d.setPermissionMode(a, 'auto', DASH), { error: null });
+    assert.deepEqual(d.state().permissionModes, { [b]: 'default' });
+    for (const job of [a, b]) enqueue(repo.dir, null, { type: 'resume', job, from: 'dashboard' });
+    d.poke();
+    await waitFor(() => kit.of(a).length === 1 && kit.of(b).length === 1, 2000, 'both job sessions');
+    assert.equal(modeOf(kit.last(a).args), 'auto');
+    assert.equal(modeOf(kit.last(b).args), 'default');
+
+    // A new default switches the running sessions that follow it, and only those.
+    assert.deepEqual(d.setJobPermissionMode('dontAsk', DASH), { error: null });
+    assert.equal(d.state().jobPermissionMode, 'dontAsk');
+    assert.deepEqual(switches(kit.last(a)), ['dontAsk']);
+    assert.deepEqual(switches(kit.last(b)), []);
+    assert.deepEqual(switches(inbox), []);
+    assert.deepEqual(readEvents(repo.dir, a).filter((e) => e.type === 'daemon-mode').at(-1), { ...readEvents(repo.dir, a).filter((e) => e.type === 'daemon-mode').at(-1), mode: 'dontAsk', default: true, actor: DASH });
+    // daemon.command's own mode clears the default.
+    assert.deepEqual(d.setJobPermissionMode('default', DASH), { error: null });
+    assert.equal(d.state().jobPermissionMode, null);
+    assert.match(d.setJobPermissionMode('bypassPermissions' as any, DASH).error ?? '', /mode must be one of default, auto, dontAsk/);
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
 test('a human switches one session’s permission mode: live while it runs, at its next spawn otherwise', async () => {
   const repo = scratch();
   const kit = fakeKit();

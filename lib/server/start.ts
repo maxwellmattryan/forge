@@ -12,7 +12,6 @@ import { dashboardActor } from '#integrations/github/actor.ts';
 import { setConfigValue } from '#core/config/set.ts';
 import { PERMISSION_MODES } from '#office/session/lifecycle.ts';
 import { UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from '#core/job/session-files.ts';
-import type { DaemonOptions } from '#office/session/lifecycle.ts';
 import { createPool } from '#office/pool.ts';
 import type { DaemonPool, PoolState } from '#office/pool.ts';
 import { buildBundle, bundleFileName } from '#engine/ops/bundle.ts';
@@ -37,7 +36,7 @@ import { projectGraph } from '#engine/project/graph.ts';
 import { RepoBudgetAckError, ackRepoBudget, repoBudgetStatus, validPeriod } from '#engine/metrics/repo-budget.ts';
 import { jobBudgetOf } from '#engine/metrics/budget.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from '#engine/evals/run.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, enqueue, listRequests, validJobId, validScope } from '#core/job/requests.ts';
+import { INBOX_SCOPE, JOBS_SCOPE, OFFICE_SCOPE, enqueue, listRequests, validJobId, validScope } from '#core/job/requests.ts';
 import { foremanHandoff, gateOwner } from '#office/foreman.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { roster } from '#engine/pipeline/roster.ts';
@@ -107,7 +106,7 @@ import type {
 export interface ServerOptions {
   port?: number;
   host?: string;
-  daemon?: DaemonOptions;
+  daemon?: import('#office/modes.ts').PoolOptions;
   sseMaxAgeMs?: number;
   ssePingMs?: number;
   distDir?: string;
@@ -452,11 +451,12 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
           return jsonStatus(res, 400, { error: 'body is not JSON' });
         }
         const obj = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
-        if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office" or a job id' });
-        if (obj.scope !== INBOX_SCOPE && obj.scope !== OFFICE_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
+        const jobs = obj.scope === JOBS_SCOPE;
+        if (!jobs && !validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office", "_jobs" or a job id' });
+        if (!jobs && obj.scope !== INBOX_SCOPE && obj.scope !== OFFICE_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
         if (!PERMISSION_MODES.includes(obj.mode)) return jsonStatus(res, 400, { error: `mode must be one of ${PERMISSION_MODES.join(', ')}` });
         // Only a value from that fixed list travels on, to the supervisor's memory and the session's stdin.
-        const r = pool?.setPermissionMode(obj.scope, obj.mode, dashboardActor()) ?? { error: 'the daemon pool is not ready' };
+        const r = (jobs ? pool?.setJobPermissionMode(obj.mode, dashboardActor()) : pool?.setPermissionMode(obj.scope, obj.mode, dashboardActor())) ?? { error: 'the daemon pool is not ready' };
         if (r.error) return jsonStatus(res, 409, { error: r.error });
         return json(res, poolState() satisfies PostDaemonModeResponse);
       }
@@ -1233,7 +1233,7 @@ function offSessionState(_root: string, scope: string): DaemonSessionState {
 
 /** The pool block before a pool exists (never visible once the server is listening). */
 function idlePoolState(root: string): PoolState {
-  return { enabled: false, wanted: false, maxConcurrent: 1, live: 0, lastError: null, inbox: offSessionState(root, INBOX_SCOPE), office: offSessionState(root, OFFICE_SCOPE), foreman: false, jobs: {}, permissionMode: 'default', permissionModes: {} };
+  return { enabled: false, wanted: false, maxConcurrent: 1, live: 0, lastError: null, inbox: offSessionState(root, INBOX_SCOPE), office: offSessionState(root, OFFICE_SCOPE), foreman: false, jobs: {}, permissionMode: 'default', permissionModes: {}, jobPermissionMode: null };
 }
 
 /**

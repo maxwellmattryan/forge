@@ -13,7 +13,7 @@ import { now, shortId } from '../utils.ts';
 
 import { INBOX_SCOPE, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
 
-export { INBOX_SCOPE, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
+export { INBOX_SCOPE, JOBS_SCOPE, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
 
 /** Request types that act on one job, so they need one and route to that job's daemon session. */
 const JOB_REQUEST_TYPES = ['approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume'] as const;
