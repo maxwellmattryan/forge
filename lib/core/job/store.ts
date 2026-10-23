@@ -541,8 +541,8 @@ export function recordAgent(
       a.retry = Boolean(rec.retry);
       delete a.outputMissing;
     } else {
+      a.endedAt = a.status === 'running' ? now() : (a.endedAt ?? null); // only a run in flight ends: a second end must not re-open the decision record
       a.status = rec.status ?? 'done';
-      a.endedAt = now();
       if (rec.agentId) a.agentId = rec.agentId;
       if (rec.model) a.model = rec.model;
       if (rec.summary) a.summary = rec.summary.slice(0, 280);
@@ -804,5 +804,5 @@ export function parseDecision(root: string, id: string): { decision: string | nu
   const text = readText(path.join(jobDir(root, id), 'decision.md'));
   const first = text.split('\n').find((l) => l.trim()) ?? '';
   const m = first.match(/^\s*(APPROVE|ESCALATE)\b\s*[:\-–]?\s*(.*)$/i);
-  return { ...(m ? { decision: m[1].toUpperCase(), reason: m[2].trim() || null } : { decision: null, reason: null }), autoMerge: /^\s*(?:[-*]\s*)?Auto-merge eligible:\s*yes\b/im.test(text) };
+  return { ...(m ? { decision: m[1].toUpperCase(), reason: m[2].trim() || null } : { decision: null, reason: null }), autoMerge: /^yes\b/i.test(text.match(/^[ \t]*(?:[-*][ \t]*)?Auto-merge eligible:[ \t]*(.*)$/im)?.[1] ?? '') }; // the first such line only
 }

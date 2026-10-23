@@ -30,6 +30,8 @@ export const LOCKED_FIELDS: Record<string, string> = {
   pr: 'forge pr find|open|sync',
   schemaVersion: 'forge migrate',
   usage: 'forge job agent',
+  // A run's start and end times decide when the approver's decision is recorded (once per run).
+  agents: 'forge job agent',
   effort: 'forge job effort',
   // A cleared flag would skip the PP1 park; pr open recomputes it anyway.
   protectedPaths: 'forge git add|commit, forge verify or forge pr open',
