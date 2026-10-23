@@ -4,8 +4,8 @@
      Log tab overrides it), the pool's one Start/Stop icon toggle, then one row per session:
      the Inbox session, then each job session in status order, and under them the Inbox session log toggle (remembered
      under LOG_KEY). A job row opens that job's pane on the Log tab. The rows say held and waiting themselves, so no chips
-     repeat them; permission prompts are answered in the Needs-you popover. StatusBar owns the pool state and act(), so the indicator and this panel agree. Session errors
-     and job titles are untrusted and render as text. -->
+     repeat them; permission prompts are answered in the Needs-you popover. StatusBar owns the pool state and act(), so the
+     indicator and this panel agree. Session errors and job titles are untrusted and render as text. -->
 <script lang="ts">
   import Chip from '../Chip.svelte';
   import Icon from '../Icon.svelte';
