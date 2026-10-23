@@ -197,7 +197,9 @@
       "off": "Daemon off",
       "sessions": "job sessions",
       "disabled": "The daemon is off. Set daemon.enabled: true in .forge/config.yml, then start it here.",
-      "mode": "Default permissions: {mode}",
+      "jobMode": "Job sessions' permissions",
+      "jobModeAbout": "Every job without its own choice, now and from its next start. A job's own choice in its panel header overrides it",
+      "jobModeAutoWarning": "Auto for every job: unattended sessions approve most tool calls without you. Prompts claude still raises wait until someone answers.",
       "inboxLog": "Inbox session log"
     },
     "foreman": {

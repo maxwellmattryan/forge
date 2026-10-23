@@ -918,6 +918,33 @@ test('POST /api/daemon/permission answers a prompt, guarded like every POST', as
   }
 });
 
+test("POST /api/daemon/mode with scope _jobs sets the job sessions' default, guarded like every POST", async () => {
+  const repo = tempRepo();
+  writeConfig(repo.dir, { enabled: true, command: 'claude {session} --permission-mode dontAsk' });
+  const kit = fakeChildren();
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: { ...kit.opts, jobPermissionMode: 'auto' } });
+  const port = Number(new URL(url).port);
+  try {
+    const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)[1];
+    const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body, headers: any = good) => hit(port, { method: 'POST', path: '/api/daemon/mode', headers, body: JSON.stringify({ scope: '_jobs', ...body }) });
+    const state = async () => JSON.parse((await hit(port, { path: '/api/state' })).text).daemons;
+    assert.equal((await state()).jobPermissionMode, 'auto', 'the start-up default');
+    assert.equal((await post({ mode: 'default' }, { ...good, 'x-forge-token': 'wrong' })).status, 403);
+    assert.equal((await post({ mode: 'default' }, { ...good, origin: 'http://evil.example' })).status, 403);
+    assert.equal((await post({ mode: 'default' }, { ...good, 'content-type': 'text/plain' })).status, 415);
+    for (const mode of ['bypassPermissions', 'acceptEdits', 'plan', '', null]) assert.equal((await post({ mode })).status, 400, String(mode));
+    const ok = await post({ mode: 'default' });
+    assert.equal(ok.status, 200);
+    assert.equal(JSON.parse(ok.text).jobPermissionMode, 'default');
+    assert.equal((await post({ mode: 'dontAsk' })).status, 200);
+    assert.equal((await state()).jobPermissionMode, null, "daemon.command's mode clears the default");
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
 test('POST /api/daemon/mode switches one session, guarded like every POST', async () => {
   const repo = tempRepo();
   writeConfig(repo.dir, { enabled: true, command: 'claude {session} --permission-mode dontAsk' });
@@ -972,7 +999,7 @@ test('POST /api/daemon starts and stops one session', async () => {
     const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)[1];
     const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
     const post = (body, headers: any = good) => hit(port, { method: 'POST', path: '/api/daemon', headers, body: JSON.stringify(body) });
-    const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'office', 'foreman', 'jobs', 'permissionMode', 'permissionModes', 'clients'];
+    const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'office', 'foreman', 'jobs', 'permissionMode', 'permissionModes', 'jobPermissionMode', 'clients'];
     assert.equal((await post({ action: 'stop', scope: jobA }, { ...good, 'x-forge-token': 'wrong' })).status, 403);
     assert.equal((await post({ action: 'stop', scope: jobA }, { ...good, origin: 'http://evil.example' })).status, 403);
     assert.equal((await post({ action: 'stop', scope: jobA }, { ...good, 'content-type': 'text/plain' })).status, 415);
@@ -1040,7 +1067,7 @@ test('/api/stats returns per-lens recall', async () => {
 
 test('/api/state exposes the session pool', async () => {
   const repo = tempRepo();
-  const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'office', 'foreman', 'jobs', 'permissionMode', 'permissionModes', 'clients'];
+  const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'office', 'foreman', 'jobs', 'permissionMode', 'permissionModes', 'jobPermissionMode', 'clients'];
   const sessionKeys = ['scope', 'wanted', 'running', 'status', 'sessionId', 'pid', 'lastTurnAt', 'lastResultAt', 'turns', 'failures', 'held', 'waiting', 'lastError', 'permissions', 'permissionMode', 'kept', 'effort'];
   const kitOff = fakeChildren();
   let srv = await startServer(repo.dir, { port: 0, daemon: kitOff.opts });

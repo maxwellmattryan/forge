@@ -239,6 +239,15 @@ test('scopeSession: the inbox, the office or a job, own keys only', () => {
   assert.equal(scopeSession(null, 'job-a'), null);
 });
 
+test('sessionMode: a job without its own choice follows the job default; the inbox and office never do', () => {
+  const p = pool({ permissionMode: 'default', jobPermissionMode: 'auto', permissionModes: { 'job-b': 'default' } });
+  assert.deepEqual(sessionMode(p, 'job-a', null), { chosen: 'auto', live: null, overridden: false });
+  assert.deepEqual(sessionMode(p, 'job-b', null), { chosen: 'default', live: null, overridden: true }, "a job's own choice wins");
+  assert.deepEqual(sessionMode(p, '_inbox', null), { chosen: 'default', live: null, overridden: false });
+  assert.deepEqual(sessionMode(p, '_office', null), { chosen: 'default', live: null, overridden: false });
+  assert.deepEqual(sessionMode(pool({ permissionMode: 'dontAsk', jobPermissionMode: 'bypassPermissions' }), 'job-a', null).chosen, 'dontAsk', 'an unknown default is ignored');
+});
+
 test('poolModel marks job chips a human switched to another mode', () => {
   const m = poolModel(pool({ permissionModes: { 'job-a': 'auto' }, jobs: { 'job-a': session({ scope: 'job-a', running: true, status: 'idle' }), 'job-b': session({ scope: 'job-b', running: true, status: 'idle' }) } }), { pending: false });
   assert.deepEqual(
