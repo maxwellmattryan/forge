@@ -41,6 +41,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `job/review.ts` | `forge job round\|verdicts\|decision\|score`: review rounds, the reviewers' and approver's verdicts, and the post-merge score. |
 | `job/state.ts` | `forge job set\|effort\|note\|refresh-request\|budget`: a job's stage, state, fields, effort, notes, request and budget limits. |
 | `notify.ts` | `forge notify test\|send`: a sample notification to every configured target, and the detached sender lib/office/notify.ts queueNotify spawns. |
+| `project.ts` | `forge project add\|remove\|list`: the machine index of registered projects (lib/engine/project/machine-index.ts). |
 | `release.ts` | `forge release plan\|run\|status`: a release a human runs from the CLI, single- or multi-repo (lib/engine/release/plan.ts plans it, lib/engine/release/run.ts runs it; docs/RELEASES.md "Releasing a project"). |
 | `render.ts` | Human output mode (docs/CLI.md "Output mode"): the generic renderer for results and errors. |
 | `render/backing.ts` | `forge backing status` in human mode. |

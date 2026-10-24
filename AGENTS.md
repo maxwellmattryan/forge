@@ -15,7 +15,7 @@ Obey these on every change; each links the section with the detail.
 - **Never commit `dashboard/dist/`** or hand-edit it: it is a gitignored build; run `npm run build:dashboard` to check it. CI builds it for the main update that the release PR carries into `main` ([Rules](docs/DEVELOPING.md#rules)).
 - **Escape everything the dashboard renders**: `{@html}` only on the escape-first helpers ([dashboard/AGENTS.md](dashboard/AGENTS.md)).
 - **Touching `dashboard/`?** Read [dashboard/AGENTS.md](dashboard/AGENTS.md) first: its look, i18n, Tailwind and escaping rules.
-- **Never point the CLI at a real repo's `.forge/`** while developing: use a scratch repo or `FORGE_ROOT` ([Verify](#verify-before-claiming-it-works)).
+- **Never point the CLI at a real repo's `.forge/`** while developing: use a scratch repo or `FORGE_ROOT`, and `FORGE_HOME` for the machine index ([Verify](#verify-before-claiming-it-works)).
 - **Jobs leave `CHANGELOG.md` and versions alone**: the release commit adds them ([Publishing](docs/DEVELOPING.md#publishing)).
 - **Use the glossary's words** in docs, prompts and dashboard copy ([`docs/GLOSSARY.md`](docs/GLOSSARY.md)).
 - **Keep docs in sync with CLI behaviour**: `README.md`, `docs/*.md` and `skills/forge/**` ([Rules](docs/DEVELOPING.md#rules)).

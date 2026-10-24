@@ -106,7 +106,7 @@ Every error carries one of these codes, and the code fixes the exit.
 | Code | Exit | Meaning |
 |---|---|---|
 | `failed` | 1 | the default for exit 1: the command ran and failed, or refused by policy |
-| `not_found` | 1 | no such job or request |
+| `not_found` | 1 | no such job, request or registered project |
 | `internal` | 1 | not a Forge error: a bug or an unexpected Node error (rerun with `FORGE_DEBUG=1` for the stack) |
 | `secret_found` | 1 | the secret scanner found a likely credential in what Forge was about to commit or send (a commit, the PR title or body, a tracker write); the message shows it masked, with its fingerprint |
 | `protected_path` | 1 | a path the `policy.protectedPaths` policy refuses is in what `forge git add\|commit` would stage or commit, `forge pr open` found a refused path or escalate paths no human approved, or `forge pr merge` finds a protected path at the live PR head that no human approved at that content (docs/CONFIG.md "Protected paths") |
@@ -143,6 +143,7 @@ Read by Forge:
 | Variable | Effect |
 |---|---|
 | `FORGE_ROOT` | the main checkout Forge keeps its state in; without it, the checkout of the current directory's git repository |
+| `FORGE_HOME` | where the machine index lives (`projects.json`, written by `forge project add\|remove`); default `~/.forge`, and an empty value counts as unset. Tests and the scenario seeder always set it |
 | `FORGE_CACHE_DIR` | where `bin/forge` keeps its start-up cache (V8 code cache, and stripped modules on Node 22); default `.cache/` in the plugin root. Honoured only inside the plugin root (its parent must exist; a temp dir, a symlinked parent that leaves the plugin, or the plugin root itself runs uncached), and it must be private to the current user, since it holds code the CLI runs (docs/architecture/startup-cache.md) |
 | `NODE_DISABLE_COMPILE_CACHE` | any non-empty value turns the start-up cache off |
 | `FORGE_DEBUG` | any non-empty value prints an error's stack trace on stderr, with or without `--json` |
@@ -1325,6 +1326,32 @@ A job's pull request.
 |---|---|
 | 1 | no such job |
 | 5 | gh or git failed |
+
+### `forge project`
+
+The projects registered on this machine (the machine index in ~/.forge or FORGE_HOME).
+
+**`forge project add [<path>] [--name N]`**: register a project in the machine index: this repo's main checkout (FORGE_ROOT, else the cwd's), or the main checkout of the repo at &lt;path> (FORGE_ROOT ignored), stored as its realpath with a name from the directory ({added, project: {name, path, addedAt}}). The same path again is a no-op (added: false). It reads nothing from the project's config and writes nothing inside it
+
+| Flag | Meaning |
+|---|---|
+| `--name N` | the project's name instead of the directory's (^[a-z0-9][a-z0-9._-]{0,63}$) |
+
+| Exit | When |
+|---|---|
+| 1 | the name is registered for another path, a daemon session ran it, or the index file is unreadable or from a newer Forge (never rewritten) |
+
+**`forge project list`**: the registered projects, sorted by name ({home, projects: [{name, path, addedAt, status}]}), status ok, missing or not-initialized; it never writes, so a missing project stays until remove drops it
+
+| Exit | When |
+|---|---|
+| 1 | the index file is unreadable or from a newer Forge |
+
+**`forge project remove <name|path>`**: drop one project from the machine index ({removed}), by name or by path (absolute, or containing /, or starting with . or ~); a path that no longer exists still matches. It never touches the project's directory
+
+| Exit | When |
+|---|---|
+| 1 | no such registered project (not_found), a daemon session ran it, or the index file is unreadable or from a newer Forge |
 
 ### `forge release`
 

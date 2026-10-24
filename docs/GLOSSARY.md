@@ -8,7 +8,9 @@ Planned in M004, except where a config key exists today.
 
 | Term | Meaning | Config key |
 |---|---|---|
-| **project** | One or more repos Forge works on together, configured from the root repo's `.forge/`, with no global state outside those repos (today's block describes a project of one repo). | `project` |
+| **project** | One or more repos Forge works on together, configured from the root repo's `.forge/`, with nothing outside those repos but the machine index (today's block describes a project of one repo). | `project` |
+| **machine index** | The machine's list of registered projects (`forge project add\|remove\|list`) and, from #400, the dashboard's runtime files, in `~/.forge/` or `FORGE_HOME`. It never holds project policy, commands or secrets, which stay in each project's `.forge/`. | - |
+| **Overview** | The dashboard's cross-project page (planned, M019 #402); "dashboard" keeps meaning the whole web app. | - |
 | **root repo** | The repo that holds the project's `.forge/`, which for a project of one repo is that repo and is never listed in `repos`. | `repos` |
 | **member repo** | Any other repo the root repo's config lists as part of the project. | `repos` |
 | **component** | A buildable unit inside a repo, of kind `library`, `service` or `app`. | planned (M004) |
