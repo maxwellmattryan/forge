@@ -11,7 +11,8 @@ import { jobFiles } from '#core/paths.ts';
 import { EVENT_SCHEMA_VERSION } from '#core/job/schema.ts';
 import { EVENT_STEPS } from '#core/versions/event.ts';
 import type { Job, JobEvent, VerifyRun } from '#core/types.ts';
-import { decisionCurrent, decisionEligible, headFollows, lastDecision, reviewCurrent } from './eligible.ts';
+import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
+import { decisionCurrent, decisionEligible, decisionSuperseded, headFollows, lastDecision, reviewCurrent } from './eligible.ts';
 
 const config = defaults();
 
@@ -180,6 +181,43 @@ function reviewedJob(dir: string, verified: string, more: (j: Job) => void = () 
   });
   return loadJob(dir, id);
 }
+
+test('decisionSuperseded: a rework, a later round or a stage change replaces the decision', () => {
+  const person = { login: 'al', source: 'env' };
+  const decided = (n: number) => event('decision', n, { decision: 'APPROVE', reason: null, autoMerge: true, head: 'a'.repeat(40) });
+  const round = (n: number, r: unknown) => event('round', n, { round: r });
+  const human = (n: number, action: string, actor: unknown = person, more: Record<string, unknown> = {}) => event('human', n, { action, actor, ...more });
+  const atPr = { stage: 'pr', state: 'waiting' } as const;
+  const roundText = (n: string) => new RegExp(`^round ${n} started after the approver's decision; the approver decides again`);
+  const reworkText = (action: string) => new RegExp(`^a ${action} was recorded after the approver's decision; the approver decides again`);
+  const rows: [string, Pick<Job, 'stage' | 'state'>, JobEvent[], RegExp | null][] = [
+    ['a decision while waiting', atPr, [decided(1)], null],
+    ['a round, then a decision, while running', { stage: 'pr', state: 'running' }, [round(0, 1), decided(1)], null],
+    ['a round after the decision', atPr, [decided(1), round(2, 2)], roundText('2')],
+    ['a round with no usable number after the decision', atPr, [decided(1), round(2, 'two')], roundText('\\?')],
+    ["a person's rework after the decision", atPr, [decided(1), human(2, 'rework')], reworkText('rework')],
+    ["the foreman's CI rework after the decision", atPr, [decided(1), human(2, 'rework', FOREMAN_ACTOR, { ciHead: 'b'.repeat(40) })], reworkText('rework')],
+    ['a revise-spec after the decision', atPr, [decided(1), human(2, 'revise-spec')], reworkText('revise-spec')],
+    ['an approve after the decision', atPr, [decided(1), human(2, 'approve')], null],
+    ['an answer after the decision', atPr, [decided(1), human(2, 'answer')], null],
+    ['a rework before the decision', atPr, [human(0, 'rework'), decided(1)], null],
+    ['the approver decided again after the rework and the new round', atPr, [round(0, 1), decided(1), human(2, 'rework'), round(3, 2), decided(4)], null],
+    // Positions, not timestamps: a round logged after the decision with an earlier ts still supersedes it.
+    ['a later round whose ts is older than the decision', atPr, [decided(5), round(1, 2)], roundText('2')],
+    ['the job is at build', { stage: 'build', state: 'running' }, [decided(1)], /^the job is at stage build, not pr: a rework or another stage change replaced the approver's decision/],
+    ['the job is cancelled at pr', { stage: 'pr', state: 'cancelled' }, [decided(1)], /^the job is cancelled: a human decides whether its PR merges$/],
+    ['the job failed at pr', { stage: 'pr', state: 'failed' }, [decided(1)], /^the job is failed: a human decides whether its PR merges$/],
+    ['no decision at all', atPr, [], null],
+  ];
+  for (const [name, job, events, want] of rows) {
+    const got = decisionSuperseded(job, events);
+    if (want === null) assert.equal(got, null, name);
+    else assert.match(got ?? '', want, name);
+  }
+  // A stage value from a hand-edited job.json is escaped and cut before it reaches the text.
+  const odd = decisionSuperseded({ stage: `x\n${'y'.repeat(100)}` as Job['stage'], state: 'running' }, []);
+  assert.match(odd ?? '', /^the job is at stage x\\x0ay{35}, not pr/);
+});
 
 test("reviewCurrent binds HEAD to the head the round's review was given", () => {
   const h = history();

@@ -11,6 +11,7 @@ import type { MergeResult } from './merge.ts';
 import { defaults } from '#core/config/load.ts';
 import { ForgeError } from '#core/errors.ts';
 import { logEvent, readEvents, setJob, updateJob } from '#core/job/store.ts';
+import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
 
 // defaults(): a non-empty policy.protectedPaths, merge.method squash and merge.auto off.
 const config = defaults();
@@ -113,6 +114,12 @@ function approveProtected(s: Scenario, file: string): void {
   logEvent(s.root, s.id, 'human', { action: 'approve', actor: { login: 'al', source: 'env' } });
   setJob(s.root, s.id, { state: 'waiting', waitingOn: 'pr-review', reason: null });
 }
+
+/** The scenario with `more` arranged after it: events and job changes once the decision is logged. */
+const after = (s: Scenario, more: (s: Scenario) => unknown): Scenario => {
+  more(s);
+  return s;
+};
 
 const refusedFor = (reason: string) => (s: Scenario, r: MergeResult | Error) => {
   assert.deepEqual(s.merges(), []);
@@ -247,6 +254,57 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
       assert.deepEqual(s.merges(), []);
       assert.equal((r as MergeResult).action, 'deferred');
       assert.ok(s.all().some((e) => e.type === 'pr-merge-deferred' && e.reason === 'settling'));
+    },
+  },
+  { name: 'superseded: a round 2 after the decision with the job still at pr', arrange: () => after(scenario('passing'), (s) => logEvent(s.root, s.id, 'round', { round: 2 })), check: refusedFor('superseded') },
+  {
+    name: "superseded: a person's rework after the decision with the job still at pr",
+    arrange: () => after(scenario('passing'), (s) => logEvent(s.root, s.id, 'human', { action: 'rework', actor: { login: 'al', source: 'env' } })),
+    check: refusedFor('superseded'),
+  },
+  {
+    name: "superseded: the foreman's CI rework after the decision",
+    arrange: () => after(scenario('passing'), (s) => logEvent(s.root, s.id, 'human', { action: 'rework', actor: FOREMAN_ACTOR, ciHead: s.head })),
+    check: refusedFor('superseded'),
+  },
+  {
+    name: 'superseded: the job moved to build after a rework',
+    arrange: () =>
+      after(scenario('passing'), (s) => {
+        logEvent(s.root, s.id, 'human', { action: 'rework', actor: { login: 'al', source: 'env' } });
+        setJob(s.root, s.id, { stage: 'build', state: 'running', waitingOn: null });
+      }),
+    check: refusedFor('superseded'),
+  },
+  { name: 'superseded: the job cancelled at stage pr', arrange: () => after(scenario('passing'), (s) => setJob(s.root, s.id, { state: 'cancelled', waitingOn: null })), check: refusedFor('superseded') },
+  {
+    name: 'superseded: a decision recorded after the new round merges',
+    arrange: () =>
+      after(scenario('passing'), (s) => {
+        logEvent(s.root, s.id, 'round', { round: 2 });
+        logEvent(s.root, s.id, 'decision', { decision: 'APPROVE', reason: null, autoMerge: true, head: s.head });
+      }),
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([r.action, s.merges().length], ['merged', 1]);
+    },
+  },
+  {
+    name: '--now ignores a superseded decision',
+    arrange: () =>
+      after(scenario('failing'), (s) => {
+        logEvent(s.root, s.id, 'round', { round: 2 });
+        setJob(s.root, s.id, { stage: 'build', state: 'running', waitingOn: null });
+      }),
+    opts: { now: true },
+    check: (s, r) => {
+      assert.deepEqual(s.merges(), [{ op: 'merge', slug: 'o/r', number: 7, method: 'squash', auto: false, matchHead: s.head }]);
+      assert.equal((r as MergeResult).action, 'merged');
+      const types = s.events();
+      const bypass = types.indexOf('pr-merge-bypass');
+      const merged = types.indexOf('pr-merged');
+      assert.ok(bypass >= 0 && merged > bypass, types.join(' '));
+      assert.equal(s.all()[merged].bypass, true);
     },
   },
   {

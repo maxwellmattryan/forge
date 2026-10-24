@@ -36,7 +36,8 @@ export interface MergeResult {
   repo?: string | null;
   /**
    * Why it was refused: a dependency PR is not merged (order), the dependsOn edges cycle, a release
-   * gate holds it, or a merge without --now failed autoMergeGate (auto-off, decision, floor).
+   * gate holds it, or a merge without --now failed autoMergeGate (auto-off, superseded: a rework, a
+   * later round or a stage change replaced the approver's decision, decision, floor).
    */
   reason?: MergeReason;
   /** A linked job: each PR this call acted on, in merge order. */
@@ -155,8 +156,8 @@ function commitTime(cwd: string, sha: string | null): number | null {
 const prLabel = (repo: string | null, number: number | null): string => (repo === null ? `PR #${number ?? '?'}` : number === null ? `repo ${repo} (no PR)` : `repo ${repo} PR #${number}`);
 
 /**
- * One PR's merge policy. Without --now, autoMergeGate first (merge.auto, the decision bound to this
- * head, protected paths at it, the escalate floor), then CI: direct when checks pass (or its repo
+ * One PR's merge policy. Without --now, autoMergeGate first (merge.auto, a decision nothing
+ * superseded, bound to this head, protected paths at it, the escalate floor), then CI: direct when checks pass (or its repo
  * has no CI) at a settled head, queued with `--auto` while pending if GitHub enforces requirements,
  * deferred (no call) while pending if it does not, refused when failing. Exactly one `gh pr merge`
  * call, never a fallback between direct and `--auto`, because a fallback is how unverified code got
@@ -400,7 +401,7 @@ async function mergeLinked(root: string, config: Config, github: GitHub, id: str
     if (gate) return refuse(k, 'release', releaseGateMessage(id, gate));
     const t = k === null ? rootTarget(root, config, github, id, rootNumber, synced, baseRef) : memberTarget(root, config, job, members.get(k)!);
     const r = mergeOne(root, config, github, id, t, { now: opts.now, tag: tag(k), clock: opts.clock });
-    // The walk's reason is the refused PR's own (auto-off, decision, floor).
+    // The walk's reason is the refused PR's own (auto-off, superseded, decision, floor).
     if (r.reason) reason = r.reason;
     parts.push({ repo: k, number: t.number, action: r.action, checks: r.checks, ...(r.mergeState !== undefined ? { mergeState: r.mergeState } : {}), ...(r.error !== undefined ? { error: r.error } : {}) });
     if (r.action !== 'merged') break;
