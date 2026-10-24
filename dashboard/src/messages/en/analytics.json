@@ -28,6 +28,7 @@
     "costSub": "{cost} per job · coverage {withUsage}/{agentRuns} ({exact} exact)",
     "byRole": "By role",
     "byModel": "By model",
+    "bySession": "By session",
     "lenses": "Review lenses",
     "reviews": "Reviews",
     "askedChanges": "Asked for changes",

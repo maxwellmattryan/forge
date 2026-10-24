@@ -69,7 +69,7 @@
     {@render kpi($t('common.tokens'), tokensShort(s.cost.totalTokens), $t('analytics.tokensSub', { tokens: tokensShort(s.cost.avgTokensPerJob) }))}
     {@render kpi($t('analytics.cost'), usd(s.cost.estCostUsd), $t('analytics.costSub', { cost: usd(s.cost.avgCostPerJobUsd), withUsage: cov.withUsage, agentRuns: cov.agentRuns, exact: cov.exact }))}
   </div>
-  <div class="grid gap-3 lg:grid-cols-2 mt-6">{@render usageTable($t('analytics.byRole'), s.cost.byRole)}{@render usageTable($t('analytics.byModel'), s.cost.byModel)}</div>
+  <div class="grid gap-3 lg:grid-cols-2 mt-6">{@render usageTable($t('analytics.byRole'), s.cost.byRole)}{@render usageTable($t('analytics.byModel'), s.cost.byModel)}{@render usageTable($t('analytics.bySession'), s.cost.sessions ?? {})}</div>
   <div class="plate flat mt-6"><div class="label callout px-3 pt-3">{$t('analytics.lenses')}</div><div class="overflow-x-auto">
     <table class="tbl">
       <thead><tr><th>{$t('common.lens')}</th><th>{$t('analytics.reviews')}</th><th>{$t('analytics.askedChanges')}</th></tr></thead>

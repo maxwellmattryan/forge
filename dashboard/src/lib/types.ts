@@ -9,7 +9,7 @@ import type { API_VERSION as ENGINE_API_VERSION } from '#api/versions.ts';
 export type * from '#api/types.ts';
 
 /** lib/api/versions.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 41 satisfies typeof ENGINE_API_VERSION;
+export const API_VERSION = 42 satisfies typeof ENGINE_API_VERSION;
 /** lib/core/job/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox' satisfies typeof ENGINE_INBOX_SCOPE;
 /** lib/core/job/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */

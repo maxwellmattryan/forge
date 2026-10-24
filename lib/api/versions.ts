@@ -45,6 +45,8 @@ export const API_CHANGES = [
   { id: 'job-merge-now' },
   { id: 'actor-source-daemon' },
   { id: 'daemon-budget' },
+  // Stats.cost.sessions (supervisor-metered spend by session kind) and JobEvent.metered|unmeasured on agent-end.
+  { id: 'session-meter' },
 ] as const;
 
 /**
