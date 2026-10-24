@@ -15,6 +15,7 @@ import { createJob, loadJob, readEvents, recordAgent, updateJob } from '#core/jo
 import { INBOX_SCOPE, claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
 import { sessionFiles } from '#core/job/session-files.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
+import { appendMeter } from '#engine/metrics/meter.ts';
 import { buildArgv } from '#integrations/claude/argv.ts';
 import { PROMPT_INPUT_CHARS } from '#integrations/claude/stream.ts';
 import type { ClaudeEvent } from '#integrations/claude/types.ts';
@@ -415,6 +416,21 @@ test("a job session's spawn carries its remaining dollar budget", async (t) => {
   assert.equal(inbox.s.spawn(inbox.cfg), true);
   assert.deepEqual(caps(inbox.children[0].argv), [], 'no cap for the inbox');
   assert.equal(inbox.event('spawn').at(-1)?.capUsd, null);
+
+  // $40 metered and nothing reported: a fresh spawn's cap is what is left, a resumed one's adds back the
+  // cumulative claude restores, which already counts those $40.
+  const session = crypto.randomUUID();
+  const meter40 = (root: string, scope: string) =>
+    appendMeter(root, { v: 1, ts: new Date().toISOString(), scope, sessionId: session, spawnId: 'p', turn: 1, usd: 40, tokens: 0, models: {}, cum: { usd: 40, models: {} } });
+  const fresh = rig(t, { job: true });
+  meter40(fresh.root, fresh.scope);
+  assert.equal(fresh.s.spawn(fresh.cfg), true);
+  assert.deepEqual(caps(fresh.children[0].argv), ['110.00'], 'metered, fresh');
+  const resumed = rig(t, { job: true, record: { sessionId: session, resumable: true } });
+  meter40(resumed.root, resumed.scope);
+  assert.equal(resumed.s.spawn(resumed.cfg), true);
+  assert.deepEqual(resumed.children[0].argv.slice(1, 3), ['--resume', session]);
+  assert.deepEqual(caps(resumed.children[0].argv), ['150.00'], 'metered, resumed from a cumulative of 40');
 });
 
 test('reaching the dollar cap stops the session at once', async (t) => {

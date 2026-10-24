@@ -13,6 +13,7 @@ import { loadJob, readEvents } from '#core/job/store.ts';
 import { meterFile, readMeter } from '#engine/metrics/meter.ts';
 import type { SessionCost } from '#integrations/claude/types.ts';
 import { confineDigest } from './confine.ts';
+import { heldByBudget } from './holds.ts';
 import { createSession } from './lifecycle.ts';
 import { sessionOptions, type LogSink, type SessionContext } from './contract.ts';
 import type { Config } from '#core/types.ts';
@@ -115,6 +116,25 @@ test("a job session's results are metered per spawn", async (t) => {
   assert.match(broken.event('error').at(-1)?.message ?? '', /^meter: /);
   assert.equal(broken.s.status, 'idle');
   assert.equal(broken.s.wanted, true);
+});
+
+test("metered spend past the job's limit parks the job and stops its session", async (t) => {
+  const r = rig(t, 'job', { budget: { usd: 2 } });
+  assert.equal(r.s.spawn(r.cfg), true);
+  const c = r.children[0];
+  r.s.writeTurn(['r1']);
+  c.emit(result(2.5));
+  const job = loadJob(r.root, r.scope);
+  assert.deepEqual([job.state, job.waitingOn], ['waiting', 'budget'], 'parked with no reported usage');
+  assert.equal(job.usage.estCostUsd ?? 0, 0);
+  assert.equal(job.budget.lastCheck?.used.usd, 2.5);
+  assert.deepEqual(readEvents(r.root, r.scope).filter((e) => e.type === 'budget').map((e) => e.checkpoint), ['session-meter']);
+  assert.deepEqual(c.signals, ['SIGTERM']);
+  assert.equal(r.s.wanted, true, 'still wanted: its held requests start it once a person clears the budget');
+  assert.match(r.s.lastError ?? '', /metered spend is over its budget/);
+  await waitFor(() => !r.s.running, { what: 'the parked session stopped' });
+  assert.equal(r.event('stop').at(-1)?.reason, 'budget');
+  assert.equal(heldByBudget(r.root, r.cfg, { type: 'resume', job: r.scope }), true, 'its resume is held on the metered figure');
 });
 
 test('the office and inbox stop at their daily cap', async (t) => {

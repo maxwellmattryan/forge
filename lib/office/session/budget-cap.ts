@@ -3,6 +3,7 @@
 // caps one process. And the stop message once claude reaches it.
 import { configForJob } from '#engine/evals/overlay.ts';
 import { remainingUsd } from '#engine/metrics/budget.ts';
+import { jobSpend, spentFrom } from '#engine/metrics/spend.ts';
 import { loadJob } from '#core/job/store.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE } from '#core/job/requests.ts';
 import { capArg } from '#integrations/claude/argv.ts';
@@ -27,7 +28,7 @@ export function spawnBudgetCap(root: string, scope: string, config: Config, base
   } catch {
     // A tampered eval overlay falls back to the base, as the pool's jobConfig does.
   }
-  const left = remainingUsd(c, job);
+  const left = remainingUsd(c, job, spentFrom(jobSpend(root, c, job)).usd);
   return left === null ? null : left + baselineUsd;
 }
 

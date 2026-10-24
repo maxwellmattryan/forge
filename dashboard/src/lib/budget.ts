@@ -1,5 +1,5 @@
 // Per-job budget use, derived client-side from fields /api/state already serves. Mirrors
-// effectiveLimits/measureBudget/exceededKeys in lib/engine/metrics/budget.ts (the dashboard cannot import lib/).
+// effectiveLimits/measureJob/exceededKeys in lib/engine/metrics/budget.ts (the dashboard cannot import lib/).
 // No DOM access, so node:test can import it. The view models return raw strings: BudgetChip, BudgetCell and
 // BudgetPanel render them, and Svelte escapes them. The budget gate's Approve builds its POST /api/jobs/:id/budget
 // body from the note, and decides whether to queue its approve request, here.
@@ -58,11 +58,19 @@ export function budgetRows(job: JobInput, configBudget: BudgetLimits | null | un
   for (const k of SPEND_KEYS) cfg[k] = fin(cfg[k]) ?? (jobDefault && !Object.hasOwn(overrides, k) ? fin(fill[k]) : null);
   // byModel holds the same runs as byRole, so only byRole is summed.
   const ms = Object.values(obj(usage.byRole)).reduce((n: number, r) => n + (fin(obj(r).durationMs) ?? 0), 0);
+  // The metered spend the last check saw can be above the reported total (measureJob): show the larger, so the
+  // drawer agrees with what parked the job.
+  const checked = obj(obj(b.lastCheck).used);
+  const larger = (reported: unknown, seen: unknown): number | null => {
+    const r = fin(reported ?? 0);
+    const s = fin(seen);
+    return r === null ? s : s === null ? r : Math.max(r, s);
+  };
   const used: Record<string, number | null> = {
-    tokens: fin(usage.totalTokens ?? 0),
-    usd: fin(usage.estCostUsd ?? 0),
+    tokens: larger(usage.totalTokens, checked.tokens),
+    usd: larger(usage.estCostUsd, checked.usd),
     minutes: ms / 60000,
-    changedLines: fin(obj(obj(b.lastCheck).used).changedLines),
+    changedLines: fin(checked.changedLines),
     verifyRetries: fin(obj(j.verifyRetries)[String(j.round)] ?? 0),
   };
   return BUDGET_KEYS.map((key) => {

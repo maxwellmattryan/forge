@@ -34,6 +34,16 @@ test('budgetRows limits match effectiveLimits', () => {
   }
 });
 
+test('budget rows show the metered spend the last check saw', () => {
+  const lastCheck = { at: '2026-10-24T00:00:00.000Z', checkpoint: 'session-meter', used: { usd: 13, tokens: 50 } };
+  const j = { id: 'j-1', round: 1, budget: { limits: { usd: 10 }, ack: {}, lastCheck }, usage: { estCostUsd: 4, totalTokens: 900 } } as never;
+  const rows = Object.fromEntries(budgetRows(j, {} as never).map((r) => [r.key, r]));
+  assert.deepEqual([rows.usd.used, rows.usd.tone], [13, 'bad'], 'the metered usd is larger');
+  assert.equal(rows.tokens.used, 900, 'the reported tokens are larger');
+  const unchecked = { id: 'j-2', round: 1, budget: { limits: { usd: 10 }, ack: {}, lastCheck: null }, usage: { estCostUsd: 4 } } as never;
+  assert.equal(budgetRows(unchecked, {} as never).find((r) => r.key === 'usd')?.used, 4, 'no check: the reported total');
+});
+
 test("the budget gate's Approve body comes from the note", async () => {
   assert.deepEqual(budgetApproveBody(''), { ack: true });
   assert.deepEqual(budgetApproveBody('looks fine'), { ack: true });
