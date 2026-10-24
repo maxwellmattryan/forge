@@ -457,9 +457,12 @@ async function waitForRun(repo: string, workflow: string, sha: string, branch: s
 
 /** The sha `branch` has on origin right now, or null when origin has no such branch. */
 function remoteTip(root: string, branch: string): string | null {
-  const out = gitOut(root, ['ls-remote', '--heads', 'origin', `refs/heads/${branch}`]).trim();
-  const sha = out.split(/\s/)[0] ?? '';
-  return SHA.test(sha) ? sha : null;
+  // ls-remote matches a pattern against the end of each ref name, so only the exact name counts.
+  for (const line of gitOut(root, ['ls-remote', '--heads', 'origin', `refs/heads/${branch}`]).split('\n')) {
+    const [sha, ref] = line.trim().split(/\s+/);
+    if (ref === `refs/heads/${branch}` && SHA.test(sha ?? '')) return sha;
+  }
+  return null;
 }
 const localTip = (root: string, branch: string): string | null => {
   const r = gitSync(['rev-parse', '-q', '--verify', `refs/heads/${branch}^{commit}`], { cwd: root });
