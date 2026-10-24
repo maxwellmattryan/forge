@@ -21,6 +21,10 @@ export const EVENT_STEPS: readonly Step[] = [
   { id: 'decision-head', up: (e) => e },
   // v5 lets an actor's `source` be `daemon` (a daemon session's action); an older Forge reads it as `unknown`.
   { id: 'actor-source-daemon', up: (e) => e },
+  // v6 adds actor (on every pr-merged, not only --now), scope and via to pr-merged, and reason
+  // superseded to pr-merge-refused; an older pr-merged without --now has no actor, and readers treat
+  // it as unrecorded.
+  { id: 'merge-provenance', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

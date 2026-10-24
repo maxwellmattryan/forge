@@ -1,13 +1,15 @@
-// Whether a job's PR may merge without a person: the recorded decision bound to its head, recomputed
-// protected paths and the escalate floor. mergePr asks autoMergeGate before any merge without --now,
-// whoever calls it; `forge job step` asks decisionCurrent before PR4. decision.md is never read here:
-// only the `decision` event `forge job decision` recorded once per approver run counts. Step also
-// asks reviewCurrent in decide and pr: a commit after the review panel sends the job back to review.
+// Whether a job's PR may merge without a person: the recorded decision, not superseded and bound to
+// its head, recomputed protected paths and the escalate floor. mergePr asks autoMergeGate before any
+// merge without --now, whoever calls it; `forge job step` asks decisionCurrent before PR4, and forge
+// sync's deferral hint asks decisionSuperseded. decision.md is never read here: only the `decision`
+// event `forge job decision` recorded once per approver run counts. Step also asks reviewCurrent in
+// decide and pr: a commit after the review panel sends the job back to review.
 import { autoMerge } from '#core/config/load.ts';
 import { ForgeError } from '#core/errors.ts';
 import { reviewedRepoNames } from '#core/job/lens.ts';
+import { listRequests } from '#core/job/requests.ts';
 import { isMap } from '#core/shape.ts';
-import type { Config, Job, JobEvent, ProtectedHit } from '#core/types.ts';
+import type { Config, ForgeRequest, Job, JobEvent, ProtectedHit } from '#core/types.ts';
 import { git, historyEnv } from '#integrations/git/runner.ts';
 import { branchFloor } from '../guard/floor.ts';
 import { branchHits, clean, prefixHits, protectedApproved, refusalText } from '../guard/protected.ts';
@@ -32,7 +34,7 @@ export interface DecisionRecord {
 }
 
 /** Why autoMergeGate refused: MergeResult's reasons it owns. */
-export type GateReason = 'auto-off' | 'decision' | 'floor';
+export type GateReason = 'auto-off' | 'superseded' | 'decision' | 'floor';
 
 /** `moved`: the live head is not the decided one but carries base merges on it, so its age is the base merge's, not the push's. */
 export type GateResult = { ok: true; moved: boolean } | { ok: false; reason: GateReason; error: string };
@@ -46,6 +48,79 @@ export function lastDecision(events: JobEvent[]): DecisionRecord | null {
   // fromEntries defines own properties, so a `__proto__` key can't reach the prototype; decidedHead reads with hasOwn.
   const heads: Record<string, string | null> = isMap(e.heads) ? Object.fromEntries(Object.entries(e.heads).map(([k, v]) => [k, sha(v)])) : {};
   return { decision: typeof e.decision === 'string' ? e.decision : null, autoMerge: e.autoMerge === true, head: sha(e.head), heads };
+}
+
+const SUPERSEDING_ACTIONS = new Set(['rework', 'revise-spec']);
+
+/** Job states a human decides about: a decision from before one does not stand. */
+const ENDED_STATES = new Set<string>(['cancelled', 'failed']);
+
+/** Requests that ask for a rework, a revise-spec or a cancel: queued from the dashboard, they act only once a session handles them. */
+const SUPERSEDING_REQUESTS = new Set<string>(['rework', 'revise-spec', 'cancel']);
+
+/** A request still to be handled: waiting in the inbox, or claimed by a session that has not acked it. */
+const OPEN_REQUEST = new Set<string>(['pending', 'in-progress']);
+
+/**
+ * Whether a PR record holds a review requesting changes: the count the caller's sync just wrote from
+ * GitHub's reviews (a missing one reads as none), on a PR GitHub has not merged or closed, since a
+ * person who merged or closed it decided past that review.
+ */
+const requestsChanges = (pr: { changesRequested?: unknown; state?: unknown } | null | undefined): boolean =>
+  Number(pr?.changesRequested) > 0 && pr?.state !== 'MERGED' && pr?.state !== 'CLOSED';
+
+/**
+ * Why the approver's last decision no longer stands, or null: the job left stage pr, it is cancelled
+ * or failed, a rework, revise-spec or cancel a person asked for still waits in the request inbox
+ * (`requests`: the dashboard queues it, and a busy pool slot or a repo budget hold can keep it there
+ * a long time before `forge job human` records it), the job went to cancelled or failed after the
+ * last `decision` (even if a session set it back), a `round` event follows the last `decision` (a
+ * round on an open PR with merge.auto off skips the approver, step rule DC10), or a human rework or
+ * revise-spec follows it, a person's or the foreman's. GitHub feedback that asks for changes counts
+ * too: a `gate` request for the job the Foreman has not decided yet (forge sync queues a pr-feedback
+ * one and continues deferred merges in the same pass), or a review GitHub lists as
+ * CHANGES_REQUESTED on any open PR of the job (`job.pr.changesRequested`, and for a linked job each
+ * PR member's `pr.changesRequested`, which both callers read right after their own sync recorded
+ * them at the live heads). Log positions decide, never timestamps, so reordering ts values
+ * gains nothing. An approve or answer after the decision supersedes nothing. With no decision, only
+ * the job's stage, state, inbox and PRs can answer. Reads no inbox itself: callers pass
+ * `listRequests(root)`, and none means nothing is queued.
+ */
+export function decisionSuperseded(
+  job: Pick<Job, 'id' | 'stage' | 'state'> & Partial<Pick<Job, 'pr' | 'repos'>>,
+  events: JobEvent[],
+  requests: readonly Pick<ForgeRequest, 'job' | 'type' | 'status'>[] = [],
+): string | null {
+  const word = (v: unknown): string => clean(String(v)).slice(0, 40);
+  if (job.stage !== 'pr')
+    return `the job is at stage ${word(job.stage)}, not pr: a rework or another stage change replaced the approver's decision; the job's own session merges once it is back at pr with a new decision, or a human merges it`;
+  if (ENDED_STATES.has(job.state)) return `the job is ${word(job.state)}: a human decides whether its PR merges`;
+  const d = events.findLastIndex((e) => e.type === 'decision');
+  if (d >= 0) {
+    const ended = events.findIndex((e, i) => i > d && e.type === 'transition' && ENDED_STATES.has(String(stageOf(e.to).state)));
+    if (ended >= 0) return `the job was ${stageOf(events[ended].to).state} after the approver's decision: a human decides whether its PR merges`;
+    const round = events.findIndex((e, i) => i > d && e.type === 'round');
+    if (round >= 0) {
+      const n = events[round].round;
+      return `round ${Number.isInteger(n) && (n as number) > 0 ? n : '?'} started after the approver's decision; the approver decides again before an auto-merge, or a human merges it`;
+    }
+    const rework = events.findIndex((e, i) => i > d && e.type === 'human' && SUPERSEDING_ACTIONS.has(e.action as string));
+    if (rework >= 0) return `a ${events[rework].action} was recorded after the approver's decision; the approver decides again before an auto-merge, or a human merges it`;
+  }
+  const open = requests.filter((r) => r.job === job.id && OPEN_REQUEST.has(r.status));
+  const queued = open.find((r) => SUPERSEDING_REQUESTS.has(r.type));
+  if (queued)
+    return queued.type === 'cancel'
+      ? 'a cancel request for this job is waiting in the request inbox: a human decides whether its PR merges'
+      : `a ${queued.type} request for this job is waiting in the request inbox; once it is handled the approver decides again before an auto-merge, or a human merges it`;
+  if (open.some((r) => r.type === 'gate')) return 'a gate request for this job is waiting for the Foreman: it decides that gate first, or a human merges the PR';
+  // A linked job's PRs merge as one unit under one decision, so a change request on any of them holds every one.
+  const members = memberRepos({ repos: job.repos ?? [] }).filter((m) => !m.verifyOnly);
+  if (requestsChanges(job.pr))
+    return `a review on GitHub requests changes on ${members.length ? 'the root PR' : 'this PR'}: a human merges it, or dismisses that review on GitHub once it is addressed`;
+  const member = members.find((m) => requestsChanges(m.pr));
+  if (member) return `a review on GitHub requests changes on repo ${word(member.repo)}'s PR: a human merges the job's PRs, or dismisses that review on GitHub once it is addressed`;
+  return null;
 }
 
 /** An APPROVE the approver marked auto-merge eligible, bound to a head. Every event from before the binding fails. */
@@ -192,17 +267,20 @@ export interface GateTarget {
 const named = (b: string | null | undefined): string => (b ? JSON.stringify(clean(b).slice(0, 80)) : 'no branch');
 
 /**
- * Checks 1 to 5 of a merge without --now, in order (docs/CONFIG.md "Merge"): merge.auto is on, the
- * last decision event is eligible, the live head follows the decided head on the base the job
- * targets, protected paths recomputed at the live head are all approved (throws `protected_path`
- * otherwise, as forge pr open does), and the escalate floor finds nothing. A check that can't be
- * computed refuses under its own reason. Checks 3 to 5 compare against the base as the push remote
- * holds it now (remoteBaseTip), never a local ref the job's worktree could have moved; a base that
- * can't be read refuses under `decision`, and so does a PR GitHub now targets at another branch,
- * since GitHub merges into that one and every check would run on a diff that does not land.
+ * Checks 1 to 6 of a merge without --now, in order (docs/CONFIG.md "Merge"): merge.auto is on, the
+ * decision still stands (decisionSuperseded, given the request inbox too), the last decision event is eligible, the live head
+ * follows the decided head on the base the job targets, protected paths recomputed at the live head
+ * are all approved (throws `protected_path` otherwise, as forge pr open does), and the escalate floor
+ * finds nothing. A check that can't be computed refuses under its own reason. Checks 4 to 6 compare
+ * against the base as the push remote holds it now (remoteBaseTip), never a local ref the job's
+ * worktree could have moved; a base that can't be read refuses under `decision`, and so does a PR
+ * GitHub now targets at another branch, since GitHub merges into that one and every check would run
+ * on a diff that does not land.
  */
 export function autoMergeGate(root: string, config: Config, job: Job, events: JobEvent[], target: GateTarget): GateResult {
   if (!autoMerge(config)) return { ok: false, reason: 'auto-off', error: 'merge.auto is off: a human merges this PR on GitHub, or runs forge pr merge <id> --now in their own terminal' };
+  const stale = decisionSuperseded(job, events, listRequests(root));
+  if (stale) return { ok: false, reason: 'superseded', error: stale };
   const d = lastDecision(events);
   if (!decisionEligible(d))
     return { ok: false, reason: 'decision', error: "the approver's recorded decision is not an auto-merge eligible APPROVE bound to a head (forge job decision records it); a human reviews and merges this PR" };
@@ -238,7 +316,7 @@ export function autoMergeGate(root: string, config: Config, job: Job, events: Jo
 }
 
 /**
- * Check 4: protected paths at the live head, never the stored flag alone. A refuse hit, or an
+ * Check 5: protected paths at the live head, never the stored flag alone. A refuse hit, or an
  * escalate hit whose (path, blob) the job flag does not hold under a human approval, throws
  * `protected_path`; so does a check that can't be computed.
  */

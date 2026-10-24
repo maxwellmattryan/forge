@@ -149,7 +149,7 @@ export const CORE: HelpGroup[] = [
         command: 'pr merge',
         args: '<id> [--repo NAME | --root] [--now]',
         summary:
-          "merge once merge.auto is on, the approver's recorded APPROVE covers the PR head, no escalate-floor path changed and CI passed at a settled head; or queue auto-merge, or defer; a multi-repo job's PRs merge in the components' dependsOn order, never a PR before its dependencies; --now is a human's override",
+          "merge once merge.auto is on, the approver's recorded APPROVE still stands and covers the PR head, no escalate-floor path changed and CI passed at a settled head; or queue auto-merge, or defer; a multi-repo job's PRs merge in the components' dependsOn order, never a PR before its dependencies; --now is a human's override",
         flags: [
           ['--repo NAME', 'merge only that member repo PR, once every PR it depends on merged'],
           ['--root', 'merge only the root repo PR, once every PR it depends on merged'],
@@ -161,7 +161,7 @@ export const CORE: HelpGroup[] = [
         exits: [
           [
             1,
-            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order|cycle|release), merge.auto off, no eligible decision for the PR head, an escalate-floor path (reason auto-off|decision|floor), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, a daemon session passing --now, another job's id or a broken scope, the office daemon session ran it, or a protected path at the PR head that no human approved at that content (code protected_path; --now overrides), --now not confirmed, or --now with no person at a terminal (code human_only: an agent, a script or a configured command)",
+            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order|cycle|release), merge.auto off, a rework, a new round, a stage change, a rework, revise-spec or cancel request still queued, a gate request waiting on the Foreman or a review on GitHub requesting changes on any open PR of the job after the approver's decision, no eligible decision for the PR head, an escalate-floor path (reason auto-off|superseded|decision|floor), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, a daemon session passing --now, another job's id or a broken scope, the office daemon session ran it, or a protected path at the PR head that no human approved at that content (code protected_path; --now overrides), --now not confirmed, or --now with no person at a terminal (code human_only: an agent, a script or a configured command)",
           ],
           GH_FAILED,
         ],
