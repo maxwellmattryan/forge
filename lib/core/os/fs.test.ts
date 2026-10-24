@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { writeAtomic, writeJsonAtomic, writeJsonPrivate, writeTextAtomic } from './fs.ts';
+import { confinedDir, writeAtomic, writeJsonAtomic, writeJsonPrivate, writeTextAtomic } from './fs.ts';
 
 const POSIX = process.platform !== 'win32';
 
@@ -107,6 +107,44 @@ test('modes are exact and JSON is pretty-printed', () => {
   } finally {
     s.cleanup();
   }
+});
+
+test('a confined write never goes through a planted parent', (t) => {
+  const s = scratch();
+  t.after(s.cleanup);
+  const root = path.join(s.dir, 'job');
+  const outside = path.join(s.dir, 'outside');
+  fs.mkdirSync(root);
+  fs.mkdirSync(outside);
+  const link = (at: string) => {
+    // A directory symlink on POSIX, a junction (no privilege needed) on Windows.
+    fs.symlinkSync(outside, at, 'junction');
+  };
+  try {
+    link(path.join(root, 'verify'));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EPERM') return t.skip('cannot create a link here');
+    throw e;
+  }
+  assert.throws(() => writeTextAtomic(path.join(root, 'verify', 'round-1.md'), 'report', { root }), /not a real directory/, 'a linked verify/');
+  fs.rmSync(path.join(root, 'verify'));
+
+  fs.mkdirSync(path.join(root, 'review'));
+  link(path.join(root, 'review', 'round-1'));
+  assert.throws(() => writeJsonAtomic(path.join(root, 'review', 'round-1', 'x.json'), { a: 1 }, { root }), /not a real directory/, 'a linked round under a real review/');
+  fs.rmSync(path.join(root, 'review', 'round-1'));
+
+  fs.writeFileSync(path.join(root, 'verify'), 'a file');
+  assert.throws(() => writeTextAtomic(path.join(root, 'verify', 'round-1.md'), 'report', { root }), /not a real directory/, 'a file in place of verify/');
+  assert.deepEqual(fs.readdirSync(outside), [], 'nothing was written or created through a link');
+
+  const nested = path.join(root, 'a', 'b', 'c.json');
+  const data = { list: [1, 2], nested: { k: 'v' } };
+  writeJsonAtomic(nested, data, { root });
+  assert.equal(fs.readFileSync(nested, 'utf8'), JSON.stringify(data, null, 2) + '\n', 'missing parents are created');
+  assert.throws(() => writeJsonAtomic(path.join(s.dir, 'x.json'), data, { root }), /is outside/);
+  assert.equal(confinedDir(root, root), fs.realpathSync(root));
+  assert.throws(() => confinedDir(path.join(s.dir, 'gone'), path.join(s.dir, 'gone', 'x')), /does not exist/);
 });
 
 test('a failed write leaves no temp file', () => {
