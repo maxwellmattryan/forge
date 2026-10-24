@@ -22,6 +22,7 @@
   import LeaseChip from './LeaseChip.svelte';
   import LiveDot from './LiveDot.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
+  import MergeNowSection from './MergeNowSection.svelte';
   import PrChip from './PrChip.svelte';
   import ProgressBar from './ProgressBar.svelte';
   import RepoSection from './RepoSection.svelte';
@@ -36,6 +37,7 @@
   import type { IconName } from '../lib/icons.ts';
   import { effortChip } from '../lib/effort.ts';
   import { protectedSummary } from '../lib/protected.ts';
+  import { mergeNowOffered } from '../lib/merge-now.ts';
   import { STAGE_LABEL } from '../lib/labels.ts';
   import { md, safeUrl } from '../lib/markdown.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
@@ -316,6 +318,7 @@
             </div></div>
           {/if}
           <ScreenshotsPanel jobId={j.id} files={d.screenshots ?? []} />
+          {#if mergeNowOffered(j)}{#key j.id}<MergeNowSection job={j} />{/key}{/if}
           {#key j.id}<DeleteJobSection job={j} />{/key}
         {/if}
       </div>
