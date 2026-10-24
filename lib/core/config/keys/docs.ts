@@ -137,7 +137,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   },
   'pipeline.budget': {
     doc: 'per-job limits; null = unlimited. Over budget → waiting on "budget"',
-    more: ['`forge job budget <id> --ack` grants one more full budget past the current use;', '`--set key=value` overrides a limit for one job'],
+    more: ['a person runs `forge job budget <id> --ack` in their own terminal (it asks them to type the job id) to grant one more full budget past the current use;', '`--set key=value` overrides a limit for one job, the same way'],
   },
   'pipeline.budget.tokens': { doc: 'job.usage.totalTokens' },
   'pipeline.budget.usd': { doc: 'estimated cost (job.usage.estCostUsd)' },
