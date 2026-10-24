@@ -1,7 +1,8 @@
 #!/bin/sh
-# The suite's $SHELL (test/helpers.ts). Forge runs every configured command as `$SHELL -lc <command>`;
-# this runs it in the caller's own shell without -l, because a login profile (nvm, for one) can cost
-# a second per command and reorder PATH, and no test needs one.
+# The suite's $SHELL (test/helpers.ts). Outside the daemon Forge runs every configured command as
+# `$SHELL -lc <command>`; this runs it in the caller's own shell without -l, because a login profile
+# (nvm, for one) can cost a second per command and reorder PATH, and no test needs one. Under the
+# daemon Forge runs `/bin/sh -c` directly (commandShell), so this script is not involved there.
 if [ "$1" = -lc ]; then
   shift
   exec "${FORGE_TEST_SHELL:-/bin/sh}" -c "$@"

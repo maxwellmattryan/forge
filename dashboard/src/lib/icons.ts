@@ -12,6 +12,8 @@ export const ICONS = {
   about: [{ el: 'circle', cx: '12', cy: '12', r: '9' }, { el: 'path', d: 'M12 11v6' }, { el: 'circle', cx: '12', cy: '7.5', r: '.7', fill: 'current' }],
   agents: [{ el: 'circle', cx: '12', cy: '7.5', r: '3.5' }, { el: 'path', d: 'M4 21a8 8 0 0 1 16 0' }],
   analytics: [{ el: 'path', d: 'M4 20V10M10 20V4M16 20v-7M3 20h18' }],
+  // Forge itself: an anvil, its horn to the left.
+  anvil: [{ el: 'path', d: 'M3 7h17.5v3.5H16v3h2.5V17h-12v-3.5H9v-3H8C5.5 10.5 3.8 9.2 3 7z' }],
   backlog: [{ el: 'path', d: 'M6 6h14M6 12h14M6 18h9M3 6h.01M3 12h.01M3 18h.01' }],
   bell: [{ el: 'path', d: 'M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z' }, { el: 'path', d: 'M10 20.5a2 2 0 0 0 4 0M12 3v2' }],
   board: [{ el: 'rect', x: '3', y: '4', width: '7', height: '16', rx: '1' }, { el: 'rect', x: '14', y: '4', width: '7', height: '10', rx: '1' }],

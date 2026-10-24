@@ -2,8 +2,11 @@
 // Supported: block maps, block sequences (including "- key: value" maps), scalars,
 // single/double-quoted strings, flow [] and {} collections, "|" and ">" block scalars,
 // comments. Not supported: anchors/aliases, tags, multi-document streams, complex keys.
-// Anything outside the subset fails loudly with a line number rather than misparsing.
+// Anything outside the subset fails loudly with a line number rather than misparsing, and so does
+// a prototype key (`__proto__`, `constructor`, `prototype`, quoted or escaped) or a repeated key in
+// any map, before anything is assigned: outputs are plain objects that callers deep-merge.
 
+import { PROTO_KEYS } from '../shape.ts';
 import type { ConfigValue } from '../types.ts';
 
 export class YamlError extends Error {
@@ -125,6 +128,7 @@ function parseMap(s: BlockState, indent: number): Record<string, any> {
     const m = ln.text.match(KEY_RE);
     if (!m) throw new YamlError(`expected "key: value", got "${ln.text}"`, ln.line);
     const key = unquoteKey(m[1].trim());
+    if (PROTO_KEYS.has(key)) throw new YamlError(`key ${JSON.stringify(key)} is not allowed`, ln.line);
     const rest = (m[2] ?? '').trim();
     s.i++;
     if (Object.prototype.hasOwnProperty.call(out, key)) throw new YamlError(`duplicate key "${key}"`, ln.line);
@@ -214,11 +218,13 @@ function parseFlow(p: FlowState): any {
     ws(p);
     if (p.t[p.i] === '}') { p.i++; return out; }
     while (true) {
-      const key = flowAtom(p, true);
+      const k = String(flowAtom(p, true));
       ws(p);
       if (p.t[p.i] !== ':') throw new YamlError('expected : in flow mapping', p.line);
       p.i++;
-      out[String(key)] = parseFlow(p);
+      if (PROTO_KEYS.has(k)) throw new YamlError(`key ${JSON.stringify(k)} is not allowed`, p.line);
+      if (Object.prototype.hasOwnProperty.call(out, k)) throw new YamlError(`duplicate key "${k}"`, p.line);
+      out[k] = parseFlow(p);
       ws(p);
       if (p.t[p.i] === ',') { p.i++; ws(p); if (p.t[p.i] === '}') { p.i++; return out; } continue; }
       if (p.t[p.i] === '}') { p.i++; return out; }

@@ -205,16 +205,21 @@ test('every guarded route refuses before its handler runs', async () => {
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': 'wrong', origin, 'content-type': 'application/json' }, status: 403, text: 'bad token' });
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': token, 'content-type': 'application/json' }, status: 403, text: 'bad origin' });
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': token, origin, 'content-type': 'text/plain' }, status: 415, text: 'json only' });
+      // A declared size over 64 KiB is refused before any byte is read; a wrong token still answers first.
+      const big = { 'x-forge-token': token, origin, 'content-type': 'application/json', 'content-length': '70000' };
+      rows.push({ method: 'POST', path: p, headers: big, status: 413, text: 'body too large' });
+      rows.push({ method: 'POST', path: p, headers: { ...big, 'x-forge-token': 'wrong' }, status: 403, text: 'bad token' });
     }
     const readRows = (p: string): Row[] => [
       { method: 'GET', path: p, headers: { 'sec-fetch-site': 'cross-site' }, status: 403, text: 'cross-site' },
       { method: 'GET', path: p, headers: { origin: evil }, status: 403, text: 'bad origin' },
     ];
     for (const p of ['/api/doctor', '/api/github/preview?url=https://github.com/a/b']) {
-      rows.push({ method: 'GET', path: p, headers: {}, status: 403, text: 'bad token' });
+      rows.push(...readRows(p), { method: 'GET', path: p, headers: {}, status: 403, text: 'bad token' });
       rows.push({ method: 'GET', path: p, headers: { 'x-forge-token': token, origin: evil }, status: 403, text: 'bad origin' });
     }
-    for (const p of ['/api/events?session=_inbox', '/api/daemons/log?session=_inbox', '/api/jobs/j-1']) rows.push(...readRows(p));
+    const reads = ['/api/state', '/api/stats', '/api/evals', '/api/evals/compare', '/api/requests', '/api/roster', '/api/project', '/api/backlog?refresh=1', '/api/config', '/api/about'];
+    for (const p of [...reads, '/api/events?session=_inbox', '/api/daemons/log?session=_inbox', '/api/jobs/j-1', '/api/jobs/j-1/file?path=x.md', '/api/jobs/j-1/raw?path=x.html']) rows.push(...readRows(p));
     for (const p of ['/api/environments', '/api/jobs/j-1/environment', '/api/jobs/j-1/transcript', '/api/doctor/bundle']) {
       rows.push(...readRows(p), { method: 'GET', path: p, headers: { 'sec-fetch-site': 'same-origin' }, status: 403, text: 'bad token' });
     }
@@ -237,6 +242,52 @@ test('every guarded route refuses before its handler runs', async () => {
     const covered = new Set(rows.map((r) => matchRoute(ROUTES, r.method, r.path.split('?')[0])?.route));
     const missing = ROUTES.filter((r) => (r.method === 'POST' || r.guards?.length) && !covered.has(r)).map((r) => `${r.method} ${r.path}`);
     assert.deepEqual(missing, [], 'every guarded route has a row');
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
+test('backlog refresh needs the token', async () => {
+  const repo = tempRepo();
+  const backlog = path.join(repo.dir, '.forge', 'backlog.md');
+  fs.mkdirSync(path.dirname(backlog), { recursive: true });
+  fs.writeFileSync(backlog, '# Backlog\n- [ ] Item A\n');
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: daemonKit().opts });
+  const port = Number(new URL(url).port);
+  try {
+    const titles = async (p: string, headers: Record<string, string> = {}) => JSON.parse((await hit(port, { path: p, headers })).text).items.map((i: { title: string }) => i.title);
+    assert.deepEqual(await titles('/api/backlog'), ['Item A']);
+    fs.writeFileSync(backlog, '# Backlog\n- [ ] Item B\n');
+    // Without the token, `refresh` is ignored and the cache answers.
+    assert.deepEqual(await titles('/api/backlog?refresh=1'), ['Item A']);
+    assert.deepEqual(await titles('/api/backlog?refresh=1', { 'x-forge-token': 'wrong' }), ['Item A']);
+    assert.deepEqual(await titles('/api/backlog?refresh=1', { 'x-forge-token': await tokenOf(port) }), ['Item B']);
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
+test('the page and mockups carry the framing headers', async () => {
+  const repo = tempRepo();
+  const id = createJob(repo.dir, loadConfig(repo.dir).config, { title: 'a mockup' }).id;
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'jobs', id, 'mockup.html'), '<p>mockup</p>');
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: daemonKit().opts });
+  const port = Number(new URL(url).port);
+  try {
+    const framing = async (p: string) => {
+      const r = await hit(port, { path: p });
+      return { status: r.status, csp: r.headers['content-security-policy'], dns: r.headers['x-dns-prefetch-control'] };
+    };
+    const page = { status: 200, csp: "frame-src 'self'; frame-ancestors 'none'", dns: 'off' };
+    assert.deepEqual(await framing('/'), page);
+    assert.deepEqual(await framing('/index.html'), page);
+    assert.deepEqual(await framing(`/api/jobs/${id}/raw?path=mockup.html`), {
+      status: 200,
+      csp: "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'self'",
+      dns: 'off',
+    });
   } finally {
     await close();
     repo.cleanup();

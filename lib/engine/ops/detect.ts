@@ -230,7 +230,9 @@ export function detect(root: string): Detection {
     tools: { agentBrowser: hasBinary('agent-browser'), playwright, cypress },
     suggestions: {
       'git.base': base,
-      'worktrees.copy': [...new Set([...ignoredInstructions, ...envFiles])],
+      // .env files are reported under untracked.env, never suggested: secrets plus a config sink pass
+      // their values to the one command that needs them (doctor warns on a copy that matches one).
+      'worktrees.copy': [...new Set(ignoredInstructions)],
       'worktrees.setup': commands.setup ? [commands.setup] : [],
       'worktrees.cargo.sharedTarget': Boolean(cargo),
       'worktrees.generated': generated,

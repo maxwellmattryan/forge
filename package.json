@@ -1,6 +1,6 @@
 {
   "name": "@maxwellmattryan/forge",
-  "version": "0.19.1",
+  "version": "0.20.0",
   "description": "Forge: a lightweight, self-improving software factory for AI coding agents: orchestrator, agent roster, worktrees, PR sync, trackers, evals and a live dashboard.",
   "type": "module",
   "license": "MIT",

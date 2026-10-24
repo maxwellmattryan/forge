@@ -36,7 +36,7 @@
               <td>
                 {#if readiness(i) === 'needs-info'}
                   <Chip tone="warn" text={$t('backlog.needsInfo')} />
-                  {#if i.triage?.missing?.length}<div class="text-xs text-muted mt-1">{$t('backlog.missingLabel')} {#each i.triage.missing as k, m (k)}{#if m}{', '}{/if}{#if k === 'outcome'}{$t('backlog.missing.outcome')}{:else if k === 'acceptance'}{$t('backlog.missing.acceptance')}{:else if k === 'scope'}{$t('backlog.missing.scope')}{:else if k === 'duplicate'}{$t('backlog.missing.duplicate')}{/if}{/each}</div>{/if}
+                  {#if i.triage?.missing?.length}<div class="text-xs text-muted mt-1">{$t('backlog.missingLabel')} {#each i.triage.missing as k, m (k)}{#if m}{', '}{/if}{#if k === 'outcome'}{$t('backlog.missing.outcome')}{:else if k === 'acceptance'}{$t('backlog.missing.acceptance')}{:else if k === 'scope'}{$t('backlog.missing.scope')}{:else if k === 'duplicate'}{$t('backlog.missing.duplicate')}{:else if k === 'hidden-text'}{$t('backlog.missing.hiddenText')}{/if}{/each}</div>{/if}
                 {:else if readiness(i) === 'ready'}
                   <Chip tone="ok" text={$t('backlog.ready')} />
                 {:else}—{/if}

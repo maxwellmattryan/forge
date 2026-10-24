@@ -1,0 +1,156 @@
+// What a daemon session may write: its write roots (the job folders and every worktrees root), the
+// deny rules for the checkout's protected paths, the env that tells hooks/write-guard.ts the same
+// roots, and the confine digest the post-turn check compares. lifecycle.ts builds every spawn from
+// spawnConfinement. docs/architecture/daemon-security.md describes the layers.
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { PROTECTED, allInstructionFiles, worktreeRoot } from '#core/config/load.ts';
+import { ForgeError } from '#core/errors.ts';
+import { landing } from '#core/paths.ts';
+import { memberWorktreesRoot } from '#engine/project/job-repos.ts';
+import { DENY_TOOLS, absRule } from '#integrations/claude/argv.ts';
+import { git } from '#integrations/git/runner.ts';
+import type { Config } from '#core/types.ts';
+
+/** Carries a session's write roots, as JSON `{jobs, worktrees}`, to hooks/write-guard.ts. The FORGE_DAEMON prefix keeps it out of configured commands. */
+export const WRITE_ROOTS_ENV = 'FORGE_DAEMON_WRITE_ROOTS';
+
+/** Where a daemon session may write without a prompt: realpaths, through the deepest existing ancestor. */
+export interface WriteRoots {
+  jobs: string;
+  worktrees: string[];
+}
+
+/** `child` is `parent` or lies under it. */
+function inside(parent: string, child: string): boolean {
+  const rel = path.relative(parent, child);
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
+}
+
+/**
+ * `<real root>/.forge/jobs` and the worktrees roots of the root and of each member repo whose clone
+ * is set up on this machine (one that isn't is left out: its writes prompt, and the guard refuses
+ * them). Throws when a worktrees root is the checkout or contains it, or lies inside `.forge/` or on
+ * (or around) a protected path or instruction file, since the guard would then allow writes the
+ * deny rules are meant to refuse, or when a root can't be written as a permission rule.
+ */
+export function writeRoots(root: string, config: Config): WriteRoots {
+  const real = fs.realpathSync(root);
+  const jobs = landing(path.join(real, '.forge', 'jobs'));
+  const found = [worktreeRoot(root, config)];
+  for (const r of Array.isArray(config.repos) ? config.repos : []) {
+    try {
+      found.push(memberWorktreesRoot(root, config, r.name));
+    } catch {
+      // Not set up in .forge/local.yml on this machine.
+    }
+  }
+  const worktrees = [...new Set(found.map(landing))];
+  const forge = landing(path.join(real, '.forge'));
+  const guarded = [...PROTECTED.files, ...PROTECTED.dirs, ...allInstructionFiles(config)].map((p) => landing(path.join(real, p)));
+  for (const w of worktrees) {
+    if (inside(w, real))
+      throw new ForgeError(`the worktrees root ${w} is the checkout ${real} or contains it, so a daemon session could write anywhere in it; set worktrees.root outside the checkout (docs/CONFIG.md)`);
+    if (inside(forge, w) || guarded.some((p) => inside(p, w) || inside(w, p)))
+      throw new ForgeError(`the worktrees root ${w} lies inside ${forge} or on a path of the checkout that a daemon session may not write, so the write guard would allow it; set worktrees.root outside .forge and the protected files (docs/CONFIG.md)`);
+  }
+  for (const w of [jobs, ...worktrees]) absRule(w);
+  return { jobs, worktrees };
+}
+
+/** The checkout-relative path (with `/`) of a `core.hooksPath` directory inside the checkout, else null. */
+export function hooksDir(root: string): string | null {
+  const r = git(root, ['config', '--type=path', '--get', 'core.hooksPath'], { allowFail: true });
+  const value = r.ok ? r.stdout.trim() : '';
+  if (!value) return null;
+  const real = fs.realpathSync(root);
+  const dir = landing(path.resolve(real, value));
+  const rel = path.relative(real, dir);
+  return rel && inside(real, dir) ? rel.split(path.sep).join('/') : null;
+}
+
+/**
+ * The deny rules a spawn adds after DENY_TOOLS: each DENY_TOOLS entry's absolute twin, the root's
+ * CLAUDE.md, CLAUDE.local.md and AGENTS.md, every configured instruction file, `**\/CLAUDE.md` and
+ * `**\/CLAUDE.local.md` when no worktrees root lies inside the checkout (a nested one would deny the
+ * job's own), and an in-checkout `core.hooksPath` directory. Absolute rules are written for the
+ * checkout's realpath and again for the path as given when the two differ. Root-level names with no
+ * `/` appear only in absolute form, since a relative one would match at any depth.
+ */
+export function denyRules(root: string, config: Config, roots: WriteRoots = writeRoots(root, config)): string[] {
+  const real = fs.realpathSync(root);
+  const bases = [...new Set([real, path.resolve(root)])];
+  const out: string[] = [];
+  const both = (rel: string) => {
+    out.push(`Edit(${rel})`);
+    for (const b of bases) out.push(`Edit(${absRule(b)}/${rel})`);
+  };
+  for (const b of bases) for (const t of DENY_TOOLS) out.push(`Edit(${absRule(b)}/${t.slice('Edit('.length, -1)})`);
+  for (const f of ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md']) for (const b of bases) out.push(`Edit(${absRule(path.join(b, f))})`);
+  for (const f of allInstructionFiles(config)) {
+    // absRule refuses a name a rule can't carry, for the relative form too.
+    const abs = bases.map((b) => `Edit(${absRule(path.join(b, f))})`);
+    if (f.includes('/')) out.push(`Edit(${f})`);
+    out.push(...abs);
+  }
+  if (!roots.worktrees.some((w) => inside(real, w))) for (const f of ['CLAUDE.md', 'CLAUDE.local.md']) both(`**/${f}`);
+  const hooks = hooksDir(root);
+  if (hooks !== null) {
+    absRule(path.join(real, hooks));
+    both(`${hooks}/**`);
+  }
+  return [...new Set(out)];
+}
+
+/**
+ * What a turn may not change in the main checkout, as one hash: `git status` over every PROTECTED
+ * path (minus what `forge` writes there), `**\/CLAUDE.md` and `**\/CLAUDE.local.md` at any depth, the
+ * configured instruction files and an in-checkout hooks dir, plus the content of each path it lists,
+ * so a file that was already dirty and changes again still counts. The pool takes it when a human
+ * starts it; every turn's end and every spawn compare against it. Never throws: a failure hashes a marker.
+ */
+export function confineDigest(root: string, config: Config): string {
+  const h = crypto.createHash('sha256');
+  const add = (label: string, data: string | Buffer) => h.update(`${label}\0${Buffer.byteLength(data)}\0`).update(data);
+  try {
+    const hooks = hooksDir(root);
+    const specs = [
+      ...[...PROTECTED.files, ...PROTECTED.dirs].map((p) => `:(top,literal)${p}`),
+      ...PROTECTED.forgeWrites.map((p) => `:(exclude,top,literal)${p}`),
+      ...PROTECTED.anyDepth.map((f) => `:(top,glob)**/${f}`),
+      ...allInstructionFiles(config).map((f) => `:(top,literal)${f}`),
+      ...(hooks !== null ? [`:(top,literal)${hooks}`] : []),
+    ];
+    const r = git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none', '--', ...specs], { allowFail: true });
+    if (!r.ok) {
+      add('status', '!git');
+      return h.digest('hex');
+    }
+    add('status', r.stdout);
+    const parts = r.stdout.split('\0');
+    for (let i = 0; i < parts.length; i++) {
+      const entry = parts[i];
+      if (entry.length < 4) continue;
+      // A rename or copy is followed by its source path, which is gone or unchanged.
+      if (entry[0] === 'R' || entry[0] === 'C') i++;
+      const rel = entry.slice(3);
+      const f = path.join(root, rel);
+      try {
+        const st = fs.lstatSync(f);
+        add(rel, st.isSymbolicLink() ? `link ${fs.readlinkSync(f)}` : st.isFile() ? fs.readFileSync(f) : `!${st.isDirectory() ? 'dir' : 'special'}`);
+      } catch (e) {
+        add(rel, `!${(e as NodeJS.ErrnoException).code ?? 'unreadable'}`);
+      }
+    }
+  } catch (e) {
+    add('error', `!${(e as Error).message}`);
+  }
+  return h.digest('hex');
+}
+
+/** Everything a spawn needs to confine its session: the write roots, the extra deny rules and the guard's env. */
+export function spawnConfinement(root: string, config: Config): { roots: WriteRoots; deny: string[]; env: Record<string, string> } {
+  const roots = writeRoots(root, config);
+  return { roots, deny: denyRules(root, config, roots), env: { [WRITE_ROOTS_ENV]: JSON.stringify(roots) } };
+}

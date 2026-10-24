@@ -15,7 +15,7 @@ export const ERROR_CODE_DOCS: Record<ErrorCode, string> = {
   internal: 'not a Forge error: a bug or an unexpected Node error (rerun with `FORGE_DEBUG=1` for the stack)',
   secret_found: 'the secret scanner found a likely credential in what Forge was about to commit or send (a commit, the PR title or body, a tracker write); the message shows it masked, with its fingerprint',
   protected_path:
-    'a path the `policy.protectedPaths` policy refuses is in what `forge git add|commit` would stage or commit, `forge pr open` found a refused path or escalate paths no human approved, or `forge pr merge` found a PR head `forge pr open` never checked (docs/CONFIG.md "Protected paths")',
+    'a path the `policy.protectedPaths` policy refuses is in what `forge git add|commit` would stage or commit, `forge pr open` found a refused path or escalate paths no human approved, or `forge pr merge` finds a protected path at the live PR head that no human approved at that content (docs/CONFIG.md "Protected paths")',
   interim_stale:
     "`forge pr open` found a git-ref or canary pin in the checked commits that is not the dependency's checked HEAD (a hand-edited pin, or a dependency that moved without a verify), or, after a recorded release, a consumer manifest that does not name the released version yet; the hint is `forge verify <id>` (docs/CONFIG.md \"Interim strategies\")",
   release_gate:

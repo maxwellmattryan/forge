@@ -160,7 +160,7 @@ test('mockups render only in the sandboxed /raw iframe', () => {
   assert.equal(hits.length, 1, `exactly one <iframe>: ${JSON.stringify(hits)}`);
   const [file, tag] = hits[0];
   assert.equal(file, 'src/components/Drawer.svelte');
-  assert.match(tag, /\ssandbox="allow-scripts"/);
+  assert.match(tag, /\ssandbox=""/);
   assert.match(tag, /\ssrc="\/api\/jobs\/\{[^}]+\}\/raw\?path=\{[^}]+\}"/);
 });
 
@@ -461,10 +461,10 @@ const over = ([r, g, b, a]: Rgba, [R, G, B]: Rgba): Rgba => [r * a + R * (1 - a)
 /** Channel-wise sRGB interpolation, what `color-mix(in srgb, a p, b)` computes for opaque colours. */
 const mix = (a: Rgba, p: number, b: Rgba): Rgba => [a[0] * p + b[0] * (1 - p), a[1] * p + b[1] * (1 - p), a[2] * p + b[2] * (1 - p), 1];
 
-// Text is fg or muted; gleam (links, the live chip), ember (needs you) and the status hues carry words too. dim is for
-// placeholders and stamp-line keys only and is the one documented exception. spark is only
-// ever a fill under on-spark. Forge's hovered link is gleam-hot; Ash keeps gleam there.
-const TEXT = ['fg', 'muted', 'gleam', 'ember', 'ok', 'warn', 'bad', 'info'];
+// Text is fg or muted; gleam (links, the live chip), ember (needs you), the status hues and the Thread's sender colours
+// (who-*) carry words too. dim is for placeholders and stamp-line keys only and is the one documented exception. spark
+// is only ever a fill under on-spark. Forge's hovered link is gleam-hot; Ash keeps gleam there.
+const TEXT = ['fg', 'muted', 'gleam', 'ember', 'ok', 'warn', 'bad', 'info', 'who-you', 'who-cli', 'who-forge', 'who-tracker'];
 const TEXT_BY_THEME: Record<string, string[]> = { forge: [...TEXT, 'gleam-hot'], ash: TEXT, temper: [...TEXT, 'gleam-hot'], crucible: [...TEXT, 'gleam-hot'], patina: [...TEXT, 'gleam-hot'], obsidian: [...TEXT, 'gleam-hot'] };
 const DIM_FLOOR = 3.0;
 

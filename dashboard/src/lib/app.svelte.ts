@@ -231,7 +231,8 @@ export function setWindow(w: string): void {
 }
 
 export async function refreshBacklog(): Promise<void> {
-  S.backlog = await api<BacklogResponse>('/api/backlog?refresh=1').catch((e: unknown) => ({ items: [], error: message(e) }));
+  // A refetch spends the tracker's rate limit, so the server honours `refresh` only with the token.
+  S.backlog = await api<BacklogResponse>('/api/backlog?refresh=1', { headers: { 'x-forge-token': forgeToken() } }).catch((e: unknown) => ({ items: [], error: message(e) }));
 }
 
 export async function compareRuns(a: string, b: string): Promise<void> {

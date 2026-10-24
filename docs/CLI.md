@@ -109,7 +109,7 @@ Every error carries one of these codes, and the code fixes the exit.
 | `not_found` | 1 | no such job or request |
 | `internal` | 1 | not a Forge error: a bug or an unexpected Node error (rerun with `FORGE_DEBUG=1` for the stack) |
 | `secret_found` | 1 | the secret scanner found a likely credential in what Forge was about to commit or send (a commit, the PR title or body, a tracker write); the message shows it masked, with its fingerprint |
-| `protected_path` | 1 | a path the `policy.protectedPaths` policy refuses is in what `forge git add\|commit` would stage or commit, `forge pr open` found a refused path or escalate paths no human approved, or `forge pr merge` found a PR head `forge pr open` never checked (docs/CONFIG.md "Protected paths") |
+| `protected_path` | 1 | a path the `policy.protectedPaths` policy refuses is in what `forge git add\|commit` would stage or commit, `forge pr open` found a refused path or escalate paths no human approved, or `forge pr merge` finds a protected path at the live PR head that no human approved at that content (docs/CONFIG.md "Protected paths") |
 | `interim_stale` | 1 | `forge pr open` found a git-ref or canary pin in the checked commits that is not the dependency's checked HEAD (a hand-edited pin, or a dependency that moved without a verify), or, after a recorded release, a consumer manifest that does not name the released version yet; the hint is `forge verify <id>` (docs/CONFIG.md "Interim strategies") |
 | `release_gate` | 1 | `forge pr ready` targeted a consumer PR whose local or sequential dependency's release is not recorded (a human runs `forge job interim release <id> <name>\|--root <version>`), or whose manifests don't name a recorded release yet (gate `bump-due`, or a HEAD that doesn't carry it: run `forge verify <id>`, then `forge pr open <id>`); nothing was called (docs/CONFIG.md "Interim strategies") |
 | `usage` | 2 | the default for exit 2: the call could not be parsed; the hint names the help to read |
@@ -142,7 +142,7 @@ Read by Forge:
 | Variable | Effect |
 |---|---|
 | `FORGE_ROOT` | the main checkout Forge keeps its state in; without it, the checkout of the current directory's git repository |
-| `FORGE_CACHE_DIR` | where `bin/forge` keeps its start-up cache (V8 code cache, and stripped modules on Node 22); default `.cache/` in the plugin root. It must be private to the current user, and no easier to write than the plugin itself, since it holds code the CLI runs (docs/architecture/startup-cache.md) |
+| `FORGE_CACHE_DIR` | where `bin/forge` keeps its start-up cache (V8 code cache, and stripped modules on Node 22); default `.cache/` in the plugin root. Honoured only inside the plugin root (its parent must exist; a temp dir, a symlinked parent that leaves the plugin, or the plugin root itself runs uncached), and it must be private to the current user, since it holds code the CLI runs (docs/architecture/startup-cache.md) |
 | `NODE_DISABLE_COMPILE_CACHE` | any non-empty value turns the start-up cache off |
 | `FORGE_DEBUG` | any non-empty value prints an error's stack trace on stderr, with or without `--json` |
 | `FORGE_MODE` | `human` or `agent`: the output mode when neither `--json` nor `--mode` is given (see Output mode); empty counts as unset, any other value is a usage error. The SessionStart hook and daemon sessions set it to `agent` |
@@ -151,11 +151,12 @@ Read by Forge:
 | `FORGE_ACTOR` | the login human-action events record (`actor: { login, source: "env" }`), ahead of `gh`, `git config user.email` and the OS user; ignored inside daemon sessions, which record the dashboard's OS user. Sanitised to `[A-Za-z0-9 ._@+-]`, at most 100 characters, and unauthenticated (docs/architecture/audit-trail.md) |
 | `FORGE_EDITOR` | the editor command `forge dash`'s Open in editor runs, split into words without a shell, with the job's worktree path appended; default `code`. Read from `forge dash`'s own environment |
 | `GH_HOST` | a GitHub Enterprise host whose issue URLs count as the configured repo's, besides github.com |
-| `SHELL` | the shell configured commands run in (`$SHELL -lc`; `/bin/sh` when unset): `forge run`, `forge verify`, worktree setup and eval checks |
+| `SHELL` | the shell configured commands run in outside the daemon (`$SHELL -lc`; `/bin/sh` when unset): `forge run`, `forge verify`, worktree setup and eval checks. Ignored under the daemon (`FORGE_DAEMON=1`), where they run as `/bin/sh -c` with no login profile (docs/CONFIG.md "Daemon") |
 | `PATH` | where git, gh, claude, node and docker are found |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | `forge dash` leaves them out of daemon sessions' environment unless `daemon.auth: api-key` |
 | `GIT_CONFIG_COUNT` | daemon sessions append their git pins after the entries already counted |
 | `CLAUDE_CONFIG_DIR` | Claude Code's own config dir: transcripts are read from `$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects`, by `forge job agent … end --import` and the dashboard's agent activity and transcript views |
+| `CLAUDE_PROJECT_DIR` | set by Claude Code for hooks: the project it runs in. The no-AI-attribution hook reads the `aiAttribution: allow` opt-out from the `.forge/config.yml` of that directory's main checkout (a worktree's own config never counts); unset or not a git checkout means no opt-out |
 | `CLAUDE_ENV_FILE` | set by Claude Code for SessionStart hooks; the plugin's hook appends a line that puts this plugin's `bin/` first on PATH for the session's Bash commands, and `export FORGE_MODE=agent` so they always get agent output; nothing happens when it is unset |
 | `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_COMMON_DIR` | cleared before `forge git add\|commit` (with `GIT_OBJECT_DIRECTORY` and `GIT_NAMESPACE`) and eval checkouts run git, so an inherited one can't point git at another repository |
 
@@ -198,7 +199,7 @@ Set by Forge for `notify.command` (docs/CONFIG.md "Notifications"), whose `{plac
 
 `forge job links <id>` prints `{ id, links }`, one entry per `link` declared on a `components[].dependsOn[]` edge (docs/CONFIG.md "Components"): `{ consumer, consumerRepo, dependency, dependencyRepo, ecosystem, name, source, dir, active, reason }`. `consumerRepo` and `dependencyRepo` are `null` for the root repo, `source` is `null` except for cargo, `dir` is the dependency directory when the link is active, and `reason` says why it is not (`repo <r> is not on the job`, `repo <r> has no worktree yet; run: forge worktree create <id>`, `repo <r>'s stored worktree is not the path Forge computes`, `<path> does not exist in repo <r>'s worktree`). Entries are sorted by consumer repo (root first), ecosystem and name; a job with no declared links prints `links: []`. It only reads, so daemon sessions may run it.
 
-`forge run` (with or without `--repo`) and every verify step render the links of the repo the command runs in into `<jobDir>/links/<repo or _root>/` and put its `bin/` shims first on PATH, after the login profile. The result (`forge run`'s JSON and each verify step) then gains:
+`forge run` (with or without `--repo`) and every verify step render the links of the repo the command runs in into `<jobDir>/links/<repo or _root>/` and put its `bin/` shims first on PATH, after the login profile when there is one (under the daemon there is none). The result (`forge run`'s JSON and each verify step) then gains:
 
 | Key | When | Value |
 |---|---|---|
@@ -231,9 +232,11 @@ A recorded decision moves the job by itself: the next `forge job step` on a job 
 
 ## Merging
 
-`forge pr merge <id> [--repo NAME | --root] [--now]` syncs first, then merges one PR at a time with exactly one `gh pr merge` call each: directly when checks pass or the repo has no CI, queued with `--auto` while checks are pending only when GitHub holds the PR and no protected-paths policy applies, deferred otherwise, and refused when checks fail. A single-repo job has one PR, and the result is `{ merged, autoMerge, action, checks, mergeState?, error? }` with `action` one of `already-merged`, `merged`, `auto`, `deferred`, `refused`, `failed`.
+`forge pr merge <id> [--repo NAME | --root] [--now]` syncs first, then decides one PR at a time, with exactly one `gh pr merge` call each at most. Without `--now`, each PR first passes these checks, in order, before any CI decision (docs/CONFIG.md "Merge"): `merge.auto` is on (else `reason: auto-off`); the last `decision` event `forge job decision` recorded is an `APPROVE` marked auto-merge eligible and bound to a head (else `reason: decision`); the PR still targets the job's base on GitHub, and its live head is that head, or it with only clean merges of the base on top (else `reason: decision`); protected paths recomputed at the live head are all approved (else code `protected_path`); and the escalate floor finds nothing in the PR's diff (else `reason: floor`). A refusal exits 1, logs `pr-merge-refused` with its `reason` and calls nothing. Then CI: a direct merge when checks pass, or the base has no CI on any system Forge knows, at a head Forge pushed at least 5 minutes ago (passing while GitHub reports `UNSTABLE` counts as pending); queued with `--auto` while checks are pending or the head is settling, only when GitHub holds the PR and no protected-paths policy applies; deferred otherwise (`pr-merge-deferred`, `reason: settling` while the head settles); and refused when checks fail. A single-repo job has one PR, and the result is `{ merged, autoMerge, action, checks, mergeState?, reason?, error? }` with `action` one of `already-merged`, `merged`, `auto`, `deferred`, `refused`, `failed`.
 
-A job with a member repo that gets a PR merges its PRs in the order of the components' `dependsOn` (docs/architecture/job-repos.md): a PR is merged, or queued with `--auto`, only when every PR it depends on is MERGED by this call's own sync. The walk goes on after a direct merge and stops at the first PR it queues, defers, refuses or fails to merge, so a consumer is never queued while a dependency is unmerged. `--repo NAME` merges only that member's PR and `--root` only the root's; either is refused while a PR it depends on is not merged, has no PR, or could not be read. The result adds `repo` (the PR acted on last, null for the root), `parts` (one `{ repo, number, action, checks, mergeState?, error? }` per PR acted on, in order) and, on an order refusal, `reason`: `order` when a dependency PR is not merged, `cycle` when the components' `dependsOn` form a cycle between the job's repos, which refuses every merge of the job. Both exit 1 with no `gh pr merge` call and log `pr-merge-refused` with that `reason`. `merged` is true only when every PR of the job is MERGED. `--now` bypasses CI and the head pin for each PR it merges, never the order. `--repo` with `--root`, `--repo` naming no PR member, and `--root` with a value (`--root <id>` swallows the id) exit 1.
+`--now` is a human's override in their own terminal: it skips every check above, logs `pr-merge-bypass` with the person's actor before the call and `pr-merged { bypass: true }` after it. In a daemon session (`FORGE_DAEMON=1`) `forge pr merge` refuses, before any `gh` call, `--now` with any value in every scope, a job id other than the session's own scope (the inbox included), the office, and a missing or invalid `FORGE_DAEMON_SCOPE`. `forge sync` continues each deferred merge itself (a row with `mergeDeferred: true` gets `merge: { action, reason?, error? }`), so no session merges another job.
+
+A job with a member repo that gets a PR merges its PRs in the order of the components' `dependsOn` (docs/architecture/job-repos.md): a PR is merged, or queued with `--auto`, only when every PR it depends on is MERGED by this call's own sync. The walk goes on after a direct merge and stops at the first PR it queues, defers, refuses or fails to merge, so a consumer is never queued while a dependency is unmerged. `--repo NAME` merges only that member's PR and `--root` only the root's; either is refused while a PR it depends on is not merged, has no PR, or could not be read. The result adds `repo` (the PR acted on last, null for the root), `parts` (one `{ repo, number, action, checks, mergeState?, error? }` per PR acted on, in order) and, on an order refusal, `reason`: `order` when a dependency PR is not merged, `cycle` when the components' `dependsOn` form a cycle between the job's repos, which refuses every merge of the job. Both exit 1 with no `gh pr merge` call and log `pr-merge-refused` with that `reason`. `merged` is true only when every PR of the job is MERGED. Each PR gets the checks above against its own decided head (`heads.<repo>` for a member), and the walk's `reason` is the refused PR's. `--now` bypasses those checks for each PR it merges, never the order. `--repo` with `--root`, `--repo` naming no PR member, and `--root` with a value (`--root <id>` swallows the id) exit 1.
 
 ## Leases and fencing
 
@@ -510,16 +513,16 @@ The live dashboard and its session pool.
 | Flag | Meaning |
 |---|---|
 | `--background` | start it detached and print {url, pid} |
-| `--dev` | serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist; the daemon stays off until Start; refused while a dashboard runs for this repo |
+| `--dev` | serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist; the daemon stays off until Start; refused while a proven dashboard runs for this repo (a stale dashboard.json does not block it) |
 | `--foreground` | run in the foreground even when one is running |
 | `--permission-mode MODE` | the job sessions' default permission mode until it stops: default (ask), auto or dontAsk (refuse); refused in a daemon session |
 | `--port N` | the first port to try (default: dashboard.port, 7400) |
 | `--quiet` | in the foreground in human mode, print only the banner (no activity log) |
-| `--stop` | stop it and reap its sessions |
+| `--stop` | stop it and reap its sessions; a dashboard.json whose pid is not provably that dashboard is cleared without signalling anything |
 
 | Exit | When |
 |---|---|
-| 1 | no free port near N, --dev while a dashboard is already running for this repo, or --permission-mode in a daemon session |
+| 1 | no free port near N, --dev while a proven dashboard is running for this repo, or --permission-mode in a daemon session |
 
 ### `forge doctor`
 
@@ -914,7 +917,7 @@ See [Audit trail](architecture/audit-trail.md).
 | 3 | another session holds a live lease (owned), or the lease moved past --epoch (stale_epoch) |
 | 4 | dependencies pending, or the repo budget holds new work |
 
-**`forge job decision <id>`**: read decision.md and record the approver's decision
+**`forge job decision <id>`**: read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); once per approver run: a later call returns that record with recorded: false and logs nothing
 
 | Exit | When |
 |---|---|
@@ -1271,17 +1274,17 @@ A job's pull request.
 | 1 | no such job |
 | 5 | gh or git failed |
 
-**`forge pr merge <id> [--repo NAME | --root] [--now]`**: merge once CI passes, or queue auto-merge, or defer; a multi-repo job's PRs merge in the components' dependsOn order, never a PR before its dependencies; --now is a human override that bypasses CI
+**`forge pr merge <id> [--repo NAME | --root] [--now]`**: merge once merge.auto is on, the approver's recorded APPROVE covers the PR head, no escalate-floor path changed and CI passed at a settled head; or queue auto-merge, or defer; a multi-repo job's PRs merge in the components' dependsOn order, never a PR before its dependencies; --now is a human's override
 
 | Flag | Meaning |
 |---|---|
-| `--now` | merge without waiting for CI, or a head forge pr open did not check (logged as pr-merge-bypass); never bypasses the merge order or a release gate |
+| `--now` | a human's override in their own terminal: merge without the eligibility, floor and CI checks (logged as pr-merge-bypass); refused in a daemon session; never bypasses the merge order or a release gate |
 | `--repo NAME` | merge only that member repo PR, once every PR it depends on merged |
 | `--root` | merge only the root repo PR, once every PR it depends on merged |
 
 | Exit | When |
 |---|---|
-| 1 | the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order\|cycle\|release), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, the office daemon session ran it, or protected paths apply and the PR head is not the one forge pr open checked (code protected_path; --now overrides) |
+| 1 | the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order\|cycle\|release), merge.auto off, no eligible decision for the PR head, an escalate-floor path (reason auto-off\|decision\|floor), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, a daemon session passing --now, another job's id or a broken scope, the office daemon session ran it, or a protected path at the PR head that no human approved at that content (code protected_path; --now overrides) |
 | 5 | gh or git failed |
 
 **`forge pr open <id> [--title T] [--draft] [--force]`**: push the verified branch and open or update its PR; with job repos, every repo is checked first, then each non-verify-only member's branch is pushed and its PR opened or updated (result: repos) in dependency order before the root PR; a repo an interim strategy holds back is not pushed (result: deferred; docs/CONFIG.md "Interim strategies")
@@ -1505,7 +1508,7 @@ Reconcile PRs and trackers for all jobs.
 
 ### `forge tracker`
 
-The configured issue tracker (tracker.kind): items, claims, comments.
+The configured issue tracker (tracker.kind): items, claims, comments; under github a &lt;ref> is an issue in this repo (12, #12 or owner/repo#12).
 
 **`forge tracker claim <ref> <job>`**: mark an item as taken by a job
 
@@ -1698,12 +1701,12 @@ A job's git worktree.
 
 | Flag | Meaning |
 |---|---|
-| `--delete-branch` | delete the job's branch too (not in a verify-only repo) |
+| `--delete-branch` | delete the job's branch too, only the one Forge named (git.branchPrefix + id; another is kept and listed as branchKept), not in a verify-only repo |
 | `--force` | remove it with uncommitted changes |
 | `--repo NAME` | only the worktree of member repo NAME |
 
 | Exit | When |
 |---|---|
-| 1 | no such job or repo, a member worktree that could not be removed (the result names it), or a backing teardown that failed (backing.json is kept for a retry) |
+| 1 | no such job or repo, a stored worktree that is not the job's own &lt;worktrees.root>/&lt;id>, an unsafe branch name with --delete-branch, a member worktree that could not be removed (the result names it), or a backing teardown that failed (backing.json is kept for a retry) |
 | 5 | git failed |
 <!-- forge:cli:end -->

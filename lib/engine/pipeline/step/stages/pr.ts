@@ -2,6 +2,7 @@
 import { autoMerge } from '#core/config/load.ts';
 import { deferralStatus, readDeferrals, releaseGates, releaseIndex, resolveInterim } from '../../../release/interim.ts';
 import { memberRepos } from '../../../project/job-repos.ts';
+import { decisionEligible, lastDecision } from '../../../pr/eligible.ts';
 import { lastRun, runsSince } from '../../../verify/record.ts';
 import type { JobEvent, VerifyRun } from '#core/types.ts';
 import type { StepInput } from '../../types.ts';
@@ -97,13 +98,17 @@ const deferredWait = (c: PrCtx) => c.deferral!.sequential ?? readDeferrals(c.ope
  * recorded and bumped, a held or bump-due gate keeps it a draft, and a draft PR in a job with
  * interim edges is never merged: none of them merges unattended. A job without edges keeps its old
  * behaviour, so a single-repo `pr.draft: true` job still auto-merges (gh un-drafts it).
+ * Eligibility is the recorded decision event bound to the heads it covers (decisionCurrent), never
+ * decision.md: an ESCALATE with `yes`, a `yes` written after the record, or a commit after the
+ * decision all wait on a human.
  */
 function mergeable({ x, res, gates, openedAt }: PrCtx): boolean {
   const j = x.job;
   const local = res.edges.some((e, i) => e.strategy === 'local' && gates[i].gate !== 'released');
   const held = gates.some((g) => g.gate === 'held' || g.gate === 'bump-due');
   const draft = res.edges.length > 0 && (j.pr?.isDraft === true || memberRepos(j).some((m) => m.pr?.isDraft === true));
-  return !local && !held && !draft && x.decision.autoMerge && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !x.events.some((e, i) => i > openedAt && MERGE_EVENTS.includes(e.type));
+  const eligible = decisionEligible(lastDecision(x.events)) && x.decisionCurrent === true;
+  return !local && !held && !draft && eligible && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !x.events.some((e, i) => i > openedAt && MERGE_EVENTS.includes(e.type));
 }
 
 /** PR5's reason. Plain words only: it goes through shellLine, which allows no quote, pipe or angle bracket. */

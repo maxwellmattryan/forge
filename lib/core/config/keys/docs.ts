@@ -34,7 +34,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
 
   worktrees: { doc: 'one git worktree per job: where it lives, what it gets and when it goes' },
   'worktrees.root': { doc: 'outside the repo on purpose (bundlers, watchers, cargo workspaces)' },
-  'worktrees.copy': { doc: 'untracked files/dirs copied from the main checkout, e.g. [CLAUDE.md, .env, "packages/*/CLAUDE.md"]' },
+  'worktrees.copy': { doc: 'untracked files/dirs copied from the main checkout, e.g. [CLAUDE.md, "packages/*/CLAUDE.md"]' },
   'worktrees.setup': { doc: 'commands run once in a new worktree, e.g. ["yarn install --frozen-lockfile"]' },
   'worktrees.seed': { doc: 'warm worktrees: clone untracked paths from a private seed instead of running setup\n(docs/CONFIG.md › Worktree seed); off while paths is empty' },
   'worktrees.seed.paths': { doc: 'untracked paths a new worktree clones from the seed instead of building, e.g. [node_modules]' },
@@ -109,7 +109,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'tracker.github.ready.projectStatus': { doc: 'e.g. "🔖 Todo" (needs a project; see below)' },
   'tracker.github.claim': { doc: 'what claiming an issue does' },
   'tracker.github.claim.assign': { doc: 'assign the issue to you when a job claims it' },
-  'tracker.github.comments': { doc: 'collaborators | all: whose issue comments reach agents (anyone can comment on public repos)' },
+  'tracker.github.comments': { doc: 'collaborators | all: whose issue and PR comments reach agents (anyone can comment on public repos)' },
   'tracker.github.statusSync': { doc: 'none | labels | project | both' },
   'tracker.github.labels': { doc: 'status labels (statusSync: labels or both)' },
   'tracker.github.labels.prefix': { doc: 'labels mode: forge:in-progress, forge:review, …' },
@@ -183,7 +183,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   },
 
   merge: { doc: 'whether and how Forge merges approved PRs' },
-  'merge.auto': { doc: 'let Forge merge approved PRs (waits for CI, even without branch protection; see README)' },
+  'merge.auto': { doc: 'let Forge merge a PR whose recorded APPROVE covers its head, with no escalate-floor path, once CI passes at a settled head (see "Merge")' },
   'merge.method': { doc: 'squash | merge | rebase' },
   'merge.autoWhen': { doc: 'plain-language conditions, e.g. ["docs-only changes", "test-only changes"]' },
 
@@ -273,7 +273,10 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   daemon: { doc: 'opt-in headless sessions supervised by `forge dash`: an inbox plus one per job (see "Daemon" below)' },
   'daemon.enabled': { doc: 'true: `forge dash` starts it, and POST /api/daemon may start it again after a stop' },
   'daemon.command': { doc: 'the claude command each session runs, split into words without a shell (see "Daemon" below)' },
-  'daemon.allowedTools': { doc: 'refused if it names blanket git/gh (see "Daemon" below)', layout: 'block' },
+  'daemon.allowedTools': {
+    doc: 'refused if it names blanket git/gh, a scoped file rule or an MCP tool; bare Edit/Write are scoped to the job folders and worktrees at spawn (see "Daemon" below)',
+    layout: 'block',
+  },
   'daemon.maxConcurrent': { doc: 'job sessions at once (1-16), besides the inbox' },
   'daemon.idleStopMinutes': { doc: 'stop an idle session after this long (null: never); new work resumes it' },
   'daemon.turnTimeoutMinutes': { doc: 'stop a turn still running after this long and requeue its work (null: no limit)' },

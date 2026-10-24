@@ -4,12 +4,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { git as runGit, gitEnv } from '#integrations/git/runner.ts';
-import { mainRoot, paths, PLUGIN_ROOT } from '#core/paths.ts';
+import { mainRoot, PLUGIN_ROOT } from '#core/paths.ts';
 import { WINDOWS_UPDATE_REFUSAL } from '#core/os/platform.ts';
 import { ForgeError } from '#core/errors.ts';
-import { pidAlive, run } from '#core/os/process.ts';
+import { run } from '#core/os/process.ts';
 import { readJson } from '#core/os/fs.ts';
 import { tail } from '#core/text.ts';
+import { provenDashboard } from './dashboard-record.ts';
 import type { InstallInfo, UpdateCheck, UpdateDashboard, UpdateResult } from './types.ts';
 
 // No leading `-`: these names come from the install's path and become argv for `claude`.
@@ -167,22 +168,16 @@ function pluginRootAfter(info: InstallInfo): string {
   return realpath(p);
 }
 
-/** The dashboard of the repo cwd is in, when one is running. */
-function runningDashboard(cwd: string): { repo: string; url: string } | null {
+/** The dashboard of the repo cwd is in, only when its record is proven: a stale one is never restarted. */
+function cwdDashboard(cwd: string): { repo: string; url: string } | null {
   let repo: string;
   try {
     repo = mainRoot(cwd);
   } catch {
     return null;
   }
-  let rt: any;
-  try {
-    rt = readJson(path.join(paths(repo).runtime, 'dashboard.json'), null);
-  } catch {
-    return null;
-  }
-  if (!pidAlive(rt?.pid)) return null;
-  return { repo, url: typeof rt.url === 'string' ? rt.url : '' };
+  const proven = provenDashboard(repo);
+  return proven ? { repo, url: proven.url } : null;
 }
 
 /**
@@ -254,7 +249,7 @@ export async function updateForge(opts: UpdateOptions = {}): Promise<UpdateCheck
   const warnings: string[] = [];
   const shadow = shadowWarning(env);
   if (shadow) warnings.push(shadow);
-  const dash = runningDashboard(cwd);
+  const dash = cwdDashboard(cwd);
   const git = info.kind === 'git' ? gitState(info.root, env) : {};
   const commands = planCommands(info);
 

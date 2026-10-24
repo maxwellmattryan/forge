@@ -1,6 +1,6 @@
 # Forge configuration. Every key is documented in docs/CONFIG.md of the Forge plugin.
 # Re-run `/forge init` to change answers interactively, or edit this file directly.
-schemaVersion: 29
+schemaVersion: 31
 project:
   name: Forge
   description: "Claude Code plugin that runs a software factory: jobs in worktrees, agent roster, PR/tracker sync, dashboard, evals and retros. The repo is also its own plugin marketplace."
@@ -10,7 +10,8 @@ project:
     - claude-code-plugin
     - dashboard
   instructions:
-    - AGENTS.md
+    default:
+      - AGENTS.md
   notes: "Zero runtime dependencies (Node >= 22.18 built-ins; the engine is TypeScript run by Node's type stripping, no build step). The CLI is the only writer of Forge state. Every job.json/event/config shape change bumps the version in lib/core/job/schema.ts with a migration, and API_VERSION when /api/state changes. Keep README.md, docs/*.md and skills/forge/** in sync with CLI behaviour. Never point the CLI at a real repo's .forge/ while developing: use a scratch repo or FORGE_ROOT. Never add AI attribution anywhere."
 git:
   base: develop
@@ -199,15 +200,7 @@ review:
         - design/**
   onPrFeedback: changed
 approver:
-  # Empty so the Foreman sees every escalation through; the security lens must still PASS and the
-  # protected paths still apply. The shipped defaults stay conservative.
   alwaysEscalate: []
-#  alwaysEscalate:
-#    - changes to CI/CD, deploy, release or infrastructure config
-#    - a new runtime dependency (the repo has zero runtime dependencies by rule; exact-pinned devDependencies are fine)
-#    - public API or protocol breaking changes
-#    - anything touching credentials, auth or permissions
-#    - changes to the dashboard security posture in lib/server/ (loopback Host check, token, Origin, JSON-only POSTs)
 pr:
   enabled: true
   draft: false
@@ -219,16 +212,11 @@ pr:
 merge:
   auto: false
   method: squash
-  # With foreman.ship: merge, a PR the approver marks eligible here merges once the CI is green.
   autoWhen:
     - any change the approver approves with every review lens passing
-#  autoWhen: []
 aiAttribution: forbid
 resources: []
 components:
-  # Every component sits at the repo root (path ".") because the repo-wide verify commands
-  # (npm scripts, test/*.test.ts, git status on dashboard/dist) are written for it; the notes
-  # say which files each one owns.
   - name: library
     path: .
     kind: library
@@ -309,9 +297,6 @@ daemon:
     - Bash(gh run view:*)
   maxConcurrent: 6
   idleStopMinutes: 30
-# Overrides the conservative defaults so the Foreman runs unattended: it decides every gate class,
-# reserves no topic and merges what it approves. CLI floors stay: a security review that isn't PASS
-# and an unreadable decision.md still go to a human.
 foreman:
   enabled: true
   decides:

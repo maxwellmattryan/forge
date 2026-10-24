@@ -5,9 +5,13 @@
      error are plain text, never markdown. Progress lines (lib/thread-progress.ts) sit between the messages as one-line rows,
      their agent and engine text plain; the Progress button hides them, and they never count as unread. The opening request
      comes as the server's 2,000-character excerpt; when it was cut, a button loads the whole request.md, which goes
-     through the same md() or text view. -->
+     through the same md() or text view. Each sender has its own colour and icon (lib/sender.ts WHO), the same on every
+     message. A message or reply that arrives while the Thread is open types out behind a caret (lib/typing.ts), its
+     reply after it; what was there when it opened, a page load or a reconnect (settled()) and reduced motion show whole. -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import Chip from './Chip.svelte';
+  import Icon from './Icon.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
   import { md } from '../lib/markdown.ts';
   import { renderable } from '../lib/md-view.ts';
@@ -19,7 +23,10 @@
   import { threadFeed, threadProgress, type Progress } from '../lib/thread-progress.ts';
   import { pref } from '../lib/prefs.ts';
   import { requestText, secretLine, threadItems, threadMark, type ThreadAction, type ThreadFrom, type ThreadOpening, type ThreadSecret, type ThreadStatus } from '../lib/thread.ts';
-  import { TINT, threadSender } from '../lib/sender.ts';
+  import { WHO } from '../lib/sender.ts';
+  import { S } from '../lib/app.svelte.ts';
+  import { prefersReducedMotion, settled } from '../lib/motion.ts';
+  import { scheduleTyping, typedText, type Typing } from '../lib/typing.ts';
   import type { ForgeRequest, Job, JobEvent } from '../lib/types.ts';
   import { t } from '../lib/locale.ts';
 
@@ -56,6 +63,50 @@
   }
 
   const rows = $derived(threadFeed(items, showProgress ? threadProgress(events) : []));
+
+  // ---------- typing ----------
+  /** Every message part with text, `<id>:text` then `<id>:result`, in the conversation's order. */
+  const parts = $derived(new Map(items.flatMap((m) => [...(m.text ? [[`${m.id}:text`, m.text] as const] : []), ...(m.result ? [[`${m.id}:result`, m.result] as const] : [])])));
+  /** The parts this job's Thread has shown: only one it hasn't types. */
+  let seen: { job: string; keys: Set<string> } | null = null;
+  let typing = $state<Record<string, Typing>>({});
+  let now = $state(Date.now());
+  $effect(() => {
+    const all = parts;
+    const id = job.id;
+    untrack(() => {
+      if (seen?.job !== id) {
+        seen = { job: id, keys: new Set(all.keys()) };
+        typing = {};
+        return;
+      }
+      const fresh = [...all.keys()].filter((k) => !seen!.keys.has(k));
+      for (const k of fresh) seen.keys.add(k);
+      const at = Date.now();
+      if (!fresh.length || prefersReducedMotion() || !settled(at, S.readyAt)) return;
+      now = at;
+      typing = { ...typing, ...scheduleTyping(all, fresh, at) };
+    });
+  });
+  // One frame loop while anything types; a part leaves `typing` once it is whole.
+  $effect(() => {
+    if (!Object.keys(typing).length) return;
+    let raf = requestAnimationFrame(function step(): void {
+      const at = Date.now();
+      now = at;
+      const left = Object.entries(typing).filter(([, p]) => at < p.start + p.ms);
+      if (left.length < Object.keys(typing).length) typing = Object.fromEntries(left);
+      else raf = requestAnimationFrame(step);
+    });
+    return () => cancelAnimationFrame(raf);
+  });
+  /** A part as it shows now: `typing` while the caret is on it, null before its turn to type. */
+  function typed(id: string, which: 'text' | 'result', full: string): { text: string; typing: boolean } | null {
+    const p = typing[`${id}:${which}`];
+    if (!p) return { text: full, typing: false };
+    const text = typedText(full, p, now);
+    return now < p.start ? null : { text, typing: true };
+  }
 
   /** A progress line's dot: ok and bad for outcomes, spark where the job waits on a person, gleam for progress. */
   function progressTone(m: Progress): string {
@@ -185,6 +236,15 @@
   }
 </script>
 
+<!-- A sender's mark and name, in its colour (the enclosing `who` sets it). The name is the cue; the icon repeats it. -->
+{#snippet sender(from: ThreadFrom)}
+  <span class="who-mark" aria-hidden="true"><Icon name={WHO[from].icon} /></span><span class="who-name">{who[from]}</span>
+{/snippet}
+<!-- A part's text, rendered or plain, with the caret after it while it types. -->
+{#snippet body(part: { text: string; typing: boolean }, size: string)}
+  {#if renderable(part.text, mdView.thread)}<div class="prose break-words {part.typing ? 'caret' : ''}">{@html md(part.text)}</div>{:else}<p class="selectable {size} whitespace-pre-wrap break-words {part.typing ? 'caret' : ''}">{part.text}</p>{/if}
+{/snippet}
+
 <div class="flex flex-col gap-5">
   <section class="flex flex-col gap-2" aria-labelledby="thread-conversation-{job.id}">
     <div class="flex items-center justify-between gap-2">
@@ -205,9 +265,9 @@
           {:else}
           {@const m = row.item}
           {#if m.secret}
-            <li class="plate ember p-3 flex flex-col gap-1.5 {TINT.forge}">
+            <li class="plate ember {WHO.forge.cls} p-3 flex flex-col gap-1.5">
               <div class="caption flex flex-wrap items-center gap-x-2 gap-y-1">
-                {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot spark size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="font-semibold text-fg">{who.forge}</span><span class="text-fg">{m.secret.error ? $t('thread.secret.error') : secretText(m.secret)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.secret.blocked}<Chip tone="you" text={$t('thread.secret.blocked')} />{:else}<Chip tone="warn" text={$t('thread.secret.noted')} />{/if}
+                {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot spark size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}{@render sender('forge')}<span class="text-fg">{m.secret.error ? $t('thread.secret.error') : secretText(m.secret)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.secret.blocked}<Chip tone="you" text={$t('thread.secret.blocked')} />{:else}<Chip tone="warn" text={$t('thread.secret.noted')} />{/if}
               </div>
               {#if m.secret.error}<p class="selectable mono text-[12px] break-words">{m.secret.error}</p>{/if}
               {#if m.secret.findings.length}
@@ -218,20 +278,19 @@
               {#if m.secret.more > 0}<p class="text-sm text-muted">{$t('thread.secret.more', { count: m.secret.more })}</p>{/if}
             </li>
           {:else}
-          <li class="plate p-3 flex flex-col gap-1.5 {TINT[threadSender(m.from)]}">
+          <li class="plate {WHO[m.from].cls} p-3 flex flex-col gap-1.5">
             <div class="caption flex flex-wrap items-center gap-x-2 gap-y-1">
-              {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot spark size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="font-semibold text-fg">{who[m.from]}</span><span class="text-fg">{actionText(m.action)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.status}<Chip tone={TONE[m.status]} text={statusText[m.status]} />{/if}
+              {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot spark size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}{@render sender(m.from)}<span class="text-fg">{actionText(m.action)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.status}<Chip tone={TONE[m.status]} text={statusText[m.status]} />{/if}
             </div>
             {#if m.text}
-              {@const text = m.id === 'request' && showWhole && whole ? whole.text : m.text}
-              {#if renderable(text, mdView.thread)}<div class="prose break-words">{@html md(text)}</div>{:else}<p class="selectable text-sm whitespace-pre-wrap break-words">{text}</p>{/if}
+              {@const shown = typed(m.id, 'text', m.id === 'request' && showWhole && whole ? whole.text : m.text)}
+              {#if shown}{@render body(shown, 'text-sm')}{/if}
               {#if m.id === 'request' && opening.truncated}<button type="button" class="btn sm self-start" aria-expanded={showWhole ? 'true' : 'false'} disabled={loadingWhole} onclick={toggleWhole}>{showWhole ? $t('thread.showLess') : loadingWhole ? $t('thread.loadingWhole') : $t('thread.showWhole')}</button>{/if}
             {/if}
             {#if m.result}
-              {#if renderable(m.result, mdView.thread)}
-                <div class="{TINT.forge} border-l border-line-strong px-2.5 py-1.5 text-muted"><div class="text-sm font-semibold text-fg">{who.forge}</div><div class="prose break-words">{@html md(m.result)}</div></div>
-              {:else}
-                <div class="selectable {TINT.forge} border-l border-line-strong px-2.5 py-1.5 text-sm text-muted whitespace-pre-wrap break-words"><span class="font-semibold text-fg">{who.forge}</span> {m.result}</div>
+              {@const reply = typed(m.id, 'result', m.result)}
+              {#if reply}
+                <div class="{WHO.forge.cls} reply flex flex-col gap-1 px-2.5 py-1.5 text-muted"><div class="caption flex items-center gap-2">{@render sender('forge')}</div>{@render body(reply, 'text-sm')}</div>
               {/if}
             {/if}
           </li>
