@@ -68,6 +68,11 @@ export function within(parent: string, child: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
+/** Member `name`'s worktrees root: `worktrees.root` with `{repo}` set to the clone's basename, resolved from the clone. */
+export function memberWorktreesRoot(root: string, config: Config, name: string, clone = memberClone(root, config, name)): string {
+  return resolveFrom(clone, config.worktrees.root.replace('{repo}', path.basename(clone)));
+}
+
 /**
  * Where job `id`'s worktree of member `name` goes: `worktrees.root` with `{repo}` set to the clone's
  * basename, resolved from the clone, then the job id. Outside the clone and the root repo, as the
@@ -75,8 +80,7 @@ export function within(parent: string, child: string): boolean {
  */
 export function memberWorktreePath(root: string, config: Config, name: string, id: string, clone = memberClone(root, config, name)): string {
   assertSafeRef(id, 'job.id');
-  const wtRoot = resolveFrom(clone, config.worktrees.root.replace('{repo}', path.basename(clone)));
-  const dir = path.join(wtRoot, id);
+  const dir = path.join(memberWorktreesRoot(root, config, name, clone), id);
   if (within(clone, dir)) throw new ForgeError(`repo ${name}: worktrees.root puts its worktree ${dir} inside the clone ${clone}; set worktrees.root outside it`);
   if (within(root, dir)) throw new ForgeError(`repo ${name}: worktrees.root puts its worktree ${dir} inside the root repo; set worktrees.root outside it`);
   return dir;
