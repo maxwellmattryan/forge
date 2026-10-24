@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { defaults } from '#core/config/load.ts';
+import { requiredChecksProblems } from '#core/config/validators/required-checks.ts';
 import { cargoMembers as membersOf, detectComponents, npmWorkspaces } from './detect-components.ts';
 import { git as runGit } from '#integrations/git/runner.ts';
 import { exists } from '#core/paths.ts';
@@ -120,8 +121,8 @@ function onEveryPullRequest(on: unknown): boolean {
 /**
  * merge.requiredChecks for `/forge init` to offer: each Actions job that runs on every pull request,
  * bound to its workflow file. A matrix job, a conditional one, a reusable workflow call and a name
- * built from an expression are left out (their check names vary or may never report); a file that
- * does not parse is skipped. At most 20, in file order.
+ * built from an expression are left out (their check names vary or may never report), and so is a
+ * name merge.requiredChecks would refuse; a file that does not parse is skipped. At most 20, in file order.
  */
 function requiredCheckSuggestions(root: string): { name: string; workflow: string }[] {
   const dir = path.join(root, '.github', 'workflows');
@@ -139,7 +140,10 @@ function requiredCheckSuggestions(root: string): { name: string; workflow: strin
       if (!job || typeof job !== 'object' || job.strategy?.matrix !== undefined || job.if !== undefined || job.uses !== undefined) continue;
       const name = typeof job.name === 'string' ? job.name : id;
       if (name.includes('${{') || !name.trim()) continue;
-      out.push({ name, workflow: `.github/workflows/${file}` });
+      const suggestion = { name, workflow: `.github/workflows/${file}` };
+      // Names come from files in the repo: one the key would refuse (too long, a control character, a repeat) is not offered.
+      if (requiredChecksProblems({ merge: { requiredChecks: [...out, suggestion] } }).length) continue;
+      out.push(suggestion);
       if (out.length >= MAX_REQUIRED_SUGGESTIONS) return out;
     }
   }
