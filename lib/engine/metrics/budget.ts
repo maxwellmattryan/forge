@@ -5,8 +5,8 @@ import { configForJob } from '../evals/overlay.ts';
 import { git } from '#integrations/git/runner.ts';
 import { loadJob, logEvent, logHumanEvent, setJob, updateJob } from '#core/job/store.ts';
 import { exists } from '#core/paths.ts';
-import { BUDGET_KEYS } from '#core/job/schema.ts';
-import type { BudgetKey, BudgetLimits, BudgetUsed, Config, DaemonJobBudget, Job, JobBudget } from '#core/types.ts';
+import { BUDGET_KEYS, isHumanGrant } from '#core/job/schema.ts';
+import type { BudgetKey, BudgetLimits, BudgetUsed, Config, DaemonJobBudget, HumanGrant, Job, JobBudget } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { now } from '#core/utils.ts';
 
@@ -150,15 +150,23 @@ function parseSet(kv: string): [BudgetKey, number | null | undefined] {
 
 /**
  * `forge job budget <id> [--set k=v …] [--ack]`. Never changes state: the orchestrator resumes
- * the job so every transition stays visible through the normal loop.
+ * the job so every transition stays visible through the normal loop. `--set` and `--ack` change a
+ * job's spend limits, so they need a person's `grant` (a confirmed terminal or the dashboard), whose
+ * actor their events carry; without either, it only reports.
  */
 export function budgetCmd(
   root: string,
   config: Config,
   id: string,
-  opts: { set?: string[]; ack?: boolean } = {},
+  opts: { set?: string[]; ack?: boolean; grant?: HumanGrant } = {},
 ): { id: string; limits: BudgetLimits; used: BudgetUsed; exceeded: BudgetKey[]; ack: JobBudget['ack']; acked: BudgetKey[]; stillExceeded: BudgetKey[] } {
   const sets = (opts.set ?? []).map(parseSet);
+  const grant = opts.grant;
+  if ((sets.length || opts.ack) && !isHumanGrant(grant))
+    throw new ForgeError(
+      "forge job budget --set|--ack changes a job's spend limits, which only a person may do: in their own terminal (it asks them to type the job id) or the dashboard",
+      'human_only',
+    );
   if (sets.length) {
     updateJob(root, id, (j) => {
       for (const [k, v] of sets) {
@@ -166,7 +174,7 @@ export function budgetCmd(
         else j.budget.limits[k] = v;
       }
     });
-    for (const [key, value] of sets) logHumanEvent(root, id, 'budget-set', { key, value: value === undefined ? 'default' : value });
+    for (const [key, value] of sets) logHumanEvent(root, id, 'budget-set', { key, value: value === undefined ? 'default' : value }, grant!.actor);
   }
   const job = loadJob(root, id);
   const limits = effectiveLimits(configForJob(root, config, job), job);
@@ -177,7 +185,7 @@ export function budgetCmd(
     for (const e of opts.ack ? exceeded : []) j.budget.ack[e.key] = { used: e.used, round: j.round };
     j.budget.lastCheck = { at: now(), checkpoint: 'budget', used };
   });
-  if (acked.length) logHumanEvent(root, id, 'budget-ack', { keys: acked, used: Object.fromEntries(exceeded.map((e) => [e.key, e.used])) });
+  if (acked.length) logHumanEvent(root, id, 'budget-ack', { keys: acked, used: Object.fromEntries(exceeded.map((e) => [e.key, e.used])) }, grant!.actor);
   const still = exceededKeys(limits, used, saved.budget.ack, saved.round).map((e) => e.key);
   return { id: saved.id, limits, used, exceeded: exceeded.map((e) => e.key), ack: saved.budget.ack, acked, stillExceeded: still };
 }

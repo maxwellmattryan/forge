@@ -250,10 +250,10 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
     },
   },
   {
-    name: '--now outside a daemon: merge.auto off, no decision, failing checks merge with one plain call',
+    name: "--now outside a daemon, with a person's grant: merge.auto off, no decision, failing checks merge with one plain call",
     arrange: () => scenario('failing', 'CLEAN', { decision: null }),
     config,
-    opts: { now: true },
+    opts: { now: { channel: 'terminal', actor: { login: 'alice', source: 'env' } } },
     check: (s, r) => {
       assert.deepEqual(s.merges(), [{ op: 'merge', slug: 'o/r', number: 7, method: 'squash', auto: false, matchHead: s.head }]);
       assert.equal((r as MergeResult).action, 'merged');
@@ -262,8 +262,20 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
       const merged = all.findIndex((e) => e.type === 'pr-merged');
       assert.ok(bypass >= 0 && merged > bypass, all.map((e) => e.type).join(' '));
       assert.equal(all[merged].bypass, true);
-      assert.ok(all[bypass].actor && all[merged].actor);
-      assert.deepEqual(all[merged].actor, all[bypass].actor);
+      assert.deepEqual(all[bypass].actor, { login: 'alice', source: 'env' });
+      assert.deepEqual(all[merged].actor, { login: 'alice', source: 'env' });
+    },
+  },
+  {
+    name: '--now without a grant is refused with no merge call',
+    arrange: () => scenario('failing', 'CLEAN', { decision: null }),
+    config,
+    // A caller that skipped the channel: the type forbids it, the runtime check refuses it.
+    opts: { now: true as never },
+    check: (s, r) => {
+      assert.ok(r instanceof ForgeError && r.code === 'human_only', String(r));
+      assert.deepEqual(s.merges(), []);
+      assert.ok(!s.all().some((e) => e.type === 'pr-merge-bypass' || e.type === 'pr-merged'));
     },
   },
 ];

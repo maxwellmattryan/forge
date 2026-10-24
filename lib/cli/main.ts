@@ -42,6 +42,7 @@ import { experimentCmd } from './commands/experiment.ts';
 import { focusCmd } from './commands/focus.ts';
 import { gitRead, gitWrite } from './commands/git.ts';
 import { helpCmd, usage } from './commands/help.ts';
+import { confirmHuman, mergeNowOp } from './commands/human.ts';
 import { initWrite, migrate } from './commands/init.ts';
 import { jobCmd } from './commands/job.ts';
 import { notifyCmd } from './commands/notify.ts';
@@ -211,7 +212,9 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
         // Strictly `true`: `--now <id>` would make parseArgs swallow the id as the flag's value,
         // and that mistake must not silently bypass CI.
         refuseDaemonMerge(id, flags);
-        const r = await mergePr(root, config, ghGitHub, id, { now: flags.now === true, ...mergeTarget(flags) });
+        // A human-only operation: a person types the id back at this terminal before any gh call.
+        const now = flags.now === true ? await confirmHuman(root, mergeNowOp(requireJob(root, id).id)) : undefined;
+        const r = await mergePr(root, config, ghGitHub, id, { now, ...mergeTarget(flags) });
         return { data: r, exitCode: r.action === 'refused' || r.action === 'failed' ? 1 : 0 };
       }
       if (sub === 'ready') return ok(readyPr(root, config, ghGitHub, id, mergeTarget(flags, 'ready')));
@@ -235,7 +238,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     }
     case 'budget':
       needInit();
-      return ok(budgetCmd(root, config, sub, flags));
+      return ok(await budgetCmd(root, config, sub, flags));
     case 'audit':
       needInit();
       return ok(auditCmd(root, pos.slice(1), flags));

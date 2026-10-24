@@ -1,11 +1,11 @@
 // `forge budget`: repo spend against the day and month caps (config `budget:`), and a human's
 // acknowledgement that grants one more period. Per-job budgets are `forge job budget`.
-import { currentActor } from '#integrations/github/actor.ts';
-import { ackRepoBudget, checkRepoBudget } from '#engine/metrics/repo-budget.ts';
+import { ackRepoBudget, checkRepoBudget, validPeriod } from '#engine/metrics/repo-budget.ts';
 import type { Config, RepoBudgetStatus } from '#core/types.ts';
 import type { HelpGroup } from '../types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { str } from './args.ts';
+import { budgetAckOp, confirmHuman } from './human.ts';
 
 const BUDGET: HelpGroup = {
   name: 'budget',
@@ -21,26 +21,28 @@ const BUDGET: HelpGroup = {
     {
       command: 'budget ack',
       args: '--period <YYYY-MM|YYYY-MM-DD> [--note N]',
-      summary: "grant one more period's cap for the current, exceeded UTC month or day, then free the jobs it held; a human only",
+      summary: "grant one more period's cap for the current, exceeded UTC month or day, then free the jobs it held; a human-only operation: it asks the person at the terminal to type the period",
       flags: [
         ['--period P', 'the current UTC month (month caps) or day (usdPerDay)'],
         ['--note N', 'why, kept in the audit log'],
       ],
-      exits: [[1, 'a period that is not current, nothing exceeded in it, or a daemon session']],
+      exits: [[1, 'a period that is not current, nothing exceeded in it, not confirmed, or human_only: a daemon session, or no person at a terminal (an agent, a script or a configured command)']],
     },
   ],
 };
 
 export const HELP: HelpGroup[] = [BUDGET];
 
-// The cap is the human's control over unattended spend: a session misled by tracker or PR text must not lift it.
-const DAEMON_REFUSAL = 'forge budget ack lifts the repo spend cap, which a daemon session may not do; a human runs it in their own session or acknowledges in the dashboard';
-
-export function budgetCmd(root: string, config: Config, sub: string | undefined, flags: Record<string, any>): RepoBudgetStatus | { acked: string; status: RepoBudgetStatus } {
+export async function budgetCmd(root: string, config: Config, sub: string | undefined, flags: Record<string, any>): Promise<RepoBudgetStatus | { acked: string; status: RepoBudgetStatus }> {
   if (sub === undefined) return checkRepoBudget(root, config);
   if (sub !== 'ack') throw new ForgeError(`unknown subcommand forge budget ${String(sub).slice(0, 40)}`, 'usage', 'forge help budget');
-  if (process.env.FORGE_DAEMON === '1') throw new ForgeError(DAEMON_REFUSAL);
   if (flags.period === undefined || flags.period === true) throw new ForgeError('--period is required: the current UTC month (YYYY-MM) or day (YYYY-MM-DD)', 'usage', 'forge help budget');
+  const period = String(flags.period);
   const note = str(flags.note, '--note') ?? null;
-  return ackRepoBudget(root, config, String(flags.period), note, currentActor(root));
+  // The cap is the human's control over unattended spend: a session misled by tracker or PR text,
+  // or branch code it runs, must not lift it, so a person types the period back at this terminal.
+  // Checked first, so the prompt only ever shows a well-formed period.
+  if (!validPeriod(period)) throw new ForgeError(`--period must be YYYY-MM or YYYY-MM-DD (got ${JSON.stringify(period).slice(0, 40)})`, 'usage', 'forge help budget');
+  const grant = await confirmHuman(root, budgetAckOp(period));
+  return ackRepoBudget(root, config, period, note, grant.actor);
 }

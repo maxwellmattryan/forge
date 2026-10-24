@@ -1,0 +1,91 @@
+// A person at this terminal confirming a human-only operation: the CLI's half of the human channel;
+// the dashboard's routes are the other (docs/architecture/daemon-security.md).
+import readline from 'node:readline/promises';
+import { currentActor } from '#integrations/github/actor.ts';
+import { ForgeError } from '#core/errors.ts';
+import type { HumanGrant } from '#core/types.ts';
+
+/** The terminal confirmHuman asks: injected in tests, so no TTY is needed. */
+export interface Terminal {
+  /** stdin and stderr are both TTYs. */
+  interactive: boolean;
+  ask(prompt: string): Promise<string>;
+}
+
+/** This process's terminal. stdout may be piped (`forge pr merge <id> --now | jq`): the prompt goes to stderr. */
+export function processTerminal(): Terminal {
+  return {
+    interactive: process.stdin.isTTY === true && process.stderr.isTTY === true,
+    async ask(prompt: string): Promise<string> {
+      const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+      try {
+        return await rl.question(prompt);
+      } finally {
+        rl.close();
+      }
+    },
+  };
+}
+
+/** A human-only operation as confirmHuman asks for it. */
+export interface HumanOp {
+  command: string;
+  what: string;
+  confirm: string;
+}
+
+/** `forge pr merge <id> --now`; `id` is one loadJob has validated. */
+export function mergeNowOp(id: string): HumanOp {
+  return {
+    command: 'forge pr merge --now',
+    what: `forge pr merge ${id} --now merges job ${id}'s PRs now, skipping merge.auto, the recorded approval, protected paths, the escalate floor and CI (never the merge order or a release gate). It is logged as a bypass with your name.`,
+    confirm: id,
+  };
+}
+
+/**
+ * `forge job budget <id> --set|--ack`; `id` is one loadJob has validated. The --set values are argv
+ * text, so the prompt names the flags, not the values.
+ */
+export function jobBudgetOp(id: string, change: { set: boolean; ack: boolean }): HumanOp {
+  const parts = [change.set ? "raises or resets its limits (--set)" : null, change.ack ? 'acknowledges what it has spent past them, so it can go on (--ack)' : null].filter(Boolean);
+  return {
+    command: 'forge job budget --set|--ack',
+    what: `forge job budget ${id} changes job ${id}'s spend limits: it ${parts.join(' and ')}. It is logged with your name.`,
+    confirm: id,
+  };
+}
+
+/** `forge budget ack --period P`; `period` is one validPeriod accepted. */
+export function budgetAckOp(period: string): HumanOp {
+  return {
+    command: 'forge budget ack',
+    what: `forge budget ack --period ${period} grants one more period's repo spend cap for ${period} and frees the jobs it held. It is logged with your name.`,
+    confirm: period,
+  };
+}
+
+/**
+ * Asks the person at this terminal to type `op.confirm` back before a human-only operation, and
+ * returns their grant. Refused in a daemon session, without a terminal on stdin and stderr (a
+ * configured command's stdin is never one, so a piped answer is never read), and on any other answer.
+ * A TTY alone is not enough: branch code can hand a nested call the person's own terminal, but it
+ * can't type the id there. `what` and `confirm` reach a terminal, so they hold only ids Forge
+ * validated, numbers and periods, never a title or other free text. No flag or env var skips this.
+ */
+export async function confirmHuman(
+  root: string,
+  op: HumanOp,
+  term: Terminal = processTerminal(),
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<HumanGrant> {
+  if (env.FORGE_DAEMON === '1') throw new ForgeError(`${op.command} is a human-only operation, which a daemon session never runs; a human runs it in their own terminal or uses the dashboard`, 'human_only');
+  if (!term.interactive)
+    throw new ForgeError(
+      `${op.command} is a human-only operation: it needs a person at a terminal to confirm it, so an agent, a script or a configured command can't run it. Run it in your own terminal, or use the dashboard`,
+      'human_only',
+    );
+  const answer = await term.ask(`${op.what}\nType ${op.confirm} to confirm: `);
+  if (answer.trim() !== op.confirm) throw new ForgeError('not confirmed; nothing changed', 'failed');
+  return { channel: 'terminal', actor: currentActor(root) };
+}
