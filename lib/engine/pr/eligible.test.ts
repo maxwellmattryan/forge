@@ -197,7 +197,14 @@ test('decisionSuperseded: a rework, a later round or a stage change replaces the
   const changesText = /^a review on GitHub requests changes on this PR: a human merges it, or dismisses that review on GitHub once it is addressed$/;
   // job.pr as the caller's sync recorded it at the live head.
   const reviewed = (changesRequested: unknown) => ({ ...atPr, pr: { number: 7, changesRequested } as Job['pr'] });
-  const rows: [string, Pick<Job, 'id' | 'stage' | 'state'> & Partial<Pick<Job, 'pr'>>, JobEvent[], RegExp | null, Pick<ForgeRequest, 'job' | 'type' | 'status'>[]?][] = [
+  // A linked job: the root PR and PR member lib's as the caller's sync recorded them.
+  const linked = (root: Record<string, unknown>, lib: Record<string, unknown>, verifyOnly = false) => ({
+    ...atPr,
+    pr: { number: 7, state: 'OPEN', ...root } as Job['pr'],
+    repos: [{ repo: null }, { repo: 'lib', verifyOnly, pr: { number: 8, state: 'OPEN', ...lib } }] as unknown as Job['repos'],
+  });
+  const memberText = /^a review on GitHub requests changes on repo lib's PR: a human merges the job's PRs, or dismisses that review on GitHub once it is addressed$/;
+  const rows: [string, Pick<Job, 'id' | 'stage' | 'state'> & Partial<Pick<Job, 'pr' | 'repos'>>, JobEvent[], RegExp | null, Pick<ForgeRequest, 'job' | 'type' | 'status'>[]?][] = [
     ['a decision while waiting', atPr, [decided(1)], null],
     ['a round, then a decision, while running', { ...atPr, state: 'running' }, [round(0, 1), decided(1)], null],
     ['a round after the decision', atPr, [decided(1), round(2, 2)], roundText('2')],
@@ -241,6 +248,16 @@ test('decisionSuperseded: a rework, a later round or a stage change replaces the
     ['two reviews requesting changes and no decision yet', reviewed(2), [], changesText],
     ['no review requesting changes', reviewed(0), [decided(1)], null],
     ['a PR record with no count', reviewed(undefined), [decided(1)], null],
+    // A linked job's PRs merge under one decision: a change request on any open one holds them all.
+    ["a review requesting changes on a linked job's member PR", linked({ changesRequested: 0 }, { changesRequested: 1 }), [decided(1)], memberText],
+    ['a member PR change request and no decision yet', linked({}, { changesRequested: 2 }), [], memberText],
+    ['a review requesting changes on the root PR of a linked job', linked({ changesRequested: 1 }, { changesRequested: 0 }), [decided(1)], /^a review on GitHub requests changes on the root PR: a human merges it/],
+    ['no review requesting changes on any PR of a linked job', linked({ changesRequested: 0 }, { changesRequested: 0 }), [decided(1)], null],
+    // A person who merged or closed a PR decided past its review; a verify-only member has no PR in the job.
+    ['a member PR merged past a change request', linked({}, { state: 'MERGED', changesRequested: 1 }), [decided(1)], null],
+    ['a member PR closed past a change request', linked({}, { state: 'CLOSED', changesRequested: 1 }), [decided(1)], null],
+    ['a root PR merged past a change request while a member PR is open', linked({ state: 'MERGED', changesRequested: 1 }, { changesRequested: 0 }), [decided(1)], null],
+    ['a verify-only member', linked({}, { changesRequested: 1 }, true), [decided(1)], null],
   ];
   for (const [name, job, events, want, requests] of rows) {
     const got = decisionSuperseded(job, events, requests);

@@ -13,12 +13,16 @@ import { ForgeError } from '#core/errors.ts';
 import { ackRequest, claimRequest, enqueue } from '#core/job/requests.ts';
 import { loadJob, logEvent, readEvents, setJob, updateJob } from '#core/job/store.ts';
 import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
+import { memberEntry } from '../project/job-repos.ts';
 
 // defaults(): a non-empty policy.protectedPaths, merge.method squash and merge.auto off.
 const config = defaults();
 config.tracker.github.repo = 'o/r';
 const auto = structuredClone(config);
 auto.merge.auto = true;
+/** auto with member repo lib, whose PRs live in o/lib. */
+const linkedAuto = structuredClone(auto);
+linkedAuto.repos = [{ name: 'lib', remote: 'https://github.com/o/lib.git', defaultBranch: 'main', tracker: { kind: 'github', repo: 'o/lib' } }];
 
 /** Past the settling window after the scenario's pr-opened event. */
 const SETTLED = () => Date.now() + 10 * 60_000;
@@ -46,6 +50,12 @@ interface ScenarioOpts {
   remoteGone?: boolean;
   /** The base branch GitHub says the PR targets (else main, the job's). */
   prBase?: string;
+  /**
+   * A linked job (run it with linkedAuto): member repo lib with PR #8 in o/lib on the job's branch,
+   * checks passing, in `state` on GitHub (OPEN), whose reviews GitHub lists as `reviews`.
+   * `changesRequested`: the count an earlier sync recorded for it.
+   */
+  member?: { reviews?: unknown[]; state?: 'OPEN' | 'MERGED'; changesRequested?: number };
 }
 
 /** A single-repo job with PR #7 opened, a decision bound to its head, and GitHub's PR #7 at that head. */
@@ -89,6 +99,17 @@ function scenario(rollup: keyof typeof ROLLUP, mergeStateStatus = 'CLEAN', opts:
   if (opts.decision !== null) logEvent(repo.dir, id, 'decision', { decision: 'APPROVE', reason: null, autoMerge: true, head: decided, ...opts.decision });
   const github = memoryGitHub();
   github.put(ghPr({ headRefOid: head, statusCheckRollup: ROLLUP[rollup], mergeStateStatus, ...(opts.prBase ? { baseRefName: opts.prBase } : {}) }));
+  if (opts.member) {
+    const m = opts.member;
+    const url = 'https://github.com/o/lib/pull/8';
+    const job = updateJob(repo.dir, id, (j) => {
+      const pr = { number: 8, url, state: 'OPEN' as const, isDraft: false, lastSyncedAt: new Date().toISOString(), ...(m.changesRequested !== undefined ? { changesRequested: m.changesRequested } : {}) };
+      j.repos = [j.repos[0], { repo: 'lib', worktree: null, branch: j.branch, base: 'main', pr, verifyOnly: false, interim: null }];
+    });
+    const state = m.state ?? 'OPEN';
+    github.put(ghPr({ number: 8, url, state, headRefName: job.branch, statusCheckRollup: ROLLUP.passing, mergedAt: state === 'MERGED' ? '2026-10-24T09:00:00Z' : null }), 'o/lib');
+    github.setFeedback(8, { reviews: { nodes: m.reviews ?? [] } }, 'o/lib');
+  }
   return {
     root: repo.dir,
     id,
@@ -354,6 +375,38 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
     },
   },
   {
+    name: "superseded: a review requesting changes on a linked job's member PR holds the root PR's merge",
+    arrange: () => scenario('passing', 'CLEAN', { member: { reviews: [changeRequest('CHANGES_REQUESTED')] } }),
+    config: linkedAuto,
+    check: (s, r) => {
+      refusedFor('superseded')(s, r);
+      assert.match((r as MergeResult).error ?? '', /^a review on GitHub requests changes on repo lib's PR/);
+      // The count mergePr's own sync of the member PR recorded at this call.
+      assert.equal(memberEntry(loadJob(s.root, s.id), 'lib')?.pr?.changesRequested, 1);
+    },
+  },
+  {
+    name: "superseded: a dismissed change request on a linked job's member PR holds nothing",
+    arrange: () => scenario('passing', 'CLEAN', { member: { reviews: [changeRequest('DISMISSED')], changesRequested: 1 } }),
+    config: linkedAuto,
+    opts: { root: true },
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([r.action, s.merges().map((c) => [c.slug, c.number])], ['merged', [['o/r', 7]]]);
+      assert.equal(memberEntry(loadJob(s.root, s.id), 'lib')?.pr?.changesRequested, 0);
+    },
+  },
+  {
+    name: "superseded: a linked job's member PR merged past a change request holds nothing, and its reviews are not read",
+    arrange: () => scenario('passing', 'CLEAN', { member: { state: 'MERGED', reviews: [changeRequest('CHANGES_REQUESTED')], changesRequested: 1 } }),
+    config: linkedAuto,
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([r.merged, r.action, s.merges().map((c) => [c.slug, c.number])], [true, 'merged', [['o/r', 7]]]);
+      assert.deepEqual(s.github.calls.filter((c) => c.op === 'feedback' && c.slug === 'o/lib'), []);
+    },
+  },
+  {
     name: 'superseded: a decision recorded after the new round merges',
     arrange: () =>
       after(scenario('passing'), (s) => {
@@ -441,6 +494,12 @@ test('deferredMergeDue: sync continues only a deferral nothing replaced', () => 
       updateJob(root, id, (j) => {
         j.pr = { ...j.pr!, number: 7, state: 'OPEN', changesRequested };
       });
+    // A linked job, with PR member lib's record as forge sync recorded it just before the hint.
+    const member = (changesRequested: number) => (root: string, id: string) =>
+      void updateJob(root, id, (j) => {
+        const pr = { number: 8, url: 'https://github.com/o/lib/pull/8', state: 'OPEN' as const, isDraft: false, lastSyncedAt: new Date().toISOString(), changesRequested };
+        j.repos = [j.repos[0], { repo: 'lib', worktree: null, branch: j.branch, base: 'main', pr, verifyOnly: false, interim: null }];
+      });
     type Step = [string, Record<string, unknown>] | ((root: string, id: string) => void);
     const rows: [string, Step[], unknown, boolean][] = [
       ['a settled deferral after the decision', [['decision', decision], ['pr-merge-deferred', deferred]], 'OPEN', true],
@@ -470,6 +529,8 @@ test('deferredMergeDue: sync continues only a deferral nothing replaced', () => 
       ['a gate request the Foreman acked', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => ackRequest(root, gate(root, id).id, { status: 'done' })], 'OPEN', true],
       ['a review requesting changes', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => reviewed(root, id, 1)], 'OPEN', false],
       ['no review requesting changes', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => reviewed(root, id, 0)], 'OPEN', true],
+      ["a review requesting changes on a linked job's member PR", [['decision', decision], ['pr-merge-deferred', deferred], member(1)], 'OPEN', false],
+      ["no review requesting changes on a linked job's member PR", [['decision', decision], ['pr-merge-deferred', deferred], member(0)], 'OPEN', true],
     ];
     for (const [name, steps, prState, want] of rows) {
       const id = parkedAt(repo.dir, 'pr-review', { config, title: name }).id;

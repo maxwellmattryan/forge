@@ -223,7 +223,7 @@ function cleanRepoPr(raw: unknown): JobRepoPr | null {
 }
 
 /** What openMemberPr and syncMemberPrs record (lib/engine/pr/members.ts). */
-const REPO_PR_KEYS = ['number', 'url', 'state', 'isDraft', 'openedAt', 'lastSyncedAt', 'pushedSha', 'headOid', 'mergeable', 'mergeState', 'checks', 'mergedAt'] as const;
+const REPO_PR_KEYS = ['number', 'url', 'state', 'isDraft', 'openedAt', 'lastSyncedAt', 'pushedSha', 'headOid', 'mergeable', 'mergeState', 'checks', 'changesRequested', 'mergedAt'] as const;
 
 /**
  * `repos` as readers see it: the root mirror rebuilt from the top-level fields, then every member

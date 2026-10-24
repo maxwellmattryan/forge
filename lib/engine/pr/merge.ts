@@ -307,8 +307,8 @@ const CONTINUES = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred']);
  * while the approver's decision still stands (decisionSuperseded, which also counts a rework,
  * revise-spec or cancel request still waiting in the inbox: sync runs every 2 minutes in the pool,
  * and such a request can wait far longer for a session; a gate request the Foreman has not decided,
- * such as the pr-feedback one this same sync may just have queued; and a review requesting changes,
- * from `job.pr` as this sync recorded it). A single-repo job needs an OPEN PR whose
+ * such as the pr-feedback one this same sync may just have queued; and a review requesting changes
+ * on any open PR of the job, the root's or a member's, as this sync recorded it). A single-repo job needs an OPEN PR whose
  * last merge event is a deferral logged after the last decision; a deferral from before a newer
  * decision waits for forge pr open, and a refusal stops the retries. A linked job asks
  * linkedMergeDeferred. Only a hint: mergePr's gate re-checks everything. The inbox is read last, so
