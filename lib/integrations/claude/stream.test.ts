@@ -59,14 +59,27 @@ test("claude's stream-json lines become domain events", () => {
     {
       name: 'a failed result',
       feed: (s) => s.stdout(line(errorResult('Failed to authenticate'))),
-      events: [logged(errorResult('Failed to authenticate')), { kind: 'turn-ended', ok: false, reason: 'Failed to authenticate', limit: false, resetsAt: null }],
+      events: [logged(errorResult('Failed to authenticate')), { kind: 'turn-ended', ok: false, reason: 'Failed to authenticate', limit: false, resetsAt: null, budget: false }],
+    },
+    ...[true, false].map((is_error) => {
+      const ev = { type: 'result', subtype: 'error_max_budget_usd', is_error };
+      return { name: `the dollar cap (is_error ${is_error})`, feed: (s: S) => s.stdout(line(ev)), events: [logged(ev), { kind: 'turn-ended', ok: false, reason: 'error_max_budget_usd', limit: false, resetsAt: null, budget: true } as ClaudeEvent] };
+    }),
+    {
+      name: 'the dollar cap after a rejected rate limit',
+      feed: (s) => s.stdout(line({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: resetSeconds } }) + line({ type: 'result', subtype: 'error_max_budget_usd', is_error: true, result: 'usage limit' })),
+      events: [
+        logged({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: resetSeconds } }),
+        logged({ type: 'result', subtype: 'error_max_budget_usd', is_error: true, result: 'usage limit' }),
+        { kind: 'turn-ended', ok: false, reason: 'usage limit', limit: false, resetsAt: null, budget: true },
+      ],
     },
     {
       name: 'a result in the quota wording',
       feed: (s) => s.stdout(line(errorResult('API Error: 400 You have reached your specified API usage limits'))),
       events: [
         logged(errorResult('API Error: 400 You have reached your specified API usage limits')),
-        { kind: 'turn-ended', ok: false, reason: 'API Error: 400 You have reached your specified API usage limits', limit: true, resetsAt: null },
+        { kind: 'turn-ended', ok: false, reason: 'API Error: 400 You have reached your specified API usage limits', limit: true, resetsAt: null, budget: false },
       ],
     },
     ...[resetSeconds, resetSeconds * 1000].map((resetsAt) => ({
@@ -75,7 +88,7 @@ test("claude's stream-json lines become domain events", () => {
       events: [
         logged({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt } }),
         logged(errorResult('boom')),
-        { kind: 'turn-ended', ok: false, reason: 'boom', limit: true, resetsAt: resetSeconds * 1000 } as ClaudeEvent,
+        { kind: 'turn-ended', ok: false, reason: 'boom', limit: true, resetsAt: resetSeconds * 1000, budget: false } as ClaudeEvent,
       ],
     })),
     {
@@ -85,7 +98,7 @@ test("claude's stream-json lines become domain events", () => {
         s.writeTurn();
         s.stdout(line(errorResult('boom')));
       },
-      events: [logged({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: resetSeconds } }), logged(errorResult('boom')), { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, resetsAt: null }],
+      events: [logged({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: resetSeconds } }), logged(errorResult('boom')), { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, resetsAt: null, budget: false }],
       written: [TURN_LINE],
     },
     { name: 'can_use_tool', feed: (s) => s.stdout(line(ask)), events: [logged(ask), askedEvent] },

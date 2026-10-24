@@ -2,7 +2,7 @@
 // Session state and errors come from session output, i.e. untrusted text: these return plain strings rendered as text.
 import { ago } from './util.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE } from './types.ts';
-import type { DaemonPermissionMode, DaemonPoolState, DaemonSessionState } from './types.ts';
+import type { DaemonBilling, DaemonPermissionMode, DaemonPoolState, DaemonSessionState } from './types.ts';
 
 export const START_HINT = 'Set daemon.enabled: true in .forge/config.yml';
 const JOB_LABEL = 24;
@@ -251,6 +251,12 @@ export async function postDaemonMode(scope: string, mode: DaemonPermissionMode, 
  */
 export async function postDaemon(action: 'start' | 'stop', token: string, scope?: string, fetchImpl: typeof fetch = fetch): Promise<DaemonPoolState> {
   return postJson('/api/daemon', scope === undefined ? { action } : { action, scope }, token, fetchImpl);
+}
+
+/** The Daemon popover's billing warning: whether sessions get the variables, and their names joined; null when none is set. */
+export function billingNote(b: DaemonBilling | null | undefined): { passed: boolean; vars: string } | null {
+  if (!b || !Array.isArray(b.vars) || !b.vars.length) return null;
+  return { passed: b.passed === true, vars: b.vars.join(', ') };
 }
 
 async function postJson(url: string, payload: unknown, token: string, fetchImpl: typeof fetch): Promise<DaemonPoolState> {
