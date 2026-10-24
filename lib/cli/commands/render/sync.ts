@@ -14,6 +14,8 @@ function summary(r: Record<string, any>, integrating: string[], p: Paint): strin
   else s = '-';
   if (r.integrate || integrating.includes(r.id)) s += ' → integrate';
   if (r.reopen || r.reopened) s += ' reopened';
+  // forge sync continued a deferred merge: what it did, and why when it refused.
+  if (isMap(r.merge)) s += ` · merge ${txt(r.merge.action)}${r.merge.reason !== undefined ? ` (${txt(r.merge.reason)})` : ''}`;
   return s;
 }
 

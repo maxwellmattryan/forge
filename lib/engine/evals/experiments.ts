@@ -11,6 +11,7 @@ import { LENS_NAME } from '#core/job/lens.ts';
 import { METRIC_PATH, ledgerItems, metricValue, noteFiles, noteItems, parseLearnings, validDate } from './learnings.ts';
 import type { LedgerItem } from './learnings.ts';
 import { exists } from '#core/paths.ts';
+import { writeAtomic } from '#core/os/fs.ts';
 import { resolveBase } from '../pipeline/scope.ts';
 import { PROTO_KEYS } from '#core/shape.ts';
 import { statsFrom, statsSources } from '../metrics/stats.ts';
@@ -276,22 +277,6 @@ function ledgerFile(root: string, job: Pick<Job, 'id' | 'worktree'> | null): str
 }
 
 /**
- * Writes through a fresh temp file in the same directory, then renames over the ledger. Not
- * writeTextAtomic: the ledger sits in a builder-written worktree, so the temp file is opened `wx`
- * (a planted file or link at its path is refused), and no directory is created on the way.
- */
-function writeAtomic(file: string, text: string): void {
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, text, { flag: 'wx' });
-  try {
-    fs.renameSync(tmp, file);
-  } catch (e) {
-    fs.rmSync(tmp, { force: true });
-    throw e;
-  }
-}
-
-/**
  * `forge experiment evaluate`: settles each open ledger entry it can. Reads jobs from `root` only;
  * writes the one ledger file (the job worktree's with `job`) and nothing else, and with `dryRun`
  * nothing at all.
@@ -335,6 +320,7 @@ export function evaluateExperiments(root: string, config: Config, opts: { job?: 
   if (!opts.dryRun && edits.length) {
     let text = raw;
     for (const { at, status } of [...edits].sort((a, b) => b.at - a.at)) text = text.slice(0, at) + status + text.slice(at + 'status open'.length);
+    // Not writeTextAtomic: the ledger sits in a builder-written worktree, so no directory is created on the way.
     writeAtomic(file, text);
   }
   return { file, dryRun: Boolean(opts.dryRun), written: opts.dryRun ? 0 : edits.length, entries };

@@ -261,11 +261,13 @@ function packageOverrides(file: string, beforeText: string | null, afterText: st
   return out;
 }
 
-/** Paths that are test, build or CI config whatever their content. */
-export function isConfigPath(p: string): boolean {
-  const base = path.posix.basename(p);
-  if (/^(Makefile|makefile|GNUmakefile|justfile|Justfile)$/.test(base) || base.endsWith('.mk')) return true;
-  if (/^(\.github\/workflows|\.circleci|\.buildkite|\.forge\/ci)\//.test(p) || ['.gitlab-ci.yml', 'azure-pipelines.yml', 'Jenkinsfile', '.forge/config.yml', '.forge/secrets-allow.txt'].includes(p)) return true;
+/** Paths that are test, build or CI config whatever their content; `fold` reads the name as a case-insensitive checkout does (the escalate floor, floor.ts). */
+export function isConfigPath(p: string, fold = false): boolean {
+  const f = (s: string): string => (fold ? s.toLowerCase() : s);
+  const q = f(p);
+  const base = path.posix.basename(q);
+  if (['Makefile', 'makefile', 'GNUmakefile', 'justfile', 'Justfile'].some((n) => f(n) === base) || base.endsWith('.mk')) return true;
+  if (/^(\.github\/workflows|\.circleci|\.buildkite|\.forge\/ci)\//.test(q) || ['.gitlab-ci.yml', 'azure-pipelines.yml', 'Jenkinsfile', '.forge/config.yml', '.forge/secrets-allow.txt'].some((n) => f(n) === q)) return true;
   if (/^(jest\.config|vitest\.config|vitest\.workspace|playwright\.config|karma\.conf)\./.test(base) || /^\.(mocharc|nycrc)/.test(base)) return true;
   // Attributes can mark test files `-diff`/`binary`, which would hide their changed lines.
   return base === 'pytest.ini' || base === 'tox.ini' || base === '.gitattributes';
@@ -698,26 +700,22 @@ export function testIntegrity(root: string, config: Config, job: Pick<Job, 'id' 
   return report;
 }
 
-function configEdit(
-  c: { status: string; from: string | null; to: string | null },
-  sources: Set<string>,
-  show: (rev: string, p: string | null) => string | null,
-  mergeBase: string,
-): { path: string; detail: string } | null {
+/** A test, build or CI config edit, or null; `head` is the commit `to` is read at. Also the escalate floor's config rule (floor.ts). */
+export function configEdit(c: { status: string; from: string | null; to: string | null }, sources: Set<string>, show: (rev: string, p: string | null) => string | null, mergeBase: string, head = 'HEAD'): { path: string; detail: string } | null {
   const p = (c.to ?? c.from) as string;
   const detail = c.status === 'A' || c.status === 'C' ? 'added' : c.status === 'D' ? 'deleted' : c.status === 'R' ? `renamed from ${c.from}` : 'edited';
   const names = [c.from, c.to].filter((x) => x !== null);
   const base = path.posix.basename(p);
   if (base === 'package.json') {
     const before = c.from ? show(mergeBase, c.from) : '';
-    const after = c.to ? show('HEAD', c.to) : '';
+    const after = c.to ? show(head, c.to) : '';
     if (before === null || after === null) return { path: p, detail: 'edited (unparseable)' };
     const d = packageJsonDetail(before, after);
     return d ? { path: p, detail: d } : null;
   }
   if (base === 'Cargo.toml') {
     const before = devDepsSection((c.from && show(mergeBase, c.from)) || '');
-    const after = devDepsSection((c.to && show('HEAD', c.to)) || '');
+    const after = devDepsSection((c.to && show(head, c.to)) || '');
     return before !== after ? { path: p, detail: '[dev-dependencies] changed' } : null;
   }
   if (names.some((n) => isConfigPath(n) || sources.has(n))) return { path: p, detail };

@@ -364,6 +364,27 @@ export interface CompactProtected {
   error?: string;
 }
 
+/** One repo's committed diff from merge-base(base, tip) to `tip`, checked against `rules`; records nothing. */
+function branchPart(wt: string, config: Config, rules: ProtectedRule[], base: Pick<Job, 'base'>, tip: string) {
+  if (!FULL_SHA.test(tip)) throw new ForgeError(`${JSON.stringify(tip.slice(0, 80))} is not a commit id`);
+  const env = historyEnv();
+  const cwd = fs.realpathSync(wt);
+  const mergeBase = resolveBase(cwd, config, base, tip).mergeBase;
+  if (!FULL_SHA.test(mergeBase)) throw new ForgeError(`merge-base ${JSON.stringify(mergeBase.slice(0, 80))} is not a commit id`);
+  const found = checkProtected(diffEntries(cwd, mergeBase, tip, env), rules, blobReader(cwd, env), cwd);
+  return { found, cwd, mergeBase, env };
+}
+
+/**
+ * The policy's hits on one repo's branch at `head` (a commit id), recomputed from git: read-only, so
+ * a merge can check the live PR head without touching the job flag. Throws when it can't be computed.
+ */
+export function branchHits(cwd: string, config: Config, base: Pick<Job, 'base'>, head: string): ProtectedCheck {
+  const rules = policyRules(config);
+  if (!rules.length) return { refused: [], escalated: [] };
+  return branchPart(cwd, config, rules, base, head).found;
+}
+
 /**
  * The committed diff from the comparison point (bound to `head`) to `head`, checked against the
  * policy, with the flag recorded and a refusal logged. Recomputed from git every time: the stored
@@ -384,13 +405,8 @@ export function checkBranch(
   if (!rules.length) return { ...empty, flag: recordProtected(root, job.id, gate, [], head, null) };
   try {
     if (!job.worktree) throw new ForgeError(`job ${job.id} has no worktree`);
-    const env = historyEnv();
     const branch = (wt: string, base: Pick<Job, 'base'>, tip: string, repo?: string) => {
-      if (!FULL_SHA.test(tip)) throw new ForgeError(`${JSON.stringify(tip.slice(0, 80))} is not a commit id`);
-      const cwd = fs.realpathSync(wt);
-      const m = resolveBase(cwd, config, base, tip).mergeBase;
-      if (!FULL_SHA.test(m)) throw new ForgeError(`merge-base ${JSON.stringify(m.slice(0, 80))} is not a commit id`);
-      const found = checkProtected(diffEntries(cwd, m, tip, env), rules, blobReader(cwd, env), cwd);
+      const { found, cwd, mergeBase: m, env } = branchPart(wt, config, rules, base, tip);
       const src: DiffSource = { cwd, from: m, to: tip, env, paths: found.escalated.map((h) => h.path), ...(repo === undefined ? {} : { repo }) };
       return { found: repo === undefined ? found : prefixHits(repo, found), src };
     };

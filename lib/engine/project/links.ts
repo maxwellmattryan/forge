@@ -5,7 +5,6 @@
 // never in a worktree, so an override cannot reach a commit by accident (integrity.ts catches one on purpose).
 // Must not import run.ts, lib/engine/verify/gate.ts, steps.ts or integrity.ts: all four import this module.
 
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { LINK_ECOSYSTEMS, isInsidePath, isLinkName, isLinkSource, isManifestPath } from '#core/config/components.ts';
@@ -14,6 +13,7 @@ import { git } from '#integrations/git/runner.ts';
 import { memberEntry, memberWorktreePath, trustedMemberWorktree } from './job-repos.ts';
 import { linkDir } from '#core/paths.ts';
 import { isMap } from '#core/shape.ts';
+import { writeAtomic } from '#core/os/fs.ts';
 import type { Config, Job, LinkEcosystem } from '#core/types.ts';
 
 /** A well-formed link from config: declaredLinks. A null repo is the root repo. */
@@ -287,30 +287,16 @@ export function sameMode(actual: number, wanted: number, platform: NodeJS.Platfo
 }
 
 /**
- * Writes `content` (temp file plus rename) only when the file differs; a symlink or FIFO there is
- * replaced, never followed. The temp name is random and opened exclusively (`wx`), so an entry a
- * hostile checkout plants at a guessed name fails the write instead of redirecting it, and the
- * mode is set on the open descriptor, never through a path. Config sinks (lib/engine/environment/config-sinks-apply.ts) reuse it.
+ * Writes `content` (writeAtomic: temp file plus rename) only when the file differs; a symlink or
+ * FIFO there is replaced, never followed, and the mode is exactly `mode`. Config sinks
+ * (lib/engine/environment/config-sinks-apply.ts) reuse it.
  */
 export function writeIfChanged(file: string, content: string, mode: number): void {
   try {
     const st = fs.lstatSync(file);
     if (st.isFile() && sameMode(st.mode, mode) && fs.readFileSync(file, 'utf8') === content) return;
   } catch {}
-  const tmp = `${file}.${crypto.randomBytes(8).toString('hex')}.tmp`;
-  const fd = fs.openSync(tmp, 'wx', mode);
-  try {
-    try {
-      fs.writeFileSync(fd, content);
-      fs.fchmodSync(fd, mode);
-    } finally {
-      fs.closeSync(fd);
-    }
-    fs.renameSync(tmp, file);
-  } catch (e) {
-    fs.rmSync(tmp, { force: true });
-    throw e;
-  }
+  writeAtomic(file, content, { mode });
 }
 
 /** Removes every entry of `dir` not in `keep` (a missing dir is fine). */
