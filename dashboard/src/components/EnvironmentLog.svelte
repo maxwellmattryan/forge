@@ -13,7 +13,7 @@
   import { S, forgeToken } from '../lib/app.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import { settled } from '../lib/motion.ts';
-  import { LIVE_LAMPS, cursorState, isLiveLine, lampState, streaming } from '../lib/station.ts';
+  import { LIVE_LAMPS, isLiveLine, lampState, streaming } from '../lib/station.ts';
   import { t } from '../lib/locale.ts';
 
   let { job, source, label, onclose }: { job: string; source: string; label: string; onclose: () => void } = $props();
@@ -107,8 +107,6 @@
   const isStreaming = $derived(streaming(Math.max(lastLiveAt ?? -Infinity, clockIn ?? -Infinity), ticker.now));
   // A refused stream ends dark (idle), never done.
   const lamp = $derived(lampState({ kind: 'stream', ended: ended && !failed, waiting: streamOpen && !isStreaming, streaming: isStreaming }));
-  const cursor = $derived(cursorState(lamp, isStreaming));
-  const CURSOR = { blink: 'cursor blink', hold: 'cursor hold' } as const;
   const hot = $derived(isStreaming && settled(ticker.now, S.readyAt));
   $effect(() => {
     if (clocked || !LIVE_LAMPS.has(lamp)) return;
@@ -142,5 +140,5 @@
     tabindex="0"
     aria-label={$t('environment.log.aria', { source: label })}
     class="screen mono selectable text-[12px] leading-5 max-h-72 min-h-16 overscroll-contain px-2.5 py-1.5 {LIVE_LAMPS.has(lamp) ? 'live' : ''} {powering ? 'powering' : ''}"
-  ><pre class="whitespace-pre-wrap break-words m-0">{#each lines as line}{line}{'\n'}{:else}<span class="text-muted">{failed ? (source === 'dev' ? $t('environment.log.failedDev') : $t('environment.log.failedBacking')) : ended ? $t('environment.log.emptyEnded') : $t('environment.log.waiting')}</span>{/each}{#if cursor !== 'off'}<span class={CURSOR[cursor]} aria-hidden="true"></span>{/if}</pre></div>
+  ><pre class="whitespace-pre-wrap break-words m-0">{#each lines as line}{line}{'\n'}{:else}<span class="text-muted">{failed ? (source === 'dev' ? $t('environment.log.failedDev') : $t('environment.log.failedBacking')) : ended ? $t('environment.log.emptyEnded') : $t('environment.log.waiting')}</span>{/each}</pre></div>
 </div>
