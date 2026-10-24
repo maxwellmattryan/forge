@@ -10,6 +10,7 @@ One supervised headless Claude Code session (`createSession`) and the pieces it 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
 |---|---|
+| `confine.ts` | What a daemon session may write: its write roots (the job folders and every worktrees root), the deny rules for the checkout's protected paths, the env that tells hooks/write-guard.ts the same roots, and the confine digest the post-turn check compares. |
 | `contract.ts` | The session's contract with its pool: the events it reports, the context and options it is built with (sessionOptions fills in the real defaults), the child it supervises and the Session it returns. |
 | `control.ts` | The permission-prompt and mode-switch policy: which prompts a human sees and which are denied unasked, and what a refused or unconfirmed mode switch does. |
 | `holds.ts` | What keeps a request waiting: a job parked on its budget, or the repo budget. |

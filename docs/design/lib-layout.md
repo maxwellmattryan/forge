@@ -243,11 +243,12 @@ Landed in #416, in two commits so the moves read as moves. Step 1 moved the pure
 
 | File | Contents | ≈ lines |
 |---|---|---|
-| `integrations/claude/argv.ts` | `DENY_TOOLS`, `PROMPT_TOOL`, `PERMISSION_MODES`, the permission-mode and effort flags, `modeReach`, `apiKeyVars`, `sessionEnv`, `parseTemplate`, `buildArgv` | 157 |
+| `integrations/claude/argv.ts` | `DENY_TOOLS`, `FILE_TOOLS`, `absRule`, `PROMPT_TOOL`, `PERMISSION_MODES`, the permission-mode and effort flags, `modeReach`, `apiKeyVars`, `sessionEnv`, `parseTemplate`, `buildArgv` | 196 |
 | `office/session/contract.ts` | `SessionEvent`, `LogSink`, `DaemonOptions`, `Redactor`, `SessionOptions` and `sessionOptions`, `SessionContext`, `ChildMeta`, `DaemonChild`, `Session`, `SessionCore` | 221 |
 | `office/session/control.ts` | every stdin line (`TURN`, `TURN_LINE`, permission answers, mode switches), `sessionGrant`, `ruleText`, and `createControl`: prompts and mode switches | 243 |
 | `office/session/holds.ts` | `heldByBudget`, `heldByRepoBudget`, `routeHolds`, `parseRateLimit`, `LIMIT_TEXT` | 89 |
-| `office/session/launch.ts` | `checkLaunch`: tracker symlinks, the one read of config.yml, the trust digest, `daemon.enabled`, `daemonProblems` | 49 |
+| `office/session/launch.ts` | `checkLaunch`: tracker symlinks, the one read of config.yml, the trust digest, the confine digest, `daemon.enabled`, `daemonProblems` | 56 |
+| `office/session/confine.ts` (#382) | `WRITE_ROOTS_ENV`, `writeRoots`, `hooksDir`, `denyRules`, `confineDigest`, `spawnConfinement`: what a session may write | 150 |
 | `office/session/log.ts` | `capLine`, `splitter`, `stamped`, and `createSessionLog`: the sink, offsets, the replay ring, rotation, backpressure | 207 |
 | `office/session/owned.ts` | `LOST_SUMMARY` and `createOwned`: kept, facts, agents lost, the lease and claimed requests on exit | 89 |
 | `office/session/records.ts` | `withSessionId`, `isOurChild`, `otherOwner`, `reapOrphans` | 99 |

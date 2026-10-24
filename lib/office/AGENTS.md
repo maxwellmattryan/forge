@@ -20,4 +20,5 @@ Forge's long-running runtime: the session pool, per-job sessions, the reconciler
 | `reconcile.ts` | The reconciler: the one place that asks "is this running job being driven?" and acts when it is not. |
 | `session-agents.ts` | What a job session's agents say about keeping it. |
 | `session/` | One supervised headless Claude Code session (`createSession`) and the pieces it is built from. |
+| `sync-child.ts` | The periodic `forge sync` child of `forge dash`: outside any daemon scope, as the human who started the dashboard, with git pinned (SYNC_PINS) so a hook or program the checkout's config names never runs on its fetches. |
 <!-- forge:map:end -->
