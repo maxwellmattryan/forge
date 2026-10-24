@@ -55,9 +55,14 @@ const FIELD_FLAG = new RegExp(String.raw`(?:^|\s)(?:-[Ff]\s*|--(?:raw-)?field(?:
 const FIELD_VALUE = /^[^=\s]*=@([\s\S]+)$/;
 const DIR_FLAG = new RegExp(String.raw`(?:^|\s)-C\s*${VALUE}`, 'g');
 const MAX_MESSAGE_FILE = 1024 * 1024;
-/** The hook's work stays bounded on any command: past these, nothing more is read. */
+/**
+ * The hook's work stays bounded on any command: past these, nothing more is read. The byte budget
+ * bounds the bytes read across all of a command's message files, so up to 288 files (32 values in
+ * 9 bases) near 1 MiB each cannot make the hook slow enough for Claude Code to let it through.
+ */
 const MAX_DIR_BASES = 8;
 const MAX_MESSAGE_FILES = 32;
+const MAX_READ_BYTES = 8 * 1024 * 1024;
 // A quoted argument (`-m "Co-Authored-By: …"`), a `$'…\n…'` line or a JSON string starts mid-line,
 // so text is scanned once more with quotes and literal `\n` as line breaks.
 const LINE_BREAKS = /["']|\\n/;
@@ -73,19 +78,28 @@ function namedFile(raw: string, kind: 'long' | 'short' | 'field'): string | null
 }
 
 /**
- * A message file's text, or null. Only an existing regular file under 1 MiB is read, and it is
- * opened non-blocking and checked again on the descriptor, so a FIFO or device an agent names (or
- * swaps in after the stat) never blocks the hook.
+ * A message file's text and the bytes read, or null. Only an existing regular file under 1 MiB
+ * whose size fits in `room` (what is left of the command's byte budget) is read, and it is opened
+ * non-blocking and checked again on the descriptor, so a FIFO or device an agent names (or swaps in
+ * after the stat) never blocks the hook. At most the descriptor's size is read, never to EOF, so a
+ * file that grows after the check (or reports size 0) cannot take the read past the budget.
  */
-function readMessageFile(file: string): string | null {
+function readMessageFile(file: string, room: number): { text: string; bytes: number } | null {
   try {
     const st = fs.statSync(file);
-    if (!st.isFile() || st.size >= MAX_MESSAGE_FILE) return null;
+    if (!st.isFile() || st.size >= MAX_MESSAGE_FILE || st.size > room) return null;
     const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0));
     try {
       const real = fs.fstatSync(fd);
-      if (!real.isFile() || real.size >= MAX_MESSAGE_FILE) return null;
-      return fs.readFileSync(fd, 'utf8');
+      if (!real.isFile() || real.size >= MAX_MESSAGE_FILE || real.size > room) return null;
+      const buf = Buffer.alloc(real.size);
+      let n = 0;
+      while (n < buf.length) {
+        const got = fs.readSync(fd, buf, n, buf.length - n, n);
+        if (got === 0) break;
+        n += got;
+      }
+      return { text: buf.toString('utf8', 0, n), bytes: n };
     } finally {
       fs.closeSync(fd);
     }
@@ -100,12 +114,15 @@ function readMessageFile(file: string): string | null {
  * unambiguous abbreviations `--fi`, `--fil`, `--te`…, with `=` or a space; `-F` or `-t`, attached,
  * spaced or ending a cluster; a `key=@path` field of `-F`, `-f`, `--field` or `--raw-field`). A
  * relative file is tried against `cwd` and against each of the first 8 `-C <dir>`, each resolved
- * against the one before, as git does; only the first 32 distinct files are read, so the cost is
- * bounded on any command. The command and each file are scanned as they are and once more split on
- * quotes and literal `\n`. `[]` when the command names no git, gh or glab. Commands built at run time
- * (`$(cat msg)`, `$F`, `cd dir &&`, `~`) are the documented residuals.
+ * against the one before, as git does; only the first 32 distinct files are read, and at most
+ * `maxBytes` (8 MiB) in total: a file whose size would pass what is left is skipped unread, and a
+ * later one that fits is still read. So the cost is bounded on any command. The command text is
+ * always scanned, outside the budget. The command and each file are scanned as they are and once
+ * more split on quotes and literal `\n`. `[]` when the command names no git, gh or glab. Commands
+ * built at run time (`$(cat msg)`, `$F`, `cd dir &&`, `~`) and a file skipped for the budget are the
+ * documented residuals.
  */
-export function commandAttribution(command: string, cwd: string): string[] {
+export function commandAttribution(command: string, cwd: string, maxBytes = MAX_READ_BYTES): string[] {
   if (!PUBLISHING.test(command)) return [];
   const bases = new Set([cwd]);
   let base = cwd;
@@ -121,9 +138,13 @@ export function commandAttribution(command: string, cwd: string): string[] {
   const files = new Set<string>();
   for (const p of values) for (const b of path.isAbsolute(p) ? [''] : bases) files.add(path.resolve(b, p));
   const texts = [command];
+  let room = maxBytes;
   for (const f of files) {
-    const text = readMessageFile(f);
-    if (text !== null) texts.push(text);
+    const read = readMessageFile(f, room);
+    if (read) {
+      room -= read.bytes;
+      texts.push(read.text);
+    }
   }
   return [...new Set(texts.flatMap((t) => [...findAttribution(t), ...findAttribution(t.split(LINE_BREAKS).join('\n'))]))];
 }
