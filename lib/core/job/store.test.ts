@@ -1,13 +1,15 @@
 // The CLI copy of job state (#448): what loadJob, listJobs and readEvents return once a job folder's
-// job.json and events.jsonl are tampered with, and the jobs that predate the copy.
+// job.json and events.jsonl are tampered with, and the jobs that predate the copy. Also the review
+// directory, which a link planted in the job folder never redirects.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '../config/keys/defaults.ts';
 import { jobDir, jobRecordDir } from '../paths.ts';
-import { createJob, listJobs, loadJob, readEvents, setJob, updateJob } from './store.ts';
+import { createJob, ensureReviewDir, listJobs, loadJob, readEvents, setJob, updateJob } from './store.ts';
 import type { ProtectedPaths } from '../types.ts';
 
 const FLAG: ProtectedPaths = { hits: [{ path: '.github/workflows/ci.yml', rule: 0, glob: '.github/**', reason: 'CI', blob: null }], more: 0, at: '2026-10-01T00:00:00.000Z', gate: 'verify', head: null };
@@ -84,4 +86,27 @@ test('a CLI copy without a job folder is no job, and a job without a copy reads 
   setJob(root, 'by-hand', { note: 'written' });
   assert.equal(fs.existsSync(jobRecordDir(root, 'by-hand')), false, 'and gets no copy');
   assert.deepEqual(readEvents(root, 'by-hand').map((e) => e.type), ['note']);
+});
+
+test('the review directory is never created through a link', (t) => {
+  const root = repo(t);
+  const linked = createJob(root, defaults(), { title: 'linked review' });
+  const clean = createJob(root, defaults(), { title: 'clean review' });
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-outside-')));
+  t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+  const review = path.join(jobDir(root, linked.id), 'review');
+  fs.rmSync(review, { recursive: true, force: true });
+  try {
+    // A directory symlink on POSIX, a junction (no privilege needed) on Windows.
+    fs.symlinkSync(outside, review, 'junction');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EPERM') return t.skip('cannot create a link here');
+    throw e;
+  }
+  assert.throws(() => ensureReviewDir(root, linked.id, 1), /not a real directory/);
+  assert.deepEqual(fs.readdirSync(outside), [], 'nothing is created in the link target');
+
+  const dir = ensureReviewDir(root, clean.id, 1);
+  assert.equal(dir, path.join(jobDir(root, clean.id), 'review', 'round-1'), 'the lexical path is returned');
+  assert.ok(fs.lstatSync(dir).isDirectory());
 });
