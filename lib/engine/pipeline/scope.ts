@@ -135,14 +135,15 @@ const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
  * The paths whose content at `sha` differs from git's own merge of `head` and `upstream`: what a
  * conflict resolution, and every commit after it, changed beyond the automatic merge. Conflicted
  * files differ too, since the automatic merge leaves markers in them. Null when it can't be
- * computed, so the caller keeps the integration review.
+ * computed, so the caller keeps the integration review; with `conflictFree`, also when the
+ * automatic merge conflicts, so a tree of conflict markers never reads as a clean merge.
  */
-export function integrationTouched(cwd: string, head: string, upstream: string, sha: string): string[] | null {
+export function integrationTouched(cwd: string, head: string, upstream: string, sha: string, opts: { conflictFree?: boolean } = {}): string[] | null {
   if (![head, upstream, sha].every((s) => FULL_SHA.test(s))) return null;
   const env = historyEnv();
   // Exit 1 means the merge has conflicts; the tree (with markers) is still written.
   const merged = runGit(cwd, ['merge-tree', '--write-tree', '--no-messages', head, upstream], { env, allowFail: true, write: true });
-  if (merged.status !== 0 && merged.status !== 1) return null;
+  if (merged.status !== 0 && (merged.status !== 1 || opts.conflictFree)) return null;
   const tree = merged.stdout.split('\n')[0].trim();
   if (!FULL_SHA.test(tree)) return null;
   const diff = runGit(cwd, ['diff', '--name-only', '--no-renames', '-z', tree, sha, '--'], { env, allowFail: true });
@@ -155,8 +156,9 @@ export function integrationTouched(cwd: string, head: string, upstream: string, 
  * Refs are fully qualified and replace objects and grafts are ignored, so a tag named like the base
  * branch, a `git replace` or `.git/info/grafts` made from the job's worktree cannot move the comparison point.
  * `head` is a commit id when a caller binds its evidence to the commit it read (the secret scan), else HEAD.
+ * `tip` is the commit the base ref resolved to.
  */
-export function resolveBase(cwd: string, config: Config, job: Pick<Job, 'base'>, head = 'HEAD'): { baseRef: string; mergeBase: string } {
+export function resolveBase(cwd: string, config: Config, job: Pick<Job, 'base'>, head = 'HEAD'): { baseRef: string; mergeBase: string; tip: string } {
   const base = String(job.base ?? '');
   const candidates: [string, string][] = base.startsWith('refs/')
     ? [[base, base]]
@@ -169,7 +171,10 @@ export function resolveBase(cwd: string, config: Config, job: Pick<Job, 'base'>,
   const env = historyEnv();
   for (const [name, ref] of candidates) {
     const r = runGit(cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { env, allowFail: true });
-    if (r.ok) return { baseRef: name, mergeBase: runGit(cwd, ['merge-base', r.stdout.trim(), head], { env }).stdout.trim() };
+    if (r.ok) {
+      const tip = r.stdout.trim();
+      return { baseRef: name, mergeBase: runGit(cwd, ['merge-base', tip, head], { env }).stdout.trim(), tip };
+    }
   }
   throw new ForgeError(`base ${job.base} not found`);
 }

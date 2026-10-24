@@ -210,6 +210,13 @@ const EVENT_ROWS: Row[] = [
     removed: ['pluginHash', 'promptHash', 'configHash'],
     note: 'an agent-start from before provenance keeps every field and gains no hash',
   },
+  {
+    step: 'decision-head',
+    input: { ts: 't', type: 'decision', decision: 'APPROVE', reason: null },
+    fields: { type: 'decision', ts: 't', decision: 'APPROVE', reason: null },
+    removed: ['autoMerge', 'head', 'heads'],
+    note: 'a decision from before the head binding keeps its fields and gains no head, so it is never eligible',
+  },
 ];
 
 /** One versioned shape: its rows, its step list, its current version, the field that holds it, and its reader. */
