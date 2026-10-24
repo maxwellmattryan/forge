@@ -80,7 +80,7 @@ export type PrepareResult =
 export type ApplyItemResult =
   | { ref: string; ready: false; missing: TriageMissing[]; commented: boolean; marked: boolean }
   | { ref: string; ready: true; missing: []; cleared: boolean }
-  | { ref: string; skipped: 'stale' | 'claimed' | 'no verdict' }
+  | { ref: string; skipped: 'stale' | 'claimed' | 'no verdict' | 'malformed' }
   | { ref: string; error: string };
 
 const triageDir = (root: string): string => path.join(paths(root).runtime, 'triage');
@@ -97,6 +97,11 @@ function itemHash(item: Pick<TrackerItem, 'title' | 'body'>): string {
 function missingSet(raw: unknown): TriageMissing[] {
   const got = new Set(Array.isArray(raw) ? raw : []);
   return TRIAGE_MISSING.filter((k) => got.has(k));
+}
+
+/** A verdict's `missing` Forge can use: an array of known keys only (`[]` is ready). */
+function validMissing(raw: unknown): raw is TriageMissing[] {
+  return Array.isArray(raw) && raw.every((k) => (TRIAGE_MISSING as readonly unknown[]).includes(k));
 }
 
 /** The triage cache, malformed entries dropped. */
@@ -395,6 +400,11 @@ export function applyTriage(root: string, config: Config, tracker: Tracker, batc
       const v = verdicts.get(bi.ref);
       if (!v) {
         results.push({ ref: bi.ref, skipped: 'no verdict' });
+        continue;
+      }
+      // Fails closed: a verdict whose `missing` is not a list of known keys never marks an item ready.
+      if (!validMissing(v.missing)) {
+        results.push({ ref: bi.ref, skipped: 'malformed' });
         continue;
       }
       try {

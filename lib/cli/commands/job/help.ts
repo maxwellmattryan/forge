@@ -5,7 +5,7 @@ import type { HelpGroup } from '../../types.ts';
 const NO_JOB: [1, string] = [1, 'no such job'];
 const BODY: [string, string][] = [
   ['--body B', 'the text'],
-  ['--body-file F', 'read the text from F (- for stdin)'],
+  ['--body-file F', "read the text from F (- for stdin); in a daemon session F must be inside the session job's folder or worktree"],
 ];
 
 // In the order `forge job` lists its subcommands. `advance` is routed by lib/cli/main.ts but documented here.
@@ -193,7 +193,7 @@ export const JOB: HelpGroup = {
       args: '<id> start|end|attach --role R [options]',
       summary: "record an agent starting or ending, with its usage; end also scans what the agent wrote for likely secrets (a secret-found event and secrets: <n>, never a refusal); attach records a running agent's --agent-id so the dashboard can follow its transcript",
       flags: [
-        ['--role R', 'the role, e.g. builder or reviewer:code (required)'],
+        ['--role R', 'the role: a role name (a-z, 0-9, -) or reviewer:<lens> (required; anything else exits 2)'],
         ['--model M', 'the model it ran on'],
         ['--agent-id A', "the runtime's id for the agent (required with attach)"],
         ['--status S', 'how it ended'],

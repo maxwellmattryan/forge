@@ -15,8 +15,10 @@ const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), 'utf
 const POSIX = { skip: process.platform === 'win32' && 'POSIX-only' };
 
 const VALIDATE = 'claude plugin validate . --strict';
-const CLI_INSTALL = /^npm install -g @anthropic-ai\/claude-code(?:@\S*)?$/;
-const CLI_PINNED = /^npm install -g @anthropic-ai\/claude-code@\d+\.\d+\.\d+$/;
+// CI installs without install scripts, so it runs the package's own wrapper instead of the `claude` stub.
+const CI_VALIDATE = 'node "$(npm root -g)/@anthropic-ai/claude-code/cli-wrapper.cjs" plugin validate . --strict';
+const CLI_INSTALL = /^npm install -g(?: --ignore-scripts)? @anthropic-ai\/claude-code(?:@\S*)?$/;
+const CLI_PINNED = /^npm install -g --ignore-scripts @anthropic-ai\/claude-code@\d+\.\d+\.\d+$/;
 const TEST_CMD = 'node --test "test/**/*.test.ts" "lib/**/*.test.ts" "dashboard/src/**/*.test.ts"';
 const SHARDED_TEST_CMD = 'node --test --test-shard="$TEST_SHARD" "test/**/*.test.ts" "lib/**/*.test.ts" "dashboard/src/**/*.test.ts"';
 // `|| true`, `|| :`, `|| exit 0` and `set +e` turn a failing command into a passing step.
@@ -83,6 +85,7 @@ function ciVerifyCommands(wf: any): string[] {
     if (run === null) return [];
     if (CLI_INSTALL.test(run.trim())) return [];
     if (run.trim() === SHARDED_TEST_CMD) return [TEST_CMD];
+    if (run.trim() === CI_VALIDATE) return [VALIDATE];
     return [run.trim()];
   });
 }
@@ -102,12 +105,12 @@ function cliProblems(wf: any): string[] {
   const out: string[] = [];
   const steps = stepsOf(wf?.jobs?.verify);
   const installs = steps.filter((s) => CLI_INSTALL.test(runOf(s)?.trim() ?? ''));
-  for (const s of installs) if (!CLI_PINNED.test(runOf(s)!.trim())) out.push(`the Claude Code CLI install must pin an exact x.y.z version: ${runOf(s)}`);
+  for (const s of installs) if (!CLI_PINNED.test(runOf(s)!.trim())) out.push(`the Claude Code CLI install must pin an exact x.y.z version and pass --ignore-scripts: ${runOf(s)}`);
   // The last install decides which CLI validates, so allow exactly one, directly before validation.
   if (installs.length !== 1) out.push(`verify must install the Claude Code CLI exactly once, got ${installs.length}`);
   const install = steps.findIndex((s) => CLI_INSTALL.test(runOf(s)?.trim() ?? ''));
-  const validate = steps.findIndex((s) => runOf(s)?.trim() === VALIDATE);
-  if (validate === -1) out.push(`verify must run ${VALIDATE}`);
+  const validate = steps.findIndex((s) => runOf(s)?.trim() === CI_VALIDATE);
+  if (validate === -1) out.push(`verify must run ${CI_VALIDATE}`);
   if (install !== -1 && validate !== -1 && install !== validate - 1) out.push('the CLI must be installed in the step directly before the plugin is validated');
   return out;
 }
@@ -224,7 +227,7 @@ test('no trigger, env or step can make a red run read green', () => {
   assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r === SHARDED_TEST_CMD)['continue-on-error'] = true; })), 'continue-on-error on Run tests');
   assertFlags(gateBypasses(mutate((wf) => { wf.jobs.verify['continue-on-error'] = true; })), 'continue-on-error on a job');
   assertFlags(gateBypasses(mutate((wf) => { wf.jobs.verify.if = false; })), 'a job that never runs');
-  assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r === VALIDATE).if = false; })), 'a skipped validate step');
+  assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r === CI_VALIDATE).if = false; })), 'a skipped validate step');
   assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r.includes('node --check')).shell = 'bash {0}'; })), 'a step dropping -e with its own shell');
   assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r === 'npm ci').run = 'echo "${{ github.event.pull_request.title }}"'; })), 'a run interpolating the PR title');
   const testOnly = { NODE_OPTIONS: '--test-only' };
@@ -311,13 +314,15 @@ test('the touchpoints step compares against the previous commit', () => {
 test('the Claude Code CLI is pinned and installed once, directly before validation', () => {
   assert.deepEqual(cliProblems(WF), []);
   const setInstall = (run: string) => mutate((wf) => { stepRunning(wf, 'verify', (r) => CLI_INSTALL.test(r)).run = run; });
-  assertFlags(cliProblems(setInstall('npm install -g @anthropic-ai/claude-code@latest')), 'an install at @latest');
-  assertFlags(cliProblems(setInstall('npm install -g @anthropic-ai/claude-code')), 'an install with no version');
-  assertFlags(cliProblems(mutate((wf) => { wf.jobs.verify.steps = wf.jobs.verify.steps.filter((s: Step) => s.run !== VALIDATE); })), 'no validate step');
+  assertFlags(cliProblems(setInstall('npm install -g --ignore-scripts @anthropic-ai/claude-code@latest')), 'an install at @latest');
+  assertFlags(cliProblems(setInstall('npm install -g --ignore-scripts @anthropic-ai/claude-code')), 'an install with no version');
+  // An install script is code from the package that runs before anything validates it.
+  assertFlags(cliProblems(setInstall('npm install -g @anthropic-ai/claude-code@2.1.299')), 'an install without --ignore-scripts');
+  assertFlags(cliProblems(mutate((wf) => { wf.jobs.verify.steps = wf.jobs.verify.steps.filter((s: Step) => s.run !== CI_VALIDATE); })), 'no validate step');
   // The last install wins, so a second one could run validation on any version.
   const downgrade = mutate((wf) => {
     const s = wf.jobs.verify.steps;
-    s.splice(s.findIndex((x: Step) => x.run === VALIDATE), 0, { name: 'Downgrade', run: 'npm install -g @anthropic-ai/claude-code@1.0.0' });
+    s.splice(s.findIndex((x: Step) => x.run === CI_VALIDATE), 0, { name: 'Downgrade', run: 'npm install -g --ignore-scripts @anthropic-ai/claude-code@1.0.0' });
   });
   assert.deepEqual(verifyListProblems(AGENTS, downgrade), [], 'the list check skips every install');
   assertFlags(cliProblems(downgrade), 'a second, pinned install just before validate');

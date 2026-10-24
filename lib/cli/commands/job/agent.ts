@@ -8,6 +8,7 @@ import { logSecrets, scanAgentOutputs } from '#engine/guard/secrets.ts';
 import { AGENT_ID } from '#integrations/claude/transcripts.ts';
 import { importClaudeCodeTranscript } from '#engine/metrics/usage.ts';
 import { ForgeError } from '#core/errors.ts';
+import { agentRole } from '#core/job/lens.ts';
 import type { AgentUsage, Config } from '#core/types.ts';
 import { num, req, requireJob, str } from '../args.ts';
 import { epochFence } from './lease.ts';
@@ -17,7 +18,8 @@ export function agent(root: string, config: Config, rest: string[], flags: Recor
   const jobId = requireJob(root, id).id;
   const phase = req(rest[1], 'start|end|attach');
   if (!['start', 'end', 'attach'].includes(phase)) throw new ForgeError('phase must be start, end or attach', 'usage');
-  const role = req(flags.role, '--role');
+  // A job.json key and an output path: checked before anything is read or written.
+  const role = agentRole(req(flags.role, '--role'));
   if (phase === 'attach') {
     const agentId = flags['agent-id'];
     // Checked before anything is written: the id becomes a transcript file name.
