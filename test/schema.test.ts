@@ -127,6 +127,7 @@ const CONFIG_ROWS: Row[] = [
     note: "a list becomes the role map's default",
   },
   { step: 'command-env', input: { commands: { test: 'npm test' } }, fields: { 'commands.test': 'npm test' }, removed: ['commandEnv'], note: ONLY_VERSION },
+  { step: 'daemon-daily-usd', input: { daemon: { enabled: true, jobBudget: null } }, fields: { daemon: { enabled: true, jobBudget: null } }, removed: ['daemon.dailyUsd'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -230,6 +231,13 @@ const EVENT_ROWS: Row[] = [
     fields: { type: 'pr-merged', ts: 't', number: 7, method: 'squash', checks: 'passing', bypass: false },
     removed: ['actor', 'scope', 'via'],
     note: 'a pr-merged from before provenance keeps its fields and gains no actor, scope or via',
+  },
+  {
+    step: 'agent-end-metering',
+    input: { ts: 't', type: 'agent-end', role: 'builder', usage: { totalTokens: 10 } },
+    fields: { type: 'agent-end', ts: 't', role: 'builder', usage: { totalTokens: 10 } },
+    removed: ['metered', 'unmeasured'],
+    note: 'an agent-end from before metering reads unchanged: reported usage no meter covers',
   },
 ];
 

@@ -523,6 +523,8 @@ export function recordAgent(
     retry?: boolean;
     /** end: the output check's result, when an output is known. */
     outputMissing?: boolean;
+    /** end: `metered` when the job's own daemon session's meter holds this run's cost, `unmeasured` when its transcript wasn't found. */
+    flags?: { metered?: true; unmeasured?: true };
   },
   config: Config,
   fence?: Fence,
@@ -554,10 +556,8 @@ export function recordAgent(
   logEvent(root, id, `agent-${rec.phase}`, {
     role: rec.role,
     model: rec.model ?? job.agents[rec.role]?.model,
-    agentId: rec.agentId,
-    status: rec.status,
-    summary: rec.summary,
-    usage: rec.usage,
+    agentId: rec.agentId, status: rec.status, summary: rec.summary,
+    usage: rec.usage, ...rec.flags,
     ...(rec.phase === 'start' ? { output: rec.output ?? undefined, retry: rec.retry || undefined, ...startProvenance(root, config, job, rec.role) } : {}),
     ...(rec.outputMissing !== undefined ? { outputMissing: rec.outputMissing } : {}),
   });

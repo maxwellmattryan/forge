@@ -130,6 +130,10 @@ export const CONFIG_STEPS: readonly Step[] = [
   // changes and upgraded repos get the strict command environment too; the bump lets older Forges
   // refuse a config whose inherit list they would ignore.
   { id: 'command-env', up: (c) => c },
+  // v33 adds daemon.dailyUsd ({ inbox: 25, office: 60 }), filled from defaults, so no v32 config changes
+  // and upgraded repos get the caps too; the bump lets older Forges refuse a config whose daily caps they
+  // would ignore.
+  { id: 'daemon-daily-usd', up: (c) => c },
 ];
 
 export const CONFIG_SCHEMA_VERSION = versionOf(CONFIG_STEPS);

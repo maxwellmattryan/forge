@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { acCoverage, specFileMapPaths, specUiAcs } from '../acs.ts';
 import { readJobRecord, readSharedRecord } from '../../environment/backing.ts';
-import { effectiveLimits, exceededKeys, measureBudget } from '../../metrics/budget.ts';
+import { effectiveLimits, exceededKeys, measureJob } from '../../metrics/budget.ts';
 import { jobPathMap } from '../brief.ts';
 import { environmentState } from '../../environment/record.ts';
 import { configForJob } from '../../evals/overlay.ts';
@@ -157,7 +157,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     // The computed path, never job.json's: the session can write job.json, and verdicts trusts the same value.
     memberWorktrees: Object.fromEntries(memberRepos(job).map((m) => [m.repo, trustedMemberWorktree(root, config, job, m.repo)])),
     // Only at a budget park: measuring runs git, and only GA7 reads it.
-    budgetExceeded: job.state === 'waiting' && job.waitingOn === 'budget' ? exceededKeys(effectiveLimits(config, job), measureBudget(job), job.budget.ack, job.round).map((e) => e.key) : null,
+    budgetExceeded: job.state === 'waiting' && job.waitingOn === 'budget' ? exceededKeys(effectiveLimits(config, job), measureJob(root, config, job), job.budget.ack, job.round).map((e) => e.key) : null,
   };
 }
 

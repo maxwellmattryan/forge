@@ -71,7 +71,7 @@ export function daemonProblems(c: unknown, root?: string): string[] {
   if (turn !== null && !(typeof turn === 'number' && Number.isFinite(turn) && turn > 0))
     problems.push(`daemon.turnTimeoutMinutes must be null or a positive number (got ${JSON.stringify(turn)})`);
   if (!DAEMON_AUTH.includes(d.auth)) problems.push(`daemon.auth must be one of ${DAEMON_AUTH.join(' | ')} (got ${JSON.stringify(d.auth)})`);
-  problems.push(...jobBudgetProblems(d.jobBudget));
+  problems.push(...jobBudgetProblems(d.jobBudget), ...dailyUsdProblems(d.dailyUsd));
   const effort = cfg.runtime?.effort ?? null;
   if (effort !== null && !validEffort(effort))
     problems.push(`runtime.effort must be one of ${EFFORTS.join(' | ')}, or null (got ${JSON.stringify(effort)})`);
@@ -90,6 +90,20 @@ function jobBudgetProblems(b: unknown): string[] {
     else if (v === null) continue;
     else if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) problems.push(`daemon.jobBudget.${k} must be null or a number >= 0 (got ${JSON.stringify(v)})`);
     else if (k === 'tokens' && !Number.isInteger(v)) problems.push(`daemon.jobBudget.tokens must be null or an integer >= 0 (got ${v})`);
+  }
+  return problems;
+}
+
+const DAILY_USD_KEYS = ['inbox', 'office'];
+
+/** daemon.dailyUsd: null, or a map of inbox and office, each null or a number >= 0 (dollars per UTC day). */
+function dailyUsdProblems(b: unknown): string[] {
+  if (b === null || b === undefined) return [];
+  if (typeof b !== 'object' || Array.isArray(b)) return [`daemon.dailyUsd must be null or a map of ${DAILY_USD_KEYS.join(', ')} (got ${JSON.stringify(b)})`];
+  const problems: string[] = [];
+  for (const [k, v] of Object.entries(b)) {
+    if (!DAILY_USD_KEYS.includes(k)) problems.push(`daemon.dailyUsd.${k} is not a key (use ${DAILY_USD_KEYS.join(', ')})`);
+    else if (v !== null && (typeof v !== 'number' || !Number.isFinite(v) || v < 0)) problems.push(`daemon.dailyUsd.${k} must be null or a number >= 0 (got ${JSON.stringify(v)})`);
   }
   return problems;
 }

@@ -3,7 +3,7 @@
 // next) and the daemon pool holds job sessions' requests while it is exceeded. Repo holds reuse
 // waiting:budget, told apart from a per-job stop by the reason prefix; release re-checks the job's
 // own budget, so rewriting a reason never frees a per-job stop. docs/CONFIG.md "Repo budget".
-import { effectiveLimits, exceededKeys, measureBudget } from './budget.ts';
+import { effectiveLimits, exceededKeys, measureJob } from './budget.ts';
 import { configForJob } from '../evals/overlay.ts';
 import { isActive, listJobs, loadJob, logEvent, logRepoEvent, parseEventLines, readEvents, repoAuditFile, setJob } from '#core/job/store.ts';
 import { enqueue, listRequests } from '#core/job/requests.ts';
@@ -145,7 +145,7 @@ function perJobExceeded(root: string, config: Config, job: Job): boolean {
     // A tampered overlay keeps the job held: release must never be the route past a budget.
     return true;
   }
-  return exceededKeys(effectiveLimits(limitsConfig, job), measureBudget(job), job.budget?.ack, job.round).length > 0;
+  return exceededKeys(effectiveLimits(limitsConfig, job), measureJob(root, config, job), job.budget?.ack, job.round).length > 0;
 }
 
 /**

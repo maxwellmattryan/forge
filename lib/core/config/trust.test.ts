@@ -44,6 +44,27 @@ test('daemonProblems refuses a dollar cap in daemon.command', () => {
   for (const flag of ['--max-budget-usd 5', '--max-budget-usd=5']) assert.deepEqual(problemsFor(`${defaults().daemon.command} ${flag}`), [message], flag);
 });
 
+test('daemonProblems refuses a bad daily cap', () => {
+  const problemsFor = (dailyUsd: unknown) => {
+    const c = defaults();
+    (c.daemon as { dailyUsd: unknown }).dailyUsd = dailyUsd;
+    return daemonProblems(c).filter((p) => p.startsWith('daemon.dailyUsd'));
+  };
+  assert.deepEqual(defaults().daemon.dailyUsd, { inbox: 25, office: 60 }, 'the defaults');
+  for (const ok of [null, { office: null }, defaults().daemon.dailyUsd, { inbox: 0 }]) assert.deepEqual(problemsFor(ok), [], JSON.stringify(ok));
+  const rows: [unknown, RegExp][] = [
+    [5, /^daemon\.dailyUsd must be null or a map of inbox, office/],
+    [{ office: -1 }, /^daemon\.dailyUsd\.office must be null or a number >= 0/],
+    [{ office: 'lots' }, /^daemon\.dailyUsd\.office must be null or a number >= 0/],
+    [{ other: 1 }, /^daemon\.dailyUsd\.other is not a key/],
+  ];
+  for (const [value, want] of rows) {
+    const problems = problemsFor(value);
+    assert.equal(problems.length, 1, JSON.stringify(value));
+    assert.match(problems[0], want, JSON.stringify(value));
+  }
+});
+
 test('trustDigest pins what every agent reads', (t) => {
   const { root, write } = scratch(t);
   const rows: { name: string; change: () => void; changes: boolean }[] = [

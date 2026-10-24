@@ -10,7 +10,8 @@ import { ackRequest, listRequests } from '#core/job/requests.ts';
 import { loadJob, readEvents } from '#core/job/store.ts';
 import { EVENT_SCHEMA_VERSION } from '#core/job/schema.ts';
 import { jobFiles, paths } from '#core/paths.ts';
-import { MAX_RESUMES_PER_STAGE, reconcile } from './reconcile.ts';
+import { appendMeter } from '#engine/metrics/meter.ts';
+import { MAX_RESUMES_PER_STAGE, progressMark, reconcile } from './reconcile.ts';
 
 const config = defaults();
 const AT = Date.parse('2026-10-24T12:00:00.000Z');
@@ -57,6 +58,28 @@ test('only metered agent ends count as progress', async () => {
     handleResumes(repo.dir, id);
     append(repo.dir, id, 'agent-end', '2099-01-01T00:00:00.000Z', { role: 'builder', usage: { totalTokens: 10 } });
     assert.deepEqual((await reconcile(repo.dir, config, { at: AT + 1000 })).resumed, [id]);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('a metered turn counts as progress', async () => {
+  const repo = tempRepo();
+  try {
+    const id = jobAt(repo.dir, 'build', { title: 'metered turn' }).id;
+    assert.deepEqual((await reconcile(repo.dir, config, { at: AT })).resumed, [id]);
+    handleResumes(repo.dir, id);
+    const ts = '2099-01-01T00:00:00.000Z';
+    appendMeter(repo.dir, { v: 1, ts, scope: id, sessionId: null, spawnId: 's', turn: 1, usd: 1, tokens: 0, models: {}, cum: { usd: 1, models: {} } });
+    const second = await reconcile(repo.dir, config, { at: AT + 1000 });
+    assert.deepEqual([second.resumed, second.escalated], [[id], []], 'a record after the resume: resumed again');
+    handleResumes(repo.dir, id);
+    const third = await reconcile(repo.dir, config, { at: AT + 2000 });
+    assert.deepEqual([third.resumed, third.escalated], [[], [id]], 'no new record: escalated');
+    const events = readEvents(repo.dir, id);
+    assert.equal(progressMark(events, null), progressMark(events), 'no meter: the events-only mark');
+    assert.equal(progressMark(events, ts), ts, 'a later metered turn moves the mark');
+    assert.equal(progressMark([], null), null);
   } finally {
     repo.cleanup();
   }

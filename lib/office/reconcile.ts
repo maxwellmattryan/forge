@@ -3,11 +3,13 @@
 // sessions), never at which event happened, so a missed event can't strand a job. Its only memory,
 // one record per job it resumed, lives on disk, so a restarted dashboard keeps its count. A job it
 // finds undriven gets one resume; undriven again with no progress since, or after MAX_RESUMES_PER_STAGE
-// resumes at one stage, it is parked on escalation for the foreman or a person. Only pipeline moves and
-// metered agent ends count as progress. docs/architecture/daemon.md "Reconciler".
+// resumes at one stage, it is parked on escalation for the foreman or a person. Only pipeline moves, agent
+// ends with usage and turns the supervisor metered (the job's meter file) count as progress.
+// docs/architecture/daemon.md "Reconciler".
 import path from 'node:path';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
 import { hasUsage } from '#engine/metrics/spend.ts';
+import { lastMeterAt, readMeter } from '#engine/metrics/meter.ts';
 import { whoDrives } from './driver.ts';
 import { listJobs, loadJob, logEvent, readEvents, requeueOrphanedRequests } from '#core/job/store.ts';
 import { paths } from '#core/paths.ts';
@@ -23,9 +25,15 @@ import type { Config, ForgeRequest, Job, JobEvent, LoadedJob } from '#core/types
  */
 const PROGRESS_EVENTS: ReadonlySet<string> = new Set(['transition', 'round', 'verify', 'integrated', 'integration-review', 'pr-opened', 'pr-updated', 'pr-head-pulled', 'verdicts']);
 
-/** The newest progress event's time (a PROGRESS_EVENTS type, or an agent end with usage), or null: what a later pass or failure compares against. */
-export function progressMark(events: (Pick<JobEvent, 'type' | 'ts'> & { usage?: unknown })[]): string | null {
-  return events.findLast((e) => PROGRESS_EVENTS.has(e.type) || hasUsage(e))?.ts ?? null;
+/**
+ * The newest progress event's time (a PROGRESS_EVENTS type, or an agent end with usage), or null: what a later pass or
+ * failure compares against. With `meteredAt` (the job's newest meter record), the later of the two: a turn the
+ * supervisor metered is progress even when its agent's transcript lagged and its end was recorded unmeasured.
+ */
+export function progressMark(events: (Pick<JobEvent, 'type' | 'ts'> & { usage?: unknown })[], meteredAt: string | null = null): string | null {
+  const mark = events.findLast((e) => PROGRESS_EVENTS.has(e.type) || hasUsage(e))?.ts ?? null;
+  if (meteredAt === null || Number.isNaN(Date.parse(meteredAt))) return mark;
+  return mark === null || Date.parse(meteredAt) > Date.parse(mark) ? meteredAt : mark;
 }
 
 /**
@@ -158,7 +166,7 @@ export async function reconcile(root: string, config: Config, opts: { at?: numbe
       }
       const routed = open.filter((r) => requestScope(root, r) === job.id);
       if (judge(job, routed, opts.facts?.get(job.id), at).driven) continue;
-      const mark = progressMark(readEvents(root, job.id));
+      const mark = progressMark(readEvents(root, job.id), lastMeterAt(readMeter(root, job.id)));
       const rec = mem.jobs[job.id];
       const same = rec !== undefined && rec.stage === job.stage;
       const ceiling = same && rec.resumes >= MAX_RESUMES_PER_STAGE;

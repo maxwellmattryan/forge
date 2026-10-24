@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { effectiveLimits, exceededKeys, measureBudget } from '../metrics/budget.ts';
+import { effectiveLimits, exceededKeys, measureJob } from '../metrics/budget.ts';
 import { validModel } from '#core/config/load.ts';
 import { configForJob } from './overlay.ts';
 import { jobDir, listJobs, loadJob, logEvent, setJob, updateJob } from '#core/job/store.ts';
@@ -99,7 +99,7 @@ export function queueScores(root: string, config: Config, opts: { now?: Date; gh
   let repoHeld: boolean | null = null;
   for (const job of due) {
     // Before any request is written: a held job never spends a judge run.
-    const over = exceededKeys(effectiveLimits(configForJob(root, config, job), job), measureBudget(job), job.budget.ack, job.round).length > 0;
+    const over = exceededKeys(effectiveLimits(configForJob(root, config, job), job), measureJob(root, config, job), job.budget.ack, job.round).length > 0;
     repoHeld ??= repoBudgetStatus(root, config, { write: false }).held;
     if (over || repoHeld) {
       const reason = over ? 'budget exceeded' : 'repo budget';

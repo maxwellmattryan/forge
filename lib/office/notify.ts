@@ -43,6 +43,7 @@ export const REASONS = {
   trust: "The daemon stopped because Forge's trusted config changed",
   'failed-turns': 'The daemon stopped after repeated failed turns',
   'failed-starts': 'The daemon stopped after repeated failed starts',
+  'daily-cap': 'A daemon session reached its daily spend cap',
   test: 'Test notification from forge notify test',
 } as const;
 export type ReasonCode = keyof typeof REASONS;
