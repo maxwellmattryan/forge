@@ -396,12 +396,18 @@ export function ledgerRows(ledger: Record<string, SpendJob>, { by }: { by: Ledge
   });
 }
 
+/** The roles meterRole gives: the only keys sessionRows writes. */
+const SESSION_ROLES: ReadonlySet<string> = new Set(['orchestrator', 'inbox', 'office']);
+
 /** The supervisor's buckets summed by role (orchestrator, inbox, office): Stats.cost.sessions. `runs` counts metered turns. */
 export function sessionRows(ledger: Record<string, SpendJob>): Record<string, UsageRow> {
   const out: Record<string, UsageRow> = {};
   for (const j of Object.values(ledger)) {
     for (const [key, b] of Object.entries(j.metered ?? {})) {
-      const r = (out[key.split('|')[1]] ??= { tokens: 0, estCostUsd: 0, runs: 0 });
+      // A cached key comes from spend.json: any other role (`<day>|__proto__|m`) is skipped, never used as a key.
+      const role = key.split('|')[1];
+      if (!SESSION_ROLES.has(role)) continue;
+      const r = (out[role] ??= { tokens: 0, estCostUsd: 0, runs: 0 });
       r.tokens += count(b.tokens);
       r.estCostUsd = round4(r.estCostUsd + count(b.usd));
       r.runs += count(b.runs);
@@ -417,8 +423,12 @@ export interface JobSpend {
   metered: { usd: number; tokens: number; turns: number } | null;
 }
 
-/** Covered usage per CLI-copy events file, kept while its size and mtime hold. */
+/**
+ * Covered usage per CLI-copy events file, kept while its size and mtime hold. A file that is gone drops its
+ * entry, and past COVERED_MAX the oldest goes, so a long `forge dash` never holds every job it has seen.
+ */
 const coveredMemo = new Map<string, { size: number; mtimeMs: number; pricing: string; covered: { usd: number; tokens: number } }>();
+const COVERED_MAX = 256;
 
 /** The usage of a job's `metered` agent ends, priced as the ledger does, from its CLI copy of events.jsonl (never the job folder's mirror). */
 function coveredOf(root: string, config: Config, id: string): { usd: number; tokens: number } {
@@ -430,10 +440,14 @@ function coveredOf(root: string, config: Config, id: string): { usd: number; tok
   } catch {}
   const hit = coveredMemo.get(file);
   if (st?.isFile() && hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs && hit.pricing === hash) return hit.covered;
+  coveredMemo.delete(file);
   const r = st?.isFile() ? readNoFollow(file) : null;
   const cells = r ? bucketsOf(parseEventLines(r.text), config).covered : {};
   const covered = Object.values(cells).reduce((n, b) => ({ usd: round4(n.usd + b.usd), tokens: n.tokens + b.tokens }), { usd: 0, tokens: 0 });
-  if (r) coveredMemo.set(file, { size: r.size, mtimeMs: r.mtimeMs, pricing: hash, covered });
+  if (r) {
+    coveredMemo.set(file, { size: r.size, mtimeMs: r.mtimeMs, pricing: hash, covered });
+    if (coveredMemo.size > COVERED_MAX) coveredMemo.delete(coveredMemo.keys().next().value!);
+  }
   return covered;
 }
 

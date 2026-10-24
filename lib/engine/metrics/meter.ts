@@ -114,24 +114,41 @@ function recordOf(raw: unknown, scope: string): MeterRecord | null {
   return rec;
 }
 
-/** Parsed files by path, kept while their size and mtime hold, so repeated checks don't re-parse. */
+/**
+ * Parsed files by path, kept while their size and mtime hold, so repeated checks don't re-parse. A file that
+ * can't be read drops its entry, and past MEMO_MAX the oldest goes, so a long `forge dash` never holds every
+ * job it has seen.
+ */
 const memo = new Map<string, { size: number; mtimeMs: number; records: MeterRecord[] }>();
+const MEMO_MAX = 256;
+
+/** A scope's records, and why its file couldn't be read. */
+export interface MeterRead {
+  records: MeterRecord[];
+  /** Null when the file was read or is missing (no records yet); else what is wrong with it, naming the path. */
+  problem: string | null;
+}
 
 /**
- * A scope's records, oldest first, read through one descriptor that follows no link and never blocks.
- * Tolerant: a line that breaks the record rules is dropped, and a missing, linked, non-regular or
- * oversized file reads as [].
+ * A scope's records, oldest first, read through one descriptor that follows no link and never blocks. A line
+ * that breaks the record rules is dropped. A missing file has no records and no problem; a linked, non-regular
+ * or oversized file, a directory that is not a real one, or a failed read has no records and says why, so a
+ * caller that enforces a cap can fail closed.
  */
-export function readMeter(root: string, scope: string): MeterRecord[] {
+export function readMeterChecked(root: string, scope: string): MeterRead {
   const file = meterFile(root, scope);
-  if (!realDirOrMissing(paths(root).runtime) || !realDirOrMissing(path.dirname(file))) return [];
+  const unread = (problem: string | null): MeterRead => {
+    memo.delete(file);
+    return { records: [], problem };
+  };
+  for (const d of [paths(root).runtime, path.dirname(file)]) if (!realDirOrMissing(d)) return unread(`${d} is not a directory`);
   let fd: number | undefined;
   try {
     fd = openRead(file);
     const st = fs.fstatSync(fd);
-    if (st.size > MAX_BYTES) return [];
+    if (st.size > MAX_BYTES) return unread(`${file} is over ${MAX_BYTES / 1024 / 1024} MiB`);
     const hit = memo.get(file);
-    if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.records;
+    if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return { records: hit.records, problem: null };
     const records: MeterRecord[] = [];
     for (const line of fs.readFileSync(fd, 'utf8').split('\n')) {
       if (!line.trim()) continue;
@@ -144,13 +161,22 @@ export function readMeter(root: string, scope: string): MeterRecord[] {
       const rec = recordOf(raw, scope);
       if (rec) records.push(rec);
     }
+    memo.delete(file);
     memo.set(file, { size: st.size, mtimeMs: st.mtimeMs, records });
-    return records;
-  } catch {
-    return [];
+    if (memo.size > MEMO_MAX) memo.delete(memo.keys().next().value!);
+    return { records, problem: null };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return unread(null);
+    return unread(code ? `${file} can't be read (${code})` : (err as Error).message);
   } finally {
     if (fd !== undefined) fs.closeSync(fd);
   }
+}
+
+/** A scope's records (readMeterChecked), tolerant: a file that can't be read has none. */
+export function readMeter(root: string, scope: string): MeterRecord[] {
+  return readMeterChecked(root, scope).records;
 }
 
 /** The cumulative a result reports: its usd, or the models' sum when claude sent no usable total. */

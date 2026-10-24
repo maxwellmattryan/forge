@@ -116,7 +116,26 @@ test("a job session's results are metered per spawn", async (t) => {
   assert.match(broken.event('error').at(-1)?.message ?? '', /^meter: /);
   assert.equal(broken.s.status, 'idle');
   assert.equal(broken.s.wanted, true);
+
+  // A meter that can't be read leaves the job on its reported figure, said once in the session log.
+  const big = rig(t, 'job');
+  oversize(big.root, big.scope);
+  big.s.spawn(big.cfg);
+  for (const id of ['r1', 'r2']) {
+    big.s.writeTurn([id]);
+    big.children[0].emit(result(1));
+  }
+  assert.deepEqual(big.event('error').map((l) => l.message.replace(big.root, '<root>')), [`meter: <root>/.forge/runtime/meter/${big.scope}.jsonl is over 64 MiB; this job's budget checks fall back to its reported spend`]);
+  assert.equal(big.s.wanted, true);
 });
+
+/** Makes a scope's meter file one byte over the reader's 64 MiB cap (sparse, so nothing is written). */
+function oversize(root: string, scope: string): void {
+  const file = meterFile(root, scope);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '');
+  fs.truncateSync(file, 64 * 1024 * 1024 + 1);
+}
 
 test("metered spend past the job's limit parks the job and stops its session", async (t) => {
   const r = rig(t, 'job', { budget: { usd: 2 } });
@@ -164,4 +183,29 @@ test('the office and inbox stop at their daily cap', async (t) => {
   inbox.children[0].emit(result(5.5));
   assert.equal(inbox.s.wanted, true, 'no inbox cap');
   assert.deepEqual(inbox.children[0].signals, []);
+});
+
+test("a capped session whose meter can't be read stops: the cap check fails closed", async (t) => {
+  // An oversized meter refuses the start.
+  const office = rig(t, OFFICE_SCOPE, { daemon: { dailyUsd: { office: 60, inbox: 25 } } });
+  oversize(office.root, OFFICE_SCOPE);
+  const file = meterFile(office.root, OFFICE_SCOPE);
+  assert.equal(office.s.spawn(office.cfg), false);
+  assert.equal(office.children.length, 0, 'no child');
+  assert.equal(office.s.wanted, false);
+  assert.equal(office.s.lastError, `meter: ${file} is over 64 MiB, so the office session's daily cap (daemon.dailyUsd.office) can't be checked and it stops; fix or move the file aside, then start it again`);
+
+  // A meter path planted mid-session stops it at the next result, with no daily-cap notification.
+  const inbox = rig(t, INBOX_SCOPE, { daemon: { dailyUsd: { office: 60, inbox: 25 } } });
+  assert.equal(inbox.s.spawn(inbox.cfg), true);
+  const meterDir = path.dirname(meterFile(inbox.root, INBOX_SCOPE));
+  fs.mkdirSync(path.dirname(meterDir), { recursive: true });
+  fs.writeFileSync(meterDir, '');
+  inbox.s.writeTurn(['r1']);
+  inbox.children[0].emit(result(0.5));
+  assert.equal(inbox.s.wanted, false);
+  assert.deepEqual(inbox.children[0].signals, ['SIGTERM']);
+  assert.match(inbox.s.lastError ?? '', /^meter: .*meter is not a directory, so the inbox session's daily cap \(daemon\.dailyUsd\.inbox\) can't be checked/);
+  assert.deepEqual(inbox.notified, []);
+  await waitFor(() => !inbox.s.running, { what: 'the inbox stopped' });
 });

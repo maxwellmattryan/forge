@@ -1,10 +1,11 @@
 // The supervisor's meter for one session: each result's cost, as a delta against a baseline held per spawn,
 // appended to the scope's meter file (lib/engine/metrics/meter.ts), then enforced. A job scope runs the budget
-// checkpoint `session-meter`; the inbox and the office stop at their daemon.dailyUsd cap. claude reports its
-// cost itself, so a session's own reporting never moves what is enforced (docs/architecture/daemon-security.md).
+// checkpoint `session-meter`; the inbox and the office stop at their daemon.dailyUsd cap, and when their meter
+// can't be read the cap can't be checked, so they stop too. claude reports its cost itself, so a session's own
+// reporting never moves what is enforced (docs/architecture/daemon-security.md).
 import crypto from 'node:crypto';
 import { enforceBudget } from '#engine/metrics/budget.ts';
-import { appendMeter, lastMeterCum, METER_VERSION, meterDelta, meterTodayUsd, readMeter } from '#engine/metrics/meter.ts';
+import { appendMeter, lastMeterCum, METER_VERSION, meterDelta, meterTodayUsd, readMeter, readMeterChecked } from '#engine/metrics/meter.ts';
 import type { MeterCum, MeterRecord } from '#engine/metrics/meter.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '#core/job/requests.ts';
 import type { ClaudeEvent } from '#integrations/claude/types.ts';
@@ -38,26 +39,52 @@ export function createMeter(core: SessionCore, stop: StopSelf) {
   let spawnId: string | null = null;
   /** The cumulative this spawn measures from: zero for a fresh conversation, null until a rebase. */
   let base: MeterCum | null = ZERO;
+  /** The read problem a job scope's log last named, so each is said once. */
+  let unread: string | null = null;
 
-  /** The stop text once a shared scope's metered spend today reaches its cap, else null. */
-  function overCap(c: Config, at: number): string | null {
+  /**
+   * Why a shared scope with a cap may not spend now, else null: its metered spend today reached the cap
+   * (announced), or its meter can't be read, so the cap can't be checked and it fails closed.
+   */
+  function overCap(c: Config, at: number): { message: string; announce: 'daily-cap' | null } | null {
     const cap = shared ? dailyCap(c, shared) : null;
     if (cap === null) return null;
-    const spent = meterTodayUsd(readMeter(root, scope), at);
+    const { records, problem } = readMeterChecked(root, scope);
+    if (problem) return { message: `meter: ${problem}, so the ${shared} session's daily cap (daemon.dailyUsd.${shared}) can't be checked and it stops; fix or move the file aside, then start it again`, announce: null };
+    const spent = meterTodayUsd(records, at);
     if (spent < cap) return null;
     const day = new Date(at).toISOString().slice(0, 10);
-    return `daemon stopped: the ${shared} session spent $${spent.toFixed(2)} of its $${cap.toFixed(2)} daily cap (daemon.dailyUsd.${shared}) on ${day} (UTC); start it again after midnight UTC, or raise the cap`;
+    return { message: `daemon stopped: the ${shared} session spent $${spent.toFixed(2)} of its $${cap.toFixed(2)} daily cap (daemon.dailyUsd.${shared}) on ${day} (UTC); start it again after midnight UTC, or raise the cap`, announce: 'daily-cap' };
+  }
+
+  /** A shared scope's stop after a result, from overCap. Never throws. */
+  function sharedStop(at: number): MeterStop | null {
+    try {
+      const over = overCap(core.ctx.config(), at);
+      return over ? { ...over, reason: 'daily-cap', keepWanted: false } : null;
+    } catch (err) {
+      core.logEvent('error', { message: `meter: ${(err as Error).message}` });
+      return null;
+    }
+  }
+
+  /** A job's meter that can't be read leaves its budget checks on the reported figure: its log says so once per problem. */
+  function sayUnread(): void {
+    const { problem } = readMeterChecked(root, scope);
+    if (problem && problem !== unread) core.logEvent('error', { message: `meter: ${problem}; this job's budget checks fall back to its reported spend` });
+    unread = problem;
   }
 
   return {
     /**
-     * A spawn is starting. A shared scope at its daily cap is refused (null). Otherwise the spawn's baseline is
-     * set, and its usd returned for the --max-budget-usd cap: claude's cumulative already includes it on a resume.
+     * A spawn is starting. A shared scope at its daily cap, or whose meter can't be read, is refused (null).
+     * Otherwise the spawn's baseline is set, and its usd returned for the --max-budget-usd cap: claude's
+     * cumulative already includes it on a resume.
      */
     spawned(c: Config, resume: boolean): number | null {
-      const capped = overCap(c, Date.now());
-      if (capped) {
-        stop(capped, 'daily-cap', null, false);
+      const over = overCap(c, Date.now());
+      if (over) {
+        stop(over.message, 'daily-cap', null, false);
         return null;
       }
       spawnId = crypto.randomUUID();
@@ -75,16 +102,15 @@ export function createMeter(core: SessionCore, stop: StopSelf) {
         appendMeter(root, rec);
       } catch (err) {
         core.logEvent('error', { message: `meter: ${(err as Error).message}` });
-        return null;
+        // A job's record that can't be written never stops its session; a shared scope's cap check fails closed.
+        return shared ? sharedStop(at) : null;
       }
       base = rec.cum;
       core.logEvent('meter', { usd: rec.usd, tokens: rec.tokens, turn });
+      if (shared) return sharedStop(at);
       try {
-        if (shared) {
-          const capped = overCap(core.ctx.config(), at);
-          return capped ? { message: capped, reason: 'daily-cap', announce: 'daily-cap', keepWanted: false } : null;
-        }
         if (!validJobId(scope)) return null;
+        sayUnread();
         const r = enforceBudget(root, core.ctx.config(), scope, 'session-meter');
         if (!r?.stopped) return null;
         const message = `daemon stopped: this job's metered spend is over its budget (${r.reason}); raise or acknowledge the job's budget in the dashboard, then approve the budget gate`;

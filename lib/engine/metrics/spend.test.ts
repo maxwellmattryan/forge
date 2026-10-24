@@ -80,6 +80,11 @@ test('metered sessions join the ledger without double counting', (t) => {
 
   const sessions = sessionRows(ledger);
   assert.deepEqual(Object.fromEntries(Object.entries(sessions).map(([k, v]) => [k, v.estCostUsd])), { orchestrator: 4, office: 5, inbox: 1 });
+  // A cached spend.json is a file: a role outside the sessions' is skipped, never used as a key.
+  const cell = ledger._office.metered[`${D}|office|usd-model`];
+  const forged = { x: { ...ledger._office, metered: { [`${D}|__proto__|m`]: cell, [`${D}|builder|m`]: cell } } };
+  assert.deepEqual(sessionRows(forged), {});
+  assert.equal(({} as Record<string, unknown>).tokens, undefined, 'Object.prototype is untouched');
   assert.equal(repoBudgetStatus(root, config, { at: AT, write: false }).spent.dayUsd, 15);
 
   assert.equal(SPEND_CACHE_VERSION, 2);

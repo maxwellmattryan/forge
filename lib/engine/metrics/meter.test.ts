@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from '../../../test/helpers.ts';
-import { appendMeter, lastMeterAt, lastMeterCum, meterDelta, meterFile, meterTodayUsd, readMeter } from './meter.ts';
+import { appendMeter, lastMeterAt, lastMeterCum, meterDelta, meterFile, meterTodayUsd, readMeter, readMeterChecked } from './meter.ts';
 import type { MeterCum, MeterRecord } from './meter.ts';
 import type { ModelCost, SessionCost } from '#integrations/claude/types.ts';
 
@@ -84,10 +84,17 @@ test('the meter file is the supervisor\'s, read tolerantly', (t) => {
   assert.equal(lastMeterAt(records), '2026-10-24T05:00:00.000Z');
   assert.equal(lastMeterAt([]), null);
   assert.deepEqual(readMeter(root, 'no-such-job'), [], 'a missing file');
+  assert.deepEqual(readMeterChecked(root, 'no-such-job'), { records: [], problem: null }, 'missing is no records, not a problem');
+  assert.deepEqual(readMeterChecked(root, '_office'), { records, problem: null });
 
   assert.throws(() => readMeter(root, '../x'), /invalid meter scope/);
   assert.throws(() => appendMeter(root, rec('../x', '2026-10-24T00:00:00.000Z', 1)), /invalid meter scope/);
   assert.equal(fs.existsSync(path.join(root, '.forge', 'runtime', 'x.jsonl')), false);
+
+  // Oversized: not read, and said so (sparse, so the test writes nothing).
+  fs.truncateSync(meterFile(root, '_office'), 64 * 1024 * 1024 + 1);
+  assert.deepEqual(readMeter(root, '_office'), []);
+  assert.match(readMeterChecked(root, '_office').problem ?? '', /_office\.jsonl is over 64 MiB$/);
 
   if (process.platform !== 'win32') {
     const target = path.join(root, 'target.txt');
@@ -95,6 +102,12 @@ test('the meter file is the supervisor\'s, read tolerantly', (t) => {
     fs.symlinkSync(target, meterFile(root, 'linked'));
     assert.throws(() => appendMeter(root, rec('linked', '2026-10-24T00:00:00.000Z', 1)));
     assert.deepEqual(readMeter(root, 'linked'), []);
+    assert.match(readMeterChecked(root, 'linked').problem ?? '', /linked\.jsonl can't be read \(ELOOP\)$/);
     assert.equal(fs.readFileSync(target, 'utf8'), 'keep\n', 'the link target is unchanged');
   }
+
+  const meterDir = path.dirname(meterFile(root, '_office'));
+  fs.rmSync(meterDir, { recursive: true });
+  fs.writeFileSync(meterDir, '');
+  assert.deepEqual(readMeterChecked(root, '_office'), { records: [], problem: `${meterDir} is not a directory` });
 });
