@@ -102,7 +102,7 @@ interface PreparedCommand {
   env: NodeJS.ProcessEnv;
   /** Set for a member repo's command. */
   repo?: string;
-  /** Run before `cmd`, after the login profile when there is one: the PATH line that puts the link shims first. */
+  /** Run before `cmd`, after the login profile when `commandEnv.loginShell` sources one: the PATH line that puts the link shims first. */
   prelude: string;
   links: AppliedLinks | null;
   /** The component's config sinks rendered for this command, when it has any. */
