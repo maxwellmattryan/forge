@@ -7,8 +7,9 @@
 import { autoMerge } from '#core/config/load.ts';
 import { ForgeError } from '#core/errors.ts';
 import { reviewedRepoNames } from '#core/job/lens.ts';
+import { listRequests } from '#core/job/requests.ts';
 import { isMap } from '#core/shape.ts';
-import type { Config, Job, JobEvent, ProtectedHit } from '#core/types.ts';
+import type { Config, ForgeRequest, Job, JobEvent, ProtectedHit } from '#core/types.ts';
 import { git, historyEnv } from '#integrations/git/runner.ts';
 import { branchFloor } from '../guard/floor.ts';
 import { branchHits, clean, prefixHits, protectedApproved, refusalText } from '../guard/protected.ts';
@@ -51,29 +52,53 @@ export function lastDecision(events: JobEvent[]): DecisionRecord | null {
 
 const SUPERSEDING_ACTIONS = new Set(['rework', 'revise-spec']);
 
+/** Job states a human decides about: a decision from before one does not stand. */
+const ENDED_STATES = new Set<string>(['cancelled', 'failed']);
+
+/** Requests that ask for a rework, a revise-spec or a cancel: queued from the dashboard, they act only once a session handles them. */
+const SUPERSEDING_REQUESTS = new Set<string>(['rework', 'revise-spec', 'cancel']);
+
+/** A request still to be handled: waiting in the inbox, or claimed by a session that has not acked it. */
+const OPEN_REQUEST = new Set<string>(['pending', 'in-progress']);
+
 /**
  * Why the approver's last decision no longer stands, or null: the job left stage pr, it is cancelled
- * or failed, a `round` event follows the last `decision` (a round on an open PR with merge.auto off
- * skips the approver, step rule DC10), or a human rework or revise-spec follows it, a person's or the
- * foreman's. Log positions decide, never timestamps, so reordering ts values gains nothing. An
- * approve or answer after the decision supersedes nothing. With no decision, only the job's stage
- * and state can answer.
+ * or failed, a rework, revise-spec or cancel a person asked for still waits in the request inbox
+ * (`requests`: the dashboard queues it, and a busy pool slot or a repo budget hold can keep it there
+ * a long time before `forge job human` records it), the job went to cancelled or failed after the
+ * last `decision` (even if a session set it back), a `round` event follows the last `decision` (a
+ * round on an open PR with merge.auto off skips the approver, step rule DC10), or a human rework or
+ * revise-spec follows it, a person's or the foreman's. Log positions decide, never timestamps, so
+ * reordering ts values gains nothing. An approve or answer after the decision supersedes nothing.
+ * With no decision, only the job's stage, state and inbox can answer. Reads no inbox itself: callers
+ * pass `listRequests(root)`, and none means nothing is queued.
  */
-export function decisionSuperseded(job: Pick<Job, 'stage' | 'state'>, events: JobEvent[]): string | null {
+export function decisionSuperseded(
+  job: Pick<Job, 'id' | 'stage' | 'state'>,
+  events: JobEvent[],
+  requests: readonly Pick<ForgeRequest, 'job' | 'type' | 'status'>[] = [],
+): string | null {
   const word = (v: unknown): string => clean(String(v)).slice(0, 40);
   if (job.stage !== 'pr')
     return `the job is at stage ${word(job.stage)}, not pr: a rework or another stage change replaced the approver's decision; the job's own session merges once it is back at pr with a new decision, or a human merges it`;
-  if (job.state === 'cancelled' || job.state === 'failed') return `the job is ${word(job.state)}: a human decides whether its PR merges`;
+  if (ENDED_STATES.has(job.state)) return `the job is ${word(job.state)}: a human decides whether its PR merges`;
   const d = events.findLastIndex((e) => e.type === 'decision');
-  if (d < 0) return null;
-  const round = events.findIndex((e, i) => i > d && e.type === 'round');
-  if (round >= 0) {
-    const n = events[round].round;
-    return `round ${Number.isInteger(n) && (n as number) > 0 ? n : '?'} started after the approver's decision; the approver decides again before an auto-merge, or a human merges it`;
+  if (d >= 0) {
+    const ended = events.findIndex((e, i) => i > d && e.type === 'transition' && ENDED_STATES.has(String(stageOf(e.to).state)));
+    if (ended >= 0) return `the job was ${stageOf(events[ended].to).state} after the approver's decision: a human decides whether its PR merges`;
+    const round = events.findIndex((e, i) => i > d && e.type === 'round');
+    if (round >= 0) {
+      const n = events[round].round;
+      return `round ${Number.isInteger(n) && (n as number) > 0 ? n : '?'} started after the approver's decision; the approver decides again before an auto-merge, or a human merges it`;
+    }
+    const rework = events.findIndex((e, i) => i > d && e.type === 'human' && SUPERSEDING_ACTIONS.has(e.action as string));
+    if (rework >= 0) return `a ${events[rework].action} was recorded after the approver's decision; the approver decides again before an auto-merge, or a human merges it`;
   }
-  const rework = events.findIndex((e, i) => i > d && e.type === 'human' && SUPERSEDING_ACTIONS.has(e.action as string));
-  if (rework >= 0) return `a ${events[rework].action} was recorded after the approver's decision; the approver decides again before an auto-merge, or a human merges it`;
-  return null;
+  const queued = requests.find((r) => r.job === job.id && OPEN_REQUEST.has(r.status) && SUPERSEDING_REQUESTS.has(r.type));
+  if (!queued) return null;
+  return queued.type === 'cancel'
+    ? 'a cancel request for this job is waiting in the request inbox: a human decides whether its PR merges'
+    : `a ${queued.type} request for this job is waiting in the request inbox; once it is handled the approver decides again before an auto-merge, or a human merges it`;
 }
 
 /** An APPROVE the approver marked auto-merge eligible, bound to a head. Every event from before the binding fails. */
@@ -221,7 +246,7 @@ const named = (b: string | null | undefined): string => (b ? JSON.stringify(clea
 
 /**
  * Checks 1 to 6 of a merge without --now, in order (docs/CONFIG.md "Merge"): merge.auto is on, the
- * decision still stands (decisionSuperseded), the last decision event is eligible, the live head
+ * decision still stands (decisionSuperseded, given the request inbox too), the last decision event is eligible, the live head
  * follows the decided head on the base the job targets, protected paths recomputed at the live head
  * are all approved (throws `protected_path` otherwise, as forge pr open does), and the escalate floor
  * finds nothing. A check that can't be computed refuses under its own reason. Checks 4 to 6 compare
@@ -232,7 +257,7 @@ const named = (b: string | null | undefined): string => (b ? JSON.stringify(clea
  */
 export function autoMergeGate(root: string, config: Config, job: Job, events: JobEvent[], target: GateTarget): GateResult {
   if (!autoMerge(config)) return { ok: false, reason: 'auto-off', error: 'merge.auto is off: a human merges this PR on GitHub, or runs forge pr merge <id> --now in their own terminal' };
-  const stale = decisionSuperseded(job, events);
+  const stale = decisionSuperseded(job, events, listRequests(root));
   if (stale) return { ok: false, reason: 'superseded', error: stale };
   const d = lastDecision(events);
   if (!decisionEligible(d))

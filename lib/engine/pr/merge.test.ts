@@ -10,6 +10,7 @@ import { CI_SETTLE_MS, deferredMergeDue, hasCiWorkflows, mergeAction, mergePr, m
 import type { MergeResult } from './merge.ts';
 import { defaults } from '#core/config/load.ts';
 import { ForgeError } from '#core/errors.ts';
+import { ackRequest, claimRequest, enqueue } from '#core/job/requests.ts';
 import { loadJob, logEvent, readEvents, setJob, updateJob } from '#core/job/store.ts';
 import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
 
@@ -281,6 +282,44 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
   },
   { name: 'superseded: the job cancelled at stage pr', arrange: () => after(scenario('passing'), (s) => setJob(s.root, s.id, { state: 'cancelled', waitingOn: null })), check: refusedFor('superseded') },
   {
+    name: 'superseded: the job cancelled, then set back to waiting at pr',
+    arrange: () =>
+      after(scenario('passing'), (s) => {
+        setJob(s.root, s.id, { state: 'cancelled', waitingOn: null });
+        setJob(s.root, s.id, { state: 'waiting', waitingOn: 'pr-review' });
+      }),
+    check: refusedFor('superseded'),
+  },
+  {
+    name: "superseded: a person's rework still waiting in the request inbox",
+    arrange: () => after(scenario('passing'), (s) => enqueue(s.root, auto, { type: 'rework', job: s.id, text: 'redo it', from: 'dashboard' })),
+    check: (s, r) => {
+      refusedFor('superseded')(s, r);
+      assert.match((r as MergeResult).error ?? '', /^a rework request for this job is waiting in the request inbox/);
+    },
+  },
+  {
+    name: 'superseded: a cancel request a session claimed and has not acked',
+    arrange: () =>
+      after(scenario('passing'), (s) => {
+        const req = enqueue(s.root, auto, { type: 'cancel', job: s.id, from: 'dashboard' });
+        claimRequest(s.root, req.id, 'session-1');
+      }),
+    check: refusedFor('superseded'),
+  },
+  {
+    name: 'superseded: a rework request that was handled and acked merges',
+    arrange: () =>
+      after(scenario('passing'), (s) => {
+        const req = enqueue(s.root, auto, { type: 'rework', job: s.id, from: 'dashboard' });
+        ackRequest(s.root, req.id, { status: 'done', result: 'reworked' });
+      }),
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([r.action, s.merges().length], ['merged', 1]);
+    },
+  },
+  {
     name: 'superseded: a decision recorded after the new round merges',
     arrange: () =>
       after(scenario('passing'), (s) => {
@@ -298,6 +337,7 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
       after(scenario('failing'), (s) => {
         logEvent(s.root, s.id, 'round', { round: 2 });
         setJob(s.root, s.id, { stage: 'build', state: 'running', waitingOn: null });
+        enqueue(s.root, auto, { type: 'rework', job: s.id, from: 'dashboard' });
       }),
     opts: { now: true },
     check: (s, r) => {
@@ -358,6 +398,21 @@ test('deferredMergeDue: sync continues only a deferral nothing replaced', () => 
       ['a refusal as the last merge event', [['decision', decision], ['pr-merge-deferred', deferred], ['pr-merge-refused', { number: 7, reason: 'decision' }]], 'OPEN', false],
       ['a merged PR', [['decision', decision], ['pr-merge-deferred', deferred]], 'MERGED', false],
       ['a cancelled job', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => setJob(root, id, { state: 'cancelled', waitingOn: null })], 'OPEN', false],
+      [
+        'a cancelled job set back to waiting',
+        [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => setJob(root, id, { state: 'cancelled', waitingOn: null }), (root, id) => setJob(root, id, { state: 'waiting', waitingOn: 'pr-review' })],
+        'OPEN',
+        false,
+      ],
+      ['a rework request waiting in the inbox', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => void enqueue(root, config, { type: 'rework', job: id, from: 'dashboard' })], 'OPEN', false],
+      ['a cancel request waiting in the inbox', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => void enqueue(root, config, { type: 'cancel', job: id, from: 'dashboard' })], 'OPEN', false],
+      [
+        'a rework request handled and acked',
+        [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => ackRequest(root, enqueue(root, config, { type: 'rework', job: id, from: 'dashboard' }).id, { status: 'done' })],
+        'OPEN',
+        true,
+      ],
+      ["another job's rework request", [['decision', decision], ['pr-merge-deferred', deferred], (root) => void enqueue(root, config, { type: 'rework', job: 'some-other-job', from: 'dashboard' })], 'OPEN', true],
     ];
     for (const [name, steps, prState, want] of rows) {
       const id = parkedAt(repo.dir, 'pr-review', { config, title: name }).id;

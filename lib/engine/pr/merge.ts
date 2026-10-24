@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { currentActor } from '#integrations/github/actor.ts';
-import { daemonScope } from '#core/job/requests.ts';
+import { daemonScope, listRequests } from '#core/job/requests.ts';
 import { loadJob, logEvent, readEvents, setJob } from '#core/job/store.ts';
 import { policyRules } from '#core/config/validators/policy-check.ts';
 import { exists } from '#core/paths.ts';
@@ -295,18 +295,23 @@ const CONTINUES = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred']);
 
 /**
  * forge sync's hint that a deferred merge is due again (a deferral has no GitHub-side queue): only
- * while the approver's decision still stands (decisionSuperseded). A single-repo job needs an OPEN PR
- * whose last merge event is a deferral logged after the last decision; a deferral from before a newer
+ * while the approver's decision still stands (decisionSuperseded, which also counts a rework,
+ * revise-spec or cancel request still waiting in the inbox: sync runs every 2 minutes in the pool,
+ * and such a request can wait far longer for a session). A single-repo job needs an OPEN PR whose
+ * last merge event is a deferral logged after the last decision; a deferral from before a newer
  * decision waits for forge pr open, and a refusal stops the retries. A linked job asks
- * linkedMergeDeferred. Only a hint: mergePr's gate re-checks everything.
+ * linkedMergeDeferred. Only a hint: mergePr's gate re-checks everything. The inbox is read last, so
+ * only a job that is otherwise due costs a read.
  */
 export function deferredMergeDue(root: string, config: Config, job: Job, prState: unknown): boolean {
   const events = readEvents(root, job.id);
-  if (decisionSuperseded(job, events) !== null) return false;
-  if (isLinkedJob(job)) return linkedMergeDeferred(config, job, events);
-  if (prState !== 'OPEN') return false;
-  const last = events.findLastIndex((e) => MERGE_EVENTS.has(e.type));
-  return last >= 0 && events[last].type === 'pr-merge-deferred' && last > events.findLastIndex((e) => e.type === 'decision');
+  let due: boolean;
+  if (isLinkedJob(job)) due = linkedMergeDeferred(config, job, events);
+  else {
+    const last = events.findLastIndex((e) => MERGE_EVENTS.has(e.type));
+    due = prState === 'OPEN' && last >= 0 && events[last].type === 'pr-merge-deferred' && last > events.findLastIndex((e) => e.type === 'decision');
+  }
+  return due && decisionSuperseded(job, events, listRequests(root)) === null;
 }
 
 /**

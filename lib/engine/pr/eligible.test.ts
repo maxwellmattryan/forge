@@ -10,7 +10,7 @@ import { loadJob, readEvents, updateJob } from '#core/job/store.ts';
 import { jobFiles } from '#core/paths.ts';
 import { EVENT_SCHEMA_VERSION } from '#core/job/schema.ts';
 import { EVENT_STEPS } from '#core/versions/event.ts';
-import type { Job, JobEvent, VerifyRun } from '#core/types.ts';
+import type { ForgeRequest, Job, JobEvent, VerifyRun } from '#core/types.ts';
 import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
 import { decisionCurrent, decisionEligible, decisionSuperseded, headFollows, lastDecision, reviewCurrent } from './eligible.ts';
 
@@ -187,12 +187,15 @@ test('decisionSuperseded: a rework, a later round or a stage change replaces the
   const decided = (n: number) => event('decision', n, { decision: 'APPROVE', reason: null, autoMerge: true, head: 'a'.repeat(40) });
   const round = (n: number, r: unknown) => event('round', n, { round: r });
   const human = (n: number, action: string, actor: unknown = person, more: Record<string, unknown> = {}) => event('human', n, { action, actor, ...more });
-  const atPr = { stage: 'pr', state: 'waiting' } as const;
+  const atPr = { id: 'j1', stage: 'pr', state: 'waiting' } as const;
   const roundText = (n: string) => new RegExp(`^round ${n} started after the approver's decision; the approver decides again`);
   const reworkText = (action: string) => new RegExp(`^a ${action} was recorded after the approver's decision; the approver decides again`);
-  const rows: [string, Pick<Job, 'stage' | 'state'>, JobEvent[], RegExp | null][] = [
+  const queuedText = (type: string) => new RegExp(`^a ${type} request for this job is waiting in the request inbox; once it is handled the approver decides again`);
+  const endedText = (state: string) => new RegExp(`^the job was ${state} after the approver's decision: a human decides whether its PR merges$`);
+  const asked = (type: string, status: string, job: string | null = 'j1'): Pick<ForgeRequest, 'job' | 'type' | 'status'> => ({ job, type, status }) as Pick<ForgeRequest, 'job' | 'type' | 'status'>;
+  const rows: [string, Pick<Job, 'id' | 'stage' | 'state'>, JobEvent[], RegExp | null, Pick<ForgeRequest, 'job' | 'type' | 'status'>[]?][] = [
     ['a decision while waiting', atPr, [decided(1)], null],
-    ['a round, then a decision, while running', { stage: 'pr', state: 'running' }, [round(0, 1), decided(1)], null],
+    ['a round, then a decision, while running', { ...atPr, state: 'running' }, [round(0, 1), decided(1)], null],
     ['a round after the decision', atPr, [decided(1), round(2, 2)], roundText('2')],
     ['a round with no usable number after the decision', atPr, [decided(1), round(2, 'two')], roundText('\\?')],
     ["a person's rework after the decision", atPr, [decided(1), human(2, 'rework')], reworkText('rework')],
@@ -204,18 +207,34 @@ test('decisionSuperseded: a rework, a later round or a stage change replaces the
     ['the approver decided again after the rework and the new round', atPr, [round(0, 1), decided(1), human(2, 'rework'), round(3, 2), decided(4)], null],
     // Positions, not timestamps: a round logged after the decision with an earlier ts still supersedes it.
     ['a later round whose ts is older than the decision', atPr, [decided(5), round(1, 2)], roundText('2')],
-    ['the job is at build', { stage: 'build', state: 'running' }, [decided(1)], /^the job is at stage build, not pr: a rework or another stage change replaced the approver's decision/],
-    ['the job is cancelled at pr', { stage: 'pr', state: 'cancelled' }, [decided(1)], /^the job is cancelled: a human decides whether its PR merges$/],
-    ['the job failed at pr', { stage: 'pr', state: 'failed' }, [decided(1)], /^the job is failed: a human decides whether its PR merges$/],
+    ['the job is at build', { ...atPr, stage: 'build', state: 'running' }, [decided(1)], /^the job is at stage build, not pr: a rework or another stage change replaced the approver's decision/],
+    ['the job is cancelled at pr', { ...atPr, state: 'cancelled' }, [decided(1)], /^the job is cancelled: a human decides whether its PR merges$/],
+    ['the job failed at pr', { ...atPr, state: 'failed' }, [decided(1)], /^the job is failed: a human decides whether its PR merges$/],
     ['no decision at all', atPr, [], null],
+    // A cancel is a transition in the log: setting the job back to waiting does not undo it.
+    ['cancelled after the decision, then set back to waiting at pr', atPr, [decided(1), move(2, 'pr', 'pr', 'cancelled'), move(3, 'pr', 'pr', 'waiting')], endedText('cancelled')],
+    ['failed after the decision, then set back to waiting at pr', atPr, [decided(1), move(2, 'pr', 'pr', 'failed'), move(3, 'pr', 'pr', 'waiting')], endedText('failed')],
+    ['cancelled before the decision', atPr, [move(0, 'pr', 'pr', 'cancelled'), move(1, 'pr', 'pr', 'waiting'), decided(2)], null],
+    ['parked after the decision', atPr, [decided(1), move(2, 'pr', 'pr', 'waiting')], null],
+    ['a cancel whose ts is older than the decision, logged after it', atPr, [decided(5), move(1, 'pr', 'pr', 'cancelled'), move(2, 'pr', 'pr', 'waiting')], endedText('cancelled')],
+    // The request inbox: a rework a person queued from the dashboard has recorded nothing in the log yet.
+    ['a rework request waiting', atPr, [decided(1)], queuedText('rework'), [asked('rework', 'pending')]],
+    ['a rework request a session claimed and has not acked', atPr, [decided(1)], queuedText('rework'), [asked('rework', 'in-progress')]],
+    ['a revise-spec request waiting', atPr, [decided(1)], queuedText('revise-spec'), [asked('revise-spec', 'pending')]],
+    ['a cancel request waiting', atPr, [decided(1)], /^a cancel request for this job is waiting in the request inbox: a human decides whether its PR merges$/, [asked('cancel', 'pending')]],
+    ['a rework request waiting and no decision yet', atPr, [], queuedText('rework'), [asked('rework', 'pending')]],
+    ['a rework request already handled', atPr, [decided(1)], null, [asked('rework', 'done'), asked('rework', 'rejected')]],
+    ["another job's rework request", atPr, [decided(1)], null, [asked('rework', 'pending', 'j2'), asked('rework', 'pending', null)]],
+    ['a request that asks for no change of the work', atPr, [decided(1)], null, [asked('approve', 'pending'), asked('answer', 'pending'), asked('resume', 'pending'), asked('gate', 'in-progress')]],
+    ['a handled request beside a waiting one', atPr, [decided(1)], queuedText('rework'), [asked('rework', 'done'), asked('rework', 'pending')]],
   ];
-  for (const [name, job, events, want] of rows) {
-    const got = decisionSuperseded(job, events);
+  for (const [name, job, events, want, requests] of rows) {
+    const got = decisionSuperseded(job, events, requests);
     if (want === null) assert.equal(got, null, name);
     else assert.match(got ?? '', want, name);
   }
   // A stage value from a hand-edited job.json is escaped and cut before it reaches the text.
-  const odd = decisionSuperseded({ stage: `x\n${'y'.repeat(100)}` as Job['stage'], state: 'running' }, []);
+  const odd = decisionSuperseded({ id: 'j1', stage: `x\n${'y'.repeat(100)}` as Job['stage'], state: 'running' }, []);
   assert.match(odd ?? '', /^the job is at stage x\\x0ay{35}, not pr/);
 });
 

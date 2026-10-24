@@ -161,7 +161,7 @@ export const CORE: HelpGroup[] = [
         exits: [
           [
             1,
-            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order|cycle|release), merge.auto off, a rework, a new round or a stage change after the approver's decision, no eligible decision for the PR head, an escalate-floor path (reason auto-off|superseded|decision|floor), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, a daemon session passing --now, another job's id or a broken scope, the office daemon session ran it, or a protected path at the PR head that no human approved at that content (code protected_path; --now overrides)",
+            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order|cycle|release), merge.auto off, a rework, a new round, a stage change or a rework, revise-spec or cancel request still queued after the approver's decision, no eligible decision for the PR head, an escalate-floor path (reason auto-off|superseded|decision|floor), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, a daemon session passing --now, another job's id or a broken scope, the office daemon session ran it, or a protected path at the PR head that no human approved at that content (code protected_path; --now overrides)",
           ],
           GH_FAILED,
         ],
