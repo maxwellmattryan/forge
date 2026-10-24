@@ -1,6 +1,7 @@
 // The status bar's Daemon popover's and the session log's pure, DOM-free half: session pills, the pool summary and POST /api/daemon.
 // Session state and errors come from session output, i.e. untrusted text: these return plain strings rendered as text.
 import { ago } from './util.ts';
+import { projectApi } from './project.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE } from './types.ts';
 import type { DaemonBilling, DaemonPermissionMode, DaemonPoolState, DaemonSessionState } from './types.ts';
 
@@ -263,7 +264,7 @@ export function billingNote(b: DaemonBilling | null | undefined): { passed: bool
 }
 
 async function postJson(url: string, payload: unknown, token: string, fetchImpl: typeof fetch): Promise<DaemonPoolState> {
-  const res = await fetchImpl(url, {
+  const res = await fetchImpl(projectApi(url), {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-forge-token': token },
     body: JSON.stringify(payload),

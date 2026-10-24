@@ -26,6 +26,7 @@
   import { renderable } from '../lib/md-view.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
   import { TONE_CLASS, clock, usd } from '../lib/util.ts';
+  import { projectApi } from '../lib/project.ts';
   import { INBOX_SCOPE, OFFICE_SCOPE } from '../lib/types.ts';
   import type { DaemonSessionState } from '../lib/types.ts';
   import { atBottom, buildSessionView, filtersActive, latestInitModel, readFilters } from '../lib/session-log.ts';
@@ -73,7 +74,7 @@
 
   /** The transcript routes: the page takes the token as a header, the stream (EventSource sends none) as a query parameter. */
   function transcriptUrls(tr: Transcript): SessionLogUrls {
-    const base = `/api/jobs/${encodeURIComponent(tr.job)}/transcript`;
+    const base = projectApi(`/api/jobs/${encodeURIComponent(tr.job)}/transcript`);
     const who: Record<string, string> = tr.agent === null ? {} : { agent: tr.agent };
     return {
       events: `${base}/events?${new URLSearchParams({ ...who, token: forgeToken() })}`,

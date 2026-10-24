@@ -5,6 +5,10 @@ import assert from 'node:assert/strict';
 import { defaults } from '#core/config/load.ts';
 import { effectiveLimits } from '#engine/metrics/budget.ts';
 import { budgetApprove, budgetApproveBody, budgetRows, postJobBudget, unattendedDefault } from './budget.ts';
+import { setProject } from './project.ts';
+
+// The budget route is a project route: every POST here goes to /api/p/web/….
+setProject('web');
 
 type EngineConfig = ReturnType<typeof defaults>;
 
@@ -59,7 +63,7 @@ test("the budget gate's Approve body comes from the note", async () => {
     }) as unknown as typeof fetch;
   const ok = await postJobBudget('a b', { ack: true }, 'tok', reply(200, JSON.stringify({ id: 'a b', stillExceeded: [] })));
   assert.deepEqual(ok.stillExceeded, []);
-  assert.equal(seen[0].url, '/api/jobs/a%20b/budget');
+  assert.equal(seen[0].url, '/api/p/web/jobs/a%20b/budget');
   assert.equal(seen[0].init.method, 'POST');
   assert.deepEqual(seen[0].init.headers, { 'content-type': 'application/json', 'x-forge-token': 'tok' });
   assert.equal(seen[0].init.body, '{"ack":true}');

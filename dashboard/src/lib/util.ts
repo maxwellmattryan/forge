@@ -1,5 +1,7 @@
 // Shared dashboard helpers. No DOM access (api touches fetch only when called), so node:test can import them.
 // Toasts live in toast.svelte.ts now that components render them.
+import { projectApi } from './project.ts';
+
 export const esc = (v: unknown): string => String(v ?? '').replace(/[&<>"']/g, (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }) as Record<string, string>)[c]);
 export const num = (n: unknown): string => (n == null ? '—' : Number(n).toLocaleString());
 export const usd = (n: unknown): string => (n == null ? '—' : `$${Number(n) < 1 ? Number(n).toFixed(3) : Number(n).toFixed(2)}`);
@@ -54,9 +56,9 @@ export const TONE_CLASS: Record<string, string> = {
   live: 'live',
   you: 'you',
 };
-/** fetch that throws the response text (or status text) on a non-2xx and parses JSON bodies. */
+/** fetch that throws the response text (or status text) on a non-2xx and parses JSON bodies; a project path goes to this page's project. */
 export async function api<T = unknown>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(path, opts);
+  const res = await fetch(projectApi(path), opts);
   if (!res.ok) throw new Error((await res.text()) || res.statusText);
   const type = res.headers.get('content-type') ?? '';
   return type.includes('json') ? res.json() : (res.text() as Promise<T>);

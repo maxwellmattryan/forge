@@ -1,5 +1,6 @@
 // Permission prompts from daemon sessions: the pure half of PermissionPrompts.svelte and POST /api/daemon/permission.
 // Every prompt field but id and at is session output, i.e. untrusted text: these return plain strings rendered as text.
+import { projectApi } from './project.ts';
 import type { DaemonPermissionPrompt, DaemonPoolState, PermissionDecision } from './types.ts';
 
 const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
@@ -92,7 +93,7 @@ export const grantsMore = (prompt: Pick<DaemonPermissionPrompt, 'sessionRules' |
 
 /** POST /api/daemon/permission. Throws with the server's `error` field, else its text, else the status text. */
 export async function postPermission(scope: string, id: string, decision: PermissionDecision, token: string, fetchImpl: typeof fetch = fetch): Promise<DaemonPoolState> {
-  const res = await fetchImpl('/api/daemon/permission', {
+  const res = await fetchImpl(projectApi('/api/daemon/permission'), {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-forge-token': token },
     body: JSON.stringify({ scope, id, decision }),

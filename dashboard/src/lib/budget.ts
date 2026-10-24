@@ -4,6 +4,7 @@
 // BudgetPanel render them, and Svelte escapes them. The budget gate's Approve builds its POST /api/jobs/:id/budget
 // body from the note, and decides whether to queue its approve request, here.
 import { num, usd, ago } from './util.ts';
+import { projectApi } from './project.ts';
 import type { BudgetKey, BudgetLimits, DaemonJobBudget, Job, PostJobBudgetBody, PostJobBudgetResponse } from './types.ts';
 
 export const BUDGET_KEYS = ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries'] as const satisfies readonly BudgetKey[];
@@ -170,7 +171,7 @@ export function budgetApproveBody(note: string): PostJobBudgetBody {
 
 /** POST /api/jobs/:id/budget. Throws with the server's `error` field, else its text, else the status text. */
 export async function postJobBudget(id: string, body: PostJobBudgetBody, token: string, fetchImpl: typeof fetch = fetch): Promise<PostJobBudgetResponse> {
-  const res = await fetchImpl(`/api/jobs/${encodeURIComponent(id)}/budget`, {
+  const res = await fetchImpl(projectApi(`/api/jobs/${encodeURIComponent(id)}/budget`), {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-forge-token': token },
     body: JSON.stringify(body),

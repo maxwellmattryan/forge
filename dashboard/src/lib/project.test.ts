@@ -1,0 +1,53 @@
+// The page's project: which `/api` paths projectApi prefixes with `/api/p/<project>/` (never the
+// machine's own), and what pickProject does with `?project=` and the loaded projects.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { currentProject, pickProject, projectApi, projectFromSearch, setProject } from './project.ts';
+
+test('projectApi prefixes project paths and leaves the machine paths alone', () => {
+  setProject(null);
+  assert.throws(() => projectApi('/api/state'), /no project is selected/);
+  assert.equal(projectApi('/api/about'), '/api/about', 'a machine path needs no project');
+  setProject('a');
+  assert.equal(currentProject(), 'a');
+  const rows: [string, string][] = [
+    ['/api/state', '/api/p/a/state'],
+    ['/api/jobs/j%201/file?path=request.md', '/api/p/a/jobs/j%201/file?path=request.md'],
+    ['/api/events?session=_inbox', '/api/p/a/events?session=_inbox'],
+    ['/api/about', '/api/about'],
+    ['/api/projects', '/api/projects'],
+    ['/api/projects/events', '/api/projects/events'],
+    ['/api/p/a/state', '/api/p/a/state'],
+    ['/forge.png', '/forge.png'],
+    // Only the exact machine names: a project route that merely starts with one is still prefixed.
+    ['/api/aboutx', '/api/p/a/aboutx'],
+    ['/api/project', '/api/p/a/project'],
+  ];
+  for (const [path, want] of rows) assert.equal(projectApi(path), want, path);
+});
+
+test('setProject keeps only a valid project name', () => {
+  for (const bad of ['A', '../x', 'a/b', '', 'a'.repeat(65)]) {
+    setProject(bad);
+    assert.equal(currentProject(), null, JSON.stringify(bad));
+  }
+});
+
+test('projectFromSearch reads ?project=', () => {
+  assert.equal(projectFromSearch('?project=web'), 'web');
+  assert.equal(projectFromSearch('?x=1&project=a.b'), 'a.b');
+  assert.equal(projectFromSearch('?project='), null);
+  assert.equal(projectFromSearch(''), null);
+});
+
+test('pickProject', () => {
+  const rows: [string, string | null, string[], ReturnType<typeof pickProject>][] = [
+    ['a valid name is kept', 'web', ['api', 'web'], { use: 'web' }],
+    ['a valid name not loaded is still kept (the server answers its 404)', 'other', ['web'], { use: 'other' }],
+    ['no name: the first loaded by name', null, ['web', 'api'], { redirect: 'api' }],
+    ['no name, nothing loaded', null, [], { error: 'none' }],
+    ['a name failing PROJECT_NAME', 'Web', ['web'], { error: 'invalid' }],
+    ['a crafted segment', '../state', ['web'], { error: 'invalid' }],
+  ];
+  for (const [name, fromUrl, loaded, want] of rows) assert.deepEqual(pickProject(fromUrl, loaded), want, name);
+});

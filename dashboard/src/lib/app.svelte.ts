@@ -2,6 +2,7 @@
 // API payloads are $state.raw and replaced wholesale, so a poll re-renders only what reads them.
 import { api, errorText } from './util.ts';
 import { API_VERSION } from './types.ts';
+import { currentProject, pickProject, projectApi, projectFromSearch } from './project.ts';
 import type {
   AboutResponse,
   ApiState,
@@ -21,6 +22,7 @@ import type {
   PostJobResponse,
   PostRequestResponse,
   ProjectResponse,
+  ProjectsResponse,
   Roster,
   Stats,
 } from './types.ts';
@@ -137,8 +139,24 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
 
 // ---------- data ----------
 
+/**
+ * A page with no usable `?project=`: the first loaded project's page, or why there is nothing to show.
+ * Stands in until the Overview (#402) and the project routes (#401) replace it. True when it handled the poll.
+ */
+async function withoutProject(): Promise<boolean> {
+  if (currentProject() !== null) return false;
+  const fromUrl = projectFromSearch(location.search);
+  const projects = await api<ProjectsResponse>('/api/projects');
+  const pick = pickProject(fromUrl, projects.projects.filter((p) => p.loaded).map((p) => p.name));
+  if ('redirect' in pick) location.replace(`/?project=${pick.redirect}${location.hash}`);
+  else if ('error' in pick)
+    S.error = pick.error === 'none' ? 'No project is registered on this machine. Run forge dash in a project, or forge project add <path>.' : `No registered project "${fromUrl}" on this machine.`;
+  return true;
+}
+
 export async function refresh(): Promise<void> {
   try {
+    if (await withoutProject()) return;
     const data = await api<ApiState>('/api/state');
     // Read before this poll marks the connection good: the first poll after a failed one rebaselines.
     const resumed = S.online === false;
@@ -296,9 +314,9 @@ export function req(input: RequestInput): Promise<boolean> | null {
 
 // ---------- settings ----------
 
-/** fetch for JSON endpoints: errors carry the reply's `error` text, never a raw JSON body. */
+/** fetch for JSON endpoints, a project path going to this page's project: errors carry the reply's `error` text, never a raw JSON body. */
 async function jsonFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(path, init);
+  const res = await fetch(projectApi(path), init);
   const text = await res.text();
   if (!res.ok) throw new Error(errorText(text) || res.statusText);
   return JSON.parse(text) as T;
@@ -321,7 +339,7 @@ export const fetchDoctor = (): Promise<DoctorResponse> => jsonFetch<DoctorRespon
  * the URL: the server runs git and gh and reads job logs for it.
  */
 export async function fetchBundle(): Promise<{ blob: Blob; filename: string }> {
-  const res = await fetch('/api/doctor/bundle', { headers: { 'x-forge-token': forgeToken() } });
+  const res = await fetch(projectApi('/api/doctor/bundle'), { headers: { 'x-forge-token': forgeToken() } });
   if (!res.ok) throw new Error(errorText(await res.text()) || res.statusText);
   return { blob: await res.blob(), filename: bundleFilename(res.headers.get('content-disposition')) };
 }
