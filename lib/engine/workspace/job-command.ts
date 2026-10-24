@@ -10,7 +10,8 @@ import { jobComponent } from '#core/config/components.ts';
 import { isOwnWorktreePath, worktreeRoot } from '#core/config/load.ts';
 import { commandPort, endpointEnv, endpointPlaceholders, jobEndpoints } from '../environment/endpoints.ts';
 import { exists } from '#core/paths.ts';
-import { commandEnv, commandShell } from '../guard/command-env.ts';
+import { commandEnv, commandShell, loginShell } from '../guard/command-env.ts';
+import type { CommandEnvSource } from '../guard/command-env.ts';
 import type { Config, Job } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { run } from '#core/os/process.ts';
@@ -41,11 +42,11 @@ export function vars(root: string, config: Config, job: Job, dir: string, port: 
 }
 
 /**
- * A configured command's environment: what commandEnv leaves of `base` (no daemon markers, outer job
- * variables or declared secret sources; under the daemon, no credentials either; git pins kept), plus
- * the job's variables.
+ * A configured command's environment, the same in and out of the daemon: commandEnv's allowlist of
+ * `base` (plus commandEnv.inherit, the git pins included, never an internal variable or a declared
+ * secret source), plus the job's variables.
  */
-export function envFor(config: Pick<Config, 'secrets'>, job: Job, dir: string, port: number | null, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function envFor(config: CommandEnvSource, job: Job, dir: string, port: number | null, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   return Object.assign(commandEnv(config, base), { FORGE_JOB: job.id, FORGE_WORKTREE: dir, PORT: port ? String(port) : '', FORGE_PORT: port ? String(port) : '' });
 }
 
@@ -67,7 +68,7 @@ export function databaseCommands(root: string, config: Config, job: Job): Databa
     worktree,
     runCommand: (cmd, envOverride) => {
       if (!worktree) return { ok: false, output: `job ${job.id} has no worktree` };
-      const res = shell(fill(cmd, vars(root, config, job, worktree, port, cmd)), worktree, { ...jobEnv(root, config, job, worktree, port), ...envOverride });
+      const res = shell(fill(cmd, vars(root, config, job, worktree, port, cmd)), worktree, { ...jobEnv(root, config, job, worktree, port), ...envOverride }, { login: loginShell(config) });
       return { ok: res.ok, output: res.output };
     },
   };
@@ -81,9 +82,14 @@ export interface ShellResult {
 
 export const joinOutput = (stdout: string, stderr: string): string => `${stdout}${stderr ? `\n${stderr}` : ''}`;
 
-/** Runs `cmd` under commandShell, which reads the mode from this process's own environment, never `env`. */
-export function shell(cmd: string, cwd: string, env: NodeJS.ProcessEnv): ShellResult {
-  const sh = commandShell(cmd);
+/** What shell() and shellAsync() pass to commandShell: `login` is loginShell(config). */
+export interface ShellOptions {
+  login?: boolean;
+}
+
+/** Runs `cmd` under commandShell, which resolves the shell from this process's own environment, never `env`. */
+export function shell(cmd: string, cwd: string, env: NodeJS.ProcessEnv, opts: ShellOptions = {}): ShellResult {
+  const sh = commandShell(cmd, { login: opts.login });
   const res = run(sh.file, sh.args, { cwd, env, allowFail: true });
   return { ok: res.ok, status: res.status, output: joinOutput(res.stdout, res.stderr) };
 }
@@ -96,9 +102,9 @@ export const MAX_OUTPUT = 64 * 1024 * 1024;
  * stream the child is killed and the step fails, as spawnSync's ENOBUFS does; a spawn error is a
  * failure with no exit code.
  */
-export function shellAsync(cmd: string, cwd: string, env: NodeJS.ProcessEnv): Promise<ShellResult> {
+export function shellAsync(cmd: string, cwd: string, env: NodeJS.ProcessEnv, opts: ShellOptions = {}): Promise<ShellResult> {
   // Outside the Promise, so a refused shell throws here as it does in shell().
-  const sh = commandShell(cmd);
+  const sh = commandShell(cmd, { login: opts.login });
   return new Promise((resolve) => {
     let settled = false;
     const finish = (r: ShellResult) => {

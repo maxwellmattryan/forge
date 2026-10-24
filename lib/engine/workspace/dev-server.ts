@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { ensureEnvironment } from '../environment/lifecycle.ts';
 import { jobEnv, vars } from './job-command.ts';
 import { loadJob, logEvent, renewLease, jobDir } from '#core/job/store.ts';
-import { commandShell } from '../guard/command-env.ts';
+import { commandShell, loginShell } from '../guard/command-env.ts';
 import { jobComponent } from '#core/config/components.ts';
 import { applySinks } from '../environment/config-sinks-apply.ts';
 import { commandPort } from '../environment/endpoints.ts';
@@ -60,7 +60,7 @@ export async function startBackground(
     const baseEnv = jobEnv(root, config, job, job.worktree!, port);
     const applied = component ? applySinks(root, config, job, component, { env: baseEnv, fillCmd: (t) => fill(t, v) }) : null;
     if (applied) logEvent(root, id, 'config-sinks', applied.summary);
-    const sh = commandShell(cmd);
+    const sh = commandShell(cmd, { login: loginShell(config) });
     const { fd, file: logFile } = openBackgroundLog(root, config, id, name);
     const child = spawn(sh.file, sh.args, {
       cwd: job.worktree!,

@@ -39,7 +39,7 @@ test('field schema is an allowlist over documented keys', async () => {
   const forbidden = [
     'commands.', 'worktrees.', 'verify', 'git.', 'merge.', 'approver.', 'aiAttribution', 'infra.', 'resources', 'components', 'repos', 'checkout', 'usage.', 'evals.',
     'review.panel', 'tracker.kind', 'tracker.local.', 'tracker.github.repo', 'tracker.github.comments', 'tracker.github.project.',
-    'daemon.command', 'daemon.allowedTools', 'daemon.enabled', 'daemon.maxConcurrent', 'notify.',
+    'daemon.command', 'daemon.allowedTools', 'daemon.enabled', 'daemon.maxConcurrent', 'notify.', 'commandEnv.',
   ];
   assert.equal(new Set(FIELDS.map((f) => f.key)).size, FIELDS.length, 'keys are unique');
   for (const f of FIELDS) {
@@ -60,12 +60,20 @@ test('field schema is an allowlist over documented keys', async () => {
     for (const p of forbidden) assert.ok(!f.key.startsWith(p), `${f.key} must not be editable (${p})`);
   }
   assert.ok(FIELDS.some((f) => f.key === 'runtime.models.builder' && f.editable));
-  for (const [key, reason] of [['worktrees.generated', 'names paths a command regenerates'], ['worktrees.generatedBy', 'names a command Forge runs']]) {
+  for (const [key, reason] of [
+    ['worktrees.generated', 'names paths a command regenerates'],
+    ['worktrees.generatedBy', 'names a command Forge runs'],
+    ['commandEnv.inherit', 'widens what configured commands can read'],
+    ['commandEnv.loginShell', 'sources the login profile in every configured command'],
+  ]) {
     const f = FIELDS.find((x) => x.key === key);
     assert.ok(f, `${key} is in the schema`);
     assert.equal(f.section, 'pipeline', key);
     assert.equal(f.lockedReason, reason, key);
+    assert.ok(KEY_DOCS[key]?.doc.trim(), `${key} has a doc string`);
   }
+  assert.equal(FIELDS.find((f) => f.key === 'commandEnv.inherit')?.type, 'list');
+  assert.equal(FIELDS.find((f) => f.key === 'commandEnv.loginShell')?.type, 'boolean');
   assert.ok(KEY_DOCS['worktrees.generated']?.doc.trim() && KEY_DOCS['worktrees.generatedBy']?.doc.trim(), 'worktrees.generated and worktrees.generatedBy have doc strings');
   assert.equal(FIELDS.filter((f) => f.key.startsWith('runtime.models.')).length, Object.keys(base.runtime.models).length, 'one field per role');
 });

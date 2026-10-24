@@ -74,6 +74,8 @@ export function defaults(): Config {
       dev: null,
       e2e: null,
     },
+    // Configured commands get an allowlisted environment and /bin/sh -c; these widen it.
+    commandEnv: { inherit: [], loginShell: false },
     verify: ['build', 'lint', 'test'],
     // After the verify steps pass, run commands.e2e when the diff touches UI paths (or always/never).
     verifyE2e: {

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { backingDown, hasJobBacking, portsLock } from '../environment/backing.ts';
 import { ensureEnvironment, stopBackground } from '../environment/lifecycle.ts';
 import { checkRefs, jobEnv, shell, vars } from './job-command.ts';
+import { loginShell } from '../guard/command-env.ts';
 import { knownValues, redactKnown, removeKnown } from '../guard/known-secrets.ts';
 import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
 import { loadConfig, worktreeRoot } from '#core/config/load.ts';
@@ -135,7 +136,7 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   const runCommands: RunCommands = (cmds, keepGoing = false) => {
     const log: SeedCommandLog[] = [];
     for (const cmd of cmds) {
-      const res = shell(fill(cmd, vars(root, config, job, dir, setupPort, cmd)), dir, jobEnv(root, config, job, dir, setupPort));
+      const res = shell(fill(cmd, vars(root, config, job, dir, setupPort, cmd)), dir, jobEnv(root, config, job, dir, setupPort), { login: loginShell(config) });
       log.push({ cmd, ok: res.ok, tail: redactKnown(tail(res.output, 15), known) });
       if (!res.ok && !keepGoing) break;
     }

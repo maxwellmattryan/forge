@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { forgeAsync, tempRepo, waitFor } from '../../helpers.ts';
@@ -105,6 +106,35 @@ async function freePort(): Promise<number> {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   return port;
 }
+
+test("dash captures the login shell's PATH once at start, outside any job", { skip: process.platform === 'win32' }, async () => {
+  const repo = setupRepo();
+  const log = path.join(repo.dir, '..', `${path.basename(repo.dir)}-shell.log`);
+  let pid: number | undefined;
+  try {
+    const port = await freePort();
+    const shell = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'bin', 'fake-login-shell');
+    const started = await forgeAsync(repo.dir, ['dash', '--dev', '--background', '--port', String(port), '--json'], { SHELL: shell, FAKE_SHELL_LOG: log });
+    assert.equal(started.status, 0, started.stderr);
+    pid = json(started.stdout).pid as number;
+    const file = dashboardRecordFile(repo.dir);
+    await waitFor(() => fs.existsSync(file) && JSON.parse(fs.readFileSync(file, 'utf8')).pid === pid, { what: "the dev child's record" });
+    const calls = fs.readFileSync(log, 'utf8').trim().split('\n');
+    assert.equal(calls.length, 1, calls.join('\n'));
+    const [cwd, args] = calls[0].split('|');
+    assert.equal(cwd, fs.realpathSync(os.homedir()));
+    assert.ok(args.startsWith('-lc '), args);
+    const stop = await forgeAsync(repo.dir, ['dash', '--stop', '--json']);
+    assert.equal(stop.status, 0, stop.stderr);
+    await waitFor(() => !alive(pid!), { what: 'the dev child to exit' });
+  } finally {
+    try {
+      if (pid) process.kill(pid, 'SIGKILL');
+    } catch {}
+    fs.rmSync(log, { force: true });
+    repo.cleanup();
+  }
+});
 
 // Native Windows proves no record, so --stop could never stop the child there.
 test('a stale record does not block dash --dev, and --stop stops the real background child', { skip: process.platform === 'win32' }, async () => {

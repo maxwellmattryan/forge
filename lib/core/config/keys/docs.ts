@@ -56,6 +56,10 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'commands.dev': { doc: 'e.g. "yarn dev --port {port}"' },
   'commands.e2e': { doc: 'browser/e2e suite; `forge run <job> e2e`, and verify runs it per verifyE2e below' },
 
+  commandEnv: { doc: 'what configured commands inherit: an allowlist of Forge\'s environment, under /bin/sh -c\n("Command environment")' },
+  'commandEnv.inherit': { doc: 'more variable names commands get, e.g. [JAVA_HOME, "ANDROID_*"]; a * glob never\npasses a credential-like name, and declared secret sources never pass' },
+  'commandEnv.loginShell': { doc: 'true runs commands as `$SHELL -lc`, so the login profile is sourced and can export\nwhat the allowlist dropped' },
+
   verify: {
     doc: 'the deterministic gate before review, in order; unset commands are skipped. A list\nentry such as [lint, test] is a group whose steps run at the same time ("Verify groups")',
   },
