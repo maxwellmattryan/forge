@@ -20,6 +20,10 @@ import { SUPPORT_URL, hostInfo, platformTier, posixShell, tierDetail, versionAtL
 import type { HostInfo } from '#core/os/platform.ts';
 import type { Config, DoctorCheck, DoctorReport } from '#core/types.ts';
 import { gh } from '#integrations/github/gh.ts';
+import { readBranchRules } from '#integrations/github/protection.ts';
+import { repoSlug } from '#integrations/github/pull-requests.ts';
+import type { BranchRules } from '#integrations/github/types.ts';
+import { requiredChecksAdvice } from '../pr/required.ts';
 import { git } from '#integrations/git/runner.ts';
 import { hasBinary } from '#core/os/process.ts';
 import { readText } from '#core/os/fs.ts';
@@ -218,6 +222,15 @@ function onWindowsFs(root: string, config: Config): string[] {
   return [...new Set([real, worktreeRoot(root, config)].map(posix))].filter((p) => p.startsWith('/mnt/'));
 }
 
+/**
+ * The `merge required checks` row: a warning when `base` merges on whatever CI has reported, with
+ * the command that turns on protection (requiredChecksAdvice). `rules` null: merge.requiredChecks is set, so not read.
+ */
+export function requiredChecksCheck(config: Config, base: string, rules: BranchRules | null): DoctorCheck {
+  const { warn, detail } = requiredChecksAdvice(config, base, rules);
+  return { name: 'merge required checks', ok: true, ...(warn ? { warn: true } : {}), detail };
+}
+
 export async function doctor(root: string, config: Config, initialized: boolean, host: HostInfo = hostInfo(), opts: DoctorOptions = {}): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [];
   const add = (name: string, ok: boolean, detail = '') => checks.push({ name, ok, detail });
@@ -246,8 +259,10 @@ export async function doctor(root: string, config: Config, initialized: boolean,
   const sparse = git(undefined, ['sparse-checkout', '-h'], { allowFail: true });
   add('git sparse-checkout (evals)', sparse.status === 129 || sparse.ok, '');
   add('config present', initialized, initialized ? path.relative(root, paths(root).config) : 'run /forge init');
+  let configValid = false;
   if (initialized) {
     const problems = validateConfig(config, root);
+    configValid = !problems.length;
     add('config valid', !problems.length, problems.join('; '));
     checks.push(...deprecationChecks(readText(paths(root).config)));
     // A bad repos list is already a failing config check; member checks would only guess at it.
@@ -278,6 +293,15 @@ export async function doctor(root: string, config: Config, initialized: boolean,
     if (auth?.ok && ['project', 'both'].includes(config.tracker.github.statusSync)) {
       const scopes = `${auth.stdout}${auth.stderr}`;
       add('gh token has "project" scope', /project/.test(scopes), 'run: gh auth refresh -s project');
+    }
+    if (auth?.ok && config.pr.enabled && configValid) {
+      let slug: string | null = null;
+      try {
+        slug = repoSlug(root, config);
+      } catch {
+        // No repository to read protection from: the row is left out.
+      }
+      if (slug !== null) checks.push(requiredChecksCheck(config, config.git.base, config.merge.requiredChecks.length ? null : readBranchRules(gh, root, slug, config.git.base)));
     }
   }
   const remote = git(root, ['remote', 'get-url', config.git.remote], { allowFail: true });
