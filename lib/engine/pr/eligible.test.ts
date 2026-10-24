@@ -211,16 +211,19 @@ test("reviewCurrent binds HEAD to the head the round's review was given", () => 
       ['a verify run after the scope event with no scope after it', h.D, recorded(h.D), false, [verifyRun(h.D, 3)]],
       ["an earlier round's verify run does not answer", h.D, recorded(h.D), false, [{ ...verifyRun(h.D, 0), round: 0 }]],
     ];
-    // The panel's first reviewer start bounds the anchor. A commit, a verify and RV2's fresh scope after it (RV2 fires again after any verify) are not what the reviewers were given.
+    // The panel's first reviewer start since the round's `round` event bounds the anchor. A commit, a verify and RV2's fresh scope after it (RV2 fires again after any verify) are not what the reviewers were given.
     const scoped = (n: number, head: string) => event('scope', n, { round: 1, head });
     const verdicts = (sha: string) => event('verdicts', 5, { round: 1, outcome: 'PASS', sha });
+    const opened = (n: number) => event('round', n, { round: 1 });
     rows.push(
       ['a commit, a verify and RV2\'s fresh scope after a reviewer started', h.P, [move(0, 'verify'), scoped(1, h.D), start(2), scoped(4, h.P), verdicts(h.P)], false, [verifyRun(h.D, 0), verifyRun(h.P, 3)]],
       ['the same with no entry into review in the log', h.P, [scoped(1, h.D), start(2), scoped(4, h.P), verdicts(h.P)], false, [verifyRun(h.D, 0), verifyRun(h.P, 3)]],
       ['reviewers started and one retried after the scope event', h.D, [move(0, 'verify'), scoped(1, h.D), start(2), start(2, 'reviewer:security'), start(3), verdicts(h.D)], true],
       ['clean base merges on the head the reviewers started on', h.M2, [move(0, 'verify'), scoped(1, h.D), start(2), start(3), verdicts(h.D)], true],
-      ['a reviewer start from before review was entered', h.D, [start(0), move(0, 'verify'), scoped(1, h.D), verdicts(h.D)], true],
+      ['a reviewer start from before review was entered', h.D, [start(0), opened(0), move(0, 'verify'), scoped(1, h.D), verdicts(h.D)], true],
       ['a park inside review is not the entry', h.P, [move(0, 'verify'), scoped(1, h.D), start(2), move(3, 'review', 'review', 'waiting'), scoped(4, h.P), verdicts(h.P)], false, [verifyRun(h.D, 0), verifyRun(h.P, 3)]],
+      // `forge job set --stage verify` mid-panel, verify on P, back to review: no reviewer starts again, so the first panel's start still bounds the anchor.
+      ['review left and entered again within the round', h.P, [opened(0), move(0, 'verify'), scoped(1, h.D), start(2), move(3, 'review', 'verify'), move(3, 'verify'), scoped(4, h.P), verdicts(h.P)], false, [verifyRun(h.D, 0), verifyRun(h.P, 3)]],
     );
     for (const [name, head, events, want, runs] of rows) {
       at(head);

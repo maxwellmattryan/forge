@@ -123,8 +123,8 @@ export function decisionCurrent(root: string, config: Config, job: Job, events: 
  * Whether every job repo's HEAD still follows the head the current round's review was given. Null
  * when the round has no `verdicts` event: nothing is bound. The anchor is the head on RV2's own
  * `scope` event: the round's first one after its last verify run, with both before the panel's
- * first reviewer start (the first `reviewer:` agent-start since review was last entered from another
- * stage; the verdicts event when none), and only when it is the head that run verified. A scope
+ * first reviewer start (the first `reviewer:` agent-start since the round's own `round` event; the
+ * verdicts event when none), and only when it is the head that run verified. A scope
  * logged earlier, during build, is not RV2's, and a verify, commit or scope after a reviewer
  * started (RV2 logs a fresh one after any verify) is not what the reviewers were given. It is never
  * the `verdicts` sha, which is read after the panel ends and so would cover a commit a reviewer made
@@ -137,8 +137,10 @@ export function reviewCurrent(root: string, config: Config, job: Job, events: Jo
   if (v < 0) return null;
   try {
     if (!job.worktree) return false;
-    const entry = events.findLastIndex((e, i) => i < v && e.type === 'transition' && stageOf(e.to).stage === 'review' && stageOf(e.from).stage !== 'review');
-    const started = events.findIndex((e, i) => i > entry && i < v && e.type === 'agent-start' && typeof e.role === 'string' && e.role.startsWith('reviewer:'));
+    // The round's own `round` event, or -1 in a log without one. Every earlier round's reviewer starts
+    // come before it, and leaving review and coming back within the round keeps the first panel's bound.
+    const opened = events.findIndex((e, i) => i < v && e.type === 'round' && e.round === job.round);
+    const started = events.findIndex((e, i) => i > opened && i < v && e.type === 'agent-start' && typeof e.role === 'string' && e.role.startsWith('reviewer:'));
     const panel = started < 0 ? v : started;
     const lv = roundRuns(job).filter((r) => typeof r.at === 'string' && r.at < events[panel].ts).at(-1);
     if (!lv || lv.ok !== true) return false;
@@ -172,7 +174,7 @@ export function reviewCurrent(root: string, config: Config, job: Job, events: Jo
 /** The first `integrate-conflicts` event after position `pos`, or -1. */
 const nextConflicts = (events: JobEvent[], pos: number): number => events.findIndex((e, i) => i > pos && e.type === 'integrate-conflicts');
 
-const short =(s: string | null | undefined): string => String(s ?? 'none').slice(0, 12);
+const short = (s: string | null | undefined): string => String(s ?? 'none').slice(0, 12);
 
 /** At most 3 paths, control characters escaped, the rest counted. */
 function pathList(paths: string[]): string {
