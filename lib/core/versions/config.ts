@@ -134,6 +134,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // and upgraded repos get the caps too; the bump lets older Forges refuse a config whose daily caps they
   // would ignore.
   { id: 'daemon-daily-usd', up: (c) => c },
+  // v34 adds merge.requiredChecks ([]), filled from defaults, so no v33 config changes; the bump lets
+  // older Forges refuse a config whose required checks they would ignore and merge without.
+  { id: 'merge-required-checks', up: (c) => c },
 ];
 
 export const CONFIG_SCHEMA_VERSION = versionOf(CONFIG_STEPS);

@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `/bin/sh -c <cmd>` with an allowl
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 33            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 34            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -195,6 +195,7 @@ merge:                       # whether and how Forge merges approved PRs
   auto: false                # let Forge merge a PR whose recorded APPROVE covers its head, with no escalate-floor path, once CI passes at a settled head (see "Merge")
   method: squash             # squash | merge | rebase
   autoWhen: []               # plain-language conditions, e.g. ["docs-only changes", "test-only changes"]
+  requiredChecks: []         # the checks the root PR's merge needs, each a name or {name, app | workflow | creator} bound to its source; empty: the base branch's protection names them (see "Merge")
 
 aiAttribution: forbid        # forbid | allow: whether commits, PRs, issues and comments may credit an AI (see README)
 
