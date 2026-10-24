@@ -215,7 +215,7 @@ export const JOB: HelpGroup = {
     {
       command: 'job budget',
       args: '<id> [--set key=value,...] [--ack]',
-      summary: "the job's budget limits and use; --set and --ack are a human-only operation: they ask the person at the terminal to type the job id",
+      summary: "the job's budget limits and use; --set and --ack are a human-only operation: they ask the person at the terminal to type the job id, or a person uses the dashboard's Approve & continue on the budget gate instead",
       flags: [
         ['--set key=value', 'set a limit: tokens, usd, minutes, changedLines or verifyRetries (default restores the configured one)'],
         ['--ack', 'accept the limits now exceeded, so the job goes on'],

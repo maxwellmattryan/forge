@@ -895,7 +895,7 @@ See [Retention](architecture/retention.md).
 
 See [Audit trail](architecture/audit-trail.md).
 
-**`forge job budget <id> [--set key=value,...] [--ack]`**: the job's budget limits and use; --set and --ack are a human-only operation: they ask the person at the terminal to type the job id
+**`forge job budget <id> [--set key=value,...] [--ack]`**: the job's budget limits and use; --set and --ack are a human-only operation: they ask the person at the terminal to type the job id, or a person uses the dashboard's Approve & continue on the budget gate instead
 
 | Flag | Meaning |
 |---|---|
