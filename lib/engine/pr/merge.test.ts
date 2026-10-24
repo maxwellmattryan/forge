@@ -6,17 +6,23 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { addOrigin, ghPr, memoryGitHub, parkedAt, tempRepo } from '../../../test/helpers.ts';
-import { CI_SETTLE_MS, hasCiWorkflows, mergeAction, mergePr } from './merge.ts';
+import { CI_SETTLE_MS, deferredMergeDue, hasCiWorkflows, mergeAction, mergePr, mergeProvenance } from './merge.ts';
 import type { MergeResult } from './merge.ts';
 import { defaults } from '#core/config/load.ts';
 import { ForgeError } from '#core/errors.ts';
-import { logEvent, readEvents, setJob, updateJob } from '#core/job/store.ts';
+import { ackRequest, claimRequest, enqueue } from '#core/job/requests.ts';
+import { loadJob, logEvent, readEvents, setJob, updateJob } from '#core/job/store.ts';
+import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
+import { memberEntry } from '../project/job-repos.ts';
 
 // defaults(): a non-empty policy.protectedPaths, merge.method squash and merge.auto off.
 const config = defaults();
 config.tracker.github.repo = 'o/r';
 const auto = structuredClone(config);
 auto.merge.auto = true;
+/** auto with member repo lib, whose PRs live in o/lib. */
+const linkedAuto = structuredClone(auto);
+linkedAuto.repos = [{ name: 'lib', remote: 'https://github.com/o/lib.git', defaultBranch: 'main', tracker: { kind: 'github', repo: 'o/lib' } }];
 
 /** Past the settling window after the scenario's pr-opened event. */
 const SETTLED = () => Date.now() + 10 * 60_000;
@@ -44,6 +50,12 @@ interface ScenarioOpts {
   remoteGone?: boolean;
   /** The base branch GitHub says the PR targets (else main, the job's). */
   prBase?: string;
+  /**
+   * A linked job (run it with linkedAuto): member repo lib with PR #8 in o/lib on the job's branch,
+   * checks passing, in `state` on GitHub (OPEN), whose reviews GitHub lists as `reviews`.
+   * `changesRequested`: the count an earlier sync recorded for it.
+   */
+  member?: { reviews?: unknown[]; state?: 'OPEN' | 'MERGED'; changesRequested?: number };
 }
 
 /** A single-repo job with PR #7 opened, a decision bound to its head, and GitHub's PR #7 at that head. */
@@ -87,6 +99,17 @@ function scenario(rollup: keyof typeof ROLLUP, mergeStateStatus = 'CLEAN', opts:
   if (opts.decision !== null) logEvent(repo.dir, id, 'decision', { decision: 'APPROVE', reason: null, autoMerge: true, head: decided, ...opts.decision });
   const github = memoryGitHub();
   github.put(ghPr({ headRefOid: head, statusCheckRollup: ROLLUP[rollup], mergeStateStatus, ...(opts.prBase ? { baseRefName: opts.prBase } : {}) }));
+  if (opts.member) {
+    const m = opts.member;
+    const url = 'https://github.com/o/lib/pull/8';
+    const job = updateJob(repo.dir, id, (j) => {
+      const pr = { number: 8, url, state: 'OPEN' as const, isDraft: false, lastSyncedAt: new Date().toISOString(), ...(m.changesRequested !== undefined ? { changesRequested: m.changesRequested } : {}) };
+      j.repos = [j.repos[0], { repo: 'lib', worktree: null, branch: j.branch, base: 'main', pr, verifyOnly: false, interim: null }];
+    });
+    const state = m.state ?? 'OPEN';
+    github.put(ghPr({ number: 8, url, state, headRefName: job.branch, statusCheckRollup: ROLLUP.passing, mergedAt: state === 'MERGED' ? '2026-10-24T09:00:00Z' : null }), 'o/lib');
+    github.setFeedback(8, { reviews: { nodes: m.reviews ?? [] } }, 'o/lib');
+  }
   return {
     root: repo.dir,
     id,
@@ -114,6 +137,15 @@ function approveProtected(s: Scenario, file: string): void {
   setJob(s.root, s.id, { state: 'waiting', waitingOn: 'pr-review', reason: null });
 }
 
+/** The scenario with `more` arranged after it: events and job changes once the decision is logged. */
+const after = (s: Scenario, more: (s: Scenario) => unknown): Scenario => {
+  more(s);
+  return s;
+};
+
+/** A collaborator's review node as GitHub's GraphQL returns it, in `state`. */
+const changeRequest = (state: string) => ({ state, body: 'please fix the parser', author: { login: 'bob' }, authorAssociation: 'MEMBER', submittedAt: '2026-10-24T10:00:00Z', url: 'https://github.com/o/r/pull/7#pullrequestreview-1' });
+
 const refusedFor = (reason: string) => (s: Scenario, r: MergeResult | Error) => {
   assert.deepEqual(s.merges(), []);
   assert.ok(!(r instanceof Error), String(r));
@@ -129,7 +161,10 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
       assert.deepEqual(s.merges(), [{ op: 'merge', slug: 'o/r', number: 7, method: 'squash', auto: false, matchHead: s.head }]);
       assert.ok(!(r instanceof Error));
       assert.deepEqual([r.merged, r.action], [true, 'merged']);
-      assert.ok(s.events().includes('pr-merged'));
+      const merged = s.all().find((e) => e.type === 'pr-merged');
+      assert.ok(merged, s.events().join(' '));
+      assert.deepEqual([merged.actor, merged.bypass], [{ login: 'forge-test', source: 'env' }, false]);
+      assert.ok(!('scope' in merged) && !('via' in merged), JSON.stringify(merged));
     },
   },
   {
@@ -249,6 +284,159 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
       assert.ok(s.all().some((e) => e.type === 'pr-merge-deferred' && e.reason === 'settling'));
     },
   },
+  { name: 'superseded: a round 2 after the decision with the job still at pr', arrange: () => after(scenario('passing'), (s) => logEvent(s.root, s.id, 'round', { round: 2 })), check: refusedFor('superseded') },
+  {
+    name: "superseded: a person's rework after the decision with the job still at pr",
+    arrange: () => after(scenario('passing'), (s) => logEvent(s.root, s.id, 'human', { action: 'rework', actor: { login: 'al', source: 'env' } })),
+    check: refusedFor('superseded'),
+  },
+  {
+    name: "superseded: the foreman's CI rework after the decision",
+    arrange: () => after(scenario('passing'), (s) => logEvent(s.root, s.id, 'human', { action: 'rework', actor: FOREMAN_ACTOR, ciHead: s.head })),
+    check: refusedFor('superseded'),
+  },
+  {
+    name: 'superseded: the job moved to build after a rework',
+    arrange: () =>
+      after(scenario('passing'), (s) => {
+        logEvent(s.root, s.id, 'human', { action: 'rework', actor: { login: 'al', source: 'env' } });
+        setJob(s.root, s.id, { stage: 'build', state: 'running', waitingOn: null });
+      }),
+    check: refusedFor('superseded'),
+  },
+  { name: 'superseded: the job cancelled at stage pr', arrange: () => after(scenario('passing'), (s) => setJob(s.root, s.id, { state: 'cancelled', waitingOn: null })), check: refusedFor('superseded') },
+  {
+    name: 'superseded: the job cancelled, then set back to waiting at pr',
+    arrange: () =>
+      after(scenario('passing'), (s) => {
+        setJob(s.root, s.id, { state: 'cancelled', waitingOn: null });
+        setJob(s.root, s.id, { state: 'waiting', waitingOn: 'pr-review' });
+      }),
+    check: refusedFor('superseded'),
+  },
+  {
+    name: "superseded: a person's rework still waiting in the request inbox",
+    arrange: () => after(scenario('passing'), (s) => enqueue(s.root, auto, { type: 'rework', job: s.id, text: 'redo it', from: 'dashboard' })),
+    check: (s, r) => {
+      refusedFor('superseded')(s, r);
+      assert.match((r as MergeResult).error ?? '', /^a rework request for this job is waiting in the request inbox/);
+    },
+  },
+  {
+    name: 'superseded: a cancel request a session claimed and has not acked',
+    arrange: () =>
+      after(scenario('passing'), (s) => {
+        const req = enqueue(s.root, auto, { type: 'cancel', job: s.id, from: 'dashboard' });
+        claimRequest(s.root, req.id, 'session-1');
+      }),
+    check: refusedFor('superseded'),
+  },
+  {
+    name: 'superseded: a rework request that was handled and acked merges',
+    arrange: () =>
+      after(scenario('passing'), (s) => {
+        const req = enqueue(s.root, auto, { type: 'rework', job: s.id, from: 'dashboard' });
+        ackRequest(s.root, req.id, { status: 'done', result: 'reworked' });
+      }),
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([r.action, s.merges().length], ['merged', 1]);
+    },
+  },
+  {
+    name: 'superseded: a pr-feedback gate request the Foreman has not decided yet',
+    arrange: () => after(scenario('passing'), (s) => enqueue(s.root, auto, { type: 'gate', job: s.id, args: { gate: 'pr-feedback', key: s.head, reserved: null }, from: 'forge' })),
+    check: (s, r) => {
+      refusedFor('superseded')(s, r);
+      assert.match((r as MergeResult).error ?? '', /^a gate request for this job is waiting for the Foreman/);
+    },
+  },
+  {
+    name: 'superseded: a review on GitHub requesting changes at the live head',
+    arrange: () => after(scenario('passing'), (s) => s.github.setFeedback(7, { reviews: { nodes: [changeRequest('CHANGES_REQUESTED')] } })),
+    check: (s, r) => {
+      refusedFor('superseded')(s, r);
+      assert.match((r as MergeResult).error ?? '', /^a review on GitHub requests changes on this PR/);
+      // The count mergePr's own sync recorded at the live head, not an earlier one.
+      assert.deepEqual([loadJob(s.root, s.id).pr?.changesRequested, loadJob(s.root, s.id).pr?.headOid], [1, s.head]);
+    },
+  },
+  {
+    name: 'superseded: a gate request the Foreman acked and a dismissed change request merge',
+    arrange: () =>
+      after(scenario('passing'), (s) => {
+        const req = enqueue(s.root, auto, { type: 'gate', job: s.id, args: { gate: 'pr-feedback', key: s.head, reserved: null }, from: 'forge' });
+        ackRequest(s.root, req.id, { status: 'done', result: 'no action: addressed' });
+        s.github.setFeedback(7, { reviews: { nodes: [changeRequest('DISMISSED')] } });
+      }),
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([r.action, s.merges().length], ['merged', 1]);
+    },
+  },
+  {
+    name: "superseded: a review requesting changes on a linked job's member PR holds the root PR's merge",
+    arrange: () => scenario('passing', 'CLEAN', { member: { reviews: [changeRequest('CHANGES_REQUESTED')] } }),
+    config: linkedAuto,
+    check: (s, r) => {
+      refusedFor('superseded')(s, r);
+      assert.match((r as MergeResult).error ?? '', /^a review on GitHub requests changes on repo lib's PR/);
+      // The count mergePr's own sync of the member PR recorded at this call.
+      assert.equal(memberEntry(loadJob(s.root, s.id), 'lib')?.pr?.changesRequested, 1);
+    },
+  },
+  {
+    name: "superseded: a dismissed change request on a linked job's member PR holds nothing",
+    arrange: () => scenario('passing', 'CLEAN', { member: { reviews: [changeRequest('DISMISSED')], changesRequested: 1 } }),
+    config: linkedAuto,
+    opts: { root: true },
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([r.action, s.merges().map((c) => [c.slug, c.number])], ['merged', [['o/r', 7]]]);
+      assert.equal(memberEntry(loadJob(s.root, s.id), 'lib')?.pr?.changesRequested, 0);
+    },
+  },
+  {
+    name: "superseded: a linked job's member PR merged past a change request holds nothing, and its reviews are not read",
+    arrange: () => scenario('passing', 'CLEAN', { member: { state: 'MERGED', reviews: [changeRequest('CHANGES_REQUESTED')], changesRequested: 1 } }),
+    config: linkedAuto,
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([r.merged, r.action, s.merges().map((c) => [c.slug, c.number])], [true, 'merged', [['o/r', 7]]]);
+      assert.deepEqual(s.github.calls.filter((c) => c.op === 'feedback' && c.slug === 'o/lib'), []);
+    },
+  },
+  {
+    name: 'superseded: a decision recorded after the new round merges',
+    arrange: () =>
+      after(scenario('passing'), (s) => {
+        logEvent(s.root, s.id, 'round', { round: 2 });
+        logEvent(s.root, s.id, 'decision', { decision: 'APPROVE', reason: null, autoMerge: true, head: s.head });
+      }),
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([r.action, s.merges().length], ['merged', 1]);
+    },
+  },
+  {
+    name: '--now ignores a superseded decision',
+    arrange: () =>
+      after(scenario('failing'), (s) => {
+        logEvent(s.root, s.id, 'round', { round: 2 });
+        setJob(s.root, s.id, { stage: 'build', state: 'running', waitingOn: null });
+        enqueue(s.root, auto, { type: 'rework', job: s.id, from: 'dashboard' });
+      }),
+    opts: { now: { channel: 'terminal', actor: { login: 'alice', source: 'env' } } },
+    check: (s, r) => {
+      assert.deepEqual(s.merges(), [{ op: 'merge', slug: 'o/r', number: 7, method: 'squash', auto: false, matchHead: s.head }]);
+      assert.equal((r as MergeResult).action, 'merged');
+      const types = s.events();
+      const bypass = types.indexOf('pr-merge-bypass');
+      const merged = types.indexOf('pr-merged');
+      assert.ok(bypass >= 0 && merged > bypass, types.join(' '));
+      assert.equal(s.all()[merged].bypass, true);
+    },
+  },
   {
     name: "--now outside a daemon, with a person's grant: merge.auto off, no decision, failing checks merge with one plain call",
     arrange: () => scenario('failing', 'CLEAN', { decision: null }),
@@ -291,6 +479,85 @@ describe('mergePr makes at most one merge call through the adapter', { concurren
         s.cleanup();
       }
     });
+  }
+});
+
+test('deferredMergeDue: sync continues only a deferral nothing replaced', () => {
+  const repo = tempRepo();
+  try {
+    const decision = { decision: 'APPROVE', reason: null, autoMerge: true, head: 'a'.repeat(40) };
+    const deferred = { number: 7, checks: 'pending' };
+    const person = { action: 'rework', actor: { login: 'al', source: 'env' } };
+    const gate = (root: string, id: string) => enqueue(root, config, { type: 'gate', job: id, args: { gate: 'pr-feedback', key: 'b'.repeat(40), reserved: null }, from: 'forge' });
+    // job.pr as forge sync recorded it just before the hint.
+    const reviewed = (root: string, id: string, changesRequested: number) =>
+      updateJob(root, id, (j) => {
+        j.pr = { ...j.pr!, number: 7, state: 'OPEN', changesRequested };
+      });
+    // A linked job, with PR member lib's record as forge sync recorded it just before the hint.
+    const member = (changesRequested: number) => (root: string, id: string) =>
+      void updateJob(root, id, (j) => {
+        const pr = { number: 8, url: 'https://github.com/o/lib/pull/8', state: 'OPEN' as const, isDraft: false, lastSyncedAt: new Date().toISOString(), changesRequested };
+        j.repos = [j.repos[0], { repo: 'lib', worktree: null, branch: j.branch, base: 'main', pr, verifyOnly: false, interim: null }];
+      });
+    type Step = [string, Record<string, unknown>] | ((root: string, id: string) => void);
+    const rows: [string, Step[], unknown, boolean][] = [
+      ['a settled deferral after the decision', [['decision', decision], ['pr-merge-deferred', deferred]], 'OPEN', true],
+      ['a human rework, then a move to build', [['decision', decision], ['pr-merge-deferred', deferred], ['human', person], (root, id) => setJob(root, id, { stage: 'build', state: 'running', waitingOn: null })], 'OPEN', false],
+      ['a round after the deferral', [['decision', decision], ['pr-merge-deferred', deferred], ['round', { round: 2 }]], 'OPEN', false],
+      ['a deferral before a newer decision', [['decision', decision], ['pr-merge-deferred', deferred], ['decision', decision]], 'OPEN', false],
+      ['a refusal as the last merge event', [['decision', decision], ['pr-merge-deferred', deferred], ['pr-merge-refused', { number: 7, reason: 'decision' }]], 'OPEN', false],
+      ['a merged PR', [['decision', decision], ['pr-merge-deferred', deferred]], 'MERGED', false],
+      ['a cancelled job', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => setJob(root, id, { state: 'cancelled', waitingOn: null })], 'OPEN', false],
+      [
+        'a cancelled job set back to waiting',
+        [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => setJob(root, id, { state: 'cancelled', waitingOn: null }), (root, id) => setJob(root, id, { state: 'waiting', waitingOn: 'pr-review' })],
+        'OPEN',
+        false,
+      ],
+      ['a rework request waiting in the inbox', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => void enqueue(root, config, { type: 'rework', job: id, from: 'dashboard' })], 'OPEN', false],
+      ['a cancel request waiting in the inbox', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => void enqueue(root, config, { type: 'cancel', job: id, from: 'dashboard' })], 'OPEN', false],
+      [
+        'a rework request handled and acked',
+        [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => ackRequest(root, enqueue(root, config, { type: 'rework', job: id, from: 'dashboard' }).id, { status: 'done' })],
+        'OPEN',
+        true,
+      ],
+      ["another job's rework request", [['decision', decision], ['pr-merge-deferred', deferred], (root) => void enqueue(root, config, { type: 'rework', job: 'some-other-job', from: 'dashboard' })], 'OPEN', true],
+      // What this sync pass may just have queued or recorded: the pr-feedback gate, and a change request.
+      ['a gate request waiting for the Foreman', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => void gate(root, id)], 'OPEN', false],
+      ['a gate request the Foreman acked', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => ackRequest(root, gate(root, id).id, { status: 'done' })], 'OPEN', true],
+      ['a review requesting changes', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => reviewed(root, id, 1)], 'OPEN', false],
+      ['no review requesting changes', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => reviewed(root, id, 0)], 'OPEN', true],
+      ["a review requesting changes on a linked job's member PR", [['decision', decision], ['pr-merge-deferred', deferred], member(1)], 'OPEN', false],
+      ["no review requesting changes on a linked job's member PR", [['decision', decision], ['pr-merge-deferred', deferred], member(0)], 'OPEN', true],
+    ];
+    for (const [name, steps, prState, want] of rows) {
+      const id = parkedAt(repo.dir, 'pr-review', { config, title: name }).id;
+      logEvent(repo.dir, id, 'pr-opened', { number: 7 });
+      for (const step of steps) {
+        if (typeof step === 'function') step(repo.dir, id);
+        else logEvent(repo.dir, id, step[0], step[1]);
+      }
+      assert.equal(deferredMergeDue(repo.dir, config, loadJob(repo.dir, id), prState), want, name);
+    }
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('mergeProvenance names the daemon scope that ran the merge', () => {
+  const repo = tempRepo();
+  try {
+    const actor = currentActor(repo.dir);
+    assert.deepEqual(mergeProvenance(repo.dir, { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: 'other-job' }), { actor, scope: 'other-job' });
+    for (const env of [{}, { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '../not-a-scope' }]) {
+      const p = mergeProvenance(repo.dir, env);
+      assert.deepEqual(p, { actor }, JSON.stringify(env));
+      assert.ok(!('scope' in p));
+    }
+  } finally {
+    repo.cleanup();
   }
 });
 

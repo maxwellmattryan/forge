@@ -86,7 +86,9 @@ function rootTransition(
     return stay({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', reason });
   }
   if (pr.state === 'CLOSED') return stay(!['cancelled', 'done'].includes(job.state) ? { state: 'cancelled', reason: 'PR closed without merging' } : {});
-  if (pr.state !== 'OPEN' || job.stage !== 'pr') return stay();
+  // A cancel or a failure keeps stage pr, and only a person reopens the job: parking it on pr-review
+  // again would hand forge pr merge a job a human stopped.
+  if (pr.state !== 'OPEN' || job.stage !== 'pr' || job.state === 'cancelled' || job.state === 'failed') return stay();
   const policy = config.pr.conflicts;
   const conflicting = pr.mergeable === 'CONFLICTING';
   const behindBy = typeof pr.behindBy === 'number' && Number.isSafeInteger(pr.behindBy) && pr.behindBy > 0 ? pr.behindBy : 0;
