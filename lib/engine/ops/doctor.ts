@@ -13,7 +13,7 @@ import { notifyChecks } from '#office/notify.ts';
 import { paths, exists, BUILD_DASHBOARD, PLUGIN_ROOT } from '#core/paths.ts';
 import { dirBytes } from './retention.ts';
 import { secretAvailability } from '../guard/secret-refs.ts';
-import { droppedVariables } from '../guard/command-env.ts';
+import { BUILD_LIKE, CREDENTIAL_CARRIERS, droppedVariables } from '../guard/command-env.ts';
 import { COMMAND_PATH_ENV, COMMAND_PATH_SOURCE_ENV } from '../guard/command-path.ts';
 import type { ResolveOptions } from '../guard/secret-refs.ts';
 import { SUPPORT_URL, hostInfo, platformTier, posixShell, tierDetail, versionAtLeast } from '#core/os/platform.ts';
@@ -150,20 +150,43 @@ export function commandPathCheck(env: NodeJS.ProcessEnv = process.env, platform:
   return { name: 'command PATH', ok: true, detail: [source, ...notes].join('; '), ...(failed || dropped.length ? { warn: true } : {}) };
 }
 
+export interface DoctorOptions {
+  /**
+   * For a support bundle, which goes to public issues: the `command environment` check names only
+   * BUILD_LIKE's fixed names and counts the other `*_HOME`/`*_ROOT` ones, which can say what a machine
+   * has (the bundle's config.json hides commandEnv.inherit for the same reason).
+   */
+  bundle?: boolean;
+}
+
+const CARRIER_ADVICE = 'can carry credentials: inherit such a name only if a command needs it, or declare a secret with a config sink';
+
+/** `names` joined; for a bundle, the ones BUILD_LIKE does not name are counted instead. */
+function listedNames(names: string[], bundle: boolean): string {
+  if (!bundle) return names.join(', ');
+  const known = names.filter((n) => BUILD_LIKE.has(n.toUpperCase()));
+  const others = names.length - known.length;
+  if (!others) return known.join(', ');
+  return [...known, `${others} ${known.length ? 'more ' : ''}*_HOME or *_ROOT ${others === 1 ? 'name' : 'names'}`].join(', ');
+}
+
 /**
  * The `command environment` check: the variables this environment exports that configured commands
  * do not get and that look like build settings (names only, sorted), as a warning pointing at
- * commandEnv.inherit. Ok with no warning when there are none.
+ * commandEnv.inherit, with the ones that carry credentials (CREDENTIAL_CARRIERS) in a clause of their
+ * own that says so. Ok with no warning when there are none.
  */
-export function commandEnvCheck(config: Config, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): DoctorCheck {
+export function commandEnvCheck(config: Config, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, opts: DoctorOptions = {}): DoctorCheck {
   const dropped = droppedVariables(config, env, platform);
-  if (!dropped.length) return { name: 'command environment', ok: true, detail: 'configured commands get the allowlist (docs/CONFIG.md "Command environment")' };
-  return {
-    name: 'command environment',
-    ok: true,
-    warn: true,
-    detail: `configured commands do not get ${dropped.join(', ')}; add the names they need to commandEnv.inherit (docs/CONFIG.md "Command environment")`,
-  };
+  const docs = '(docs/CONFIG.md "Command environment")';
+  if (!dropped.length) return { name: 'command environment', ok: true, detail: `configured commands get the allowlist ${docs}` };
+  const carries = (name: string) => CREDENTIAL_CARRIERS.has(name.toUpperCase());
+  const build = dropped.filter((n) => !carries(n));
+  const carriers = dropped.filter(carries);
+  const clauses: string[] = [];
+  if (build.length) clauses.push(`configured commands do not get ${listedNames(build, opts.bundle === true)}; add the names they need to commandEnv.inherit`);
+  if (carriers.length) clauses.push(`${build.length ? 'nor' : 'configured commands do not get'} ${carriers.join(', ')}, which ${CARRIER_ADVICE}`);
+  return { name: 'command environment', ok: true, warn: true, detail: `${clauses.join('; ')} ${docs}` };
 }
 
 /** The repo root and worktrees root that sit on the Windows filesystem (/mnt/…) under WSL2. */
@@ -178,7 +201,7 @@ function onWindowsFs(root: string, config: Config): string[] {
   return [...new Set([real, worktreeRoot(root, config)].map(posix))].filter((p) => p.startsWith('/mnt/'));
 }
 
-export async function doctor(root: string, config: Config, initialized: boolean, host: HostInfo = hostInfo()): Promise<DoctorReport> {
+export async function doctor(root: string, config: Config, initialized: boolean, host: HostInfo = hostInfo(), opts: DoctorOptions = {}): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [];
   const add = (name: string, ok: boolean, detail = '') => checks.push({ name, ok, detail });
   // First, so the verdict is the first thing doctor prints.
@@ -223,7 +246,7 @@ export async function doctor(root: string, config: Config, initialized: boolean,
     // Only with a valid config: an invalid policy is already the failing config check.
     const instructions = problems.length ? null : instructionsPolicyCheck(config);
     if (instructions) checks.push(instructions);
-    if (!problems.length) checks.push(commandEnvCheck(config, process.env, host.platform));
+    if (!problems.length) checks.push(commandEnvCheck(config, process.env, host.platform, opts));
   }
   const keys = apiKeyVars(process.env);
   if (initialized && config.daemon.enabled && keys.length) {

@@ -345,7 +345,7 @@ Before writing, stderr lists every entry with its size, any file it skipped and 
 | Entry | Content |
 |---|---|
 | `manifest.json` | `{createdAt, forgeVersion, includeText, jobs, entries, skipped, redactions}` |
-| `doctor.json` | what `forge doctor` prints |
+| `doctor.json` | what `forge doctor` prints, except that the `command environment` check counts the `*_HOME` and `*_ROOT` variable names it has no fixed entry for instead of naming them ([Command environment](CONFIG.md#command-environment)) |
 | `versions.json` | `{forge, node, git, gh, glab, os}`; a missing tool is `null` |
 | `config.json` | the effective config, with every value that names a command, path, URL or person, and every key Forge doesn't know, replaced by `<redacted>` (`CONFIG_DISCLOSURE` in `lib/core/config/fields.ts`) |
 | `daemon/inbox.log`, `daemon/office.log` | without a job: the last 500 lines of the inbox and office session logs |

@@ -18,6 +18,7 @@ const DROPPED = [
   'DATABASE_URL', 'HTTP_PROXY', 'JAVA_HOME', 'BASH_ENV', 'ENV', 'ZDOTDIR', 'XDG_RUNTIME_DIR', 'GIT_DIR', 'GIT_SSH_COMMAND', 'npm_config_registry',
   'CORP_SESSION_BLOB', 'FORGE_DAEMON_SCOPE', 'FORGE_DAEMON_TRUST', 'FORGE_PORT_WEB', 'FORGE_ENDPOINT_WEB', 'FORGE_BACKING_DB_URL',
   'FORGE_COMMAND_PATH_SOURCE', 'FORGE_API_TOKEN', 'LC_SECRET', 'NODE_REGISTRY_PASSWORD', 'FORGE_GH_PAT', 'GIT_CONFIG_PARAMETERS', 'Path', 'home',
+  'NODE_APIKEY', 'FORGE_APIKEY', 'FORGE_SESSION', 'NODE_AUTH', 'FORGE_JWT', 'LC_COOKIE', 'FORGE_DB_PASS', 'NODE_ADMIN_PWD',
 ];
 
 test('commandEnv passes only the allowlist, the same in and out of the daemon', () => {
@@ -44,6 +45,22 @@ test('commandEnv.inherit opts names back in, never internal variables, secret so
     DATABASE_URL: 'postgres://x',
     APP_SECRET_KEY: 'k',
     APP_NAME: 'a',
+    APP_JWT: 'j',
+    APP_SESSION: 's',
+    APP_COOKIE: 'c',
+    APP_APIKEY: 'k',
+    DOCKER_HOST: 'unix:///d.sock',
+    DOCKER_AUTH_CONFIG: '{}',
+    DB_HOST: 'h',
+    DB_PASS: 'p',
+    DB_ADMIN_PWD: 'p',
+    KUBE_NAMESPACE: 'n',
+    KUBECONFIG: '/k',
+    GH_HOST: 'github.com',
+    GH_CONFIG_DIR: '/g',
+    NETRC: '/n',
+    npm_config_registry: 'https://r',
+    'npm_config_//registry.npmjs.org/:_authToken': 't',
     CMDENV_DB_SRC: 'planted',
     CMDENV_OTHER: 'o',
     FORGE_DAEMON_SCOPE: 'j1',
@@ -56,7 +73,13 @@ test('commandEnv.inherit opts names back in, never internal variables, secret so
   const keys = (e: NodeJS.ProcessEnv) => Object.keys(e).filter((k) => k !== 'PATH').sort();
   assert.deepEqual(keys(env(['JAVA_*', 'DATABASE_URL'])), ['DATABASE_URL', 'JAVA_HOME'], 'whole-name globs, never a credential-like match');
   assert.deepEqual(keys(env(['APP_SECRET_KEY'])), ['APP_SECRET_KEY'], 'an exact name always passes');
-  assert.deepEqual(keys(env(['APP_*'])), ['APP_NAME'], 'a glob does not pass APP_SECRET_KEY');
+  assert.deepEqual(keys(env(['APP_*'])), ['APP_NAME'], 'a glob does not pass APP_SECRET_KEY, APP_JWT, APP_SESSION, APP_COOKIE or APP_APIKEY');
+  assert.deepEqual(
+    keys(env(['DOCKER_*', 'DB_*', 'KUBE*', 'GH_*', 'NETRC*', 'npm_config_*'])),
+    ['DB_HOST', 'DOCKER_HOST', 'GH_HOST', 'KUBE_NAMESPACE', 'npm_config_registry'],
+    'a glob never passes a name that holds or points at a credential',
+  );
+  assert.deepEqual(keys(env(['DOCKER_AUTH_CONFIG', 'KUBECONFIG', 'DB_PASS'])), ['DB_PASS', 'DOCKER_AUTH_CONFIG', 'KUBECONFIG'], 'exact names still pass');
   assert.deepEqual(keys(env(['CMDENV_*'])), ['CMDENV_OTHER'], 'a declared source never passes');
   assert.deepEqual(keys(env(['CMDENV_DB_SRC'])), [], 'not even by exact name');
   assert.deepEqual(keys(env(['FORGE_DAEMON*', 'FORGE_DAEMON', 'FORGE_BACKING_*', 'FORGE_COMMAND_PATH'])), [], 'internal variables never pass');

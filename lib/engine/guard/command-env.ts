@@ -36,12 +36,23 @@ export const ALLOW_EXACT: ReadonlySet<string> = new Set([
  */
 export const ALLOW_PATTERNS: readonly RegExp[] = [/^LC_/, /^GIT_CONFIG_(KEY|VALUE)_\d+$/, /^NODE_(?!OPTIONS$)/, /^FORGE_/];
 
-const CREDENTIAL_LIKE = [/_(TOKEN|KEY|PAT|AUTH)$/, /PASSWORD|PASSWD|ACCESS_KEY/, /(^|_)SECRET/, /(^|_)CREDENTIALS?(_|$)/, /^OP_SESSION_/];
+// Over the upper-cased name. `SESSION` as a word covers 1Password's OP_SESSION_<account>, and
+// AUTHTOKEN npm's `npm_config_//<registry>/:_authToken`.
+const CREDENTIAL_LIKE = [
+  /_(TOKEN|KEY|PAT|PASS|PWD)$/,
+  /(^|_)AUTH(_|$)/,
+  /PASSWORD|PASSWD|ACCESS_KEY|APIKEY|AUTHTOKEN/,
+  /(^|_)SECRET/,
+  /(^|_)CREDENTIALS?(_|$)/,
+  /(^|_)(JWT|COOKIE|SESSION)(_|$)/,
+];
+/** Names that point at a file or dir of credentials without saying so (the old daemon denylist's). */
+const CREDENTIAL_NAMES: ReadonlySet<string> = new Set(['DOCKER_AUTH_CONFIG', 'NETRC', 'KUBECONFIG', 'GH_CONFIG_DIR']);
 
-/** Whether `name`, in any letter case, looks like it holds a credential: no pattern or glob ever passes one. */
+/** Whether `name`, in any letter case, looks like it holds or points at a credential: no pattern or glob ever passes one. */
 export function credentialLike(name: string): boolean {
   const upper = name.toUpperCase();
-  return CREDENTIAL_LIKE.some((re) => re.test(upper));
+  return CREDENTIAL_NAMES.has(upper) || CREDENTIAL_LIKE.some((re) => re.test(upper));
 }
 
 const fold = (name: string, platform: NodeJS.Platform) => (platform === 'win32' ? name.toUpperCase() : name);
@@ -164,6 +175,12 @@ export const BUILD_LIKE: ReadonlySet<string> = new Set([
   'NODE_OPTIONS', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE',
   'DATABASE_URL', 'REDIS_URL', 'SSH_AUTH_SOCK', 'DOCKER_HOST', 'CC', 'CXX', 'CFLAGS', 'CXXFLAGS', 'LDFLAGS', 'PKG_CONFIG_PATH',
 ]);
+
+/**
+ * The BUILD_LIKE names whose value carries a credential (an SSH agent, a URL that usually holds a
+ * password), matched case-insensitively: forge doctor lists them apart, never as plain advice to inherit.
+ */
+export const CREDENTIAL_CARRIERS: ReadonlySet<string> = new Set(['SSH_AUTH_SOCK', 'DATABASE_URL', 'REDIS_URL']);
 
 const buildLike = (name: string) => {
   const upper = name.toUpperCase();
