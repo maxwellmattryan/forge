@@ -58,7 +58,7 @@ function previousAllPass(j: Job): boolean {
   return values.length > 0 && values.every((r) => r === 'PASS');
 }
 
-const ROUNDS_WHY ='an eval job has no human to clear rounds-exhausted: grade it';
+const ROUNDS_WHY = 'an eval job has no human to clear rounds-exhausted: grade it';
 
 /** Verify failed twice on test integrity around one builder run. */
 function integrityTwice({ x, b, lv }: BuildCtx): boolean {

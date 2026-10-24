@@ -126,7 +126,7 @@ export const enteredFrom = (x: StepInput, f: Facts): string | undefined => (f.st
 /** DC11's and PR12's `--note`: plain words only, so it stays inside SAFE_ELEMENT. */
 export const REVIEWED_HEAD_NOTE = 'a commit after review: the new head goes back to review';
 
-export const splitMode =(x: StepInput) => x.job.splitMode ?? x.config.pipeline.split;
+export const splitMode = (x: StepInput) => x.job.splitMode ?? x.config.pipeline.split;
 
 /** A parked job still holding something to stop: a running environment record or a background process. */
 export const parkedRunning = (x: StepInput): boolean => x.environment === 'running' || x.runtime.length > 0;
