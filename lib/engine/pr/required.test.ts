@@ -1,10 +1,15 @@
 // Required checks: evaluateRequired decides each requirement from the observations with its exact
-// name, bound to its source, and requirementsFor picks config for the root, protection otherwise.
+// name, bound to its source, and requirementsFor picks config for the root, protection otherwise;
+// a linked job's merge carries each PR's own verdict.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { memoryGitHub } from '../../../test/helpers.ts';
+import fs from 'node:fs';
+import path from 'node:path';
+import { addOrigin, ghPr, memoryGitHub, parkedAt, tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
+import { logEvent, updateJob } from '#core/job/store.ts';
 import type { BranchRules, CheckObservation, HeadChecks } from '#integrations/github/types.ts';
+import { mergePr } from './merge.ts';
 import { evaluateRequired, requiredError, requiredFor, requirementsFor } from './required.ts';
 import type { Requirement, RequiredSummary } from './required.ts';
 
@@ -100,5 +105,80 @@ test('requiredFor: an invalid merge.requiredChecks fails the root PR, and a memb
 
     const member = requiredFor(github, '/', { repo: 'lib', slug: 'o/lib', base: 'main', headOid: sha }, config, new Map());
     assert.deepEqual([member.source, member.state, member.blocking], ['protection', 'pending', [{ name: 'build', why: 'missing' }]], `${name}: a member uses its own protection`);
+  }
+});
+
+/** HEAD_CHECKS_QUERY's `.data`: one GitHub Actions ci.yml suite whose runs conclude as `runs` says, no commit statuses. */
+const headData = (runs: Record<string, string>) => {
+  const nodes = Object.entries(runs).map(([name, conclusion]) => ({ name, status: 'COMPLETED', conclusion, startedAt: '2026-10-24T10:00:00Z', completedAt: '2026-10-24T10:01:00Z' }));
+  const suite = { app: { databaseId: 15368, slug: 'github-actions' }, workflowRun: { file: { path: CI } }, checkRuns: { pageInfo: { hasNextPage: false }, nodes } };
+  return { repository: { object: { checkSuites: { pageInfo: { hasNextPage: false }, nodes: [suite] }, status: { contexts: [] } } } };
+};
+
+test("mergePr on a linked job: the root PR decides on merge.requiredChecks, the member PR on its own repo's protection at its own base and head", async () => {
+  const app = tempRepo();
+  const lib = tempRepo();
+  try {
+    addOrigin(app);
+    const libBare = addOrigin(lib);
+    // The member PR targets develop, the root's main: a base taken from the root would read another branch.
+    lib.git('push', '-q', 'origin', 'main:develop');
+    const work = (repo: ReturnType<typeof tempRepo>, file: string): string => {
+      repo.git('checkout', '-q', '-b', 'feat');
+      fs.writeFileSync(path.join(repo.dir, file), `${file}\n`);
+      repo.git('add', '-A');
+      repo.git('commit', '-qm', file);
+      const sha = repo.git('rev-parse', 'HEAD').toString().trim();
+      repo.git('checkout', '-q', 'main');
+      return sha;
+    };
+    const head = work(app, 'src.txt');
+    const libHead = work(lib, 'lib.txt');
+    const config = defaults();
+    config.tracker.github.repo = 'o/r';
+    config.merge.auto = true;
+    config.merge.requiredChecks = ['test'];
+    config.repos = [{ name: 'lib', remote: libBare, defaultBranch: 'main', tracker: { kind: 'github', repo: 'o/lib' } }];
+    const id = parkedAt(app.dir, 'pr-review', { config, pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', pushedSha: head } }).id;
+    fs.writeFileSync(path.join(app.dir, '.forge', 'local.yml'), `repos:\n  lib:\n    path: ${path.relative(app.dir, lib.dir)}\n`);
+    const libPr = { number: 8, url: 'https://github.com/o/lib/pull/8', state: 'OPEN' as const, isDraft: false, lastSyncedAt: new Date().toISOString() };
+    const job = updateJob(app.dir, id, (j) => {
+      j.repos = [j.repos[0], { repo: 'lib', worktree: null, branch: j.branch, base: 'develop', pr: libPr, verifyOnly: false, interim: null }];
+    });
+    logEvent(app.dir, id, 'pr-opened', { number: 7 });
+    logEvent(app.dir, id, 'decision', { decision: 'APPROVE', reason: null, autoMerge: true, head, heads: { lib: libHead } });
+
+    const github = memoryGitHub();
+    const passing = [{ name: 'test', conclusion: 'SUCCESS' }];
+    github.put(ghPr({ headRefOid: head, statusCheckRollup: passing }));
+    github.put(ghPr({ number: 8, url: libPr.url, headRefName: job.branch, baseRefName: 'develop', headRefOid: libHead, statusCheckRollup: passing }), 'o/lib');
+    github.setHeadChecks(head, headData({ test: 'SUCCESS' }));
+    // The member's own protection names other checks than the root's key; its head reports build only.
+    github.setBranchRules('develop', { status: 'read', checks: [{ name: 'build', appId: null }, { name: 'lint', appId: null }], reviews: 1 }, 'o/lib');
+    github.setHeadChecks(libHead, headData({ build: 'SUCCESS' }), 'o/lib');
+
+    const r = await mergePr(app.dir, config, github, id, { clock: () => Date.now() + 10 * 60_000 });
+    const member = { source: 'protection', state: 'pending', blocking: [{ name: 'lint', why: 'missing' }] };
+    assert.deepEqual(
+      r.parts?.map((p) => [p.repo, p.action, p.required]),
+      [
+        [null, 'merged', { source: 'config', state: 'passing', blocking: [] }],
+        ['lib', 'deferred', member],
+      ],
+    );
+    assert.deepEqual([r.action, r.repo, r.required], ['deferred', 'lib', member], "the top level carries the last part's verdict");
+    // Each PR read at its own repo, base and head: protection for the member only, never for the root.
+    assert.deepEqual(github.calls.filter((c) => c.op === 'branchRules'), [{ op: 'branchRules', slug: 'o/lib', base: 'develop' }]);
+    assert.deepEqual(
+      github.calls.filter((c) => c.op === 'headChecks').map((c) => [c.slug, c.sha]),
+      [
+        ['o/r', head],
+        ['o/lib', libHead],
+      ],
+    );
+    assert.deepEqual(github.calls.filter((c) => c.op === 'merge').map((c) => [c.slug, c.number]), [['o/r', 7]]);
+  } finally {
+    app.cleanup();
+    lib.cleanup();
   }
 });
