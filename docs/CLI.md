@@ -1353,6 +1353,16 @@ The projects registered on this machine (the machine index in ~/.forge or FORGE_
 |---|---|
 | 1 | no such registered project (not_found), a daemon session ran it, or the index file is unreadable or from a newer Forge |
 
+**`forge project settings [--max-concurrent <1-64|auto>]`**: the machine settings ({home, settings: {maxConcurrent}}). maxConcurrent is the machine cap: how many job sessions run at once across every project the machine's dashboard serves, on top of each project's daemon.maxConcurrent; null (auto, the default) uses the highest loaded project's daemon.maxConcurrent. With the flag it writes first, under the index lock
+
+| Flag | Meaning |
+|---|---|
+| `--max-concurrent N\|auto` | set the machine cap to N (1-64), or auto to unset it |
+
+| Exit | When |
+|---|---|
+| 1 | a daemon session set it, or the index file is unreadable or from a newer Forge |
+
 ### `forge release`
 
 Plan and run a release of the root repo and its member repos.

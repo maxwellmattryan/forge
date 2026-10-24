@@ -2,7 +2,7 @@
 // `worktrees.root`.
 import fs from 'node:fs';
 import path from 'node:path';
-import { backingDown, hasJobBacking, portsLock } from '../environment/backing.ts';
+import { backingDown, hasJobBacking } from '../environment/backing.ts';
 import { ensureEnvironment, stopBackground } from '../environment/lifecycle.ts';
 import { checkRefs, jobEnv, shell, vars } from './job-command.ts';
 import { loginShell } from '../guard/command-env.ts';
@@ -14,7 +14,7 @@ import { git as runGit } from '#integrations/git/runner.ts';
 import { loadJob, logEvent, setJob, updateJob } from '#core/job/store.ts';
 import { exists, resolveFrom } from '#core/paths.ts';
 import { jobComponent } from '#core/config/components.ts';
-import { allocatePorts, portBearing } from '../environment/ports.ts';
+import { allocatePorts, portBearing, withPortsLock } from '../environment/ports.ts';
 import { commandPort } from '../environment/endpoints.ts';
 import { memberClone, memberEntry, memberRepos, memberWorktreePath } from '../project/job-repos.ts';
 import { runCommandAsync } from './run.ts';
@@ -24,7 +24,6 @@ import type { SeedCommandLog, WorktreeSeedResult } from './seed.ts';
 import type { Config, Job } from '#core/types.ts';
 import type { BackingDownResult, BackingUpEntry } from '../environment/types.ts';
 import { ForgeError } from '#core/errors.ts';
-import { withLock } from '#core/os/lock.ts';
 import { assertSafeRef, fill, tail } from '#core/text.ts';
 
 /** One member repo's part of `forge worktree create`: createMemberWorktrees. */
@@ -112,7 +111,7 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   copyUntracked(root, dir, config.worktrees.copy ?? [], opts.sparseExclude ?? []);
   if (config.worktrees.cargo?.sharedTarget) writeSharedCargoTarget(root, config, wtRoot);
   // Chosen and saved under the lock backing ports are allocated under, so a concurrent create never takes it.
-  const ports = withLock(portsLock(root), () => {
+  const ports = withPortsLock(root, () => {
     const p = allocatePorts(root, config, job);
     setJob(root, id, { owned: { worktree: dir, port: p[portBearing(config, job)[0]] }, fields: { ports: p } });
     return p;

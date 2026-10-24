@@ -4,6 +4,9 @@
 import { versionOf } from './steps.ts';
 import type { Step } from './steps.ts';
 
-export const MACHINE_STEPS: readonly Step[] = [];
+export const MACHINE_STEPS: readonly Step[] = [
+  // The machine settings: the machine cap starts unset (the highest loaded project's daemon.maxConcurrent).
+  { id: 'machine-settings', up: (v) => ({ ...v, settings: { maxConcurrent: null } }) },
+];
 
 export const MACHINE_INDEX_VERSION = versionOf(MACHINE_STEPS);

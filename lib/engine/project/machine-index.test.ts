@@ -9,7 +9,7 @@ import { tempRepo } from '../../../test/helpers.ts';
 import { ForgeError } from '#core/errors.ts';
 import { forgeHome, machinePaths } from '#core/paths.ts';
 import { MACHINE_INDEX_VERSION } from '#core/job/schema.ts';
-import { addProject, defaultProjectName, listProjects, removeProject, resolveProjectRoot } from './machine-index.ts';
+import { addProject, defaultProjectName, listProjects, projectByRoot, readMachineIndex, removeProject, resolveProjectRoot, setMachineSettings } from './machine-index.ts';
 
 const made: string[] = [];
 process.on('exit', () => made.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
@@ -102,7 +102,7 @@ describe('addProject', () => {
     const root = path.join(scratch(), 'My Repo!');
     const r = addProject(home, root, { now: '2026-10-24T00:00:00.000Z' });
     assert.deepEqual(r, { added: true, project: { name: 'my-repo-', path: root, addedAt: '2026-10-24T00:00:00.000Z' } });
-    assert.deepEqual(JSON.parse(indexBytes(home)!), { schemaVersion: MACHINE_INDEX_VERSION, projects: [r.project] });
+    assert.deepEqual(JSON.parse(indexBytes(home)!), { schemaVersion: MACHINE_INDEX_VERSION, projects: [r.project], settings: { maxConcurrent: null } });
   });
   it('--name overrides the default', () => {
     const home = freshHome();
@@ -199,6 +199,48 @@ describe('listProjects', () => {
     const entry = { name: 'x', path: path.join(scratch(), 'x'), addedAt: 't' };
     fs.writeFileSync(machinePaths(home).projects, JSON.stringify({ projects: [entry] }));
     assert.deepEqual(listProjects(home).projects.map((p) => p.name), ['x']);
+    assert.deepEqual(readMachineIndex(home).settings, { maxConcurrent: null });
+  });
+});
+
+describe('machine settings', () => {
+  it('setMachineSettings writes 2 then null, and add and remove keep it', () => {
+    const home = freshHome();
+    assert.deepEqual(setMachineSettings(home, { maxConcurrent: 2 }), { maxConcurrent: 2 });
+    assert.equal(JSON.parse(indexBytes(home)!).settings.maxConcurrent, 2);
+    addProject(home, path.join(scratch(), 'a'));
+    const b = addProject(home, path.join(scratch(), 'b')).project;
+    removeProject(home, b.name);
+    assert.deepEqual(readMachineIndex(home).settings, { maxConcurrent: 2 });
+    assert.deepEqual(setMachineSettings(home, { maxConcurrent: null }), { maxConcurrent: null });
+    assert.equal(JSON.parse(indexBytes(home)!).settings.maxConcurrent, null);
+    assert.equal(readMachineIndex(home).projects.length, 1);
+  });
+  for (const bad of [0, 65, 1.5, '2', -1]) {
+    it(`refuses ${JSON.stringify(bad)} (usage) and writes nothing`, () => {
+      const home = freshHome();
+      const e = codeOf(() => setMachineSettings(home, { maxConcurrent: bad as number }));
+      assert.deepEqual([e.code, e.exit], ['usage', 2]);
+      assert.equal(fs.existsSync(home), false);
+    });
+  }
+  for (const settings of [{ maxConcurrent: 0 }, { maxConcurrent: 65 }, { maxConcurrent: 'x' }, { maxConcurrent: null, extra: 1 }, [], null]) {
+    it(`a file with settings ${JSON.stringify(settings)} is refused`, () => {
+      const home = freshHome();
+      fs.mkdirSync(home);
+      fs.writeFileSync(machinePaths(home).projects, JSON.stringify({ schemaVersion: MACHINE_INDEX_VERSION, projects: [], settings }));
+      assert.equal(codeOf(() => readMachineIndex(home)).exit, 1);
+    });
+  }
+  it('projectByRoot finds an entry by realpath and is null for an unregistered root', { skip: process.platform === 'win32' }, () => {
+    const home = freshHome();
+    const r = initialised();
+    const p = addProject(home, r.dir).project;
+    const link = path.join(scratch(), 'link');
+    fs.symlinkSync(r.dir, link);
+    assert.deepEqual(projectByRoot(home, link), p);
+    assert.equal(projectByRoot(home, scratch()), null);
+    r.cleanup();
   });
 });
 

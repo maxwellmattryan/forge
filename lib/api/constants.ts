@@ -78,7 +78,13 @@ export const OFFICE_SCOPE = '_office';
 /** Not a session: POST /api/daemon/mode's name for the default of every job session without its own choice. */
 export const JOBS_SCOPE = '_jobs';
 
-export const COMPONENT_KINDS = ['library', 'service', 'app'] as const;
+/**
+ * A registered project's name (the machine index, lib/engine/project/machine-index.ts), which is the
+ * `/api/p/<project>/` URL segment: no `/`, no leading `.` or `-`, at most 64 characters.
+ */
+export const PROJECT_NAME_SOURCE = '^[a-z0-9][a-z0-9._-]{0,63}$';
+
+export const COMPONENT_KINDS =['library', 'service', 'app'] as const;
 export const DEPENDENCY_TYPES = ['build', 'runtime'] as const;
 /** What a consumer's PR points at while its dependency is unmerged (lib/engine/release/interim.ts, docs/CONFIG.md "Interim strategies"). */
 export const INTERIM_STRATEGIES = ['canary', 'git-ref', 'local', 'sequential'] as const;

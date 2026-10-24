@@ -80,16 +80,18 @@ export function forgeHome(env: NodeJS.ProcessEnv = process.env): string {
   return env.FORGE_HOME ? path.resolve(env.FORGE_HOME) : path.join(os.homedir(), '.forge');
 }
 
-/** Where the machine index's files live. #400 adds the dashboard's runtime record and port leases here. */
+/** Where the machine index's files live. */
 export interface MachinePaths {
   dir: string;
-  /** The registered projects (lib/engine/project/machine-index.ts). */
+  /** The registered projects and the machine settings (lib/engine/project/machine-index.ts). */
   projects: string;
   locks: string;
+  /** The machine dashboard's runtime record (lib/engine/ops/dashboard-record.ts): `{pid, url, startedAt}`, never the token. */
+  dashboard: string;
 }
 
 export function machinePaths(home: string = forgeHome()): MachinePaths {
-  return { dir: home, projects: path.join(home, 'projects.json'), locks: path.join(home, 'locks') };
+  return { dir: home, projects: path.join(home, 'projects.json'), locks: path.join(home, 'locks'), dashboard: path.join(home, 'dashboard.json') };
 }
 
 export function jobDir(root: string, id: string): string {

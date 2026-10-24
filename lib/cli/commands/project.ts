@@ -1,9 +1,9 @@
-// `forge project add|remove|list`: the machine index of registered projects
-// (lib/engine/project/machine-index.ts). Routed before mainRoot(), so `list`, `remove` and
-// `add <path>` work outside any repo.
+// `forge project add|remove|list|settings`: the machine index of registered projects and the machine
+// settings (lib/engine/project/machine-index.ts). Routed before mainRoot(), so `list`, `remove`,
+// `settings` and `add <path>` work outside any repo.
 import { forgeHome } from '#core/paths.ts';
 import { ForgeError } from '#core/errors.ts';
-import { PROJECT_NAME, addProject, listProjects, removeProject, resolveProjectRoot } from '#engine/project/machine-index.ts';
+import { MACHINE_MAX_CONCURRENT, PROJECT_NAME, addProject, listProjects, readMachineIndex, removeProject, resolveProjectRoot, setMachineSettings } from '#engine/project/machine-index.ts';
 import { out, usageError } from './args.ts';
 import type { HelpGroup } from '../types.ts';
 
@@ -32,6 +32,14 @@ const PROJECT: HelpGroup = {
       summary: 'the registered projects, sorted by name ({home, projects: [{name, path, addedAt, status}]}), status ok, missing or not-initialized; it never writes, so a missing project stays until remove drops it',
       exits: [[1, 'the index file is unreadable or from a newer Forge']],
     },
+    {
+      command: 'project settings',
+      args: '[--max-concurrent <1-64|auto>]',
+      summary:
+        "the machine settings ({home, settings: {maxConcurrent}}). maxConcurrent is the machine cap: how many job sessions run at once across every project the machine's dashboard serves, on top of each project's daemon.maxConcurrent; null (auto, the default) uses the highest loaded project's daemon.maxConcurrent. With the flag it writes first, under the index lock",
+      flags: [['--max-concurrent N|auto', 'set the machine cap to N (1-64), or auto to unset it']],
+      exits: [[1, 'a daemon session set it, or the index file is unreadable or from a newer Forge']],
+    },
   ],
 };
 
@@ -41,12 +49,34 @@ export const HELP: HelpGroup[] = [PROJECT];
 const PROJECT_DAEMON_REFUSAL =
   'forge project add|remove changes which projects this machine serves, which a daemon session may not do; a human runs it in their own terminal';
 
+// The machine cap spends the account's usage limits across every project, so raising it is a human's call.
+const SETTINGS_DAEMON_REFUSAL = 'forge project settings --max-concurrent changes how many sessions this machine runs, which a daemon session may not do; a human runs it in their own terminal';
+
 const usage = (sub?: string) => usageError(PROJECT, sub);
+
+/** `--max-concurrent`'s value: an integer 1–64, or `auto` (null); anything else is a usage error. */
+function maxConcurrentFlag(v: unknown): number | null {
+  if (v === 'auto') return null;
+  if (typeof v === 'string' && /^[0-9]{1,2}$/.test(v)) {
+    const n = Number(v);
+    if (n >= 1 && n <= MACHINE_MAX_CONCURRENT) return n;
+  }
+  throw new ForgeError(`--max-concurrent must be an integer 1-${MACHINE_MAX_CONCURRENT} or auto`, 'usage', 'forge help project settings');
+}
 
 /** `forge project <sub> …`: prints its result. `words` are the positionals after `project`. */
 export function projectCmd(words: string[], flags: Record<string, any>): void {
   const [sub, ...args] = words;
-  if (sub !== 'add' && sub !== 'remove' && sub !== 'list') throw usage();
+  if (sub !== 'add' && sub !== 'remove' && sub !== 'list' && sub !== 'settings') throw usage();
+  if (sub === 'settings') {
+    if (args.length) throw usage(sub);
+    const home = forgeHome();
+    if (flags['max-concurrent'] !== undefined) {
+      if (process.env.FORGE_DAEMON === '1') throw new ForgeError(SETTINGS_DAEMON_REFUSAL);
+      setMachineSettings(home, { maxConcurrent: maxConcurrentFlag(flags['max-concurrent']) });
+    }
+    return out({ home, settings: readMachineIndex(home).settings }, flags);
+  }
   if (sub !== 'list' && process.env.FORGE_DAEMON === '1') throw new ForgeError(PROJECT_DAEMON_REFUSAL);
   if (sub === 'list') {
     if (args.length) throw usage(sub);

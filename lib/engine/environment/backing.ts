@@ -4,24 +4,27 @@
 // file in a fresh temp dir, and no error, event or result ever carries one. Teardown derives names
 // from the job id and config, never from backing.json (agent-writable), and touches only containers
 // and volumes whose labels say they are this root's and this job's.
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { backingProblems, isManaged } from '#core/config/validators/backing.ts';
 import { adminOf, dbEntries, dbRecordFile, dropJobDatabase, fillDbUrl, jobDbName, jobDbPasswords, readDbRecord, removeDbRecord, upDatabase, type DatabaseOpts } from './backing-db.ts';
-import { isActive, jobDir, listJobs, loadJob } from '#core/job/store.ts';
-import { paths } from '#core/paths.ts';
+import { containerName, ownersOf, projectSlug, rootLabel, volumeName } from './backing-names.ts';
+import { emptyRecord, entries, entriesOrNone, jobRecordFile, portsLock, rawPorts, readJobRecord, readRaw, readSharedRecord, sharedRecordFile, takenPorts } from './backing-records.ts';
+import { otherProjectsPorts, withPortsLock } from './ports.ts';
+import { isActive, listJobs, loadJob } from '#core/job/store.ts';
+import { forgeHome, paths } from '#core/paths.ts';
 import type { BackingEntry, BackingHealth, BackingIsolation, Config, DoctorCheck } from '#core/types.ts';
 import type { BackingDbRecord, BackingDownResult, BackingRecord, BackingUpEntry } from './types.ts';
 import type { DockerResult, DockerRunner } from '#integrations/docker/types.ts';
 import { DOCKER_TIMEOUT_MS, dockerRun, dockerStateOf, type DockerStateName } from '#integrations/docker/runner.ts';
 import { ForgeError } from '#core/errors.ts';
-import { readJson, writeJsonAtomic } from '#core/os/fs.ts';
+import { writeJsonAtomic } from '#core/os/fs.ts';
 import { withLock } from '#core/os/lock.ts';
 import { tail } from '#core/text.ts';
 
 export { backingProblems, isManaged, jobDbPasswords };
+export { containerName, entriesOrNone, portsLock, projectSlug, readJobRecord, readSharedRecord, rootLabel, takenPorts };
 export type { DatabaseOpts, DockerResult, DockerRunner };
 
 const TIMEOUT_MS = DOCKER_TIMEOUT_MS;
@@ -41,157 +44,23 @@ export function setDockerRunner(runner: DockerRunner | null): DockerRunner {
   return prev;
 }
 
-// ---------- names ----------
-
-const slugOf = (s: string): string =>
-  s
-    .toLowerCase()
-    .replace(/[^a-z0-9_.-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-
-/** `project.name`, else the repo root's basename, lowercased to Docker's name charset. */
-export function projectSlug(root: string, config: Config): string {
-  return slugOf(String(config.project?.name ?? '')) || slugOf(path.basename(root)) || 'project';
-}
-
-/** The first 12 hex of sha256(realpath(root)): which checkout a container belongs to. */
-export function rootLabel(root: string): string {
-  let real = root;
-  try {
-    real = fs.realpathSync(root);
-  } catch {
-    // An unresolvable root still gets a stable label from its own path.
-  }
-  return crypto.createHash('sha256').update(real).digest('hex').slice(0, 12);
-}
-
-/** `forge-<owner>-<name>`: the owner is the job id for per-job entries and the project slug for shared ones. */
-export function containerName(owner: string, name: string): string {
-  return `forge-${owner}-${name}`;
-}
-
-function volumeName(owner: string, name: string, i: number): string {
-  return `${containerName(owner, name)}-${i}`;
-}
-
 /** FORGE_BACKING_<NAME>: upper-cased, `-` as `_`. */
 export const envPrefix = (name: string): string => `FORGE_BACKING_${name.toUpperCase().replaceAll('-', '_')}`;
 
-/** The validated entries; an invalid backing config is refused before any docker call. */
-function entries(config: Config): BackingEntry[] {
-  const list = Array.isArray(config.backing) ? config.backing : [];
-  if (!list.length) return [];
-  const problems = backingProblems(config);
-  if (problems.length) throw new ForgeError(`backing config is invalid: ${problems.join('; ')}`);
-  return list;
-}
-
-/** entries() without throwing: an invalid config contributes nothing (validation reports it). */
-export function entriesOrNone(config: Config): BackingEntry[] {
-  try {
-    return entries(config);
-  } catch {
-    return [];
-  }
-}
-
-// ---------- records ----------
-
-const jobRecordFile = (root: string, id: string): string => path.join(jobDir(root, id), 'backing.json');
-const sharedRecordFile = (root: string): string => path.join(paths(root).runtime, 'backing.json');
-const emptyRecord = (): BackingRecord => ({ v: 1, ports: {} });
-
-/** A record file's JSON, or null when it is missing or unreadable (the session can write it). */
-function readRaw(file: string): any {
-  try {
-    return readJson(file, null);
-  } catch {
-    return null;
-  }
-}
-
-function inRange(config: Config, p: unknown): p is number {
-  return Number.isInteger(p) && (p as number) >= config.ports.base && (p as number) < config.ports.base + config.ports.span;
-}
-
-/**
- * A record read tolerantly: an entry is kept only when its name is a current managed entry of the
- * right isolation, every port key is in that entry's ports, and every host port is in range and
- * not already used in this record. Anything else is dropped, to be allocated again.
- */
-function readRecord(file: string, config: Config, isolation: BackingIsolation): BackingRecord {
-  const raw = readRaw(file);
-  const out = emptyRecord();
-  if (!raw || typeof raw !== 'object' || !raw.ports || typeof raw.ports !== 'object') return out;
-  const seen = new Set<number>();
-  for (const e of entriesOrNone(config).filter((x) => x.isolation === isolation)) {
-    const m = raw.ports[e.name];
-    if (!m || typeof m !== 'object' || Array.isArray(m)) continue;
-    const want = (e.ports ?? []).map(String);
-    const keys = Object.keys(m);
-    if (keys.length !== want.length || !want.every((k) => keys.includes(k))) continue;
-    const ports: Record<string, number> = {};
-    const here = new Set<number>();
-    for (const k of want) if (inRange(config, m[k]) && !seen.has(m[k]) && !here.has(m[k])) here.add((ports[k] = m[k]));
-    if (here.size !== want.length) continue;
-    for (const p of here) seen.add(p);
-    out.ports[e.name] = ports;
-  }
-  return out;
-}
-
-export function readJobRecord(root: string, id: string, config: Config): BackingRecord {
-  return readRecord(jobRecordFile(root, id), config, 'per-job');
-}
-
-export function readSharedRecord(root: string, config: Config): BackingRecord {
-  return readRecord(sharedRecordFile(root), config, 'shared');
-}
-
-/** Every in-range integer port a record file names, read raw: a stale entry may still hold a running container. */
-function rawPorts(file: string, config: Config): number[] {
-  const raw = readRaw(file);
-  const out: number[] = [];
-  if (!raw || typeof raw !== 'object' || !raw.ports || typeof raw.ports !== 'object') return out;
-  for (const m of Object.values(raw.ports)) if (m && typeof m === 'object') for (const p of Object.values(m)) if (inRange(config, p)) out.push(p);
-  return out;
-}
-
-function jobIds(root: string): string[] {
-  const dir = paths(root).jobs;
-  try {
-    return fs
-      .readdirSync(dir, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && /^[a-z0-9][a-z0-9._-]*$/i.test(d.name))
-      .map((d) => d.name);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * The host ports backing services hold: every port in any job's backing.json (active or not, since a
- * cancelled job's container may still run), except `exceptId`'s, and every port in the shared record.
- */
-export function takenPorts(root: string, config: Config, exceptId?: string): Set<number> {
-  const taken = new Set<number>();
-  for (const id of jobIds(root)) if (id !== exceptId) for (const p of rawPorts(jobRecordFile(root, id), config)) taken.add(p);
-  for (const p of rawPorts(sharedRecordFile(root), config)) taken.add(p);
-  return taken;
-}
-
-/** The lock every host port is handed out under: job ports (lib/engine/workspace/worktree.ts) and backing ports alike. */
-export const portsLock = (root: string): string => path.join(paths(root).locks, 'ports');
-
 /**
  * Host ports for the job's per-job entries and the project's shared ones, reusing every valid
- * existing assignment, under portsLock (which job ports take too), so no port is handed out twice. Skips every
- * active job's `port` and `ports`, every other job's backing ports and the job's own.
+ * existing assignment, under withPortsLock (which job ports take too), so no port is handed out twice. Skips every
+ * active job's `port` and `ports`, every other job's backing ports, the job's own and every other registered project's.
  */
-export function allocateBacking(root: string, config: Config, job: { id: string; port?: number | null; ports?: Record<string, number> }): { job: BackingRecord; shared: BackingRecord } {
+export function allocateBacking(
+  root: string,
+  config: Config,
+  job: { id: string; port?: number | null; ports?: Record<string, number> },
+  home: string = forgeHome(),
+): { job: BackingRecord; shared: BackingRecord } {
   const list = entries(config);
-  return withLock(portsLock(root), () => {
-    const taken = new Set<number>(takenPorts(root, config, job.id));
+  return withPortsLock(root, () => {
+    const taken = new Set<number>([...takenPorts(root, config, job.id), ...otherProjectsPorts(home, root)]);
     // The shared record is re-validated below, so its raw ports must not block its own reuse.
     for (const p of rawPorts(sharedRecordFile(root), config)) taken.delete(p);
     for (const j of listJobs(root)) {
@@ -232,7 +101,7 @@ export function allocateBacking(root: string, config: Config, job: { id: string;
     if (list.some((e) => e.isolation === 'per-job')) write(jobRecordFile(root, job.id), mine);
     if (list.some((e) => e.isolation === 'shared')) write(sharedRecordFile(root), shared);
     return { job: mine, shared };
-  });
+  }, home);
 }
 
 // ---------- env and briefs ----------
@@ -369,6 +238,19 @@ function ownLabels(root: string, e: BackingEntry, jobId: string | null): Labels 
 const matches = (have: Labels, want: Labels): boolean => Object.entries(want).every(([k, v]) => have[k] === v);
 const labelArgs = (labels: Labels): string[] => Object.entries(labels).flatMap(([k, v]) => ['--label', `${k}=${v}`]);
 
+/**
+ * An entry's container (backing-names.ts ownersOf): the qualified name when it exists, whatever its
+ * labels (callers check them), else the legacy name when it exists with this entry's labels, else the
+ * qualified name, missing. A legacy one with another root's labels is never this entry's.
+ */
+function locate(runner: DockerRunner, root: string, config: Config, e: BackingEntry, jobId: string | null): { name: string; found: Found } {
+  const [name, legacy] = ownersOf(root, config, jobId).map((o) => containerName(o, e.name)) as [string, string];
+  const found = inspectContainer(runner, name);
+  if (found.exists) return { name, found };
+  const old = inspectContainer(runner, legacy);
+  return old.exists && matches(old.labels, ownLabels(root, e, jobId)) ? { name: legacy, found: old } : { name, found };
+}
+
 /** `docker run` with env only through a 0600 file in a fresh temp dir, removed whatever happens. */
 function runContainer(runner: DockerRunner, args: string[], env: BackingEntry['env'], image: string): DockerResult {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-backing-'));
@@ -388,11 +270,10 @@ function runContainer(runner: DockerRunner, args: string[], env: BackingEntry['e
  * One managed service brought up: run when missing, start when stopped, nothing when running.
  * `attempt.action` says what it set out to do, so a failure reports that rather than a guess.
  */
-function ensure(root: string, runner: DockerRunner, e: BackingEntry, owner: string, jobId: string | null, ports: Record<string, number>, attempt: { action: BackingUpEntry['action'] }): BackingUpEntry['action'] {
-  const name = containerName(owner, e.name);
+function ensure(root: string, config: Config, runner: DockerRunner, e: BackingEntry, jobId: string | null, ports: Record<string, number>, attempt: { action: BackingUpEntry['action'] }): BackingUpEntry['action'] {
   const labels = ownLabels(root, e, jobId);
   const whose = jobId ? "this job's" : "this project's";
-  const found = inspectContainer(runner, name);
+  const { name, found } = locate(runner, root, config, e, jobId);
   if (found.exists) {
     if (!matches(found.labels, labels)) throw new DockerFailure(`container ${name} exists and is not ${whose}`);
     if (found.running) return 'running';
@@ -402,15 +283,21 @@ function ensure(root: string, runner: DockerRunner, e: BackingEntry, owner: stri
     return 'started';
   }
   attempt.action = 'created';
-  // Volumes are created with the same labels first, so a same-named volume of another checkout is never mounted.
-  const vols = (e.volumes ?? []).map((p, i) => ({ vol: volumeName(owner, e.name, i), path: p }));
-  for (const { vol } of vols) {
-    const v = inspectVolume(runner, vol);
-    if (v.exists && !matches(v.labels, labels)) throw new DockerFailure(`volume ${vol} exists and is not ${whose}`);
-    if (!v.exists) {
-      const r = runner(['volume', 'create', ...labelArgs(labels), vol]);
-      if (!r.ok) throw new DockerFailure(failure('volume create', r));
+  // Volumes are created with the same labels first, so a same-named volume of another checkout is never
+  // mounted; a legacy-named one with this entry's labels keeps its data.
+  const [owner, legacy] = ownersOf(root, config, jobId);
+  const vols = (e.volumes ?? []).map((p, i) => ({ vol: volumeName(owner, e.name, i), old: volumeName(legacy, e.name, i), path: p }));
+  for (const v of vols) {
+    const found = inspectVolume(runner, v.vol);
+    if (found.exists && !matches(found.labels, labels)) throw new DockerFailure(`volume ${v.vol} exists and is not ${whose}`);
+    if (found.exists) continue;
+    const old = inspectVolume(runner, v.old);
+    if (old.exists && matches(old.labels, labels)) {
+      v.vol = v.old;
+      continue;
     }
+    const r = runner(['volume', 'create', ...labelArgs(labels), v.vol]);
+    if (!r.ok) throw new DockerFailure(failure('volume create', r));
   }
   const args = [
     'run',
@@ -456,8 +343,7 @@ export function backingUp(
     if (!(err instanceof ForgeError)) throw err;
     return unreached(err.message);
   }
-  const slug = projectSlug(root, config);
-  const results = upServices(root, runner, list, job.id, slug, recs, external);
+  const results = upServices(root, config, runner, list, job.id, recs, external);
   for (const e of dbEntries(config)) {
     const i = list.indexOf(e);
     const r = results[i];
@@ -466,7 +352,7 @@ export function backingUp(
       continue;
     }
     const ports = recs.shared.ports[e.name] ?? {};
-    const server = { runner, container: containerName(slug, e.name), admin: adminOf(e), secrets: [] };
+    const server = { runner, container: locate(runner, root, config, e, null).name, admin: adminOf(e), secrets: [] };
     const up = upDatabase(root, config, job.id, e, server, fillUrl(e.url!, ports, e.ports ?? []), `${envPrefix(e.name)}_URL`, db);
     results[i] = { ...r, ...(up.error ? { ok: false, error: up.error } : {}), database: up.database, ...(up.build ? { build: up.build } : {}) };
   }
@@ -476,20 +362,19 @@ export function backingUp(
 /** backingUp's first pass: each container run, started or left running. */
 function upServices(
   root: string,
+  config: Config,
   runner: DockerRunner,
   list: BackingEntry[],
   jobId: string,
-  slug: string,
   recs: ReturnType<typeof allocateBacking>,
   external: (e: BackingEntry) => BackingUpEntry,
 ): BackingUpEntry[] {
-  const job = { id: jobId };
   return list.map((e): BackingUpEntry => {
     if (!isManaged(e)) return external(e);
     const shared = e.isolation === 'shared';
     const attempt: { action: BackingUpEntry['action'] } = { action: 'none' };
     try {
-      const go = () => ensure(root, runner, e, shared ? slug : job.id, shared ? null : job.id, (shared ? recs.shared : recs.job).ports[e.name] ?? {}, attempt);
+      const go = () => ensure(root, config, runner, e, shared ? null : jobId, (shared ? recs.shared : recs.job).ports[e.name] ?? {}, attempt);
       // A pull can take minutes, so the shared lock waits on that scale.
       const action = shared ? withLock(path.join(paths(root).locks, 'backing-shared'), go, { timeoutMs: RUN_TIMEOUT_MS + 60_000 }) : go();
       return { name: e.name, isolation: e.isolation, action, ok: true };
@@ -532,26 +417,24 @@ export function backingDown(root: string, config: Config, id: string, runner: Do
     try {
       for (const e of list) {
         const labels = ownLabels(root, e, id);
-        const name = containerName(id, e.name);
-        const found = inspectContainer(runner, name);
+        const { name, found } = locate(runner, root, config, e, id);
         if (found.exists && matches(found.labels, labels)) {
           const r = runner(['rm', '-f', name]);
           if (!r.ok) throw new DockerFailure(failure('rm', r));
           removed.push(name);
         }
         for (let i = 0; i < (e.volumes ?? []).length; i++) {
-          const vol = volumeName(id, e.name, i);
-          const v = inspectVolume(runner, vol);
-          if (!v.exists || !matches(v.labels, labels)) continue;
-          const r = runner(['volume', 'rm', vol]);
-          if (!r.ok && !/No such/i.test(r.stderr)) throw new DockerFailure(failure('volume rm', r));
-          volumes.push(vol);
+          for (const vol of ownersOf(root, config, id).map((o) => volumeName(o, e.name, i))) {
+            const v = inspectVolume(runner, vol);
+            if (!v.exists || !matches(v.labels, labels)) continue;
+            const r = runner(['volume', 'rm', vol]);
+            if (!r.ok && !/No such/i.test(r.stderr)) throw new DockerFailure(failure('volume rm', r));
+            volumes.push(vol);
+          }
         }
       }
-      const slug = projectSlug(root, config);
       for (const e of dbs) {
-        const name = containerName(slug, e.name);
-        const found = inspectContainer(runner, name);
+        const { name, found } = locate(runner, root, config, e, null);
         // Gone: the server and every database on it went with it.
         if (!found.exists) continue;
         if (!matches(found.labels, ownLabels(root, e, null))) throw new DockerFailure(`container ${name} exists and is not this project's`);
@@ -575,11 +458,9 @@ export function backingDownShared(root: string, config: Config, runner: DockerRu
   if (!list.length) return { removed };
   const state = dockerState(runner);
   if (state.state !== 'ok') throw dockerError(state, list);
-  const slug = projectSlug(root, config);
   try {
     for (const e of list) {
-      const name = containerName(slug, e.name);
-      const found = inspectContainer(runner, name);
+      const { name, found } = locate(runner, root, config, e, null);
       if (!found.exists || !matches(found.labels, ownLabels(root, e, null))) continue;
       const r = runner(['rm', '-f', name]);
       if (!r.ok) throw new DockerFailure(failure('rm', r));
@@ -613,8 +494,7 @@ export function backingStop(root: string, config: Config, id: string, runner: Do
   if (state.state !== 'ok') return { stopped, skipped, ok: false, error: dockerError(state, list).message };
   try {
     for (const e of list) {
-      const name = containerName(id, e.name);
-      const found = inspectContainer(runner, name);
+      const { name, found } = locate(runner, root, config, e, id);
       if (!found.exists) skipped.push({ name, reason: 'missing' });
       else if (!matches(found.labels, ownLabels(root, e, id))) skipped.push({ name, reason: "not this job's" });
       else if (!found.running) skipped.push({ name, reason: 'already stopped' });
@@ -706,19 +586,20 @@ export function backingStatus(root: string, config: Config, id?: string, runner:
   const shared = readSharedRecord(root, config);
   const db = dbRecordFor(root, config, id);
   const state = list.some(isManaged) ? dockerState(runner) : null;
-  const slug = projectSlug(root, config);
   const services = list.map((e): BackingServiceStatus => {
     const rec = e.isolation === 'shared' ? shared : mine;
     const env = Object.keys(entryEnv(e, rec, db));
     const database = e.database ? { database: { name: jobDbName(id), template: db?.rec.databases[e.name]?.template ?? null } } : {};
     if (!isManaged(e)) return { name: e.name, isolation: e.isolation, container: null, state: 'external', health: null, host: null, ports: {}, env };
-    const container = containerName(e.isolation === 'shared' ? slug : id, e.name);
+    const jobId = e.isolation === 'shared' ? null : id;
+    let container = containerName(ownersOf(root, config, jobId)[0], e.name);
     let st: BackingServiceStatus['state'] = 'unknown';
     let health: BackingHealth = null;
     if (state?.state === 'ok') {
       try {
-        const found = inspectContainer(runner, container);
-        st = !found.exists ? 'missing' : !matches(found.labels, ownLabels(root, e, e.isolation === 'shared' ? null : id)) ? 'unknown' : found.running ? 'running' : 'stopped';
+        const { name, found } = locate(runner, root, config, e, jobId);
+        container = name;
+        st = !found.exists ? 'missing' : !matches(found.labels, ownLabels(root, e, jobId)) ? 'unknown' : found.running ? 'running' : 'stopped';
         if (found.exists && st === 'running') health = found.health;
       } catch {
         st = 'unknown';

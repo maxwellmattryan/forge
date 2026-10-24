@@ -1,6 +1,6 @@
 // The machine index: the projects registered on this machine in `<FORGE_HOME>/projects.json`,
 // never their config, commands or secrets. An entry is a name (from the directory, never config),
-// the root's realpath and when it was added. Every function takes the index directory as `home`,
+// the root's realpath and when it was added; `settings` holds the machine cap. Every function takes the index directory as `home`,
 // so tests never touch the env. A file this Forge can't read (bad JSON, a bad entry, a newer
 // version) is refused and never rewritten.
 import fs from 'node:fs';
@@ -12,6 +12,7 @@ import { AGENT_TEXT_MAX, readRegular, writeJsonPrivate } from '#core/os/fs.ts';
 import { withLock } from '#core/os/lock.ts';
 import { runSteps } from '#core/versions/steps.ts';
 import { MACHINE_INDEX_VERSION, MACHINE_STEPS } from '#core/versions/machine.ts';
+import { PROJECT_NAME_SOURCE } from '#api/constants.ts';
 
 export interface MachineProject {
   name: string;
@@ -21,19 +22,31 @@ export interface MachineProject {
   addedAt: string;
 }
 
+/** Machine-wide settings: never a project's policy. */
+export interface MachineSettings {
+  /** The machine cap on job sessions across every project (1–64); null: the highest loaded project's daemon.maxConcurrent. */
+  maxConcurrent: number | null;
+}
+
 export interface MachineIndex {
   schemaVersion: number;
   projects: MachineProject[];
+  settings: MachineSettings;
 }
 
 /** `missing`: the path is gone or not a directory; `not-initialized`: it has no `.forge/config.yml`. */
 export type ProjectStatus = 'ok' | 'missing' | 'not-initialized';
 
-/** A project name: later a URL segment (`/api/p/:project/`), so no `/`, no leading `.` or `-`, at most 64 characters. */
-export const PROJECT_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+/** A project name: the URL segment of `/api/p/<project>/`, so no `/`, no leading `.` or `-`, at most 64 characters. */
+export const PROJECT_NAME = new RegExp(PROJECT_NAME_SOURCE);
+
+/** The machine cap's bounds. */
+export const MACHINE_MAX_CONCURRENT = 64;
 
 const ENTRY_KEYS = ['addedAt', 'name', 'path'];
-const INDEX_KEYS = ['projects', 'schemaVersion'];
+const INDEX_KEYS = ['projects', 'schemaVersion', 'settings'];
+
+const validCap = (v: unknown): v is number | null => v === null || (Number.isInteger(v) && (v as number) >= 1 && (v as number) <= MACHINE_MAX_CONCURRENT);
 
 /** The root directory's basename made a valid name: lowercased, other characters `-`, leading non-alphanumerics dropped, at most 64. */
 export function defaultProjectName(root: string): string {
@@ -60,7 +73,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 export function readMachineIndex(home: string): MachineIndex {
   const file = machinePaths(home).projects;
   const bad = (why: string) => new ForgeError(`${file} ${why}; fix or remove it by hand (Forge never rewrites it)`);
-  if (!fs.lstatSync(file, { throwIfNoEntry: false })) return { schemaVersion: MACHINE_INDEX_VERSION, projects: [] };
+  if (!fs.lstatSync(file, { throwIfNoEntry: false })) return { schemaVersion: MACHINE_INDEX_VERSION, projects: [], settings: { maxConcurrent: null } };
   const bytes = readRegular(file, AGENT_TEXT_MAX);
   if (typeof bytes === 'string') throw bad(`is ${bytes}`);
   let value: unknown;
@@ -73,7 +86,10 @@ export function readMachineIndex(home: string): MachineIndex {
   const from = value.schemaVersion ?? 1;
   if (!Number.isInteger(from) || (from as number) < 1) throw bad('has a schemaVersion that is not a positive integer');
   if ((from as number) > MACHINE_INDEX_VERSION) throw bad(`was written by a newer Forge (schemaVersion ${from}, this Forge reads up to ${MACHINE_INDEX_VERSION})`);
-  const up = runSteps(MACHINE_STEPS, value, from as number) as { projects: unknown[] };
+  const up = runSteps(MACHINE_STEPS, value, from as number) as { projects: unknown[]; settings?: unknown };
+  const settings = 'settings' in up ? up.settings : { maxConcurrent: null };
+  if (!isObject(settings) || !sameKeys(settings, ['maxConcurrent']) || !validCap(settings.maxConcurrent))
+    throw bad(`has settings that are not {maxConcurrent: null or an integer 1-${MACHINE_MAX_CONCURRENT}}`);
   const names = new Set<string>();
   const roots = new Set<string>();
   const projects = up.projects.map((e, i): MachineProject => {
@@ -87,7 +103,7 @@ export function readMachineIndex(home: string): MachineIndex {
     roots.add(e.path);
     return { name: e.name, path: e.path, addedAt: e.addedAt };
   });
-  return { schemaVersion: MACHINE_INDEX_VERSION, projects };
+  return { schemaVersion: MACHINE_INDEX_VERSION, projects, settings: { maxConcurrent: settings.maxConcurrent } };
 }
 
 /** `~` and `~/…` expanded, then resolved against `cwd`. */
@@ -126,15 +142,20 @@ export function resolveProjectRoot(p: string | undefined, cwd: string = process.
   return fs.realpathSync(root);
 }
 
-/** One locked change: `home` and its locks dir made private, the index re-read inside the lock, written atomically at 0600. */
-function update<T>(home: string, change: (index: MachineIndex) => { index: MachineIndex | null; result: T }): T {
-  const mp = machinePaths(home);
+/** `home` and its locks dir, created private (0700) when missing; the machine locks (projects, ports) live there. */
+export function ensureMachineDirs(home: string): void {
   fs.mkdirSync(home, { recursive: true, mode: 0o700 });
   try {
-    fs.mkdirSync(mp.locks, { mode: 0o700 });
+    fs.mkdirSync(machinePaths(home).locks, { mode: 0o700 });
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
   }
+}
+
+/** One locked change: `home` and its locks dir made private, the index re-read inside the lock, written atomically at 0600. */
+function update<T>(home: string, change: (index: MachineIndex) => { index: MachineIndex | null; result: T }): T {
+  const mp = machinePaths(home);
+  ensureMachineDirs(home);
   return withLock(path.join(mp.locks, 'projects'), () => {
     const { index, result } = change(readMachineIndex(home));
     if (index) writeJsonPrivate(mp.projects, index);
@@ -164,7 +185,7 @@ export function addProject(home: string, root: string, opts: { name?: string; no
     const again = decide(index);
     if (again) return { index: null, result: again };
     const project: MachineProject = { name, path: root, addedAt: opts.now ?? new Date().toISOString() };
-    return { index: { schemaVersion: MACHINE_INDEX_VERSION, projects: [...index.projects, project] }, result: { added: true, project } };
+    return { index: { ...index, schemaVersion: MACHINE_INDEX_VERSION, projects: [...index.projects, project] }, result: { added: true, project } };
   });
 }
 
@@ -195,8 +216,24 @@ export function removeProject(home: string, arg: string, cwd: string = process.c
   return update(home, (index) => {
     const removed = index.projects.find(match);
     if (!removed) throw notFound();
-    return { index: { schemaVersion: MACHINE_INDEX_VERSION, projects: index.projects.filter((p) => p !== removed) }, result: { removed } };
+    return { index: { ...index, schemaVersion: MACHINE_INDEX_VERSION, projects: index.projects.filter((p) => p !== removed) }, result: { removed } };
   });
+}
+
+/** Writes the machine settings under the index lock and returns them; a cap outside null or 1–64 is a usage error. */
+export function setMachineSettings(home: string, settings: MachineSettings): MachineSettings {
+  if (!validCap(settings.maxConcurrent)) throw new ForgeError(`--max-concurrent must be an integer 1-${MACHINE_MAX_CONCURRENT} or auto`, 'usage', 'forge help project settings');
+  readMachineIndex(home);
+  return update(home, (index) => ({ index: { ...index, schemaVersion: MACHINE_INDEX_VERSION, settings: { maxConcurrent: settings.maxConcurrent } }, result: { maxConcurrent: settings.maxConcurrent } }));
+}
+
+/** The registered entry for `root` (compared by realpath), or null; it throws only when the index is unreadable. */
+export function projectByRoot(home: string, root: string): MachineProject | null {
+  let real = root;
+  try {
+    real = fs.realpathSync(root);
+  } catch {}
+  return readMachineIndex(home).projects.find((p) => p.path === real || p.path === root) ?? null;
 }
 
 function statusOf(root: string): ProjectStatus {
