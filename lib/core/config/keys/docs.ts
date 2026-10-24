@@ -294,7 +294,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'daemon.jobBudget.tokens': { doc: 'total tokens per job' },
   'daemon.jobBudget.usd': { doc: 'estimated USD per job' },
   'daemon.dailyUsd': {
-    doc: 'dollars per UTC day the inbox and office sessions may spend, as the supervisor meters it; at the cap the session stops until midnight UTC (null: no caps; see "Daemon" below)',
+    doc: 'dollars per UTC day the inbox and office sessions may spend, as the supervisor meters it; at the cap the session stops: start it again after midnight UTC, or raise the cap (null: no caps; see "Daemon" below)',
   },
   'daemon.dailyUsd.inbox': { doc: "the inbox session's daily cap in USD (null: none)" },
   'daemon.dailyUsd.office': { doc: "the office session's daily cap in USD, the foreman's assistants included (null: none)" },
