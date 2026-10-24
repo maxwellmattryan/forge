@@ -4,7 +4,8 @@
 //     plus the built dashboard/dist/, parents [main, release commit]
 // The release PR carries it into main. The dist comes from main-update.yml's build of the release branch
 // in CI, with node_modules, so it is checked here before any of it reaches a commit (docs/RELEASES.md
-// "Releasing"). Built-ins only.
+// "Releasing"). A resume of `npm run release` re-derives it (`isMainUpdate`) before it vouches for a branch tip
+// someone may have pushed. Built-ins only.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -183,6 +184,17 @@ export function mainCommit(main: string, develop: string, dist: string): string 
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+/**
+ * Whether `commit` has exactly the tree `mainCommit(main, develop, dist)` builds: the release commit's tree plus the
+ * checked dist, and nothing else. Commit shas differ by timestamp, but trees are deterministic. Whoever can push
+ * the release branch can push a commit shaped like a main update, so a resume compares trees before it vouches for one.
+ */
+export function isMainUpdate(main: string, develop: string, commit: string, dist: string): boolean {
+  if (!SHA.test(commit)) return false;
+  const tree = (c: string) => git(['rev-parse', '--verify', `${c}^{tree}`]).trim();
+  return tree(mainCommit(main, develop, dist)) === tree(commit);
 }
 
 /** One line of commit text, safe to print: no control characters, bounded length. */

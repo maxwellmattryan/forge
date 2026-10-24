@@ -8,7 +8,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fakeBin, repoTemplate, tempRepo } from '../../helpers.ts';
 import { DIST, FIXTURE_DIST, noDist } from '../../dist.ts';
-import { ASSET, checkedDistFiles, mainOnlyCommits, manifestFiles } from '../../../scripts/main-update.ts';
+import { ASSET, checkedDistFiles, isMainUpdate, mainOnlyCommits, manifestFiles, Refusal } from '../../../scripts/main-update.ts';
 import { distHash, sourceHash, STAMP } from '../../../dashboard/build-stamp.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
@@ -154,6 +154,48 @@ test('commit refuses a bad dist or tree', POSIX, () => {
     repo.git('commit', '-qm', 'tracks dist');
     refused(commit(repo, main, out(repo, 'rev-parse', 'HEAD'), makeDist(repo)), 'develop already tracks dashboard/dist', 'a tracked dist');
   } finally {
+    repo.cleanup();
+  }
+});
+
+test('isMainUpdate accepts only the tree that commit builds from the release commit and the dist', POSIX, () => {
+  const repo = fixture();
+  const cwd = process.cwd();
+  try {
+    const [main, release] = [out(repo, 'rev-parse', 'main'), out(repo, 'rev-parse', 'develop')];
+    const dist = makeDist(repo);
+    const built = (d: string) => {
+      const r = commit(repo, main, release, d);
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout.trim();
+    };
+    const update = built(dist);
+    const onUpdate = (change: () => void) => {
+      repo.git('checkout', '-q', '--detach', update);
+      change();
+      repo.git('add', '--force', '-A');
+      repo.git('commit', '-qm', 'Release 1.1.0');
+      return out(repo, 'rev-parse', 'HEAD');
+    };
+    // Hand-made lookalikes with the right parents' subject but another tree: a file added, a file changed, a file dropped.
+    const extra = onUpdate(() => write(repo.dir, 'dashboard/dist/assets/extra-1.js', 'x'));
+    const poisoned = onUpdate(() => fs.appendFileSync(path.join(repo.dir, 'dashboard', 'dist', 'assets', 'index-Fx1.js'), '// poisoned\n'));
+    const outside = onUpdate(() => write(repo.dir, 'lib/evil.ts', 'x'));
+    const dropped = onUpdate(() => fs.rmSync(path.join(repo.dir, 'dashboard', 'dist', 'assets', 'index-Fx1.css')));
+    // The same sources built to another dist: valid, but not the one the commit holds.
+    const other = makeDist(repo, (d) => fs.appendFileSync(path.join(d, 'assets', 'index-Fx1.js'), '// other build\n'));
+    // A dist that does not match its stamp is refused rather than answered.
+    const edited = makeDist(repo, undefined, (d) => fs.appendFileSync(path.join(d, 'assets', 'index-Fx1.js'), '// edited\n'));
+
+    process.chdir(repo.dir);
+    assert.equal(isMainUpdate(main, release, update, dist), true, 'what commit built');
+    assert.equal(isMainUpdate(main, release, update, other), false, 'built from another dist');
+    assert.equal(isMainUpdate(main, release, built(other), dist), false, 'another dist pushed');
+    for (const [what, tip] of Object.entries({ extra, poisoned, outside, dropped, 'the release commit with no dist': release })) assert.equal(isMainUpdate(main, release, tip, dist), false, what);
+    assert.equal(isMainUpdate(main, release, 'HEAD', dist), false, 'not a sha');
+    assert.throws(() => isMainUpdate(main, release, update, edited), Refusal, 'a bad dist refuses');
+  } finally {
+    process.chdir(cwd);
     repo.cleanup();
   }
 });
