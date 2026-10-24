@@ -16,6 +16,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // v3 adds pluginHash, promptHash and configHash to agent-start (lib/engine/evals/provenance.ts); a v2 start
   // simply has none, and readers treat it as unrecorded.
   { id: 'agent-start-provenance', up: (e) => e },
+  // v4 adds autoMerge, head and heads to `decision` (forge job decision binds it to the worktree HEAD).
+  // A v3 decision has none of them, and readers (lib/engine/pr/eligible.ts) treat it as not eligible.
+  { id: 'decision-head', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

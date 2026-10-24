@@ -1,11 +1,13 @@
 // The tracker loader: picks the built-in or repo-local adapter the config names and wraps it in the
-// secret checks every tracker write goes through.
+// secret checks every tracker write goes through, and a repo-local adapter's get in the import fence.
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { daemonTrust } from '#core/config/load.ts';
 import { paths, exists } from '#core/paths.ts';
 import { refuseSecrets, textUnit } from '../guard/secrets.ts';
 import { ForgeError } from '#core/errors.ts';
+import { fenceImport, oneLineTitle } from '#core/text.ts';
+import type { Hidden } from '#core/text.ts';
 import local from '#integrations/backlog/tracker.ts';
 import github from '#integrations/github/tracker.ts';
 import type { Config, Job, Tracker, TrackerCtx } from '#core/types.ts';
@@ -36,6 +38,9 @@ const none: Tracker = {
  * built-in update and claim send only a status key; a custom adapter's receive the whole job, so its
  * title and reason are scanned too. A refused claim returns `{ok: false}` like any refused claim, so
  * callers cancel the job they just created instead of leaving it behind.
+ * A custom adapter's get is fenced here, the one place intake, refresh-request and triage all read
+ * through: a one-line title, and the body behind `>` under Forge's column-0 provenance line unless it
+ * is already in that fenced form. The built-in adapters fence their own get.
  */
 function guardTracker(adapter: Tracker, opts: { custom: boolean }): Tracker {
   const g: Tracker = Object.create(adapter);
@@ -62,6 +67,14 @@ function guardTracker(adapter: Tracker, opts: { custom: boolean }): Tracker {
         throw e;
       }
       return adapter.claim(ctx, ref, job);
+    };
+    g.get = (ctx, ref) => {
+      const item = adapter.get(ctx, ref);
+      if (!item) return item;
+      const hidden: Hidden = { removed: 0, smuggled: false };
+      const title = oneLineTitle(item.title, hidden);
+      const source = `${oneLineTitle(ctx.config.tracker.kind)} item ${JSON.stringify(oneLineTitle(String(item.ref ?? ref)).slice(0, 100))}`;
+      return { ...item, title, body: fenceImport(item.body ?? '', source, hidden) };
     };
   }
   return g;

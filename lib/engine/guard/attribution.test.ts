@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { tempRepo } from '../../../test/helpers.ts';
-import { hasAttribution, stripAttribution, scrubBranch } from './attribution.ts';
+import { commandAttribution, hasAttribution, repoAllowsAttribution, stripAttribution, scrubBranch } from './attribution.ts';
 import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
 
 const HOOK = path.resolve(import.meta.dirname, '..', '..', '..', 'hooks', 'no-ai-attribution.ts');
@@ -26,12 +27,20 @@ function hook(command, cwd, env = {}) {
   return spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify({ tool_name: 'Bash', tool_input: { command }, cwd }),
     encoding: 'utf8',
-    env: { ...process.env, FORGE_AI_ATTRIBUTION: '', ...env },
+    // Both set explicitly, so the developer's own Claude Code session never leaks in.
+    env: { ...process.env, FORGE_AI_ATTRIBUTION: '', CLAUDE_PROJECT_DIR: '', ...env },
   });
 }
 
+const ATTR = 'Co-Authored-By: Claude <noreply@anthropic.com>';
+const optOut = (dir: string) => {
+  fs.mkdirSync(path.join(dir, '.forge'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\naiAttribution: allow\n`);
+};
+
 test('hook blocks publishing commands that carry attribution', () => {
   const repo = tempRepo();
+  const other = tempRepo();
   try {
     const blocked = hook(`git commit -m "$(cat <<'EOF'\nfeat: x\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nEOF\n)"`, repo.dir);
     assert.equal(blocked.status, 2);
@@ -42,11 +51,81 @@ test('hook blocks publishing commands that carry attribution', () => {
     assert.equal(hook('git commit -m "feat: read Claude Code transcripts"', repo.dir).status, 0);
     assert.equal(hook('echo "Co-Authored-By: Claude"', repo.dir).status, 0, 'non-publishing commands are untouched');
     assert.equal(hook(`gh pr create --body-file ${body}`, repo.dir, { FORGE_AI_ATTRIBUTION: 'allow' }).status, 0);
-    fs.mkdirSync(path.join(repo.dir, '.forge'));
-    fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\naiAttribution: allow\n`);
-    assert.equal(hook(`gh pr create --body-file ${body}`, repo.dir).status, 0, 'a repo can opt out');
+    assert.equal(hook(`git -c x=y commit -m "${ATTR}"`, repo.dir).status, 2, 'a global option hides nothing');
+    const msg = path.join(repo.dir, 'msg.txt');
+    fs.writeFileSync(msg, `feat: x\n\n${ATTR}\n`);
+    assert.equal(hook(`git commit --file=${msg}`, repo.dir).status, 2, 'a --file= message is read');
+    optOut(other.dir);
+    assert.equal(hook(`git commit -m "${ATTR}"`, other.dir, { CLAUDE_PROJECT_DIR: repo.dir }).status, 2, "the cwd's own opt-out is ignored");
+    optOut(repo.dir);
+    assert.equal(hook(`gh pr create --body-file ${body}`, repo.dir, { CLAUDE_PROJECT_DIR: repo.dir }).status, 0, 'a repo can opt out');
   } finally {
     repo.cleanup();
+    other.cleanup();
+  }
+});
+
+test('commandAttribution finds attribution in any git, gh or glab command', () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-attr-')));
+  try {
+    const msg = path.join(dir, 'msg');
+    fs.writeFileSync(msg, `feat: x\n\n${ATTR}\n`);
+    fs.writeFileSync(path.join(dir, 'b.md'), `Summary\n\n${ATTR}\n`);
+    fs.mkdirSync(path.join(dir, 'sub'));
+    fs.writeFileSync(path.join(dir, 'sub', 'msg.txt'), `${ATTR}\n`);
+    const found = [
+      `git -c x=y commit -m "${ATTR}"`,
+      `git -C sub commit -m "${ATTR}"`,
+      `git --no-pager commit -m "${ATTR}"`,
+      `/usr/bin/git commit -m "${ATTR}"`,
+      `gh -R o/r pr comment 1 -b "${ATTR}"`,
+      `glab mr note 1 -m "${ATTR}"`,
+      `git commit --file=${msg}`,
+      `git commit -F${msg}`,
+      `git commit -aF ${msg}`,
+      `gh pr create --body-file=${path.join(dir, 'b.md')}`,
+      `git commit --template=${msg}`,
+      `git commit -F "${msg}"`,
+      'git -C sub commit -F msg.txt',
+    ];
+    for (const cmd of found) assert.deepEqual(commandAttribution(cmd, dir), [ATTR], cmd);
+    const fifo = path.join(dir, 'fifo');
+    const none = [`echo "${ATTR}"`, 'git commit -m "feat: read Claude Code transcripts"', `git commit -F ${path.join(dir, 'sub')}`, 'git commit -F -', 'git commit -F msg.txt'];
+    if (process.platform !== 'win32') {
+      execFileSync('mkfifo', [fifo]);
+      none.push(`git commit -F ${fifo}`);
+    }
+    for (const cmd of none) assert.deepEqual(commandAttribution(cmd, dir), [], cmd);
+    const started = Date.now();
+    const hostile = `git commit -${'a'.repeat(10_000)} -t${' '.repeat(10_000)}; -C${' '.repeat(10_000)}|`;
+    assert.deepEqual(commandAttribution(hostile, dir), []);
+    assert.ok(Date.now() - started < 1000, 'a 10k-character hostile line is parsed in linear time');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the opt-out is read from the project's main checkout only", () => {
+  const main = tempRepo();
+  const plain = tempRepo();
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-attr-wt-')));
+  try {
+    optOut(main.dir);
+    main.git('worktree', 'add', '-q', path.join(tmp, 'main-wt'), '-b', 'x');
+    assert.equal(repoAllowsAttribution(main.dir), true);
+    assert.equal(repoAllowsAttribution(path.join(tmp, 'main-wt')), true, "a worktree reads its main checkout's opt-out");
+
+    plain.git('worktree', 'add', '-q', path.join(tmp, 'plain-wt'), '-b', 'x');
+    optOut(path.join(tmp, 'plain-wt'));
+    assert.equal(repoAllowsAttribution(path.join(tmp, 'plain-wt')), false, "a worktree's own config is ignored");
+    assert.equal(repoAllowsAttribution(plain.dir), false);
+
+    fs.mkdirSync(path.join(tmp, 'not-git'));
+    for (const dir of [undefined, '', path.join(tmp, 'not-git')]) assert.equal(repoAllowsAttribution(dir), false, String(dir));
+  } finally {
+    main.cleanup();
+    plain.cleanup();
+    fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
 

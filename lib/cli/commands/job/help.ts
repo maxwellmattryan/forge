@@ -280,7 +280,7 @@ export const JOB: HelpGroup = {
       ],
       exits: [[1, 'no such job, or no reviewers selected']],
     },
-    { command: 'job decision', args: '<id>', summary: "read decision.md and record the approver's decision", exits: [NO_JOB] },
+    { command: 'job decision', args: '<id>', summary: "read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); once per approver run: a later call returns that record with recorded: false and logs nothing", exits: [NO_JOB] },
     {
       command: 'job score',
       args: 'record <id>',

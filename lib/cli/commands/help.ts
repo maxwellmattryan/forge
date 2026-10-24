@@ -148,16 +148,20 @@ export const CORE: HelpGroup[] = [
       {
         command: 'pr merge',
         args: '<id> [--repo NAME | --root] [--now]',
-        summary: "merge once CI passes, or queue auto-merge, or defer; a multi-repo job's PRs merge in the components' dependsOn order, never a PR before its dependencies; --now is a human override that bypasses CI",
+        summary:
+          "merge once merge.auto is on, the approver's recorded APPROVE covers the PR head, no escalate-floor path changed and CI passed at a settled head; or queue auto-merge, or defer; a multi-repo job's PRs merge in the components' dependsOn order, never a PR before its dependencies; --now is a human's override",
         flags: [
           ['--repo NAME', 'merge only that member repo PR, once every PR it depends on merged'],
           ['--root', 'merge only the root repo PR, once every PR it depends on merged'],
-          ['--now', 'merge without waiting for CI, or a head forge pr open did not check (logged as pr-merge-bypass); never bypasses the merge order or a release gate'],
+          [
+            '--now',
+            "a human's override in their own terminal: merge without the eligibility, floor and CI checks (logged as pr-merge-bypass); refused in a daemon session; never bypasses the merge order or a release gate",
+          ],
         ],
         exits: [
           [
             1,
-            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order|cycle|release), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, the office daemon session ran it, or protected paths apply and the PR head is not the one forge pr open checked (code protected_path; --now overrides)",
+            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order|cycle|release), merge.auto off, no eligible decision for the PR head, an escalate-floor path (reason auto-off|decision|floor), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, a daemon session passing --now, another job's id or a broken scope, the office daemon session ran it, or a protected path at the PR head that no human approved at that content (code protected_path; --now overrides)",
           ],
           GH_FAILED,
         ],
