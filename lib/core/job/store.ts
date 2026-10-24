@@ -12,7 +12,7 @@ import { idPrefix } from './issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import type { AgentUsage, Config, Effort, EventActor, ForgeRequest, Job, JobAgent, JobIssue, JobChange, JobLease, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from '../types.ts';
 import { estimateCost } from '#integrations/claude/pricing.ts';
-import { reviewFileName } from './lens.ts';
+import { agentRole, isAgentRole, reviewFileName } from './lens.ts';
 import { requeueOrphans } from './requests.ts';
 import { runTransitionHooks } from './transitions.ts';
 import { configForJob } from '#engine/evals/overlay.ts';
@@ -20,7 +20,7 @@ import { configHash, pluginHash, promptHash } from '#engine/evals/provenance.ts'
 import { checkJobFields, checkOwnedFields } from './fields.ts';
 import { setPath } from '../shape.ts';
 import { ForgeError } from '../errors.ts';
-import { confinedDir, readJson, readText, writeJsonAtomic } from '../os/fs.ts';
+import { AGENT_TEXT_MAX, confinedDir, readJson, readRegularText, readText, writeJsonAtomic } from '../os/fs.ts';
 import { withLock } from '../os/lock.ts';
 import { assertSafeRef, oneLineTitle, slugify } from '../text.ts';
 import { now, shortId } from '../utils.ts';
@@ -528,7 +528,7 @@ export function recordAgent(
   fence?: Fence,
 ): LoadedJob {
   const job = updateJob(root, id, (j) => {
-    const a = (j.agents[rec.role] ??= { runs: 0 });
+    const a = Object.hasOwn(j.agents, agentRole(rec.role)) ? j.agents[rec.role] : (j.agents[rec.role] = { runs: 0 });
     if (rec.phase === 'start') {
       a.status = 'running';
       a.model = rec.model ?? a.model ?? null;
@@ -589,7 +589,7 @@ export function markAgentsLost(root: string, id: string, roles: string[], summar
   for (const role of roles) {
     const job = loadJob(root, id);
     if (drivers !== undefined && !(job.lease.driver && drivers.includes(job.lease.driver))) break;
-    const a = job.agents[role];
+    const a = isAgentRole(role) && Object.hasOwn(job.agents, role) ? job.agents[role] : undefined;
     if (a?.status !== 'running') continue;
     const outputMissing = agentOutputMissing(root, id, role, a, undefined);
     recordAgent(root, id, { role, phase: 'end', status: 'lost', summary, ...(outputMissing !== null ? { outputMissing } : {}) }, config);
@@ -761,7 +761,7 @@ export function roundVerdicts(
       out[r] = ended(r) ? { verdict: 'MISSING', file: path.relative(jobDir(root, id), file), path: file } : { verdict: 'PENDING' };
       continue;
     }
-    out[r] = { ...fileVerdict(readText(file), blockOn, opts), file: path.relative(jobDir(root, id), file) };
+    out[r] = { ...fileVerdict(readRegularText(file, AGENT_TEXT_MAX) ?? '', blockOn, opts), file: path.relative(jobDir(root, id), file) };
   }
   const values = Object.values(out).map((v) => v.verdict);
   const complete = !values.includes('PENDING') && !values.includes('MISSING');
@@ -801,7 +801,7 @@ function reviewerEnded(root: string, id: string, round: number | 'integration'):
 }
 
 export function parseDecision(root: string, id: string): { decision: string | null; reason: string | null; autoMerge: boolean } {
-  const text = readText(path.join(jobDir(root, id), 'decision.md'));
+  const text = readRegularText(path.join(jobDir(root, id), 'decision.md'), AGENT_TEXT_MAX) ?? '';
   const first = text.split('\n').find((l) => l.trim()) ?? '';
   const m = first.match(/^\s*(APPROVE|ESCALATE)\b\s*[:\-–]?\s*(.*)$/i);
   return { ...(m ? { decision: m[1].toUpperCase(), reason: m[2].trim() || null } : { decision: null, reason: null }), autoMerge: /^yes\b/i.test(text.match(/^[ \t]*(?:[-*][ \t]*)?Auto-merge eligible:[ \t]*(.*)$/im)?.[1] ?? '') }; // the first such line only

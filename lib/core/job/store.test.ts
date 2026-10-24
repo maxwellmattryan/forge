@@ -1,15 +1,17 @@
 // The CLI copy of job state (#448): what loadJob, listJobs and readEvents return once a job folder's
 // job.json and events.jsonl are tampered with, and the jobs that predate the copy. Also the review
-// directory, which a link planted in the job folder never redirects.
+// directory, which a link planted in the job folder never redirects, the agent role names job.json
+// keys take, and the capped reads of agent-written reviews and decisions.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '../config/keys/defaults.ts';
-import { jobDir, jobRecordDir } from '../paths.ts';
-import { createJob, ensureReviewDir, listJobs, loadJob, readEvents, setJob, updateJob } from './store.ts';
+import { jobDir, jobFiles, jobRecordDir } from '../paths.ts';
+import { createJob, ensureReviewDir, listJobs, loadJob, markAgentsLost, parseDecision, readEvents, recordAgent, roundVerdicts, setJob, updateJob } from './store.ts';
 import type { ProtectedPaths } from '../types.ts';
 
 const FLAG: ProtectedPaths = { hits: [{ path: '.github/workflows/ci.yml', rule: 0, glob: '.github/**', reason: 'CI', blob: null }], more: 0, at: '2026-10-01T00:00:00.000Z', gate: 'verify', head: null };
@@ -109,4 +111,81 @@ test('the review directory is never created through a link', (t) => {
   const dir = ensureReviewDir(root, clean.id, 1);
   assert.equal(dir, path.join(jobDir(root, clean.id), 'review', 'round-1'), 'the lexical path is returned');
   assert.ok(fs.lstatSync(dir).isDirectory());
+});
+
+test('recordAgent refuses a name that is not a role; markAgentsLost skips one', (t) => {
+  const root = repo(t);
+  const config = defaults();
+  const id = createJob(root, config, { title: 'roles' }).id;
+  const copies = () => jobFiles(root, id, 'job.json').map((f) => fs.readFileSync(f, 'utf8'));
+  const before = copies();
+  for (const role of ['__proto__', 'constructor', 'reviewer:../x']) {
+    assert.throws(() => recordAgent(root, id, { role, phase: 'start' }, config), (e: any) => e.exitCode === 2, role);
+  }
+  assert.deepEqual(copies(), before, 'job.json is unchanged');
+  assert.equal(Object.hasOwn(Object.prototype, 'status'), false);
+  assert.equal(Object.hasOwn(Object.prototype, 'runs'), false);
+
+  recordAgent(root, id, { role: 'builder', phase: 'start' }, config);
+  // A key planted before the check existed stays as it is, and is never ended through recordAgent.
+  updateJob(root, id, (j) => {
+    j.agents['reviewer:../x'] = { runs: 1, status: 'running' } as (typeof j.agents)[string];
+  });
+  assert.deepEqual(markAgentsLost(root, id, ['reviewer:../x', 'builder'], 'gone', config), ['builder']);
+  const agents = loadJob(root, id).agents;
+  assert.equal(agents.builder.status, 'lost');
+  assert.equal(agents['reviewer:../x'].status, 'running');
+});
+
+test('review and decision files are read capped, never through a link or a FIFO', { timeout: 10_000 }, async (t) => {
+  const root = repo(t);
+  const id = createJob(root, defaults(), { title: 'capped' }).id;
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-outside-')));
+  t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+  const review = path.join(ensureReviewDir(root, id, 1), 'code.md');
+  const decision = path.join(jobDir(root, id), 'decision.md');
+  const verdict = (opts: { malformedAs?: 'changes' } = {}) => roundVerdicts(root, id, 1, ['code'], ['blocker', 'major'], opts).reviewers.code.verdict;
+  const decided = () => parseDecision(root, id);
+  const NONE = { decision: null, reason: null, autoMerge: false };
+  const reset = () => [review, decision].forEach((f) => fs.rmSync(f, { force: true }));
+
+  await t.test('a regular file under the cap parses as before', () => {
+    reset();
+    fs.writeFileSync(review, 'VERDICT: PASS\n');
+    fs.writeFileSync(decision, 'APPROVE: ok\n');
+    assert.equal(verdict(), 'PASS');
+    assert.equal(decided().decision, 'APPROVE');
+  });
+
+  await t.test('a file over 1 MiB is malformed, and no decision', () => {
+    reset();
+    const pad = 'x'.repeat(2 * 1024 * 1024);
+    fs.writeFileSync(review, `VERDICT: PASS\n${pad}`);
+    fs.writeFileSync(decision, `APPROVE: ok\n${pad}`);
+    assert.equal(verdict(), 'MALFORMED');
+    assert.equal(verdict({ malformedAs: 'changes' }), 'CHANGES');
+    assert.deepEqual(decided(), NONE);
+  });
+
+  await t.test('a symlink to a valid file outside is never followed', (st) => {
+    reset();
+    fs.writeFileSync(path.join(outside, 'review.md'), 'VERDICT: PASS\n');
+    fs.writeFileSync(path.join(outside, 'decision.md'), 'APPROVE: ok\n');
+    try {
+      fs.symlinkSync(path.join(outside, 'review.md'), review);
+      fs.symlinkSync(path.join(outside, 'decision.md'), decision);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'EPERM') return st.skip('cannot create a link here');
+      throw e;
+    }
+    assert.equal(verdict(), 'MALFORMED');
+    assert.deepEqual(decided(), NONE);
+  });
+
+  await t.test('a FIFO never blocks the read', { skip: process.platform === 'win32' && 'no FIFOs on Windows' }, () => {
+    reset();
+    execFileSync('mkfifo', [review, decision]);
+    assert.equal(verdict(), 'MALFORMED');
+    assert.deepEqual(decided(), NONE);
+  });
 });
