@@ -122,6 +122,9 @@ const after = (s: Scenario, more: (s: Scenario) => unknown): Scenario => {
   return s;
 };
 
+/** A collaborator's review node as GitHub's GraphQL returns it, in `state`. */
+const changeRequest = (state: string) => ({ state, body: 'please fix the parser', author: { login: 'bob' }, authorAssociation: 'MEMBER', submittedAt: '2026-10-24T10:00:00Z', url: 'https://github.com/o/r/pull/7#pullrequestreview-1' });
+
 const refusedFor = (reason: string) => (s: Scenario, r: MergeResult | Error) => {
   assert.deepEqual(s.merges(), []);
   assert.ok(!(r instanceof Error), String(r));
@@ -320,6 +323,37 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
     },
   },
   {
+    name: 'superseded: a pr-feedback gate request the Foreman has not decided yet',
+    arrange: () => after(scenario('passing'), (s) => enqueue(s.root, auto, { type: 'gate', job: s.id, args: { gate: 'pr-feedback', key: s.head, reserved: null }, from: 'forge' })),
+    check: (s, r) => {
+      refusedFor('superseded')(s, r);
+      assert.match((r as MergeResult).error ?? '', /^a gate request for this job is waiting for the Foreman/);
+    },
+  },
+  {
+    name: 'superseded: a review on GitHub requesting changes at the live head',
+    arrange: () => after(scenario('passing'), (s) => s.github.setFeedback(7, { reviews: { nodes: [changeRequest('CHANGES_REQUESTED')] } })),
+    check: (s, r) => {
+      refusedFor('superseded')(s, r);
+      assert.match((r as MergeResult).error ?? '', /^a review on GitHub requests changes on this PR/);
+      // The count mergePr's own sync recorded at the live head, not an earlier one.
+      assert.deepEqual([loadJob(s.root, s.id).pr?.changesRequested, loadJob(s.root, s.id).pr?.headOid], [1, s.head]);
+    },
+  },
+  {
+    name: 'superseded: a gate request the Foreman acked and a dismissed change request merge',
+    arrange: () =>
+      after(scenario('passing'), (s) => {
+        const req = enqueue(s.root, auto, { type: 'gate', job: s.id, args: { gate: 'pr-feedback', key: s.head, reserved: null }, from: 'forge' });
+        ackRequest(s.root, req.id, { status: 'done', result: 'no action: addressed' });
+        s.github.setFeedback(7, { reviews: { nodes: [changeRequest('DISMISSED')] } });
+      }),
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([r.action, s.merges().length], ['merged', 1]);
+    },
+  },
+  {
     name: 'superseded: a decision recorded after the new round merges',
     arrange: () =>
       after(scenario('passing'), (s) => {
@@ -401,6 +435,12 @@ test('deferredMergeDue: sync continues only a deferral nothing replaced', () => 
     const decision = { decision: 'APPROVE', reason: null, autoMerge: true, head: 'a'.repeat(40) };
     const deferred = { number: 7, checks: 'pending' };
     const person = { action: 'rework', actor: { login: 'al', source: 'env' } };
+    const gate = (root: string, id: string) => enqueue(root, config, { type: 'gate', job: id, args: { gate: 'pr-feedback', key: 'b'.repeat(40), reserved: null }, from: 'forge' });
+    // job.pr as forge sync recorded it just before the hint.
+    const reviewed = (root: string, id: string, changesRequested: number) =>
+      updateJob(root, id, (j) => {
+        j.pr = { ...j.pr!, number: 7, state: 'OPEN', changesRequested };
+      });
     type Step = [string, Record<string, unknown>] | ((root: string, id: string) => void);
     const rows: [string, Step[], unknown, boolean][] = [
       ['a settled deferral after the decision', [['decision', decision], ['pr-merge-deferred', deferred]], 'OPEN', true],
@@ -425,6 +465,11 @@ test('deferredMergeDue: sync continues only a deferral nothing replaced', () => 
         true,
       ],
       ["another job's rework request", [['decision', decision], ['pr-merge-deferred', deferred], (root) => void enqueue(root, config, { type: 'rework', job: 'some-other-job', from: 'dashboard' })], 'OPEN', true],
+      // What this sync pass may just have queued or recorded: the pr-feedback gate, and a change request.
+      ['a gate request waiting for the Foreman', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => void gate(root, id)], 'OPEN', false],
+      ['a gate request the Foreman acked', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => ackRequest(root, gate(root, id).id, { status: 'done' })], 'OPEN', true],
+      ['a review requesting changes', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => reviewed(root, id, 1)], 'OPEN', false],
+      ['no review requesting changes', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => reviewed(root, id, 0)], 'OPEN', true],
     ];
     for (const [name, steps, prState, want] of rows) {
       const id = parkedAt(repo.dir, 'pr-review', { config, title: name }).id;

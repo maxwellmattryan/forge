@@ -6,8 +6,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { addOrigin, fakeGh, forgeAsync, ghPr, tempRepo } from '../../helpers.ts';
 import { TRUST_ENV, loadConfig, trustDigest } from '#core/config/load.ts';
+import { listRequests } from '#core/job/requests.ts';
 import { EVENT_SCHEMA_VERSION } from '#core/job/schema.ts';
-import { createJob, readEvents, setJob } from '#core/job/store.ts';
+import { createJob, loadJob, readEvents, setJob } from '#core/job/store.ts';
 import { jobFiles } from '#core/paths.ts';
 
 const VIEW_FIELDS = 'number,url,state,isDraft,isCrossRepository,headRefName,baseRefName,headRefOid,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,mergedAt';
@@ -106,6 +107,41 @@ test('forge sync continues a deferred merge through mergePr', { skip: process.pl
     const merged = readEvents(repo.dir, id).find((e) => e.type === 'pr-merged');
     assert.deepEqual([merged?.via, merged?.actor], ['sync', { login: 'forge-test', source: 'env' }], JSON.stringify(merged));
     assert.ok(merged && !('scope' in merged), JSON.stringify(merged));
+  } finally {
+    fs.rmSync(gh.dir, { recursive: true, force: true });
+    repo.cleanup();
+  }
+});
+
+test('forge sync holds a deferred merge in the pass that queues its pr-feedback gate', { skip: process.platform === 'win32' }, async () => {
+  const { repo, id, head } = await prRepo('feedback before the merge', { merge: { auto: true }, foreman: { enabled: true, decides: ['pr-feedback'], reserved: [] } });
+  setJob(repo.dir, id, { stage: 'pr', state: 'waiting', waitingOn: 'pr-review' });
+  addOrigin(repo);
+  // A collaborator's unresolved thread and no change request: only the gate request can hold the merge.
+  const thread = { isResolved: false, isOutdated: false, path: 'src.txt', line: 1, comments: { nodes: [{ author: { login: 'bob' }, authorAssociation: 'MEMBER', body: 'this breaks the parser', createdAt: '2026-10-24T10:00:00Z', url: 'https://github.com/o/r/pull/7#discussion_r1' }] } };
+  const gh = fakeGh({
+    'pr view': JSON.stringify(ghPr({ headRefOid: head, statusCheckRollup: [{ name: 'test', conclusion: 'SUCCESS' }] })),
+    'api graphql': JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [thread] } } } } }),
+    'pr merge': '',
+  });
+  try {
+    const line = (type: string, ts: string, data: Record<string, unknown> = {}) => `${JSON.stringify({ v: EVENT_SCHEMA_VERSION, ts, type, ...data })}\n`;
+    const now = new Date().toISOString();
+    const events =
+      line('pr-opened', new Date(Date.now() - 30 * 60_000).toISOString(), { number: 7 }) +
+      line('decision', now, { decision: 'APPROVE', reason: null, autoMerge: true, head }) +
+      line('pr-merge-deferred', now, { number: 7, checks: 'pending' });
+    for (const f of jobFiles(repo.dir, id, 'events.jsonl')) fs.appendFileSync(f, events);
+    const r = await forgeAsync(repo.dir, ['sync'], gh.env);
+    assert.equal(r.status, 0, r.stderr + r.stdout);
+    const row = JSON.parse(r.stdout).results.find((x: any) => x.id === id);
+    assert.deepEqual([row?.mergeDeferred, 'merge' in row], [false, false], JSON.stringify(row));
+    assert.deepEqual(gh.calls().filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge'), []);
+    const gates = listRequests(repo.dir).filter((q) => q.type === 'gate' && q.job === id);
+    assert.deepEqual(gates.map((q) => [q.status, q.args.gate]), [['pending', 'pr-feedback']], JSON.stringify(gates));
+    // Nothing else replaced the decision: the job still waits at pr, with no change request counted.
+    const job = loadJob(repo.dir, id);
+    assert.deepEqual([job.stage, job.state, job.waitingOn, job.pr?.changesRequested, job.pr?.unresolvedThreads], ['pr', 'waiting', 'pr-review', 0, 1]);
   } finally {
     fs.rmSync(gh.dir, { recursive: true, force: true });
     repo.cleanup();

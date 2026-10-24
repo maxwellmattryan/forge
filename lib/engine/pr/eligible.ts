@@ -68,13 +68,17 @@ const OPEN_REQUEST = new Set<string>(['pending', 'in-progress']);
  * a long time before `forge job human` records it), the job went to cancelled or failed after the
  * last `decision` (even if a session set it back), a `round` event follows the last `decision` (a
  * round on an open PR with merge.auto off skips the approver, step rule DC10), or a human rework or
- * revise-spec follows it, a person's or the foreman's. Log positions decide, never timestamps, so
- * reordering ts values gains nothing. An approve or answer after the decision supersedes nothing.
- * With no decision, only the job's stage, state and inbox can answer. Reads no inbox itself: callers
- * pass `listRequests(root)`, and none means nothing is queued.
+ * revise-spec follows it, a person's or the foreman's. GitHub feedback that asks for changes counts
+ * too: a `gate` request for the job the Foreman has not decided yet (forge sync queues a pr-feedback
+ * one and continues deferred merges in the same pass), or a review GitHub lists as
+ * CHANGES_REQUESTED (`job.pr.changesRequested`, which both callers read right after their own sync
+ * recorded it at the live head). Log positions decide, never timestamps, so reordering ts values
+ * gains nothing. An approve or answer after the decision supersedes nothing. With no decision, only
+ * the job's stage, state, inbox and PR can answer. Reads no inbox itself: callers pass
+ * `listRequests(root)`, and none means nothing is queued.
  */
 export function decisionSuperseded(
-  job: Pick<Job, 'id' | 'stage' | 'state'>,
+  job: Pick<Job, 'id' | 'stage' | 'state'> & Partial<Pick<Job, 'pr'>>,
   events: JobEvent[],
   requests: readonly Pick<ForgeRequest, 'job' | 'type' | 'status'>[] = [],
 ): string | null {
@@ -94,11 +98,16 @@ export function decisionSuperseded(
     const rework = events.findIndex((e, i) => i > d && e.type === 'human' && SUPERSEDING_ACTIONS.has(e.action as string));
     if (rework >= 0) return `a ${events[rework].action} was recorded after the approver's decision; the approver decides again before an auto-merge, or a human merges it`;
   }
-  const queued = requests.find((r) => r.job === job.id && OPEN_REQUEST.has(r.status) && SUPERSEDING_REQUESTS.has(r.type));
-  if (!queued) return null;
-  return queued.type === 'cancel'
-    ? 'a cancel request for this job is waiting in the request inbox: a human decides whether its PR merges'
-    : `a ${queued.type} request for this job is waiting in the request inbox; once it is handled the approver decides again before an auto-merge, or a human merges it`;
+  const open = requests.filter((r) => r.job === job.id && OPEN_REQUEST.has(r.status));
+  const queued = open.find((r) => SUPERSEDING_REQUESTS.has(r.type));
+  if (queued)
+    return queued.type === 'cancel'
+      ? 'a cancel request for this job is waiting in the request inbox: a human decides whether its PR merges'
+      : `a ${queued.type} request for this job is waiting in the request inbox; once it is handled the approver decides again before an auto-merge, or a human merges it`;
+  if (open.some((r) => r.type === 'gate')) return 'a gate request for this job is waiting for the Foreman: it decides that gate first, or a human merges the PR';
+  // The count the caller's sync just wrote from GitHub's reviews; a missing one reads as none.
+  if (Number(job.pr?.changesRequested) > 0) return 'a review on GitHub requests changes on this PR: a human merges it, or dismisses that review on GitHub once it is addressed';
+  return null;
 }
 
 /** An APPROVE the approver marked auto-merge eligible, bound to a head. Every event from before the binding fails. */

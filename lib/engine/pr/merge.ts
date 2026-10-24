@@ -39,7 +39,8 @@ export interface MergeResult {
   /**
    * Why it was refused: a dependency PR is not merged (order), the dependsOn edges cycle, a release
    * gate holds it, or a merge without --now failed autoMergeGate (auto-off, superseded: a rework, a
-   * later round or a stage change replaced the approver's decision, decision, floor).
+   * later round, a stage change, a queued request or a change request on GitHub replaced the
+   * approver's decision, decision, floor).
    */
   reason?: MergeReason;
   /** A linked job: each PR this call acted on, in merge order. */
@@ -305,7 +306,9 @@ const CONTINUES = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred']);
  * forge sync's hint that a deferred merge is due again (a deferral has no GitHub-side queue): only
  * while the approver's decision still stands (decisionSuperseded, which also counts a rework,
  * revise-spec or cancel request still waiting in the inbox: sync runs every 2 minutes in the pool,
- * and such a request can wait far longer for a session). A single-repo job needs an OPEN PR whose
+ * and such a request can wait far longer for a session; a gate request the Foreman has not decided,
+ * such as the pr-feedback one this same sync may just have queued; and a review requesting changes,
+ * from `job.pr` as this sync recorded it). A single-repo job needs an OPEN PR whose
  * last merge event is a deferral logged after the last decision; a deferral from before a newer
  * decision waits for forge pr open, and a refusal stops the retries. A linked job asks
  * linkedMergeDeferred. Only a hint: mergePr's gate re-checks everything. The inbox is read last, so

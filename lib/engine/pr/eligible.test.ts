@@ -193,7 +193,11 @@ test('decisionSuperseded: a rework, a later round or a stage change replaces the
   const queuedText = (type: string) => new RegExp(`^a ${type} request for this job is waiting in the request inbox; once it is handled the approver decides again`);
   const endedText = (state: string) => new RegExp(`^the job was ${state} after the approver's decision: a human decides whether its PR merges$`);
   const asked = (type: string, status: string, job: string | null = 'j1'): Pick<ForgeRequest, 'job' | 'type' | 'status'> => ({ job, type, status }) as Pick<ForgeRequest, 'job' | 'type' | 'status'>;
-  const rows: [string, Pick<Job, 'id' | 'stage' | 'state'>, JobEvent[], RegExp | null, Pick<ForgeRequest, 'job' | 'type' | 'status'>[]?][] = [
+  const gateText = /^a gate request for this job is waiting for the Foreman: it decides that gate first, or a human merges the PR$/;
+  const changesText = /^a review on GitHub requests changes on this PR: a human merges it, or dismisses that review on GitHub once it is addressed$/;
+  // job.pr as the caller's sync recorded it at the live head.
+  const reviewed = (changesRequested: unknown) => ({ ...atPr, pr: { number: 7, changesRequested } as Job['pr'] });
+  const rows: [string, Pick<Job, 'id' | 'stage' | 'state'> & Partial<Pick<Job, 'pr'>>, JobEvent[], RegExp | null, Pick<ForgeRequest, 'job' | 'type' | 'status'>[]?][] = [
     ['a decision while waiting', atPr, [decided(1)], null],
     ['a round, then a decision, while running', { ...atPr, state: 'running' }, [round(0, 1), decided(1)], null],
     ['a round after the decision', atPr, [decided(1), round(2, 2)], roundText('2')],
@@ -225,8 +229,18 @@ test('decisionSuperseded: a rework, a later round or a stage change replaces the
     ['a rework request waiting and no decision yet', atPr, [], queuedText('rework'), [asked('rework', 'pending')]],
     ['a rework request already handled', atPr, [decided(1)], null, [asked('rework', 'done'), asked('rework', 'rejected')]],
     ["another job's rework request", atPr, [decided(1)], null, [asked('rework', 'pending', 'j2'), asked('rework', 'pending', null)]],
-    ['a request that asks for no change of the work', atPr, [decided(1)], null, [asked('approve', 'pending'), asked('answer', 'pending'), asked('resume', 'pending'), asked('gate', 'in-progress')]],
+    ['a request that asks for no change of the work', atPr, [decided(1)], null, [asked('approve', 'pending'), asked('answer', 'pending'), asked('resume', 'pending')]],
     ['a handled request beside a waiting one', atPr, [decided(1)], queuedText('rework'), [asked('rework', 'done'), asked('rework', 'pending')]],
+    // GitHub feedback that asks for changes: the Foreman's gate request, or a change request on the PR.
+    ['a gate request waiting for the Foreman', atPr, [decided(1)], gateText, [asked('gate', 'pending')]],
+    ['a gate request the office claimed and has not acked', atPr, [decided(1)], gateText, [asked('gate', 'in-progress')]],
+    ['a gate request and no decision yet', atPr, [], gateText, [asked('gate', 'pending')]],
+    ['a gate request already handled', atPr, [decided(1)], null, [asked('gate', 'done'), asked('gate', 'rejected')]],
+    ["another job's gate request", atPr, [decided(1)], null, [asked('gate', 'pending', 'j2')]],
+    ['a review requesting changes on the PR', reviewed(1), [decided(1)], changesText],
+    ['two reviews requesting changes and no decision yet', reviewed(2), [], changesText],
+    ['no review requesting changes', reviewed(0), [decided(1)], null],
+    ['a PR record with no count', reviewed(undefined), [decided(1)], null],
   ];
   for (const [name, job, events, want, requests] of rows) {
     const got = decisionSuperseded(job, events, requests);
