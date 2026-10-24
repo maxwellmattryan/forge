@@ -64,6 +64,8 @@ export interface FixtureOpts {
   acs?: Partial<AcCoverage>;
   /** loadStepInput's folderMaps; null by default, as at any stage but build. */
   folderMaps?: StepInput['folderMaps'];
+  /** loadStepInput's instructionsChanged; [] (nothing changed) by default. */
+  instructionsChanged?: StepInput['instructionsChanged'];
   /** The keys still over budget at a budget park (loadStepInput's budgetExceeded); null by default. */
   budgetExceeded?: StepInput['budgetExceeded'];
   /**
@@ -134,6 +136,7 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     verdicts: { round: null, integration: null, ...o.verdicts },
     acs: { ...acCoverage(null, null), ...o.acs },
     folderMaps: o.folderMaps ?? null,
+    instructionsChanged: o.instructionsChanged ?? [],
     runtime: o.runtime ?? [],
     environment: o.environment ?? null,
     events: o.events ?? [],

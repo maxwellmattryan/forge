@@ -18,7 +18,7 @@ const TEST_CAP = 800;
 const ALLOWED: Record<string, number> = {
   'engine/environment/backing.ts': 751,
   'cli/commands/tracker.ts': 611,
-  'office/pool.ts': 632,
+  'office/pool.ts': 608,
   'engine/guard/integrity.ts': 832,
   'engine/release/interim-apply.ts': 905,
   'engine/release/interim.ts': 698,

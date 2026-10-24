@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
 import { defaults } from '#core/config/load.ts';
-import { createJob, jobDir, setJob } from '#core/job/store.ts';
+import { createJob, setJob } from '#core/job/store.ts';
+import { jobFiles } from '#core/paths.ts';
 import type { Config, RepoBudgetConfig } from '#core/types.ts';
 import * as yaml from '#core/format/yaml.ts';
 
@@ -18,7 +19,7 @@ export function dollarConfig(): Config {
 /** Appends an agent-end with `usd` dollars (and as many tokens) at `ts`. */
 export function spend(root: string, id: string, usd: number, ts: string = new Date().toISOString(), role = 'builder'): void {
   const line = { v: 2, ts, type: 'agent-end', role, model: 'usd-model', usage: { input: usd, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: usd } };
-  fs.appendFileSync(path.join(jobDir(root, id), 'events.jsonl'), JSON.stringify(line) + '\n');
+  for (const f of jobFiles(root, id, 'events.jsonl')) fs.appendFileSync(f, JSON.stringify(line) + '\n');
 }
 
 /**

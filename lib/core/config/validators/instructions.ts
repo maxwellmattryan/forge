@@ -3,7 +3,8 @@
 // accepts. A plain list is every role's; a map has `default` plus role lists that replace it.
 import { isInsidePath } from '../../os/fs.ts';
 import { isMap, show } from '../../shape.ts';
-import type { Config } from '../types.ts';
+import { matchPolicy } from './policy-check.ts';
+import type { Config, ProtectedRule } from '../types.ts';
 
 /** The roles whose briefs renderBrief writes; `reviewer` covers every lens. */
 export const INSTRUCTION_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'reviewer', 'approver', 'integrator', 'verifier', 'judge'] as const;
@@ -33,12 +34,55 @@ export function instructionsFor(config: Pick<Config, 'project'>, role?: string):
   return [...new Set(list.filter((f): f is string => entryProblem(f) === null))];
 }
 
+/**
+ * Every role's instruction files: the default list's, then each role's, in first-seen order. Built
+ * from instructionsFor, so it only ever holds entries the validator accepts.
+ */
+export function allInstructionFiles(config: Pick<Config, 'project'>): string[] {
+  return [...new Set([undefined, ...INSTRUCTION_ROLES].flatMap((role) => instructionsFor(config, role)))];
+}
+
 function listProblems(at: string, list: unknown): string[] {
   if (!Array.isArray(list)) return [`${at} must be a list of files (got ${show(list)})`];
   return list.flatMap((f, i) => {
     const p = entryProblem(f);
     return p ? [`${at}[${i}] ${p}`] : [];
   });
+}
+
+/**
+ * The files every Claude Code session reads whatever a brief says: folder maps, CLAUDE.md and
+ * CLAUDE.local.md at any depth, the settings and skills of any `.claude/` directory (Claude Code loads
+ * a nested one when it works in that subtree), and the project's MCP servers. The bare `.claude`
+ * also covers a symlink of that name. A leading any-depth segment matches zero segments, so the
+ * nested-`.claude` glob covers the root's directory too.
+ */
+export const INSTRUCTION_GLOBS = ['**/AGENTS.md', '**/CLAUDE.md', '**/CLAUDE.local.md', '.claude', '**/.claude/**', '.mcp.json'] as const;
+
+/** defaults()' last `policy.protectedPaths` rule: a branch that changes an instruction file needs a human. */
+export const INSTRUCTIONS_RULE: ProtectedRule = {
+  paths: [...INSTRUCTION_GLOBS],
+  action: 'escalate',
+  reason: 'agent instructions and Claude Code settings: every session reads them',
+};
+
+/**
+ * The changed paths that are instruction files: INSTRUCTION_GLOBS, or any role's
+ * `project.instructions` entry, matched case-insensitively as the policy is. Sorted and unique.
+ */
+export function changedInstructionFiles(config: Pick<Config, 'project'>, changed: readonly string[]): string[] {
+  const configured = [...new Set([undefined, ...INSTRUCTION_ROLES].flatMap((r) => instructionsFor(config, r)).map((f) => f.replaceAll('\\', '/')))];
+  const rules: ProtectedRule[] = [INSTRUCTIONS_RULE, ...(configured.length ? [{ paths: configured, action: 'escalate' as const, reason: 'project.instructions' }] : [])];
+  const hits = changed.map((f) => f.replaceAll('\\', '/')).filter((f) => matchPolicy(f, rules) !== null);
+  return [...new Set(hits)].sort();
+}
+
+/** The paths `forge doctor` checks a configured policy against: one per INSTRUCTION_GLOBS shape. */
+export const INSTRUCTION_PROBES = ['AGENTS.md', 'lib/AGENTS.md', 'CLAUDE.md', 'CLAUDE.local.md', '.claude/settings.json', 'lib/.claude/skills/x/SKILL.md', '.mcp.json'] as const;
+
+/** The probes no rule in `rules` matches. */
+export function uncoveredInstructionProbes(rules: ProtectedRule[]): string[] {
+  return INSTRUCTION_PROBES.filter((p) => matchPolicy(p, rules) === null);
 }
 
 /** Every problem with `project.instructions`, in the form validateConfig reports. */

@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { jobAt, tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
-import { jobDir, loadJob, readEvents, updateJob } from '#core/job/store.ts';
+import { loadJob, readEvents, updateJob } from '#core/job/store.ts';
+import { jobFiles } from '#core/paths.ts';
 import { EVENT_SCHEMA_VERSION } from '#core/job/schema.ts';
 import { EVENT_STEPS } from '#core/versions/event.ts';
 import type { Job, JobEvent, VerifyRun } from '#core/types.ts';
@@ -121,7 +122,7 @@ test("a v3 events file's APPROVE is not eligible", () => {
     const id = jobAt(repo.dir, 'pr').id;
     // The version before decision-head bound decisions to a head.
     const v = EVENT_STEPS.findIndex((s) => s.id === 'decision-head') + 1;
-    fs.appendFileSync(path.join(jobDir(repo.dir, id), 'events.jsonl'), `${JSON.stringify({ v, ts: new Date().toISOString(), type: 'decision', decision: 'APPROVE', reason: null })}\n`);
+    for (const f of jobFiles(repo.dir, id, 'events.jsonl')) fs.appendFileSync(f, `${JSON.stringify({ v, ts: new Date().toISOString(), type: 'decision', decision: 'APPROVE', reason: null })}\n`);
     const events = readEvents(repo.dir, id);
     const d = events.findLast((e) => e.type === 'decision')!;
     assert.equal(d.v, EVENT_SCHEMA_VERSION);

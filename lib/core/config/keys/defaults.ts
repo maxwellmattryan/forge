@@ -1,6 +1,7 @@
 // Every config key Forge reads, with its default: what loadConfig merges a repo's config.yml over.
 // `load.ts` re-exports it, and each key's doc string is in `docs.ts` beside it.
 import { CONFIG_SCHEMA_VERSION, EFFORT_ROLES, OFFICE_GATES } from '../../job/schema.ts';
+import { INSTRUCTIONS_RULE } from '../validators/instructions.ts';
 import type { Config, Effort, EffortRole } from '../../types.ts';
 
 /** foreman.reserved's default: topics that always stay with a human. */
@@ -276,6 +277,8 @@ export function defaults(): Config {
         { paths: ['**/.env*'], action: 'escalate', reason: 'environment files can hold credentials' },
         { paths: ['**/*.pem'], action: 'refuse', reason: 'private keys and certificates are never committed by Forge' },
         { paths: ['.forge/config.yml', '.forge/secrets-allow.txt', '.forge/trackers/**', '.forge/ci/**'], action: 'refuse', reason: "Forge's own policy changes only by a human on the base branch" },
+        // Last, so rules 1-7 keep their numbers.
+        { ...INSTRUCTIONS_RULE, paths: [...INSTRUCTIONS_RULE.paths] },
       ],
     },
     // Off by default: nothing is archived, deleted or rotated mid-session until a human sets a key;

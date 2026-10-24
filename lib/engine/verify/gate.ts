@@ -23,11 +23,12 @@ import { resolveLinks } from '../project/links.ts';
 import { memberRepos, memberWorktree, trustedMemberWorktree } from '../project/job-repos.ts';
 import { commandTemplate, restoreLocks, runCommand, runCommandAsync } from '../workspace/run.ts';
 import { headVerified, nextAttempt, recordRun, reportRun } from './record.ts';
-import { notesStep, renderSteps, restoreGroup, runGroups, verifyLockSnapshot, verifyMember } from './steps.ts';
+import { instructionsSection, notesStep, renderSteps, restoreGroup, runGroups, verifyLockSnapshot, verifyMember } from './steps.ts';
 import type { CommandRunner, MemberVerify, VerifyStep } from './steps.ts';
 import type { Config, VerifyRun, VerifyRunRepo } from '#core/types.ts';
 import type { CompactSecrets } from '../guard/types.ts';
 import { ForgeError } from '#core/errors.ts';
+import { confinedDir, writeTextAtomic } from '#core/os/fs.ts';
 import { now } from '#core/utils.ts';
 
 export type { CommandRunner };
@@ -199,19 +200,22 @@ export async function verify(root: string, base: Config, id: string, runner: Com
     lines.push(`Downstream consumer \`${m.rec.repo}\` failed \`${m.rec.failure}\`: fix the library on this job, or propose changing the consumer: forge job repo propose ${id} ${m.rec.repo} --reason "…"`);
   if (brokenDownstream.length) lines.push('');
   renderSteps(lines, results, secrets, mode, prot);
+  // A record for the approver, never a gate: computed after `ok`, so it can't change the run.
+  lines.push(instructionsSection(config, job, sha));
   if (integrity) lines.push(renderIntegrity(integrity));
   for (const m of memberRuns) {
     lines.push('', `# ${downstream.has(m.rec.repo) ? 'Downstream consumer' : 'Repo'} ${m.rec.repo} · ${m.rec.sha.slice(0, 12)}`, '');
     renderSteps(lines, m.results, m.secrets, mode, null, downstream.has(m.rec.repo));
     if (m.integrity) lines.push(renderIntegrity(m.integrity));
   }
+  // Only through real directories: a link or file planted at verify/ fails here, before any write.
   const dir = path.join(jobDir(root, id), 'verify');
-  fs.mkdirSync(dir, { recursive: true });
+  confinedDir(jobDir(root, id), dir);
   const latest = path.join(dir, `round-${job.round}.md`);
   // round-<n>.md is the last report verify wrote; a verifiers failure appends a run with its own file.
   const previous = reportRun(job);
   if (previous && exists(latest)) fs.renameSync(latest, path.join(dir, `round-${job.round}-attempt-${previous.attempt}.md`));
-  fs.writeFileSync(latest, lines.join('\n'));
+  writeTextAtomic(latest, lines.join('\n'), { root: jobDir(root, id) });
   const memberFailure = memberRuns.find((m) => !m.rec.ok);
   const repos = memberRuns.length ? { repos: memberRuns.map((m) => m.rec) } : {};
   const rec: VerifyRun = { round: job.round, attempt, sha, ok, at: now(), file: path.relative(jobDir(root, id), latest), failure: rootFailure?.name ?? memberFailure?.rec.failure ?? null, ...repos };

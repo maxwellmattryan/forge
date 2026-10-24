@@ -11,7 +11,7 @@ import { daemonsDir, openAppend, readInfo, sessionFiles } from '#core/job/sessio
 import { hasEnvironment, teardownEnvironment } from '../environment/lifecycle.ts';
 import { jobFindings } from '../pipeline/findings.ts';
 import { isActive, jobDir, leaseStatus, listJobs, logEvent, readEvents } from '#core/job/store.ts';
-import { paths } from '#core/paths.ts';
+import { paths, removeJobRecord, stateFile } from '#core/paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, validScope } from '#core/job/requests.ts';
 import { ARCHIVE_SCHEMA_VERSION, normalizeJob } from '#core/job/schema.ts';
 import type { ArchiveRecord, Config, EventActor, Job, LoadedJob, RetentionTrigger } from '#core/types.ts';
@@ -78,10 +78,11 @@ export function readableJob(root: string, id: string): { job: LoadedJob; raw: Jo
   }
   const st = lstat(dir);
   if (!st || st.isSymbolicLink() || !st.isDirectory()) return NOT_READABLE;
-  const fileSt = lstat(path.join(dir, 'job.json'));
-  if (!fileSt?.isFile()) return NOT_READABLE;
+  // Found by the job folder's job.json, read from the CLI copy when the job has one.
+  const file = stateFile(root, id, 'job.json');
+  if (!lstat(path.join(dir, 'job.json'))?.isFile() || !lstat(file)?.isFile()) return NOT_READABLE;
   try {
-    const raw = JSON.parse(fs.readFileSync(path.join(dir, 'job.json'), 'utf8'));
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     const job = normalizeJob(raw);
     if (job._unsupported || job.id !== id) return NOT_READABLE;
     return { job, raw };
@@ -209,6 +210,7 @@ export function archiveJob(root: string, id: string, trigger: RetentionTrigger, 
     // A planted link at the record's path is replaced by the rename, never followed.
     writeAtomic(file, JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });
     fs.rmSync(dir, { recursive: true, force: true });
+    removeJobRecord(root, id);
     appendRetentionLog(root, { type: 'pruned', kind: 'job', id, trigger, bytes });
     return { id, file: path.relative(root, file), bytes };
   });
