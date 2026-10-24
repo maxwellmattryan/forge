@@ -7,6 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { BIN, fakeGh, forgeAsync, ghPr, tempRepo } from '../../helpers.ts';
 import { TRUST_ENV, loadConfig, trustDigest } from '#core/config/load.ts';
@@ -49,11 +50,18 @@ async function scratch(name: string) {
 
 test("branch code run by forge verify can't merge --now or lift a budget", POSIX, async () => {
   const s = await scratch('privileged from branch code');
+  // nested.sh names the CLI through the env: a committed absolute path can read as a secret to verify's
+  // scan (a checkout under a random mixed-case directory does), so the link sits under such a name on purpose.
+  const linkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'Xq7Lm2Rv9Tk4Wz8NpH3sJ6d-'));
+  const cli = path.join(linkDir, 'forge');
+  fs.symlinkSync(BIN, cli);
+  const nestedEnv = { FORGE_TEST_NODE: process.execPath, FORGE_TEST_BIN: cli };
   try {
     const wt = JSON.parse((await forgeAsync(s.repo.dir, ['worktree', 'create', s.id], s.gh.env)).stdout).path as string;
     const month = new Date().toISOString().slice(0, 7);
     // The branch's test script: each nested call's exit and output, on the step's captured output.
-    const call = (args: string) => `out=$("${process.execPath}" "${BIN}" ${args} --json 2>&1); echo "NESTED $? ${args} :: $out"`;
+    // It names node and the CLI through FORGE_TEST_NODE / FORGE_TEST_BIN, so it carries no path.
+    const call = (args: string) => `out=$("$FORGE_TEST_NODE" "$FORGE_TEST_BIN" ${args} --json 2>&1); echo "NESTED $? ${args} :: $out"`;
     const script = [call('pr merge "$FORGE_JOB" --now'), call('job budget "$FORGE_JOB" --set usd=1000000'), call('job budget "$FORGE_JOB" --ack'), call(`budget ack --period ${month}`)].join('\n');
     fs.writeFileSync(path.join(wt, 'nested.sh'), `${script}\n`);
     execFileSync('git', ['add', '-A'], { cwd: wt });
@@ -66,8 +74,8 @@ test("branch code run by forge verify can't merge --now or lift a budget", POSIX
     };
     const before = budget();
     for (const [name, env] of [
-      ['daemon', s.daemon(s.id)],
-      ['plain', s.gh.env],
+      ['daemon', { ...s.daemon(s.id), ...nestedEnv }],
+      ['plain', { ...s.gh.env, ...nestedEnv }],
     ] as const) {
       const r = await forgeAsync(s.repo.dir, ['verify', s.id], env);
       const steps = JSON.parse(r.stdout).steps as { name: string; log?: string }[];
@@ -85,6 +93,7 @@ test("branch code run by forge verify can't merge --now or lift a budget", POSIX
     const audit = fs.existsSync(repoAuditFile(s.repo.dir)) ? fs.readFileSync(repoAuditFile(s.repo.dir), 'utf8') : '';
     assert.ok(!audit.includes('repo-budget-ack'), audit);
   } finally {
+    fs.rmSync(linkDir, { recursive: true, force: true });
     s.cleanup();
   }
 });
