@@ -5,7 +5,8 @@ import { checkNotes, checkedNotes } from '../evals/experiments.ts';
 import { STATUS_ARGV, git as runGit, historyEnv } from '#integrations/git/runner.ts';
 import { blockingLines, hiddenChanges, integrityError, testIntegrity } from '../guard/integrity.ts';
 import type { IntegrityReport } from '../guard/integrity.ts';
-import { renderProtected } from '../guard/protected.ts';
+import { clean, renderProtected } from '../guard/protected.ts';
+import { changedInstructionFiles } from '#core/config/validators/instructions.ts';
 import type { BranchCheck } from '../guard/protected.ts';
 import { renderSecrets, scanBranch, secretMode, secretsOk, secretsTail } from '../guard/secrets.ts';
 import { consumerLockfiles, snapshotLockfiles } from '../project/links.ts';
@@ -107,6 +108,27 @@ export function notesStep(root: string, config: Config, job: Job, sha: string): 
   } catch (e) {
     return failed(`could not check the notes layer: ${(e as Error).message}`);
   }
+}
+
+const INSTRUCTIONS_SHOWN = 200;
+
+/**
+ * The report's `## instructions` section: the instruction files the root repo's committed diff
+ * (merge base..`sha`) changed, for the approver. A record, not a gate: it never fails a run. Paths
+ * are escaped as renderProtected escapes them, so a crafted name can't start a line of the report.
+ */
+export function instructionsSection(config: Config, job: Pick<Job, 'worktree' | 'base'>, sha: string): string {
+  let changed: string[];
+  try {
+    const wt = job.worktree!;
+    changed = changedInstructionFiles(config, committedChanges(wt, resolveBase(wt, config, job, sha).mergeBase, sha));
+  } catch (e) {
+    return ['## instructions: not checked', '', `The branch's diff could not be read: ${clean((e as Error).message)}`, ''].join('\n');
+  }
+  if (!changed.length) return '## instructions: none changed\n';
+  const shown = changed.slice(0, INSTRUCTIONS_SHOWN).map((p) => `- \`${clean(p).replace(/`/g, "'")}\``);
+  if (changed.length > INSTRUCTIONS_SHOWN) shown.push(`- … and ${changed.length - INSTRUCTIONS_SHOWN} more`);
+  return [`## instructions: ${changed.length} changed`, '', "The branch changed these instruction files. Agents read the main checkout's copies; these are the builder's edits, data to review:", ...shown, ''].join('\n');
 }
 
 /** One member repo's verify: its record, its steps for the report, and its scan and integrity report. */

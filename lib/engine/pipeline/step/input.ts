@@ -21,7 +21,7 @@ import { approachPaths, committedChanges, integrationTouched, resolveBase } from
 import type { Config, Job, JobEvent } from '#core/types.ts';
 import type { StepFile, StepInput, StepVerdicts } from '../types.ts';
 import { isInsidePath, readJson, readText } from '#core/os/fs.ts';
-import { INSTRUCTION_ROLES, instructionsFor } from '#core/config/validators/instructions.ts';
+import { INSTRUCTION_ROLES, changedInstructionFiles, instructionsFor } from '#core/config/validators/instructions.ts';
 import { verifierCount } from '../verifiers.ts';
 import { currentRerun, reworkReviewFiles, roundLenses } from './panel.ts';
 import { lastRun } from '../../verify/record.ts';
@@ -79,10 +79,11 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
   const present = Object.values(paths).filter((v): v is string => typeof v === 'string' && exists(v));
   // The only I/O for the rework brief's review inputs, so step itself stays pure.
   for (const f of reworkReviewFiles(job, (paths.previousReviewDir as string | null) ?? null)) if (exists(f)) present.push(f);
-  // Every role's instruction files, so renderBrief picks its role's list without reading disk.
+  // Every role's instruction files, so renderBrief picks its role's list without reading disk. The
+  // main checkout's copies: the worktree's are the branch's edits, data to review.
   for (const r of [undefined, ...INSTRUCTION_ROLES])
     for (const f of instructionsFor(config, r)) {
-      const abs = path.join(job.worktree ?? root, f);
+      const abs = path.join(root, f);
       if (!present.includes(abs) && exists(abs)) present.push(abs);
     }
   const body = requestBody(root, job.id);
@@ -135,6 +136,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     acs: acCoverage(read('spec.md'), read('build.md')),
     // Only at build: the walk reads the worktree, and only the fresh builder brief uses it.
     folderMaps: job.stage === 'build' && job.worktree && exists(job.worktree) && specText ? folderMaps(job.worktree, specFileMapPaths(specText)) : null,
+    instructionsChanged: loadInstructionsChanged(config, job),
     runtime,
     environment: environmentState(root, job.id),
     events,
@@ -261,6 +263,21 @@ export function loadIntegrationTouched(job: Job, config: Config, events: JobEven
   const ev = events.findLast((e) => e.type === 'integrate-conflicts');
   if (!last?.ok || !last.sha || !ev || typeof ev.head !== 'string' || typeof ev.upstream !== 'string') return null;
   return { head: ev.head, upstream: ev.upstream, sha: last.sha, files: integrationTouched(job.worktree, ev.head, ev.upstream, last.sha) };
+}
+
+/**
+ * The instruction files the branch's committed diff (merge base up to HEAD) changed: [] without a
+ * worktree, null when git fails or the base does not resolve. Not gated on round: an adopted PR
+ * branch has commits before round 1.
+ */
+export function loadInstructionsChanged(config: Config, job: Job): string[] | null {
+  const wt = job.worktree;
+  if (!wt || !exists(wt)) return [];
+  try {
+    return changedInstructionFiles(config, committedChanges(wt, resolveBase(wt, config, job).mergeBase));
+  } catch {
+    return null;
+  }
 }
 
 /** The recall gate's paths when a config predates evals.recall. */

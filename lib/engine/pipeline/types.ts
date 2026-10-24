@@ -116,6 +116,12 @@ export interface StepInput {
    * for the fresh builder brief's `Maps (JSON)` line; null at every other stage.
    */
   folderMaps: { maps: string[]; topics: string[]; more?: number } | null;
+  /**
+   * The instruction files the branch's committed diff changed (changedInstructionFiles), sorted, for
+   * the brief's `Instructions changed by this branch` line: null means the diff could not be read,
+   * `[]` means none changed or the job has no worktree yet.
+   */
+  instructionsChanged: string[] | null;
   /** The record names in runtime.json. */
   runtime: string[];
   /** The job's entry in the environment record (lib/engine/environment/record.ts); null when it has none. */

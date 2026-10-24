@@ -23,7 +23,7 @@ import { resolveLinks } from '../project/links.ts';
 import { memberRepos, memberWorktree, trustedMemberWorktree } from '../project/job-repos.ts';
 import { commandTemplate, restoreLocks, runCommand, runCommandAsync } from '../workspace/run.ts';
 import { headVerified, nextAttempt, recordRun, reportRun } from './record.ts';
-import { notesStep, renderSteps, restoreGroup, runGroups, verifyLockSnapshot, verifyMember } from './steps.ts';
+import { instructionsSection, notesStep, renderSteps, restoreGroup, runGroups, verifyLockSnapshot, verifyMember } from './steps.ts';
 import type { CommandRunner, MemberVerify, VerifyStep } from './steps.ts';
 import type { Config, VerifyRun, VerifyRunRepo } from '#core/types.ts';
 import type { CompactSecrets } from '../guard/types.ts';
@@ -200,6 +200,8 @@ export async function verify(root: string, base: Config, id: string, runner: Com
     lines.push(`Downstream consumer \`${m.rec.repo}\` failed \`${m.rec.failure}\`: fix the library on this job, or propose changing the consumer: forge job repo propose ${id} ${m.rec.repo} --reason "…"`);
   if (brokenDownstream.length) lines.push('');
   renderSteps(lines, results, secrets, mode, prot);
+  // A record for the approver, never a gate: computed after `ok`, so it can't change the run.
+  lines.push(instructionsSection(config, job, sha));
   if (integrity) lines.push(renderIntegrity(integrity));
   for (const m of memberRuns) {
     lines.push('', `# ${downstream.has(m.rec.repo) ? 'Downstream consumer' : 'Repo'} ${m.rec.repo} · ${m.rec.sha.slice(0, 12)}`, '');
