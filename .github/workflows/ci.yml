@@ -71,11 +71,12 @@ jobs:
       - name: Syntax-check JavaScript entry points
         run: for f in bin/forge lib/trackers/status.mjs dashboard/*.mjs; do node --check "$f"; done
       - name: Install Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code@2.1.299
+        # No install script runs: its postinstall only copies the native binary, which cli-wrapper.cjs runs as it is.
+        run: npm install -g --ignore-scripts @anthropic-ai/claude-code@2.1.299
       - name: Validate plugin
         env:
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
-        run: claude plugin validate . --strict
+        run: node "$(npm root -g)/@anthropic-ai/claude-code/cli-wrapper.cjs" plugin validate . --strict
 
   audit:
     name: audit

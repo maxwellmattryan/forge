@@ -62,8 +62,9 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
     case 'conflicts':
       return `${id} conflicts with ${safe(j.base, SAFE_REF, 'its base branch')}. /forge approve ${id} to have the integrator fix them`;
     case 'budget': {
+      // Lifting it is a human-only operation: no session runs --ack or --set; a person does, then approves.
       if (!reason.startsWith('repo budget:'))
-        return `${id} over budget: ${reason}. /forge approve ${id} to acknowledge, or raise it: forge job budget ${id} --set usd=…`;
+        return `${id} over budget: ${reason}. A human runs forge job budget ${id} --ack (or --set usd=…) in their own terminal, then /forge approve ${id}`;
       // The repo cap is lifted by a human's ack of the period, never by approving or a per-job budget.
       const at = x.now;
       const month = reason.includes('this month');

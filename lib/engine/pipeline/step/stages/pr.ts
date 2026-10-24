@@ -8,7 +8,7 @@ import type { JobEvent, VerifyRun } from '#core/types.ts';
 import type { StepInput } from '../../types.ts';
 import { SAFE_REF } from '#core/text.ts';
 import { SAFE_ELEMENT, park, run, safe, set, toStage } from '../actions.ts';
-import { after, human, lastEvent, lastIdx } from '../facts.ts';
+import { REVIEWED_HEAD_NOTE, after, human, lastEvent, lastIdx } from '../facts.ts';
 import { inStage } from '../rules.ts';
 import type { Ctx, Table } from '../rules.ts';
 
@@ -125,6 +125,8 @@ export const PR: Table<PrCtx> = {
   applies: inStage('pr'),
   context,
   rules: [
+    // A commit after the review panel is unreviewed: it is never verified, pushed or merged on the old verdict (reviewCurrent).
+    { id: 'PR12', when: ({ x }) => x.reviewCurrent === false, then: ({ x }) => toStage(x, 'PR12', 'review', 'a commit after review is unreviewed: review the new head', { note: REVIEWED_HEAD_NOTE }) },
     {
       id: 'PR1',
       when: ({ x }) => !x.config.pr.enabled,

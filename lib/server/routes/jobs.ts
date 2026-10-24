@@ -1,5 +1,5 @@
-// Job routes: create a job, its detail, files and raw mockups, requests, effort, delete, repo
-// proposals, and its dev server and editor.
+// Job routes: create a job, its detail, files and raw mockups, requests, effort, delete, merge now,
+// repo proposals, and its dev server and editor.
 import fs from 'node:fs';
 import type http from 'node:http';
 import path from 'node:path';
@@ -9,6 +9,7 @@ import { dashboardActor } from '#integrations/github/actor.ts';
 import { containedWorktree, editorArgv, openEditor } from '#engine/workspace/editor.ts';
 import { createJob, isActive, leaseStatus, listJobs, loadJob, progress, readEvents, jobDir, requestBody, setJob, setJobEffort } from '#core/job/store.ts';
 import { deleteJob, deleteRefusal } from '#engine/ops/delete.ts';
+import { mergePr } from '#engine/pr/merge.ts';
 import { decideRepoProposals, isRepoProposalPark } from '#engine/project/repo-proposals.ts';
 import { REPO_NAME } from '#engine/project/member-repos.ts';
 import { parseIssueRef } from '#core/job/issue-ref.ts';
@@ -27,6 +28,7 @@ import type {
   LoadedJob,
   PostEditorResponse,
   PostJobEffortResponse,
+  PostJobMergeResponse,
   PostJobReposResponse,
   PostJobResponse,
   PostRequestResponse,
@@ -177,6 +179,31 @@ export async function postJobDelete(ctx: ServerCtx, req: http.IncomingMessage, r
     if (e instanceof ForgeError) return jsonStatus(res, 409, { error: e.message });
     throw e;
   }
+}
+
+/**
+ * POST /api/jobs/:id/merge: a person's merge-now, the dashboard's half of the human channel for
+ * `forge pr merge --now` (docs/architecture/daemon-security.md). It skips what --now skips, never the
+ * merge order or a release gate, and its events carry the dashboard's actor.
+ */
+export async function postJobMerge(ctx: ServerCtx, req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): Promise<void> {
+  const { root } = ctx;
+  const parsed = await readJsonBody(req);
+  if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+  const id = match.params[0];
+  if (!validJobId(id) || !exists(path.join(jobDir(root, id), 'job.json'))) return jsonStatus(res, 404, { error: validJobId(id) ? `no job ${id}` : 'no such job' });
+  // The id typed back, like delete: a stray or replayed click never merges past CI.
+  const body = parsed.body;
+  if (!isMap(body) || body.now !== true || body.confirm !== id) return jsonStatus(res, 400, { error: 'body must be {"now": true, "confirm": "<the job id>"}' });
+  let r: Awaited<ReturnType<typeof mergePr>>;
+  try {
+    r = await mergePr(root, loadConfig(root).config, ctx.github, id, { now: { channel: 'dashboard', actor: dashboardActor() } });
+  } catch (e) {
+    if (e instanceof ForgeError) return jsonStatus(res, 409, { error: e.message });
+    throw e;
+  }
+  if (r.action === 'merged') ctx.pool?.poke();
+  return json(res, r satisfies PostJobMergeResponse);
 }
 
 /** POST /api/jobs/:id/repos: approve or reject the job's repo proposals. */

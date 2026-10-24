@@ -3,10 +3,11 @@
 // Node's types. schema.ts, requests.ts and components.ts re-export what they used to define here.
 
 /**
- * Where an event's `actor` came from: lib/integrations/github/actor.ts resolves env, gh, git, os and dashboard; the
- * foreman's decisions say `foreman`; anything Forge cannot vouch for reads as `unknown`.
+ * Where an event's `actor` came from: lib/integrations/github/actor.ts resolves env, gh, git, os, dashboard and
+ * daemon (a daemon session's own action); the foreman's decisions say `foreman`; anything Forge cannot vouch for
+ * reads as `unknown`.
  */
-export const ACTOR_SOURCES = ['env', 'gh', 'git', 'os', 'dashboard', 'foreman', 'unknown'] as const;
+export const ACTOR_SOURCES = ['env', 'gh', 'git', 'os', 'dashboard', 'daemon', 'foreman', 'unknown'] as const;
 
 export const STAGES = [
   'backlog',
