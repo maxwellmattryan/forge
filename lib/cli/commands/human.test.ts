@@ -91,7 +91,7 @@ test("both refusals offer the dashboard's control only for an operation that has
     const rows: [string, HumanOp, string | null][] = [
       ['pr merge --now', mergeNowOp('j1'), 'Merge now in the dashboard'],
       ['budget ack', budgetAckOp('2026-10'), "Acknowledge in the dashboard's Needs you"],
-      ['job budget --set|--ack (no dashboard route)', jobBudgetOp('j1', { set: true, ack: true }), null],
+      ['job budget --set|--ack', jobBudgetOp('j1', { set: true, ack: true }), 'Approve & continue on the budget gate in the dashboard'],
     ];
     const refusals: [string, Terminal, NodeJS.ProcessEnv, (channel: string) => string, string][] = [
       ['a daemon session', { interactive: true, ask: async () => 'j1' }, { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: 'j1' }, (c) => ` or uses ${c}`, 'a human runs it in their own terminal'],

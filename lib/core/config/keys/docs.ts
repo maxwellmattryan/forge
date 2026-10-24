@@ -141,7 +141,10 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   },
   'pipeline.budget': {
     doc: 'per-job limits; null = unlimited. Over budget → waiting on "budget"',
-    more: ['a person runs `forge job budget <id> --ack` in their own terminal (it asks them to type the job id) to grant one more full budget past the current use;', '`--set key=value` overrides a limit for one job, the same way'],
+    more: [
+      "a person runs `forge job budget <id> --ack` in their own terminal (it asks them to type the job id), or presses Approve & continue on the budget gate in the dashboard, to grant one more full budget past the current use;",
+      '`--set key=value` (or `key=value` in that Approve\'s note) overrides a limit for one job, the same way',
+    ],
   },
   'pipeline.budget.tokens': { doc: 'job.usage.totalTokens' },
   'pipeline.budget.usd': { doc: 'estimated cost (job.usage.estCostUsd)' },
@@ -286,7 +289,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'daemon.turnTimeoutMinutes': { doc: 'stop a turn still running after this long and requeue its work (null: no limit)' },
   'daemon.auth': { doc: "what sessions run on: your Claude login, or api-key for an ANTHROPIC_API_KEY in forge dash's shell" },
   'daemon.jobBudget': {
-    doc: 'with enabled: true, the limits of a job whose budget sets no tokens, usd or minutes (null: off; see "Daemon" below)',
+    doc: 'with enabled: true, fills each of tokens, usd and minutes the job\'s budget leaves unset (null: off; see "Daemon" below)',
   },
   'daemon.jobBudget.tokens': { doc: 'total tokens per job' },
   'daemon.jobBudget.usd': { doc: 'estimated USD per job' },
