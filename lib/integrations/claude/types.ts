@@ -3,6 +3,24 @@
 // adapter that starts one (ClaudeAdapter).
 import type { DaemonPermissionMode, PermissionDecision } from '#core/types.ts';
 
+/** One model's share of a result line's `modelUsage`: dollars and the four token counts, each finite and >= 0. */
+export interface ModelCost {
+  usd: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+/**
+ * What a result line says the conversation has cost so far. Both figures are cumulative per conversation,
+ * carry over a --resume and include background subagents. `usd` is null when `total_cost_usd` was unusable.
+ */
+export interface SessionCost {
+  usd: number | null;
+  models: Record<string, ModelCost>;
+}
+
 /** What one line (or the process) of a claude child means. Every field is claude's text, so untrusted. */
 export type ClaudeEvent =
   /** Ready for the session log: claude's own JSON line (stamped), a `forge-raw` or a `forge-stderr` line. */
@@ -35,12 +53,13 @@ export type ClaudeEvent =
   | { kind: 'permission-cancelled'; requestId: string }
   /** claude's answer to a mode switch this child's handle sent. */
   | { kind: 'mode-answer'; requestId: string; ok: boolean; error: string | null }
-  | { kind: 'turn-ended'; ok: true }
+  /** A working turn; `cost` is claude's own cumulative cost report on the result line (resultCost), null when it sent none. */
+  | { kind: 'turn-ended'; ok: true; cost?: SessionCost | null }
   /**
    * A failed turn: `limit` when it was a quota refusal, `resetsAt` (ms) when claude said when the window resets,
    * `budget` when the child reached its --max-budget-usd cap (never a limit: retrying can't lift it).
    */
-  | { kind: 'turn-ended'; ok: false; reason: string; limit: boolean; resetsAt: number | null; budget: boolean }
+  | { kind: 'turn-ended'; ok: false; reason: string; limit: boolean; resetsAt: number | null; budget: boolean; cost?: SessionCost | null }
   /** A line that broke the protocol and was answered with nothing. */
   | { kind: 'protocol-error'; message: string }
   /** The process failed; `started` is false when it never ran (ENOENT, EACCES). */

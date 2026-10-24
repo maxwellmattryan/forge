@@ -9,6 +9,7 @@ Stats, token usage, spend and budgets.
 | File | What it holds |
 |---|---|
 | `budget.ts` | Per-job budgets. |
+| `meter.ts` | The supervisor's meter: what each daemon session spent, per turn, from claude's own cost report on its result line. |
 | `repo-budget.ts` | The repo budget: caps on what the whole repo spends per UTC day and month (config `budget:`), separate from per-job budgets. |
 | `spend.ts` | The repo spend ledger: every job's agent-end usage, re-priced with today's table and bucketed by UTC day, role and model, across live jobs and archive records. |
 | `stats.ts` | Forge metrics. |

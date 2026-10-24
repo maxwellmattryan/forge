@@ -1,8 +1,8 @@
 // createStream as a pure decoder: claude's stream-json chunks in, ClaudeEvents and stdin lines out.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PERMISSION_DENIED, TURN_LINE, createStream, sessionGrant } from './stream.ts';
-import type { ClaudeEvent } from './types.ts';
+import { PERMISSION_DENIED, TURN_LINE, createStream, resultCost, sessionGrant } from './stream.ts';
+import type { ClaudeEvent, SessionCost } from './types.ts';
 
 /** One stream over in-memory sinks. */
 function decoder(maxLineBytes = 1 << 20) {
@@ -44,6 +44,25 @@ const askRepeat = { ...ask, request: { ...ask.request, input: { command: 'rm -rf
 const errorResult = (result: string) => ({ type: 'result', subtype: 'success', is_error: true, result });
 const resetSeconds = 2_000_000_000;
 
+/** A modelUsage entry in claude's words, and the ModelCost it becomes. */
+const usageOf = (n: number) => ({ costUSD: n, inputTokens: 1, outputTokens: 2, cacheReadInputTokens: 3, cacheCreationInputTokens: 4 });
+const costOf = (n: number) => ({ usd: n, input: 1, output: 2, cacheRead: 3, cacheWrite: 4 });
+const manyModels = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`m${i}`, usageOf(i)]));
+/** Result-line cost fields, the `cost` they become, and whether the result is a working one. */
+const costRows: [string, Record<string, unknown>, SessionCost | null, boolean][] = [
+  ['a working result', { total_cost_usd: 1.5, modelUsage: { m: usageOf(1.5) } }, { usd: 1.5, models: { m: costOf(1.5) } }, true],
+  ['a failed result', { total_cost_usd: 1.5, modelUsage: { m: usageOf(1.5) } }, { usd: 1.5, models: { m: costOf(1.5) } }, false],
+  ['none', {}, null, true],
+  [
+    'negative and string values',
+    { total_cost_usd: -1, modelUsage: { m: { costUSD: 'lots', inputTokens: -5, outputTokens: 2, cacheReadInputTokens: '3', cacheCreationInputTokens: 4 } } },
+    { usd: null, models: { m: { usd: 0, input: 0, output: 2, cacheRead: 0, cacheWrite: 4 } } },
+    true,
+  ],
+  ['a string total and no models', { total_cost_usd: '9' }, null, true],
+  ['more than 20 models', { total_cost_usd: 3, modelUsage: manyModels }, { usd: 3, models: Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`m${i}`, costOf(i)])) }, true],
+];
+
 test("claude's stream-json lines become domain events", () => {
   type S = ReturnType<typeof decoder>['s'];
   const rows: { name: string; max?: number; feed: (s: S) => void; events: ClaudeEvent[]; written?: unknown[] }[] = [
@@ -55,15 +74,20 @@ test("claude's stream-json lines become domain events", () => {
       events: [logged({ type: 'system', subtype: 'background_tasks_changed', tasks: [{}, {}] }), { kind: 'background', count: 2 }],
     },
     { name: 'background without tasks', feed: (s) => s.stdout(line({ type: 'system', subtype: 'background_tasks_changed' })), events: [logged({ type: 'system', subtype: 'background_tasks_changed' })] },
-    { name: 'a working result', feed: (s) => s.stdout(line({ type: 'result', is_error: false })), events: [logged({ type: 'result', is_error: false }), { kind: 'turn-ended', ok: true }] },
+    { name: 'a working result', feed: (s) => s.stdout(line({ type: 'result', is_error: false })), events: [logged({ type: 'result', is_error: false }), { kind: 'turn-ended', ok: true, cost: null }] },
     {
       name: 'a failed result',
       feed: (s) => s.stdout(line(errorResult('Failed to authenticate'))),
-      events: [logged(errorResult('Failed to authenticate')), { kind: 'turn-ended', ok: false, reason: 'Failed to authenticate', limit: false, resetsAt: null, budget: false }],
+      events: [logged(errorResult('Failed to authenticate')), { kind: 'turn-ended', ok: false, reason: 'Failed to authenticate', limit: false, resetsAt: null, budget: false, cost: null }],
     },
     ...[true, false].map((is_error) => {
       const ev = { type: 'result', subtype: 'error_max_budget_usd', is_error };
-      return { name: `the dollar cap (is_error ${is_error})`, feed: (s: S) => s.stdout(line(ev)), events: [logged(ev), { kind: 'turn-ended', ok: false, reason: 'error_max_budget_usd', limit: false, resetsAt: null, budget: true } as ClaudeEvent] };
+      return { name: `the dollar cap (is_error ${is_error})`, feed: (s: S) => s.stdout(line(ev)), events: [logged(ev), { kind: 'turn-ended', ok: false, reason: 'error_max_budget_usd', limit: false, resetsAt: null, budget: true, cost: null } as ClaudeEvent] };
+    }),
+    ...costRows.map(([name, fields, cost, ok]) => {
+      const ev = ok ? { type: 'result', is_error: false, ...fields } : { ...errorResult('boom'), ...fields };
+      const ended: ClaudeEvent = ok ? { kind: 'turn-ended', ok: true, cost } : { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, resetsAt: null, budget: false, cost };
+      return { name: `cost: ${name}`, feed: (s: S) => s.stdout(line(ev)), events: [logged(ev), ended] };
     }),
     {
       name: 'the dollar cap after a rejected rate limit',
@@ -71,7 +95,7 @@ test("claude's stream-json lines become domain events", () => {
       events: [
         logged({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: resetSeconds } }),
         logged({ type: 'result', subtype: 'error_max_budget_usd', is_error: true, result: 'usage limit' }),
-        { kind: 'turn-ended', ok: false, reason: 'usage limit', limit: false, resetsAt: null, budget: true },
+        { kind: 'turn-ended', ok: false, reason: 'usage limit', limit: false, resetsAt: null, budget: true, cost: null },
       ],
     },
     {
@@ -79,7 +103,7 @@ test("claude's stream-json lines become domain events", () => {
       feed: (s) => s.stdout(line(errorResult('API Error: 400 You have reached your specified API usage limits'))),
       events: [
         logged(errorResult('API Error: 400 You have reached your specified API usage limits')),
-        { kind: 'turn-ended', ok: false, reason: 'API Error: 400 You have reached your specified API usage limits', limit: true, resetsAt: null, budget: false },
+        { kind: 'turn-ended', ok: false, reason: 'API Error: 400 You have reached your specified API usage limits', limit: true, resetsAt: null, budget: false, cost: null },
       ],
     },
     ...[resetSeconds, resetSeconds * 1000].map((resetsAt) => ({
@@ -88,7 +112,7 @@ test("claude's stream-json lines become domain events", () => {
       events: [
         logged({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt } }),
         logged(errorResult('boom')),
-        { kind: 'turn-ended', ok: false, reason: 'boom', limit: true, resetsAt: resetSeconds * 1000, budget: false } as ClaudeEvent,
+        { kind: 'turn-ended', ok: false, reason: 'boom', limit: true, resetsAt: resetSeconds * 1000, budget: false, cost: null } as ClaudeEvent,
       ],
     })),
     {
@@ -98,7 +122,7 @@ test("claude's stream-json lines become domain events", () => {
         s.writeTurn();
         s.stdout(line(errorResult('boom')));
       },
-      events: [logged({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: resetSeconds } }), logged(errorResult('boom')), { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, resetsAt: null, budget: false }],
+      events: [logged({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: resetSeconds } }), logged(errorResult('boom')), { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, resetsAt: null, budget: false, cost: null }],
       written: [TURN_LINE],
     },
     { name: 'can_use_tool', feed: (s) => s.stdout(line(ask)), events: [logged(ask), askedEvent] },
@@ -185,6 +209,8 @@ test("claude's stream-json lines become domain events", () => {
       `${row.name}: stdin`,
     );
   }
+  // JSON can't carry NaN, so the decoder's own reader takes it directly.
+  assert.deepEqual(resultCost({ total_cost_usd: NaN, modelUsage: { m: { ...usageOf(NaN), outputTokens: Infinity } } }), { usd: null, models: { m: { ...costOf(0), output: 0 } } });
 });
 
 test('every stdin line is built from fixed text', () => {
