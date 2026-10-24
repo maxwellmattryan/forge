@@ -33,8 +33,9 @@ export function sanitizePath(value: string | null | undefined, platform: NodeJS.
 /** Brackets the PATH in the login shell's output, which a profile can fill with anything else. */
 const MARK = '__FORGE_COMMAND_PATH__';
 // printf and "$PATH" only: a builtin and a variable every sh, bash, zsh and fish 3 has (fish 3 joins
-// a quoted PATH with colons).
-const PRINT_PATH = `printf '%s\\n%s\\n%s\\n' ${MARK} "$PATH" ${MARK}`;
+// a quoted PATH with colons). The leading newline starts the first marker on its own line even after
+// profile output with no newline of its own (a prompt, a terminal escape, `echo -n`).
+const PRINT_PATH = `printf '\\n%s\\n%s\\n%s\\n' ${MARK} "$PATH" ${MARK}`;
 
 /** The PATH between the last pair of marker lines in `stdout`, or null. lastIndexOf, not a regex, over profile output. */
 function markedPath(stdout: string): string | null {

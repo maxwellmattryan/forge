@@ -35,6 +35,9 @@ test('captureLoginPath reads the login shell\'s PATH and falls back to this proc
     const silent = captureLoginPath({ env: { SHELL: FAKE, PATH: own, FAKE_SHELL_PATH: '' } });
     assert.equal(silent.path.split(':')[0], bin);
     assert.equal(silent.source, `login-shell (${FAKE})`, 'the real PATH when the profile changes nothing');
+    // A prompt or terminal escape with no newline of its own must not glue onto the first marker.
+    const prompt = captureLoginPath({ env: { ...env, FAKE_SHELL_PROMPT: '\x1b]133;A\x07% ' } });
+    assert.deepEqual(prompt, { path: `${bin}:/x/bin:/y`, source: `login-shell (${FAKE})` }, 'profile output without a trailing newline');
 
     fs.rmSync(log);
     assert.deepEqual(captureLoginPath({ env, platform: 'win32' }), { path: sanitizePath(own, 'win32', path.win32.join(PLUGIN_ROOT, 'bin')), source: 'inherited: win32' });

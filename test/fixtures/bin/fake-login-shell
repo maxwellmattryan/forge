@@ -1,11 +1,13 @@
 #!/bin/sh
 # A stand-in $SHELL for the login-shell PATH capture (lib/engine/guard/command-path.ts). It logs
 # `<cwd>|<args>` to $FAKE_SHELL_LOG, sleeps $FAKE_SHELL_SLEEP, exits $FAKE_SHELL_EXIT, prints profile
-# chatter and sets PATH to $FAKE_SHELL_PATH, each only when set, then runs the command as sh would.
+# chatter and then $FAKE_SHELL_PROMPT with no newline, and sets PATH to $FAKE_SHELL_PATH, each only
+# when set, then runs the command as sh would.
 if [ -n "$FAKE_SHELL_LOG" ]; then printf '%s|%s\n' "$(pwd -P)" "$*" >> "$FAKE_SHELL_LOG"; fi
 if [ -n "$FAKE_SHELL_SLEEP" ]; then sleep "$FAKE_SHELL_SLEEP"; fi
 if [ -n "$FAKE_SHELL_EXIT" ]; then exit "$FAKE_SHELL_EXIT"; fi
 echo 'profile chatter'
+if [ -n "$FAKE_SHELL_PROMPT" ]; then printf '%s' "$FAKE_SHELL_PROMPT"; fi
 if [ -n "$FAKE_SHELL_PATH" ]; then PATH=$FAKE_SHELL_PATH; export PATH; fi
 if [ "$1" = -lc ]; then exec /bin/sh -c "$2"; fi
 exec /bin/sh "$@"
