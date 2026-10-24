@@ -73,7 +73,26 @@ test('commandAttribution finds attribution in any git, gh or glab command', () =
     fs.writeFileSync(path.join(dir, 'b.md'), `Summary\n\n${ATTR}\n`);
     fs.mkdirSync(path.join(dir, 'sub'));
     fs.writeFileSync(path.join(dir, 'sub', 'msg.txt'), `${ATTR}\n`);
+    const json = path.join(dir, 'body.json');
+    fs.writeFileSync(json, JSON.stringify({ body: `x\n\n${ATTR}` }));
+    const api = 'gh api repos/o/r/issues/1/comments';
     const found = [
+      `gh release create v1 --notes-file ${msg}`,
+      `gh release create v1 --notes-file=${msg}`,
+      `${api} -F body=@${msg}`,
+      `${api} -Fbody=@${msg}`,
+      `${api} -f body=@${msg}`,
+      `${api} --field=body=@${msg}`,
+      `${api} --raw-field body=@${msg}`,
+      `${api} -F 'body=@${msg}'`,
+      `git commit --fil=${msg}`,
+      `git commit --fil ${msg}`,
+      `git tag -a v1 --fi=${msg}`,
+      `git commit --te=${msg}`,
+      `git commit --templ ${msg}`,
+      'git -C sub commit --fil=msg.txt',
+      `${api} --input ${json}`,
+      `${api} --input=${json}`,
       `git -c x=y commit -m "${ATTR}"`,
       `git -C sub commit -m "${ATTR}"`,
       `git --no-pager commit -m "${ATTR}"`,
@@ -90,7 +109,17 @@ test('commandAttribution finds attribution in any git, gh or glab command', () =
     ];
     for (const cmd of found) assert.deepEqual(commandAttribution(cmd, dir), [ATTR], cmd);
     const fifo = path.join(dir, 'fifo');
-    const none = [`echo "${ATTR}"`, 'git commit -m "feat: read Claude Code transcripts"', `git commit -F ${path.join(dir, 'sub')}`, 'git commit -F -', 'git commit -F msg.txt'];
+    const none = [
+      `echo "${ATTR}"`,
+      'git commit -m "feat: read Claude Code transcripts"',
+      `git commit -F ${path.join(dir, 'sub')}`,
+      'git commit -F -',
+      'git commit -F msg.txt',
+      `git commit --fixup=${msg}`,
+      `git log --text ${msg}`,
+      'gh api x -F body=@-',
+      'gh api x --input -',
+    ];
     if (process.platform !== 'win32') {
       execFileSync('mkfifo', [fifo]);
       none.push(`git commit -F ${fifo}`);
@@ -100,6 +129,12 @@ test('commandAttribution finds attribution in any git, gh or glab command', () =
     const hostile = `git commit -${'a'.repeat(10_000)} -t${' '.repeat(10_000)}; -C${' '.repeat(10_000)}|`;
     assert.deepEqual(commandAttribution(hostile, dir), []);
     assert.ok(Date.now() - started < 1000, 'a 10k-character hostile line is parsed in linear time');
+    // Thousands of missing `-C` dirs and `-F` files: only the first 8 and 32 are tried.
+    const many = (flag: string, prefix: string) => Array.from({ length: 2000 }, (_, i) => ` ${flag} ${prefix}${i}`).join('');
+    const flood = `git${many('-C', 'd')} commit${many('-F', 'm')} -m "${ATTR}"`;
+    const floodStarted = Date.now();
+    assert.deepEqual(commandAttribution(flood, dir), [ATTR]);
+    assert.ok(Date.now() - floodStarted < 1000, 'a command with 2000 -C and 2000 -F flags is checked in under a second');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

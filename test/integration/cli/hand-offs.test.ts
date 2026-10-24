@@ -16,6 +16,7 @@ test('verify names failing tests and scope writes the round diff', async () => {
   const repo = tempRepo();
   const name = path.basename(repo.dir);
   const answers = path.join(repo.dir, '..', `answers-${name}.json`);
+  const outside = path.join(repo.dir, '..', `outside-${name}`);
   const raw = (...args: string[]) => forgeAsync(repo.dir, args);
   const f = async (...args: string[]) => {
     const r = await raw(...args);
@@ -59,9 +60,19 @@ test('verify names failing tests and scope writes the round diff', async () => {
     assert.ok(patch.includes('diff --git a/t.test.mjs b/t.test.mjs\n'), patch);
     assert.ok(patch.includes("+test('adds up', () => {\n"), patch);
     assert.ok(!patch.includes('Binary files'), patch);
+
+    // A link planted at verify/ (a junction on Windows) fails verify and writes nothing through it.
+    fs.mkdirSync(outside);
+    fs.rmSync(path.join(dir, 'verify'), { recursive: true, force: true });
+    fs.symlinkSync(outside, path.join(dir, 'verify'), 'junction');
+    const linked = await raw('verify', job.id);
+    assert.notEqual(linked.status, 0);
+    assert.match(linked.stderr + linked.stdout, /not a real directory/);
+    assert.deepEqual(fs.readdirSync(outside), [], 'nothing is written in the link target');
   } finally {
     repo.cleanup();
     fs.rmSync(path.join(repo.dir, '..', `${name}.wt`), { recursive: true, force: true });
     fs.rmSync(answers, { force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
   }
 });

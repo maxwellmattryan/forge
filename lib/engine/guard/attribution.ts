@@ -45,13 +45,32 @@ export function stripAttribution(text: string): string {
 // the subcommand (`git -c k=v commit`, `gh -R o/r pr create`) and a path to the binary hide nothing.
 const PUBLISHING = /\b(git|gh|glab)\b/;
 const VALUE = String.raw`("[^"]*"|'[^']*'|[^\s;&|]+)`;
-const LONG_FILE_FLAG = new RegExp(String.raw`(?:^|\s)--(?:file|body-file|template)(?:=|\s+)${VALUE}`, 'g');
+// git's unambiguous abbreviations count (`--fil`, `--templ`), but only with `=` or a space right after
+// the name, so `--filter=`, `--fixup=` and `--text` never do.
+const LONG_FILE_FLAG = new RegExp(String.raw`(?:^|\s)--(?:fi(?:le?)?|body-file|notes-file|input|te(?:m(?:p(?:l(?:a(?:te?)?)?)?)?)?)(?:=|\s+)${VALUE}`, 'g');
 // `-F msg`, `-Fmsg` and a cluster ending in the flag (`-aF msg`); `-t` is commit's --template.
 const SHORT_FILE_FLAG = new RegExp(String.raw`(?:^|\s)-[A-Za-z]*?[Ft]\s*${VALUE}`, 'g');
+// gh's and glab's fields (`-F key=@file`, `-f`, `--field`, `--raw-field`): only the `key=@path` form reads a file.
+const FIELD_FLAG = new RegExp(String.raw`(?:^|\s)(?:-[Ff]\s*|--(?:raw-)?field(?:=|\s+))${VALUE}`, 'g');
+const FIELD_VALUE = /^[^=\s]*=@([\s\S]+)$/;
 const DIR_FLAG = new RegExp(String.raw`(?:^|\s)-C\s*${VALUE}`, 'g');
 const MAX_MESSAGE_FILE = 1024 * 1024;
+/** The hook's work stays bounded on any command: past these, nothing more is read. */
+const MAX_DIR_BASES = 8;
+const MAX_MESSAGE_FILES = 32;
+// A quoted argument (`-m "Co-Authored-By: …"`), a `$'…\n…'` line or a JSON string starts mid-line,
+// so text is scanned once more with quotes and literal `\n` as line breaks.
+const LINE_BREAKS = /["']|\\n/;
 
 const unquote = (v: string): string => v.replace(/^(["'])([\s\S]*)\1$/, '$2');
+
+/** The path a flag's value names, or null: a field names only the part after `=@`, and `-` is stdin. */
+function namedFile(raw: string, kind: 'long' | 'short' | 'field'): string | null {
+  const v = unquote(raw);
+  const field = kind === 'long' ? null : FIELD_VALUE.exec(v);
+  const p = field ? unquote(field[1]) : kind === 'field' ? '' : v;
+  return p && p !== '-' ? p : null;
+}
 
 /**
  * A message file's text, or null. Only an existing regular file under 1 MiB is read, and it is
@@ -77,29 +96,36 @@ function readMessageFile(file: string): string | null {
 
 /**
  * The attribution lines a Bash command would publish: in the command itself and in every message
- * file it names (`--file`, `--body-file`, `--template`, with `=` or a space; `-F` or `-t`, attached,
- * spaced or ending a cluster). A relative file is tried against `cwd` and against each `-C <dir>`,
- * each resolved against the one before, as git does. `[]` when the command names no git, gh or glab.
- * Commands built at run time (`$(cat msg)`, `$F`, `cd dir &&`, `~`) are the documented residuals.
+ * file it names (`--file`, `--body-file`, `--notes-file`, `--input`, `--template` and git's
+ * unambiguous abbreviations `--fi`, `--fil`, `--te`…, with `=` or a space; `-F` or `-t`, attached,
+ * spaced or ending a cluster; a `key=@path` field of `-F`, `-f`, `--field` or `--raw-field`). A
+ * relative file is tried against `cwd` and against each of the first 8 `-C <dir>`, each resolved
+ * against the one before, as git does; only the first 32 distinct files are read, so the cost is
+ * bounded on any command. The command and each file are scanned as they are and once more split on
+ * quotes and literal `\n`. `[]` when the command names no git, gh or glab. Commands built at run time
+ * (`$(cat msg)`, `$F`, `cd dir &&`, `~`) are the documented residuals.
  */
 export function commandAttribution(command: string, cwd: string): string[] {
   if (!PUBLISHING.test(command)) return [];
-  const bases = [cwd];
-  for (const m of command.matchAll(DIR_FLAG)) bases.push(path.resolve(bases[bases.length - 1], unquote(m[1])));
-  const files = new Set<string>();
-  for (const m of [...command.matchAll(LONG_FILE_FLAG), ...command.matchAll(SHORT_FILE_FLAG)]) {
-    const p = unquote(m[1]);
-    if (!p || p === '-') continue;
-    for (const base of path.isAbsolute(p) ? [''] : bases) files.add(path.resolve(base, p));
+  const bases = new Set([cwd]);
+  let base = cwd;
+  let dirs = 0;
+  for (const m of command.matchAll(DIR_FLAG)) {
+    if (dirs++ === MAX_DIR_BASES) break;
+    bases.add((base = path.resolve(base, unquote(m[1]))));
   }
-  // A quoted argument (`-m "Co-Authored-By: …"`) or a `$'…\n…'` line starts mid-line in the command,
-  // so the command is scanned once more with quotes and literal `\n` as line breaks.
-  const texts = [command, command.split(/["']|\\n/).join('\n')];
+  const named: { at: number; file: string | null }[] = [];
+  for (const [re, kind] of [[LONG_FILE_FLAG, 'long'], [SHORT_FILE_FLAG, 'short'], [FIELD_FLAG, 'field']] as const)
+    for (const m of command.matchAll(re)) named.push({ at: m.index, file: namedFile(m[1], kind) });
+  const values = [...new Set(named.sort((a, b) => a.at - b.at).flatMap((n) => (n.file === null ? [] : [n.file])))].slice(0, MAX_MESSAGE_FILES);
+  const files = new Set<string>();
+  for (const p of values) for (const b of path.isAbsolute(p) ? [''] : bases) files.add(path.resolve(b, p));
+  const texts = [command];
   for (const f of files) {
     const text = readMessageFile(f);
     if (text !== null) texts.push(text);
   }
-  return [...new Set(texts.flatMap(findAttribution))];
+  return [...new Set(texts.flatMap((t) => [...findAttribution(t), ...findAttribution(t.split(LINE_BREAKS).join('\n'))]))];
 }
 
 /**

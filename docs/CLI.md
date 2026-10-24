@@ -152,7 +152,7 @@ Read by Forge:
 | `FORGE_ACTOR` | the login human-action events record (`actor: { login, source: "env" }`), ahead of `gh`, `git config user.email` and the OS user; ignored inside daemon sessions, which record the OS user running `forge dash` as source `daemon`. Sanitised to `[A-Za-z0-9 ._@+-]`, at most 100 characters, and unauthenticated (docs/architecture/audit-trail.md) |
 | `FORGE_EDITOR` | the editor command `forge dash`'s Open in editor runs, split into words without a shell, with the job's worktree path appended; default `code`. Read from `forge dash`'s own environment |
 | `GH_HOST` | a GitHub Enterprise host whose issue URLs count as the configured repo's, besides github.com |
-| `SHELL` | the shell configured commands run in (`$SHELL -lc`; `/bin/sh` when unset): `forge run`, `forge verify`, worktree setup and eval checks |
+| `SHELL` | the shell configured commands run in outside the daemon (`$SHELL -lc`; `/bin/sh` when unset): `forge run`, `forge verify`, worktree setup and eval checks. Ignored under the daemon (`FORGE_DAEMON=1`), where they run as `/bin/sh -c` with no login profile (docs/CONFIG.md "Daemon") |
 | `PATH` | where git, gh, claude, node and docker are found |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | `forge dash` leaves them out of daemon sessions' environment unless `daemon.auth: api-key` |
 | `GIT_CONFIG_COUNT` | daemon sessions append their git pins after the entries already counted |
@@ -200,7 +200,7 @@ Set by Forge for `notify.command` (docs/CONFIG.md "Notifications"), whose `{plac
 
 `forge job links <id>` prints `{ id, links }`, one entry per `link` declared on a `components[].dependsOn[]` edge (docs/CONFIG.md "Components"): `{ consumer, consumerRepo, dependency, dependencyRepo, ecosystem, name, source, dir, active, reason }`. `consumerRepo` and `dependencyRepo` are `null` for the root repo, `source` is `null` except for cargo, `dir` is the dependency directory when the link is active, and `reason` says why it is not (`repo <r> is not on the job`, `repo <r> has no worktree yet; run: forge worktree create <id>`, `repo <r>'s stored worktree is not the path Forge computes`, `<path> does not exist in repo <r>'s worktree`). Entries are sorted by consumer repo (root first), ecosystem and name; a job with no declared links prints `links: []`. It only reads, so daemon sessions may run it.
 
-`forge run` (with or without `--repo`) and every verify step render the links of the repo the command runs in into `<jobDir>/links/<repo or _root>/` and put its `bin/` shims first on PATH, after the login profile. The result (`forge run`'s JSON and each verify step) then gains:
+`forge run` (with or without `--repo`) and every verify step render the links of the repo the command runs in into `<jobDir>/links/<repo or _root>/` and put its `bin/` shims first on PATH, after the login profile when there is one (under the daemon there is none). The result (`forge run`'s JSON and each verify step) then gains:
 
 | Key | When | Value |
 |---|---|---|

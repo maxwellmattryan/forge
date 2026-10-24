@@ -2,11 +2,11 @@
 // session for gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job sessions, each spawned on demand
 // for the job its requests name. Sessions fail, hold and stop on their own (lib/office/session/lifecycle.ts); the pool owns
 // what is repo-wide: the trust snapshot, routing, the cap and the stops config changes force. docs/architecture/daemon.md describes the rules.
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import path from 'node:path';
 import { resolveEffort, trustDigest } from '#core/config/load.ts';
+import { confineDigest } from './session/confine.ts';
 import { TRUST_CHANGED, createSession } from './session/lifecycle.ts';
+import { runSyncChild } from './sync-child.ts';
 import { sessionOptions, type DaemonOptions, type Session, type SessionContext, type SessionEvent } from './session/contract.ts';
 import { otherOwner, reapOrphans } from './session/records.ts';
 import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
@@ -15,12 +15,11 @@ import { UUID, readInfo, sessionFiles } from '#core/job/session-files.ts';
 import { daemonSessionIds, releaseSession } from './driver.ts';
 import { configForJob } from '#engine/evals/overlay.ts';
 import { loadJob, logHumanEvent, repoAuditFile } from '#core/job/store.ts';
-import { PLUGIN_ROOT } from '#core/paths.ts';
 import { RECONCILE_MS, daemonLockDir, reconcile, type SessionFacts } from './reconcile.ts';
 import { tryLock } from '#core/os/lock.ts';
 import { repoBudgetStatus } from '#engine/metrics/repo-budget.ts';
 import { daemonPlatformProblem } from '#core/os/platform.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, listRequests, requestScope, validScope } from '#core/job/requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, listRequests, requestScope, validScope } from '#core/job/requests.ts';
 import type { Config, RepoBudgetStatus, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, Job, PermissionDecision } from '#core/types.ts';
 
 /** The pool's own state: state() below. The server adds `clients` to make a DaemonPoolState. */
@@ -57,35 +56,6 @@ const FINISHED = ['done', 'cancelled', 'failed'];
 const REPO_BUDGET_MEMO_MS = 10_000;
 /** How often a wanted pool runs `forge sync`, so CI results and PR feedback reach the office unasked. */
 const SYNC_MS = 120_000;
-/** A sync that runs longer than this is killed; the next interval tries again. */
-const SYNC_TIMEOUT_MS = 10 * 60_000;
-
-/**
- * One `forge sync` in a child process: it calls gh synchronously, which would stall every session's
- * pipe if it ran in the server. Outside any daemon scope, as the human who started `forge dash`.
- */
-function runSyncChild(root: string, env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
-  return new Promise((resolve) => {
-    const childEnv: NodeJS.ProcessEnv = { ...env, FORGE_ROOT: root, FORGE_MODE: 'agent' };
-    delete childEnv.FORGE_DAEMON;
-    delete childEnv[SCOPE_ENV];
-    let stderr = '';
-    const child = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'bin', 'forge'), 'sync'], { cwd: root, env: childEnv, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
-    const timer = setTimeout(() => child.kill('SIGKILL'), SYNC_TIMEOUT_MS);
-    timer.unref?.();
-    child.stderr?.on('data', (d: Buffer) => {
-      if (stderr.length < 2000) stderr += d.toString('utf8');
-    });
-    child.on('error', (e) => {
-      clearTimeout(timer);
-      resolve(e.message);
-    });
-    child.on('close', (code, signal) => {
-      clearTimeout(timer);
-      resolve(code === 0 ? null : stderr.trim().split('\n').pop() || `exit ${code ?? signal}`);
-    });
-  });
-}
 
 /** A session the pool isn't running: what its record still says. */
 export function offState(root: string, scope: string): DaemonSessionState {
@@ -137,6 +107,8 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
   let lastError: string | null = null;
   /** trustDigest taken when a human (dashboard or `forge dash`) last started the pool. */
   let trusted: string | null = null;
+  /** confineDigest (./session/confine.ts) taken by the same start: the post-turn check's baseline. */
+  let confined: string | null = null;
   let pollTimer: NodeJS.Timeout | null = null;
   let syncTimer: NodeJS.Timeout | null = null;
   let reconcileTimer: NodeJS.Timeout | null = null;
@@ -189,6 +161,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
 
   const ctx: SessionContext = {
     trusted: () => trusted,
+    confined: () => confined,
     poolWanted: () => wanted && !closed,
     config,
     untrusted: () => poolStop(TRUST_CHANGED, 'trust'),
@@ -481,7 +454,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       }
       // Before reading config, so a change in between fails the spawn's comparison instead of being blessed.
       const snapshot = trustDigest(root);
-      config();
+      const confineSnapshot = confineDigest(root, config());
       const fresh = !daemonLock;
       if (!daemonLock) {
         // The lock, not the records, decides: two dashes started together both see no other owner in them.
@@ -510,7 +483,10 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       lastError = null;
       for (const s of sessions.values()) s.reset();
       // Never while a child lives: that would bless a change its current turn made.
-      if (![...sessions.values()].some((s) => s.running)) trusted = snapshot;
+      if (![...sessions.values()].some((s) => s.running)) {
+        trusted = snapshot;
+        confined = confineSnapshot;
+      }
       if (!pollTimer) {
         pollTimer = setInterval(tick, pollMs);
         pollTimer.unref?.();
