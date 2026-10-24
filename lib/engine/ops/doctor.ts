@@ -5,6 +5,8 @@ import { validateConfig, worktreeRoot } from '#core/config/load.ts';
 import { dockerCheck } from '../environment/backing.ts';
 import { apiKeyVars } from '#integrations/claude/argv.ts';
 import { deprecationChecks } from '#core/config/validators/deprecations.ts';
+import { uncoveredInstructionProbes } from '#core/config/validators/instructions.ts';
+import { policyRules } from '#core/config/validators/policy-check.ts';
 import { memberRepoChecks, releaseChecks, repoProblems } from '../project/member-repos.ts';
 import { isActive, listJobs } from '#core/job/store.ts';
 import { notifyChecks } from '#office/notify.ts';
@@ -101,6 +103,24 @@ export function envCopyCheck(config: Pick<Config, 'worktrees'>): DoctorCheck | n
 }
 
 /**
+ * The `protected instruction files` hint: a configured policy written before the default gained the
+ * instruction-file rule leaves some probe unmatched, and no re-init rewrites it. Null when every
+ * probe is covered, and for `[]`: an empty policy was turned off deliberately.
+ */
+export function instructionsPolicyCheck(config: Config): DoctorCheck | null {
+  const rules = policyRules(config);
+  if (!rules.length) return null;
+  const uncovered = uncoveredInstructionProbes(rules);
+  if (!uncovered.length) return null;
+  return {
+    name: 'protected instruction files',
+    ok: true,
+    warn: true,
+    detail: `policy.protectedPaths does not cover ${uncovered.join(', ')}: add an escalate rule for **/AGENTS.md, **/CLAUDE.md, **/CLAUDE.local.md, .claude, **/.claude/** and .mcp.json by hand (docs/CONFIG.md "Protected paths")`,
+  };
+}
+
+/**
  * The `dashboard built` check: a plugin checkout off `main` (develop, a clone) has no dashboard/dist/
  * until it is built. Always ok, so a source checkout never fails doctor; a warning until it is built.
  */
@@ -162,6 +182,9 @@ export async function doctor(root: string, config: Config, initialized: boolean,
     if (secrets) checks.push(secrets);
     const envCopy = envCopyCheck(config);
     if (envCopy) checks.push(envCopy);
+    // Only with a valid config: an invalid policy is already the failing config check.
+    const instructions = problems.length ? null : instructionsPolicyCheck(config);
+    if (instructions) checks.push(instructions);
   }
   const keys = apiKeyVars(process.env);
   if (initialized && config.daemon.enabled && keys.length) {
