@@ -50,11 +50,11 @@ export function budgetRows(job: JobInput, configBudget: BudgetLimits | null | un
   const usage = obj(j.usage);
   const overrides = obj(b.limits);
   const ack = obj(b.ack);
-  // effectiveLimits' rule: with no spend key set in config or present in the job's overrides, the
-  // unattended default fills them.
+  // effectiveLimits' rule: each spend key unset in config and absent from the job's overrides gets
+  // the unattended default's value for it.
   const fill = obj(jobDefault);
-  const unset = SPEND_KEYS.every((k) => fin(obj(configBudget)[k]) === null && !Object.hasOwn(overrides, k));
-  const cfg = jobDefault && unset ? { ...obj(configBudget), ...Object.fromEntries(SPEND_KEYS.filter((k) => fin(fill[k]) !== null).map((k) => [k, fill[k]])) } : obj(configBudget);
+  const cfg: Record<string, unknown> = { ...obj(configBudget) };
+  for (const k of SPEND_KEYS) cfg[k] = fin(cfg[k]) ?? (jobDefault && !Object.hasOwn(overrides, k) ? fin(fill[k]) : null);
   // byModel holds the same runs as byRole, so only byRole is summed.
   const ms = Object.values(obj(usage.byRole)).reduce((n: number, r) => n + (fin(obj(r).durationMs) ?? 0), 0);
   const used: Record<string, number | null> = {

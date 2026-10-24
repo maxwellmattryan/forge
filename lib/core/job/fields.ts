@@ -42,6 +42,8 @@ export const LOCKED_FIELDS: Record<string, string> = {
   interim: 'forge job repo interim',
   // A hand-set `queued` score would spend a judge run nobody sampled.
   score: 'forge sync or forge job score record',
+  // A session could otherwise null its own spend caps; only a person raises or acknowledges them.
+  budget: "forge job budget or the dashboard's Approve on the budget gate",
 };
 
 // Kinds step routes differently: a retro job's review panel is fixed at code and docs, and an eval
