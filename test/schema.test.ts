@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
 import { defaults, loadConfig, validateConfig } from '#core/config/load.ts';
-import { disclosureOf } from '#core/config/fields.ts';
+import { disclosureOf, redactedConfig } from '#core/config/fields.ts';
 import { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, migrateConfig, normalizeEvent, normalizeJob, serializeJob } from '#core/job/schema.ts';
 import { CONFIG_STEPS } from '#core/versions/config.ts';
 import { JOB_STEPS } from '#core/versions/job.ts';
@@ -503,6 +503,14 @@ test('an old config loads with the defaults its later versions added', () => {
   assert.equal(disclosureOf('environments.maxRunning'), 'plain');
   assert.equal(disclosureOf('commandEnv.loginShell'), 'plain');
   assert.equal(disclosureOf('commandEnv.inherit'), 'text');
+  // A support bundle counts the required checks (names, workflow files, a person's login) but prints none, and keeps the rest of merge.
+  assert.equal(disclosureOf('merge.requiredChecks'), 'text');
+  const withChecks = defaults();
+  withChecks.merge.requiredChecks = ['test', { name: 'deploy/preview', creator: 'a-person' }];
+  const shown = redactedConfig(withChecks).merge as Record<string, unknown>;
+  assert.deepEqual(shown.requiredChecks, ['<redacted>', '<redacted>']);
+  assert.equal(shown.method, withChecks.merge.method);
+  assert.ok(!JSON.stringify(redactedConfig(withChecks)).includes('a-person'));
 });
 
 test('a v16 job is written back as current, with a lease and no owner', () => {

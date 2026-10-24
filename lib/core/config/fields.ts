@@ -383,6 +383,8 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   pr: 'plain',
   'pr.reviewers': 'text',
   merge: 'plain',
+  // Check names, workflow files and creator logins (a person's, not only a bot's) are repo-specific, so a bundle counts them but doesn't print them.
+  'merge.requiredChecks': 'text',
   aiAttribution: 'plain',
   release: 'plain',
   // A release command can carry hostnames, paths or tokens like any other configured command.
