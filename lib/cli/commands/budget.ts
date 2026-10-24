@@ -1,6 +1,6 @@
 // `forge budget`: repo spend against the day and month caps (config `budget:`), and a human's
 // acknowledgement that grants one more period. Per-job budgets are `forge job budget`.
-import { ackRepoBudget, checkRepoBudget, validPeriod } from '#engine/metrics/repo-budget.ts';
+import { ackRepoBudget, assertAckable, checkRepoBudget, validPeriod } from '#engine/metrics/repo-budget.ts';
 import type { Config, RepoBudgetStatus } from '#core/types.ts';
 import type { HelpGroup } from '../types.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -41,8 +41,9 @@ export async function budgetCmd(root: string, config: Config, sub: string | unde
   const note = str(flags.note, '--note') ?? null;
   // The cap is the human's control over unattended spend: a session misled by tracker or PR text,
   // or branch code it runs, must not lift it, so a person types the period back at this terminal.
-  // Checked first, so the prompt only ever shows a well-formed period.
+  // The period is checked first, so the prompt only shows a well-formed, current and exceeded one.
   if (!validPeriod(period)) throw new ForgeError(`--period must be YYYY-MM or YYYY-MM-DD (got ${JSON.stringify(period).slice(0, 40)})`, 'usage', 'forge help budget');
+  assertAckable(root, config, period);
   const grant = await confirmHuman(root, budgetAckOp(period));
   return ackRepoBudget(root, config, period, note, grant.actor);
 }

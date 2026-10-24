@@ -1,6 +1,7 @@
 // The human-only operations against the session's own children: branch code a daemon session's
 // `forge verify` runs can't merge past the checks or lift a spend cap, with or without the daemon's
-// markers, and a daemon session whose scope is empty is refused by every scope-gated command.
+// markers; `forge budget ack` refuses a period it could not grant before it asks for a person; and a
+// daemon session whose scope is empty is refused by every scope-gated command.
 // Spawned, one test per path; fakeGh goes in the child's env only. POSIX only, like pr.test.ts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,12 +15,17 @@ import { createJob, jobDir, repoAuditFile, setJob } from '#core/job/store.ts';
 const POSIX = { skip: process.platform === 'win32' };
 const PRIVILEGED = ['pr-merge-bypass', 'pr-merged', 'budget-set', 'budget-ack'];
 
-/** A Forge-initialised scratch repo (tracker o/r, commands.test the branch's nested.sh) with one job at PR #7. */
+/**
+ * A Forge-initialised scratch repo (tracker o/r, commands.test the branch's nested.sh) with one job at
+ * PR #7. Its month cap is 0, so this month is always exceeded and `budget ack --period <month>` gets
+ * as far as asking for a person; today stays within its $1000 day cap.
+ */
 async function scratch(name: string) {
   const repo = tempRepo();
   const base = path.basename(repo.dir);
   const answers = path.join(repo.dir, '..', `answers-${base}.json`);
-  fs.writeFileSync(answers, JSON.stringify({ tracker: { github: { repo: 'o/r' } }, commands: { test: 'sh nested.sh' }, verify: ['test'], worktrees: { root: `../${base}.wt` } }));
+  const budget = { usdPerMonth: 0, usdPerDay: 1000 };
+  fs.writeFileSync(answers, JSON.stringify({ tracker: { github: { repo: 'o/r' } }, commands: { test: 'sh nested.sh' }, verify: ['test'], worktrees: { root: `../${base}.wt` }, budget }));
   const init = await forgeAsync(repo.dir, ['init', 'write', '--answers', answers]);
   fs.rmSync(answers, { force: true });
   assert.equal(init.status, 0, init.stderr);
@@ -76,6 +82,32 @@ test("branch code run by forge verify can't merge --now or lift a budget", POSIX
     assert.deepEqual(s.gh.calls().filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge'), []);
     const types = s.file('events.jsonl').split('\n').filter(Boolean).map((l) => JSON.parse(l).type);
     assert.deepEqual(types.filter((t) => PRIVILEGED.includes(t)), []);
+    const audit = fs.existsSync(repoAuditFile(s.repo.dir)) ? fs.readFileSync(repoAuditFile(s.repo.dir), 'utf8') : '';
+    assert.ok(!audit.includes('repo-budget-ack'), audit);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('forge budget ack refuses a period it could not grant before asking for a person', POSIX, async () => {
+  const s = await scratch('budget ack order');
+  try {
+    const now = new Date();
+    const month = now.toISOString().slice(0, 7);
+    const day = now.toISOString().slice(0, 10);
+    const past = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+    const rows: [string, string, string, RegExp][] = [
+      ['a past month', past, 'failed', /must be the current UTC month/],
+      ['today, within its day cap', day, 'failed', /nothing to acknowledge/],
+      ['this month, over its cap: the person is asked for, and there is none', month, 'human_only', /human-only operation/],
+    ];
+    for (const [name, period, code, message] of rows) {
+      const r = await forgeAsync(s.repo.dir, ['budget', 'ack', '--period', period, '--json'], s.gh.env);
+      assert.equal(r.status, 1, `${name}: ${r.stdout}${r.stderr}`);
+      const { error } = JSON.parse(r.stdout);
+      assert.equal(error.code, code, `${name}: ${error.message}`);
+      assert.match(error.message, message, name);
+    }
     const audit = fs.existsSync(repoAuditFile(s.repo.dir)) ? fs.readFileSync(repoAuditFile(s.repo.dir), 'utf8') : '';
     assert.ok(!audit.includes('repo-budget-ack'), audit);
   } finally {
