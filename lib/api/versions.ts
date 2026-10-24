@@ -42,6 +42,8 @@ export const API_CHANGES = [
   { id: 'api-36' },
   { id: 'api-37' },
   { id: 'triage-hidden-text' },
+  { id: 'job-merge-now' },
+  { id: 'actor-source-daemon' },
 ] as const;
 
 /**

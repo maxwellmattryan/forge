@@ -27,6 +27,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `focus.ts` | `forge focus`: which job the human is QA-ing in its worktree. |
 | `git.ts` | `forge git diff\|log\|show\|range-diff …`: read-only history for agents (`add`/`commit`, which write, are further down). |
 | `help.ts` | `forge help`, `--help` and the CLI's error contract (docs/CLI.md). |
+| `human.ts` | A person at this terminal confirming a human-only operation: the CLI's half of the human channel; the dashboard's routes are the other (docs/architecture/daemon-security.md). |
 | `init.ts` | `forge init write` and `forge migrate`: setting a repo up and keeping its files current. |
 | `job.ts` | `forge job …`: every write to a job's state goes through here. |
 | `job/agent.ts` | `forge job agent start\|end\|attach`: recording an agent's run, its usage and the secret scan of what it wrote. |

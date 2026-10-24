@@ -19,6 +19,8 @@ export const EVENT_STEPS: readonly Step[] = [
   // v4 adds autoMerge, head and heads to `decision` (forge job decision binds it to the worktree HEAD).
   // A v3 decision has none of them, and readers (lib/engine/pr/eligible.ts) treat it as not eligible.
   { id: 'decision-head', up: (e) => e },
+  // v5 lets an actor's `source` be `daemon` (a daemon session's action); an older Forge reads it as `unknown`.
+  { id: 'actor-source-daemon', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

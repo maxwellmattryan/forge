@@ -211,3 +211,16 @@ export interface DeleteJobResult {
   /** Open requests for the job, now rejected. */
   requests: number;
 }
+
+/** POST /api/jobs/:id/merge body: a person's merge-now, with the job id typed back. */
+export interface PostJobMergeBody {
+  now: true;
+  confirm: string;
+}
+
+/** POST /api/jobs/:id/merge reply: mergePr's result in lib/engine/pr/merge.ts, whatever its action. */
+export interface PostJobMergeResponse {
+  merged: boolean;
+  action: 'already-merged' | 'deferred' | 'refused' | 'failed' | 'auto' | 'merged';
+  error?: string;
+}

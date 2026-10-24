@@ -4,6 +4,7 @@ import type http from 'node:http';
 import type { DaemonPool } from '#office/pool.ts';
 import type { Drive } from '#office/driver.ts';
 import type { GhRunner, GitHubTarget } from '#integrations/github/preview.ts';
+import type { GitHub } from '#integrations/github/types.ts';
 import type { VersionInfo } from '#engine/ops/types.ts';
 import type {
   BacklogResponse,
@@ -30,6 +31,8 @@ export interface ServerOptions {
   dev?: boolean;
   /** Test seam: what runs gh for GitHub previews. */
   ghRun?: GhRunner;
+  /** Test seam: the GitHub adapter the merge route uses; ghGitHub by default. */
+  github?: GitHub;
   /** Test seam: Claude Code's projects dir (claudeProjectsDir() by default). */
   projectsDir?: string;
   /**
@@ -70,6 +73,8 @@ export interface ServerCtx {
   distDir: string;
   notBuilt: string;
   previewGitHub: (t: GitHubTarget) => Promise<GitHubPreviewResponse>;
+  /** The GitHub adapter POST /api/jobs/:id/merge merges through. */
+  github: GitHub;
   projects: string;
   provenance: VersionInfo;
   clients: Map<http.ServerResponse, string>;

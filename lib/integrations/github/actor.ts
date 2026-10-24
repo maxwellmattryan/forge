@@ -67,9 +67,9 @@ function ghLogin(deps: ActorDeps): string {
 
 /** The resolution order: daemon session > FORGE_ACTOR > gh > git email > OS user > unknown. */
 export function resolveActor(deps: ActorDeps): EventActor {
-  // A daemon session acts on requests a person queued from the dashboard, run as the OS user that
-  // started `forge dash`; FORGE_ACTOR is ignored there on purpose.
-  if (deps.env.FORGE_DAEMON === '1') return { login: sanitizeLogin(deps.osUser()) || null, source: 'dashboard' };
+  // A daemon session's action is recorded as the session's, under the OS user that started
+  // `forge dash`; FORGE_ACTOR is ignored there on purpose.
+  if (deps.env.FORGE_DAEMON === '1') return { login: sanitizeLogin(deps.osUser()) || null, source: 'daemon' };
   const env = sanitizeLogin(deps.env.FORGE_ACTOR);
   if (env) return { login: env, source: 'env' };
   const gh = ghLogin(deps);

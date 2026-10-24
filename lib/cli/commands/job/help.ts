@@ -215,12 +215,12 @@ export const JOB: HelpGroup = {
     {
       command: 'job budget',
       args: '<id> [--set key=value,...] [--ack]',
-      summary: "the job's budget limits and use",
+      summary: "the job's budget limits and use; --set and --ack are a human-only operation: they ask the person at the terminal to type the job id",
       flags: [
         ['--set key=value', 'set a limit: tokens, usd, minutes, changedLines or verifyRetries (default restores the configured one)'],
         ['--ack', 'accept the limits now exceeded, so the job goes on'],
       ],
-      exits: [[1, 'no such job, or an unknown budget key or bad value']],
+      exits: [[1, 'no such job, an unknown budget key or bad value, not confirmed, or human_only: --set or --ack in a daemon session or with no person at a terminal (an agent, a script or a configured command)']],
     },
     {
       command: 'job audit',

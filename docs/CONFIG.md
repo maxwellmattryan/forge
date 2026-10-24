@@ -149,8 +149,8 @@ pipeline:                    # how a job moves from request to PR
     minutes: null            # agent minutes: summed agent run time, never human waits
     changedLines: null       # committed lines added + deleted vs the base branch
     verifyRetries: 2         # failed `forge verify` runs allowed per round beyond the first
-  # `forge job budget <id> --ack` grants one more full budget past the current use;
-  # `--set key=value` overrides a limit for one job
+  # a person runs `forge job budget <id> --ack` in their own terminal (it asks them to type the job id) to grant one more full budget past the current use;
+  # `--set key=value` overrides a limit for one job, the same way
 
 review:                      # the review panel, and which lenses re-run
   blockOn: [blocker, major]  # severities that force another round; blocker and major are required, minor and nit optional
@@ -468,7 +468,7 @@ Both routes have the same guards. The job is not claimed by a live session (the 
 
 Then CI. A direct merge needs passing checks, or a base with no CI, at a **settled** head: at least 5 minutes after Forge's last `pr-opened`/`pr-updated` event, because a rollup read sooner may not list every check yet. A head that is not the decided one but carries base merges on it must also be 5 minutes past its own commit time, so a merge made on the PR since Forge's push (GitHub's "Update branch") cannot ride an old push. A PR with no Forge push event never settles. Passing checks while GitHub reports the PR `UNSTABLE` count as pending. A base has CI when it holds `.github/workflows/*.yml` (or `.yaml`), anything under `.circleci/` or `.buildkite/`, or a root `.gitlab-ci.yml`, `Jenkinsfile` or `azure-pipelines.yml`. While checks are pending or the head is settling, the merge is queued with GitHub auto-merge when GitHub enforces requirements (`BLOCKED`, `BEHIND`) and no protected-paths policy applies, and deferred otherwise; `forge sync` then continues it. Failing checks refuse. A check Forge can't compute (a git error, a missing commit or base) refuses under its own reason, never passes.
 
-`--now` is a human's override, run in their own terminal: it skips all of this, never the merge order or a release gate, and is logged as `pr-merge-bypass` with who ran it. A daemon session can't pass it, can't merge another job, and is refused when its scope is missing or invalid.
+`--now` is a human-only operation: a person confirming at a terminal by typing the job id (or **Merge now** in the dashboard). It skips all of this, never the merge order or a release gate, and is logged as `pr-merge-bypass` with who confirmed it. A daemon session, an agent, a script or a configured command can't pass it (code `human_only`; docs/architecture/daemon-security.md "Human-only operations"); a daemon session can't merge another job, and is refused when its scope is missing or invalid.
 
 **The backstop no session can change** is GitHub's own branch protection: required reviews and required status checks on your base branches. Forge never turns it on for you; with it on, a misled session or a forged job file still can't land a PR GitHub holds.
 
@@ -627,7 +627,7 @@ policy:
 | `forge git add\|commit` | previews the index the call would produce (a temp copy, removed after) and exits 1 with `protected_path`, writing nothing, when a path the call changes differs from the comparison point. Putting a path back to its comparison-point content is allowed, so a refusal verify reports stays fixable | goes ahead, records the job's flag and prints `protected: <n>` |
 | `forge verify` | a `protected` step right after `secrets` fails (`failure: protected`), and no configured command runs | the step passes with `<n> protected paths need a human` and records the flag |
 | `forge pr open` | exits 1 with `protected_path` before any `gh` call or push, `--force` included | recomputes the set (it never trusts the stored flag) and exits 1 with `protected_path` until a human approved it |
-| `forge pr merge` | recomputes the set at the PR's live head and exits 1 with `protected_path`, unless a human passes `--now` outside a daemon session | recomputes the set at the live head and exits 1 with `protected_path` unless the flag holds every path at that content under a human approval; `--now` only outside a daemon session |
+| `forge pr merge` | recomputes the set at the PR's live head and exits 1 with `protected_path`, unless a person confirming at a terminal (or the dashboard) merges with `--now` | recomputes the set at the live head and exits 1 with `protected_path` unless the flag holds every path at that content under a human approval; `--now` only from a person confirming at a terminal (or the dashboard) |
 
 **Member repos.** A job's [member repos](architecture/job-repos.md) get the same rules at the same gates, each over its own branch from its own base: `forge git add|commit --repo <name>` previews the member's index, and verify's `protected` step and `forge pr open` check every non-verify-only member's branch. A member's paths are named `<repo>:<path>` in messages, events and the one job flag, and its patch sits under a `# repo <name>` line in `protected.diff`, so one human approval at PP1 covers every repo, and a refusal or a missing approval in any repo stops `pr open` before anything is pushed.
 
@@ -757,7 +757,7 @@ Both keys are editable in Settings. docs/CLI.md "Scoring" covers the command, th
 
 Retro jobs, and a job forced past the cap this month, are exempt. Under `warn` nothing is parked or refused: commands add a `repoBudget` block to their output and log a `repo-budget-warn` event.
 
-**Release.** `forge budget ack --period <YYYY-MM|YYYY-MM-DD>` (a human only: refused in a daemon session) grants one more period's cap for the current, exceeded month or day and logs a `repo-budget-ack` line in `.forge/runtime/audit.jsonl`. The dashboard's Acknowledge button in Needs you does the same. Whenever a check finds the repo no longer held (`forge budget`, `forge next`, `forge job new|claim|from-ref`, `forge sync`, an ack, or simply a new month), every job parked by the repo budget whose own per-job budget is fine goes back to `queued` (with a `resume` request when the daemon is on). `forge job budget <id> --ack` never lifts the repo cap.
+**Release.** `forge budget ack --period <YYYY-MM|YYYY-MM-DD>` (a human-only operation: a person confirming at a terminal by typing the period, or the dashboard) grants one more period's cap for the current, exceeded month or day and logs a `repo-budget-ack` line in `.forge/runtime/audit.jsonl`. The dashboard's Acknowledge button in Needs you does the same. Whenever a check finds the repo no longer held (`forge budget`, `forge next`, `forge job new|claim|from-ref`, `forge sync`, an ack, or simply a new month), every job parked by the repo budget whose own per-job budget is fine goes back to `queued` (with a `resume` request when the daemon is on). `forge job budget <id> --ack` never lifts the repo cap.
 
 `forge budget` prints spend, caps, remaining, the projected month-end and the held jobs. `forge stats --csv [--since DATE] [--by job|role|model|day]` exports the same spend for finance.
 
