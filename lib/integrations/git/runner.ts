@@ -36,6 +36,35 @@ export const SESSION_PINS: readonly (readonly [string, string])[] = Object.freez
   ['core.fsmonitor', 'false'],
 ] as const);
 
+/**
+ * Pinned for the periodic `forge sync` child of `forge dash` (lib/office/sync-child.ts): the session
+ * pins, plus the programs a fetch, diff or merge there could start from repo config. gpg.program is
+ * git's own default rather than the null device, so a user's signed merges in sync keep working.
+ * credential.helper is never pinned: sync's fetches need the user's.
+ */
+export const SYNC_PINS: readonly (readonly [string, string])[] = Object.freeze([
+  ...SESSION_PINS,
+  ['core.pager', 'cat'],
+  ['diff.external', os.devNull],
+  ['gpg.program', 'gpg'],
+] as const);
+
+/**
+ * `env` with `pins` appended as GIT_CONFIG_* entries after any the caller already set (a junk
+ * GIT_CONFIG_COUNT reads as 0). Those entries outrank every config file.
+ */
+export function pinEnv(env: NodeJS.ProcessEnv, pins: readonly (readonly [string, string])[]): NodeJS.ProcessEnv {
+  const out = { ...env };
+  const count = Number(env.GIT_CONFIG_COUNT ?? 0);
+  const base = Number.isInteger(count) && count > 0 ? count : 0;
+  pins.forEach(([key, value], i) => {
+    out[`GIT_CONFIG_KEY_${base + i}`] = key;
+    out[`GIT_CONFIG_VALUE_${base + i}`] = value;
+  });
+  out.GIT_CONFIG_COUNT = String(base + pins.length);
+  return out;
+}
+
 /** `pins` as git's leading `-c key=value` options. */
 export const pinArgs = (pins: readonly (readonly [string, string])[] = GIT_PINS): string[] => pins.flatMap(([k, v]) => ['-c', `${k}=${v}`]);
 

@@ -7,7 +7,8 @@ import path from 'node:path';
 import { addOrigin, fakeGh, forgeAsync, ghPr, tempRepo } from '../../helpers.ts';
 import { TRUST_ENV, loadConfig, trustDigest } from '#core/config/load.ts';
 import { EVENT_SCHEMA_VERSION } from '#core/job/schema.ts';
-import { createJob, jobDir, setJob } from '#core/job/store.ts';
+import { createJob, setJob } from '#core/job/store.ts';
+import { jobFiles } from '#core/paths.ts';
 
 const VIEW_FIELDS = 'number,url,state,isDraft,isCrossRepository,headRefName,baseRefName,headRefOid,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,mergedAt';
 
@@ -77,12 +78,12 @@ test('forge sync continues a deferred merge through mergePr', { skip: process.pl
     // Forge pushed well past the settling window, the approver's APPROVE covers this head, and the last merge attempt deferred.
     const line = (type: string, ts: string, data: Record<string, unknown> = {}) => `${JSON.stringify({ v: EVENT_SCHEMA_VERSION, ts, type, ...data })}\n`;
     const now = new Date().toISOString();
-    fs.appendFileSync(
-      path.join(jobDir(repo.dir, id), 'events.jsonl'),
+    const events =
       line('pr-opened', new Date(Date.now() - 30 * 60_000).toISOString(), { number: 7 }) +
-        line('decision', now, { decision: 'APPROVE', reason: null, autoMerge: true, head }) +
-        line('pr-merge-deferred', now, { number: 7, checks: 'pending' }),
-    );
+      line('decision', now, { decision: 'APPROVE', reason: null, autoMerge: true, head }) +
+      line('pr-merge-deferred', now, { number: 7, checks: 'pending' });
+    // Forge reads the CLI copy's events, so every copy gets them.
+    for (const f of jobFiles(repo.dir, id, 'events.jsonl')) fs.appendFileSync(f, events);
     const r = await forgeAsync(repo.dir, ['sync'], gh.env);
     assert.equal(r.status, 0, r.stderr + r.stdout);
     const row = JSON.parse(r.stdout).results.find((x: any) => x.id === id);

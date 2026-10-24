@@ -2,10 +2,10 @@
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import path from 'node:path';
 import { tempRepo } from './helpers.ts';
 import { defaults } from '#core/config/load.ts';
-import { createJob, jobDir, loadJob, setJob, updateJob } from '#core/job/store.ts';
+import { createJob, loadJob, setJob, updateJob } from '#core/job/store.ts';
+import { stateFile } from '#core/paths.ts';
 import { JOB_SCHEMA_VERSION, normalizeJob } from '#core/job/schema.ts';
 
 const cleanups: (() => void)[] = [];
@@ -27,7 +27,7 @@ describe('job repos: schema', { concurrency: 4 }, () => {
     ];
     for (const [stage, extra] of stages) {
       const job = createJob(repo.dir, config, { title: `v11 ${stage}` });
-      const file = path.join(jobDir(repo.dir, job.id), 'job.json');
+      const file = stateFile(repo.dir, job.id, 'job.json');
       // What a v11 Forge wrote: its normalised job, without repos.
       const { repos: _r, interim: _i, ports: _p, outcome: _o, score: _s, ...v11 } = { ...JSON.parse(fs.readFileSync(file, 'utf8')), stage, ...extra, schemaVersion: 11 }; // old-version fixture
       fs.writeFileSync(file, JSON.stringify(v11));
@@ -53,7 +53,7 @@ describe('job repos: schema', { concurrency: 4 }, () => {
     setJob(repo.dir, job.id, { owned: { 'pr.pushedSha': 'b'.repeat(40) } });
     let j = loadJob(repo.dir, job.id);
     assert.deepEqual(j.repos[0], { repo: null, worktree: '/w/one', branch: j.branch, base: 'develop', pr: { ...PR, pushedSha: 'b'.repeat(40) }, verifyOnly: false, interim: null });
-    const file = path.join(jobDir(repo.dir, job.id), 'job.json');
+    const file = stateFile(repo.dir, job.id, 'job.json');
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     raw.repos = [
       { repo: 'evil', worktree: '/elsewhere', branch: 'main', base: 'x', pr: null, verifyOnly: true },
