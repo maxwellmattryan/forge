@@ -7,7 +7,7 @@ import { jobFindings } from '../pipeline/findings.ts';
 import type { JobFindings } from '#core/job/types.ts';
 import { isForemanActor, listJobs, readEvents } from '#core/job/store.ts';
 import { csvCell, parseAuditDate } from '../ops/audit.ts';
-import { LEDGER_BY, ledgerRows, spendLedger } from './spend.ts';
+import { LEDGER_BY, ledgerRows, sessionRows, spendLedger } from './spend.ts';
 import type { LedgerBy } from './spend.ts';
 import { LENS_NAME } from '#core/job/lens.ts';
 import { agentRoles } from '../evals/provenance.ts';
@@ -86,7 +86,10 @@ export interface StatsOpts {
 }
 
 export function computeStats(root: string, opts: StatsOpts = {}): Stats {
-  return statsFrom(statsSources(root, opts), opts);
+  const stats = statsFrom(statsSources(root, opts), opts);
+  // Jobs passed in are the whole population (tests, evals): no daemon session spent for them.
+  if (!opts.jobs && opts.config) stats.cost.sessions = sessionRows(spendLedger(root, opts.config, { write: false, since: opts.since ?? null }));
+  return stats;
 }
 
 /** The jobs stats reads, live and archived, filtered by kind and creation date; each is read lazily. */
@@ -348,6 +351,7 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
       reportingCoverage: { agentRuns, withUsage: agentRunsWithUsage, exact: exactRuns },
       byRole,
       byModel,
+      sessions: {},
     },
     reviewers,
     verifiers,
@@ -414,8 +418,9 @@ export function statsByPrompt(root: string, opts: { role?: unknown; since?: stri
 const CSV_TOTALS = ['runs', 'tokens', 'input', 'output', 'cache_read', 'cache_write', 'usd'] as const;
 
 /**
- * `forge stats --csv`: the spend ledger (lib/engine/metrics/spend.ts) by job, role, model or day, for finance. Every
- * job counts, evals and retros included, so the totals match `forge budget`.
+ * `forge stats --csv`: the spend ledger (lib/engine/metrics/spend.ts) by job, role, model or day, each split by source
+ * (`reported` agent ends, `supervisor` meter), for finance. Every job and daemon session counts, evals and retros
+ * included, so the totals match `forge budget`.
  */
 export function statsCsv(root: string, config: Config, flags: Record<string, unknown>): string {
   const usage = (why: string) => new ForgeError(`${why}; usage: forge stats --csv [--since DATE] [--by job|role|model|day]`, 'usage', 'forge help stats');
@@ -426,7 +431,7 @@ export function statsCsv(root: string, config: Config, flags: Record<string, unk
   const by = raw as LedgerBy;
   const since = flags.since === undefined ? null : parseAuditDate(flags.since, '--since');
   const rows = ledgerRows(spendLedger(root, config, { since }), { by });
-  const lines = [[...(by === 'job' ? ['job', 'kind', 'title'] : [by]), ...CSV_TOTALS].join(',')];
+  const lines = [[...(by === 'job' ? ['job', 'kind', 'title'] : [by]), 'source', ...CSV_TOTALS].join(',')];
   for (const r of rows) {
     const t = r.totals;
     lines.push([...r.key, t.runs, t.tokens, t.input, t.output, t.cacheRead, t.cacheWrite, t.usd.toFixed(4)].map(csvCell).join(','));
