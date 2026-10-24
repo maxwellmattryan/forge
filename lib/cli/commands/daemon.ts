@@ -10,7 +10,8 @@ import { sessionAgents } from '#office/session-agents.ts';
 import { recordIds } from '#office/driver.ts';
 import { ForgeError } from '#core/errors.ts';
 import { pidAlive } from '#core/os/process.ts';
-import { provenDashboard, readDashboardRecord } from '#engine/ops/dashboard-record.ts';
+import { legacyDashboardFile, machineDashboardFile, provenDashboard, readDashboardRecord } from '#engine/ops/dashboard-record.ts';
+import { forgeHome } from '#core/paths.ts';
 import { usageError } from './args.ts';
 import type { HelpGroup } from '../types.ts';
 
@@ -76,9 +77,11 @@ function str(v: unknown): string | null {
 }
 
 function status(root: string): DaemonStatusOut {
-  // A record that is not proven still shows its pid, so the human sees something is there, but never its url.
-  const proven = provenDashboard(root);
-  const raw = proven ? null : readDashboardRecord(root);
+  // The machine dashboard's record, else an older per-repo `forge dash`'s. A record that is not proven
+  // still shows its pid, so the human sees something is there, but never its url.
+  const files = [machineDashboardFile(forgeHome()), legacyDashboardFile(root)];
+  const proven = files.map((f) => provenDashboard(f)).find((p) => p !== null) ?? null;
+  const raw = proven ? null : (files.map((f) => readDashboardRecord(f)).find((r) => r && typeof r.pid === 'number') ?? null);
   const dashboard = proven
     ? { pid: proven.pid, url: proven.url, alive: true }
     : raw && typeof raw.pid === 'number' && Number.isInteger(raw.pid)

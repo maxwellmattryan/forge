@@ -1,4 +1,4 @@
-// The job-file routes (GET /api/jobs/:id/file and /raw) read files the job's own agents write, so
+// The job-file routes (GET /api/p/:project/jobs/:id/file and /raw) read files the job's own agents write, so
 // every read is confined to the real job dir (docs/architecture/dashboard-security.md): a link out, a
 // FIFO, a device, a hard link or a symlinked job dir is a 404 that never blocks the server, private
 // job files stay private under any name, and /raw serves only HTML mockups, capped.
@@ -10,9 +10,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { tempRepo } from '../../helpers.ts';
-import { startServer } from '../../../lib/server/start.ts';
-import { FIXTURE_DIST } from '../../dist.ts';
+import { serveProjects, tempRepo } from '../../helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
 import { createJob, jobDir } from '#core/job/store.ts';
 import { recordKnown } from '#engine/guard/known-secrets.ts';
@@ -46,16 +44,15 @@ async function setup() {
   const { config } = loadConfig(repo.dir);
   const id = createJob(repo.dir, config, { title: 'job files' }).id;
   const dir = jobDir(repo.dir, id);
-  const { url, close } = await startServer(repo.dir, { port: 0, distDir: FIXTURE_DIST });
-  const port = Number(new URL(url).port);
+  const s = await serveProjects([{ dir: repo.dir, name: 'a' }]);
   return {
     repo,
     outside,
     id,
     dir,
-    port,
+    port: s.port,
     cleanup: async () => {
-      await close();
+      await s.cleanup();
       repo.cleanup();
       fs.rmSync(outside, { recursive: true, force: true });
     },
@@ -108,17 +105,17 @@ test('job file reads stay inside the real job dir', async () => {
     }
 
     for (const r of refused) {
-      const p = `/api/jobs/${r.job ?? s.id}/${r.kind}?path=${encodeURIComponent(r.rel)}`;
+      const p = `/api/p/a/jobs/${r.job ?? s.id}/${r.kind}?path=${encodeURIComponent(r.rel)}`;
       const got = await get(s.port, p);
       assert.deepEqual({ status: got.status, text: got.text }, { status: 404, text: 'not found' }, p);
       assert.ok(!got.text.includes(secret) && !got.text.includes(known), `${p} leaks nothing`);
-      assert.equal((await get(s.port, '/api/state')).status, 200, `the server still answers after ${p}`);
+      assert.equal((await get(s.port, '/api/p/a/state')).status, 200, `the server still answers after ${p}`);
     }
 
     // What the job really wrote is still served: text redacted, the screenshot byte for byte.
-    const notes = await get(s.port, `/api/jobs/${s.id}/file?path=notes.md`);
+    const notes = await get(s.port, `/api/p/a/jobs/${s.id}/file?path=notes.md`);
     assert.deepEqual({ status: notes.status, type: notes.headers['content-type'], text: notes.text }, { status: 200, type: 'text/plain; charset=utf-8', text: 'notes [redacted]\n' });
-    const shot = await get(s.port, `/api/jobs/${s.id}/file?path=screenshots/a.png`);
+    const shot = await get(s.port, `/api/p/a/jobs/${s.id}/file?path=screenshots/a.png`);
     assert.equal(shot.status, 200);
     assert.ok(shot.body.equals(png), 'exact bytes');
     assert.deepEqual(
@@ -145,15 +142,15 @@ test('raw serves html mockups only, capped', async () => {
     const big = Buffer.from(Array.from({ length: MAX_FILE + 4096 }, (_, i) => 97 + (i % 23)));
     fs.writeFileSync(path.join(s.dir, 'logs', 'big.log'), big);
 
-    const raw = await get(s.port, `/api/jobs/${s.id}/raw?path=mockup.html`);
+    const raw = await get(s.port, `/api/p/a/jobs/${s.id}/raw?path=mockup.html`);
     assert.deepEqual({ status: raw.status, type: raw.headers['content-type'], text: raw.text }, { status: 200, type: 'text/html; charset=utf-8', text: mockup.replace(known, '[redacted]') });
     for (const rel of ['logs/dev.log', 'notes.json']) {
-      const got = await get(s.port, `/api/jobs/${s.id}/raw?path=${rel}`);
+      const got = await get(s.port, `/api/p/a/jobs/${s.id}/raw?path=${rel}`);
       assert.deepEqual({ status: got.status, text: got.text }, { status: 404, text: 'not found' }, rel);
     }
-    const tooBig = await get(s.port, `/api/jobs/${s.id}/raw?path=big.html`);
+    const tooBig = await get(s.port, `/api/p/a/jobs/${s.id}/raw?path=big.html`);
     assert.deepEqual({ status: tooBig.status, text: tooBig.text }, { status: 413, text: 'file too large' });
-    const tail = await get(s.port, `/api/jobs/${s.id}/file?path=logs/big.log`);
+    const tail = await get(s.port, `/api/p/a/jobs/${s.id}/file?path=logs/big.log`);
     assert.equal(tail.status, 200);
     assert.equal(tail.text, `…truncated (${big.length} bytes); showing the last 2 MB…\n` + big.subarray(big.length - MAX_FILE).toString('utf8'));
   } finally {

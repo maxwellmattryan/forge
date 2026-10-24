@@ -180,7 +180,7 @@ export async function getEnvironmentLogs(ctx: ServerCtx, req: http.IncomingMessa
     const known = knownReader(root, id);
     sseHead(res);
     res.write('retry: 3000\n\n');
-    clients.set(res, scope);
+    clients.set(res, `${ctx.name}/${scope}`);
     const stop = followFd(
       res,
       fd,
@@ -197,7 +197,7 @@ export async function getEnvironmentLogs(ctx: ServerCtx, req: http.IncomingMessa
       clients.delete(res);
       fs.closeSync(fd);
     });
-    return startPing(ctx);
+    return startPing(ctx.machine);
   }
   // A client that leaves during the status call has already fired `close`, so the handler below would
   // never run: its slot and its `docker logs --follow` child would outlive it.
@@ -212,7 +212,7 @@ export async function getEnvironmentLogs(ctx: ServerCtx, req: http.IncomingMessa
   if (clients.size >= MAX_SSE_CLIENTS) return send(res, 503, 'text/plain', 'too many event streams');
   sseHead(res);
   res.write('retry: 3000\n\n');
-  clients.set(res, scope);
+  clients.set(res, `${ctx.name}/${scope}`);
   const known = knownReader(root, id);
   const child = dockerSpawn(['logs', '--follow', '--tail', '200', '--', container!]);
   let ended = false;
@@ -260,7 +260,7 @@ export async function getEnvironmentLogs(ctx: ServerCtx, req: http.IncomingMessa
     clients.delete(res);
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
   });
-  startPing(ctx);
+  startPing(ctx.machine);
 }
 
 /** GET /api/environments: every running environment, reused for 5 s, with one computation shared by concurrent callers. */

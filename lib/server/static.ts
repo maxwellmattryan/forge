@@ -6,7 +6,7 @@ import path from 'node:path';
 import { exists, BUILD_DASHBOARD, DEV_DIST_DIR, PLUGIN_ROOT } from '#core/paths.ts';
 import { openConfinedLog } from '#engine/environment/status.ts';
 import { send } from './http.ts';
-import type { RouteMatch, ServerCtx, ServerOptions } from './types.ts';
+import type { MachineCtx, RouteMatch, ServerOptions } from './types.ts';
 
 // Raster formats only: SVG can carry script, so it is never served as an image.
 export const IMAGE_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
@@ -31,7 +31,7 @@ export function distDirFor(opts: ServerOptions): string {
 export const PAGE_CSP = "frame-src 'self'; frame-ancestors 'none'";
 
 /** GET / and /index.html: the page, with this server's token in it. */
-export function getPage(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse): void {
+export function getPage(ctx: MachineCtx, _req: http.IncomingMessage, res: http.ServerResponse): void {
   const { token, distDir, notBuilt } = ctx;
   res.setHeader('Content-Security-Policy', PAGE_CSP);
   res.setHeader('X-DNS-Prefetch-Control', 'off');
@@ -39,7 +39,7 @@ export function getPage(ctx: ServerCtx, _req: http.IncomingMessage, res: http.Se
 }
 
 /** GET /assets/…: a hashed file the dist manifest lists. */
-export function getAsset(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): void {
+export function getAsset(ctx: MachineCtx, _req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): void {
   const { distDir } = ctx;
   // Re-read per request so a rebuild under a running `forge dash` is picked up; the manifest is
   // tiny. The pathname is never decoded or joined: lookup is by exact string.
@@ -48,7 +48,7 @@ export function getAsset(ctx: ServerCtx, _req: http.IncomingMessage, res: http.S
 }
 
 /** GET /forge.png: the logo. */
-export function getLogo(_ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse): void {
+export function getLogo(_ctx: MachineCtx, _req: http.IncomingMessage, res: http.ServerResponse): void {
   return sendFile(res, path.join(PLUGIN_ROOT, 'assets', 'forge.png'), 'image/png');
 }
 

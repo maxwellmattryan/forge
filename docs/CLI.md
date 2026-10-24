@@ -514,23 +514,23 @@ The dashboard's headless sessions, from the terminal.
 
 ### `forge dash`
 
-The live dashboard and its session pool.
+The machine's dashboard and every registered project's session pool.
 
-**`forge dash [--background|--stop] [--port N] [--permission-mode MODE] [--dev] [--quiet]`**: start the dashboard in the foreground (prints its URL), or detached with --background; --stop stops it and its sessions
+**`forge dash [--background|--stop] [--port N] [--permission-mode MODE] [--dev] [--quiet]`**: open the machine's dashboard, one server for every project in the machine index: in a repo with .forge/config.yml it registers that repo first (forge project add's default name), then prints the running one's {url: &lt;origin>/?project=&lt;name>, pid, running: true, project, added}, or starts it in the foreground (prints its URL), or detached with --background ({url, pid, started: true, project, added}); outside a project it registers nothing (project: null). Its record is &lt;FORGE_HOME>/dashboard.json ({pid, url, startedAt}, 0600, never the token); a daemon session may only get the report for a registered project
 
 | Flag | Meaning |
 |---|---|
-| `--background` | start it detached and print {url, pid} |
-| `--dev` | serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist; the daemon stays off until Start; refused while a proven dashboard runs for this repo (a stale dashboard.json does not block it) |
+| `--background` | start it detached and print {url, pid, started: true, project, added} |
+| `--dev` | serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist for every project of FORGE_HOME, with no pool booting until Start; refused while a proven machine dashboard runs (a stale record does not block it) |
 | `--foreground` | run in the foreground even when one is running |
 | `--permission-mode MODE` | the job sessions' default permission mode until it stops: default (ask), auto or dontAsk (refuse); refused in a daemon session |
-| `--port N` | the first port to try (default: dashboard.port, 7400) |
+| `--port N` | the first port to try (default: this repo's dashboard.port, 7400) |
 | `--quiet` | in the foreground in human mode, print only the banner (no activity log) |
-| `--stop` | stop it and reap its sessions; a dashboard.json whose pid is not provably that dashboard is cleared without signalling anything |
+| `--stop` | stop the machine's dashboard and, in a repo, an older per-repo dashboard (.forge/runtime/dashboard.json), then reap every registered project's orphaned sessions ({stopped, daemonReaped}); a record whose pid is not provably that dashboard is cleared without signalling anything |
 
 | Exit | When |
 |---|---|
-| 1 | no free port near N, --dev while a proven dashboard is running for this repo, or --permission-mode in a daemon session |
+| 1 | no free port near N, --dev while a proven machine dashboard is running, this repo's default name registered for another path, --permission-mode in a daemon session, or a daemon session that would start, stop or register (only the report for a registered project is allowed) |
 
 ### `forge doctor`
 

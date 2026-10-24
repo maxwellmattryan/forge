@@ -38,7 +38,8 @@ export function getEvents(ctx: ServerCtx, req: http.IncomingMessage, res: http.S
   const known = scopeKnownValues(root, scope, loadConfig(root).config);
   sseHead(res);
   res.write('retry: 3000\n\n');
-  clients.set(res, scope);
+  // Keyed by project: the pool broadcasts `<name>/<scope>`, so another project's `_inbox` never reaches this stream.
+  clients.set(res, `${ctx.name}/${scope}`);
   res.write(stateFrame(ctx.pool ? ctx.pool.sessionState(scope) : offSessionState(root, scope), known));
   const last = Number(req.headers['last-event-id']);
   for (const r of ctx.pool?.recent(scope, req.headers['last-event-id'] === undefined || !Number.isFinite(last) ? undefined : last) ?? []) res.write(lineFrame(r.offset, r.line));
@@ -49,7 +50,7 @@ export function getEvents(ctx: ServerCtx, req: http.IncomingMessage, res: http.S
     clearTimeout(recycle);
     clients.delete(res);
   });
-  startPing(ctx);
+  startPing(ctx.machine);
 }
 
 /**
@@ -179,5 +180,19 @@ function offSessionState(_root: string, scope: string): DaemonSessionState {
 
 /** The pool block before a pool exists (never visible once the server is listening). */
 export function idlePoolState(root: string): PoolState {
-  return { enabled: false, wanted: false, maxConcurrent: 1, live: 0, lastError: null, inbox: offSessionState(root, INBOX_SCOPE), office: offSessionState(root, OFFICE_SCOPE), foreman: false, jobs: {}, permissionMode: 'default', permissionModes: {}, jobPermissionMode: null };
+  return {
+    enabled: false,
+    wanted: false,
+    maxConcurrent: 1,
+    live: 0,
+    lastError: null,
+    inbox: offSessionState(root, INBOX_SCOPE),
+    office: offSessionState(root, OFFICE_SCOPE),
+    foreman: false,
+    jobs: {},
+    permissionMode: 'default',
+    permissionModes: {},
+    jobPermissionMode: null,
+    machine: null,
+  };
 }

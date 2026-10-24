@@ -10,6 +10,7 @@ import { chromium } from 'playwright-core';
 import type { Browser, BrowserContext, Page } from 'playwright-core';
 import { PLUGIN_ROOT } from '../lib/core/paths.ts';
 import { startServer } from '../lib/server/start.ts';
+import { addProject } from '../lib/engine/project/machine-index.ts';
 import { VIEWS } from '../dashboard/src/lib/nav.ts';
 import type { ViewId } from '../dashboard/src/lib/nav.ts';
 import { SCENARIO_DIR, SCENARIO_ENV_DROPPED, listScenarios, loadScenario, seedScenario } from './scenario.ts';
@@ -149,16 +150,20 @@ export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: st
       const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
       let server: Awaited<ReturnType<typeof startServer>> | null = null;
       try {
-        server = await startServer(seeded.root, { port: 0, distDir: dist });
+        // Through the machine server, as `forge dash` serves it: the scenario's repo registered in its own home.
+        const home = path.join(path.dirname(seeded.root), 'forge-home');
+        const { project } = addProject(home, fs.realpathSync(seeded.root));
+        server = await startServer({ home, port: 0, distDir: dist });
+        const base = `${server.url}/?project=${project.name}`;
         for (const { id } of VIEWS) {
           const started = Date.now();
-          const problems = await checkPage(context, `${server.url}/#/${id}`, (page, p) => waitForTexts(page, seeded.expect.views[id], timeout, p));
+          const problems = await checkPage(context, `${base}#/${id}`, (page, p) => waitForTexts(page, seeded.expect.views[id], timeout, p));
           record(name, id, problems, Date.now() - started);
         }
         const drawer = seeded.expect.drawer;
         if (drawer && Object.keys(seeded.jobs).length) {
           const started = Date.now();
-          const problems = await checkPage(context, `${server.url}/#/pipeline`, async (page, p) => {
+          const problems = await checkPage(context, `${base}#/pipeline`, async (page, p) => {
             try {
               await page.getByText(drawer.title, { exact: true }).first().click({ timeout });
             } catch {
