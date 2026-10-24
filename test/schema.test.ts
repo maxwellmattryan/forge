@@ -126,6 +126,7 @@ const CONFIG_ROWS: Row[] = [
     fields: { 'project.instructions': { default: ['AGENTS.md', 'docs/DEVELOPING.md'] }, 'project.name': 'x' },
     note: "a list becomes the role map's default",
   },
+  { step: 'command-env', input: { commands: { test: 'npm test' } }, fields: { 'commands.test': 'npm test' }, removed: ['commandEnv'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -484,6 +485,8 @@ test('an old config loads with the defaults its later versions added', () => {
   assert.equal(disclosureOf('secrets'), 'command');
   assert.equal(disclosureOf('secrets.DB_PASSWORD.env'), 'command');
   assert.equal(disclosureOf('environments.maxRunning'), 'plain');
+  assert.equal(disclosureOf('commandEnv.loginShell'), 'plain');
+  assert.equal(disclosureOf('commandEnv.inherit'), 'text');
 });
 
 test('a v16 job is written back as current, with a lease and no owner', () => {

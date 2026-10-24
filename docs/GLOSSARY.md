@@ -65,6 +65,7 @@ Planned in M007; a row with a config key is implemented.
 | **config sink** | Where Forge writes a component's configuration for an environment (environment variables, a `.env` file, a JSON, YAML or TOML file, or a project script), chosen per component and never assumed. | `components[].config` |
 | **secret reference** | A named pointer to a secret held elsewhere (an environment variable, a keychain entry, a 1Password item, a git-ignored file) that a config sink names as `{secret.NAME}` and Forge resolves only when the sink renders, never writing it into job files, briefs or logs. | `secrets` |
 | **known value** | A secret value a job's sinks have resolved, or one of its job database passwords: Forge replaces it with `[redacted]` wherever it writes or serves text, and the secret scanner refuses to publish it. | `secrets` |
+| **command environment** | What every configured command inherits from Forge's own environment, the same in and out of the daemon: an allowlist (fixed names, a few families that never pass a credential-like name) plus the names a repo opts in, never a declared secret's source or Forge's internal variables, under `/bin/sh -c` with a sanitised PATH. | `commandEnv` |
 
 ## Profiles
 

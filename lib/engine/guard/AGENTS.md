@@ -3,7 +3,8 @@
 The guards on what jobs write and publish: verify integrity, protected paths, secret scanning and redaction, and AI attribution.
 
 - These modules sit below the worktree and PR code that calls them, so they never import `lib/engine/workspace/` (worktree, run, verify), `lib/engine/pr/` or `lib/engine/evals/`.
-- `command-env.ts` decides what a configured command inherits: every spawn site of one (job-command, dev server, sinks, evals, release, notify) takes its env from `commandEnv` and its argv from `commandShell`. `daemonDrops` is the one filter #393 swaps for an allowlist.
+- `command-env.ts` decides what a configured command inherits: every spawn site of one (job-command, dev server, sinks, evals, notify) takes its env from `commandEnv`, an allowlist the same in and out of the daemon, and its argv from `commandShell` with `login: loginShell(config)` (notify always `-c`). `forge release run` alone keeps its caller's whole environment and `login: true`. Widen the allowlist only for a name no credential can hide behind; a repo opts more in through `commandEnv.inherit`.
+- `command-path.ts` owns the PATH those commands get: `sanitizePath` drops empty and relative entries, and `adoptCommandPath` captures the login shell's PATH once at `forge dash` start into `FORGE_COMMAND_PATH`, which no command receives.
 - `attribution.ts` is what the no-AI-attribution hook (`hooks/no-ai-attribution.ts`) imports; `.github/CODEOWNERS` names it.
 - When a guard parses git output, it pins the config that reshapes it (`--no-ext-diff`, `--no-textconv`, `core.quotepath=off`): repo and worktree config are builder-writable.
 - Design: [Untrusted input](../../../docs/architecture/untrusted-input.md), [Policies](../../../docs/architecture/policies.md).
@@ -12,7 +13,8 @@ The guards on what jobs write and publish: verify integrity, protected paths, se
 | File | What it holds |
 |---|---|
 | `attribution.ts` | AI-attribution policy. |
-| `command-env.ts` | What a configured command inherits (docs/CONFIG.md "Daemon" and "Secret references"): the environment every spawn site builds on, and the shell argv it runs under. |
+| `command-env.ts` | What a configured command inherits (docs/CONFIG.md "Command environment"): an allowlist of the Forge process's environment that every spawn site builds on, and the shell argv it runs under. |
+| `command-path.ts` | The PATH configured commands get: sanitised, and captured once from the login shell at `forge dash` start (docs/CONFIG.md "Command environment"). |
 | `floor.ts` | The escalate floor: paths no unattended merge lands, whatever policy.protectedPaths says. |
 | `integrity.ts` | Verify's test-integrity report: what the committed diff did to the tests and to the config that runs them. |
 | `known-secrets.ts` | Known values (docs/CONFIG.md "Secret references"): every secret value a job's sink renders has resolved, kept in the 0600 `<jobDir>/known-secrets.json`, plus its job database passwords. |

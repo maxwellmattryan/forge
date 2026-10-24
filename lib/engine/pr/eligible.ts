@@ -1,16 +1,20 @@
 // Whether a job's PR may merge without a person: the recorded decision bound to its head, recomputed
 // protected paths and the escalate floor. mergePr asks autoMergeGate before any merge without --now,
 // whoever calls it; `forge job step` asks decisionCurrent before PR4. decision.md is never read here:
-// only the `decision` event `forge job decision` recorded once per approver run counts.
+// only the `decision` event `forge job decision` recorded once per approver run counts. Step also
+// asks reviewCurrent in decide and pr: a commit after the review panel sends the job back to review.
 import { autoMerge } from '#core/config/load.ts';
 import { ForgeError } from '#core/errors.ts';
+import { reviewedRepoNames } from '#core/job/lens.ts';
 import { isMap } from '#core/shape.ts';
 import type { Config, Job, JobEvent, ProtectedHit } from '#core/types.ts';
 import { git, historyEnv } from '#integrations/git/runner.ts';
 import { branchFloor } from '../guard/floor.ts';
 import { branchHits, clean, prefixHits, protectedApproved, refusalText } from '../guard/protected.ts';
 import { integrationTouched, resolveBase } from '../pipeline/scope.ts';
+import { after, stageOf } from '../pipeline/step/facts.ts';
 import { memberClone, memberEntry, memberRepos, trustedMemberWorktree } from '../project/job-repos.ts';
+import { roundRuns, runsSince } from '../verify/record.ts';
 import { remoteBaseTip } from './branch.ts';
 
 /** A full commit id (SHA-1 or SHA-256): every head is checked against it before it reaches git. */
@@ -114,6 +118,61 @@ export function decisionCurrent(root: string, config: Config, job: Job, events: 
     return false;
   }
 }
+
+/**
+ * Whether every job repo's HEAD still follows the head the current round's review was given. Null
+ * when the round has no `verdicts` event: nothing is bound. The anchor is the head on RV2's own
+ * `scope` event: the round's first one after its last verify run, with both before the panel's
+ * first reviewer start (the first `reviewer:` agent-start since the round's own `round` event; the
+ * verdicts event when none), and only when it is the head that run verified. A scope
+ * logged earlier, during build, is not RV2's, and a verify, commit or scope after a reviewer
+ * started (RV2 logs a fresh one after any verify) is not what the reviewers were given. It is never
+ * the `verdicts` sha, which is read after the panel ends and so would cover a commit a reviewer made
+ * during it. An integrate conflict episode that started on a reviewed head, left integrate for
+ * decide or pr, and whose last verify passed moves the anchor to the head that verify checked.
+ * Anything else, a missing record or a git failure is false.
+ */
+export function reviewCurrent(root: string, config: Config, job: Job, events: JobEvent[]): boolean | null {
+  const v = events.findLastIndex((e) => e.type === 'verdicts' && e.round === job.round);
+  if (v < 0) return null;
+  try {
+    if (!job.worktree) return false;
+    // The round's own `round` event, or -1 in a log without one. Every earlier round's reviewer starts
+    // come before it, and leaving review and coming back within the round keeps the first panel's bound.
+    const opened = events.findIndex((e, i) => i < v && e.type === 'round' && e.round === job.round);
+    const started = events.findIndex((e, i) => i > opened && i < v && e.type === 'agent-start' && typeof e.role === 'string' && e.role.startsWith('reviewer:'));
+    const panel = started < 0 ? v : started;
+    const lv = roundRuns(job).filter((r) => typeof r.at === 'string' && r.at < events[panel].ts).at(-1);
+    if (!lv || lv.ok !== true) return false;
+    const s = events.findIndex((e, i) => i < panel && e.type === 'scope' && e.round === job.round && after(e.ts, lv.at));
+    if (s < 0) return false;
+    const scope = events[s];
+    let anchor = sha(scope.head);
+    if (!anchor || anchor !== sha(lv.sha)) return false;
+    for (let pos = v, c = nextConflicts(events, pos); c >= 0; c = nextConflicts(events, pos)) {
+      const t = events.findIndex((e, i) => i > c && e.type === 'transition' && stageOf(e.from).stage === 'integrate' && stageOf(e.to).stage !== 'integrate');
+      if (t < 0) break;
+      const last = runsSince(job, events[c].ts).filter((r) => typeof r.at === 'string' && r.at < events[t].ts).at(-1);
+      const to = stageOf(events[t].to).stage;
+      const start = sha(events[c].head);
+      if ((to === 'decide' || to === 'pr') && last?.ok === true && sha(last.sha) && start && headFollows(job.worktree, config, job, anchor, start)) anchor = last.sha;
+      pos = t;
+    }
+    if (!headFollows(job.worktree, config, job, anchor, headOf(job.worktree))) return false;
+    const heads = isMap(scope.heads) ? scope.heads : {};
+    for (const name of reviewedRepoNames(job)) {
+      const wt = trustedMemberWorktree(root, config, job, name);
+      const reviewed = Object.hasOwn(heads, name) ? sha(heads[name]) : null;
+      if (!wt || !headFollows(wt, config, { base: memberEntry(job, name)?.base ?? null }, reviewed, headOf(wt))) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The first `integrate-conflicts` event after position `pos`, or -1. */
+const nextConflicts = (events: JobEvent[], pos: number): number => events.findIndex((e, i) => i > pos && e.type === 'integrate-conflicts');
 
 const short = (s: string | null | undefined): string => String(s ?? 'none').slice(0, 12);
 

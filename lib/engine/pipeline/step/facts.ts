@@ -120,6 +120,12 @@ export function approvedSinceReview(x: StepInput, f: Facts): boolean {
   return entry !== null && gateApprovals(f, SHIP_GATES).some((a) => afterIdx(a.i, reviewed) && a.i < entry.i);
 }
 
+/** The stage the job's last entry into its current stage came from; undefined when the log has no entry. */
+export const enteredFrom = (x: StepInput, f: Facts): string | undefined => (f.stageEntry ? stageOf(x.events[f.stageEntry.i].from).stage : undefined);
+
+/** DC11's and PR12's `--note`: plain words only, so it stays inside SAFE_ELEMENT. */
+export const REVIEWED_HEAD_NOTE = 'a commit after review: the new head goes back to review';
+
 export const splitMode = (x: StepInput) => x.job.splitMode ?? x.config.pipeline.split;
 
 /** A parked job still holding something to stop: a running environment record or a background process. */

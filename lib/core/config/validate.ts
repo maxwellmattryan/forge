@@ -14,6 +14,7 @@ import { daemonProblems } from './trust.ts';
 import { placeholderProblems } from './validators/endpoints.ts';
 import { downstreamProblems, releaseProblems, repoProblems } from '#engine/project/member-repos.ts';
 import { notifyProblems } from './validators/notify.ts';
+import { commandEnvProblems } from './validators/command-env.ts';
 import { PLUGIN_ROOT, exists, paths, resolveFrom } from '../paths.ts';
 import { globProblem, policyProblems } from './validators/policy-check.ts';
 import { CONFIG_SCHEMA_VERSION, FOREMAN_SHIP, OFFICE_GATES, REPO_BUDGET_MODES, reservedGateEntry } from '../job/schema.ts';
@@ -183,6 +184,7 @@ export function validateConfig(c: unknown, root: string): string[] {
   problems.push(...outcomesProblems(c));
   problems.push(...scoringProblems(c));
   problems.push(...notifyProblems(c));
+  problems.push(...commandEnvProblems(c));
   problems.push(...componentProblems(c));
   problems.push(...repoProblems(c, root));
   problems.push(...checkoutProblems(c));

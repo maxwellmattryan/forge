@@ -13,6 +13,7 @@ import { ForgeError } from '#core/errors.ts';
 import { pidAlive, sleepSync } from '#core/os/process.ts';
 import { readText, writeJsonAtomic } from '#core/os/fs.ts';
 import { dashboardRecordFile, loopbackOrigin, provenDashboard, readDashboardRecord } from '#engine/ops/dashboard-record.ts';
+import { adoptCommandPath } from '#engine/guard/command-path.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { out, outputMode } from './args.ts';
 import { colorEnabled } from './render.ts';
@@ -167,6 +168,13 @@ export async function dash(root: string, config: Config, flags: Record<string, a
   }
   if (note.note) process.stderr.write(`${note.note}\n`);
   if (note.daemonRefused) process.stderr.write(`${note.daemonRefused}\n`);
+  // Once, before any session or command starts: a dashboard launched from a GUI or launchd has none of
+  // the profile's PATH, and every configured command and daemon session inherits what this sets.
+  try {
+    adoptCommandPath(process.env);
+  } catch (e) {
+    process.stderr.write(`command PATH: ${(e as Error).message}\n`);
+  }
   // Before the server (and its sessions) start, so no live session holds a log it would delete. A
   // dev dashboard points at a scratch repo and deletes nothing; a failure never stops the server.
   if (!flags.dev) {

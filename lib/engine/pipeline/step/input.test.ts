@@ -6,9 +6,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { jobAt, tempRepo } from '../../../../test/helpers.ts';
 import { folderMaps, loadStepInput } from './input.ts';
+import { step } from './order.ts';
 import { INSTRUCTIONS_LINE, UNTRUSTED_LINE, instructionsChangedLine, jobPathMap, renderBrief, roleBrief } from '../brief.ts';
 import { defaults } from '#core/config/load.ts';
-import { jobDir, updateJob } from '#core/job/store.ts';
+import { jobDir, logEvent, updateJob } from '#core/job/store.ts';
 import type { Config } from '#core/types.ts';
 import type { StepInput } from '../types.ts';
 
@@ -64,6 +65,69 @@ test("loadStepInput reads every role's instruction files and the build's folder 
   assert.deepEqual(build.paths.instructions, [path.join(repo.dir, 'AGENTS.md')], 'forge job paths keeps the default list');
   assert.deepEqual(build.folderMaps, { maps: [path.join(wt, 'lib', 'AGENTS.md')], topics: [path.join(wt, 'docs', 'architecture', 't.md')] });
   assert.equal(at('spec').folderMaps, null);
+});
+
+test('loadStepInput binds decide and pr to the reviewed head', (t) => {
+  const repo = tempRepo();
+  const wt = `${repo.dir}.wt`;
+  t.after(() => {
+    repo.cleanup();
+    fs.rmSync(wt, { recursive: true, force: true });
+  });
+  repo.git('worktree', 'add', '-q', '-b', 'forge/reviewed', wt);
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: wt, stdio: 'pipe' }).toString().trim();
+  fs.writeFileSync(path.join(wt, 'feature.txt'), 'feature\n');
+  git('add', '-A');
+  git('commit', '-qm', 'feature');
+  const reviewed = git('rev-parse', 'HEAD');
+  const config: Config = defaults();
+  config.tracker.kind = 'none';
+  const { id } = jobAt(repo.dir, 'decide', { config });
+  updateJob(repo.dir, id, (j) => {
+    j.worktree = wt;
+    j.base = 'main';
+    j.round = 1;
+    j.reviewers = ['code'];
+    j.verdicts = { 1: { code: 'PASS' } };
+    // Verify ran on the reviewed head before RV2 logged the scope event.
+    j.verifyRuns = [{ round: 1, attempt: 1, sha: reviewed, ok: true, at: new Date(Date.now() - 60_000).toISOString(), file: 'verify/round-1.md', failure: null }];
+  });
+  logEvent(repo.dir, id, 'scope', { round: 1, head: reviewed });
+  logEvent(repo.dir, id, 'verdicts', { round: 1, outcome: 'PASS', sha: reviewed });
+  assert.equal(loadStepInput(repo.dir, config, id).reviewCurrent, true, 'HEAD is the reviewed head');
+
+  fs.writeFileSync(path.join(wt, 'late.txt'), 'late\n');
+  git('add', '-A');
+  git('commit', '-qm', 'a commit after review');
+  const x = loadStepInput(repo.dir, config, id);
+  assert.equal(x.reviewCurrent, false);
+  const a = step(x);
+  assert.equal(a.rule, 'DC11');
+  assert.ok(a.action === 'run');
+  assert.deepEqual(a.command.slice(0, 7), ['job', 'set', id, '--stage', 'review', '--state', 'running']);
+
+  updateJob(repo.dir, id, (j) => void (j.stage = 'pr'));
+  const atPr = loadStepInput(repo.dir, config, id);
+  assert.equal(atPr.reviewCurrent, false, 'at stage pr');
+  assert.equal(step(atPr).rule, 'PR12');
+  updateJob(repo.dir, id, (j) => {
+    j.state = 'waiting';
+    j.waitingOn = 'escalation';
+  });
+  assert.equal(loadStepInput(repo.dir, config, id).reviewCurrent, null, 'a job that is not running');
+  updateJob(repo.dir, id, (j) => {
+    j.stage = 'decide';
+    j.state = 'running';
+    j.waitingOn = null;
+  });
+
+  updateJob(repo.dir, id, (j) => void (j.kind = 'eval'));
+  assert.equal(loadStepInput(repo.dir, config, id).reviewCurrent, null, 'an eval job');
+  updateJob(repo.dir, id, (j) => {
+    j.kind = 'feature';
+    j.stage = 'build';
+  });
+  assert.equal(loadStepInput(repo.dir, config, id).reviewCurrent, null, 'at stage build');
 });
 
 const INSTRUCTIONS_TEXT =
