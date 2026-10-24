@@ -11,6 +11,6 @@ OS helpers on Node built-ins: the platform tiers, child processes and pids, smal
 |---|---|
 | `fs.ts` | Small file helpers: JSON and text reads with fallbacks, capped regular-file reads, atomic and owner-only writes, confined writes that reach a directory only through real directories (never a planted link), and the check that a path stays inside the checkout. |
 | `lock.ts` | The mkdir lock across concurrent Forge sessions on one machine, broken only when its holder is provably dead. |
-| `platform.ts` | The support matrix (docs/SUPPORT.md) as code: one definition of the platform tiers that doctor reports and the daemon and `forge update` refusals enforce, plus the POSIX sh resolver configured command templates run through outside the daemon. |
+| `platform.ts` | The support matrix (docs/SUPPORT.md) as code: one definition of the platform tiers that doctor reports and the daemon and `forge update` refusals enforce, plus the POSIX sh resolver behind the login shell and, on Windows, every command template. |
 | `process.ts` | Child processes and pids: run a binary without a shell, find one on PATH, and signal, wait for and identify processes. |
 <!-- forge:map:end -->

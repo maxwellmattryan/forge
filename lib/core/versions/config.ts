@@ -126,6 +126,10 @@ export const CONFIG_STEPS: readonly Step[] = [
   // config without the key, or with a map, is unchanged. The bump lets older Forges refuse a config
   // whose role map they would misread as a list.
   { id: 'instructions-per-role', up: (c) => (Array.isArray(c?.project?.instructions) ? { ...c, project: { ...c.project, instructions: { default: [...c.project.instructions] } } } : c) },
+  // v32 adds commandEnv (inherit [] and loginShell false), filled from defaults, so no v31 config
+  // changes and upgraded repos get the strict command environment too; the bump lets older Forges
+  // refuse a config whose inherit list they would ignore.
+  { id: 'command-env', up: (c) => c },
 ];
 
 export const CONFIG_SCHEMA_VERSION = versionOf(CONFIG_STEPS);

@@ -39,6 +39,8 @@ export interface FixtureOpts {
   decision?: Partial<StepInput['decision']>;
   /** loadStepInput's decisionCurrent: every job repo's HEAD follows the decided head; true by default. */
   decisionCurrent?: StepInput['decisionCurrent'];
+  /** loadStepInput's reviewCurrent: every job repo's HEAD follows the head the round's review was given; true by default. */
+  reviewCurrent?: StepInput['reviewCurrent'];
   runbookBeforeMerge?: boolean;
   verdicts?: Partial<StepInput['verdicts']>;
   runtime?: string[];
@@ -129,6 +131,7 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     designDeltas: o.designDeltas ?? false,
     decision: { decision: null, ...o.decision },
     decisionCurrent: o.decisionCurrent ?? true,
+    reviewCurrent: o.reviewCurrent === undefined ? true : o.reviewCurrent,
     runbookBeforeMerge: o.runbookBeforeMerge ?? false,
     verdicts: { round: null, integration: null, ...o.verdicts },
     acs: { ...acCoverage(null, null), ...o.acs },

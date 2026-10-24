@@ -16,7 +16,7 @@ import { git } from '#integrations/git/runner.ts';
 import { jobDir } from '#core/job/store.ts';
 import { recordKnown, redactKnown } from '../guard/known-secrets.ts';
 import { writeIfChanged } from '../project/links.ts';
-import { commandShell } from '../guard/command-env.ts';
+import { commandShell, loginShell } from '../guard/command-env.ts';
 import { resolveSecret } from '../guard/secret-refs.ts';
 import { declaredSecrets } from '#core/config/validators/secret-refs.ts';
 import type { ComponentConfig, Config, ConfigSink, Job } from '#core/types.ts';
@@ -202,7 +202,7 @@ export function applySinks(root: string, config: Config, job: Job, component: Co
         writeOutput(i, f.path, render(i, () => renderMerge(f.format, base, sink.values ?? {}, ctx), { name: baseName, from: Boolean(f.from) }));
       }
     } else {
-      runCommandSink(root, job, component, i, sink.command, resolved(i, sink.values), opts, [...resolvedSecrets.values()]);
+      runCommandSink(root, config, job, component, i, sink.command, resolved(i, sink.values), opts, [...resolvedSecrets.values()]);
       summary.commands += 1;
     }
   });
@@ -231,10 +231,10 @@ function render<T>(i: number, fn: () => T, base?: { name: string; from: boolean 
  * stdin. Its output goes only to `<jobDir>/logs/config-<component>-<timestamp>-<i>.log`, with the
  * secret values resolved so far (`known`) redacted.
  */
-function runCommandSink(root: string, job: Job, component: ComponentConfig, i: number, template: string, values: Record<string, string>, opts: ApplyOptions, known: string[]): void {
+function runCommandSink(root: string, config: Config, job: Job, component: ComponentConfig, i: number, template: string, values: Record<string, string>, opts: ApplyOptions, known: string[]): void {
   const cmd = opts.fillCmd(template);
   const cwd = path.join(job.worktree!, component.path);
-  const sh = commandShell(cmd);
+  const sh = commandShell(cmd, { login: loginShell(config) });
   const res = run(sh.file, sh.args, { cwd, env: { ...opts.env, ...values }, input: JSON.stringify(values), allowFail: true });
   const logDir = path.join(jobDir(root, job.id), 'logs');
   fs.mkdirSync(logDir, { recursive: true });
