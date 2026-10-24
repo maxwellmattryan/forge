@@ -253,10 +253,13 @@ export async function postDaemon(action: 'start' | 'stop', token: string, scope?
   return postJson('/api/daemon', scope === undefined ? { action } : { action, scope }, token, fetchImpl);
 }
 
-/** The Daemon popover's billing warning: whether sessions get the variables, and their names joined; null when none is set. */
-export function billingNote(b: DaemonBilling | null | undefined): { passed: boolean; vars: string } | null {
+/**
+ * The Daemon popover's billing line: whether sessions get the variables, their names joined, and whether it is a warning
+ * (a provider switch or ANTHROPIC_BASE_URL is set, doctor's rule; else it is muted); null when none is set.
+ */
+export function billingNote(b: DaemonBilling | null | undefined): { passed: boolean; vars: string; warn: boolean } | null {
   if (!b || !Array.isArray(b.vars) || !b.vars.length) return null;
-  return { passed: b.passed === true, vars: b.vars.join(', ') };
+  return { passed: b.passed === true, vars: b.vars.join(', '), warn: b.warn === true };
 }
 
 async function postJson(url: string, payload: unknown, token: string, fetchImpl: typeof fetch): Promise<DaemonPoolState> {

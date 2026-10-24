@@ -155,10 +155,14 @@ export function providerVars(env: NodeJS.ProcessEnv): string[] {
   return PROVIDER_VARS.filter((k) => Boolean(env[k]));
 }
 
-/** Which billing variables are set in `env` and whether sessions get them (only under api-key); null when none is. */
+/**
+ * Which billing variables are set in `env`, whether sessions get them (only under api-key), and whether that warrants a
+ * warning (a provider switch or ANTHROPIC_BASE_URL is set; an API key alone does not); null when none is.
+ */
 export function billingOf(env: NodeJS.ProcessEnv, auth: DaemonAuth): DaemonBilling | null {
-  const vars = [...apiKeyVars(env), ...providerVars(env)];
-  return vars.length ? { vars, passed: auth === 'api-key' } : null;
+  const providers = providerVars(env);
+  const vars = [...apiKeyVars(env), ...providers];
+  return vars.length ? { vars, passed: auth === 'api-key', warn: providers.length > 0 } : null;
 }
 
 /**

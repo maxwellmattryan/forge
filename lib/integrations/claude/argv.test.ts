@@ -81,6 +81,8 @@ test('sessions lose provider switches unless daemon.auth is api-key', () => {
   assert.deepEqual(six.filter((k) => api[k] === '1'), six, 'api-key keeps all six');
 
   assert.equal(billingOf({ PATH: '/bin', ANTHROPIC_API_KEY: '' }, 'subscription'), null);
-  assert.deepEqual(billingOf({ CLAUDE_CODE_USE_BEDROCK: '1' }, 'subscription'), { vars: ['CLAUDE_CODE_USE_BEDROCK'], passed: false });
-  assert.deepEqual(billingOf({ ANTHROPIC_API_KEY: 'k', ANTHROPIC_BASE_URL: 'http://proxy' }, 'api-key'), { vars: ['ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL'], passed: true });
+  assert.deepEqual(billingOf({ CLAUDE_CODE_USE_BEDROCK: '1' }, 'subscription'), { vars: ['CLAUDE_CODE_USE_BEDROCK'], passed: false, warn: true });
+  assert.deepEqual(billingOf({ ANTHROPIC_API_KEY: 'k', ANTHROPIC_BASE_URL: 'http://proxy' }, 'api-key'), { vars: ['ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL'], passed: true, warn: true });
+  // An API key alone under api-key is the deliberate setup: listed, no warning (doctor's rule).
+  assert.deepEqual(billingOf({ ANTHROPIC_API_KEY: 'k' }, 'api-key'), { vars: ['ANTHROPIC_API_KEY'], passed: true, warn: false });
 });

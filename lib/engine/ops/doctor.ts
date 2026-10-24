@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { validateConfig, worktreeRoot } from '#core/config/load.ts';
 import { dockerCheck } from '../environment/backing.ts';
-import { billingOf, providerVars } from '#integrations/claude/argv.ts';
+import { billingOf } from '#integrations/claude/argv.ts';
 import { deprecationChecks } from '#core/config/validators/deprecations.ts';
 import { uncoveredInstructionProbes } from '#core/config/validators/instructions.ts';
 import { policyRules } from '#core/config/validators/policy-check.ts';
@@ -118,7 +118,7 @@ export function daemonBillingCheck(config: Pick<Config, 'daemon'>, env: NodeJS.P
   const detail = billing.passed
     ? `${vars} set: sessions bill that account or go through that endpoint (daemon.auth: api-key)`
     : `${vars} set but ignored: sessions use your Claude login (daemon.auth: subscription)`;
-  return providerVars(env).length ? { name: 'daemon billing', ok: true, warn: true, detail } : { name: 'daemon billing', ok: true, detail };
+  return billing.warn ? { name: 'daemon billing', ok: true, warn: true, detail } : { name: 'daemon billing', ok: true, detail };
 }
 
 /**

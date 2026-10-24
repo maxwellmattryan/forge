@@ -1,7 +1,8 @@
 <!-- The Daemon popover's body. First the Foreman row: the supervisor above this pool, a button that opens the Foreman
      popover (StatusBar's openForeman anchors it on the bar's Foreman indicator), in both branches. Below it, under a
      divider, the pool pill, live/cap, the pool error, the job sessions' default permission mode (a job's own choice in its
-     Log tab overrides it), a warning when billing variables are set where forge dash started, the pool's one Start/Stop
+     Log tab overrides it), a line when billing variables are set where forge dash started (warn tone for a provider switch
+     or ANTHROPIC_BASE_URL, as doctor), the pool's one Start/Stop
      icon toggle, then one row per session:
      the Inbox session, then each job session in status order, and under them the Inbox session log toggle (remembered
      under LOG_KEY). A job row opens that job's pane on the Log tab. The rows say held and waiting themselves, so no chips
@@ -32,7 +33,7 @@
     openForeman,
     billing = null,
   }: { model: PoolModel | null; pending: boolean; act: (action: 'start' | 'stop') => void; foreman: ForemanIndicator; openForeman: () => void; billing?: DaemonBilling | null } = $props();
-  // Billing variables set where forge dash started: sessions ignore them, or (api-key) bill that account.
+  // Billing variables set where forge dash started: sessions ignore them, or (api-key) bill that account. Muted for an API key alone.
   const note = $derived(billingNote(billing));
 
   const modeName = $derived<Record<string, string>>({ default: $t('session.modes.default'), auto: $t('session.modes.auto'), dontAsk: $t('session.modes.dontAsk') });
@@ -116,7 +117,7 @@
       <Select variant="button" icon="shield" align="end" label={$t('statusbar.daemon.jobMode')} value={shownMode} text={named(shownMode)} options={modeOptions} onchange={setJobMode} />
     </div>
     {#if jobMode === 'auto'}<p class="text-xs text-warn">{$t('statusbar.daemon.jobModeAutoWarning')}</p>{/if}
-    {#if note}<p class="text-xs text-warn">{note.passed ? $t('statusbar.daemon.billingPassed', { vars: note.vars }) : $t('statusbar.daemon.billingIgnored', { vars: note.vars })}</p>{/if}
+    {#if note}<p class="text-xs {note.warn ? 'text-warn' : 'muted'}">{note.passed ? $t('statusbar.daemon.billingPassed', { vars: note.vars }) : $t('statusbar.daemon.billingIgnored', { vars: note.vars })}</p>{/if}
     <div class="flex flex-wrap items-center gap-2">
       <IconButton icon={model.toggle.action === 'start' ? 'play' : 'stop'} label={model.toggle.action === 'start' ? $t('daemon.start') : $t('daemon.stop')} hint={model.toggle.action === 'start' ? model.startHint : null} disabled={!model.toggle.enabled} onclick={() => act(model.toggle.action)} />
     </div>

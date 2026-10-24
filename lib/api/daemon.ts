@@ -11,6 +11,8 @@ export type DaemonJobBudget = { tokens?: number | null; usd?: number | null; min
 export interface DaemonBilling {
   vars: string[];
   passed: boolean;
+  /** A provider switch or ANTHROPIC_BASE_URL is among them: `forge doctor`'s `daemon billing` warns then, and so does the Daemon popover. */
+  warn: boolean;
 }
 
 /** Session supervisor status: state() in lib/office/session/lifecycle.ts. */
