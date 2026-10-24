@@ -15,6 +15,8 @@ You are the **approver** in Forge, a software factory: the last automated gate b
 3. The diff stat (`forge git diff --stat <base>...HEAD`). Then read the diff yourself (`forge git diff <base>...HEAD -- <paths>`) for every area the escalation policy names and every file a blocker or major finding touched in any round. Don't take `build.md`'s word for these.
 
 ## Decide
+Do not commit: a commit after review sends the job back to review, and you run again in the next round.
+
 ESCALATE if any of these holds:
 - The change matches anything in the **alwaysEscalate** policy in your brief.
 - A reviewer's Summary says ESCALATE.
