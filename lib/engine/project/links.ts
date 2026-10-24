@@ -263,7 +263,7 @@ export function npmShim(jobId: string, binDir: string, dirs: string[]): string {
   ].join('\n');
 }
 
-/** The PATH line the shell runs before the command, after the login profile. */
+/** The PATH line the shell runs before the command, after the login profile when `commandEnv.loginShell` sources one. */
 export const pathPrelude = (binDir: string): string => `PATH=${shQuote(binDir)}:"$PATH"; export PATH\n`;
 
 /** Makes `dir` a real directory: a planted symlink or file there is replaced, never followed. */

@@ -44,6 +44,10 @@ process.env.GIT_CONFIG_NOSYSTEM = '1';
 // on to the scratch jobs' commands beside their own and which tests that read a command's env
 // would otherwise count as the scratch job's own.
 for (const k of Object.keys(process.env)) if (/^FORGE_(DAEMON|PORT|ENDPOINT|BACKING)(_|$)|^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/.test(k)) delete process.env[k];
+// A suite run from a shell `forge dash` spawned inherits its captured PATH, which every CLI the suite
+// starts would give its commands over the PATH the test chose. Tests of the capture set these themselves.
+delete process.env.FORGE_COMMAND_PATH;
+delete process.env.FORGE_COMMAND_PATH_SOURCE;
 // Transcript lookups follow Claude Code's own CLAUDE_CONFIG_DIR; tests that fake a HOME must not
 // read the developer's real one instead. Tests that need it set it themselves.
 delete process.env.CLAUDE_CONFIG_DIR;
@@ -52,8 +56,9 @@ delete process.env.CLAUDE_CONFIG_DIR;
 process.env.FORGE_ACTOR = 'forge-test';
 // The suite parses the CLI's stdout, so a developer's own FORGE_MODE=human must not reach it.
 process.env.FORGE_MODE = 'agent';
-// Forge runs configured commands as `$SHELL -lc`. A login profile (nvm, for one) can cost a second
-// per command and reorder PATH, and no test needs one, so commands run in the same shell without -l.
+// Configured commands run as `/bin/sh -c`; `$SHELL -lc` only matters under commandEnv.loginShell: true
+// and for the login-shell PATH `forge dash` captures. A login profile (nvm, for one) can cost a second
+// per run and reorder PATH, and no test needs one, so those run in the same shell without -l.
 const NO_LOGIN_SHELL = path.resolve(import.meta.dirname, 'fixtures', 'bin', 'no-login-shell');
 if (process.env.SHELL !== NO_LOGIN_SHELL) {
   process.env.FORGE_TEST_SHELL = process.env.SHELL || '/bin/sh';

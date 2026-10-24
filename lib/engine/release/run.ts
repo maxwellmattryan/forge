@@ -299,8 +299,10 @@ const LOCAL_TOOLS = new Set(['changeset', 'release-please']);
 /** The program and arguments a step spawns, or why it can't. */
 function stepArgv(step: ReleaseStep, dir: string, env: NodeJS.ProcessEnv = process.env): { argv: string[] } | { missing: string } {
   if (step.shell !== null) {
-    // refuseRun keeps the daemon out of here, so this is always the login shell, as before.
-    const sh = commandShell(step.shell, { env });
+    // Excluded from the command environment on purpose: publish steps need the human's registry
+    // credentials, so a step keeps its caller's whole environment and `$SHELL -lc`. refuseRun keeps
+    // the daemon out of here, and each publish step asks first.
+    const sh = commandShell(step.shell, { env, login: true });
     return { argv: [sh.file, ...sh.args] };
   }
   const [word, ...args] = step.argv ?? [];
@@ -364,8 +366,9 @@ export async function runRelease(root: string, config: Config, opts: RunOptions)
   const plan = freshPlan(root, config, file, state, opts);
   const release = takeReleaseLock(root);
   try {
-    // The caller's whole environment, not commandEnv: publish steps (npm publish, cargo publish) need
-    // the human's registry credentials, and refuseRun already keeps this out of the daemon.
+    // The caller's whole environment and the login shell, not commandEnv and /bin/sh -c (docs/CONFIG.md
+    // "Command environment"): publish steps (npm publish, cargo publish) need the human's registry
+    // credentials, refuseRun keeps this out of the daemon, and each publish step asks first.
     const env = opts.env ?? process.env;
     const echo = opts.echo ?? ((c) => process.stderr.write(c));
     const spawn = opts.spawn ?? nodeSpawn;
