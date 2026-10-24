@@ -1,13 +1,14 @@
-# Forge's main-update build: every push to develop (or a manual run on develop) builds the dashboard with
-# a read-only token and uploads dashboard/dist/ as the dashboard-dist artifact. Nothing here writes:
-# `npm run release` (scripts/release.ts) waits for this run and ci.yml's on the release commit, checks the
-# artifact and pushes develop's tree plus it to main itself. test/invariants/main-update-workflow.test.ts pins this
-# file; docs/RELEASES.md explains the flow.
+# Forge's main-update build: a push to a release/v* branch (the release commit `npm run release` pushes),
+# or a manual run on one when its artifact has expired, builds the dashboard with a read-only token and
+# uploads dashboard/dist/ as the dashboard-dist artifact. Nothing here writes: `npm run release`
+# (scripts/release.ts) waits for this run on the release commit, checks the artifact and pushes the main
+# update (the release commit plus it, on top of main) to the release branch itself.
+# test/invariants/main-update-workflow.test.ts pins this file; docs/RELEASES.md explains the flow.
 name: Main update
 
 on:
   push:
-    branches: [develop]
+    branches: ['release/v*']
   workflow_dispatch:
 
 permissions:
@@ -24,7 +25,8 @@ defaults:
 jobs:
   build:
     name: build
-    if: github.ref == 'refs/heads/develop'
+    # workflow_dispatch can name any branch: only a release branch builds.
+    if: startsWith(github.ref, 'refs/heads/release/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

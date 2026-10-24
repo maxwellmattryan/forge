@@ -76,7 +76,7 @@ With `--json`:
   4. Otherwise `null`.
 - `node` is the Node version running the CLI.
 
-Like `forge version`, it needs no repo and no `.forge/`. The commit is self-reported: the audit anchors are the release tag and the archive's `.sha256` ([RELEASES.md](RELEASES.md#provenance-and-pinning)).
+Like `forge version`, it needs no repo and no `.forge/`. The commit is self-reported: the audit anchors are the annotated release tag and comparing the archive with `git archive` of the tag ([RELEASES.md](RELEASES.md#provenance-and-pinning)).
 
 ## Exit codes
 

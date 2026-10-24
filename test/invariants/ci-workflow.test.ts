@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parse } from '#core/format/yaml.ts';
-import { credentialRefs, dependencyCaches, excessPermissions, forbiddenTriggers, loadWorkflow, persistedCredentials, runExpressions, secretLeaks, unpinnedActions } from './workflow-lint.ts';
+import { credentialRefs, dependencyCaches, eventExpressions, excessPermissions, forbiddenTriggers, loadWorkflow, persistedCredentials, runExpressions, secretLeaks, unpinnedActions } from './workflow-lint.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -198,6 +198,24 @@ test('workflow-lint reports each bypass and accepts each safe form', () => {
   }
   assert.equal(credentialRefs(accepted[3][1]).length, 1, 'the step-level token is found, then accepted');
   assert.deepEqual(persistedCredentials(workflow(steps(`- uses: actions/checkout@${SHA}`))).length, 1, 'a checkout keeping credentials');
+
+  // Event payload text reaches no step, not even through env; comparing it in if or concurrency is fine.
+  const eventReported: [string, any][] = [
+    ['a step env', workflow(steps('- env:', '    BODY: ${{ github.event.pull_request.body }}', '  run: echo "$BODY"'))],
+    ['the index form', workflow(steps('- env:', "    BODY: ${{ github['event'].pull_request.body }}", '  run: echo "$BODY"'))],
+    ['toJSON(github)', workflow(steps('- env:', '    ALL: ${{ toJSON(github) }}', '  run: echo "$ALL"'))],
+    ['a run', workflow(steps('- run: echo "${{ github.event.head_commit.message }}"'))],
+    ['job env', workflow(`    env:\n      REF: \${{ github.event.pull_request.head.ref }}\n${steps('- run: make')}`)],
+    ['workflow env', workflow(steps('- run: make'), 'permissions:\n  contents: read\nenv:\n  TITLE: ${{ github.event.pull_request.title }}\n')],
+  ];
+  for (const [what, wf] of eventReported) assertFlags(eventExpressions(wf), what);
+  const eventAccepted: [string, any][] = [
+    ['concurrency', workflow(steps('- run: make'), 'permissions:\n  contents: read\nconcurrency:\n  group: x-${{ github.event.pull_request.number || github.sha }}\n')],
+    ['a step if', workflow(steps("- if: github.event_name == 'push'", '  run: make'))],
+    ['a job if', workflow(`    if: \${{ github.event.pull_request.draft == false }}\n${steps('- run: make')}`)],
+    ['other expressions in env', workflow(steps('- env:', '    V: ${{ needs.detect.outputs.version }}', '    R: ${{ github.base_ref || github.ref_name }}', '  run: echo "$V $R"'))],
+  ];
+  for (const [what, wf] of eventAccepted) assert.deepEqual(eventExpressions(wf), [], what);
 });
 
 test('ci.yml pins every action, keeps a read-only token, holds no credential and persists none', () => {
@@ -207,6 +225,9 @@ test('ci.yml pins every action, keeps a read-only token, holds no credential and
   assert.deepEqual(persistedCredentials(WF), []);
   // PR code runs here: a cache it writes would be restored into the next push run.
   assert.deepEqual(dependencyCaches(WF), []);
+  // The concurrency group compares the PR number; no step reads event text.
+  assert.deepEqual(eventExpressions(WF), []);
+  assertFlags(eventExpressions(mutate((wf) => { stepRunning(wf, 'release-check', (r) => r.includes('release:check')).env.TITLE = '${{ github.event.pull_request.title }}'; })), 'the PR title in a step env');
   assertFlags(dependencyCaches(mutate((wf) => { delete wf.jobs.audit.steps.find((s: Step) => String(s.uses).startsWith('actions/setup-node@')).with['package-manager-cache']; })), 'package-manager-cache unset');
   assertFlags(dependencyCaches(mutate((wf) => { wf.jobs.verify.steps.splice(2, 0, { uses: `actions/cache@${SHA}`, with: { path: 'node_modules', key: 'k' } }); })), 'an actions/cache step');
   assertFlags(unpinnedActions(mutate((wf) => { wf.jobs.verify.steps[0].uses = 'actions/checkout@v7'; })), 'a pin rewritten to @v7');
@@ -353,6 +374,10 @@ test('the syntax-check step fails when any file has a syntax error, not only the
 });
 
 test('the release check picks --dist from the PR base or the branch', POSIX, () => {
+  // The present check compares the version's tag with HEAD, so the clone needs the tags; still no credentials.
+  const checkout = stepsOf(WF.jobs['release-check']).find((s) => String(s?.uses ?? '').startsWith('actions/checkout@'));
+  assert.equal(checkout?.with?.['fetch-depth'], 0);
+  assert.equal(checkout?.with?.['persist-credentials'], false);
   const script = runOf(stepRunning(WF, 'release-check', (r) => r.includes('release:check')))!;
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-ci-dist-')));
   try {
@@ -370,7 +395,7 @@ test('the release check picks --dist from the PR base or the branch', POSIX, () 
     };
     assert.equal(ran('develop'), 'run release:check -- --dist absent');
     assert.equal(ran('main'), 'run release:check -- --dist present');
-    for (const other of ['ci/main-update', 'forge/309-x', 'develop2', 'main/x', '']) assert.equal(ran(other), 'run release:check', JSON.stringify(other));
+    for (const other of ['ci/main-update', 'forge/309-x', 'release/v1.2.3', 'develop2', 'main/x', '']) assert.equal(ran(other), 'run release:check', JSON.stringify(other));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

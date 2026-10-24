@@ -1,8 +1,12 @@
-// The commit `npm run release` pushes to main (scripts/release.ts), also runnable by hand:
+// The main update `npm run release` pushes to the release PR's branch (scripts/release.ts), also runnable by hand:
 //   node scripts/main-update.ts commit --main <sha> --develop <sha> --dist <dir>
-//     prints the sha of one new commit: develop's tree plus the built dashboard/dist/, parents [main, develop]
-// The dist comes from main-update.yml's build in CI, with node_modules, so it is checked here before any
-// of it reaches a commit (docs/RELEASES.md "Releasing"). Built-ins only.
+//     prints the sha of one new commit: the release commit's tree (`--develop`: develop's tip plus the bump)
+//     plus the built dashboard/dist/, parents [main, release commit]
+// The release PR carries it into main. The dist comes from main-update.yml's build of the release branch
+// in CI, with node_modules, so it is checked here before any of it reaches a commit (docs/RELEASES.md
+// "Releasing"). A resume of `npm run release` re-derives it (`isMainUpdate`) before it vouches for a branch tip
+// someone may have pushed, and again for the head a release PR merged before it lands anything on develop.
+// Built-ins only.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -144,7 +148,8 @@ function developSourceHash(develop: string): string {
   }
 }
 
-export function mainCommit(main: string, develop: string, dist: string): string {
+/** The main update's commit; `subjectOf` gives its subject, and may refuse (see `title`). */
+function buildMain(main: string, develop: string, dist: string, subjectOf: (develop: string) => string): string {
   requireCommit(main, '--main');
   requireCommit(develop, '--develop');
   const tracked = git(['ls-tree', '-r', '--name-only', '-z', '--full-tree', develop, '--', 'dashboard/dist']);
@@ -159,7 +164,7 @@ export function mainCommit(main: string, develop: string, dist: string): string 
   }
   if (stamp?.dist !== distHash(dir)) throw new Refusal(`dashboard/dist does not match its ${STAMP} (dist)`);
   if (stamp?.source !== developSourceHash(develop)) throw new Refusal(`dashboard/dist was not built from develop's sources (${STAMP} source)`);
-  const subject = title(develop);
+  const subject = subjectOf(develop);
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-main-update-index-'));
   try {
@@ -181,6 +186,23 @@ export function mainCommit(main: string, develop: string, dist: string): string 
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+export function mainCommit(main: string, develop: string, dist: string): string {
+  return buildMain(main, develop, dist, title);
+}
+
+/**
+ * Whether `commit` has exactly the tree `mainCommit(main, develop, dist)` builds: the release commit's tree plus the
+ * checked dist, and nothing else. Commit shas differ by timestamp, but trees are deterministic. Whoever can push
+ * the release branch can push a commit shaped like a main update, so a resume compares trees before it vouches for one,
+ * and `npm run release` compares the merged head again before it lands the release. By then `v<version>` is tagged,
+ * which only stops `mainCommit` from making another main update: the subject is not part of the tree.
+ */
+export function isMainUpdate(main: string, develop: string, commit: string, dist: string): boolean {
+  if (!SHA.test(commit)) return false;
+  const tree = (c: string) => git(['rev-parse', '--verify', `${c}^{tree}`]).trim();
+  return tree(buildMain(main, develop, dist, (d) => `Release ${developVersion(d)}`)) === tree(commit);
 }
 
 /** One line of commit text, safe to print: no control characters, bounded length. */
