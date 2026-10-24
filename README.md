@@ -204,14 +204,14 @@ Delivery runs in a detached process and never blocks the pipeline. The message c
 Forge treats the human who runs it as the author of everything it produces. This is enforced in three layers:
 
 1. **Prompts**: the orchestrator and every agent that writes commits or GitHub text are told never to add AI attribution.
-2. **A hook**: while the plugin is enabled, a `PreToolUse` hook inspects every `git commit/tag/merge`, `gh pr/issue/release/api` and `glab` command (including `-F`/`--body-file` files) and blocks it if it carries an AI co-author trailer, a "Generated with …" footer, a robot-emoji signature or a session link. It runs for subagents too. Mentions such as "parse Claude Code transcripts" pass; only signatures are blocked.
+2. **A hook**: while the plugin is enabled, a `PreToolUse` hook checks every `git`, `gh` or `glab` command for attribution text, whatever global options come before the subcommand, including the message files it names with `--file=` / `-F` / `--body-file` (or `--template` / `-t`). It blocks the command if that text carries an AI co-author trailer, a "Generated with …" footer, a robot-emoji signature or a session link. It runs for subagents too. Mentions such as "parse Claude Code transcripts" pass; only signatures are blocked.
 3. **The CLI**: before `forge pr open` pushes, it rewrites any branch commit message that still carries attribution (content and authorship untouched), and it strips attribution from PR bodies, issues and tracker comments.
 
 Claude Code adds its own trailer and PR footer unless told not to, and a plugin isn't allowed to change that setting for you. To turn them off everywhere (not just in Forge), add this to `~/.claude/settings.json` (Claude Code ≥ 2.1.281):
 ```json
 { "attribution": false }
 ```
-Opting out: `aiAttribution: allow` in a repo's `.forge/config.yml`, or `FORGE_AI_ATTRIBUTION=allow` in the environment.
+Opting out: `aiAttribution: allow` in a repo's `.forge/config.yml`, or `FORGE_AI_ATTRIBUTION=allow` in the environment. The hook reads `aiAttribution: allow` from the main checkout's `.forge/config.yml` of the project Claude Code runs in, never from a worktree's own config or the command's directory.
 
 ## Project
 

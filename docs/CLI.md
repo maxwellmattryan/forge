@@ -142,7 +142,7 @@ Read by Forge:
 | Variable | Effect |
 |---|---|
 | `FORGE_ROOT` | the main checkout Forge keeps its state in; without it, the checkout of the current directory's git repository |
-| `FORGE_CACHE_DIR` | where `bin/forge` keeps its start-up cache (V8 code cache, and stripped modules on Node 22); default `.cache/` in the plugin root. It must be private to the current user, and no easier to write than the plugin itself, since it holds code the CLI runs (docs/architecture/startup-cache.md) |
+| `FORGE_CACHE_DIR` | where `bin/forge` keeps its start-up cache (V8 code cache, and stripped modules on Node 22); default `.cache/` in the plugin root. Honoured only inside the plugin root (its parent must exist; a temp dir, a symlinked parent that leaves the plugin, or the plugin root itself runs uncached), and it must be private to the current user, since it holds code the CLI runs (docs/architecture/startup-cache.md) |
 | `NODE_DISABLE_COMPILE_CACHE` | any non-empty value turns the start-up cache off |
 | `FORGE_DEBUG` | any non-empty value prints an error's stack trace on stderr, with or without `--json` |
 | `FORGE_MODE` | `human` or `agent`: the output mode when neither `--json` nor `--mode` is given (see Output mode); empty counts as unset, any other value is a usage error. The SessionStart hook and daemon sessions set it to `agent` |
@@ -156,6 +156,7 @@ Read by Forge:
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | `forge dash` leaves them out of daemon sessions' environment unless `daemon.auth: api-key` |
 | `GIT_CONFIG_COUNT` | daemon sessions append their git pins after the entries already counted |
 | `CLAUDE_CONFIG_DIR` | Claude Code's own config dir: transcripts are read from `$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects`, by `forge job agent … end --import` and the dashboard's agent activity and transcript views |
+| `CLAUDE_PROJECT_DIR` | set by Claude Code for hooks: the project it runs in. The no-AI-attribution hook reads the `aiAttribution: allow` opt-out from the `.forge/config.yml` of that directory's main checkout (a worktree's own config never counts); unset or not a git checkout means no opt-out |
 | `CLAUDE_ENV_FILE` | set by Claude Code for SessionStart hooks; the plugin's hook appends a line that puts this plugin's `bin/` first on PATH for the session's Bash commands, and `export FORGE_MODE=agent` so they always get agent output; nothing happens when it is unset |
 | `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_COMMON_DIR` | cleared before `forge git add\|commit` (with `GIT_OBJECT_DIRECTORY` and `GIT_NAMESPACE`) and eval checkouts run git, so an inherited one can't point git at another repository |
 

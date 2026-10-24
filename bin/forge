@@ -82,11 +82,20 @@ function startupCache() {
  * agent plant a module that a later unsandboxed start runs. The directory must also be one no other
  * user could have created first or can swap out: a real directory we own that nobody else can
  * write, in a parent that is ours or root's and either private or sticky. Anything else, a
- * read-only install included, runs uncached.
+ * read-only install included, runs uncached. FORGE_CACHE_DIR is honoured only strictly inside the
+ * plugin root, judged on its parent's real path, so a temp dir, a symlinked parent that leaves the
+ * plugin and the plugin root itself all run uncached; its parent must already exist.
  */
 function cacheRoot() {
   try {
-    const root = path.resolve(process.env.FORGE_CACHE_DIR || fileURLToPath(new URL('../.cache', import.meta.url)));
+    const plugin = fileURLToPath(new URL('..', import.meta.url));
+    let root = path.join(plugin, '.cache');
+    if (process.env.FORGE_CACHE_DIR) {
+      const wanted = path.resolve(process.env.FORGE_CACHE_DIR);
+      root = path.join(fs.realpathSync(path.dirname(wanted)), path.basename(wanted));
+      const rel = path.relative(fs.realpathSync(plugin), root);
+      if (!rel || path.isAbsolute(rel) || rel.split(path.sep)[0] === '..') return null;
+    }
     fs.mkdirSync(root, { recursive: true, mode: 0o700 });
     const uid = process.getuid?.();
     if (uid !== undefined) {

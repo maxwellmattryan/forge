@@ -185,3 +185,20 @@ export function evalScratch(): { dir: string; git: (...args: string[]) => Buffer
     },
   };
 }
+
+/**
+ * A scratch dir `<repo root>/.cache/t-<rand>` (0700, real path) for a FORGE_CACHE_DIR test: the start-up
+ * and seed caches honour the override only inside the plugin root, so a temp dir would be refused
+ * before the permission checks a test means to exercise. `.cache` gets bin/forge's own `.gitignore`.
+ */
+export function cacheScratch(): { dir: string; cleanup: () => void } {
+  const cacheDir = path.resolve(import.meta.dirname, '..', '.cache');
+  fs.mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
+  try {
+    fs.writeFileSync(path.join(cacheDir, '.gitignore'), '*\n', { flag: 'wx' });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+  }
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(cacheDir, 't-')));
+  return { dir, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+}

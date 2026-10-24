@@ -20,7 +20,7 @@ const ALLOWED: Record<string, number> = {
   'cli/commands/tracker.ts': 611,
   'office/pool.ts': 632,
   'engine/guard/integrity.ts': 832,
-  'engine/release/interim-apply.ts': 921,
+  'engine/release/interim-apply.ts': 905,
   'engine/release/interim.ts': 698,
   'core/job/store.ts': 808,
   'engine/guard/secrets.ts': 705,
