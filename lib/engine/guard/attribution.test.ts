@@ -140,6 +140,35 @@ test('commandAttribution finds attribution in any git, gh or glab command', () =
   }
 });
 
+test("commandAttribution reads at most its byte budget across a command's message files", () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-attr-budget-')));
+  const L2 = '🤖 Generated with [Claude Code](https://claude.com/claude-code)';
+  const size = (f: string) => fs.statSync(path.join(dir, f)).size;
+  try {
+    fs.writeFileSync(path.join(dir, 'a'), 'feat: a clean message\n');
+    fs.writeFileSync(path.join(dir, 'b'), `feat: b carries a long clean first line so it is the larger file\n\n${ATTR}\n`);
+    fs.writeFileSync(path.join(dir, 'c'), `${L2}\n`);
+    assert.ok(size('c') < size('b'), 'c is smaller than b');
+    const cmd = 'git commit -F a -F b -F c';
+    assert.deepEqual(commandAttribution(cmd, dir, size('a') + size('c')), [L2], 'b would pass the budget and is skipped; c still fits');
+    assert.deepEqual(commandAttribution(cmd, dir, size('a') + size('b')), [ATTR], 'b exactly fills what is left; c no longer fits');
+    assert.deepEqual(commandAttribution(`${cmd} -m "${ATTR}"`, dir, 0), [ATTR], 'the command text is always scanned');
+    assert.deepEqual(commandAttribution(cmd, dir, 0), []);
+
+    // The default budget is 8 MiB: eight 1,000,000-byte files fit, a ninth is skipped, a small one after it is read.
+    const line = 'x'.repeat(99) + '\n';
+    const big = line.repeat(10_000);
+    const last = `${line.repeat(9_999)}${'x'.repeat(100 - Buffer.byteLength(`${ATTR}\n`) - 1)}\n${ATTR}\n`;
+    for (let i = 0; i < 9; i++) fs.writeFileSync(path.join(dir, `big${i}`), i === 8 ? last : big);
+    for (let i = 0; i < 9; i++) assert.equal(size(`big${i}`), 1_000_000);
+    fs.writeFileSync(path.join(dir, 'small'), `${L2}\n`);
+    const files = Array.from({ length: 9 }, (_, i) => ` -F big${i}`).join('');
+    assert.deepEqual(commandAttribution(`git commit${files} -F small`, dir), [L2]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("the opt-out is read from the project's main checkout only", () => {
   const main = tempRepo();
   const plain = tempRepo();
