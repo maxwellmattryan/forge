@@ -9,20 +9,36 @@ import type { HumanGrant } from '#core/types.ts';
 export interface Terminal {
   /** stdin and stderr are both TTYs. */
   interactive: boolean;
-  ask(prompt: string): Promise<string>;
+  /** The line typed, or null when the input ended without one (Ctrl-D, Ctrl-C, stdin closing). */
+  ask(prompt: string): Promise<string | null>;
 }
 
-/** This process's terminal. stdout may be piped (`forge pr merge <id> --now | jq`): the prompt goes to stderr. */
-export function processTerminal(): Terminal {
+/**
+ * A terminal over `input` and `output`: this process's stdin and stderr, so stdout may be piped
+ * (`forge pr merge <id> --now | jq`). Ctrl-D on an empty line, Ctrl-C or stdin closing ends the
+ * readline interface with no answer, where `rl.question` alone rejects with an AbortError or never
+ * settles (and the CLI would exit 0 having said nothing): that answers null.
+ */
+export function processTerminal(
+  input: NodeJS.ReadableStream & { isTTY?: boolean } = process.stdin,
+  output: NodeJS.WritableStream & { isTTY?: boolean } = process.stderr,
+): Terminal {
   return {
-    interactive: process.stdin.isTTY === true && process.stderr.isTTY === true,
-    async ask(prompt: string): Promise<string> {
-      const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-      try {
-        return await rl.question(prompt);
-      } finally {
-        rl.close();
-      }
+    interactive: input.isTTY === true && output.isTTY === true,
+    ask(prompt: string): Promise<string | null> {
+      const rl = readline.createInterface({ input, output });
+      let answered = false;
+      return new Promise<string | null>((resolve, reject) => {
+        rl.once('close', () => {
+          if (answered) return;
+          output.write('\n'); // the refusal then starts on its own line, not after the prompt
+          resolve(null);
+        });
+        rl.question(prompt).then((line) => {
+          answered = true;
+          resolve(line);
+        }, reject);
+      }).finally(() => rl.close());
     },
   };
 }
@@ -68,7 +84,8 @@ export function budgetAckOp(period: string): HumanOp {
 /**
  * Asks the person at this terminal to type `op.confirm` back before a human-only operation, and
  * returns their grant. Refused in a daemon session, without a terminal on stdin and stderr (a
- * configured command's stdin is never one, so a piped answer is never read), and on any other answer.
+ * configured command's stdin is never one, so a piped answer is never read), and on any other answer,
+ * no answer (Ctrl-D, Ctrl-C) included.
  * A TTY alone is not enough: branch code can hand a nested call the person's own terminal, but it
  * can't type the id there. `what` and `confirm` reach a terminal, so they hold only ids Forge
  * validated, numbers and periods, never a title or other free text. No flag or env var skips this.
@@ -86,6 +103,6 @@ export async function confirmHuman(
       'human_only',
     );
   const answer = await term.ask(`${op.what}\nType ${op.confirm} to confirm: `);
-  if (answer.trim() !== op.confirm) throw new ForgeError('not confirmed; nothing changed', 'failed');
+  if (answer === null || answer.trim() !== op.confirm) throw new ForgeError('not confirmed; nothing changed', 'failed');
   return { channel: 'terminal', actor: currentActor(root) };
 }
