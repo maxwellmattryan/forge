@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { validateConfig, worktreeRoot } from '#core/config/load.ts';
 import { dockerCheck } from '../environment/backing.ts';
-import { apiKeyVars } from '#integrations/claude/argv.ts';
+import { billingOf } from '#integrations/claude/argv.ts';
 import { deprecationChecks } from '#core/config/validators/deprecations.ts';
 import { uncoveredInstructionProbes } from '#core/config/validators/instructions.ts';
 import { policyRules } from '#core/config/validators/policy-check.ts';
@@ -102,6 +102,23 @@ export function envCopyCheck(config: Pick<Config, 'worktrees'>): DoctorCheck | n
     warn: true,
     detail: `${hits.join(', ')} can copy .env files into every worktree, where every configured command reads them; declare the values under secrets and pass them through a config sink instead`,
   };
+}
+
+/**
+ * The `daemon billing` check: the API keys, provider switches and ANTHROPIC_BASE_URL set where doctor runs,
+ * which daemon sessions inherit from `forge dash`. Always ok; a warning when a provider switch or base URL
+ * is set, since each sends sessions to another account or endpoint. Null with the daemon off or none set.
+ */
+export function daemonBillingCheck(config: Pick<Config, 'daemon'>, env: NodeJS.ProcessEnv = process.env): DoctorCheck | null {
+  if (config?.daemon?.enabled !== true) return null;
+  const auth = config.daemon.auth ?? 'subscription';
+  const billing = billingOf(env, auth);
+  if (!billing) return null;
+  const vars = billing.vars.join(', ');
+  const detail = billing.passed
+    ? `${vars} set: sessions bill that account or go through that endpoint (daemon.auth: api-key)`
+    : `${vars} set but ignored: sessions use your Claude login (daemon.auth: subscription)`;
+  return billing.warn ? { name: 'daemon billing', ok: true, warn: true, detail } : { name: 'daemon billing', ok: true, detail };
 }
 
 /**
@@ -248,11 +265,8 @@ export async function doctor(root: string, config: Config, initialized: boolean,
     if (instructions) checks.push(instructions);
     if (!problems.length) checks.push(commandEnvCheck(config, process.env, host.platform, opts));
   }
-  const keys = apiKeyVars(process.env);
-  if (initialized && config.daemon.enabled && keys.length) {
-    const api = config.daemon.auth === 'api-key';
-    add('daemon billing', true, api ? `${keys.join(', ')} set: sessions bill that API account (daemon.auth: api-key)` : `${keys.join(', ')} set but ignored: sessions use your Claude login (daemon.auth: subscription)`);
-  }
+  const billing = initialized && config.daemon.enabled ? daemonBillingCheck(config) : null;
+  if (billing) checks.push(billing);
   const needsGh = config.pr.enabled || config.tracker.kind === 'github';
   if (needsGh) {
     const auth = hasBinary('gh') ? gh(undefined, ['auth', 'status'], { allowFail: true }) : null;

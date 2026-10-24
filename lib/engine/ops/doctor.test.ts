@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { commandEnvCheck, commandPathCheck, doctor, envCopyCheck, instructionsPolicyCheck } from './doctor.ts';
+import { commandEnvCheck, commandPathCheck, daemonBillingCheck, doctor, envCopyCheck, instructionsPolicyCheck } from './doctor.ts';
 import { buildBundle } from './bundle.ts';
 import { droppedVariables } from '../guard/command-env.ts';
 import { defaults } from '#core/config/load.ts';
@@ -65,6 +65,18 @@ test('worktrees.copy that can copy .env files is a warning', () => {
     assert.match(check.detail, /secrets/);
   }
   for (const copy of [[], ['CLAUDE.md', 'packages/*/CLAUDE.md'], ['env'], ['*.md'], ['docs/*.txt'], ['.github/']]) assert.equal(envCopyCheck(cfg(copy)), null, `${JSON.stringify(copy)} is no warning`);
+});
+
+test('daemon billing warns about provider switches', () => {
+  const cfg = (enabled: boolean, auth = 'subscription') => ({ daemon: { ...defaults().daemon, enabled, auth } }) as Pick<Config, 'daemon'>;
+  assert.equal(daemonBillingCheck(cfg(false), { CLAUDE_CODE_USE_BEDROCK: '1' }), null, 'daemon off');
+  assert.equal(daemonBillingCheck(cfg(true), { PATH: '/bin' }), null, 'none set');
+  const bedrock = daemonBillingCheck(cfg(true), { CLAUDE_CODE_USE_BEDROCK: '1' });
+  assert.deepEqual({ name: bedrock?.name, ok: bedrock?.ok, warn: bedrock?.warn }, { name: 'daemon billing', ok: true, warn: true });
+  assert.match(bedrock!.detail, /^CLAUDE_CODE_USE_BEDROCK set but ignored/);
+  const key = daemonBillingCheck(cfg(true), { ANTHROPIC_API_KEY: 'k' });
+  assert.deepEqual({ ok: key?.ok, warn: key?.warn }, { ok: true, warn: undefined }, 'an API key alone is no warning');
+  assert.match(daemonBillingCheck(cfg(true, 'api-key'), { ANTHROPIC_BASE_URL: 'http://proxy' })!.detail, /^ANTHROPIC_BASE_URL set: sessions bill that account or go through that endpoint/);
 });
 
 test('doctor reports the command PATH source and the variables commands do not get', () => {

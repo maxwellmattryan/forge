@@ -344,7 +344,7 @@
     >
       {#if open === 'foreman'}<ForemanPanel foreman={bar.foreman} />
       {:else if open === 'needs'}{#if S.data}<NeedsPanel data={S.data} />{/if}
-      {:else if open === 'daemon'}<DaemonPanel {model} {pending} {act} foreman={bar.foreman} {openForeman} />
+      {:else if open === 'daemon'}<DaemonPanel {model} {pending} {act} foreman={bar.foreman} {openForeman} billing={S.data?.config?.daemon?.billing ?? null} />
       {:else if open === 'model'}<ModelPanel />
       {:else}<ConnectionPanel status={conn.state} />{/if}
     </Popover>

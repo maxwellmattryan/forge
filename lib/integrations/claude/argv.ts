@@ -7,7 +7,7 @@ import { PLUGIN_ROOT } from '#core/paths.ts';
 import { EFFORTS } from '#core/job/schema.ts';
 import { SESSION_PINS, pinEnv } from '../git/runner.ts';
 import { splitWords } from '#core/text.ts';
-import type { DaemonAuth, DaemonPermissionMode, Effort } from '#core/types.ts';
+import type { DaemonAuth, DaemonBilling, DaemonPermissionMode, Effort } from '#core/types.ts';
 
 /**
  * Paths the session may never write, appended to every daemon command as --disallowedTools
@@ -139,16 +139,37 @@ export function modeReach(mode: string | null): number {
  */
 const API_KEY_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const;
 
+/**
+ * Variables that each silently make claude bill another account (Bedrock, Vertex, Foundry) or send
+ * its traffic through another endpoint, past the Claude login and the spend Forge expects.
+ */
+const PROVIDER_VARS = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'ANTHROPIC_BASE_URL'] as const;
+
 /** The API_KEY_VARS that are set (non-empty) in `env`. */
 export function apiKeyVars(env: NodeJS.ProcessEnv): string[] {
   return API_KEY_VARS.filter((k) => Boolean(env[k]));
 }
 
+/** The PROVIDER_VARS that are set (non-empty) in `env`. */
+export function providerVars(env: NodeJS.ProcessEnv): string[] {
+  return PROVIDER_VARS.filter((k) => Boolean(env[k]));
+}
+
+/**
+ * Which billing variables are set in `env`, whether sessions get them (only under api-key), and whether that warrants a
+ * warning (a provider switch or ANTHROPIC_BASE_URL is set; an API key alone does not); null when none is.
+ */
+export function billingOf(env: NodeJS.ProcessEnv, auth: DaemonAuth): DaemonBilling | null {
+  const providers = providerVars(env);
+  const vars = [...apiKeyVars(env), ...providers];
+  return vars.length ? { vars, passed: auth === 'api-key', warn: providers.length > 0 } : null;
+}
+
 /**
  * The child's environment: this plugin's bin/ first on PATH, git pins appended after any the
  * caller already set, a no-op editor so `git merge|rebase --continue` can't wait on a TTY,
- * FORGE_MODE=agent so the session never gets human output, and no API key unless `daemon.auth`
- * is api-key.
+ * FORGE_MODE=agent so the session never gets human output, and no API key or provider switch
+ * unless `daemon.auth` is api-key.
  */
 export function sessionEnv(env: NodeJS.ProcessEnv, auth: DaemonAuth = 'subscription'): NodeJS.ProcessEnv {
   // This plugin's bin/ goes first on PATH, so the session's `forge` is the same version as the
@@ -156,8 +177,24 @@ export function sessionEnv(env: NodeJS.ProcessEnv, auth: DaemonAuth = 'subscript
   const PATH = [path.join(PLUGIN_ROOT, 'bin'), env.PATH].filter(Boolean).join(path.delimiter);
   // A session's forge calls feed its context, so they always print agent output, even under a PTY.
   const out: NodeJS.ProcessEnv = { ...env, PATH, FORGE_DAEMON: '1', FORGE_MODE: 'agent', GIT_EDITOR: 'true' };
-  if (auth !== 'api-key') for (const k of API_KEY_VARS) delete out[k];
+  if (auth !== 'api-key') for (const k of [...API_KEY_VARS, ...PROVIDER_VARS]) delete out[k];
   return pinEnv(out, SESSION_PINS);
+}
+
+/** A --max-budget-usd value: at least a cent, floored to cents, with two decimals. */
+export function capArg(usd: number): string {
+  return Math.max(0.01, Math.floor(usd * 100) / 100).toFixed(2);
+}
+
+/** argv with every --max-budget-usd dropped after argv[0]: Forge passes its own from the job's dollar budget. */
+function withoutBudgetCap(argv: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (i > 0 && argv[i] === '--max-budget-usd') i++;
+    else if (i > 0 && argv[i].startsWith('--max-budget-usd=')) continue;
+    else out.push(argv[i]);
+  }
+  return out;
 }
 
 /** `daemon.command` split into words; see splitWords in lib/core/text.ts. */
@@ -169,7 +206,8 @@ export function parseTemplate(template: string): string[] {
  * Placeholders expand after splitting, so a plugin path with spaces stays one argument.
  * `{allowedTools}` loses every file tool, bare or scoped; when it had one, an Edit rule per write
  * root takes its place, so a session writes without a prompt only inside those roots.
- * DENY_TOOLS, then `deny`, and PROMPT_TOOL always follow the template.
+ * Any --max-budget-usd in the template is dropped; `maxBudgetUsd`, when a number, becomes the one
+ * claude reads. DENY_TOOLS, then `deny`, and PROMPT_TOOL always follow the template.
  */
 export function buildArgv(
   template: string,
@@ -181,6 +219,7 @@ export function buildArgv(
     effort?: Effort | null;
     writeRoots?: string[];
     deny?: string[];
+    maxBudgetUsd?: number | null;
   },
 ): string[] {
   const listed = vars.allowedTools ?? [];
@@ -194,5 +233,7 @@ export function buildArgv(
   if (vars.permissionMode) argv = withPermissionMode(argv, vars.permissionMode);
   // Checked again here, not only by resolveEffort: anything outside the fixed list never becomes a word of argv.
   if (vars.effort && (EFFORTS as readonly unknown[]).includes(vars.effort)) argv = withEffort(argv, vars.effort);
+  argv = withoutBudgetCap(argv);
+  if (typeof vars.maxBudgetUsd === 'number' && Number.isFinite(vars.maxBudgetUsd)) argv.push('--max-budget-usd', capArg(vars.maxBudgetUsd));
   return [...argv, '--disallowedTools', [...DENY_TOOLS, ...(vars.deny ?? [])].join(','), ...PROMPT_TOOL];
 }

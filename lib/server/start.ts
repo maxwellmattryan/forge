@@ -19,7 +19,7 @@ import { SSE_SLOW_CLIENT_BYTES, broadcast, lineFrame, stateFrame } from './sse.t
 import { DEV_NOT_BUILT, NOT_BUILT, distDirFor, getAsset, getLogo, getPage } from './static.ts';
 import { postJobEnvironment, getEnvironmentLogs, getEnvironments, getJobEnvironment } from './routes/environment.ts';
 import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
-import { getJob, getJobFile, getRequests, postJob, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor } from './routes/jobs.ts';
+import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor } from './routes/jobs.ts';
 import { getAbout, getBacklog, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, idlePoolState, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
 import { getTranscript, getTranscriptEvents } from './routes/transcripts.ts';
@@ -108,6 +108,7 @@ export const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/daemon/mode', handler: postDaemonMode },
   { method: 'POST', path: '/api/daemon', handler: postDaemon },
   { method: 'POST', path: /^\/api\/jobs\/([^/]+)\/effort$/, handler: postJobEffort },
+  { method: 'POST', path: /^\/api\/jobs\/([^/]+)\/budget$/, handler: postJobBudget },
   { method: 'POST', path: /^\/api\/jobs\/([^/]+)\/delete$/, handler: postJobDelete },
   { method: 'POST', path: /^\/api\/jobs\/([^/]+)\/merge$/, handler: postJobMerge },
   { method: 'POST', path: /^\/api\/jobs\/([^/]+)\/repos$/, handler: postJobRepos },

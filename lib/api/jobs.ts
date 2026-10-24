@@ -1,6 +1,6 @@
 // /api/jobs and /api/jobs/:id/*: the job detail, transcript and files, the job POSTs, and the environment routes with GET /api/environments.
-import type { Effort } from './enums.ts';
-import type { Job, JobEvent, OwnerStatus, Progress } from './job.ts';
+import type { BudgetKey, Effort } from './enums.ts';
+import type { BudgetLimits, BudgetUsed, Job, JobBudget, JobEvent, OwnerStatus, Progress } from './job.ts';
 import type { ForgeRequest } from './state.ts';
 
 /** One agent of the job's current round (or still running) in the job detail: jobDetail() in lib/server/routes/jobs.ts. */
@@ -216,6 +216,23 @@ export interface DeleteJobResult {
 export interface PostJobMergeBody {
   now: true;
   confirm: string;
+}
+
+/** POST /api/jobs/:id/budget body: `set` entries are `key=value` in `forge job budget --set` syntax; set is applied before ack. */
+export interface PostJobBudgetBody {
+  ack?: boolean;
+  set?: string[];
+}
+
+/** POST /api/jobs/:id/budget reply, and `forge job budget`'s output: budgetCmd in lib/engine/metrics/budget.ts. */
+export interface PostJobBudgetResponse {
+  id: string;
+  limits: BudgetLimits;
+  used: BudgetUsed;
+  exceeded: BudgetKey[];
+  ack: JobBudget['ack'];
+  acked: BudgetKey[];
+  stillExceeded: BudgetKey[];
 }
 
 /** POST /api/jobs/:id/merge reply: mergePr's result in lib/engine/pr/merge.ts, whatever its action. */
