@@ -20,7 +20,7 @@ import { configHash, pluginHash, promptHash } from '#engine/evals/provenance.ts'
 import { checkJobFields, checkOwnedFields } from './fields.ts';
 import { setPath } from '../shape.ts';
 import { ForgeError } from '../errors.ts';
-import { readJson, readText, writeJsonAtomic } from '../os/fs.ts';
+import { confinedDir, readJson, readText, writeJsonAtomic } from '../os/fs.ts';
 import { withLock } from '../os/lock.ts';
 import { assertSafeRef, oneLineTitle, slugify } from '../text.ts';
 import { now, shortId } from '../utils.ts';
@@ -775,12 +775,12 @@ export function reviewDir(root: string, id: string, round: number | 'integration
 }
 
 /**
- * Created up front because reviewers that write with a shell redirect fail on a missing
- * directory, and the orchestrator only learns of it from an absent file.
+ * Created up front because reviewers that write with a shell redirect fail on a missing directory, and the orchestrator
+ * only learns of it from an absent file. Only through real directories (confinedDir): a linked `review/` is refused.
  */
 export function ensureReviewDir(root: string, id: string, round: number | 'integration'): string {
   const dir = reviewDir(root, id, round);
-  fs.mkdirSync(dir, { recursive: true });
+  confinedDir(jobDir(root, id), dir);
   return dir;
 }
 
