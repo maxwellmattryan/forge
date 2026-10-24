@@ -194,6 +194,12 @@ test('isMainUpdate accepts only the tree that commit builds from the release com
     for (const [what, tip] of Object.entries({ extra, poisoned, outside, dropped, 'the release commit with no dist': release })) assert.equal(isMainUpdate(main, release, tip, dist), false, what);
     assert.equal(isMainUpdate(main, release, 'HEAD', dist), false, 'not a sha');
     assert.throws(() => isMainUpdate(main, release, update, edited), Refusal, 'a bad dist refuses');
+
+    // A merged release is tagged by the time it is checked again: only mainCommit refuses a tagged version.
+    repo.git('tag', 'v1.1.0', release);
+    assert.equal(isMainUpdate(main, release, update, dist), true, 'the tag decides nothing about the tree');
+    assert.equal(isMainUpdate(main, release, extra, dist), false, 'still a tree comparison');
+    assert.throws(() => isMainUpdate(main, release, update, edited), Refusal, 'still a bad dist');
   } finally {
     process.chdir(cwd);
     repo.cleanup();

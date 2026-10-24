@@ -12,8 +12,9 @@
 //      marketplace.json, the one installs read, names the tag only once it exists.
 // With no version it resumes the one release in flight: every step checks whether it is done before it runs.
 // A release branch is adopted only when it can be re-derived, because anyone who can push a branch can push
-// this one: the release commit must be develop plus the bump, and the main update must have exactly the tree
-// built from it and the artifact main-update.yml made of it.
+// this one: the release commit must be develop plus exactly the bump (file by file, byte by byte), and the main
+// update must have exactly the tree built from it and the artifact main-update.yml made of it. The head the PR
+// merged is derived again before step 3 lands anything: the merge published whatever the head was by then.
 // A human pushes and merges, not CI: a push or merge GITHUB_TOKEN makes starts no workflow run, and
 // GITHUB_TOKEN can't push a commit that changes .github/workflows/.
 import fs from 'node:fs';
@@ -45,7 +46,9 @@ const VERSION_LABELS: Record<string, string> = {
   API_VERSION: '`API_VERSION`',
 };
 const PR_FIELDS = 'number,state,url,headRefName,headRefOid,baseRefName,isCrossRepository,mergeCommit';
-const MERGE_HINT = 'Merge it in GitHub with "Create a merge commit", then run `npm run release`.';
+/** What to do with the release PR, naming the head `npm run release` checked: a later push to the branch is not it. */
+const mergeHint = (head: string) =>
+  `Merge it in GitHub with "Create a merge commit", and only while its head is ${head} (the commit checked; if the branch moved, run \`npm run release\` again first), then run \`npm run release\`.`;
 
 const semver = (v: string): number[] => {
   const m = SEMVER.exec(v);
@@ -83,36 +86,42 @@ export const MARKETPLACE = path.join('.claude-plugin', 'marketplace.json');
 const RELEASE_FILES = [...VERSION_FILES.map(([rel]) => rel), MARKETPLACE, 'CHANGELOG.md'].map((rel) => rel.split(path.sep).join('/'));
 
 /**
- * Rewrites only the version lines, so the files keep their formatting, and the first `ref` of
- * marketplace.json to `v<to>`, then checks the JSON reads `to` (and the forge plugin's ref `v<to>`).
+ * `text` of one bumped file (`rel`: a `VERSION_FILES` entry or marketplace.json) taken from `from` to `to`. Rewrites
+ * only the version lines, so the file keeps its formatting, and the first `ref` of marketplace.json to `v<to>`, then
+ * checks the JSON reads `to` (and the forge plugin's ref `v<to>`). `releaseCommitOf` replays it on the parent's bytes.
  */
-export function setVersion(root: string, from: string, to: string): void {
-  const line = new RegExp(`("version":\\s*)"${from.replace(/\./g, '\\.')}"`, 'g');
-  // Every file is checked before any is written, so a refusal never leaves a half-bumped tree.
-  const writes: [string, string][] = [];
-  for (const [rel, paths] of VERSION_FILES) {
-    const file = path.join(root, rel);
-    const text = fs.readFileSync(file, 'utf8');
-    let left = paths.length;
-    // The first `version` lines are the ones the paths name: a lockfile lists its root before any dependency.
-    const next = text.replace(line, (m, key) => (left-- > 0 ? `${key}"${to}"` : m));
-    const json = JSON.parse(next);
-    for (const p of paths) {
-      const got = p.reduce<any>((o, k) => o?.[k], json);
-      if (got !== to) throw new Refusal(`${rel}: ${p.join('.') || '""'} reads ${JSON.stringify(got)} after the bump, not ${to}`);
+export function rewriteVersion(rel: string, text: string, from: string, to: string): string {
+  if (rel === MARKETPLACE) {
+    const next = text.replace(/("ref":\s*)"[^"]*"/, (_m, key) => `${key}"v${to}"`);
+    let ref: unknown;
+    try {
+      ref = forgeRef(JSON.parse(next));
+    } catch (e) {
+      throw new Refusal(`.claude-plugin/marketplace.json: ${(e as Error).message}`);
     }
-    writes.push([file, next]);
+    if (ref !== `v${to}`) throw new Refusal(`.claude-plugin/marketplace.json: the forge plugin's source.ref reads ${JSON.stringify(ref ?? null)} after the bump, not v${to}`);
+    return next;
   }
-  const file = path.join(root, MARKETPLACE);
-  const next = fs.readFileSync(file, 'utf8').replace(/("ref":\s*)"[^"]*"/, (_m, key) => `${key}"v${to}"`);
-  let ref: unknown;
-  try {
-    ref = forgeRef(JSON.parse(next));
-  } catch (e) {
-    throw new Refusal(`.claude-plugin/marketplace.json: ${(e as Error).message}`);
+  const paths = VERSION_FILES.find(([r]) => r === rel)?.[1];
+  if (!paths) throw new Refusal(`${rel} is not a file a version bump touches`);
+  const line = new RegExp(`("version":\\s*)"${from.replace(/\./g, '\\.')}"`, 'g');
+  let left = paths.length;
+  // The first `version` lines are the ones the paths name: a lockfile lists its root before any dependency.
+  const next = text.replace(line, (m, key) => (left-- > 0 ? `${key}"${to}"` : m));
+  const json = JSON.parse(next);
+  for (const p of paths) {
+    const got = p.reduce<any>((o, k) => o?.[k], json);
+    if (got !== to) throw new Refusal(`${rel}: ${p.join('.') || '""'} reads ${JSON.stringify(got)} after the bump, not ${to}`);
   }
-  if (ref !== `v${to}`) throw new Refusal(`.claude-plugin/marketplace.json: the forge plugin's source.ref reads ${JSON.stringify(ref ?? null)} after the bump, not v${to}`);
-  writes.push([file, next]);
+  return next;
+}
+
+/** `rewriteVersion` over every file a bump touches. Each is checked before any is written, so a refusal never leaves a half-bumped tree. */
+export function setVersion(root: string, from: string, to: string): void {
+  const writes = [...VERSION_FILES.map(([rel]) => rel), MARKETPLACE].map((rel): [string, string] => {
+    const file = path.join(root, rel);
+    return [file, rewriteVersion(rel, fs.readFileSync(file, 'utf8'), from, to)];
+  });
   for (const [f, text] of writes) fs.writeFileSync(f, text);
 }
 
@@ -185,7 +194,16 @@ export function insertSection(changelog: string, section: string): string {
   return `${changelog.slice(0, at)}${section}\n\n${changelog.slice(at)}`;
 }
 
-export const dropNotes = (text: string) => text.split('\n').filter((l) => !l.trimStart().startsWith(NOTE)).join('\n');
+/** The section `insertSection` put into `parent` to make `text`; null when `text` is anything else than `parent` with one section above its newest heading. */
+export function insertedSection(parent: string, text: string): string | null {
+  const at = parent.search(/^## /m);
+  const head = at < 0 ? `${parent.trimEnd()}\n\n` : parent.slice(0, at);
+  const tail = at < 0 ? '\n' : `\n\n${parent.slice(at)}`;
+  if (text.length < head.length + tail.length || !text.startsWith(head) || !text.endsWith(tail)) return null;
+  return text.slice(head.length, text.length - tail.length);
+}
+
+export const dropNotes =(text: string) => text.split('\n').filter((l) => !l.trimStart().startsWith(NOTE)).join('\n');
 
 export interface Run {
   id: number;
@@ -289,12 +307,47 @@ const git = (root: string, ...args: string[]) => gitOut(root, args).trim();
 const gitOk = (root: string, args: string[]) => gitSync(args, { cwd: root, stdio: 'ignore' }).status === 0;
 const say = (s: string) => process.stderr.write(`${s}\n`);
 
+/** `bytes` as text, or null when they are not valid UTF-8, which would not survive a rewrite byte for byte. */
+const utf8 = (bytes: Buffer): string | null => {
+  const text = bytes.toString('utf8');
+  return Buffer.from(text, 'utf8').equals(bytes) ? text : null;
+};
+
+/**
+ * Whether commit `c` is `parent` plus the bump to `version` that `prepare` makes and nothing else: each version
+ * file and marketplace.json is the `rewriteVersion` of the parent's bytes, and CHANGELOG.md is the parent's with
+ * one `## <version>` section inserted. A file list is not enough: a `resolved` URL changed in the lockfile, or a
+ * hook added to plugin.json, would ride in with the bump, and CI would build and `land` would put it on develop.
+ */
+function isBumpOf(root: string, parent: string, c: string, version: string): boolean {
+  const text = (rev: string, rel: string): string | null => {
+    const r = gitSync(['cat-file', 'blob', `${rev}:${rel.split(path.sep).join('/')}`], { cwd: root, encoding: 'buffer' });
+    return r.status === 0 ? utf8(r.stdout) : null;
+  };
+  try {
+    const was = text(parent, 'package.json');
+    const from: unknown = was === null ? null : JSON.parse(was)?.version;
+    if (typeof from !== 'string' || compareVersions(from, version) >= 0) return false;
+    for (const rel of [...VERSION_FILES.map(([r]) => r), MARKETPLACE]) {
+      const [before, after] = [text(parent, rel), text(c, rel)];
+      if (before === null || after === null || after !== rewriteVersion(rel, before, from, version)) return false;
+    }
+    const [before, after] = [text(parent, 'CHANGELOG.md'), text(c, 'CHANGELOG.md')];
+    const section = before === null || after === null ? null : insertedSection(before, after);
+    return section !== null && section === section.trim() && section.split('\n', 1)[0].trimEnd() === `## ${version}`;
+  } catch {
+    // A file that does not parse, or a refusal from the rewrite: not a bump.
+    return false;
+  }
+}
+
 /**
  * `tip` when it is a release commit for `version` (one parent, subject exactly `Release <version>`,
  * package.json at `version`, no tracked dashboard/dist, and nothing but develop plus the bump: its parent is
- * on `develop` and it changes only the version files, marketplace.json and CHANGELOG.md), its second parent
- * when `tip` is a two-parent main update of one, else null: a hotfix branch, whose dist must never land on
- * develop, or a branch someone else pushed. `develop` is the ref the parent must be on.
+ * on `develop`, it changes only the version files, marketplace.json and CHANGELOG.md, and each holds exactly
+ * the parent's bytes bumped, with one new CHANGELOG section), its second parent when `tip` is a two-parent
+ * main update of one, else null: a hotfix branch, whose dist must never land on develop, or a branch someone
+ * else pushed. `develop` is the ref the parent must be on.
  */
 export function releaseCommitOf(root: string, tip: string, version: string, develop = 'refs/remotes/origin/develop'): string | null {
   if (!SHA.test(tip)) return null;
@@ -313,7 +366,7 @@ export function releaseCommitOf(root: string, tip: string, version: string, deve
     if (v !== version || git(root, 'ls-tree', '-r', '--name-only', '--full-tree', c, '--', 'dashboard/dist') !== '') return false;
     if (!gitOk(root, ['merge-base', '--is-ancestor', parent, develop])) return false;
     const changed = gitOut(root, ['diff', '--name-only', '-z', '--no-renames', parent, c, '--']).split('\0').filter(Boolean);
-    return changed.every((f) => RELEASE_FILES.includes(f));
+    return changed.every((f) => RELEASE_FILES.includes(f)) && isBumpOf(root, parent, c, version);
   };
   if (isRelease(tip)) return tip;
   const p = parents(tip);
@@ -321,7 +374,7 @@ export function releaseCommitOf(root: string, tip: string, version: string, deve
 }
 
 /** The release PR's description: a copy of the notes for reviewers. No workflow ever reads it. */
-export function prBody(o: { section: string; repo: string; previous: string; version: string }): string {
+export function prBody(o: { section: string; repo: string; previous: string; version: string; head: string }): string {
   return [
     o.section.trim(),
     '',
@@ -333,7 +386,7 @@ export function prBody(o: { section: string; repo: string; previous: string; ver
     '',
     `The Release notes come from CHANGELOG.md in the merged commit, not from this description: editing it changes nothing.`,
     '',
-    MERGE_HINT,
+    mergeHint(o.head),
     '',
   ].join('\n');
 }
@@ -483,9 +536,11 @@ const localTip = (root: string, branch: string): string | null => {
 const notARelease = (branch: string, tip: string) =>
   new Refusal(`${branch} is at ${tip.slice(0, 7)}, which is neither a release commit nor a main update of one (a hotfix branch?): finish it by hand (docs/RELEASES.md › Hotfixes)`);
 
-function showPr(url: string): void {
+/** Prints the PR and the head `npm run release` checked, the one commit a merge should publish. */
+function showPr(url: string, head: string): void {
   say(`the release PR is open: ${url}`);
-  say(MERGE_HINT);
+  say(`checked head: ${head}`);
+  say(mergeHint(head));
   process.stdout.write(`${url}\n`);
 }
 
@@ -531,7 +586,7 @@ async function toPr(root: string, repo: string, previous: string, version: strin
   }
   if (pr) {
     if (pr.head !== tip) throw new Refusal(`the release PR ${pr.url} is at ${pr.head.slice(0, 7)}, not ${branch}'s tip ${tip.slice(0, 7)}: check what was pushed to ${branch}`);
-    return showPr(pr.url);
+    return showPr(pr.url, tip);
   }
 
   if (tip === release) {
@@ -557,11 +612,11 @@ async function toPr(root: string, repo: string, previous: string, version: strin
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-release-pr-'));
   try {
     const body = path.join(tmp, 'body.md');
-    fs.writeFileSync(body, prBody({ section, repo, previous, version }));
+    fs.writeFileSync(body, prBody({ section, repo, previous, version, head: tip }));
     const out = sh('gh', ['pr', 'create', '--repo', repo, '--base', 'main', '--head', branch, '--title', `Release ${version}`, '--body-file', body]);
     const url = out.trim().split('\n').at(-1) ?? '';
     if (!/^https:\/\/\S+$/.test(url)) throw new Refusal(`gh pr create printed ${JSON.stringify(out.trim())}`);
-    showPr(url);
+    showPr(url, tip);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -592,16 +647,30 @@ export function landOnDevelop(root: string, release: string, version: string): s
   return git(root, 'rev-parse', 'HEAD');
 }
 
-/** After the PR merged: release.yml's tag on the merge commit, then the release commit landed on develop. */
+/**
+ * After the PR merged: release.yml's tag on the merge commit, the merged head derived once more, then the release
+ * commit landed on develop. The merge published whatever the head was when it happened (a push after the resume
+ * vouched for it counts) and release.yml reads no tree, while landing moves develop's marketplace.json, the switch
+ * every install reads, to the tag. This is the last place to stop installs from following a bad tag.
+ */
 async function land(root: string, repo: string, version: string, pr: ReleasePr, yes: boolean): Promise<void> {
   const merge = pr.merge as string;
   const tag = `v${version}`;
+  const branch = `release/v${version}`;
   if (!gitOk(root, ['ls-remote', '--exit-code', '--tags', 'origin', `refs/tags/${tag}`])) await waitForRun(repo, 'release.yml', merge, 'main');
   gitOut(root, ['fetch', '--quiet', 'origin', `refs/tags/${tag}:refs/tags/${tag}`]);
   const peeled = git(root, 'rev-parse', '--verify', `refs/tags/${tag}^{commit}`);
   if (peeled !== merge) throw new Refusal(`${tag} points at ${peeled.slice(0, 7)}, not the release PR's merge commit ${merge.slice(0, 7)}: check the tag by hand; nothing landed on develop`);
   const release = releaseCommitOf(root, pr.head, version);
-  if (!release) throw notARelease(`release/v${version}`, pr.head);
+  if (!release) throw notARelease(branch, pr.head);
+
+  const unlanded = `Nothing landed on develop, so installs still follow the previous tag. Delete the ${tag} Release and tag by hand (gh release delete ${tag} --cleanup-tag --repo ${repo}) and undo the merge on main with a hotfix PR (docs/RELEASES.md › Recovery)`;
+  const tree = (rev: string) => git(root, 'rev-parse', '--verify', `${rev}^{tree}`);
+  if (tree(merge) !== tree(pr.head))
+    throw new Refusal(`the merge commit ${merge.slice(0, 7)} does not have the tree of the release PR's head ${pr.head.slice(0, 7)}: main took another commit while the PR was open, or the merge is not of the head that was checked. ${unlanded}`);
+  const build = await waitForRun(repo, 'main-update.yml', release, branch);
+  if (!withDist(repo, build, (dist) => isMainUpdate(git(root, 'rev-parse', '--verify', `${pr.head}^1`), release, pr.head, dist)))
+    throw new Refusal(`the release PR's head ${pr.head.slice(0, 7)} is not the main update of Release ${version}: its tree is not the release commit's plus the dashboard from ${build.html_url}. It was pushed after npm run release checked the branch, or by something else. ${unlanded}`);
 
   const head = landOnDevelop(root, release, version);
   if (head === null) say(`Release ${version} is already on develop`);

