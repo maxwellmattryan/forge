@@ -1,12 +1,12 @@
 // Notifications follow registerNotify's hook, never an import: importing this module registers
-// nothing, a registered queue hears each new failure once, and its remover stops it.
+// nothing, a registered queue hears each new failure once, and its remover stops it. notify.command
+// runs with a configured command's environment and, under the daemon, /bin/sh.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { jobAt, tempRepo } from '../../test/helpers.ts';
 import fs from 'node:fs';
 import path from 'node:path';
-import { dashboardUrl, registerNotify, type QueueNotify } from './notify.ts';
-import { dashboardRecordFile } from '#engine/ops/dashboard-record.ts';
+import { buildPayload, dashboardUrl, registerNotify, runCommand, type QueueNotify } from './notify.ts';import { dashboardRecordFile } from '#engine/ops/dashboard-record.ts';
 import { setJob } from '#core/job/store.ts';
 import { runTransitionHooks } from '#core/job/transitions.ts';
 import type { LoadedJob } from '#core/types.ts';
@@ -34,6 +34,24 @@ test('notifications follow registerNotify, not imports', () => {
     setJob(repo.dir, id, { state: 'running' });
     setJob(repo.dir, id, { state: 'failed' });
     assert.equal(calls.length, 1, 'a transition after the remover ran calls nothing');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('notify.command gets the command environment and /bin/sh under the daemon', { skip: process.platform === 'win32' }, async () => {
+  const repo = tempRepo();
+  try {
+    const out = path.join(repo.dir, 'notify-env.json');
+    const template = `${JSON.stringify(process.execPath)} -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify(process.env))' ${JSON.stringify(out)}`;
+    // A SHELL that does not exist: the command runs only if /bin/sh is used instead.
+    const base = { PATH: process.env.PATH, FORGE_DAEMON: '1', SHELL: '/nonexistent/sh', CMDENV_DB_SRC: 'planted-db-value', GH_TOKEN: 'planted-gh-value' };
+    const payload = buildPayload('gate', { job: 'j1', title: 'a title', stage: 'build', prUrl: null, reason: 'input' }, 'http://127.0.0.1:7400/#/pipeline');
+    const res = await runCommand(repo.dir, { secrets: { DB: { env: 'CMDENV_DB_SRC' } } }, template, payload, { env: base });
+    assert.deepEqual(res, { ok: true, attempts: 1 });
+    const dump = JSON.parse(fs.readFileSync(out, 'utf8'));
+    assert.equal(dump.FORGE_NOTIFY_EVENT, 'gate');
+    for (const k of ['CMDENV_DB_SRC', 'GH_TOKEN', 'FORGE_DAEMON']) assert.equal(dump[k], undefined, `${k} is not passed on`);
   } finally {
     repo.cleanup();
   }

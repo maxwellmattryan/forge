@@ -126,7 +126,7 @@ Why these sit in core, and why so:
 | `pipeline/` | `step/`, `step.ts`, `brief.ts`, `panel.ts`, `verifiers.ts`, `roster.ts`, `acs.ts`, `findings.ts`, `scope.ts`, `member-panel.ts`, `moves/` (the one move `moveJob` and its effects, the Foreman's gate policy, and `deps.ts`), `types.ts` (the step and verifier shapes: `step/` is at its entry cap) |
 | `workspace/` | `worktree.ts`, split in #417 into `worktree.ts` (create and remove), `run.ts` and `dev-server.ts` (its process proof in `dev-probe.ts` since #458); `checkout.ts`, `focus-actions.ts`, `editor.ts`, `regenerate.ts`, `job-command.ts` |
 | `verify/` | `gate.ts`, `steps.ts` and `e2e.ts` (moved from `workspace/` in #458), `record.ts` (the one reader of `job.verifyRuns`) |
-| `guard/` | `integrity.ts`, `protected.ts`, `secrets.ts`, `known-secrets.ts`, `secret-refs.ts`, `redact.ts`, `attribution.ts`, `types.ts` |
+| `guard/` | `integrity.ts`, `protected.ts`, `secrets.ts`, `known-secrets.ts`, `secret-refs.ts`, `redact.ts`, `attribution.ts`, `command-env.ts`, `types.ts` |
 | `environment/` | `backing.ts`, `backing-db.ts`, `ports.ts`, `endpoints.ts`, status ← `environment.ts`, lifecycle ← `environment-lifecycle.ts`, record ← `environment-record.ts`, `config-sinks-apply.ts`, `types.ts` |
 | `project/` | `member-repos.ts`, `member-trackers.ts`, `job-repos.ts`, graph ← `project.ts`, `repo-order.ts`, `repo-proposals.ts`, `links.ts`, `downstream.ts` |
 | `pr/` | `adopt.ts`, `body.ts`, `branch.ts`, `members.ts`, `sync.ts`, `open.ts`, `integrate.ts`, `merge.ts` (the PR policy, split out in #414), `delta.ts` |

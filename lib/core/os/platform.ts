@@ -1,6 +1,6 @@
 // The support matrix (docs/SUPPORT.md) as code: one definition of the platform tiers that doctor
-// reports and the daemon and `forge update` refusals enforce, plus the POSIX sh resolver every
-// configured command template runs through.
+// reports and the daemon and `forge update` refusals enforce, plus the POSIX sh resolver configured
+// command templates run through outside the daemon.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -102,7 +102,8 @@ function defaultWhere(cmd: string, env: NodeJS.ProcessEnv): string | null {
 }
 
 /**
- * The shell configured command templates run under, as `<shell> -lc <cmd>`. Off Windows that is
+ * The shell configured command templates run under, as `<shell> -lc <cmd>`, outside the daemon; see
+ * commandShell in lib/engine/guard/command-env.ts, which runs `/bin/sh -c` under it. Off Windows that is
  * $SHELL or /bin/sh. On Windows $SHELL is ignored, because Git Bash exports an MSYS path
  * (`/usr/bin/bash`) that spawn can't use; Git for Windows' sh is found on PATH or where its
  * installer puts it, and without one the templates can't run at all.
