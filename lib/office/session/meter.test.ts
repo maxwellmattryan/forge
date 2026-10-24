@@ -208,4 +208,25 @@ test("a capped session whose meter can't be read stops: the cap check fails clos
   assert.match(inbox.s.lastError ?? '', /^meter: .*meter is not a directory, so the inbox session's daily cap \(daemon\.dailyUsd\.inbox\) can't be checked/);
   assert.deepEqual(inbox.notified, []);
   await waitFor(() => !inbox.s.running, { what: 'the inbox stopped' });
+
+  // A cap check that throws after a result (here reading the cap, once) stops it too.
+  const thrown = rig(t, OFFICE_SCOPE, { daemon: { dailyUsd: { office: 60, inbox: 25 } } });
+  assert.equal(thrown.s.spawn(thrown.cfg), true);
+  thrown.s.writeTurn(['r1']);
+  const daemon = thrown.cfg.daemon;
+  const caps = daemon.dailyUsd;
+  Object.defineProperty(daemon, 'dailyUsd', {
+    configurable: true,
+    get() {
+      Object.defineProperty(daemon, 'dailyUsd', { value: caps, configurable: true, enumerable: true, writable: true });
+      throw new Error('cap read failed');
+    },
+  });
+  thrown.children[0].emit(result(0.5));
+  assert.deepEqual(metered(thrown.root, OFFICE_SCOPE), [0.5], 'the record is written first');
+  assert.equal(thrown.s.wanted, false);
+  assert.deepEqual(thrown.children[0].signals, ['SIGTERM']);
+  assert.equal(thrown.s.lastError, "meter: cap read failed, so the office session's daily cap (daemon.dailyUsd.office) can't be checked and it stops; fix the cause, then start it again");
+  assert.deepEqual(thrown.notified, []);
+  await waitFor(() => !thrown.s.running, { what: 'the office stopped' });
 });

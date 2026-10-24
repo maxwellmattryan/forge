@@ -42,6 +42,11 @@ export function createMeter(core: SessionCore, stop: StopSelf) {
   /** The read problem a job scope's log last named, so each is said once. */
   let unread: string | null = null;
 
+  /** The stop text when a shared scope's cap can't be checked, so it fails closed. */
+  function unchecked(problem: string, fix: string): string {
+    return `meter: ${problem}, so the ${shared} session's daily cap (daemon.dailyUsd.${shared}) can't be checked and it stops; ${fix}, then start it again`;
+  }
+
   /**
    * Why a shared scope with a cap may not spend now, else null: its metered spend today reached the cap
    * (announced), or its meter can't be read, so the cap can't be checked and it fails closed.
@@ -50,21 +55,20 @@ export function createMeter(core: SessionCore, stop: StopSelf) {
     const cap = shared ? dailyCap(c, shared) : null;
     if (cap === null) return null;
     const { records, problem } = readMeterChecked(root, scope);
-    if (problem) return { message: `meter: ${problem}, so the ${shared} session's daily cap (daemon.dailyUsd.${shared}) can't be checked and it stops; fix or move the file aside, then start it again`, announce: null };
+    if (problem) return { message: unchecked(problem, 'fix or move the file aside'), announce: null };
     const spent = meterTodayUsd(records, at);
     if (spent < cap) return null;
     const day = new Date(at).toISOString().slice(0, 10);
     return { message: `daemon stopped: the ${shared} session spent $${spent.toFixed(2)} of its $${cap.toFixed(2)} daily cap (daemon.dailyUsd.${shared}) on ${day} (UTC); start it again after midnight UTC, or raise the cap`, announce: 'daily-cap' };
   }
 
-  /** A shared scope's stop after a result, from overCap. Never throws. */
+  /** A shared scope's stop after a result, from overCap. Never throws: a check that throws stops it too (fails closed). */
   function sharedStop(at: number): MeterStop | null {
     try {
       const over = overCap(core.ctx.config(), at);
       return over ? { ...over, reason: 'daily-cap', keepWanted: false } : null;
     } catch (err) {
-      core.logEvent('error', { message: `meter: ${(err as Error).message}` });
-      return null;
+      return { message: unchecked((err as Error).message, 'fix the cause'), reason: 'daily-cap', announce: null, keepWanted: false };
     }
   }
 
