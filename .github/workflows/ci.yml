@@ -1,7 +1,7 @@
 # Forge's own gate: the "Verify before claiming it works" list in AGENTS.md, in the same order.
 # test/invariants/ci-workflow.test.ts fails when the two drift, so edit both together. It runs on Linux only.
-# release.yml calls this whole workflow (workflow_call) before it tags a release, and `npm run release`
-# waits for its push run on the release commit before it pushes main (docs/RELEASES.md, docs/CI.md).
+# release.yml calls this whole workflow (workflow_call) before it tags a release, and the release PR's own
+# run is the check before a human merges it into main (docs/RELEASES.md, docs/CI.md).
 # The render job runs `npm run test:render` beside it: it needs Chrome, so it stays outside the verify
 # list every change runs (docs/TESTING.md, "Dashboard scenarios and the render check").
 name: CI
@@ -129,6 +129,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The tags: on main and PRs into it, a version already tagged at another commit fails the check.
+          fetch-depth: 0
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
