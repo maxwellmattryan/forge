@@ -7,7 +7,7 @@ import path from 'node:path';
 import { addOrigin, fakeGh, forgeAsync, ghPr, tempRepo } from '../../helpers.ts';
 import { TRUST_ENV, loadConfig, trustDigest } from '#core/config/load.ts';
 import { EVENT_SCHEMA_VERSION } from '#core/job/schema.ts';
-import { createJob, setJob } from '#core/job/store.ts';
+import { createJob, readEvents, setJob } from '#core/job/store.ts';
 import { jobFiles } from '#core/paths.ts';
 
 const VIEW_FIELDS = 'number,url,state,isDraft,isCrossRepository,headRefName,baseRefName,headRefOid,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,mergedAt';
@@ -67,6 +67,10 @@ test('forge pr merge refuses --now and a broken scope under the daemon, with no 
 
 test('forge sync continues a deferred merge through mergePr', { skip: process.platform === 'win32' }, async () => {
   const { repo, id, head } = await prRepo('deferred merge', { merge: { auto: true } });
+  setJob(repo.dir, id, { stage: 'pr', state: 'waiting', waitingOn: 'pr-review' });
+  // A person asked for rework after the deferral, and the job went back to build: sync must not finish its merge.
+  const stale = createJob(repo.dir, loadConfig(repo.dir).config, { title: 'stale deferral' }).id;
+  setJob(repo.dir, stale, { owned: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } });
   // The gate re-reads the base from the push remote.
   addOrigin(repo);
   const gh = fakeGh({
@@ -84,14 +88,24 @@ test('forge sync continues a deferred merge through mergePr', { skip: process.pl
       line('pr-merge-deferred', now, { number: 7, checks: 'pending' });
     // Forge reads the CLI copy's events, so every copy gets them.
     for (const f of jobFiles(repo.dir, id, 'events.jsonl')) fs.appendFileSync(f, events);
+    const rework = line('human', now, { action: 'rework', actor: { login: 'al', source: 'env' } });
+    for (const f of jobFiles(repo.dir, stale, 'events.jsonl')) fs.appendFileSync(f, events + rework);
+    setJob(repo.dir, stale, { stage: 'build', state: 'running', waitingOn: null });
     const r = await forgeAsync(repo.dir, ['sync'], gh.env);
     assert.equal(r.status, 0, r.stderr + r.stdout);
-    const row = JSON.parse(r.stdout).results.find((x: any) => x.id === id);
+    const results = JSON.parse(r.stdout).results;
+    const row = results.find((x: any) => x.id === id);
     assert.equal(row?.mergeDeferred, true, JSON.stringify(row));
     assert.equal(row.merge?.action, 'merged', JSON.stringify(row));
+    const staleRow = results.find((x: any) => x.id === stale);
+    assert.equal(staleRow?.mergeDeferred, false, JSON.stringify(staleRow));
+    assert.ok(!('merge' in staleRow), JSON.stringify(staleRow));
     const merges = gh.calls().filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge');
     assert.equal(merges.length, 1, JSON.stringify(gh.calls().map((c) => c.args.slice(0, 3))));
     assert.ok(merges[0].args.includes('--match-head-commit') && merges[0].args.includes(head), merges[0].args.join(' '));
+    const merged = readEvents(repo.dir, id).find((e) => e.type === 'pr-merged');
+    assert.deepEqual([merged?.via, merged?.actor], ['sync', { login: 'forge-test', source: 'env' }], JSON.stringify(merged));
+    assert.ok(merged && !('scope' in merged), JSON.stringify(merged));
   } finally {
     fs.rmSync(gh.dir, { recursive: true, force: true });
     repo.cleanup();

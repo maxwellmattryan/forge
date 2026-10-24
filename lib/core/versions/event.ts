@@ -19,6 +19,10 @@ export const EVENT_STEPS: readonly Step[] = [
   // v4 adds autoMerge, head and heads to `decision` (forge job decision binds it to the worktree HEAD).
   // A v3 decision has none of them, and readers (lib/engine/pr/eligible.ts) treat it as not eligible.
   { id: 'decision-head', up: (e) => e },
+  // v5 adds actor (on every pr-merged, not only --now), scope and via to pr-merged, and reason
+  // superseded to pr-merge-refused; an older pr-merged without --now has no actor, and readers treat
+  // it as unrecorded.
+  { id: 'merge-provenance', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

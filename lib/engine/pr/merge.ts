@@ -1,24 +1,25 @@
-// Merging a job's PRs once CI allows it, in dependency order for a linked job, and marking drafts
-// ready.
+// Merging a job's PRs once CI allows it, in dependency order for a linked job, forge sync's hint for
+// which deferred merges to continue, and marking drafts ready.
 import fs from 'node:fs';
 import path from 'node:path';
 import { currentActor } from '#integrations/github/actor.ts';
+import { daemonScope } from '#core/job/requests.ts';
 import { loadJob, logEvent, readEvents, setJob } from '#core/job/store.ts';
 import { policyRules } from '#core/config/validators/policy-check.ts';
 import { exists } from '#core/paths.ts';
-import type { Config, Job, JobPr, JobRepoPr, PrChecks } from '#core/types.ts';
+import type { Config, EventActor, Job, JobEvent, JobPr, JobRepoPr, PrChecks } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { git, historyEnv } from '#integrations/git/runner.ts';
 import { PR_STATES, SLUG_RE, safePrNumber } from '#integrations/github/pull-requests.ts';
 import type { GitHub } from '#integrations/github/types.ts';
 import { memberClone, memberEntry, memberRepos } from '../project/job-repos.ts';
 import { REPO_NAME } from '../project/member-repos.ts';
-import { isLinkedJob, jobRepoOrder } from '../project/repo-order.ts';
+import { isLinkedJob, jobRepoOrder, nextMergeable } from '../project/repo-order.ts';
 import type { PrStateKey, RepoKey } from '../project/repo-order.ts';
 import { bumpsOnRelease, releaseGates, repoLabel, resolveInterim } from '../release/interim.ts';
 import type { ReleaseGate } from '../release/interim.ts';
 import { interimStatus } from '../release/interim-apply.ts';
-import { FULL_SHA, autoMergeGate } from './eligible.ts';
+import { FULL_SHA, autoMergeGate, decisionSuperseded } from './eligible.ts';
 import type { GateReason, GateResult } from './eligible.ts';
 import { memberSlug, recordMemberPr } from './members.ts';
 import type { MemberSync } from './members.ts';
@@ -163,7 +164,7 @@ const prLabel = (repo: string | null, number: number | null): string => (repo ==
  * call, never a fallback between direct and `--auto`, because a fallback is how unverified code got
  * merged. `tag` goes on every event (repo, target).
  */
-function mergeOne(root: string, config: Config, github: GitHub, id: string, t: MergeTarget, opts: { now: boolean; tag: Record<string, unknown>; clock: () => number }): MergeResult {
+function mergeOne(root: string, config: Config, github: GitHub, id: string, t: MergeTarget, opts: { now: boolean; tag: Record<string, unknown>; clock: () => number; via?: 'sync' }): MergeResult {
   const { number, checks, tag } = { ...t, tag: opts.tag };
   const label = prLabel(t.repo, number);
   if (t.state === 'MERGED') return { merged: true, action: 'already-merged', checks };
@@ -207,8 +208,8 @@ function mergeOne(root: string, config: Config, github: GitHub, id: string, t: M
     return { merged: false, autoMerge: false, action: 'refused', checks, error: 'CI is failing; fix it, or a human merges anyway with forge pr merge --now in their own terminal' };
   }
   const slug = t.slug();
-  // --now is a person's call, so every event it writes says who; without it the approver's
-  // auto-merge is not a human action and records no actor.
+  // --now is a person's call, so every event it writes says who; without it a queue or a failure is
+  // not a human action and records no actor. The merge itself always says who ran it (mergeProvenance).
   const by = now ? { actor: currentActor(root) } : {};
   // Logged before the call so a human override is on record even if the merge then fails.
   if (now) logEvent(root, id, 'pr-merge-bypass', { ...tag, number, checks, ...by });
@@ -225,8 +226,17 @@ function mergeOne(root: string, config: Config, github: GitHub, id: string, t: M
     return { merged: false, autoMerge: true, action: 'auto', checks };
   }
   // --now skips every check above, not only CI, so its merge is always a bypass.
-  logEvent(root, id, 'pr-merged', { ...tag, number, method: config.merge.method, checks, bypass: now, ...by });
+  logEvent(root, id, 'pr-merged', { ...tag, number, method: config.merge.method, checks, bypass: now, ...mergeProvenance(root), ...(opts.via ? { via: opts.via } : {}) });
   return { merged: true, autoMerge: false, action: 'merged', checks };
+}
+
+/**
+ * Who ran a merge, for the `pr-merged` event: this process's actor, and in a daemon session the
+ * scope it runs in, so a merge one session ran for another job's PR can be traced.
+ */
+export function mergeProvenance(root: string, env: NodeJS.ProcessEnv = process.env): { actor: EventActor; scope?: string } {
+  const s = daemonScope(env);
+  return { actor: currentActor(root), ...('daemon' in s && s.daemon ? { scope: s.scope } : {}) };
 }
 
 /**
@@ -240,7 +250,7 @@ export async function mergePr(
   config: Config,
   github: GitHub,
   id: string,
-  opts: { now?: boolean; repo?: string; root?: boolean; clock?: () => number } = {},
+  opts: { now?: boolean; repo?: string; root?: boolean; clock?: () => number; via?: 'sync' } = {},
 ): Promise<MergeResult> {
   const clock = opts.clock ?? Date.now;
   github.require();
@@ -254,14 +264,15 @@ export async function mergePr(
   }
   if (!job.pr?.number) throw new ForgeError(`job ${id} has no PR`);
   const now = opts.now === true;
-  if (isLinkedJob(job)) return mergeLinked(root, config, github, id, { now, clock, target: opts.repo !== undefined ? opts.repo : opts.root ? null : undefined });
+  const via = opts.via === 'sync' ? { via: opts.via } : {};
+  if (isLinkedJob(job)) return mergeLinked(root, config, github, id, { now, clock, target: opts.repo !== undefined ? opts.repo : opts.root ? null : undefined, ...via });
   // A merge never routes: a conflicting PR parks as before, and the next forge sync routes it.
   const { result, baseRef } = await syncPrDetailed(root, config, github, id, { route: false });
   const synced = result.pr;
   const number = synced?.number ?? job.pr.number;
   const checks = synced?.checks?.state;
   if (synced?.state === 'MERGED') return { merged: true, action: 'already-merged', checks };
-  return mergeOne(root, config, github, id, rootTarget(root, config, github, id, number, synced, baseRef), { now, tag: {}, clock });
+  return mergeOne(root, config, github, id, rootTarget(root, config, github, id, number, synced, baseRef), { now, tag: {}, clock, ...via });
 }
 
 /**
@@ -271,11 +282,52 @@ export async function mergePr(
  */
 export async function continueMerge(root: string, config: Config, github: GitHub, id: string): Promise<{ merge: { action: MergeResult['action']; reason?: MergeReason; error?: string } } | { error: string }> {
   try {
-    const m = await mergePr(root, config, github, id);
+    const m = await mergePr(root, config, github, id, { via: 'sync' });
     return { merge: { action: m.action, ...(m.reason ? { reason: m.reason } : {}), ...(m.error ? { error: m.error.slice(0, 300) } : {}) } };
   } catch (e) {
     return { error: (e as Error).message.slice(0, 300) };
   }
+}
+
+const MERGE_EVENTS = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed']);
+
+const CONTINUES = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred']);
+
+/**
+ * forge sync's hint that a deferred merge is due again (a deferral has no GitHub-side queue): only
+ * while the approver's decision still stands (decisionSuperseded). A single-repo job needs an OPEN PR
+ * whose last merge event is a deferral logged after the last decision; a deferral from before a newer
+ * decision waits for forge pr open, and a refusal stops the retries. A linked job asks
+ * linkedMergeDeferred. Only a hint: mergePr's gate re-checks everything.
+ */
+export function deferredMergeDue(root: string, config: Config, job: Job, prState: unknown): boolean {
+  const events = readEvents(root, job.id);
+  if (decisionSuperseded(job, events) !== null) return false;
+  if (isLinkedJob(job)) return linkedMergeDeferred(config, job, events);
+  if (prState !== 'OPEN') return false;
+  const last = events.findLastIndex((e) => MERGE_EVENTS.has(e.type));
+  return last >= 0 && events[last].type === 'pr-merge-deferred' && last > events.findLastIndex((e) => e.type === 'decision');
+}
+
+/**
+ * Whether a linked job's merge walk should go on: its last merge event since the last push was an
+ * untargeted merge, queue or deferral, and the next OPEN PR in merge order has every dependency
+ * MERGED (a queued dependency landed), unless that PR is the one already queued. Only a hint from
+ * stored states: mergePr re-reads every state itself.
+ */
+function linkedMergeDeferred(config: Config, job: Job, events: JobEvent[]): boolean {
+  const pushed = events.findLastIndex((e) => e.type === 'pr-opened' || e.type === 'pr-updated');
+  const last = events.slice(pushed + 1).filter((e) => MERGE_EVENTS.has(e.type)).pop();
+  if (!last || last.target === true || !CONTINUES.has(last.type)) return false;
+  const { order, deps, cycle } = jobRepoOrder(config, job);
+  if (cycle) return false;
+  const known = (s: unknown): PrStateKey => (s === 'OPEN' || s === 'CLOSED' || s === 'MERGED' ? s : null);
+  const states = new Map<RepoKey, PrStateKey>([[null, known(job.pr?.state)]]);
+  for (const m of memberRepos(job)) states.set(m.repo, known(m.pr?.state));
+  const next = nextMergeable(order, deps, states);
+  // A PR queued with --auto is GitHub's to merge: the walk goes on once it has.
+  if (last.type === 'pr-auto-merge' && next === (typeof last.repo === 'string' ? last.repo : null)) return false;
+  return next !== undefined && states.get(next) === 'OPEN';
 }
 
 // The live head is always GitHub's headRefOid from this call's sync, never job.json's pushedSha,
@@ -344,7 +396,7 @@ export function mergeTarget(flags: Record<string, unknown>, sub: 'merge' | 'read
 }
 
 /** mergePr for a linked job: the walk in merge order, or one `target` PR (null: the root). */
-async function mergeLinked(root: string, config: Config, github: GitHub, id: string, opts: { now: boolean; clock: () => number; target: RepoKey | undefined }): Promise<MergeResult> {
+async function mergeLinked(root: string, config: Config, github: GitHub, id: string, opts: { now: boolean; clock: () => number; target: RepoKey | undefined; via?: 'sync' }): Promise<MergeResult> {
   const { result, members, baseRef } = await syncPrDetailed(root, config, github, id, { route: false });
   const job = loadJob(root, id);
   const { order, deps, cycle } = jobRepoOrder(config, job);
@@ -400,7 +452,7 @@ async function mergeLinked(root: string, config: Config, github: GitHub, id: str
     const gate = gates.find((g) => g.consumer === k && (g.gate === 'held' || g.gate === 'bump-due'));
     if (gate) return refuse(k, 'release', releaseGateMessage(id, gate));
     const t = k === null ? rootTarget(root, config, github, id, rootNumber, synced, baseRef) : memberTarget(root, config, job, members.get(k)!);
-    const r = mergeOne(root, config, github, id, t, { now: opts.now, tag: tag(k), clock: opts.clock });
+    const r = mergeOne(root, config, github, id, t, { now: opts.now, tag: tag(k), clock: opts.clock, ...(opts.via ? { via: opts.via } : {}) });
     // The walk's reason is the refused PR's own (auto-off, superseded, decision, floor).
     if (r.reason) reason = r.reason;
     parts.push({ repo: k, number: t.number, action: r.action, checks: r.checks, ...(r.mergeState !== undefined ? { mergeState: r.mergeState } : {}), ...(r.error !== undefined ? { error: r.error } : {}) });

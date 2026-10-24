@@ -218,6 +218,13 @@ const EVENT_ROWS: Row[] = [
     removed: ['autoMerge', 'head', 'heads'],
     note: 'a decision from before the head binding keeps its fields and gains no head, so it is never eligible',
   },
+  {
+    step: 'merge-provenance',
+    input: { ts: 't', type: 'pr-merged', number: 7, method: 'squash', checks: 'passing', bypass: false },
+    fields: { type: 'pr-merged', ts: 't', number: 7, method: 'squash', checks: 'passing', bypass: false },
+    removed: ['actor', 'scope', 'via'],
+    note: 'a pr-merged from before provenance keeps its fields and gains no actor, scope or via',
+  },
 ];
 
 /** One versioned shape: its rows, its step list, its current version, the field that holds it, and its reader. */

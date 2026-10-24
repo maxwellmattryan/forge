@@ -2,7 +2,7 @@
 import { DEP_REASON, claimRespectingDeps, refreshDependencyWait, retargetPlan, unmetDependencies } from '#engine/pipeline/moves/deps.ts';
 import { createJob, isActive, leaseStatus, listJobs, loadJob, logEvent, readEvents, claimJob } from '#core/job/store.ts';
 import { approvedBy, escalationApproval } from '#engine/pr/body.ts';
-import { continueMerge } from '#engine/pr/merge.ts';
+import { continueMerge, deferredMergeDue } from '#engine/pr/merge.ts';
 import { retargetPr } from '#engine/pr/open.ts';
 import { syncPr } from '#engine/pr/sync.ts';
 import { ghGitHub } from '#integrations/github/pull-requests.ts';
@@ -17,8 +17,7 @@ import { mirrorJob, moveJob } from '#engine/pipeline/moves/apply.ts';
 import { searchTerms } from '#core/job/issue-link.ts';
 import { checkIssueRef, isSafeUrl, nativeRef, nativeRefs, parseIssueRef, primaryIssue, sameIssue } from '#core/job/issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
-import { isLinkedJob, jobRepoOrder, nextMergeable, type PrStateKey, type RepoKey } from '#engine/project/repo-order.ts';
-import { memberClone, memberConfig, memberRepos, recordJobRepo } from '#engine/project/job-repos.ts';
+import { memberClone, memberConfig, recordJobRepo } from '#engine/project/job-repos.ts';
 import { memberCheck, readLocalConfig } from '#engine/project/member-repos.ts';
 import { clampLimit, publicHits, searchTracker } from '#engine/trackers/link.ts';
 import { loadTracker, memberTracker } from '#engine/trackers/load.ts';
@@ -429,36 +428,6 @@ export async function commentApproval(root: string, config: Config, job: Job): P
   if (ok && posted.length) logEvent(root, job.id, 'tracker-approval-comment', { refs: posted, pr: number ?? null });
 }
 
-const MERGE_EVENTS = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed']);
-
-/** A deferred merge has no GitHub-side queue, so sync surfaces it for the orchestrator to retry. */
-function lastMergeEvent(root: string, id: string): string | null {
-  return readEvents(root, id).filter((e) => MERGE_EVENTS.has(e.type)).pop()?.type ?? null;
-}
-
-const CONTINUES = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred']);
-
-/**
- * Whether a linked job's merge walk should go on: its last merge event since the last push was an
- * untargeted merge, queue or deferral, and the next OPEN PR in merge order has every dependency
- * MERGED (a queued dependency landed), unless that PR is the one already queued. Only a hint from stored states: mergePr re-reads every state itself.
- */
-function linkedMergeDeferred(root: string, config: Config, job: Job): boolean {
-  const events = readEvents(root, job.id);
-  const pushed = events.findLastIndex((e) => e.type === 'pr-opened' || e.type === 'pr-updated');
-  const last = events.slice(pushed + 1).filter((e) => MERGE_EVENTS.has(e.type)).pop();
-  if (!last || last.target === true || !CONTINUES.has(last.type)) return false;
-  const { order, deps, cycle } = jobRepoOrder(config, job);
-  if (cycle) return false;
-  const known = (s: unknown): PrStateKey => (s === 'OPEN' || s === 'CLOSED' || s === 'MERGED' ? s : null);
-  const states = new Map<RepoKey, PrStateKey>([[null, known(job.pr?.state)]]);
-  for (const m of memberRepos(job)) states.set(m.repo, known(m.pr?.state));
-  const next = nextMergeable(order, deps, states);
-  // A PR queued with --auto is GitHub's to merge: the walk goes on once it has.
-  if (last.type === 'pr-auto-merge' && next === (typeof last.repo === 'string' ? last.repo : null)) return false;
-  return next !== undefined && states.get(next) === 'OPEN';
-}
-
 /**
  * `forge sync`: PRs and trackers for every job, then stacked-branch retargets, dependency waits and
  * umbrella jobs. `integrating` lists the jobs this sync moved to integrate.
@@ -495,7 +464,7 @@ export async function syncAll(
           cleaned = true;
         } catch {}
       }
-      const mergeDeferred = isLinkedJob(after) ? linkedMergeDeferred(root, config, after) : r.pr?.state === 'OPEN' && lastMergeEvent(root, job.id) === 'pr-merge-deferred';
+      const mergeDeferred = deferredMergeDue(root, config, after, r.pr?.state);
       results.push({
         id: job.id,
         pr: r.pr?.number ?? null,

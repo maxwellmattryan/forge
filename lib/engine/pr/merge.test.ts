@@ -6,12 +6,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { addOrigin, ghPr, memoryGitHub, parkedAt, tempRepo } from '../../../test/helpers.ts';
-import { CI_SETTLE_MS, hasCiWorkflows, mergeAction, mergePr } from './merge.ts';
+import { CI_SETTLE_MS, deferredMergeDue, hasCiWorkflows, mergeAction, mergePr, mergeProvenance } from './merge.ts';
 import type { MergeResult } from './merge.ts';
 import { defaults } from '#core/config/load.ts';
 import { ForgeError } from '#core/errors.ts';
-import { logEvent, readEvents, setJob, updateJob } from '#core/job/store.ts';
-import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
+import { loadJob, logEvent, readEvents, setJob, updateJob } from '#core/job/store.ts';
+import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
 
 // defaults(): a non-empty policy.protectedPaths, merge.method squash and merge.auto off.
 const config = defaults();
@@ -136,7 +136,10 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
       assert.deepEqual(s.merges(), [{ op: 'merge', slug: 'o/r', number: 7, method: 'squash', auto: false, matchHead: s.head }]);
       assert.ok(!(r instanceof Error));
       assert.deepEqual([r.merged, r.action], [true, 'merged']);
-      assert.ok(s.events().includes('pr-merged'));
+      const merged = s.all().find((e) => e.type === 'pr-merged');
+      assert.ok(merged, s.events().join(' '));
+      assert.deepEqual([merged.actor, merged.bypass], [{ login: 'forge-test', source: 'env' }, false]);
+      assert.ok(!('scope' in merged) && !('via' in merged), JSON.stringify(merged));
     },
   },
   {
@@ -337,6 +340,51 @@ describe('mergePr makes at most one merge call through the adapter', { concurren
         s.cleanup();
       }
     });
+  }
+});
+
+test('deferredMergeDue: sync continues only a deferral nothing replaced', () => {
+  const repo = tempRepo();
+  try {
+    const decision = { decision: 'APPROVE', reason: null, autoMerge: true, head: 'a'.repeat(40) };
+    const deferred = { number: 7, checks: 'pending' };
+    const person = { action: 'rework', actor: { login: 'al', source: 'env' } };
+    type Step = [string, Record<string, unknown>] | ((root: string, id: string) => void);
+    const rows: [string, Step[], unknown, boolean][] = [
+      ['a settled deferral after the decision', [['decision', decision], ['pr-merge-deferred', deferred]], 'OPEN', true],
+      ['a human rework, then a move to build', [['decision', decision], ['pr-merge-deferred', deferred], ['human', person], (root, id) => setJob(root, id, { stage: 'build', state: 'running', waitingOn: null })], 'OPEN', false],
+      ['a round after the deferral', [['decision', decision], ['pr-merge-deferred', deferred], ['round', { round: 2 }]], 'OPEN', false],
+      ['a deferral before a newer decision', [['decision', decision], ['pr-merge-deferred', deferred], ['decision', decision]], 'OPEN', false],
+      ['a refusal as the last merge event', [['decision', decision], ['pr-merge-deferred', deferred], ['pr-merge-refused', { number: 7, reason: 'decision' }]], 'OPEN', false],
+      ['a merged PR', [['decision', decision], ['pr-merge-deferred', deferred]], 'MERGED', false],
+      ['a cancelled job', [['decision', decision], ['pr-merge-deferred', deferred], (root, id) => setJob(root, id, { state: 'cancelled', waitingOn: null })], 'OPEN', false],
+    ];
+    for (const [name, steps, prState, want] of rows) {
+      const id = parkedAt(repo.dir, 'pr-review', { config, title: name }).id;
+      logEvent(repo.dir, id, 'pr-opened', { number: 7 });
+      for (const step of steps) {
+        if (typeof step === 'function') step(repo.dir, id);
+        else logEvent(repo.dir, id, step[0], step[1]);
+      }
+      assert.equal(deferredMergeDue(repo.dir, config, loadJob(repo.dir, id), prState), want, name);
+    }
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('mergeProvenance names the daemon scope that ran the merge', () => {
+  const repo = tempRepo();
+  try {
+    const actor = currentActor(repo.dir);
+    assert.deepEqual(mergeProvenance(repo.dir, { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: 'other-job' }), { actor, scope: 'other-job' });
+    for (const env of [{}, { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '../not-a-scope' }]) {
+      const p = mergeProvenance(repo.dir, env);
+      assert.deepEqual(p, { actor }, JSON.stringify(env));
+      assert.ok(!('scope' in p));
+    }
+  } finally {
+    repo.cleanup();
   }
 });
 
