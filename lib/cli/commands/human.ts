@@ -48,6 +48,11 @@ export interface HumanOp {
   command: string;
   what: string;
   confirm: string;
+  /**
+   * The dashboard's control for it, as a noun phrase both refusals offer beside the terminal
+   * ("Merge now in the dashboard"); absent when the dashboard has no route for it.
+   */
+  channel?: string;
 }
 
 /** `forge pr merge <id> --now`; `id` is one loadJob has validated. */
@@ -56,12 +61,13 @@ export function mergeNowOp(id: string): HumanOp {
     command: 'forge pr merge --now',
     what: `forge pr merge ${id} --now merges job ${id}'s PRs now, skipping merge.auto, the recorded approval, protected paths, the escalate floor and CI (never the merge order or a release gate). It is logged as a bypass with your name.`,
     confirm: id,
+    channel: 'Merge now in the dashboard',
   };
 }
 
 /**
  * `forge job budget <id> --set|--ack`; `id` is one loadJob has validated. The --set values are argv
- * text, so the prompt names the flags, not the values.
+ * text, so the prompt names the flags, not the values. No channel: the dashboard has no route for it.
  */
 export function jobBudgetOp(id: string, change: { set: boolean; ack: boolean }): HumanOp {
   const parts = [change.set ? "raises or resets its limits (--set)" : null, change.ack ? 'acknowledges what it has spent past them, so it can go on (--ack)' : null].filter(Boolean);
@@ -78,6 +84,7 @@ export function budgetAckOp(period: string): HumanOp {
     command: 'forge budget ack',
     what: `forge budget ack --period ${period} grants one more period's repo spend cap for ${period} and frees the jobs it held. It is logged with your name.`,
     confirm: period,
+    channel: "Acknowledge in the dashboard's Needs you",
   };
 }
 
@@ -85,7 +92,8 @@ export function budgetAckOp(period: string): HumanOp {
  * Asks the person at this terminal to type `op.confirm` back before a human-only operation, and
  * returns their grant. Refused in a daemon session, without a terminal on stdin and stderr (a
  * configured command's stdin is never one, so a piped answer is never read), and on any other answer,
- * no answer (Ctrl-D, Ctrl-C) included.
+ * no answer (Ctrl-D, Ctrl-C) included. Both refusals point to the terminal, and to `op.channel` only
+ * when the operation has one.
  * A TTY alone is not enough: branch code can hand a nested call the person's own terminal, but it
  * can't type the id there. `what` and `confirm` reach a terminal, so they hold only ids Forge
  * validated, numbers and periods, never a title or other free text. No flag or env var skips this.
@@ -96,10 +104,11 @@ export async function confirmHuman(
   term: Terminal = processTerminal(),
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<HumanGrant> {
-  if (env.FORGE_DAEMON === '1') throw new ForgeError(`${op.command} is a human-only operation, which a daemon session never runs; a human runs it in their own terminal or uses the dashboard`, 'human_only');
+  if (env.FORGE_DAEMON === '1')
+    throw new ForgeError(`${op.command} is a human-only operation, which a daemon session never runs; a human runs it in their own terminal${op.channel ? ` or uses ${op.channel}` : ''}`, 'human_only');
   if (!term.interactive)
     throw new ForgeError(
-      `${op.command} is a human-only operation: it needs a person at a terminal to confirm it, so an agent, a script or a configured command can't run it. Run it in your own terminal, or use the dashboard`,
+      `${op.command} is a human-only operation: it needs a person at a terminal to confirm it, so an agent, a script or a configured command can't run it. Run it in your own terminal${op.channel ? `, or use ${op.channel}` : ''}`,
       'human_only',
     );
   const answer = await term.ask(`${op.what}\nType ${op.confirm} to confirm: `);

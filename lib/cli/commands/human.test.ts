@@ -20,7 +20,7 @@ test('confirmHuman refuses without a confirming person at a terminal', async () 
   try {
     const rows: [string, boolean, string | null, NodeJS.ProcessEnv, { code: string; message: RegExp } | 'grant', boolean][] = [
       ['a daemon session at an interactive terminal', true, 'j1', { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: 'j1' }, { code: 'human_only', message: /human-only operation/ }, false],
-      ['a non-interactive terminal with the right answer', false, 'j1', {}, { code: 'human_only', message: /needs a person at a terminal.*an agent, a script or a configured command can't run it.*your own terminal, or use the dashboard/ }, false],
+      ['a non-interactive terminal with the right answer', false, 'j1', {}, { code: 'human_only', message: /needs a person at a terminal.*an agent, a script or a configured command can't run it.*Run it in your own terminal$/ }, false],
       ['an interactive terminal answering another string', true, 'j2', {}, { code: 'failed', message: /not confirmed; nothing changed/ }, true],
       ['an interactive terminal whose input ends without an answer', true, null, {}, { code: 'failed', message: /not confirmed; nothing changed/ }, true],
       ['an interactive terminal answering the id with whitespace', true, '  j1\n', {}, 'grant', true],
@@ -79,6 +79,34 @@ test('at a real readline prompt, Ctrl-D, Ctrl-C or stdin closing refuses, and on
         });
       }
       assert.match(shown, /Type j1 to confirm/, `${name}: the prompt was shown`);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("both refusals offer the dashboard's control only for an operation that has one", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-human-'));
+  try {
+    const rows: [string, HumanOp, string | null][] = [
+      ['pr merge --now', mergeNowOp('j1'), 'Merge now in the dashboard'],
+      ['budget ack', budgetAckOp('2026-10'), "Acknowledge in the dashboard's Needs you"],
+      ['job budget --set|--ack (no dashboard route)', jobBudgetOp('j1', { set: true, ack: true }), null],
+    ];
+    const refusals: [string, Terminal, NodeJS.ProcessEnv, (channel: string) => string, string][] = [
+      ['a daemon session', { interactive: true, ask: async () => 'j1' }, { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: 'j1' }, (c) => ` or uses ${c}`, 'a human runs it in their own terminal'],
+      ['no terminal', { interactive: false, ask: async () => 'j1' }, {}, (c) => `, or use ${c}`, 'Run it in your own terminal'],
+    ];
+    for (const [name, op, channel] of rows) {
+      for (const [where, term, env, offer, terminal] of refusals) {
+        await assert.rejects(confirmHuman(root, op, term, env), (e: unknown) => {
+          assert.ok(e instanceof ForgeError, `${name}, ${where}`);
+          assert.equal(e.code, 'human_only', `${name}, ${where}`);
+          assert.ok(e.message.endsWith(terminal + (channel ? offer(channel) : '')), `${name}, ${where}: ${e.message}`);
+          if (!channel) assert.ok(!e.message.includes('dashboard'), `${name}, ${where}: offers no dashboard control`);
+          return true;
+        });
+      }
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

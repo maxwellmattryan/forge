@@ -164,7 +164,7 @@ export function budgetCmd(
   const grant = opts.grant;
   if ((sets.length || opts.ack) && !isHumanGrant(grant))
     throw new ForgeError(
-      "forge job budget --set|--ack changes a job's spend limits, which only a person may do: in their own terminal (it asks them to type the job id) or the dashboard",
+      "forge job budget --set|--ack changes a job's spend limits, which only a person may do, in their own terminal (it asks them to type the job id)",
       'human_only',
     );
   if (sets.length) {
