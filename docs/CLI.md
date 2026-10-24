@@ -842,17 +842,17 @@ One job's state, agents and reviews; forge job step &lt;id> returns its next act
 | Flag | Meaning |
 |---|---|
 | `--agent-id A` | the runtime's id for the agent (required with attach) |
-| `--duration-ms N` | with end: wall time |
+| `--duration-ms N` | with end: wall time (refused in a daemon session) |
 | `--epoch N` | with start and end: the driver's epoch, refused (stale_epoch) before any write once another session took the job over |
-| `--import` | with end and --agent-id: read usage from the agent's Claude Code transcript |
+| `--import` | with end and --agent-id: read usage from the agent's Claude Code transcript (implied in a daemon session) |
 | `--model M` | the model it ran on |
 | `--output P` | with start: the file it must write, inside the job dir |
 | `--retry` | with start: a retry of a lost agent |
 | `--role R` | the role: a role name (a-z, 0-9, -) or reviewer:&lt;lens> (required; anything else exits 2) |
 | `--status S` | how it ended |
 | `--summary S` | its one-line reply |
-| `--tokens N` | with end: tokens used |
-| `--tool-uses N` | with end: tool calls made |
+| `--tokens N` | with end: tokens used (refused in a daemon session) |
+| `--tool-uses N` | with end: tool calls made (refused in a daemon session) |
 
 | Exit | When |
 |---|---|

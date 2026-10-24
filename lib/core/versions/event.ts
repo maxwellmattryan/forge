@@ -25,6 +25,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // superseded to pr-merge-refused; an older pr-merged without --now has no actor, and readers treat
   // it as unrecorded.
   { id: 'merge-provenance', up: (e) => e },
+  // v7 adds metered and unmeasured to agent-end (forge job agent end in a daemon session). An older agent-end has
+  // neither, and readers (lib/engine/metrics/spend.ts) treat its usage as reported and not covered by any meter.
+  { id: 'agent-end-metering', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

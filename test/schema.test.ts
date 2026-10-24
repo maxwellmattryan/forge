@@ -232,6 +232,13 @@ const EVENT_ROWS: Row[] = [
     removed: ['actor', 'scope', 'via'],
     note: 'a pr-merged from before provenance keeps its fields and gains no actor, scope or via',
   },
+  {
+    step: 'agent-end-metering',
+    input: { ts: 't', type: 'agent-end', role: 'builder', usage: { totalTokens: 10 } },
+    fields: { type: 'agent-end', ts: 't', role: 'builder', usage: { totalTokens: 10 } },
+    removed: ['metered', 'unmeasured'],
+    note: 'an agent-end from before metering reads unchanged: reported usage no meter covers',
+  },
 ];
 
 /** One versioned shape: its rows, its step list, its current version, the field that holds it, and its reader. */
