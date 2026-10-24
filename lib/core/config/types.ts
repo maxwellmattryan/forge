@@ -292,6 +292,8 @@ export interface Config {
     turnTimeoutMinutes: number | null;
     auth: DaemonAuth;
     jobBudget: DaemonJobBudget;
+    /** Dollars per UTC day the inbox and office sessions may spend (metered); a null key, or null, has no cap. */
+    dailyUsd: { inbox: number | null; office: number | null } | null;
   };
   /** The office session's authority: docs/CONFIG.md "Foreman". */
   foreman: {

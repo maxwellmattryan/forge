@@ -257,6 +257,9 @@ export function defaults(): Config {
       // With the daemon on, fills each of a job's tokens, usd and minutes limits that config and the
       // job's own overrides leave unset (lib/engine/metrics/budget.ts effectiveLimits); null turns it off.
       jobBudget: { tokens: 600000000, usd: 150 },
+      // Dollars per UTC day the inbox and office sessions may spend, metered from claude's own cost report;
+      // above the heaviest day observed here (office $38.66, inbox about $15). null (or a null key): no cap.
+      dailyUsd: { inbox: 25, office: 60 },
     },
     // Opt-in: the `_office` daemon session decides gates through forge:assistant sub-agents;
     // docs/architecture/foreman.md. Whole-phrase, case-insensitive patterns: a match keeps the

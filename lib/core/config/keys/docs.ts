@@ -293,6 +293,11 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   },
   'daemon.jobBudget.tokens': { doc: 'total tokens per job' },
   'daemon.jobBudget.usd': { doc: 'estimated USD per job' },
+  'daemon.dailyUsd': {
+    doc: 'dollars per UTC day the inbox and office sessions may spend, as the supervisor meters it; at the cap the session stops until midnight UTC (null: no caps; see "Daemon" below)',
+  },
+  'daemon.dailyUsd.inbox': { doc: "the inbox session's daily cap in USD (null: none)" },
+  'daemon.dailyUsd.office': { doc: "the office session's daily cap in USD, the foreman's assistants included (null: none)" },
 
   foreman: { doc: 'opt-in: an office daemon session decides gates through assistant sub-agents (see "Foreman" below)' },
   'foreman.enabled': { doc: 'true (with daemon.enabled): parked gates become `gate` requests for the `_office` session' },

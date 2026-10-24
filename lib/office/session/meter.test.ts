@@ -1,0 +1,147 @@
+// The supervisor's meter, through createSession in-process: a stub SessionContext whose notify records calls,
+// fakeClaude children whose results carry claude's cumulative cost, and a log sink stand-in. Copies
+// lifecycle.test.ts's rig rather than importing from another test file.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fakeClaude, jobAt, repoTemplate, waitFor } from '../../../test/helpers.ts';
+import { defaults, trustDigest } from '#core/config/load.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE } from '#core/job/requests.ts';
+import { loadJob, readEvents } from '#core/job/store.ts';
+import { meterFile, readMeter } from '#engine/metrics/meter.ts';
+import type { SessionCost } from '#integrations/claude/types.ts';
+import { confineDigest } from './confine.ts';
+import { createSession } from './lifecycle.ts';
+import { sessionOptions, type LogSink, type SessionContext } from './contract.ts';
+import type { Config } from '#core/types.ts';
+
+const repo = repoTemplate((dir) => {
+  fs.mkdirSync(path.join(dir, '.forge'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), 'daemon:\n  enabled: true\n  command: claude {session}\n');
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' });
+  execFileSync('git', ['commit', '-qm', 'forge'], { cwd: dir, stdio: 'pipe' });
+});
+
+/** One session of `scope` ('job' makes a job running at build) under a config with `daemon` and `budget` on top of the defaults. */
+function rig(t: any, scope: 'job' | string, opts: { daemon?: Record<string, unknown>; budget?: Record<string, number | null> } = {}) {
+  const r = repo();
+  t.after(r.cleanup);
+  const root = r.dir;
+  const digest = trustDigest(root);
+  const cfg: Config = defaults();
+  cfg.daemon = { ...cfg.daemon, enabled: true, command: 'claude {session}', idleStopMinutes: null, ...opts.daemon } as Config['daemon'];
+  cfg.pipeline.budget = { ...cfg.pipeline.budget, ...opts.budget };
+  const confined = confineDigest(root, cfg);
+  const id = scope === 'job' ? jobAt(root, 'build', { title: 'metered', config: cfg }).id : scope;
+  const notified: unknown[][] = [];
+  const emitted: any[] = [];
+  const ctx: SessionContext = {
+    trusted: () => digest,
+    confined: () => confined,
+    poolWanted: () => true,
+    config: () => cfg,
+    untrusted: () => {},
+    fatal: () => {},
+    emit: (e) => void emitted.push(e),
+    onResult: () => {},
+    onExit: () => {},
+    poke: () => {},
+    permissionMode: () => null,
+    permissionModeRefused: () => {},
+    effort: () => ({ level: null, source: 'none' }),
+  };
+  const claude = fakeClaude();
+  const sink: LogSink = { write: () => true, on: () => undefined, once: () => undefined, end: (cb) => cb?.() };
+  const o = sessionOptions({
+    claude: claude.adapter,
+    graceMs: 500,
+    env: { PATH: process.env.PATH },
+    redactor: () => [],
+    notify: ((...args: unknown[]) => void notified.push(args)) as any,
+    openLog: () => sink,
+    loadConfig: () => ({ config: cfg }),
+  });
+  const s = createSession(root, id, ctx, o);
+  t.after(() => s.close());
+  const event = (name: string) => emitted.filter((e) => e.kind === 'line').map((e) => JSON.parse(e.line)).filter((l) => l.type === 'forge-daemon' && l.event === name);
+  return { root, scope: id, cfg, s, children: claude.children, notified, event };
+}
+
+const cost = (usd: number): SessionCost => ({ usd, models: { 'claude-sonnet-5-5': { usd, input: Math.round(usd * 100), output: 0, cacheRead: 0, cacheWrite: 0 } } });
+const result = (usd: number) => ({ kind: 'turn-ended' as const, ok: true as const, cost: cost(usd) });
+const metered = (root: string, scope: string) => readMeter(root, scope).map((r) => r.usd);
+
+test("a job session's results are metered per spawn", async (t) => {
+  const r = rig(t, 'job');
+  assert.equal(r.s.spawn(r.cfg), true);
+  const first = r.children[0];
+  // Its first stdout line makes the session resumable.
+  first.emit({ kind: 'log', stream: 'stdout', line: '{}' });
+  r.s.writeTurn(['r1']);
+  first.emit(result(1));
+  r.s.writeTurn(['r2']);
+  first.emit(result(2.5));
+  first.emit({ kind: 'turn-ended', ok: true });
+  assert.deepEqual(metered(r.root, r.scope), [1, 1.5], 'a fresh spawn, then the delta; a result without cost writes nothing');
+
+  await r.s.kill('stop', true);
+  assert.equal(r.s.spawn(r.cfg), true);
+  const resumed = r.children[1];
+  assert.equal(resumed.argv[1], '--resume', 'the same session id, resumed');
+  resumed.emit({ kind: 'turn-started' });
+  resumed.emit(result(3));
+  assert.deepEqual(metered(r.root, r.scope), [1, 1.5, 0.5], 'measured from the last cumulative of that session');
+
+  // A resume whose transcript is gone starts a fresh session, which counts from zero.
+  await r.s.kill('stop', true);
+  assert.equal(r.s.spawn(r.cfg), true);
+  r.children[2].exit(1, null);
+  await waitFor(() => r.children.length === 4 && r.s.running, { what: 'the fresh respawn' });
+  r.children[3].emit(result(0.4));
+  const records = readMeter(r.root, r.scope);
+  assert.deepEqual(records.map((x) => x.usd), [1, 1.5, 0.5, 0.4]);
+  assert.notEqual(records[3].sessionId, records[2].sessionId, 'a new session id');
+  assert.equal(new Set(records.map((x) => x.spawnId)).size, 3, 'one spawn id per metered spawn');
+  assert.deepEqual(r.event('meter').map((l) => l.usd), [1, 1.5, 0.5, 0.4], 'a meter event per record');
+
+  // A meter path that can't be written never stops the session.
+  const broken = rig(t, 'job');
+  fs.mkdirSync(meterFile(broken.root, broken.scope), { recursive: true });
+  broken.s.spawn(broken.cfg);
+  broken.s.writeTurn(['r1']);
+  broken.children[0].emit(result(1));
+  assert.match(broken.event('error').at(-1)?.message ?? '', /^meter: /);
+  assert.equal(broken.s.status, 'idle');
+  assert.equal(broken.s.wanted, true);
+});
+
+test('the office and inbox stop at their daily cap', async (t) => {
+  const office = rig(t, OFFICE_SCOPE, { daemon: { dailyUsd: { office: 1, inbox: null } } });
+  assert.equal(office.s.spawn(office.cfg), true);
+  const c = office.children[0];
+  office.s.writeTurn(['r1']);
+  c.emit(result(0.6));
+  assert.equal(office.s.wanted, true, 'under the cap');
+  office.s.writeTurn(['r2']);
+  c.emit(result(1.2));
+  assert.equal(office.s.wanted, false);
+  assert.deepEqual(c.signals, ['SIGTERM']);
+  assert.match(office.s.lastError ?? '', /daily cap \(daemon\.dailyUsd\.office\)/);
+  assert.deepEqual(office.notified.map(([, events, ctx]) => [events, (ctx as { reason: string }).reason]), [[['daemon-stopped'], 'daily-cap']]);
+  await waitFor(() => !office.s.running, { what: 'the capped office stopped' });
+
+  office.s.reset();
+  assert.equal(office.s.spawn(office.cfg), false, 'refused the same UTC day');
+  assert.equal(office.children.length, 1, 'no child');
+  assert.equal(office.s.wanted, false);
+  assert.match(office.s.lastError ?? '', /daily cap \(daemon\.dailyUsd\.office\)/);
+
+  const inbox = rig(t, INBOX_SCOPE, { daemon: { dailyUsd: { office: 1, inbox: null } } });
+  inbox.s.spawn(inbox.cfg);
+  inbox.s.writeTurn(['r1']);
+  inbox.children[0].emit(result(5.5));
+  assert.equal(inbox.s.wanted, true, 'no inbox cap');
+  assert.deepEqual(inbox.children[0].signals, []);
+});
