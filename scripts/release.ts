@@ -654,7 +654,7 @@ export function landOnDevelop(root: string, release: string, version: string): s
   if (head !== remote) {
     const landing = head === release ? [remote] : [remote, release];
     if (parentsOf(root, head).join(' ') === landing.join(' ')) return head;
-    throw new Refusal('develop differs from origin/develop: pull or push first');
+    throw new Refusal('develop differs from origin/develop: if it holds only a declined landing, put it back on origin/develop (git fetch origin develop, then git reset --keep origin/develop) and run npm run release again');
   }
   if (git(root, 'rev-parse', `${release}^1`) === remote) gitOut(root, ['merge', '--quiet', '--ff-only', release]);
   else {
