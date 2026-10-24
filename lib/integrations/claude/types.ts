@@ -36,8 +36,11 @@ export type ClaudeEvent =
   /** claude's answer to a mode switch this child's handle sent. */
   | { kind: 'mode-answer'; requestId: string; ok: boolean; error: string | null }
   | { kind: 'turn-ended'; ok: true }
-  /** A failed turn: `limit` when it was a quota refusal, `resetsAt` (ms) when claude said when the window resets. */
-  | { kind: 'turn-ended'; ok: false; reason: string; limit: boolean; resetsAt: number | null }
+  /**
+   * A failed turn: `limit` when it was a quota refusal, `resetsAt` (ms) when claude said when the window resets,
+   * `budget` when the child reached its --max-budget-usd cap (never a limit: retrying can't lift it).
+   */
+  | { kind: 'turn-ended'; ok: false; reason: string; limit: boolean; resetsAt: number | null; budget: boolean }
   /** A line that broke the protocol and was answered with nothing. */
   | { kind: 'protocol-error'; message: string }
   /** The process failed; `started` is false when it never ran (ENOENT, EACCES). */

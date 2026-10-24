@@ -1,4 +1,4 @@
-// daemonProblems' allowedTools policing, and what trustDigest and daemonTrust pin, in-process
+// daemonProblems' allowedTools and --max-budget-usd policing, and what trustDigest and daemonTrust pin, in-process
 // against scratch directories.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -31,6 +31,17 @@ test('daemonProblems polices file rules and MCP tools', () => {
     assert.equal(problems.length, 1, entry);
     assert.ok(problems[0].includes(JSON.stringify(entry)) && problems[0].includes('list bare Edit and Write'), entry);
   }
+});
+
+test('daemonProblems refuses a dollar cap in daemon.command', () => {
+  const message = 'daemon.command must not pass --max-budget-usd: Forge passes its own from the job\'s dollar budget (docs/CONFIG.md "Daemon")';
+  const problemsFor = (command?: string) => {
+    const c = defaults();
+    if (command !== undefined) c.daemon.command = command;
+    return daemonProblems(c).filter((p) => p.includes('--max-budget-usd'));
+  };
+  assert.deepEqual(problemsFor(), [], 'the default command passes no cap');
+  for (const flag of ['--max-budget-usd 5', '--max-budget-usd=5']) assert.deepEqual(problemsFor(`${defaults().daemon.command} ${flag}`), [message], flag);
 });
 
 test('trustDigest pins what every agent reads', (t) => {

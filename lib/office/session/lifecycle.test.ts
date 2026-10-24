@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fakeClaude, repoTemplate, waitFor, withLease, type FakeClaudeChild } from '../../../test/helpers.ts';
 import { defaults, trustDigest } from '#core/config/load.ts';
-import { createJob, loadJob, readEvents, recordAgent } from '#core/job/store.ts';
+import { createJob, loadJob, readEvents, recordAgent, updateJob } from '#core/job/store.ts';
 import { INBOX_SCOPE, claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
 import { sessionFiles } from '#core/job/session-files.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
@@ -135,7 +135,7 @@ const asked = (requestId: string, over: Partial<Extract<ClaudeEvent, { kind: 'pe
   dirs: [],
   ...over,
 });
-const failed = (reason: string, limit = false, resetsAt: number | null = null): ClaudeEvent => ({ kind: 'turn-ended', ok: false, reason, limit, resetsAt });
+const failed = (reason: string, limit = false, resetsAt: number | null = null, budget = false): ClaudeEvent => ({ kind: 'turn-ended', ok: false, reason, limit, resetsAt, budget });
 
 // B11 (a fresh child gets nothing until a request; one written turn; a result makes it idle and
 // commits the request), B43 (offsets and recent), B44 (backpressure until drain).
@@ -392,6 +392,42 @@ test('a failed turn backs off, and a limit waits for its reset', async (t) => {
       assert.deepEqual(r.s.route(r.cfg, pending), { eligible: ['r1'], fresh: false }, `${row.name}: no turn while it waits`);
     }
   }
+});
+
+/** The --max-budget-usd values in argv, in order. */
+const caps = (argv: string[]): string[] => argv.flatMap((w, i) => (w === '--max-budget-usd' ? [argv[i + 1]] : []));
+
+test("a job session's spawn carries its remaining dollar budget", async (t) => {
+  const r = rig(t, { job: true });
+  updateJob(r.root, r.scope, (j) => void (j.usage = { ...j.usage, estCostUsd: 40 }));
+  assert.equal(r.s.spawn(r.cfg), true);
+  const first = r.children[0].argv;
+  assert.deepEqual(caps(first), ['110.00']);
+  assert.ok(first.indexOf('--max-budget-usd') < first.indexOf('--disallowedTools'), 'before the deny tail');
+  assert.equal(r.event('spawn').at(-1)?.capUsd, 110);
+
+  updateJob(r.root, r.scope, (j) => void (j.usage = { ...j.usage, estCostUsd: 100 }));
+  await r.s.kill('stop', true);
+  assert.equal(r.s.spawn(r.cfg), true);
+  assert.deepEqual(caps(r.children[1].argv), ['50.00'], 'recomputed at the respawn');
+
+  const inbox = rig(t);
+  assert.equal(inbox.s.spawn(inbox.cfg), true);
+  assert.deepEqual(caps(inbox.children[0].argv), [], 'no cap for the inbox');
+  assert.equal(inbox.event('spawn').at(-1)?.capUsd, null);
+});
+
+test('reaching the dollar cap stops the session at once', async (t) => {
+  const r = rig(t, { job: true });
+  updateJob(r.root, r.scope, (j) => void (j.usage = { ...j.usage, estCostUsd: 40 }));
+  r.s.spawn(r.cfg);
+  r.s.writeTurn(['r1']);
+  r.children[0].emit(failed('error_max_budget_usd', false, null, true));
+  assert.equal(r.s.state().wanted, false);
+  assert.match(r.s.lastError ?? '', /reached its --max-budget-usd cap of \$110\.00/);
+  await waitFor(() => !r.s.running && r.s.status === 'off', { what: 'the capped child stopped' });
+  assert.equal(r.event('stop').at(-1)?.reason, 'budget-cap');
+  assert.equal(r.event('retry').length, 0, 'never retried as a limit');
 });
 
 // B27 (a turn past its limit), B25 (an idle child past daemon.idleStopMinutes).

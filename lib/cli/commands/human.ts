@@ -67,7 +67,7 @@ export function mergeNowOp(id: string): HumanOp {
 
 /**
  * `forge job budget <id> --set|--ack`; `id` is one loadJob has validated. The --set values are argv
- * text, so the prompt names the flags, not the values. No channel: the dashboard has no route for it.
+ * text, so the prompt names the flags, not the values. The dashboard's channel is POST /api/jobs/:id/budget.
  */
 export function jobBudgetOp(id: string, change: { set: boolean; ack: boolean }): HumanOp {
   const parts = [change.set ? "raises or resets its limits (--set)" : null, change.ack ? 'acknowledges what it has spent past them, so it can go on (--ack)' : null].filter(Boolean);
@@ -75,6 +75,7 @@ export function jobBudgetOp(id: string, change: { set: boolean; ack: boolean }):
     command: 'forge job budget --set|--ack',
     what: `forge job budget ${id} changes job ${id}'s spend limits: it ${parts.join(' and ')}. It is logged with your name.`,
     confirm: id,
+    channel: "Approve & continue on the budget gate in the dashboard",
   };
 }
 

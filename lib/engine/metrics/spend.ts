@@ -62,11 +62,16 @@ function utcDay(ts: unknown): string | null {
   return Number.isNaN(t) ? null : new Date(t).toISOString().slice(0, 10);
 }
 
+/** An agent-end that carries a usage object: a metered run, what the spend ledger and the reconciler's progress mark count. */
+export function hasUsage(e: Pick<JobEvent, 'type'> & { usage?: unknown }): boolean {
+  return e.type === 'agent-end' && Boolean(e.usage) && typeof e.usage === 'object';
+}
+
 /** Buckets of one job's events: each agent-end with usage, on the UTC day of its `ts` (at or after `sinceMs`). */
 function bucketsOf(events: JobEvent[], config: Config, sinceMs: number | null = null): Record<string, SpendBucket> {
   const out: Record<string, SpendBucket> = {};
   for (const e of events) {
-    if (e.type !== 'agent-end' || !e.usage || typeof e.usage !== 'object') continue;
+    if (!hasUsage(e)) continue;
     const day = utcDay(e.ts);
     if (!day) continue;
     if (sinceMs !== null && Date.parse(e.ts) < sinceMs) continue;
@@ -198,7 +203,7 @@ export function spendLedger(root: string, config: Config, { write = true, since 
     const buckets = bucketsOf(rec.events, config, sinceMs);
     const summaryUsd = count(rec.summary?.usage?.estCostUsd);
     // A record whose events lost their usage still carries the job's total; it counts on its finish day.
-    const usageless = !rec.events.some((x) => x.type === 'agent-end' && x.usage && typeof x.usage === 'object');
+    const usageless = !rec.events.some(hasUsage);
     const finished = utcDay(rec.job.finishedAt) ? rec.job.finishedAt! : rec.archivedAt;
     if (usageless && summaryUsd > 0 && (sinceMs === null || Date.parse(finished) >= sinceMs)) {
       const day = utcDay(finished);

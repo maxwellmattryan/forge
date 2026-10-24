@@ -300,6 +300,9 @@ function wideningFlags(words: string[]): string[] {
       problems.push(`daemon.command must not pass ${flag}: ${why}`);
     else if (flag === '--permission-mode' && !SAFE_PERMISSION_MODES.includes(value ?? ''))
       problems.push(`daemon.command must not pass --permission-mode ${value ?? ''}: ${why}; use default or manual (ask a human in the dashboard) or dontAsk (refuse)`);
+    // A literal cap would replace the job's own (buildArgv drops it anyway; refusing it says so up front).
+    else if (flag === '--max-budget-usd')
+      problems.push('daemon.command must not pass --max-budget-usd: Forge passes its own from the job\'s dollar budget (docs/CONFIG.md "Daemon")');
     else if (flag === '--plugin-dir' && value !== '{pluginRoot}') problems.push(`daemon.command must not pass --plugin-dir ${value ?? ''}: only {pluginRoot} may be loaded, since ${why}`);
     else if ((flag === '--allowedTools' || flag === '--allowed-tools') && value !== '{allowedTools}')
       problems.push(`daemon.command must pass ${flag} {allowedTools}, not a literal list, so daemon.allowedTools is validated`);

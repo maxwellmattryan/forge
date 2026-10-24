@@ -280,10 +280,12 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
    * turn said `rejected`, or when its text reads like one.
    */
   function onResult(ev: Record<string, any>): void {
-    if (ev.is_error !== true) return emit({ kind: 'turn-ended', ok: true });
+    // The --max-budget-usd stop is a failed turn whatever is_error says, and never a quota limit to wait out.
+    const budget = ev.subtype === 'error_max_budget_usd';
+    if (ev.is_error !== true && !budget) return emit({ kind: 'turn-ended', ok: true });
     const reason = (typeof ev.result === 'string' && ev.result.trim() ? ev.result.trim() : String(ev.subtype ?? 'error')).slice(0, 300);
     const rejected = rateLimit?.status === 'rejected';
-    emit({ kind: 'turn-ended', ok: false, reason, limit: rejected || LIMIT_TEXT.test(reason), resetsAt: rejected ? rateLimit!.resetsAt : null });
+    emit({ kind: 'turn-ended', ok: false, reason, limit: budget ? false : rejected || LIMIT_TEXT.test(reason), resetsAt: rejected && !budget ? rateLimit!.resetsAt : null, budget });
   }
 
   return {

@@ -1,7 +1,7 @@
-// buildArgv's file-tool rewrite and deny tail, and absRule, in-process.
+// buildArgv's file-tool rewrite, dollar cap and deny tail, absRule, and the session env's billing scrub, in-process.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DENY_TOOLS, PROMPT_TOOL, absRule, buildArgv } from './argv.ts';
+import { DENY_TOOLS, PROMPT_TOOL, absRule, billingOf, buildArgv, sessionEnv } from './argv.ts';
 
 const session = { id: '00000000-0000-4000-8000-000000000000', resume: false };
 const allowedOf = (argv: string[]) => argv[argv.indexOf('--allowedTools') + 1];
@@ -48,4 +48,41 @@ test('the deny tail follows every template', () => {
   }
   for (const t of ['Edit(.forge/notes/**)', 'Edit(.forge/runtime/**)', 'Edit(.forge/jobs/*/job.json)', 'Edit(.forge/jobs/*/events.jsonl)', 'Edit(.forge/local.yml)'])
     assert.ok(DENY_TOOLS.includes(t), t);
+});
+
+test("the dollar cap is Forge's, once", () => {
+  const caps = (argv: string[]) => argv.flatMap((w, i) => (w === '--max-budget-usd' ? [argv[i + 1]] : w.startsWith('--max-budget-usd=') ? [w] : []));
+  const rows: { name: string; template?: string; usd: number | null | undefined; want: string[] }[] = [
+    { name: '110', usd: 110, want: ['110.00'] },
+    { name: 'zero', usd: 0, want: ['0.01'] },
+    { name: 'negative', usd: -50, want: ['0.01'] },
+    { name: 'floored to cents', usd: 12.345, want: ['12.34'] },
+    { name: 'null', usd: null, want: [] },
+    { name: 'not a finite number', usd: Number.NaN, want: [] },
+    { name: "the template's spaced cap", template: 'claude {session} --max-budget-usd 999', usd: 5, want: ['5.00'] },
+    { name: "the template's = cap", template: 'claude {session} --max-budget-usd=999', usd: 5, want: ['5.00'] },
+    { name: "the template's cap with none of Forge's", template: 'claude --max-budget-usd 999 {session}', usd: null, want: [] },
+  ];
+  for (const row of rows) {
+    const argv = buildArgv(row.template ?? 'claude {session}', { pluginRoot: '/p', session, allowedTools: ['Agent'], maxBudgetUsd: row.usd });
+    assert.deepEqual(caps(argv), row.want, row.name);
+    if (row.want.length) assert.ok(argv.indexOf('--max-budget-usd') < argv.indexOf('--disallowedTools'), `${row.name}: before the deny tail`);
+    assert.ok(argv.includes('--session-id'), `${row.name}: the rest of argv stays`);
+  }
+});
+
+test('sessions lose provider switches unless daemon.auth is api-key', () => {
+  const six = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
+  const env = { PATH: '/bin', OTHER: 'kept', ...Object.fromEntries(six.map((k) => [k, '1'])) };
+  const sub = sessionEnv(env, 'subscription');
+  assert.deepEqual(six.filter((k) => k in sub), [], 'subscription drops all six');
+  assert.equal(sub.OTHER, 'kept');
+  const api = sessionEnv(env, 'api-key');
+  assert.deepEqual(six.filter((k) => api[k] === '1'), six, 'api-key keeps all six');
+
+  assert.equal(billingOf({ PATH: '/bin', ANTHROPIC_API_KEY: '' }, 'subscription'), null);
+  assert.deepEqual(billingOf({ CLAUDE_CODE_USE_BEDROCK: '1' }, 'subscription'), { vars: ['CLAUDE_CODE_USE_BEDROCK'], passed: false, warn: true });
+  assert.deepEqual(billingOf({ ANTHROPIC_API_KEY: 'k', ANTHROPIC_BASE_URL: 'http://proxy' }, 'api-key'), { vars: ['ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL'], passed: true, warn: true });
+  // An API key alone under api-key is the deliberate setup: listed, no warning (doctor's rule).
+  assert.deepEqual(billingOf({ ANTHROPIC_API_KEY: 'k' }, 'api-key'), { vars: ['ANTHROPIC_API_KEY'], passed: true, warn: false });
 });

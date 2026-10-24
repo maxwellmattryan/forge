@@ -254,8 +254,8 @@ export function defaults(): Config {
       // `forge dash` is dropped from their environment unless this is api-key, because claude
       // would silently bill it instead of the subscription.
       auth: 'subscription',
-      // With the daemon on, fills a job's spend limits when none of tokens, usd or minutes is set
-      // anywhere (lib/engine/metrics/budget.ts effectiveLimits); null turns it off.
+      // With the daemon on, fills each of a job's tokens, usd and minutes limits that config and the
+      // job's own overrides leave unset (lib/engine/metrics/budget.ts effectiveLimits); null turns it off.
       jobBudget: { tokens: 600000000, usd: 150 },
     },
     // Opt-in: the `_office` daemon session decides gates through forge:assistant sub-agents;

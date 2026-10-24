@@ -4,6 +4,17 @@ import type { Effort } from './enums.ts';
 /** daemon.jobBudget: the spend limits an unattended job with none of its own gets (lib/engine/metrics/budget.ts effectiveLimits). */
 export type DaemonJobBudget = { tokens?: number | null; usd?: number | null; minutes?: number | null } | null;
 
+/**
+ * The billing variables (API keys, provider switches, ANTHROPIC_BASE_URL) set in `forge dash`'s environment, which
+ * sessions inherit, and whether they are passed (only under daemon.auth: api-key): billingOf in lib/integrations/claude/argv.ts.
+ */
+export interface DaemonBilling {
+  vars: string[];
+  passed: boolean;
+  /** A provider switch or ANTHROPIC_BASE_URL is among them: `forge doctor`'s `daemon billing` warns then, and so does the Daemon popover. */
+  warn: boolean;
+}
+
 /** Session supervisor status: state() in lib/office/session/lifecycle.ts. */
 export type DaemonStatus = 'off' | 'idle' | 'busy' | 'stopping';
 

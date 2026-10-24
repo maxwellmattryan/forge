@@ -17,6 +17,7 @@ import { API_VERSION, CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VE
 import { computeStats } from '#engine/metrics/stats.ts';
 import { projectGraph } from '#engine/project/graph.ts';
 import { jobBudgetOf } from '#engine/metrics/budget.ts';
+import { billingOf } from '#integrations/claude/argv.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from '#engine/evals/run.ts';
 import { listRequests, validJobId } from '#core/job/requests.ts';
 import { foremanHandoff, gateOwner } from '#office/foreman.ts';
@@ -232,7 +233,8 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
       panel: config.review.panel.map((r) => r.name),
       pipeline: config.pipeline,
       models: config.runtime.models,
-      daemon: { enabled: config.daemon?.enabled === true, jobBudget: jobBudgetOf(config) },
+      // Sessions inherit forge dash's environment (sessionOptions defaults env to process.env), so that is the one to check.
+      daemon: { enabled: config.daemon?.enabled === true, jobBudget: jobBudgetOf(config), billing: billingOf(process.env, config.daemon?.auth ?? 'subscription') },
       // Validated, so an invalid runtime.effort reads as none here while validate and doctor report it.
       effort: resolveEffort(config).level,
     },

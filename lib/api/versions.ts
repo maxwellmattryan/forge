@@ -44,6 +44,7 @@ export const API_CHANGES = [
   { id: 'triage-hidden-text' },
   { id: 'job-merge-now' },
   { id: 'actor-source-daemon' },
+  { id: 'daemon-budget' },
 ] as const;
 
 /**

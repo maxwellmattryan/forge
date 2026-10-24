@@ -10,6 +10,7 @@ import { containedWorktree, editorArgv, openEditor } from '#engine/workspace/edi
 import { createJob, isActive, leaseStatus, listJobs, loadJob, progress, readEvents, jobDir, requestBody, setJob, setJobEffort } from '#core/job/store.ts';
 import { deleteJob, deleteRefusal } from '#engine/ops/delete.ts';
 import { mergePr } from '#engine/pr/merge.ts';
+import { budgetCmd } from '#engine/metrics/budget.ts';
 import { decideRepoProposals, isRepoProposalPark } from '#engine/project/repo-proposals.ts';
 import { REPO_NAME } from '#engine/project/member-repos.ts';
 import { parseIssueRef } from '#core/job/issue-ref.ts';
@@ -27,6 +28,7 @@ import type {
   JobDetail,
   LoadedJob,
   PostEditorResponse,
+  PostJobBudgetResponse,
   PostJobEffortResponse,
   PostJobMergeResponse,
   PostJobReposResponse,
@@ -157,6 +159,39 @@ export async function postJobEffort(ctx: ServerCtx, req: http.IncomingMessage, r
   if (effort !== null && !(EFFORTS as readonly unknown[]).includes(effort)) return jsonStatus(res, 400, { error: `effort must be one of ${EFFORTS.join(', ')}, or null` });
   // No DAEMON_LOCK: job.json is outside the trust digest, and a running session picks the level up at its next spawn.
   return json(res, setJobEffort(root, id, effort as PostJobEffortResponse['effort'], 'dashboard') satisfies PostJobEffortResponse);
+}
+
+/** POST /api/jobs/:id/budget: at most this many `set` entries, each at most this long. */
+const BUDGET_SET_MAX = 5;
+const BUDGET_ENTRY_MAX = 100;
+const BUDGET_SHAPE = 'body must be {"ack": true} or {"set": ["key=value", …]} (or both)';
+
+/**
+ * POST /api/jobs/:id/budget: a person raising or acknowledging the job's budget, the dashboard's half
+ * of the human channel for `forge job budget --set|--ack` (docs/architecture/daemon-security.md). Its
+ * events carry the dashboard's actor.
+ */
+export async function postJobBudget(ctx: ServerCtx, req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): Promise<void> {
+  const { root } = ctx;
+  const parsed = await readJsonBody(req);
+  if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+  const id = match.params[0];
+  if (!validJobId(id) || !exists(path.join(jobDir(root, id), 'job.json'))) return jsonStatus(res, 404, { error: validJobId(id) ? `no job ${id}` : 'no such job' });
+  const body = parsed.body;
+  if (!isMap(body)) return jsonStatus(res, 400, { error: BUDGET_SHAPE });
+  const { ack, set } = body;
+  const setOk = set === undefined || (Array.isArray(set) && set.length >= 1 && set.length <= BUDGET_SET_MAX && set.every((s) => typeof s === 'string' && s.length <= BUDGET_ENTRY_MAX));
+  if ((ack !== undefined && typeof ack !== 'boolean') || !setOk || !(ack === true || Array.isArray(set))) return jsonStatus(res, 400, { error: BUDGET_SHAPE });
+  let r: PostJobBudgetResponse;
+  try {
+    // No DAEMON_LOCK: job.json is outside the trust digest, as for /effort.
+    r = budgetCmd(root, loadConfig(root).config, id, { set: set as string[] | undefined, ack: ack === true, grant: { channel: 'dashboard', actor: dashboardActor() } });
+  } catch (e) {
+    if (e instanceof ForgeError) return jsonStatus(res, 400, { error: e.message });
+    throw e;
+  }
+  ctx.pool?.poke();
+  return json(res, r satisfies PostJobBudgetResponse);
 }
 
 /** POST /api/jobs/:id/delete: delete the job the body names back. */

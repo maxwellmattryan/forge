@@ -6,7 +6,7 @@ import { git } from '#integrations/git/runner.ts';
 import { loadJob, logEvent, logHumanEvent, setJob, updateJob } from '#core/job/store.ts';
 import { exists } from '#core/paths.ts';
 import { BUDGET_KEYS, isHumanGrant } from '#core/job/schema.ts';
-import type { BudgetKey, BudgetLimits, BudgetUsed, Config, DaemonJobBudget, HumanGrant, Job, JobBudget } from '#core/types.ts';
+import type { BudgetKey, BudgetLimits, BudgetUsed, Config, DaemonJobBudget, HumanGrant, Job, JobBudget, PostJobBudgetResponse } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { now } from '#core/utils.ts';
 
@@ -34,9 +34,10 @@ export function jobBudgetOf(config: Config): DaemonJobBudget {
 }
 
 /**
- * pipeline.budget with the job's overrides on top. With the daemon on, a job whose limits set no
- * spend key (none non-null in config, none present in its own overrides) gets daemon.jobBudget's
- * non-null keys, so an unattended job never loops without a spend ceiling. Every budget check, the
+ * pipeline.budget with the job's overrides on top. With the daemon on, each spend key that is null
+ * in config and absent from the job's own overrides gets daemon.jobBudget's value for it, so an
+ * unattended job never loops without a spend ceiling, and setting one key keeps the others' backstop.
+ * A person's explicit null override still means unlimited for that key. Every budget check, the
  * supervisor's hold and the repo budget read limits through this rule, and the dashboard mirrors it.
  */
 export function effectiveLimits(config: Config, job: Pick<Job, 'budget'>): BudgetLimits {
@@ -44,10 +45,19 @@ export function effectiveLimits(config: Config, job: Pick<Job, 'budget'>): Budge
   const merged: Record<string, number | null | undefined> = { ...(config?.pipeline?.budget ?? {}), ...own };
   const limits = Object.fromEntries(BUDGET_KEYS.map((k) => [k, merged[k] ?? null])) as BudgetLimits;
   const fill = config?.daemon?.enabled === true ? jobBudgetOf(config) : null;
-  if (fill && SPEND_KEYS.every((k) => limits[k] === null && !Object.hasOwn(own, k))) {
-    for (const k of SPEND_KEYS) if (fill[k] !== null && fill[k] !== undefined) limits[k] = fill[k];
-  }
+  for (const k of SPEND_KEYS) if (fill && limits[k] === null && !Object.hasOwn(own, k) && fill[k] != null) limits[k] = fill[k];
   return limits;
+}
+
+/**
+ * The dollars left before the job's usd limit trips: the limit past the acknowledged point minus its
+ * self-reported spend, or null when usd is unlimited. Reads no git, so a spawn can call it cheaply.
+ */
+export function remainingUsd(config: Config, job: Pick<Job, 'budget' | 'usage'>): number | null {
+  const limit = effectiveLimits(config, job).usd;
+  if (limit === null || limit === undefined) return null;
+  const base = Number(job.budget?.ack?.usd?.used) || 0;
+  return limit + base - (Number(job.usage?.estCostUsd) || 0);
 }
 
 /**
@@ -159,12 +169,12 @@ export function budgetCmd(
   config: Config,
   id: string,
   opts: { set?: string[]; ack?: boolean; grant?: HumanGrant } = {},
-): { id: string; limits: BudgetLimits; used: BudgetUsed; exceeded: BudgetKey[]; ack: JobBudget['ack']; acked: BudgetKey[]; stillExceeded: BudgetKey[] } {
+): PostJobBudgetResponse {
   const sets = (opts.set ?? []).map(parseSet);
   const grant = opts.grant;
   if ((sets.length || opts.ack) && !isHumanGrant(grant))
     throw new ForgeError(
-      "forge job budget --set|--ack changes a job's spend limits, which only a person may do, in their own terminal (it asks them to type the job id)",
+      "forge job budget --set|--ack changes a job's spend limits, which only a person may do, in their own terminal (it asks them to type the job id) or with the dashboard's Approve & continue on the budget gate",
       'human_only',
     );
   if (sets.length) {
