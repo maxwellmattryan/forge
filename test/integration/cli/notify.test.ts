@@ -35,6 +35,7 @@ test('a forge process notifies through the hook main registers', async () => {
           });
           if (!last) return false;
         }
+        // `last` ends as the folder copy's event, which is the sender's final write.
         return last;
       },
       { what: 'the notify send child recorded its command result (notified/notify-failed, target command) in every events.jsonl copy' },
