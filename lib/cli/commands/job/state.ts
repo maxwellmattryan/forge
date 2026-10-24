@@ -75,7 +75,7 @@ export function refreshRequestCmd(root: string, config: Config, rest: string[], 
 
 export function note(root: string, config: Config, rest: string[], flags: Record<string, any>) {
   const id = rest[0];
-  logEvent(root, requireJob(root, id).id, 'note', { text: rest.slice(1).join(' ') || bodyFrom(flags) });
+  logEvent(root, requireJob(root, id).id, 'note', { text: rest.slice(1).join(' ') || bodyFrom(flags, root, config) });
   return { ok: true };
 }
 

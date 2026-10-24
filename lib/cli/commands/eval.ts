@@ -20,7 +20,7 @@ const EVAL: HelpGroup = {
         ['--title T', 'the title (default: the name)'],
         ['--request R', 'the request text'],
         ['--body B', 'the request text'],
-        ['--body-file F', 'read the request from F (- for stdin)'],
+        ['--body-file F', "read the request from F (- for stdin); in a daemon session F must be inside the session job's folder or worktree"],
       ],
       exits: [[1, 'a task with that name already exists']],
     },
@@ -140,7 +140,7 @@ export async function evalCmd(root: string, config: Config, sub: string | undefi
     case 'list':
       return evals.listTasks(root).map(({ dir: _d, request: _r, ...t }) => t);
     case 'new':
-      return evals.createTask(root, req(rest[0], 'name'), flags.title ?? rest[0], bodyFrom(flags) || req(flags.request, '--request or --body-file'));
+      return evals.createTask(root, req(rest[0], 'name'), flags.title ?? rest[0], bodyFrom(flags, root, config) || req(flags.request, '--request or --body-file'));
     case 'mine':
       return evals.mineFromPr(root, config, Number(req(flags.pr, '--pr')), { name: flags.name, testPattern: flags['test-pattern'] });
     case 'start': {
