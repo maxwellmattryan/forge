@@ -160,7 +160,7 @@ test('mockups render only in the sandboxed /raw iframe', () => {
   assert.equal(hits.length, 1, `exactly one <iframe>: ${JSON.stringify(hits)}`);
   const [file, tag] = hits[0];
   assert.equal(file, 'src/components/Drawer.svelte');
-  assert.match(tag, /\ssandbox="allow-scripts"/);
+  assert.match(tag, /\ssandbox=""/);
   assert.match(tag, /\ssrc="\/api\/jobs\/\{[^}]+\}\/raw\?path=\{[^}]+\}"/);
 });
 

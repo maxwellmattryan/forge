@@ -30,9 +30,12 @@ const STATUS_TIMEOUT_MS = 10_000;
 export const DOCKER_NAME = /^[a-z0-9][a-z0-9_.-]*$/;
 
 /**
- * One log file opened for reading: 'missing' when it does not exist, 'refused' when it (or its dir)
- * resolves outside the real `dirPath` or is not a regular file. Read through one non-blocking
- * descriptor checked to be a regular file; the caller closes it.
+ * One agent-writable file opened for reading (a session log, the dev log, a job file): 'missing'
+ * when it does not exist, 'refused' when `dirPath` does not resolve to where it sits under the real
+ * root, when the file resolves outside it, or when it is not a regular file with a single link (a
+ * hard link could reach any file on the same filesystem; every file Forge writes here has one).
+ * Read through one non-blocking descriptor, re-checked after the open so a parent swapped for a
+ * symlink between the realpath and the open (and left that way) is refused too; the caller closes it.
  */
 export function openConfinedLog(root: string, dirPath: string, file: string): { fd: number; size: number } | 'missing' | 'refused' {
   let real: string;
@@ -53,7 +56,13 @@ export function openConfinedLog(root: string, dirPath: string, file: string): { 
     // `real` is fully resolved, so O_NOFOLLOW only refuses a link swapped in since the check.
     fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
     const stat = fs.fstatSync(fd);
-    if (!stat.isFile()) {
+    if (!stat.isFile() || stat.nlink !== 1) {
+      fs.closeSync(fd);
+      return 'refused';
+    }
+    // The open followed the parents again: they must still resolve to `real`, and to this very file.
+    const now = fs.statSync(real);
+    if (fs.realpathSync(real) !== real || now.dev !== stat.dev || now.ino !== stat.ino) {
       fs.closeSync(fd);
       return 'refused';
     }

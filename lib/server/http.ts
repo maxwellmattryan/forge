@@ -10,20 +10,45 @@ export function isLoopbackHost(host: string | undefined): boolean {
   return name === '127.0.0.1' || name === 'localhost' || name === '[::1]';
 }
 
+const LOOPBACK_V4 = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
 /**
- * Token, then Origin, then JSON: the checks every POST shares. Returns true when it has
- * already answered the request.
+ * Whether a socket's peer address is loopback: IPv4 127.0.0.0/8, `::1`, or IPv4 loopback mapped
+ * into IPv6. Defence in depth behind the 127.0.0.1 bind, should the bind ever change.
+ */
+export function isLoopbackAddress(addr: string | undefined): boolean {
+  if (!addr) return false;
+  const a = addr.toLowerCase();
+  if (a === '::1') return true;
+  const m = LOOPBACK_V4.exec(a.startsWith('::ffff:') ? a.slice(7) : a);
+  return Boolean(m && m.slice(1).every((n) => Number(n) <= 255));
+}
+
+/** The most a request body may hold, in bytes. */
+export const MAX_BODY = 64 * 1024;
+/** How long a body may take to arrive in full. */
+export const BODY_TIMEOUT_MS = 10_000;
+
+/** A header's single value, or null when it is missing or repeated. */
+function header(v: string | string[] | undefined): string | null {
+  return typeof v === 'string' ? v : null;
+}
+
+/**
+ * Token, then Origin, then JSON, then a declared size over MAX_BODY: the checks every POST shares.
+ * Returns true when it has already answered the request.
  */
 export function guardPost(req: http.IncomingMessage, res: http.ServerResponse, token: string): boolean {
-  if (req.headers['x-forge-token'] !== token) return send(res, 403, 'text/plain', 'bad token'), true;
+  if (!tokenMatches(header(req.headers['x-forge-token']), token)) return send(res, 403, 'text/plain', 'bad token'), true;
   if (!req.headers.origin || !sameOrigin(req.headers.origin, req.headers.host)) return send(res, 403, 'text/plain', 'bad origin'), true;
   if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return send(res, 415, 'text/plain', 'json only'), true;
+  if (Number(req.headers['content-length']) > MAX_BODY) return send(res, 413, 'text/plain', 'body too large'), true;
   return false;
 }
 
 /** The token, plus a same-origin Origin when one is sent: for GETs that do work. */
 export function guardToken(req: http.IncomingMessage, res: http.ServerResponse, token: string): boolean {
-  if (req.headers['x-forge-token'] !== token) return send(res, 403, 'text/plain', 'bad token'), true;
+  if (!tokenMatches(header(req.headers['x-forge-token']), token)) return send(res, 403, 'text/plain', 'bad token'), true;
   if (req.headers.origin !== undefined && !sameOrigin(req.headers.origin, req.headers.host)) return send(res, 403, 'text/plain', 'bad origin'), true;
   return false;
 }
@@ -51,7 +76,7 @@ export function sameOrigin(origin: string, host: string | undefined): boolean {
   }
 }
 
-/** The SSE token from a query parameter, compared in constant time. */
+/** A token from a header or query parameter against this server's, compared in constant time. */
 export function tokenMatches(given: string | null, token: string): boolean {
   if (typeof given !== 'string') return false;
   const a = Buffer.from(given);
@@ -83,15 +108,40 @@ export async function readJsonBody(req: http.IncomingMessage): Promise<{ body: u
   }
 }
 
-export function readBody(req: http.IncomingMessage): Promise<string> {
+/**
+ * The body as UTF-8, decoded once at the end so a character split across chunks stays whole. Over
+ * `maxBytes`, or still incomplete after `timeoutMs`, the request is destroyed (the client sees the
+ * connection close) and the promise rejects with `body too large` or `body timeout`.
+ */
+export function readBody(req: http.IncomingMessage, opts: { maxBytes?: number; timeoutMs?: number } = {}): Promise<string> {
+  const maxBytes = opts.maxBytes ?? MAX_BODY;
   return new Promise((resolve, reject) => {
-    let data = '';
-    req.on('data', (c) => {
-      data += c;
-      if (data.length > 64 * 1024) reject(new Error('body too large'));
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    let settled = false;
+    const settle = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
+    const fail = (message: string) =>
+      settle(() => {
+        chunks.length = 0;
+        req.destroy();
+        reject(new Error(message));
+      });
+    const timer = setTimeout(() => fail('body timeout'), opts.timeoutMs ?? BODY_TIMEOUT_MS);
+    req.on('data', (c: Buffer | string) => {
+      if (settled) return;
+      const buf = typeof c === 'string' ? Buffer.from(c) : c;
+      bytes += buf.byteLength;
+      if (bytes > maxBytes) return fail('body too large');
+      chunks.push(buf);
     });
-    req.on('end', () => resolve(data));
-    req.on('error', reject);
+    req.on('end', () => settle(() => resolve(Buffer.concat(chunks).toString('utf8'))));
+    req.on('error', (e) => settle(() => reject(e)));
+    req.on('close', () => settle(() => reject(new Error('body incomplete'))));
   });
 }
 

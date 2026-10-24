@@ -89,6 +89,18 @@ export function tempRepo() {
 }
 
 /**
+ * A bare repo inside the repo's own .git as its `origin`, with `main` pushed: the push remote a merge
+ * re-reads the base from. Removed with the repo. Returns the bare repo's path.
+ */
+export function addOrigin(repo: ReturnType<typeof tempRepo>): string {
+  const bare = path.join(repo.dir, '.git', 'origin.git');
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', bare], { stdio: 'pipe' });
+  repo.git('remote', 'add', 'origin', bare);
+  repo.git('push', '-q', 'origin', 'main');
+  return bare;
+}
+
+/**
  * tempRepo's shape, built once per file by `init` and then copied for each caller: a directory copy
  * instead of git init, a commit and `forge init write` every time. Copies are made before any
  * worktree exists (worktrees record absolute paths), so `init` must not create one, and config that
@@ -172,4 +184,21 @@ export function evalScratch(): { dir: string; git: (...args: string[]) => Buffer
       fs.rmSync(`${r.dir}.wt`, { recursive: true, force: true });
     },
   };
+}
+
+/**
+ * A scratch dir `<repo root>/.cache/t-<rand>` (0700, real path) for a FORGE_CACHE_DIR test: the start-up
+ * and seed caches honour the override only inside the plugin root, so a temp dir would be refused
+ * before the permission checks a test means to exercise. `.cache` gets bin/forge's own `.gitignore`.
+ */
+export function cacheScratch(): { dir: string; cleanup: () => void } {
+  const cacheDir = path.resolve(import.meta.dirname, '..', '.cache');
+  fs.mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
+  try {
+    fs.writeFileSync(path.join(cacheDir, '.gitignore'), '*\n', { flag: 'wx' });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+  }
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(cacheDir, 't-')));
+  return { dir, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }

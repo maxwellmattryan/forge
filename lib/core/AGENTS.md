@@ -18,7 +18,7 @@ Foundations with no pipeline policy: shared shapes, the job store and schema, co
 | `os/` | OS helpers on Node built-ins: the platform tiers, child processes and pids, small file reads and writes, and the mkdir lock. |
 | `paths.ts` | Where things live on disk: the main checkout's root, the `.forge/` layout, job dirs and the plugin's own root. |
 | `shape.ts` | Shape helpers every validator and state writer shares: one definition each, so the prototype-key guards can't drift between copies. |
-| `text.ts` | Small text helpers: redaction, safe refs and outside text, slugs, CLI value coercion, shell words, templates, fences and tails. |
+| `text.ts` | Small text helpers: redaction, safe refs, slugs, CLI value coercion, shell words, templates, fences and tails, and the outside-text helpers every import goes through: visibleText strips what people can't see, quote and oneLineTitle keep outside text inside its blockquote or its one line, and importHeader, fenceImport and hasHiddenText write and read the column-0 provenance line. |
 | `types.ts` | The transitional type-only barrel: the /api/* and SSE shapes (lib/api/types.ts), the job shapes (lib/core/job/types.ts) and the config shapes (lib/core/config/types.ts), re-exported so older `#core/types.ts` imports keep compiling, plus the tracker contract. |
 | `utils.ts` | Small leftovers with no better home: the current timestamp and a short random id. |
 | `versions/` | The version lists: one append-only list of named steps per persisted shape, whose length plus one is that shape's version. |

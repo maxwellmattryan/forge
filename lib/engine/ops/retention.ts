@@ -2,7 +2,6 @@
 // apply the human's `retention` policy. Everything here deletes files, so every path is built from
 // a validated id or scope, checked with lstat, and never followed through a symlink. The read side
 // (archive records) lives in lib/core/job/archive.ts so stats, audit, retro and deps need not import this.
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { currentActor } from '#integrations/github/actor.ts';
@@ -18,6 +17,7 @@ import { ARCHIVE_SCHEMA_VERSION, normalizeJob } from '#core/job/schema.ts';
 import type { ArchiveRecord, Config, EventActor, Job, LoadedJob, RetentionTrigger } from '#core/types.ts';
 import type { ArchiveResult, PruneResult } from './types.ts';
 import { ForgeError } from '#core/errors.ts';
+import { writeAtomic } from '#core/os/fs.ts';
 import { pidAlive } from '#core/os/process.ts';
 import { withLock } from '#core/os/lock.ts';
 import { now } from '#core/utils.ts';
@@ -133,23 +133,6 @@ function ensureArchiveDir(root: string): string {
   return dir;
 }
 
-/** Write-then-rename through a fresh, exclusively created temp file: a planted link at the target is replaced, never followed. */
-function writeExclusiveAtomic(file: string, text: string): void {
-  const tmp = `${file}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-  const fd = fs.openSync(tmp, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0), 0o600);
-  try {
-    fs.writeSync(fd, text);
-  } finally {
-    fs.closeSync(fd);
-  }
-  try {
-    fs.renameSync(tmp, file);
-  } catch (e) {
-    fs.rmSync(tmp, { force: true });
-    throw e;
-  }
-}
-
 /** Appends one line to `.forge/runtime/retention.log`, without following a link or blocking on a FIFO. */
 export function appendRetentionLog(root: string, line: Record<string, unknown>): void {
   const file = path.join(paths(root).runtime, 'retention.log');
@@ -223,7 +206,8 @@ export function archiveJob(root: string, id: string, trigger: RetentionTrigger, 
       },
     };
     const file = path.join(adir, `${id}.json`);
-    writeExclusiveAtomic(file, JSON.stringify(record, null, 2) + '\n');
+    // A planted link at the record's path is replaced by the rename, never followed.
+    writeAtomic(file, JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });
     fs.rmSync(dir, { recursive: true, force: true });
     appendRetentionLog(root, { type: 'pruned', kind: 'job', id, trigger, bytes });
     return { id, file: path.relative(root, file), bytes };

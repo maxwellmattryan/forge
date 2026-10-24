@@ -4,6 +4,17 @@
 
 `lib/engine/guard/attribution.ts` defines what counts as AI attribution: signature lines and trailers, not mentions. It is shared by the Bash `PreToolUse` hook (`hooks/no-ai-attribution.ts`, which blocks before anything is written), by `forge pr open` (which rewrites the messages of the commits it checked from their raw objects, keeping every tree, author and committer, moves the branch only if it still points at the checked commit, then pushes that exact commit with `--force-with-lease` if anything changed), and by the GitHub tracker (which strips issue and comment bodies). On Node older than 22.18 the hook cannot load and exits 1, which Claude Code does not treat as a block, so the policy is not enforced there. The policy is on by default (`aiAttribution: forbid`).
 
+The hook (`commandAttribution`) checks every Bash command that mentions `git`, `gh` or `glab`, so global options before the subcommand (`git -c k=v commit`, `git -C dir commit`, `gh -R o/r pr create`) and a path to the binary hide nothing. It scans the command text and every message file the command names: `--file`, `--body-file` and `--template` with `=` or a space, and `-F` or `-t` attached, spaced or ending a short-option cluster (`-aF msg`). A relative file is tried against the command's cwd and against each `-C <dir>`, each resolved against the one before. Only an existing regular file under 1 MiB is read, opened non-blocking, so a FIFO, device or directory is skipped and never stalls the hook; `-` (stdin) is skipped. A command that names no attribution exits 0 without starting a git child. Only then does it read the opt-out (`repoAllowsAttribution`): `aiAttribution: allow` counts only in the `.forge/config.yml` of the main checkout of `CLAUDE_PROJECT_DIR` (found through `git rev-parse --git-common-dir`), never a worktree's own `.forge/`, the command's cwd or `FORGE_ROOT`, all of which an agent can choose or write; any failure there means no opt-out.
+
+Accepted residuals, which the hook does not catch:
+- a message built at run time, from command substitution or a variable (`-m "$(cat msg)"`, `-F "$F"`);
+- a relative file after `cd dir &&`, or a `~` path;
+- a commit made by another program (`node -e`, an editor);
+- a worktree whose `.git` file was rewritten to point at another repository;
+- an agent that writes the main checkout's own `.forge/config.yml` (the same trust as every other main-checkout key).
+
+The backstop for all of them is `forge pr open`, which rewrites offending commit messages before it pushes and strips PR bodies, plus the GitHub tracker's body stripping.
+
 ## Review policy
 
 Reviewers tag findings `[blocker] [major] [minor] [nit]`. The CLI decides the verdict from the tags and the repo's `review.blockOn`, not from the reviewer's own first line. This keeps the threshold consistent across lenses and models: "CHANGES over a nit" or "PASS over a blocker" can't slip through. A review without a verdict line is `CHANGES` when its tags already force a round, otherwise `MALFORMED` and re-run once; a second malformed review is counted as `CHANGES` (`--malformed changes`) so a reviewer that cannot follow the format cannot stall the job. A lens with no file is `PENDING` while its reviewer (`reviewer:<lens>` in `job.agents`) has not ended for that review, and `MISSING`, with the expected path, once it has: an agent can claim a review it never wrote, so the orchestrator re-spawns it rather than waiting. `forge job round` and `forge job paths` create the review directory before any reviewer is briefed.

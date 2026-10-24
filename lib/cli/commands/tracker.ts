@@ -2,6 +2,7 @@
 import { DEP_REASON, claimRespectingDeps, refreshDependencyWait, retargetPlan, unmetDependencies } from '#engine/pipeline/moves/deps.ts';
 import { createJob, isActive, leaseStatus, listJobs, loadJob, logEvent, readEvents, claimJob } from '#core/job/store.ts';
 import { approvedBy, escalationApproval } from '#engine/pr/body.ts';
+import { continueMerge } from '#engine/pr/merge.ts';
 import { retargetPr } from '#engine/pr/open.ts';
 import { syncPr } from '#engine/pr/sync.ts';
 import { ghGitHub } from '#integrations/github/pull-requests.ts';
@@ -39,7 +40,7 @@ const BODY: [string, string][] = [['--body B', 'the text'], ['--body-file F', 'r
 
 const TRACKER: HelpGroup = {
   name: 'tracker',
-  summary: 'the configured issue tracker (tracker.kind): items, claims, comments',
+  summary: 'the configured issue tracker (tracker.kind): items, claims, comments; under github a <ref> is an issue in this repo (12, #12 or owner/repo#12)',
   commands: [
     {
       command: 'tracker list',
@@ -494,6 +495,7 @@ export async function syncAll(
           cleaned = true;
         } catch {}
       }
+      const mergeDeferred = isLinkedJob(after) ? linkedMergeDeferred(root, config, after) : r.pr?.state === 'OPEN' && lastMergeEvent(root, job.id) === 'pr-merge-deferred';
       results.push({
         id: job.id,
         pr: r.pr?.number ?? null,
@@ -502,9 +504,9 @@ export async function syncAll(
         conflicts: r.pr?.conflicts ?? false,
         behindBy: r.pr?.behindBy ?? null,
         checks: r.pr?.checks?.state ?? null,
-        mergeDeferred: isLinkedJob(after) ? linkedMergeDeferred(root, config, after) : r.pr?.state === 'OPEN' && lastMergeEvent(root, job.id) === 'pr-merge-deferred',
+        mergeDeferred,
         newFeedback: (r.pr?.unresolvedThreads ?? 0) > (before.unresolvedThreads ?? 0) || (r.pr?.changesRequested ?? 0) > (before.changesRequested ?? 0),
-        cleaned,
+        cleaned, ...(mergeDeferred ? await continueMerge(root, config, ghGitHub, job.id) : {}),
       });
     } catch (e) {
       results.push({ id: job.id, error: (e as Error).message.slice(0, 300) });

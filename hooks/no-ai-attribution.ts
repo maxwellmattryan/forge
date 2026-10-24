@@ -1,39 +1,11 @@
 #!/usr/bin/env node
 // PreToolUse hook (Bash): refuses commands that would publish AI attribution: commit messages,
 // tags, PRs, issues, comments, releases. It runs for the main session and every subagent while
-// Forge is enabled. Opt out with FORGE_AI_ATTRIBUTION=allow or `aiAttribution: allow` in a
-// repo's .forge/config.yml.
-import fs from 'node:fs';
-import path from 'node:path';
-import { findAttribution } from '../lib/engine/guard/attribution.ts';
-
-const PUBLISHING = /\b(git\s+(commit|tag|notes|merge)|gh\s+(pr|issue|release|api|gist)|glab\s+(mr|issue|release))\b/;
-
-function repoAllows(cwd: string): boolean {
-  let dir = cwd;
-  for (let i = 0; i < 30 && dir; i++) {
-    const cfg = path.join(dir, '.forge', 'config.yml');
-    if (fs.existsSync(cfg)) return /^aiAttribution:\s*["']?allow\b/m.test(fs.readFileSync(cfg, 'utf8'));
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return false;
-}
-
-/** Message files passed by flag (-F, --file, --body-file) can carry the attribution too. */
-function referencedFiles(command: string, cwd: string): string[] {
-  const out: string[] = [];
-  for (const m of command.matchAll(/(?:^|\s)(?:-F|--file|--body-file|-t|--template)\s+("[^"]+"|'[^']+'|[^\s;&|]+)/g)) {
-    const p = m[1].replace(/^["']|["']$/g, '');
-    if (p === '-') continue;
-    const full = path.resolve(cwd, p);
-    try {
-      if (fs.statSync(full).size < 1024 * 1024) out.push(fs.readFileSync(full, 'utf8'));
-    } catch {}
-  }
-  return out;
-}
+// Forge is enabled, and checks every git, gh or glab command and the message files it names
+// (lib/engine/guard/attribution.ts commandAttribution). Opt out with FORGE_AI_ATTRIBUTION=allow, or
+// `aiAttribution: allow` in the .forge/config.yml of the main checkout of CLAUDE_PROJECT_DIR (the
+// project Claude Code runs in), never a worktree's own config or the command's cwd.
+import { commandAttribution, repoAllowsAttribution } from '../lib/engine/guard/attribution.ts';
 
 let input = '';
 process.stdin.on('data', (c) => (input += c));
@@ -44,15 +16,16 @@ process.stdin.on('end', () => {
   } catch {
     process.exit(0);
   }
+  if (process.env.FORGE_AI_ATTRIBUTION === 'allow') process.exit(0);
   const command = String(event?.tool_input?.command ?? '');
-  const cwd = event?.cwd || process.cwd();
-  if (process.env.FORGE_AI_ATTRIBUTION === 'allow' || !PUBLISHING.test(command) || repoAllows(cwd)) process.exit(0);
-  const hits = [command, ...referencedFiles(command, cwd)].flatMap(findAttribution);
-  if (!hits.length) process.exit(0);
+  const cwd = typeof event?.cwd === 'string' && event.cwd ? event.cwd : process.cwd();
+  // Only a command that carries attribution pays for the git child the opt-out lookup starts.
+  const hits = commandAttribution(command, cwd);
+  if (!hits.length || repoAllowsAttribution(process.env.CLAUDE_PROJECT_DIR)) process.exit(0);
   process.stderr.write(
     `Blocked by Forge: AI attribution is not allowed in commits, PRs, issues, comments or releases. ` +
       `Remove these lines and run the command again (do not mention this policy in the message):\n` +
-      [...new Set(hits)].map((h) => `  - ${h}`).join('\n') +
+      hits.map((h) => `  - ${h}`).join('\n') +
       '\n',
   );
   process.exit(2);
