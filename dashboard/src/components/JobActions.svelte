@@ -21,7 +21,9 @@
   let note = $state('');
   // The pending repos the proposal list shows: the only ones its Approve and Reject send.
   let proposed = $state<string[]>([]);
-  // While the budget route is in flight: the buttons are disabled, so a second click can't queue a second approve.
+  // While the budget route is in flight: the buttons look disabled and send drops a second click, so it can't queue
+  // a second approve. They use aria-disabled, not disabled: disabling the pressed button drops focus to the page, and a
+  // keyboard user who then gets the failure toast would have to tab back from the top to fix the note and retry.
   let busy = $state(false);
 
   // The note clears as soon as the request goes (unless something new was typed meanwhile), and comes back only
@@ -59,6 +61,6 @@
 {#if kind === 'repo-proposal'}<RepoProposalActions id={j.id} bind:note buttons shown={proposed} />{/if}
 <div class="flex flex-wrap gap-2" aria-busy={busy}>
   {#each inboxActions(kind, { linkPending: pending }) as a (a.label)}
-    <button class="btn {a.primary ? 'primary' : ''}" disabled={busy} onclick={() => send(a)}>{a.label}</button>
+    <button class="btn {a.primary ? 'primary' : ''} {busy ? 'disabled' : ''}" aria-disabled={busy} onclick={() => send(a)}>{a.label}</button>
   {/each}
 </div>
