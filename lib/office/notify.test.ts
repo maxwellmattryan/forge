@@ -1,6 +1,6 @@
 // Notifications follow registerNotify's hook, never an import: importing this module registers
 // nothing, a registered queue hears each new failure once, and its remover stops it. notify.command
-// runs with a configured command's environment and, under the daemon, /bin/sh.
+// runs with a configured command's environment and /bin/sh -c, in and out of the daemon.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { jobAt, tempRepo } from '../../test/helpers.ts';
@@ -39,19 +39,24 @@ test('notifications follow registerNotify, not imports', () => {
   }
 });
 
-test('notify.command gets the command environment and /bin/sh under the daemon', { skip: process.platform === 'win32' }, async () => {
+test('notify.command gets the command environment and /bin/sh -c in both modes', { skip: process.platform === 'win32' }, async () => {
   const repo = tempRepo();
   try {
     const out = path.join(repo.dir, 'notify-env.json');
     const template = `${JSON.stringify(process.execPath)} -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify(process.env))' ${JSON.stringify(out)}`;
     // A SHELL that does not exist: the command runs only if /bin/sh is used instead.
-    const base = { PATH: process.env.PATH, FORGE_DAEMON: '1', SHELL: '/nonexistent/sh', CMDENV_DB_SRC: 'planted-db-value', GH_TOKEN: 'planted-gh-value' };
+    const interactive: NodeJS.ProcessEnv = { PATH: process.env.PATH, SHELL: '/nonexistent/sh', CMDENV_DB_SRC: 'planted-db-value', GH_TOKEN: 'planted-gh-value' };
     const payload = buildPayload('gate', { job: 'j1', title: 'a title', stage: 'build', prUrl: null, reason: 'input' }, 'http://127.0.0.1:7400/#/pipeline');
-    const res = await runCommand(repo.dir, { secrets: { DB: { env: 'CMDENV_DB_SRC' } } }, template, payload, { env: base });
-    assert.deepEqual(res, { ok: true, attempts: 1 });
-    const dump = JSON.parse(fs.readFileSync(out, 'utf8'));
-    assert.equal(dump.FORGE_NOTIFY_EVENT, 'gate');
-    for (const k of ['CMDENV_DB_SRC', 'GH_TOKEN', 'FORGE_DAEMON']) assert.equal(dump[k], undefined, `${k} is not passed on`);
+    // loginShell is ignored here: notify.command always runs -c.
+    const config = { secrets: { DB: { env: 'CMDENV_DB_SRC' } }, commandEnv: { inherit: [], loginShell: true } };
+    for (const base of [interactive, { ...interactive, FORGE_DAEMON: '1' }]) {
+      fs.rmSync(out, { force: true });
+      const res = await runCommand(repo.dir, config, template, payload, { env: base });
+      assert.deepEqual(res, { ok: true, attempts: 1 }, JSON.stringify(base.FORGE_DAEMON));
+      const dump = JSON.parse(fs.readFileSync(out, 'utf8'));
+      assert.equal(dump.FORGE_NOTIFY_EVENT, 'gate');
+      for (const k of ['CMDENV_DB_SRC', 'GH_TOKEN', 'FORGE_DAEMON']) assert.equal(dump[k], undefined, `${k} is not passed on`);
+    }
   } finally {
     repo.cleanup();
   }

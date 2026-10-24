@@ -239,13 +239,14 @@ function notifyEnv(p: NotifyPayload): Record<string, string> {
 }
 
 /**
- * Runs notify.command once in the repo root, under `/bin/sh -c` in a daemon session, else the
- * POSIX shell with `-c` (commandShell); killed after timeoutMs. Not retried. Its environment is a
- * configured command's (commandEnv of `opts.env`, default this process's) plus the FORGE_NOTIFY_* variables.
+ * Runs notify.command once in the repo root, always under `/bin/sh -c` (commandShell without `login`,
+ * whatever commandEnv.loginShell says), in and out of the daemon; killed after timeoutMs. Not
+ * retried. Its environment is a configured command's (commandEnv of `opts.env`, default this
+ * process's) plus the FORGE_NOTIFY_* variables.
  */
 export function runCommand(
   root: string,
-  config: Pick<Config, 'secrets'>,
+  config: Pick<Config, 'secrets' | 'commandEnv'>,
   template: string,
   p: NotifyPayload,
   opts: { timeoutMs?: number; env?: NodeJS.ProcessEnv } = {},
@@ -264,7 +265,7 @@ export function runCommand(
     let child: ReturnType<typeof spawn>;
     try {
       // Detached into its own group, so a timeout kills whatever the script started too.
-      const sh = commandShell(commandSource(template), { env: base, login: false });
+      const sh = commandShell(commandSource(template), { env: base });
       child = spawn(sh.file, sh.args, { cwd: root, env: { ...commandEnv(config, base), ...notifyEnv(p) }, stdio: 'ignore', detached: process.platform !== 'win32' });
     } catch {
       return resolve({ ok: false, error: 'spawn', attempts: 1 });

@@ -13,7 +13,7 @@ import { createJob, listJobs, loadJob, logEvent, readEvents, setJob, jobDir } fr
 import { mergeTime } from './scoring.ts';
 import { configHash, pluginHash } from './provenance.ts';
 import { paths, exists, PLUGIN_ROOT } from '#core/paths.ts';
-import { commandShell } from '../guard/command-env.ts';
+import { commandShell, loginShell } from '../guard/command-env.ts';
 import { createWorktree } from '../workspace/worktree.ts';
 import { jobEnv } from '../workspace/job-command.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -298,9 +298,9 @@ export function gradeJob(root: string, config: Config, jobId: string): EvalResul
     if (applied && cmd) {
       const port = commandPort(config, job, jobComponent(config, job));
       const filled = fill(cmd, { ...endpointPlaceholders(jobEndpoints(root, config, job), { shell: true }), job: jobId, port: port ?? '', worktree: wt, args: '' });
-      // The same environment and shell as any configured command: no daemon markers, outer job
-      // variables or declared secret sources, and under the daemon no credentials or login profile.
-      const sh = commandShell(filled);
+      // The same environment and shell as any configured command: the allowlist, never a daemon
+      // marker, outer job variable or declared secret source, and the login profile only by config.
+      const sh = commandShell(filled, { login: loginShell(config) });
       const res = run(sh.file, sh.args, { cwd: wt, env: jobEnv(root, config, job, wt, port), allowFail: true });
       check.ran = true;
       check.pass = res.ok;

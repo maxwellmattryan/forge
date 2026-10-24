@@ -102,9 +102,10 @@ function defaultWhere(cmd: string, env: NodeJS.ProcessEnv): string | null {
 }
 
 /**
- * The shell configured command templates run under, as `<shell> -lc <cmd>`, outside the daemon; see
- * commandShell in lib/engine/guard/command-env.ts, which runs `/bin/sh -c` under it. Off Windows that is
- * $SHELL or /bin/sh. On Windows $SHELL is ignored, because Git Bash exports an MSYS path
+ * The login shell: what a configured command runs under as `<shell> -lc <cmd>` with
+ * `commandEnv.loginShell: true`, what `forge release run` steps run under, and what `forge dash`
+ * captures PATH from (commandShell in lib/engine/guard/command-env.ts runs `/bin/sh -c` otherwise,
+ * and on Windows this shell with `-c`). Off Windows that is $SHELL or /bin/sh. On Windows $SHELL is ignored, because Git Bash exports an MSYS path
  * (`/usr/bin/bash`) that spawn can't use; Git for Windows' sh is found on PATH or where its
  * installer puts it, and without one the templates can't run at all.
  */

@@ -1,61 +1,93 @@
-// What a configured command inherits: the daemon filter's table, commandEnv's daemon/interactive
-// pair, and the shell argv per mode and platform. Pure and in-process.
+// What a configured command inherits: the allowlist, the same in and out of the daemon,
+// commandEnv.inherit's rules, and the shell argv per login setting and platform. Pure and in-process.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { commandEnv, commandShell, daemonDrops } from './command-env.ts';
+import { commandEnv, commandShell, loginShell } from './command-env.ts';
 
-test('the daemon filter drops credentials and keeps the rest', () => {
-  const dropped = [
-    'GH_TOKEN',
-    'github_token',
-    'NPM_TOKEN',
-    'NODE_AUTH_TOKEN',
-    'CARGO_REGISTRY_TOKEN',
-    'CLIENT_SECRET',
-    'SECRET_KEY_BASE',
-    'PGPASSWORD',
-    'OPENAI_API_KEY',
-    'SIGNING_KEY',
-    'GITLAB_PAT',
-    'AWS_ACCESS_KEY_ID',
-    'AWS_SECRET_ACCESS_KEY',
-    'AWS_SESSION_TOKEN',
-    'OP_SESSION_my',
-    'SSH_AUTH_SOCK',
-    'DATABASE_URL',
-    'GOOGLE_APPLICATION_CREDENTIALS',
-    'KUBECONFIG',
-    'DOCKER_AUTH_CONFIG',
-    'GH_CONFIG_DIR',
-    'NETRC',
-    'BASH_ENV',
-    'ENV',
-    'ZDOTDIR',
-  ];
-  const kept = ['AWS_REGION', 'AWS_DEFAULT_REGION', 'AWS_PROFILE', 'PATH', 'HOME', 'SHELL', 'LANG', 'TMPDIR', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GIT_EDITOR', 'KEYBOARD', 'NODE_OPTIONS'];
-  for (const name of dropped) assert.equal(daemonDrops(name), true, `${name} is dropped`);
-  for (const name of kept) assert.equal(daemonDrops(name), false, `${name} is kept`);
+const EXACT = [
+  'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LANGUAGE', 'TZ', 'TMPDIR', 'TEMP', 'TMP', 'TERM', 'COLORTERM', 'NO_COLOR', 'FORCE_COLOR', 'CI',
+  'GIT_CONFIG_COUNT', 'GIT_EDITOR', 'GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL',
+  'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CONFIG_DIRS', 'XDG_DATA_DIRS',
+  'SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'COMSPEC', 'PATHEXT', 'USERPROFILE', 'USERNAME', 'USERDOMAIN', 'HOMEDRIVE', 'HOMEPATH',
+  'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'PROGRAMFILES', 'PROGRAMFILES(X86)', 'PROGRAMW6432',
+  'COMMONPROGRAMFILES', 'COMMONPROGRAMFILES(X86)', 'COMMONPROGRAMW6432', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'OS', 'MSYSTEM',
+];
+const PATTERNS = ['LC_ALL', 'LC_CTYPE', 'NODE_ENV', 'NODE_EXTRA_CA_CERTS', 'FORGE_MODE', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_12'];
+const DROPPED = [
+  'GH_TOKEN', 'AWS_SECRET_ACCESS_KEY', 'AWS_ACCESS_KEY_ID', 'AWS_REGION', 'AWS_PROFILE', 'NPM_TOKEN', 'NODE_AUTH_TOKEN', 'NODE_OPTIONS', 'SSH_AUTH_SOCK',
+  'DATABASE_URL', 'HTTP_PROXY', 'JAVA_HOME', 'BASH_ENV', 'ENV', 'ZDOTDIR', 'XDG_RUNTIME_DIR', 'GIT_DIR', 'GIT_SSH_COMMAND', 'npm_config_registry',
+  'CORP_SESSION_BLOB', 'FORGE_DAEMON_SCOPE', 'FORGE_DAEMON_TRUST', 'FORGE_PORT_WEB', 'FORGE_ENDPOINT_WEB', 'FORGE_BACKING_DB_URL',
+  'FORGE_COMMAND_PATH_SOURCE', 'FORGE_API_TOKEN', 'LC_SECRET', 'NODE_REGISTRY_PASSWORD', 'FORGE_GH_PAT', 'GIT_CONFIG_PARAMETERS', 'Path', 'home',
+];
 
-  const base = Object.fromEntries([...dropped, ...kept].map((k) => [k, 'v']));
-  const interactive = commandEnv({ secrets: {} }, base);
-  assert.deepEqual(Object.keys(interactive).sort(), Object.keys(base).sort(), 'outside the daemon the filter does not apply');
-  const daemon = commandEnv({ secrets: {} }, { ...base, FORGE_DAEMON: '1' });
-  assert.deepEqual(Object.keys(daemon).sort(), [...kept].sort(), 'under the daemon only the kept rows stay (the marker is stripped too)');
+test('commandEnv passes only the allowlist, the same in and out of the daemon', () => {
+  const kept = [...EXACT, ...PATTERNS];
+  const base: NodeJS.ProcessEnv = { PATH: '/usr/bin:/bin', ...Object.fromEntries([...kept, ...DROPPED].map((k) => [k, `v-${k}`])) };
+  const before = structuredClone(base);
+  const want = { PATH: '/usr/bin:/bin', ...Object.fromEntries(kept.map((k) => [k, `v-${k}`])) };
+  assert.deepEqual(commandEnv({ secrets: {} }, base, 'linux'), want, 'interactive');
+  assert.deepEqual(commandEnv({ secrets: {} }, { ...base, FORGE_DAEMON: '1' }, 'linux'), want, 'under the daemon');
+  assert.deepEqual(base, before, 'base is not mutated');
+
+  // The captured PATH wins over base.PATH, sanitised, and never reaches the command itself.
+  const captured = commandEnv({ secrets: {} }, { PATH: '/usr/bin', FORGE_COMMAND_PATH: '/cap/bin:.::/cap/bin:/usr/bin', FORGE_COMMAND_PATH_SOURCE: 'login-shell (/bin/zsh)' }, 'linux');
+  assert.deepEqual(captured, { PATH: '/cap/bin:/usr/bin' });
+  assert.deepEqual(commandEnv({ secrets: {} }, { PATH: '/a:./node_modules/.bin:/a' }, 'linux'), { PATH: '/a' }, 'base.PATH is sanitised too');
+  assert.deepEqual(commandEnv({ secrets: {} }, { HOME: '/h' }, 'linux'), { HOME: '/h' }, 'no PATH and no capture: no PATH');
 });
 
-test('commandShell runs /bin/sh -c under the daemon and the login shell otherwise', () => {
+test('commandEnv.inherit opts names back in, never internal variables, secret sources or credential-like glob matches', () => {
+  const base = {
+    JAVA_HOME: '/jdk',
+    MY_JAVA_HOME: 'x',
+    JAVA_KEYSTORE_PASSWORD: 'pw',
+    DATABASE_URL: 'postgres://x',
+    APP_SECRET_KEY: 'k',
+    APP_NAME: 'a',
+    CMDENV_DB_SRC: 'planted',
+    CMDENV_OTHER: 'o',
+    FORGE_DAEMON_SCOPE: 'j1',
+    FORGE_DAEMON: '1',
+    FORGE_BACKING_DB_URL: 'b',
+    FORGE_COMMAND_PATH: '/cap',
+  };
+  const env = (inherit: unknown[], platform: NodeJS.Platform = 'linux', b: NodeJS.ProcessEnv = base) =>
+    commandEnv({ secrets: { DB: { env: 'CMDENV_DB_SRC' } }, commandEnv: { inherit: inherit as string[] } }, b, platform);
+  const keys = (e: NodeJS.ProcessEnv) => Object.keys(e).filter((k) => k !== 'PATH').sort();
+  assert.deepEqual(keys(env(['JAVA_*', 'DATABASE_URL'])), ['DATABASE_URL', 'JAVA_HOME'], 'whole-name globs, never a credential-like match');
+  assert.deepEqual(keys(env(['APP_SECRET_KEY'])), ['APP_SECRET_KEY'], 'an exact name always passes');
+  assert.deepEqual(keys(env(['APP_*'])), ['APP_NAME'], 'a glob does not pass APP_SECRET_KEY');
+  assert.deepEqual(keys(env(['CMDENV_*'])), ['CMDENV_OTHER'], 'a declared source never passes');
+  assert.deepEqual(keys(env(['CMDENV_DB_SRC'])), [], 'not even by exact name');
+  assert.deepEqual(keys(env(['FORGE_DAEMON*', 'FORGE_DAEMON', 'FORGE_BACKING_*', 'FORGE_COMMAND_PATH'])), [], 'internal variables never pass');
+  assert.deepEqual(keys(env(['*', '**', '', 7, 'A B'])), [], 'entries validation refuses are ignored');
+  assert.equal(env([]).PATH, '/cap', 'the capture is still the PATH');
+
+  const win = { Path: 'C:\\a;;.\\x;C:\\A;D:\\b', JAVA_HOME: 'C:\\jdk', gh_token: 'g', SystemRoot: 'C:\\Windows', cmdenv_db_src: 'planted', Forge_Daemon: '1' };
+  assert.deepEqual(env(['java_*', 'CMDENV_*'], 'win32', win), { Path: 'C:\\a;D:\\b', JAVA_HOME: 'C:\\jdk', SystemRoot: 'C:\\Windows' }, 'win32 folds names and keeps their spelling');
+  assert.deepEqual(keys(env(['java_*'], 'linux', win)), [], 'off Windows names compare exactly');
+});
+
+test('commandShell runs /bin/sh -c unless commandEnv.loginShell', () => {
   const gitSh = 'C:\\Program Files\\Git\\bin\\sh.exe';
   const win = { platform: 'win32' as const, where: () => null, exists: (p: string) => p === gitSh };
   const rows: [string, Parameters<typeof commandShell>[1], { file: string; args: string[] }][] = [
-    ['daemon on linux', { env: { FORGE_DAEMON: '1', SHELL: '/bin/zsh' }, platform: 'linux' }, { file: '/bin/sh', args: ['-c', 'cmd'] }],
-    ['daemon on darwin', { env: { FORGE_DAEMON: '1', SHELL: '/bin/zsh' }, platform: 'darwin' }, { file: '/bin/sh', args: ['-c', 'cmd'] }],
-    ['daemon ignores login: false', { env: { FORGE_DAEMON: '1', SHELL: '/bin/zsh' }, platform: 'linux', login: false }, { file: '/bin/sh', args: ['-c', 'cmd'] }],
-    ['no marker', { env: { SHELL: '/bin/zsh' }, platform: 'darwin' }, { file: '/bin/zsh', args: ['-lc', 'cmd'] }],
-    ['a marker other than 1', { env: { FORGE_DAEMON: '0', SHELL: '/bin/zsh' }, platform: 'linux' }, { file: '/bin/zsh', args: ['-lc', 'cmd'] }],
-    ['SHELL unset', { env: {}, platform: 'linux' }, { file: '/bin/sh', args: ['-lc', 'cmd'] }],
-    ['login: false outside the daemon', { env: { SHELL: '/bin/zsh' }, platform: 'linux', login: false }, { file: '/bin/zsh', args: ['-c', 'cmd'] }],
-    ['win32 without the marker', { ...win, env: { ProgramFiles: 'C:\\Program Files' } }, { file: gitSh, args: ['-lc', 'cmd'] }],
-    ['win32 with the marker', { ...win, env: { ProgramFiles: 'C:\\Program Files', FORGE_DAEMON: '1' } }, { file: gitSh, args: ['-lc', 'cmd'] }],
+    ['linux', { env: { SHELL: '/bin/zsh' }, platform: 'linux' }, { file: '/bin/sh', args: ['-c', 'cmd'] }],
+    ['darwin', { env: { SHELL: '/bin/zsh' }, platform: 'darwin' }, { file: '/bin/sh', args: ['-c', 'cmd'] }],
+    ['linux under the daemon', { env: { FORGE_DAEMON: '1', SHELL: '/bin/zsh' }, platform: 'linux' }, { file: '/bin/sh', args: ['-c', 'cmd'] }],
+    ['darwin under the daemon', { env: { FORGE_DAEMON: '1', SHELL: '/bin/zsh' }, platform: 'darwin' }, { file: '/bin/sh', args: ['-c', 'cmd'] }],
+    ['login: false', { env: { SHELL: '/bin/zsh' }, platform: 'linux', login: false }, { file: '/bin/sh', args: ['-c', 'cmd'] }],
+    ['login', { env: { SHELL: '/bin/zsh' }, platform: 'darwin', login: true }, { file: '/bin/zsh', args: ['-lc', 'cmd'] }],
+    ['login under the daemon', { env: { SHELL: '/bin/zsh', FORGE_DAEMON: '1' }, platform: 'linux', login: true }, { file: '/bin/zsh', args: ['-lc', 'cmd'] }],
+    ['login with SHELL unset', { env: {}, platform: 'linux', login: true }, { file: '/bin/sh', args: ['-lc', 'cmd'] }],
+    ['win32', { ...win, env: { ProgramFiles: 'C:\\Program Files' } }, { file: gitSh, args: ['-c', 'cmd'] }],
+    ['win32 under the daemon', { ...win, env: { ProgramFiles: 'C:\\Program Files', FORGE_DAEMON: '1' } }, { file: gitSh, args: ['-c', 'cmd'] }],
+    ['win32 login', { ...win, env: { ProgramFiles: 'C:\\Program Files' }, login: true }, { file: gitSh, args: ['-lc', 'cmd'] }],
   ];
   for (const [name, opts, want] of rows) assert.deepEqual(commandShell('cmd', opts), want, name);
+
+  const cfg = (commandEnv: unknown) => ({ commandEnv }) as Parameters<typeof loginShell>[0];
+  assert.equal(loginShell(cfg({ inherit: [], loginShell: true })), true);
+  for (const v of [{ loginShell: false }, { loginShell: 'true' }, { loginShell: 1 }, {}, null, undefined]) assert.equal(loginShell(cfg(v)), false, JSON.stringify(v));
+  assert.equal(loginShell(null), false);
 });
