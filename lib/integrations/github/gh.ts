@@ -6,6 +6,9 @@ import { ForgeError } from '#core/errors.ts';
 import { run, timedOutMessage } from '#core/os/process.ts';
 import type { RunResult } from '#core/os/process.ts';
 
+/** An `owner/name` repository, safe as `-R`: one slash, no spaces or shell or URL metacharacters. */
+export const SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+
 /** The default: `pr create` and `project item-list --limit 1000` can take several seconds. */
 export const GH_TIMEOUT_MS = 60_000;
 

@@ -5,7 +5,8 @@
 import fs from 'node:fs';
 import { ForgeError } from '#core/errors.ts';
 import { parseClosing, parseFeedback, parsePr, parsePrBody } from '#integrations/github/pull-requests.ts';
-import type { GitHub } from '#integrations/github/types.ts';
+import { parseHeadChecks } from '#integrations/github/protection.ts';
+import type { BranchRules, GitHub } from '#integrations/github/types.ts';
 
 /** One adapter call as the memory GitHub saw it. */
 export interface GitHubCall {
@@ -43,7 +44,11 @@ export interface MemoryGitHub extends GitHub {
   setFeedback(number: number, pullRequestNode: unknown, slug?: string): void;
   /** GitHub's closedByPullRequestsReferences nodes for issue `issue`. */
   setClosing(issue: number, nodes: unknown, slug?: string): void;
-  /** Every later call of `op` fails with `error` (null clears it): reads and edits throw, merge returns it. */
+  /** What branchRules answers for `base` (else every check optional: read, no checks, no reviews). */
+  setBranchRules(base: string, rules: BranchRules, slug?: string): void;
+  /** HEAD_CHECKS_QUERY's raw `.data` for commit `sha`, read through parseHeadChecks (else no checks, complete). */
+  setHeadChecks(sha: string, data: unknown, slug?: string): void;
+  /** Every later call of `op` fails with `error` (null clears it): reads and edits throw, merge returns it, branchRules answers unavailable. */
   fail(op: keyof GitHub, error: string | null): void;
   /** The raw record stored for PR `number`. */
   record(number: number, slug?: string): Record<string, unknown> | undefined;
@@ -54,6 +59,8 @@ export function memoryGitHub({ slug: home = 'o/r' }: { slug?: string } = {}): Me
   const prs = new Map<string, Record<string, unknown>>();
   const feedback = new Map<string, unknown>();
   const closing = new Map<string, unknown>();
+  const rules = new Map<string, BranchRules>();
+  const heads = new Map<string, unknown>();
   const failing = new Map<keyof GitHub, string>();
   const calls: GitHubCall[] = [];
   const key = (slug: string, n: number) => `${slug}#${n}`;
@@ -84,6 +91,12 @@ export function memoryGitHub({ slug: home = 'o/r' }: { slug?: string } = {}): Me
     },
     setClosing(issue, nodes, slug = home) {
       closing.set(key(slug, issue), nodes);
+    },
+    setBranchRules(base, r, slug = home) {
+      rules.set(`${slug}\0${base}`, r);
+    },
+    setHeadChecks(sha, data, slug = home) {
+      heads.set(`${slug}@${sha}`, data);
     },
     fail(op, error) {
       if (error === null) failing.delete(op);
@@ -153,5 +166,16 @@ export function memoryGitHub({ slug: home = 'o/r' }: { slug?: string } = {}): Me
       else Object.assign(r, { state: 'MERGED', mergedAt: new Date().toISOString() });
       return { ok: true };
     },
+    branchRules(_cwd, slug, base) {
+      calls.push({ op: 'branchRules', slug, base });
+      const error = failing.get('branchRules');
+      if (error !== undefined) return { status: 'unavailable', checks: [], reviews: null, error };
+      return structuredClone(rules.get(`${slug}\0${base}`) ?? { status: 'read', checks: [], reviews: 0 });
+    },
+    headChecks: (_cwd, slug, sha) =>
+      read('headChecks', { slug, sha }, () => {
+        const k = `${slug}@${sha}`;
+        return heads.has(k) ? parseHeadChecks(heads.get(k)) : { checks: [], complete: true };
+      }),
   };
 }

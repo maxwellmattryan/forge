@@ -7,18 +7,18 @@ import { hasBinary } from '#core/os/process.ts';
 import type { RunResult } from '#core/os/process.ts';
 import { SAFE_REF, isSha, safeText } from '#core/text.ts';
 import type { Config, PrChecks } from '#core/types.ts';
-import { gh, graphqlArgs, parseJsonOutput } from './gh.ts';
+import { SLUG_RE, gh, graphqlArgs, parseJsonOutput } from './gh.ts';
+import { HEAD_CHECKS_QUERY, parseHeadChecks, readBranchRules } from './protection.ts';
 import type { ClosingPr, FeedbackComment, FeedbackReview, FeedbackThread, GitHub, PrBody, PrFeedback, PrSnapshot, PrState } from './types.ts';
 
-export type { ClosingPr, FeedbackComment, FeedbackReview, FeedbackThread, GitHub, MergeOutcome, PrBody, PrCreate, PrFeedback, PrSnapshot, PrState } from './types.ts';
+export type { BranchRules, CheckObservation, ClosingPr, FeedbackComment, FeedbackReview, FeedbackThread, GitHub, HeadChecks, MergeOutcome, PrBody, PrCreate, PrFeedback, PrSnapshot, PrState, RequiredCheck } from './types.ts';
+export { SLUG_RE };
 
 export const MARKER = '<!-- forge -->';
 
 const TRUSTED_ASSOCIATIONS: ReadonlySet<unknown> = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 
 export const PR_STATES = new Set(['OPEN', 'CLOSED', 'MERGED']);
-
-export const SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
 export const safePrNumber = (n: unknown): number | null => (typeof n === 'number' && Number.isSafeInteger(n) && n > 0 ? n : null);
 
@@ -151,7 +151,8 @@ export function parseFeedback(data: unknown): PrFeedback {
   return { threads, reviews, comments, trusted };
 }
 
-const FAILING_STATES = ['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE'];
+/** The check states that count as failing, in the rollup and for a required check. */
+export const FAILING_STATES: readonly string[] = ['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE'];
 const checkState = (c: unknown): string => String(dig(c, 'conclusion') || dig(c, 'state') || dig(c, 'status') || '').toUpperCase();
 
 /** gh's statusCheckRollup (raw input) counted as passing, failing and pending. */
@@ -264,6 +265,12 @@ export function createGhGitHub(run: GhRun = gh): GitHub {
       if (opts.matchHead) args.push('--match-head-commit', opts.matchHead);
       const r = run(cwd, args, { allowFail: true });
       return r.ok ? { ok: true } : { ok: false, error: (r.stderr || r.stdout).trim() };
+    },
+    branchRules: (cwd, slug, base) => readBranchRules(run, cwd, slug, base),
+    headChecks(cwd, slug, sha) {
+      if (!SLUG_RE.test(slug) || !isSha(sha)) throw new ForgeError(`gh api graphql: refusing to read checks for ${JSON.stringify(slug).slice(0, 80)} at ${JSON.stringify(sha).slice(0, 80)}`, 'external');
+      const [owner, name] = slug.split('/');
+      return parseHeadChecks(dig(json(cwd, graphqlArgs(HEAD_CHECKS_QUERY, { owner, name, oid: sha })), 'data'));
     },
   };
 }

@@ -92,6 +92,45 @@ export interface PrCreate {
   reviewers: readonly string[];
 }
 
+/** A check a base branch's protection (a ruleset or classic protection) requires; appId null: any source. */
+export interface RequiredCheck {
+  name: string;
+  appId: number | null;
+}
+
+/**
+ * A base branch's required checks and approving-review count: readBranchRules. `unavailable`: the
+ * reads could not tell (`error` is gh's first line); `reviews` null: the count could not be read.
+ */
+export interface BranchRules {
+  status: 'read' | 'unavailable';
+  checks: RequiredCheck[];
+  reviews: number | null;
+  error?: string;
+}
+
+/**
+ * One check reported on a commit: a check run (its app and workflow file) or a commit status (who
+ * posted it). `state` is the conclusion of a finished run, else its status, upper-case. `at` is when
+ * it finished (else started) for a run, when it was posted for a status.
+ */
+export interface CheckObservation {
+  name: string;
+  kind: 'check-run' | 'status';
+  appId: number | null;
+  app: string | null;
+  workflow: string | null;
+  creator: string | null;
+  state: string;
+  at: string | null;
+}
+
+/** A commit's checks: parseHeadChecks. `complete` false: GitHub had more than one page, or the answer had no commit. */
+export interface HeadChecks {
+  checks: CheckObservation[];
+  complete: boolean;
+}
+
 /** A merge GitHub refused is an answer, not an exception: `error` is gh's output (raw text). */
 export type MergeOutcome = { ok: true } | { ok: false; error: string };
 
@@ -115,4 +154,8 @@ export interface GitHub {
   editBody(cwd: string, slug: string, number: number, bodyFile: string): void;
   ready(cwd: string, slug: string, number: number): void;
   merge(cwd: string, slug: string, number: number, opts: { method: string; auto: boolean; matchHead: string | null }): MergeOutcome;
+  /** `base`'s required checks and review count in `slug`. Never throws: a read that fails is in the answer. */
+  branchRules(cwd: string, slug: string, base: string): BranchRules;
+  /** Commit `sha`'s check runs and statuses in `slug`, in one GraphQL read. */
+  headChecks(cwd: string, slug: string, sha: string): HeadChecks;
 }
