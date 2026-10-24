@@ -11,8 +11,8 @@ Obey these on every change; each links the section with the detail.
 - **Version every shape change**: append a named step to its version list in `lib/core/versions/`, and to `API_CHANGES` in `lib/api/versions.ts` when `/api/*` changes; on conflict keep both, in merge order ([Rules](docs/DEVELOPING.md#rules), [Where a change goes](docs/DEVELOPING.md#where-a-change-goes)).
 - **Never add AI attribution** to commits, PRs, issues or comments ([Rules](docs/DEVELOPING.md#rules)).
 - **Preserve the security posture**: never adopt fork PRs; the server answers loopback Hosts only; POSTs need the token, a matching Origin and JSON; tracker and PR text is fenced as data ([Rules](docs/DEVELOPING.md#rules)).
-- **Work on `develop`**: branch from it and open PRs into it; `main` takes only the main update and hotfixes ([Publishing](docs/DEVELOPING.md#publishing)).
-- **Never commit `dashboard/dist/`** or hand-edit it: it is a gitignored build; run `npm run build:dashboard` to check it. CI builds it for the main update into `main` ([Rules](docs/DEVELOPING.md#rules)).
+- **Work on `develop`**: branch from it and open PRs into it; `main` takes only release PRs and hotfix PRs, from `release/v<version>` branches ([Publishing](docs/DEVELOPING.md#publishing)).
+- **Never commit `dashboard/dist/`** or hand-edit it: it is a gitignored build; run `npm run build:dashboard` to check it. CI builds it for the main update that the release PR carries into `main` ([Rules](docs/DEVELOPING.md#rules)).
 - **Escape everything the dashboard renders**: `{@html}` only on the escape-first helpers ([dashboard/AGENTS.md](dashboard/AGENTS.md)).
 - **Touching `dashboard/`?** Read [dashboard/AGENTS.md](dashboard/AGENTS.md) first: its look, i18n, Tailwind and escaping rules.
 - **Never point the CLI at a real repo's `.forge/`** while developing: use a scratch repo or `FORGE_ROOT` ([Verify](#verify-before-claiming-it-works)).

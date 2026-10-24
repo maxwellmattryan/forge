@@ -1,7 +1,12 @@
-# Forge's release: on a push to main that changes the package.json version and has no v<version> tag
-# yet, run all of ci.yml, build a source archive stamped with its commit, tag the pushed commit and
-# publish a GitHub Release whose body is that version's CHANGELOG section. Any other push stops after
-# detect. test/invariants/release-workflow.test.ts pins this file; docs/RELEASES.md explains the flow.
+# Forge's release: a push to main that changes the package.json version and has no v<version> tag yet,
+# which is a human merging a release PR with a merge commit (docs/RELEASES.md "Releasing"). detect, verify
+# and build hold a read-only token: verify runs all of ci.yml, and build writes the Release notes (the
+# merged commit's CHANGELOG section) and a source archive stamped with its commit, and uploads both as the
+# release-files artifact. Only the release job holds a write token, and it runs nothing but gh: it
+# downloads this run's files, checks that the pushed commit is the merge commit of this repository's
+# release/v<version> PR into main, tags that commit and publishes the GitHub Release. Any other push stops
+# after detect, and a bumped push with no release PR publishes nothing.
+# test/invariants/release-workflow.test.ts pins this file.
 name: Release
 
 on:
@@ -49,14 +54,12 @@ jobs:
     if: needs.detect.outputs.release == 'true'
     uses: ./.github/workflows/ci.yml
 
-  release:
-    name: release
-    needs: [detect, verify]
+  build:
+    name: build
+    needs: detect
     if: needs.detect.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions:
-      contents: write
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,30 +70,78 @@ jobs:
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
+      # The notes are frozen in the release commit and reviewed in the PR diff; the PR body is never read.
       - name: Write release notes
-        run: node scripts/release-plan.ts notes > "$RUNNER_TEMP/notes.md"
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          node scripts/release-plan.ts notes > "$RUNNER_TEMP/release/notes.md"
       - name: Build the source archive
         env:
           VERSION: ${{ needs.detect.outputs.version }}
         run: |
-          archive="$RUNNER_TEMP/forge-$VERSION.tar.gz"
+          mkdir -p "$RUNNER_TEMP/release"
+          archive="$RUNNER_TEMP/release/forge-$VERSION.tar.gz"
           git archive --format=tar.gz --prefix="forge-$VERSION/" -o "$archive" "$GITHUB_SHA"
           stamped="$(tar -xzOf "$archive" "forge-$VERSION/COMMIT")"
           if [ "$stamped" != "$GITHUB_SHA" ]; then
             echo "::error title=Unstamped archive::COMMIT in the archive is not $GITHUB_SHA"
             exit 1
           fi
-          cd "$RUNNER_TEMP"
-          sha256sum "forge-$VERSION.tar.gz" > "forge-$VERSION.tar.gz.sha256"
+      - name: Upload the release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: ${{ runner.temp }}/release
+          if-no-files-found: error
+          retention-days: 7
+
+  # No checkout, no action and no node: the write token sits beside gh and nothing else.
+  release:
+    name: release
+    needs: [detect, verify, build]
+    if: needs.detect.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download the release files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.detect.outputs.version }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name release-files --dir "$RUNNER_TEMP/release"
+          test -s "$RUNNER_TEMP/release/notes.md"
+          test -s "$RUNNER_TEMP/release/forge-$VERSION.tar.gz"
+      # The filter reads only env inside a single-quoted program, so no API value reaches the shell but the
+      # number, which must be digits.
+      - name: Find the release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.detect.outputs.version }}
+        run: |
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '[.[] | select(.merged_at != null and .base.ref == "main" and .head.ref == ("release/v" + env.VERSION) and .head.repo.full_name == env.GITHUB_REPOSITORY and .merge_commit_sha == env.GITHUB_SHA)] | if length == 1 then .[0].number else empty end')"
+          case "$pr" in
+            ''|*[!0-9]*)
+              echo "::error title=No release PR::$GITHUB_SHA is not the merge commit of exactly one release/v$VERSION PR from this repository into main"
+              exit 1
+              ;;
+          esac
+          printf '\nRelease PR: %s/%s/pull/%s\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$pr" >> "$RUNNER_TEMP/release/notes.md"
       - name: Create the annotated tag
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.detect.outputs.version }}
         run: |
           tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags" -f tag="v$VERSION" -f message="Forge $VERSION" -f object="$GITHUB_SHA" -f type=commit --jq .sha)"
+          if ! [[ "$tag_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=No tag object::the tag object for v$VERSION was not created"
+            exit 1
+          fi
           gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/v$VERSION" -f sha="$tag_sha" > /dev/null
       - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.detect.outputs.version }}
-        run: gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --verify-tag --title "Forge $VERSION" --notes-file "$RUNNER_TEMP/notes.md" "$RUNNER_TEMP/forge-$VERSION.tar.gz" "$RUNNER_TEMP/forge-$VERSION.tar.gz.sha256"
+        run: gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --verify-tag --target "$GITHUB_SHA" --title "Forge $VERSION" --notes-file "$RUNNER_TEMP/release/notes.md" "$RUNNER_TEMP/release/forge-$VERSION.tar.gz"
