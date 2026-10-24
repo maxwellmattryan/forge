@@ -5,7 +5,7 @@
 // resolves the mode once per process (docs/CLI.md "Output mode").
 // Command groups live in lib/cli/commands/; this file only routes.
 import { daemonTrust, loadConfig } from '#core/config/load.ts';
-import { refuseDaemonMerge, refuseInboxDrive } from '#office/owner.ts';
+import { refuseBrokenScope, refuseDaemonMerge, refuseInboxDrive } from '#office/owner.ts';
 import { registerNotify } from '#office/notify.ts';
 import { NEED_INIT } from '#core/config/set.ts';
 import { detect } from '#engine/ops/detect.ts';
@@ -111,6 +111,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
   const { pos, flags } = parseArgs(argv);
   const [cmd, sub, ...rest] = pos;
   if (process.env.FORGE_DAEMON === '1') {
+    refuseBrokenScope();
     const rewrite = cmd === 'init' && sub === 'write' ? 'init write' : cmd === 'migrate' ? 'migrate' : cmd === 'config' && sub === 'set' ? 'config set' : null;
     if (rewrite) throw new ForgeError(`forge ${rewrite} rewrites .forge/config.yml, which a daemon session may not do; a human runs it in their own session`);
   }

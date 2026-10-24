@@ -30,6 +30,15 @@ export function refuseInboxOrOffice(hint: string, env: NodeJS.ProcessEnv = proce
 }
 
 /**
+ * In a daemon session, a missing, empty or invalid scope refuses every command: the per-command
+ * checks would otherwise read it as "not the office" and let the session slip past them.
+ */
+export function refuseBrokenScope(env: NodeJS.ProcessEnv = process.env): void {
+  const scope = daemonScope(env);
+  if ('problem' in scope) throw new ForgeError(scope.problem, 1);
+}
+
+/**
  * Refuses in the office session: it claims no job and merges nothing, whatever a request or PR text
  * says. A daemon session whose scope is missing or invalid is refused too: it can't be told apart
  * from the office, so it fails closed.

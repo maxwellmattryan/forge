@@ -217,6 +217,12 @@ const EVENT_ROWS: Row[] = [
     removed: ['autoMerge', 'head', 'heads'],
     note: 'a decision from before the head binding keeps its fields and gains no head, so it is never eligible',
   },
+  {
+    step: 'actor-source-daemon',
+    input: { ts: 't', type: 'human', action: 'approve', actor: { login: 'al', source: 'daemon' } },
+    fields: { type: 'human', ts: 't', action: 'approve', actor: { login: 'al', source: 'daemon' } },
+    note: 'an actor recorded by a daemon session keeps source daemon',
+  },
 ];
 
 /** One versioned shape: its rows, its step list, its current version, the field that holds it, and its reader. */
