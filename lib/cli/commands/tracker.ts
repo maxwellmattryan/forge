@@ -36,7 +36,7 @@ const TRACKER_EXITS: [1 | 5, string][] = [
   [1, 'the tracker refused the call, no such item or job, or a likely secret in the text Forge would send (code secret_found)'],
   [5, 'gh failed (GitHub tracker)'],
 ];
-const BODY: [string, string][] = [['--body B', 'the text'], ['--body-file F', 'read the text from F (- for stdin)']];
+const BODY: [string, string][] = [['--body B', 'the text'], ['--body-file F', "read the text from F (- for stdin); in a daemon session F must be inside the session job's folder or worktree"]];
 
 const TRACKER: HelpGroup = {
   name: 'tracker',
@@ -141,10 +141,10 @@ export async function trackerCmd(root: string, config: Config, sub: string | und
       tracker.update(ctx, req(rest[0], 'ref'), loadJob(root, req(rest[1], 'job id')));
       return { ok: true };
     case 'comment':
-      tracker.comment(ctx, req(rest[0], 'ref'), bodyFrom(flags));
+      tracker.comment(ctx, req(rest[0], 'ref'), bodyFrom(flags, root, config));
       return { ok: true };
     case 'create':
-      return tracker.create(ctx, { title: req(flags.title, '--title'), body: bodyFrom(flags), labels: list(flags.label), parentRef: flags.parent ?? null });
+      return tracker.create(ctx, { title: req(flags.title, '--title'), body: bodyFrom(flags, root, config), labels: list(flags.label), parentRef: flags.parent ?? null });
     case 'close':
       tracker.close(ctx, req(rest[0], 'ref'), { reason: flags.reason });
       return { ok: true };
