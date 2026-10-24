@@ -2,7 +2,7 @@
 // effectiveLimits/measureBudget/exceededKeys in lib/engine/metrics/budget.ts (the dashboard cannot import lib/).
 // No DOM access, so node:test can import it. The view models return raw strings: BudgetChip, BudgetCell and
 // BudgetPanel render them, and Svelte escapes them. The budget gate's Approve builds its POST /api/jobs/:id/budget
-// body from the note here.
+// body from the note, and decides whether to queue its approve request, here.
 import { num, usd, ago } from './util.ts';
 import type { BudgetKey, BudgetLimits, DaemonJobBudget, Job, PostJobBudgetBody, PostJobBudgetResponse } from './types.ts';
 
@@ -175,6 +175,28 @@ export async function postJobBudget(id: string, body: PostJobBudgetBody, token: 
   const error = parsed && typeof parsed === 'object' && typeof (parsed as { error?: unknown }).error === 'string' ? (parsed as { error: string }).error : '';
   if (!res.ok) throw new Error(error || text || res.statusText);
   return parsed as PostJobBudgetResponse;
+}
+
+/** Whether the budget gate's Approve goes on to queue the approve request, or toasts this (bad) text and keeps the note. */
+export type BudgetApproveOutcome = { proceed: true } | { toast: string };
+
+/** The toast texts budgetApprove picks from; the caller translates them (inbox.budgetStillOver, inbox.budgetFailed). */
+export interface BudgetApproveMessages {
+  stillOver: (keys: string) => string;
+  failed: (error: string) => string;
+}
+
+/**
+ * The budget gate's Approve, before its approve request: raise (the note's key=value limits) or acknowledge the budget
+ * through the budget route. It proceeds only when that worked and no key is still over.
+ */
+export async function budgetApprove(id: string, note: string, token: string, msg: BudgetApproveMessages, fetchImpl: typeof fetch = fetch): Promise<BudgetApproveOutcome> {
+  try {
+    const r = await postJobBudget(id, budgetApproveBody(note), token, fetchImpl);
+    return r.stillExceeded.length ? { toast: msg.stillOver(r.stillExceeded.join(', ')) } : { proceed: true };
+  } catch (err) {
+    return { toast: msg.failed(err instanceof Error ? err.message : String(err)) };
+  }
 }
 
 /** The drawer's Budget card (and, compact, the budget gate's rows): one row per BUDGET_KEYS entry and the checked line, null when compact. */
