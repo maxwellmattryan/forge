@@ -7,7 +7,10 @@
   import IssueLinkActions from './IssueLinkActions.svelte';
   import RepoProposalActions from './RepoProposalActions.svelte';
   import { inboxActions, inboxKind, notePlaceholder, showsNote, specLinkPending, type InboxAction } from '../lib/inbox.ts';
-  import { req } from '../lib/app.svelte.ts';
+  import { budgetApproveBody, postJobBudget } from '../lib/budget.ts';
+  import { forgeToken, req } from '../lib/app.svelte.ts';
+  import { toast } from '../lib/toast.svelte.ts';
+  import { t } from '../lib/locale.ts';
   import type { Job } from '../lib/types.ts';
 
   let { job: j, noteId }: { job: Pick<Job, 'id' | 'state' | 'waitingOn' | 'reason' | 'issues' | 'noIssue'>; noteId: string } = $props();
@@ -20,8 +23,18 @@
   let proposed = $state<string[]>([]);
 
   // The note clears as soon as the request goes, and comes back only if it failed and nothing new was typed.
-  function send(a: InboxAction): void {
+  // Approve on a budget gate first raises (the note's key=value limits) or acknowledges the budget through the
+  // budget route; when that fails or a key is still over, nothing is queued and the note stays.
+  async function send(a: InboxAction): Promise<void> {
     const text = note;
+    if (kind === 'budget' && a.type === 'approve') {
+      try {
+        const r = await postJobBudget(j.id, budgetApproveBody(text), forgeToken());
+        if (r.stillExceeded.length) return toast($t('inbox.budgetStillOver', { keys: r.stillExceeded.join(', ') }), true);
+      } catch (err) {
+        return toast($t('inbox.budgetFailed', { error: err instanceof Error ? err.message : String(err) }), true);
+      }
+    }
     const sending = req({ type: a.type, job: j.id, note: showsNote(kind) ? text : null, needsNote: a.needsNote, fixedText: a.text ?? null });
     if (!sending) return;
     note = '';

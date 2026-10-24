@@ -1,9 +1,10 @@
 // Per-job budget use, derived client-side from fields /api/state already serves. Mirrors
 // effectiveLimits/measureBudget/exceededKeys in lib/engine/metrics/budget.ts (the dashboard cannot import lib/).
 // No DOM access, so node:test can import it. The view models return raw strings: BudgetChip, BudgetCell and
-// BudgetPanel render them, and Svelte escapes them.
+// BudgetPanel render them, and Svelte escapes them. The budget gate's Approve builds its POST /api/jobs/:id/budget
+// body from the note here.
 import { num, usd, ago } from './util.ts';
-import type { BudgetKey, BudgetLimits, DaemonJobBudget, Job } from './types.ts';
+import type { BudgetKey, BudgetLimits, DaemonJobBudget, Job, PostJobBudgetBody, PostJobBudgetResponse } from './types.ts';
 
 export const BUDGET_KEYS = ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries'] as const satisfies readonly BudgetKey[];
 export const BUDGET_LABELS = { tokens: 'Tokens', usd: 'Est. cost', minutes: 'Agent minutes', changedLines: 'Changed lines', verifyRetries: 'Verify retries' };
@@ -139,6 +140,41 @@ function rowView(r: BudgetRow): BudgetRowView {
   }
   const bar = r.tone && r.fraction !== null ? { tone: r.tone, width: Math.round(Math.min(Math.max(r.fraction, 0), 1) * 100) } : null;
   return { key: r.key, label: r.label, value, note, bad: r.tone === 'bad', bar };
+}
+
+const NOTE_SET = /^(tokens|usd|minutes|changedLines|verifyRetries)=\S+$/;
+
+/** The budget gate note's `key=value` words for budget keys, the last one per key, in first-seen key order. */
+export function budgetNoteSets(note: string): string[] {
+  const byKey = new Map<string, string>();
+  for (const word of String(note ?? '').split(/[\s,]+/)) {
+    const m = NOTE_SET.exec(word);
+    if (m) byKey.set(m[1], word);
+  }
+  return [...byKey.values()];
+}
+
+/** What the budget gate's Approve POSTs: the limits its note names, else an acknowledgement. */
+export function budgetApproveBody(note: string): PostJobBudgetBody {
+  const set = budgetNoteSets(note);
+  return set.length ? { set } : { ack: true };
+}
+
+/** POST /api/jobs/:id/budget. Throws with the server's `error` field, else its text, else the status text. */
+export async function postJobBudget(id: string, body: PostJobBudgetBody, token: string, fetchImpl: typeof fetch = fetch): Promise<PostJobBudgetResponse> {
+  const res = await fetchImpl(`/api/jobs/${encodeURIComponent(id)}/budget`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-forge-token': token },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {}
+  const error = parsed && typeof parsed === 'object' && typeof (parsed as { error?: unknown }).error === 'string' ? (parsed as { error: string }).error : '';
+  if (!res.ok) throw new Error(error || text || res.statusText);
+  return parsed as PostJobBudgetResponse;
 }
 
 /** The drawer's Budget card (and, compact, the budget gate's rows): one row per BUDGET_KEYS entry and the checked line, null when compact. */

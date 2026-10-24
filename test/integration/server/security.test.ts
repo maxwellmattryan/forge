@@ -1,6 +1,7 @@
 // The dashboard server's request guards: it answers loopback Hosts only, its POSTs need the token,
 // a matching Origin and a JSON body (docs/architecture/dashboard-security.md), and a resume bounces
-// off a live lease only when that lease is not the job's own pool session's. Kept through the test
+// off a live lease only when that lease is not the job's own pool session's; the job budget route lifts
+// a budget only for a well-formed body, as the dashboard. Kept through the test
 // rewrite (docs/test-rewrite/README.md): the security posture AGENTS.md says to preserve.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -200,7 +201,7 @@ test('every guarded route refuses before its handler runs', async () => {
     const rows: Row[] = [];
     // Invalid JSON: a guard that ran after the body parse would answer 400 instead.
     const body = '{"x":';
-    const posts = ['/api/jobs', '/api/requests', '/api/config', '/api/budget/ack', '/api/daemon', '/api/daemon/permission', '/api/daemon/mode', '/api/focus', ...['effort', 'delete', 'merge', 'repos', 'environment', 'run', 'editor'].map((s) => `/api/jobs/j-1/${s}`)];
+    const posts = ['/api/jobs', '/api/requests', '/api/config', '/api/budget/ack', '/api/daemon', '/api/daemon/permission', '/api/daemon/mode', '/api/focus', ...['effort', 'budget', 'delete', 'merge', 'repos', 'environment', 'run', 'editor'].map((s) => `/api/jobs/j-1/${s}`)];
     for (const p of posts) {
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': 'wrong', origin, 'content-type': 'application/json' }, status: 403, text: 'bad token' });
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': token, 'content-type': 'application/json' }, status: 403, text: 'bad origin' });
@@ -242,6 +243,49 @@ test('every guarded route refuses before its handler runs', async () => {
     const covered = new Set(rows.map((r) => matchRoute(ROUTES, r.method, r.path.split('?')[0])?.route));
     const missing = ROUTES.filter((r) => (r.method === 'POST' || r.guards?.length) && !covered.has(r)).map((r) => `${r.method} ${r.path}`);
     assert.deepEqual(missing, [], 'every guarded route has a row');
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
+test('the job budget route raises or acknowledges as the dashboard', async () => {
+  const repo = tempRepo();
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: daemonKit().opts });
+  const port = Number(new URL(url).port);
+  try {
+    const id = createJob(repo.dir, loadConfig(repo.dir).config, { title: 'over budget' }).id;
+    updateJob(repo.dir, id, (j) => {
+      j.budget.limits.usd = 1;
+      j.usage = { ...j.usage, estCostUsd: 2 };
+      j.state = 'waiting';
+      j.waitingOn = 'budget';
+    });
+    const headers = { 'x-forge-token': await tokenOf(port), origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body: unknown, job = id) => hit(port, { method: 'POST', path: `/api/jobs/${job}/budget`, headers, body: JSON.stringify(body) });
+    const files = () => ['job.json', 'events.jsonl'].map((f) => fs.readFileSync(path.join(repo.dir, '.forge', 'jobs', id, f), 'utf8'));
+    const before = files();
+    const shape = 'body must be {"ack": true} or {"set": ["key=value", …]} (or both)';
+    for (const body of [{}, { ack: false }, { set: 'usd=1' }, { set: ['usd=1', 'usd=2', 'usd=3', 'usd=4', 'usd=5', 'usd=6'] }, { set: [] }, { ack: 'yes' }, { set: ['x'.repeat(101)] }, [true]]) {
+      const r = await post(body);
+      assert.deepEqual({ status: r.status, error: JSON.parse(r.text).error }, { status: 400, error: shape }, JSON.stringify(body));
+    }
+    const bogus = await post({ set: ['bogus=1'] });
+    assert.equal(bogus.status, 400);
+    assert.match(JSON.parse(bogus.text).error, /^unknown budget key in "bogus=1" \(allowed keys: /);
+    const missing = await post({ ack: true }, 'nope');
+    assert.deepEqual({ status: missing.status, error: JSON.parse(missing.text).error }, { status: 404, error: 'no job nope' });
+    assert.deepEqual(files(), before, 'no 4xx changes job.json or events.jsonl');
+
+    const acked = await post({ ack: true });
+    assert.equal(acked.status, 200);
+    assert.deepEqual([JSON.parse(acked.text).acked, JSON.parse(acked.text).stillExceeded], [['usd'], []]);
+    const set = await post({ set: ['usd=20'] });
+    assert.equal(set.status, 200);
+    assert.equal(JSON.parse(set.text).limits.usd, 20);
+    const events = fs.readFileSync(path.join(repo.dir, '.forge', 'jobs', id, 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.equal(events.find((e) => e.type === 'budget-ack')?.actor?.source, 'dashboard');
+    assert.equal(events.find((e) => e.type === 'budget-set')?.actor?.source, 'dashboard');
   } finally {
     await close();
     repo.cleanup();
