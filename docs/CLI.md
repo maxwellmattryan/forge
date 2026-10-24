@@ -1161,7 +1161,7 @@ See [Job repos](architecture/job-repos.md).
 |---|---|
 | 1 | unknown job, nothing queued, or missing/malformed score.md |
 
-**`forge job set <id> [--stage S] [--state S] [--waiting-on W|none] [--reason R] [--note N] [--field key=value]...`**: change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox or office daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry
+**`forge job set <id> [--stage S] [--state S] [--waiting-on W|none] [--reason R] [--note N] [--field key=value]...`**: change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox or office daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry. `--field budget` (and any path under it) is refused for every caller: use `forge job budget` at a terminal or the dashboard's Approve on the budget gate
 
 | Flag | Meaning |
 |---|---|
