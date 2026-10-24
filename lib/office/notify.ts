@@ -17,7 +17,7 @@ import { jobDir, loadJob, logEvent } from '#core/job/store.ts';
 import { onTransition } from '#core/job/transitions.ts';
 import { commandProblem, notifyConfigured, validCommand, validWebhooks, webhookHost, webhookProblem } from '#core/config/validators/notify.ts';
 import { PLUGIN_ROOT, exists, paths } from '#core/paths.ts';
-import { posixShell } from '#core/os/platform.ts';
+import { commandEnv, commandShell } from '#engine/guard/command-env.ts';
 import { EVENT_SCHEMA_VERSION, NOTIFY_EVENTS, NOTIFY_GATES } from '#core/job/schema.ts';
 import type { Config, DoctorCheck, Job, NotifyEvent, NotifyWebhook, TransitionSide } from '#core/types.ts';
 import { loopbackOrigin, readDashboardRecord } from '#engine/ops/dashboard-record.ts';
@@ -226,7 +226,7 @@ export function commandSource(template: string): string {
 }
 
 /** The variables the command's environment carries: empty strings for nulls. */
-function commandEnv(p: NotifyPayload): Record<string, string> {
+function notifyEnv(p: NotifyPayload): Record<string, string> {
   return {
     FORGE_NOTIFY_EVENT: p.event,
     FORGE_NOTIFY_JOB: p.job ?? '',
@@ -238,9 +238,20 @@ function commandEnv(p: NotifyPayload): Record<string, string> {
   };
 }
 
-/** Runs notify.command once under posixShell() -c in the repo root; killed after timeoutMs. Not retried. */
-export function runCommand(root: string, template: string, p: NotifyPayload, opts: { timeoutMs?: number } = {}): Promise<DeliveryResult> {
+/**
+ * Runs notify.command once in the repo root, under `/bin/sh -c` in a daemon session, else the
+ * POSIX shell with `-c` (commandShell); killed after timeoutMs. Not retried. Its environment is a
+ * configured command's (commandEnv of `opts.env`, default this process's) plus the FORGE_NOTIFY_* variables.
+ */
+export function runCommand(
+  root: string,
+  config: Pick<Config, 'secrets'>,
+  template: string,
+  p: NotifyPayload,
+  opts: { timeoutMs?: number; env?: NodeJS.ProcessEnv } = {},
+): Promise<DeliveryResult> {
   const timeoutMs = opts.timeoutMs ?? 30_000;
+  const base = opts.env ?? process.env;
   return new Promise((resolve) => {
     let settled = false;
     let timedOut = false;
@@ -253,7 +264,8 @@ export function runCommand(root: string, template: string, p: NotifyPayload, opt
     let child: ReturnType<typeof spawn>;
     try {
       // Detached into its own group, so a timeout kills whatever the script started too.
-      child = spawn(posixShell(), ['-c', commandSource(template)], { cwd: root, env: { ...process.env, ...commandEnv(p) }, stdio: 'ignore', detached: process.platform !== 'win32' });
+      const sh = commandShell(commandSource(template), { env: base, login: false });
+      child = spawn(sh.file, sh.args, { cwd: root, env: { ...commandEnv(config, base), ...notifyEnv(p) }, stdio: 'ignore', detached: process.platform !== 'win32' });
     } catch {
       return resolve({ ok: false, error: 'spawn', attempts: 1 });
     }
@@ -310,7 +322,7 @@ export async function deliver(root: string, config: Config, events: readonly Not
   if (command) {
     const payload = buildPayload(events[0], ctx, dash, at);
     tasks.push(
-      runCommand(root, command, payload, { timeoutMs: opts.commandTimeoutMs })
+      runCommand(root, config, command, payload, { timeoutMs: opts.commandTimeoutMs })
         .catch((): DeliveryResult => ({ ok: false, error: 'spawn', attempts: 1 }))
         .then((r) => ({ event: events[0], target: 'command' as const, ...r })),
     );

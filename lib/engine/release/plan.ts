@@ -36,7 +36,7 @@ export interface ReleaseStep {
   title: string;
   /** Program and arguments, run without a shell; the program word is resolved on PATH at run time. */
   argv: string[] | null;
-  /** The tag mechanism's `release.command`, run as `<posixShell()> -lc <shell>`. */
+  /** The tag mechanism's `release.command`, run under commandShell (the login shell: release runs never run under the daemon). */
   shell: string | null;
   /** What a human does by hand (release-please's merge). */
   manual: string | null;
