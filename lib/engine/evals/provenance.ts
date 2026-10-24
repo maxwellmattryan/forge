@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { reviewerChecklist } from '#core/config/load.ts';
-import { LENS_NAME } from '#core/job/lens.ts';
+import { LENS_NAME, ROLE_NAME } from '#core/job/lens.ts';
 import { paths, exists, PLUGIN_ROOT } from '#core/paths.ts';
 import type { Config } from '#core/types.ts';
 import { readText } from '#core/os/fs.ts';
@@ -185,8 +185,6 @@ export function verifierDigest(root: string): string {
   }
   return h.digest('hex');
 }
-
-const ROLE_NAME = /^[a-z][a-z0-9-]{0,63}$/;
 
 /** The plugin's roles: one per `agents/*.md`. */
 export function agentRoles(): string[] {

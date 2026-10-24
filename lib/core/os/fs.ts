@@ -1,6 +1,6 @@
-// Small file helpers: JSON and text reads with fallbacks, atomic and owner-only writes, confined
-// writes that reach a directory only through real directories (never a planted link), and the check
-// that a path stays inside the checkout.
+// Small file helpers: JSON and text reads with fallbacks, capped regular-file reads, atomic and
+// owner-only writes, confined writes that reach a directory only through real directories (never a
+// planted link), and the check that a path stays inside the checkout.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -115,6 +115,43 @@ export function readText(file: string, fallback = ''): string {
   } catch {
     return fallback;
   }
+}
+
+/** The cap for agent-written text Forge parses: reviews, decisions, a daemon session's `--body-file`. */
+export const AGENT_TEXT_MAX = 1024 * 1024;
+
+/**
+ * A regular file's bytes, at most `max`, without following a link or blocking on a FIFO; a string
+ * says why not. Windows has no O_NOFOLLOW, so the lstat refuses a link and the descriptor must still
+ * be the file lstat saw (dev and ino), which refuses a swap in between.
+ */
+export function readRegular(file: string, max: number): Buffer | string {
+  let fd: number | null = null;
+  try {
+    const st = fs.lstatSync(file);
+    if (st.isSymbolicLink()) return 'a symlink, not a regular file';
+    if (!st.isFile()) return 'not a regular file';
+    if (st.size > max) return `larger than ${max / 1024} KiB`;
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
+    const fst = fs.fstatSync(fd);
+    if (!fst.isFile()) return 'not a regular file';
+    if (fst.dev !== st.dev || fst.ino !== st.ino) return 'changed while it was read';
+    if (fst.size > max) return `larger than ${max / 1024} KiB`;
+    const buf = Buffer.alloc(max + 1);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    if (n > max) return `larger than ${max / 1024} KiB`;
+    return buf.subarray(0, n);
+  } catch (e) {
+    return `unreadable (${(e as NodeJS.ErrnoException).code ?? 'error'})`;
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
+  }
+}
+
+/** readRegular's bytes as UTF-8 text, or null when it refuses the file. */
+export function readRegularText(file: string, max: number): string | null {
+  const b = readRegular(file, max);
+  return typeof b === 'string' ? null : b.toString('utf8');
 }
 
 /**

@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ForgeError } from '#core/errors.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE } from '#core/job/requests.ts';
-import { OFFICE_REFUSAL, refuseDaemonMerge, refuseInOffice } from './owner.ts';
+import { OFFICE_REFUSAL, refuseBrokenScope, refuseDaemonMerge, refuseInOffice } from './owner.ts';
 
 const daemon = (scope: string | undefined): NodeJS.ProcessEnv => ({ FORGE_DAEMON: '1', ...(scope === undefined ? {} : { FORGE_DAEMON_SCOPE: scope }) });
 const refusal = (fn: () => void): string | null => {
@@ -33,6 +33,23 @@ test('daemon merge refusals', () => {
   ];
   for (const [name, id, flags, env, want] of rows) {
     const got = refusal(() => refuseDaemonMerge(id, flags, env));
+    if (want === null) assert.equal(got, null, name);
+    else assert.match(got ?? '', want, name);
+  }
+});
+
+test('refuseBrokenScope refuses a daemon session whose scope is missing or invalid', () => {
+  const BROKEN = /FORGE_DAEMON_SCOPE is missing or invalid/;
+  const rows: [string, NodeJS.ProcessEnv, RegExp | null][] = [
+    ['a missing scope', daemon(undefined), BROKEN],
+    ['an empty scope', daemon(''), BROKEN],
+    ['an invalid scope', daemon('../x'), BROKEN],
+    ['a job scope', daemon('j1'), null],
+    ['the office', daemon(OFFICE_SCOPE), null],
+    ['outside a daemon', { FORGE_DAEMON_SCOPE: '' }, null],
+  ];
+  for (const [name, env, want] of rows) {
+    const got = refusal(() => refuseBrokenScope(env));
     if (want === null) assert.equal(got, null, name);
     else assert.match(got ?? '', want, name);
   }

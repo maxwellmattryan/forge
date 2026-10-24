@@ -22,7 +22,7 @@ import { lastRun, nextAttempt, recordRun } from '../verify/record.ts';
 import type { Config, Job, JobEvent, VerifyRun } from '#core/types.ts';
 import type { Verifier, VerifierAnswer, VerifierProblem, VerifierSet, VerifiersRecord, VerifiersRun } from './types.ts';
 import { ForgeError } from '#core/errors.ts';
-import { confinedDir, readJson, writeJsonAtomic, writeTextAtomic } from '#core/os/fs.ts';
+import { confinedDir, readJson, readRegular, writeJsonAtomic, writeTextAtomic } from '#core/os/fs.ts';
 import { fenced } from '#core/text.ts';
 import { now } from '#core/utils.ts';
 import * as yaml from '#core/format/yaml.ts';
@@ -73,29 +73,6 @@ function globProblem(g: unknown): string | null {
   if (/^[-!:]/.test(g)) return `paths entry ${jsonLine(g)} must not start with -, ! or :`;
   if (g.split(/[\\/]/).includes('..')) return `paths entry ${jsonLine(g)} must not contain a .. segment`;
   return null;
-}
-
-/** A regular file's bytes, at most `max`, without following a link or blocking on a FIFO; a string says why not. */
-function readRegular(file: string, max: number): Buffer | string {
-  let fd: number | null = null;
-  try {
-    const st = fs.lstatSync(file);
-    if (st.isSymbolicLink()) return 'a symlink, not a regular file';
-    if (!st.isFile()) return 'not a regular file';
-    if (st.size > max) return `larger than ${max / 1024} KiB`;
-    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
-    const fst = fs.fstatSync(fd);
-    if (!fst.isFile()) return 'not a regular file';
-    if (fst.size > max) return `larger than ${max / 1024} KiB`;
-    const buf = Buffer.alloc(max + 1);
-    const n = fs.readSync(fd, buf, 0, buf.length, 0);
-    if (n > max) return `larger than ${max / 1024} KiB`;
-    return buf.subarray(0, n);
-  } catch (e) {
-    return `unreadable (${(e as NodeJS.ErrnoException).code ?? 'error'})`;
-  } finally {
-    if (fd !== null) fs.closeSync(fd);
-  }
 }
 
 /** One verifier file's content: the verifier, or why it never runs. */

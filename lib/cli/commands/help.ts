@@ -155,13 +155,13 @@ export const CORE: HelpGroup[] = [
           ['--root', 'merge only the root repo PR, once every PR it depends on merged'],
           [
             '--now',
-            "a human's override in their own terminal: merge without the eligibility, floor and CI checks (logged as pr-merge-bypass); refused in a daemon session; never bypasses the merge order or a release gate",
+            "a human's override, confirmed by typing the job id at a terminal (or Merge now in the dashboard): merge without the eligibility, floor and CI checks (logged as pr-merge-bypass with the person's name); refused in a daemon session and without a terminal; never bypasses the merge order or a release gate",
           ],
         ],
         exits: [
           [
             1,
-            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order|cycle|release), merge.auto off, a rework, a new round, a stage change or a rework, revise-spec or cancel request still queued after the approver's decision, no eligible decision for the PR head, an escalate-floor path (reason auto-off|superseded|decision|floor), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, a daemon session passing --now, another job's id or a broken scope, the office daemon session ran it, or a protected path at the PR head that no human approved at that content (code protected_path; --now overrides)",
+            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order|cycle|release), merge.auto off, a rework, a new round, a stage change or a rework, revise-spec or cancel request still queued after the approver's decision, no eligible decision for the PR head, an escalate-floor path (reason auto-off|superseded|decision|floor), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, a daemon session passing --now, another job's id or a broken scope, the office daemon session ran it, or a protected path at the PR head that no human approved at that content (code protected_path; --now overrides), --now not confirmed, or --now with no person at a terminal (code human_only: an agent, a script or a configured command)",
           ],
           GH_FAILED,
         ],

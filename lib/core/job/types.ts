@@ -1,6 +1,16 @@
 // The job shapes the store, the archive and the findings summary share, type-only: re-exported by lib/core/types.ts.
 import type { SEVERITIES } from './schema.ts';
-import type { Job, JobEvent } from '#api/types.ts';
+import type { EventActor, Job, JobEvent } from '#api/types.ts';
+
+/**
+ * A person's go-ahead for a human-only operation, from a channel a session's children can't reach:
+ * a confirmed terminal (lib/cli/commands/human.ts) or a dashboard route. isHumanGrant in
+ * lib/core/job/schema.ts checks one at runtime.
+ */
+export interface HumanGrant {
+  channel: 'terminal' | 'dashboard';
+  actor: EventActor;
+}
 
 /** A review finding's severity: SEVERITIES in lib/core/job/schema.ts. */
 export type Severity = (typeof SEVERITIES)[number];

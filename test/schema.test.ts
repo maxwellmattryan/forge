@@ -219,6 +219,12 @@ const EVENT_ROWS: Row[] = [
     note: 'a decision from before the head binding keeps its fields and gains no head, so it is never eligible',
   },
   {
+    step: 'actor-source-daemon',
+    input: { ts: 't', type: 'human', action: 'approve', actor: { login: 'al', source: 'daemon' } },
+    fields: { type: 'human', ts: 't', action: 'approve', actor: { login: 'al', source: 'daemon' } },
+    note: 'an actor recorded by a daemon session keeps source daemon',
+  },
+  {
     step: 'merge-provenance',
     input: { ts: 't', type: 'pr-merged', number: 7, method: 'squash', checks: 'passing', bypass: false },
     fields: { type: 'pr-merged', ts: 't', number: 7, method: 'squash', checks: 'passing', bypass: false },

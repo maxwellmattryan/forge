@@ -200,7 +200,7 @@ test('every guarded route refuses before its handler runs', async () => {
     const rows: Row[] = [];
     // Invalid JSON: a guard that ran after the body parse would answer 400 instead.
     const body = '{"x":';
-    const posts = ['/api/jobs', '/api/requests', '/api/config', '/api/budget/ack', '/api/daemon', '/api/daemon/permission', '/api/daemon/mode', '/api/focus', ...['effort', 'delete', 'repos', 'environment', 'run', 'editor'].map((s) => `/api/jobs/j-1/${s}`)];
+    const posts = ['/api/jobs', '/api/requests', '/api/config', '/api/budget/ack', '/api/daemon', '/api/daemon/permission', '/api/daemon/mode', '/api/focus', ...['effort', 'delete', 'merge', 'repos', 'environment', 'run', 'editor'].map((s) => `/api/jobs/j-1/${s}`)];
     for (const p of posts) {
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': 'wrong', origin, 'content-type': 'application/json' }, status: 403, text: 'bad token' });
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': token, 'content-type': 'application/json' }, status: 403, text: 'bad origin' });

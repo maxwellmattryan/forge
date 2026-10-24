@@ -5,9 +5,10 @@ import path from 'node:path';
 import { currentActor } from '#integrations/github/actor.ts';
 import { daemonScope, listRequests } from '#core/job/requests.ts';
 import { loadJob, logEvent, readEvents, setJob } from '#core/job/store.ts';
+import { isHumanGrant } from '#core/job/schema.ts';
 import { policyRules } from '#core/config/validators/policy-check.ts';
 import { exists } from '#core/paths.ts';
-import type { Config, EventActor, Job, JobEvent, JobPr, JobRepoPr, PrChecks } from '#core/types.ts';
+import type { Config, EventActor, HumanGrant, Job, JobEvent, JobPr, JobRepoPr, PrChecks } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { git, historyEnv } from '#integrations/git/runner.ts';
 import { PR_STATES, SLUG_RE, safePrNumber } from '#integrations/github/pull-requests.ts';
@@ -164,7 +165,7 @@ const prLabel = (repo: string | null, number: number | null): string => (repo ==
  * call, never a fallback between direct and `--auto`, because a fallback is how unverified code got
  * merged. `tag` goes on every event (repo, target).
  */
-function mergeOne(root: string, config: Config, github: GitHub, id: string, t: MergeTarget, opts: { now: boolean; tag: Record<string, unknown>; clock: () => number; via?: 'sync' }): MergeResult {
+function mergeOne(root: string, config: Config, github: GitHub, id: string, t: MergeTarget, opts: { now: boolean; actor: EventActor | null; tag: Record<string, unknown>; clock: () => number; via?: 'sync' }): MergeResult {
   const { number, checks, tag } = { ...t, tag: opts.tag };
   const label = prLabel(t.repo, number);
   if (t.state === 'MERGED') return { merged: true, action: 'already-merged', checks };
@@ -208,9 +209,10 @@ function mergeOne(root: string, config: Config, github: GitHub, id: string, t: M
     return { merged: false, autoMerge: false, action: 'refused', checks, error: 'CI is failing; fix it, or a human merges anyway with forge pr merge --now in their own terminal' };
   }
   const slug = t.slug();
-  // --now is a person's call, so every event it writes says who; without it a queue or a failure is
-  // not a human action and records no actor. The merge itself always says who ran it (mergeProvenance).
-  const by = now ? { actor: currentActor(root) } : {};
+  // --now is a person's call, so every event it writes says who: the grant's actor. Without it a queue
+  // or a failure is not a human action and records no actor. The merge itself always says who ran it
+  // (mergeProvenance).
+  const by = now ? { actor: opts.actor } : {};
   // Logged before the call so a human override is on record even if the merge then fails.
   if (now) logEvent(root, id, 'pr-merge-bypass', { ...tag, number, checks, ...by });
   // matchHead pins the commit whose checks were just read, so a push after the sync cannot ride along.
@@ -226,7 +228,7 @@ function mergeOne(root: string, config: Config, github: GitHub, id: string, t: M
     return { merged: false, autoMerge: true, action: 'auto', checks };
   }
   // --now skips every check above, not only CI, so its merge is always a bypass.
-  logEvent(root, id, 'pr-merged', { ...tag, number, method: config.merge.method, checks, bypass: now, ...mergeProvenance(root), ...(opts.via ? { via: opts.via } : {}) });
+  logEvent(root, id, 'pr-merged', { ...tag, number, method: config.merge.method, checks, bypass: now, ...(now ? by : mergeProvenance(root)), ...(opts.via ? { via: opts.via } : {}) });
   return { merged: true, autoMerge: false, action: 'merged', checks };
 }
 
@@ -244,15 +246,20 @@ export function mergeProvenance(root: string, env: NodeJS.ProcessEnv = process.e
  * components' dependsOn (lib/engine/project/repo-order.ts): a PR is merged, or queued with `--auto`, only when
  * every dependency's PR is MERGED by this call's own sync, so a consumer never lands first and a
  * hand-edited job.json state counts for nothing. `repo` (a member) or `root` merges only that PR.
+ * `now` is a person's HumanGrant (a confirmed terminal or the dashboard): it skips merge.auto, the
+ * decision, protected paths, the escalate floor and CI, never the order or a release gate, and its
+ * events carry the grant's actor. Anything else in `now` is refused before any gh call.
  */
 export async function mergePr(
   root: string,
   config: Config,
   github: GitHub,
   id: string,
-  opts: { now?: boolean; repo?: string; root?: boolean; clock?: () => number; via?: 'sync' } = {},
+  opts: { now?: HumanGrant; repo?: string; root?: boolean; clock?: () => number; via?: 'sync' } = {},
 ): Promise<MergeResult> {
   const clock = opts.clock ?? Date.now;
+  if (opts.now !== undefined && !isHumanGrant(opts.now))
+    throw new ForgeError('forge pr merge --now is a human-only operation: it needs a person who confirms it at a terminal, or the dashboard', 'human_only');
   github.require();
   const job = loadJob(root, id);
   if (opts.repo !== undefined && opts.root) throw new ForgeError('pass --repo or --root, not both');
@@ -263,16 +270,17 @@ export async function mergePr(
     if (m.verifyOnly) throw new ForgeError(`repo ${opts.repo} is verify-only in job ${id}, so it has no PR to merge`);
   }
   if (!job.pr?.number) throw new ForgeError(`job ${id} has no PR`);
-  const now = opts.now === true;
+  const now = opts.now !== undefined;
+  const actor = opts.now?.actor ?? null;
   const via = opts.via === 'sync' ? { via: opts.via } : {};
-  if (isLinkedJob(job)) return mergeLinked(root, config, github, id, { now, clock, target: opts.repo !== undefined ? opts.repo : opts.root ? null : undefined, ...via });
+  if (isLinkedJob(job)) return mergeLinked(root, config, github, id, { now, actor, clock, target: opts.repo !== undefined ? opts.repo : opts.root ? null : undefined, ...via });
   // A merge never routes: a conflicting PR parks as before, and the next forge sync routes it.
   const { result, baseRef } = await syncPrDetailed(root, config, github, id, { route: false });
   const synced = result.pr;
   const number = synced?.number ?? job.pr.number;
   const checks = synced?.checks?.state;
   if (synced?.state === 'MERGED') return { merged: true, action: 'already-merged', checks };
-  return mergeOne(root, config, github, id, rootTarget(root, config, github, id, number, synced, baseRef), { now, tag: {}, clock, ...via });
+  return mergeOne(root, config, github, id, rootTarget(root, config, github, id, number, synced, baseRef), { now, actor, tag: {}, clock, ...via });
 }
 
 /**
@@ -401,7 +409,7 @@ export function mergeTarget(flags: Record<string, unknown>, sub: 'merge' | 'read
 }
 
 /** mergePr for a linked job: the walk in merge order, or one `target` PR (null: the root). */
-async function mergeLinked(root: string, config: Config, github: GitHub, id: string, opts: { now: boolean; clock: () => number; target: RepoKey | undefined; via?: 'sync' }): Promise<MergeResult> {
+async function mergeLinked(root: string, config: Config, github: GitHub, id: string, opts: { now: boolean; actor: EventActor | null; clock: () => number; target: RepoKey | undefined; via?: 'sync' }): Promise<MergeResult> {
   const { result, members, baseRef } = await syncPrDetailed(root, config, github, id, { route: false });
   const job = loadJob(root, id);
   const { order, deps, cycle } = jobRepoOrder(config, job);
@@ -457,7 +465,7 @@ async function mergeLinked(root: string, config: Config, github: GitHub, id: str
     const gate = gates.find((g) => g.consumer === k && (g.gate === 'held' || g.gate === 'bump-due'));
     if (gate) return refuse(k, 'release', releaseGateMessage(id, gate));
     const t = k === null ? rootTarget(root, config, github, id, rootNumber, synced, baseRef) : memberTarget(root, config, job, members.get(k)!);
-    const r = mergeOne(root, config, github, id, t, { now: opts.now, tag: tag(k), clock: opts.clock, ...(opts.via ? { via: opts.via } : {}) });
+    const r = mergeOne(root, config, github, id, t, { now: opts.now, actor: opts.actor, tag: tag(k), clock: opts.clock, ...(opts.via ? { via: opts.via } : {}) });
     // The walk's reason is the refused PR's own (auto-off, superseded, decision, floor).
     if (r.reason) reason = r.reason;
     parts.push({ repo: k, number: t.number, action: r.action, checks: r.checks, ...(r.mergeState !== undefined ? { mergeState: r.mergeState } : {}), ...(r.error !== undefined ? { error: r.error } : {}) });
