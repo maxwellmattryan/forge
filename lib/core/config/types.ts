@@ -142,6 +142,14 @@ export interface CommandsConfig {
   [name: string]: string | null;
 }
 
+/** What a configured command inherits beyond the allowlist, and its shell (docs/CONFIG.md "Command environment"). */
+export interface CommandEnvConfig {
+  /** Variable names (`*` globs allowed) commands get from Forge's environment; a glob never passes a credential-like name. */
+  inherit: string[];
+  /** Run commands as `<shell> -lc`, sourcing the login profile, instead of `/bin/sh -c`. */
+  loginShell: boolean;
+}
+
 /** One `verify` entry: a step name, or a group of step names that run at the same time (config schemaVersion 3). */
 export type VerifyEntry = string | string[];
 
@@ -173,6 +181,7 @@ export interface Config {
     generatedBy: string;
   };
   commands: CommandsConfig;
+  commandEnv: CommandEnvConfig;
   verify: VerifyEntry[];
   verifyE2e: {
     when: 'ui' | 'always' | 'never';

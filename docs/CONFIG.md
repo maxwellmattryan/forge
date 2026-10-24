@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `$SHELL -lc <cmd>` (`/bin/sh` whe
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 31            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 32            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -52,6 +52,13 @@ commands:                    # what `forge run <job> <name>` executes inside the
   typecheck: null
   dev: null                  # e.g. "yarn dev --port {port}"
   e2e: null                  # browser/e2e suite; `forge run <job> e2e`, and verify runs it per verifyE2e below
+
+commandEnv:                  # what configured commands inherit: an allowlist of Forge's environment, under /bin/sh -c
+                             # ("Command environment")
+  inherit: []                # more variable names commands get, e.g. [JAVA_HOME, "ANDROID_*"]; a * glob never
+                             # passes a credential-like name, and declared secret sources never pass
+  loginShell: false          # true runs commands as `$SHELL -lc`, so the login profile is sourced and can export
+                             # what the allowlist dropped
 
 verify: [build, lint, test]  # the deterministic gate before review, in order; unset commands are skipped. A list
                              # entry such as [lint, test] is a group whose steps run at the same time ("Verify groups")
