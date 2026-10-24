@@ -19,3 +19,17 @@ test('worktrees.copy suggestions leave out .env files', () => {
     repo.cleanup();
   }
 });
+
+test('commandEnv.inherit suggestions come from .env.example names and the build tool', () => {
+  const empty = tempRepo();
+  const repo = tempRepo();
+  try {
+    assert.deepEqual(detect(empty.dir).suggestions['commandEnv.inherit'], []);
+    fs.writeFileSync(path.join(repo.dir, '.env.example'), '# local settings\nDATABASE_URL=\nexport REDIS_URL=\nSTRIPE_SECRET_KEY=\nAPI_TOKEN=\nPORT=3000\nNODE_ENV=development\n\nnot an assignment\n');
+    fs.writeFileSync(path.join(repo.dir, 'build.gradle.kts'), 'plugins { id("com.android.application") }\n');
+    assert.deepEqual(detect(repo.dir).suggestions['commandEnv.inherit'], ['ANDROID_HOME', 'ANDROID_SDK_ROOT', 'DATABASE_URL', 'JAVA_HOME', 'REDIS_URL']);
+  } finally {
+    empty.cleanup();
+    repo.cleanup();
+  }
+});

@@ -9,6 +9,7 @@ import { exists } from '#core/paths.ts';
 import type { ProtectedRule } from '#core/types.ts';
 import { hasBinary } from '#core/os/process.ts';
 import { readText } from '#core/os/fs.ts';
+import { allowlisted, credentialLike } from '../guard/command-env.ts';
 import * as yaml from '#core/format/yaml.ts';
 
 /** .github/project-config.yml as read for init: its fields are raw YAML, or `error` when it does not parse. */
@@ -77,6 +78,32 @@ const LOCKFILES: [string, string[]][] = [
 function protectedPathsFor(root: string): ProtectedRule[] {
   const locks = LOCKFILES.filter(([marker]) => has(root, marker)).flatMap(([, files]) => files);
   return defaults().policy.protectedPaths.flatMap((r) => (r.reason !== 'dependency lockfile' ? [r] : locks.length ? [{ ...r, paths: locks }] : []));
+}
+
+/** A `NAME=` or `export NAME=` line of an example env file; one line at a time, no overlapping quantifiers. */
+const ENV_ASSIGNMENT = /^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=/;
+const GRADLE_FILES = ['build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts'];
+
+/**
+ * What configured commands likely need beyond the allowlist, for commandEnv.inherit: the names a root
+ * .env.example / .env.sample / .env.template assigns (minus credential-like names, PORT and what the
+ * allowlist passes), JAVA_HOME for Gradle or Maven, and the Android SDK variables for an Android build.
+ * Sorted and unique; credentials belong under `secrets` with a config sink instead.
+ */
+function inheritSuggestions(root: string): string[] {
+  const out = new Set<string>();
+  for (const file of ['.env.example', '.env.sample', '.env.template']) {
+    for (const line of readText(path.join(root, file)).split('\n')) {
+      const name = ENV_ASSIGNMENT.exec(line)?.[1];
+      if (name && name !== 'PORT' && !credentialLike(name) && !allowlisted(name)) out.add(name);
+    }
+  }
+  if ([...GRADLE_FILES, 'gradlew', 'pom.xml'].some((f) => has(root, f))) out.add('JAVA_HOME');
+  if (GRADLE_FILES.some((f) => readText(path.join(root, f)).includes('com.android.'))) {
+    out.add('ANDROID_HOME');
+    out.add('ANDROID_SDK_ROOT');
+  }
+  return [...out].sort();
 }
 
 export function detect(root: string): Detection {
@@ -236,6 +263,7 @@ export function detect(root: string): Detection {
       'worktrees.setup': commands.setup ? [commands.setup] : [],
       'worktrees.cargo.sharedTarget': Boolean(cargo),
       'worktrees.generated': generated,
+      'commandEnv.inherit': inheritSuggestions(root),
       'tracker.kind': ghSlug ? 'github' : 'local',
       'tracker.github.statusSync': project?.number ? 'project' : 'none',
       'review.panel': reviewers,

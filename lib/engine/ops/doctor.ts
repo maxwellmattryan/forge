@@ -13,6 +13,8 @@ import { notifyChecks } from '#office/notify.ts';
 import { paths, exists, BUILD_DASHBOARD, PLUGIN_ROOT } from '#core/paths.ts';
 import { dirBytes } from './retention.ts';
 import { secretAvailability } from '../guard/secret-refs.ts';
+import { droppedVariables } from '../guard/command-env.ts';
+import { COMMAND_PATH_ENV, COMMAND_PATH_SOURCE_ENV } from '../guard/command-path.ts';
 import type { ResolveOptions } from '../guard/secret-refs.ts';
 import { SUPPORT_URL, hostInfo, platformTier, posixShell, tierDetail, versionAtLeast } from '#core/os/platform.ts';
 import type { HostInfo } from '#core/os/platform.ts';
@@ -129,6 +131,41 @@ export function dashboardCheck(distDir: string = path.join(PLUGIN_ROOT, 'dashboa
   return { name: 'dashboard built', ok: true, warn: true, detail: `not built: run ${BUILD_DASHBOARD}` };
 }
 
+/** A capture that ran and failed; `inherited: win32` is by design. */
+const FAILED_CAPTURE = /^inherited: (timed out|exited|no PATH)/;
+
+/**
+ * The `command PATH` check: where configured commands' PATH comes from (the login shell `forge dash`
+ * captured, or this process's own) and the empty or relative entries sanitising drops from it.
+ * Always ok; a warning for a failed capture or a dropped entry.
+ */
+export function commandPathCheck(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): DoctorCheck {
+  const get = (name: string) => (platform === 'win32' ? Object.entries(env).find(([k]) => k.toUpperCase() === name)?.[1] : env[name]);
+  const source = get(COMMAND_PATH_SOURCE_ENV) || "this process's PATH";
+  const value = get(COMMAND_PATH_ENV) ?? get('PATH') ?? '';
+  const p = platform === 'win32' ? path.win32 : path.posix;
+  const dropped = [...new Set(value.split(p.delimiter).filter((e) => !e || !p.isAbsolute(e)))].map((e) => (e ? e : '(empty)'));
+  const failed = FAILED_CAPTURE.test(source);
+  const notes = [...(failed ? ['start forge dash from a terminal whose login shell sets PATH quickly'] : []), ...(dropped.length ? [`dropped relative or empty entries: ${dropped.join(', ')}`] : [])];
+  return { name: 'command PATH', ok: true, detail: [source, ...notes].join('; '), ...(failed || dropped.length ? { warn: true } : {}) };
+}
+
+/**
+ * The `command environment` check: the variables this environment exports that configured commands
+ * do not get and that look like build settings (names only, sorted), as a warning pointing at
+ * commandEnv.inherit. Ok with no warning when there are none.
+ */
+export function commandEnvCheck(config: Config, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): DoctorCheck {
+  const dropped = droppedVariables(config, env, platform);
+  if (!dropped.length) return { name: 'command environment', ok: true, detail: 'configured commands get the allowlist (docs/CONFIG.md "Command environment")' };
+  return {
+    name: 'command environment',
+    ok: true,
+    warn: true,
+    detail: `configured commands do not get ${dropped.join(', ')}; add the names they need to commandEnv.inherit (docs/CONFIG.md "Command environment")`,
+  };
+}
+
 /** The repo root and worktrees root that sit on the Windows filesystem (/mnt/…) under WSL2. */
 function onWindowsFs(root: string, config: Config): string[] {
   let real = root;
@@ -163,6 +200,7 @@ export async function doctor(root: string, config: Config, initialized: boolean,
     }
   }
   add('node >= 22.18', nodeSupported(process.versions.node), process.versions.node);
+  checks.push(commandPathCheck(process.env, host.platform));
   const gitV = git(undefined, ['--version'], { allowFail: true });
   add('git >= 2.38', gitV.ok && versionAtLeast(gitV.stdout, [2, 38]), gitV.ok ? gitV.stdout.trim() : 'git not found');
   const sparse = git(undefined, ['sparse-checkout', '-h'], { allowFail: true });
@@ -185,6 +223,7 @@ export async function doctor(root: string, config: Config, initialized: boolean,
     // Only with a valid config: an invalid policy is already the failing config check.
     const instructions = problems.length ? null : instructionsPolicyCheck(config);
     if (instructions) checks.push(instructions);
+    if (!problems.length) checks.push(commandEnvCheck(config, process.env, host.platform));
   }
   const keys = apiKeyVars(process.env);
   if (initialized && config.daemon.enabled && keys.length) {

@@ -63,6 +63,13 @@ export function inheritMatcher(entries: unknown, platform: NodeJS.Platform = pro
   return (name) => exact.has(fold(name, platform)) || (globs.some((re) => re.test(name)) && !credentialLike(name));
 }
 
+/** Whether the allowlist alone passes `name` (no commandEnv.inherit needed): forge init's suggestions leave these out. */
+export function allowlisted(name: string, platform: NodeJS.Platform = process.platform): boolean {
+  const f = fold(name, platform);
+  if (DAEMON_MARKER.test(f) || JOB_VARS.test(f) || COMMAND_PATH_VARS.test(f)) return false;
+  return ALLOW_EXACT.has(f) || (ALLOW_PATTERNS.some((re) => re.test(f)) && !credentialLike(name));
+}
+
 /** The source variable of every declared `env` secret, malformed entries included: strip more, never less. */
 function envSources(config: Pick<Config, 'secrets'>): string[] {
   const all: unknown = config?.secrets;
@@ -88,10 +95,7 @@ function classifier(config: CommandEnvSource, platform: NodeJS.Platform) {
       const f = fold(k, platform);
       return DAEMON_MARKER.test(f) || JOB_VARS.test(f) || COMMAND_PATH_VARS.test(f) || sources.has(f);
     },
-    allowed: (k: string) => {
-      const f = fold(k, platform);
-      return ALLOW_EXACT.has(f) || (ALLOW_PATTERNS.some((re) => re.test(f)) && !credentialLike(k));
-    },
+    allowed: (k: string) => allowlisted(k, platform),
     inherited,
   };
 }
