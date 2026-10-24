@@ -67,7 +67,7 @@ Baseline coverage: 100.0% overall (980/980); `actor.ts` 100.0%, `gh.ts` 100.0%, 
 ## Regressions worth keeping
 - R1. A hung gh (stalled network, auth prompt) blocked `pr sync` and tracker calls forever → every call has a timeout (60 s default, `GH_TIMEOUT_MS`). Setup: E1. Old: test/gh.test.ts › "a hung gh times out"
 - R2. `-F` on a repo name like `123` turned it into a number in GraphQL → owner and name always go as `-f`. Setup: B11. Old: test/github-preview.test.ts › "ghArgs passes owner and name as raw strings and the number as a number"
-- R3. A daemon session could spoof the actor with `FORGE_ACTOR` → under `FORGE_DAEMON=1` the actor is always the dashboard's OS user. Setup: B3's first case. Old: test/actor.test.ts › "resolution order"
+- R3. A daemon session could spoof the actor with `FORGE_ACTOR` → under `FORGE_DAEMON=1` the actor is always the OS user, source `daemon`. Setup: B3's first case. Old: test/actor.test.ts › "resolution order"
 
 ## Cheapest layer
 - In-process, no process spawned: `resolveActor` with injected deps (B3, B4, E4, E5), `parseGitHubUrl`/`targetKey`/`ghArgs`/`foldPreview`/`excerpt`/`toResponse`/`createPreviewer` with a fake runner (B9–B17, E6–E9), `parseFeedback`/`failingCheckNames`/`checksText`/`summarizeChecks` (B19–B22), `parsePr` and the gh adapter over a recording runner (B23), `statusMap` (B24), `inRepo`/`quote` (E12, E15).
