@@ -29,12 +29,12 @@ const PINNED: Record<string, string[]> = {
   plan: ['P1', 'N1', 'N1b', 'N2', 'M1', 'M2', 'P2', 'P2b', 'P3', 'P4', 'P5'],
   spec: ['SP1', 'SP2', 'N1', 'N1b', 'N2', 'M1', 'M2', 'SP3', 'SP4', 'SP5', 'SP7', 'SP6'],
   design: ['D1', 'M1', 'M2', 'D2', 'N1', 'N1b', 'N2', 'M1', 'M2', 'D3'],
-  build: ['B1', 'B6', 'B7', 'B6b', 'B2', 'N1', 'N1b', 'N2', 'B3', 'B4', 'B5'],
+  build: ['B1', 'B6', 'B7', 'B6b', 'B2', 'N1', 'N1b', 'N2', 'B3', 'B8', 'B4', 'B5'],
   verify: ['V1', 'VF1', 'VF2', 'VF2b', 'VF3', 'V2', 'V2b', 'V3', 'V3b'],
-  review: ['RV9', 'RV1', 'RV2', 'RV3', 'RV10', 'RV4', 'M1', 'M2', 'M1', 'M2', 'RV5', 'RV5b', 'RV6', 'RV7', 'RV8', 'RV8b', 'RV8c', 'RV8d'],
-  decide: ['DC10', 'RC1', 'RC2', 'DC1', 'M1', 'M2', 'DC2', 'DC4', 'DC5', 'DC6', 'DC3', 'DC7', 'DC8', 'PP1', 'DC9', 'DC9b'],
+  review: ['RV11', 'RV9','RV1', 'RV2', 'RV3', 'RV10', 'RV4', 'M1', 'M2', 'M1', 'M2', 'RV5', 'RV5b', 'RV6', 'RV7', 'RV8', 'RV8b', 'RV8c', 'RV8d'],
+  decide: ['DC11', 'DC10','RC1', 'RC2', 'DC1', 'M1', 'M2', 'DC2', 'DC4', 'DC5', 'DC6', 'DC3', 'DC7', 'DC8', 'PP1', 'DC9', 'DC9b'],
   integrate: ['IG1', 'IG2', 'IG2b', 'IG3', 'IG4', 'IG5', 'IG6', 'N1', 'N1b', 'N2', 'IG7', 'IG7b', 'IG11', 'IG8', 'M1', 'M2', 'IG12', 'IG13', 'IG9', 'IG10', 'IG10b', 'IG10c'],
-  pr: ['PR1', 'PR9', 'PR9b', 'PR9c', 'PR2', 'PR11', 'PR2b', 'PR3', 'PR6', 'PR7', 'PR8', 'PR10', 'PR4', 'PR5'],
+  pr: ['PR12', 'PR1','PR9', 'PR9b', 'PR9c', 'PR2', 'PR11', 'PR2b', 'PR3', 'PR6', 'PR7', 'PR8', 'PR10', 'PR4', 'PR5'],
   fallback: ['X1'],
 };
 

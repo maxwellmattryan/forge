@@ -7,6 +7,7 @@ import type { Config, Job, VerifyRun } from '#core/types.ts';
 import type { StepInput } from '#engine/pipeline/types.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { acCoverage } from '#engine/pipeline/acs.ts';
+import { REVIEWED_HEAD_NOTE } from '#engine/pipeline/step/facts.ts';
 import { JOB_DIR, RECALL_HASH, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
 import type { FixtureOpts } from './step-fixture.ts';
 
@@ -185,6 +186,11 @@ type Side = { stage: string; state?: string; waitingOn?: string | null };
 const tr = (n: number, from: Side, to: Side) => ev('transition', n, { from: { state: 'running', waitingOn: null, ...from }, to: { state: 'running', waitingOn: null, ...to } });
 /** The new order: every lens passed and RV8 sent the job straight to integrate at minute 25. */
 const reviewed = tr(25, { stage: 'review' }, { stage: 'integrate' });
+/** DC11 or PR12's `job set`: back to review with the reviewed-head note. */
+const BACK_TO_REVIEW = run('job', 'set', 'j', '--stage', 'review', '--state', 'running', '--note', REVIEWED_HEAD_NOTE);
+/** A round-2 build that RV11 opened: round 1 at 4, review → build at 30, round 2 at 32 (a `between` event goes at 31). */
+const reReview = (between: ReturnType<typeof ev>[] = []) => [ev('round', 4, { round: 1 }), tr(30, { stage: 'review' }, { stage: 'build' }), ...between, ev('round', 32, { round: 2 })];
+const atReReview = (more: Partial<Job> = {}): Partial<Job> => job({ stage: 'build', round: 2, reviewers: ['code'], verdicts: { 1: { code: 'PASS' } }, verifyRuns: [vr(1, 10, true)], agents: { builder: ag(1, 5, 6) }, ...more });
 /** The old order: review → decide at 15, the approver's decision at 22, then integrate at 30 (`entered`). */
 const legacy = [tr(15, { stage: 'review' }, { stage: 'decide' }), ev('decision', 22), entered];
 /** The new order up to a decide gate: integrated clean, decide at 33, the approver's decision at 36, parked on `gate` at 37, a human approve at 40. */
@@ -791,6 +797,15 @@ export const rows: Row[] = [
     },
   },
   { name: 'B5 the builder committed: verify', fx: { job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5, 6) } }), events: [ev('round', 4)] }, want: run('job', 'set', 'j', '--stage', 'verify', '--state', 'running') },
+  // B8: RV11 sent a reviewed all-PASS round back for a commit after review; the new round verifies it with no builder.
+  { name: 'B8 a re-review round verifies with no builder', fx: { job: atReReview(), events: reReview() }, want: { ...run('job', 'set', 'j', '--stage', 'verify', '--state', 'running'), rule: 'B8' } },
+  { name: 'B4 a human rework after the re-review entry spawns the builder', fx: { job: atReReview(), events: reReview([ev('human', 31, { action: 'rework' })]) }, want: { action: 'spawn', rule: 'B4', role: 'builder' } },
+  { name: 'B4 entered from review after a CHANGES round spawns the builder', fx: { job: atReReview({ verdicts: { 1: { code: 'CHANGES' } } }), events: reReview() }, want: { action: 'spawn', rule: 'B4', role: 'builder' } },
+  {
+    name: 'B2 a re-review round past maxRounds parks',
+    fx: { job: atReReview({ round: 4, maxRounds: 3, verdicts: { 3: { code: 'PASS' } }, agents: { builder: ag(2, 5, 6) } }), events: reReview() },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 4 exceeds maxRounds 3'), rule: 'B2' },
+  },
 
   // ---- Verify
   { name: 'V1 verifies the round', fx: { job: job({ stage: 'verify', round: 1, agents: { builder: ag(1, 5, 6) } }) }, want: { ...run('verify', 'j'), shell: "forge verify j" } },
@@ -962,6 +977,22 @@ export const rows: Row[] = [
   { name: 'RV8c a UI lens with the dev server stopped moves on, never restarting it', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13), 'reviewer:ui': ag(1, 12, 13) }, { reviewers: ['code', 'ui'], verdicts: { 1: { code: 'PASS', ui: 'PASS' } } }), events: scoped, runtime: [] }, want: run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running') },
   { name: 'RV3 a UI retry before the verdicts gets the app again', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false }), 'reviewer:ui': ag(1, 12, 13, { outputMissing: true }) }, { reviewers: ['code', 'ui'] }), events: scoped, runtime: [] }, want: run('run', 'j', 'dev', '--background') },
   { name: 'RV8c every lens passed: integrate', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: scoped }, want: run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running') },
+  // RV11: DC11 or PR12 sent a recorded round back for a commit after review; build opens the next round.
+  {
+    name: 'RV11 a reviewed round sent back from decide goes to build',
+    fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: [...scoped, reviewed, tr(27, { stage: 'integrate' }, { stage: 'decide' }), tr(30, { stage: 'decide' }, { stage: 'review' })] },
+    want: { ...run('job', 'set', 'j', '--stage', 'build', '--state', 'running'), rule: 'RV11' },
+  },
+  {
+    name: 'RV11 a reviewed round sent back from pr goes to build, ahead of RV1 under onPrFeedback none',
+    fx: { config: (c) => (c.review.onPrFeedback = 'none'), job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } }, pr: OPEN_PR }), events: [...scoped, tr(30, { stage: 'pr' }, { stage: 'review' })] },
+    want: { ...run('job', 'set', 'j', '--stage', 'build', '--state', 'running'), rule: 'RV11' },
+  },
+  {
+    name: 'RV8c entered from verify, every lens passed: integrate',
+    fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: [ev('round', 4, { round: 1 }), tr(10, { stage: 'verify' }, { stage: 'review' }), panelled, ev('scope', 11, { round: 1 })] },
+    want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'RV8c' },
+  },
   { name: 'RV8b an eval job goes to decide', fx: { job: inReview({}, { kind: 'eval', eval: { run: 'r', task: 'hello' }, verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: scoped }, want: run('job', 'set', 'j', '--stage', 'decide', '--state', 'running') },
   { name: 'RV8d a lens asked for changes: build', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'CHANGES' } } }), events: scoped }, want: run('job', 'set', 'j', '--stage', 'build', '--state', 'running') },
   { name: 'RV8 a PR rework that passed goes to pr', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } }, pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }), events: scoped }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
@@ -1035,6 +1066,12 @@ export const rows: Row[] = [
   { name: 'DC3 a budget acknowledgement does not clear a missing decision line', fx: { job: decidedLate(), events: budgetAck('APPROVE').slice(0, -1) }, want: { rule: 'DC3' } },
   { name: 'cleared gate: DC3 a human-cleared missing decision line goes on to DC9', fx: { job: decidedLate(), events: sentBack }, want: { rule: 'DC9' } },
   { name: 'DC10 an open PR in decide goes to pr', fx: { job: job({ stage: 'decide', round: 1, pr: OPEN_PR }) }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'DC10' } },
+  // DC11: HEAD no longer follows the head the round's review was given (reviewCurrent false).
+  { name: 'DC11 a commit after review goes back to review', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], reviewCurrent: false }, want: { ...BACK_TO_REVIEW, rule: 'DC11' } },
+  { name: 'DC11 wins over DC10 with an open PR and no auto-merge', fx: { job: job({ stage: 'decide', round: 1, pr: OPEN_PR }), reviewCurrent: false }, want: { ...BACK_TO_REVIEW, rule: 'DC11' } },
+  { name: 'DC11 wins over DC1 before the approver starts', fx: { job: freshDecide(), files: ['spec'], reviewCurrent: false }, want: { ...BACK_TO_REVIEW, rule: 'DC11' } },
+  { name: 'DC9b a round with no recorded review still integrates (reviewCurrent null)', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], reviewCurrent: null }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9b' } },
+  { name: 'DC9b a HEAD that follows the reviewed head integrates (reviewCurrent true)', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], reviewCurrent: true }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9b' } },
   { name: 'DC1 under auto-merge a PR rework goes back to the approver', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'decide', round: 2, pr: OPEN_PR }), files: ['spec'] }, want: { action: 'spawn', rule: 'DC1', role: 'approver' } },
   // ---- Recall eval before the approver (RC1, RC2)
   { name: 'RC1 a diff touching agents/ runs the recall procedure', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] } }, want: { action: 'procedure', rule: 'RC1', reference: RECALL_MD } },
@@ -1345,7 +1382,30 @@ export const rows: Row[] = [
   { name: 'PR5 ship merge needs approver eligibility: not eligible waits', fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'merge' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [decided('APPROVE', false), ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
   { name: 'PR5 an ESCALATE marked eligible never merges, even after a human cleared it', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'ESCALATE' }, events: [decided('ESCALATE', true), ev('human', 10, { action: 'approve' }), ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
   { name: 'PR5 a yes written into decision.md after a recorded no waits', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [decided('APPROVE', false), ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
-  { name: 'PR5 a commit after the decision waits (decisionCurrent false)', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, decisionCurrent: false, events: [APPROVED, ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
+  {
+    name: 'PR5 a reviewed integrate episode after the decision waits (reviewCurrent true, decisionCurrent false)',
+    fx: {
+      config: (c) => (c.merge.auto = true),
+      job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 12, true)] }),
+      decision: { decision: 'APPROVE' },
+      reviewCurrent: true,
+      decisionCurrent: false,
+      events: [APPROVED, ev('integrate-conflicts', 10, { strategy: 'merge', conflicts: ['a.ts'], behind: 1, head: HEAD_SHA, upstream: BASE_SHA }), tr(13, { stage: 'integrate' }, { stage: 'pr' }), ev('pr-opened', 14)],
+    },
+    want: { action: 'run', rule: 'PR5' },
+  },
+  // PR12: the round's review covered X, verify passed on Y; a plain commit between them is unreviewed.
+  {
+    name: 'PR12 a commit after review goes back to review, ahead of PR4',
+    fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verdicts: { 1: { code: 'PASS' } }, verifyRuns: [{ ...vr(1, 10, true), sha: HEAD_SHA }] }), decision: { decision: 'APPROVE' }, reviewCurrent: false, events: [APPROVED, ev('pr-opened', 11)] },
+    want: { ...BACK_TO_REVIEW, rule: 'PR12' },
+  },
+  { name: 'PR12 wins over PR1 with PRs off', fx: { config: (c) => (c.pr.enabled = false), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), reviewCurrent: false }, want: { ...BACK_TO_REVIEW, rule: 'PR12' } },
+  {
+    name: "PR3 only integrate's clean merges between the reviewed and verified heads open the PR (reviewCurrent true)",
+    fx: { job: job({ stage: 'pr', round: 1, verdicts: { 1: { code: 'PASS' } }, verifyRuns: [{ ...vr(1, 10, true), sha: HEAD_SHA }] }), reviewCurrent: true, events: [ev('integrated', 8, { behind: 1, strategy: 'merge' })] },
+    want: { ...run('pr', 'open', 'j'), rule: 'PR3' },
+  },
   { name: 'PR5 an APPROVE recorded before the head binding waits', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [ev('decision', 9, { decision: 'APPROVE', reason: null }), ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
   { name: 'PR5 ship merge without the foreman on never merges', fx: { config: (c) => Object.assign(c.foreman, { enabled: false, ship: 'merge' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
   { name: 'PR5 once a merge was tried, the PR waits', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11), ev('pr-merge-refused', 12)] }, want: { action: 'run', rule: 'PR5' } },

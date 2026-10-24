@@ -4,7 +4,7 @@ import { pastTotalCeiling } from '../../moves/foreman-gates.ts';
 import type { JobAgent, WaitingOn } from '#core/types.ts';
 import { park, procedure, run, spawn, toStage } from '../actions.ts';
 import { recallEvents, recallReason, recallRecorded, recallWaived } from '../recall.ts';
-import { after, afterIdx, agent, ended, gateApprovals, isPrRework, lastEvent, lastIdx, stageOf, startedIn, waitedSince } from '../facts.ts';
+import { REVIEWED_HEAD_NOTE, after, afterIdx, agent, ended, gateApprovals, isPrRework, lastEvent, lastIdx, stageOf, startedIn, waitedSince } from '../facts.ts';
 import { PP1 } from '../gates.ts';
 import { missingOutputRows } from '../generic.ts';
 import { inStage } from '../rules.ts';
@@ -45,6 +45,8 @@ export const DECIDE: Table<DecideCtx> = {
   applies: inStage('decide'),
   context,
   rules: [
+    // A commit after the review panel is unreviewed: nothing below may decide on it (reviewCurrent).
+    { id: 'DC11', when: ({ x }) => x.reviewCurrent === false, then: ({ x }) => toStage(x, 'DC11', 'review', 'a commit after review is unreviewed: review the new head', { note: REVIEWED_HEAD_NOTE }) },
     // Only without auto-merge: with it on, a PR or CI rework goes back through the approver (DC1), so
     // the decision PR4 merges on is recorded for the new head.
     { id: 'DC10', when: (c) => !evalJob(c) && isPrRework(c.x) && !autoMerge(c.x.config), then: ({ x }) => toStage(x, 'DC10', 'pr', 'the PR is open: nothing to decide') },

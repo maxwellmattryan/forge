@@ -107,6 +107,12 @@ export interface StepInput {
    * worktree HEAD still follows the head it was decided on (decisionCurrent); null otherwise.
    */
   decisionCurrent: boolean | null;
+  /**
+   * At stage decide or pr, state running, for a non-eval job: whether every job repo's HEAD still
+   * follows the head the round's review was given (reviewCurrent); null otherwise, or when the round
+   * has no recorded review.
+   */
+  reviewCurrent: boolean | null;
   runbookBeforeMerge: boolean;
   verdicts: { round: StepVerdicts | null; integration: StepVerdicts | null };
   acs: AcCoverage;

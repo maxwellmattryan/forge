@@ -25,7 +25,7 @@ import { INSTRUCTION_ROLES, instructionsFor } from '#core/config/validators/inst
 import { verifierCount } from '../verifiers.ts';
 import { currentRerun, reworkReviewFiles, roundLenses } from './panel.ts';
 import { lastRun } from '../../verify/record.ts';
-import { decisionCurrent, decisionEligible, lastDecision } from '../../pr/eligible.ts';
+import { decisionCurrent, decisionEligible, lastDecision, reviewCurrent } from '../../pr/eligible.ts';
 import { autoMerge } from '#core/config/load.ts';
 
 /** Request bodies above this, or with this many list or heading lines, get a planner under `pipeline.plan: auto`. */
@@ -87,7 +87,9 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     }
   const body = requestBody(root, job.id);
   const specText = read('spec.md') ?? '';
-  const events = readEvents(root, job.id).filter((e) => STEP_EVENTS.has(e.type));
+  // reviewCurrent reads the full log: the `verdicts` event stays out of step's own events.
+  const all = readEvents(root, job.id);
+  const events = all.filter((e) => STEP_EVENTS.has(e.type));
   // The same list review() reads, or a narrowed round's verdicts would never complete.
   const lenses = roundLenses(job, config, currentRerun({ job, config, events }));
   const compact =(v: ReturnType<typeof roundVerdicts>): StepVerdicts => ({
@@ -127,6 +129,8 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     decision: { decision: parseDecision(root, job.id).decision },
     // Only where PR4 can use it: the check runs git in every job repo.
     decisionCurrent: job.stage === 'pr' && autoMerge(config) && decisionEligible(lastDecision(events)) ? decisionCurrent(root, config, job, events) : null,
+    // Only where DC11 and PR12 read it: the check runs git in every job repo.
+    reviewCurrent: ['decide', 'pr'].includes(job.stage) && job.state === 'running' && job.kind !== 'eval' ? reviewCurrent(root, config, job, all) : null,
     runbookBeforeMerge: /^\s*(?:[-*]\s*)?When:\s*before merge\b/im.test(read('runbook.md') ?? ''),
     verdicts: {
       round: job.round >= 1 && lenses.length ? compact(roundVerdicts(root, job.id, job.round, lenses, config.review.blockOn)) : null,
