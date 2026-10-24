@@ -72,8 +72,9 @@ export function requiredChecksProblems(c: unknown): string[] {
 }
 
 /**
- * The entries the merge gate reads: a string becomes an unbound name. Tolerant: an entry
+ * The entries a valid list holds: a string becomes an unbound name. Tolerant: an entry
  * validation refuses (or a later duplicate) is skipped, never guessed at, and the rest are kept.
+ * The merge gate checks requiredChecksProblems first and refuses a list with any, so it never reads a loosened list.
  */
 export function normalizeRequiredChecks(list: unknown): RequiredCheckEntry[] {
   if (!Array.isArray(list)) return [];

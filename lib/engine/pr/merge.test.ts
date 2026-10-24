@@ -174,9 +174,9 @@ const headData = (runs: Record<string, string>, statuses: { context: string; sta
   },
 });
 
-/** A passing, settled scenario whose head reports `runs` (and `statuses`), and whose main has `protection` when given. */
-function withHead(runs: Record<string, string>, opts: { statuses?: { context: string; state: string; login: string }[]; protection?: typeof PROTECTION } = {}): Scenario {
-  const s = scenario('passing');
+/** A passing, settled scenario (GitHub's `mergeState`, CLEAN by default) whose head reports `runs` (and `statuses`), and whose main has `protection` when given. */
+function withHead(runs: Record<string, string>, opts: { statuses?: { context: string; state: string; login: string }[]; protection?: typeof PROTECTION; mergeState?: string } = {}): Scenario {
+  const s = scenario('passing', opts.mergeState);
   s.github.setHeadChecks(s.head, headData(runs, opts.statuses));
   if (opts.protection) s.github.setBranchRules('main', opts.protection);
   return s;
@@ -236,6 +236,27 @@ function requiredRows(source: 'config' | 'protection'): typeof ROWS {
     },
   ];
 }
+
+/** A merge.requiredChecks `loadConfig` lets through that validation refuses; every check passes, so a read that skipped what it refuses would merge each. */
+const INVALID_KEYS: [string, unknown][] = [
+  ['a workflow outside .github/workflows/, beside an unbound entry a tolerant read would keep', ['slow', { name: 'slow', workflow: 'ci.yml' }]],
+  ['an app that is not a slug', [{ name: 'slow', app: 'GitHub-Actions' }]],
+  ['a value that is not a list', 'slow'],
+];
+
+/** The root PR's merge fails closed on each: refused with the problem, no merge call, nothing read from GitHub. */
+const invalidKeyRows = (): typeof ROWS =>
+  INVALID_KEYS.map(([what, list]) => ({
+    name: `required checks (config): an invalid merge.requiredChecks refuses the merge, ${what}`,
+    arrange: () => withHead({ test: 'SUCCESS', slow: 'SUCCESS' }),
+    config: { ...auto, merge: { ...auto.merge, requiredChecks: list as never } },
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([s.merges(), r.action, r.required?.source, r.required?.state, r.required?.blocking, ops(s, 'branchRules').length + ops(s, 'headChecks').length], [[], 'refused', 'config', 'failing', [], 0]);
+      assert.match(r.error ?? '', /^merge\.requiredChecks in \.forge\/config\.yml is invalid, so Forge refuses to merge: .*; fix it \(forge config validate\), or a human merges anyway with forge pr merge --now/);
+      assert.deepEqual(s.all().find((e) => e.type === 'pr-merge-refused')?.required, r.required);
+    },
+  }));
 
 const refusedFor = (reason: string) => (s: Scenario, r: MergeResult | Error) => {
   assert.deepEqual(s.merges(), []);
@@ -316,6 +337,26 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
       assert.match(note ?? '', /could not be read/);
       assert.match(note ?? '', /CI rollup alone/);
       assert.deepEqual(ops(s, 'headChecks'), []);
+    },
+  },
+  ...invalidKeyRows(),
+  // No protected-paths rule: only where the required checks come from decides whether `--auto` is queued.
+  {
+    name: "required checks (config): a pending check on a BLOCKED PR defers, since GitHub's --auto would land it without the key's checks",
+    arrange: () => withHead({ test: 'SUCCESS' }, { mergeState: 'BLOCKED' }),
+    config: { ...requiredAuto, policy: { protectedPaths: [] } },
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([s.merges(), r.action, r.required?.source, 'reason' in (s.all().find((e) => e.type === 'pr-merge-deferred') ?? {})], [[], 'deferred', 'config', false]);
+    },
+  },
+  {
+    name: 'required checks (protection): the same PR is queued with --auto, which GitHub holds on its own protection',
+    arrange: () => withHead({ test: 'SUCCESS' }, { protection: PROTECTION, mergeState: 'BLOCKED' }),
+    config: { ...auto, policy: { protectedPaths: [] } },
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([s.merges(), r.action, r.required?.source], [[{ op: 'merge', slug: 'o/r', number: 7, method: 'squash', auto: true, matchHead: s.head }], 'auto', 'protection']);
     },
   },
   { name: 'auto-off: merge.auto off refuses an eligible, passing PR', arrange: () => scenario('passing'), config, check: refusedFor('auto-off') },

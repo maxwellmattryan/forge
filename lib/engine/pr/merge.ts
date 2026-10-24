@@ -221,11 +221,13 @@ function mergeOne(root: string, config: Config, github: GitHub, id: string, t: M
   const settling = decided !== 'merge' && !settled && mergeAction(checks, { hasWorkflows, mergeState, settled: true, required: req }) === 'merge';
   // Once --auto is queued, GitHub merges on its own, and whether it still holds
   // --match-head-commit then is not documented. Under a protected-paths policy Forge waits instead,
-  // so the merge that lands goes through the gate above (sync continues it).
-  const held = decided === 'auto' && policyRules(config).length > 0;
+  // so the merge that lands goes through the gate above (sync continues it). The same for
+  // merge.requiredChecks: GitHub's protection doesn't know them, so a queued merge would land without them.
+  const policyHeld = decided === 'auto' && policyRules(config).length > 0;
+  const held = policyHeld || (decided === 'auto' && required?.source === 'config');
   const action = held ? 'defer' : decided;
   if (action === 'defer') {
-    logEvent(root, id, 'pr-merge-deferred', { ...tag, number, checks, mergeState, ...(held ? { reason: 'protected' } : settling ? { reason: 'settling' } : {}), ...withRequired });
+    logEvent(root, id, 'pr-merge-deferred', { ...tag, number, checks, mergeState, ...(policyHeld ? { reason: 'protected' } : settling ? { reason: 'settling' } : {}), ...withRequired });
     return { merged: false, autoMerge: false, action: 'deferred', checks, mergeState, ...withRequired };
   }
   if (action === 'refuse') {

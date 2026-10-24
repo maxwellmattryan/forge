@@ -1,6 +1,6 @@
 // Required checks: which checks a PR's merge needs, from merge.requiredChecks or its base's
 // protection, and whether its head satisfies them, each bound to its source.
-import { normalizeRequiredChecks } from '#core/config/validators/required-checks.ts';
+import { normalizeRequiredChecks, requiredChecksProblems } from '#core/config/validators/required-checks.ts';
 import { SAFE_REF, safeText } from '#core/text.ts';
 import type { Config } from '#core/types.ts';
 import { FAILING_STATES } from '#integrations/github/pull-requests.ts';
@@ -126,7 +126,12 @@ function cachedRules(github: GitHub, cwd: string, slug: string, base: string, ca
   return r;
 }
 
-/** The required-check verdict for one PR at `headOid`: its requirements, and its head's checks read only when there are some. */
+/**
+ * The required-check verdict for one PR at `headOid`: its requirements, and its head's checks read only when there are some.
+ * The root PR's merge.requiredChecks is its merge gate, and `loadConfig` does not validate: an entry that fails validation
+ * (a typo in a workflow path, say) would be dropped and loosen the gate, so any problem fails the verdict, as an invalid
+ * policy does for protected paths. A member PR never reads the key.
+ */
 export function requiredFor(
   github: GitHub,
   cwd: string,
@@ -134,6 +139,8 @@ export function requiredFor(
   config: Config,
   cache: Map<string, BranchRules>,
 ): RequiredSummary {
+  const problems = pr.repo === null ? requiredChecksProblems(config) : [];
+  if (problems.length) return { source: 'config', state: 'failing', blocking: [], note: `merge.requiredChecks in .forge/config.yml is invalid, so Forge refuses to merge: ${safeText(problems[0], 200)}` };
   const base = pr.base ?? '';
   const { source, reqs, note } = requirementsFor(config, pr.repo, base, () => cachedRules(github, cwd, pr.slug, base, cache));
   if (!reqs.length) return { source, state: null, blocking: [], ...(note ? { note } : {}) };
@@ -147,8 +154,9 @@ export function requiredFor(
   return { source, ...evaluateRequired(reqs, head) };
 }
 
-/** The refusal when a required check fails: each blocking check and why. */
+/** The refusal when a required check fails: each blocking check and why, or the note when the key itself is invalid. */
 export function requiredError(r: RequiredSummary): string {
+  if (!r.blocking.length && r.note) return `${r.note}; fix it (forge config validate), or a human merges anyway with forge pr merge --now in their own terminal`;
   const shown = r.blocking.map((b) => `${b.name} (${b.why})`).join(', ') || 'unknown';
   return `required checks are not passing: ${shown}; fix CI, or a human merges anyway with forge pr merge --now in their own terminal`;
 }

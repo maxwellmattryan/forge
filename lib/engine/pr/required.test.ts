@@ -2,9 +2,10 @@
 // name, bound to its source, and requirementsFor picks config for the root, protection otherwise.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { memoryGitHub } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
 import type { BranchRules, CheckObservation, HeadChecks } from '#integrations/github/types.ts';
-import { evaluateRequired, requirementsFor } from './required.ts';
+import { evaluateRequired, requiredError, requiredFor, requirementsFor } from './required.ts';
 import type { Requirement, RequiredSummary } from './required.ts';
 
 const CI = '.github/workflows/ci.yml';
@@ -72,4 +73,32 @@ test('requirements: config for the root, protection for members', () => {
   const unavailable = requirementsFor(empty, 'lib', 'release/1.0', rules({ status: 'unavailable', checks: [], reviews: null, error: 'HTTP 403: Resource not accessible' }));
   assert.deepEqual([unavailable.source, unavailable.reqs], ['unavailable', []]);
   assert.equal(unavailable.note, 'branch protection of release/1.0 could not be read (HTTP 403: Resource not accessible); deciding on the CI rollup alone');
+});
+
+test('requiredFor: an invalid merge.requiredChecks fails the root PR, and a member PR never reads it', () => {
+  const sha = 'a'.repeat(40);
+  const github = memoryGitHub();
+  const rootReads = () => github.calls.filter((c) => (c.op === 'branchRules' || c.op === 'headChecks') && c.slug === 'o/r').length;
+  github.setBranchRules('main', { status: 'read', checks: [{ name: 'build', appId: null }], reviews: 0 }, 'o/lib');
+  github.setHeadChecks(sha, { repository: { object: { checkSuites: { pageInfo: { hasNextPage: false }, nodes: [] }, status: { contexts: [] } } } }, 'o/lib');
+  // Entries `loadConfig` lets through: each one's problem, and the first entry that a tolerant read would keep alone.
+  const lists: [string, unknown, RegExp][] = [
+    ['a workflow outside .github/workflows/', ['test', { name: 'slow', workflow: 'ci.yml' }], /workflow must be a file under \.github\/workflows\//],
+    ['an app that is not a slug', [{ name: 'slow', app: 'GitHub-Actions' }], /app must be a GitHub App slug/],
+    ['a value that is not a list', 'slow', /must be a list/],
+    ['a name listed twice', ['slow', 'slow'], /more than once/],
+  ];
+  for (const [name, list, problem] of lists) {
+    const config = defaults();
+    config.merge.requiredChecks = list as never;
+    const root = requiredFor(github, '/', { repo: null, slug: 'o/r', base: 'main', headOid: sha }, config, new Map());
+    assert.deepEqual([root.source, root.state, root.blocking], ['config', 'failing', []], name);
+    assert.match(root.note ?? '', /^merge\.requiredChecks in \.forge\/config\.yml is invalid, so Forge refuses to merge: /, name);
+    assert.match(root.note ?? '', problem, name);
+    assert.equal(requiredError(root), `${root.note}; fix it (forge config validate), or a human merges anyway with forge pr merge --now in their own terminal`, name);
+    assert.equal(rootReads(), 0, `${name}: nothing is read for the root`);
+
+    const member = requiredFor(github, '/', { repo: 'lib', slug: 'o/lib', base: 'main', headOid: sha }, config, new Map());
+    assert.deepEqual([member.source, member.state, member.blocking], ['protection', 'pending', [{ name: 'build', why: 'missing' }]], `${name}: a member uses its own protection`);
+  }
 });
