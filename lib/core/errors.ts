@@ -21,7 +21,7 @@ export const ERROR_CODE_DOCS: Record<ErrorCode, string> = {
   release_gate:
     "`forge pr ready` targeted a consumer PR whose local or sequential dependency's release is not recorded (a human runs `forge job interim release <id> <name>|--root <version>`), or whose manifests don't name a recorded release yet (gate `bump-due`, or a HEAD that doesn't carry it: run `forge verify <id>`, then `forge pr open <id>`); nothing was called (docs/CONFIG.md \"Interim strategies\")",
   human_only:
-    'a human-only operation (`forge pr merge --now`, `forge job budget --set|--ack`, `forge budget ack`) needs a person who confirms it at a terminal by typing the job id or period, or the dashboard; a daemon session, an agent, a script or a configured command can\'t run it, and nothing was changed (docs/architecture/daemon-security.md "Human-only operations")',
+    'a human-only operation (`forge pr merge --now`, `forge job budget --set|--ack`, `forge budget ack`) needs a person who confirms it at a terminal by typing the job id or period, or, for `pr merge --now`, the dashboard\'s Merge now and, for `budget ack`, its Acknowledge in Needs you (`job budget` has no dashboard route); a daemon session, an agent, a script or a configured command can\'t run it, and nothing was changed (docs/architecture/daemon-security.md "Human-only operations")',
   usage: 'the default for exit 2: the call could not be parsed; the hint names the help to read',
   unknown_command: 'the first word is not a command',
   not_initialized: 'the repo has no `.forge/config.yml`; run `/forge init`',
