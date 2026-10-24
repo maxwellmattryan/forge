@@ -8,7 +8,7 @@ import path from 'node:path';
 import { ghPr, memoryGitHub, parkedAt, tempRepo } from '../../../test/helpers.ts';
 import { syncPr } from './sync.ts';
 import { defaults } from '#core/config/load.ts';
-import { jobDir, loadJob, readEvents } from '#core/job/store.ts';
+import { jobDir, loadJob, readEvents, setJob } from '#core/job/store.ts';
 import type { Job } from '#core/types.ts';
 
 const config = defaults();
@@ -91,6 +91,14 @@ const ROWS: { name: string; arrange: (s: Scenario) => void; check: (s: Scenario)
       const j = s.job();
       assert.deepEqual([j.state, j.reason], ['cancelled', 'PR closed without merging']);
     },
+  },
+  {
+    name: '(f) an open PR leaves a job cancelled at stage pr cancelled',
+    arrange: (s) => {
+      setJob(s.root, s.id, { state: 'cancelled', waitingOn: null, reason: 'stopped by a person' });
+      s.github.put(ghPr({ headRefOid: SHA }));
+    },
+    check: (s) => assert.deepEqual([...at(s.job()), s.job().reason], ['pr', 'cancelled', null, 'stopped by a person']),
   },
   {
     name: "(d) a state GitHub doesn't name keeps the stored one",

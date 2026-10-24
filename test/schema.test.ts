@@ -224,6 +224,13 @@ const EVENT_ROWS: Row[] = [
     fields: { type: 'human', ts: 't', action: 'approve', actor: { login: 'al', source: 'daemon' } },
     note: 'an actor recorded by a daemon session keeps source daemon',
   },
+  {
+    step: 'merge-provenance',
+    input: { ts: 't', type: 'pr-merged', number: 7, method: 'squash', checks: 'passing', bypass: false },
+    fields: { type: 'pr-merged', ts: 't', number: 7, method: 'squash', checks: 'passing', bypass: false },
+    removed: ['actor', 'scope', 'via'],
+    note: 'a pr-merged from before provenance keeps its fields and gains no actor, scope or via',
+  },
 ];
 
 /** One versioned shape: its rows, its step list, its current version, the field that holds it, and its reader. */
