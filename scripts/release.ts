@@ -306,6 +306,17 @@ function gitOut(root: string, args: string[], opts: { input?: string } = {}): st
 const git = (root: string, ...args: string[]) => gitOut(root, args).trim();
 const gitOk = (root: string, args: string[]) => gitSync(args, { cwd: root, stdio: 'ignore' }).status === 0;
 const say = (s: string) => process.stderr.write(`${s}\n`);
+const parentsOf = (root: string, c: string): string[] => git(root, 'rev-list', '--parents', '-n', '1', c, '--').split(' ').slice(1);
+/** Whether `c` is on `ref`'s first-parent chain, a commit `ref` itself was at, not one from a branch merged into it. False when `ref` does not resolve. */
+const onFirstParents = (root: string, c: string, ref: string): boolean => {
+  const r = gitSync(['rev-list', '--first-parent', ref, '--'], { cwd: root });
+  return r.status === 0 && r.stdout.split('\n').includes(c);
+};
+
+/** How many commits `develop` has that `release` lacks: a release commit cut from an older develop ships without them. */
+export function behindDevelop(root: string, release: string, develop = 'refs/remotes/origin/develop'): number {
+  return Number(git(root, 'rev-list', '--count', `${release}..${develop}`, '--'));
+}
 
 /** `bytes` as text, or null when they are not valid UTF-8, which would not survive a rewrite byte for byte. */
 const utf8 = (bytes: Buffer): string | null => {
@@ -344,16 +355,16 @@ function isBumpOf(root: string, parent: string, c: string, version: string): boo
 /**
  * `tip` when it is a release commit for `version` (one parent, subject exactly `Release <version>`,
  * package.json at `version`, no tracked dashboard/dist, and nothing but develop plus the bump: its parent is
- * on `develop`, it changes only the version files, marketplace.json and CHANGELOG.md, and each holds exactly
- * the parent's bytes bumped, with one new CHANGELOG section), its second parent when `tip` is a two-parent
- * main update of one, else null: a hotfix branch, whose dist must never land on develop, or a branch someone
- * else pushed. `develop` is the ref the parent must be on.
+ * on `develop`'s first-parent chain, it changes only the version files, marketplace.json and CHANGELOG.md, and
+ * each holds exactly the parent's bytes bumped, with one new CHANGELOG section), its second parent when `tip` is
+ * a two-parent main update of one, else null: a hotfix branch, whose dist must never land on develop, or a branch
+ * someone else pushed. `develop` is the ref the parent must be on. A parent behind develop's tip still passes:
+ * `behindDevelop` counts what such a release leaves out.
  */
 export function releaseCommitOf(root: string, tip: string, version: string, develop = 'refs/remotes/origin/develop'): string | null {
   if (!SHA.test(tip)) return null;
-  const parents = (c: string) => git(root, 'rev-list', '--parents', '-n', '1', c, '--').split(' ').slice(1);
   const isRelease = (c: string): boolean => {
-    const [parent, ...others] = parents(c);
+    const [parent, ...others] = parentsOf(root, c);
     if (!parent || others.length) return false;
     if (git(root, 'log', '-1', '--format=%s', c, '--') !== `Release ${version}`) return false;
     const pkg = gitSync(['cat-file', 'blob', `${c}:package.json`], { cwd: root });
@@ -364,12 +375,13 @@ export function releaseCommitOf(root: string, tip: string, version: string, deve
       v = undefined;
     }
     if (v !== version || git(root, 'ls-tree', '-r', '--name-only', '--full-tree', c, '--', 'dashboard/dist') !== '') return false;
-    if (!gitOk(root, ['merge-base', '--is-ancestor', parent, develop])) return false;
+    // A commit develop was at: one from a branch merged into it would release a state develop never had.
+    if (!onFirstParents(root, parent, develop)) return false;
     const changed = gitOut(root, ['diff', '--name-only', '-z', '--no-renames', parent, c, '--']).split('\0').filter(Boolean);
     return changed.every((f) => RELEASE_FILES.includes(f)) && isBumpOf(root, parent, c, version);
   };
   if (isRelease(tip)) return tip;
-  const p = parents(tip);
+  const p = parentsOf(root, tip);
   return p.length === 2 && SHA.test(p[1]) && isRelease(p[1]) ? p[1] : null;
 }
 
@@ -562,17 +574,22 @@ function withDist<T>(repo: string, build: Run, use: (dist: string) => T): T {
 /** Before the PR merges: the release commit pushed, the main update on top of main pushed, the PR open. */
 async function toPr(root: string, repo: string, previous: string, version: string, pr: ReleasePr | null, yes: boolean): Promise<void> {
   const branch = `release/v${version}`;
-  let tip = remoteTip(root, branch);
-  if (!tip) {
-    const local = localTip(root, branch);
-    if (!local) throw new Refusal(`origin/main is at ${version} but there is no ${branch} branch and \`gh pr list\` found no release PR from it: if it is a hotfix, port it to develop (docs/RELEASES.md › Hotfixes); if a release PR merged, check that \`gh pr list --head ${branch} --state all\` lists it`);
-    if (releaseCommitOf(root, local, version) !== local) throw notARelease(branch, local);
-    await confirm(`Push Release ${version} (${local.slice(0, 7)}) to origin ${branch}?`, yes);
-    gitOut(root, ['push', '--quiet', 'origin', `${local}:refs/heads/${branch}`]);
-    tip = local;
-  }
+  const remote = remoteTip(root, branch);
+  let tip = remote ?? localTip(root, branch);
+  if (!tip) throw new Refusal(`origin/main is at ${version} but there is no ${branch} branch and \`gh pr list\` found no release PR from it: if it is a hotfix, port it to develop (docs/RELEASES.md › Hotfixes); if a release PR merged, check that \`gh pr list --head ${branch} --state all\` lists it`);
   const release = releaseCommitOf(root, tip, version);
-  if (!release) throw notARelease(branch, tip);
+  // Only the release commit itself is pushed from a local branch: its main update is built below, never taken from one.
+  if (!release || (!remote && release !== tip)) throw notARelease(branch, tip);
+  // A release commit on an older develop commit is a release commit too, and would quietly leave out what came after.
+  const behind = behindDevelop(root, release);
+  if (behind > 0) {
+    say(`origin/develop has ${behind} commit${behind === 1 ? '' : 's'} that Release ${version} (${release.slice(0, 7)}) lacks, and the release would ship without them: git log --oneline ${release.slice(0, 7)}..origin/develop lists them`);
+    await confirm(`Go on with Release ${version} without them?`, yes, `stopped: nothing more was pushed. To release develop as it is now, close the release PR if one is open, delete ${branch} (git push origin --delete ${branch}; git branch -D ${branch}) and start again`);
+  }
+  if (!remote) {
+    await confirm(`Push Release ${version} (${tip.slice(0, 7)}) to origin ${branch}?`, yes);
+    gitOut(root, ['push', '--quiet', 'origin', `${tip}:refs/heads/${branch}`]);
+  }
   const main = git(root, 'rev-parse', 'refs/remotes/origin/main');
   if (tip !== release) {
     const pushed = tip;
@@ -625,15 +642,18 @@ async function toPr(root: string, repo: string, previous: string, version: strin
 /**
  * Makes local develop hold `release` and returns the sha to push, or null when origin/develop already has it:
  * a fast-forward when origin/develop is still its parent, else a `Release <version>` merge of it on a develop that
- * equals origin/develop (a conflict aborts and refuses). A develop that is origin/develop plus `release` already,
- * a landing an earlier run made whose push was declined or rejected, is returned as it is.
+ * equals origin/develop (a conflict aborts and refuses). A develop that is exactly that landing already, `release`
+ * with origin/develop as its parent or a merge with parents `[origin/develop, release]` (one an earlier run made
+ * whose push was declined, or a merge by hand after a conflict), is returned as it is. Anything more refuses: it
+ * would be pushed with the landing.
  */
 export function landOnDevelop(root: string, release: string, version: string): string | null {
   const remote = git(root, 'rev-parse', 'refs/remotes/origin/develop');
   if (gitOk(root, ['merge-base', '--is-ancestor', release, remote])) return null;
   const head = git(root, 'rev-parse', 'HEAD');
   if (head !== remote) {
-    if (gitOk(root, ['merge-base', '--is-ancestor', remote, head]) && gitOk(root, ['merge-base', '--is-ancestor', release, head])) return head;
+    const landing = head === release ? [remote] : [remote, release];
+    if (parentsOf(root, head).join(' ') === landing.join(' ')) return head;
     throw new Refusal('develop differs from origin/develop: pull or push first');
   }
   if (git(root, 'rev-parse', `${release}^1`) === remote) gitOut(root, ['merge', '--quiet', '--ff-only', release]);
@@ -680,7 +700,7 @@ async function land(root: string, repo: string, version: string, pr: ReleasePr, 
     try {
       gitOut(root, ['push', '--quiet', 'origin', `${head}:refs/heads/develop`]);
     } catch (e) {
-      throw new Refusal(`${(e as Error).message}\nLocal ${state}: if origin/develop moved, merge it in (git pull --no-rebase), then run npm run release again`);
+      throw new Refusal(`${(e as Error).message}\nLocal ${state}: if origin/develop moved, put develop back on it (git fetch origin develop, then git reset --keep origin/develop) and run npm run release again, which lands the release on the new tip`);
     }
   }
   const url = sh('gh', ['release', 'view', tag, '--repo', repo, '--json', 'url', '--jq', '.url']).trim();
