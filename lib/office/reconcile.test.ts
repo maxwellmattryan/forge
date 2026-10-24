@@ -83,3 +83,38 @@ test('a job is resumed at most three times per stage', async () => {
     repo.cleanup();
   }
 });
+
+test('a record without a valid resumes count stands for one resume', async () => {
+  // An older Forge wrote no count; a session could write a bad one. Either way two more resumes reach the ceiling.
+  const rows: [string, unknown][] = [
+    ['no resumes', undefined],
+    ['a string count', '3'],
+    ['a zero count', 0],
+  ];
+  for (const [name, resumes] of rows) {
+    const repo = tempRepo();
+    try {
+      const id = jobAt(repo.dir, 'build', { title: name }).id;
+      append(repo.dir, id, 'agent-end', '2099-01-01T00:00:00.000Z', { role: 'builder', usage: { totalTokens: 10 } });
+      await reconcile(repo.dir, config, { at: AT });
+      const mem = memory(repo.dir);
+      if (resumes === undefined) delete mem.jobs[id].resumes;
+      else mem.jobs[id].resumes = resumes;
+      fs.writeFileSync(path.join(paths(repo.dir).runtime, 'reconcile.json'), JSON.stringify(mem));
+      const passes: { resumed: string[]; escalated: string[] }[] = [];
+      for (let i = 1; i <= 3; i++) {
+        handleResumes(repo.dir, id);
+        append(repo.dir, id, 'agent-end', `2099-01-01T00:00:0${i}.000Z`, { role: 'builder', usage: { totalTokens: 10 } });
+        passes.push(await reconcile(repo.dir, config, { at: AT + i * 1000 }));
+      }
+      assert.deepEqual(
+        passes.map((p) => [p.resumed, p.escalated]),
+        [[[id], []], [[id], []], [[], [id]]],
+        name,
+      );
+      assert.equal(loadJob(repo.dir, id).reason, 'undriven at build: resumed 3 times at this stage', name);
+    } finally {
+      repo.cleanup();
+    }
+  }
+});
