@@ -1,8 +1,10 @@
-// The commit `npm run release` pushes to main (scripts/release.ts), also runnable by hand:
+// The main update `npm run release` pushes to the release PR's branch (scripts/release.ts), also runnable by hand:
 //   node scripts/main-update.ts commit --main <sha> --develop <sha> --dist <dir>
-//     prints the sha of one new commit: develop's tree plus the built dashboard/dist/, parents [main, develop]
-// The dist comes from main-update.yml's build in CI, with node_modules, so it is checked here before any
-// of it reaches a commit (docs/RELEASES.md "Releasing"). Built-ins only.
+//     prints the sha of one new commit: the release commit's tree (`--develop`: develop's tip plus the bump)
+//     plus the built dashboard/dist/, parents [main, release commit]
+// The release PR carries it into main. The dist comes from main-update.yml's build of the release branch
+// in CI, with node_modules, so it is checked here before any of it reaches a commit (docs/RELEASES.md
+// "Releasing"). Built-ins only.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
