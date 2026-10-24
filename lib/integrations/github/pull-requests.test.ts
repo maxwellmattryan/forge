@@ -181,6 +181,13 @@ const OPS: { name: string; reply: RunResult; call: (g: GitHub) => unknown; argv:
   { name: 'editBody', reply: ok(), call: (g) => g.editBody('/r', 'o/r', 7, '/b.md'), argv: ['pr', 'edit', '7', '-R', 'o/r', '--body-file', '/b.md'] },
   { name: 'ready', reply: ok(), call: (g) => g.ready('/r', 'o/r', 7), argv: ['pr', 'ready', '7', '-R', 'o/r'] },
   {
+    name: 'headChecks',
+    reply: ok(JSON.stringify({ data: { repository: { object: { checkSuites: { pageInfo: { hasNextPage: false }, nodes: [] }, status: null } } } })),
+    call: (g) => g.headChecks('/r', 'o/r', SHA),
+    argv: GRAPHQL(['-f', 'owner=o', '-f', 'name=r', '-f', `oid=${SHA}`]),
+    result: { checks: [], complete: true },
+  },
+  {
     name: 'merge',
     reply: ok(),
     call: (g) => g.merge('/r', 'o/r', 7, { method: 'squash', auto: true, matchHead: SHA }),
@@ -219,6 +226,7 @@ test('the gh adapter makes one gh call per operation', () => {
     ['view, gh fails', failed('HTTP 404'), (g) => g.view('/r', 'o/r', 7)],
     ['view, not JSON', ok('<html>'), (g) => g.view('/r', 'o/r', 7)],
     ['feedback, gh fails', failed('rate limited'), (g) => g.feedback('/r', 'o/r', 7)],
+    ['headChecks, gh fails', failed('HTTP 502'), (g) => g.headChecks('/r', 'o/r', SHA)],
     ['editBody, gh fails', failed('no permission'), (g) => g.editBody('/r', 'o/r', 7, '/b.md')],
   ];
   for (const [name, reply, call] of failures) {

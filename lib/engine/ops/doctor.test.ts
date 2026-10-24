@@ -2,12 +2,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { commandEnvCheck, commandPathCheck, daemonBillingCheck, doctor, envCopyCheck, instructionsPolicyCheck } from './doctor.ts';
+import { commandEnvCheck, commandPathCheck, daemonBillingCheck, doctor, envCopyCheck, instructionsPolicyCheck, requiredChecksCheck } from './doctor.ts';
 import { buildBundle } from './bundle.ts';
 import { droppedVariables } from '../guard/command-env.ts';
 import { defaults } from '#core/config/load.ts';
 import type { Config, DoctorReport, ProtectedRule } from '#core/types.ts';
-import { fakeBin, tempRepo } from '../../../test/helpers.ts';
+import type { BranchRules } from '#integrations/github/types.ts';
+import { fakeBin, fakeGh, tempRepo } from '../../../test/helpers.ts';
 
 const CI_RULE: ProtectedRule = { paths: ['.github/workflows/**'], action: 'escalate', reason: 'CI/CD configuration' };
 
@@ -123,6 +124,62 @@ test('doctor reports the command PATH source and the variables commands do not g
   assert.equal(captured.warn, undefined);
   assert.equal(captured.detail, 'login-shell (/bin/zsh)');
   assert.equal(commandPathCheck({ FORGE_COMMAND_PATH_SOURCE: 'inherited: win32', Path: 'C:\\a' }, 'win32').warn, undefined, 'win32 is no failed capture');
+});
+
+const PROTECT_DEVELOP =
+  "gh api -X PUT 'repos/{owner}/{repo}/branches/develop/protection' -F 'required_status_checks[strict]=false' -f 'required_status_checks[contexts][]=<check name>' -F 'required_pull_request_reviews[required_approving_review_count]=1' -F enforce_admins=false -F restrictions=null";
+
+test('merge required checks advice', () => {
+  const keyed = defaults();
+  keyed.merge.requiredChecks = ['test'];
+  const empty = defaults();
+  const read = (checks: BranchRules['checks'], reviews: number | null): BranchRules => ({ status: 'read', checks, reviews });
+  const test1 = [{ name: 'test', appId: null }];
+  const quiet: [string, Config, BranchRules | null][] = [
+    ['the key set (protection not read)', keyed, null],
+    ['a required check and a required review', empty, read(test1, 1)],
+    ['a required check, the review count unknown', empty, read(test1, null)],
+  ];
+  for (const [name, config, rules] of quiet) {
+    const row = requiredChecksCheck(config, 'develop', rules);
+    assert.deepEqual([row.name, row.ok, row.warn], ['merge required checks', true, undefined], name);
+  }
+  const plain = `develop has no merge.requiredChecks and no protection rule with required checks and a required review, so Forge merges on whatever CI has reported; set merge.requiredChecks (docs/CONFIG.md "Merge"), or run: ${PROTECT_DEVELOP}`;
+  const warns: [string, BranchRules, string][] = [
+    ['required checks but no required review', read(test1, 0), plain],
+    ['no required check', read([], 2), plain],
+    ['no required check, the review count unknown', read([], null), plain],
+    [
+      'protection that could not be read',
+      { status: 'unavailable', checks: [], reviews: null, error: 'gh: Resource not accessible by integration (HTTP 403)' },
+      `could not read develop's branch protection (gh: Resource not accessible by integration (HTTP 403)) and merge.requiredChecks is empty, so Forge merges on whatever CI has reported; set merge.requiredChecks (docs/CONFIG.md "Merge"), or run: ${PROTECT_DEVELOP}`,
+    ],
+  ];
+  for (const [name, rules, detail] of warns) assert.deepEqual(requiredChecksCheck(empty, 'develop', rules), { name: 'merge required checks', ok: true, warn: true, detail }, name);
+  assert.match(requiredChecksCheck(empty, 'release/1.0', read([], 0)).detail, /branches\/release%2F1\.0\/protection'/, 'the base is encoded in the command');
+});
+
+test('doctor warns when the base has no required checks', { skip: process.platform === 'win32' }, async (t) => {
+  const repo = tempRepo();
+  const gh = fakeGh({
+    'auth status': 'Logged in to github.com',
+    '--version': 'gh version 2.60.0',
+    'api repos/o/r/rules/branches/main?per_page=100': '[]',
+    'api repos/o/r/branches/main': '{"protected":false}',
+  });
+  const PATH = process.env.PATH;
+  process.env.PATH = `${gh.dir}${path.delimiter}${PATH}`;
+  t.after(() => {
+    process.env.PATH = PATH;
+    repo.cleanup();
+  });
+  const config = defaults();
+  config.tracker.kind = 'none';
+  config.tracker.github.repo = 'o/r';
+  const row = (await doctor(repo.dir, config, true)).checks.find((c) => c.name === 'merge required checks');
+  assert.deepEqual([row?.ok, row?.warn], [true, true], JSON.stringify(row));
+  assert.match(row?.detail ?? '', /^main has no merge\.requiredChecks and no protection rule/);
+  assert.ok(gh.calls().some((c) => c.args.join(' ') === 'api repos/o/r/branches/main'), 'protection was read through gh');
 });
 
 test("a support bundle's doctor.json counts the variable names that say what a machine has", { skip: process.platform === 'win32' }, async (t) => {

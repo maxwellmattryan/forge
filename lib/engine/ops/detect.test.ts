@@ -20,6 +20,51 @@ test('worktrees.copy suggestions leave out .env files', () => {
   }
 });
 
+test('merge.requiredChecks suggestions come from pull_request workflows', () => {
+  const repo = tempRepo();
+  try {
+    const dir = path.join(repo.dir, '.github', 'workflows');
+    fs.mkdirSync(dir, { recursive: true });
+    const write = (file: string, text: string) => fs.writeFileSync(path.join(dir, file), text);
+    write(
+      'ci.yml',
+      [
+        'name: CI',
+        'on:',
+        '  pull_request:',
+        '  push:',
+        '    branches: [main]',
+        'jobs:',
+        '  test:',
+        '    runs-on: ubuntu-latest',
+        '  lint:',
+        '    name: Lint',
+        '    runs-on: ubuntu-latest',
+        '  build:',
+        '    runs-on: ${{ matrix.os }}',
+        '    strategy:',
+        '      matrix:',
+        '        os: [ubuntu-latest, macos-latest]',
+        '  release:',
+        "    if: github.ref == 'refs/heads/main'",
+        '    runs-on: ubuntu-latest',
+        '',
+      ].join('\n'),
+    );
+    write('deploy.yml', ['on:', '  push:', 'jobs:', '  deploy:', '    runs-on: ubuntu-latest', ''].join('\n'));
+    write('docs.yml', ['on:', '  pull_request:', '    paths:', "      - 'docs/**'", 'jobs:', '  docs:', '    runs-on: ubuntu-latest', ''].join('\n'));
+    write('broken.yml', 'on: [pull_request\njobs: {\n');
+    // The key would refuse these two, so they are not offered: a name over 100 characters, and one already listed from another file.
+    write('extra.yml', ['on: pull_request', 'jobs:', '  long:', `    name: ${'x'.repeat(101)}`, '    runs-on: ubuntu-latest', '  lint:', '    name: Lint', '    runs-on: ubuntu-latest', ''].join('\n'));
+    assert.deepEqual(detect(repo.dir).suggestions['merge.requiredChecks'], [
+      { name: 'test', workflow: '.github/workflows/ci.yml' },
+      { name: 'Lint', workflow: '.github/workflows/ci.yml' },
+    ]);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test('commandEnv.inherit suggestions come from .env.example names and the build tool', () => {
   const empty = tempRepo();
   const repo = tempRepo();

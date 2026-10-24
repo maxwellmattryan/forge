@@ -193,6 +193,9 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'merge.auto': { doc: 'let Forge merge a PR whose recorded APPROVE covers its head, with no escalate-floor path, once CI passes at a settled head (see "Merge")' },
   'merge.method': { doc: 'squash | merge | rebase' },
   'merge.autoWhen': { doc: 'plain-language conditions, e.g. ["docs-only changes", "test-only changes"]' },
+  'merge.requiredChecks': {
+    doc: "the checks the root PR's merge needs, each a name or {name, app | workflow | creator} bound to its source; empty: the base branch's protection names them (see \"Merge\")",
+  },
 
   aiAttribution: { doc: 'forbid | allow: whether commits, PRs, issues and comments may credit an AI (see README)' },
 

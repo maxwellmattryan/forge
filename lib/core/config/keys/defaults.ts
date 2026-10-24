@@ -183,6 +183,8 @@ export function defaults(): Config {
       auto: false,
       method: 'squash',
       autoWhen: [],
+      // Empty: the base branch's protection names the required checks (docs/CONFIG.md "Merge").
+      requiredChecks: [],
     },
     aiAttribution: 'forbid',
     release: { interim: 'local', versioning: null, mechanism: null, command: null, registry: null, cadence: null, publish: null },

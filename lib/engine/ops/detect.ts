@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { defaults } from '#core/config/load.ts';
+import { requiredChecksProblems } from '#core/config/validators/required-checks.ts';
 import { cargoMembers as membersOf, detectComponents, npmWorkspaces } from './detect-components.ts';
 import { git as runGit } from '#integrations/git/runner.ts';
 import { exists } from '#core/paths.ts';
@@ -104,6 +105,49 @@ function inheritSuggestions(root: string): string[] {
     out.add('ANDROID_SDK_ROOT');
   }
   return [...out].sort();
+}
+
+const MAX_REQUIRED_SUGGESTIONS = 20;
+
+/** Whether a workflow's `on` runs it on every pull request: `pull_request` listed, with no `paths` or `paths-ignore` filter. */
+function onEveryPullRequest(on: unknown): boolean {
+  if (on === 'pull_request') return true;
+  if (Array.isArray(on)) return on.includes('pull_request');
+  if (on === null || typeof on !== 'object' || !('pull_request' in on)) return false;
+  const pr = (on as Record<string, unknown>).pull_request;
+  return pr === null || typeof pr !== 'object' || !('paths' in pr || 'paths-ignore' in pr);
+}
+
+/**
+ * merge.requiredChecks for `/forge init` to offer: each Actions job that runs on every pull request,
+ * bound to its workflow file. A matrix job, a conditional one, a reusable workflow call and a name
+ * built from an expression are left out (their check names vary or may never report), and so is a
+ * name merge.requiredChecks would refuse; a file that does not parse is skipped. At most 20, in file order.
+ */
+function requiredCheckSuggestions(root: string): { name: string; workflow: string }[] {
+  const dir = path.join(root, '.github', 'workflows');
+  const files = has(root, '.github/workflows') ? fs.readdirSync(dir).filter((f) => /\.ya?ml$/.test(f)).sort() : [];
+  const out: { name: string; workflow: string }[] = [];
+  for (const file of files) {
+    let wf: any;
+    try {
+      wf = yaml.parse(readText(path.join(dir, file)));
+    } catch {
+      continue;
+    }
+    if (!wf || typeof wf !== 'object' || !onEveryPullRequest(wf.on) || !wf.jobs || typeof wf.jobs !== 'object') continue;
+    for (const [id, job] of Object.entries<any>(wf.jobs)) {
+      if (!job || typeof job !== 'object' || job.strategy?.matrix !== undefined || job.if !== undefined || job.uses !== undefined) continue;
+      const name = typeof job.name === 'string' ? job.name : id;
+      if (name.includes('${{') || !name.trim()) continue;
+      const suggestion = { name, workflow: `.github/workflows/${file}` };
+      // Names come from files in the repo: one the key would refuse (too long, a control character, a repeat) is not offered.
+      if (requiredChecksProblems({ merge: { requiredChecks: [...out, suggestion] } }).length) continue;
+      out.push(suggestion);
+      if (out.length >= MAX_REQUIRED_SUGGESTIONS) return out;
+    }
+  }
+  return out;
 }
 
 export function detect(root: string): Detection {
@@ -271,6 +315,7 @@ export function detect(root: string): Detection {
       'pipeline.design': ui.length ? (figma.length ? 'reference' : 'none') : 'none',
       'infra.mode': infraFiles.length ? 'plan-only' : 'human',
       'policy.protectedPaths': protectedPathsFor(root),
+      'merge.requiredChecks': requiredCheckSuggestions(root),
       components: detectComponents(root, { pm, ui: UI_PACKAGES, pkg, cargo }),
     },
   };

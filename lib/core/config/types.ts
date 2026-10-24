@@ -153,6 +153,9 @@ export interface CommandEnvConfig {
 /** One `verify` entry: a step name, or a group of step names that run at the same time (config schemaVersion 3). */
 export type VerifyEntry = string | string[];
 
+/** One `merge.requiredChecks` entry: a check name (any check run), or a name bound to an app, a workflow file or a status creator. */
+export type RequiredCheckConfig = string | { name: string; app?: string; workflow?: string; creator?: string };
+
 /** The effective config: defaults() in lib/core/config/keys/defaults.ts merged with .forge/config.yml by loadConfig. docs/CONFIG.md documents each key. */
 export interface Config {
   schemaVersion: number;
@@ -252,6 +255,8 @@ export interface Config {
     auto: boolean;
     method: 'squash' | 'merge' | 'rebase';
     autoWhen: string[];
+    /** The root PR's required checks, each optionally bound to its source; empty: the base's protection decides (docs/CONFIG.md "Merge"). */
+    requiredChecks: RequiredCheckConfig[];
   };
   aiAttribution: 'forbid' | 'allow';
   /** The root repo's release settings: its interim strategy as a dependency and its release strategy, every key present once defaults fill it (docs/CONFIG.md "Release strategy"). */

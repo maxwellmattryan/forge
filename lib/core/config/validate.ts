@@ -15,6 +15,7 @@ import { placeholderProblems } from './validators/endpoints.ts';
 import { downstreamProblems, releaseProblems, repoProblems } from '#engine/project/member-repos.ts';
 import { notifyProblems } from './validators/notify.ts';
 import { commandEnvProblems } from './validators/command-env.ts';
+import { requiredChecksProblems } from './validators/required-checks.ts';
 import { PLUGIN_ROOT, exists, paths, resolveFrom } from '../paths.ts';
 import { globProblem, policyProblems } from './validators/policy-check.ts';
 import { CONFIG_SCHEMA_VERSION, FOREMAN_SHIP, OFFICE_GATES, REPO_BUDGET_MODES, reservedGateEntry } from '../job/schema.ts';
@@ -132,6 +133,7 @@ export function validateConfig(c: unknown, root: string): string[] {
   oneOf('pr.updateStrategy', c.pr.updateStrategy, ['merge', 'rebase']);
   oneOf('pr.integrationReview', c.pr.integrationReview, ['always', 'code-only']);
   oneOf('merge.method', c.merge.method, ['squash', 'merge', 'rebase']);
+  problems.push(...requiredChecksProblems(c));
   oneOf('infra.mode', c.infra.mode, ['human', 'plan-only', 'agent']);
   oneOf('worktrees.cleanup', c.worktrees.cleanup, ['on-merge', 'manual']);
   oneOf('aiAttribution', c.aiAttribution, ['forbid', 'allow']);

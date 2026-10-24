@@ -146,6 +146,118 @@ const after = (s: Scenario, more: (s: Scenario) => unknown): Scenario => {
 /** A collaborator's review node as GitHub's GraphQL returns it, in `state`. */
 const changeRequest = (state: string) => ({ state, body: 'please fix the parser', author: { login: 'bob' }, authorAssociation: 'MEMBER', submittedAt: '2026-10-24T10:00:00Z', url: 'https://github.com/o/r/pull/7#pullrequestreview-1' });
 
+/** auto with merge.requiredChecks: test and slow, unbound. */
+const requiredAuto = structuredClone(auto);
+requiredAuto.merge.requiredChecks = ['test', 'slow'];
+/** auto requiring slow from GitHub Actions only. */
+const boundAuto = structuredClone(auto);
+boundAuto.merge.requiredChecks = [{ name: 'slow', app: 'github-actions' }];
+/** The memory GitHub's protection for main: test and slow required, from any app. */
+const PROTECTION = { status: 'read' as const, checks: [{ name: 'test', appId: null }, { name: 'slow', appId: null }], reviews: 0 };
+
+/** HEAD_CHECKS_QUERY's `.data`: one GitHub Actions ci.yml suite with `runs` (name → conclusion), and commit statuses. */
+const headData = (runs: Record<string, string>, statuses: { context: string; state: string; login: string }[] = []) => ({
+  repository: {
+    object: {
+      checkSuites: {
+        pageInfo: { hasNextPage: false },
+        nodes: [
+          {
+            app: { databaseId: 15368, slug: 'github-actions' },
+            workflowRun: { file: { path: '.github/workflows/ci.yml' } },
+            checkRuns: { pageInfo: { hasNextPage: false }, nodes: Object.entries(runs).map(([name, conclusion]) => ({ name, status: 'COMPLETED', conclusion, startedAt: '2026-10-24T10:00:00Z', completedAt: '2026-10-24T10:01:00Z' })) },
+          },
+        ],
+      },
+      status: { contexts: statuses.map((s) => ({ context: s.context, state: s.state, createdAt: '2026-10-24T10:00:00Z', creator: { login: s.login } })) },
+    },
+  },
+});
+
+/** A passing, settled scenario (GitHub's `mergeState`, CLEAN by default) whose head reports `runs` (and `statuses`), and whose main has `protection` when given. */
+function withHead(runs: Record<string, string>, opts: { statuses?: { context: string; state: string; login: string }[]; protection?: typeof PROTECTION; mergeState?: string } = {}): Scenario {
+  const s = scenario('passing', opts.mergeState);
+  s.github.setHeadChecks(s.head, headData(runs, opts.statuses));
+  if (opts.protection) s.github.setBranchRules('main', opts.protection);
+  return s;
+}
+
+const ops = (s: Scenario, op: string) => s.github.calls.filter((c) => c.op === op);
+
+/** The AC rows for one source of required checks: config (the key set, protection never read) or protection (read once, never stored). */
+function requiredRows(source: 'config' | 'protection'): typeof ROWS {
+  const cfg = source === 'config' ? requiredAuto : auto;
+  const protection = source === 'protection' ? PROTECTION : undefined;
+  const reads = (s: Scenario) => {
+    assert.equal(ops(s, 'branchRules').length, source === 'config' ? 0 : 1, 'branchRules calls');
+    // Neither the protection answer nor the verdict is stored in job.json.
+    const raw = fs.readFileSync(path.join(s.root, '.forge', 'jobs', s.id, 'job.json'), 'utf8');
+    assert.ok(!raw.includes('"required"') && !raw.includes('slow'), raw);
+  };
+  return [
+    {
+      name: `required checks (${source}): a required check that has not registered defers where the rollup alone would merge`,
+      arrange: () => withHead({ test: 'SUCCESS' }, { protection }),
+      config: cfg,
+      check: (s, r) => {
+        assert.ok(!(r instanceof Error), String(r));
+        assert.deepEqual(s.merges(), []);
+        assert.equal(mergeAction(r.checks, { settled: true, mergeState: 'CLEAN' }), 'merge', 'the rollup alone merges');
+        const required = { source, state: 'pending', blocking: [{ name: 'slow', why: 'missing' }] };
+        assert.deepEqual([r.action, r.required], ['deferred', required]);
+        assert.deepEqual(s.all().find((e) => e.type === 'pr-merge-deferred')?.required, required);
+        reads(s);
+      },
+    },
+    {
+      name: `required checks (${source}): a failing required check refuses with the required-checks error`,
+      arrange: () => withHead({ test: 'SUCCESS', slow: 'FAILURE' }, { protection }),
+      config: cfg,
+      check: (s, r) => {
+        assert.ok(!(r instanceof Error), String(r));
+        assert.deepEqual(s.merges(), []);
+        assert.equal(r.action, 'refused');
+        assert.equal(r.error, 'required checks are not passing: slow (failing); fix CI, or a human merges anyway with forge pr merge --now in their own terminal');
+        assert.deepEqual(s.all().find((e) => e.type === 'pr-merge-refused')?.required, { source, state: 'failing', blocking: [{ name: 'slow', why: 'failing' }] });
+        reads(s);
+      },
+    },
+    {
+      name: `required checks (${source}): every required check passing makes exactly one merge call`,
+      arrange: () => withHead({ test: 'SUCCESS', slow: 'SUCCESS' }, { protection }),
+      config: cfg,
+      check: (s, r) => {
+        assert.ok(!(r instanceof Error), String(r));
+        assert.deepEqual(s.merges(), [{ op: 'merge', slug: 'o/r', number: 7, method: 'squash', auto: false, matchHead: s.head }]);
+        assert.deepEqual([r.action, r.required], ['merged', { source, state: 'passing', blocking: [] }]);
+        assert.equal(ops(s, 'headChecks').length, 1);
+        reads(s);
+      },
+    },
+  ];
+}
+
+/** A merge.requiredChecks `loadConfig` lets through that validation refuses; every check passes, so a read that skipped what it refuses would merge each. */
+const INVALID_KEYS: [string, unknown][] = [
+  ['a workflow outside .github/workflows/, beside an unbound entry a tolerant read would keep', ['slow', { name: 'slow', workflow: 'ci.yml' }]],
+  ['an app that is not a slug', [{ name: 'slow', app: 'GitHub-Actions' }]],
+  ['a value that is not a list', 'slow'],
+];
+
+/** The root PR's merge fails closed on each: refused with the problem, no merge call, nothing read from GitHub. */
+const invalidKeyRows = (): typeof ROWS =>
+  INVALID_KEYS.map(([what, list]) => ({
+    name: `required checks (config): an invalid merge.requiredChecks refuses the merge, ${what}`,
+    arrange: () => withHead({ test: 'SUCCESS', slow: 'SUCCESS' }),
+    config: { ...auto, merge: { ...auto.merge, requiredChecks: list as never } },
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([s.merges(), r.action, r.required?.source, r.required?.state, r.required?.blocking, ops(s, 'branchRules').length + ops(s, 'headChecks').length], [[], 'refused', 'config', 'failing', [], 0]);
+      assert.match(r.error ?? '', /^merge\.requiredChecks in \.forge\/config\.yml is invalid, so Forge refuses to merge: .*; fix it \(forge config validate\), or a human merges anyway with forge pr merge --now/);
+      assert.deepEqual(s.all().find((e) => e.type === 'pr-merge-refused')?.required, r.required);
+    },
+  }));
+
 const refusedFor = (reason: string) => (s: Scenario, r: MergeResult | Error) => {
   assert.deepEqual(s.merges(), []);
   assert.ok(!(r instanceof Error), String(r));
@@ -165,6 +277,8 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
       assert.ok(merged, s.events().join(' '));
       assert.deepEqual([merged.actor, merged.bypass], [{ login: 'forge-test', source: 'env' }, false]);
       assert.ok(!('scope' in merged) && !('via' in merged), JSON.stringify(merged));
+      // No key and no protection checks: the rollup alone decides, as before.
+      assert.deepEqual(r.required, { source: 'none', state: null, blocking: [] });
     },
   },
   {
@@ -194,6 +308,55 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
       assert.equal(s.merges().length, 1);
       assert.deepEqual([(r as MergeResult).action, (r as MergeResult).error], ['failed', 'auto-merge is not allowed']);
       assert.ok(s.events().includes('pr-merge-failed'));
+    },
+  },
+  ...requiredRows('config'),
+  ...requiredRows('protection'),
+  {
+    name: 'required checks: a same-name commit status from another source does not satisfy a check bound to an app',
+    arrange: () => withHead({ test: 'SUCCESS' }, { statuses: [{ context: 'slow', state: 'SUCCESS', login: 'mallory' }] }),
+    config: boundAuto,
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual(s.merges(), []);
+      assert.deepEqual([r.action, r.required], ['deferred', { source: 'config', state: 'pending', blocking: [{ name: 'slow', why: 'foreign' }] }]);
+    },
+  },
+  {
+    name: 'required checks: protection that cannot be read keeps the rollup-only merge, and says so',
+    arrange: () => {
+      const s = scenario('passing');
+      s.github.fail('branchRules', 'gh: Resource not accessible by integration (HTTP 403)');
+      return s;
+    },
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([r.action, s.merges().length], ['merged', 1]);
+      const { note, ...rest } = r.required ?? {};
+      assert.deepEqual(rest, { source: 'unavailable', state: null, blocking: [] });
+      assert.match(note ?? '', /could not be read/);
+      assert.match(note ?? '', /CI rollup alone/);
+      assert.deepEqual(ops(s, 'headChecks'), []);
+    },
+  },
+  ...invalidKeyRows(),
+  // No protected-paths rule: only where the required checks come from decides whether `--auto` is queued.
+  {
+    name: "required checks (config): a pending check on a BLOCKED PR defers, since GitHub's --auto would land it without the key's checks",
+    arrange: () => withHead({ test: 'SUCCESS' }, { mergeState: 'BLOCKED' }),
+    config: { ...requiredAuto, policy: { protectedPaths: [] } },
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([s.merges(), r.action, r.required?.source, 'reason' in (s.all().find((e) => e.type === 'pr-merge-deferred') ?? {})], [[], 'deferred', 'config', false]);
+    },
+  },
+  {
+    name: 'required checks (protection): the same PR is queued with --auto, which GitHub holds on its own protection',
+    arrange: () => withHead({ test: 'SUCCESS' }, { protection: PROTECTION, mergeState: 'BLOCKED' }),
+    config: { ...auto, policy: { protectedPaths: [] } },
+    check: (s, r) => {
+      assert.ok(!(r instanceof Error), String(r));
+      assert.deepEqual([s.merges(), r.action, r.required?.source], [[{ op: 'merge', slug: 'o/r', number: 7, method: 'squash', auto: true, matchHead: s.head }], 'auto', 'protection']);
     },
   },
   { name: 'auto-off: merge.auto off refuses an eligible, passing PR', arrange: () => scenario('passing'), config, check: refusedFor('auto-off') },
@@ -452,6 +615,9 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
       assert.equal(all[merged].bypass, true);
       assert.deepEqual(all[bypass].actor, { login: 'alice', source: 'env' });
       assert.deepEqual(all[merged].actor, { login: 'alice', source: 'env' });
+      // --now reads neither protection nor the head's checks, and decides on none.
+      assert.deepEqual([...ops(s, 'branchRules'), ...ops(s, 'headChecks')], []);
+      assert.ok(!('required' in (r as MergeResult)), JSON.stringify(r));
     },
   },
   {
@@ -575,8 +741,21 @@ test('mergeAction: direct merge only on settled CI', () => {
     ['pending, BLOCKED', ['pending', { settled: true, mergeState: 'BLOCKED' }], 'auto'],
     ['pending, BEHIND', ['pending', { settled: true, mergeState: 'BEHIND' }], 'auto'],
     ['pending, CLEAN', ['pending', { settled: true, mergeState: 'CLEAN' }], 'defer'],
+    // The required checks' verdict: null keeps every row above; a pending one waits, a failing one refuses.
+    ['passing, required pending, settled, CLEAN', ['passing', { required: 'pending', settled: true, mergeState: 'CLEAN' }], 'defer'],
+    ['passing, required pending, settled, BLOCKED', ['passing', { required: 'pending', settled: true, mergeState: 'BLOCKED' }], 'auto'],
+    ['passing, required pending, settled', ['passing', { required: 'pending', settled: true }], 'defer'],
+    ['none without CI, required pending, settled', ['none', { required: 'pending', hasWorkflows: false, settled: true }], 'defer'],
+    ['passing, required failing', ['passing', { required: 'failing' }], 'refuse'],
+    ['none, required passing, settled', ['none', { required: 'passing', settled: true }], 'merge'],
+    ['none with CI, required passing, settled', ['none', { required: 'passing', hasWorkflows: true, settled: true }], 'merge'],
+    ['pending, required passing, settled, CLEAN', ['pending', { required: 'passing', settled: true, mergeState: 'CLEAN' }], 'defer'],
+    ['passing, required passing, settling', ['passing', { required: 'passing', mergeState: 'CLEAN' }], 'defer'],
+    ['passing, required passing, settled, UNSTABLE', ['passing', { required: 'passing', settled: true, mergeState: 'UNSTABLE' }], 'defer'],
+    ['failing, required failing, now', ['failing', { required: 'failing', now: true }], 'merge'],
   ];
   for (const [name, args, want] of rows) assert.equal(mergeAction(...args), want, name);
+  for (const [name, [state, o], want] of rows.filter(([, [, o]]) => o?.required === undefined)) assert.equal(mergeAction(state, { ...o, required: null }), want, `${name}, required null`);
   assert.equal(CI_SETTLE_MS, 5 * 60_000);
 });
 
