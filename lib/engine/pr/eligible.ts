@@ -12,9 +12,9 @@ import { git, historyEnv } from '#integrations/git/runner.ts';
 import { branchFloor } from '../guard/floor.ts';
 import { branchHits, clean, prefixHits, protectedApproved, refusalText } from '../guard/protected.ts';
 import { integrationTouched, resolveBase } from '../pipeline/scope.ts';
-import { stageOf } from '../pipeline/step/facts.ts';
+import { after, stageOf } from '../pipeline/step/facts.ts';
 import { memberClone, memberEntry, memberRepos, trustedMemberWorktree } from '../project/job-repos.ts';
-import { runsSince } from '../verify/record.ts';
+import { roundRuns, runsSince } from '../verify/record.ts';
 import { remoteBaseTip } from './branch.ts';
 
 /** A full commit id (SHA-1 or SHA-256): every head is checked against it before it reaches git. */
@@ -121,22 +121,26 @@ export function decisionCurrent(root: string, config: Config, job: Job, events: 
 
 /**
  * Whether every job repo's HEAD still follows the head the current round's review was given. Null
- * when the round has no `verdicts` event: nothing is bound. The anchor is the head on the round's
- * first `scope` event (RV2 logs it before any reviewer starts), never the `verdicts` sha, which is
- * read after the panel ends and so would cover a commit a reviewer made during it. An integrate
- * conflict episode that started on a reviewed head, left integrate for decide or pr, and whose last
- * verify passed moves the anchor to the head that verify checked. Anything else, a missing record or
- * a git failure is false.
+ * when the round has no `verdicts` event: nothing is bound. The anchor is the head on RV2's own
+ * `scope` event: the round's first one after its last verify run before the verdicts, and only
+ * when it is the head that run verified (a `forge job scope` logged earlier, during build, is not
+ * RV2's). It is never the `verdicts` sha, which is read after the panel ends and so would cover a
+ * commit a reviewer made during it. An integrate conflict episode that started on a reviewed head,
+ * left integrate for decide or pr, and whose last verify passed moves the anchor to the head that
+ * verify checked. Anything else, a missing record or a git failure is false.
  */
 export function reviewCurrent(root: string, config: Config, job: Job, events: JobEvent[]): boolean | null {
   const v = events.findLastIndex((e) => e.type === 'verdicts' && e.round === job.round);
   if (v < 0) return null;
   try {
     if (!job.worktree) return false;
-    const s = events.findIndex((e, i) => i < v && e.type === 'scope' && e.round === job.round);
+    const lv = roundRuns(job).filter((r) => typeof r.at === 'string' && r.at < events[v].ts).at(-1);
+    if (!lv || lv.ok !== true) return false;
+    const s = events.findIndex((e, i) => i < v && e.type === 'scope' && e.round === job.round && after(e.ts, lv.at));
     if (s < 0) return false;
     const scope = events[s];
     let anchor = sha(scope.head);
+    if (!anchor || anchor !== sha(lv.sha)) return false;
     for (let pos = v, c = nextConflicts(events, pos); c >= 0; c = nextConflicts(events, pos)) {
       const t = events.findIndex((e, i) => i > c && e.type === 'transition' && stageOf(e.from).stage === 'integrate' && stageOf(e.to).stage !== 'integrate');
       if (t < 0) break;

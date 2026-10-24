@@ -85,6 +85,8 @@ test('loadStepInput binds decide and pr to the reviewed head', (t) => {
     j.round = 1;
     j.reviewers = ['code'];
     j.verdicts = { 1: { code: 'PASS' } };
+    // Verify ran on the reviewed head before RV2 logged the scope event.
+    j.verifyRuns = [{ round: 1, attempt: 1, sha: reviewed, ok: true, at: new Date(Date.now() - 60_000).toISOString(), file: 'verify/round-1.md', failure: null }];
   });
   logEvent(repo.dir, id, 'scope', { round: 1, head: reviewed });
   logEvent(repo.dir, id, 'verdicts', { round: 1, outcome: 'PASS', sha: reviewed });
