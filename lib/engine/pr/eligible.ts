@@ -122,21 +122,27 @@ export function decisionCurrent(root: string, config: Config, job: Job, events: 
 /**
  * Whether every job repo's HEAD still follows the head the current round's review was given. Null
  * when the round has no `verdicts` event: nothing is bound. The anchor is the head on RV2's own
- * `scope` event: the round's first one after its last verify run before the verdicts, and only
- * when it is the head that run verified (a `forge job scope` logged earlier, during build, is not
- * RV2's). It is never the `verdicts` sha, which is read after the panel ends and so would cover a
- * commit a reviewer made during it. An integrate conflict episode that started on a reviewed head,
- * left integrate for decide or pr, and whose last verify passed moves the anchor to the head that
- * verify checked. Anything else, a missing record or a git failure is false.
+ * `scope` event: the round's first one after its last verify run, with both before the panel's
+ * first reviewer start (the first `reviewer:` agent-start since review was last entered from another
+ * stage; the verdicts event when none), and only when it is the head that run verified. A scope
+ * logged earlier, during build, is not RV2's, and a verify, commit or scope after a reviewer
+ * started (RV2 logs a fresh one after any verify) is not what the reviewers were given. It is never
+ * the `verdicts` sha, which is read after the panel ends and so would cover a commit a reviewer made
+ * during it. An integrate conflict episode that started on a reviewed head, left integrate for
+ * decide or pr, and whose last verify passed moves the anchor to the head that verify checked.
+ * Anything else, a missing record or a git failure is false.
  */
 export function reviewCurrent(root: string, config: Config, job: Job, events: JobEvent[]): boolean | null {
   const v = events.findLastIndex((e) => e.type === 'verdicts' && e.round === job.round);
   if (v < 0) return null;
   try {
     if (!job.worktree) return false;
-    const lv = roundRuns(job).filter((r) => typeof r.at === 'string' && r.at < events[v].ts).at(-1);
+    const entry = events.findLastIndex((e, i) => i < v && e.type === 'transition' && stageOf(e.to).stage === 'review' && stageOf(e.from).stage !== 'review');
+    const started = events.findIndex((e, i) => i > entry && i < v && e.type === 'agent-start' && typeof e.role === 'string' && e.role.startsWith('reviewer:'));
+    const panel = started < 0 ? v : started;
+    const lv = roundRuns(job).filter((r) => typeof r.at === 'string' && r.at < events[panel].ts).at(-1);
     if (!lv || lv.ok !== true) return false;
-    const s = events.findIndex((e, i) => i < v && e.type === 'scope' && e.round === job.round && after(e.ts, lv.at));
+    const s = events.findIndex((e, i) => i < panel && e.type === 'scope' && e.round === job.round && after(e.ts, lv.at));
     if (s < 0) return false;
     const scope = events[s];
     let anchor = sha(scope.head);

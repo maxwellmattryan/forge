@@ -160,6 +160,9 @@ test("decisionCurrent reads every job repo's HEAD", () => {
 const ts = (n: number) => `2026-10-01T10:${String(n).padStart(2, '0')}:00.000Z`;
 const event = (type: string, n: number, fields: Record<string, unknown> = {}): JobEvent => ({ v: EVENT_SCHEMA_VERSION, ts: ts(n), type, ...fields });
 const leave = (n: number, to: string): JobEvent => event('transition', n, { from: { stage: 'integrate', state: 'running', waitingOn: null }, to: { stage: to, state: 'running', waitingOn: null } });
+/** The job moves from stage `from` to `to` (review by default) at minute `n`; `state` is the state it lands in. */
+const move = (n: number, from: string, to = 'review', state = 'running'): JobEvent => event('transition', n, { from: { stage: from, state: 'running', waitingOn: null }, to: { stage: to, state, waitingOn: null } });
+const start = (n: number, role = 'reviewer:code'): JobEvent => event('agent-start', n, { role });
 
 /** A round-1 verify run at minute `n`, on `sha`. */
 const verifyRun = (sha: string | null, n: number, ok = true): VerifyRun => ({ round: 1, attempt: 1, sha, ok, at: ts(n), file: 'verify/round-1.md', failure: ok ? null : 'test' });
@@ -207,6 +210,17 @@ test("reviewCurrent binds HEAD to the head the round's review was given", () => 
       ['a verify run after the scope event with no scope after it', h.D, recorded(h.D), false, [verifyRun(h.D, 3)]],
       ["an earlier round's verify run does not answer", h.D, recorded(h.D), false, [{ ...verifyRun(h.D, 0), round: 0 }]],
     ];
+    // The panel's first reviewer start bounds the anchor. A commit, a verify and RV2's fresh scope after it (RV2 fires again after any verify) are not what the reviewers were given.
+    const scoped = (n: number, head: string) => event('scope', n, { round: 1, head });
+    const verdicts = (sha: string) => event('verdicts', 5, { round: 1, outcome: 'PASS', sha });
+    rows.push(
+      ['a commit, a verify and RV2\'s fresh scope after a reviewer started', h.P, [move(0, 'verify'), scoped(1, h.D), start(2), scoped(4, h.P), verdicts(h.P)], false, [verifyRun(h.D, 0), verifyRun(h.P, 3)]],
+      ['the same with no entry into review in the log', h.P, [scoped(1, h.D), start(2), scoped(4, h.P), verdicts(h.P)], false, [verifyRun(h.D, 0), verifyRun(h.P, 3)]],
+      ['reviewers started and one retried after the scope event', h.D, [move(0, 'verify'), scoped(1, h.D), start(2), start(2, 'reviewer:security'), start(3), verdicts(h.D)], true],
+      ['clean base merges on the head the reviewers started on', h.M2, [move(0, 'verify'), scoped(1, h.D), start(2), start(3), verdicts(h.D)], true],
+      ['a reviewer start from before review was entered', h.D, [start(0), move(0, 'verify'), scoped(1, h.D), verdicts(h.D)], true],
+      ['a park inside review is not the entry', h.P, [move(0, 'verify'), scoped(1, h.D), start(2), move(3, 'review', 'review', 'waiting'), scoped(4, h.P), verdicts(h.P)], false, [verifyRun(h.D, 0), verifyRun(h.P, 3)]],
+    );
     for (const [name, head, events, want, runs] of rows) {
       at(head);
       assert.equal(reviewCurrent(h.repo.dir, config, runs ? { ...job, verifyRuns: runs } : job, events), want, name);
