@@ -54,6 +54,12 @@ delete process.env.CLAUDE_CONFIG_DIR;
 // Every human action resolves who did it, and without this the CLI would ask the developer's real
 // gh. Tests of the fallbacks drop it in their own child env.
 process.env.FORGE_ACTOR = 'forge-test';
+// The machine index (`forge project add`) lives in ~/.forge by default: every test process gets its
+// own, overriding any inherited FORGE_HOME, so the suite never writes the developer's. Tests of the
+// default set HOME and drop FORGE_HOME in their own child env.
+const FORGE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-home-'));
+process.env.FORGE_HOME = FORGE_HOME;
+process.on('exit', () => fs.rmSync(FORGE_HOME, { recursive: true, force: true }));
 // The suite parses the CLI's stdout, so a developer's own FORGE_MODE=human must not reach it.
 process.env.FORGE_MODE = 'agent';
 // Configured commands run as `/bin/sh -c`; `$SHELL -lc` only matters under commandEnv.loginShell: true

@@ -15,6 +15,7 @@ import { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, migrat
 import { CONFIG_STEPS } from '#core/versions/config.ts';
 import { JOB_STEPS } from '#core/versions/job.ts';
 import { EVENT_STEPS } from '#core/versions/event.ts';
+import { MACHINE_STEPS } from '#core/versions/machine.ts';
 import { stepProblems } from '#core/versions/steps.ts';
 import type { Step } from '#core/versions/steps.ts';
 import { API_CHANGES } from '#api/versions.ts';
@@ -298,7 +299,7 @@ test('every migration has a table row', () => {
 // The ids each list must start with, so inserting, removing, reordering or renaming an existing step
 // fails while appending passes. Jobs never edit FROZEN: only a release commit or the 1.0 reset (#280)
 // extends it, and only with ids already on develop, so an append never re-pins anything.
-const FROZEN: Record<'config' | 'job' | 'event' | 'api', string[]> = {
+const FROZEN: Record<'config' | 'job' | 'event' | 'api' | 'machine', string[]> = {
   config: [
     'dashboard-launcher-to-daemon',
     'parallel-verify-steps',
@@ -349,10 +350,11 @@ const FROZEN: Record<'config' | 'job' | 'event' | 'api', string[]> = {
   ],
   event: ['actor-object', 'agent-start-provenance'],
   api: Array.from({ length: 36 }, (_, i) => `api-${i + 2}`),
+  machine: [],
 };
 
 test('version lists only grow at the end', () => {
-  const lists: Record<keyof typeof FROZEN, readonly { readonly id: string }[]> = { config: CONFIG_STEPS, job: JOB_STEPS, event: EVENT_STEPS, api: API_CHANGES };
+  const lists: Record<keyof typeof FROZEN, readonly { readonly id: string }[]> = { config: CONFIG_STEPS, job: JOB_STEPS, event: EVENT_STEPS, api: API_CHANGES, machine: MACHINE_STEPS };
   for (const [k, list] of Object.entries(lists) as [keyof typeof FROZEN, readonly { readonly id: string }[]][]) {
     assert.deepEqual(
       list.slice(0, FROZEN[k].length).map((s) => s.id),

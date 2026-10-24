@@ -17,7 +17,7 @@ What Forge does: the pipeline, worktrees, PRs, tracker sync, guards, releases, e
 | `ops/` | Operating Forge itself: doctor, support bundles, updates, versions, retention, deletion, audit, repo detection and titles. |
 | `pipeline/` | The pipeline: `forge job step`, agent briefs, review panels, verifiers and the facts they read. |
 | `pr/` | A job's pull requests: open, update, sync, merge and adopt them, and the human delta after Forge's last push. |
-| `project/` | Multi-repo projects: member repos and trackers, a job's repos and their order, proposals, links and downstream checks. |
+| `project/` | Multi-repo projects: member repos and trackers, a job's repos and their order, proposals, links and downstream checks, and the machine index of registered projects. |
 | `release/` | Releases: plans, runs and approvals, and interim releases across member repos. |
 | `trackers/` | Tracker sync: the adapter loader with its security wrappers, mirrors, issue links, triage and request refresh. |
 | `verify/` | `forge verify` and the verify record: the gate's steps, and the one reader of `job.verifyRuns`. |
