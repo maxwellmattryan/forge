@@ -99,10 +99,10 @@ The time column is the baseline time of the old files an inventory cites; a file
 | [office](modules/office.md) | office | 106 | 17 | 16 | 14 | 155.3 |
 | [office.session](modules/office.session.md) | office/session | 50 | 11 | 12 | 4 | 60.1 |
 | [repo.invariants](modules/repo.invariants.md) | repo invariants | 11 | 6 | 0 | 10 | 18.8 |
-| [scripts](modules/scripts.md) | scripts | 30 | 12 | 2 | 10 | 93.0 |
+| [scripts](modules/scripts.md) | scripts | 32 | 12 | 2 | 10 | 93.0 |
 | [server](modules/server.md) | server | 93 | 35 | 12 | 14 | 205.5 |
 | [templates.release-gate](modules/templates.release-gate.md) | templates/release-gate | 5 | 3 | 1 | 2 | 8.0 |
-| **Total** | 34 inventories | 1864 | 669 | 206 | | |
+| **Total** | 34 inventories | 1866 | 669 | 206 | | |
 
 ## Suggested jobs
 
