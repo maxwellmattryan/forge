@@ -183,7 +183,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   },
 
   merge: { doc: 'whether and how Forge merges approved PRs' },
-  'merge.auto': { doc: 'let Forge merge approved PRs (waits for CI, even without branch protection; see README)' },
+  'merge.auto': { doc: 'let Forge merge a PR whose recorded APPROVE covers its head, with no escalate-floor path, once CI passes at a settled head (see "Merge")' },
   'merge.method': { doc: 'squash | merge | rebase' },
   'merge.autoWhen': { doc: 'plain-language conditions, e.g. ["docs-only changes", "test-only changes"]' },
 

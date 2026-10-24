@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { repoTemplate } from '../../../test/helpers.ts';
+import { cacheScratch, repoTemplate } from '../../../test/helpers.ts';
 import { createWorktree, removeWorktree } from './worktree.ts';
 import { seedKey, seedRoot } from './seed.ts';
 import { defaults } from '#core/config/load.ts';
@@ -45,7 +45,8 @@ const savedCache = process.env.FORGE_CACHE_DIR;
 const scratch: string[] = [];
 
 beforeEach(() => {
-  cacheTmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-seed-cache-')));
+  // Inside the plugin root, where the seed cache honours FORGE_CACHE_DIR.
+  cacheTmp = cacheScratch().dir;
   cache = path.join(cacheTmp, 'cache');
   process.env.FORGE_CACHE_DIR = cache;
 });

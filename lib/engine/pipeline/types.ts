@@ -100,7 +100,13 @@ export interface StepInput {
   spec: { size: string | null; complexity: string | null; needsDesign: boolean; services: string[]; suggested: string[]; approachPaths: string[]; uiAcs: string[] };
   /** design.md's `## Spec deltas` section is non-empty and not None. */
   designDeltas: boolean;
-  decision: { decision: string | null; autoMerge: boolean };
+  /** decision.md's first line. Its Auto-merge eligible line is not here: only the recorded decision event counts (lib/engine/pr/eligible.ts). */
+  decision: { decision: string | null };
+  /**
+   * At stage pr with auto-merge on and an eligible recorded decision: whether every job repo's
+   * worktree HEAD still follows the head it was decided on (decisionCurrent); null otherwise.
+   */
+  decisionCurrent: boolean | null;
   runbookBeforeMerge: boolean;
   verdicts: { round: StepVerdicts | null; integration: StepVerdicts | null };
   acs: AcCoverage;

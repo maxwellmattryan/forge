@@ -11,6 +11,7 @@ The guards on what jobs write and publish: verify integrity, protected paths, se
 | File | What it holds |
 |---|---|
 | `attribution.ts` | AI-attribution policy. |
+| `floor.ts` | The escalate floor: paths no unattended merge lands, whatever policy.protectedPaths says. |
 | `integrity.ts` | Verify's test-integrity report: what the committed diff did to the tests and to the config that runs them. |
 | `known-secrets.ts` | Known values (docs/CONFIG.md "Secret references"): every secret value a job's sink renders has resolved, kept in the 0600 `<jobDir>/known-secrets.json`, plus its job database passwords. |
 | `protected.ts` | `policy.protectedPaths`: paths only a human may change. |

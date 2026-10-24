@@ -25,6 +25,8 @@ import { INSTRUCTION_ROLES, changedInstructionFiles, instructionsFor } from '#co
 import { verifierCount } from '../verifiers.ts';
 import { currentRerun, reworkReviewFiles, roundLenses } from './panel.ts';
 import { lastRun } from '../../verify/record.ts';
+import { decisionCurrent, decisionEligible, lastDecision } from '../../pr/eligible.ts';
+import { autoMerge } from '#core/config/load.ts';
 
 /** Request bodies above this, or with this many list or heading lines, get a planner under `pipeline.plan: auto`. */
 export const PLAN_AUTO_CHARS = 600;
@@ -123,7 +125,9 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     plan: parsePlan(read('plan.md') ?? ''),
     spec: { ...parseSpecHeader(specText), approachPaths: approachPaths(specText), uiAcs: specUiAcs(specText) },
     designDeltas: hasSpecDeltas(read('design.md') ?? ''),
-    decision: { decision: parseDecision(root, job.id).decision, autoMerge: /^\s*(?:[-*]\s*)?Auto-merge eligible:\s*yes\b/im.test(read('decision.md') ?? '') },
+    decision: { decision: parseDecision(root, job.id).decision },
+    // Only where PR4 can use it: the check runs git in every job repo.
+    decisionCurrent: job.stage === 'pr' && autoMerge(config) && decisionEligible(lastDecision(events)) ? decisionCurrent(root, config, job, events) : null,
     runbookBeforeMerge: /^\s*(?:[-*]\s*)?When:\s*before merge\b/im.test(read('runbook.md') ?? ''),
     verdicts: {
       round: job.round >= 1 && lenses.length ? compact(roundVerdicts(root, job.id, job.round, lenses, config.review.blockOn)) : null,

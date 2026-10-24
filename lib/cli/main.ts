@@ -5,7 +5,7 @@
 // resolves the mode once per process (docs/CLI.md "Output mode").
 // Command groups live in lib/cli/commands/; this file only routes.
 import { daemonTrust, loadConfig } from '#core/config/load.ts';
-import { refuseInOffice, refuseInboxDrive } from '#office/owner.ts';
+import { refuseDaemonMerge, refuseInboxDrive } from '#office/owner.ts';
 import { registerNotify } from '#office/notify.ts';
 import { NEED_INIT } from '#core/config/set.ts';
 import { detect } from '#engine/ops/detect.ts';
@@ -209,7 +209,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       if (sub === 'merge') {
         // Strictly `true`: `--now <id>` would make parseArgs swallow the id as the flag's value,
         // and that mistake must not silently bypass CI.
-        refuseInOffice('the foreman never merges; foreman.ship merge only feeds the approver and step PR4');
+        refuseDaemonMerge(id, flags);
         const r = await mergePr(root, config, ghGitHub, id, { now: flags.now === true, ...mergeTarget(flags) });
         return { data: r, exitCode: r.action === 'refused' || r.action === 'failed' ? 1 : 0 };
       }
