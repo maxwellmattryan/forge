@@ -1,9 +1,9 @@
 // Build: open a round, hold it to the round limits, run the builder, then verify.
 import { latestSecurityVerdict, pastTotalCeiling, totalRoundCeiling } from '../../moves/foreman-gates.ts';
 import { isForemanActor } from '#core/job/store.ts';
-import type { JobAgent, JobEvent, VerifyRun } from '#core/types.ts';
+import type { Job, JobAgent, JobEvent, VerifyRun } from '#core/types.ts';
 import { park, run, set, spawn, toStage } from '../actions.ts';
-import { after, afterIdx, agent, endedIn, lastIdx, lastVerify, startedIn } from '../facts.ts';
+import { after, afterIdx, agent, endedIn, enteredFrom, lastIdx, lastVerify, startedIn } from '../facts.ts';
 import { needsInputRows } from '../generic.ts';
 import { roundRuns } from '../../../verify/record.ts';
 import { inStage } from '../rules.ts';
@@ -51,6 +51,13 @@ function context(c: Ctx): BuildCtx {
   };
 }
 
+/** The previous round's verdicts are recorded and every lens passed. */
+function previousAllPass(j: Job): boolean {
+  const v = j.verdicts[String(j.round - 1)];
+  const values = v && typeof v === 'object' ? Object.values(v) : [];
+  return values.length > 0 && values.every((r) => r === 'PASS');
+}
+
 const ROUNDS_WHY = 'an eval job has no human to clear rounds-exhausted: grade it';
 
 /** Verify failed twice on test integrity around one builder run. */
@@ -82,6 +89,13 @@ export const BUILD: Table<BuildCtx> = {
     },
     needsInputRows<BuildCtx>((c) => (endedIn(c.b, c.x.job.round) ? 'builder' : null)),
     { id: 'B3', when: integrityTwice, then: ({ x }) => park(x, 'B3', 'escalation', 'integrity: verify failed twice on test integrity') },
+    // RV11 is the only way review hands build an all-PASS round (RV8c sends one to integrate): the new
+    // round is for a commit after review, so it is verified and reviewed with no builder.
+    {
+      id: 'B8',
+      when: ({ x, f, b, lv, reworkAt }) => !startedIn(b, x.job.round) && !lv && enteredFrom(x, f) === 'review' && previousAllPass(x.job) && !afterIdx(reworkAt, f.stageEntry!.i),
+      then: ({ x }) => toStage(x, 'B8', 'verify', 'a commit after review: verify and review it, no builder'),
+    },
     // Never resumed: a rework builder is expendable and its brief carries the findings, so it need not drag the last round's context along.
     {
       id: 'B4',

@@ -4,7 +4,7 @@ import { lensNeedsApp } from '#core/config/load.ts';
 import { reviewFileName } from '#core/job/lens.ts';
 import type { StepInput, StepVerdicts } from '../../types.ts';
 import { run, spawn, toStage } from '../actions.ts';
-import { after, agent, endedIn, isPrRework, lastVerify, outputMissing, startedIn } from '../facts.ts';
+import { after, agent, endedIn, enteredFrom, isPrRework, lastVerify, outputMissing, startedIn } from '../facts.ts';
 import { missingOutputRows } from '../generic.ts';
 import { currentRerun, roundLenses } from '../panel.ts';
 import { inStage } from '../rules.ts';
@@ -77,6 +77,13 @@ export const REVIEW: Table<ReviewCtx> = {
   applies: inStage('review'),
   context,
   rules: [
+    // DC11 or PR12 sent a reviewed round back for a commit after review: only build opens a round and
+    // applies the round limits, so the new head goes there first (B1, then B8 verifies it).
+    {
+      id: 'RV11',
+      when: (c) => c.recorded && ['decide', 'pr'].includes(enteredFrom(c.x, c.f) ?? ''),
+      then: ({ x }) => toStage(x, 'RV11', 'build', 'the reviewed round is closed: open a new round for the commit after review'),
+    },
     // Once per round, after verify and before any reviewer starts, so the panel matches the diff the
     // reviewers read. A PR rework under `changed` or `none` keeps its always-only or skip rule.
     {
