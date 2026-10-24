@@ -106,6 +106,21 @@ test('loadStepInput binds decide and pr to the reviewed head', (t) => {
   assert.ok(a.action === 'run');
   assert.deepEqual(a.command.slice(0, 7), ['job', 'set', id, '--stage', 'review', '--state', 'running']);
 
+  updateJob(repo.dir, id, (j) => void (j.stage = 'pr'));
+  const atPr = loadStepInput(repo.dir, config, id);
+  assert.equal(atPr.reviewCurrent, false, 'at stage pr');
+  assert.equal(step(atPr).rule, 'PR12');
+  updateJob(repo.dir, id, (j) => {
+    j.state = 'waiting';
+    j.waitingOn = 'escalation';
+  });
+  assert.equal(loadStepInput(repo.dir, config, id).reviewCurrent, null, 'a job that is not running');
+  updateJob(repo.dir, id, (j) => {
+    j.stage = 'decide';
+    j.state = 'running';
+    j.waitingOn = null;
+  });
+
   updateJob(repo.dir, id, (j) => void (j.kind = 'eval'));
   assert.equal(loadStepInput(repo.dir, config, id).reviewCurrent, null, 'an eval job');
   updateJob(repo.dir, id, (j) => {
