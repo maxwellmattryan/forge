@@ -231,6 +231,7 @@ describe('scripts/scenario.ts', () => {
       FORGE_NOTIFY_URL: 'x',
       FORGE_MODE: 'human',
       FORGE_RENDER_CHROME: '/chrome',
+      FORGE_HOME: '/home/.forge',
     };
     const env = scenarioEnv(base, '/scratch');
     assert.deepEqual(env, {
@@ -241,6 +242,7 @@ describe('scripts/scenario.ts', () => {
       GIT_CONFIG_VALUE_0: '/dev/null',
       FORGE_RENDER_CHROME: '/chrome',
       FORGE_ROOT: '/scratch',
+      FORGE_HOME: path.join(path.dirname('/scratch'), 'forge-home'),
       // Pinned, not dropped: a human-event step would otherwise ask `gh` who the developer is.
       FORGE_ACTOR: 'scenario',
     });

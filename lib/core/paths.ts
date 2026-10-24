@@ -1,6 +1,7 @@
 // Where things live on disk: the main checkout's root, the `.forge/` layout, job dirs and the
 // plugin's own root.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { git } from '#integrations/git/runner.ts';
@@ -11,7 +12,11 @@ import { ForgeError } from './errors.ts';
  * worktree, so every session and the dashboard see the same jobs.
  */
 export function mainRoot(cwd: string = process.cwd()): string {
-  if (process.env.FORGE_ROOT) return path.resolve(process.env.FORGE_ROOT);
+  return process.env.FORGE_ROOT ? path.resolve(process.env.FORGE_ROOT) : checkoutRoot(cwd);
+}
+
+/** The main checkout of the git repo at `cwd`, ignoring `FORGE_ROOT`: a worktree or subdirectory resolves to its root repo. */
+export function checkoutRoot(cwd: string): string {
   const common = git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'], { allowFail: true });
   if (!common.ok) throw new ForgeError('not inside a git repository (set FORGE_ROOT to override)', 'not_a_repo');
   const dir = common.stdout.trim();
@@ -65,6 +70,26 @@ export function paths(root: string): ForgePaths {
     local: path.join(dir, 'local.yml'),
     job: (id: string) => path.join(dir, 'jobs', id),
   };
+}
+
+/**
+ * The machine index directory: `FORGE_HOME` when set and non-empty (a relative value resolves
+ * against the cwd), else `~/.forge`. It sits outside every repo and holds no project policy.
+ */
+export function forgeHome(env: NodeJS.ProcessEnv = process.env): string {
+  return env.FORGE_HOME ? path.resolve(env.FORGE_HOME) : path.join(os.homedir(), '.forge');
+}
+
+/** Where the machine index's files live. #400 adds the dashboard's runtime record and port leases here. */
+export interface MachinePaths {
+  dir: string;
+  /** The registered projects (lib/engine/project/machine-index.ts). */
+  projects: string;
+  locks: string;
+}
+
+export function machinePaths(home: string = forgeHome()): MachinePaths {
+  return { dir: home, projects: path.join(home, 'projects.json'), locks: path.join(home, 'locks') };
 }
 
 export function jobDir(root: string, id: string): string {

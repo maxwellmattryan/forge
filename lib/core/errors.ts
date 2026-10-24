@@ -11,7 +11,7 @@ export type ExitCode = (typeof ERROR_CODES)[ErrorCode];
 /** What each code means, as docs/CLI.md "Error codes" shows it (markdown; npm run docs:cli escapes `|`). */
 export const ERROR_CODE_DOCS: Record<ErrorCode, string> = {
   failed: 'the default for exit 1: the command ran and failed, or refused by policy',
-  not_found: 'no such job or request',
+  not_found: 'no such job, request or registered project',
   internal: 'not a Forge error: a bug or an unexpected Node error (rerun with `FORGE_DEBUG=1` for the stack)',
   secret_found: 'the secret scanner found a likely credential in what Forge was about to commit or send (a commit, the PR title or body, a tracker write); the message shows it masked, with its fingerprint',
   protected_path:

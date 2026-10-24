@@ -46,6 +46,7 @@ import { confirmHuman, mergeNowOp } from './commands/human.ts';
 import { initWrite, migrate } from './commands/init.ts';
 import { jobCmd } from './commands/job.ts';
 import { notifyCmd } from './commands/notify.ts';
+import { projectCmd } from './commands/project.ts';
 import { releaseCmd } from './commands/release.ts';
 import { requestsCmd } from './commands/requests.ts';
 import { runCmd } from './commands/run.ts';
@@ -82,6 +83,7 @@ export async function main(rawArgv: string[]): Promise<void> {
   const [cmd] = pos;
   if (cmd === 'version') return versionCmd(flags);
   if (cmd === 'update') return updateCmd(flags);
+  if (cmd === 'project') return projectCmd(pos.slice(1), flags);
 
   const root = mainRoot();
   let loadOpts: { text?: string | null } = {};

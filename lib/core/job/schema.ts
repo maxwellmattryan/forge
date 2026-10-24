@@ -18,6 +18,7 @@ export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from '../config/co
 export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from '../config/validators/backing.ts';
 export { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, noLease };
 export { API_VERSION } from '#api/versions.ts';
+export { MACHINE_INDEX_VERSION } from '../versions/machine.ts';
 
 /** `.forge/archive/<id>.json` records (lib/core/job/archive.ts); a reader skips a record from a newer Forge. */
 export const ARCHIVE_SCHEMA_VERSION = 1;
