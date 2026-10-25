@@ -15,7 +15,7 @@
   import Toast from './components/Toast.svelte';
   import Tooltip from './components/Tooltip.svelte';
   import Pipeline from './views/Pipeline.svelte';
-  import Backlog from './views/Backlog.svelte';
+  import Issues from './views/Issues.svelte';
   import Agents from './views/Agents.svelte';
   import Analytics from './views/Analytics.svelte';
   import Evals from './views/Evals.svelte';
@@ -53,7 +53,7 @@
     machine: $t('nav.machine'),
     pipeline: $t('nav.pipeline'),
     project: $t('nav.project'),
-    backlog: $t('nav.backlog'),
+    issues: $t('nav.issues'),
     agents: $t('nav.agents'),
     analytics: $t('nav.analytics'),
     evals: $t('nav.evals'),
@@ -328,7 +328,7 @@
           {#if S.error}<Banner msg={S.error} />{/if}
           {#if !S.data.initialized}<Banner msg={$t('app.noConfig')} />{/if}
           {#if S.view === 'pipeline'}<Pipeline />
-          {:else if S.view === 'backlog'}<Backlog />
+          {:else if S.view === 'issues'}<Issues />
           {:else if S.view === 'agents'}<Agents />
           {:else if S.view === 'analytics'}<Analytics />
           {:else if S.view === 'project'}<Project />

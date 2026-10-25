@@ -50,7 +50,7 @@
       "Wire the payments webhook"
     ],
     "project": ["@project.empty"],
-    "backlog": ["@backlog.empty"],
+    "issues": ["@issues.empty"],
     "agents": ["@agents.noRunning", "@agents.noSessions"],
     "analytics": ["@analytics.jobs", "@analytics.lenses"],
     "evals": ["@evals.empty"],

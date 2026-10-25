@@ -14,18 +14,18 @@
   const hash = (ref: string): string => (/^\d+$/.test(ref) ? '#' : '');
 </script>
 
-<PageHeader title={$t('backlog.title')}>
-  {#snippet sub()}{#if b}{$t('backlog.from')} <Icon name={S.data?.config?.tracker === 'github' ? 'github' : 'tracker'} /><b>{b.tracker}</b> {$t('backlog.tracker')}{:else}{$t('common.loading')}{/if}{/snippet}
-  {#snippet right()}<button class="btn" onclick={refreshBacklog}><Icon name="refresh" />{$t('backlog.refresh')}</button><button class="btn primary" onclick={() => req({ type: 'next' })}>{$t('common.runNext')}</button>{/snippet}
+<PageHeader title={$t('issues.title')}>
+  {#snippet sub()}{#if b}{$t('issues.from')} <Icon name={S.data?.config?.tracker === 'github' ? 'github' : 'tracker'} /><b>{b.tracker}</b> {$t('issues.tracker')}{:else}{$t('common.loading')}{/if}{/snippet}
+  {#snippet right()}<button class="btn" onclick={refreshBacklog}><Icon name="refresh" />{$t('issues.refresh')}</button><button class="btn primary" onclick={() => req({ type: 'next' })}>{$t('common.runNext')}</button>{/snippet}
 </PageHeader>
 {#if b}
   {#if b.error}<Banner msg={b.error} />{/if}
   {#if !b.items?.length}
-    <Empty>{$t('backlog.empty')}</Empty>
+    <Empty>{$t('issues.empty')}</Empty>
   {:else}
     <div class="plate flat"><div class="overflow-x-auto">
       <table class="tbl">
-        <thead><tr><th>{$t('backlog.ref')}</th><th>{$t('backlog.itemTitle')}</th><th>{$t('backlog.status')}</th><th>{$t('backlog.readiness')}</th><th>{$t('backlog.priority')}</th><th>{$t('backlog.claimedBy')}</th><th></th></tr></thead>
+        <thead><tr><th>{$t('issues.ref')}</th><th>{$t('issues.itemTitle')}</th><th>{$t('issues.status')}</th><th>{$t('issues.readiness')}</th><th>{$t('issues.priority')}</th><th>{$t('issues.claimedBy')}</th><th></th></tr></thead>
         <tbody>
           {#each b.items as i, n (n)}
             {@const u = safeUrl(i.url)}
@@ -35,15 +35,15 @@
               <td>{i.status ?? '—'}</td>
               <td>
                 {#if readiness(i) === 'needs-info'}
-                  <Chip tone="warn" text={$t('backlog.needsInfo')} />
-                  {#if i.triage?.missing?.length}<div class="text-xs text-muted mt-1">{$t('backlog.missingLabel')} {#each i.triage.missing as k, m (k)}{#if m}{', '}{/if}{#if k === 'outcome'}{$t('backlog.missing.outcome')}{:else if k === 'acceptance'}{$t('backlog.missing.acceptance')}{:else if k === 'scope'}{$t('backlog.missing.scope')}{:else if k === 'duplicate'}{$t('backlog.missing.duplicate')}{:else if k === 'hidden-text'}{$t('backlog.missing.hiddenText')}{/if}{/each}</div>{/if}
+                  <Chip tone="warn" text={$t('issues.needsInfo')} />
+                  {#if i.triage?.missing?.length}<div class="text-xs text-muted mt-1">{$t('issues.missingLabel')} {#each i.triage.missing as k, m (k)}{#if m}{', '}{/if}{#if k === 'outcome'}{$t('issues.missing.outcome')}{:else if k === 'acceptance'}{$t('issues.missing.acceptance')}{:else if k === 'scope'}{$t('issues.missing.scope')}{:else if k === 'duplicate'}{$t('issues.missing.duplicate')}{:else if k === 'hidden-text'}{$t('issues.missing.hiddenText')}{/if}{/each}</div>{/if}
                 {:else if readiness(i) === 'ready'}
-                  <Chip tone="ok" text={$t('backlog.ready')} />
+                  <Chip tone="ok" text={$t('issues.ready')} />
                 {:else}—{/if}
               </td>
               <td>{i.priority ?? '—'}</td>
               <td class="text-muted">{#if i.claimedBy}{@const by = i.claimedBy}<button class="hover:text-gleam" onclick={() => openDrawer(by)}>{by}</button>{:else}—{/if}</td>
-              <td class="r">{#if !i.claimedBy && !['done', 'dropped'].includes(i.status ?? '')}<button class="btn" onclick={() => req({ type: 'run', ref: i.ref })}>{$t('backlog.start')}</button>{/if}</td>
+              <td class="r">{#if !i.claimedBy && !['done', 'dropped'].includes(i.status ?? '')}<button class="btn" onclick={() => req({ type: 'run', ref: i.ref })}>{$t('issues.start')}</button>{/if}</td>
             </tr>
           {/each}
         </tbody>

@@ -267,7 +267,7 @@ export async function loadView(): Promise<void> {
       if (current()) S.project = graph;
       await envs;
     }
-    if (S.view === 'backlog') {
+    if (S.view === 'issues') {
       const backlog = await api<BacklogResponse>('/api/backlog');
       if (current()) S.backlog = backlog;
     }
