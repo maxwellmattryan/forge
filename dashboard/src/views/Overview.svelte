@@ -46,7 +46,7 @@
       {/if}
     </header>
     {#if c.openable}
-      <dl class="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+      <dl class="grid grid-cols-2 gap-x-4 gap-y-3">
         <div class="flex flex-col gap-0.5">{@render fact($t('overview.active'))}<dd class="font-mono text-lg num">{c.active}</dd></div>
         <div class="flex flex-col gap-0.5">
           {@render fact($t('overview.waiting'))}
