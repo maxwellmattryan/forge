@@ -13,6 +13,7 @@ import { jobDir } from '#core/job/store.ts';
 import { exists } from '#core/paths.ts';
 import { INBOX_SCOPE, JOBS_SCOPE, OFFICE_SCOPE, validScope } from '#core/job/requests.ts';
 import { openConfinedLog } from '#engine/environment/status.ts';
+import { approveTrust } from '#engine/project/trust-approval.ts';
 import type { DaemonLogPage, DaemonSessionState, PermissionDecision, PostDaemonModeResponse } from '#core/types.ts';
 import { json, jsonStatus, readBody, send } from '../http.ts';
 import { redactPage } from '../redact.ts';
@@ -38,7 +39,8 @@ export function getEvents(ctx: ServerCtx, req: http.IncomingMessage, res: http.S
   const known = scopeKnownValues(root, scope, loadConfig(root).config);
   sseHead(res);
   res.write('retry: 3000\n\n');
-  clients.set(res, scope);
+  // Keyed by project: the pool broadcasts `<name>/<scope>`, so another project's `_inbox` never reaches this stream.
+  clients.set(res, `${ctx.name}/${scope}`);
   res.write(stateFrame(ctx.pool ? ctx.pool.sessionState(scope) : offSessionState(root, scope), known));
   const last = Number(req.headers['last-event-id']);
   for (const r of ctx.pool?.recent(scope, req.headers['last-event-id'] === undefined || !Number.isFinite(last) ? undefined : last) ?? []) res.write(lineFrame(r.offset, r.line));
@@ -49,7 +51,7 @@ export function getEvents(ctx: ServerCtx, req: http.IncomingMessage, res: http.S
     clearTimeout(recycle);
     clients.delete(res);
   });
-  startPing(ctx);
+  startPing(ctx.machine);
 }
 
 /**
@@ -169,6 +171,12 @@ export async function postDaemon(ctx: ServerCtx, req: http.IncomingMessage, res:
   const problem = daemonProblems(config, root)[0];
   if (problem) return jsonStatus(res, 409, { error: problem });
   ctx.pool?.start('http');
+  // The press is a human's approval of the files the pool now runs under, and a restart boots only while they still
+  // match. Its own snapshot, not the files as they are: a start keeps the old one while a child lives, so a running
+  // session's edit is never approved with it.
+  const digest = ctx.pool?.trusted() ?? null;
+  if (digest !== null) approveTrust(ctx.machine.home, root, digest);
+  ctx.needsApproval = false;
   return json(res, ctx.poolState());
 }
 
@@ -179,5 +187,19 @@ function offSessionState(_root: string, scope: string): DaemonSessionState {
 
 /** The pool block before a pool exists (never visible once the server is listening). */
 export function idlePoolState(root: string): PoolState {
-  return { enabled: false, wanted: false, maxConcurrent: 1, live: 0, lastError: null, inbox: offSessionState(root, INBOX_SCOPE), office: offSessionState(root, OFFICE_SCOPE), foreman: false, jobs: {}, permissionMode: 'default', permissionModes: {}, jobPermissionMode: null };
+  return {
+    enabled: false,
+    wanted: false,
+    maxConcurrent: 1,
+    live: 0,
+    lastError: null,
+    inbox: offSessionState(root, INBOX_SCOPE),
+    office: offSessionState(root, OFFICE_SCOPE),
+    foreman: false,
+    jobs: {},
+    permissionMode: 'default',
+    permissionModes: {},
+    jobPermissionMode: null,
+    machine: null,
+  };
 }

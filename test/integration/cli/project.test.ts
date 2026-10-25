@@ -142,6 +142,30 @@ describe('forge project', { concurrency: 4 }, () => {
     a.cleanup();
   });
 
+  it('settings sets and unsets the machine cap, refuses bad values, and a daemon session may only print it', async () => {
+    const home = path.join(tmp(), 'home');
+    const cwd = os.tmpdir();
+    const env = { FORGE_HOME: home };
+    const two = await cli(['project', 'settings', '--max-concurrent', '2'], { cwd, env });
+    assert.equal(two.status, 0, two.stderr);
+    assert.deepEqual(json(two), { home, settings: { maxConcurrent: 2 } });
+    assert.equal(JSON.parse(fs.readFileSync(path.join(home, 'projects.json'), 'utf8')).settings.maxConcurrent, 2);
+    const auto = await cli(['project', 'settings', '--max-concurrent', 'auto'], { cwd, env });
+    assert.deepEqual(json(auto).settings, { maxConcurrent: null });
+    const before = fs.readFileSync(path.join(home, 'projects.json'), 'utf8');
+    const bad = await Promise.all(
+      [['0'], ['65'], ['x'], []].map((v) => cli(['project', 'settings', '--max-concurrent', ...v, '--json'], { cwd, env })),
+    );
+    for (const r of bad) assert.deepEqual([r.status, json(r).error.code], [2, 'usage'], r.stdout);
+    const daemon = { ...env, FORGE_DAEMON: '1' };
+    const refused = await cli(['project', 'settings', '--max-concurrent', '8', '--json'], { cwd, env: daemon });
+    assert.equal(refused.status, 1);
+    assert.equal(fs.readFileSync(path.join(home, 'projects.json'), 'utf8'), before);
+    const printed = await cli(['project', 'settings', '--json'], { cwd, env: daemon });
+    assert.equal(printed.status, 0, printed.stderr);
+    assert.deepEqual(json(printed).settings, { maxConcurrent: null });
+  });
+
   it('concurrent adds keep both', async () => {
     const home = path.join(tmp(), 'home');
     const repos = [initialised(), initialised(), initialised()];

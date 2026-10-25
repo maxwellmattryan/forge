@@ -9,7 +9,9 @@ Planned in M004, except where a config key exists today.
 | Term | Meaning | Config key |
 |---|---|---|
 | **project** | One or more repos Forge works on together, configured from the root repo's `.forge/`, with nothing outside those repos but the machine index (today's block describes a project of one repo). | `project` |
-| **machine index** | The machine's list of registered projects (`forge project add\|remove\|list`) and, from #400, the dashboard's runtime files, in `~/.forge/` or `FORGE_HOME`. It never holds project policy, commands or secrets, which stay in each project's `.forge/`. | - |
+| **machine index** | The machine's list of registered projects (`forge project add\|remove\|list`), the machine settings (`forge project settings`: the machine cap) and the machine dashboard's runtime record (`dashboard.json`), in `~/.forge/` or `FORGE_HOME`. It never holds project policy, commands or secrets, which stay in each project's `.forge/`. | - |
+| **machine dashboard** | The one `forge dash` server per machine: it serves every project in the machine index, each with its own pool, under `/api/p/<project>/`, and the page opens one project through `?project=<name>`. | `dashboard.port` |
+| **machine cap** | How many job sessions run at once across every project the machine dashboard serves, on top of each project's `daemon.maxConcurrent`: the machine index's `settings.maxConcurrent` (1–64), else the highest loaded project's `daemon.maxConcurrent`. Inbox and office sessions never count; set with forge project settings --max-concurrent. | - |
 | **Overview** | The dashboard's cross-project page (planned, M019 #402); "dashboard" keeps meaning the whole web app. | - |
 | **root repo** | The repo that holds the project's `.forge/`, which for a project of one repo is that repo and is never listed in `repos`. | `repos` |
 | **member repo** | Any other repo the root repo's config lists as part of the project. | `repos` |
@@ -85,7 +87,7 @@ Words for Forge's own code, decided in #303 ([design/lib-layout.md](design/lib-l
 | Term | Meaning | Config key |
 |---|---|---|
 | **lib layer** | One of the seven top-level folders of `lib/` (`api`, `core`, `integrations`, `engine`, `office`, `server`, `cli`), lowest first; a layer imports only layers below it ([design/lib-layout.md](design/lib-layout.md)). | - |
-| **office** | Forge's long-running runtime, which `forge dash` keeps up: the session pool (the inbox session, per-job sessions and the office session where the Foreman decides gates), the reconciler and notifications; its code lives in `lib/office/`. | - |
+| **office** | Forge's long-running runtime, which `forge dash` keeps up for each registered project: the session pool (the inbox session, per-job sessions and the office session where the Foreman decides gates), the reconciler and notifications; its code lives in `lib/office/`. | - |
 | **integrations** | The code that knows an outside system's API, CLI or file format (git, GitHub, Claude Code, Docker, webhooks, and the built-in backlog that implements the same contract), one folder per system in `lib/integrations/`; it holds mechanism, never pipeline policy. | - |
 | **lib module** | A folder inside a lib layer (`lib/<layer>/<module>/`) that holds one concept's files, such as `lib/core/job/` or `lib/engine/pipeline/`. | - |
 | **layer alias** | A `package.json` subpath import (`#api/`, `#core/`, `#integrations/`, `#engine/`, `#office/`) that names a lib layer; imports across layers use one, imports inside a layer stay relative. | - |

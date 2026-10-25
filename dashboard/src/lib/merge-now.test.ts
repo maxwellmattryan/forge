@@ -3,6 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { confirmMatches, mergeNowDone, mergeNowOffered, postMergeNow } from './merge-now.ts';
+import { setProject } from './project.ts';
 import type { Job } from './types.ts';
 
 const pr = (state: string) => ({ number: 7, url: 'https://github.com/o/r/pull/7', state }) as unknown as Job['pr'];
@@ -28,8 +29,9 @@ test('the card arms only on the id typed back, and posts it with now: true', asy
     seen.push({ url, init });
     return new Response(JSON.stringify({ merged: true, action: 'merged' }), { status: 200 });
   }) as unknown as typeof fetch;
+  setProject('web');
   assert.deepEqual(await postMergeNow('j 1', 'j 1', 'tok', fetchImpl), { merged: true, action: 'merged' });
-  assert.equal(seen[0].url, '/api/jobs/j%201/merge');
+  assert.equal(seen[0].url, '/api/p/web/jobs/j%201/merge');
   assert.deepEqual(JSON.parse(String(seen[0].init.body)), { now: true, confirm: 'j 1' });
   assert.equal((seen[0].init.headers as Record<string, string>)['x-forge-token'], 'tok');
 });

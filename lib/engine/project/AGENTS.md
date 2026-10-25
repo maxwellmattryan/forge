@@ -17,4 +17,5 @@ Multi-repo projects: member repos and trackers, a job's repos and their order, p
 | `member-trackers.ts` | Member repo trackers: the GitHub issue trackers of config `repos` entries, read and written beside the root's. |
 | `repo-order.ts` | The merge order of a multi-repo job's PRs, from config `components[].dependsOn`: repo A depends on repo B when a component in A depends on one in B. |
 | `repo-proposals.ts` | Repo proposals: a planner or spec-writer that finds the job needs a change in another member repo proposes it (`forge job repo propose`), and the job parks (step RP1) until a human, or the foreman when `repo-proposal` is in foreman.decides, approves or rejects it (`forge job human … approve-repos \| reject-repos`, or the dashboard). |
+| `trust-approval.ts` | What a human last approved for each project: the trustDigest of the files Forge trusts (config, notes, reviewers, CLAUDE.md, AGENTS.md…) its pool ran under when they pressed Start, or as they were when `forge dash` in that repo started the dashboard or registered the repo. |
 <!-- forge:map:end -->

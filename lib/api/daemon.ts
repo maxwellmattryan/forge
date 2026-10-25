@@ -1,5 +1,39 @@
-// The session pool: /api/daemon, /api/daemon/mode, /api/daemon/permission, /api/daemons/log and the /api/events SSE frames.
+// The session pools: /api/daemon, /api/daemon/mode, /api/daemon/permission, /api/daemons/log and the /api/events SSE frames,
+// plus the machine dashboard's own GET /api/projects and /api/projects/events, and the machine cap every pool reports.
 import type { Effort } from './enums.ts';
+
+/** The machine cap as a pool reports it: DaemonPoolState.machine. */
+export interface MachineSlotsState {
+  /** The machine cap: the machine index's settings.maxConcurrent, else the highest loaded project's daemon.maxConcurrent. */
+  maxConcurrent: number;
+  /** Running job sessions across every project. */
+  live: number;
+}
+
+/** One registered project in GET /api/projects. `jobs` and `daemon` are null while it is not loaded. */
+export interface MachineProjectSummary {
+  name: string;
+  /** The root repo's realpath. */
+  path: string;
+  status: 'ok' | 'missing' | 'not-initialized';
+  /** The server serves it under /api/p/<name>/. */
+  loaded: boolean;
+  /** `active`: not done, cancelled or failed; `waiting`: waiting on anything but `external`. */
+  jobs: { active: number; waiting: number } | null;
+  daemon: { enabled: boolean; wanted: boolean; foreman: boolean; live: number; maxConcurrent: number } | null;
+}
+
+/** GET /api/projects, and the body of every /api/projects/events frame. */
+export interface ProjectsResponse {
+  /** Why the machine index could not be read at the last refresh (the loaded projects stay), else null. */
+  error: string | null;
+  machine: { maxConcurrent: number; source: 'settings' | 'auto'; live: number };
+  /** Sorted by name. */
+  projects: MachineProjectSummary[];
+}
+
+/** One /api/projects/events frame: sent on connect and whenever the summary changes. */
+export type ProjectsFrame = { event: 'projects'; data: ProjectsResponse };
 
 /** daemon.jobBudget: the spend limits an unattended job with none of its own gets (lib/engine/metrics/budget.ts effectiveLimits). */
 export type DaemonJobBudget = { tokens?: number | null; usd?: number | null; minutes?: number | null } | null;
@@ -84,6 +118,8 @@ export interface DaemonPoolState {
   /** Running job sessions (the inbox is not counted against maxConcurrent). */
   live: number;
   lastError: string | null;
+  /** The pool is off only because no human has approved the files Forge trusts as they are now (the machine dashboard boots a project's pool only while its approval matches); Start approves them. */
+  needsApproval: boolean;
   inbox: DaemonSessionState;
   /** The foreman's office session (scope `_office`), never counted against maxConcurrent. */
   office: DaemonSessionState;
@@ -96,7 +132,9 @@ export interface DaemonPoolState {
   /** Sessions a human put in another mode, by scope, and the default for job sessions without an entry (null: daemon.command's). Held in memory only, so they end with `forge dash`. */
   permissionModes: Record<string, DaemonPermissionMode>;
   jobPermissionMode: DaemonPermissionMode | null;
-  /** Open /api/events streams across all sessions. */
+  /** The machine cap across every project the machine dashboard serves; null for a pool outside one. */
+  machine: MachineSlotsState | null;
+  /** Open event streams on the machine dashboard. */
   clients: number;
 }
 

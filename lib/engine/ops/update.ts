@@ -4,13 +4,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { git as runGit, gitEnv } from '#integrations/git/runner.ts';
-import { mainRoot, PLUGIN_ROOT } from '#core/paths.ts';
+import { forgeHome, mainRoot, PLUGIN_ROOT } from '#core/paths.ts';
 import { WINDOWS_UPDATE_REFUSAL } from '#core/os/platform.ts';
 import { ForgeError } from '#core/errors.ts';
 import { run } from '#core/os/process.ts';
 import { readJson } from '#core/os/fs.ts';
 import { tail } from '#core/text.ts';
-import { provenDashboard } from './dashboard-record.ts';
+import { legacyDashboardFile, machineDashboardFile, provenDashboard } from './dashboard-record.ts';
 import type { InstallInfo, UpdateCheck, UpdateDashboard, UpdateResult } from './types.ts';
 
 // No leading `-`: these names come from the install's path and become argv for `claude`.
@@ -168,16 +168,22 @@ function pluginRootAfter(info: InstallInfo): string {
   return realpath(p);
 }
 
-/** The dashboard of the repo cwd is in, only when its record is proven: a stale one is never restarted. */
-function cwdDashboard(cwd: string): { repo: string; url: string } | null {
+/**
+ * The dashboard to restart, only when its record is proven (a stale one is never restarted): the
+ * machine's, else an older per-repo `forge dash` for the repo cwd is in. Either restarts from the cwd,
+ * where `forge dash --stop` stops both.
+ */
+function cwdDashboard(cwd: string, env: NodeJS.ProcessEnv): { repo: string; url: string } | null {
+  const machine = provenDashboard(machineDashboardFile(forgeHome(env)));
+  if (machine) return { repo: cwd, url: machine.url };
   let repo: string;
   try {
     repo = mainRoot(cwd);
   } catch {
     return null;
   }
-  const proven = provenDashboard(repo);
-  return proven ? { repo, url: proven.url } : null;
+  const proven = provenDashboard(legacyDashboardFile(repo));
+  return proven ? { repo: cwd, url: proven.url } : null;
 }
 
 /**
@@ -249,7 +255,7 @@ export async function updateForge(opts: UpdateOptions = {}): Promise<UpdateCheck
   const warnings: string[] = [];
   const shadow = shadowWarning(env);
   if (shadow) warnings.push(shadow);
-  const dash = cwdDashboard(cwd);
+  const dash = cwdDashboard(cwd, env);
   const git = info.kind === 'git' ? gitState(info.root, env) : {};
   const commands = planCommands(info);
 
@@ -300,9 +306,9 @@ export async function updateForge(opts: UpdateOptions = {}): Promise<UpdateCheck
   }
   if (updated) {
     if (info.kind === 'plugin') next.push('Start a new Claude Code session to load the updated /forge skill, agents and hooks.');
-    next.push(`Dashboards running in other repos still serve the old version: run \`${RESTART_CMD}\` there.`);
+    next.push('An older per-repo dashboard still running in another repo serves the old version: run `forge dash --stop` there.');
     next.push('Optionally run `forge migrate` in each repo to rewrite older config and job files (Forge reads them as they are).');
-    if (dashboard && 'stale' in dashboard) next.push(`This repo's dashboard still serves the old version: run \`${RESTART_CMD}\` in ${dash!.repo}.`);
+    if (dashboard && 'stale' in dashboard) next.push(`The machine's dashboard still serves the old version: run \`${RESTART_CMD}\` in ${dash!.repo}.`);
   }
   return {
     kind: info.kind,

@@ -1,7 +1,11 @@
-// Who an action is recorded as: resolveActor over injected deps, so no gh, git or OS user is read.
+// Who an action is recorded as: resolveActor over injected deps, so no gh, git or OS user is read,
+// and currentActor's per-root memo over seeded actor.json caches.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveActor } from './actor.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { currentActor, resolveActor } from './actor.ts';
 import type { ActorDeps } from './actor.ts';
 
 const deps = (env: NodeJS.ProcessEnv, osUser: string | null = 'carol'): ActorDeps => ({
@@ -21,4 +25,23 @@ test('resolveActor: a daemon session records source daemon', () => {
     ['FORGE_ACTOR outside a daemon', deps({ FORGE_ACTOR: 'alice' }), { login: 'alice', source: 'env' }],
   ];
   for (const [name, d, want] of rows) assert.deepEqual(resolveActor(d), want, name);
+});
+
+test('currentActor: one process keeps each root its own cached login', () => {
+  const saved = { FORGE_DAEMON: process.env.FORGE_DAEMON, FORGE_ACTOR: process.env.FORGE_ACTOR, GH_HOST: process.env.GH_HOST };
+  for (const k of Object.keys(saved)) delete process.env[k];
+  const roots = ['alice', 'bob'].map((login) => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `forge-actor-${login}-`)));
+    fs.mkdirSync(path.join(root, '.forge', 'runtime'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.forge', 'runtime', 'actor.json'), JSON.stringify({ 'github.com': { login, at: Date.now() } }));
+    return root;
+  });
+  try {
+    assert.deepEqual(currentActor(roots[0]!), { login: 'alice', source: 'gh' });
+    assert.deepEqual(currentActor(roots[1]!), { login: 'bob', source: 'gh' });
+    assert.deepEqual(currentActor(roots[0]!), { login: 'alice', source: 'gh' });
+  } finally {
+    for (const [k, v] of Object.entries(saved)) if (v !== undefined) process.env[k] = v;
+    for (const r of roots) fs.rmSync(r, { recursive: true, force: true });
+  }
 });

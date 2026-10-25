@@ -281,7 +281,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'dashboard.port': { doc: 'the first port forge dash tries (--port overrides it)' },
 
   daemon: { doc: 'opt-in headless sessions supervised by `forge dash`: an inbox plus one per job (see "Daemon" below)' },
-  'daemon.enabled': { doc: 'true: `forge dash` starts it, and POST /api/daemon may start it again after a stop' },
+  'daemon.enabled': { doc: 'true: `forge dash` starts it, and POST /api/p/<project>/daemon may start it again after a stop' },
   'daemon.command': { doc: 'the claude command each session runs, split into words without a shell (see "Daemon" below)' },
   'daemon.allowedTools': {
     doc: 'refused if it names blanket git/gh, a scoped file rule or an MCP tool; bare Edit/Write are scoped to the job folders and worktrees at spawn (see "Daemon" below)',

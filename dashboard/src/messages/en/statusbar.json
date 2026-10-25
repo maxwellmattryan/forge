@@ -36,6 +36,8 @@
       "off": "Daemon off",
       "sessions": "job sessions",
       "disabled": "The daemon is off. Set daemon.enabled: true in .forge/config.yml, then start it here.",
+      "approval": "Review .forge/config.yml and the other files Forge trusts (notes, reviewers, CLAUDE.md, AGENTS.md), then press Start to approve them for this project.",
+      "approvalHint": "Approves this project's trusted files as they are now, then starts the daemon",
       "jobMode": "Job sessions' permissions",
       "jobModeAbout": "Every job without its own choice, now and from its next start. A job's own choice in its panel header overrides it",
       "jobModeAutoWarning": "Auto for every job: unattended sessions approve most tool calls without you. Prompts claude still raises wait until someone answers.",

@@ -40,10 +40,12 @@ const hues = new Map<string, string>();
  * once rarely share one, and a subject keeps its colour for as long as this `forge dash` runs.
  */
 function subjectHue(subject: string): string {
-  const fixed = FIXED_HUES.get(subject);
+  // A subject is `<project>/<scope or job>`: the colour follows the part after the project.
+  const own = subject.slice(subject.lastIndexOf('/') + 1);
+  const fixed = FIXED_HUES.get(own);
   if (fixed) return fixed;
-  let hue = hues.get(subject);
-  if (!hue) hues.set(subject, (hue = JOB_HUES[hues.size % JOB_HUES.length]));
+  let hue = hues.get(own);
+  if (!hue) hues.set(own, (hue = JOB_HUES[hues.size % JOB_HUES.length]));
   return hue;
 }
 
@@ -159,7 +161,9 @@ export function sessionTracker(write: (line: string) => void, opts: ActivityOpts
   };
 }
 
-const TRANSCRIPT_EVENTS = /^\/api\/jobs\/[^/]+\/transcript\/events$/;
+const TRANSCRIPT_EVENTS = /^\/jobs\/[^/]+\/transcript\/events$/;
+/** A project route's path after `/api/p/<project>`. */
+const PROJECT_PATH = /^\/api\/p\/[^/]+(\/.*)$/;
 
 /** A status's tone by its class: 2xx ok, 3xx info, 4xx warn, 5xx error. */
 function statusTone(status: unknown): Tone | undefined {
@@ -175,8 +179,9 @@ function statusTone(status: unknown): Tone | undefined {
 export function requestLine(r: RequestInfo, opts: { at: Date; color: boolean }): string | null {
   const failed = typeof r.status === 'number' && r.status >= 400;
   if (!failed) {
-    const stream = r.sse || r.path === '/api/events' || TRANSCRIPT_EVENTS.test(r.path);
-    const quiet = r.method === 'GET' && (r.path === '/' || r.path === '/index.html' || r.path.startsWith('/assets/') || r.path === '/forge.png' || r.path === '/api/state');
+    const rest = PROJECT_PATH.exec(r.path)?.[1];
+    const stream = r.sse || r.path === '/api/projects/events' || rest === '/events' || (rest !== undefined && TRANSCRIPT_EVENTS.test(rest));
+    const quiet = r.method === 'GET' && (r.path === '/' || r.path === '/index.html' || r.path.startsWith('/assets/') || r.path === '/forge.png' || r.path === '/api/projects' || rest === '/state');
     if (stream || quiet) return null;
   }
   const ms = Number.isFinite(r.ms) && r.ms >= 0 ? Math.round(r.ms) : 0;
@@ -330,33 +335,47 @@ export function stdoutWriter(line: string): void {
   }
 }
 
-/** Subscribes the session tracker to the pool and starts the job tail; returns the detach. */
-export function attachActivityLog(root: string, server: Pick<RunningServer, 'pool'>, opts: { write?: (line: string) => void; color: boolean; intervalMs?: number; now?: () => Date }): () => void {
+/**
+ * Follows every loaded project, including ones loaded later: each one's session tracker on its pool and
+ * its job tail, with scopes and job ids named `<project>/…`. Returns the detach.
+ */
+export function attachActivityLog(server: Pick<RunningServer, 'onProject'>, opts: { write?: (line: string) => void; color: boolean; intervalMs?: number; now?: () => Date }): () => void {
   const write = opts.write ?? stdoutWriter;
   // A closed pipe surfaces as an async 'error' on stdout, which would otherwise crash the server.
   const swallow = () => {};
   if (!opts.write) process.stdout.on('error', swallow);
-  const track = sessionTracker(write, opts);
-  const unsubscribe = server.pool.subscribe((e) => {
-    try {
-      track(e);
-    } catch {
-      // Never let the log break the pool's emit loop.
-    }
-  });
-  // The pool boots its sessions inside startServer, before the log exists: seed the baseline from its
-  // state now, so a session already running still prints its spawned line.
-  try {
-    const s = server.pool.state?.();
-    if (s) for (const state of [s.inbox, s.office, ...Object.values(s.jobs ?? {})]) if (state?.scope) track({ kind: 'state', scope: state.scope, state });
-  } catch {
-    // A pool without state only misses the baseline.
-  }
   const line = liner(write, opts);
-  const tail = tailJobEvents(root, { intervalMs: opts.intervalMs, onEvent: (id, e) => line('job', jobEventParts(id, e)) });
+  const detaches = new Set<() => void>();
+  const off = server.onProject(({ name, root, pool }) => {
+    const track = sessionTracker(write, opts);
+    const named = (e: SessionEvent): SessionEvent => ({ ...e, scope: `${name}/${e.scope}` });
+    const unsubscribe = pool.subscribe((e) => {
+      try {
+        track(named(e));
+      } catch {
+        // Never let the log break the pool's emit loop.
+      }
+    });
+    // The pool boots its sessions when its project loads, before this runs: seed the baseline from its
+    // state now, so a session already running still prints its spawned line.
+    try {
+      const s = pool.state?.();
+      if (s) for (const state of [s.inbox, s.office, ...Object.values(s.jobs ?? {})]) if (state?.scope) track(named({ kind: 'state', scope: state.scope, state }));
+    } catch {
+      // A pool without state only misses the baseline.
+    }
+    const tail = tailJobEvents(root, { intervalMs: opts.intervalMs, onEvent: (id, e) => line('job', jobEventParts(`${name}/${id}`, e)) });
+    const detach = () => {
+      unsubscribe();
+      tail.stop();
+      detaches.delete(detach);
+    };
+    detaches.add(detach);
+    return detach;
+  });
   return () => {
-    unsubscribe();
-    tail.stop();
+    off();
+    for (const d of [...detaches]) d();
     if (!opts.write) process.stdout.off('error', swallow);
   };
 }

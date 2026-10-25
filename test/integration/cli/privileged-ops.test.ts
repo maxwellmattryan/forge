@@ -1,7 +1,8 @@
 // The human-only operations against the session's own children: branch code a daemon session's
 // `forge verify` runs can't merge past the checks or lift a spend cap, with or without the daemon's
-// markers; `forge budget ack` refuses a period it could not grant before it asks for a person; and a
-// daemon session whose scope is empty is refused by every scope-gated command.
+// markers; `forge budget ack` refuses a period it could not grant before it asks for a person; a daemon
+// session of one project can't reach another's through FORGE_ROOT; and a daemon session whose scope is
+// empty is refused by every scope-gated command.
 // Spawned, one test per path; fakeGh goes in the child's env only. POSIX only, like pr.test.ts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -121,6 +122,27 @@ test('forge budget ack refuses a period it could not grant before asking for a p
     assert.ok(!audit.includes('repo-budget-ack'), audit);
   } finally {
     s.cleanup();
+  }
+});
+
+test("a daemon session of one project can't lift a budget or merge in another through FORGE_ROOT", POSIX, async () => {
+  const a = await scratch('session of a');
+  const b = await scratch('job in b');
+  try {
+    const before = [b.file('job.json'), b.file('events.jsonl')];
+    // With a's digest (its own) or b's (a session can compute it), from a's checkout, with FORGE_ROOT naming b.
+    for (const trust of [trustDigest(a.repo.dir), trustDigest(b.repo.dir)]) {
+      const env = { ...b.gh.env, FORGE_DAEMON: '1', [TRUST_ENV]: trust, FORGE_DAEMON_SCOPE: a.id, FORGE_ROOT: b.repo.dir };
+      for (const args of [['job', 'budget', b.id, '--set', 'usd=999'], ['pr', 'merge', b.id, '--now']]) {
+        const r = await forgeAsync(a.repo.dir, [...args, '--json'], env);
+        assert.notEqual(r.status, 0, `${args.join(' ')}: ${r.stdout}${r.stderr}`);
+      }
+    }
+    assert.deepEqual([b.file('job.json'), b.file('events.jsonl')], before, "b's job.json and events are unchanged");
+    assert.deepEqual(b.gh.calls().filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge'), []);
+  } finally {
+    a.cleanup();
+    b.cleanup();
   }
 });
 

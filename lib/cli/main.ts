@@ -85,7 +85,14 @@ export async function main(rawArgv: string[]): Promise<void> {
   if (cmd === 'update') return updateCmd(flags);
   if (cmd === 'project') return projectCmd(pos.slice(1), flags);
 
-  const root = mainRoot();
+  let root: string;
+  try {
+    root = mainRoot();
+  } catch (e) {
+    // The machine's dashboard serves every registered project, so it opens outside any repo too.
+    if (cmd === 'dash' && e instanceof ForgeError && e.code === 'not_a_repo') return dash(null, null, flags);
+    throw e;
+  }
   let loadOpts: { text?: string | null } = {};
   if (process.env.FORGE_DAEMON === '1') {
     // Before loadConfig, which then parses the checked bytes rather than reading the file again.
@@ -271,7 +278,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       return r === undefined ? printed : ok(r);
     }
     case 'dash':
-      await dash(root, config, flags);
+      await dash(root, config, flags, ctx.initialized);
       return printed;
     case 'git':
       needInit();

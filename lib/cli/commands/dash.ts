@@ -1,8 +1,13 @@
-// `forge dash`: start the dashboard in the foreground or as a detached, pid-tracked process.
+// `forge dash`: the machine's one dashboard for every registered project, started in the foreground or
+// as a detached, pid-tracked process, registering the repo it runs in.
+import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import readline from 'node:readline/promises';
-import { paths, PLUGIN_ROOT } from '#core/paths.ts';
+import { forgeHome, paths, PLUGIN_ROOT } from '#core/paths.ts';
+import { loadConfig } from '#core/config/load.ts';
+import { addProject, ensureMachineDirs, listProjects, projectByRoot } from '#engine/project/machine-index.ts';
+import { approveTrust } from '#engine/project/trust-approval.ts';
 import { currentActor } from '#integrations/github/actor.ts';
 import { setConfigValue } from '#core/config/set.ts';
 import { PERMISSION_MODES, apiKeyVars } from '#integrations/claude/argv.ts';
@@ -11,8 +16,8 @@ import { daemonPlatformProblem } from '#core/os/platform.ts';
 import { getPath } from '#core/shape.ts';
 import { ForgeError } from '#core/errors.ts';
 import { pidAlive, sleepSync } from '#core/os/process.ts';
-import { readText, writeJsonAtomic } from '#core/os/fs.ts';
-import { dashboardRecordFile, loopbackOrigin, provenDashboard, readDashboardRecord } from '#engine/ops/dashboard-record.ts';
+import { readText, writeJsonAtomic, writeJsonPrivate } from '#core/os/fs.ts';
+import { legacyDashboardFile, loopbackOrigin, machineDashboardFile, provenDashboard, readDashboardRecord, type DashboardRecord } from '#engine/ops/dashboard-record.ts';
 import { adoptCommandPath } from '#engine/guard/command-path.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { out, outputMode } from './args.ts';
@@ -24,22 +29,28 @@ import type { HelpGroup } from '../types.ts';
 export const HELP: HelpGroup[] = [
   {
     name: 'dash',
-    summary: 'the live dashboard and its session pool',
+    summary: "the machine's dashboard and every registered project's session pool",
     commands: [
       {
         command: 'dash',
         args: '[--background|--stop] [--port N] [--permission-mode MODE] [--dev] [--quiet]',
-        summary: 'start the dashboard in the foreground (prints its URL), or detached with --background; --stop stops it and its sessions',
+        summary:
+          "open the machine's dashboard, one server for every project in the machine index: in a repo with .forge/config.yml it registers that repo first (forge project add's default name) and, when it registers it or starts the dashboard, approves the files Forge trusts there as they are (a project's daemon boots with the dashboard only while they still match; a report for a repo already registered approves nothing), then prints the running one's {url: <origin>/?project=<name>, pid, running: true, project, added}, or starts it in the foreground (prints its URL), or detached with --background ({url, pid, started: true, project, added}); outside a project it registers nothing (project: null). Its record is <FORGE_HOME>/dashboard.json ({pid, url, startedAt}, 0600, never the token); a daemon session may only get the report for a registered project",
         flags: [
-          ['--background', 'start it detached and print {url, pid}'],
-          ['--stop', 'stop it and reap its sessions; a dashboard.json whose pid is not provably that dashboard is cleared without signalling anything'],
-          ['--port N', 'the first port to try (default: dashboard.port, 7400)'],
+          ['--background', 'start it detached and print {url, pid, started: true, project, added}'],
+          ['--stop', "stop the machine's dashboard and, in a repo, an older per-repo dashboard (.forge/runtime/dashboard.json), then reap every registered project's orphaned sessions ({stopped, daemonReaped}); a record whose pid is not provably that dashboard is cleared without signalling anything"],
+          ['--port N', "the first port to try (default: this repo's dashboard.port, 7400)"],
           ['--foreground', 'run in the foreground even when one is running'],
           ['--permission-mode MODE', "the job sessions' default permission mode until it stops: default (ask), auto or dontAsk (refuse); refused in a daemon session"],
-          ['--dev', "serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist; the daemon stays off until Start; refused while a proven dashboard runs for this repo (a stale dashboard.json does not block it)"],
+          ['--dev', "serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist for every project of FORGE_HOME, with no pool booting until Start; refused while a proven machine dashboard runs (a stale record does not block it)"],
           ['--quiet', 'in the foreground in human mode, print only the banner (no activity log)'],
         ],
-        exits: [[1, 'no free port near N, --dev while a proven dashboard is running for this repo, or --permission-mode in a daemon session']],
+        exits: [
+          [
+            1,
+            "no free port near N, --dev while a proven machine dashboard is running, this repo's default name registered for another path, --permission-mode in a daemon session, or a daemon session that would start, stop or register (only the report for a registered project is allowed)",
+          ],
+        ],
       },
     ],
   },
@@ -98,6 +109,25 @@ export async function dashNotes(root: string, config: Config, flags: Record<stri
   return flags.dev ? {} : settleDaemonAuth(root, config);
 }
 
+/** Retention for every registered project the server will load, each under its own config; a failure never stops the server. */
+async function retainAll(home: string): Promise<void> {
+  let projects: { path: string; status: string }[] = [];
+  try {
+    projects = listProjects(home).projects;
+  } catch (e) {
+    return void process.stderr.write(`retention: ${(e as Error).message}\n`);
+  }
+  const { applyRetention } = await import('#engine/ops/retention.ts');
+  for (const p of projects) {
+    if (p.status !== 'ok') continue;
+    try {
+      applyRetention(p.path, loadConfig(p.path).config, 'policy');
+    } catch (e) {
+      process.stderr.write(`retention (${p.path}): ${(e as Error).message}\n`);
+    }
+  }
+}
+
 /** The detached child's argv: --quiet, since its stdio is ignored and an activity log would only cost it work. */
 export function backgroundArgs(port: number, flags: Record<string, any>): string[] {
   const mode = jobPermissionMode(flags);
@@ -117,55 +147,113 @@ export function jobPermissionMode(flags: Record<string, any>, env: NodeJS.Proces
   return mode;
 }
 
-export async function dash(root: string, config: Config, flags: Record<string, any>): Promise<void> {
-  const mode = jobPermissionMode(flags);
-  const rtFile = dashboardRecordFile(root);
-  // Sessions can write the runtime dir, so a record that is not provably this repo's dashboard is
-  // never signalled and its url never shown: it counts as no dashboard at all.
-  const current = provenDashboard(root);
-  if (flags.stop) {
-    if (current) {
-      // pidAlive checks the group first, so the server itself may already be gone.
-      try {
-        process.kill(current.pid, 'SIGTERM');
-      } catch {}
-      // The server stops its sessions on SIGTERM before exiting: up to 5 s of grace, then SIGKILL
-      // and up to 5 s more. 12 s covers that with room to close the server.
-      for (let i = 0; i < 240 && pidAlive(current.pid); i++) sleepSync(50);
-    }
-    writeJsonAtomic(rtFile, {});
-    // Whatever the server could not stop (it was SIGKILLed, or hung) is reaped here.
-    const { reaped } = reapOrphans(root);
-    return out({ stopped: Boolean(current), daemonReaped: reaped.length > 0 }, flags);
+// Registering a project boots a pool under that project's config, and starting or stopping the
+// server reaches every project's sessions: a human's call, never a session's.
+const DASH_DAEMON_REFUSAL = "forge dash starts, stops and registers the machine's dashboard, which a daemon session may not do; a human runs it in their own terminal";
+
+/** SIGTERM to a proven dashboard, then a wait for it to stop its sessions and exit. */
+function stopProven(pid: number): void {
+  // pidAlive checks the group first, so the server itself may already be gone.
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch {}
+  // The server stops its sessions on SIGTERM before exiting: up to 5 s of grace, then SIGKILL
+  // and up to 5 s more. 12 s covers that with room to close the server.
+  for (let i = 0; i < 240 && pidAlive(pid); i++) sleepSync(50);
+}
+
+/** `forge dash --stop`: the machine dashboard, and in a repo an older per-repo one, then every registered project's orphans. */
+function stopDashboards(home: string, root: string | null, current: DashboardRecord | null, flags: Record<string, any>): void {
+  if (current) stopProven(current.pid);
+  ensureMachineDirs(home);
+  writeJsonPrivate(machineDashboardFile(home), {});
+  let legacy: DashboardRecord | null = null;
+  if (root) {
+    const file = legacyDashboardFile(root);
+    legacy = provenDashboard(file);
+    if (legacy) stopProven(legacy.pid);
+    if (fs.existsSync(file)) writeJsonAtomic(file, {});
   }
-  // A dev dashboard must never take over (or silently stand beside) the repo's live one: they would
-  // share dashboard.json and the session pool's records.
+  // Whatever a server could not stop (it was SIGKILLed, or hung) is reaped here.
+  const roots = new Set<string>(root ? [root] : []);
+  try {
+    for (const p of listProjects(home).projects) if (p.status !== 'missing') roots.add(p.path);
+  } catch {
+    // An unreadable index still reaps this repo's.
+  }
+  let reaped = 0;
+  for (const r of roots) reaped += reapOrphans(r).reaped.length;
+  return out({ stopped: Boolean(current || legacy), daemonReaped: reaped > 0 }, flags);
+}
+
+/**
+ * `forge dash`: the machine's one dashboard, for every registered project. In a repo with
+ * `.forge/config.yml` (`root` and `config`) it registers that repo first; outside one (`root` null,
+ * or `initialized` false) it registers nothing.
+ */
+export async function dash(root: string | null, config: Config | null, flags: Record<string, any>, initialized = root !== null): Promise<void> {
+  const mode = jobPermissionMode(flags);
+  const home = forgeHome();
+  const machineFile = machineDashboardFile(home);
+  // The record is proven before its pid is signalled or its url shown: anything else counts as no dashboard at all.
+  const current = provenDashboard(machineFile);
+  const project = root && initialized && config ? root : null;
+  const uninitialized = root && !project ? { note: `${root} has no .forge/config.yml; run /forge init to serve it here` } : {};
+  if (process.env.FORGE_DAEMON === '1') {
+    // Only a report: a running machine dashboard, for a project already registered.
+    const known = project ? projectByRoot(home, project) : null;
+    if (flags.stop || flags.dev || flags.background || flags.foreground || !current || !known) throw new ForgeError(DASH_DAEMON_REFUSAL);
+    return out({ url: `${current.url}/?project=${known.name}`, pid: current.pid, running: true, project: known.name, added: false }, flags);
+  }
+  if (flags.stop) return stopDashboards(home, root, current, flags);
+  // A human's `forge dash` in this repo approves the files Forge trusts as they are now when it starts the dashboard or
+  // registers the repo: its pool boots with them, and a later restart boots it only while they stay the same. A dev
+  // dashboard boots nothing, so it approves nothing.
+  const approve = (): void => {
+    if (project && !flags.dev) approveTrust(home, fs.realpathSync(project));
+  };
+  let named: { project: string | null; added?: boolean } = { project: null };
+  if (project) {
+    // Before the registration, so a running server that loads it at once already finds the files approved. Only for a
+    // repo this registers: opening the running dashboard for a registered one approves nothing, so a change since its
+    // last approval (one a "trusted config changed" notice points at) still waits for Start.
+    if (current && projectByRoot(home, project) === null) approve();
+    const r = addProject(home, fs.realpathSync(project));
+    named = { project: r.project.name, added: r.added };
+  }
+  const urlOf = (origin: string) => (named.project ? `${origin}/?project=${named.project}` : origin);
+  // A dev dashboard must never take over (or silently stand beside) the machine's live one: they would
+  // share the record and every project's session records.
   if (flags.dev && current) {
     throw new ForgeError(
-      `a dashboard is already running for this repo at ${current.url} (pid ${current.pid}); stop it with forge dash --stop, or point npm run dev at a scratch repo with FORGE_ROOT=<dir>`,
+      `the machine's dashboard is already running at ${current.url} (pid ${current.pid}); stop it with forge dash --stop, or run npm run dev with a scratch FORGE_HOME=<dir>`,
       'failed',
       'forge dash --stop',
     );
   }
-  if (current && !flags.foreground) return out({ url: current.url, pid: current.pid, running: true }, flags);
-  const port = Number(flags.port ?? config.dashboard.port ?? 7400);
-  const note = await dashNotes(root, config, flags);
+  // The running server picks up a new registration at its next index refresh (2 s).
+  if (current && !flags.foreground) return out({ url: urlOf(current.url), pid: current.pid, running: true, ...named, ...uninitialized }, flags);
+  const port = Number(flags.port ?? config?.dashboard.port ?? 7400);
+  const note = project && config ? await dashNotes(project, config, flags) : {};
+  // After the notes: the billing answer may have written daemon.auth to config.yml, which the pool must boot with.
+  approve();
   if (flags.background) {
     const child = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'bin', 'forge'), ...backgroundArgs(port, flags)], {
-      cwd: root,
+      cwd: root ?? process.cwd(),
       detached: true,
       stdio: 'ignore',
     });
     child.unref();
     for (let i = 0; i < 60; i++) {
       // The pid is the child just spawned, so only the url needs proving.
-      const rt = readDashboardRecord(root);
+      const rt = readDashboardRecord(machineFile);
       const url = rt && rt.pid === child.pid ? loopbackOrigin(rt.url) : null;
-      if (url) return out({ url, pid: child.pid, started: true, ...note }, flags);
+      if (url) return out({ url: urlOf(url), pid: child.pid, started: true, ...named, ...uninitialized, ...note }, flags);
       sleepSync(50);
     }
-    return out({ url: `http://127.0.0.1:${port}`, pid: child.pid, started: true, unconfirmed: true, ...note }, flags);
+    return out({ url: urlOf(`http://127.0.0.1:${port}`), pid: child.pid, started: true, unconfirmed: true, ...named, ...uninitialized, ...note }, flags);
   }
+  if ('note' in uninitialized) process.stderr.write(`${uninitialized.note}\n`);
   if (note.note) process.stderr.write(`${note.note}\n`);
   if (note.daemonRefused) process.stderr.write(`${note.daemonRefused}\n`);
   // Once, before any session or command starts: a dashboard launched from a GUI or launchd has none of
@@ -176,15 +264,8 @@ export async function dash(root: string, config: Config, flags: Record<string, a
     process.stderr.write(`command PATH: ${(e as Error).message}\n`);
   }
   // Before the server (and its sessions) start, so no live session holds a log it would delete. A
-  // dev dashboard points at a scratch repo and deletes nothing; a failure never stops the server.
-  if (!flags.dev) {
-    try {
-      const { applyRetention } = await import('#engine/ops/retention.ts');
-      applyRetention(root, config, 'policy');
-    } catch (e) {
-      process.stderr.write(`retention: ${(e as Error).message}\n`);
-    }
-  }
+  // dev dashboard serves scratch repos and deletes nothing; a failure never stops the server.
+  if (!flags.dev) await retainAll(home);
   const { startServer } = await import('../../server/start.ts');
   // Agent mode and --quiet keep stdout exactly the banner, and run none of the log's hooks or polls.
   const activity = outputMode() === 'human' && !flags.quiet ? await import('../activity.ts') : null;
@@ -193,14 +274,16 @@ export async function dash(root: string, config: Config, flags: Record<string, a
   let res: RunningServer | undefined;
   for (let p = port; p < port + 20; p++) {
     try {
-      res = await startServer(root, { port: p, dev: Boolean(flags.dev), ...(mode ? { daemon: { jobPermissionMode: mode } } : {}), ...(onRequest ? { onRequest } : {}) });
+      res = await startServer({ home, port: p, dev: Boolean(flags.dev), ...(mode ? { daemon: { jobPermissionMode: mode } } : {}), ...(onRequest ? { onRequest } : {}) });
       break;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e;
     }
   }
   if (!res) throw new ForgeError(`no free port near ${port}`);
-  writeJsonAtomic(rtFile, { pid: process.pid, url: res.url, startedAt: new Date().toISOString() });
+  // Outside every repo, 0600 in a 0700 home: no session can plant or read it, and it never holds the token.
+  ensureMachineDirs(home);
+  writeJsonPrivate(machineFile, { pid: process.pid, url: res.url, startedAt: new Date().toISOString() });
   const server = res;
   let closing = false;
   let detach: (() => void) | null = null;
@@ -217,13 +300,13 @@ export async function dash(root: string, config: Config, flags: Record<string, a
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
   // Last resort (an uncaught exception, a plain exit): signal every session's group synchronously.
-  process.on('exit', () => server.pool.killSync());
-  process.stdout.write(`⚒️  Forge dashboard${flags.dev ? ' (dev)' : ''} → ${res.url}\n`);
+  process.on('exit', () => server.killSync());
+  process.stdout.write(`⚒️  Forge dashboard${flags.dev ? ' (dev)' : ''} → ${urlOf(res.url)}\n`);
   // After the banner, so it stays the first line; a session that spawned before this prints as the
   // tracker's baseline.
   if (activity) {
     try {
-      detach = activity.attachActivityLog(root, server, { color });
+      detach = activity.attachActivityLog(server, { color });
     } catch {
       // The log never stops the dashboard.
     }

@@ -44,6 +44,7 @@
   import { mdView } from '../lib/md-view.svelte.ts';
   import { threadItems, threadMarks, threadOpening, unreadCount } from '../lib/thread.ts';
   import { ago, dur, num, tokensShort, usd } from '../lib/util.ts';
+  import { currentProject } from '../lib/project.ts';
   import { scopeVerbs } from '../lib/command.ts';
   import { S, closeDrawer, loadFile, setDrawerTab } from '../lib/app.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
@@ -54,6 +55,8 @@
   import { slideMarker } from '../lib/marker.ts';
   import { sidebarShown } from '../lib/sidebar.ts';
 
+  /** The page's project (a PROJECT_NAME, set before mount): the mockup frame's route is that project's. */
+  const project = currentProject();
   const open = $derived(S.drawer.id !== null);
   const view = $derived(S.drawerView);
   const shown = $derived(view && 'detail' in view ? view : null);
@@ -238,7 +241,7 @@
               {#if file && content}
                 {#if 'html' in content}
                   <!-- svelte-ignore a11y_missing_attribute (no title, as on main: the iframe sits under the file list that names it) -->
-                  <iframe sandbox="" class="w-full h-[70vh] border border-line bg-white" src="/api/jobs/{encodeURIComponent(j.id)}/raw?path={encodeURIComponent(file)}"></iframe>
+                  <iframe sandbox="" class="w-full h-[70vh] border border-line bg-white" src="/api/p/{project}/jobs/{encodeURIComponent(j.id)}/raw?path={encodeURIComponent(file)}"></iframe>
                 {:else if file.endsWith('.md')}
                   <div class="flex justify-end mb-2"><MarkdownToggle surface="files" /></div>
                   {#if mdView.files === 'rendered'}

@@ -51,7 +51,7 @@ import type {
 } from '#core/types.ts';
 import type { VersionInfo } from '#engine/ops/types.ts';
 import { json, jsonStatus, readJsonBody, tokenMatches } from '../http.ts';
-import type { RouteMatch, ServerCtx } from '../types.ts';
+import type { MachineCtx, RouteMatch, ServerCtx } from '../types.ts';
 import { jobActivity } from './transcripts.ts';
 
 /** GET /api/state: the jobs, the pool, the open requests and the budget. */
@@ -117,7 +117,7 @@ export async function getBacklog(ctx: ServerCtx, req: http.IncomingMessage, res:
 }
 
 /** GET /api/about: versions and links. */
-export function getAbout(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse): void {
+export function getAbout(ctx: MachineCtx, _req: http.IncomingMessage, res: http.ServerResponse): void {
   const { provenance } = ctx;
   return json(res, about(provenance));
 }

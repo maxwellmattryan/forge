@@ -80,6 +80,8 @@ export async function postJob(ctx: ServerCtx, req: http.IncomingMessage, res: ht
 export function getJob(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): void {
   const { root, projects } = ctx;
   const id = match.params[0];
+  // Ids resolve only inside this project: one that exists in another registered project is still none here.
+  if (!validJobId(id) || !exists(path.join(jobDir(root, id), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${id}` });
   return json(res, jobDetail(root, id, projects, ctx.drive));
 }
 

@@ -24,7 +24,7 @@ export interface ResolveOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-/** Values read in this process, keyed by name and source, so a verify with several steps reads each source once. */
+/** Values read in this process, keyed by root, name and source, so a verify with several steps reads each source once. */
 const memo = new Map<string, string>();
 
 /** Forgets every value read so far (tests). */
@@ -152,7 +152,9 @@ function readSource(root: string, name: string, kind: SecretSourceKind, entry: S
  */
 export function resolveSecret(root: string, config: Pick<Config, 'secrets'>, name: string, opts: ResolveOptions = {}): string {
   const { entry, kind } = entryOf(config, name);
-  const key = `${name}\0${JSON.stringify(entry)}`;
+  // The root is part of the key: one machine server resolves secrets for several projects, and a
+  // `file` entry with the same name reads each project's own file.
+  const key = `${root}\0${name}\0${JSON.stringify(entry)}`;
   const hit = memo.get(key);
   if (hit !== undefined) return hit;
   const raw = readSource(root, name, kind, entry, opts);

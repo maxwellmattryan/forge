@@ -1,8 +1,9 @@
-// The running dashboard's record (`.forge/runtime/dashboard.json`), proven before anyone signals its
-// pid or shows its URL.
+// The running dashboard's record, proven before anyone signals its pid or shows its URL: the machine
+// dashboard's `<FORGE_HOME>/dashboard.json`, or a legacy per-repo `forge dash`'s
+// `.forge/runtime/dashboard.json`. Every function takes the record's file path.
 import fs from 'node:fs';
 import path from 'node:path';
-import { paths, PLUGIN_ROOT } from '#core/paths.ts';
+import { machinePaths, paths, PLUGIN_ROOT } from '#core/paths.ts';
 import { pidAlive, processStartMs, run, START_SLACK_MS } from '#core/os/process.ts';
 
 /** A proven record: `url` is the loopback origin, with no trailing slash. */
@@ -39,19 +40,25 @@ export const systemProbe: DashboardProbe = {
   },
 };
 
-export function dashboardRecordFile(root: string): string {
+/** The machine dashboard's record: one per FORGE_HOME, outside every repo and session write root. */
+export function machineDashboardFile(home: string): string {
+  return machinePaths(home).dashboard;
+}
+
+/** An older per-repo `forge dash`'s record, read only to stop or report one still running. */
+export function legacyDashboardFile(root: string): string {
   return path.join(paths(root).runtime, 'dashboard.json');
 }
 
 /**
- * The record as a plain object, or null for anything but a regular file of at most 4 KiB holding a
- * JSON object. The runtime dir is writable by sessions, so a symlink is never followed and a FIFO
- * never blocks the read.
+ * The record at `file` as a plain object, or null for anything but a regular file of at most 4 KiB
+ * holding a JSON object. A legacy record sits in a runtime dir sessions can write, so a symlink is
+ * never followed and a FIFO never blocks the read.
  */
-export function readDashboardRecord(root: string): Record<string, unknown> | null {
+export function readDashboardRecord(file: string): Record<string, unknown> | null {
   let fd: number | undefined;
   try {
-    fd = fs.openSync(dashboardRecordFile(root), fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0));
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0));
     const st = fs.fstatSync(fd);
     if (!st.isFile() || st.size > RECORD_MAX_BYTES) return null;
     const buf = Buffer.alloc(RECORD_MAX_BYTES + 1);
@@ -114,7 +121,7 @@ export function isForgeDash(command: string, execPath: string = process.execPath
 }
 
 /**
- * The dashboard record, only when it is proven to name the `forge dash` process serving this repo:
+ * The record at `file`, only when it is proven to name a running `forge dash` process:
  * a readable record, a live pid that is not 1 or ours, a process start within START_SLACK_MS of
  * `startedAt` (so a reused pid fails), a command line with `forge` in the script position, then
  * `dash` (isForgeDash: start times are public, so a forged `startedAt` alone could name any
@@ -122,9 +129,9 @@ export function isForgeDash(command: string, execPath: string = process.execPath
  * Always null on Windows, which has no start-time probe. The url is not bound to the pid: a record
  * copying the live dashboard's pid and startedAt may name any loopback port.
  */
-export function provenDashboard(root: string, probe: DashboardProbe = systemProbe): DashboardRecord | null {
+export function provenDashboard(file: string, probe: DashboardProbe = systemProbe): DashboardRecord | null {
   if (probe.platform === 'win32') return null;
-  const rec = readDashboardRecord(root);
+  const rec = readDashboardRecord(file);
   if (!rec) return null;
   const { pid, startedAt } = rec;
   if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1 || pid === process.pid) return null;

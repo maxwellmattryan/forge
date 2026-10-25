@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from '../../../test/helpers.ts';
-import { dashboardRecordFile, isForgeDash, loopbackOrigin, provenDashboard } from './dashboard-record.ts';
+import { isForgeDash, legacyDashboardFile, loopbackOrigin, machineDashboardFile, provenDashboard } from './dashboard-record.ts';
 import type { DashboardProbe } from './dashboard-record.ts';
 
 const STARTED_AT = '2026-10-23T10:00:00.000Z';
@@ -12,10 +12,16 @@ const STARTED = Date.parse(STARTED_AT);
 const BASE = { pid: 4242, url: 'http://127.0.0.1:7400', startedAt: STARTED_AT };
 const posix = process.platform !== 'win32';
 
-test('a dashboard record counts only when its file, process and url are proven', () => {
+// The machine record and a legacy per-repo record get the same proofs.
+const RECORDS: [string, (dir: string) => string][] = [
+  ['machine', (dir) => machineDashboardFile(path.join(dir, 'home'))],
+  ['legacy', (dir) => legacyDashboardFile(dir)],
+];
+
+for (const [kind, fileOf] of RECORDS) test(`a ${kind} dashboard record counts only when its file, process and url are proven`, () => {
   const repo = tempRepo();
   try {
-    const file = dashboardRecordFile(repo.dir);
+    const file = fileOf(repo.dir);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const probe = (o: Partial<DashboardProbe> = {}): DashboardProbe => ({
       platform: 'linux',
@@ -70,7 +76,7 @@ test('a dashboard record counts only when its file, process and url are proven',
       if (row.posixOnly && !posix) continue;
       fs.rmSync(file, { force: true });
       row.plant();
-      assert.deepEqual(provenDashboard(repo.dir, row.probe ?? probe()), row.want, row.name);
+      assert.deepEqual(provenDashboard(file, row.probe ?? probe()), row.want, row.name);
     }
   } finally {
     repo.cleanup();

@@ -1,6 +1,7 @@
 // The status bar's Daemon popover's and the session log's pure, DOM-free half: session pills, the pool summary and POST /api/daemon.
 // Session state and errors come from session output, i.e. untrusted text: these return plain strings rendered as text.
 import { ago } from './util.ts';
+import { projectApi } from './project.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE } from './types.ts';
 import type { DaemonBilling, DaemonPermissionMode, DaemonPoolState, DaemonSessionState } from './types.ts';
 
@@ -43,6 +44,8 @@ export interface PoolModel {
   jobs: JobChip[];
   /** lastError, unless the pill already says error. */
   error: string | null;
+  /** The pool is off only until a human approves the project's trusted files: the panel says so in text, and Start approves them. */
+  approval: boolean;
   canStart: boolean;
   canStop: boolean;
   /** Why Start is disabled when the config, not a pending request, is the reason. */
@@ -100,6 +103,8 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
   const sessions = [obj(p.inbox), ...(foreman ? [obj(p.office)] : []), ...jobs.map(([, s]) => s)];
   const anyRunning = sessions.some(running);
   if (!pool || (!p.enabled && !p.wanted && !anyRunning)) return null;
+  // Off because nobody has approved the files yet: an expected state a human acts on, never an error.
+  const approval = p.needsApproval === true && !p.wanted && !anyRunning;
   let label = 'stopped';
   let tone = 'muted';
   if (sessions.some(asking)) [label, tone] = ['needs permission', 'warn'];
@@ -108,6 +113,7 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
   else if (anyRunning) [label, tone] = ['idle', 'ok'];
   else if (sessions.some((s) => s.status === 'stopping')) [label, tone] = ['stopping', 'warn'];
   else if (p.wanted) [label, tone] = ['standby', 'muted'];
+  else if (approval) [label, tone] = ['needs approval', 'warn'];
   else if (p.lastError) [label, tone] = ['error', 'bad'];
   const chips = jobs
     .map(([id, s]) => ({ id, label: id.length > JOB_LABEL ? `${id.slice(0, JOB_LABEL)}…` : id, pill: sessionPill(s), mode: chosenOverride(p, id) }))
@@ -131,6 +137,7 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
     kept: jobs.filter(([, s]) => s.kept === 'agents').map(([id]) => id),
     jobs: chips,
     error: p.lastError && label !== 'error' ? String(p.lastError) : null,
+    approval,
     canStart,
     canStop,
     startHint: !canStart && p.enabled !== true ? START_HINT : null,
@@ -263,7 +270,7 @@ export function billingNote(b: DaemonBilling | null | undefined): { passed: bool
 }
 
 async function postJson(url: string, payload: unknown, token: string, fetchImpl: typeof fetch): Promise<DaemonPoolState> {
-  const res = await fetchImpl(url, {
+  const res = await fetchImpl(projectApi(url), {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-forge-token': token },
     body: JSON.stringify(payload),

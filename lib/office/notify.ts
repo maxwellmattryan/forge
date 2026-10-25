@@ -16,11 +16,12 @@ import { openAppend } from '#core/job/session-files.ts';
 import { jobDir, loadJob, logEvent } from '#core/job/store.ts';
 import { onTransition } from '#core/job/transitions.ts';
 import { commandProblem, notifyConfigured, validCommand, validWebhooks, webhookHost, webhookProblem } from '#core/config/validators/notify.ts';
-import { PLUGIN_ROOT, exists, paths } from '#core/paths.ts';
+import { PLUGIN_ROOT, exists, forgeHome, paths } from '#core/paths.ts';
 import { commandEnv, commandShell } from '#engine/guard/command-env.ts';
 import { EVENT_SCHEMA_VERSION, NOTIFY_EVENTS, NOTIFY_GATES } from '#core/job/schema.ts';
 import type { Config, DoctorCheck, Job, NotifyEvent, NotifyWebhook, TransitionSide } from '#core/types.ts';
-import { loopbackOrigin, readDashboardRecord } from '#engine/ops/dashboard-record.ts';
+import { loopbackOrigin, machineDashboardFile, readDashboardRecord } from '#engine/ops/dashboard-record.ts';
+import { projectByRoot } from '#engine/project/machine-index.ts';
 
 export { notifyProblems, validWebhooks, validCommand, notifyConfigured, webhookHost } from '#core/config/validators/notify.ts';
 
@@ -114,14 +115,20 @@ export function cleanText(text: unknown, max: number): string {
 }
 
 /**
- * The running dashboard's pipeline page when its record's url is a loopback origin, else the
- * configured port's. Only a link is built, so the pid is not proven here.
+ * The machine dashboard's pipeline page for this project: its record's origin when that is a loopback
+ * one, else the configured port's, with `?project=<name>` when the root is registered. Only a link is
+ * built, so the pid is not proven here.
  */
-export function dashboardUrl(root: string, config: Pick<Config, 'dashboard'>): string {
-  const origin = loopbackOrigin(readDashboardRecord(root)?.url);
-  if (origin) return `${origin}/#/pipeline`;
+export function dashboardUrl(root: string, config: Pick<Config, 'dashboard'>, home: string = forgeHome()): string {
   const port = Number(config?.dashboard?.port);
-  return `http://127.0.0.1:${Number.isInteger(port) && port > 0 && port < 65536 ? port : 7400}/#/pipeline`;
+  const origin = loopbackOrigin(readDashboardRecord(machineDashboardFile(home))?.url) ?? `http://127.0.0.1:${Number.isInteger(port) && port > 0 && port < 65536 ? port : 7400}`;
+  let name: string | null = null;
+  try {
+    name = projectByRoot(home, root)?.name ?? null;
+  } catch {
+    // An unreadable index links the dashboard's own landing project.
+  }
+  return `${origin}/${name ? `?project=${name}` : ''}#/pipeline`;
 }
 
 const SEGMENT = '[A-Za-z0-9_.-]+';

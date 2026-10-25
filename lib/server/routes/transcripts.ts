@@ -86,7 +86,7 @@ export function getTranscriptEvents(ctx: ServerCtx, req: http.IncomingMessage, r
   const known = knownReader(root, id);
   sseHead(res);
   res.write('retry: 3000\n\n');
-  clients.set(res, `transcript:${id}:${found.role ?? 'owner'}`);
+  clients.set(res, `${ctx.name}/transcript:${id}:${found.role ?? 'owner'}`);
   const stop = followFd(
     res,
     fd,
@@ -105,7 +105,7 @@ export function getTranscriptEvents(ctx: ServerCtx, req: http.IncomingMessage, r
     clients.delete(res);
     fs.closeSync(fd);
   });
-  startPing(ctx);
+  startPing(ctx.machine);
 }
 
 const startMs = (s: string | null | undefined): number => (s ? Date.parse(s) : NaN);

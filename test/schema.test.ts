@@ -7,11 +7,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
+import { readMachineIndex } from '#engine/project/machine-index.ts';
 import { defaults, loadConfig, validateConfig } from '#core/config/load.ts';
 import { disclosureOf, redactedConfig } from '#core/config/fields.ts';
-import { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, migrateConfig, normalizeEvent, normalizeJob, serializeJob } from '#core/job/schema.ts';
+import { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, MACHINE_INDEX_VERSION, migrateConfig, normalizeEvent, normalizeJob, serializeJob } from '#core/job/schema.ts';
 import { CONFIG_STEPS } from '#core/versions/config.ts';
 import { JOB_STEPS } from '#core/versions/job.ts';
 import { EVENT_STEPS } from '#core/versions/event.ts';
@@ -243,6 +245,15 @@ const EVENT_ROWS: Row[] = [
   },
 ];
 
+const MACHINE_ROWS: Row[] = [
+  {
+    step: 'machine-settings',
+    input: { projects: [{ name: 'web', path: path.join(os.tmpdir(), 'web'), addedAt: 't' }] },
+    fields: { settings: { maxConcurrent: null }, 'projects.0.name': 'web' },
+    note: 'a v1 index gains the machine settings with the cap unset',
+  },
+];
+
 /** One versioned shape: its rows, its step list, its current version, the field that holds it, and its reader. */
 type Table = [string, Row[], readonly Step[], number, 'schemaVersion' | 'v', (input: Record<string, unknown>) => { out: any; from: unknown }];
 
@@ -260,6 +271,22 @@ const TABLES: Table[] = [
   ],
   ['job', JOB_ROWS, JOB_STEPS, JOB_SCHEMA_VERSION, 'schemaVersion', (input) => ({ out: normalizeJob(input), from: undefined })],
   ['event', EVENT_ROWS, EVENT_STEPS, EVENT_SCHEMA_VERSION, 'v', (input) => ({ out: normalizeEvent(input), from: undefined })],
+  [
+    'machine',
+    MACHINE_ROWS,
+    MACHINE_STEPS,
+    MACHINE_INDEX_VERSION,
+    'schemaVersion',
+    (input) => {
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-schema-home-'));
+      try {
+        fs.writeFileSync(path.join(home, 'projects.json'), JSON.stringify(input));
+        return { out: readMachineIndex(home), from: undefined };
+      } finally {
+        fs.rmSync(home, { recursive: true, force: true });
+      }
+    },
+  ],
 ];
 
 for (const [name, rows, steps, current, key, read] of TABLES) {
