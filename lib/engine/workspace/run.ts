@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { checkRefs, jobEnv, shell, shellAsync, vars, type ShellResult } from './job-command.ts';
+import { loginShell } from '../guard/command-env.ts';
 import { knownValues, redactKnown } from '../guard/known-secrets.ts';
 import { loadJob, logEvent, renewLease, jobDir } from '#core/job/store.ts';
 import { jobComponent } from '#core/config/components.ts';
@@ -101,7 +102,7 @@ interface PreparedCommand {
   env: NodeJS.ProcessEnv;
   /** Set for a member repo's command. */
   repo?: string;
-  /** Run before `cmd`, after the login profile: the PATH line that puts the link shims first. */
+  /** Run before `cmd`, after the login profile when `commandEnv.loginShell` sources one: the PATH line that puts the link shims first. */
   prelude: string;
   links: AppliedLinks | null;
   /** The component's config sinks rendered for this command, when it has any. */
@@ -199,7 +200,7 @@ export function runCommand(root: string, config: Config, id: string, name: strin
   let res: ShellResult;
   let restored: string[] = [];
   try {
-    res = shell(p.prelude + p.cmd, p.cwd, p.env);
+    res = shell(p.prelude + p.cmd, p.cwd, p.env, { login: loginShell(config) });
   } finally {
     restored = restoreLocks(root, id, p.repo ?? null, snap);
   }
@@ -227,7 +228,7 @@ export async function runCommandAsync(root: string, config: Config, id: string, 
   let res: ShellResult;
   let restored: string[] = [];
   try {
-    res = await shellAsync(p.prelude + p.cmd, p.cwd, p.env);
+    res = await shellAsync(p.prelude + p.cmd, p.cwd, p.env, { login: loginShell(config) });
   } finally {
     restored = restoreLocks(root, id, p.repo ?? null, snap);
   }

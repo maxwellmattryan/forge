@@ -5,7 +5,7 @@ import type { HelpGroup } from '../../types.ts';
 const NO_JOB: [1, string] = [1, 'no such job'];
 const BODY: [string, string][] = [
   ['--body B', 'the text'],
-  ['--body-file F', 'read the text from F (- for stdin)'],
+  ['--body-file F', "read the text from F (- for stdin); in a daemon session F must be inside the session job's folder or worktree"],
 ];
 
 // In the order `forge job` lists its subcommands. `advance` is routed by lib/cli/main.ts but documented here.
@@ -74,7 +74,7 @@ export const JOB: HelpGroup = {
     {
       command: 'job set',
       args: '<id> [--stage S] [--state S] [--waiting-on W|none] [--reason R] [--note N] [--field key=value]...',
-      summary: "change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox or office daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry",
+      summary: "change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox or office daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry. `--field budget` (and any path under it) is refused for every caller: use `forge job budget` at a terminal or the dashboard's Approve on the budget gate",
       flags: [
         ['--stage S', 'the pipeline stage'],
         ['--state S', 'queued, running, waiting, blocked, failed, cancelled or done'],
@@ -193,17 +193,17 @@ export const JOB: HelpGroup = {
       args: '<id> start|end|attach --role R [options]',
       summary: "record an agent starting or ending, with its usage; end also scans what the agent wrote for likely secrets (a secret-found event and secrets: <n>, never a refusal); attach records a running agent's --agent-id so the dashboard can follow its transcript",
       flags: [
-        ['--role R', 'the role, e.g. builder or reviewer:code (required)'],
+        ['--role R', 'the role: a role name (a-z, 0-9, -) or reviewer:<lens> (required; anything else exits 2)'],
         ['--model M', 'the model it ran on'],
         ['--agent-id A', "the runtime's id for the agent (required with attach)"],
         ['--status S', 'how it ended'],
         ['--summary S', 'its one-line reply'],
         ['--output P', 'with start: the file it must write, inside the job dir'],
         ['--retry', 'with start: a retry of a lost agent'],
-        ['--tokens N', 'with end: tokens used'],
-        ['--tool-uses N', 'with end: tool calls made'],
-        ['--duration-ms N', 'with end: wall time'],
-        ['--import', "with end and --agent-id: read usage from the agent's Claude Code transcript"],
+        ['--tokens N', 'with end: tokens used (refused in a daemon session)'],
+        ['--tool-uses N', 'with end: tool calls made (refused in a daemon session)'],
+        ['--duration-ms N', 'with end: wall time (refused in a daemon session)'],
+        ['--import', "with end and --agent-id: read usage from the agent's Claude Code transcript (implied in a daemon session)"],
         ['--epoch N', "with start and end: the driver's epoch, refused (stale_epoch) before any write once another session took the job over"],
       ],
       exits: [
@@ -215,12 +215,12 @@ export const JOB: HelpGroup = {
     {
       command: 'job budget',
       args: '<id> [--set key=value,...] [--ack]',
-      summary: "the job's budget limits and use",
+      summary: "the job's budget limits and use; --set and --ack are a human-only operation: they ask the person at the terminal to type the job id, or a person uses the dashboard's Approve & continue on the budget gate instead",
       flags: [
         ['--set key=value', 'set a limit: tokens, usd, minutes, changedLines or verifyRetries (default restores the configured one)'],
         ['--ack', 'accept the limits now exceeded, so the job goes on'],
       ],
-      exits: [[1, 'no such job, or an unknown budget key or bad value']],
+      exits: [[1, 'no such job, an unknown budget key or bad value, not confirmed, or human_only: --set or --ack in a daemon session or with no person at a terminal (an agent, a script or a configured command)']],
     },
     {
       command: 'job audit',
@@ -280,7 +280,7 @@ export const JOB: HelpGroup = {
       ],
       exits: [[1, 'no such job, or no reviewers selected']],
     },
-    { command: 'job decision', args: '<id>', summary: "read decision.md and record the approver's decision", exits: [NO_JOB] },
+    { command: 'job decision', args: '<id>', summary: "read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); once per approver run: a later call returns that record with recorded: false and logs nothing", exits: [NO_JOB] },
     {
       command: 'job score',
       args: 'record <id>',

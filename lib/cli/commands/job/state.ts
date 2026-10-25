@@ -12,7 +12,8 @@ import { refreshRequest } from '#engine/trackers/request-refresh.ts';
 import { ForgeError } from '#core/errors.ts';
 import { coerce } from '#core/text.ts';
 import type { Config } from '#core/types.ts';
-import { bodyFrom, list, oneOf, req, requireJob, str, usageError } from '../args.ts';
+import { bodyFrom, list, oneOf, requireJob, str, usageError } from '../args.ts';
+import { confirmHuman, jobBudgetOp } from '../human.ts';
 import { JOB } from './help.ts';
 import { epochFence } from './lease.ts';
 
@@ -75,11 +76,15 @@ export function refreshRequestCmd(root: string, config: Config, rest: string[], 
 
 export function note(root: string, config: Config, rest: string[], flags: Record<string, any>) {
   const id = rest[0];
-  logEvent(root, requireJob(root, id).id, 'note', { text: rest.slice(1).join(' ') || bodyFrom(flags) });
+  logEvent(root, requireJob(root, id).id, 'note', { text: rest.slice(1).join(' ') || bodyFrom(flags, root, config) });
   return { ok: true };
 }
 
-export function budget(root: string, config: Config, rest: string[], flags: Record<string, any>) {
-  const id = rest[0];
-  return budgetCmd(root, config, req(id, 'job id'), { set: list(flags.set), ack: Boolean(flags.ack) });
+export async function budget(root: string, config: Config, rest: string[], flags: Record<string, any>) {
+  const jobId = requireJob(root, rest[0]).id;
+  const set = list(flags.set);
+  const ack = Boolean(flags.ack);
+  // --set and --ack are human-only operations: a person types the job id back at this terminal.
+  const grant = set.length || ack ? await confirmHuman(root, jobBudgetOp(jobId, { set: set.length > 0, ack })) : undefined;
+  return budgetCmd(root, config, jobId, { set, ack, grant });
 }

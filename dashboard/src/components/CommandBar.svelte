@@ -1,4 +1,5 @@
-<!-- The command bar (Cmd/Ctrl-K): a modal ARIA combobox that starts a job from free text or sends a /forge-style command.
+<!-- The command bar (Cmd/Ctrl-K): a modal ARIA combobox that starts a job from free text, sends a /forge-style command or
+     opens a project (`project <name>`; with no project selected that is all it does).
      A centred sheet at md and up, a full-width sheet at the top below. It starts from the text typed into the status bar's
      input, with the caret at the end. src/lib/command.ts holds the grammar and mapping. -->
 <script lang="ts">
@@ -8,9 +9,11 @@
   import Icon from './Icon.svelte';
   import StateChip from './StateChip.svelte';
   import { S, createJob, loadBacklog, openDrawer, postRequest, refresh } from '../lib/app.svelte.ts';
-  import { commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, scopedJob, suggest, type CommandCtx, type Suggestion, type Verb } from '../lib/command.ts';
+  import { canRunCommand, commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, scopedJob, suggest, type CommandCtx, type Suggestion, type Verb } from '../lib/command.ts';
   import { clearScope, palette } from '../lib/palette.svelte.ts';
   import { buildRequest } from '../lib/requests.ts';
+  import { routeProject, switchHash } from '../lib/routes.ts';
+  import { switcherEntries } from '../lib/switcher.ts';
   import { TABBABLE, wrapFocus } from '../lib/settings.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
@@ -27,24 +30,34 @@
   let input = $state<HTMLInputElement>();
   let pressedOnBackdrop = false;
 
-  const ctx = $derived<CommandCtx>({ jobs: S.data?.jobs ?? [], backlog: S.backlog ? S.backlog.items : null, tracker: S.data?.config?.tracker ?? 'none', scope: palette.scope });
+  const ctx = $derived<CommandCtx>({
+    jobs: S.data?.jobs ?? [],
+    backlog: S.backlog ? S.backlog.items : null,
+    tracker: S.data?.config?.tracker ?? 'none',
+    scope: palette.scope,
+    projects: switcherEntries(S.machine),
+    project: routeProject(S.route),
+  });
   // Null once the job is unknown or closes, even while the palette is open: then the scope is simply ignored.
   const scoped = $derived(scopedJob(ctx));
   const parsed = $derived(parseCommand(text, ctx));
   const options = $derived(suggest(text, ctx));
-  const isFree = $derived(parsed.kind === 'free');
-  const canRun = $derived(parsed.kind !== 'empty' && parsed.kind !== 'partial');
+  // With no project selected, free text starts nothing: only `project <name>` runs.
+  const isFree = $derived(parsed.kind === 'free' && ctx.project !== null);
+  const canRun = $derived(canRunCommand(parsed, ctx));
   const empty = $derived(emptyReason(parsed, options, S.backlog?.error, ctx));
   const emptyText = $derived(
     empty === null
       ? null
-      : empty === 'noJobs'
-        ? $t('command.noJobs')
-        : empty === 'noItems'
-          ? $t('command.noItems')
-          : empty === 'backlogLoading'
-            ? $t('command.backlogLoading')
-            : $t('command.backlogFailed', { error: S.backlog?.error ?? '' }),
+      : empty === 'noProject'
+        ? $t('command.noProject')
+        : empty === 'noJobs'
+          ? $t('command.noJobs')
+          : empty === 'noItems'
+            ? $t('command.noItems')
+            : empty === 'backlogLoading'
+              ? $t('command.backlogLoading')
+              : $t('command.backlogFailed', { error: S.backlog?.error ?? '' }),
   );
 
   const hints = $derived<Record<Verb, string>>({
@@ -58,6 +71,7 @@
     cancel: $t('command.hints.cancel'),
     sync: $t('command.hints.sync'),
     retro: $t('command.hints.retro'),
+    project: $t('command.hints.project'),
   });
 
   // A new input starts at the first option again, and a list that shrank under it (the backlog finished
@@ -88,7 +102,14 @@
   function activate(o: Suggestion | undefined): void {
     if (!o) return void submit();
     if (o.kind === 'run-job' || o.kind === 'run-command') submit();
+    else if (o.kind === 'project') open(o.entry.name);
     else insert(o.insert);
+  }
+
+  /** Closes the palette and opens the project as the switcher does: the same view from a project page, else its Pipeline. */
+  function open(name: string): void {
+    onclose();
+    location.hash = switchHash(name, S.route);
   }
 
   function removeScope(): void {
@@ -125,12 +146,13 @@
   }
 
   async function submit(): Promise<void> {
-    if (pending) return;
+    if (pending || !canRun) return;
     const r = commandRequest(parsed);
     if ('error' in r) {
       error = r.error;
       return;
     }
+    if (r.kind === 'open') return open(r.project);
     pending = true;
     error = null;
     try {
@@ -248,6 +270,8 @@
             <span class="font-mono text-fg truncate min-w-0 flex-1 sm:flex-none sm:shrink-0 sm:max-w-[45%]">{o.job.id}</span><span class="hidden sm:inline truncate min-w-0 flex-1">{o.job.title}</span><StateChip job={o.job} />
           {:else if o.kind === 'scoped'}
             <span class="font-mono text-fg shrink-0 w-16">{o.verb}</span><span class="font-mono truncate min-w-0">{o.job.id}</span>
+          {:else if o.kind === 'project'}
+            <Icon name="anvil" class="shrink-0 text-muted" /><span class="font-mono text-fg truncate min-w-0 flex-1">{o.entry.name}</span>{#if o.entry.waiting}<Chip tone="you" extra="shrink-0" text={$t('switcher.waiting', { count: o.entry.waiting })} />{/if}
           {:else}
             <span class="font-mono text-fg shrink-0">{o.item.ref}</span><span class="truncate min-w-0">{o.item.title}</span>
           {/if}

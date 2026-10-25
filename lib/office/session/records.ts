@@ -3,10 +3,35 @@
 // so every pid in it is proved before it is signalled (isOurChild).
 import fs from 'node:fs';
 import path from 'node:path';
-import { UUID, openAppend, readInfo, sessionRecords } from '#core/job/session-files.ts';
+import { UUID, openAppend, readInfo, sessionFiles, sessionRecords } from '#core/job/session-files.ts';
 import { START_SLACK_MS, isClaudeExecutable, killAndWait, pidAlive, processStartMs, run } from '#core/os/process.ts';
 import { writeJsonAtomic } from '#core/os/fs.ts';
 import { now } from '#core/utils.ts';
+import type { DaemonSessionState } from '#core/types.ts';
+
+/** A session the pool isn't running: what its record still says. */
+export function offState(root: string, scope: string): DaemonSessionState {
+  const info = readInfo(sessionFiles(root, scope).info);
+  return {
+    scope,
+    wanted: true,
+    running: false,
+    status: 'off',
+    sessionId: typeof info.sessionId === 'string' && UUID.test(info.sessionId) ? info.sessionId : null,
+    pid: null,
+    lastTurnAt: typeof info.lastTurnAt === 'string' && Date.parse(info.lastTurnAt) ? info.lastTurnAt : null,
+    lastResultAt: null,
+    turns: 0,
+    failures: 0,
+    held: null,
+    waiting: false,
+    lastError: null,
+    permissions: [],
+    permissionMode: null,
+    kept: null,
+    effort: null,
+  };
+}
 
 function appendLine(file: string, line: unknown): void {
   let fd: number | undefined;

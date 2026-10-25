@@ -5,7 +5,7 @@ import path from 'node:path';
 import { defaults, stringifyConfig, validateConfig } from '#core/config/load.ts';
 import { configLock } from '#core/config/set.ts';
 import { listJobs, jobDir } from '#core/job/store.ts';
-import { paths, exists, PLUGIN_ROOT } from '#core/paths.ts';
+import { paths, exists, jobFiles, stateFile, PLUGIN_ROOT } from '#core/paths.ts';
 import { matchPolicy } from '#core/config/validators/policy-check.ts';
 import { modelOverlap } from '#engine/pipeline/roster.ts';
 import { migrateConfig, normalizeJob, serializeJob } from '#core/job/schema.ts';
@@ -143,12 +143,12 @@ export function migrate(root: string): { changed: string[] } {
     });
   }
   for (const j of listJobs(root)) {
-    const file = path.join(jobDir(root, j.id), 'job.json');
-    const raw = readJson(file);
+    // The CLI copy is what Forge reads; the job folder's mirror is rewritten with it.
+    const raw = readJson(stateFile(root, j.id, 'job.json'));
     const next = serializeJob(normalizeJob(raw));
     if (JSON.stringify(raw) !== JSON.stringify(next)) {
-      writeJsonAtomic(file, next);
-      changed.push(path.relative(root, file));
+      for (const f of jobFiles(root, j.id, 'job.json')) writeJsonAtomic(f, next);
+      changed.push(path.relative(root, path.join(jobDir(root, j.id), 'job.json')));
     }
   }
   return { changed };

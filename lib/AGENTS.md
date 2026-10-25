@@ -17,7 +17,7 @@ Forge's engine, in seven lib layers that import downward only: api, core, integr
 | `engine/` | What Forge does: the pipeline, worktrees, PRs, tracker sync, guards, releases, environments, evals, metrics and operations. |
 | `integrations/` | Code that knows an outside system's API, CLI or file format, one folder per system: mechanism only, never pipeline policy. |
 | `office/` | Forge's long-running runtime: the session pool, per-job sessions, the reconciler, the Foreman and notifications. |
-| `server/` | The dashboard's HTTP server: `/api` endpoints, server-sent events and the built dashboard, for loopback Hosts only, with token- and Origin-checked POSTs. |
+| `server/` | The machine's dashboard HTTP server: one per machine, serving every project registered in the machine index under `/api/p/<project>/`, plus the page, its assets and the machine's own `/api` endpoints, for loopback Hosts only, with token- and Origin-checked POSTs. |
 | `trackers/status.mjs` | Deprecated: import lib/api/tracker.ts. |
 | `trackers/status.ts` | Deprecated: import lib/api/tracker.ts. |
 <!-- forge:map:end -->

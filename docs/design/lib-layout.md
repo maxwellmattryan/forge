@@ -126,7 +126,7 @@ Why these sit in core, and why so:
 | `pipeline/` | `step/`, `step.ts`, `brief.ts`, `panel.ts`, `verifiers.ts`, `roster.ts`, `acs.ts`, `findings.ts`, `scope.ts`, `member-panel.ts`, `moves/` (the one move `moveJob` and its effects, the Foreman's gate policy, and `deps.ts`), `types.ts` (the step and verifier shapes: `step/` is at its entry cap) |
 | `workspace/` | `worktree.ts`, split in #417 into `worktree.ts` (create and remove), `run.ts` and `dev-server.ts` (its process proof in `dev-probe.ts` since #458); `checkout.ts`, `focus-actions.ts`, `editor.ts`, `regenerate.ts`, `job-command.ts` |
 | `verify/` | `gate.ts`, `steps.ts` and `e2e.ts` (moved from `workspace/` in #458), `record.ts` (the one reader of `job.verifyRuns`) |
-| `guard/` | `integrity.ts`, `protected.ts`, `secrets.ts`, `known-secrets.ts`, `secret-refs.ts`, `redact.ts`, `attribution.ts`, `types.ts` |
+| `guard/` | `integrity.ts`, `protected.ts`, `secrets.ts`, `known-secrets.ts`, `secret-refs.ts`, `redact.ts`, `attribution.ts`, `command-env.ts`, `types.ts` |
 | `environment/` | `backing.ts`, `backing-db.ts`, `ports.ts`, `endpoints.ts`, status ← `environment.ts`, lifecycle ← `environment-lifecycle.ts`, record ← `environment-record.ts`, `config-sinks-apply.ts`, `types.ts` |
 | `project/` | `member-repos.ts`, `member-trackers.ts`, `job-repos.ts`, graph ← `project.ts`, `repo-order.ts`, `repo-proposals.ts`, `links.ts`, `downstream.ts` |
 | `pr/` | `adopt.ts`, `body.ts`, `branch.ts`, `members.ts`, `sync.ts`, `open.ts`, `integrate.ts`, `merge.ts` (the PR policy, split out in #414), `delta.ts` |
@@ -243,11 +243,12 @@ Landed in #416, in two commits so the moves read as moves. Step 1 moved the pure
 
 | File | Contents | ≈ lines |
 |---|---|---|
-| `integrations/claude/argv.ts` | `DENY_TOOLS`, `PROMPT_TOOL`, `PERMISSION_MODES`, the permission-mode and effort flags, `modeReach`, `apiKeyVars`, `sessionEnv`, `parseTemplate`, `buildArgv` | 157 |
+| `integrations/claude/argv.ts` | `DENY_TOOLS`, `FILE_TOOLS`, `absRule`, `PROMPT_TOOL`, `PERMISSION_MODES`, the permission-mode and effort flags, `modeReach`, `apiKeyVars`, `sessionEnv`, `parseTemplate`, `buildArgv` | 196 |
 | `office/session/contract.ts` | `SessionEvent`, `LogSink`, `DaemonOptions`, `Redactor`, `SessionOptions` and `sessionOptions`, `SessionContext`, `ChildMeta`, `DaemonChild`, `Session`, `SessionCore` | 221 |
 | `office/session/control.ts` | every stdin line (`TURN`, `TURN_LINE`, permission answers, mode switches), `sessionGrant`, `ruleText`, and `createControl`: prompts and mode switches | 243 |
 | `office/session/holds.ts` | `heldByBudget`, `heldByRepoBudget`, `routeHolds`, `parseRateLimit`, `LIMIT_TEXT` | 89 |
-| `office/session/launch.ts` | `checkLaunch`: tracker symlinks, the one read of config.yml, the trust digest, `daemon.enabled`, `daemonProblems` | 49 |
+| `office/session/launch.ts` | `checkLaunch`: tracker symlinks, the one read of config.yml, the trust digest, the confine digest, `daemon.enabled`, `daemonProblems` | 56 |
+| `office/session/confine.ts` (#382) | `WRITE_ROOTS_ENV`, `writeRoots`, `hooksDir`, `denyRules`, `confineDigest`, `spawnConfinement`: what a session may write | 150 |
 | `office/session/log.ts` | `capLine`, `splitter`, `stamped`, and `createSessionLog`: the sink, offsets, the replay ring, rotation, backpressure | 207 |
 | `office/session/owned.ts` | `LOST_SUMMARY` and `createOwned`: kept, facts, agents lost, the lease and claimed requests on exit | 89 |
 | `office/session/records.ts` | `withSessionId`, `isOurChild`, `otherOwner`, `reapOrphans` | 99 |

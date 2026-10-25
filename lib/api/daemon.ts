@@ -1,8 +1,78 @@
-// The session pool: /api/daemon, /api/daemon/mode, /api/daemon/permission, /api/daemons/log and the /api/events SSE frames.
-import type { Effort } from './enums.ts';
+// The session pools: /api/daemon, /api/daemon/mode, /api/daemon/permission, /api/daemons/log and the /api/events SSE frames,
+// plus the machine dashboard's own GET /api/projects, /api/projects/events and /api/projects/stats, and the machine cap every pool reports.
+import type { Effort, JobState, Stage } from './enums.ts';
+
+/** The machine cap as a pool reports it: DaemonPoolState.machine. */
+export interface MachineSlotsState {
+  /** The machine cap: the machine index's settings.maxConcurrent, else the highest loaded project's daemon.maxConcurrent. */
+  maxConcurrent: number;
+  /** Running job sessions across every project. */
+  live: number;
+}
+
+/** One registered project in GET /api/projects. `jobs` and `daemon` are null while it is not loaded. */
+export interface MachineProjectSummary {
+  name: string;
+  /** The root repo's realpath. */
+  path: string;
+  status: 'ok' | 'missing' | 'not-initialized';
+  /** The server serves it under /api/p/<name>/. */
+  loaded: boolean;
+  /** `active`: not done, cancelled or failed; `waiting`: waiting on anything but `external`. */
+  jobs: { active: number; waiting: number } | null;
+  /** The newest non-eval job by updatedAt (its own title, unaltered: job text, rendered escaped), null with none or while not loaded. */
+  latest: { id: string; title: string; at: string; stage: Stage; state: JobState } | null;
+  /** `office`: the `_office` session's status. */
+  daemon: { enabled: boolean; wanted: boolean; foreman: boolean; office: DaemonStatus; live: number; maxConcurrent: number } | null;
+}
+
+/** One loaded project in GET /api/projects/stats; arrays are parallel to ProjectsStatsResponse.days. */
+export interface ProjectStatsSeries {
+  name: string;
+  /** Non-eval jobs that reached `done`, per UTC day of finishedAt (else updatedAt). */
+  shipped: number[];
+  /** The spend ledger's estimated USD per UTC day, reported and metered. */
+  costUsd: number[];
+  dayUsd: number;
+  monthUsd: number;
+  /** Why the project's stats could not be read (its arrays are zeros then), else null. */
+  error: string | null;
+}
+
+/** GET /api/projects/stats?days=7|30|90: getProjectsStats in lib/server/routes/machine.ts. */
+export interface ProjectsStatsResponse {
+  generatedAt: string;
+  /** The window's UTC dates (`YYYY-MM-DD`), oldest first, ending today. */
+  days: string[];
+  /** Every loaded project, sorted by name. */
+  projects: ProjectStatsSeries[];
+}
+
+/** GET /api/projects, and the body of every /api/projects/events frame. */
+export interface ProjectsResponse {
+  /** Why the machine index could not be read at the last refresh (the loaded projects stay), else null. */
+  error: string | null;
+  machine: { maxConcurrent: number; source: 'settings' | 'auto'; live: number };
+  /** Sorted by name. */
+  projects: MachineProjectSummary[];
+}
+
+/** One /api/projects/events frame: sent on connect and whenever the summary changes. */
+export type ProjectsFrame = { event: 'projects'; data: ProjectsResponse };
 
 /** daemon.jobBudget: the spend limits an unattended job with none of its own gets (lib/engine/metrics/budget.ts effectiveLimits). */
 export type DaemonJobBudget = { tokens?: number | null; usd?: number | null; minutes?: number | null } | null;
+
+/**
+ * The billing variables (API keys, provider switches, ANTHROPIC_BASE_URL) set in `forge dash`'s environment, which
+ * sessions inherit, and whether they are passed (only under daemon.auth: api-key): billingOf in lib/integrations/claude/argv.ts.
+ */
+export interface DaemonBilling {
+  vars: string[];
+  passed: boolean;
+  /** A provider switch or ANTHROPIC_BASE_URL is among them: `forge doctor`'s `daemon billing` warns then, and so does the Daemon popover. */
+  warn: boolean;
+}
 
 /** Session supervisor status: state() in lib/office/session/lifecycle.ts. */
 export type DaemonStatus = 'off' | 'idle' | 'busy' | 'stopping';
@@ -73,6 +143,8 @@ export interface DaemonPoolState {
   /** Running job sessions (the inbox is not counted against maxConcurrent). */
   live: number;
   lastError: string | null;
+  /** The pool is off only because no human has approved the files Forge trusts as they are now (the machine dashboard boots a project's pool only while its approval matches); Start approves them. */
+  needsApproval: boolean;
   inbox: DaemonSessionState;
   /** The foreman's office session (scope `_office`), never counted against maxConcurrent. */
   office: DaemonSessionState;
@@ -85,7 +157,9 @@ export interface DaemonPoolState {
   /** Sessions a human put in another mode, by scope, and the default for job sessions without an entry (null: daemon.command's). Held in memory only, so they end with `forge dash`. */
   permissionModes: Record<string, DaemonPermissionMode>;
   jobPermissionMode: DaemonPermissionMode | null;
-  /** Open /api/events streams across all sessions. */
+  /** The machine cap across every project the machine dashboard serves; null for a pool outside one. */
+  machine: MachineSlotsState | null;
+  /** Open event streams on the machine dashboard. */
   clients: number;
 }
 

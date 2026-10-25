@@ -1,7 +1,7 @@
 // GET /api/state, plus /api/requests, /api/focus and /api/budget/ack, whose replies are slices of it; and the shared JSON error body.
 import type { Effort, RepoBudgetKey, RepoBudgetMode, RequestType } from './enums.ts';
 import type { BudgetLimits, EventActor, ForemanHandoff, GateOwner, Job, JobEvent, OwnerStatus, Progress } from './job.ts';
-import type { DaemonJobBudget, DaemonPoolState } from './daemon.ts';
+import type { DaemonBilling, DaemonJobBudget, DaemonPoolState } from './daemon.ts';
 
 /** Repo spend against the caps: repoBudgetStatus in lib/engine/metrics/repo-budget.ts (`forge budget`, /api/state.budget). */
 export interface RepoBudgetStatus {
@@ -94,7 +94,8 @@ export interface ApiState {
     panel: string[];
     pipeline: PipelineConfig;
     models: Record<string, string>;
-    daemon: { enabled: boolean; jobBudget: DaemonJobBudget };
+    /** `billing`: the billing variables set in `forge dash`'s environment, null when none is. */
+    daemon: { enabled: boolean; jobBudget: DaemonJobBudget; billing: DaemonBilling | null };
     /** runtime.effort when it is valid, else null. */
     effort: Effort | null;
   };

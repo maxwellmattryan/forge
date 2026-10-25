@@ -2,7 +2,6 @@
 // apply the human's `retention` policy. Everything here deletes files, so every path is built from
 // a validated id or scope, checked with lstat, and never followed through a symlink. The read side
 // (archive records) lives in lib/core/job/archive.ts so stats, audit, retro and deps need not import this.
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { currentActor } from '#integrations/github/actor.ts';
@@ -12,12 +11,13 @@ import { daemonsDir, openAppend, readInfo, sessionFiles } from '#core/job/sessio
 import { hasEnvironment, teardownEnvironment } from '../environment/lifecycle.ts';
 import { jobFindings } from '../pipeline/findings.ts';
 import { isActive, jobDir, leaseStatus, listJobs, logEvent, readEvents } from '#core/job/store.ts';
-import { paths } from '#core/paths.ts';
+import { paths, removeJobRecord, stateFile } from '#core/paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, validScope } from '#core/job/requests.ts';
 import { ARCHIVE_SCHEMA_VERSION, normalizeJob } from '#core/job/schema.ts';
 import type { ArchiveRecord, Config, EventActor, Job, LoadedJob, RetentionTrigger } from '#core/types.ts';
 import type { ArchiveResult, PruneResult } from './types.ts';
 import { ForgeError } from '#core/errors.ts';
+import { writeAtomic } from '#core/os/fs.ts';
 import { pidAlive } from '#core/os/process.ts';
 import { withLock } from '#core/os/lock.ts';
 import { now } from '#core/utils.ts';
@@ -78,10 +78,11 @@ export function readableJob(root: string, id: string): { job: LoadedJob; raw: Jo
   }
   const st = lstat(dir);
   if (!st || st.isSymbolicLink() || !st.isDirectory()) return NOT_READABLE;
-  const fileSt = lstat(path.join(dir, 'job.json'));
-  if (!fileSt?.isFile()) return NOT_READABLE;
+  // Found by the job folder's job.json, read from the CLI copy when the job has one.
+  const file = stateFile(root, id, 'job.json');
+  if (!lstat(path.join(dir, 'job.json'))?.isFile() || !lstat(file)?.isFile()) return NOT_READABLE;
   try {
-    const raw = JSON.parse(fs.readFileSync(path.join(dir, 'job.json'), 'utf8'));
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     const job = normalizeJob(raw);
     if (job._unsupported || job.id !== id) return NOT_READABLE;
     return { job, raw };
@@ -131,23 +132,6 @@ function ensureArchiveDir(root: string): string {
     if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
   }
   return dir;
-}
-
-/** Write-then-rename through a fresh, exclusively created temp file: a planted link at the target is replaced, never followed. */
-function writeExclusiveAtomic(file: string, text: string): void {
-  const tmp = `${file}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-  const fd = fs.openSync(tmp, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0), 0o600);
-  try {
-    fs.writeSync(fd, text);
-  } finally {
-    fs.closeSync(fd);
-  }
-  try {
-    fs.renameSync(tmp, file);
-  } catch (e) {
-    fs.rmSync(tmp, { force: true });
-    throw e;
-  }
 }
 
 /** Appends one line to `.forge/runtime/retention.log`, without following a link or blocking on a FIFO. */
@@ -223,8 +207,10 @@ export function archiveJob(root: string, id: string, trigger: RetentionTrigger, 
       },
     };
     const file = path.join(adir, `${id}.json`);
-    writeExclusiveAtomic(file, JSON.stringify(record, null, 2) + '\n');
+    // A planted link at the record's path is replaced by the rename, never followed.
+    writeAtomic(file, JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });
     fs.rmSync(dir, { recursive: true, force: true });
+    removeJobRecord(root, id);
     appendRetentionLog(root, { type: 'pruned', kind: 'job', id, trigger, bytes });
     return { id, file: path.relative(root, file), bytes };
   });

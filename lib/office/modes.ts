@@ -5,10 +5,14 @@
 import { INBOX_SCOPE, OFFICE_SCOPE } from '#core/job/requests.ts';
 import { PERMISSION_MODES, commandPermissionMode } from '#integrations/claude/argv.ts';
 import type { DaemonOptions } from './session/contract.ts';
+import type { MachineSlots } from './slots.ts';
 import type { DaemonPermissionMode, DaemonPoolState } from '#core/types.ts';
 
-/** createPool's options. `jobPermissionMode` is `forge dash --permission-mode`: the human's own command line. */
-export type PoolOptions = DaemonOptions & { jobPermissionMode?: DaemonPermissionMode | null };
+/**
+ * createPool's options. `jobPermissionMode` is `forge dash --permission-mode`: the human's own command line.
+ * `slots` is the machine dashboard's slot gate (./slots.ts), shared by every project's pool.
+ */
+export type PoolOptions = DaemonOptions & { jobPermissionMode?: DaemonPermissionMode | null; slots?: MachineSlots };
 
 export interface ModeBook {
   /** Re-reads daemon.command's mode, the one a scope runs in when nobody chose another. */

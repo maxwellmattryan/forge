@@ -10,6 +10,15 @@
     "keep": "Keep it",
     "done": "Deleted {id}"
   },
+  "mergeNow": {
+    "title": "Merge now",
+    "open": "Merge now…",
+    "hint": "A person's override: merges this job's PR now, skipping merge.auto, the recorded approval, protected paths, the escalate floor and CI. It never skips the merge order or a release gate, and is logged as a bypass with your name.",
+    "typeId": "Type {id} to confirm",
+    "confirm": "Merge without checks",
+    "keep": "Cancel",
+    "done": "Merged {id}"
+  },
   "environment": {
     "title": "Environment",
     "focus": "Focus",

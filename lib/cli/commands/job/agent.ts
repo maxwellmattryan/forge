@@ -8,16 +8,24 @@ import { logSecrets, scanAgentOutputs } from '#engine/guard/secrets.ts';
 import { AGENT_ID } from '#integrations/claude/transcripts.ts';
 import { importClaudeCodeTranscript } from '#engine/metrics/usage.ts';
 import { ForgeError } from '#core/errors.ts';
+import { agentRole } from '#core/job/lens.ts';
+import { daemonScope } from '#core/job/requests.ts';
 import type { AgentUsage, Config } from '#core/types.ts';
 import { num, req, requireJob, str } from '../args.ts';
 import { epochFence } from './lease.ts';
 
-export function agent(root: string, config: Config, rest: string[], flags: Record<string, any>) {
+/**
+ * In a daemon session an agent's end is measured, never self-reported: its counts are refused, its transcript is always
+ * imported (the agent id from --agent-id or the role's record), and an end inside the job's own session is marked
+ * `metered`, since that session's meter already holds its cost (docs/architecture/policies.md "Usage accounting").
+ */
+export function agent(root: string, config: Config, rest: string[], flags: Record<string, any>, env: NodeJS.ProcessEnv = process.env) {
   const id = rest[0];
   const jobId = requireJob(root, id).id;
   const phase = req(rest[1], 'start|end|attach');
   if (!['start', 'end', 'attach'].includes(phase)) throw new ForgeError('phase must be start, end or attach', 'usage');
-  const role = req(flags.role, '--role');
+  // A job.json key and an output path: checked before anything is read or written.
+  const role = agentRole(req(flags.role, '--role'));
   if (phase === 'attach') {
     const agentId = flags['agent-id'];
     // Checked before anything is written: the id becomes a transcript file name.
@@ -30,6 +38,21 @@ export function agent(root: string, config: Config, rest: string[], flags: Recor
   const tokens = num(flags.tokens, '--tokens');
   const toolUses = num(flags['tool-uses'], '--tool-uses');
   const durationMs = num(flags['duration-ms'], '--duration-ms');
+  // A malformed scope still runs under the daemon: it gets the refusals, never the `metered` mark.
+  const ds = daemonScope(env);
+  const daemon = 'problem' in ds || ds.daemon;
+  let agentId: string | undefined = flags['agent-id'];
+  if (phase === 'end' && daemon) {
+    if (tokens !== undefined || toolUses !== undefined || durationMs !== undefined)
+      throw new ForgeError("forge job agent end refuses --tokens, --tool-uses and --duration-ms in a daemon session: pass --agent-id and Forge reads the agent's transcript", 'usage');
+    agentId ??= loadJob(root, jobId).agents[role]?.agentId ?? undefined;
+    if (agentId === undefined && flags.status !== 'lost')
+      throw new ForgeError('forge job agent end needs --agent-id in a daemon session (the id the Agent tool returned); end an agent that never started with --status lost', 'usage');
+    // Checked before anything is written: the id becomes a transcript file name.
+    if (agentId !== undefined && (typeof agentId !== 'string' || !AGENT_ID.test(agentId))) throw new ForgeError('--agent-id must match [A-Za-z0-9_-]{1,100}', 'usage');
+  }
+  const metered = phase === 'end' && 'scope' in ds && ds.daemon && ds.scope === jobId;
+  let unmeasured = false;
   // `end` stays allowed, so a stray start can still be closed.
   if (phase === 'start') refuseInboxDrive(jobId);
   // Before the output dir, the secret scan's event and the import: a stale driver leaves no trace.
@@ -53,9 +76,11 @@ export function agent(root: string, config: Config, rest: string[], flags: Recor
     const scan = scanAgentOutputs(root, config, before, role);
     logSecrets(root, before.id, 'agent-end', scan, { blocked: false, role });
     secrets = scan.findings.length;
-    if (flags.import && flags['agent-id']) {
-      since = importCursor(before, String(flags['agent-id']));
-      usage = importClaudeCodeTranscript(String(flags['agent-id']), { since, root, job: before }) ?? undefined;
+    if (agentId && (flags.import || daemon)) {
+      since = importCursor(before, String(agentId));
+      usage = importClaudeCodeTranscript(String(agentId), { since, root, job: before }) ?? undefined;
+      // A background agent's transcript can lag its end: the end is recorded, never held for it.
+      unmeasured = daemon && !usage;
     }
     if (!usage && (tokens !== undefined || toolUses !== undefined || durationMs !== undefined)) usage = { totalTokens: tokens ?? 0, toolUses: toolUses ?? 0, durationMs: durationMs ?? 0 };
     if (usage && !usage.toolUses && toolUses) usage.toolUses = toolUses;
@@ -67,7 +92,7 @@ export function agent(root: string, config: Config, rest: string[], flags: Recor
       role,
       phase: phase as 'start' | 'end',
       model: flags.model ?? usage?.model ?? undefined,
-      agentId: flags['agent-id'],
+      agentId,
       status: flags.status,
       summary,
       // The transcript's path and cursor are set to undefined, so the usage job.json records is
@@ -76,6 +101,7 @@ export function agent(root: string, config: Config, rest: string[], flags: Recor
       importedThrough: usage?.through,
       ...(phase === 'start' ? { output, retry: flags.retry === true } : {}),
       ...(outputMissing !== null ? { outputMissing } : {}),
+      ...(metered || unmeasured ? { flags: { ...(metered ? { metered: true as const } : {}), ...(unmeasured ? { unmeasured: true as const } : {}) } } : {}),
     },
     config,
     fence,
@@ -84,5 +110,5 @@ export function agent(root: string, config: Config, rest: string[], flags: Recor
   renewLease(root, jobId, { ttl: phase === 'start' ? AGENT_LEASE_MS : undefined });
   const a = job.agents[role];
   const budget = phase === 'end' ? enforceBudget(root, config, job.id, 'agent-end') : null;
-  return { role, status: a.status, model: a.model, usage: usage ? { tokens: usage.totalTokens, exact: Boolean(usage.exact), ...(since && usage.transcript ? { since } : {}) } : null, jobTokens: job.usage.totalTokens, jobCostUsd: job.usage.estCostUsd, ...(outputMissing !== null ? { outputMissing } : {}), ...(secrets ? { secrets } : {}), ...(budget ? { budget } : {}) };
+  return { role, status: a.status, model: a.model, usage: usage ? { tokens: usage.totalTokens, exact: Boolean(usage.exact), ...(since && usage.transcript ? { since } : {}) } : null, jobTokens: job.usage.totalTokens, jobCostUsd: job.usage.estCostUsd, ...(unmeasured ? { unmeasured: true } : {}), ...(outputMissing !== null ? { outputMissing } : {}), ...(secrets ? { secrets } : {}), ...(budget ? { budget } : {}) };
 }

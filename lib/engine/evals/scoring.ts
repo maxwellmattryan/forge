@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { effectiveLimits, exceededKeys, measureBudget } from '../metrics/budget.ts';
+import { effectiveLimits, exceededKeys, measureJob } from '../metrics/budget.ts';
 import { validModel } from '#core/config/load.ts';
 import { configForJob } from './overlay.ts';
 import { jobDir, listJobs, loadJob, logEvent, setJob, updateJob } from '#core/job/store.ts';
@@ -17,6 +17,7 @@ import { enqueue, listRequests } from '#core/job/requests.ts';
 import type { Config, Job, JobScore } from '#core/types.ts';
 import { gh } from '#integrations/github/gh.ts';
 import { ForgeError } from '#core/errors.ts';
+import { writeAtomic } from '#core/os/fs.ts';
 
 const DAY_MS = 86_400_000;
 /** Merges older than this are never queued: the bound on retrying a failed diff fetch. */
@@ -76,13 +77,6 @@ export function capDiff(diff: string): Buffer {
   return Buffer.concat([bytes.subarray(0, MAX_DIFF_BYTES), Buffer.from(`\n${TRUNCATED}\n`)]);
 }
 
-/** Write-then-rename, the temp file created exclusively: the job dir is agent-writable, so a planted link is never followed. */
-function writeFresh(file: string, data: Buffer): void {
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, data, { flag: 'wx' });
-  fs.renameSync(tmp, file);
-}
-
 const blankScore = (): Omit<JobScore, 'status'> => ({ queuedAt: null, value: null, outOf: 5, recordedAt: null, judgeModel: null, builderModel: null });
 
 /**
@@ -105,7 +99,7 @@ export function queueScores(root: string, config: Config, opts: { now?: Date; gh
   let repoHeld: boolean | null = null;
   for (const job of due) {
     // Before any request is written: a held job never spends a judge run.
-    const over = exceededKeys(effectiveLimits(configForJob(root, config, job), job), measureBudget(job), job.budget.ack, job.round).length > 0;
+    const over = exceededKeys(effectiveLimits(configForJob(root, config, job), job), measureJob(root, config, job), job.budget.ack, job.round).length > 0;
     repoHeld ??= repoBudgetStatus(root, config, { write: false }).held;
     if (over || repoHeld) {
       const reason = over ? 'budget exceeded' : 'repo budget';
@@ -118,7 +112,8 @@ export function queueScores(root: string, config: Config, opts: { now?: Date; gh
     if (!slug || !number) continue;
     const r = gh(['pr', 'diff', String(number), '-R', slug]);
     if (!r.ok) continue;
-    writeFresh(path.join(jobDir(root, job.id), 'score.diff'), capDiff(r.stdout));
+    // The job dir is agent-writable: writeAtomic never follows a link planted at either name.
+    writeAtomic(path.join(jobDir(root, job.id), 'score.diff'), capDiff(r.stdout));
     setJob(root, job.id, { owned: { score: { ...blankScore(), status: 'queued', queuedAt: now.toISOString() } } });
     logEvent(root, job.id, 'score', { status: 'queued' });
     // A fixed text: nothing from the PR reaches a session through it.

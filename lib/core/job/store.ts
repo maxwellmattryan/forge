@@ -1,8 +1,9 @@
 // Job state and its event log: load, update and list jobs, and the job lease (claim, renew, expire,
-// the epoch fence). The CLI writes state only through here.
+// the epoch fence). The CLI writes state only through here: to the CLI copy first, which it reads
+// (stateFile in lib/core/paths.ts), then the job folder's mirror. A job is found by its folder.
 import fs from 'node:fs';
 import path from 'node:path';
-import { paths, exists, jobDir } from '../paths.ts';
+import { paths, exists, jobDir, jobFiles, resetJobRecord, stateFile } from '../paths.ts';
 import { currentActor } from '#integrations/github/actor.ts';
 import { clearFocusIf } from './focus.ts';
 import { knownRecordValues, redactDeep } from '#engine/guard/known-secrets.ts';
@@ -11,7 +12,7 @@ import { idPrefix } from './issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import type { AgentUsage, Config, Effort, EventActor, ForgeRequest, Job, JobAgent, JobIssue, JobChange, JobLease, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from '../types.ts';
 import { estimateCost } from '#integrations/claude/pricing.ts';
-import { reviewFileName } from './lens.ts';
+import { agentRole, isAgentRole, reviewFileName } from './lens.ts';
 import { requeueOrphans } from './requests.ts';
 import { runTransitionHooks } from './transitions.ts';
 import { configForJob } from '#engine/evals/overlay.ts';
@@ -19,9 +20,9 @@ import { configHash, pluginHash, promptHash } from '#engine/evals/provenance.ts'
 import { checkJobFields, checkOwnedFields } from './fields.ts';
 import { setPath } from '../shape.ts';
 import { ForgeError } from '../errors.ts';
-import { readJson, readText, writeJsonAtomic } from '../os/fs.ts';
+import { AGENT_TEXT_MAX, confinedDir, readJson, readRegularText, readText, writeJsonAtomic } from '../os/fs.ts';
 import { withLock } from '../os/lock.ts';
-import { assertSafeRef, slugify } from '../text.ts';
+import { assertSafeRef, oneLineTitle, slugify } from '../text.ts';
 import { now, shortId } from '../utils.ts';
 
 /** How long a claim or the driver's own activity keeps a lease live. */
@@ -38,8 +39,7 @@ export interface Fence {
   session?: string;
 }
 
-// jobDir lives in paths.ts, a leaf, so low modules can use it without loading this one; most of lib/
-// still imports it from here, which loads nothing extra.
+// jobDir lives in paths.ts, a leaf, so low modules can use it without loading this one.
 export { jobDir } from '../paths.ts';
 
 /** request.md without the `# title` line createJob writes, trimmed and uncapped; callers cap it. */
@@ -50,7 +50,7 @@ export function requestBody(root: string, id: string): string {
 export function loadJob(root: string, id: string): LoadedJob {
   const file = path.join(jobDir(root, id), 'job.json');
   if (!exists(file)) throw new ForgeError(`no job "${id}" (looked in ${path.dirname(file)})`, 'not_found');
-  const job = normalizeJob(readJson(file));
+  const job = normalizeJob(readJson(stateFile(root, id, 'job.json')));
   if (job._unsupported) throw new ForgeError(`job ${id} was written by a newer Forge; update the plugin`);
   return job;
 }
@@ -62,13 +62,12 @@ export function loadJob(root: string, id: string): LoadedJob {
  * so a stale driver's write never lands.
  */
 export function updateJob(root: string, id: string, mutate: (job: LoadedJob) => void, fence?: Fence): LoadedJob {
-  const dir = jobDir(root, id);
-  return withLock(path.join(dir, '.lock'), () => {
+  return withLock(path.join(jobDir(root, id), '.lock'), () => {
     const job = loadJob(root, id);
     if (fence) assertEpoch(job, fence.epoch, fence.session);
     mutate(job);
     job.updatedAt = now();
-    writeJsonAtomic(path.join(dir, 'job.json'), serializeJob(job));
+    for (const f of jobFiles(root, id, 'job.json')) writeJsonAtomic(f, serializeJob(job));
     return job;
   });
 }
@@ -187,7 +186,7 @@ export function logEvent(root: string, id: string, type: string, data: Record<st
   // The job's recorded secret values never land in events.jsonl, which the dashboard and bundles read.
   const clean = redactDeep(data, knownRecordValues(root, id));
   const line = JSON.stringify({ v: EVENT_SCHEMA_VERSION, ts: now(), type, ...clean });
-  fs.appendFileSync(path.join(jobDir(root, id), 'events.jsonl'), line + '\n');
+  for (const f of jobFiles(root, id, 'events.jsonl')) fs.appendFileSync(f, line + '\n');
 }
 
 /** The repo-level audit log: human actions with no job, such as `forge config set`. Gitignored with runtime/. */
@@ -224,7 +223,7 @@ export function parseEventLines(text: string): JobEvent[] {
 }
 
 export function readEvents(root: string, id: string): JobEvent[] {
-  return parseEventLines(readText(path.join(jobDir(root, id), 'events.jsonl')));
+  return parseEventLines(readText(stateFile(root, id, 'events.jsonl')));
 }
 
 /**
@@ -244,13 +243,13 @@ export function createJob(
   config: Config,
   opts: { title: string; issues?: JobIssue[]; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[]; origin?: string; splitMode?: 'never' | null; effort?: Effort | null },
 ): LoadedJob {
-  if (!opts.title) throw new ForgeError('a job needs a title');
-  if (opts.effort != null && !isEffort(opts.effort)) throw new ForgeError(effortError(opts.effort));
+  const title = oneLineTitle(opts.title);
+  if (!title || (opts.effort != null && !isEffort(opts.effort))) throw new ForgeError(title ? effortError(opts.effort) : 'a job needs a title');
   // A PR's headRefName arrives here as --branch, and the branch later fills shell templates.
   if (opts.branch !== undefined) assertSafeRef(opts.branch, '--branch');
   const p = paths(root);
   fs.mkdirSync(p.jobs, { recursive: true });
-  const slug = opts.slug ? slugify(opts.slug) : slugify(opts.title, 5);
+  const slug = opts.slug ? slugify(opts.slug) : slugify(title, 5);
   const issues = cleanIssues(opts.issues ?? []);
   // A foreign `owner/repo#12` must not take the `12-<slug>` id this repo's issue 12 would get.
   const primary = issues.find((i) => i.ref) ?? null;
@@ -267,7 +266,7 @@ export function createJob(
   }
   const job = normalizeJob({
     id,
-    title: opts.title,
+    title,
     kind: opts.kind ?? 'feature',
     issues,
     parent: opts.parent ?? null,
@@ -280,9 +279,10 @@ export function createJob(
     createdAt: now(),
     updatedAt: now(),
   });
-  writeJsonAtomic(path.join(p.job(id), 'job.json'), serializeJob(job));
-  fs.writeFileSync(path.join(p.job(id), 'request.md'), `# ${opts.title}\n\n${opts.body?.trim() ?? ''}\n`);
-  logEvent(root, id, 'created', { title: opts.title, issues: job.issues, ...(opts.origin ? { origin: opts.origin } : {}), ...(job.effort ? { effort: job.effort } : {}) });
+  resetJobRecord(root, id);
+  for (const f of jobFiles(root, id, 'job.json')) writeJsonAtomic(f, serializeJob(job));
+  fs.writeFileSync(path.join(p.job(id), 'request.md'), `# ${title}\n\n${opts.body?.trim() ?? ''}\n`);
+  logEvent(root, id, 'created', { title, issues: job.issues, ...(opts.origin ? { origin: opts.origin } : {}), ...(job.effort ? { effort: job.effort } : {}) });
   if (opts.parent) {
     updateJob(root, opts.parent, (parent) => {
       if (!parent.children.includes(id)) parent.children.push(id);
@@ -326,7 +326,7 @@ export function listJobs(root: string): LoadedJob[] {
       .filter((d) => d.isDirectory() && exists(path.join(dir, d.name, 'job.json')))
       .map((d) => {
         try {
-          return normalizeJob(readJson(path.join(dir, d.name, 'job.json')));
+          return normalizeJob(readJson(stateFile(root, d.name, 'job.json')));
         } catch {
           return null;
         }
@@ -523,12 +523,14 @@ export function recordAgent(
     retry?: boolean;
     /** end: the output check's result, when an output is known. */
     outputMissing?: boolean;
+    /** end: `metered` when the job's own daemon session's meter holds this run's cost, `unmeasured` when its transcript wasn't found. */
+    flags?: { metered?: true; unmeasured?: true };
   },
   config: Config,
   fence?: Fence,
 ): LoadedJob {
   const job = updateJob(root, id, (j) => {
-    const a = (j.agents[rec.role] ??= { runs: 0 });
+    const a = Object.hasOwn(j.agents, agentRole(rec.role)) ? j.agents[rec.role] : (j.agents[rec.role] = { runs: 0 });
     if (rec.phase === 'start') {
       a.status = 'running';
       a.model = rec.model ?? a.model ?? null;
@@ -541,8 +543,8 @@ export function recordAgent(
       a.retry = Boolean(rec.retry);
       delete a.outputMissing;
     } else {
+      a.endedAt = a.status === 'running' ? now() : (a.endedAt ?? null); // only a run in flight ends: a second end must not re-open the decision record
       a.status = rec.status ?? 'done';
-      a.endedAt = now();
       if (rec.agentId) a.agentId = rec.agentId;
       if (rec.model) a.model = rec.model;
       if (rec.summary) a.summary = rec.summary.slice(0, 280);
@@ -554,10 +556,8 @@ export function recordAgent(
   logEvent(root, id, `agent-${rec.phase}`, {
     role: rec.role,
     model: rec.model ?? job.agents[rec.role]?.model,
-    agentId: rec.agentId,
-    status: rec.status,
-    summary: rec.summary,
-    usage: rec.usage,
+    agentId: rec.agentId, status: rec.status, summary: rec.summary,
+    usage: rec.usage, ...rec.flags,
     ...(rec.phase === 'start' ? { output: rec.output ?? undefined, retry: rec.retry || undefined, ...startProvenance(root, config, job, rec.role) } : {}),
     ...(rec.outputMissing !== undefined ? { outputMissing: rec.outputMissing } : {}),
   });
@@ -589,7 +589,7 @@ export function markAgentsLost(root: string, id: string, roles: string[], summar
   for (const role of roles) {
     const job = loadJob(root, id);
     if (drivers !== undefined && !(job.lease.driver && drivers.includes(job.lease.driver))) break;
-    const a = job.agents[role];
+    const a = isAgentRole(role) && Object.hasOwn(job.agents, role) ? job.agents[role] : undefined;
     if (a?.status !== 'running') continue;
     const outputMissing = agentOutputMissing(root, id, role, a, undefined);
     recordAgent(root, id, { role, phase: 'end', status: 'lost', summary, ...(outputMissing !== null ? { outputMissing } : {}) }, config);
@@ -761,7 +761,7 @@ export function roundVerdicts(
       out[r] = ended(r) ? { verdict: 'MISSING', file: path.relative(jobDir(root, id), file), path: file } : { verdict: 'PENDING' };
       continue;
     }
-    out[r] = { ...fileVerdict(readText(file), blockOn, opts), file: path.relative(jobDir(root, id), file) };
+    out[r] = { ...fileVerdict(readRegularText(file, AGENT_TEXT_MAX) ?? '', blockOn, opts), file: path.relative(jobDir(root, id), file) };
   }
   const values = Object.values(out).map((v) => v.verdict);
   const complete = !values.includes('PENDING') && !values.includes('MISSING');
@@ -775,12 +775,12 @@ export function reviewDir(root: string, id: string, round: number | 'integration
 }
 
 /**
- * Created up front because reviewers that write with a shell redirect fail on a missing
- * directory, and the orchestrator only learns of it from an absent file.
+ * Created up front because reviewers that write with a shell redirect fail on a missing directory, and the orchestrator
+ * only learns of it from an absent file. Only through real directories (confinedDir): a linked `review/` is refused.
  */
 export function ensureReviewDir(root: string, id: string, round: number | 'integration'): string {
   const dir = reviewDir(root, id, round);
-  fs.mkdirSync(dir, { recursive: true });
+  confinedDir(jobDir(root, id), dir);
   return dir;
 }
 
@@ -800,9 +800,9 @@ function reviewerEnded(root: string, id: string, round: number | 'integration'):
   };
 }
 
-export function parseDecision(root: string, id: string): { decision: string | null; reason: string | null } {
-  const text = readText(path.join(jobDir(root, id), 'decision.md'));
+export function parseDecision(root: string, id: string): { decision: string | null; reason: string | null; autoMerge: boolean } {
+  const text = readRegularText(path.join(jobDir(root, id), 'decision.md'), AGENT_TEXT_MAX) ?? '';
   const first = text.split('\n').find((l) => l.trim()) ?? '';
   const m = first.match(/^\s*(APPROVE|ESCALATE)\b\s*[:\-–]?\s*(.*)$/i);
-  return m ? { decision: m[1].toUpperCase(), reason: m[2].trim() || null } : { decision: null, reason: null };
+  return { ...(m ? { decision: m[1].toUpperCase(), reason: m[2].trim() || null } : { decision: null, reason: null }), autoMerge: /^yes\b/i.test(text.match(/^[ \t]*(?:[-*][ \t]*)?Auto-merge eligible:[ \t]*(.*)$/im)?.[1] ?? '') }; // the first such line only
 }

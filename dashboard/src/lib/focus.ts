@@ -1,5 +1,6 @@
 // Focus and a job's environment as the dashboard shows them: the status bar's focus fact, the drawer's Environment
 // section's header, and the POSTs behind it (lib/server/routes/). Plain TS, so a test can pin it.
+import { projectApi } from './project.ts';
 import type { ApiState, Endpoint, FocusResponse, Job, PostEditorResponse } from './types.ts';
 
 const active = (state: unknown): boolean => state !== 'done' && state !== 'cancelled';
@@ -46,9 +47,9 @@ export function environmentModel(job: Pick<Job, 'id' | 'state' | 'worktree'> & {
   };
 }
 
-/** A JSON POST that throws with the server's `error` field, else its text, else the status text (as postJobEffort). */
+/** A JSON POST to this page's project that throws with the server's `error` field, else its text, else the status text (as postJobEffort). */
 export async function post<T>(url: string, body: unknown, token: string, fetchImpl: typeof fetch): Promise<T> {
-  const res = await fetchImpl(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forge-token': token }, body: JSON.stringify(body) });
+  const res = await fetchImpl(projectApi(url), { method: 'POST', headers: { 'content-type': 'application/json', 'x-forge-token': token }, body: JSON.stringify(body) });
   const text = await res.text();
   let parsed: unknown = null;
   try {

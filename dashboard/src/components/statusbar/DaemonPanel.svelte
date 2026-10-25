@@ -1,7 +1,10 @@
 <!-- The Daemon popover's body. First the Foreman row: the supervisor above this pool, a button that opens the Foreman
      popover (StatusBar's openForeman anchors it on the bar's Foreman indicator), in both branches. Below it, under a
-     divider, the pool pill, live/cap, the pool error, the job sessions' default permission mode (a job's own choice in its
-     Log tab overrides it), the pool's one Start/Stop icon toggle, then one row per session:
+     divider, the pool pill, live/cap, the pool error or, for a project whose files no human has approved, the line that
+     says to review them and press Start, the job sessions' default permission mode (a job's own choice in its
+     Log tab overrides it), a line when billing variables are set where forge dash started (warn tone for a provider switch
+     or ANTHROPIC_BASE_URL, as doctor), the pool's one Start/Stop
+     icon toggle, then one row per session:
      the Inbox session, then each job session in status order, and under them the Inbox session log toggle (remembered
      under LOG_KEY). A job row opens that job's pane on the Log tab. The rows say held and waiting themselves, so no chips
      repeat them; permission prompts are answered in the Needs-you popover. StatusBar owns the pool state and act(), so the
@@ -12,7 +15,8 @@
   import IconButton from '../IconButton.svelte';
   import Select from '../Select.svelte';
   import SessionLog from '../SessionLog.svelte';
-  import { PERMISSION_MODES, START_HINT, daemonRows, jobFallbackMode, postDaemonMode, type Pill, type PoolModel } from '../../lib/daemon.ts';
+  import { PERMISSION_MODES, START_HINT, billingNote, daemonRows, jobFallbackMode, postDaemonMode, type Pill, type PoolModel } from '../../lib/daemon.ts';
+  import type { DaemonBilling } from '../../lib/types.ts';
   import type { SelectOption } from '../../lib/select.ts';
   import { toast } from '../../lib/toast.svelte.ts';
   import { LOG_KEY } from '../../lib/daemon-log.ts';
@@ -22,7 +26,16 @@
   import { closePopover } from '../../lib/popover.svelte.ts';
   import { t } from '../../lib/locale.ts';
 
-  let { model, pending, act, foreman, openForeman }: { model: PoolModel | null; pending: boolean; act: (action: 'start' | 'stop') => void; foreman: ForemanIndicator; openForeman: () => void } = $props();
+  let {
+    model,
+    pending,
+    act,
+    foreman,
+    openForeman,
+    billing = null,
+  }: { model: PoolModel | null; pending: boolean; act: (action: 'start' | 'stop') => void; foreman: ForemanIndicator; openForeman: () => void; billing?: DaemonBilling | null } = $props();
+  // Billing variables set where forge dash started: sessions ignore them, or (api-key) bill that account. Muted for an API key alone.
+  const note = $derived(billingNote(billing));
 
   const modeName = $derived<Record<string, string>>({ default: $t('session.modes.default'), auto: $t('session.modes.auto'), dontAsk: $t('session.modes.dontAsk') });
   const modeHint = $derived<Record<string, string>>({ default: $t('session.modes.defaultHint'), auto: $t('session.modes.autoHint'), dontAsk: $t('session.modes.dontAskHint') });
@@ -100,13 +113,15 @@
       <span class="mono muted num">{$t('daemon.live', { live: model.live, cap: model.cap })}</span>
     </div>
     {#if model.error !== null}<p class="text-sm text-bad whitespace-pre-line break-words">{model.error}</p>{/if}
+    {#if model.approval}<p class="text-sm text-warn break-words">{$t('statusbar.daemon.approval')}</p>{/if}
     <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
       <span class="flex min-w-0 flex-1 flex-col"><span class="text-sm">{$t('statusbar.daemon.jobMode')}</span><span class="caption muted">{$t('statusbar.daemon.jobModeAbout')}</span></span>
       <Select variant="button" icon="shield" align="end" label={$t('statusbar.daemon.jobMode')} value={shownMode} text={named(shownMode)} options={modeOptions} onchange={setJobMode} />
     </div>
     {#if jobMode === 'auto'}<p class="text-xs text-warn">{$t('statusbar.daemon.jobModeAutoWarning')}</p>{/if}
+    {#if note}<p class="text-xs {note.warn ? 'text-warn' : 'muted'}">{note.passed ? $t('statusbar.daemon.billingPassed', { vars: note.vars }) : $t('statusbar.daemon.billingIgnored', { vars: note.vars })}</p>{/if}
     <div class="flex flex-wrap items-center gap-2">
-      <IconButton icon={model.toggle.action === 'start' ? 'play' : 'stop'} label={model.toggle.action === 'start' ? $t('daemon.start') : $t('daemon.stop')} hint={model.toggle.action === 'start' ? model.startHint : null} disabled={!model.toggle.enabled} onclick={() => act(model.toggle.action)} />
+      <IconButton icon={model.toggle.action === 'start' ? 'play' : 'stop'} label={model.toggle.action === 'start' ? $t('daemon.start') : $t('daemon.stop')} hint={model.toggle.action === 'start' ? (model.approval ? $t('statusbar.daemon.approvalHint') : model.startHint) : null} disabled={!model.toggle.enabled} onclick={() => act(model.toggle.action)} />
     </div>
     <ul class="flex flex-col gap-1 border-t border-line pt-3" aria-label={$t('daemon.rows.label')}>
       {#each rows as r (r.kind === 'job' ? `job:${r.id}` : r.kind)}

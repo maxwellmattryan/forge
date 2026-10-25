@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import { daemonProblems, trackerSymlinks, trustDigest } from '#core/config/load.ts';
 import { paths } from '#core/paths.ts';
+import { confineDigest } from './confine.ts';
 import type { SessionContext, SessionOptions } from './contract.ts';
 import type { Config } from '#core/types.ts';
 
@@ -34,6 +35,12 @@ export function checkLaunch(root: string, ctx: SessionContext, o: SessionOptions
     c = o.readConfig(root, { text: bytes === null ? null : bytes.toString('utf8') }).config;
   } catch (e) {
     ctx.fatal(`cannot start daemon: ${(e as Error).message}`);
+    return null;
+  }
+  // A path only the confine digest covers (a nested CLAUDE.md, say) changed since the start: a background agent, or a forge write.
+  const confined = ctx.confined();
+  if (!confined || confineDigest(root, c) !== confined) {
+    ctx.untrusted();
     return null;
   }
   if (c.daemon?.enabled !== true) {

@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { cacheScratch } from '../../helpers.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
 const BIN = path.join(ROOT, 'bin', 'forge');
@@ -27,7 +28,8 @@ function forge(env: NodeJS.ProcessEnv): Promise<{ status: number | null; stdout:
   });
 }
 
-function scratch(): string {
+/** A dir outside the plugin root, where FORGE_CACHE_DIR is never honoured. */
+function outside(): string {
   return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-cache-test-')));
 }
 
@@ -46,7 +48,7 @@ describe('start-up cache', { concurrency: 4 }, () => {
   const expected = () => (reference ??= forge({ NODE_DISABLE_COMPILE_CACHE: '1' }).then((r) => r.stdout));
 
   test('fills a private cache dir and prints exactly what an uncached start prints', POSIX, async () => {
-    const dir = scratch();
+    const { dir, cleanup } = cacheScratch();
     try {
       const cache = path.join(dir, 'cache');
       const first = await forge({ FORGE_CACHE_DIR: cache });
@@ -66,7 +68,7 @@ describe('start-up cache', { concurrency: 4 }, () => {
       const second = await forge({ FORGE_CACHE_DIR: cache });
       assert.deepEqual(second, first);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      cleanup();
     }
   });
 
@@ -82,20 +84,34 @@ describe('start-up cache', { concurrency: 4 }, () => {
     assert.equal(status, '');
   });
 
-  test('a cached module is what runs', STRIP, async () => {
-    const dir = scratch();
+  // A temp dir is writable from a sandbox that can't write the plugin, so a module planted there must never run.
+  test('a cached module runs only from a cache dir inside the plugin root', STRIP, async () => {
+    const { dir, cleanup } = cacheScratch();
+    const tmp = outside();
     try {
       plant(path.join(dir, 'cache'));
       fs.chmodSync(path.join(dir, 'cache'), 0o700);
       assert.equal((await forge({ FORGE_CACHE_DIR: path.join(dir, 'cache') })).stdout, PLANTED);
+
+      plant(path.join(tmp, 'cache'));
+      fs.chmodSync(path.join(tmp, 'cache'), 0o700);
+      fs.symlinkSync(tmp, path.join(dir, 'via'));
+      const before = fs.readdirSync(tmp, { recursive: true }).sort();
+      for (const cache of [path.join(tmp, 'cache'), path.join(dir, 'via', 'cache')]) {
+        const r = await forge({ FORGE_CACHE_DIR: cache });
+        assert.equal(r.stderr, '', cache);
+        assert.equal(r.stdout, await expected(), cache);
+        assert.deepEqual(fs.readdirSync(tmp, { recursive: true }).sort(), before, `nothing new in the outside dir: ${cache}`);
+      }
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      cleanup();
+      fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
 
   // The cache holds code the CLI runs, so a dir someone else could write is never read.
   test('a cache dir others can write, or a symlink, is ignored', STRIP, async () => {
-    const dir = scratch();
+    const { dir, cleanup } = cacheScratch();
     try {
       const open = path.join(dir, 'open');
       plant(open);
@@ -115,12 +131,12 @@ describe('start-up cache', { concurrency: 4 }, () => {
         assert.equal(r.stdout, await expected(), cache);
       }
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      cleanup();
     }
   });
 
   test('NODE_DISABLE_COMPILE_CACHE turns it off, and a read-only dir just runs uncached', POSIX, async () => {
-    const dir = scratch();
+    const { dir, cleanup } = cacheScratch();
     try {
       const off = path.join(dir, 'off');
       const r = await forge({ FORGE_CACHE_DIR: off, NODE_DISABLE_COMPILE_CACHE: '1' });
@@ -136,7 +152,7 @@ describe('start-up cache', { concurrency: 4 }, () => {
       assert.deepEqual(fs.readdirSync(ro), []);
     } finally {
       fs.chmodSync(path.join(dir, 'ro'), 0o700);
-      fs.rmSync(dir, { recursive: true, force: true });
+      cleanup();
     }
   });
 });

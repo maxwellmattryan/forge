@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import type http from 'node:http';
 import { redactDeep } from '#engine/guard/known-secrets.ts';
 import type { DaemonSessionState, ForgeTruncatedLine } from '#core/types.ts';
-import type { ServerCtx } from './types.ts';
+import type { MachineCtx } from './types.ts';
 
 export const MAX_SSE_CLIENTS = 8;
 export const SSE_SLOW_CLIENT_BYTES = 1024 * 1024;
@@ -150,8 +150,9 @@ export function broadcast<C extends SseClient>(clients: Set<C> | Map<C, string>,
   }
 }
 
-export function startPing(ctx: ServerCtx): void {
-  if (ctx.ping) return;
-  ctx.ping = setInterval(() => broadcast(ctx.clients, ': ping\n\n'), ctx.opts.ssePingMs ?? SSE_PING_MS);
-  ctx.ping.unref();
+/** The machine's one keep-alive timer over every open stream, started by the first one. */
+export function startPing(m: MachineCtx): void {
+  if (m.ping) return;
+  m.ping = setInterval(() => broadcast(m.clients, ': ping\n\n'), m.opts.ssePingMs ?? SSE_PING_MS);
+  m.ping.unref();
 }

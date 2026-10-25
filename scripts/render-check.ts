@@ -1,8 +1,9 @@
 // `npm run test:render [-- --scenario NAME]... [--dist DIR]`: seeds each dashboard scenario, serves it
-// from a dashboard build in-process, and loads every view (and the job drawer) in headless Chrome. A
-// view fails on a console error, an uncaught page error, a same-origin 5xx, an expected text that
-// never shows, or a failed load. Outside `npm test`: it needs Chrome and a build, and CI's `render`
-// job runs it. docs/TESTING.md › "Dashboard scenarios and the render check".
+// from a dashboard build in-process beside a second project and a removed one, and loads every view (and
+// the job drawer), the Overview, the Machine page and a project switch in headless Chrome. A check fails
+// on a console error, an uncaught page error, a same-origin 5xx, an expected text that never shows, or a
+// failed load. Outside `npm test`: it needs Chrome and a build, and CI's `render` job runs it.
+// docs/TESTING.md › "Dashboard scenarios and the render check".
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,9 +11,11 @@ import { chromium } from 'playwright-core';
 import type { Browser, BrowserContext, Page } from 'playwright-core';
 import { PLUGIN_ROOT } from '../lib/core/paths.ts';
 import { startServer } from '../lib/server/start.ts';
+import { addProject } from '../lib/engine/project/machine-index.ts';
 import { VIEWS } from '../dashboard/src/lib/nav.ts';
 import type { ViewId } from '../dashboard/src/lib/nav.ts';
-import { SCENARIO_DIR, SCENARIO_ENV_DROPPED, listScenarios, loadScenario, seedScenario } from './scenario.ts';
+import { SCENARIO_DIR, SCENARIO_ENV_DROPPED, catalogText, listScenarios, loadScenario, seedScenario } from './scenario.ts';
+import type { Seeded } from './scenario.ts';
 
 const USAGE = 'usage: npm run test:render [-- --scenario NAME]... [--dist DIR]';
 const DEFAULT_DIST = path.join(PLUGIN_ROOT, 'dashboard', 'dist');
@@ -22,10 +25,17 @@ const TEXT_TIMEOUT_MS = 10_000;
 // last expected text. This is a check script, not a test: a fixed wait here costs 300 ms a view.
 const SETTLE_MS = 300;
 const LOAD_TIMEOUT_MS = 30_000;
+/** The repo's own scenario seeded once per run as every scenario's second project, whatever scenarioDir is. */
+const COMPANION = 'empty';
+const OTHER_PROJECT = 'other-project';
+/** A registered project whose directory is gone: the Overview and the switcher show it as missing. */
+const GONE_PROJECT = 'gone-project';
+
+export type RenderCheckId = ViewId | 'overview' | 'machine' | 'switch' | 'drawer';
 
 export interface RenderProblem {
   scenario: string;
-  view: ViewId | 'drawer';
+  view: RenderCheckId;
   problem: string;
 }
 
@@ -95,10 +105,10 @@ async function checkPage(context: BrowserContext, url: string, act: (page: Page,
   return problems;
 }
 
-async function waitForTexts(scope: Page | ReturnType<Page['locator']>, texts: string[], timeout: number, problems: string[]): Promise<void> {
+async function waitForTexts(scope: Page | ReturnType<Page['locator']>, texts: string[], timeout: number, problems: string[], exact = false): Promise<void> {
   for (const t of texts) {
     try {
-      await scope.getByText(t).first().waitFor({ state: 'visible', timeout });
+      await scope.getByText(t, { exact }).first().waitFor({ state: 'visible', timeout });
     } catch {
       problems.push(`missing text "${t}"`);
     }
@@ -106,8 +116,10 @@ async function waitForTexts(scope: Page | ReturnType<Page['locator']>, texts: st
 }
 
 /**
- * Checks each scenario's views and drawer. Throws a RenderError for an unknown scenario (exit 2), and
- * for a build without manifest.json or a Chrome that won't start (exit 1): neither ever passes.
+ * Checks each scenario's views and drawer at `#/p/<project>/<view>`, then the machine's pages (the Overview and the
+ * Machine page, which must list all three projects) and a switch to the companion through the sidebar switcher. Throws
+ * a RenderError for an unknown scenario (exit 2), and for a build without manifest.json or a Chrome that won't start
+ * (exit 1): neither ever passes.
  */
 export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: string; dist?: string; textTimeoutMs?: number; log?: (s: string) => void } = {}): Promise<RenderResult> {
   const dir = opts.scenarioDir ?? SCENARIO_DIR;
@@ -131,7 +143,7 @@ export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: st
   }
 
   const result: RenderResult = { checked: 0, passed: 0, problems: [] };
-  const record = (scenario: string, view: ViewId | 'drawer', problems: string[], ms: number) => {
+  const record = (scenario: string, view: RenderCheckId, problems: string[], ms: number) => {
     result.checked++;
     if (!problems.length) {
       result.passed++;
@@ -142,23 +154,37 @@ export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: st
       log(`FAIL ${scenario} › ${view}: ${problem}`);
     }
   };
+  const timed = async (scenario: string, view: RenderCheckId, run: () => Promise<string[]>): Promise<void> => {
+    const started = Date.now();
+    const problems = await run();
+    record(scenario, view, problems, Date.now() - started);
+  };
+  let companion: Seeded | null = null;
   try {
+    companion = await seedScenario(COMPANION, { dir: SCENARIO_DIR, log });
+    const other = companion;
     for (const name of names) {
       const seeded = await seedScenario(name, { dir, log });
       // A fresh context per scenario, so one scenario's localStorage prefs never reach the next.
       const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
       let server: Awaited<ReturnType<typeof startServer>> | null = null;
       try {
-        server = await startServer(seeded.root, { port: 0, distDir: dist });
+        // Through the machine server, as `forge dash` serves it: the scenario's repo registered in its own home, beside
+        // the companion and a project whose directory is gone.
+        const home = path.join(path.dirname(seeded.root), 'forge-home');
+        const { project } = addProject(home, fs.realpathSync(seeded.root));
+        addProject(home, fs.realpathSync(other.root), { name: OTHER_PROJECT });
+        addProject(home, path.join(path.dirname(seeded.root), GONE_PROJECT), { name: GONE_PROJECT });
+        server = await startServer({ home, port: 0, distDir: dist });
+        const base = `${server.url}/`;
+        const at = (view: ViewId): string => `${base}#/p/${project.name}/${view}`;
         for (const { id } of VIEWS) {
-          const started = Date.now();
-          const problems = await checkPage(context, `${server.url}/#/${id}`, (page, p) => waitForTexts(page, seeded.expect.views[id], timeout, p));
-          record(name, id, problems, Date.now() - started);
+          await timed(name, id, () => checkPage(context, at(id), (page, p) => waitForTexts(page, seeded.expect.views[id], timeout, p)));
         }
         const drawer = seeded.expect.drawer;
         if (drawer && Object.keys(seeded.jobs).length) {
           const started = Date.now();
-          const problems = await checkPage(context, `${server.url}/#/pipeline`, async (page, p) => {
+          const problems = await checkPage(context, at('pipeline'), async (page, p) => {
             try {
               await page.getByText(drawer.title, { exact: true }).first().click({ timeout });
             } catch {
@@ -169,6 +195,26 @@ export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: st
           });
           record(name, 'drawer', problems, Date.now() - started);
         }
+        // The machine's pages, with no project selected: every registered project by name, in the page's own content.
+        const registered = [project.name, OTHER_PROJECT, GONE_PROJECT];
+        // And the Overview's graph and machine sections, by their titles.
+        const sections = ['overview.shippedTitle', 'overview.costTitle', 'overview.machineTitle'].map(catalogText);
+        await timed(name, 'overview', () => checkPage(context, base, (page, p) => waitForTexts(page.locator('#view'), [...registered, ...sections], timeout, p, true)));
+        await timed(name, 'machine', () => checkPage(context, `${base}#/machine`, (page, p) => waitForTexts(page.locator('#view'), registered, timeout, p, true)));
+        // Picking the companion in the sidebar switcher opens its same view, with its content.
+        await timed(name, 'switch', () =>
+          checkPage(context, at('backlog'), async (page, p) => {
+            try {
+              await page.locator('#project-switcher').click({ timeout });
+              await page.getByRole('option', { name: OTHER_PROJECT }).click({ timeout });
+              await page.waitForURL((u) => u.hash === `#/p/${OTHER_PROJECT}/backlog`, { timeout });
+            } catch {
+              p.push(`could not switch to ${OTHER_PROJECT} in the project switcher`);
+              return;
+            }
+            await waitForTexts(page.locator('#view'), other.expect.views.backlog, timeout, p);
+          }),
+        );
       } finally {
         await server?.close().catch(() => {});
         await context.close().catch(() => {});
@@ -176,6 +222,7 @@ export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: st
       }
     }
   } finally {
+    companion?.cleanup();
     await browser.close().catch(() => {});
   }
   return result;

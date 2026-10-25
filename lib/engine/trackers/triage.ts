@@ -18,11 +18,12 @@ import { gh } from '#integrations/github/gh.ts';
 import { ForgeError } from '#core/errors.ts';
 import { writeJsonAtomic, writeTextAtomic } from '#core/os/fs.ts';
 import { withLock } from '#core/os/lock.ts';
-import { fenced } from '#core/text.ts';
+import { fenced, hasHiddenText } from '#core/text.ts';
 import { now } from '#core/utils.ts';
 import type { Config, Effort, Job, Tracker, TrackerCtx, TrackerItem, TriageMissing } from '#core/types.ts';
 
-export const TRIAGE_MISSING = ['outcome', 'acceptance', 'scope', 'duplicate'] as const satisfies readonly TriageMissing[];
+/** `hidden-text` is Forge's own: set from the item's `Hidden text:` line, never taken from the agent. */
+export const TRIAGE_MISSING = ['outcome', 'acceptance', 'scope', 'duplicate', 'hidden-text'] as const satisfies readonly TriageMissing[];
 const BATCH_RE = /^\d{8}T\d{6}Z-[a-z0-9]{4}$/;
 export const DEFAULT_LIMIT = 10;
 export const MAX_LIMIT = 50;
@@ -79,7 +80,7 @@ export type PrepareResult =
 export type ApplyItemResult =
   | { ref: string; ready: false; missing: TriageMissing[]; commented: boolean; marked: boolean }
   | { ref: string; ready: true; missing: []; cleared: boolean }
-  | { ref: string; skipped: 'stale' | 'claimed' | 'no verdict' }
+  | { ref: string; skipped: 'stale' | 'claimed' | 'no verdict' | 'malformed' }
   | { ref: string; error: string };
 
 const triageDir = (root: string): string => path.join(paths(root).runtime, 'triage');
@@ -96,6 +97,11 @@ function itemHash(item: Pick<TrackerItem, 'title' | 'body'>): string {
 function missingSet(raw: unknown): TriageMissing[] {
   const got = new Set(Array.isArray(raw) ? raw : []);
   return TRIAGE_MISSING.filter((k) => got.has(k));
+}
+
+/** A verdict's `missing` Forge can use: an array of known keys only (`[]` is ready). */
+function validMissing(raw: unknown): raw is TriageMissing[] {
+  return Array.isArray(raw) && raw.every((k) => (TRIAGE_MISSING as readonly unknown[]).includes(k));
 }
 
 /** The triage cache, malformed entries dropped. */
@@ -137,6 +143,7 @@ function commentBody(missing: readonly TriageMissing[], dupLabel: string | null,
     acceptance: '- **Acceptance criteria or a reproduction**: how to tell it works; for a bug, the steps to reproduce it and the expected and actual behaviour.',
     scope: '- **A bounded scope**: one reviewable change; split a large or many-part request into separate issues.',
     duplicate: `- **Not a duplicate**: this looks like the same work as ${dupLabel ?? 'an active Forge job'}; close one, or say how they differ.`,
+    'hidden-text': "- **Only visible text**: this issue holds characters or HTML comments that GitHub doesn't show; edit them out so everyone reads the same text.",
   };
   return [
     'Forge looked at this issue before starting work on it and needs a little more first:',
@@ -154,6 +161,7 @@ function noteLine(missing: readonly TriageMissing[], dupLabel: string | null): s
     acceptance: 'acceptance criteria or a reproduction',
     scope: 'a bounded scope',
     duplicate: `possible duplicate of ${dupLabel ?? 'an active Forge job'}`,
+    'hidden-text': 'hidden characters or HTML comments to remove',
   };
   return missingSet(missing).map((k) => piece[k]).join('; ');
 }
@@ -394,6 +402,11 @@ export function applyTriage(root: string, config: Config, tracker: Tracker, batc
         results.push({ ref: bi.ref, skipped: 'no verdict' });
         continue;
       }
+      // Fails closed: a verdict whose `missing` is not a list of known keys never marks an item ready.
+      if (!validMissing(v.missing)) {
+        results.push({ ref: bi.ref, skipped: 'malformed' });
+        continue;
+      }
       try {
         const item = tracker.get(ctx, bi.ref);
         if (!item || claimed(root, config, tracker, item)) {
@@ -406,7 +419,9 @@ export function applyTriage(root: string, config: Config, tracker: Tracker, batc
         }
         const dupId = typeof v.duplicateOf === 'string' ? bi.candidates.find((c) => c === v.duplicateOf) ?? null : null;
         const dup = dupId ? { id: dupId, label: candidateLabel(root, config, tracker, dupId) } : null;
-        const missing = missingSet(v.missing).filter((k) => k !== 'duplicate' || dup);
+        // The agent can't see hidden text, so its say on `hidden-text` is ignored: get()'s fence decides.
+        const judged = missingSet(v.missing).filter((k) => k !== 'hidden-text' && (k !== 'duplicate' || dup));
+        const missing = missingSet([...judged, ...(hasHiddenText(item.body) ? ['hidden-text'] : [])]);
         const key = cacheKey(tracker, bi.ref);
         const prev = cache[key];
         let noted = prev?.noted ?? null;

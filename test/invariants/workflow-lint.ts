@@ -1,4 +1,5 @@
-// Security checks the three workflow tests share (ci-workflow, release-workflow, main-update-workflow).
+// Security checks the three workflow tests share (ci-workflow, release-workflow, main-update-workflow), and
+// eventExpressions, which each of them asserts on its own (it rejects forms the others accept).
 // Not a test file: node --test never runs it. Each check returns its findings, [] when the workflow is
 // sound, so a test asserts [] on the real workflow and a finding on a hostile edit. They hold security
 // properties only, never which jobs, steps or keys a workflow has: those change with every CI edit.
@@ -151,6 +152,32 @@ export function runExpressions(wf: any): string[] {
   for (const [id, job] of jobsOf(wf)) {
     stepsOf(job).forEach((s, i) => {
       if (typeof s.run === 'string' && s.run.includes('${{')) out.push(`${label(id, s, i)}: run must not interpolate an expression`);
+    });
+  }
+  return out;
+}
+
+// The event payload holds what a PR author, a pusher or a commit wrote: title, body, branch name, messages.
+const EVENT = /\bgithub\s*(?:\.\s*event\b|\[\s*['"]event['"]\s*\])|toJSON\(\s*github\s*\)/i;
+
+/**
+ * Every expression that reads `github.event` (dot, index or `toJSON(github)` form) in a step's `run` or
+ * `env`, or in job or workflow `env`: even through env, event text a step reads is attacker-chosen input.
+ * `concurrency:` and `if:` only compare it, so they are not reported.
+ */
+export function eventExpressions(wf: any): string[] {
+  const out: string[] = [];
+  const scan = (where: string, v: unknown) => {
+    if (typeof v === 'string') {
+      for (const m of v.matchAll(EXPRESSION)) if (EVENT.test(m[1])) out.push(`${where}: ${m[0]} reads the event payload`);
+    } else if (isMap(v)) for (const [k, x] of Object.entries(v)) scan(`${where}.${k}`, x);
+  };
+  if (isMap(wf)) scan('env', wf.env);
+  for (const [id, job] of jobsOf(wf)) {
+    scan(`jobs.${id}.env`, job.env);
+    stepsOf(job).forEach((s, i) => {
+      scan(`jobs.${id}.steps[${i}].run`, s.run);
+      scan(`jobs.${id}.steps[${i}].env`, s.env);
     });
   }
   return out;

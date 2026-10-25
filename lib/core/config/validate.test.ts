@@ -37,6 +37,38 @@ test('worktrees.seed problems', () => {
   }
 });
 
+test('merge.requiredChecks problems', () => {
+  const problems = (list: unknown): string[] => {
+    const c: any = defaults();
+    c.merge.requiredChecks = list;
+    return validateConfig(c, os.tmpdir()).filter((p) => p.startsWith('merge.requiredChecks'));
+  };
+  const rows: [string, unknown, RegExp | null][] = [
+    ['the default', [], null],
+    ['names and every binding', ['test', { name: 'slow', app: 'github-actions' }, { name: 'ci', workflow: '.github/workflows/ci.yaml' }, { name: 'ext', creator: 'ci-bot[bot]' }, { name: 'both', app: 'x', workflow: '.github/workflows/b.yml' }], null],
+    ['not a list', 'test', /^merge\.requiredChecks must be a list/],
+    ['an empty name', [''], /^merge\.requiredChecks\[0\] needs a non-empty name/],
+    ['a non-string entry', [7], /^merge\.requiredChecks\[0\] must be a check name or a/],
+    ['a map without a name', [{ app: 'x' }], /^merge\.requiredChecks\[0\] needs a non-empty name/],
+    ['a non-string map name', [{ name: 3 }], /^merge\.requiredChecks\[0\] needs a non-empty name/],
+    ['a name over 100 characters', ['x'.repeat(101)], /^merge\.requiredChecks\[0\] name must be at most 100 characters/],
+    ['a control character', ['a\nb'], /^merge\.requiredChecks\[0\] name must have no control characters/],
+    ['an unknown key', [{ name: 'x', apps: 'y' }], /^merge\.requiredChecks\[0\] has unknown key "apps"/],
+    ['creator with app', [{ name: 'x', creator: 'bob', app: 'y' }], /^merge\.requiredChecks\[0\] binds creator together with app or workflow/],
+    ['creator with workflow', [{ name: 'x', creator: 'bob', workflow: '.github/workflows/a.yml' }], /^merge\.requiredChecks\[0\] binds creator together with app or workflow/],
+    ['a workflow outside .github/workflows', [{ name: 'x', workflow: 'ci.yml' }], /^merge\.requiredChecks\[0\]\.workflow must be a file under/],
+    ['a nested workflow path', [{ name: 'x', workflow: '.github/workflows/a/b.yml' }], /^merge\.requiredChecks\[0\]\.workflow must be a file under/],
+    ['an app with capitals', [{ name: 'x', app: 'GitHub' }], /^merge\.requiredChecks\[0\]\.app must be a GitHub App slug/],
+    ['a creator with a space', [{ name: 'x', creator: 'a b' }], /^merge\.requiredChecks\[0\]\.creator must be a GitHub login/],
+    ['a name twice', ['test', { name: 'test', app: 'x' }], /^merge\.requiredChecks lists "test" more than once/],
+  ];
+  for (const [name, list, want] of rows) {
+    const got = problems(list);
+    if (want === null) assert.deepEqual(got, [], name);
+    else assert.ok(got.length === 1 && want.test(got[0]), `${name}: ${JSON.stringify(got)}`);
+  }
+});
+
 test('worktrees.seed commands get the placeholder check', () => {
   const c: any = defaults();
   c.worktrees.seed = block({ warm: ['curl {endpoint.api}'] });

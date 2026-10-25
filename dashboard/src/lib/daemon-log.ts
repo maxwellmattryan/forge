@@ -3,6 +3,7 @@
 // EventSource and fetch. A hidden document, a closed drawer or an unshown tab never holds one of the
 // server's few SSE slots.
 import { MAX_ENTRIES, mergeEntry } from './session-log.ts';
+import { projectApi } from './project.ts';
 import { isLiveLine } from './station.ts';
 import type { Entry } from './session-parse.ts';
 import type { DaemonLogPage } from './types.ts';
@@ -65,7 +66,7 @@ export interface SessionLog {
   dispose(): void;
 }
 
-export const eventsUrl = (scope: string): string => `/api/events?session=${encodeURIComponent(scope)}`;
+export const eventsUrl = (scope: string): string => projectApi(`/api/events?session=${encodeURIComponent(scope)}`);
 
 async function defaultFetchPage(scope: string, before?: number): Promise<DaemonLogPage> {
   const q = `session=${encodeURIComponent(scope)}${before === undefined ? '' : `&before=${before}`}`;
@@ -74,7 +75,7 @@ async function defaultFetchPage(scope: string, before?: number): Promise<DaemonL
 
 /** A log page from `url`; the transcript pages share DaemonLogPage's lines, start, end and more. */
 async function fetchPage(url: string, headers?: Record<string, string>): Promise<DaemonLogPage> {
-  const res = await fetch(url, headers ? { headers } : undefined);
+  const res = await fetch(projectApi(url), headers ? { headers } : undefined);
   const text = await res.text();
   let body: unknown = null;
   try {

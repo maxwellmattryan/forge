@@ -7,14 +7,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
+import { readMachineIndex } from '#engine/project/machine-index.ts';
 import { defaults, loadConfig, validateConfig } from '#core/config/load.ts';
-import { disclosureOf } from '#core/config/fields.ts';
-import { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, migrateConfig, normalizeEvent, normalizeJob, serializeJob } from '#core/job/schema.ts';
+import { disclosureOf, redactedConfig } from '#core/config/fields.ts';
+import { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, MACHINE_INDEX_VERSION, migrateConfig, normalizeEvent, normalizeJob, serializeJob } from '#core/job/schema.ts';
 import { CONFIG_STEPS } from '#core/versions/config.ts';
 import { JOB_STEPS } from '#core/versions/job.ts';
 import { EVENT_STEPS } from '#core/versions/event.ts';
+import { MACHINE_STEPS } from '#core/versions/machine.ts';
 import { stepProblems } from '#core/versions/steps.ts';
 import type { Step } from '#core/versions/steps.ts';
 import { API_CHANGES } from '#api/versions.ts';
@@ -126,6 +129,9 @@ const CONFIG_ROWS: Row[] = [
     fields: { 'project.instructions': { default: ['AGENTS.md', 'docs/DEVELOPING.md'] }, 'project.name': 'x' },
     note: "a list becomes the role map's default",
   },
+  { step: 'command-env', input: { commands: { test: 'npm test' } }, fields: { 'commands.test': 'npm test' }, removed: ['commandEnv'], note: ONLY_VERSION },
+  { step: 'daemon-daily-usd', input: { daemon: { enabled: true, jobBudget: null } }, fields: { daemon: { enabled: true, jobBudget: null } }, removed: ['daemon.dailyUsd'], note: ONLY_VERSION },
+  { step: 'merge-required-checks', input: { merge: { auto: true } }, fields: { 'merge.auto': true }, removed: ['merge.requiredChecks'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -210,6 +216,42 @@ const EVENT_ROWS: Row[] = [
     removed: ['pluginHash', 'promptHash', 'configHash'],
     note: 'an agent-start from before provenance keeps every field and gains no hash',
   },
+  {
+    step: 'decision-head',
+    input: { ts: 't', type: 'decision', decision: 'APPROVE', reason: null },
+    fields: { type: 'decision', ts: 't', decision: 'APPROVE', reason: null },
+    removed: ['autoMerge', 'head', 'heads'],
+    note: 'a decision from before the head binding keeps its fields and gains no head, so it is never eligible',
+  },
+  {
+    step: 'actor-source-daemon',
+    input: { ts: 't', type: 'human', action: 'approve', actor: { login: 'al', source: 'daemon' } },
+    fields: { type: 'human', ts: 't', action: 'approve', actor: { login: 'al', source: 'daemon' } },
+    note: 'an actor recorded by a daemon session keeps source daemon',
+  },
+  {
+    step: 'merge-provenance',
+    input: { ts: 't', type: 'pr-merged', number: 7, method: 'squash', checks: 'passing', bypass: false },
+    fields: { type: 'pr-merged', ts: 't', number: 7, method: 'squash', checks: 'passing', bypass: false },
+    removed: ['actor', 'scope', 'via'],
+    note: 'a pr-merged from before provenance keeps its fields and gains no actor, scope or via',
+  },
+  {
+    step: 'agent-end-metering',
+    input: { ts: 't', type: 'agent-end', role: 'builder', usage: { totalTokens: 10 } },
+    fields: { type: 'agent-end', ts: 't', role: 'builder', usage: { totalTokens: 10 } },
+    removed: ['metered', 'unmeasured'],
+    note: 'an agent-end from before metering reads unchanged: reported usage no meter covers',
+  },
+];
+
+const MACHINE_ROWS: Row[] = [
+  {
+    step: 'machine-settings',
+    input: { projects: [{ name: 'web', path: path.join(os.tmpdir(), 'web'), addedAt: 't' }] },
+    fields: { settings: { maxConcurrent: null }, 'projects.0.name': 'web' },
+    note: 'a v1 index gains the machine settings with the cap unset',
+  },
 ];
 
 /** One versioned shape: its rows, its step list, its current version, the field that holds it, and its reader. */
@@ -229,6 +271,22 @@ const TABLES: Table[] = [
   ],
   ['job', JOB_ROWS, JOB_STEPS, JOB_SCHEMA_VERSION, 'schemaVersion', (input) => ({ out: normalizeJob(input), from: undefined })],
   ['event', EVENT_ROWS, EVENT_STEPS, EVENT_SCHEMA_VERSION, 'v', (input) => ({ out: normalizeEvent(input), from: undefined })],
+  [
+    'machine',
+    MACHINE_ROWS,
+    MACHINE_STEPS,
+    MACHINE_INDEX_VERSION,
+    'schemaVersion',
+    (input) => {
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-schema-home-'));
+      try {
+        fs.writeFileSync(path.join(home, 'projects.json'), JSON.stringify(input));
+        return { out: readMachineIndex(home), from: undefined };
+      } finally {
+        fs.rmSync(home, { recursive: true, force: true });
+      }
+    },
+  ],
 ];
 
 for (const [name, rows, steps, current, key, read] of TABLES) {
@@ -268,7 +326,7 @@ test('every migration has a table row', () => {
 // The ids each list must start with, so inserting, removing, reordering or renaming an existing step
 // fails while appending passes. Jobs never edit FROZEN: only a release commit or the 1.0 reset (#280)
 // extends it, and only with ids already on develop, so an append never re-pins anything.
-const FROZEN: Record<'config' | 'job' | 'event' | 'api', string[]> = {
+const FROZEN: Record<'config' | 'job' | 'event' | 'api' | 'machine', string[]> = {
   config: [
     'dashboard-launcher-to-daemon',
     'parallel-verify-steps',
@@ -319,10 +377,11 @@ const FROZEN: Record<'config' | 'job' | 'event' | 'api', string[]> = {
   ],
   event: ['actor-object', 'agent-start-provenance'],
   api: Array.from({ length: 36 }, (_, i) => `api-${i + 2}`),
+  machine: [],
 };
 
 test('version lists only grow at the end', () => {
-  const lists: Record<keyof typeof FROZEN, readonly { readonly id: string }[]> = { config: CONFIG_STEPS, job: JOB_STEPS, event: EVENT_STEPS, api: API_CHANGES };
+  const lists: Record<keyof typeof FROZEN, readonly { readonly id: string }[]> = { config: CONFIG_STEPS, job: JOB_STEPS, event: EVENT_STEPS, api: API_CHANGES, machine: MACHINE_STEPS };
   for (const [k, list] of Object.entries(lists) as [keyof typeof FROZEN, readonly { readonly id: string }[]][]) {
     assert.deepEqual(
       list.slice(0, FROZEN[k].length).map((s) => s.id),
@@ -471,6 +530,16 @@ test('an old config loads with the defaults its later versions added', () => {
   assert.equal(disclosureOf('secrets'), 'command');
   assert.equal(disclosureOf('secrets.DB_PASSWORD.env'), 'command');
   assert.equal(disclosureOf('environments.maxRunning'), 'plain');
+  assert.equal(disclosureOf('commandEnv.loginShell'), 'plain');
+  assert.equal(disclosureOf('commandEnv.inherit'), 'text');
+  // A support bundle counts the required checks (names, workflow files, a person's login) but prints none, and keeps the rest of merge.
+  assert.equal(disclosureOf('merge.requiredChecks'), 'text');
+  const withChecks = defaults();
+  withChecks.merge.requiredChecks = ['test', { name: 'deploy/preview', creator: 'a-person' }];
+  const shown = redactedConfig(withChecks).merge as Record<string, unknown>;
+  assert.deepEqual(shown.requiredChecks, ['<redacted>', '<redacted>']);
+  assert.equal(shown.method, withChecks.merge.method);
+  assert.ok(!JSON.stringify(redactedConfig(withChecks)).includes('a-person'));
 });
 
 test('a v16 job is written back as current, with a lease and no owner', () => {

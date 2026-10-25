@@ -1,6 +1,6 @@
 // The support matrix (docs/SUPPORT.md) as code: one definition of the platform tiers that doctor
-// reports and the daemon and `forge update` refusals enforce, plus the POSIX sh resolver every
-// configured command template runs through.
+// reports and the daemon and `forge update` refusals enforce, plus the POSIX sh resolver behind the
+// login shell and, on Windows, every command template.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -68,7 +68,7 @@ export function versionAtLeast(text: string, [major, minor]: [number, number]): 
   return a > major || (a === major && b >= minor);
 }
 
-/** What templates run under off Windows when $SHELL is unset. */
+/** The login shell off Windows when $SHELL is unset (commandEnv.loginShell, the PATH capture). */
 const DEFAULT_SH = '/bin/sh';
 
 export interface PosixShellOptions {
@@ -102,10 +102,14 @@ function defaultWhere(cmd: string, env: NodeJS.ProcessEnv): string | null {
 }
 
 /**
- * The shell configured command templates run under, as `<shell> -lc <cmd>`. Off Windows that is
- * $SHELL or /bin/sh. On Windows $SHELL is ignored, because Git Bash exports an MSYS path
- * (`/usr/bin/bash`) that spawn can't use; Git for Windows' sh is found on PATH or where its
- * installer puts it, and without one the templates can't run at all.
+ * The login shell. A configured command runs under it as `<shell> -lc <cmd>` with
+ * `commandEnv.loginShell: true`, `forge release run` steps always do, and `forge dash` captures PATH
+ * from it. Otherwise commandShell (lib/engine/guard/command-env.ts) runs `/bin/sh -c`, and this
+ * shell with `-c` on Windows.
+ *
+ * Off Windows it is $SHELL, or /bin/sh when that is unset. On Windows $SHELL is ignored, because Git
+ * Bash exports an MSYS path (`/usr/bin/bash`) that spawn can't use: Git for Windows' sh is found on
+ * PATH or where its installer puts it, and without one the templates can't run at all.
  */
 export function posixShell(opts: PosixShellOptions = {}): string {
   const platform = opts.platform ?? process.platform;

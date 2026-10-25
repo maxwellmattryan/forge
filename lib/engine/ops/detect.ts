@@ -3,12 +3,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { defaults } from '#core/config/load.ts';
+import { requiredChecksProblems } from '#core/config/validators/required-checks.ts';
 import { cargoMembers as membersOf, detectComponents, npmWorkspaces } from './detect-components.ts';
 import { git as runGit } from '#integrations/git/runner.ts';
 import { exists } from '#core/paths.ts';
 import type { ProtectedRule } from '#core/types.ts';
 import { hasBinary } from '#core/os/process.ts';
 import { readText } from '#core/os/fs.ts';
+import { allowlisted, credentialLike } from '../guard/command-env.ts';
 import * as yaml from '#core/format/yaml.ts';
 
 /** .github/project-config.yml as read for init: its fields are raw YAML, or `error` when it does not parse. */
@@ -77,6 +79,75 @@ const LOCKFILES: [string, string[]][] = [
 function protectedPathsFor(root: string): ProtectedRule[] {
   const locks = LOCKFILES.filter(([marker]) => has(root, marker)).flatMap(([, files]) => files);
   return defaults().policy.protectedPaths.flatMap((r) => (r.reason !== 'dependency lockfile' ? [r] : locks.length ? [{ ...r, paths: locks }] : []));
+}
+
+/** A `NAME=` or `export NAME=` line of an example env file; one line at a time, no overlapping quantifiers. */
+const ENV_ASSIGNMENT = /^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=/;
+const GRADLE_FILES = ['build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts'];
+
+/**
+ * What configured commands likely need beyond the allowlist, for commandEnv.inherit: the names a root
+ * .env.example / .env.sample / .env.template assigns (minus credential-like names, PORT and what the
+ * allowlist passes), JAVA_HOME for Gradle or Maven, and the Android SDK variables for an Android build.
+ * Sorted and unique; credentials belong under `secrets` with a config sink instead.
+ */
+function inheritSuggestions(root: string): string[] {
+  const out = new Set<string>();
+  for (const file of ['.env.example', '.env.sample', '.env.template']) {
+    for (const line of readText(path.join(root, file)).split('\n')) {
+      const name = ENV_ASSIGNMENT.exec(line)?.[1];
+      if (name && name !== 'PORT' && !credentialLike(name) && !allowlisted(name)) out.add(name);
+    }
+  }
+  if ([...GRADLE_FILES, 'gradlew', 'pom.xml'].some((f) => has(root, f))) out.add('JAVA_HOME');
+  if (GRADLE_FILES.some((f) => readText(path.join(root, f)).includes('com.android.'))) {
+    out.add('ANDROID_HOME');
+    out.add('ANDROID_SDK_ROOT');
+  }
+  return [...out].sort();
+}
+
+const MAX_REQUIRED_SUGGESTIONS = 20;
+
+/** Whether a workflow's `on` runs it on every pull request: `pull_request` listed, with no `paths` or `paths-ignore` filter. */
+function onEveryPullRequest(on: unknown): boolean {
+  if (on === 'pull_request') return true;
+  if (Array.isArray(on)) return on.includes('pull_request');
+  if (on === null || typeof on !== 'object' || !('pull_request' in on)) return false;
+  const pr = (on as Record<string, unknown>).pull_request;
+  return pr === null || typeof pr !== 'object' || !('paths' in pr || 'paths-ignore' in pr);
+}
+
+/**
+ * merge.requiredChecks for `/forge init` to offer: each Actions job that runs on every pull request,
+ * bound to its workflow file. A matrix job, a conditional one, a reusable workflow call and a name
+ * built from an expression are left out (their check names vary or may never report), and so is a
+ * name merge.requiredChecks would refuse; a file that does not parse is skipped. At most 20, in file order.
+ */
+function requiredCheckSuggestions(root: string): { name: string; workflow: string }[] {
+  const dir = path.join(root, '.github', 'workflows');
+  const files = has(root, '.github/workflows') ? fs.readdirSync(dir).filter((f) => /\.ya?ml$/.test(f)).sort() : [];
+  const out: { name: string; workflow: string }[] = [];
+  for (const file of files) {
+    let wf: any;
+    try {
+      wf = yaml.parse(readText(path.join(dir, file)));
+    } catch {
+      continue;
+    }
+    if (!wf || typeof wf !== 'object' || !onEveryPullRequest(wf.on) || !wf.jobs || typeof wf.jobs !== 'object') continue;
+    for (const [id, job] of Object.entries<any>(wf.jobs)) {
+      if (!job || typeof job !== 'object' || job.strategy?.matrix !== undefined || job.if !== undefined || job.uses !== undefined) continue;
+      const name = typeof job.name === 'string' ? job.name : id;
+      if (name.includes('${{') || !name.trim()) continue;
+      const suggestion = { name, workflow: `.github/workflows/${file}` };
+      // Names come from files in the repo: one the key would refuse (too long, a control character, a repeat) is not offered.
+      if (requiredChecksProblems({ merge: { requiredChecks: [...out, suggestion] } }).length) continue;
+      out.push(suggestion);
+      if (out.length >= MAX_REQUIRED_SUGGESTIONS) return out;
+    }
+  }
+  return out;
 }
 
 export function detect(root: string): Detection {
@@ -230,10 +301,13 @@ export function detect(root: string): Detection {
     tools: { agentBrowser: hasBinary('agent-browser'), playwright, cypress },
     suggestions: {
       'git.base': base,
-      'worktrees.copy': [...new Set([...ignoredInstructions, ...envFiles])],
+      // .env files are reported under untracked.env, never suggested: secrets plus a config sink pass
+      // their values to the one command that needs them (doctor warns on a copy that matches one).
+      'worktrees.copy': [...new Set(ignoredInstructions)],
       'worktrees.setup': commands.setup ? [commands.setup] : [],
       'worktrees.cargo.sharedTarget': Boolean(cargo),
       'worktrees.generated': generated,
+      'commandEnv.inherit': inheritSuggestions(root),
       'tracker.kind': ghSlug ? 'github' : 'local',
       'tracker.github.statusSync': project?.number ? 'project' : 'none',
       'review.panel': reviewers,
@@ -241,6 +315,7 @@ export function detect(root: string): Detection {
       'pipeline.design': ui.length ? (figma.length ? 'reference' : 'none') : 'none',
       'infra.mode': infraFiles.length ? 'plan-only' : 'human',
       'policy.protectedPaths': protectedPathsFor(root),
+      'merge.requiredChecks': requiredCheckSuggestions(root),
       components: detectComponents(root, { pm, ui: UI_PACKAGES, pkg, cargo }),
     },
   };

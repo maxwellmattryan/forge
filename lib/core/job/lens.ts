@@ -1,10 +1,14 @@
-// Review lens names. A plain name (`code`) is a lens of the root panel or the plugin catalog; a
-// qualified name (`lib:realtime`) is a lens a member repo of the job defines for itself. Both reach
-// shell lines, file names and job.json keys, so every caller checks names here first.
+// Review lens names. An agent role is a role name (`builder`) or `reviewer:<lens>`, checked here
+// before it becomes a job.json key. A plain name (`code`) is a lens of the root panel or the plugin
+// catalog; a qualified name (`lib:realtime`) is a lens a member repo of the job defines for itself.
+// Both reach shell lines, file names and job.json keys, so every caller checks names here first.
 import { REPO_NAME } from '#engine/project/member-repos.ts';
+import { ForgeError } from '../errors.ts';
 import type { Job } from '../types.ts';
 
 export const LENS_NAME = /^[a-z0-9][a-z0-9-]*$/;
+/** A plain role: the rule `agents/*.md` names follow. */
+export const ROLE_NAME = /^[a-z][a-z0-9-]{0,63}$/;
 // REPO_NAME's body, so a repo name never starts with `-` and the whole name stays one shell word.
 const REPO_BODY = REPO_NAME.source.replace(/^\^/, '').replace(/\$$/, '');
 export const QUALIFIED_LENS = new RegExp(`^(${REPO_BODY}):([a-z0-9][a-z0-9-]*)$`);
@@ -12,6 +16,21 @@ export const QUALIFIED_LENS = new RegExp(`^(${REPO_BODY}):([a-z0-9][a-z0-9-]*)$`
 /** A plain or qualified lens name. */
 export function isLens(s: unknown): s is string {
   return typeof s === 'string' && (LENS_NAME.test(s) || QUALIFIED_LENS.test(s));
+}
+
+/**
+ * A role name, or `reviewer:` and a plain or qualified lens: never a path, and never a name
+ * Object.prototype has (`constructor` fits ROLE_NAME), since it becomes a job.json key.
+ */
+export function isAgentRole(s: unknown): s is string {
+  if (typeof s !== 'string') return false;
+  return (ROLE_NAME.test(s) && !(s in Object.prototype)) || (s.startsWith('reviewer:') && isLens(s.slice('reviewer:'.length)));
+}
+
+/** `s` when it is an agent role, else a usage error. */
+export function agentRole(s: unknown): string {
+  if (isAgentRole(s)) return s;
+  throw new ForgeError(`--role must be a role name (a-z, 0-9 and -, starting with a letter) or reviewer:<lens> (got ${JSON.stringify(String(s).slice(0, 60))})`, 'usage');
 }
 
 /** The repo (null for a plain name) and the lens name, or null when `s` is not a lens. */

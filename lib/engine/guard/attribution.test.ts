@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { tempRepo } from '../../../test/helpers.ts';
-import { hasAttribution, stripAttribution, scrubBranch } from './attribution.ts';
+import { commandAttribution, hasAttribution, repoAllowsAttribution, stripAttribution, scrubBranch } from './attribution.ts';
 import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
 
 const HOOK = path.resolve(import.meta.dirname, '..', '..', '..', 'hooks', 'no-ai-attribution.ts');
@@ -26,12 +27,20 @@ function hook(command, cwd, env = {}) {
   return spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify({ tool_name: 'Bash', tool_input: { command }, cwd }),
     encoding: 'utf8',
-    env: { ...process.env, FORGE_AI_ATTRIBUTION: '', ...env },
+    // Both set explicitly, so the developer's own Claude Code session never leaks in.
+    env: { ...process.env, FORGE_AI_ATTRIBUTION: '', CLAUDE_PROJECT_DIR: '', ...env },
   });
 }
 
+const ATTR = 'Co-Authored-By: Claude <noreply@anthropic.com>';
+const optOut = (dir: string) => {
+  fs.mkdirSync(path.join(dir, '.forge'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\naiAttribution: allow\n`);
+};
+
 test('hook blocks publishing commands that carry attribution', () => {
   const repo = tempRepo();
+  const other = tempRepo();
   try {
     const blocked = hook(`git commit -m "$(cat <<'EOF'\nfeat: x\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nEOF\n)"`, repo.dir);
     assert.equal(blocked.status, 2);
@@ -42,11 +51,145 @@ test('hook blocks publishing commands that carry attribution', () => {
     assert.equal(hook('git commit -m "feat: read Claude Code transcripts"', repo.dir).status, 0);
     assert.equal(hook('echo "Co-Authored-By: Claude"', repo.dir).status, 0, 'non-publishing commands are untouched');
     assert.equal(hook(`gh pr create --body-file ${body}`, repo.dir, { FORGE_AI_ATTRIBUTION: 'allow' }).status, 0);
-    fs.mkdirSync(path.join(repo.dir, '.forge'));
-    fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\naiAttribution: allow\n`);
-    assert.equal(hook(`gh pr create --body-file ${body}`, repo.dir).status, 0, 'a repo can opt out');
+    assert.equal(hook(`git -c x=y commit -m "${ATTR}"`, repo.dir).status, 2, 'a global option hides nothing');
+    const msg = path.join(repo.dir, 'msg.txt');
+    fs.writeFileSync(msg, `feat: x\n\n${ATTR}\n`);
+    assert.equal(hook(`git commit --file=${msg}`, repo.dir).status, 2, 'a --file= message is read');
+    optOut(other.dir);
+    assert.equal(hook(`git commit -m "${ATTR}"`, other.dir, { CLAUDE_PROJECT_DIR: repo.dir }).status, 2, "the cwd's own opt-out is ignored");
+    optOut(repo.dir);
+    assert.equal(hook(`gh pr create --body-file ${body}`, repo.dir, { CLAUDE_PROJECT_DIR: repo.dir }).status, 0, 'a repo can opt out');
   } finally {
     repo.cleanup();
+    other.cleanup();
+  }
+});
+
+test('commandAttribution finds attribution in any git, gh or glab command', () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-attr-')));
+  try {
+    const msg = path.join(dir, 'msg');
+    fs.writeFileSync(msg, `feat: x\n\n${ATTR}\n`);
+    fs.writeFileSync(path.join(dir, 'b.md'), `Summary\n\n${ATTR}\n`);
+    fs.mkdirSync(path.join(dir, 'sub'));
+    fs.writeFileSync(path.join(dir, 'sub', 'msg.txt'), `${ATTR}\n`);
+    const json = path.join(dir, 'body.json');
+    fs.writeFileSync(json, JSON.stringify({ body: `x\n\n${ATTR}` }));
+    const api = 'gh api repos/o/r/issues/1/comments';
+    const found = [
+      `gh release create v1 --notes-file ${msg}`,
+      `gh release create v1 --notes-file=${msg}`,
+      `${api} -F body=@${msg}`,
+      `${api} -Fbody=@${msg}`,
+      `${api} -f body=@${msg}`,
+      `${api} --field=body=@${msg}`,
+      `${api} --raw-field body=@${msg}`,
+      `${api} -F 'body=@${msg}'`,
+      `git commit --fil=${msg}`,
+      `git commit --fil ${msg}`,
+      `git tag -a v1 --fi=${msg}`,
+      `git commit --te=${msg}`,
+      `git commit --templ ${msg}`,
+      'git -C sub commit --fil=msg.txt',
+      `${api} --input ${json}`,
+      `${api} --input=${json}`,
+      `git -c x=y commit -m "${ATTR}"`,
+      `git -C sub commit -m "${ATTR}"`,
+      `git --no-pager commit -m "${ATTR}"`,
+      `/usr/bin/git commit -m "${ATTR}"`,
+      `gh -R o/r pr comment 1 -b "${ATTR}"`,
+      `glab mr note 1 -m "${ATTR}"`,
+      `git commit --file=${msg}`,
+      `git commit -F${msg}`,
+      `git commit -aF ${msg}`,
+      `gh pr create --body-file=${path.join(dir, 'b.md')}`,
+      `git commit --template=${msg}`,
+      `git commit -F "${msg}"`,
+      'git -C sub commit -F msg.txt',
+    ];
+    for (const cmd of found) assert.deepEqual(commandAttribution(cmd, dir), [ATTR], cmd);
+    const fifo = path.join(dir, 'fifo');
+    const none = [
+      `echo "${ATTR}"`,
+      'git commit -m "feat: read Claude Code transcripts"',
+      `git commit -F ${path.join(dir, 'sub')}`,
+      'git commit -F -',
+      'git commit -F msg.txt',
+      `git commit --fixup=${msg}`,
+      `git log --text ${msg}`,
+      'gh api x -F body=@-',
+      'gh api x --input -',
+    ];
+    if (process.platform !== 'win32') {
+      execFileSync('mkfifo', [fifo]);
+      none.push(`git commit -F ${fifo}`);
+    }
+    for (const cmd of none) assert.deepEqual(commandAttribution(cmd, dir), [], cmd);
+    const started = Date.now();
+    const hostile = `git commit -${'a'.repeat(10_000)} -t${' '.repeat(10_000)}; -C${' '.repeat(10_000)}|`;
+    assert.deepEqual(commandAttribution(hostile, dir), []);
+    assert.ok(Date.now() - started < 1000, 'a 10k-character hostile line is parsed in linear time');
+    // Thousands of missing `-C` dirs and `-F` files: only the first 8 and 32 are tried.
+    const many = (flag: string, prefix: string) => Array.from({ length: 2000 }, (_, i) => ` ${flag} ${prefix}${i}`).join('');
+    const flood = `git${many('-C', 'd')} commit${many('-F', 'm')} -m "${ATTR}"`;
+    const floodStarted = Date.now();
+    assert.deepEqual(commandAttribution(flood, dir), [ATTR]);
+    assert.ok(Date.now() - floodStarted < 1000, 'a command with 2000 -C and 2000 -F flags is checked in under a second');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("commandAttribution reads at most its byte budget across a command's message files", () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-attr-budget-')));
+  const L2 = '🤖 Generated with [Claude Code](https://claude.com/claude-code)';
+  const size = (f: string) => fs.statSync(path.join(dir, f)).size;
+  try {
+    fs.writeFileSync(path.join(dir, 'a'), 'feat: a clean message\n');
+    fs.writeFileSync(path.join(dir, 'b'), `feat: b carries a long clean first line so it is the larger file\n\n${ATTR}\n`);
+    fs.writeFileSync(path.join(dir, 'c'), `${L2}\n`);
+    assert.ok(size('c') < size('b'), 'c is smaller than b');
+    const cmd = 'git commit -F a -F b -F c';
+    assert.deepEqual(commandAttribution(cmd, dir, size('a') + size('c')), [L2], 'b would pass the budget and is skipped; c still fits');
+    assert.deepEqual(commandAttribution(cmd, dir, size('a') + size('b')), [ATTR], 'b exactly fills what is left; c no longer fits');
+    assert.deepEqual(commandAttribution(`${cmd} -m "${ATTR}"`, dir, 0), [ATTR], 'the command text is always scanned');
+    assert.deepEqual(commandAttribution(cmd, dir, 0), []);
+
+    // The default budget is 8 MiB: eight 1,000,000-byte files fit, a ninth is skipped, a small one after it is read.
+    const line = 'x'.repeat(99) + '\n';
+    const big = line.repeat(10_000);
+    const last = `${line.repeat(9_999)}${'x'.repeat(100 - Buffer.byteLength(`${ATTR}\n`) - 1)}\n${ATTR}\n`;
+    for (let i = 0; i < 9; i++) fs.writeFileSync(path.join(dir, `big${i}`), i === 8 ? last : big);
+    for (let i = 0; i < 9; i++) assert.equal(size(`big${i}`), 1_000_000);
+    fs.writeFileSync(path.join(dir, 'small'), `${L2}\n`);
+    const files = Array.from({ length: 9 }, (_, i) => ` -F big${i}`).join('');
+    assert.deepEqual(commandAttribution(`git commit${files} -F small`, dir), [L2]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the opt-out is read from the project's main checkout only", () => {
+  const main = tempRepo();
+  const plain = tempRepo();
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-attr-wt-')));
+  try {
+    optOut(main.dir);
+    main.git('worktree', 'add', '-q', path.join(tmp, 'main-wt'), '-b', 'x');
+    assert.equal(repoAllowsAttribution(main.dir), true);
+    assert.equal(repoAllowsAttribution(path.join(tmp, 'main-wt')), true, "a worktree reads its main checkout's opt-out");
+
+    plain.git('worktree', 'add', '-q', path.join(tmp, 'plain-wt'), '-b', 'x');
+    optOut(path.join(tmp, 'plain-wt'));
+    assert.equal(repoAllowsAttribution(path.join(tmp, 'plain-wt')), false, "a worktree's own config is ignored");
+    assert.equal(repoAllowsAttribution(plain.dir), false);
+
+    fs.mkdirSync(path.join(tmp, 'not-git'));
+    for (const dir of [undefined, '', path.join(tmp, 'not-git')]) assert.equal(repoAllowsAttribution(dir), false, String(dir));
+  } finally {
+    main.cleanup();
+    plain.cleanup();
+    fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
 

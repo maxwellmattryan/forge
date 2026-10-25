@@ -16,7 +16,7 @@ import { git } from '#integrations/git/runner.ts';
 import { jobDir } from '#core/job/store.ts';
 import { recordKnown, redactKnown } from '../guard/known-secrets.ts';
 import { writeIfChanged } from '../project/links.ts';
-import { posixShell } from '#core/os/platform.ts';
+import { commandShell, loginShell } from '../guard/command-env.ts';
 import { resolveSecret } from '../guard/secret-refs.ts';
 import { declaredSecrets } from '#core/config/validators/secret-refs.ts';
 import type { ComponentConfig, Config, ConfigSink, Job } from '#core/types.ts';
@@ -45,7 +45,7 @@ export interface AppliedSinks {
 }
 
 export interface ApplyOptions {
-  /** The command's environment (envFor), which command sinks run under too. */
+  /** The command's environment (jobEnv), which command sinks run under too. */
   env: NodeJS.ProcessEnv;
   /** Fills a command sink's `{job}`/`{port}`/`{worktree}`/`{branch}`/`{base}` like other templates. */
   fillCmd: (template: string) => string;
@@ -202,7 +202,7 @@ export function applySinks(root: string, config: Config, job: Job, component: Co
         writeOutput(i, f.path, render(i, () => renderMerge(f.format, base, sink.values ?? {}, ctx), { name: baseName, from: Boolean(f.from) }));
       }
     } else {
-      runCommandSink(root, job, component, i, sink.command, resolved(i, sink.values), opts, [...resolvedSecrets.values()]);
+      runCommandSink(root, config, job, component, i, sink.command, resolved(i, sink.values), opts, [...resolvedSecrets.values()]);
       summary.commands += 1;
     }
   });
@@ -231,10 +231,11 @@ function render<T>(i: number, fn: () => T, base?: { name: string; from: boolean 
  * stdin. Its output goes only to `<jobDir>/logs/config-<component>-<timestamp>-<i>.log`, with the
  * secret values resolved so far (`known`) redacted.
  */
-function runCommandSink(root: string, job: Job, component: ComponentConfig, i: number, template: string, values: Record<string, string>, opts: ApplyOptions, known: string[]): void {
+function runCommandSink(root: string, config: Config, job: Job, component: ComponentConfig, i: number, template: string, values: Record<string, string>, opts: ApplyOptions, known: string[]): void {
   const cmd = opts.fillCmd(template);
   const cwd = path.join(job.worktree!, component.path);
-  const res = run(posixShell(), ['-lc', cmd], { cwd, env: { ...opts.env, ...values }, input: JSON.stringify(values), allowFail: true });
+  const sh = commandShell(cmd, { login: loginShell(config) });
+  const res = run(sh.file, sh.args, { cwd, env: { ...opts.env, ...values }, input: JSON.stringify(values), allowFail: true });
   const logDir = path.join(jobDir(root, job.id), 'logs');
   fs.mkdirSync(logDir, { recursive: true });
   // `i` keeps two sinks that finish in the same millisecond from sharing a log.

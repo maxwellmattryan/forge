@@ -1,0 +1,26 @@
+{
+  "machine": {
+    "title": "Machine",
+    "sub": "This machine's dashboard, machine cap and registered projects. Read-only: each section names the command that changes it.",
+    "dashboard": "Dashboard",
+    "origin": "Address",
+    "port": "Port",
+    "cap": "Machine cap",
+    "capValue": "Job sessions at once",
+    "source": "Source",
+    "sourceAuto": "auto: the highest loaded project's daemon.maxConcurrent",
+    "sourceSettings": "set in the machine index",
+    "live": "Running now",
+    "capCommand": "forge project settings --max-concurrent <1-64|auto>",
+    "projects": "Registered projects",
+    "name": "Name",
+    "path": "Path",
+    "status": "Status",
+    "statusOk": "ok",
+    "statusMissing": "missing",
+    "statusNotInitialized": "not initialised",
+    "addCommand": "forge project add <path>",
+    "removeCommand": "forge project remove <name>",
+    "change": "Change it with"
+  }
+}

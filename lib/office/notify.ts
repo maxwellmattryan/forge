@@ -16,11 +16,12 @@ import { openAppend } from '#core/job/session-files.ts';
 import { jobDir, loadJob, logEvent } from '#core/job/store.ts';
 import { onTransition } from '#core/job/transitions.ts';
 import { commandProblem, notifyConfigured, validCommand, validWebhooks, webhookHost, webhookProblem } from '#core/config/validators/notify.ts';
-import { PLUGIN_ROOT, exists, paths } from '#core/paths.ts';
-import { posixShell } from '#core/os/platform.ts';
+import { PLUGIN_ROOT, exists, forgeHome, paths } from '#core/paths.ts';
+import { commandEnv, commandShell } from '#engine/guard/command-env.ts';
 import { EVENT_SCHEMA_VERSION, NOTIFY_EVENTS, NOTIFY_GATES } from '#core/job/schema.ts';
 import type { Config, DoctorCheck, Job, NotifyEvent, NotifyWebhook, TransitionSide } from '#core/types.ts';
-import { readJson } from '#core/os/fs.ts';
+import { loopbackOrigin, machineDashboardFile, readDashboardRecord } from '#engine/ops/dashboard-record.ts';
+import { projectByRoot } from '#engine/project/machine-index.ts';
 
 export { notifyProblems, validWebhooks, validCommand, notifyConfigured, webhookHost } from '#core/config/validators/notify.ts';
 
@@ -43,6 +44,7 @@ export const REASONS = {
   trust: "The daemon stopped because Forge's trusted config changed",
   'failed-turns': 'The daemon stopped after repeated failed turns',
   'failed-starts': 'The daemon stopped after repeated failed starts',
+  'daily-cap': 'A daemon session reached its daily spend cap',
   test: 'Test notification from forge notify test',
 } as const;
 export type ReasonCode = keyof typeof REASONS;
@@ -112,19 +114,21 @@ export function cleanText(text: unknown, max: number): string {
   return chars.length > max ? chars.slice(0, max - 1).join('').trimEnd() + '…' : chars.join('');
 }
 
-const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
-
-/** The running dashboard's pipeline page when that is a loopback http URL, else the configured port's. */
-export function dashboardUrl(root: string, config: Pick<Config, 'dashboard'>): string {
-  try {
-    const rt = readJson(path.join(paths(root).runtime, 'dashboard.json'), null);
-    if (typeof rt?.url === 'string') {
-      const u = new URL(rt.url);
-      if (u.protocol === 'http:' && LOOPBACK.has(u.hostname)) return `${u.origin}/#/pipeline`;
-    }
-  } catch {}
+/**
+ * The machine dashboard's pipeline page for this project: its record's origin when that is a loopback
+ * one, else the configured port's, with `?project=<name>` when the root is registered. Only a link is
+ * built, so the pid is not proven here.
+ */
+export function dashboardUrl(root: string, config: Pick<Config, 'dashboard'>, home: string = forgeHome()): string {
   const port = Number(config?.dashboard?.port);
-  return `http://127.0.0.1:${Number.isInteger(port) && port > 0 && port < 65536 ? port : 7400}/#/pipeline`;
+  const origin = loopbackOrigin(readDashboardRecord(machineDashboardFile(home))?.url) ?? `http://127.0.0.1:${Number.isInteger(port) && port > 0 && port < 65536 ? port : 7400}`;
+  let name: string | null = null;
+  try {
+    name = projectByRoot(home, root)?.name ?? null;
+  } catch {
+    // An unreadable index links the dashboard's own landing project.
+  }
+  return `${origin}/${name ? `?project=${name}` : ''}#/pipeline`;
 }
 
 const SEGMENT = '[A-Za-z0-9_.-]+';
@@ -230,7 +234,7 @@ export function commandSource(template: string): string {
 }
 
 /** The variables the command's environment carries: empty strings for nulls. */
-function commandEnv(p: NotifyPayload): Record<string, string> {
+function notifyEnv(p: NotifyPayload): Record<string, string> {
   return {
     FORGE_NOTIFY_EVENT: p.event,
     FORGE_NOTIFY_JOB: p.job ?? '',
@@ -242,9 +246,21 @@ function commandEnv(p: NotifyPayload): Record<string, string> {
   };
 }
 
-/** Runs notify.command once under posixShell() -c in the repo root; killed after timeoutMs. Not retried. */
-export function runCommand(root: string, template: string, p: NotifyPayload, opts: { timeoutMs?: number } = {}): Promise<DeliveryResult> {
+/**
+ * Runs notify.command once in the repo root, always under `/bin/sh -c` (commandShell without `login`,
+ * whatever commandEnv.loginShell says), in and out of the daemon; killed after timeoutMs. Not
+ * retried. Its environment is a configured command's (commandEnv of `opts.env`, default this
+ * process's) plus the FORGE_NOTIFY_* variables.
+ */
+export function runCommand(
+  root: string,
+  config: Pick<Config, 'secrets' | 'commandEnv'>,
+  template: string,
+  p: NotifyPayload,
+  opts: { timeoutMs?: number; env?: NodeJS.ProcessEnv } = {},
+): Promise<DeliveryResult> {
   const timeoutMs = opts.timeoutMs ?? 30_000;
+  const base = opts.env ?? process.env;
   return new Promise((resolve) => {
     let settled = false;
     let timedOut = false;
@@ -257,7 +273,8 @@ export function runCommand(root: string, template: string, p: NotifyPayload, opt
     let child: ReturnType<typeof spawn>;
     try {
       // Detached into its own group, so a timeout kills whatever the script started too.
-      child = spawn(posixShell(), ['-c', commandSource(template)], { cwd: root, env: { ...process.env, ...commandEnv(p) }, stdio: 'ignore', detached: process.platform !== 'win32' });
+      const sh = commandShell(commandSource(template), { env: base });
+      child = spawn(sh.file, sh.args, { cwd: root, env: { ...commandEnv(config, base), ...notifyEnv(p) }, stdio: 'ignore', detached: process.platform !== 'win32' });
     } catch {
       return resolve({ ok: false, error: 'spawn', attempts: 1 });
     }
@@ -314,7 +331,7 @@ export async function deliver(root: string, config: Config, events: readonly Not
   if (command) {
     const payload = buildPayload(events[0], ctx, dash, at);
     tasks.push(
-      runCommand(root, command, payload, { timeoutMs: opts.commandTimeoutMs })
+      runCommand(root, config, command, payload, { timeoutMs: opts.commandTimeoutMs })
         .catch((): DeliveryResult => ({ ok: false, error: 'spawn', attempts: 1 }))
         .then((r) => ({ event: events[0], target: 'command' as const, ...r })),
     );

@@ -41,6 +41,16 @@ export const API_CHANGES = [
   { id: 'api-35' },
   { id: 'api-36' },
   { id: 'api-37' },
+  { id: 'triage-hidden-text' },
+  { id: 'job-merge-now' },
+  { id: 'actor-source-daemon' },
+  { id: 'daemon-budget' },
+  // Stats.cost.sessions (supervisor-metered spend by session kind) and JobEvent.metered|unmeasured on agent-end.
+  { id: 'session-meter' },
+  // One server per machine: project routes under /api/p/<project>/, GET /api/projects and its stream, DaemonPoolState.machine and .needsApproval.
+  { id: 'machine-server' },
+  // The Overview: MachineProjectSummary.latest and .daemon.office, GET /api/projects/stats.
+  { id: 'overview' },
 ] as const;
 
 /**

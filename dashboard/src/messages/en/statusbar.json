@@ -36,9 +36,13 @@
       "off": "Daemon off",
       "sessions": "job sessions",
       "disabled": "The daemon is off. Set daemon.enabled: true in .forge/config.yml, then start it here.",
+      "approval": "Review .forge/config.yml and the other files Forge trusts (notes, reviewers, CLAUDE.md, AGENTS.md), then press Start to approve them for this project.",
+      "approvalHint": "Approves this project's trusted files as they are now, then starts the daemon",
       "jobMode": "Job sessions' permissions",
       "jobModeAbout": "Every job without its own choice, now and from its next start. A job's own choice in its panel header overrides it",
       "jobModeAutoWarning": "Auto for every job: unattended sessions approve most tool calls without you. Prompts claude still raises wait until someone answers.",
+      "billingIgnored": "{vars} is set where forge dash started; daemon sessions ignore it and use your Claude login (daemon.auth: subscription).",
+      "billingPassed": "{vars} is set where forge dash started; daemon sessions bill that account or go through that endpoint (daemon.auth: api-key).",
       "inboxLog": "Inbox session log"
     },
     "foreman": {
@@ -142,7 +146,9 @@
     "foreman": "Foreman",
     "secretRescan": "Approve runs the secret scan again. First remove or allowlist the value, or fix what stopped the scan.",
     "stillBlocked": "Still blocked",
-    "stillBlockedNote": "The last approve ran the scan again and it still found a problem."
+    "stillBlockedNote": "The last approve ran the scan again and it still found a problem.",
+    "budgetFailed": "Budget change failed: {error}",
+    "budgetStillOver": "Still over budget: {keys}. Raise those limits in the note, or approve with no limits to acknowledge them."
   },
   "gate": {
     "foreman": "Foreman deciding",

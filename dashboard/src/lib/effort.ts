@@ -1,6 +1,7 @@
 // Reasoning effort as the dashboard shows it. effectiveEffort mirrors resolveEffort in lib/core/config/models.ts (the
 // dashboard can't import lib/), and its test (being rewritten from docs/test-rewrite/modules/dashboard.lib.md) checks both against one table.
 import { EFFORTS } from './types.ts';
+import { projectApi } from './project.ts';
 import type { DaemonSessionState, Effort, PostJobEffortResponse } from './types.ts';
 
 const valid = (v: unknown): Effort | null => ((EFFORTS as readonly unknown[]).includes(v) ? (v as Effort) : null);
@@ -29,7 +30,7 @@ export function restartPending(session: Partial<DaemonSessionState> | null | und
 
 /** POST /api/jobs/:id/effort (null inherits). Throws with the server's `error` field, else its text, else the status text. */
 export async function postJobEffort(id: string, effort: Effort | null, token: string, fetchImpl: typeof fetch = fetch): Promise<PostJobEffortResponse> {
-  const res = await fetchImpl(`/api/jobs/${encodeURIComponent(id)}/effort`, {
+  const res = await fetchImpl(projectApi(`/api/jobs/${encodeURIComponent(id)}/effort`), {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-forge-token': token },
     body: JSON.stringify({ effort }),

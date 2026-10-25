@@ -11,7 +11,7 @@
      the office's its effort, both read-only: the daemon passes no --model, and the office's effort follows runtime.effort.
      It is a station terminal (style.css `station`): the bezel holds the nameplate (pilot lamp, then the facts) and the
      controls, and the screen is the log pane, always drawn. Heat is activity (src/lib/station.ts): the bezel warms while
-     live lines stream, the cursor blinks or holds, a call that arrives live strikes its gutter, the screen clocks in the
+     live lines stream, a call that arrives live strikes its gutter, the screen clocks in the
      first time the lamp goes live after the dashboard settles, and a stage change drops the nameplate's shutter. -->
 <script lang="ts">
   import { onDestroy, tick, untrack } from 'svelte';
@@ -26,6 +26,7 @@
   import { renderable } from '../lib/md-view.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
   import { TONE_CLASS, clock, usd } from '../lib/util.ts';
+  import { projectApi } from '../lib/project.ts';
   import { INBOX_SCOPE, OFFICE_SCOPE } from '../lib/types.ts';
   import type { DaemonSessionState } from '../lib/types.ts';
   import { atBottom, buildSessionView, filtersActive, latestInitModel, readFilters } from '../lib/session-log.ts';
@@ -42,7 +43,7 @@
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import { settled, shutter } from '../lib/motion.ts';
-  import { LIVE_LAMPS, cursorState, lampState, streaming, struck } from '../lib/station.ts';
+  import { LIVE_LAMPS, lampState, streaming, struck } from '../lib/station.ts';
   import { pref } from '../lib/prefs.ts';
   import { t } from '../lib/locale.ts';
 
@@ -73,7 +74,7 @@
 
   /** The transcript routes: the page takes the token as a header, the stream (EventSource sends none) as a query parameter. */
   function transcriptUrls(tr: Transcript): SessionLogUrls {
-    const base = `/api/jobs/${encodeURIComponent(tr.job)}/transcript`;
+    const base = projectApi(`/api/jobs/${encodeURIComponent(tr.job)}/transcript`);
     const who: Record<string, string> = tr.agent === null ? {} : { agent: tr.agent };
     return {
       events: `${base}/events?${new URLSearchParams({ ...who, token: forgeToken() })}`,
@@ -158,8 +159,6 @@
   const lamp = $derived(
     lampState(transcript ? { kind: 'stream', ended: finished, waiting: view.openTool, streaming: isStreaming } : { kind: 'session', session, waiting: view.openTool, streaming: isStreaming }),
   );
-  const cursor = $derived(cursorState(lamp, isStreaming));
-  const CURSOR = { blink: 'cursor blink', hold: 'cursor hold' } as const;
   // Nothing heats for SETTLE_MS after the dashboard's first data or a reconnect.
   const hot = $derived(isStreaming && settled(ticker.now, S.readyAt));
   // Once per mount: the first time the lamp is live, the screen powers on, unless that is before the dashboard settled
@@ -356,7 +355,6 @@
         <div class="flex flex-col gap-1">{#each g.items as it, i (i)}{@render item(it)}{/each}</div>
       </section>
     {/each}
-    {#if cursor !== 'off'}<div class="pt-1" aria-hidden="true"><span class={CURSOR[cursor]}></span></div>{/if}
   </div>
   {#if closed}<div role="status" class="text-xs text-muted">{$t('session.closed')}</div>{/if}
 </div>

@@ -22,7 +22,7 @@ import { lastRun, nextAttempt, recordRun } from '../verify/record.ts';
 import type { Config, Job, JobEvent, VerifyRun } from '#core/types.ts';
 import type { Verifier, VerifierAnswer, VerifierProblem, VerifierSet, VerifiersRecord, VerifiersRun } from './types.ts';
 import { ForgeError } from '#core/errors.ts';
-import { readJson, writeJsonAtomic, writeTextAtomic } from '#core/os/fs.ts';
+import { confinedDir, readJson, readRegular, writeJsonAtomic, writeTextAtomic } from '#core/os/fs.ts';
 import { fenced } from '#core/text.ts';
 import { now } from '#core/utils.ts';
 import * as yaml from '#core/format/yaml.ts';
@@ -73,29 +73,6 @@ function globProblem(g: unknown): string | null {
   if (/^[-!:]/.test(g)) return `paths entry ${jsonLine(g)} must not start with -, ! or :`;
   if (g.split(/[\\/]/).includes('..')) return `paths entry ${jsonLine(g)} must not contain a .. segment`;
   return null;
-}
-
-/** A regular file's bytes, at most `max`, without following a link or blocking on a FIFO; a string says why not. */
-function readRegular(file: string, max: number): Buffer | string {
-  let fd: number | null = null;
-  try {
-    const st = fs.lstatSync(file);
-    if (st.isSymbolicLink()) return 'a symlink, not a regular file';
-    if (!st.isFile()) return 'not a regular file';
-    if (st.size > max) return `larger than ${max / 1024} KiB`;
-    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
-    const fst = fs.fstatSync(fd);
-    if (!fst.isFile()) return 'not a regular file';
-    if (fst.size > max) return `larger than ${max / 1024} KiB`;
-    const buf = Buffer.alloc(max + 1);
-    const n = fs.readSync(fd, buf, 0, buf.length, 0);
-    if (n > max) return `larger than ${max / 1024} KiB`;
-    return buf.subarray(0, n);
-  } catch (e) {
-    return `unreadable (${(e as NodeJS.ErrnoException).code ?? 'error'})`;
-  } finally {
-    if (fd !== null) fs.closeSync(fd);
-  }
 }
 
 /** One verifier file's content: the verifier, or why it never runs. */
@@ -470,7 +447,8 @@ export function verifiersRun(root: string, base: Config, id: string): VerifiersR
   const dir = jobDir(root, job.id);
   const f = verifierFiles(job.round);
   const at = (rel: string) => path.join(dir, rel);
-  fs.mkdirSync(path.join(dir, 'verify'), { recursive: true });
+  // Only through real directories: a link or file planted at verify/ fails here, before any write.
+  confinedDir(dir, path.join(dir, 'verify'));
   // A stale answer never counts: the agent must write this run's answers afresh.
   fs.rmSync(at(f.answers), { force: true });
   if (exists(at(f.report))) {
@@ -482,21 +460,22 @@ export function verifiersRun(root: string, base: Config, id: string): VerifiersR
   const rel = (p: string) => path.relative(root, at(p));
   if (!selected.length) {
     const r = renderReport({ round: job.round, sha: lv.sha, model: modelOf(config), at: now(), loaded: set.verifiers.length, results: [], problems: set.problems, blockOn: config.review.blockOn });
-    writeTextAtomic(at(f.report), r.text);
+    writeTextAtomic(at(f.report), r.text, { root: dir });
     logEvent(root, job.id, 'verifiers', { phase: 'record', round: job.round, sha: lv.sha, attempt: lv.attempt, outcome: 'PASS', blocking: 0, warned: 0, results: [], file: f.report });
     return { id: job.id, round: job.round, sha: lv.sha, selected: [], problems: set.problems.length, truncated: false, outcome: 'PASS', file: rel(f.report) };
   }
   const input = renderInput({ id: job.id, round: job.round, sha: lv.sha, selected, hunks });
-  writeTextAtomic(at(f.input), input.text);
+  writeTextAtomic(at(f.input), input.text, { root: dir });
   const truncated = Object.values(input.truncated).some(Boolean);
-  writeJsonAtomic(at(f.run), {
+  const run = {
     round: job.round,
     sha: lv.sha,
     attempt: lv.attempt,
     model: modelOf(config),
     selected: selected.map((s) => ({ name: s.verifier.name, severity: s.verifier.severity, mode: s.verifier.mode, question: s.verifier.question, files: s.files, truncated: input.truncated[s.verifier.name] })),
     problems: set.problems,
-  });
+  };
+  writeJsonAtomic(at(f.run), run, { root: dir });
   const names = selected.map((s) => s.verifier.name);
   logEvent(root, job.id, 'verifiers', { phase: 'run', round: job.round, sha: lv.sha, attempt: lv.attempt, selected: names, problems: set.problems.length, truncated });
   return { id: job.id, round: job.round, sha: lv.sha, selected: names, problems: set.problems.length, truncated, outcome: null, file: rel(f.input) };
@@ -527,7 +506,7 @@ export function verifiersRecord(root: string, base: Config, id: string): Verifie
   );
   const results: VerifierResult[] = selected.map((s) => ({ ...s, ...answers.get(s.verifier.name)! }));
   const r = renderReport({ round: job.round, sha: lv.sha, model: modelOf(config), at: now(), loaded: set.verifiers.length, results, problems: set.problems, blockOn: config.review.blockOn });
-  writeTextAtomic(at(f.report), r.text);
+  writeTextAtomic(at(f.report), r.text, { root: dir });
   // The failing verify run goes in before the record event: a crash between the two writes then
   // leaves a failed verify (back to the builder), never a CHANGES record under a passing run (V2b).
   if (r.outcome === 'CHANGES') {

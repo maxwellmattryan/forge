@@ -372,6 +372,10 @@ export interface JobEvent {
   role?: string;
   model?: string | null;
   usage?: AgentUsage;
+  /** agent-end since event v7: the agent ended inside its job's own daemon session, whose meter already holds its cost. */
+  metered?: boolean;
+  /** agent-end since event v7: a daemon session's end whose transcript wasn't found, recorded with no usage. */
+  unmeasured?: boolean;
   summary?: string;
   name?: string;
   ok?: boolean;

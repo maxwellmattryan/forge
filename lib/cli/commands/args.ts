@@ -1,10 +1,15 @@
 // Argument parsing and output helpers shared by every command module.
 import fs from 'node:fs';
+import path from 'node:path';
+import { worktreeRoot } from '#core/config/load.ts';
+import { daemonScope, INBOX_SCOPE, OFFICE_SCOPE } from '#core/job/requests.ts';
 import { loadJob } from '#core/job/store.ts';
 import { ForgeError } from '#core/errors.ts';
+import { AGENT_TEXT_MAX, readRegular } from '#core/os/fs.ts';
+import { jobDir } from '#core/paths.ts';
 import { colorEnabled, render } from './render.ts';
 import { RENDERERS } from './render/registry.ts';
-import type { LoadedJob } from '#core/types.ts';
+import type { Config, LoadedJob } from '#core/types.ts';
 import type { HelpGroup } from '../types.ts';
 
 /**
@@ -157,9 +162,40 @@ export function out(data: unknown, flags: Record<string, any>): void {
   process.stdout.write(JSON.stringify(data, null, flags.pretty ? 2 : 0) + '\n');
 }
 
-export function bodyFrom(flags: Record<string, any>): string {
-  if (flags['body-file']) return flags['body-file'] === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(String(flags['body-file']), 'utf8');
-  return flags.body ? String(flags.body) : '';
+/**
+ * The text of `--body` or `--body-file` (`-` is stdin). A daemon session's agents could otherwise
+ * publish any local file through a tracker comment, so there a file must be in the session job's
+ * folder or computed worktree (docs/architecture/daemon-security.md).
+ */
+export function bodyFrom(flags: Record<string, any>, root: string, config: Config, env: NodeJS.ProcessEnv = process.env): string {
+  const file = flags['body-file'];
+  if (!file) return flags.body ? String(flags.body) : '';
+  if (file === '-') return fs.readFileSync(0, 'utf8');
+  const s = daemonScope(env);
+  if ('problem' in s) throw new ForgeError(s.problem);
+  return s.daemon ? daemonBodyFile(String(file), s.scope, root, config) : fs.readFileSync(String(file), 'utf8');
+}
+
+/** `rel` from path.relative stays below its root: not the root itself, not `..`, not another drive. */
+const below = (rel: string): boolean => rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+
+function daemonBodyFile(file: string, scope: string, root: string, config: Config): string {
+  if (scope === INBOX_SCOPE || scope === OFFICE_SCOPE) throw new ForgeError(`--body-file in the ${scope} daemon session reads only stdin (--body-file -); pass the text with --body`);
+  const refused = new ForgeError(`--body-file in a daemon session must name a file inside job ${scope}'s folder or worktree (got ${JSON.stringify(file)}); pass other text with --body or on stdin (--body-file -)`);
+  const real = (p: string): string | null => {
+    try {
+      return fs.realpathSync.native(p);
+    } catch {
+      return null;
+    }
+  };
+  const target = real(path.resolve(file));
+  // The computed worktree, never job.json's `worktree`, which the session can write.
+  const roots = [jobDir(root, scope), path.join(worktreeRoot(root, config), scope)].map(real).filter((r) => r !== null);
+  if (target === null || !roots.some((r) => below(path.relative(r, target)))) throw refused;
+  const bytes = readRegular(target, AGENT_TEXT_MAX);
+  if (typeof bytes === 'string') throw new ForgeError(`--body-file ${file} is ${bytes}`);
+  return bytes.toString('utf8');
 }
 
 export function req(v: any, what: string): string {

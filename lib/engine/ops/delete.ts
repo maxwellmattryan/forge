@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { currentActor } from '#integrations/github/actor.ts';
-import { exists } from '#core/paths.ts';
+import { exists, removeJobRecord } from '#core/paths.ts';
 import { mirrorJob } from '../pipeline/moves/apply.ts';
 import { isActive, jobDir, leaseStatus, listJobs } from '#core/job/store.ts';
 import { ackRequest, listRequests } from '#core/job/requests.ts';
@@ -79,6 +79,7 @@ export async function deleteJob(root: string, config: Config, id: string, opts: 
     if (owner.status === 'live' && !opts.force && owner.session !== job.lease.driver) throw new ForgeError(`cannot delete ${id}: claimed by live session ${owner.session} meanwhile`, 1);
     fs.rmSync(dir, { recursive: true, force: true });
   });
+  removeJobRecord(root, id);
   const actor = opts.actor ?? currentActor(root);
   appendRetentionLog(root, { type: 'deleted', kind: 'job', id, title: job.title, trigger: opts.trigger ?? 'cli', actor });
   return { deleted: id, title: job.title, worktree: wt.removed, branch: ownBranch ? job.branch : null, ...(wt.repos ? { repos: wt.repos.map((r) => r.repo) } : {}), requests };

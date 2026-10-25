@@ -1,14 +1,12 @@
-// A station terminal's life (SessionLog, EnvironmentLog, the status bar's lamps): the pilot lamp, the cursor, and when a
+// A station terminal's life (SessionLog, EnvironmentLog, the status bar's lamps): the pilot lamp and when a
 // line counts as live output. Heat is activity: these say when something works, waits or rests. Pure and DOM-free.
 import { asking, obj, type SessionInput } from './daemon.ts';
 import { SETTLE_MS } from './motion.ts';
 
 /** working breathes; waiting is dimmed heat; you is the ringed ember; done is ok; idle is dark; fault is bad. */
 export type LampState = 'working' | 'waiting' | 'you' | 'done' | 'idle' | 'fault';
-/** blink while working and streaming; hold (dim, steady) while live but quiet; off once the lamp is done or dark. */
-export type CursorState = 'blink' | 'hold' | 'off';
 
-/** The lamps that mean the station is live: the screen glows and the cursor shows. */
+/** The lamps that mean the station is live: the screen glows. */
 export const LIVE_LAMPS: ReadonlySet<LampState> = new Set<LampState>(['working', 'waiting', 'you']);
 
 /** How long after a live line the station counts as streaming. */
@@ -41,9 +39,6 @@ export function lampState(input: LampInput): LampState {
   if (s.running === true && s.status === 'idle' && !s.waiting && !s.held && !s.lastError) return 'done';
   return 'idle';
 }
-
-/** The block cursor after the last line. */
-export const cursorState = (lamp: LampState, isStreaming: boolean): CursorState => (lamp === 'working' && isStreaming ? 'blink' : LIVE_LAMPS.has(lamp) ? 'hold' : 'off');
 
 /** Whether output is streaming: a live line arrived within STREAM_MS. */
 export const streaming = (lastLiveAt: number | null, now: number): boolean => lastLiveAt !== null && now - lastLiveAt < STREAM_MS;

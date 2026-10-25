@@ -65,7 +65,12 @@ describe('scripts/render-check.ts', () => {
       );
       assert.deepEqual(of('analytics'), ['missing text "Render fixture job"']);
       for (const view of ['pipeline', 'project', 'backlog', 'drawer']) assert.deepEqual(of(view), [], view);
-      assert.equal(result.checked, VIEW_IDS.length + 1);
+      // The machine's checks: the fixture lists no project and has no switcher, so each reports what is missing.
+      const registered = ['repo', 'other-project', 'gone-project'].map((n) => `missing text "${n}"`);
+      assert.deepEqual(of('overview'), [...registered, ...['Jobs shipped', 'Cost', 'Machine'].map((n) => `missing text "${n}"`)]);
+      assert.deepEqual(of('machine'), registered);
+      assert.deepEqual(of('switch'), ['could not switch to other-project in the project switcher']);
+      assert.equal(result.checked, VIEW_IDS.length + 1 + 3);
       assert.equal(result.passed, 4);
       assert.equal(renderExitCode(result), 1);
     } finally {

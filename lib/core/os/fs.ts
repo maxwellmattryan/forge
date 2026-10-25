@@ -1,5 +1,7 @@
-// Small file helpers: JSON and text reads with fallbacks, atomic and owner-only writes, and the check
-// that a path stays inside the checkout.
+// Small file helpers: JSON and text reads with fallbacks, capped regular-file reads, atomic and
+// owner-only writes, confined writes that reach a directory only through real directories (never a
+// planted link), and the check that a path stays inside the checkout.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ForgeError } from '../errors.ts';
@@ -13,31 +15,98 @@ export function readJson(file: string, fallback?: any): any {
   }
 }
 
+// O_NOFOLLOW is missing on Windows, where `?? 0` leaves O_EXCL alone to refuse a planted entry.
+const TEMP_FLAGS = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0);
+const randomSuffix = (): string => crypto.randomBytes(8).toString('hex');
+
 /**
- * Write-then-rename so readers (the dashboard, other sessions) never see a half-written file.
+ * Write-then-rename so readers (the dashboard, other sessions) never see a half-written file. The
+ * attacker is an agent that can write the target's directory and plants a file or link where Forge
+ * will write: the temp name `${file}.<16 hex>.tmp` is random and opened exclusive and no-follow, so
+ * an entry at a guessed name fails the open instead of redirecting the write (one retry with a fresh
+ * name, then the error), and the rename replaces a link at `file` itself instead of following it.
+ * With `mode` the file gets exactly that mode, set on the open descriptor so the umask never
+ * applies; without it, the mode a plain writeFileSync gives. Never creates the parent directory, and
+ * removes the temp file when anything after its creation fails.
  */
-export function writeJsonAtomic(file: string, data: any): void {
+export function writeAtomic(file: string, data: string | Uint8Array, opts: { mode?: number; rand?: () => string } = {}): void {
+  const rand = opts.rand ?? randomSuffix;
+  let tmp = `${file}.${rand()}.tmp`;
+  let fd: number;
+  try {
+    fd = fs.openSync(tmp, TEMP_FLAGS, opts.mode ?? 0o666);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+    tmp = `${file}.${rand()}.tmp`;
+    fd = fs.openSync(tmp, TEMP_FLAGS, opts.mode ?? 0o666);
+  }
+  try {
+    try {
+      fs.writeFileSync(fd, data);
+      if (opts.mode !== undefined) fs.fchmodSync(fd, opts.mode);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    fs.rmSync(tmp, { force: true });
+    throw e;
+  }
+}
+
+/**
+ * The real path of `dir` once every component from `root` down to it is a real directory; missing
+ * ones are created a level at a time. The attacker can write inside `root` (a job folder) and swaps
+ * a component for a link, a junction or a file so that a later write lands where it chooses: each
+ * component is lstat'd right after its mkdir, so nothing is ever created through a link (Node reports
+ * a junction as one). `root` itself is trusted and resolved, so a checkout under a symlinked tmp still
+ * works. A swap between this check and the open is the residual: Node has no openat.
+ */
+export function confinedDir(root: string, dir: string): string {
+  const rel = path.relative(root, dir);
+  if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) throw new ForgeError(`${dir} is outside ${root}`);
+  let cur: string;
+  try {
+    cur = fs.realpathSync.native(root);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') throw new ForgeError(`${root} does not exist`);
+    throw e;
+  }
+  const segs = rel.split(path.sep).filter(Boolean);
+  for (let i = 0; i < segs.length; i++) {
+    cur = path.join(cur, segs[i]);
+    try {
+      fs.mkdirSync(cur);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+    }
+    if (!fs.lstatSync(cur).isDirectory())
+      throw new ForgeError(`${segs.slice(0, i + 1).join('/')} in ${root} is not a real directory (a link or a file); remove it and run the command again`);
+  }
+  return cur;
+}
+
+/** Where to write `file`: after `mkdir -p` of its parent, or with `root` in its confined real parent. */
+function writeTarget(file: string, root: string | undefined): string {
+  if (root !== undefined) return path.join(confinedDir(root, path.dirname(file)), path.basename(file));
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n');
-  fs.renameSync(tmp, file);
+  return file;
+}
+
+/** With `root`, the parent is reached only through real directories below it (confinedDir). */
+export function writeJsonAtomic(file: string, data: any, opts: { root?: string } = {}): void {
+  writeAtomic(writeTarget(file, opts.root), JSON.stringify(data, null, 2) + '\n');
 }
 
 /** writeJsonAtomic for a file only its owner may read (mode 0600 from creation, never wider): credentials. */
 export function writeJsonPrivate(file: string, data: any): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  // `wx` refuses a planted file or symlink at the temp path.
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
-  fs.chmodSync(tmp, 0o600);
-  fs.renameSync(tmp, file);
+  writeAtomic(file, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
 }
 
-export function writeTextAtomic(file: string, text: string): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, text);
-  fs.renameSync(tmp, file);
+/** With `root`, the parent is reached only through real directories below it (confinedDir). */
+export function writeTextAtomic(file: string, text: string, opts: { root?: string } = {}): void {
+  writeAtomic(writeTarget(file, opts.root), text);
 }
 
 export function readText(file: string, fallback = ''): string {
@@ -46,6 +115,43 @@ export function readText(file: string, fallback = ''): string {
   } catch {
     return fallback;
   }
+}
+
+/** The cap for agent-written text Forge parses: reviews, decisions, a daemon session's `--body-file`. */
+export const AGENT_TEXT_MAX = 1024 * 1024;
+
+/**
+ * A regular file's bytes, at most `max`, without following a link or blocking on a FIFO; a string
+ * says why not. Windows has no O_NOFOLLOW, so the lstat refuses a link and the descriptor must still
+ * be the file lstat saw (dev and ino), which refuses a swap in between.
+ */
+export function readRegular(file: string, max: number): Buffer | string {
+  let fd: number | null = null;
+  try {
+    const st = fs.lstatSync(file);
+    if (st.isSymbolicLink()) return 'a symlink, not a regular file';
+    if (!st.isFile()) return 'not a regular file';
+    if (st.size > max) return `larger than ${max / 1024} KiB`;
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
+    const fst = fs.fstatSync(fd);
+    if (!fst.isFile()) return 'not a regular file';
+    if (fst.dev !== st.dev || fst.ino !== st.ino) return 'changed while it was read';
+    if (fst.size > max) return `larger than ${max / 1024} KiB`;
+    const buf = Buffer.alloc(max + 1);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    if (n > max) return `larger than ${max / 1024} KiB`;
+    return buf.subarray(0, n);
+  } catch (e) {
+    return `unreadable (${(e as NodeJS.ErrnoException).code ?? 'error'})`;
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
+  }
+}
+
+/** readRegular's bytes as UTF-8 text, or null when it refuses the file. */
+export function readRegularText(file: string, max: number): string | null {
+  const b = readRegular(file, max);
+  return typeof b === 'string' ? null : b.toString('utf8');
 }
 
 /**

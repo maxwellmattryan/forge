@@ -23,7 +23,8 @@ export const worktreeRemove: Renderer = (d, o) => {
   if (!has(d, 'removed')) return null;
   const p = paint(o.color);
   const rs = Array.isArray(d.repos) ? d.repos : [];
-  const head = d.removed ? `removed ${txt(d.removed)}` : rs.length ? null : 'nothing to remove';
+  const first = d.removed ? `removed ${txt(d.removed)}` : rs.length ? null : 'nothing to remove';
+  const head = [first, ...(typeof d.branchKept === 'string' ? fields([['branch kept', d.branchKept]], p) : [])].filter(Boolean).join('\n');
   const b = isMap(d.backing) ? d.backing : null;
   const backing = b
     ? [

@@ -160,8 +160,8 @@ test('mockups render only in the sandboxed /raw iframe', () => {
   assert.equal(hits.length, 1, `exactly one <iframe>: ${JSON.stringify(hits)}`);
   const [file, tag] = hits[0];
   assert.equal(file, 'src/components/Drawer.svelte');
-  assert.match(tag, /\ssandbox="allow-scripts"/);
-  assert.match(tag, /\ssrc="\/api\/jobs\/\{[^}]+\}\/raw\?path=\{[^}]+\}"/);
+  assert.match(tag, /\ssandbox=""/);
+  assert.match(tag, /\ssrc="\/api\/p\/\{[^}]+\}\/jobs\/\{[^}]+\}\/raw\?path=\{[^}]+\}"/);
 });
 
 test('dynamic URLs go through safeUrl', () => {
@@ -461,10 +461,10 @@ const over = ([r, g, b, a]: Rgba, [R, G, B]: Rgba): Rgba => [r * a + R * (1 - a)
 /** Channel-wise sRGB interpolation, what `color-mix(in srgb, a p, b)` computes for opaque colours. */
 const mix = (a: Rgba, p: number, b: Rgba): Rgba => [a[0] * p + b[0] * (1 - p), a[1] * p + b[1] * (1 - p), a[2] * p + b[2] * (1 - p), 1];
 
-// Text is fg or muted; gleam (links, the live chip), ember (needs you) and the status hues carry words too. dim is for
-// placeholders and stamp-line keys only and is the one documented exception. spark is only
-// ever a fill under on-spark. Forge's hovered link is gleam-hot; Ash keeps gleam there.
-const TEXT = ['fg', 'muted', 'gleam', 'ember', 'ok', 'warn', 'bad', 'info'];
+// Text is fg or muted; gleam (links, the live chip), ember (needs you), the status hues and the Thread's sender colours
+// (who-*) carry words too. dim is for placeholders and stamp-line keys only and is the one documented exception. spark
+// is only ever a fill under on-spark. Forge's hovered link is gleam-hot; Ash keeps gleam there.
+const TEXT = ['fg', 'muted', 'gleam', 'ember', 'ok', 'warn', 'bad', 'info', 'who-you', 'who-cli', 'who-forge', 'who-tracker'];
 const TEXT_BY_THEME: Record<string, string[]> = { forge: [...TEXT, 'gleam-hot'], ash: TEXT, temper: [...TEXT, 'gleam-hot'], crucible: [...TEXT, 'gleam-hot'], patina: [...TEXT, 'gleam-hot'], obsidian: [...TEXT, 'gleam-hot'] };
 const DIM_FLOOR = 3.0;
 
@@ -626,13 +626,17 @@ test('segments and nav expose their selected state', () => {
   assert.match(pipeline, /\{@const on = S\.filter === f\}/);
   assert.match(pipeline, /\{@const on = S\.layout === l\}/);
 
+  // One link loop per section (the global pages, the project's views), shared by the sidebar, the rail and the phone strip.
   const nav = readSrc('components/Nav.svelte');
   const links = tags('components/Nav.svelte', nav).filter((t) => t.name === 'a');
-  assert.equal(links.length, 1, 'one link per view, for the sidebar and the phone strip');
-  const attr = (n: string) => links[0].attrs.find((a) => a.name === n)?.value;
-  assert.equal(attr('aria-current'), `{on ? 'page' : undefined}`);
-  assert.equal(attr('class'), `{on ? 'active' : ''}`);
-  assert.match(nav, /\{@const on = S\.view === v\.id\}/);
+  assert.equal(links.length, 2, 'one link per section');
+  for (const link of links) {
+    const attr = (n: string) => link.attrs.find((a) => a.name === n)?.value;
+    assert.equal(attr('aria-current'), `{on ? 'page' : undefined}`);
+    assert.equal(attr('class'), `{on ? 'active' : ''}`);
+  }
+  assert.match(nav, /\{@const on = S\.route\.scope === 'global' && S\.route\.view === g\.id\}/);
+  assert.match(nav, /\{@const on = S\.route\.scope === 'project' && S\.route\.view === v\.id\}/);
 });
 
 /** Class tokens of a `class` value: its fixed words plus every string literal in its `{…}` parts. */
@@ -670,7 +674,8 @@ function openEnd(s: string, i: number): number {
 /**
  * The icon-only `<button>`s of one component that lack a tooltip or a label. Icon-only: its class has the `icon` token,
  * or its content is only `<Icon …/>`, optionally inside `{#if}`. Each needs an aria-label, no native title (MenuButton's
- * title, set only when it is not icon-only, is the one exception) and a `<Tooltip` in the same file.
+ * title, set only when it is not icon-only, is the one exception) and a `<Tooltip` in the same file, or, for a rail
+ * control, its own `{@attach railTipOn(…)}` (the rail's one tooltip, RailTip).
  */
 function iconButtonProblems(file: string, text: string): string[] {
   const s = text.replace(/<script\b[\s\S]*?<\/script>|<style\b[\s\S]*?<\/style>|<!--[\s\S]*?-->/g, '');
@@ -690,7 +695,7 @@ function iconButtonProblems(file: string, text: string): string[] {
       if (!value('aria-label')) problems.push(`${at} has no aria-label`);
       const title = value('title');
       if (tag.attrs.some((a) => a.name === 'title') && !(title !== undefined && title.startsWith('{iconOnly ? undefined :'))) problems.push(`${at} has a native title`);
-      if (!s.includes('<Tooltip')) problems.push(`${at} has no <Tooltip> in its file`);
+      if (!s.includes('<Tooltip') && !/\{@attach\s+railTipOn\(/.test(s.slice(i, end))) problems.push(`${at} has no <Tooltip> in its file`);
     }
     const next = s.slice(close).search(/<button\b/);
     i = next < 0 ? -1 : close + next;
@@ -712,6 +717,10 @@ test('the icon-button sweep finds a planted button without a tooltip', () => {
   assert.ok(!found.some((p) => p.includes('x.text')), 'a text button is not icon-only');
   const fixed = `<button bind:this={b} class="btn icon" aria-label={$t('x.y')}><Icon name="close" /></button><Tooltip anchor={b} text={$t('x.y')} />`;
   assert.deepEqual(iconButtonProblems('Fixed.svelte', fixed), []);
+  // A rail control's tooltip is its own railTipOn attachment; it still needs its label.
+  assert.deepEqual(iconButtonProblems('Rail.svelte', `<button aria-label={$t('x.y')} {@attach railTipOn($t('x.y'))}><Icon name="anvil" /></button>`), []);
+  const railOnly = iconButtonProblems('Rail.svelte', `<button {@attach railTipOn($t('x.y'))}><Icon name="anvil" /></button><button aria-label={$t('x.y')}><Icon name="close" /></button>`);
+  assert.equal(railOnly.length, 2, `the unlabelled rail button and the untipped one: ${railOnly.join('; ')}`);
 });
 
 test('every icon-only button has a tooltip and a label', () => {

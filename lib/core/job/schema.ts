@@ -11,13 +11,14 @@ import { runSteps } from '../versions/steps.ts';
 import { CONFIG_SCHEMA_VERSION, CONFIG_STEPS } from '../versions/config.ts';
 import { JOB_SCHEMA_VERSION, JOB_STEPS, noLease, ownerToLease, sourceToIssues } from '../versions/job.ts';
 import { EVENT_SCHEMA_VERSION, EVENT_STEPS } from '../versions/event.ts';
-import type { EventActor, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcome, JobRepo, JobRepoPr, JobScore, LoadedJob } from '../types.ts';
+import type { EventActor, HumanGrant, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcome, JobRepo, JobRepoPr, JobScore, LoadedJob } from '../types.ts';
 
 export { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, STAGES, STATES, WAITING_ON } from '#api/constants.ts';
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from '../config/components.ts';
 export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from '../config/validators/backing.ts';
 export { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, noLease };
 export { API_VERSION } from '#api/versions.ts';
+export { MACHINE_INDEX_VERSION } from '../versions/machine.ts';
 
 /** `.forge/archive/<id>.json` records (lib/core/job/archive.ts); a reader skips a record from a newer Forge. */
 export const ARCHIVE_SCHEMA_VERSION = 1;
@@ -223,7 +224,7 @@ function cleanRepoPr(raw: unknown): JobRepoPr | null {
 }
 
 /** What openMemberPr and syncMemberPrs record (lib/engine/pr/members.ts). */
-const REPO_PR_KEYS = ['number', 'url', 'state', 'isDraft', 'openedAt', 'lastSyncedAt', 'pushedSha', 'headOid', 'mergeable', 'mergeState', 'checks', 'mergedAt'] as const;
+const REPO_PR_KEYS = ['number', 'url', 'state', 'isDraft', 'openedAt', 'lastSyncedAt', 'pushedSha', 'headOid', 'mergeable', 'mergeState', 'checks', 'changesRequested', 'mergedAt'] as const;
 
 /**
  * `repos` as readers see it: the root mirror rebuilt from the top-level fields, then every member
@@ -378,6 +379,18 @@ export function sanitizeLogin(raw: unknown): string {
 }
 
 const isActorSource = (v: unknown): v is EventActor['source'] => (ACTOR_SOURCES as readonly unknown[]).includes(v);
+
+/**
+ * A HumanGrant, checked at runtime: the engine's human-only operations (mergePr's `now`, budgetCmd's
+ * `grant`) refuse anything else, so a stray `true` from a caller that skipped the channel fails loudly.
+ */
+export function isHumanGrant(v: unknown): v is HumanGrant {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  const g = v as { channel?: unknown; actor?: unknown };
+  if (g.channel !== 'terminal' && g.channel !== 'dashboard') return false;
+  if (!g.actor || typeof g.actor !== 'object' || Array.isArray(g.actor)) return false;
+  return isActorSource((g.actor as { source?: unknown }).source);
+}
 
 /**
  * Any stored actor as the v2 object. The legacy strings keep their v1 meaning whatever the event's

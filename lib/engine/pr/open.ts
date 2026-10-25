@@ -28,6 +28,7 @@ import { prText } from './body.ts';
 import { pullPrHead, pushBranch, refreshBase } from './branch.ts';
 import { checkMemberPr, linkSiblingsQuietly, memberSlug, openMemberPr, recordMemberPr } from './members.ts';
 import type { MemberPrResult } from './members.ts';
+import { requiredChecksNote } from './required.ts';
 
 export function openPr(
   root: string,
@@ -35,7 +36,7 @@ export function openPr(
   github: GitHub,
   id: string,
   opts: { title?: string; draft?: boolean; force?: boolean } = {},
-): { number: number | null; url: string | null; created: boolean; unlinked?: true; repos?: MemberPrResult[]; deferred?: Deferral[] } {
+): { number: number | null; url: string | null; created: boolean; unlinked?: true; repos?: MemberPrResult[]; deferred?: Deferral[]; requiredChecksWarning?: string } {
   const job = loadJob(root, id);
   // job.json is session-writable: a downstream consumer becomes a pushed repo only through a promotion event.
   const unpromoted = unpromotedDownstream(job, readEvents(root, id));
@@ -140,7 +141,7 @@ export function openPr(
     logEvent(root, id, 'pr-updated', { number: existing.number });
     logDeferred();
     linkSiblingsQuietly(root, config, github, id);
-    return { number: existing.number, url: existing.url, created: false, ...prLinkNote(job, config), ...repos, ...deferred };
+    return { number: existing.number, url: existing.url, created: false, ...prLinkNote(job, config), ...repos, ...deferred, ...requiredChecksNote(config, github, job.worktree!, slug, job.base!) };
   }
   const bodyFile = path.join(jobDir(root, id), 'pr-body.md');
   fs.writeFileSync(bodyFile, text.body);
@@ -154,7 +155,7 @@ export function openPr(
   logDeferred();
   queueNotify(root, ['pr-opened'], { job: job.id, reason: 'pr-opened' });
   linkSiblingsQuietly(root, config, github, id);
-  return { number, url, created: true, ...prLinkNote(job, config), ...repos, ...deferred };
+  return { number, url, created: true, ...prLinkNote(job, config), ...repos, ...deferred, ...requiredChecksNote(config, github, job.worktree!, slug, job.base!) };
 }
 
 /** What interim strategies make of one `pr open`: interimOpenPlan. */

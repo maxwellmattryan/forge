@@ -1,11 +1,15 @@
-// jobCmd's dispatch table in-process: one handler per documented subcommand, and the group usage error otherwise.
+// jobCmd's dispatch table in-process: one handler per documented subcommand, and the group usage error otherwise;
+// and `job set` refusing the locked budget field.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
 import { ForgeError } from '#core/errors.ts';
+import { createJob } from '#core/job/store.ts';
+import { jobDir } from '#core/paths.ts';
 import { usageError } from './args.ts';
 import { JOB_HANDLERS, jobCmd } from './job.ts';
 import { HELP, JOB } from './job/help.ts';
@@ -34,5 +38,28 @@ test('unknown and prototype-named subcommands get the group usage error', async 
   } finally {
     if (daemon !== undefined) process.env.FORGE_DAEMON = daemon;
     fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('the budget field is not settable through job set', async () => {
+  const daemon = process.env.FORGE_DAEMON;
+  delete process.env.FORGE_DAEMON;
+  const repo = tempRepo();
+  try {
+    const config = defaults();
+    const id = createJob(repo.dir, config, { title: 'capped' }).id;
+    const file = path.join(jobDir(repo.dir, id), 'job.json');
+    const before = fs.readFileSync(file, 'utf8');
+    for (const field of ['budget.limits.usd=null', 'budget.ack.usd={}', 'budget={}']) {
+      await assert.rejects(jobCmd(repo.dir, config, 'set', [id], { field: [field] }), (e: unknown) => {
+        assert.ok(e instanceof ForgeError, `${field}: not a ForgeError`);
+        assert.match(e.message, /^--field budget is not settable; /, field);
+        return true;
+      });
+      assert.equal(fs.readFileSync(file, 'utf8'), before, `${field}: job.json unchanged`);
+    }
+  } finally {
+    if (daemon !== undefined) process.env.FORGE_DAEMON = daemon;
+    repo.cleanup();
   }
 });
