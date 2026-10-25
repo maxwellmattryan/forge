@@ -230,7 +230,7 @@ test('every guarded route refuses before its handler runs', async () => {
     }
     const reads = ['/state', '/stats', '/evals', '/evals/compare', '/requests', '/roster', '/project', '/backlog?refresh=1', '/config'].map((p) => `${P}${p}`);
     const streams = ['/events?session=_inbox', '/daemons/log?session=_inbox', '/jobs/j-1', '/jobs/j-1/file?path=x.md', '/jobs/j-1/raw?path=x.html'].map((p) => `${P}${p}`);
-    for (const p of [...reads, ...streams, '/api/about', '/api/projects', '/api/projects/events']) rows.push(...readRows(p));
+    for (const p of [...reads, ...streams, '/api/about', '/api/projects', '/api/projects/events', '/api/projects/stats']) rows.push(...readRows(p));
     for (const p of ['/environments', '/jobs/j-1/environment', '/jobs/j-1/transcript', '/doctor/bundle'].map((x) => `${P}${x}`)) {
       rows.push(...readRows(p), { method: 'GET', path: p, headers: { 'sec-fetch-site': 'same-origin' }, status: 403, text: 'bad token' });
     }

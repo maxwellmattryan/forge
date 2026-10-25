@@ -116,6 +116,13 @@ function message(key: string, fail: (m: string) => never): string {
   return text;
 }
 
+/** The English text of `key` (before its first placeholder), for checks that expect a view's own words; throws on an unknown key. */
+export function catalogText(key: string): string {
+  return message(key, (m) => {
+    throw new Error(m);
+  });
+}
+
 /**
  * Reads and checks `<dir>/<name>.json`, resolving each `@key` in expect against the English catalog. Throws
  * `scenario <name>: <problem>` before anything is seeded.

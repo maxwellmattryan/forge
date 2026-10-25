@@ -20,6 +20,7 @@ export const MACHINE_PREFS: ReadonlySet<string> = new Set([
   'paneWidth',
   'settingsTab',
   'lastProject',
+  'overviewWindow',
   'mdView.files',
   'mdView.thread',
   'mdView.session',
@@ -47,6 +48,14 @@ export const pref = {
   /** Writes only the selected project's key for a project pref; with no project selected, nothing. */
   set(k: string, v: string): void {
     const key = prefKey(k, currentProject());
+    if (key === null) return;
+    try {
+      localStorage.setItem(key, v);
+    } catch {}
+  },
+  /** Writes `project`'s key for a project pref, whichever project is selected (the Overview's waiting link); an invalid name writes nothing. */
+  setFor(project: string, k: string, v: string): void {
+    const key = prefKey(k, project);
     if (key === null) return;
     try {
       localStorage.setItem(key, v);

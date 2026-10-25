@@ -438,7 +438,12 @@ test('/api/projects and its stream', async () => {
   const gone = tempRepo();
   parkedAt(a.dir, 'spec-approval', { title: 'waits on its spec' });
   jobAt(a.dir, 'build', { title: 'building' });
-  jobAt(a.dir, 'done', { title: 'finished' });
+  // Apart in time, so each updatedAt is newer than the last: the eval is the newest, and skipped.
+  const tick = () => new Promise((r) => setTimeout(r, 5));
+  await tick();
+  const newest = jobAt(a.dir, 'done', { title: 'finished <b>as is</b>' });
+  await tick();
+  jobAt(a.dir, 'build', { title: 'an eval, newer still', create: { kind: 'eval' } });
   const s = await serveProjects([{ dir: a.dir, name: 'a' }, { dir: gone.dir, name: 'gone' }], { projectsPollMs: 200 });
   try {
     gone.cleanup();
@@ -452,22 +457,58 @@ test('/api/projects and its stream', async () => {
       path: a.dir,
       status: 'not-initialized',
       loaded: true,
-      jobs: { active: 2, waiting: 1 },
-      daemon: ['enabled', 'foreman', 'live', 'maxConcurrent', 'wanted'],
+      jobs: { active: 3, waiting: 1 },
+      latest: { id: newest.id, title: 'finished <b>as is</b>', at: newest.updatedAt, stage: 'done', state: 'done' },
+      daemon: ['enabled', 'foreman', 'live', 'maxConcurrent', 'office', 'wanted'],
     });
-    assert.deepEqual(pg, { name: 'gone', path: gone.dir, status: 'missing', loaded: false, jobs: null, daemon: null });
+    assert.equal(pa.daemon.office, 'off');
+    assert.deepEqual(pg, { name: 'gone', path: gone.dir, status: 'missing', loaded: false, jobs: null, latest: null, daemon: null });
 
     const events = stream(s.port, '/api/projects/events');
     await waitFor(() => events.frames.length === 1, { what: 'the first frame' });
     assert.equal(events.frames[0]!.event, 'projects');
-    assert.deepEqual(JSON.parse(events.frames[0]!.data).projects[0].jobs, { active: 2, waiting: 1 });
+    assert.deepEqual(JSON.parse(events.frames[0]!.data).projects[0].jobs, { active: 3, waiting: 1 });
     jobAt(a.dir, 'build', { title: 'one more' });
     await waitFor(() => events.frames.length === 2, { what: 'a frame after the new job', timeoutMs: 10_000 });
-    assert.deepEqual(JSON.parse(events.frames[1]!.data).projects[0].jobs, { active: 3, waiting: 1 });
+    assert.deepEqual(JSON.parse(events.frames[1]!.data).projects[0].jobs, { active: 4, waiting: 1 });
     events.close();
   } finally {
     await s.cleanup();
     a.cleanup();
+  }
+});
+
+test("/api/projects/stats gives each project's daily shipped jobs and cost", async () => {
+  const a = tempRepo();
+  const b = tempRepo();
+  const gone = tempRepo();
+  jobAt(b.dir, 'done', { title: 'shipped today', fields: { finishedAt: new Date().toISOString() } });
+  jobAt(b.dir, 'build', { title: 'not shipped' });
+  const s = await serveProjects([{ dir: b.dir, name: 'b' }, { dir: a.dir, name: 'a' }, { dir: gone.dir, name: 'gone' }]);
+  try {
+    gone.cleanup();
+    s.refresh();
+    const body = await getJson(s.port, '/api/projects/stats?days=7');
+    const today = new Date().toISOString().slice(0, 10);
+    assert.equal(body.days.length, 7);
+    assert.equal(body.days[6], today);
+    assert.deepEqual([...body.days].sort(), body.days, 'oldest first');
+    assert.deepEqual(body.projects.map((p: { name: string }) => p.name), ['a', 'b']);
+    for (const p of body.projects) {
+      assert.deepEqual(Object.keys(p).sort(), ['costUsd', 'dayUsd', 'error', 'monthUsd', 'name', 'shipped']);
+      assert.deepEqual([p.shipped.length, p.costUsd.length, p.error], [7, 7, null], p.name);
+    }
+    assert.deepEqual(body.projects[1].shipped, [0, 0, 0, 0, 0, 0, 1]);
+    assert.deepEqual(body.projects[0].shipped, [0, 0, 0, 0, 0, 0, 0]);
+    assert.equal((await getJson(s.port, '/api/projects/stats')).days.length, 30);
+    for (const q of ['days=5', 'days=abc', 'days=']) {
+      const r = await hit(s.port, { path: `/api/projects/stats?${q}` });
+      assert.deepEqual([r.status, JSON.parse(r.text)], [400, { error: 'days must be 7, 30 or 90' }], q);
+    }
+  } finally {
+    await s.cleanup();
+    a.cleanup();
+    b.cleanup();
   }
 });
 

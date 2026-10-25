@@ -24,6 +24,7 @@ import type {
   PostRequestResponse,
   ProjectResponse,
   ProjectsResponse,
+  ProjectsStatsResponse,
   Roster,
   Stats,
 } from './types.ts';
@@ -102,6 +103,11 @@ class AppState {
   machineOnline = $state<boolean | null>(null);
   /** The lost-connection line for the global pages while the last /api/projects poll failed. */
   machineLost = $state<string | null>(null);
+  /** GET /api/projects/stats for the Overview's graphs; a failed load keeps the last answer and sets `overviewError`. */
+  overview = $state.raw<ProjectsStatsResponse | null>(null);
+  overviewError = $state<string | null>(null);
+  /** The Overview's graph window in days (machine pref `overviewWindow`). */
+  overviewWindow = $state(pref.get('overviewWindow', '30'));
   layout = $state(pref.get('layout', 'board'));
   filter = $state(pref.get('filter', 'active'));
   window = $state(pref.get('window', '30'));
@@ -163,6 +169,26 @@ export async function refreshMachine(): Promise<void> {
     S.machineOnline = false;
     S.machineLost = lostConnection(e);
   }
+}
+
+/** GET /api/projects/stats for the Overview's graphs over S.overviewWindow; a failure keeps the last graphs and sets the error line. */
+export async function loadOverview(): Promise<void> {
+  const days = S.overviewWindow;
+  try {
+    const r = await api<ProjectsStatsResponse>(`/api/projects/stats?days=${encodeURIComponent(days)}`);
+    // A reply for a window the user has since changed is dropped: the newer load sets it.
+    if (S.overviewWindow !== days) return;
+    S.overview = r;
+    S.overviewError = null;
+  } catch (e) {
+    if (S.overviewWindow === days) S.overviewError = message(e);
+  }
+}
+
+export function setOverviewWindow(w: string): void {
+  S.overviewWindow = w;
+  pref.set('overviewWindow', w);
+  loadOverview();
 }
 
 export async function refresh(): Promise<void> {
@@ -272,6 +298,7 @@ export function route(): void {
   }
   // Needs you was a page: its old link shows the Pipeline and opens the Needs-you popover (StatusBar does, once it renders).
   if (r.openNeeds) S.openNeeds = true;
+  if (r.route.scope === 'global' && r.route.view === 'overview') loadOverview();
   loadView();
 }
 

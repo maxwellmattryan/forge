@@ -12,7 +12,7 @@ The dashboard's route handlers, one file per area; the two route tables in `lib/
 | `config.ts` | Settings routes: the config view with webhooks masked, one config change, and the repo budget acknowledgement. |
 | `environment.ts` | Environment routes: a job's dev server and backing services, their actions and logs, and every running environment. |
 | `jobs.ts` | Job routes: create a job, its detail, files and raw mockups, requests, effort, delete, merge now, repo proposals, and its dev server and editor. |
-| `machine.ts` | The machine routes: GET /api/projects, the registered projects with their job counts, pools and the machine cap, and its event stream, which sends that body on connect and again whenever it changes. |
+| `machine.ts` | The machine routes: GET /api/projects, the registered projects with their job counts, latest job, pools and the machine cap; its event stream, which sends that body on connect and again whenever it changes; and GET /api/projects/stats, each loaded project's shipped jobs and cost per UTC day for the Overview's graphs. |
 | `misc.ts` | The other read routes and focus: /api/state, stats, evals, roster, project graph, backlog, about, doctor and its bundle, GitHub previews, and POST /api/focus. |
 | `office.ts` | Session pool routes: the per-session event stream, the session log, start and stop, permission answers and permission modes. |
 | `transcripts.ts` | Claude Code transcripts on the dashboard: locating a job's agent or owner transcript, its page and stream, and the agent rows and activity read from them. |

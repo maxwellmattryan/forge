@@ -186,14 +186,28 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
 
   const summary = (p: MachineProject & { status: ProjectStatus }): MachineProjectSummary => {
     const e = loaded.get(p.name);
-    if (!e || e.root !== p.path) return { name: p.name, path: p.path, status: p.status, loaded: false, jobs: null, daemon: null };
+    if (!e || e.root !== p.path) return { name: p.name, path: p.path, status: p.status, loaded: false, jobs: null, latest: null, daemon: null };
     let jobs = { active: 0, waiting: 0 };
+    let latest: MachineProjectSummary['latest'] = null;
     try {
       const all = listJobs(e.root);
       jobs = { active: all.filter((j) => !FINISHED.includes(j.state)).length, waiting: all.filter((j) => j.state === 'waiting' && j.waitingOn !== 'external').length };
+      // The job's own title: the dashboard escapes it, so it is never cut or cleaned here.
+      for (const j of all) {
+        if (j.kind === 'eval' || !j.updatedAt || (latest && j.updatedAt <= latest.at)) continue;
+        latest = { id: j.id, title: j.title, at: j.updatedAt, stage: j.stage, state: j.state };
+      }
     } catch {}
     const st = e.pool.state();
-    return { name: p.name, path: p.path, status: p.status, loaded: true, jobs, daemon: { enabled: st.enabled, wanted: st.wanted, foreman: st.foreman, live: st.live, maxConcurrent: st.maxConcurrent } };
+    return {
+      name: p.name,
+      path: p.path,
+      status: p.status,
+      loaded: true,
+      jobs,
+      latest,
+      daemon: { enabled: st.enabled, wanted: st.wanted, foreman: st.foreman, office: st.office.status, live: st.live, maxConcurrent: st.maxConcurrent },
+    };
   };
 
   return {

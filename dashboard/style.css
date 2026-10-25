@@ -1067,6 +1067,20 @@
 @utility graph-edge-lit { stroke: var(--gleam); stroke-width: 2; }
 @utility graph-arrow { fill: var(--line-strong); &.lit { fill: var(--gleam); } }
 
+/* ---------- series: the Overview's stacked bars (components/StackedBars.svelte) ----------
+   One colour per project, the same in the bars (fill) and the legend swatch (background), cycling by name order
+   (src/lib/overview.ts SERIES). The hues are the theme's own tokens, spread apart in every theme: gleam, ok, the
+   tracker's hue (the one gleam and ember leave free) and warn first. Spark stays out: on crucible it is gleam's gold.
+   Ember comes last because it means "waits on you", so it shows only from the sixth project. The legend names every
+   project with its total and share, so colour is never the only cue. */
+@utility series-1 { fill: var(--gleam); background-color: var(--gleam); }
+@utility series-2 { fill: var(--ok); background-color: var(--ok); }
+@utility series-3 { fill: var(--who-tracker); background-color: var(--who-tracker); }
+@utility series-4 { fill: var(--warn); background-color: var(--warn); }
+@utility series-5 { fill: var(--info); background-color: var(--info); }
+@utility series-6 { fill: var(--ember); background-color: var(--ember); }
+@utility series-swatch { display: inline-block; width: 10px; height: 10px; flex: none; border-radius: var(--radius-1); box-shadow: inset 0 0 0 1px var(--edge-dark); }
+
 /* ---------- facts: the status bar's stamped row (version, API, sessions, sheet) ---------- */
 @utility facts {
   display: flex;
