@@ -261,7 +261,7 @@ dashboard:                   # forge dash, the local dashboard
   port: 7400                 # the first port forge dash tries (--port overrides it)
 
 daemon:                      # opt-in headless sessions supervised by `forge dash`: an inbox plus one per job (see "Daemon" below)
-  enabled: false             # true: `forge dash` starts it, and POST /api/daemon may start it again after a stop
+  enabled: false             # true: `forge dash` starts it, and POST /api/p/<project>/daemon may start it again after a stop
   command: claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode default --allowedTools {allowedTools}  # the claude command each session runs, split into words without a shell (see "Daemon" below)
   allowedTools:              # refused if it names blanket git/gh, a scoped file rule or an MCP tool; bare Edit/Write are scoped to the job folders and worktrees at spawn (see "Daemon" below)
     - Agent
@@ -1291,7 +1291,7 @@ Tools run without a shell, each field one argument, with a 30 s timeout. One tra
 
 **Resolution** happens only when a sink render reaches `{secret.NAME}`, so a declared secret no sink uses is never read, and each name is read at most once per Forge process (a `forge verify` with several steps reads each source once). Every failure fails closed and the configured command does not run: an undeclared name, an unset env var, a tool that is missing or exits non-zero, a file that is not ignored, a value that is too short. Errors name the secret and its source kind and quote at most the tool's last stderr line, never the value: `config sink 0: secret API_TOKEN (op) failed: op exited 1: <stderr last line>`, `config sink 0: secret DB_PASSWORD (env): MYAPP_DB_PASSWORD is not set`. The git-ignored rule for `env-file` and `file` outputs still applies, before anything is written. `config.secrets` in `forge run`'s result and the `config-sinks` event lists the names resolved.
 
-**Known values.** When a render resolves a secret, Forge records the value in `<jobDir>/known-secrets.json` (mode 0600, written through a rename, merged by name, rewritten only on a change): `{ "v": 1, "values": { "<NAME>": "<value>" } }`. A job's **known values** are those plus its [job database](#job-databases) passwords. Forge replaces each one, raw and in its JSON-escaped form (so a value with `"` or `\` inside JSONL is caught too), with `[redacted]`:
+**Known values.** When a render resolves a secret, Forge records the value in `<jobDir>/known-secrets.json` (mode 0600, written through a rename, merged by name, rewritten only on a change): `{ "v": 1, "values": { "<NAME>": "<value>" } }`. A job's **known values** are those plus its [job database](#job-databases) passwords. Forge replaces each one, raw and in its JSON-escaped form (so a value with `"` or `\` inside JSONL is caught too), with `[redacted]`. The table's `/api/…` rows are the dashboard's project routes, served under `/api/p/<project>/`:
 
 | Where | When | Values used |
 |---|---|---|
