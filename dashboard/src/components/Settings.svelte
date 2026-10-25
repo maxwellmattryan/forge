@@ -1,6 +1,7 @@
-<!-- The settings modal: a labelled, focus-trapped dialog with a tab rail. A centred plate at md and up, a full-screen plate below. -->
+<!-- The settings modal: a labelled, focus-trapped dialog with a tab rail. A centred plate at md and up, a full-screen plate below.
+     With no project selected it offers only General and About; `start` opens a tab in place of the saved one. -->
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import CloseButton from './CloseButton.svelte';
   import Icon from './Icon.svelte';
   import AboutTab from './settings/AboutTab.svelte';
@@ -11,14 +12,17 @@
   import { slideMarker } from '../lib/marker.ts';
   import { EXIT, fade, pop } from '../lib/motion.ts';
   import { pref } from '../lib/prefs.ts';
-  import { SETTINGS_TABS, isSettingsTab, moveTab, sectionOf, wrapFocus, type SettingsTabId } from '../lib/settings.ts';
+  import { currentProject } from '../lib/project.ts';
+  import { SETTINGS_TABS, moveTab, openingTab, sectionOf, settingsTabsFor, wrapFocus, type SettingsTabId } from '../lib/settings.ts';
   import { SettingsSession } from '../lib/settings-session.svelte.ts';
 
-  let { onclose }: { onclose: () => void } = $props();
+  let { onclose, start }: { onclose: () => void; start?: SettingsTabId } = $props();
 
   const session = new SettingsSession();
-  const saved = pref.get('settingsTab', 'general');
-  let tab = $state<SettingsTabId>(isSettingsTab(saved) ? saved : 'general');
+  // App re-keys Settings on the selected project, so the project read once here holds for this open.
+  const hasProject = currentProject() !== null;
+  const tabs = settingsTabsFor(hasProject);
+  let tab = $state<SettingsTabId>(openingTab(tabs, untrack(() => start), pref.get('settingsTab', 'general')));
   let dialog = $state<HTMLDivElement>();
   let panel = $state<HTMLDivElement>();
   let wide = $state(false);
@@ -65,7 +69,7 @@
   }
 
   function railKey(e: KeyboardEvent): void {
-    const next = moveTab(tab, e.key);
+    const next = moveTab(tab, e.key, tabs);
     if (next === null) return;
     e.preventDefault();
     select(next, true);
@@ -116,7 +120,8 @@
     mq.addEventListener('change', onWidth);
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    session.loadConfig();
+    // The config is a project's: with none selected there is nothing to load.
+    if (hasProject) session.loadConfig();
     tick().then(() => document.getElementById(`settings-tab-${tab}`)?.focus());
     return () => {
       mq.removeEventListener('change', onWidth);
@@ -134,7 +139,7 @@
     </div>
     <div class="flex flex-col md:flex-row flex-1 min-h-0">
       <div role="tablist" tabindex="-1" aria-label={$t('settings.sections')} aria-orientation={wide ? 'vertical' : 'horizontal'} {@attach slideMarker('.active', 'bar-left')} class="navlist slide-marker {wide ? '' : 'row'} shrink-0 overflow-x-auto md:overflow-y-auto overscroll-contain md:w-(--size-settings-rail) border-b md:border-b-0 md:border-r border-line p-2" onkeydown={railKey}>
-        {#each SETTINGS_TABS as item (item.id)}
+        {#each tabs as item (item.id)}
           <button
             role="tab"
             id="settings-tab-{item.id}"

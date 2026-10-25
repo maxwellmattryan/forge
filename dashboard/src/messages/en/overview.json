@@ -1,0 +1,14 @@
+{
+  "overview": {
+    "title": "Overview",
+    "sub": "Every project registered on this machine",
+    "empty": "No project is registered on this machine. Run `forge dash` in a project, or `forge project add <path>`.",
+    "indexError": "Couldn't read the machine index: {error}",
+    "projects": "Projects",
+    "project": "Project",
+    "path": "Path",
+    "active": "Active",
+    "waiting": "Waiting on you",
+    "sessions": "Sessions"
+  }
+}

@@ -1,12 +1,13 @@
-// The dashboard's entry: reads the page's project from `?project=`, then mounts the Svelte app into the
-// empty <body> that index.html ships.
+// The dashboard's entry: turns a `?project=<name>` link into its hash route, then mounts the Svelte app into the
+// empty <body> that index.html ships. The route selects the project (App's first route() call).
 import { mount } from 'svelte';
 import App from './App.svelte';
-import { projectFromSearch, setProject } from './lib/project.ts';
+import { entryRedirect } from './lib/routes.ts';
 import { followSystemTheme } from './lib/theme.ts';
 
 followSystemTheme();
-// Before the app mounts, so its first request already names the project.
-setProject(projectFromSearch(location.search));
+// `forge dash`, the README and notify webhooks still print `/?project=<name>#/<view>`: before the app reads the hash.
+const entry = entryRedirect(location.search, location.hash);
+if (entry !== null) history.replaceState(null, '', entry);
 
 mount(App, { target: document.body });
