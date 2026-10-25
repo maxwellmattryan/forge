@@ -181,7 +181,7 @@ export function requestLine(r: RequestInfo, opts: { at: Date; color: boolean }):
   if (!failed) {
     const rest = PROJECT_PATH.exec(r.path)?.[1];
     const stream = r.sse || r.path === '/api/projects/events' || rest === '/events' || (rest !== undefined && TRANSCRIPT_EVENTS.test(rest));
-    const quiet = r.method === 'GET' && (r.path === '/' || r.path === '/index.html' || r.path.startsWith('/assets/') || r.path === '/forge.png' || r.path === '/api/projects' || rest === '/state');
+    const quiet = r.method === 'GET' && (r.path === '/' || r.path === '/index.html' || r.path.startsWith('/assets/') || r.path === '/forge.png' || r.path === '/api/projects' || r.path === '/api/projects/stats' || rest === '/state');
     if (stream || quiet) return null;
   }
   const ms = Number.isFinite(r.ms) && r.ms >= 0 ? Math.round(r.ms) : 0;

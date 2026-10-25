@@ -10,7 +10,8 @@ const project = (name: string, over: Partial<MachineProjectSummary> = {}): Machi
   status: 'ok',
   loaded: true,
   jobs: { active: 2, waiting: 1 },
-  daemon: { enabled: true, wanted: true, foreman: false, live: 1, maxConcurrent: 3 },
+  latest: null,
+  daemon: { enabled: true, wanted: true, foreman: false, office: 'off', live: 1, maxConcurrent: 3 },
   ...over,
 });
 const response = (projects: MachineProjectSummary[]): ProjectsResponse => ({ error: null, machine: { maxConcurrent: 4, source: 'auto', live: 1 }, projects });

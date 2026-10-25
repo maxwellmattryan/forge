@@ -49,6 +49,8 @@ export const API_CHANGES = [
   { id: 'session-meter' },
   // One server per machine: project routes under /api/p/<project>/, GET /api/projects and its stream, DaemonPoolState.machine and .needsApproval.
   { id: 'machine-server' },
+  // The Overview: MachineProjectSummary.latest and .daemon.office, GET /api/projects/stats.
+  { id: 'overview' },
 ] as const;
 
 /**

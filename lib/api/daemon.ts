@@ -1,6 +1,6 @@
 // The session pools: /api/daemon, /api/daemon/mode, /api/daemon/permission, /api/daemons/log and the /api/events SSE frames,
-// plus the machine dashboard's own GET /api/projects and /api/projects/events, and the machine cap every pool reports.
-import type { Effort } from './enums.ts';
+// plus the machine dashboard's own GET /api/projects, /api/projects/events and /api/projects/stats, and the machine cap every pool reports.
+import type { Effort, JobState, Stage } from './enums.ts';
 
 /** The machine cap as a pool reports it: DaemonPoolState.machine. */
 export interface MachineSlotsState {
@@ -20,7 +20,32 @@ export interface MachineProjectSummary {
   loaded: boolean;
   /** `active`: not done, cancelled or failed; `waiting`: waiting on anything but `external`. */
   jobs: { active: number; waiting: number } | null;
-  daemon: { enabled: boolean; wanted: boolean; foreman: boolean; live: number; maxConcurrent: number } | null;
+  /** The newest non-eval job by updatedAt (its own title, unaltered: job text, rendered escaped), null with none or while not loaded. */
+  latest: { id: string; title: string; at: string; stage: Stage; state: JobState } | null;
+  /** `office`: the `_office` session's status. */
+  daemon: { enabled: boolean; wanted: boolean; foreman: boolean; office: DaemonStatus; live: number; maxConcurrent: number } | null;
+}
+
+/** One loaded project in GET /api/projects/stats; arrays are parallel to ProjectsStatsResponse.days. */
+export interface ProjectStatsSeries {
+  name: string;
+  /** Non-eval jobs that reached `done`, per UTC day of finishedAt (else updatedAt). */
+  shipped: number[];
+  /** The spend ledger's estimated USD per UTC day, reported and metered. */
+  costUsd: number[];
+  dayUsd: number;
+  monthUsd: number;
+  /** Why the project's stats could not be read (its arrays are zeros then), else null. */
+  error: string | null;
+}
+
+/** GET /api/projects/stats?days=7|30|90: getProjectsStats in lib/server/routes/machine.ts. */
+export interface ProjectsStatsResponse {
+  generatedAt: string;
+  /** The window's UTC dates (`YYYY-MM-DD`), oldest first, ending today. */
+  days: string[];
+  /** Every loaded project, sorted by name. */
+  projects: ProjectStatsSeries[];
 }
 
 /** GET /api/projects, and the body of every /api/projects/events frame. */
