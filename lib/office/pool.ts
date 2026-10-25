@@ -22,8 +22,8 @@ import { daemonPlatformProblem } from '#core/os/platform.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, listRequests, requestScope, validScope } from '#core/job/requests.ts';
 import type { Config, RepoBudgetStatus, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, Job, PermissionDecision } from '#core/types.ts';
 
-/** The pool's own state: state() below. The server adds `clients` to make a DaemonPoolState. */
-export type PoolState = Omit<DaemonPoolState, 'clients'>;
+/** The pool's own state: state() below. The server adds `clients` and `needsApproval` to make a DaemonPoolState. */
+export type PoolState = Omit<DaemonPoolState, 'clients' | 'needsApproval'>;
 
 /** The pool createPool returns: one per `forge dash`. */
 export interface DaemonPool {

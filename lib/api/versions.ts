@@ -47,7 +47,7 @@ export const API_CHANGES = [
   { id: 'daemon-budget' },
   // Stats.cost.sessions (supervisor-metered spend by session kind) and JobEvent.metered|unmeasured on agent-end.
   { id: 'session-meter' },
-  // One server per machine: project routes under /api/p/<project>/, GET /api/projects and its stream, DaemonPoolState.machine.
+  // One server per machine: project routes under /api/p/<project>/, GET /api/projects and its stream, DaemonPoolState.machine and .needsApproval.
   { id: 'machine-server' },
 ] as const;
 

@@ -172,7 +172,7 @@ export async function postDaemon(ctx: ServerCtx, req: http.IncomingMessage, res:
   if (problem) return jsonStatus(res, 409, { error: problem });
   // The press is a human's approval of the files Forge trusts as they are now; a restart boots only while they still match.
   approveTrust(ctx.machine.home, root);
-  ctx.bootNote = null;
+  ctx.needsApproval = false;
   ctx.pool?.start('http');
   return json(res, ctx.poolState());
 }

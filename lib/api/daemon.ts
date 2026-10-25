@@ -118,6 +118,8 @@ export interface DaemonPoolState {
   /** Running job sessions (the inbox is not counted against maxConcurrent). */
   live: number;
   lastError: string | null;
+  /** The pool is off only because no human has approved the files Forge trusts as they are now (the machine dashboard boots a project's pool only while its approval matches); Start approves them. */
+  needsApproval: boolean;
   inbox: DaemonSessionState;
   /** The foreman's office session (scope `_office`), never counted against maxConcurrent. */
   office: DaemonSessionState;

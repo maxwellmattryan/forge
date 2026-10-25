@@ -298,16 +298,17 @@ test('a restart boots a project only while the files a human approved are unchan
     port = Number(new URL(current.url).port);
   };
   try {
-    assert.equal((await daemons('a')).wanted, true, 'an approved project boots with the server');
+    const approved = await daemons('a');
+    assert.deepEqual([approved.wanted, approved.needsApproval], [true, false], 'an approved project boots with the server');
     const idle = await daemons('b');
     assert.equal(idle.wanted, false, 'a project no human started stays off');
-    assert.match(idle.lastError, /press Start/);
+    assert.deepEqual([idle.needsApproval, idle.lastError], [true, null], 'it asks for approval, and that is no error');
 
     // Start is a human's approval of the files as they are: b runs now and boots at the next restart.
     const post = await poster(port);
     assert.equal((await post(first.api('b', '/daemon'), { action: 'start' })).status, 200);
     const runningB = await daemons('b');
-    assert.deepEqual([runningB.wanted, runningB.lastError], [true, null]);
+    assert.deepEqual([runningB.wanted, runningB.needsApproval, runningB.lastError], [true, false, null]);
     assert.equal(trustApproved(first.home, b.dir), true);
     await restart();
     assert.equal((await daemons('b')).wanted, true, 'unchanged files boot again');
@@ -319,7 +320,7 @@ test('a restart boots a project only while the files a human approved are unchan
     assert.equal((await daemons('a')).wanted, true, "a's files did not change");
     const held = await daemons('b');
     assert.equal(held.wanted, false, "b's changed files keep its pool off");
-    assert.match(held.lastError, /press Start/);
+    assert.deepEqual([held.needsApproval, held.lastError], [true, null]);
     assert.equal(current.entry('b')!.pool.state().wanted, false);
   } finally {
     for (const srv of started) await srv.close();

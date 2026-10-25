@@ -24,8 +24,6 @@ const REFRESH_MS = 2000;
 /** The shortest gap between two re-reads that requests for unregistered names force while the index file is unchanged. */
 const MISS_REFRESH_MS = 250;
 const FINISHED = ['done', 'cancelled', 'failed'];
-/** Why a project whose daemon is enabled was not booted; the dashboard shows it as the pool's error until Start. */
-const UNAPPROVED = "no human has started this project's daemon with the files it has now; review .forge/config.yml and the other files Forge trusts (notes, reviewers, CLAUDE.md, AGENTS.md), then press Start";
 
 /** One project's route context: the machine's shared objects plus its own caches. */
 export function createContext(machine: MachineCtx, name: string, root: string): ServerCtx {
@@ -42,10 +40,11 @@ export function createContext(machine: MachineCtx, name: string, root: string): 
     clients: machine.clients,
     pool: null,
     backlogCache: null,
-    bootNote: null,
+    needsApproval: false,
     poolState: (): DaemonPoolState => {
       const st = ctx.pool ? ctx.pool.state() : idlePoolState(root);
-      return { ...st, lastError: st.lastError ?? (st.wanted ? null : ctx.bootNote), clients: machine.clients.size };
+      // A flag, not a message: the dashboard words it (its Start approves the files), and it is no error.
+      return { ...st, needsApproval: !st.wanted && ctx.needsApproval, clients: machine.clients.size };
     },
     // Asked of the pool's session for this job, under every id it has had, never of ps or the session records.
     drive: (job) => whoDrives(job, ctx.pool?.facts(job.id) ?? null),
@@ -126,7 +125,7 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
         // snapshots them as approved, so a restart, or `forge dash` in another repo, must not do that
         // for bytes nobody looked at (a session's change that stopped this daemon, a pull).
         if (trustApproved(home, root)) pool.start('boot');
-        else ctx.bootNote = UNAPPROVED;
+        else ctx.needsApproval = true;
       }
     } catch {}
   }

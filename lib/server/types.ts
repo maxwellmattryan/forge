@@ -150,8 +150,8 @@ export interface ServerCtx {
   budgetCache: { at: number; data: RepoBudgetStatus } | null;
   envMemo: Map<string, { at: number; p: Promise<JobEnvironmentResponse> }>;
   envsCache: { at: number; p: Promise<EnvironmentsResponse> } | null;
-  /** Why the pool was not booted with the server (its files are not the ones a human approved); a Start clears it. */
-  bootNote: string | null;
+  /** The pool was not booted with the server because its files are not the ones a human approved; a Start clears it. */
+  needsApproval: boolean;
   poolState: () => DaemonPoolState;
   /** Who drives a job, asked of the pool session whose scope is that job (lib/office/driver.ts whoDrives). */
   drive: (job: Pick<LoadedJob, 'id' | 'lease'>) => Drive;
