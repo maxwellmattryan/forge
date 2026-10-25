@@ -1,4 +1,4 @@
-<!-- Backlog: the tracker's items with their triage readiness, and Start for unclaimed ones (needs-info included: starting one overrides triage). -->
+<!-- Issues: the tracker's items with their triage readiness, and Start for unclaimed ones (needs-info included: starting one overrides triage). -->
 <script lang="ts">
   import Banner from '../components/Banner.svelte';
   import Chip from '../components/Chip.svelte';

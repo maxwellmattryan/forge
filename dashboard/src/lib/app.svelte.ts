@@ -43,7 +43,7 @@ import { readSidebar, type SidebarState } from './sidebar.ts';
 
 const SIDE_START: SidebarState = readSidebar(pref.get);
 
-/** The backlog, or the error a forced refresh hit (that reply has no tracker). */
+/** The tracker's items, or the error a forced refresh hit (that reply has no tracker). */
 export type BacklogView = Omit<BacklogResponse, 'tracker'> & { tracker?: string };
 export type DrawerContent = { html: true } | { text: string };
 /** What Drawer.svelte shows; reassigned only where the old renderDrawer() ran. */

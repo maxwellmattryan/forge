@@ -51,7 +51,7 @@
     "send": "Send",
     "working": "Working…",
     "hints": {
-      "next": "Take the next ready backlog items: next [n]",
+      "next": "Take the next ready issues: next [n]",
       "issue": "Start a job from a tracker item: issue <ref>",
       "continue": "Resume a queued, failed or stalled job: continue <job> (or resume <job>)",
       "approve": "Approve a waiting job: approve <job> [note]",
@@ -70,9 +70,9 @@
     "empty": "No suggestions",
     "verbLike": "No command matches; this starts a new job",
     "noJobs": "No open jobs match",
-    "noItems": "No open backlog items match",
-    "backlogLoading": "Loading the backlog…",
-    "backlogFailed": "Couldn't load the backlog: {error}",
+    "noItems": "No open issues match",
+    "issuesLoading": "Loading issues…",
+    "issuesFailed": "Couldn't load issues: {error}",
     "noProject": "Choose a project first: project <name>"
   }
 }
