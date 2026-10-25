@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import readline from 'node:readline/promises';
-import { forgeHome, paths, PLUGIN_ROOT } from '#core/paths.ts';
+import { exists, forgeHome, paths, PLUGIN_ROOT } from '#core/paths.ts';
 import { loadConfig } from '#core/config/load.ts';
 import { addProject, ensureMachineDirs, listProjects, projectByRoot } from '#engine/project/machine-index.ts';
 import { approveTrust } from '#engine/project/trust-approval.ts';
@@ -42,13 +42,13 @@ export const HELP: HelpGroup[] = [
           ['--port N', "the first port to try (default: this repo's dashboard.port, 7400)"],
           ['--foreground', 'run in the foreground even when one is running'],
           ['--permission-mode MODE', "the job sessions' default permission mode until it stops: default (ask), auto or dontAsk (refuse); refused in a daemon session"],
-          ['--dev', "serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist for every project of FORGE_HOME, with no pool booting until Start; refused while a proven machine dashboard runs (a stale record does not block it)"],
+          ['--dev', "serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist for every project of FORGE_HOME, with no pool booting until Start; it builds nothing itself, so start it through npm run dev; refused from a forge without Vite (an installed plugin) and while a proven machine dashboard runs (a stale record does not block it)"],
           ['--quiet', 'in the foreground in human mode, print only the banner (no activity log)'],
         ],
         exits: [
           [
             1,
-            "no free port near N, --dev while a proven machine dashboard is running, this repo's default name registered for another path, --permission-mode in a daemon session, or a daemon session that would start, stop or register (only the report for a registered project is allowed)",
+            "no free port near N, --dev from a forge without Vite or while a proven machine dashboard is running, this repo's default name registered for another path, --permission-mode in a daemon session, or a daemon session that would start, stop or register (only the report for a registered project is allowed)",
           ],
         ],
       },
@@ -206,6 +206,11 @@ export async function dash(root: string | null, config: Config | null, flags: Re
     return out({ url: `${current.url}/?project=${known.name}`, pid: current.pid, running: true, project: known.name, added: false }, flags);
   }
   if (flags.stop) return stopDashboards(home, root, current, flags);
+  // The dev build comes from a checkout's `npm run dev`; an installed plugin has no Vite, so its page would
+  // answer 503 for good.
+  if (flags.dev && !exists(path.join(PLUGIN_ROOT, 'node_modules', 'vite'))) {
+    throw new ForgeError(`--dev serves a Forge checkout's npm run dev build, and this forge (${PLUGIN_ROOT}) has none; run npm run dev [-- --permission-mode MODE] in the checkout`);
+  }
   // A human's `forge dash` in this repo approves the files Forge trusts as they are now when it starts the dashboard or
   // registers the repo: its pool boots with them, and a later restart boots it only while they stay the same. A dev
   // dashboard boots nothing, so it approves nothing.
