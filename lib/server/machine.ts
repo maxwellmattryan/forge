@@ -100,7 +100,7 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
 
   function load(name: string, root: string): void {
     const ctx = createContext(machine, name, root);
-    const pool = createPool(root, { ...opts.daemon, slots: machine.slots });
+    const pool = (opts.createPool ?? createPool)(root, { ...opts.daemon, slots: machine.slots });
     ctx.pool = pool;
     // Each stream gets only its own project's and session's lines and state.
     const unsubscribe = pool.subscribe((e) => {
@@ -144,8 +144,12 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
       machine.clients.delete(res);
       res.end();
     }
-    if (stop) await e.pool.stop('removed');
-    await e.pool.close();
+    try {
+      if (stop) await e.pool.stop('removed');
+    } finally {
+      // Closed even when its stop fails, so it leaves the machine cap and its timers stop.
+      await e.pool.close();
+    }
   }
 
   function refresh(force = false): void {
@@ -168,8 +172,16 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
     }
     statuses = listed;
     const want = new Map(listed.filter((p) => p.status !== 'missing').map((p) => [p.name, p.path]));
-    for (const e of [...loaded.values()]) if (want.get(e.name) !== e.root) void unload(e, true);
-    for (const [name, root] of want) if (!loaded.has(name)) load(name, root);
+    // One project's failure is its own: it never escapes the timer or a request, nor skips the projects after it.
+    for (const e of [...loaded.values()]) if (want.get(e.name) !== e.root) unload(e, true).catch(() => {});
+    for (const [name, root] of want) {
+      if (loaded.has(name)) continue;
+      try {
+        load(name, root);
+      } catch {
+        // Not loaded (its routes 404, /api/projects lists it unloaded); the next forced re-read tries it again.
+      }
+    }
   }
 
   const summary = (p: MachineProject & { status: ProjectStatus }): MachineProjectSummary => {

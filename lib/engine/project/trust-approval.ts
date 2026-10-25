@@ -1,5 +1,6 @@
 // What a human last approved for each project: the trustDigest of the files Forge trusts (config, notes,
-// reviewers, CLAUDE.md, AGENTS.md…) when they pressed Start or ran `forge dash` in that repo. It is kept in
+// reviewers, CLAUDE.md, AGENTS.md…) its pool ran under when they pressed Start, or as they were when `forge dash`
+// in that repo started the dashboard or registered the repo. It is kept in
 // `<FORGE_HOME>/trust/<rootLabel>` (0600, in the 0700 home), outside every session's write roots. A machine
 // dashboard boots a project's pool only while its files still match, so a change nobody looked at (a
 // session's, a pull's, one that stopped the daemon for a trust change) is never approved by a restart or by
@@ -19,12 +20,15 @@ export function trustFile(home: string, root: string): string {
   return path.join(machinePaths(home).dir, 'trust', rootLabel(root));
 }
 
-/** Records the files `root` has now as approved. Only a human's act calls it: Start in the dashboard, or `forge dash` run in the repo. */
-export function approveTrust(home: string, root: string): void {
+/**
+ * Records `digest` (by default the files `root` has now) as approved. Only a human's act calls it: Start in the
+ * dashboard, which passes the snapshot its pool runs under, or `forge dash` run in the repo.
+ */
+export function approveTrust(home: string, root: string, digest: string = trustDigest(root)): void {
   ensureMachineDirs(home);
   const file = trustFile(home, root);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  writeJsonPrivate(file, { digest: trustDigest(root), approvedAt: new Date().toISOString() });
+  writeJsonPrivate(file, { digest, approvedAt: new Date().toISOString() });
 }
 
 /** Whether the files `root` has now are exactly the ones a human last approved. No record, or one that doesn't read, is no. */

@@ -232,6 +232,12 @@ test('dash in a second repo opens the running machine dashboard', { skip: proces
     assert.equal(second.status, 0, second.stderr);
     assert.deepEqual(json(second.stdout), { url: `${origin}/?project=${nameB}`, pid, running: true, project: nameB, added: true });
     assert.equal(trustApproved(home, b.dir), true, 'and forge dash in b approves its own');
+    // Opening the running dashboard again for a registered repo approves nothing: a change since then waits for Start.
+    fs.appendFileSync(path.join(b.dir, 'CLAUDE.md'), 'a change nobody reviewed\n');
+    const reopened = await forgeAsync(b.dir, ['dash', '--json'], env);
+    assert.equal(reopened.status, 0, reopened.stderr);
+    assert.deepEqual(json(reopened.stdout), { url: `${origin}/?project=${nameB}`, pid, running: true, project: nameB, added: false });
+    assert.equal(trustApproved(home, b.dir), false, 'a report for a registered repo approves nothing');
     const list = json((await forgeAsync(b.dir, ['project', 'list', '--json'], env)).stdout);
     assert.deepEqual(list.projects.map((p: { name: string }) => p.name).sort(), [nameA, nameB].sort());
     const dashes = execFileSync('ps', ['-A', '-ww', '-o', 'command='], { encoding: 'utf8' })

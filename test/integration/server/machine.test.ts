@@ -17,6 +17,7 @@ import { ackRequest, enqueue } from '#core/job/requests.ts';
 import { meterFile } from '#engine/metrics/meter.ts';
 import { addProject, removeProject, setMachineSettings } from '#engine/project/machine-index.ts';
 import { approveTrust, trustApproved } from '#engine/project/trust-approval.ts';
+import { createPool } from '#office/pool.ts';
 import { startServer } from '../../../lib/server/start.ts';
 import type { RunningServer } from '../../../lib/server/types.ts';
 import { FIXTURE_DIST } from '../../dist.ts';
@@ -246,6 +247,48 @@ test('the machine cap holds across projects', async () => {
   }
 });
 
+test("a project whose ticks fail holds no slot from another project's waiter", async () => {
+  const a = daemonRepo(2);
+  const b = daemonRepo(2);
+  const k = kit();
+  const s = await serveProjects([{ dir: a.dir, name: 'a' }, { dir: b.dir, name: 'b' }], { daemon: k.opts });
+  try {
+    setMachineSettings(s.home, { maxConcurrent: 1 });
+    s.refresh();
+    const job = (r: ReturnType<typeof tempRepo>, title: string) => createJob(r.dir, loadConfig(r.dir).config, { title }).id;
+    const [a1, b1, b2] = [job(a, 'a one'), job(b, 'b one'), job(b, 'b two')];
+    const pa = s.entry('a')!.pool;
+    const pb = s.entry('b')!.pool;
+    const reqs: Record<string, string> = {};
+    const ask = async (r: ReturnType<typeof tempRepo>, id: string) => {
+      reqs[id] = enqueue(r.dir, null, { type: 'resume', job: id, from: 'dashboard' }).id;
+      await new Promise((res) => setTimeout(res, 3));
+    };
+    await ask(b, b1);
+    pb.poke();
+    await waitFor(() => k.alive(b1).length === 1, { what: 'b1' });
+    // a1 is older than b2, so while b1 has the machine's one slot, a holds the next one for a1.
+    await ask(a, a1);
+    pa.poke();
+    await ask(b, b2);
+    pb.poke();
+    assert.deepEqual([pa.state().jobs[a1]?.waiting, pb.state().jobs[b2]?.waiting], [true, true]);
+
+    // a's config breaks: each tick of a now fails before it reaches its waiters, so a can spawn nothing.
+    fs.writeFileSync(path.join(a.dir, '.forge', 'config.yml'), 'daemon: [unclosed\n');
+    pa.poke();
+    assert.match(pa.state().lastError ?? '', /^daemon tick failed/);
+    ackRequest(b.dir, reqs[b1]!, { status: 'done' });
+    k.alive(b1)[0]!.exit(0, null);
+    await waitFor(() => k.alive(b2).length === 1, { what: 'b2 to take the slot b1 freed' });
+    assert.equal(k.alive(a1).length, 0);
+  } finally {
+    await s.cleanup();
+    a.cleanup();
+    b.cleanup();
+  }
+});
+
 test('registering and removing a project while the server runs', async () => {
   const a = tempRepo();
   const c = daemonRepo();
@@ -277,6 +320,43 @@ test('registering and removing a project while the server runs', async () => {
   } finally {
     await s.cleanup();
     a.cleanup();
+    c.cleanup();
+  }
+});
+
+test('a project whose pool fails to build or to stop leaves every other project served', async () => {
+  const [a, b, c] = [tempRepo(), tempRepo(), tempRepo()];
+  const rejections: unknown[] = [];
+  const onRejection = (e: unknown) => void rejections.push(e);
+  process.on('unhandledRejection', onRejection);
+  let cClosed = false;
+  const s = await serveProjects([{ dir: a.dir, name: 'a' }, { dir: b.dir, name: 'b' }, { dir: c.dir, name: 'c' }], {
+    createPool(root, o) {
+      if (root === b.dir) throw new Error("b's pool cannot be built");
+      const pool = createPool(root, o);
+      if (root !== c.dir) return pool;
+      return { ...pool, stop: () => Promise.reject(new Error("c's pool cannot stop")), close: () => pool.close().then(() => void (cClosed = true)) };
+    },
+  });
+  try {
+    // b sorts between a and c: its failure skips neither, and a request for it is a 404, not a 500.
+    assert.deepEqual(s.entries().map((e) => e.name), ['a', 'c']);
+    assert.equal((await hit(s.port, { path: s.api('b', '/state') })).status, 404);
+    assert.deepEqual((await getJson(s.port, '/api/projects')).projects.map((p: { name: string; loaded: boolean }) => [p.name, p.loaded]), [['a', true], ['b', false], ['c', true]]);
+
+    // Removed, c's stop rejects: the refresh neither throws nor leaves the rejection unhandled, and c's pool still closes.
+    removeProject(s.home, 'c');
+    s.refresh();
+    assert.equal(s.entry('c'), null);
+    await waitFor(() => cClosed, { what: "c's pool to close" });
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(rejections, [], 'no unhandled rejection');
+    assert.equal((await hit(s.port, { path: s.api('a', '/state') })).status, 200);
+  } finally {
+    process.off('unhandledRejection', onRejection);
+    await s.cleanup();
+    a.cleanup();
+    b.cleanup();
     c.cleanup();
   }
 });
@@ -327,6 +407,29 @@ test('a restart boots a project only while the files a human approved are unchan
     await first.cleanup();
     a.cleanup();
     b.cleanup();
+  }
+});
+
+test("Start approves the files its pool runs under, never a running session's edit", async () => {
+  const a = daemonRepo();
+  const k = kit();
+  const s = await serveProjects([{ dir: a.dir, name: 'a' }], { daemon: k.opts });
+  try {
+    // Booted from an approval, with its inbox child alive: a start keeps the snapshot it booted with while one lives.
+    await waitFor(() => k.alive('_inbox').length === 1, { what: "a's inbox" });
+    fs.appendFileSync(path.join(a.dir, 'CLAUDE.md'), 'a running session wrote this\n');
+    const post = await poster(s.port);
+    assert.equal((await post(s.api('a', '/daemon'), { action: 'start' })).status, 200);
+    assert.equal(trustApproved(s.home, a.dir), false, "a Start pressed mid-turn approves the pool's snapshot, not the edit");
+
+    // The trust change stops every child; then a Start snapshots the files as they are, and approves those.
+    await waitFor(() => k.children.every((c) => c.exited), { what: 'every child to stop' });
+    assert.equal((await post(s.api('a', '/daemon'), { action: 'start' })).status, 200);
+    assert.equal(trustApproved(s.home, a.dir), true);
+    assert.equal(s.entry('a')!.pool.state().wanted, true);
+  } finally {
+    await s.cleanup();
+    a.cleanup();
   }
 });
 

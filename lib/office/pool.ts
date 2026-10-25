@@ -41,6 +41,8 @@ export interface DaemonPool {
   /** Sets the job sessions' default as `actor`: every job session without its own choice, the running ones now. */
   setJobPermissionMode(mode: DaemonPermissionMode, actor: EventActor): { error: string | null };
   poke(): void;
+  /** The trustDigest the pool runs under: taken by the last start with no child alive, null before one. What a Start approves. */
+  trusted(): string | null;
   state(): PoolState;
   sessionState(scope: string): DaemonSessionState;
   /** What the pool knows about one scope's session (lib/office/driver.ts whoDrives reads it), or null with none. */
@@ -288,6 +290,8 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
   }
 
   function tick(): void {
+    // First: a tick that throws below (a broken config.yml) spawns nothing, so it must hold no other project's waiter.
+    heldOldest = null;
     if (!wanted || closed) return;
     try {
       const c = config();
@@ -334,7 +338,6 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       waiters.sort((a, b) => a.oldest.localeCompare(b.oldest));
       let live = jobSessions().filter((s) => s.running).length;
       let held = 0;
-      heldOldest = null;
       for (const w of waiters) {
         if (!wanted) return;
         if (live < maxConcurrent && (!slots || slots.mayTake(member, w.oldest))) {
@@ -568,16 +571,13 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       }
       return { error: null };
     },
-    poke() {
-      tick();
-    },
+    poke: () => tick(),
+    trusted: () => trusted,
     state,
     sessionState(scope) {
       return sessions.get(scope)?.state() ?? offState(root, scope);
     },
-    facts(scope) {
-      return sessions.get(scope)?.facts() ?? null;
-    },
+    facts: (scope) => sessions.get(scope)?.facts() ?? null,
     subscribe(fn) {
       subscribers.add(fn);
       return () => void subscribers.delete(fn);

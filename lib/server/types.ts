@@ -2,7 +2,7 @@
 // and the per-project context routes get, a loaded project entry, the route tables' rows, and what
 // the onRequest hook reports.
 import type http from 'node:http';
-import type { DaemonPool } from '#office/pool.ts';
+import type { DaemonPool, createPool } from '#office/pool.ts';
 import type { Drive } from '#office/driver.ts';
 import type { MachineSlots } from '#office/slots.ts';
 import type { GhRunner, GitHubTarget } from '#integrations/github/preview.ts';
@@ -44,6 +44,8 @@ export interface ServerOptions {
   github?: GitHub;
   /** Test seam: Claude Code's projects dir (claudeProjectsDir() by default). */
   projectsDir?: string;
+  /** Test seam: what builds each project's pool (lib/office/pool.ts createPool by default). */
+  createPool?: typeof createPool;
   /**
    * Called once per request when its response finishes or closes early. Only `forge dash`'s activity
    * log sets it (lib/cli/activity.ts); it observes requests and never changes a response.

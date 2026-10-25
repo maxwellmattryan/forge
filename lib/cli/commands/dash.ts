@@ -35,7 +35,7 @@ export const HELP: HelpGroup[] = [
         command: 'dash',
         args: '[--background|--stop] [--port N] [--permission-mode MODE] [--dev] [--quiet]',
         summary:
-          "open the machine's dashboard, one server for every project in the machine index: in a repo with .forge/config.yml it registers that repo first (forge project add's default name) and approves the files Forge trusts there as they are (a project's daemon boots with the dashboard only while they still match), then prints the running one's {url: <origin>/?project=<name>, pid, running: true, project, added}, or starts it in the foreground (prints its URL), or detached with --background ({url, pid, started: true, project, added}); outside a project it registers nothing (project: null). Its record is <FORGE_HOME>/dashboard.json ({pid, url, startedAt}, 0600, never the token); a daemon session may only get the report for a registered project",
+          "open the machine's dashboard, one server for every project in the machine index: in a repo with .forge/config.yml it registers that repo first (forge project add's default name) and, when it registers it or starts the dashboard, approves the files Forge trusts there as they are (a project's daemon boots with the dashboard only while they still match; a report for a repo already registered approves nothing), then prints the running one's {url: <origin>/?project=<name>, pid, running: true, project, added}, or starts it in the foreground (prints its URL), or detached with --background ({url, pid, started: true, project, added}); outside a project it registers nothing (project: null). Its record is <FORGE_HOME>/dashboard.json ({pid, url, startedAt}, 0600, never the token); a daemon session may only get the report for a registered project",
         flags: [
           ['--background', 'start it detached and print {url, pid, started: true, project, added}'],
           ['--stop', "stop the machine's dashboard and, in a repo, an older per-repo dashboard (.forge/runtime/dashboard.json), then reap every registered project's orphaned sessions ({stopped, daemonReaped}); a record whose pid is not provably that dashboard is cleared without signalling anything"],
@@ -206,15 +206,18 @@ export async function dash(root: string | null, config: Config | null, flags: Re
     return out({ url: `${current.url}/?project=${known.name}`, pid: current.pid, running: true, project: known.name, added: false }, flags);
   }
   if (flags.stop) return stopDashboards(home, root, current, flags);
-  // A human's `forge dash` in this repo approves the files Forge trusts as they are now: its pool boots with them,
-  // and a later restart boots it only while they stay the same. A dev dashboard boots nothing, so it approves nothing.
+  // A human's `forge dash` in this repo approves the files Forge trusts as they are now when it starts the dashboard or
+  // registers the repo: its pool boots with them, and a later restart boots it only while they stay the same. A dev
+  // dashboard boots nothing, so it approves nothing.
   const approve = (): void => {
     if (project && !flags.dev) approveTrust(home, fs.realpathSync(project));
   };
   let named: { project: string | null; added?: boolean } = { project: null };
   if (project) {
-    // Before the registration, so a running server that loads it at once already finds the files approved.
-    if (current) approve();
+    // Before the registration, so a running server that loads it at once already finds the files approved. Only for a
+    // repo this registers: opening the running dashboard for a registered one approves nothing, so a change since its
+    // last approval (one a "trusted config changed" notice points at) still waits for Start.
+    if (current && projectByRoot(home, project) === null) approve();
     const r = addProject(home, fs.realpathSync(project));
     named = { project: r.project.name, added: r.added };
   }

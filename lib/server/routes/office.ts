@@ -170,10 +170,13 @@ export async function postDaemon(ctx: ServerCtx, req: http.IncomingMessage, res:
   if (config.daemon?.enabled !== true) return jsonStatus(res, 409, { error: 'daemon.enabled is false in .forge/config.yml' });
   const problem = daemonProblems(config, root)[0];
   if (problem) return jsonStatus(res, 409, { error: problem });
-  // The press is a human's approval of the files Forge trusts as they are now; a restart boots only while they still match.
-  approveTrust(ctx.machine.home, root);
-  ctx.needsApproval = false;
   ctx.pool?.start('http');
+  // The press is a human's approval of the files the pool now runs under, and a restart boots only while they still
+  // match. Its own snapshot, not the files as they are: a start keeps the old one while a child lives, so a running
+  // session's edit is never approved with it.
+  const digest = ctx.pool?.trusted() ?? null;
+  if (digest !== null) approveTrust(ctx.machine.home, root, digest);
+  ctx.needsApproval = false;
   return json(res, ctx.poolState());
 }
 
