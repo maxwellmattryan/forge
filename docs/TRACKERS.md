@@ -58,7 +58,7 @@ In a project with [member repos](CONFIG.md#repos), work can be filed where it is
 - Status mirroring updates each linked issue in its own repo: this repo's through the root tracker, a member tracker's through that member's. Members get **labels only**: `statusSync: none` stays none, and `labels`, `project` and `both` all mean labels for a member issue; the root's GitHub Project is never applied to one. One repo's tracker error is logged (`tracker-error`) and never stops another's update. A member issue linked with `forge job link` is mirrored too, though linking never claims it or adds the repo.
 - The approval comment (`tracker-approval-comment`) goes on every root and member issue, each in its own repo. A member issue cites the PR as `<root owner/name>#N`, since a bare `#N` there would link the member's own PR; without a known root slug the member issue gets no comment.
 
-`forge tracker <sub>`, readiness triage and the dashboard backlog read and write the root tracker only.
+`forge tracker <sub>`, readiness triage and the dashboard's Issues page read and write the root tracker only.
 
 ## Readiness triage
 
