@@ -1,6 +1,7 @@
 // The machine dashboard's project entries: one per project registered in the machine index whose
-// directory exists, each with its own context, caches and pool (booted under the old per-repo rule),
-// kept in step with the index by a throttled re-read, and summarised for GET /api/projects.
+// directory exists, each with its own context, caches and pool (booted under the old per-repo rule, and
+// only while a human's approval of its trusted files still matches them), kept in step with the index by
+// a throttled re-read, and summarised for GET /api/projects.
 import fs from 'node:fs';
 import { daemonProblems, loadConfig } from '#core/config/load.ts';
 import { listJobs } from '#core/job/store.ts';
@@ -8,6 +9,7 @@ import { machinePaths } from '#core/paths.ts';
 import { scopeKnownValues } from '#engine/guard/known-secrets.ts';
 import { repoBudgetStatus } from '#engine/metrics/repo-budget.ts';
 import { PROJECT_NAME, listProjects, readMachineIndex, type MachineProject, type ProjectStatus } from '#engine/project/machine-index.ts';
+import { trustApproved } from '#engine/project/trust-approval.ts';
 import { createPreviewer, ghRunner } from '#integrations/github/preview.ts';
 import { whoDrives } from '#office/driver.ts';
 import { createPool } from '#office/pool.ts';
@@ -19,7 +21,11 @@ import type { Entries, MachineCtx, ProjectEntry, ProjectListener, ServerCtx } fr
 /** How long /api/p/<project>/state reuses the repo budget status. */
 const BUDGET_MEMO_MS = 5000;
 const REFRESH_MS = 2000;
+/** The shortest gap between two re-reads that requests for unregistered names force while the index file is unchanged. */
+const MISS_REFRESH_MS = 250;
 const FINISHED = ['done', 'cancelled', 'failed'];
+/** Why a project whose daemon is enabled was not booted; the dashboard shows it as the pool's error until Start. */
+const UNAPPROVED = "no human has started this project's daemon with the files it has now; review .forge/config.yml and the other files Forge trusts (notes, reviewers, CLAUDE.md, AGENTS.md), then press Start";
 
 /** One project's route context: the machine's shared objects plus its own caches. */
 export function createContext(machine: MachineCtx, name: string, root: string): ServerCtx {
@@ -36,7 +42,11 @@ export function createContext(machine: MachineCtx, name: string, root: string): 
     clients: machine.clients,
     pool: null,
     backlogCache: null,
-    poolState: (): DaemonPoolState => ({ ...(ctx.pool ? ctx.pool.state() : idlePoolState(root)), clients: machine.clients.size }),
+    bootNote: null,
+    poolState: (): DaemonPoolState => {
+      const st = ctx.pool ? ctx.pool.state() : idlePoolState(root);
+      return { ...st, lastError: st.lastError ?? (st.wanted ? null : ctx.bootNote), clients: machine.clients.size };
+    },
     // Asked of the pool's session for this job, under every id it has had, never of ps or the session records.
     drive: (job) => whoDrives(job, ctx.pool?.facts(job.id) ?? null),
     // Polls come every few seconds and the ledger stats every job's events, so the status is reused for 5 s.
@@ -65,6 +75,8 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
   let setting: number | null = null;
   let lastKey: string | null = null;
   let lastAt = 0;
+  /** When a request for an unloaded name last forced a re-read. */
+  let missAt = 0;
   let closed = false;
   let timer: NodeJS.Timeout | null = null;
 
@@ -109,7 +121,13 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
       const { config } = loadConfig(root);
       // A dev dashboard often serves fresh clones of repos that commit daemon.enabled: true, so it
       // never boots a paid session by itself; Start still works.
-      if (!opts.dev && config.daemon?.enabled === true && !daemonProblems(config, root).length) pool.start('boot');
+      if (!opts.dev && config.daemon?.enabled === true && !daemonProblems(config, root).length) {
+        // Only while the files Forge trusts are the ones a human approved for this project. Booting
+        // snapshots them as approved, so a restart, or `forge dash` in another repo, must not do that
+        // for bytes nobody looked at (a session's change that stopped this daemon, a pull).
+        if (trustApproved(home, root)) pool.start('boot');
+        else ctx.bootNote = UNAPPROVED;
+      }
     } catch {}
   }
 
@@ -178,7 +196,13 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
       if (!PROJECT_NAME.test(name)) return null;
       const hit = loaded.get(name);
       if (hit) return hit;
-      refresh(true);
+      // A miss reads the index again, but a loop of requests for a name nobody registered must not
+      // re-read it and stat every project each time: once per MISS_REFRESH_MS, or at once when the file changed.
+      const now = Date.now();
+      if (now - missAt >= MISS_REFRESH_MS || fileKey() !== lastKey) {
+        missAt = now;
+        refresh(true);
+      }
       return loaded.get(name) ?? null;
     },
     get: (name) => loaded.get(name) ?? null,

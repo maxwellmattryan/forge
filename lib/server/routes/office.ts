@@ -13,6 +13,7 @@ import { jobDir } from '#core/job/store.ts';
 import { exists } from '#core/paths.ts';
 import { INBOX_SCOPE, JOBS_SCOPE, OFFICE_SCOPE, validScope } from '#core/job/requests.ts';
 import { openConfinedLog } from '#engine/environment/status.ts';
+import { approveTrust } from '#engine/project/trust-approval.ts';
 import type { DaemonLogPage, DaemonSessionState, PermissionDecision, PostDaemonModeResponse } from '#core/types.ts';
 import { json, jsonStatus, readBody, send } from '../http.ts';
 import { redactPage } from '../redact.ts';
@@ -169,6 +170,9 @@ export async function postDaemon(ctx: ServerCtx, req: http.IncomingMessage, res:
   if (config.daemon?.enabled !== true) return jsonStatus(res, 409, { error: 'daemon.enabled is false in .forge/config.yml' });
   const problem = daemonProblems(config, root)[0];
   if (problem) return jsonStatus(res, 409, { error: problem });
+  // The press is a human's approval of the files Forge trusts as they are now; a restart boots only while they still match.
+  approveTrust(ctx.machine.home, root);
+  ctx.bootNote = null;
   ctx.pool?.start('http');
   return json(res, ctx.poolState());
 }

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { addProject } from '#engine/project/machine-index.ts';
+import { approveTrust } from '#engine/project/trust-approval.ts';
 import { startServer } from '../../lib/server/start.ts';
 import type { RunningServer, ServerOptions } from '../../lib/server/types.ts';
 import { FIXTURE_DIST } from '../dist.ts';
@@ -20,10 +21,15 @@ export type ServedProjects = RunningServer & {
   cleanup(): Promise<void>;
 };
 
-export async function serveProjects(dirs: (string | { dir: string; name?: string })[], opts: ServerOptions = {}): Promise<ServedProjects> {
+/**
+ * Each dir counts as one a human ran `forge dash` in (its trusted files approved, so its pool boots when
+ * the daemon is enabled); `approved: false` leaves it registered the way `forge project add` does.
+ */
+export async function serveProjects(dirs: (string | { dir: string; name?: string; approved?: boolean })[], opts: ServerOptions = {}): Promise<ServedProjects> {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-machine-home-')));
   const names = dirs.map((d) => {
-    const { dir, name } = typeof d === 'string' ? { dir: d, name: undefined } : d;
+    const { dir, name, approved } = typeof d === 'string' ? { dir: d, name: undefined, approved: true } : { approved: true, ...d };
+    if (approved) approveTrust(home, fs.realpathSync(dir));
     return addProject(home, fs.realpathSync(dir), name ? { name } : {}).project.name;
   });
   const running = await startServer({ distDir: FIXTURE_DIST, port: 0, ...opts, home });

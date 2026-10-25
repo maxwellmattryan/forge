@@ -12,7 +12,7 @@ The machine's dashboard HTTP server: one per machine, serving every project regi
 | File | What it holds |
 |---|---|
 | `http.ts` | The request guards and HTTP plumbing every route shares: the loopback Host check, the token, Origin, JSON and read guards, body readers and response writers. |
-| `machine.ts` | The machine dashboard's project entries: one per project registered in the machine index whose directory exists, each with its own context, caches and pool (booted under the old per-repo rule), kept in step with the index by a throttled re-read, and summarised for GET /api/projects. |
+| `machine.ts` | The machine dashboard's project entries: one per project registered in the machine index whose directory exists, each with its own context, caches and pool (booted under the old per-repo rule, and only while a human's approval of its trusted files still matches them), kept in step with the index by a throttled re-read, and summarised for GET /api/projects. |
 | `redact.ts` | Known values taken out of what the server pages and streams: a log or transcript page, and a per-stream reader of a job's known values. |
 | `routes/` | The dashboard's route handlers, one file per area; the two route tables in `lib/server/start.ts` map each method and path to one of them and name its guards. |
 | `sse.ts` | Server-sent events: the stream head, state, line and text frames, following a file through one descriptor, the broadcast to open streams and the keep-alive ping. |

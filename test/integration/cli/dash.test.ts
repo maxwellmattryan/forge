@@ -18,6 +18,7 @@ import { processStartMs } from '#core/os/process.ts';
 import { writeJsonAtomic } from '#core/os/fs.ts';
 import { legacyDashboardFile, machineDashboardFile } from '#engine/ops/dashboard-record.ts';
 import { addProject, defaultProjectName } from '#engine/project/machine-index.ts';
+import { trustApproved } from '#engine/project/trust-approval.ts';
 
 const HOUR_MS = 3_600_000;
 
@@ -224,10 +225,13 @@ test('dash in a second repo opens the running machine dashboard', { skip: proces
     const origin = JSON.parse(fs.readFileSync(machineDashboardFile(home), 'utf8')).url as string;
     const [nameA, nameB] = [defaultProjectName(a.dir), defaultProjectName(b.dir)];
     assert.deepEqual(json(started.stdout), { url: `${origin}/?project=${nameA}`, pid, started: true, project: nameA, added: true });
+    assert.equal(trustApproved(home, a.dir), true, 'a human ran forge dash in a: its files are approved');
+    assert.equal(trustApproved(home, b.dir), false, "forge dash in a approves nothing of b's");
 
     const second = await forgeAsync(b.dir, ['dash', '--json'], env);
     assert.equal(second.status, 0, second.stderr);
     assert.deepEqual(json(second.stdout), { url: `${origin}/?project=${nameB}`, pid, running: true, project: nameB, added: true });
+    assert.equal(trustApproved(home, b.dir), true, 'and forge dash in b approves its own');
     const list = json((await forgeAsync(b.dir, ['project', 'list', '--json'], env)).stdout);
     assert.deepEqual(list.projects.map((p: { name: string }) => p.name).sort(), [nameA, nameB].sort());
     const dashes = execFileSync('ps', ['-A', '-ww', '-o', 'command='], { encoding: 'utf8' })
@@ -277,6 +281,7 @@ test('a daemon session may only ask for the running dashboard of a registered pr
     assert.equal(report.status, 0, report.stderr);
     assert.deepEqual(json(report.stdout), { url: `${url}/?project=${name}`, pid, running: true, project: name, added: false });
     assert.equal(index(), added);
+    assert.equal(trustApproved(home, registered.dir), false, "a session's report approves no files");
   } finally {
     server.kill('SIGKILL');
     repo.cleanup();

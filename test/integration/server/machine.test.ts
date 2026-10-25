@@ -16,6 +16,10 @@ import { createJob, updateJob } from '#core/job/store.ts';
 import { ackRequest, enqueue } from '#core/job/requests.ts';
 import { meterFile } from '#engine/metrics/meter.ts';
 import { addProject, removeProject, setMachineSettings } from '#engine/project/machine-index.ts';
+import { approveTrust, trustApproved } from '#engine/project/trust-approval.ts';
+import { startServer } from '../../../lib/server/start.ts';
+import type { RunningServer } from '../../../lib/server/types.ts';
+import { FIXTURE_DIST } from '../../dist.ts';
 
 const SHARED = new Set(['_inbox', '_office']);
 
@@ -249,6 +253,8 @@ test('registering and removing a project while the server runs', async () => {
   const s = await serveProjects([{ dir: a.dir, name: 'a' }], { daemon: k.opts });
   try {
     assert.equal(s.entry('c'), null);
+    // As `forge dash` run in c leaves it: approved, then registered.
+    approveTrust(s.home, c.dir);
     addProject(s.home, c.dir, { name: 'c' });
     // The timed re-read alone: no request names it.
     await waitFor(() => s.entry('c'), { what: 'c loaded', timeoutMs: 5000 });
@@ -272,6 +278,54 @@ test('registering and removing a project while the server runs', async () => {
     await s.cleanup();
     a.cleanup();
     c.cleanup();
+  }
+});
+
+test('a restart boots a project only while the files a human approved are unchanged', async () => {
+  const a = daemonRepo();
+  const b = daemonRepo();
+  // a is a repo a human ran `forge dash` in; b was only registered, as `forge project add` leaves it.
+  const first = await serveProjects([{ dir: a.dir, name: 'a' }, { dir: b.dir, name: 'b', approved: false }], { daemon: kit().opts });
+  const started: RunningServer[] = [first];
+  let current: RunningServer = first;
+  let port = first.port;
+  const daemons = async (name: string) => (await getJson(port, first.api(name, '/state'))).daemons;
+  /** A restart: the same home, a fresh server. */
+  const restart = async () => {
+    await current.close();
+    current = await startServer({ distDir: FIXTURE_DIST, port: 0, home: first.home, daemon: kit().opts });
+    started.push(current);
+    port = Number(new URL(current.url).port);
+  };
+  try {
+    assert.equal((await daemons('a')).wanted, true, 'an approved project boots with the server');
+    const idle = await daemons('b');
+    assert.equal(idle.wanted, false, 'a project no human started stays off');
+    assert.match(idle.lastError, /press Start/);
+
+    // Start is a human's approval of the files as they are: b runs now and boots at the next restart.
+    const post = await poster(port);
+    assert.equal((await post(first.api('b', '/daemon'), { action: 'start' })).status, 200);
+    const runningB = await daemons('b');
+    assert.deepEqual([runningB.wanted, runningB.lastError], [true, null]);
+    assert.equal(trustApproved(first.home, b.dir), true);
+    await restart();
+    assert.equal((await daemons('b')).wanted, true, 'unchanged files boot again');
+
+    // A session's change to a file Forge trusts (which stopped the daemon) is not approved by a restart.
+    fs.appendFileSync(path.join(b.dir, 'CLAUDE.md'), 'a line nobody reviewed\n');
+    assert.equal(trustApproved(first.home, b.dir), false);
+    await restart();
+    assert.equal((await daemons('a')).wanted, true, "a's files did not change");
+    const held = await daemons('b');
+    assert.equal(held.wanted, false, "b's changed files keep its pool off");
+    assert.match(held.lastError, /press Start/);
+    assert.equal(current.entry('b')!.pool.state().wanted, false);
+  } finally {
+    for (const srv of started) await srv.close();
+    await first.cleanup();
+    a.cleanup();
+    b.cleanup();
   }
 });
 
