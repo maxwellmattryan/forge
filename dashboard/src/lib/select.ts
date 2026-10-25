@@ -2,7 +2,8 @@
 // "select-only combobox"), as plain functions node:test can pin: which option opens active, how arrows, Home/End and
 // type-ahead move it, and which keys choose, close or are left to the page. An option's icon, hint, group and separator
 // are presentation only: indices stay flat over every option, and type-ahead matches `label` even when the component
-// renders the entry through a snippet.
+// renders the entry through a snippet. An `action` option is an ordinary enabled entry for every key here; the component
+// only never makes it the value, so `selectedIndex` never finds it.
 
 import type { IconName } from './icons.ts';
 
@@ -19,6 +20,8 @@ export interface SelectOption {
   readonly group?: string;
   /** A rule above this option. */
   readonly separator?: boolean;
+  /** An action, not a choice: choosing it calls onchange but never makes it the value (no check, trigger text unchanged). */
+  readonly action?: boolean;
 }
 export interface SelectState {
   readonly open: boolean;
