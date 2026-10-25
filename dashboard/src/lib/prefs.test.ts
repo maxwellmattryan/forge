@@ -51,6 +51,24 @@ test('project prefs are per project and machine prefs are shared', (t) => {
   assert.equal(pref.get('window', '30'), '30');
 });
 
+test("setFor writes another project's pref", (t) => {
+  t.after(() => setProject(null));
+  const store = stubStorage();
+  setProject(null);
+  pref.setFor('web', 'filter', 'waiting');
+  assert.equal(store.get('forge.p/web/filter'), 'waiting', 'from a global page');
+  setProject('web');
+  assert.equal(pref.get('filter', 'active'), 'waiting', 'the project reads it once selected');
+  setProject('api');
+  pref.setFor('web', 'layout', 'table');
+  assert.deepEqual([store.get('forge.p/web/layout'), store.get('forge.p/api/layout')], ['table', undefined], 'only the named project');
+  const before = [...store];
+  for (const bad of ['../x', 'A', 'a/b', '']) pref.setFor(bad, 'filter', 'waiting');
+  assert.deepEqual([...store], before, 'an invalid project name writes nothing');
+  stubStorage(true);
+  assert.doesNotThrow(() => pref.setFor('web', 'filter', 'waiting'), 'storage errors are swallowed');
+});
+
 test('prefKey', () => {
   assert.equal(prefKey('theme', 'web'), 'forge.theme');
   assert.equal(prefKey('theme', null), 'forge.theme');

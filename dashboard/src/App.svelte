@@ -22,7 +22,7 @@
   import Project from './views/Project.svelte';
   import Overview from './views/Overview.svelte';
   import Machine from './views/Machine.svelte';
-  import { S, closeDrawer, loadView, refresh, refreshMachine, route, setSidebar } from './lib/app.svelte.ts';
+  import { S, closeDrawer, loadOverview, loadView, refresh, refreshMachine, route, setSidebar } from './lib/app.svelte.ts';
   import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_RAIL, sidebarDrag, sidebarKey, sidebarShown } from './lib/sidebar.ts';
   import { hideTip, railTipOn } from './lib/rail-tip.svelte.ts';
   import { startClock } from './lib/clock.svelte.ts';
@@ -230,12 +230,15 @@
     const views = setInterval(() => document.visibilityState === 'visible' && S.route.scope === 'project' && ['analytics', 'evals', 'agents', 'project'].includes(S.view) && loadView(), 15000);
     // A poll, not /api/projects/events: a stream held by every tab would take the machine's few SSE slots from the session logs.
     const machine = setInterval(() => document.visibilityState === 'visible' && refreshMachine(), 5000);
+    // The Overview's graphs re-read every ledger, so they reload less often than its counts.
+    const overview = setInterval(() => document.visibilityState === 'visible' && S.route.scope === 'global' && S.route.view === 'overview' && loadOverview(), 15000);
     const stopClock = startClock();
     return () => {
       stopClock();
       clearInterval(poll);
       clearInterval(views);
       clearInterval(machine);
+      clearInterval(overview);
     };
   });
 </script>

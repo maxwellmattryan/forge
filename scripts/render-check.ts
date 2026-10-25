@@ -14,7 +14,7 @@ import { startServer } from '../lib/server/start.ts';
 import { addProject } from '../lib/engine/project/machine-index.ts';
 import { VIEWS } from '../dashboard/src/lib/nav.ts';
 import type { ViewId } from '../dashboard/src/lib/nav.ts';
-import { SCENARIO_DIR, SCENARIO_ENV_DROPPED, listScenarios, loadScenario, seedScenario } from './scenario.ts';
+import { SCENARIO_DIR, SCENARIO_ENV_DROPPED, catalogText, listScenarios, loadScenario, seedScenario } from './scenario.ts';
 import type { Seeded } from './scenario.ts';
 
 const USAGE = 'usage: npm run test:render [-- --scenario NAME]... [--dist DIR]';
@@ -197,7 +197,9 @@ export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: st
         }
         // The machine's pages, with no project selected: every registered project by name, in the page's own content.
         const registered = [project.name, OTHER_PROJECT, GONE_PROJECT];
-        await timed(name, 'overview', () => checkPage(context, base, (page, p) => waitForTexts(page.locator('#view'), registered, timeout, p, true)));
+        // And the Overview's graph and machine sections, by their titles.
+        const sections = ['overview.shippedTitle', 'overview.costTitle', 'overview.machineTitle'].map(catalogText);
+        await timed(name, 'overview', () => checkPage(context, base, (page, p) => waitForTexts(page.locator('#view'), [...registered, ...sections], timeout, p, true)));
         await timed(name, 'machine', () => checkPage(context, `${base}#/machine`, (page, p) => waitForTexts(page.locator('#view'), registered, timeout, p, true)));
         // Picking the companion in the sidebar switcher opens its same view, with its content.
         await timed(name, 'switch', () =>
