@@ -2,7 +2,8 @@
 // machine's own), and what pickProject does with `?project=` and the loaded projects.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { currentProject, pickProject, projectApi, projectFromSearch, setProject } from './project.ts';
+import { currentProject, isNotRegisteredError, notRegistered, pickProject, projectApi, projectFromSearch, setProject } from './project.ts';
+import { errorText } from './util.ts';
 
 test('projectApi prefixes project paths and leaves the machine paths alone', () => {
   setProject(null);
@@ -50,4 +51,14 @@ test('pickProject', () => {
     ['a crafted segment', '../state', ['web'], { error: 'invalid' }],
   ];
   for (const [name, fromUrl, loaded, want] of rows) assert.deepEqual(pickProject(fromUrl, loaded), want, name);
+});
+
+test('an unregistered project is told apart from a lost connection, and a long name is cut', () => {
+  // The server's 404 body, through the error text the page reads.
+  const body = JSON.stringify({ error: 'no registered project "other"' });
+  assert.equal(isNotRegisteredError(errorText(body)), true);
+  assert.equal(isNotRegisteredError(errorText('Failed to fetch')), false, 'no answer at all is a lost connection');
+  assert.equal(isNotRegisteredError(errorText(JSON.stringify({ error: 'not found' }))), false);
+  assert.equal(notRegistered('other'), 'No registered project "other" on this machine.');
+  assert.equal(notRegistered('x'.repeat(200)), `No registered project "${'x'.repeat(64)}" on this machine.`, 'cut like the server');
 });

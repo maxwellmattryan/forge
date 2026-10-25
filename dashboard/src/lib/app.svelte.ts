@@ -2,7 +2,7 @@
 // API payloads are $state.raw and replaced wholesale, so a poll re-renders only what reads them.
 import { api, errorText } from './util.ts';
 import { API_VERSION } from './types.ts';
-import { currentProject, pickProject, projectApi, projectFromSearch } from './project.ts';
+import { currentProject, isNotRegisteredError, notRegistered, pickProject, projectApi, projectFromSearch } from './project.ts';
 import type {
   AboutResponse,
   ApiState,
@@ -139,6 +139,9 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
 
 // ---------- data ----------
 
+/** The server answered 404 for a project that is not (or no longer) registered: it is up, so this is not a lost connection. */
+const isUnregistered = (e: unknown): boolean => isNotRegisteredError(errorText(message(e)));
+
 /**
  * A page with no usable `?project=`: the first loaded project's page, or why there is nothing to show.
  * Stands in until the Overview (#402) and the project routes (#401) replace it. True when it handled the poll.
@@ -147,10 +150,11 @@ async function withoutProject(): Promise<boolean> {
   if (currentProject() !== null) return false;
   const fromUrl = projectFromSearch(location.search);
   const projects = await api<ProjectsResponse>('/api/projects');
+  // The machine answered, even when it has nothing to show.
+  S.online = true;
   const pick = pickProject(fromUrl, projects.projects.filter((p) => p.loaded).map((p) => p.name));
   if ('redirect' in pick) location.replace(`/?project=${pick.redirect}${location.hash}`);
-  else if ('error' in pick)
-    S.error = pick.error === 'none' ? 'No project is registered on this machine. Run forge dash in a project, or forge project add <path>.' : `No registered project "${fromUrl}" on this machine.`;
+  else if ('error' in pick) S.error = pick.error === 'none' ? 'No project is registered on this machine. Run `forge dash` in a project, or `forge project add <path>`.' : notRegistered(fromUrl);
   return true;
 }
 
@@ -177,12 +181,26 @@ export async function refresh(): Promise<void> {
     }
     if (S.drawer.id) loadDrawer(false);
   } catch (e) {
+    if (isUnregistered(e)) {
+      // The server is up; this project is not registered (a stale link, or `forge project remove` while the page was open).
+      // The board and its actions go, so nothing on screen calls a route that now 404s; a re-registered project rebaselines.
+      S.online = true;
+      S.error = notRegistered(currentProject());
+      S.data = null;
+      S.dataKey = '';
+      S.readyAt = null;
+      memo = null;
+      closeDrawer();
+      return;
+    }
     S.online = false;
     S.error = `Lost connection to the Forge server (${message(e)}). Is \`forge dash\` still running?`;
   }
 }
 
 export async function loadView(): Promise<void> {
+  // Without a project the Banner already says why, and every view call would fail.
+  if (currentProject() === null) return;
   try {
     if (S.view === 'analytics') S.stats = await api<Stats>(`/api/stats${statsQuery(S.window, Date.now())}`);
     if (S.view === 'evals') S.evals = await api<EvalsResponse>('/api/evals');
@@ -201,7 +219,8 @@ export async function loadView(): Promise<void> {
     }
     if (S.view === 'backlog') S.backlog = await api<BacklogResponse>('/api/backlog');
   } catch (e) {
-    toast(message(e), true);
+    // An unregistered project is the Banner's message (the next poll sets it), not a toast of the server's JSON.
+    if (!isUnregistered(e)) toast(message(e), true);
   }
 }
 

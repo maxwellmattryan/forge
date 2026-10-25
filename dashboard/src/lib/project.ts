@@ -34,7 +34,16 @@ export function projectApi(path: string): string {
   return `/api/p/${current}/${path.slice('/api/'.length)}`;
 }
 
-export type ProjectPick = { use: string } | { redirect: string } | { error: 'none' | 'invalid' };
+/** The server cuts a name it echoes to 64 characters; so does the page, since a `?project=` can be any text. */
+const NAME_SHOWN = 64;
+
+/** The page's line for a project name that is not registered on this machine. */
+export const notRegistered = (name: string | null): string => `No registered project "${(name ?? '').slice(0, NAME_SHOWN)}" on this machine.`;
+
+/** True for the error text (not the JSON body) of the server's 404 for a `/api/p/<name>/…` path whose project is not registered. */
+export const isNotRegisteredError = (text: string): boolean => text.startsWith('no registered project "');
+
+export type ProjectPick ={ use: string } | { redirect: string } | { error: 'none' | 'invalid' };
 
 /**
  * What a page does with `?project=` (`fromUrl`) and the loaded projects' names: keep a valid name, go
