@@ -1,8 +1,16 @@
-// The sidebar's pages, their order and the nav's badge counts. No DOM access.
+// The sidebar's pages (the machine's global pages and each project's views), their order and the nav's badge counts. No DOM access.
 import { isOpen, needsHuman } from './job-state.ts';
 import type { JobLike } from './job-state.ts';
 
 // Labels come from messages/en/app.json (nav.<id>), through Nav.svelte.
+/** The machine's own pages, shown with no project selected: `#/overview` and `#/machine`. */
+export const GLOBAL_VIEWS = [
+  { id: 'overview', icon: 'dashboard' },
+  { id: 'machine', icon: 'gauge' },
+] as const;
+export type GlobalViewId = (typeof GLOBAL_VIEWS)[number]['id'];
+
+/** One project's pages, at `#/p/<project>/<view>`. */
 export const VIEWS = [
   { id: 'pipeline', icon: 'pipeline' },
   { id: 'project', icon: 'graph' },

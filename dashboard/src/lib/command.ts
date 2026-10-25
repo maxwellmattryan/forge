@@ -4,9 +4,10 @@ import type { OwnerStatus, PostJobBody, RequestType, StateJob, TrackerItem } fro
 import { needsHuman, resumeModel } from './job-state.ts';
 import { buildRequest } from './requests.ts';
 import type { RequestInput } from './requests.ts';
+import type { SwitcherEntry } from './switcher.ts';
 
 /** First words the bar understands, in the order the empty bar lists them (all of them: the empty list is where they are discovered). */
-export const VERBS = ['next', 'issue', 'continue', 'approve', 'answer', 'revise', 'rework', 'cancel', 'sync', 'retro'] as const;
+export const VERBS = ['next', 'issue', 'continue', 'approve', 'answer', 'revise', 'rework', 'cancel', 'sync', 'retro', 'project'] as const;
 export type Verb = (typeof VERBS)[number];
 
 export const JOB_VERBS = ['continue', 'approve', 'revise', 'rework', 'answer', 'cancel'] as const;
@@ -28,6 +29,10 @@ export interface CommandCtx {
   tracker: string;
   /** The job the palette was opened for (the drawer's trigger): its verbs lead the empty list. Ignored unless the job is open. */
   scope?: string | null;
+  /** The machine's projects (switcherEntries): `project <name>` opens an openable one. */
+  projects: readonly SwitcherEntry[];
+  /** The selected project; null on a global page, where only `project …` runs. */
+  project: string | null;
 }
 
 export type Parsed =
@@ -37,7 +42,8 @@ export type Parsed =
   | { kind: 'next'; n: number | null }
   | { kind: 'sync' | 'retro' }
   | { kind: 'job'; verb: JobVerb; job: string; note: string }
-  | { kind: 'issue'; ref: string };
+  | { kind: 'issue'; ref: string }
+  | { kind: 'project'; name: string };
 
 export type Suggestion =
   /** `verbLike`: the text starts with a command word but matched no command, so the hint says it becomes a job. */
@@ -47,7 +53,9 @@ export type Suggestion =
   | { kind: 'job'; job: StateJob; insert: string }
   | { kind: 'ref'; item: TrackerItem; insert: string }
   /** A scoped job's verb: its own kind, so the unscoped `verb` rows stay exactly as they are. */
-  | { kind: 'scoped'; verb: JobVerb; job: StateJob; insert: string };
+  | { kind: 'scoped'; verb: JobVerb; job: StateJob; insert: string }
+  /** An openable project: choosing it opens the project at once, never inserts. */
+  | { kind: 'project'; entry: SwitcherEntry; insert: string };
 
 const isVerb = (w: string): w is Verb => (VERBS as readonly string[]).includes(w);
 const isJobVerb = (w: string): w is JobVerb => (JOB_VERBS as readonly string[]).includes(w);
@@ -90,6 +98,14 @@ export function parseCommand(input: string, ctx: CommandCtx): Parsed {
   if (word === 'sync' || word === 'retro') return arg ? free : { kind: word };
   const first = arg.split(/\s+/)[0] ?? '';
   const after = arg.slice(first.length).trim();
+  if (word === 'project') {
+    if (!first) return { kind: 'partial', verb: word, arg: '' };
+    if (after) return free;
+    const open = ctx.projects.filter((e) => e.openable);
+    if (open.some((e) => e.name === first)) return { kind: 'project', name: first };
+    if (open.some((e) => e.name.startsWith(first))) return { kind: 'partial', verb: word, arg: first };
+    return free;
+  }
   if (isJobVerb(word)) {
     if (!first) return { kind: 'partial', verb: word, arg: '' };
     const open = ctx.jobs.filter(openJob);
@@ -114,6 +130,18 @@ function refMatches(ctx: CommandCtx, raw: string): TrackerItem[] {
 }
 
 const runnable = (p: Parsed): boolean => p.kind !== 'empty' && p.kind !== 'partial';
+
+/** Whether submitting `p` does anything: a complete command, and with no project selected only `project <name>`. */
+export const canRunCommand = (p: Parsed, ctx: CommandCtx): boolean => runnable(p) && (ctx.project !== null || p.kind === 'project');
+
+/** Openable projects whose name starts with `arg`: those with something waiting first, then by name. */
+function projectRows(ctx: CommandCtx, arg: string): Suggestion[] {
+  const open = [...ctx.projects].filter((e) => e.openable && e.name.startsWith(arg)).sort((a, b) => Number(b.waiting > 0) - Number(a.waiting > 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return open.map((entry) => ({ kind: 'project', entry, insert: `project ${entry.name}` }));
+}
+
+/** With no project selected the bar only opens one: the `project` word, its rows, and running a complete `project <name>`. */
+const projectOnly = (p: Parsed, o: Suggestion): boolean => o.kind === 'project' || (o.kind === 'verb' && o.verb === 'project') || (o.kind === 'run-command' && p.kind === 'project');
 
 const REWORK_GATES: ReadonlySet<string> = new Set(['escalation', 'rounds-exhausted', 'conflicts', 'human']);
 
@@ -142,11 +170,16 @@ export function scopedJob(ctx: CommandCtx): StateJob | null {
   return ctx.jobs.find((j) => j.id === ctx.scope && openJob(j)) ?? null;
 }
 
-/** The bar's options, at most 8 once something is typed (on an empty bar, a scoped job's verbs and then all the verbs): the Run option when there is something to run, then completions. */
+/**
+ * The bar's options, at most 8 once something is typed (on an empty bar, a scoped job's verbs and then all the verbs; with
+ * no project selected, every openable project and then the `project` word): the Run option when there is something to
+ * run, then completions.
+ */
 export function suggest(input: string, ctx: CommandCtx): Suggestion[] {
   const p = parseCommand(input, ctx);
   const out: Suggestion[] = [];
   const { word, rest, spaced, typed } = split(input);
+  if (p.kind === 'empty' && ctx.project === null) return [...projectRows(ctx, ''), { kind: 'verb', verb: 'project', insert: 'project ' }];
   if (p.kind === 'empty') {
     const all: Suggestion[] = VERBS.map((verb) => ({ kind: 'verb', verb, insert: `${verb} ` }));
     const job = scopedJob(ctx);
@@ -170,13 +203,16 @@ export function suggest(input: string, ctx: CommandCtx): Suggestion[] {
   if (p.kind === 'partial' && spaced && p.verb === 'issue') {
     for (const item of refMatches(ctx, rest.trim())) out.push({ kind: 'ref', item, insert: `issue ${item.ref}` });
   }
-  return out.slice(0, MAX_SUGGESTIONS);
+  if (spaced && ((p.kind === 'partial' && p.verb === 'project') || p.kind === 'project')) out.push(...projectRows(ctx, rest.trim()));
+  return (ctx.project === null ? out.filter((o) => projectOnly(p, o)) : out).slice(0, MAX_SUGGESTIONS);
 }
 
-/** What submitting a parse sends: POST /api/jobs, or a /api/requests body built by buildRequest. */
-export function commandRequest(p: Parsed): { kind: 'job'; body: PostJobBody } | { kind: 'request'; input: RequestInput } | { error: string } {
+/** What submitting a parse does: POST /api/jobs, a /api/requests body built by buildRequest, or open a project's pages. */
+export function commandRequest(p: Parsed): { kind: 'job'; body: PostJobBody } | { kind: 'request'; input: RequestInput } | { kind: 'open'; project: string } | { error: string } {
   let input: RequestInput;
   switch (p.kind) {
+    case 'project':
+      return { kind: 'open', project: p.name };
     case 'free':
       return { kind: 'job', body: { text: p.text } };
     case 'next':
@@ -256,9 +292,14 @@ export const isMac = (platform: string): boolean => /mac|iphone|ipad|ipod/i.test
 /** The shortcut hint: `⌘K` on Apple platforms, `Ctrl K` elsewhere. */
 export const shortcutLabel = (platform: string): string => (isMac(platform) ? '⌘K' : 'Ctrl K');
 
-/** Why a partial command has no options, for the visible line in place of the list; null when it has some. */
-export function emptyReason(p: Parsed, options: Suggestion[], backlogError: string | null | undefined, ctx: CommandCtx): 'noJobs' | 'noItems' | 'backlogLoading' | 'backlogFailed' | null {
-  if (options.length || p.kind !== 'partial') return null;
+/**
+ * Why the input has no options, for the visible line in place of the list; null when it has some. `noProject`: with no
+ * project selected, anything but `project …` waits for one.
+ */
+export function emptyReason(p: Parsed, options: Suggestion[], backlogError: string | null | undefined, ctx: CommandCtx): 'noJobs' | 'noItems' | 'backlogLoading' | 'backlogFailed' | 'noProject' | null {
+  if (options.length) return null;
+  if (ctx.project === null && p.kind !== 'empty' && p.kind !== 'project' && !(p.kind === 'partial' && p.verb === 'project')) return 'noProject';
+  if (p.kind !== 'partial') return null;
   if (p.verb !== 'issue') return isJobVerb(p.verb) ? 'noJobs' : null;
   if (backlogError) return 'backlogFailed';
   return ctx.backlog === null ? 'backlogLoading' : 'noItems';

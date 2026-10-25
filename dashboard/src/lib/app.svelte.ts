@@ -2,7 +2,8 @@
 // API payloads are $state.raw and replaced wholesale, so a poll re-renders only what reads them.
 import { api, errorText } from './util.ts';
 import { API_VERSION } from './types.ts';
-import { currentProject, isNotRegisteredError, notRegistered, pickProject, projectApi, projectFromSearch } from './project.ts';
+import { currentProject, isNotRegisteredError, notRegistered, projectApi, setProject } from './project.ts';
+import { parseRoute, routeProject, type Route } from './routes.ts';
 import type {
   AboutResponse,
   ApiState,
@@ -30,7 +31,6 @@ import { bundleFilename } from './diagnostics.ts';
 import { fetchEnvironments } from './environment.ts';
 import { pref } from './prefs.ts';
 import { toast } from './toast.svelte.ts';
-import { VIEWS } from './nav.ts';
 import { buildRequest, queuedMessage } from './requests.ts';
 import { statsQuery } from './analytics.ts';
 import { addFlashes, pollChanges, type PollMemo } from './live.ts';
@@ -92,7 +92,16 @@ class AppState {
   online = $state<boolean | null>(null);
   /** When the last poll succeeded (ISO). */
   polledAt = $state<string | null>(null);
+  /** The page the hash names; its project is the selected one (lib/project.ts), none on a global page. */
+  route = $state.raw<Route>({ scope: 'global', view: 'overview' });
+  /** The last project page's view; a global page leaves it as it was. */
   view = $state<ViewId>('pipeline');
+  /** GET /api/projects, polled every 5 s; a failed poll keeps the last list. */
+  machine = $state.raw<ProjectsResponse | null>(null);
+  /** The last /api/projects poll: null until one finishes, then whether it succeeded. */
+  machineOnline = $state<boolean | null>(null);
+  /** The lost-connection line for the global pages while the last /api/projects poll failed. */
+  machineLost = $state<string | null>(null);
   layout = $state(pref.get('layout', 'board'));
   filter = $state(pref.get('filter', 'active'));
   window = $state(pref.get('window', '30'));
@@ -142,26 +151,27 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
 /** The server answered 404 for a project that is not (or no longer) registered: it is up, so this is not a lost connection. */
 const isUnregistered = (e: unknown): boolean => isNotRegisteredError(errorText(message(e)));
 
-/**
- * A page with no usable `?project=`: the first loaded project's page, or why there is nothing to show.
- * Stands in until the Overview (#402) and the project routes (#401) replace it. True when it handled the poll.
- */
-async function withoutProject(): Promise<boolean> {
-  if (currentProject() !== null) return false;
-  const fromUrl = projectFromSearch(location.search);
-  const projects = await api<ProjectsResponse>('/api/projects');
-  // The machine answered, even when it has nothing to show.
-  S.online = true;
-  const pick = pickProject(fromUrl, projects.projects.filter((p) => p.loaded).map((p) => p.name));
-  if ('redirect' in pick) location.replace(`/?project=${pick.redirect}${location.hash}`);
-  else if ('error' in pick) S.error = pick.error === 'none' ? 'No project is registered on this machine. Run `forge dash` in a project, or `forge project add <path>`.' : notRegistered(fromUrl);
-  return true;
+const lostConnection = (e: unknown): string => `Lost connection to the Forge server (${message(e)}). Is \`forge dash\` still running?`;
+
+/** GET /api/projects into S.machine: the switcher, the Overview and the Machine page read it. A failure keeps the last list. */
+export async function refreshMachine(): Promise<void> {
+  try {
+    S.machine = await api<ProjectsResponse>('/api/projects');
+    S.machineOnline = true;
+    S.machineLost = null;
+  } catch (e) {
+    S.machineOnline = false;
+    S.machineLost = lostConnection(e);
+  }
 }
 
 export async function refresh(): Promise<void> {
+  // A global page has no project to poll; a reply for a project that is no longer selected is dropped.
+  const project = currentProject();
+  if (project === null) return;
   try {
-    if (await withoutProject()) return;
     const data = await api<ApiState>('/api/state');
+    if (currentProject() !== project) return;
     // Read before this poll marks the connection good: the first poll after a failed one rebaselines.
     const resumed = S.online === false;
     const now = Date.now();
@@ -181,6 +191,7 @@ export async function refresh(): Promise<void> {
     }
     if (S.drawer.id) loadDrawer(false);
   } catch (e) {
+    if (currentProject() !== project) return;
     if (isUnregistered(e)) {
       // The server is up; this project is not registered (a stale link, or `forge project remove` while the page was open).
       // The board and its actions go, so nothing on screen calls a route that now 404s; a re-registered project rebaselines.
@@ -194,33 +205,49 @@ export async function refresh(): Promise<void> {
       return;
     }
     S.online = false;
-    S.error = `Lost connection to the Forge server (${message(e)}). Is \`forge dash\` still running?`;
+    S.error = lostConnection(e);
   }
 }
 
 export async function loadView(): Promise<void> {
-  // Without a project the Banner already says why, and every view call would fail.
-  if (currentProject() === null) return;
+  // A global page has no project views; a reply for a project that is no longer selected is dropped.
+  const project = currentProject();
+  if (project === null || S.route.scope !== 'project') return;
+  const current = (): boolean => currentProject() === project;
   try {
-    if (S.view === 'analytics') S.stats = await api<Stats>(`/api/stats${statsQuery(S.window, Date.now())}`);
-    if (S.view === 'evals') S.evals = await api<EvalsResponse>('/api/evals');
-    if (S.view === 'agents') S.roster = await api<Roster>('/api/roster');
+    if (S.view === 'analytics') {
+      const stats = await api<Stats>(`/api/stats${statsQuery(S.window, Date.now())}`);
+      if (current()) S.stats = stats;
+    }
+    if (S.view === 'evals') {
+      const evals = await api<EvalsResponse>('/api/evals');
+      if (current()) S.evals = evals;
+    }
+    if (S.view === 'agents') {
+      const roster = await api<Roster>('/api/roster');
+      if (current()) S.roster = roster;
+    }
     if (S.view === 'project') {
       // Its own failure is a line in its section, not a toast every 15 s, and never blocks the graph.
       const envs = fetchEnvironments(forgeToken()).then(
         (r) => {
+          if (!current()) return;
           S.environments = r;
           S.environmentsError = null;
         },
-        (e: unknown) => void (S.environmentsError = message(e)),
+        (e: unknown) => void (current() && (S.environmentsError = message(e))),
       );
-      S.project = await api<ProjectResponse>('/api/project');
+      const graph = await api<ProjectResponse>('/api/project');
+      if (current()) S.project = graph;
       await envs;
     }
-    if (S.view === 'backlog') S.backlog = await api<BacklogResponse>('/api/backlog');
+    if (S.view === 'backlog') {
+      const backlog = await api<BacklogResponse>('/api/backlog');
+      if (current()) S.backlog = backlog;
+    }
   } catch (e) {
     // An unregistered project is the Banner's message (the next poll sets it), not a toast of the server's JSON.
-    if (!isUnregistered(e)) toast(message(e), true);
+    if (current() && !isUnregistered(e)) toast(message(e), true);
   }
 }
 
@@ -229,15 +256,59 @@ export async function loadRoster(): Promise<void> {
   S.roster = await api<Roster>('/api/roster');
 }
 
+/**
+ * Shows the page the hash names (lib/routes.ts), rewriting the hash in place when it is not canonical. A route naming
+ * another project switches to it; a project page is remembered as `lastProject`, where old `#/<view>` links go.
+ */
 export function route(): void {
-  const v = location.hash.replace(/^#\/?/, '') || 'pipeline';
-  // Needs you was a page: its old link shows the Pipeline and opens the Needs-you popover (StatusBar does, once it renders).
-  if (v === 'inbox') {
-    history.replaceState(null, '', '#/pipeline');
-    S.openNeeds = true;
+  const r = parseRoute(location.hash, pref.get('lastProject', '') || null);
+  if (r.replace !== null) history.replaceState(null, '', r.replace);
+  const next = routeProject(r.route);
+  if (next !== currentProject()) switchProject(next);
+  S.route = r.route;
+  if (r.route.scope === 'project') {
+    S.view = r.route.view;
+    pref.set('lastProject', r.route.project);
   }
-  S.view = VIEWS.find((x) => x.id === v)?.id ?? 'pipeline';
+  // Needs you was a page: its old link shows the Pipeline and opens the Needs-you popover (StatusBar does, once it renders).
+  if (r.openNeeds) S.openNeeds = true;
   loadView();
+}
+
+/**
+ * Selects `name` (null for none): the old project's page state goes, its per-project prefs are read again, and the new
+ * project loads at once. Nothing is sent to either project's pool: its jobs and sessions keep running on the server.
+ */
+export function switchProject(name: string | null): void {
+  setProject(name);
+  closeDrawer();
+  S.data = null;
+  S.dataKey = '';
+  S.error = null;
+  S.online = null;
+  S.polledAt = null;
+  // Its first poll flashes nothing, as a page load.
+  S.readyAt = null;
+  memo = null;
+  S.stats = null;
+  S.evals = null;
+  S.roster = null;
+  S.project = null;
+  S.environments = null;
+  S.environmentsError = null;
+  S.backlog = null;
+  S.compare.a = '';
+  S.compare.b = '';
+  S.compare.result = null;
+  S.drawerView = null;
+  S.flashes = {};
+  S.cooling = {};
+  S.threadSeen = {};
+  S.openNeeds = false;
+  S.layout = pref.get('layout', 'board');
+  S.filter = pref.get('filter', 'active');
+  S.window = pref.get('window', '30');
+  refresh();
 }
 
 // ---------- controls ----------
@@ -314,8 +385,10 @@ export const createJob = (body: PostJobBody): Promise<PostJobResponse> => jsonFe
 
 /** Fills S.backlog for the command bar's ref completion, once; a failure leaves it empty with the error. */
 export async function loadBacklog(): Promise<void> {
-  if (S.backlog) return;
-  S.backlog = await api<BacklogResponse>('/api/backlog').catch((e: unknown) => ({ items: [], error: message(e) }));
+  const project = currentProject();
+  if (S.backlog || project === null) return;
+  const backlog = await api<BacklogResponse>('/api/backlog').catch((e: unknown) => ({ items: [], error: message(e) }));
+  if (currentProject() === project) S.backlog = backlog;
 }
 
 /**
@@ -406,10 +479,11 @@ export function closeDrawer(): void {
 
 async function loadDrawer(full: boolean): Promise<void> {
   const id = S.drawer.id;
-  if (!id) return;
+  const project = currentProject();
+  if (!id || project === null) return;
   try {
     const detail = await api<JobDetail>(`/api/jobs/${encodeURIComponent(id)}`);
-    if (S.drawer.id !== id) return;
+    if (S.drawer.id !== id || currentProject() !== project) return;
     const changed = JSON.stringify(detail) !== JSON.stringify(S.drawer.detail);
     S.drawer.detail = detail;
     if (full) {
@@ -421,14 +495,19 @@ async function loadDrawer(full: boolean): Promise<void> {
     if (S.drawer.file && (full || changed)) await loadFile(S.drawer.file, false);
     if (full || changed) renderDrawer();
   } catch (e) {
-    S.drawerView = { error: message(e) };
+    if (currentProject() === project) S.drawerView = { error: message(e) };
   }
 }
 
 export async function loadFile(rel: string, rerender = true): Promise<void> {
+  const project = currentProject();
   S.drawer.file = rel;
   if (rel.endsWith('.html')) S.drawer.content = { html: true };
-  else S.drawer.content = { text: await api<string>(`/api/jobs/${encodeURIComponent(S.drawer.id ?? '')}/file?path=${encodeURIComponent(rel)}`) };
+  else {
+    const text = await api<string>(`/api/jobs/${encodeURIComponent(S.drawer.id ?? '')}/file?path=${encodeURIComponent(rel)}`);
+    if (currentProject() !== project) return;
+    S.drawer.content = { text };
+  }
   if (rerender) renderDrawer();
 }
 

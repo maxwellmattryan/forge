@@ -1,7 +1,6 @@
-// The project this page serves, from `?project=` (read once before the app mounts): every per-project
+// The selected project, which follows the route (`#/p/<project>/…`, app.svelte.ts route()): every per-project
 // request goes to `/api/p/<project>/…` through projectApi, while the machine's own `/api/about` and
-// `/api/projects` never do. pickProject decides what a page without a usable project does until the
-// Overview (#402) and the project routes (#401) replace this.
+// `/api/projects` never do. A global page selects none.
 import { PROJECT_NAME_SOURCE } from './types.ts';
 
 const PROJECT_NAME = new RegExp(PROJECT_NAME_SOURCE);
@@ -42,16 +41,3 @@ export const notRegistered = (name: string | null): string => `No registered pro
 
 /** True for the error text (not the JSON body) of the server's 404 for a `/api/p/<name>/…` path whose project is not registered. */
 export const isNotRegisteredError = (text: string): boolean => text.startsWith('no registered project "');
-
-export type ProjectPick ={ use: string } | { redirect: string } | { error: 'none' | 'invalid' };
-
-/**
- * What a page does with `?project=` (`fromUrl`) and the loaded projects' names: keep a valid name, go
- * to the first loaded project by name when there is none, or report that nothing is loaded (`none`) or
- * that the name can't be a project (`invalid`).
- */
-export function pickProject(fromUrl: string | null, loaded: readonly string[]): ProjectPick {
-  if (fromUrl !== null) return PROJECT_NAME.test(fromUrl) ? { use: fromUrl } : { error: 'invalid' };
-  const first = [...loaded].sort()[0];
-  return first === undefined ? { error: 'none' } : { redirect: first };
-}

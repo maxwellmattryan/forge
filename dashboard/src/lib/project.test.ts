@@ -1,8 +1,8 @@
 // The page's project: which `/api` paths projectApi prefixes with `/api/p/<project>/` (never the
-// machine's own), and what pickProject does with `?project=` and the loaded projects.
+// machine's own), and which project names it keeps.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { currentProject, isNotRegisteredError, notRegistered, pickProject, projectApi, projectFromSearch, setProject } from './project.ts';
+import { currentProject, isNotRegisteredError, notRegistered, projectApi, projectFromSearch, setProject } from './project.ts';
 import { errorText } from './util.ts';
 
 test('projectApi prefixes project paths and leaves the machine paths alone', () => {
@@ -39,18 +39,6 @@ test('projectFromSearch reads ?project=', () => {
   assert.equal(projectFromSearch('?x=1&project=a.b'), 'a.b');
   assert.equal(projectFromSearch('?project='), null);
   assert.equal(projectFromSearch(''), null);
-});
-
-test('pickProject', () => {
-  const rows: [string, string | null, string[], ReturnType<typeof pickProject>][] = [
-    ['a valid name is kept', 'web', ['api', 'web'], { use: 'web' }],
-    ['a valid name not loaded is still kept (the server answers its 404)', 'other', ['web'], { use: 'other' }],
-    ['no name: the first loaded by name', null, ['web', 'api'], { redirect: 'api' }],
-    ['no name, nothing loaded', null, [], { error: 'none' }],
-    ['a name failing PROJECT_NAME', 'Web', ['web'], { error: 'invalid' }],
-    ['a crafted segment', '../state', ['web'], { error: 'invalid' }],
-  ];
-  for (const [name, fromUrl, loaded, want] of rows) assert.deepEqual(pickProject(fromUrl, loaded), want, name);
 });
 
 test('an unregistered project is told apart from a lost connection, and a long name is cut', () => {
