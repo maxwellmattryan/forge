@@ -1,5 +1,5 @@
-<!-- The mandate editor, inline: a new mandate's (above the list) or one mandate's (in place of its card). Fields: the id
-     (new only, checked against MANDATE_ID_SOURCE before posting) and title; the scope as comma-separated milestones, labels
+<!-- The mandate editor, inline: a new mandate's (above the list) or one mandate's (in place of its card). It has no id
+     field: the server picks a new mandate's id (m-<8 hex>), which the success toast names. Fields: the title; the scope as comma-separated milestones, labels
      and issues (hidden for a goal mandate in intake, whose scope stays empty); until, max jobs and order; one checkbox per
      grantable class (a written class the config no longer grants stays checked and disabled, with a note); the budget,
      stall and unfinishable terms; after (none or another mandate); the guidance, fenced as data in briefs. A new mandate
@@ -9,7 +9,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Select from './Select.svelte';
-  import { blankForm, editMandateBody, fetchMandate, formOf, inIntake, isMandateId, isUnreadable, newMandateBody, postMandate, postMandateEdit, type MandateForm } from '../lib/foreman.ts';
+  import { blankForm, editMandateBody, fetchMandate, formOf, inIntake, isUnreadable, newMandateBody, postMandate, postMandateEdit, type MandateForm } from '../lib/foreman.ts';
   import { MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL } from '../lib/types.ts';
   import { forgeToken, loadMandates, refresh } from '../lib/app.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
@@ -57,7 +57,7 @@
   const ungranted = $derived((form.decides ?? []).filter((c) => !mandates.grantable.includes(c as never)));
   const afterOptions = $derived<SelectOption[]>([
     { value: '', label: $t('foreman.editor.afterNone') },
-    ...mandates.mandates.filter((m) => !isUnreadable(m) && m.id !== (row?.id ?? form.id)).map((m) => ({ value: m.id, label: m.id })),
+    ...mandates.mandates.filter((m) => !isUnreadable(m) && m.id !== row?.id).map((m) => ({ value: m.id, label: m.id })),
   ]);
   const choices = (list: readonly string[]): SelectOption[] => list.map((v) => ({ value: v, label: v }));
 
@@ -69,15 +69,15 @@
   async function save(): Promise<void> {
     if (saving) return;
     error = null;
-    if (!editing && !isMandateId(form.id.trim())) {
-      error = $t('foreman.editor.badId');
-      return;
-    }
     saving = true;
     try {
-      if (detail) await postMandateEdit(detail.id, editMandateBody(detail, detail, form), forgeToken());
-      else await postMandate(newMandateBody(form), forgeToken());
-      toast(editing ? $t('foreman.editor.saved', { id: row?.id ?? '' }) : $t('foreman.editor.created', { id: form.id.trim() }));
+      if (detail) {
+        await postMandateEdit(detail.id, editMandateBody(detail, detail, form), forgeToken());
+        toast($t('foreman.editor.saved', { id: row?.id ?? '' }));
+      } else {
+        const res = await postMandate(newMandateBody(form), forgeToken());
+        toast($t('foreman.editor.created', { id: res.mandate.id }));
+      }
       onclose();
       await Promise.all([loadMandates(), refresh()]);
     } catch (e) {
@@ -102,18 +102,9 @@
   {:else if !ready}
     <p class="muted text-[13px]">{$t('common.loading')}</p>
   {:else}
-    <div class="grid gap-3 sm:grid-cols-2">
-      {#if !editing}
-        <div class="flex flex-col gap-1">
-          {@render field(`${uid}-id`, $t('foreman.editor.id'))}
-          <input bind:this={first} id="{uid}-id" type="text" class="w-full" maxlength="40" autocomplete="off" spellcheck="false" aria-describedby="{uid}-id-hint" bind:value={form.id} />
-          <span id="{uid}-id-hint" class="text-[11px] text-muted">{$t('foreman.editor.idHint')}</span>
-        </div>
-      {/if}
-      <div class="flex flex-col gap-1 {editing ? 'sm:col-span-2' : ''}">
-        {@render field(`${uid}-title-input`, $t('foreman.editor.title'))}
-        {#if editing}<input bind:this={first} id="{uid}-title-input" type="text" class="w-full" maxlength="200" bind:value={form.title} />{:else}<input id="{uid}-title-input" type="text" class="w-full" maxlength="200" bind:value={form.title} />{/if}
-      </div>
+    <div class="flex flex-col gap-1">
+      {@render field(`${uid}-title-input`, $t('foreman.editor.title'))}
+      <input bind:this={first} id="{uid}-title-input" type="text" class="w-full" maxlength="200" bind:value={form.title} />
     </div>
 
     {#if !intake}
