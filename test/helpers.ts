@@ -17,6 +17,7 @@ export { MILESTONE_DRAFT, draftJson, gateRequests, initMilestoneRepo, readyGoal,
 export { serveProjects, type ServedProjects } from './support/machine-server.ts';
 export { ghPr, memoryGitHub, type GitHubCall, type MemoryGitHub } from './support/memory-github.ts';
 export { recordingMoveEffects, type MoveEffectCall, type MoveSide } from './support/move-effects.ts';
+export { SCRIPT_RELEASE, initScriptProject, readyGit, recordingSpawn, scriptCalls, setReleaseBlock } from './support/release-script.ts';
 
 /**
  * Repo-local settings every scratch repo needs. A user's global `commit.gpgsign` would otherwise

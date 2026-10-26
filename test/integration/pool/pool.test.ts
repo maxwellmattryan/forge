@@ -17,6 +17,10 @@ import { createPool } from '#office/pool.ts';
 import { createMachineSlots } from '#office/slots.ts';
 import { CHAT_PROMPT } from '#office/session/launch.ts';
 
+// The Office pass child's stand-in for tests that don't look at the pass: the real one is a `forge office pass`
+// process that close() doesn't wait for, so it could still write in the temp repo while cleanup removes it.
+const noPass = async (): Promise<string | null> => null;
+
 test('a draft request turns the office session, never the inbox', async (t) => {
   for (const foreman of [true, false]) {
     const repo = tempRepo();
@@ -27,7 +31,7 @@ test('a draft request turns the office session, never the inbox', async (t) => {
     const { config } = loadConfig(root);
     const r = enqueue(root, config, { type: 'draft', args: { mandate: 'g1' }, from: 'forge' });
     const fake = fakeClaude();
-    const pool = createPool(root, { claude: fake.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 });
+    const pool = createPool(root, { claude: fake.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
     t.after(() => pool.close());
     pool.start('boot');
     const of = (scope: string) => fake.children.filter((c) => c.scope === scope);
@@ -142,7 +146,7 @@ test('a gate request reaches an assistant foreman', async (t) => {
       ? [enqueue(root, config, { type: 'gate', job: null, args: { gate: 'milestone-approval', mandate: 'g1', key: '1-abc', digest: 'a'.repeat(64), reserved: null }, from: 'forge' }).id]
       : parkedGates(root, config, row.gates);
     const claude = fakeClaude();
-    const pool = createPool(root, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 });
+    const pool = createPool(root, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
     t.after(() => pool.close());
     pool.start('boot');
     const others = claude.children.filter((c) => c.scope !== '_inbox');
@@ -165,7 +169,7 @@ test('chat text reaches only its chat session', async (t) => {
   enqueue(root, config, { type: 'draft', args: { mandate: 'g1' }, from: 'forge' });
   parkedGates(root, config, 1);
   const claude = fakeClaude();
-  const pool = createPool(root, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 });
+  const pool = createPool(root, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
   t.after(() => pool.close());
   pool.start('boot');
   const others = ['_inbox', '_office', '_assistant-1', job];
@@ -263,7 +267,7 @@ test('assistant foremen count against neither daemon.maxConcurrent nor the machi
   enqueue(root, config, { type: 'resume', job, from: 'dashboard' });
   const claude = fakeClaude();
   const slots = createMachineSlots(() => 1);
-  const pool = createPool(root, { claude: claude.adapter, slots, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 });
+  const pool = createPool(root, { claude: claude.adapter, slots, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
   t.after(() => pool.close());
   pool.start('boot');
   assert.ok(claude.children.some((c) => c.scope === job), 'the job session holds the slot');

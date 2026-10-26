@@ -2,7 +2,8 @@
 // without following a link or blocking on a FIFO, and written under one lock only through mandateWrite
 // (`forge mandate new|edit|pause|resume|close` and the dashboard's Foreman page, the same checks for
 // both) and by the Office pass (`forge office pass`, which pauses and closes). Read for a job whose
-// `mandate` is set to narrow what the Foreman decides (jobMandateDecides). A mandate's runtime dir `<id>/`
+// `mandate` is set to narrow what the Foreman decides (jobMandateDecides), and to tell `forge sync`
+// whether its merged work gets a score run (jobMandateScoring). A mandate's runtime dir `<id>/`
 // beside it holds its drafting runs' files (draft.ts, intake.ts), its board and its closing summary
 // (pass.ts, director.ts). docs/architecture/foreman.md.
 import fs from 'node:fs';
@@ -17,7 +18,7 @@ import * as yaml from '#core/format/yaml.ts';
 import { currentActor } from '#integrations/github/actor.ts';
 import { decides } from '#engine/pipeline/moves/foreman-gates.ts';
 import { MANDATE_ID, MANDATE_KEYS, applyInput, blankMandate, cleanReason, fillDefaults, isMandateId, isReadable, issueRefs, mandateProblems, storedMandate } from './contract.ts';
-import type { Config, EventActor, GateClass, Job } from '#core/types.ts';
+import type { Config, EventActor, GateClass, Job, MandateScoring } from '#core/types.ts';
 import type { Mandate, MandateInput, ReadMandate } from './types.ts';
 
 export { MANDATE_ID };
@@ -211,6 +212,17 @@ export function mandateJobs(root: string, id: string): string[] {
  */
 export function jobMandateDecides(root: string, config: Config, job: Pick<Job, 'mandate'>): MandateDecides | null {
   return job.mandate === null || job.mandate === undefined ? null : mandateDecides(root, config, job.mandate);
+}
+
+/**
+ * A job's mandate's scoring term, whatever the mandate's status (a closed mandate's merged jobs are still
+ * scored by it); null when the job is in no mandate, or its file is missing or can't be read, so the job
+ * falls back to scoring.sample: an unreadable file never forces a score run.
+ */
+export function jobMandateScoring(root: string, job: Pick<Job, 'mandate'>): MandateScoring | null {
+  if (typeof job.mandate !== 'string' || !job.mandate) return null;
+  const m = readMandate(root, job.mandate);
+  return isReadable(m) ? m.scoring : null;
 }
 
 /** What mandateDecides returns: the cut decides and the mandate, or why its file can't be read. */

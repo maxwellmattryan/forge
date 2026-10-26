@@ -57,6 +57,8 @@ export interface ReleaseStrategy {
   mechanism?: ReleaseMechanism | null;
   /** The release command a human runs; only read with `mechanism: tag`. */
   command?: string | null;
+  /** The repo-relative release script `forge release plan|run` drives through the script protocol; only read with `mechanism: script`. */
+  script?: string | null;
   registry?: ReleaseRegistry | null;
   cadence?: ReleaseCadence | null;
   /** `allow` lets `forge release run` run this repo's publish steps without asking; null or `confirm` asks on a terminal. */
@@ -327,7 +329,7 @@ export interface Config {
   environments: { maxRunning: number | null };
   /** How long after a merge `forge sync` watches a job's outcome: docs/CONFIG.md "Outcomes". */
   outcomes: { windowDays: number };
-  /** The share of merged jobs that get one post-merge judge run, and its model: docs/CONFIG.md "Scoring". */
+  /** The share of merged jobs, outside mandates that score all or off, that get one post-merge judge run, and its model: docs/CONFIG.md "Scoring". */
   scoring: { sample: number; model: string | null };
   /** Where Forge pushes gate, PR, failure and budget notifications: docs/CONFIG.md "Notifications". */
   notify: { webhooks: NotifyWebhook[]; command: string | null };
