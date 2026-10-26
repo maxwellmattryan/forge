@@ -105,6 +105,7 @@ test('mandates over the dashboard API', async () => {
     assert.deepEqual([m1.progress.spend, m1.progress.started], [{ usd: 0, budget: 150 }, { jobs: 0, budget: 5 }]);
     assert.equal(typeof m1.progress.lastActivity, 'string');
     assert.equal(m1.draft, null);
+    assert.equal(byId.m2.state, 'waiting');
     // The live report card on every readable row; the unreadable one stays {id, problem}.
     assert.deepEqual([m1.card.mandate, m1.card.scores.median, m1.card.jobs.total], ['m1', null, 0]);
     for (const id of ['g1', 'm1', 'm2']) assert.equal(byId[id].card?.mandate, id, `${id} carries its card`);

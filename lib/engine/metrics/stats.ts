@@ -45,6 +45,7 @@ export function reviewRounds(job: Pick<Job, 'verdicts'>): { rounds: number; firs
   const first = job.verdicts[rounds[0]];
   return { rounds: rounds[rounds.length - 1], firstPass: Boolean(first) && Object.values(first).every((v) => v === 'PASS') };
 }
+
 const ratio = (n: number, d: number): number | null => (d ? Math.round((n / d) * 1000) / 1000 : null);
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 
