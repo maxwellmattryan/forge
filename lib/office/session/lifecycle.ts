@@ -193,13 +193,14 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     const launchMode = ctx.permissionMode(scope);
     // From the config bytes just hashed (never a second read) and the job.json read now, so a change made since the last spawn applies.
     const effort = ctx.effort(scope, c);
+    const model = ctx.model(scope, c);
     const base = meter.spawned(c, resume);
     if (base === null) return false;
     const cap = spawnBudgetCap(root, scope, c, base);
     try {
       confined = spawnConfinement(root, c);
       const { roots, deny } = confined;
-      const vars = { allowedTools: c.daemon.allowedTools, permissionMode: launchMode, effort: effort.level, writeRoots: [roots.jobs, ...roots.worktrees], deny, maxBudgetUsd: cap };
+      const vars = { allowedTools: c.daemon.allowedTools, permissionMode: launchMode, effort: effort.level, model, writeRoots: [roots.jobs, ...roots.worktrees], deny, maxBudgetUsd: cap };
       argv = buildArgv(c.daemon.command, { pluginRoot: PLUGIN_ROOT, session: { id: info.sessionId, resume }, ...vars });
     } catch (e) {
       ctx.fatal(`cannot start daemon: ${(e as Error).message}`);
@@ -227,7 +228,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     clearModeRequests();
     info = { ...info, pid: claude.pid, serverPid: process.pid, argv0: argv[0], startedAt: now(), spawnSessionId: info.sessionId };
     persist();
-    logEvent('spawn', { pid: claude.pid, sessionId: info.sessionId, resume, capUsd: cap, ...(reason ? { reason } : {}) });
+    logEvent('spawn', { pid: claude.pid, sessionId: info.sessionId, resume, capUsd: cap, model: model ?? 'inherit', ...(reason ? { reason } : {}) });
     logEvent('effort', { level: effort.level ?? 'inherit', source: effort.source });
     const billing = billingOf(o.env, c.daemon.auth);
     if (billing) logEvent('auth', { auth: c.daemon.auth, ...billing });

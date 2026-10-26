@@ -8,9 +8,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ForgeError } from '#core/errors.ts';
-import { OFFICE_SCOPE, SCOPE_ENV, daemonScope, inAssistant } from '#core/job/requests.ts';
-import { oneLineTitle } from '#core/text.ts';
+import { daemonScope, inAssistant } from '#core/job/requests.ts';
+import { listArchived } from '#core/job/archive.ts';
+import { listJobs } from '#core/job/store.ts';
 import { now } from '#core/utils.ts';
+import { spendLedger } from '#engine/metrics/spend.ts';
+import { refuseOutsideOffice } from '#office/owner.ts';
+import { readDirectives } from '#office/mandates/directives.ts';
+import { readSummary } from '#office/mandates/pass.ts';
+import { jobFigures } from '#office/mandates/progress.ts';
 import { AGENT_ID } from '#integrations/claude/transcripts.ts';
 import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
@@ -123,7 +129,7 @@ const MANDATE: HelpGroup = {
       command: 'mandate show',
       args: '<id>',
       summary:
-        "one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request, gate} (gate: none, pending, filing or filed; else null), and its file",
+        "one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request, gate} (gate: none, pending, filing or filed; else null), its file, its progress {jobs: {reached, inFlight, handled, unfinishable}, spend: {usd, budget}, started: {jobs, budget}, lastActivity} (no tracker call), its closing summary once the Office pass closed it (else null) and its latest 10 directives",
       exits: [[1, "no such mandate (not_found), or it can't be read"]],
       docs: DOCS,
     },
@@ -347,6 +353,8 @@ function show(ctx: CliContext, id: string) {
   const all = listMandates(root);
   const m = target(all, id);
   const { effective, capped } = effectiveContract(config, m);
+  // No tracker call: the jobs, spend and starts from the CLI's records.
+  const f = jobFigures(root, config, m, all, { jobs: listJobs(root), archived: listArchived(root), ledger: spendLedger(root, config, { write: false }), at: Date.now() });
   return {
     ...mandateSummary(m, all),
     effective,
@@ -357,6 +365,14 @@ function show(ctx: CliContext, id: string) {
     goal: mandateGoal(m),
     draft: m.goal === null ? null : (({ status, request }) => ({ status, request, gate: draftGate(root, config, m).status }))(draftStatus(root, config, m.id)),
     file: mandateFile(root, m.id),
+    progress: {
+      jobs: { ...f.counts },
+      spend: { usd: f.spentUsd, budget: m.budget.usd },
+      started: { jobs: f.started, budget: m.budget.jobs },
+      lastActivity: f.lastActivity,
+    },
+    summary: m.status === 'closed' ? readSummary(root, m.id) : null,
+    directives: readDirectives(root, { mandate: m.id, limit: 10 }),
   };
 }
 
@@ -369,16 +385,6 @@ function listCmd(root: string) {
         : { id: m.id, problem: m.problem },
     ),
   };
-}
-
-/** prepare and record: only the office session, or a person outside the daemon. Checked before anything is read. */
-function officeOnly(action: string, env: NodeJS.ProcessEnv): { daemon: boolean } {
-  const s = daemonScope(env);
-  if ('problem' in s || (s.daemon && s.scope !== OFFICE_SCOPE)) {
-    const scope = 'problem' in s ? oneLineTitle(env[SCOPE_ENV] ?? '').slice(0, 60) || 'unscoped' : s.scope;
-    throw new ForgeError(`forge mandate draft ${action} runs in the office session or a person's own terminal, not the ${scope} session`, 1);
-  }
-  return { daemon: s.daemon };
 }
 
 /** assist: only an assistant foreman session, or a person outside the daemon. Checked before anything is read. */
@@ -440,7 +446,8 @@ async function draftCmd(ctx: CliContext, rest: string[], flags: Record<string, a
     return assistDraft(root, config, rest[1], req(str(flags.request, '--request'), '--request'));
   }
   if (action === 'prepare' || action === 'record') {
-    const { daemon } = officeOnly(action, env);
+    // Only the office session, or a person outside the daemon. Checked before anything is read.
+    const { daemon } = refuseOutsideOffice(`mandate draft ${action}`, env);
     if (rest.length !== 2) throw usageError(MANDATE, `draft ${action}`);
     const id = rest[1];
     const rid = req(str(flags.request, '--request'), '--request');

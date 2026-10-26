@@ -177,6 +177,25 @@ test('milestones lists open milestones', POSIX, () => {
   });
 });
 
+test('scope lists a mandate\'s open issues', POSIX, () => {
+  scratch((ctx, fake) => {
+    ctx.config.tracker.github.repo = 'acme/web';
+    const issue = (n: number, labels: string[]) => ({ number: n, title: `T${n}`, url: `https://github.com/acme/web/issues/${n}`, labels: labels.map((name) => ({ name })), assignees: [] });
+    const needs = `${ctx.config.tracker.github.labels.prefix}needs-info`;
+    fake.set('issue list', JSON.stringify([issue(3, ['a', 'b']), issue(4, ['a', 'b', needs])]));
+    const items = github.scope(ctx, { milestone: 'M1', labels: ['a', 'b'], limit: 200 });
+    assert.deepEqual(
+      fake.calls().map((c) => c.args),
+      [['issue', 'list', '-R', 'acme/web', '--state', 'open', '--json', 'number,title,url,labels,assignees', '--limit', '200', '--milestone', 'M1', '--label', 'a', '--label', 'b']],
+    );
+    assert.deepEqual(items.map((i) => [i.ref, i.needsInfo]), [['3', false], ['4', true]]);
+    const before = fake.calls().length;
+    assert.throws(() => github.scope(ctx, { milestone: '-x', labels: [], limit: 200 }));
+    assert.throws(() => github.scope(ctx, { milestone: null, labels: ['--y'], limit: 200 }));
+    assert.equal(fake.calls().length, before, 'no gh call for a flag-like milestone or label');
+  });
+});
+
 test('milestone filing calls', POSIX, () => {
   scratch((ctx, fake) => {
     ctx.config.tracker.github.repo = 'acme/web';

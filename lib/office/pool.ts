@@ -1,26 +1,27 @@
-// The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests with no job, one office session for draft requests, up to
-// `foreman.assistants.sessions` assistant foremen that take gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job sessions,
-// each spawned on demand for the job its requests name. Sessions fail, hold and stop on their own (lib/office/session/lifecycle.ts); the pool owns
-// what is repo-wide: the trust snapshot, routing, the cap and the stops config changes force. docs/architecture/daemon.md describes the rules.
+// The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests with no job, one office session for draft and direct
+// requests, up to `foreman.assistants.sessions` assistant foremen that take gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job
+// sessions, each spawned on demand for the job its requests name. Sessions fail, hold and stop on their own (lib/office/session/lifecycle.ts); the pool
+// owns what is repo-wide: the trust snapshot, routing, the cap, the stops config changes force, and the periodic sync and Office pass children.
+// docs/architecture/daemon.md describes the rules.
 import fs from 'node:fs';
-import { resolveEffort, trustDigest } from '#core/config/load.ts';
+import { trustDigest } from '#core/config/load.ts';
 import { confineDigest } from './session/confine.ts';
 import { TRUST_CHANGED, createSession } from './session/lifecycle.ts';
-import { runSyncChild } from './sync-child.ts';
+import { runPassChild, runSyncChild } from './sync-child.ts';
+import { createPassScheduler } from './mandates/cadence.ts';
 import { sessionOptions, type DaemonOptions, type Session, type SessionContext, type SessionEvent } from './session/contract.ts';
 import { offState, otherOwner, reapOrphans } from './session/records.ts';
 import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
 import { createModeBook, type PoolOptions } from './modes.ts';
-import { assistantScopes, routeAssistants, sessionKind, startWork, type SlotMember } from './slots.ts';
+import { assistantScopes, routeAssistants, sessionEffort, sessionKind, sessionModel, startWork, type SlotMember } from './slots.ts';
 import { daemonSessionIds, releaseSession } from './driver.ts';
-import { configForJob } from '#engine/evals/overlay.ts';
 import { loadJob, logHumanEvent, repoAuditFile } from '#core/job/store.ts';
 import { RECONCILE_MS, daemonLockDir, reconcile, type SessionFacts } from './reconcile.ts';
 import { tryLock } from '#core/os/lock.ts';
 import { repoBudgetStatus } from '#engine/metrics/repo-budget.ts';
 import { daemonPlatformProblem } from '#core/os/platform.ts';
 import { ASSISTANTS_SCOPE, INBOX_SCOPE, OFFICE_SCOPE, listRequests, requestScope, sharedScope as shared, validScope } from '#core/job/requests.ts';
-import type { Config, RepoBudgetStatus, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, Job, PermissionDecision } from '#core/types.ts';
+import type { Config, RepoBudgetStatus, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, PermissionDecision } from '#core/types.ts';
 
 /** The pool's own state: state() below. The server adds `clients` and `needsApproval` to make a DaemonPoolState. */
 export type PoolState = Omit<DaemonPoolState, 'clients' | 'needsApproval'>;
@@ -159,31 +160,11 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     permissionMode: (scope) => modes.launch(scope),
     permissionModeRefused: (scope, mode, live) => modes.refused(scope, mode, live),
     // Read at every spawn and never pushed to a running session: a change applies at its next spawn.
-    // No role: a session runs the orchestrator, so per-role, panel and complexity levels never
-    // reach its argv; only job.effort and runtime.effort do.
-    effort: (scope, c) => {
-      const job = shared(scope) ? null : jobOrNull(scope);
-      return resolveEffort(job ? jobConfig(c, job) : c, job);
-    },
+    effort: (scope, c) => sessionEffort(root, scope, c),
+    model: (scope, c) => sessionModel(scope, c),
   };
-
-  /** An eval job's overlaid config; a tampered overlay falls back to the base, since step and verify refuse that job anyway. */
-  function jobConfig(c: Config, job: Job): Config {
-    try {
-      return configForJob(root, c, job);
-    } catch {
-      return c;
-    }
-  }
-
-  /** The job a session drives, or null when it is missing or unreadable: its effort then falls back to the config's. */
-  function jobOrNull(scope: string): Job | null {
-    try {
-      return loadJob(root, scope);
-    } catch {
-      return null;
-    }
-  }
+  /** The Office pass (lib/office/mandates/cadence.ts): its child ends with a tick, so the direct request it queued turns the office at once. */
+  const passes = createPassScheduler(root, { run: opts.runPass ?? ((r) => runPassChild(r, o.env)), done: () => tick(), log: (message) => office.logEvent('error', { message }) });
 
   function session(scope: string): Session {
     let s = sessions.get(scope);
@@ -250,6 +231,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       let scoring = false;
       try {
         const job = loadJob(root, scope);
+        passes.after(job);
         state = job.state;
         scoring = job.score?.status === 'queued';
       } catch {}
@@ -297,6 +279,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     try {
       const c = config();
       if (trustDigest(root) !== trusted) return poolStop(TRUST_CHANGED, 'trust');
+      passes.check(c);
       const groups = new Map<string, ForgeRequest[]>();
       for (const r of listRequests(root, { status: 'pending' })) {
         const scope = requestScope(root, r);
@@ -505,6 +488,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       }
       inboxEager = true;
       startReason = reason;
+      passes.want();
       tick();
       return state();
     },

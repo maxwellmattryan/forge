@@ -29,8 +29,12 @@ test('settingsTabsFor and moveTab', () => {
   assert.equal(moveTab('about', 'Home', none), 'general');
   assert.equal(moveTab('general', 'End', none), 'about');
   assert.equal(moveTab('general', 'Enter', none), null);
-  // Every tab, as before.
-  assert.equal(moveTab('general', 'ArrowDown'), 'pipeline');
-  assert.equal(moveTab('general', 'ArrowUp'), 'about');
-  assert.equal(moveTab('diagnostics', 'End'), 'about');
+  // Every tab: About follows General, and the walk wraps at Diagnostics.
+  assert.deepEqual(SETTINGS_TABS.map((t) => t.id), ['general', 'about', 'pipeline', 'review', 'agents', 'tracker', 'dashboard', 'daemon', 'diagnostics']);
+  assert.equal(moveTab('general', 'ArrowDown'), 'about');
+  assert.equal(moveTab('about', 'ArrowDown'), 'pipeline');
+  assert.equal(moveTab('diagnostics', 'ArrowDown'), 'general');
+  assert.equal(moveTab('general', 'ArrowUp'), 'diagnostics');
+  assert.equal(moveTab('general', 'End'), 'diagnostics');
+  assert.equal(moveTab('diagnostics', 'Home'), 'general');
 });

@@ -22,7 +22,7 @@ export const isMandateId = (v: unknown): v is string => typeof v === 'string' &&
 const TITLE_MAX = 200;
 const REASON_MAX = 200;
 export const BODY_MAX = 8000;
-/** Milestones and labels later reach `gh` as arguments (#538): bounded, and never a flag. */
+/** Milestones and labels reach `gh` as arguments (a tracker's `scope`): bounded, and never a flag. */
 const ENTRY_MAX = 100;
 const SCOPE_LIST_MAX = 10;
 const ISSUES_MAX = 100;
