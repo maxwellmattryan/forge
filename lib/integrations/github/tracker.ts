@@ -357,6 +357,19 @@ export default {
     const url = gh(ctx.root, args, { input: body || ' ' }).stdout.trim().split('\n').pop() ?? '';
     return { ref: url.match(/\/issues\/(\d+)/)?.[1] ?? url, url };
   },
+  milestones(ctx) {
+    // The path is built from repoSlug's checked slug only, so nothing outside reaches gh's argv.
+    const slug = repoSlug(ctx.root, ctx.config);
+    const raw = ghJson(ctx.root, ['api', `repos/${slug}/milestones?state=open&per_page=100`]);
+    if (!Array.isArray(raw)) throw new ForgeError(`gh api repos/${slug}/milestones printed no list`, 'external');
+    return raw
+      .filter((m: any) => m && typeof m === 'object')
+      .map((m: any) => ({
+        title: oneLineTitle(m.title),
+        openIssues: Number.isSafeInteger(m.open_issues) && m.open_issues >= 0 ? (m.open_issues as number) : null,
+        dueOn: typeof m.due_on === 'string' ? oneLineTitle(m.due_on).slice(0, 40) : null,
+      }));
+  },
   setNeedsInfo(ctx, ref, note) {
     // The note is the local backlog's; on GitHub the label is the mark and triage's comment the text.
     const repo = slugOnce(ctx);

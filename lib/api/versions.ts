@@ -53,6 +53,8 @@ export const API_CHANGES = [
   { id: 'overview' },
   // Job.mandate: the mandate a job works under, or null.
   { id: 'job-mandate' },
+  // RequestType 'draft': a goal mandate's drafting run, written only by forge mandate, routed to the office session.
+  { id: 'draft-request' },
   // DaemonPoolState.assistants; Stats.cost.sessions.assistant; gate requests route to _assistants.
   { id: 'assistant-foremen' },
 ] as const;

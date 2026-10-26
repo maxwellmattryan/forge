@@ -1,4 +1,4 @@
-// The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests with no job, one office session, up to
+// The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests with no job, one office session for draft requests, up to
 // `foreman.assistants.sessions` assistant foremen that take gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job sessions,
 // each spawned on demand for the job its requests name. Sessions fail, hold and stop on their own (lib/office/session/lifecycle.ts); the pool owns
 // what is repo-wide: the trust snapshot, routing, the cap and the stops config changes force. docs/architecture/daemon.md describes the rules.
@@ -322,7 +322,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
           continue;
         }
         const routed = groups.get(s.scope) ?? [];
-        // Never the inbox or the office: gate and job-less requests are not the repo budget's to hold.
+        // Never the inbox or the office: draft and job-less requests are not the repo budget's to hold.
         const { eligible, fresh } = s.route(c, routed, shared(s.scope) || !routed.length ? null : repoBudget(c));
         if (!fresh || !s.wanted) {
           s.setWaiting(false);

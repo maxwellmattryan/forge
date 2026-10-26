@@ -75,14 +75,14 @@ export const MANDATE_ON_UNFINISHABLE = ['park', 'cancel'] as const;
 /** Why the Foreman left a gate for a person (`forge job handoff --class`): a reserved topic or class, the assistant escalated, or the CLI refused its decision. */
 export const HANDOFF_CLASSES = ['reserved', 'escalated', 'refused'] as const;
 
-export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume', 'sync', 'eval-run', 'retro', 'gate'] as const;
+export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume', 'sync', 'eval-run', 'retro', 'gate', 'draft'] as const;
 
 /**
  * The daemon session for requests without a (valid, existing) job. Job ids start with an
  * alphanumeric, so it can never be one.
  */
 export const INBOX_SCOPE = '_inbox';
-/** The Foreman's daemon session, which no request routes to in this version (the director loop gives it work); it never drives a job. */
+/** The Foreman's daemon session: it receives every `draft` request (its assistant foremen take the `gate` requests) and never drives a job. */
 export const OFFICE_SCOPE = '_office';
 /** Not a session: the request group every `gate` request routes to, which any assistant foreman session may claim from. */
 export const ASSISTANTS_SCOPE = '_assistants';

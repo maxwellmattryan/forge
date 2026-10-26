@@ -1238,6 +1238,47 @@ The owner's mandates: standing instructions to the Office in .forge/runtime/mand
 
 See [Mandates](CONFIG.md#mandates).
 
+**`forge mandate draft prepare <id> --request R`**: the office session's first call of a drafting run: write the survey and return the forge:drafter brief ({mandate, request, stale: false, subagent, model, effort, brief, survey, staging}), or {stale: true, reason} for a mandate that is missing, unreadable, closed, paused or has no goal
+
+| Flag | Meaning |
+|---|---|
+| `--request R` | the claimed draft request (required): in progress, for this mandate |
+
+| Exit | When |
+|---|---|
+| 1 | run in a daemon session other than the office, R is not an in-progress draft request for this mandate, or a link or a file sits at the drafts dir |
+
+See [Foreman › Intake](architecture/foreman.md).
+
+**`forge mandate draft record <id> --request R [--agent-id A]`**: the office session's last call of a drafting run: append its spend to the mandate's ledger, then check the drafter's staging file and store it as draft.json ({ok, mandate, request, draft: {issues, waves, existing}, spend, file})
+
+| Flag | Meaning |
+|---|---|
+| `--agent-id A` | the drafter's agent id, whose transcript gives the run's usage |
+| `--request R` | the claimed draft request (required): in progress, for this mandate |
+
+| Exit | When |
+|---|---|
+| 1 | run in a daemon session other than the office, R is not an in-progress draft request for this mandate, the mandate can't be read, is closed or has no goal, or the draft breaks the rules (every problem named, at most 20; the spend stays recorded) |
+
+See [Foreman › Intake](architecture/foreman.md).
+
+**`forge mandate draft show <id>`**: a goal mandate's milestone draft: {mandate, title, status (queued, drafting, ready, unreadable, failed or none), request, note, problem, draft, spend: {runs, withUsage, tokens, usd, metered}, file}
+
+| Exit | When |
+|---|---|
+| 1 | no such mandate (not_found), it can't be read, or it has no goal |
+
+See [Foreman › Intake](architecture/foreman.md).
+
+**`forge mandate draft start <id>`**: queue a drafting run for an active goal mandate, for the office session to turn ({ok, changed, request}; changed false with the request already pending or in progress)
+
+| Exit | When |
+|---|---|
+| 1 | no such mandate (not_found), it can't be read, is not active or has no goal, or a daemon session ran it |
+
+See [Foreman › Intake](architecture/foreman.md).
+
 **`forge mandate edit <id> [--title T] [terms]`**: replace only the terms given ({ok, changed, mandate}; changed false when nothing differs)
 
 | Flag | Meaning |
@@ -1277,6 +1318,7 @@ See [Mandates](CONFIG.md#mandates).
 | `--budget-jobs N` | the jobs it may start, 1-1000 |
 | `--budget-usd N` | its spend cap in USD, over 0 and at most 100000 |
 | `--decides g1,g2\|none` | the gate classes it delegates, within foreman.decides minus gate:&lt;class> reservations |
+| `--goal T \| --goal-file F` | a goal mandate: the owner's goal, set once, at most 4000 characters (F may be - for stdin), fenced as data wherever it is shown; its scope stays empty, and the first drafting run is queued (draft.request) |
 | `--issues r1,r2` | issues worked in the order given; needs --order listed (none: empty) |
 | `--labels a,b` | labels an issue in scope carries (none: empty) |
 | `--max-jobs N` | its jobs running at once, 1-16 |
@@ -1314,7 +1356,7 @@ See [Mandates](CONFIG.md#mandates).
 
 See [Mandates](CONFIG.md#mandates).
 
-**`forge mandate show <id>`**: one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance fenced as data, and its file
+**`forge mandate show <id>`**: one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request} (else null), and its file
 
 | Exit | When |
 |---|---|
@@ -1524,7 +1566,7 @@ The dashboard's inbox of requests for an orchestrator session.
 
 | Exit | When |
 |---|---|
-| 1 | a gate request (only the CLI writes those), a daemon session queued anything but resume, or its scope is invalid |
+| 1 | a gate or draft request (only the CLI writes those), a daemon session queued anything but resume, or its scope is invalid |
 
 **`forge requests claim <id> --session S [--force]`**: claim a request before handling it
 

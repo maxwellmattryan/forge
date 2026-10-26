@@ -17,7 +17,7 @@ import type { API_VERSION as ENGINE_API_VERSION } from '#api/versions.ts';
 export type * from '#api/types.ts';
 
 /** lib/api/versions.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 46 satisfies typeof ENGINE_API_VERSION;
+export const API_VERSION = 47 satisfies typeof ENGINE_API_VERSION;
 /** lib/api/constants.ts PROJECT_NAME_SOURCE: a registered project's name, the `/api/p/<project>/` segment. */
 export const PROJECT_NAME_SOURCE = '^[a-z0-9][a-z0-9._-]{0,63}$' satisfies typeof ENGINE_PROJECT_NAME_SOURCE;
 /** lib/core/job/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */

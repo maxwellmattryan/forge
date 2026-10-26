@@ -1,11 +1,12 @@
-// createPool in-process over fakeClaude children: what a pool start does with what earlier `forge dash`
-// sessions left behind (docs/test-rewrite/modules/office.md). Nothing real is spawned or signalled.
+// createPool in-process over fakeClaude children: where a pool start routes a pending request, and what
+// it does with what earlier `forge dash` sessions left behind (docs/test-rewrite/modules/office.md).
+// Nothing real is spawned or signalled.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fakeClaude, tempRepo } from '../../helpers.ts';
+import { fakeClaude, tempRepo, waitFor } from '../../helpers.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
 import { loadConfig } from '#core/config/load.ts';
@@ -14,6 +15,34 @@ import { claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
 import { sessionFiles } from '#core/job/session-files.ts';
 import { createPool } from '#office/pool.ts';
 import { createMachineSlots } from '#office/slots.ts';
+
+test('a draft request turns the office session, never the inbox', async (t) => {
+  for (const foreman of [true, false]) {
+    const repo = tempRepo();
+    t.after(repo.cleanup);
+    const root = repo.dir;
+    fs.mkdirSync(path.join(root, '.forge'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, daemon: { enabled: true, command: 'claude {session}' }, foreman: { enabled: foreman } }));
+    const { config } = loadConfig(root);
+    const r = enqueue(root, config, { type: 'draft', args: { mandate: 'g1' }, from: 'forge' });
+    const fake = fakeClaude();
+    const pool = createPool(root, { claude: fake.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 });
+    t.after(() => pool.close());
+    pool.start('boot');
+    const of = (scope: string) => fake.children.filter((c) => c.scope === scope);
+    if (foreman) {
+      await waitFor(() => of('_office')[0]?.turns === 1, { what: 'the office turn' });
+      assert.equal(of('_office').length, 1);
+    } else {
+      pool.poke();
+      assert.deepEqual(of('_office'), [], 'no office session while the foreman is off');
+      assert.equal(listRequests(root).find((x) => x.id === r.id)?.status, 'pending');
+    }
+    assert.ok(of('_inbox').every((c) => c.turns === 0), 'the inbox gets no turn for it');
+    assert.deepEqual(fake.children.filter((c) => c.scope !== '_office' && c.scope !== '_inbox'), [], 'no job session');
+    await pool.close();
+  }
+});
 
 // B59: boot releases whatever a recorded session's ids drove, under any of its ids.
 test("boot releases every recorded session's jobs and leaves interactive ones alone", async (t) => {

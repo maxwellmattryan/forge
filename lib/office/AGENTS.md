@@ -2,7 +2,7 @@
 
 Forge's long-running runtime: the session pool, per-job sessions, the reconciler, the Foreman and notifications.
 
-- `forge dash` runs one pool (`pool.ts`) per registered project: one inbox session, one office session, up to `foreman.assistants.sessions` assistant foremen that claim gate requests when `foreman.enabled`, and per-job sessions. The pools share the machine cap through `slots.ts`. `owner.ts` says what a daemon session may not do.
+- `forge dash` runs one pool (`pool.ts`) per registered project: one inbox session, one office session for draft requests, up to `foreman.assistants.sessions` assistant foremen that claim gate requests when `foreman.enabled`, and per-job sessions. The pools share the machine cap through `slots.ts`. `owner.ts` says what a daemon session may not do.
 - A pool session's child is started and handed work only through `startWork` in `slots.ts`, which also says what kind of session a scope is (`sessionKind`, `counted`): only job sessions count against `daemon.maxConcurrent` and the machine cap.
 - Whether a lease's driver is one of a session's ids is asked only of `driver.ts` (`drivenBy`, `whoDrives`), and everything a gone session held is let go only through its `releaseSession`: never compare `lease.driver` with a session id elsewhere.
 - The session records and logs live in `lib/core/job/session-files.ts`, below engine, because engine modules write and read them too.
@@ -18,7 +18,7 @@ Forge's long-running runtime: the session pool, per-job sessions, the reconciler
 | `modes.ts` | The permission modes `forge dash`'s pool holds for its sessions: a human's choice per scope, and the default for job sessions without one. |
 | `notify.ts` | Notifications: a small, fixed-shape message to the team's webhooks and command when a job needs a human, a PR opens or merges, a job fails, the daemon stops, a budget is exceeded or a secret is found. |
 | `owner.ts` | The refusals that keep the inbox, office and assistant foreman daemon sessions from driving a job: the inbox only routes, the office does not drive jobs and the assistant foremen only decide gates. |
-| `pool.ts` | The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests with no job, one office session, up to `foreman.assistants.sessions` assistant foremen that take gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job sessions, each spawned on demand for the job its requests name. |
+| `pool.ts` | The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests with no job, one office session for draft requests, up to `foreman.assistants.sessions` assistant foremen that take gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job sessions, each spawned on demand for the job its requests name. |
 | `reconcile.ts` | The reconciler: the one place that asks "is this running job being driven?" and acts when it is not. |
 | `session-agents.ts` | What a job session's agents say about keeping it. |
 | `session/` | One supervised headless Claude Code session (`createSession`) and the pieces it is built from. |

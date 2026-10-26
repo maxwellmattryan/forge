@@ -138,6 +138,8 @@ export async function postRequest(ctx: ServerCtx, req: http.IncomingMessage, res
   const body: Record<string, any> = parsed.body && typeof parsed.body === 'object' && !Array.isArray(parsed.body) ? parsed.body : {};
   // Only the CLI's park and sync paths write gate requests: they carry the reserved check's result.
   if (body.type === 'gate') return jsonStatus(res, 400, { error: 'gate requests are written only by forge job set and forge pr sync' });
+  // A drafting run spends on the office session: only the owner's own forge mandate queues one.
+  if (body.type === 'draft') return jsonStatus(res, 400, { error: 'draft requests are written only by forge mandate' });
   const problem = requestArgsProblem(body, loadConfig(root).config.tracker.kind);
   if (problem) return jsonStatus(res, 400, { error: problem });
   const held = resumeHeld(root, body, ctx.drive);
