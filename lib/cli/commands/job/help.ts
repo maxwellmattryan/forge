@@ -234,7 +234,7 @@ export const JOB: HelpGroup = {
       args: '<id> --reason TEXT',
       summary:
         "set a waiting, queued, failed or blocked job aside: it waits on `shelved` at its stage, lets go of its lease, stops its environment (the worktree stays), keeps its PR, and leaves the waiting count; one note with the reason goes to its linked issues. Nothing resumes it: only a person takes it off the shelf (`forge job unshelve`, or the dashboard's Shelved list). A person runs it from their own terminal; no daemon session does",
-      flags: [['--reason TEXT', 'why it is set aside: one line of at most 200 characters (control characters and backticks are dropped)']],
+      flags: [['--reason TEXT', 'why it is set aside: one line of at most 200 characters (control characters and backticks are dropped; a reason that is empty after that exits 2)']],
       exits: [[1, 'no such job; a done, cancelled, running, eval or already shelved job, or one with an agent running; or any daemon session']],
     },
     {

@@ -1291,7 +1291,7 @@ See [Job repos](architecture/job-repos.md).
 
 | Flag | Meaning |
 |---|---|
-| `--reason TEXT` | why it is set aside: one line of at most 200 characters (control characters and backticks are dropped) |
+| `--reason TEXT` | why it is set aside: one line of at most 200 characters (control characters and backticks are dropped; a reason that is empty after that exits 2) |
 
 | Exit | When |
 |---|---|
