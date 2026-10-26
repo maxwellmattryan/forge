@@ -1,18 +1,42 @@
 // A mandate's report card: one fixed-shape object over its jobs (what merged, how it scored, how much
 // review and human help it took, what it cost against its budget, what happened after the merges), built
-// from the job figures progress.ts reads (the CLI records, the archive, the CLI copy of the events and
-// the spend ledger), with no I/O. A figure still waiting on a post-merge measurement reads 'pending',
-// never 0 (the pending rule on CardFigure in lib/api/repo.ts). The card goes on GET /api/mandates without
-// the token, so it carries no free text: counts, finite numbers, 'pending', null, WAITING_ON keys and ISO
-// times it built itself. docs/IMPROVEMENT.md › Mandate report card.
+// with no I/O from the job figures lib/office/mandates/progress.ts reads (the CLI records, the archive,
+// the CLI copy of the events and the spend ledger).
+//
+// A figure still waiting on a post-merge measurement reads 'pending', never 0 (the pending rule on
+// CardFigure in lib/api/repo.ts). The card goes on GET /api/mandates without the token, so it carries no
+// free text: counts, finite numbers, 'pending', null, WAITING_ON keys and ISO times it built itself. Its
+// inputs are typed by shape, as this layer can't import the office's: progress.ts's MandateJob and
+// JobFigures fit them. docs/IMPROVEMENT.md › Mandate report card.
 import { WAITING_ON } from '#core/job/schema.ts';
 import { isForemanActor } from '#core/job/store.ts';
-import { outcomeWindowDays } from '#engine/evals/outcome.ts';
-import { mergeTime, scoreAwaited } from '#engine/evals/scoring.ts';
-import { median, reviewRounds } from '#engine/metrics/stats.ts';
-import type { Config, JobEvent, WaitingOn } from '#core/types.ts';
-import type { JobFigures, MandateJob } from './progress.ts';
-import type { CardFigure, Mandate, MandateReportCard } from './types.ts';
+import { outcomeWindowDays } from '../evals/outcome.ts';
+import { mergeTime, scoreAwaited } from '../evals/scoring.ts';
+import { median, reviewRounds } from './stats.ts';
+import type { CardFigure, Config, Job, JobEvent, MandateReportCard, MandateScoring, WaitingOn } from '#core/types.ts';
+
+/** One of a mandate's jobs as the card reads it (lib/office/mandates/progress.ts MandateJob): its CLI record, its events, its class against the until, and whether it is live. */
+export interface CardJob {
+  job: Job;
+  events: JobEvent[];
+  class: string;
+  live: boolean;
+}
+
+/** What the card is built from (lib/office/mandates/progress.ts JobFigures). */
+export interface CardFigures {
+  jobs: CardJob[];
+  counts: { reached: number; inFlight: number };
+  spentUsd: number;
+  started: number;
+}
+
+/** The mandate terms the card reads. */
+export interface CardMandate {
+  id: string;
+  budget: { usd: number; jobs: number };
+  scoring: MandateScoring;
+}
 
 const DAY_MS = 86_400_000;
 
@@ -53,7 +77,7 @@ function gateAt(events: JobEvent[], i: number): WaitingOn | 'none' {
 }
 
 /** The merged jobs' scores, each job in exactly one bucket. */
-function scoresOf(merged: MandateJob[], m: Pick<Mandate, 'scoring'>, config: Config, now: Date): MandateReportCard['scores'] {
+function scoresOf(merged: CardJob[], m: Pick<CardMandate, 'scoring'>, config: Config, now: Date): MandateReportCard['scores'] {
   const values: number[] = [];
   let held = 0;
   let failed = 0;
@@ -65,6 +89,7 @@ function scoresOf(merged: MandateJob[], m: Pick<Mandate, 'scoring'>, config: Con
     if (value !== null) values.push(value);
     else if (s?.status === 'held') held++;
     else if (s?.status === 'failed') failed++;
+    // Sync and `forge job score record` read only live jobs: an archived one's score never comes.
     else if (j.live && scoreAwaited(j.job, now, config, m.scoring)) pending++;
     else unscored++;
   }
@@ -80,7 +105,7 @@ function scoresOf(merged: MandateJob[], m: Pick<Mandate, 'scoring'>, config: Con
 }
 
 /** The merged jobs' outcomes, each job in exactly one bucket, and when the last window closes. */
-function outcomesOf(merged: MandateJob[], config: Config): MandateReportCard['outcomes'] {
+function outcomesOf(merged: CardJob[], config: Config): MandateReportCard['outcomes'] {
   const windowMs = outcomeWindowDays(config) * DAY_MS;
   let final = 0;
   let open = 0;
@@ -114,7 +139,7 @@ function outcomesOf(merged: MandateJob[], config: Config): MandateReportCard['ou
 }
 
 /** The settled jobs with verdicts: their mean last round and the share that passed every lens in round 1. */
-function reviewOf(jobs: MandateJob[]): MandateReportCard['review'] {
+function reviewOf(jobs: CardJob[]): MandateReportCard['review'] {
   let reviewed = 0;
   let rounds = 0;
   let firstPass = 0;
@@ -130,7 +155,7 @@ function reviewOf(jobs: MandateJob[]): MandateReportCard['review'] {
 }
 
 /** Every person's (not the foreman's) `human` event on the jobs, keyed by the park it was recorded at. */
-function interventionsOf(jobs: MandateJob[]): MandateReportCard['interventions'] {
+function interventionsOf(jobs: CardJob[]): MandateReportCard['interventions'] {
   const counts = new Map<WaitingOn | 'none', number>();
   let total = 0;
   for (const j of jobs) {
@@ -150,7 +175,7 @@ function interventionsOf(jobs: MandateJob[]): MandateReportCard['interventions']
 }
 
 /** The mandate's report card at `at` (ms), from its job figures. No I/O. */
-export function buildReportCard(m: Pick<Mandate, 'id' | 'budget' | 'scoring'>, f: Pick<JobFigures, 'jobs' | 'counts' | 'spentUsd' | 'started'>, config: Config, at: number): MandateReportCard {
+export function buildReportCard(m: CardMandate, f: CardFigures, config: Config, at: number): MandateReportCard {
   const merged = f.jobs.filter((j) => j.job.pr?.state === 'MERGED');
   return {
     mandate: m.id,

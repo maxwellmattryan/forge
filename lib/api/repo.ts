@@ -243,7 +243,7 @@ export interface Directive {
 export type CardFigure = number | 'pending' | null;
 
 /**
- * A mandate's report card (lib/office/mandates/card.ts buildReportCard): what merged, how it scored, how
+ * A mandate's report card (lib/engine/metrics/report-card.ts buildReportCard): what merged, how it scored, how
  * much review and human help it took, what it cost against its budget and what happened after the
  * merges. Numbers, 'pending', null, WAITING_ON keys and ISO times only: no free text.
  */

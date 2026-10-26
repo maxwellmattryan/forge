@@ -15,7 +15,6 @@ Mandates: the owner's standing instructions to the Office, one file each in `.fo
 | File | What it holds |
 |---|---|
 | `cadence.ts` | When the pool runs the Office pass (`forge office pass`, ./pass.ts): every `foreman.cadence` minutes, at start, when a mandate file changes and when a job in a mandate settles. |
-| `card.ts` | A mandate's report card: one fixed-shape object over its jobs (what merged, how it scored, how much review and human help it took, what it cost against its budget, what happened after the merges), built from the job figures progress.ts reads (the CLI records, the archive, the CLI copy of the events and the spend ledger), with no I/O. |
 | `contract.ts` | The mandate contract's rules: the stored shape a file needs to be read, the refusals of `forge mandate new\|edit`, the defaults a new mandate takes, the contract as it applies under the config (what it caps), the derived state and chain, and the guidance and goal fences. |
 | `directives.ts` | Directives: the director loop's record, one `directive` event per choice the office session makes (start, resume, note, skip) and per enforcement the Office pass applies (pause, close, stall, park, cancel). |
 | `director.ts` | The director turn's CLI side: `forge office survey\|board\|start\|resume\|note`, which the office session runs on a `direct` request (and a person may run in their own terminal). |

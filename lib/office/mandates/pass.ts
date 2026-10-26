@@ -14,11 +14,11 @@ import { MANDATE_SUMMARY_SCHEMA_VERSION, MANDATE_SUMMARY_STEPS } from '#core/ver
 import { runSteps } from '#core/versions/steps.ts';
 import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
 import { foremanEnabled } from '#engine/pipeline/moves/foreman-gates.ts';
+import { buildReportCard } from '#engine/metrics/report-card.ts';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { queueNotify } from '../notify.ts';
 import type { QueueNotify } from '../notify.ts';
-import { buildReportCard } from './card.ts';
 import { cleanReason, isReadable } from './contract.ts';
 import { logDirective, readDirectives } from './directives.ts';
 import { bounceHold, cadenceStalled, gateEntries, mandateProgress, readProgressCtx, scopeItems } from './progress.ts';
@@ -71,7 +71,7 @@ export interface MandateClosing {
   skipped: { issue: string; why: string }[];
   elsewhere: string[];
   needsInfo: string[];
-  /** The report card at close (card.ts); null in a summary written before the card. */
+  /** The report card at close (lib/engine/metrics/report-card.ts); null in a summary written before the card. */
   card: MandateReportCard | null;
 }
 

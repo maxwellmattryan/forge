@@ -5,18 +5,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defaults } from '#core/config/load.ts';
 import { WAITING_ON, normalizeJob } from '#core/job/schema.ts';
-import { buildReportCard } from './card.ts';
-import type { Config, Job, JobEvent, JobOutcome, JobScore } from '#core/types.ts';
-import type { JobClass, MandateJob } from './progress.ts';
-import type { MandateReportCard } from './types.ts';
+import { buildReportCard } from './report-card.ts';
+import type { CardJob } from './report-card.ts';
+import type { Config, Job, JobEvent, JobOutcome, JobScore, MandateReportCard } from '#core/types.ts';
 
 const DAY = 86_400_000;
 const AT = Date.parse('2026-10-20T12:00:00.000Z');
 const ago = (days: number): string => new Date(AT - days * DAY).toISOString();
 
+type Class = 'reached' | 'handled' | 'unfinishable' | 'inFlight';
+
 /** One mandate job: live and in flight unless told otherwise. */
-function mj(id: string, o: { class?: JobClass; live?: boolean; job?: Record<string, unknown>; events?: JobEvent[] } = {}): MandateJob {
-  return { id, issue: null, class: o.class ?? 'inFlight', live: o.live ?? true, job: { ...normalizeJob({ id, mandate: 'm1' }), ...o.job } as Job, events: o.events ?? [] };
+function mj(id: string, o: { class?: Class; live?: boolean; job?: Record<string, unknown>; events?: JobEvent[] } = {}): CardJob {
+  return { class: o.class ?? 'inFlight', live: o.live ?? true, job: { ...normalizeJob({ id, mandate: 'm1' }), ...o.job } as Job, events: o.events ?? [] };
 }
 
 /** A merged PR, `days` ago. */
@@ -41,11 +42,11 @@ const outcome = (status: JobOutcome['status'], o: Record<string, unknown> = {}) 
 const transition = (to: Record<string, unknown>): JobEvent => ({ v: 1, ts: ago(2), type: 'transition', from: { state: 'running', stage: 'build', waitingOn: null }, to }) as unknown as JobEvent;
 const human = (source: string): JobEvent => ({ v: 1, ts: ago(2), type: 'human', action: 'approve', actor: { login: source === 'foreman' ? null : 'alice', source } }) as unknown as JobEvent;
 
-function card(jobs: MandateJob[], o: { scoring?: 'all' | 'sample' | 'off'; prEnabled?: boolean; spentUsd?: number; started?: number } = {}): MandateReportCard {
+function card(jobs: CardJob[], o: { scoring?: 'all' | 'sample' | 'off'; prEnabled?: boolean; spentUsd?: number; started?: number } = {}): MandateReportCard {
   const config: Config = defaults();
   config.pr.enabled = o.prEnabled ?? true;
   const counts = { reached: 0, inFlight: 0, handled: 0, unfinishable: 0 };
-  for (const j of jobs) counts[j.class]++;
+  for (const j of jobs) counts[j.class as Class]++;
   return buildReportCard({ id: 'm1', budget: { usd: 50, jobs: 5 }, scoring: o.scoring ?? 'all' }, { jobs, counts, spentUsd: o.spentUsd ?? 0, started: o.started ?? jobs.length }, config, AT);
 }
 

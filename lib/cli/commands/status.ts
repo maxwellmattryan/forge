@@ -1,14 +1,7 @@
-// Human-readable summaries: `forge status` and the text form of `forge stats`, and `forge stats --mandate`'s report card.
+// Human-readable summaries: `forge status` and the text form of `forge stats`.
 import { foremanHandoffFor } from '#office/foreman.ts';
-import { buildReportCard } from '#office/mandates/card.ts';
-import { jobFigures } from '#office/mandates/progress.ts';
-import { listMandates, mandateTarget } from '#office/mandates/store.ts';
-import { listArchived } from '#core/job/archive.ts';
 import { isActive, listJobs, progress } from '#core/job/store.ts';
-import { ForgeError } from '#core/errors.ts';
-import { spendLedger } from '#engine/metrics/spend.ts';
-import { str } from './args.ts';
-import type { Config, Job, MandateReportCard, Stats } from '#core/types.ts';
+import type { Job, Stats } from '#core/types.ts';
 import type { HelpGroup, StatusRow } from '../types.ts';
 
 export const HELP: HelpGroup[] = [
@@ -39,24 +32,6 @@ export const HELP: HelpGroup[] = [
     ],
   },
 ];
-
-const MANDATE_USAGE = 'usage: forge stats --mandate <id>';
-/** The stats flags `--mandate` refuses: each picks another output. */
-const NOT_WITH_MANDATE = ['csv', 'by', 'role', 'since', 'include-evals'];
-
-/**
- * `forge stats --mandate <id>`: the mandate's live report card, from the records `forge mandate show`
- * reads (no tracker call). Any status, a goal mandate still drafting too.
- */
-export function statsMandate(root: string, config: Config, flags: Record<string, any>): MandateReportCard {
-  for (const f of NOT_WITH_MANDATE) if (flags[f] !== undefined) throw new ForgeError(`--mandate takes no --${f}; ${MANDATE_USAGE}`, 'usage', 'forge help stats');
-  const id = str(flags.mandate, '--mandate') as string;
-  const all = listMandates(root);
-  const m = mandateTarget(all, id);
-  const at = Date.now();
-  const f = jobFigures(root, config, m, all, { jobs: listJobs(root), archived: listArchived(root), ledger: spendLedger(root, config, { write: false }), at });
-  return buildReportCard(m, f, config, at);
-}
 
 /** `forge status --json`: one row per job, the data `forge status` prints as a table. */
 export function statusRows(root: string, all: boolean): StatusRow[] {
