@@ -13,7 +13,7 @@ import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import { checkRepoBudget, repoBudgetStatus } from '#engine/metrics/repo-budget.ts';
 import { spendLedger } from '#engine/metrics/spend.ts';
 import { foremanEnabled } from '#engine/pipeline/moves/foreman-gates.ts';
-import { cadenceMinutes } from '../cadence.ts';
+import { cadenceMinutes } from './cadence.ts';
 import { effectiveContract, mandateState } from './contract.ts';
 import { readDirectives } from './directives.ts';
 import type { ArchivedJob, Config, ForgeRequest, Job, JobEvent, LoadedJob, MandateUntil, Tracker, TrackerItem, TransitionSide } from '#core/types.ts';

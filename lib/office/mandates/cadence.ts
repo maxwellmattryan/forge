@@ -1,4 +1,4 @@
-// When the pool runs the Office pass (`forge office pass`, lib/office/mandates/pass.ts): every
+// When the pool runs the Office pass (`forge office pass`, ./pass.ts): every
 // `foreman.cadence` minutes, at start, when a mandate file changes and when a job in a mandate settles.
 // Pure rules plus one cheap stat of the mandates dir, so the pool's tick can ask them every poll, and
 // the scheduler that runs one pass child at a time on them.

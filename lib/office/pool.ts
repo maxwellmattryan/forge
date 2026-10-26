@@ -8,7 +8,7 @@ import { trustDigest } from '#core/config/load.ts';
 import { confineDigest } from './session/confine.ts';
 import { TRUST_CHANGED, createSession } from './session/lifecycle.ts';
 import { runPassChild, runSyncChild } from './sync-child.ts';
-import { createPassScheduler } from './cadence.ts';
+import { createPassScheduler } from './mandates/cadence.ts';
 import { sessionOptions, type DaemonOptions, type Session, type SessionContext, type SessionEvent } from './session/contract.ts';
 import { offState, otherOwner, reapOrphans } from './session/records.ts';
 import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
@@ -163,7 +163,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     effort: (scope, c) => sessionEffort(root, scope, c),
     model: (scope, c) => sessionModel(scope, c),
   };
-  /** The Office pass (lib/office/cadence.ts): its child ends with a tick, so the direct request it queued turns the office at once. */
+  /** The Office pass (lib/office/mandates/cadence.ts): its child ends with a tick, so the direct request it queued turns the office at once. */
   const passes = createPassScheduler(root, { run: opts.runPass ?? ((r) => runPassChild(r, o.env)), done: () => tick(), log: (message) => office.logEvent('error', { message }) });
 
   function session(scope: string): Session {

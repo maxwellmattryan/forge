@@ -12,7 +12,7 @@ import { writeTextAtomic } from '#core/os/fs.ts';
 import { resolveEffort, resolveModel } from '#core/config/load.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import { foremanEnabled } from '#engine/pipeline/moves/foreman-gates.ts';
-import { cadenceMinutes } from '../cadence.ts';
+import { cadenceMinutes } from './cadence.ts';
 import { gateOwner } from '../foreman.ts';
 import { isReadable, mandateGuidance, mandateState } from './contract.ts';
 import { logDirective, readDirectives } from './directives.ts';

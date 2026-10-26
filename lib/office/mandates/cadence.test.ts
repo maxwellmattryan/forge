@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tempRepo } from '../../test/helpers.ts';
+import { tempRepo } from '../../../test/helpers.ts';
 import { cadenceMs, mandatesPrint, passDue, passWantedAfter } from './cadence.ts';
 import type { Config, Job } from '#core/types.ts';
 

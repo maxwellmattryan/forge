@@ -1371,7 +1371,7 @@ See [Mandates](CONFIG.md#mandates).
 
 See [Mandates](CONFIG.md#mandates).
 
-**`forge mandate show <id>`**: one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request} (else null), and its file
+**`forge mandate show <id>`**: one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request} (else null), its file, its progress {jobs: {reached, inFlight, handled, unfinishable}, spend: {usd, budget}, started: {jobs, budget}, lastActivity} (no tracker call), its closing summary once the Office pass closed it (else null) and its latest 10 directives
 
 | Exit | When |
 |---|---|
@@ -1408,12 +1408,13 @@ Take the next piece of work.
 
 Push gate, PR, failure and budget notifications to webhooks and a command.
 
-**`forge notify send --events <e1[,e2]> [--job <id>] --reason <code>`**: internal: what a state change spawns, detached. Delivers to the targets that subscribe to the first matching event, reading the job's title, stage and PR url itself, and records notified or notify-failed per target on the job (else in .forge/runtime/notify.jsonl)
+**`forge notify send --events <e1[,e2]> [--job <id> | --mandate <id>] --reason <code>`**: internal: what a state change spawns, detached. Delivers to the targets that subscribe to the first matching event, reading the job's title, stage and PR url itself (or the mandate's title), and records notified or notify-failed per target on the job (else in .forge/runtime/notify.jsonl)
 
 | Flag | Meaning |
 |---|---|
 | `--events <e1[,e2]>` | the events, most specific first |
 | `--job <id>` | the job it is about (none for a pool-wide daemon stop) |
+| `--mandate <id>` | the mandate it is about, with no job: only for the mandate-stalled, mandate-budget and mandate-closed reasons |
 | `--reason <code>` | the reason code, mapped to a fixed English string |
 
 | Exit | When |
@@ -1424,13 +1425,79 @@ Push gate, PR, failure and budget notifications to webhooks and a command.
 
 | Flag | Meaning |
 |---|---|
-| `--event <name>` | the sample's event (default gate): gate, pr-opened, pr-merged, job-failed, daemon-stopped, budget-exceeded, secret-found, service-restarted |
+| `--event <name>` | the sample's event (default gate): gate, pr-opened, pr-merged, job-failed, daemon-stopped, budget-exceeded, secret-found, service-restarted, mandate-stalled, mandate-budget, mandate-closed |
 
 | Exit | When |
 |---|---|
 | 1 | a target failed, or notify has no webhooks or command |
 
 See [Notifications](CONFIG.md#notifications).
+
+### `forge office`
+
+The Office's director loop: the pass forge dash runs, and the office session's survey and directives.
+
+**`forge office board <mandate>`**: write the mandate's board (&lt;mandate dir>/board.md: up to 100 job lines, in-flight first, in one fence under a data line) and return the forge:surveyor brief ({mandate, subagent, model, effort, brief, board})
+
+| Exit | When |
+|---|---|
+| 1 | foreman.surveyors.enabled is false, no such mandate or it can't be read, or run in a daemon session other than the office, or with a missing or invalid scope |
+
+See [Foreman › Director loop](architecture/foreman.md).
+
+**`forge office note <mandate> --reason R`**: log a note directive on a mandate that is not closed, such as why nothing starts though candidates exist ({ok, mandate})
+
+| Flag | Meaning |
+|---|---|
+| `--reason R` | why, one line of at most 200 characters (required) |
+
+| Exit | When |
+|---|---|
+| 1 | the mandate is missing, unreadable or closed, or run in a daemon session other than the office, or with a missing or invalid scope |
+
+See [Foreman › Director loop](architecture/foreman.md).
+
+**`forge office pass`**: enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary (and the next link of a chain, in the same pass), the budget pause and the cadence stall; then queue one direct request for the office session when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked}], direct, problems}); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes
+
+| Exit | When |
+|---|---|
+| 1 | run in a daemon session (forge dash runs it) |
+
+See [Foreman › Director loop](architecture/foreman.md).
+
+**`forge office resume <mandate> <job> --reason R`**: queue a resume for one of an active mandate's resumable jobs (queued, no live lease, no open request) and log a resume directive ({ok, mandate, job, request})
+
+| Flag | Meaning |
+|---|---|
+| `--reason R` | why, one line of at most 200 characters (required) |
+
+| Exit | When |
+|---|---|
+| 1 | the mandate is missing, unreadable or not active, the job is not one of its resumable jobs, or run in a daemon session other than the office, or with a missing or invalid scope |
+
+See [Foreman › Director loop](architecture/foreman.md).
+
+**`forge office start <mandate> <ref> --reason R`**: start one issue of an active mandate: under the office lock, re-check its limits and that ref is in its window now (under order listed, its next issue), then create the job in the mandate, claim the issue, queue its resume and log a start directive ({ok, mandate, issue, job, request}); an issue the tracker reports closed or missing is skipped instead ({ok, skipped: true, issue, reason})
+
+| Flag | Meaning |
+|---|---|
+| `--reason R` | why, one line of at most 200 characters (required) |
+
+| Exit | When |
+|---|---|
+| 1 | the mandate is missing, unreadable or not active, it is blocked (budget, tracker error, foreman off), ref is not in its window, the issue already has a job, or run in a daemon session other than the office, or with a missing or invalid scope |
+| 3 | the tracker refused the claim |
+| 4 | the repo budget holds new work |
+
+See [Foreman › Director loop](architecture/foreman.md).
+
+**`forge office survey`**: read-only: every active mandate's figures, its window of candidates (titles one line), its resumable jobs, its latest 5 directives and its guidance fenced as data ({enabled, cadence, surveyors, repoBudget, mandates, problems})
+
+| Exit | When |
+|---|---|
+| 1 | run in a daemon session other than the office, or with a missing or invalid scope |
+
+See [Foreman › Director loop](architecture/foreman.md).
 
 ### `forge pr`
 
@@ -1581,7 +1648,7 @@ The dashboard's inbox of requests for an orchestrator session.
 
 | Exit | When |
 |---|---|
-| 1 | a gate or draft request (only the CLI writes those), a daemon session queued anything but resume, or its scope is invalid |
+| 1 | a gate, draft or direct request (only the CLI writes those), a daemon session queued anything but resume, or its scope is invalid |
 
 **`forge requests claim <id> --session S [--force]`**: claim a request before handling it
 

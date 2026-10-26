@@ -17,6 +17,7 @@ The version lists: one append-only list of named steps per persisted shape, whos
 | `event.ts` | The event version steps: an events.jsonl line's `v` is this list's length plus one. |
 | `job.ts` | The job version steps: job.json's schemaVersion is this list's length plus one, with the helpers the steps need. |
 | `machine.ts` | The machine index version steps: `<FORGE_HOME>/projects.json`'s schemaVersion is this list's length plus one. |
+| `mandate-summary.ts` | The closing summary version steps: a closed mandate's summary.json `schemaVersion` (`.forge/runtime/mandates/<id>/summary.json`) is this list's length plus one. |
 | `mandate.ts` | The mandate version steps: a mandate file's `schemaVersion` (`.forge/runtime/mandates/<id>.md`) is this list's length plus one. |
 | `steps.ts` | Version steps: a shape's version is its append-only list of named steps, length plus one. |
 <!-- forge:map:end -->
