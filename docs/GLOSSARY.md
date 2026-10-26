@@ -151,6 +151,7 @@ Some of these words already mean something in Forge. They keep those meanings:
 - The Office's "intake" (a goal mandate's drafting runs) differs from a job's intake, `forge requests add resume --intake run|next|new`, which says how a job starts.
 - "Milestone" means a tracker milestone (a group of planned work). The Thread's one-line rows for a job's events are "progress lines".
 - "Layer" alone keeps [its meaning in the architecture docs](architecture/layers.md) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
+- An "agent run" is one run of a role's agent (`runHistory` on its agent record); a job's `runs[]` are orchestrator sessions' stints on the job, and a "verify run" is one `forge verify` attempt.
 - "backlog" means the local tracker (`tracker.kind: local`, `.forge/backlog.md` and its title-slug refs) and the pipeline's first stage (`backlog`); the dashboard page that lists any tracker's items is "Issues", and its data route `GET /api/backlog` keeps its name.
 
 ## Existing terms
@@ -197,3 +198,7 @@ The new words build on these, which exist today.
 | **write root** | A directory a daemon session may write without a prompt: the main checkout's `.forge/jobs/` and every worktrees root; its file tools are scoped to them at spawn and the write guard allows nothing else. | `worktrees.root` |
 | **confine digest** | `git status` over the protected set, every nested `CLAUDE.md` and an in-checkout hooks dir, plus the content of each file it lists, taken when a human starts the pool and compared after every turn and before every spawn (the post-turn check). | - |
 | **mechanical finding** | A recurring finding a script could decide from the diff or the tree, for which the retro proposes a check (an invariant test, a lint rule or a verifier) instead of a learning; every other finding is a judgement finding. | - |
+| **agent run** | One start-to-end of a role's agent on a job, recorded by `forge job agent <id> end` in that agent's `runHistory` (the newest 50) with its round, times, status, model, billing split and context composition; a role with rework has several, and the drawer's Agents tab lists them per role. | - |
+| **billing split** | An agent run's tokens as the API bills them: cache read, cache write, fresh input and output, plus a "not split" rest when the run reported only a total (`--tokens`). | - |
+| **context composition** | An estimate of what filled an agent run's context at its last request: the start prefix (Forge prompt and harness), earlier runs of a resumed transcript, tool results by tool (an MCP server's together), assistant output and user turns, scaled from transcript text sizes so the parts sum to that request's exact input. | - |
+| **start prefix** | An agent run's first request's whole input (fresh, cache read and cache write): the Forge prompt (the role prompt and brief, estimated from their text) plus the harness share, Claude Code's system prompt, tools, MCP and skills, which transcripts don't show. | - |
