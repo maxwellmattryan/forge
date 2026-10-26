@@ -66,7 +66,8 @@ const line = (s: string): string => oneLineTitle(s).slice(0, DETAIL_MAX);
 /** The Foreman decides `release`: it is on, the class is in foreman.decides, and no `gate:release` (decides() drops it). */
 export const foremanDecidesRelease = (config: Config): boolean => foremanEnabled(config) && decides(config).includes(GATE);
 
-const hashOf = (e: JobEvent): string | null => (typeof e.planHash === 'string' && PLAN_HASH.test(e.planHash) ? e.planHash : null);
+/** An event's `planHash` when it is a full plan hash, else null. */
+export const hashOf = (e: JobEvent): string | null => (typeof e.planHash === 'string' && PLAN_HASH.test(e.planHash) ? e.planHash : null);
 
 /** A job-less `release` gate request for mandate `id`, in any status. */
 export const isMandateReleaseGate = (r: ForgeRequest, id: string): boolean => r.type === 'gate' && !r.job && r.args?.gate === GATE && r.args?.mandate === id;
@@ -140,31 +141,36 @@ function ownerOf(root: string, config: Config, id: string, hash: string, narrow:
 }
 
 /**
- * Whether release.json holds a plan the Office pass leaves alone: one that isn't mandate `id`'s own since
- * plan and whose run hasn't started, or one it can't read. A started run of it is writeReleasePlan's
- * refusal, a link is assertNoSymlinks', and a finished one may be replaced.
+ * What release.json holds that the Office pass won't write over for mandate `id`: `waiting`, another plan
+ * whose run hasn't started or a file it can't read (the pass reports `blocked by another plan`); `running`,
+ * another plan's run in progress or a state.json it can't read (writeReleasePlan's refusal); else `none`
+ * (nothing, the mandate's own plan, a finished run, or a link, which assertNoSymlinks refuses). A person's
+ * `forge release plan --mandate` may make the mandate's first plan unless it is `none`.
  */
-function holdsOtherPlan(root: string, id: string): boolean {
+export function otherReleasePlan(root: string, id: string): 'none' | 'waiting' | 'running' {
   const files = releaseFiles(root);
   let plan: ReleasePlan | null;
   try {
     assertNoSymlinks(files);
   } catch {
-    return false;
+    return 'none';
   }
   try {
     plan = readPlanFile(files);
   } catch {
-    return true;
+    return 'waiting';
   }
-  if (!plan || (plan.selection.kind === 'since' && plan.selection.mandate === id)) return false;
+  if (plan && plan.selection.kind === 'since' && plan.selection.mandate === id) return 'none';
   let state: ReleaseState | null;
   try {
     state = readState(files);
   } catch {
-    return false;
+    return 'running';
   }
-  return !(state && state.planHash === plan.hash && Object.keys(state.steps).length > 0);
+  if (!plan) return state && !state.finishedAt ? 'running' : 'none';
+  if (!state || state.planHash !== plan.hash) return 'waiting';
+  if (state.finishedAt) return 'none';
+  return Object.keys(state.steps).length > 0 ? 'running' : 'waiting';
 }
 
 /**
@@ -187,7 +193,7 @@ export function planMandateRelease(
   const selection = { kind: 'since' as const, tag, mandate: id };
   const plan = planRelease(root, config, selection, { git: opts.git, clone: opts.clone });
   if (!planSteps(plan).length) throw new ForgeError(line(`nothing to release since ${tag} (${plan.skipped.map((s) => `${s.label}: ${s.reason}`).join('; ')})`));
-  if (opts.byPass && holdsOtherPlan(root, id)) throw new ForgeError(`blocked by another plan, plan it with forge release plan --mandate ${id}`);
+  if (opts.byPass && otherReleasePlan(root, id) === 'waiting') throw new ForgeError(`blocked by another plan, plan it with forge release plan --mandate ${id}`);
   const written = writeReleasePlan(root, config, selection, { git: opts.git, clone: opts.clone, force: opts.force });
   const file = readFiles(root)?.plan;
   if (!file || file.selection.kind !== 'since' || file.selection.mandate !== id || !PLAN_HASH.test(file.hash)) throw new ForgeError('release.json changed while it was written; plan again');
@@ -245,12 +251,19 @@ function plannedState(root: string, config: Config, id: string, latest: { hash: 
   } catch (e) {
     stale = (e as Error).message;
   }
-  if (stale !== null) return { ...base, ...counts, status: 'stale', owner: owner(), detail: line(`the plan went stale (${stale})`) };
+  if (stale !== null) {
+    // Once a step of its run has started the pass leaves the plan, so the detail names the re-plan (its reason
+    // cut, so the command survives the pass's own `release: ` prefix and cut).
+    const ran = !!own && Object.keys(own.steps).length > 0;
+    const detail = ran ? `the plan went stale (${oneLineTitle(stale).slice(0, 70)}); re-plan with forge release plan --mandate ${id} --force` : `the plan went stale (${stale})`;
+    return { ...base, ...counts, status: 'stale', owner: owner(), detail: line(detail) };
+  }
   if (done > 0) return { ...base, ...counts, status: 'started', owner: owner(), detail: line(`${done}/${steps.length} steps done, next ${next}`) };
   if (mandateReleaseApproval(root, config, file, narrow))
     return { ...base, ...counts, status: 'approved', owner: owner(), detail: `plan ${h12(hash)} approved by the foreman; a human or CI runs forge release run` };
   const who = owner();
-  return { ...base, ...counts, status: 'pending', owner: who, detail: `plan ${h12(hash)} waits for release approval (${who})` };
+  const fix = who === 'human' ? '; run forge release run in a terminal' : '';
+  return { ...base, ...counts, status: 'pending', owner: who, detail: `plan ${h12(hash)} waits for release approval (${who})${fix}` };
 }
 
 /**
@@ -273,11 +286,18 @@ export function mandateReleaseState(root: string, config: Config, id: string, na
   return { ...view, status: 'stale', owner: ownerOf(root, config, id, latest.hash, narrow), detail: line(`the plan went stale (job ${later} merged after plan ${h12(latest.hash)} was planned)`) };
 }
 
-/** Whether a run of mandate `id`'s latest plan has started and not finished (state.json records a step of it): then the pass never re-plans it. */
-export function mandateReleaseStarted(root: string, id: string): boolean {
-  const latest = latestMandatePlan(root, id);
+/**
+ * The run of mandate `id`'s latest plan: `started` while state.json records a step of it and it hasn't
+ * finished (the pass never re-plans it), `finished` once a finished event or state.json says so, else `none`.
+ */
+export function mandateReleaseRun(root: string, id: string): 'none' | 'started' | 'finished' {
+  const events = releaseEvents(root, id);
+  const latest = latestMandatePlan(root, id, events);
+  if (!latest) return 'none';
   const state = readFiles(root)?.state;
-  return !!latest && !!state && state.planHash === latest.hash && !state.finishedAt && Object.keys(state.steps ?? {}).length > 0;
+  const own = state && state.planHash === latest.hash ? state : null;
+  if (own && !own.finishedAt && Object.keys(own.steps ?? {}).length > 0) return 'started';
+  return own?.finishedAt || events.some((e) => e.type === FINISHED && hashOf(e) === latest.hash) ? 'finished' : 'none';
 }
 
 /**

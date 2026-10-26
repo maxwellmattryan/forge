@@ -2,9 +2,10 @@
 // pushed to a local origin: once its job is done the Office pass plans the release since the root's last
 // tag and waits; an assistant foreman approves it; a run without a terminal publishes on that approval and
 // the next pass closes the mandate. A merge after the approval makes the plan stale, so the approval stops
-// counting. With `gate:release` reserved the plan stays a person's, and `forge
-// release plan --mandate` re-plans only what the pass planned first. Serial: the daemon rows set
-// process.env through forgeInProcess.
+// counting, unless a step of the run that acts moved that head itself. With `gate:release` reserved the plan
+// stays a person's, and `forge release plan --mandate` re-plans what the pass planned first, or plans first
+// what another plan in release.json held the pass back from. Serial: the daemon rows set process.env
+// through forgeInProcess.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -14,7 +15,8 @@ import { BIN, forgeInProcess, jobAt, repoTemplate } from '../../helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { claimRequest, listRequests } from '#core/job/requests.ts';
-import { releaseFiles } from '#engine/release/files.ts';
+import { readPlanFile, readState, releaseFiles } from '#engine/release/files.ts';
+import { RELEASE_FILE_VERSION, freshPlan } from '#engine/release/plan.ts';
 import { runRelease } from '#engine/release/run.ts';
 import { mandateReleaseRefusal, releaseMandateRefusal } from '#office/foreman.ts';
 import { readSummary, runOfficePass } from '#office/mandates/pass.ts';
@@ -195,7 +197,11 @@ test('a merge after the approval makes the plan stale, and the approval stops co
   r.git('push', '-q', 'origin', 'main');
   assert.equal((await ok(r.dir, ['mandate', 'show', 'm1'])).release.status, 'stale');
   assert.equal((await ok(r.dir, ['release', 'status'])).stale, true);
-  await assert.rejects(run(r.dir, config), /the release plan no longer matches config and the repos/);
+  // The refusal names the mandate's re-plan: a plain `forge release plan` would replace it, and the mandate would never close.
+  await assert.rejects(
+    run(r.dir, config),
+    /the release plan no longer matches config and the repos \(plan [0-9a-f]{12}, now [0-9a-f]{12}\); the Office pass plans it again, or run forge release plan --mandate m1$/,
+  );
 
   // The pass plans again; the approval was for the old plan, so a run without a terminal stops at the publish step.
   await pass(r.dir, config);
@@ -210,6 +216,52 @@ test('a merge after the approval makes the plan stale, and the approval stops co
   assert.equal((await ok(r.dir, ['mandate', 'show', 'm1'])).status, 'active');
 });
 
+test("a run's own commit keeps a mandate plan fresh, but after the preflight alone a commit makes it stale", async (t) => {
+  const r = scratch(t);
+  await mandateWithDoneJob(r.dir);
+  const config = loadConfig(r.dir).config;
+  await pass(r.dir, config);
+  const files = releaseFiles(r.dir);
+  const plan = readPlanFile(files)!;
+  const state = (steps: Record<string, unknown>) =>
+    fs.writeFileSync(files.state, JSON.stringify({ version: RELEASE_FILE_VERSION, planHash: plan.hash, startedAt: 'x', updatedAt: 'x', finishedAt: null, steps }));
+  // The release step (one that acts) has run, then a commit lands in the root, as a version commit would.
+  state({ '(root)/preflight': { status: 'done', at: 'x' }, '(root)/release': { status: 'started', at: 'x' } });
+  fs.writeFileSync(path.join(r.dir, 'v.txt'), 'v\n');
+  r.git('add', '-A');
+  r.git('commit', '-qm', 'version');
+  assert.equal((await ok(r.dir, ['release', 'status'])).stale, false, 'the root keeps its planned head');
+  assert.doesNotThrow(() => freshPlan(r.dir, config, plan, readState(files)));
+  assert.equal((await ok(r.dir, ['mandate', 'show', 'm1'])).release.status, 'started');
+  // Only the check-only preflight ran: the same commit makes the plan stale, and the fix is the mandate's re-plan with --force.
+  state({ '(root)/preflight': { status: 'done', at: 'x' } });
+  assert.equal((await ok(r.dir, ['release', 'status'])).stale, true);
+  assert.throws(() => freshPlan(r.dir, config, plan, readState(files)), /; run forge release plan --mandate m1 --force$/);
+  const shown = (await ok(r.dir, ['mandate', 'show', 'm1'])).release;
+  assert.equal(shown.status, 'stale');
+  assert.match(shown.detail, /^the plan went stale \(plan [0-9a-f]{12}, now [0-9a-f]{12}\); re-plan with forge release plan --mandate m1 --force$/);
+});
+
+test('a person plans the release another plan held the pass back from, and the next pass waits on it', async (t) => {
+  const r = scratch(t);
+  await mandateWithDoneJob(r.dir);
+  const config = loadConfig(r.dir).config;
+  // A plain --since plan nobody ran sits in release.json: the pass never writes over it.
+  await ok(r.dir, ['release', 'plan', '--since', 'v0.1.0']);
+  const held = await pass(r.dir, config);
+  assert.equal(held.mandates[0].blocked, 'release: blocked by another plan, plan it with forge release plan --mandate m1');
+  assert.deepEqual(events(r.dir, 'mandate-release-planned'), [], 'nothing planned');
+  // The person does what it says: the mandate's first plan, with its event and gate request.
+  const out = await ok(r.dir, ['release', 'plan', '--mandate', 'm1']);
+  const [planned] = events(r.dir, 'mandate-release-planned');
+  assert.deepEqual([planned.mandate, planned.tag, out.hash, out.approval.owner], ['m1', 'v0.1.0', planned.planHash.slice(0, 12), 'foreman']);
+  assert.deepEqual(releaseGates(r.dir).map((g) => g.args?.key), [planned.planHash]);
+  // The next pass waits on that plan, and plans nothing more.
+  const next = await pass(r.dir, config);
+  assert.equal(next.mandates[0].blocked, `release: plan ${out.hash} waits for release approval (foreman)`);
+  assert.equal(events(r.dir, 'mandate-release-planned').length, 1);
+});
+
 test("the Foreman's reserved release leaves the plan with a human", async (t) => {
   const r = scratch(t);
   commitConfig(r, (c) => (c.foreman.reserved = ['gate:release']));
@@ -219,6 +271,7 @@ test("the Foreman's reserved release leaves the plan with a human", async (t) =>
   assert.equal(events(r.dir, 'mandate-release-planned').length, 1, 'planned');
   assert.deepEqual(releaseGates(r.dir), [], 'no gate request');
   assert.equal(out.mandates[0].release?.owner, 'human');
+  assert.match(String(out.mandates[0].blocked), /^release: plan [0-9a-f]{12} waits for release approval \(human\); run forge release run in a terminal$/);
   const status = await ok(r.dir, ['release', 'status']);
   assert.deepEqual(status.approval, { owner: 'human', status: 'pending' });
   const ran = await run(r.dir, config);

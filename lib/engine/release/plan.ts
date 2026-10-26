@@ -310,12 +310,23 @@ export function planRelease(root: string, config: Config, selection: ReleaseSele
   return { ...plan, hash: planHash(plan) };
 }
 
+/**
+ * How to re-plan a stale plan. A mandate's is planned again by the Office pass or `--mandate` (a plain plan
+ * would replace it, and the mandate would never close), with `--force` once a step of its run has started.
+ */
+function replanHint(file: Pick<ReleasePlan, 'selection' | 'hash'>, state: ReleaseState | null): string {
+  const sel = file.selection;
+  if (sel.kind !== 'since' || sel.mandate === undefined) return 'run forge release plan';
+  const started = !!state && state.planHash === file.hash && !state.finishedAt && Object.keys(state.steps).length > 0;
+  return started ? `run forge release plan --mandate ${sel.mandate} --force` : `the Office pass plans it again, or run forge release plan --mandate ${sel.mandate}`;
+}
+
 /** The plan as it is now, against release.json and state.json; a mismatch is refused as stale. */
 export function freshPlan(root: string, config: Config, file: ReleasePlan, state: ReleaseState | null, opts: PlanOptions = {}): ReleasePlan {
   const now = planRelease(root, config, file.selection, { ...opts, heads: keptHeads(file, state) });
   // planHash(file) catches a release.json edited without updating its hash.
   const old = [file.hash, planHash(file), state?.planHash].find((h) => h !== undefined && h !== now.hash);
-  if (old !== undefined) throw new ForgeError(`the release plan no longer matches config and the repos (plan ${String(old).slice(0, 12)}, now ${now.hash.slice(0, 12)}); run forge release plan`);
+  if (old !== undefined) throw new ForgeError(`the release plan no longer matches config and the repos (plan ${String(old).slice(0, 12)}, now ${now.hash.slice(0, 12)}); ${replanHint(file, state)}`);
   return now;
 }
 

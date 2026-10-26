@@ -21,7 +21,7 @@ import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
 import { foremanEnabled } from '#engine/pipeline/moves/foreman-gates.ts';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
-import { mandateReleaseStarted, mandateReleaseState, planMandateRelease } from '#engine/release/mandate.ts';
+import { mandateReleaseRun, mandateReleaseState, planMandateRelease } from '#engine/release/mandate.ts';
 import type { MandateReleaseNarrow, MandateReleaseView } from '#engine/release/mandate.ts';
 import { mandateReleaseRefusal } from '../foreman.ts';
 import { queueNotify } from '../notify.ts';
@@ -178,9 +178,10 @@ const cut = (s: string): string => s.slice(0, REASON_MAX);
 /**
  * An `until: released` mandate whose work is done: its release state, after planning it when it is
  * unplanned, or stale with no run of it in progress, and the mandate is active (a paused one is never
- * planned). A plan logs a `release` directive and notifies `gate`; a refusal (no tag, nothing to
- * release, another plan in release.json that hasn't started, another plan's unfinished run…) plans
- * nothing and becomes the mandate's `blocked`.
+ * planned). A plan logs a `release` directive, and notifies `gate` when it is the mandate's first or
+ * follows a release that ran: a re-plan of a plan that never ran asks nothing new of a person, so it
+ * notifies no one again. A refusal (no tag, nothing to release, another plan in release.json that hasn't
+ * started, another plan's unfinished run…) plans nothing and becomes the mandate's `blocked`.
  */
 function awaitRelease(
   root: string,
@@ -193,11 +194,12 @@ function awaitRelease(
 ): { view: MandateReleaseView; blocked: string } {
   let view = mandateReleaseState(root, config, m.id, narrow);
   let refusal: string | null = null;
-  if (state === 'active' && (view.status === 'unplanned' || (view.status === 'stale' && !mandateReleaseStarted(root, m.id)))) {
+  const run = view.status === 'stale' ? mandateReleaseRun(root, m.id) : 'none';
+  if (state === 'active' && (view.status === 'unplanned' || (view.status === 'stale' && run !== 'started'))) {
     try {
       const planned = planMandateRelease(root, config, m.id, { narrow, actor: FOREMAN_ACTOR, byPass: true });
       directive('release', `planned ${planned.hash} since ${planned.tag}`);
-      notify(root, ['gate'], { reason: 'mandate-release', mandate: m.id });
+      if (view.status === 'unplanned' || run === 'finished') notify(root, ['gate'], { reason: 'mandate-release', mandate: m.id });
       view = mandateReleaseState(root, config, m.id, narrow);
     } catch (e) {
       if (!(e instanceof ForgeError)) throw e;

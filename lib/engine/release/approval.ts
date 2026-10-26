@@ -8,7 +8,7 @@ import { isForemanActor, loadJob, logEvent, readEvents } from '#core/job/store.t
 import { classReservation, foremanEnabled, reservedFor } from '../pipeline/moves/foreman-gates.ts';
 import { freshPlan, type ReleasePlan } from './plan.ts';
 import { assertNoSymlinks, readPlanFile, readState, releaseFiles } from './files.ts';
-import { PLAN_HASH, foremanDecidesRelease, mandateReleaseApproval, type ForemanApproval, type MandateReleaseNarrow, type ReleaseOwner } from './mandate.ts';
+import { PLAN_HASH, foremanDecidesRelease, hashOf, mandateReleaseApproval, type ForemanApproval, type MandateReleaseNarrow, type ReleaseOwner } from './mandate.ts';
 import { enqueue, inAssistant, listRequests } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';
 import type { Config, ForgeRequest, Job, JobEvent } from '#core/types.ts';
@@ -28,8 +28,6 @@ const GATE = 'release' as const;
 
 /** A since plan the Office pass made for an `until: released` mandate: its approval is the mandate's (./mandate.ts). */
 const mandateOf = (plan: Pick<ReleasePlan, 'selection'>): string | null => (plan.selection.kind === 'since' && plan.selection.mandate !== undefined ? plan.selection.mandate : null);
-
-const hashOf = (e: JobEvent): string | null => (typeof e.planHash === 'string' && PLAN_HASH.test(e.planHash) ? e.planHash : null);
 
 /** The hash of the job's latest `release-planned` event, or null. */
 function latestPlannedHash(events: JobEvent[]): string | null {

@@ -5,7 +5,7 @@ import { refuseRun, releaseStatus, runRelease } from '#engine/release/run.ts';
 import { noteReleasePlanned } from '#engine/release/approval.ts';
 import { selectionFrom } from '#engine/release/plan.ts';
 import { writeReleasePlan } from '#engine/release/files.ts';
-import { latestMandatePlan, planMandateRelease } from '#engine/release/mandate.ts';
+import { latestMandatePlan, otherReleasePlan, planMandateRelease } from '#engine/release/mandate.ts';
 import { mandateReleaseRefusal, releaseMandateRefusal } from '#office/foreman.ts';
 import { effectiveContract, isReadable } from '#office/mandates/contract.ts';
 import { readMandate } from '#office/mandates/store.ts';
@@ -25,17 +25,17 @@ const RELEASE: HelpGroup = {
       command: 'release plan',
       args: '[--job ID | --since TAG | --mandate ID] [--force]',
       summary:
-        "plan a release from each repo's release strategy, dependencies first: write .forge/runtime/release/release.md (steps, checks and rollback) and release.json; nothing runs. With --job, the job's PRs must be merged, except a consumer of an interim edge, which is skipped (it merges after its dependencies' release); the plan logs release-planned and, when the Foreman decides the release gate class, queues its gate request, and approval says who owns the publish decision. With --mandate, an until: released mandate's release is planned again since the root's latest tag (the Office pass plans it first), with the same event and gate request as the pass",
+        "plan a release from each repo's release strategy, dependencies first: write .forge/runtime/release/release.md (steps, checks and rollback) and release.json; nothing runs. With --job, the job's PRs must be merged, except a consumer of an interim edge, which is skipped (it merges after its dependencies' release); the plan logs release-planned and, when the Foreman decides the release gate class, queues its gate request, and approval says who owns the publish decision. With --mandate, an until: released mandate's release is planned again since the root's latest tag (the Office pass plans it first, unless another plan in release.json holds the pass back), with the same event and gate request as the pass",
       flags: [
         ['--job ID', "release the job's merged PR repos; an unmerged consumer of an interim edge is skipped"],
         ['--since TAG', 'release the repos with commits since TAG'],
-        ['--mandate ID', "re-plan an active until: released mandate's release since the root repo's latest tag (not with --job or --since, not in a daemon session)"],
+        ['--mandate ID', "re-plan an active until: released mandate's release since the root repo's latest tag, or plan it first while another plan in release.json holds the Office pass back (not with --job or --since, not in a daemon session)"],
         ['--force', "discard an unfinished run's checkpoints (not in a daemon session)"],
       ],
       exits: [
         [
           1,
-          "config problems, an unmerged PR that is no interim consumer, no merged PR at all (--job), an unusable member clone (--job), no repo with the tag, a build cycle, an unfinished run of another plan, a symlinked release dir, or --force in a daemon session; with --mandate: a daemon session, an unknown or unreadable mandate, one not active, one whose effective until isn't released, one the Office pass hasn't planned yet, no tag in the root repo, or nothing to release since it",
+          "config problems, an unmerged PR that is no interim consumer, no merged PR at all (--job), an unusable member clone (--job), no repo with the tag, a build cycle, an unfinished run of another plan, a symlinked release dir, or --force in a daemon session; with --mandate: a daemon session, an unknown or unreadable mandate, one not active, one whose effective until isn't released, one the Office pass hasn't planned yet while nothing in release.json holds the pass back, no tag in the root repo, or nothing to release since it",
         ],
       ],
       docs: DOCS,
@@ -70,8 +70,9 @@ const MANDATE_DAEMON_REFUSAL = "forge release plan --mandate re-plans a mandate'
 
 /**
  * `--mandate ID`: the refusals before anything is read (usage with --job or --since, any daemon session),
- * then the mandate's (unknown, unreadable, not active, until not released, never planned by the pass),
- * then planMandateRelease with the same event and gate request as the pass.
+ * then the mandate's (unknown, unreadable, not active, until not released, never planned by the pass while
+ * release.json holds nothing the pass won't write over), then planMandateRelease with the same event and
+ * gate request as the pass. So a person makes the first plan when another plan holds the pass back.
  */
 function planForMandate(ctx: CliContext, flags: Record<string, any>, narrow: (id: string) => string | null) {
   const { root, config } = ctx;
@@ -88,7 +89,7 @@ function planForMandate(ctx: CliContext, flags: Record<string, any>, narrow: (id
   if (m.status !== 'active') throw new ForgeError(`mandate ${id} is ${m.status}; plan a release of its work with forge release plan --since <tag>`, 1);
   const { effective, capped } = effectiveContract(config, m);
   if (effective.until !== 'released') throw new ForgeError(`mandate ${id}'s until is ${effective.until}, not released${capped.length ? ` (${capped.join('; ')})` : ''}`, 1);
-  if (latestMandatePlan(root, id) === null) throw new ForgeError(`mandate ${id}'s release isn't planned yet: the Office pass plans it once the mandate's jobs have merged`, 1);
+  if (latestMandatePlan(root, id) === null && otherReleasePlan(root, id) === 'none') throw new ForgeError(`mandate ${id}'s release isn't planned yet: the Office pass plans it once the mandate's jobs have merged`, 1);
   return planMandateRelease(root, config, id, { narrow, actor: currentActor(root), force: flags.force === true });
 }
 

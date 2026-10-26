@@ -337,10 +337,10 @@ const writeState = (root: string, hash: string, steps: Record<string, unknown>, 
   fs.writeFileSync(releaseFiles(root).state, JSON.stringify({ version: RELEASE_FILE_VERSION, planHash: hash, startedAt: 'x', updatedAt: 'x', finishedAt, steps }));
 
 test('a mandate until released waits for its release and never closes early', async (t) => {
-  const pass = (root: string, config: Config, at?: number) => runOfficePass(root, config, { tracker: stub({ M1: [1] }), notify: notifier().fn, at });
+  const pass = (root: string, config: Config, at?: number, notify: QueueNotify = notifier().fn) => runOfficePass(root, config, { tracker: stub({ M1: [1] }), notify, at });
   const blockedOf = (out: Awaited<ReturnType<typeof runOfficePass>>) => out.mandates.find((m) => m.id === 'm1')?.blocked;
-  const waits = async (root: string, config: Config, want: RegExp, plans: number) => {
-    const out = await pass(root, config);
+  const waits = async (root: string, config: Config, want: RegExp, plans: number, notify?: QueueNotify) => {
+    const out = await pass(root, config, undefined, notify);
     assert.equal(status(root, 'm1'), 'active', 'not closed');
     assert.match(String(blockedOf(out)), want);
     assert.equal(planned(root).length, plans, 'planned events');
@@ -377,7 +377,7 @@ test('a mandate until released waits for its release and never closes early', as
     await pass(root, config);
     writeState(root, latestMandatePlan(root, 'm1')!.hash, { '(root)/preflight': { status: 'done', at: 'x' } });
     config.release.command = 'git tag v0.3.0';
-    await waits(root, config, /^release: the plan went stale \(plan [0-9a-f]{12}, now [0-9a-f]{12}\)$/, 1);
+    await waits(root, config, /^release: the plan went stale \(plan [0-9a-f]{12}, now [0-9a-f]{12}\); re-plan with forge release plan --mandate m1 --force$/, 1);
     assert.equal(releaseGates(root).length, 1, 'no new request');
   });
 
@@ -393,7 +393,8 @@ test('a mandate until released waits for its release and never closes early', as
 
   await t.test('a finished release that a later merge missed is planned again, not closed', async (t) => {
     const { root, config } = releasing(t);
-    await pass(root, config);
+    const n = notifier();
+    await pass(root, config, undefined, n.fn);
     const [first] = planned(root);
     const plan = JSON.parse(fs.readFileSync(releaseFiles(root).json, 'utf8'));
     writeState(root, first.planHash, Object.fromEntries(planSteps(plan).map((s) => [s.id, { status: 'done', at: 'x' }])), 'x');
@@ -403,10 +404,12 @@ test('a mandate until released waits for its release and never closes early', as
     execFileSync('git', ['commit', '-qm', 'later'], { cwd: root, stdio: 'pipe' });
     const mergedAt = new Date(Date.parse(first.ts) + 1000).toISOString();
     jobAt(root, 'done', { create: { mandate: 'm1', issues: issue(1) }, pr: { number: 4, url: 'https://github.com/acme/web/pull/4', state: 'MERGED', mergedAt } });
-    await waits(root, config, /^release: plan [0-9a-f]{12} waits for release approval \(foreman\)$/, 2);
+    await waits(root, config, /^release: plan [0-9a-f]{12} waits for release approval \(foreman\)$/, 2, n.fn);
     const second = latestMandatePlan(root, 'm1')!.hash;
     assert.notEqual(second, first.planHash, 'a new hash');
     assert.deepEqual(releaseGates(root).map((r) => r.args?.key), [first.planHash, second], 'a new request');
+    const gate = [['gate'], { reason: 'mandate-release', mandate: 'm1' }];
+    assert.deepEqual(n.calls, [gate, gate], 'a plan after a release ran is news: notified again');
   });
 
   await t.test('release.json replaced by another plan', async (t) => {
@@ -418,10 +421,12 @@ test('a mandate until released waits for its release and never closes early', as
 
   await t.test('a plan that went stale before any step ran is planned again', async (t) => {
     const { root, config } = releasing(t);
-    await pass(root, config);
+    const n = notifier();
+    await pass(root, config, undefined, n.fn);
     const first = latestMandatePlan(root, 'm1')!.hash;
     config.release.command = 'git tag v0.3.0';
-    const out = await waits(root, config, /^release: plan [0-9a-f]{12} waits for release approval \(foreman\)$/, 2);
+    const out = await waits(root, config, /^release: plan [0-9a-f]{12} waits for release approval \(foreman\)$/, 2, n.fn);
+    assert.deepEqual(n.calls, [[['gate'], { reason: 'mandate-release', mandate: 'm1' }]], 'the re-plan notifies no one again');
     const second = latestMandatePlan(root, 'm1')!.hash;
     assert.notEqual(second, first, 'a new hash');
     assert.deepEqual(releaseGates(root).map((r) => r.args?.key), [first, second], 'a new request');
