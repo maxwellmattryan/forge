@@ -1,10 +1,11 @@
-// `forge mandate new|edit|pause|resume|close|list|show` and `forge mandate draft
-// start|prepare|record|show|approve|revise|reject|assist`: the owner's mandates to the Office, a goal
-// mandate's drafting runs and its milestone-approval gate (lib/office/mandates/, docs/CONFIG.md
-// "Mandates"). Every write and `draft start` is refused in a daemon session, before anything is read: a
-// session misled by tracker or PR text must not widen or create what directs the Office, or spend on
-// drafting. `draft prepare|record` run only in the office session or a person's terminal; `draft
-// approve|revise|reject` are a person's, or an assistant foreman's with `--actor foreman`.
+// `forge mandate new|edit|pause|resume|close|list|show`, `forge mandate draft
+// start|prepare|record|show|approve|revise|reject|assist` and `forge mandate release assist|approve`: the
+// owner's mandates to the Office, a goal mandate's drafting runs and its milestone-approval gate, and an
+// `until: released` mandate's release gate (lib/office/mandates/, docs/CONFIG.md "Mandates"). Every write
+// and `draft start` is refused in a daemon session, before anything is read: a session misled by tracker
+// or PR text must not widen or create what directs the Office, or spend on drafting. `draft
+// prepare|record` run only in the office session or a person's terminal; `draft approve|revise|reject` are
+// a person's, or an assistant foreman's with `--actor foreman`; `release approve` is only the foreman's.
 import fs from 'node:fs';
 import path from 'node:path';
 import { ForgeError } from '#core/errors.ts';
@@ -14,6 +15,8 @@ import { listJobs } from '#core/job/store.ts';
 import { now } from '#core/utils.ts';
 import { spendLedger } from '#engine/metrics/spend.ts';
 import { refuseOutsideOffice } from '#office/owner.ts';
+import { assistMandateRelease, mandateReleaseRefusal } from '#office/foreman.ts';
+import { approveMandateRelease, mandateReleaseState } from '#engine/release/mandate.ts';
 import { readDirectives } from '#office/mandates/directives.ts';
 import { readSummary } from '#office/mandates/pass.ts';
 import { jobFigures } from '#office/mandates/progress.ts';
@@ -64,6 +67,7 @@ const TERMS: [string, string][] = [
 
 const DOCS: [string, string] = ['Mandates', 'docs/CONFIG.md#mandates'];
 const INTAKE: [string, string] = ['Foreman › Intake', 'docs/architecture/foreman.md'];
+const RELEASE_DOCS: [string, string] = ['Releasing a project', 'docs/RELEASES.md#releasing-a-project'];
 const DAEMON_EXIT = 'a daemon session ran it';
 
 const MANDATE: HelpGroup = {
@@ -129,7 +133,7 @@ const MANDATE: HelpGroup = {
       command: 'mandate show',
       args: '<id>',
       summary:
-        "one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request, gate} (gate: none, pending, filing or filed; else null), its file, its progress {jobs: {reached, inFlight, handled, unfinishable}, spend: {usd, budget}, started: {jobs, budget}, lastActivity} (no tracker call), its closing summary once the Office pass closed it (else null) and its latest 10 directives",
+        "one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request, gate} (gate: none, pending, filing or filed; else null), its file, its progress {jobs: {reached, inFlight, handled, unfinishable}, spend: {usd, budget}, started: {jobs, budget}, lastActivity} (no tracker call), its closing summary once the Office pass closed it (else null), its latest 10 directives, and release: for an effective until: released, its release {status (unplanned, done, replaced, failed, stale, started, approved or pending), plan, tag, done, total, next, owner, detail} (else null)",
       exits: [[1, "no such mandate (not_found), or it can't be read"]],
       docs: DOCS,
     },
@@ -220,6 +224,27 @@ const MANDATE: HelpGroup = {
       flags: [['--request G', 'the claimed milestone-approval gate request (required): in progress, for this mandate']],
       exits: [[1, 'run in a daemon session other than an assistant foreman, or G is not an in-progress milestone-approval gate request for this mandate']],
       docs: INTAKE,
+    },
+    {
+      command: 'mandate release assist',
+      args: '<id> --request R',
+      summary:
+        "read-only, for an assistant foreman session (or a person): the forge:assistant spawn for an until: released mandate's release gate request ({mandate, gate, stale, reason?, reserved, subagent, model, effort, brief}); stale once the release is no longer pending approval or its plan is not the one the request was queued for",
+      flags: [['--request R', 'the claimed release gate request (required): in progress, job-less, for this mandate']],
+      exits: [[1, 'run in a daemon session other than an assistant foreman, or R is not an in-progress release gate request for this mandate']],
+      docs: RELEASE_DOCS,
+    },
+    {
+      command: 'mandate release approve',
+      args: '<id> --actor foreman --note N',
+      summary:
+        "an assistant foreman approves an until: released mandate's pending release plan in place of forge release run's publish prompt ({ok, mandate, release: {plan, actor}}); it starts nothing: a human or CI runs forge release run, which without a terminal then passes each publish step of that exact plan while the mandate still delegates release. A person approves by answering forge release run's publish prompt in a terminal instead",
+      flags: [
+        ['--actor foreman', 'required: only an assistant foreman session records it, under foreman.decides, foreman.reserved and the mandate\'s decides'],
+        ['--note N', 'why (required)'],
+      ],
+      exits: [[1, "no --actor foreman, run outside an assistant foreman session, or refused: the foreman doesn't decide release, the mandate doesn't delegate it (narrowed, paused, closed, unreadable, until capped or reserved), no current plan of this mandate, a stale plan, no queued release gate request for it, already approved, or a reserved pattern in the note"]],
+      docs: RELEASE_DOCS,
     },
   ],
 };
@@ -373,6 +398,7 @@ function show(ctx: CliContext, id: string) {
     },
     summary: m.status === 'closed' ? readSummary(root, m.id) : null,
     directives: readDirectives(root, { mandate: m.id, limit: 10 }),
+    release: effective.until === 'released' ? mandateReleaseState(root, config, m.id, (x) => mandateReleaseRefusal(root, config, x)) : null,
   };
 }
 
@@ -388,10 +414,37 @@ function listCmd(root: string) {
 }
 
 /** assist: only an assistant foreman session, or a person outside the daemon. Checked before anything is read. */
-function assistantOnly(env: NodeJS.ProcessEnv): void {
+function assistantOnly(command: string, env: NodeJS.ProcessEnv): void {
   const s = daemonScope(env);
   if ('problem' in s) throw new ForgeError(s.problem, 1);
-  if (s.daemon && !inAssistant(env)) throw new ForgeError('forge mandate draft assist is for an assistant foreman session (or a person outside the daemon)', 1);
+  if (s.daemon && !inAssistant(env)) throw new ForgeError(`forge mandate ${command} is for an assistant foreman session (or a person outside the daemon)`, 1);
+}
+
+const RELEASE_APPROVE_FLAGS = new Set(['actor', 'note']);
+
+/**
+ * `release assist|approve`: an `until: released` mandate's release gate. approve is only the foreman's,
+ * refused without `--actor foreman` before anything is read; approveMandateRelease then checks the scope
+ * first, and every policy and plan check, before its one write.
+ */
+function releaseCmd(ctx: CliContext, rest: string[], flags: Record<string, any>, env: NodeJS.ProcessEnv = process.env) {
+  const { root, config } = ctx;
+  const action = rest[0];
+  if (action === 'assist') {
+    assistantOnly('release assist', env);
+    if (rest.length !== 2) throw usageError(MANDATE, 'release assist');
+    return assistMandateRelease(root, config, rest[1], req(str(flags.request, '--request'), '--request'));
+  }
+  if (action !== 'approve') throw usageError(MANDATE, 'release');
+  if (str(flags.actor, '--actor') !== 'foreman')
+    throw new ForgeError("approve is the foreman's (--actor foreman); a person approves a mandate's release by answering forge release run's publish prompt in a terminal", 1);
+  if (rest.length !== 2) throw usageError(MANDATE, 'release approve');
+  const extra = Object.keys(flags).find((k) => !RELEASE_APPROVE_FLAGS.has(k));
+  if (extra !== undefined) throw new ForgeError(`forge mandate release approve takes only --actor foreman and --note (not --${extra.slice(0, 40)})`, 'usage');
+  const id = rest[1];
+  const note = flags.note === undefined || flags.note === true ? null : String(flags.note);
+  const hash = approveMandateRelease(root, config, id, note, (x) => mandateReleaseRefusal(root, config, x), env);
+  return { ok: true, mandate: id, release: { plan: hash.slice(0, 12), actor: 'foreman' as const } };
 }
 
 const DECISIONS = new Set(['approve', 'revise', 'reject']);
@@ -441,7 +494,7 @@ async function draftCmd(ctx: CliContext, rest: string[], flags: Record<string, a
   // decideDraft refuses a daemon session without --actor foreman first, before anything is read.
   if (DECISIONS.has(action)) return decide(ctx, action as DraftDecision, rest, flags, env);
   if (action === 'assist') {
-    assistantOnly(env);
+    assistantOnly('draft assist', env);
     if (rest.length !== 2) throw usageError(MANDATE, 'draft assist');
     return assistDraft(root, config, rest[1], req(str(flags.request, '--request'), '--request'));
   }
@@ -485,6 +538,7 @@ export async function mandateCmd(ctx: CliContext, sub: string | undefined, rest:
   if (sub !== undefined && WRITES.has(sub) && process.env.FORGE_DAEMON === '1')
     throw new ForgeError(`forge mandate ${sub} writes the owner's instructions to the Office, which a daemon session may not do; run it in your own terminal`, 1);
   if (sub === 'draft') return { data: await draftCmd(ctx, rest, flags as Record<string, any>), exitCode: 0 };
+  if (sub === 'release') return { data: releaseCmd(ctx, rest, flags as Record<string, any>), exitCode: 0 };
   if (sub === 'list') {
     if (rest.length) throw usageError(MANDATE, sub);
     return { data: listCmd(ctx.root), exitCode: 0 };

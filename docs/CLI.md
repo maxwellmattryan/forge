@@ -433,8 +433,8 @@ The commands worth knowing by hand, generated from the `HELP` rows marked `commo
 | `forge job step <id> [--session S] [--epoch N]` | the job's next action (`spawn` with a ready agent brief, `run`, `wait`, `procedure` or `done`); read-only, the same state always gives the same answer, except that `--session <driver>` renews that session's lease |
 | `forge mandate new <id> --title T [terms]` | create a mandate, active, with every contract term not given taken from foreman.mandate (the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run) (see [Mandates](CONFIG.md#mandates)) |
 | `forge notify test [--event <name>]` | send one sample notification (job null, title "Forge test notification") to every valid notify.webhooks entry regardless of its events, and run notify.command if set; prints {event, results: [{target, host, format, ok, status, error, attempts}]} and records nothing (see [Notifications](CONFIG.md#notifications)) |
-| `forge office pass` | enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary (and the next link of a chain, in the same pass), the budget pause and the cadence stall; then queue one direct request for the office session when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked}], direct, problems}); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes (see [Foreman › Director loop](architecture/foreman.md)) |
-| `forge release plan [--job ID \| --since TAG] [--force]` | plan a release from each repo's release strategy, dependencies first: write .forge/runtime/release/release.md (steps, checks and rollback) and release.json; nothing runs. With --job, the job's PRs must be merged, except a consumer of an interim edge, which is skipped (it merges after its dependencies' release); the plan logs release-planned and, when the Foreman decides the release gate class, queues its gate request, and approval says who owns the publish decision (see [Releasing a project](RELEASES.md#releasing-a-project)) |
+| `forge office pass` | enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary (and the next link of a chain, in the same pass), the budget pause and the cadence stall; an until: released mandate whose jobs have all merged plans its release since the root's latest tag and waits for release approval (no budget pause or stall meanwhile), closing once the release run finished; then queue one direct request for the office session when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked, release}], direct, problems}; release is the mandate's release state for an effective until: released, else null); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes (see [Foreman › Director loop](architecture/foreman.md)) |
+| `forge release plan [--job ID \| --since TAG \| --mandate ID] [--force]` | plan a release from each repo's release strategy, dependencies first: write .forge/runtime/release/release.md (steps, checks and rollback) and release.json; nothing runs. With --job, the job's PRs must be merged, except a consumer of an interim edge, which is skipped (it merges after its dependencies' release); the plan logs release-planned and, when the Foreman decides the release gate class, queues its gate request, and approval says who owns the publish decision. With --mandate, an until: released mandate's release is planned again since the root's latest tag (the Office pass plans it first), with the same event and gate request as the pass (see [Releasing a project](RELEASES.md#releasing-a-project)) |
 | `forge release run` | run the plan step by step, checking each, with checkpoints so a second run resumes at the first step not done; a step whose check already passes is skipped, and publish steps ask on a terminal unless the repo sets release.publish: allow, and without a terminal they run only when the Foreman approved this exact plan (approvedBy: foreman). On a --job plan, each dependency repo whose last step finished in this run gets its release recorded on the job from the checks of this run (released: version, recorded, and a hint when no single version showed), which resumes the job to bump its consumers. Prints its own result (see [Releasing a project](RELEASES.md#releasing-a-project)) |
 | `forge release status` | the plan's progress: each step's status with the tags and versions its checks recorded, the next step, whether config or the repos have moved since planning, and the publish approval (owner, pending or approved) (see [Releasing a project](RELEASES.md#releasing-a-project)) |
 | `forge secrets check [<name>...]` | resolve each named secret (every declared one by default) from its source and report ok or the error; never prints a value or its length |
@@ -1505,6 +1505,31 @@ See [Mandates](CONFIG.md#mandates).
 
 See [Mandates](CONFIG.md#mandates).
 
+**`forge mandate release approve <id> --actor foreman --note N`**: an assistant foreman approves an until: released mandate's pending release plan in place of forge release run's publish prompt ({ok, mandate, release: {plan, actor}}); it starts nothing: a human or CI runs forge release run, which without a terminal then passes each publish step of that exact plan while the mandate still delegates release. A person approves by answering forge release run's publish prompt in a terminal instead
+
+| Flag | Meaning |
+|---|---|
+| `--actor foreman` | required: only an assistant foreman session records it, under foreman.decides, foreman.reserved and the mandate's decides |
+| `--note N` | why (required) |
+
+| Exit | When |
+|---|---|
+| 1 | no --actor foreman, run outside an assistant foreman session, or refused: the foreman doesn't decide release, the mandate doesn't delegate it (narrowed, paused, closed, unreadable, until capped or reserved), no current plan of this mandate, a stale plan, no queued release gate request for it, already approved, or a reserved pattern in the note |
+
+See [Releasing a project](RELEASES.md#releasing-a-project).
+
+**`forge mandate release assist <id> --request R`**: read-only, for an assistant foreman session (or a person): the forge:assistant spawn for an until: released mandate's release gate request ({mandate, gate, stale, reason?, reserved, subagent, model, effort, brief}); stale once the release is no longer pending approval or its plan is not the one the request was queued for
+
+| Flag | Meaning |
+|---|---|
+| `--request R` | the claimed release gate request (required): in progress, job-less, for this mandate |
+
+| Exit | When |
+|---|---|
+| 1 | run in a daemon session other than an assistant foreman, or R is not an in-progress release gate request for this mandate |
+
+See [Releasing a project](RELEASES.md#releasing-a-project).
+
 **`forge mandate resume <id>`**: make a paused mandate active again and clear its reason (changed false when already active)
 
 | Exit | When |
@@ -1513,7 +1538,7 @@ See [Mandates](CONFIG.md#mandates).
 
 See [Mandates](CONFIG.md#mandates).
 
-**`forge mandate show <id>`**: one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request, gate} (gate: none, pending, filing or filed; else null), its file, its progress {jobs: {reached, inFlight, handled, unfinishable}, spend: {usd, budget}, started: {jobs, budget}, lastActivity} (no tracker call), its closing summary once the Office pass closed it (else null) and its latest 10 directives
+**`forge mandate show <id>`**: one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request, gate} (gate: none, pending, filing or filed; else null), its file, its progress {jobs: {reached, inFlight, handled, unfinishable}, spend: {usd, budget}, started: {jobs, budget}, lastActivity} (no tracker call), its closing summary once the Office pass closed it (else null), its latest 10 directives, and release: for an effective until: released, its release {status (unplanned, done, replaced, failed, stale, started, approved or pending), plan, tag, done, total, next, owner, detail} (else null)
 
 | Exit | When |
 |---|---|
@@ -1556,7 +1581,7 @@ Push gate, PR, failure and budget notifications to webhooks and a command.
 |---|---|
 | `--events <e1[,e2]>` | the events, most specific first |
 | `--job <id>` | the job it is about (none for a pool-wide daemon stop) |
-| `--mandate <id>` | the mandate it is about, with no job: only for the mandate-stalled, mandate-budget and mandate-closed reasons |
+| `--mandate <id>` | the mandate it is about, with no job: only for the mandate-stalled, mandate-budget, mandate-closed and mandate-release reasons |
 | `--reason <code>` | the reason code, mapped to a fixed English string |
 
 | Exit | When |
@@ -1599,7 +1624,7 @@ See [Foreman › Director loop](architecture/foreman.md).
 
 See [Foreman › Director loop](architecture/foreman.md).
 
-**`forge office pass`**: enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary (and the next link of a chain, in the same pass), the budget pause and the cadence stall; then queue one direct request for the office session when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked}], direct, problems}); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes
+**`forge office pass`**: enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary (and the next link of a chain, in the same pass), the budget pause and the cadence stall; an until: released mandate whose jobs have all merged plans its release since the root's latest tag and waits for release approval (no budget pause or stall meanwhile), closing once the release run finished; then queue one direct request for the office session when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked, release}], direct, problems}; release is the mandate's release state for an effective until: released, else null); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes
 
 | Exit | When |
 |---|---|
@@ -1737,17 +1762,18 @@ The projects registered on this machine (the machine index in ~/.forge or FORGE_
 
 Plan and run a release of the root repo and its member repos.
 
-**`forge release plan [--job ID | --since TAG] [--force]`**: plan a release from each repo's release strategy, dependencies first: write .forge/runtime/release/release.md (steps, checks and rollback) and release.json; nothing runs. With --job, the job's PRs must be merged, except a consumer of an interim edge, which is skipped (it merges after its dependencies' release); the plan logs release-planned and, when the Foreman decides the release gate class, queues its gate request, and approval says who owns the publish decision
+**`forge release plan [--job ID | --since TAG | --mandate ID] [--force]`**: plan a release from each repo's release strategy, dependencies first: write .forge/runtime/release/release.md (steps, checks and rollback) and release.json; nothing runs. With --job, the job's PRs must be merged, except a consumer of an interim edge, which is skipped (it merges after its dependencies' release); the plan logs release-planned and, when the Foreman decides the release gate class, queues its gate request, and approval says who owns the publish decision. With --mandate, an until: released mandate's release is planned again since the root's latest tag (the Office pass plans it first), with the same event and gate request as the pass
 
 | Flag | Meaning |
 |---|---|
 | `--force` | discard an unfinished run's checkpoints (not in a daemon session) |
 | `--job ID` | release the job's merged PR repos; an unmerged consumer of an interim edge is skipped |
+| `--mandate ID` | re-plan an active until: released mandate's release since the root repo's latest tag (not with --job or --since, not in a daemon session) |
 | `--since TAG` | release the repos with commits since TAG |
 
 | Exit | When |
 |---|---|
-| 1 | config problems, an unmerged PR that is no interim consumer, no merged PR at all (--job), an unusable member clone (--job), no repo with the tag, a build cycle, an unfinished run of another plan, a symlinked release dir, or --force in a daemon session |
+| 1 | config problems, an unmerged PR that is no interim consumer, no merged PR at all (--job), an unusable member clone (--job), no repo with the tag, a build cycle, an unfinished run of another plan, a symlinked release dir, or --force in a daemon session; with --mandate: a daemon session, an unknown or unreadable mandate, one not active, one whose effective until isn't released, one the Office pass hasn't planned yet, no tag in the root repo, or nothing to release since it |
 
 See [Releasing a project](RELEASES.md#releasing-a-project).
 

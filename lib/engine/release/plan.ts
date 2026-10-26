@@ -26,7 +26,12 @@ export const RELEASE_FILE_VERSION = 1;
 const CHECK_KINDS = ['ready', 'clean', 'tagged', 'tag-pushed', 'remote-tagged', 'at-remote', 'registry'] as const;
 export type CheckKind = (typeof CHECK_KINDS)[number];
 
-export type ReleaseSelection = { kind: 'job'; job: string } | { kind: 'since'; tag: string } | { kind: 'all' };
+/**
+ * What a plan releases. A since plan the Office pass makes for an `until: released` mandate also names the
+ * mandate (only when set, so a plain `--since` plan hashes as before): planHash covers it, so an approval
+ * for one mandate's plan never stands for another's or for a plain `--since` plan of the same tag.
+ */
+export type ReleaseSelection = { kind: 'job'; job: string } | { kind: 'since'; tag: string; mandate?: string } | { kind: 'all' };
 
 export interface ReleaseStep {
   /** `<label>/<kind>`. */

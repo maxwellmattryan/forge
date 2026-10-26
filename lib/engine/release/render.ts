@@ -26,7 +26,8 @@ export function stepCommand(s: ReleaseStep): string {
   return (s.argv ?? []).map((w) => shellWord(w, /^[A-Za-z0-9._/:@=+-]+$/)).join(' ');
 }
 
-const SELECTION_TEXT = (s: ReleaseSelection): string => (s.kind === 'job' ? `job ${s.job}` : s.kind === 'since' ? `since ${s.tag}` : 'every repo');
+const SELECTION_TEXT = (s: ReleaseSelection): string =>
+  s.kind === 'job' ? `job ${s.job}` : s.kind === 'since' ? `since ${s.tag}${s.mandate ? ` for mandate ${s.mandate}` : ''}` : 'every repo';
 
 /** release.md: the human plan with its rollback. Text from config and manifests stays in fences or is cut to safe text. */
 export function renderReleaseMd(plan: ReleasePlan, config: Config): string {

@@ -38,6 +38,7 @@ import { assertNoSymlinks, doneCount, planSteps, readPlanFile, readState, releas
 import { readManifestPackage } from './manifest.ts';
 import { stepCommand } from './render.ts';
 import { foremanReleaseApproval, releaseApprovalStatus, type ReleaseNarrow } from './approval.ts';
+import { noteMandateReleaseFinished, type MandateReleaseNarrow } from './mandate.ts';
 import type { RepoKey } from '../project/repo-order.ts';
 import type { Config } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -92,6 +93,8 @@ export interface RunOptions extends PlanOptions {
   confirm: (prompt: string) => Promise<boolean>;
   /** The job's mandate check for `release`, asked again on every run: a foreman approval counts only while it is null. */
   narrow: ReleaseNarrow;
+  /** The same for a mandate's since plan; without it a foreman approval of one never counts. */
+  mandateNarrow?: MandateReleaseNarrow;
   spawn?: SpawnFn;
   /** Where step output and prompts go besides the log; stderr by default. */
   echo?: (chunk: string | Buffer) => void;
@@ -397,7 +400,7 @@ export async function runRelease(root: string, config: Config, opts: RunOptions)
     const skipped: string[] = [];
     let stopped: RunStop | null = null;
     // A terminal always asks; only a run without one may lean on the Foreman's approval of this plan.
-    const approval = opts.interactive ? null : foremanReleaseApproval(root, config, plan, opts.narrow);
+    const approval = opts.interactive ? null : foremanReleaseApproval(root, config, plan, opts.narrow, opts.mandateNarrow);
     let approvedBy: 'foreman' | undefined;
     const recorded = (c: CheckResult) => ({ ...(c.tags ? { tags: c.tags } : {}), ...(c.version ? { version: c.version } : {}) });
     for (let i = 0; i < steps.length && !stopped; i++) {
@@ -497,8 +500,10 @@ export async function runRelease(root: string, config: Config, opts: RunOptions)
     }
     const done = doneCount(plan, st);
     if (!stopped && done === steps.length) {
+      const first = !st.finishedAt;
       st.finishedAt = now();
       save();
+      if (first) noteMandateReleaseFinished(root, plan);
     } else if (!fs.existsSync(files.state)) save();
     const released = plan.selection.kind === 'job' ? recordReleases(root, config, plan, plan.selection.job, fresh, doneNow) : undefined;
     return { data: { ok: !stopped, plan: files.md, state: files.state, done, total: steps.length, ran, skipped, stopped, ...(approvedBy ? { approvedBy } : {}), ...(released ? { released } : {}) }, exitCode: stopped ? 1 : 0 };
@@ -536,7 +541,7 @@ function recordReleases(root: string, config: Config, plan: ReleasePlan, id: str
 }
 
 /** `forge release status`: read-only progress, recorded tags and versions, and whether the plan is stale. */
-export function releaseStatus(root: string, config: Config, opts: PlanOptions & { narrow: ReleaseNarrow }) {
+export function releaseStatus(root: string, config: Config, opts: PlanOptions & { narrow: ReleaseNarrow; mandateNarrow?: MandateReleaseNarrow }) {
   const files = releaseFiles(root);
   assertNoSymlinks(files);
   const file = readPlanFile(files);
@@ -580,6 +585,6 @@ export function releaseStatus(root: string, config: Config, opts: PlanOptions & 
     ...(staleReason !== undefined ? { staleReason } : {}),
     steps,
     finishedAt: own?.finishedAt ?? null,
-    approval: releaseApprovalStatus(root, config, file, opts.narrow),
+    approval: releaseApprovalStatus(root, config, file, opts.narrow, opts.mandateNarrow),
   };
 }

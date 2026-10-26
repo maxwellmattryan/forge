@@ -54,11 +54,12 @@ export const REASONS = {
   'mandate-stalled': 'A mandate stalled and was left for a human',
   'mandate-budget': 'A mandate reached its budget and paused',
   'mandate-closed': 'A mandate finished its scope and closed itself',
+  'mandate-release': "A mandate's release plan is waiting for approval",
   test: 'Test notification from forge notify test',
 } as const;
 
 /** The reasons that name a mandate, and the only ones `forge notify send --mandate` takes. */
-export const MANDATE_REASONS: readonly ReasonCode[] = ['mandate-stalled', 'mandate-budget', 'mandate-closed'];
+export const MANDATE_REASONS: readonly ReasonCode[] = ['mandate-stalled', 'mandate-budget', 'mandate-closed', 'mandate-release'];
 export type ReasonCode = keyof typeof REASONS;
 
 /** The Slack header label per event. */

@@ -9,8 +9,11 @@ import type { Config } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { writeJsonAtomic, writeTextAtomic } from '#core/os/fs.ts';
 import { assertSafeRef } from '#core/text.ts';
+import { MANDATE_ID_SOURCE } from '#api/constants.ts';
 import { type PlanOptions, type ReleasePlan, type ReleaseSelection, type ReleaseState, type ReleaseStep, RELEASE_FILE_VERSION, planRelease } from './plan.ts';
 import { renderReleaseMd } from './render.ts';
+
+const MANDATE_ID = new RegExp(MANDATE_ID_SOURCE);
 
 export interface ReleaseFiles {
   dir: string;
@@ -85,6 +88,9 @@ export function readPlanFile(files: ReleaseFiles): ReleasePlan | null {
     } catch (e) {
       throw new ForgeError(`${files.json}: ${(e as Error).message.replace('safe branch name', 'safe tag name')}; re-run forge release plan`);
     }
+    // The mandate names the audit events an approval is matched against.
+    if (sel.mandate !== undefined && !(typeof sel.mandate === 'string' && MANDATE_ID.test(sel.mandate) && sel.mandate !== 'none'))
+      throw new ForgeError(`${files.json}: selection.mandate ${JSON.stringify(String(sel.mandate).slice(0, 80))} is not a mandate id; re-run forge release plan`);
   }
   if (sel.kind === 'job' && !validJobId(sel.job)) throw new ForgeError(`${files.json}: selection.job ${JSON.stringify(sel.job.slice(0, 80))} is not a valid job id; re-run forge release plan`);
   return p as ReleasePlan;
