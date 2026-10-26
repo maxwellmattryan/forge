@@ -1,6 +1,6 @@
 // `forge job human|handoff|assist`: recording a human's or the foreman's decision at a gate, a Foreman hand-off, and the office's assistant spawn.
 import { assistantBrief } from '#engine/pipeline/brief.ts';
-import { checkForemanDecision, cleanHandoffReason, foremanHandoffFor } from '#office/foreman.ts';
+import { checkForemanDecision, cleanHandoffReason, foremanHandoffFor, mandateRefusal } from '#office/foreman.ts';
 import { classReservation, gateClassFor, isGateClass, reservedFor, securityHold } from '#engine/pipeline/moves/foreman-gates.ts';
 import { loadJob, logHumanEvent, readEvents, setJob } from '#core/job/store.ts';
 import { checkIssueRef } from '#core/job/issue-ref.ts';
@@ -11,7 +11,9 @@ import { HANDOFF_CLASSES, OFFICE_GATES } from '#core/job/schema.ts';
 import { daemonScope, inOffice } from '#core/job/requests.ts';
 import { createAndLink, linkJob, markNoIssue } from '#engine/trackers/link.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
-import { modelFor, resolveEffort } from '#core/config/load.ts';
+import { resolveEffort, resolveModel } from '#core/config/load.ts';
+import { jobMandateDecides } from '#office/mandates/store.ts';
+import { mandateGuidance } from '#office/mandates/contract.ts';
 import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
 import { ForgeError } from '#core/errors.ts';
 import type { Config, Job } from '#core/types.ts';
@@ -32,10 +34,11 @@ export async function human(root: string, config: Config, rest: string[], flags:
   // daemon scope, so a job session misled by request text can't pass off a decision as the foreman's.
   if (inOffice() && who !== 'foreman') throw new ForgeError('the office session records decisions only with --actor foreman', 1);
   // No job waits on a release, so it skips checkForemanDecision; checkReleaseDecision re-plans and
-  // re-reads the policy before the one event it writes. The job's state never changes.
+  // re-reads the policy before the one event it writes, and takes the job's mandate from here (it is
+  // engine code). The job's state never changes.
   if (action === 'approve-release') {
     if (who !== 'foreman') throw new ForgeError("approve-release is the foreman's (--actor foreman); a person approves a release by answering forge release run's publish prompt in a terminal", 1);
-    const planHash = checkReleaseDecision(root, config, jobId, note, { link: flags.link, reason: flags.reason, repo: flags.repo });
+    const planHash = checkReleaseDecision(root, config, jobId, note, { link: flags.link, reason: flags.reason, repo: flags.repo }, (gate) => mandateRefusal(root, config, job, gate));
     logHumanEvent(root, jobId, RELEASE_APPROVAL, { planHash, note }, FOREMAN_ACTOR);
     return { ok: true, release: { plan: planHash.slice(0, 12), actor: 'foreman' } };
   }
@@ -114,18 +117,24 @@ function assist(root: string, config: Config, job: Job, rawGate: unknown) {
   // A release is a plan awaiting approval, not a park: stale once release.json moves on or it is approved.
   const releaseHash = gate === 'release' ? pendingReleaseHash(root, job.id, events) : null;
   const stale = gate === 'release' ? releaseHash === null : gateClassFor(root, job) !== gate;
+  // A job in a mandate: a class the mandate doesn't delegate, or a mandate that can't be read, is a
+  // human's, and the office's reserved path hands it off.
+  const m = stale ? null : jobMandateDecides(root, config, job);
+  const delegated = m !== null && !('problem' in m) && m.decides.includes(gate) ? m : null;
+  const mandateHold = m === null || delegated ? null : 'problem' in m ? `mandate ${m.id}: can't be read` : `mandate ${m.id}: ${gate} is not delegated`;
   // A class reserved with gate:<class> is a human's even when a request for it exists.
-  const reserved = stale ? null : (classReservation(config, gate) ?? reservedFor(root, config, job, gate));
+  const reserved = stale ? null : (classReservation(config, gate) ?? mandateHold ?? reservedFor(root, config, job, gate));
   // One read of the events for both the brief and `repos`, so the foreman's --repo is exactly the set the assistant judged.
   const pending = gate === 'repo-proposal' && !stale ? pendingRepoProposals(job, events) : [];
+  const mandate = delegated ? { id: delegated.id, decides: delegated.decides, guidance: mandateGuidance(delegated.mandate) } : null;
   return {
     gate,
     stale,
     reserved,
-    model: modelFor(config, 'assistant'),
+    model: resolveModel(config, job, 'assistant'),
     effort: resolveEffort(config, job, 'assistant').level,
     subagent: 'forge:assistant',
-    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved, events, pending, releaseHash, stale ? null : securityHold(job)),
+    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved, events, pending, releaseHash, stale ? null : securityHold(job), mandate),
     // The brief's `Pending repos` names: the foreman passes exactly these as --repo, and `exact` refuses once they stop being the pending set.
     ...(gate === 'repo-proposal' && !stale ? { repos: pending.map((r) => r.repo) } : {}),
   };

@@ -132,6 +132,13 @@ const CONFIG_ROWS: Row[] = [
   { step: 'command-env', input: { commands: { test: 'npm test' } }, fields: { 'commands.test': 'npm test' }, removed: ['commandEnv'], note: ONLY_VERSION },
   { step: 'daemon-daily-usd', input: { daemon: { enabled: true, jobBudget: null } }, fields: { daemon: { enabled: true, jobBudget: null } }, removed: ['daemon.dailyUsd'], note: ONLY_VERSION },
   { step: 'merge-required-checks', input: { merge: { auto: true } }, fields: { 'merge.auto': true }, removed: ['merge.requiredChecks'], note: ONLY_VERSION },
+  {
+    step: 'foreman-office',
+    input: { runtime: { models: { builder: 'opus', assistant: 'haiku' }, efforts: { assistant: 'low' } } },
+    fields: { 'foreman.assistants': { model: 'haiku', effort: 'low' }, 'runtime.models': { builder: 'opus' }, 'runtime.efforts': {} },
+    removed: ['runtime.models.assistant', 'runtime.efforts.assistant'],
+    note: "the assistant's model and effort move under foreman.assistants",
+  },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -200,6 +207,7 @@ const JOB_ROWS: Row[] = [
     removed: ['owner'],
     note: 'the owner keeps driving as epoch 1 for the 30 minutes its heartbeat gave it',
   },
+  { step: 'job-mandate', input: { id: 'x', title: 'Old', state: 'running' }, fields: { mandate: null, state: 'running' }, note: 'a job from before mandates is in none' },
 ];
 
 const EVENT_ROWS: Row[] = [
@@ -432,6 +440,16 @@ test('config v13 → v14: an existing downstream value is kept', () => {
 test('config v17 → v18: gate:release is never added twice, nor a foreman block invented', () => {
   assert.deepEqual(migrateConfig({ schemaVersion: 17, foreman: { reserved: ['secret', 'gate:release'] } }).config.foreman.reserved, ['secret', 'gate:release']);
   assert.equal('foreman' in migrateConfig({ schemaVersion: 17, git: { base: 'trunk' } }).config, false);
+});
+
+test('config v34 → v35: other assistant shapes', () => {
+  const v34 = (c: Record<string, unknown>) => migrateConfig({ ...c, schemaVersion: CONFIG_STEPS.findIndex((s) => s.id === 'foreman-office') + 1 }).config;
+  assert.equal('foreman' in v34({ runtime: { models: { builder: 'opus' } } }), false, 'no old key: no foreman block invented');
+  const notMap = v34({ foreman: 'off', runtime: { models: { assistant: 'haiku' } } });
+  assert.deepEqual([notMap.foreman, notMap.runtime.models.assistant], ['off', 'haiku'], 'a foreman that is not a map is left for validation');
+  const kept = v34({ foreman: { enabled: true, assistants: { model: 'opus' } }, runtime: { models: { assistant: 'haiku' }, efforts: { assistant: 'low' } } });
+  assert.deepEqual(kept.foreman, { enabled: true, assistants: { model: 'opus', effort: 'low' } }, 'a value already under foreman.assistants wins');
+  assert.deepEqual(kept.runtime, { models: {}, efforts: {} });
 });
 
 test('config v23 → v24: no outcomes key is added, defaults fill it', () => {

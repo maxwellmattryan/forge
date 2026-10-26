@@ -39,6 +39,8 @@ export interface ForgePaths {
   runtime: string;
   /** The CLI copies of each job's job.json and events.jsonl, which Forge reads (jobRecordDir). */
   records: string;
+  /** The Office's mandates (lib/office/mandates/), one `<id>.md` each: runtime state, outside every session's write roots. */
+  mandates: string;
   backlog: string;
   notes: string;
   reviewers: string;
@@ -62,6 +64,7 @@ export function paths(root: string): ForgePaths {
     locks: path.join(dir, 'locks'),
     runtime: path.join(dir, 'runtime'),
     records: path.join(dir, 'runtime', 'job-records'),
+    mandates: path.join(dir, 'runtime', 'mandates'),
     backlog: path.join(dir, 'backlog.md'),
     notes: path.join(dir, 'notes'),
     reviewers: path.join(dir, 'reviewers'),

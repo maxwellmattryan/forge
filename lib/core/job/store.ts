@@ -241,7 +241,7 @@ const effortError = (v: unknown) => `unknown effort ${JSON.stringify(v)} (${EFFO
 export function createJob(
   root: string,
   config: Config,
-  opts: { title: string; issues?: JobIssue[]; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[]; origin?: string; splitMode?: 'never' | null; effort?: Effort | null },
+  opts: { title: string; issues?: JobIssue[]; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[]; origin?: string; splitMode?: 'never' | null; effort?: Effort | null; mandate?: string | null },
 ): LoadedJob {
   const title = oneLineTitle(opts.title);
   if (!title || (opts.effort != null && !isEffort(opts.effort))) throw new ForgeError(title ? effortError(opts.effort) : 'a job needs a title');
@@ -275,7 +275,7 @@ export function createJob(
     base: config.git.base,
     maxRounds: config.pipeline.maxRounds,
     splitMode: opts.splitMode ?? null,
-    effort: opts.effort ?? null,
+    effort: opts.effort ?? null, mandate: opts.mandate ?? null,
     createdAt: now(),
     updatedAt: now(),
   });

@@ -1,5 +1,5 @@
 // The effective config and its sections' shapes, type-only: re-exported by lib/core/types.ts; unions with a runtime list derive from it.
-import type { BACKING_DB_ENGINES, BACKING_ISOLATIONS, DAEMON_AUTH, EFFORT_ROLES, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS } from '../job/schema.ts';
+import type { BACKING_DB_ENGINES, BACKING_ISOLATIONS, DAEMON_AUTH, EFFORT_ROLES, FOREMAN_SHIP, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL, NOTIFY_EVENTS, NOTIFY_FORMATS } from '../job/schema.ts';
 import type { LINK_ECOSYSTEMS } from './components.ts';
 import type { SINK_FORMATS, SINK_MODES } from './sinks.ts';
 import type { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_PUBLISH, RELEASE_REGISTRIES, RELEASE_VERSIONINGS } from './release-strategy.ts';
@@ -306,6 +306,16 @@ export interface Config {
     decides: GateClass[];
     reserved: string[];
     ship: ForemanShip;
+    /** The Foreman's own model, effort and pace: read by the director loop (#538). */
+    model: string;
+    effort: Effort | null;
+    /** Minutes between the director's passes (1–1440). */
+    cadence: number;
+    /** forge:assistant's model and effort (forge job assist); enabled and sessions are read by assistant routing (#537). */
+    assistants: ForemanSubRole & { sessions: number };
+    surveyors: ForemanSubRole;
+    /** What `forge mandate new` fills a term it isn't given with. */
+    mandate: MandateDefaults;
   };
   /** Paths the CLI refuses to write or escalates to a human: docs/CONFIG.md "Protected paths". */
   policy: { protectedPaths: ProtectedRule[] };
@@ -343,6 +353,31 @@ export interface NotifyWebhook {
 }
 /** foreman.ship: FOREMAN_SHIP in lib/core/job/schema.ts. */
 export type ForemanShip = (typeof FOREMAN_SHIP)[number];
+
+/** foreman.assistants and foreman.surveyors: whether the Office runs them, and on which model and effort. */
+export interface ForemanSubRole {
+  enabled: boolean;
+  model: string;
+  effort: Effort | null;
+}
+
+/** A mandate's until: MANDATE_UNTIL in lib/api/constants.ts. */
+export type MandateUntil = (typeof MANDATE_UNTIL)[number];
+/** A mandate's order: MANDATE_ORDERS in lib/api/constants.ts. */
+export type MandateOrder = (typeof MANDATE_ORDERS)[number];
+/** A mandate's onUnfinishable: MANDATE_ON_UNFINISHABLE in lib/api/constants.ts. */
+export type MandateOnUnfinishable = (typeof MANDATE_ON_UNFINISHABLE)[number];
+
+/** foreman.mandate: the contract terms a new mandate takes when `forge mandate new` isn't given them. */
+export interface MandateDefaults {
+  until: MandateUntil;
+  maxJobs: number;
+  order: MandateOrder;
+  decides: GateClass[];
+  budget: { usd: number; jobs: number };
+  stall: { cadences: number; bounces: number };
+  onUnfinishable: MandateOnUnfinishable;
+}
 
 /** Which credential a daemon session runs on: the Claude login (subscription) or an API key from the environment. */
 export type DaemonAuth = (typeof DAEMON_AUTH)[number];

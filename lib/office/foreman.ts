@@ -11,6 +11,7 @@ import { HANDOFF_CLASSES } from '#core/job/schema.ts';
 import { ACTIONS_BY_GATE, classReservation, decides, foremanEnabled, gateClass, gateClassFor, isGateRequest, listedDecides, reservedFor } from '#engine/pipeline/moves/foreman-gates.ts';
 import { ForgeError } from '#core/errors.ts';
 import { safeText } from '#core/text.ts';
+import { jobMandateDecides } from './mandates/store.ts';
 import type { Config, ForemanHandoff, ForgeRequest, GateClass, GateOwner, HandoffClass, Job, JobEvent } from '#core/types.ts';
 
 export { OFFICE_GATES } from '#core/job/schema.ts';
@@ -26,6 +27,9 @@ export function gateOwner(root: string, config: Config, job: Job, requests: Forg
   if (!foremanEnabled(config) || job.state !== 'waiting') return null;
   const gate = gateClassFor(root, job);
   if (!gate || !decides(config).includes(gate)) return 'human';
+  // A job in a mandate: only what the mandate delegates, and nothing when its file can't be read.
+  const m = jobMandateDecides(root, config, job);
+  if (m && ('problem' in m || !m.decides.includes(gate))) return 'human';
   if (reservedFor(root, config, job, gate)) return 'human';
   const latest = requests.filter((r) => isGateRequest(r, job.id, gate) && (gate !== 'pr-feedback' || r.args?.key === job.pr?.headOid)).at(-1);
   // pr-feedback is the foreman's only once sync queued a gate for this head (trusted feedback or failing checks).
@@ -41,10 +45,24 @@ function queuedPrFeedbackGate(root: string, job: Pick<Job, 'id' | 'pr'>, request
 }
 
 /**
+ * Why a job's mandate leaves `gate` with a human, or null when the job is in no mandate or the mandate
+ * delegates the class. Read from the CLI's record of the job, which a session can't edit, whatever the
+ * mandate's status: a mandate only ever narrows, and one that can't be read delegates nothing.
+ */
+export function mandateRefusal(root: string, config: Config, job: Job, gate: GateClass): string | null {
+  const m = jobMandateDecides(root, config, job);
+  if (!m) return null;
+  if ('problem' in m) return `mandate ${m.id} can't be read (${m.problem}): left for a human`;
+  return m.decides.includes(gate) ? null : `${gate} is not in mandate ${m.id}'s decides: left for a human`;
+}
+
+/**
  * Every check on a foreman decision, before anything is written: the office scope, no --link or
- * --reason, a job waiting on a gate the foreman decides, an action that belongs to that gate, for
+ * --reason, a job waiting on a gate the foreman decides (and, in a mandate, one the mandate's decides
+ * names), an action that belongs to that gate, for
  * pr-feedback a queued gate request for the current PR head, and no reserved pattern in the reason,
- * decision.md or the note. Throws ForgeError (exit 1).
+ * decision.md or the note. Throws ForgeError (exit 1). The `release` class has its own checks
+ * (checkReleaseDecision), which take the same mandate refusal from `mandateRefusal`.
  */
 export function checkForemanDecision(
   root: string,
@@ -67,6 +85,8 @@ export function checkForemanDecision(
   if (!listedDecides(config).includes(gate!)) refuse(`${gate} is not in foreman.decides`);
   const held = classReservation(config, gate!);
   if (held) refuse(`${gate} is reserved (${held}): left for a human`);
+  const narrowed = mandateRefusal(root, config, job, gate!);
+  if (narrowed) refuse(narrowed);
   if (!ACTIONS_BY_GATE[gate!].includes(action)) refuse(`${action} is not a ${gate} action (${ACTIONS_BY_GATE[gate!].join(', ')})`);
   // pr-feedback is the foreman's only once sync armed it for this head (trusted feedback or failing
   // checks): a queued gate request keyed by the PR's current head sha must exist.

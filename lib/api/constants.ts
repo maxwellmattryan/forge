@@ -63,6 +63,15 @@ export const COMPLEXITIES = ['low', 'medium', 'high'] as const;
  */
 export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release'] as const;
 
+/** A mandate's status (`.forge/runtime/mandates/<id>.md`): only `forge mandate pause|resume|close` moves it. */
+export const MANDATE_STATUSES = ['active', 'paused', 'closed'] as const;
+/** Where a mandate's work stops: a merge-ready PR, or a merged one (which needs foreman.ship: merge). */
+export const MANDATE_UNTIL = ['merge-ready', 'merged'] as const;
+/** How a mandate orders its work: the dependency graph, tracker priority, or scope.issues as listed. */
+export const MANDATE_ORDERS = ['graph', 'priority', 'listed'] as const;
+/** What a mandate does with a job it can't finish. */
+export const MANDATE_ON_UNFINISHABLE = ['park', 'cancel'] as const;
+
 /** Why the Foreman left a gate for a person (`forge job handoff --class`): a reserved topic or class, the assistant escalated, or the CLI refused its decision. */
 export const HANDOFF_CLASSES = ['reserved', 'escalated', 'refused'] as const;
 

@@ -68,8 +68,10 @@ export function validModel(v: unknown): string | null {
  * The builder takes the first valid of: runtime.reworkModel on a rework round whose only inputs
  * are review findings, runtime.modelByComplexity[job.complexity], runtime.models.builder, inherit.
  * The judge on a real (non-eval) job is the post-merge scorer: scoring.model, then runtime.models.judge.
+ * The Foreman's gate assistant takes foreman.assistants.model.
  */
 export function resolveModel(config: Config, job: { complexity?: unknown; round?: unknown; kind?: unknown } | null, role: string, rework: readonly string[] = []): string {
+  if (role === 'assistant') return validModel(config.foreman?.assistants?.model) ?? 'inherit';
   if (role === 'judge' && job && job.kind !== 'eval') {
     return validModel(config.scoring?.model) ?? config.runtime.models.judge ?? 'inherit';
   }
@@ -106,8 +108,9 @@ function bumpEffort(level: Effort): Effort {
 /**
  * The one place effort levels combine: the daemon's argv, `forge job step`, the brief, the roster
  * and /api/state all call it, so they can never disagree. A null level passes nothing.
- * First valid of: job.effort, the lens's panel `effort` (reviewers), runtime.efforts.<base role>,
- * runtime.effortByComplexity[job.complexity], runtime.effort. With no `role` (a daemon session runs
+ * First valid of: job.effort, the lens's panel `effort` (reviewers), runtime.efforts.<base role>
+ * (foreman.assistants.effort for the assistant), runtime.effortByComplexity[job.complexity],
+ * runtime.effort. With no `role` (a daemon session runs
  * the orchestrator) only the job and runtime.effort layers apply. A builder on a rework round
  * (round >= 2) gets one level more unless the human set the job's own effort.
  */
@@ -126,7 +129,12 @@ export function resolveEffort(
     const panel = lens && Array.isArray(config.review?.panel) ? config.review.panel.find((p) => p?.name === lens) : undefined;
     const fromPanel = validEffort(panel?.effort);
     const efforts: Record<string, unknown> | undefined = runtime.efforts;
-    const fromRole = efforts && typeof efforts === 'object' && Object.hasOwn(efforts, base) ? validEffort(efforts[base]) : null;
+    const fromRole =
+      base === 'assistant'
+        ? validEffort(config.foreman?.assistants?.effort)
+        : efforts && typeof efforts === 'object' && Object.hasOwn(efforts, base)
+          ? validEffort(efforts[base])
+          : null;
     const complexity = (COMPLEXITIES as readonly unknown[]).includes(job?.complexity) ? (job!.complexity as string) : null;
     const byComplexity: Record<string, unknown> | undefined = runtime.effortByComplexity;
     const fromComplexity = complexity && byComplexity && typeof byComplexity === 'object' ? validEffort(byComplexity[complexity]) : null;

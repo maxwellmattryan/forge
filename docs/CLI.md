@@ -108,7 +108,7 @@ Every error carries one of these codes, and the code fixes the exit.
 | Code | Exit | Meaning |
 |---|---|---|
 | `failed` | 1 | the default for exit 1: the command ran and failed, or refused by policy |
-| `not_found` | 1 | no such job, request or registered project |
+| `not_found` | 1 | no such job, request, mandate or registered project |
 | `internal` | 1 | not a Forge error: a bug or an unexpected Node error (rerun with `FORGE_DEBUG=1` for the stack) |
 | `secret_found` | 1 | the secret scanner found a likely credential in what Forge was about to commit or send (a commit, the PR title or body, a tracker write); the message shows it masked, with its fingerprint |
 | `protected_path` | 1 | a path the `policy.protectedPaths` policy refuses is in what `forge git add\|commit` would stage or commit, `forge pr open` found a refused path or escalate paths no human approved, or `forge pr merge` finds a protected path at the live PR head that no human approved at that content (docs/CONFIG.md "Protected paths") |
@@ -1065,6 +1065,7 @@ See [Local links](CONFIG.md#local-links).
 | `--force` | start it past an exceeded repo budget (budget:), logged as a budget-override; a human only |
 | `--issue R` | an issue to record, in order, the first one primary: #12, owner/repo#12, KEY-123 or a backlog ref (repeatable, or comma-separated; no tracker call) |
 | `--kind K` | feature, bug, … |
+| `--mandate ID` | the mandate it works under, which narrows what the Foreman decides for it (default: --parent's); locked once set |
 | `--no-issue` | record that the job needs no issue (not with --issue or --ref) |
 | `--parent ID` | the umbrella job this one was split from |
 | `--reason R` | why, with --no-issue |
@@ -1078,7 +1079,7 @@ See [Local links](CONFIG.md#local-links).
 
 | Exit | When |
 |---|---|
-| 1 | an unsafe --branch or ref, --no-issue with tracker.kind none, or --effort or --force from a daemon session |
+| 1 | an unsafe --branch or ref, --no-issue with tracker.kind none, --effort or --force from a daemon session, or a --mandate that is unknown (not_found), closed, unreadable or not --parent's |
 
 **`forge job note <id> [text] [--body B | --body-file F]`**: log a note event
 
@@ -1219,6 +1220,106 @@ See [Job repos](architecture/job-repos.md).
 | Exit | When |
 |---|---|
 | 1 | no such job, or no reviewers selected |
+
+### `forge mandate`
+
+The owner's mandates: standing instructions to the Office in .forge/runtime/mandates/.
+
+**`forge mandate close <id> [--reason R]`**: close a mandate for good, which starts the next link of its chain (changed false when already closed)
+
+| Flag | Meaning |
+|---|---|
+| `--reason R` | why, one line |
+
+| Exit | When |
+|---|---|
+| 1 | no such mandate (not_found), it can't be read, or a daemon session ran it |
+
+See [Mandates](CONFIG.md#mandates).
+
+**`forge mandate edit <id> [--title T] [terms]`**: replace only the terms given ({ok, changed, mandate}; changed false when nothing differs)
+
+| Flag | Meaning |
+|---|---|
+| `--after ID` | start only once mandate ID has closed (none: clear it on edit) |
+| `--body T \| --body-file F` | the owner's guidance, fenced as data wherever it is shown (at most 8000 characters) |
+| `--budget-jobs N` | the jobs it may start, 1-1000 |
+| `--budget-usd N` | its spend cap in USD, over 0 and at most 100000 |
+| `--decides g1,g2\|none` | the gate classes it delegates, within foreman.decides minus gate:&lt;class> reservations |
+| `--issues r1,r2` | issues worked in the order given; needs --order listed (none: empty) |
+| `--labels a,b` | labels an issue in scope carries (none: empty) |
+| `--max-jobs N` | its jobs running at once, 1-16 |
+| `--milestones A,B` | milestones in the order they are worked (none: empty the list on edit) |
+| `--on-unfinishable park\|cancel` | what it does with a job it can't finish |
+| `--order graph\|priority\|listed` | how it orders its work |
+| `--stall-bounces N` | gate bounces on one job before it is stalled, 1-100 |
+| `--stall-cadences N` | the Foreman's passes with no progress before it is stalled, 1-100 |
+| `--title T` | a new title |
+| `--until merge-ready\|merged` | where its work stops (merged applies only under foreman.ship: merge) |
+
+| Exit | When |
+|---|---|
+| 1 | no such mandate (not_found), it is closed or can't be read, a term breaks the contract, or a daemon session ran it |
+
+See [Mandates](CONFIG.md#mandates).
+
+**`forge mandate list`**: every mandate by creation time ({mandates: [{id, title, status, state, after, chain, activeLink} | {id, problem}]}); state is waiting while after names a mandate not closed
+
+See [Mandates](CONFIG.md#mandates).
+
+**`forge mandate new <id> --title T [terms]`**: create a mandate, active, with every contract term not given taken from foreman.mandate (the default decides cut to the classes the foreman may decide) ({ok, changed, mandate})
+
+| Flag | Meaning |
+|---|---|
+| `--after ID` | start only once mandate ID has closed (none: clear it on edit) |
+| `--body T \| --body-file F` | the owner's guidance, fenced as data wherever it is shown (at most 8000 characters) |
+| `--budget-jobs N` | the jobs it may start, 1-1000 |
+| `--budget-usd N` | its spend cap in USD, over 0 and at most 100000 |
+| `--decides g1,g2\|none` | the gate classes it delegates, within foreman.decides minus gate:&lt;class> reservations |
+| `--issues r1,r2` | issues worked in the order given; needs --order listed (none: empty) |
+| `--labels a,b` | labels an issue in scope carries (none: empty) |
+| `--max-jobs N` | its jobs running at once, 1-16 |
+| `--milestones A,B` | milestones in the order they are worked (none: empty the list on edit) |
+| `--on-unfinishable park\|cancel` | what it does with a job it can't finish |
+| `--order graph\|priority\|listed` | how it orders its work |
+| `--stall-bounces N` | gate bounces on one job before it is stalled, 1-100 |
+| `--stall-cadences N` | the Foreman's passes with no progress before it is stalled, 1-100 |
+| `--title T` | one line, at most 200 characters (required) |
+| `--until merge-ready\|merged` | where its work stops (merged applies only under foreman.ship: merge) |
+
+| Exit | When |
+|---|---|
+| 1 | the id exists or is not a mandate id, a term breaks the contract (every problem named), or a daemon session ran it |
+
+See [Mandates](CONFIG.md#mandates).
+
+**`forge mandate pause <id> [--reason R]`**: pause an active mandate; a paused mandate still narrows its jobs (changed false when already paused)
+
+| Flag | Meaning |
+|---|---|
+| `--reason R` | why, one line |
+
+| Exit | When |
+|---|---|
+| 1 | no such mandate (not_found), it is closed or can't be read, or a daemon session ran it |
+
+See [Mandates](CONFIG.md#mandates).
+
+**`forge mandate resume <id>`**: make a paused mandate active again and clear its reason (changed false when already active)
+
+| Exit | When |
+|---|---|
+| 1 | no such mandate (not_found), it is closed or can't be read, or a daemon session ran it |
+
+See [Mandates](CONFIG.md#mandates).
+
+**`forge mandate show <id>`**: one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance fenced as data, and its file
+
+| Exit | When |
+|---|---|
+| 1 | no such mandate (not_found), or it can't be read |
+
+See [Mandates](CONFIG.md#mandates).
 
 ### `forge migrate`
 

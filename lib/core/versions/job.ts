@@ -73,6 +73,8 @@ export const JOB_STEPS: readonly Step[] = [
     const { owner, ...rest } = j;
     return { ...rest, lease: j.lease ?? ownerToLease(owner) };
   } },
+  // v18 adds the mandate a job works under. No v17 job is in one, so the Foreman's gates for it stay as they were.
+  { id: 'job-mandate', up: (j) => ({ ...j, mandate: j.mandate ?? null }) },
 ];
 
 export const JOB_SCHEMA_VERSION = versionOf(JOB_STEPS);

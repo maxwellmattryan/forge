@@ -1,0 +1,185 @@
+// The mandate contract: what forge mandate new|edit refuses (in-process, through the CLI's router), the
+// contract as it applies under the config, the derived state and chain, and the files a read refuses.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { BIN, forgeInProcess, repoTemplate } from '../../../test/helpers.ts';
+import { defaults } from '#core/config/load.ts';
+import * as yaml from '#core/format/yaml.ts';
+import { MANDATE_SCHEMA_VERSION } from '#core/versions/mandate.ts';
+import { applyInput, blankMandate, effectiveContract, isReadable, mandateChain, mandateState } from './contract.ts';
+import { listMandates, readMandate } from './store.ts';
+import type { Config } from '#core/types.ts';
+import type { Mandate, MandateInput, ReadMandate } from './types.ts';
+
+const scratch = repoTemplate((dir) => {
+  const answers = path.join(dir, '.answers.json');
+  fs.writeFileSync(answers, JSON.stringify({ foreman: { enabled: true, decides: ['spec-approval', 'split-approval', 'conflicts'], reserved: ['gate:conflicts'] } }));
+  execFileSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, env: { ...process.env, FORGE_ROOT: dir }, stdio: 'pipe' });
+  fs.rmSync(answers);
+});
+
+/** Every file under the mandates dir with its content: what a refused write must leave as it was. */
+function snapshot(root: string): Record<string, string> {
+  const dir = path.join(root, '.forge', 'runtime', 'mandates');
+  if (!fs.existsSync(dir)) return {};
+  return Object.fromEntries(fs.readdirSync(dir).sort().map((f) => [f, fs.lstatSync(path.join(dir, f)).isSymbolicLink() ? '<link>' : fs.readFileSync(path.join(dir, f), 'utf8')]));
+}
+
+async function ok(root: string, args: string[]) {
+  const r = await forgeInProcess(root, args);
+  assert.equal(r.status, 0, `${args.join(' ')}: ${JSON.stringify(r.error)}`);
+  return r.data as any;
+}
+
+test('mandate input refusals', async () => {
+  const r = scratch();
+  const bad = scratch();
+  try {
+    // foreman.reserved with a mis-written class reservation can't be read: every gate stays with a human.
+    const cfg = path.join(bad.dir, '.forge', 'config.yml');
+    const parsed = yaml.parse(fs.readFileSync(cfg, 'utf8'));
+    parsed.foreman.reserved = ['gate:nope'];
+    fs.writeFileSync(cfg, yaml.stringify(parsed));
+    await ok(r.dir, ['mandate', 'new', 'a', '--title', 'A', '--milestones', 'M1']);
+    await ok(r.dir, ['mandate', 'new', 'b', '--title', 'B', '--milestones', 'M2', '--after', 'a']);
+    await ok(r.dir, ['mandate', 'new', 'c', '--title', 'C', '--labels', 'docs']);
+    await ok(r.dir, ['mandate', 'close', 'c']);
+    const NEW = ['mandate', 'new', 'x', '--title', 'X', '--milestones', 'M1'];
+    const rows: [string, string[], RegExp, string?][] = [
+      ['a class outside foreman.decides', [...NEW, '--decides', 'escalation'], /^escalation is not in foreman\.decides$/],
+      ['a gate:<class> reserved class', [...NEW, '--decides', 'conflicts'], /^conflicts is reserved \(gate:conflicts\)$/],
+      ['an invalid foreman.reserved', [...NEW, '--decides', 'spec-approval'], /foreman\.reserved is invalid: every gate stays with a human until it is fixed/, bad.dir],
+      ['an unknown class', [...NEW, '--decides', 'nope'], /^nope is not a gate class$/],
+      ['an empty scope', ['mandate', 'new', 'x', '--title', 'X'], /scope needs at least one milestone, label or issue/],
+      ['listed without issues', [...NEW, '--order', 'listed'], /order listed needs scope\.issues and no milestones or labels/],
+      ['issues without listed', ['mandate', 'new', 'x', '--title', 'X', '--issues', 'some-item'], /scope\.issues needs order listed/],
+      ['a milestone starting -', ['mandate', 'new', 'x', '--title', 'X', '--milestones', '-x'], /milestone "-x" must be 1-100 characters, not start with "-"/],
+      ['a label with a newline', ['mandate', 'new', 'x', '--title', 'X', '--labels', 'a\nb'], /label "a\\nb" must be 1-100 characters/],
+      ['a milestone with a zero-width space', ['mandate', 'new', 'x', '--title', 'X', '--milestones', `M${String.fromCharCode(0x200b)}1`], /^milestone "M.1" must be 1-100 characters, not start with "-" and have no control or hidden characters$/],
+      ['id ../x', ['mandate', 'new', '../x', '--title', 'X', '--milestones', 'M1'], /mandate id "\.\.\/x" is not a mandate id/],
+      ['id none', ['mandate', 'new', 'none', '--title', 'X', '--milestones', 'M1'], /mandate id "none" is not a mandate id/],
+      ['id M1', ['mandate', 'new', 'M1', '--title', 'X', '--milestones', 'M1'], /mandate id "M1" is not a mandate id/],
+      ['after a missing mandate', [...NEW, '--after', 'nope'], /^--after nope: no mandate nope$/],
+      ['after itself', [...NEW, '--after', 'x'], /^--after x: a mandate can't follow itself$/],
+      ['a second successor', [...NEW, '--after', 'a'], /^--after a: mandate b already follows a \(chains stay linear\)$/],
+      ['a cycle on edit', ['mandate', 'edit', 'a', '--after', 'b'], /^--after b: that would close a cycle/],
+      ['maxJobs 0', [...NEW, '--max-jobs', '0'], /^maxJobs must be an integer 1-16 \(got 0\)$/],
+      ['maxJobs 17', [...NEW, '--max-jobs', '17'], /^maxJobs must be an integer 1-16 \(got 17\)$/],
+      ['maxJobs not a number', [...NEW, '--max-jobs', 'two'], /^maxJobs must be an integer 1-16 \(got NaN\)$/],
+      ['budget.usd 0', [...NEW, '--budget-usd', '0'], /^budget\.usd must be a number over 0 and at most 100000 \(got 0\)$/],
+      ['an unknown enum value', [...NEW, '--until', 'released'], /^until must be one of merge-ready \| merged/],
+      ['every problem, joined', [...NEW, '--max-jobs', '0', '--stall-bounces', '101'], /^maxJobs must be an integer 1-16 \(got 0\); stall\.bounces must be an integer 1-100 \(got 101\)$/],
+      ['editing a closed mandate', ['mandate', 'edit', 'c', '--title', 'Again'], /^mandate c is closed$/],
+      ['pausing a closed mandate', ['mandate', 'pause', 'c'], /^mandate c is closed$/],
+      ['a body of 8001 characters', [...NEW, '--body', 'x'.repeat(8001)], /the body must be at most 8000 characters \(got 8001\)/],
+      ['a title empty after cleaning', ['mandate', 'new', 'x', '--title', ' \n ', '--milestones', 'M1'], /^a mandate needs a title$/],
+      ['an existing id', ['mandate', 'new', 'a', '--title', 'A', '--milestones', 'M1'], /^mandate a exists/],
+    ];
+    for (const [name, args, want, root = r.dir] of rows) {
+      const before = snapshot(root);
+      const res = await forgeInProcess(root, args);
+      assert.equal(res.status, 1, `${name}: ${JSON.stringify(res)}`);
+      assert.match(res.error?.message ?? '', want, name);
+      assert.deepEqual(snapshot(root), before, `${name}: the mandates dir is unchanged`);
+    }
+    const missing = await forgeInProcess(r.dir, ['mandate', 'edit', 'nope', '--title', 'N']);
+    assert.deepEqual([missing.status, missing.error?.code], [1, 'not_found']);
+  } finally {
+    r.cleanup();
+    bad.cleanup();
+  }
+});
+
+const config = (edit: (f: Config['foreman']) => void = () => {}): Config => {
+  const c = defaults();
+  c.foreman.enabled = true;
+  edit(c.foreman);
+  return c;
+};
+const mandate = (id: string, input: MandateInput & { status?: Mandate['status'] } = {}): Mandate => {
+  const { status, ...rest } = input;
+  const m = applyInput(blankMandate(id, '2026-10-01T00:00:00.000Z'), { title: id, milestones: ['M1'], ...rest });
+  return status ? { ...m, status } : m;
+};
+
+test('effective contract', () => {
+  const m = mandate('m', { decides: ['spec-approval', 'conflicts'], until: 'merged' });
+  const rows: [string, Config, { decides: string[]; until: string }, string[]][] = [
+    [
+      'a class dropped from foreman.decides after it was written',
+      config((f) => (f.decides = ['spec-approval'])),
+      { decides: ['spec-approval'], until: 'merge-ready' },
+      ['decides: conflicts dropped (not in foreman.decides)', 'until: merged needs foreman.ship: merge; merge-ready applies'],
+    ],
+    ['a class reserved later', config((f) => (f.reserved = [...f.reserved, 'gate:conflicts'])), { decides: ['spec-approval'], until: 'merge-ready' }, ['decides: conflicts dropped (reserved: gate:conflicts)', 'until: merged needs foreman.ship: merge; merge-ready applies']],
+    ['foreman.enabled false', config((f) => (f.enabled = false)), { decides: [], until: 'merge-ready' }, ['decides: none apply (foreman.enabled is false)', 'until: merged needs foreman.ship: merge; merge-ready applies']],
+    ['an invalid reserved', config((f) => (f.reserved = ['Gate:release'])), { decides: [], until: 'merge-ready' }, ['decides: none apply (foreman.reserved is invalid)', 'until: merged needs foreman.ship: merge; merge-ready applies']],
+    ['until merged under ship: merge', config((f) => (f.ship = 'merge')), { decides: ['spec-approval', 'conflicts'], until: 'merged' }, []],
+  ];
+  for (const [name, c, want, capped] of rows) {
+    const got = effectiveContract(c, m);
+    assert.deepEqual({ decides: got.effective.decides, until: got.effective.until }, want, name);
+    assert.deepEqual(got.capped, capped, name);
+    assert.deepEqual([got.effective.maxJobs, got.effective.budget], [m.maxJobs, m.budget], `${name}: the other terms are as written`);
+  }
+});
+
+test('mandate state and chain', () => {
+  const link1 = mandate('l1');
+  const link2 = mandate('l2', { after: 'l1' });
+  const link3 = mandate('l3', { after: 'l2' });
+  const unreadable: ReadMandate = { id: 'gone', problem: 'a symlink, not a regular file' };
+  const rows: [string, ReadMandate[], Record<string, string>, string[], string | null][] = [
+    ['a three-link chain', [link1, link2, link3], { l1: 'active', l2: 'waiting', l3: 'waiting' }, ['l1', 'l2', 'l3'], 'l1'],
+    ['link 1 closed', [{ ...link1, status: 'closed' }, link2, link3], { l1: 'closed', l2: 'active', l3: 'waiting' }, ['l1', 'l2', 'l3'], 'l2'],
+    ['link 2 paused', [{ ...link1, status: 'closed' }, { ...link2, status: 'paused' }, link3], { l1: 'closed', l2: 'paused', l3: 'waiting' }, ['l1', 'l2', 'l3'], 'l2'],
+    ['every link closed', [link1, link2, link3].map((m) => ({ ...m, status: 'closed' as const })), { l1: 'closed', l2: 'closed', l3: 'closed' }, ['l1', 'l2', 'l3'], null],
+    ['after an unreadable mandate', [unreadable, mandate('after-gone', { after: 'gone' })], { 'after-gone': 'waiting' }, ['gone', 'after-gone'], 'gone'],
+    ['no after', [mandate('solo')], { solo: 'active' }, ['solo'], 'solo'],
+  ];
+  for (const [name, all, states, chain, activeLink] of rows) {
+    for (const [id, state] of Object.entries(states)) {
+      const m = all.find((x) => x.id === id) as Mandate;
+      assert.equal(mandateState(m, all), state, `${name}: ${id}`);
+      assert.deepEqual(mandateChain(m, all), { chain, activeLink }, `${name}: ${id}'s chain`);
+    }
+  }
+});
+
+test('unreadable mandate files', async () => {
+  const r = scratch();
+  try {
+    await ok(r.dir, ['mandate', 'new', 'good', '--title', 'Good', '--milestones', 'M1', '--body', 'Ship it.']);
+    const dir = path.join(r.dir, '.forge', 'runtime', 'mandates');
+    const good = fs.readFileSync(path.join(dir, 'good.md'), 'utf8');
+    assert.equal((readMandate(r.dir, 'good') as Mandate).body, 'Ship it.', 'the file reads back');
+    const rows: [string, () => void, RegExp][] = [
+      ['a symlink', () => fs.symlinkSync(path.join(dir, 'good.md'), path.join(dir, 'link.md')), /symlink/],
+      ['over 64 KiB', () => fs.writeFileSync(path.join(dir, 'big.md'), good + 'x'.repeat(70 * 1024)), /larger than 64 KiB/],
+      ['malformed frontmatter', () => fs.writeFileSync(path.join(dir, 'broken.md'), '---\nid: [broken\n---\n'), /bad frontmatter/],
+      ['no frontmatter', () => fs.writeFileSync(path.join(dir, 'plain.md'), 'just text\n'), /no frontmatter/],
+      ['a newer schemaVersion', () => fs.writeFileSync(path.join(dir, 'newer.md'), good.replace('id: good', 'id: newer').replace(/schemaVersion: \d+/, `schemaVersion: ${MANDATE_SCHEMA_VERSION + 1}`)), /newer Forge/],
+      ['an id that differs from its file name', () => fs.writeFileSync(path.join(dir, 'other.md'), good), /differs from its file name/],
+      ['a term that breaks the rules', () => fs.writeFileSync(path.join(dir, 'wide.md'), good.replace('id: good', 'id: wide').replace(/maxJobs: \d+/, 'maxJobs: 99')), /maxJobs must be an integer 1-16/],
+      ['an unknown key', () => fs.writeFileSync(path.join(dir, 'extra.md'), good.replace('id: good', 'id: extra').replace('---\n', '---\nwiden: true\n')), /unknown key "widen"/],
+    ];
+    const ids = ['link', 'big', 'broken', 'plain', 'newer', 'other', 'wide', 'extra'];
+    rows.forEach(([, plant]) => plant());
+    rows.forEach(([name, , want], i) => {
+      const m = readMandate(r.dir, ids[i]);
+      assert.ok('problem' in m && want.test(m.problem), `${name}: ${JSON.stringify(m)}`);
+    });
+    const listed = (await ok(r.dir, ['mandate', 'list'])).mandates as { id: string; problem?: string }[];
+    assert.deepEqual(listed.filter((x) => x.problem).map((x) => x.id).sort(), [...ids].sort(), 'list shows each as { id, problem }');
+    for (const x of listed.filter((y) => y.problem)) assert.deepEqual(Object.keys(x).sort(), ['id', 'problem']);
+    assert.ok(isReadable(listMandates(r.dir).find((m) => m.id === 'good')), 'the good file still reads beside them');
+    // An unreadable mandate is never acted on: no write goes through it.
+    const edit = await forgeInProcess(r.dir, ['mandate', 'pause', 'wide']);
+    assert.deepEqual([edit.status, edit.error?.message], [1, "mandate wide can't be read (maxJobs must be an integer 1-16 (got 99))"]);
+  } finally {
+    r.cleanup();
+  }
+});

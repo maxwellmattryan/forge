@@ -4,7 +4,7 @@
 // and every agent-start event never disagree.
 import fs from 'node:fs';
 import path from 'node:path';
-import { modelFor, resolveEffort, validModel } from '#core/config/load.ts';
+import { modelFor, resolveEffort, resolveModel, validModel } from '#core/config/load.ts';
 import { learningSummary } from '../evals/learnings.ts';
 import { paths, exists, PLUGIN_ROOT } from '#core/paths.ts';
 import { frontmatter, lensChecklist, promptHash } from '../evals/provenance.ts';
@@ -36,7 +36,8 @@ export function roster(root: string, config: Config): Roster {
       return {
         role,
         description: meta.description ?? '',
-        model: config.runtime.models[role] ?? meta.model ?? 'inherit',
+        // The assistant's model is foreman.assistants.model, as forge job assist resolves it.
+        model: role === 'assistant' ? resolveModel(config, null, 'assistant') : (config.runtime.models[role] ?? meta.model ?? 'inherit'),
         // Null only for a file name that is no role (agentRoles' rule); the roster still lists it.
         promptHash: promptHash(root, config, role) ?? '',
         addendum: exists(addendumFile) ? path.relative(root, addendumFile) : null,
