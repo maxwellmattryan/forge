@@ -66,6 +66,8 @@ export interface Stats {
     firstPassReviewRate: number | null;
     avgRounds: number | null;
     verifyFirstPassRate: number | null;
+    /** Of jobs whose first round-1 verifiers record has results, the share whose outcome was CHANGES. */
+    verifierFirstRoundBlockRate: number | null;
     escalationRate: number | null;
     humanFeedbackOnPrRate: number | null;
     humanDeltaRate: number | null;
