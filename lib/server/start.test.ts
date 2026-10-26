@@ -10,6 +10,7 @@ import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
 import { getEnvironmentLogs, getEnvironments, getJobEnvironment, postJobEnvironment } from './routes/environment.ts';
 import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor } from './routes/jobs.ts';
 import { getProjects, getProjectsEvents, getProjectsStats } from './routes/machine.ts';
+import { getMandateDraft, postMandateDraft } from './routes/mandates.ts';
 import { getAbout, getBacklog, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
 import { getTranscript, getTranscriptEvents } from './routes/transcripts.ts';
@@ -99,6 +100,8 @@ test('the route table sends each method and path to its handler, and nothing els
       ['POST', '/jobs/j-1/delete', postJobDelete, ['j-1']],
       ['POST', '/jobs/j-1/merge', postJobMerge, ['j-1']],
       ['POST', '/jobs/j-1/repos', postJobRepos, ['j-1']],
+      ['GET', '/mandates/g1/draft', getMandateDraft, ['g1']],
+      ['POST', '/mandates/g1/draft', postMandateDraft, ['g1']],
       ['POST', '/focus', postFocus, []],
       ['POST', '/jobs/j-1/run', postRunOrEditor, ['j-1', 'run']],
       ['POST', '/jobs/j-1/editor', postRunOrEditor, ['j-1', 'editor']],
