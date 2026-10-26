@@ -343,29 +343,33 @@ export function writeUptime(home: string, patch: Partial<Pick<Uptime, 'keepAwake
 // ---------- doctor ----------
 
 /** The sleep-assertion clause: from the record, believed only while its pid is the proven machine dashboard. */
-function sleepClause(opts: ServiceOptions): { text: string; warn: boolean } {
+/** Project names joined; for a support bundle, which goes to public issues, only their count (another project's name says what this machine works on). */
+const names = (list: string[], bundle: boolean): string => (bundle ? `${list.length} project${list.length === 1 ? '' : 's'}` : list.join(', '));
+
+function sleepClause(opts: ServiceOptions, bundle: boolean): { text: string; warn: boolean } {
   const dash = provenDashboard(machineDashboardFile(opts.forgeHome), opts.probe);
   if (!dash) return { text: 'dashboard not running', warn: false };
   const k = readUptime(opts.forgeHome).keepAwake;
   if (!k || k.pid !== dash.pid) return { text: 'sleep assertion not held', warn: false };
-  if (k.held) return { text: `sleep assertion held for ${k.projects.join(', ')}`, warn: false };
+  if (k.held) return { text: `sleep assertion held for ${names(k.projects, bundle)}`, warn: false };
   if (k.error && k.projects.length) return { text: `sleep assertion failed: ${k.error}`, warn: true };
   return { text: 'sleep assertion not held', warn: false };
 }
 
-function restartClause(home: string): string {
+function restartClause(home: string, bundle: boolean): string {
   const r = readUptime(home).restart;
   if (!r) return 'no restart recorded';
   const resumed = r.projects.filter((p) => p.jobs + p.office > 0).map((p) => p.name);
-  return `last restart ${r.at}: ${resumed.length ? `resumed ${resumed.join(', ')}` : 'nothing in flight'}`;
+  return `last restart ${r.at}: ${resumed.length ? `resumed ${names(resumed, bundle)}` : 'nothing in flight'}`;
 }
 
 /**
  * Doctor's one `service` row, whatever the number of projects: the unit, the sleep assertion and the
  * last restart, joined with `; ` (unsupported platforms show only the first). Always ok; a warning for
- * a unit that is not loaded or runs another Forge or node, and for a failed sleep assertion.
+ * a unit that is not loaded or runs another Forge or node, and for a failed sleep assertion. With
+ * `bundle`, project names are counted instead.
  */
-export function serviceCheck(opts: ServiceOptions): DoctorCheck {
+export function serviceCheck(opts: ServiceOptions, { bundle = false }: { bundle?: boolean } = {}): DoctorCheck {
   const s = serviceStatus(opts);
   if (!s.supported) return { name: 'service', ok: true, detail: `not supported on ${opts.platform} yet` };
   let unit: string;
@@ -378,7 +382,7 @@ export function serviceCheck(opts: ServiceOptions): DoctorCheck {
     unit = `installed but not loaded (${s.file}): log in again or run forge service install`;
     warn = true;
   } else unit = `installed and loaded (${s.file}); log ${s.log}`;
-  const sleep = sleepClause(opts);
-  const detail = [unit, sleep.text, restartClause(opts.forgeHome)].join('; ');
+  const sleep = sleepClause(opts, bundle);
+  const detail = [unit, sleep.text, restartClause(opts.forgeHome, bundle)].join('; ');
   return { name: 'service', ok: true, detail, ...(warn || sleep.warn ? { warn: true } : {}) };
 }

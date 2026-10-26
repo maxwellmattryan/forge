@@ -240,12 +240,13 @@ test('the service doctor row', (t) => {
   const restart = { at: '2026-10-26T08:00:05.000Z', pid: DASH_PID, projects: [{ name: 'alpha', jobs: 2, office: 1, mandates: 1 }, { name: 'beta', jobs: 0, office: 0, mandates: 1 }] };
   const held = { pid: DASH_PID, held: true, since: '2026-10-26T08:00:01.000Z', projects: ['alpha', 'beta'], error: null, at: '2026-10-26T08:00:01.000Z' };
   const service = 'node /x/bin/forge dash --service';
-  type Row = { name: string; platform?: NodeJS.Platform; install?: boolean; status?: Partial<ServiceOptions>; probe?: string | null; uptime?: Parameters<typeof writeUptime>[1]; want: (o: ServiceOptions) => string; warn?: boolean };
+  type Row = { name: string; platform?: NodeJS.Platform; install?: boolean; status?: Partial<ServiceOptions>; probe?: string | null; uptime?: Parameters<typeof writeUptime>[1]; bundle?: boolean; want: (o: ServiceOptions) => string; warn?: boolean };
   const loaded = (o: ServiceOptions) => `installed and loaded (${plistOf(o.userHome)}); log ${path.join(o.forgeHome, 'runtime', 'service.log')}`;
   const rows: Row[] = [
     { name: 'unsupported', platform: 'win32', want: () => 'not supported on win32 yet' },
     { name: 'not installed', want: () => 'not installed (forge service install starts the dashboard at login); dashboard not running; no restart recorded' },
     { name: 'loaded and current, held', install: true, probe: service, uptime: { keepAwake: held, restart }, want: (o) => `${loaded(o)}; sleep assertion held for alpha, beta; last restart ${restart.at}: resumed alpha` },
+    { name: 'in a support bundle, names counted', install: true, probe: service, uptime: { keepAwake: held, restart }, bundle: true, want: (o) => `${loaded(o)}; sleep assertion held for 2 projects; last restart ${restart.at}: resumed 1 project` },
     {
       name: 'not loaded',
       install: true,
@@ -271,7 +272,7 @@ test('the service doctor row', (t) => {
     if (row.install) installService(opts);
     if (row.probe) dashboardRecord(opts.forgeHome);
     if (row.uptime) writeUptime(opts.forgeHome, row.uptime);
-    const check = serviceCheck({ ...opts, ...row.status });
+    const check = serviceCheck({ ...opts, ...row.status }, { bundle: row.bundle });
     assert.deepEqual(check, { name: 'service', ok: true, detail: row.want(opts), ...(row.warn ? { warn: true } : {}) }, row.name);
   }
 });
