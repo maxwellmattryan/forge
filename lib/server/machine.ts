@@ -1,6 +1,7 @@
 // The machine dashboard's project entries: one per project registered in the machine index whose
 // directory exists, each with its own context, caches and pool (booted under the old per-repo rule, and
-// only while a human's approval of its trusted files still matches them), kept in step with the index by
+// only while a human's approval of its trusted files still matches them, with a boot pass that resumes
+// its undriven jobs at once), kept in step with the index by
 // a throttled re-read, and summarised for GET /api/projects.
 import fs from 'node:fs';
 import { daemonProblems, loadConfig } from '#core/config/load.ts';
@@ -16,7 +17,8 @@ import { createPool } from '#office/pool.ts';
 import type { DaemonPoolState, MachineProjectSummary, ProjectsResponse, RepoBudgetStatus } from '#core/types.ts';
 import { idlePoolState } from './routes/office.ts';
 import { SSE_SLOW_CLIENT_BYTES, broadcast, lineFrame, stateFrame } from './sse.ts';
-import type { Entries, MachineCtx, ProjectEntry, ProjectListener, ServerCtx } from './types.ts';
+import { resumeProject } from './uptime.ts';
+import type { Entries, MachineCtx, ProjectBoot, ProjectEntry, ProjectListener, ServerCtx } from './types.ts';
 
 /** How long /api/p/<project>/state reuses the repo budget status. */
 const BUDGET_MEMO_MS = 5000;
@@ -78,6 +80,9 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
   let missAt = 0;
   let closed = false;
   let timer: NodeJS.Timeout | null = null;
+  /** Collects the boot passes during start()'s first refresh only; null otherwise. */
+  let firstPasses: Promise<ProjectBoot | null>[] | null = null;
+  let booted: Promise<ProjectBoot[]> = Promise.resolve([]);
 
   /** The index file's size, mtime and inode: a change in any means a write. */
   const fileKey = (): string => {
@@ -124,8 +129,14 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
         // Only while the files Forge trusts are the ones a human approved for this project. Booting
         // snapshots them as approved, so a restart, or `forge dash` in another repo, must not do that
         // for bytes nobody looked at (a session's change that stopped this daemon, a pull).
-        if (trustApproved(home, root)) pool.start('boot');
-        else ctx.needsApproval = true;
+        if (trustApproved(home, root)) {
+          const st = pool.start('boot');
+          // At once, not at the pool's first RECONCILE_MS: a restart resumes what it left in flight.
+          if (st.wanted) {
+            const pass = resumeProject(name, root, pool);
+            firstPasses?.push(pass);
+          }
+        } else ctx.needsApproval = true;
       }
     } catch {}
   }
@@ -212,7 +223,12 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
 
   return {
     start() {
+      firstPasses = [];
       refresh(true);
+      const passes = firstPasses;
+      firstPasses = null;
+      // resumeProject never rejects, so neither does this.
+      booted = Promise.all(passes).then((all) => all.filter((b): b is ProjectBoot => b !== null));
       timer = setInterval(() => refresh(false), refreshMs);
       timer.unref();
     },
@@ -244,6 +260,7 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
       return () => void listeners.delete(fn);
     },
     setting: () => setting,
+    booted: () => booted,
     async close() {
       closed = true;
       if (timer) clearInterval(timer);

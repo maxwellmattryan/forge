@@ -6,7 +6,7 @@
 // CONFIG_DISCLOSURE, at the end, is a separate map rather than a ConfigField property: it must
 // classify every key (commands.* and worktrees.setup are not settings), and /api/config stays as is.
 import { defaults } from './load.ts';
-import { COMPLEXITIES, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL, MODEL_RE, OFFICE_GATES } from '../job/schema.ts';
+import { COMPLEXITIES, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, KEEP_AWAKE_MODES, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL, MODEL_RE, OFFICE_GATES } from '../job/schema.ts';
 import type { Config, ConfigField, ConfigFieldType, ConfigSection, ConfigValue } from '../types.ts';
 import { getPath } from '../shape.ts';
 import { ForgeError } from '../errors.ts';
@@ -206,6 +206,8 @@ export const FIELDS: ConfigField[] = [
   field('daemon.jobBudget.usd', 'daemon', 'Unattended job cost (USD)', 'With the daemon on, fills the cost limit of a job whose budget leaves it unset.', { type: 'number', min: 0, nullable: true, locked: 'caps unattended spend' }),
   field('daemon.dailyUsd.inbox', 'daemon', 'Inbox daily cap (USD)', 'Dollars per UTC day the inbox session may spend, as the supervisor meters it. At the cap it stops; start it again after midnight UTC, or raise the cap. Empty means no cap.', { type: 'number', min: 0, nullable: true, locked: 'caps unattended spend' }),
   field('daemon.dailyUsd.office', 'daemon', 'Office daily cap (USD)', "Dollars per UTC day the office session and its assistant foremen may spend together, as the supervisor meters it. At the cap it stops; start it again after midnight UTC, or raise the cap. Empty means no cap.", { type: 'number', min: 0, nullable: true, locked: 'caps unattended spend' }),
+  // Editable: it names no command, file or tool and loosens no policy; it only decides whether this project holds the machine awake.
+  field('daemon.keepAwake', 'daemon', 'Keep awake', "Hold the machine awake while this project's pool has an active mandate or a running job at an agent stage.", { type: 'enum', options: [...KEEP_AWAKE_MODES] }),
   // Locked: each one widens or narrows what an unattended session decides for a human.
   field('retention.logsDays', 'daemon', 'Delete session logs after (days)', 'forge sync and forge dash delete daemon session logs this many days old whose session is not running. Empty keeps them forever.', { type: 'integer', min: 1, max: 3650, nullable: true, locked: 'deletes session logs' }),
   field('retention.logMaxBytes', 'daemon', 'Rotate session logs at (bytes)', 'Rotate a session log to <scope>.log.1 as soon as it reaches this size, keeping one older generation. Empty rotates only at spawn, past 20 MiB.', { type: 'integer', min: 1048576, max: 1073741824, nullable: true }),

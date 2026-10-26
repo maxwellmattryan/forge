@@ -53,6 +53,7 @@ import { releaseCmd } from './commands/release.ts';
 import { requestsCmd } from './commands/requests.ts';
 import { runCmd } from './commands/run.ts';
 import { secretsCmd } from './commands/secrets.ts';
+import { serviceCmd } from './commands/service.ts';
 import { verifiersCmd } from './commands/verifiers.ts';
 import { renderKey } from './commands/render/registry.ts';
 import { statsText, statusRows, statusTable, statusView } from './commands/status.ts';
@@ -86,6 +87,7 @@ export async function main(rawArgv: string[]): Promise<void> {
   if (cmd === 'version') return versionCmd(flags);
   if (cmd === 'update') return updateCmd(flags);
   if (cmd === 'project') return projectCmd(pos.slice(1), flags);
+  if (cmd === 'service') return serviceCmd(pos.slice(1), flags);
 
   let root: string;
   try {

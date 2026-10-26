@@ -28,8 +28,11 @@ export const SEVERITIES = ['blocker', 'major', 'minor', 'nit'] as const;
 /** daemon.auth: the credential a daemon session runs on. */
 export const DAEMON_AUTH = ['subscription', 'api-key'] as const;
 
+/** daemon.keepAwake: whether this project's work in flight holds the machine's sleep assertion. */
+export const KEEP_AWAKE_MODES = ['auto', 'never'] as const;
+
 /** notify.webhooks[].events: what Forge can notify about, most specific first where two overlap. */
-export const NOTIFY_EVENTS = ['gate', 'pr-opened', 'pr-merged', 'job-failed', 'daemon-stopped', 'budget-exceeded', 'secret-found'] as const;
+export const NOTIFY_EVENTS = ['gate', 'pr-opened', 'pr-merged', 'job-failed', 'daemon-stopped', 'budget-exceeded', 'secret-found', 'service-restarted'] as const;
 
 /** notify.webhooks[].format: the body Forge posts. */
 export const NOTIFY_FORMATS = ['json', 'slack'] as const;

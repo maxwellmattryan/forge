@@ -1,6 +1,6 @@
 // The server's shapes outside /api, type-only: startServer's options and result, the machine context
-// and the per-project context routes get, a loaded project entry, the route tables' rows, and what
-// the onRequest hook reports.
+// and the per-project context routes get, a loaded project entry and its boot pass, the route tables'
+// rows, and what the onRequest hook reports.
 import type http from 'node:http';
 import type { DaemonPool, createPool } from '#office/pool.ts';
 import type { Drive } from '#office/driver.ts';
@@ -8,6 +8,8 @@ import type { MachineSlots } from '#office/slots.ts';
 import type { GhRunner, GitHubTarget } from '#integrations/github/preview.ts';
 import type { GitHub } from '#integrations/github/types.ts';
 import type { VersionInfo } from '#engine/ops/types.ts';
+import type { UptimeProject } from '#engine/project/login-service.ts';
+import type { SleepSpawn } from '#integrations/os-service/types.ts';
 import type {
   BacklogResponse,
   DaemonPoolState,
@@ -51,7 +53,26 @@ export interface ServerOptions {
    * log sets it (lib/cli/activity.ts); it observes requests and never changes a response.
    */
   onRequest?: (r: RequestInfo) => void;
+  /**
+   * The machine's sleep assertion (lib/server/uptime.ts): set only by a non-dev `forge dash`, with the
+   * real helper spawn; without it the server holds nothing.
+   */
+  keepAwake?: KeepAwakeOptions;
 }
+
+/** startKeepAwake's options: the helper's spawn, and test seams for the env (FORGE_KEEP_AWAKE), platform, pid and check interval. */
+export interface KeepAwakeOptions {
+  spawn: SleepSpawn;
+  /** `FORGE_KEEP_AWAKE: never` here turns the assertion off; `{}` by default, never this process's. */
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  /** The pid the helper waits on; this process's by default. */
+  pid?: number;
+  intervalMs?: number;
+}
+
+/** One project's boot pass (lib/server/uptime.ts resumeProject): what it found in flight. */
+export type ProjectBoot = UptimeProject;
 
 /** One loaded project: its name and root, the context its routes get, and its pool. */
 export interface ProjectEntry {
@@ -75,8 +96,10 @@ export interface RunningServer {
   onProject(fn: ProjectListener): () => void;
   /** Re-reads the machine index now. */
   refresh(): void;
+  /** The boot passes of the projects whose pools booted as the server started, once they settle; never rejects. */
+  booted(): Promise<ProjectBoot[]>;
   close: () => Promise<void>;
-  /** Last resort from a process `exit` handler: every pool's children, synchronously. */
+  /** Last resort from a process `exit` handler: every pool's children and the sleep helper, synchronously. */
   killSync(): void;
 }
 
@@ -103,6 +126,8 @@ export interface Entries {
   onProject(fn: ProjectListener): () => void;
   /** The machine index's settings.maxConcurrent at the last good read. */
   setting(): number | null;
+  /** The boot passes of the projects loaded by start()'s first refresh whose pools booted, settled; [] before start(). */
+  booted(): Promise<ProjectBoot[]>;
   close(): Promise<void>;
   killSync(): void;
 }

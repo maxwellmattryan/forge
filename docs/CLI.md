@@ -154,6 +154,7 @@ Read by Forge:
 | `FORGE_AI_ATTRIBUTION` | `allow` turns the no-AI-attribution policy off for the hook, `forge git commit`, `forge pr open` and the GitHub tracker |
 | `FORGE_ACTOR` | the login human-action events record (`actor: { login, source: "env" }`), ahead of `gh`, `git config user.email` and the OS user; ignored inside daemon sessions, which record the OS user running `forge dash` as source `daemon`. Sanitised to `[A-Za-z0-9 ._@+-]`, at most 100 characters, and unauthenticated (docs/architecture/audit-trail.md) |
 | `FORGE_EDITOR` | the editor command `forge dash`'s Open in editor runs, split into words without a shell, with the job's worktree path appended; default `code`. Read from `forge dash`'s own environment |
+| `FORGE_KEEP_AWAKE` | `never` turns the machine dashboard's sleep assertion off for the whole machine, whatever each project's `daemon.keepAwake` says (see Login service). Read from `forge dash`'s own environment; the test suite sets it |
 | `GH_HOST` | a GitHub Enterprise host whose issue URLs count as the configured repo's, besides github.com |
 | `SHELL` | the login shell (`/bin/sh` when unset) that `forge dash` captures `FORGE_COMMAND_PATH` from, that `forge release run` steps run in (`$SHELL -lc`), and that configured commands run in only with `commandEnv.loginShell: true`; otherwise they run as `/bin/sh -c` in and out of the daemon (docs/CONFIG.md "Command environment") |
 | `PATH` | where git, gh, claude, node and docker are found; configured commands get it sanitised (no empty or relative entries) when `FORGE_COMMAND_PATH` is unset |
@@ -200,6 +201,19 @@ Set by Forge for `notify.command` (docs/CONFIG.md "Notifications"), whose `{plac
 | `FORGE_NOTIFY_STAGE` | the job's stage |
 | `FORGE_NOTIFY_REASON` | the fixed reason text |
 | `FORGE_NOTIFY_DASHBOARD_URL` | the dashboard's pipeline page |
+
+## Login service
+
+A mandate that runs over a weekend needs a dashboard that outlives the terminal that started it. `forge service install` (it works outside any repo, like `forge project`) installs a per-user login service that runs `<node> <plugin>/bin/forge dash --service` from `/` at login: a LaunchAgent at `~/Library/LaunchAgents/io.github.maxwellmattryan.forge.dash.plist` on macOS, a systemd user unit at `$XDG_CONFIG_HOME/systemd/user/forge-dash.service` (else `~/.config/systemd/user/`) on Linux. Native Windows and every other platform answer "not supported yet". It installs for the current user only and prints the file it wrote; `forge service uninstall` unloads it and removes exactly that file.
+
+- **Restarts.** A crash (a non-zero exit or a signal) restarts it after 30 s. A clean exit does not: `forge dash --stop`, or a start that finds a dashboard already running and prints its report. A reinstall overwrites the file and reloads it, which restarts a running service dashboard. When a dashboard you started by hand is running at install, the result's `note` says the service takes over at the next login, or after `forge dash --stop` and `forge service install`.
+- **Output.** stdout and stderr append to `<FORGE_HOME>/runtime/service.log` (the runtime dir is 0700). The log is kept on uninstall and never rotated.
+- **Environment.** The unit copies only `PATH` (sanitised), `HOME`, `USER`, `LOGNAME`, `SHELL`, `LANG`, `LC_*`, `TZ`, `TMPDIR` and `FORGE_HOME` (made absolute) from the installing shell, each only when it is set and the command environment's allowlist passes it. No token, `NODE_OPTIONS` or Forge marker is ever written to the file, so `gh`, `claude` and the rest find their credentials in their own config or keychain (`gh auth login`, the Claude login). A value or path with a control character refuses with the variable's name and writes nothing.
+- **After `forge update` or a node upgrade** the unit still names the old `bin/forge` or node: `forge service status` reports `current: false`, `forge doctor` warns, and `forge service install` again fixes it.
+- **Resume.** Each project whose pool boots as the dashboard loads it gets one reconciler pass at once, so a job left running with nothing driving it gets its `resume` request without waiting 30 s (docs/architecture/daemon.md "Boot pass"). Once those passes settle, `forge dash --service` records the restart in `<FORGE_HOME>/runtime/uptime.json` and sends each project with running jobs or open Office requests one `service-restarted` notification, through that project's own `notify` config, naming only that project. A start by hand sends none.
+- **Sleep assertion.** While any served project's pool is started and has an active mandate or a running job at an agent stage, the machine dashboard (any non-dev `forge dash`, service-started or not) holds one sleep assertion: `caffeinate -i -w <pid>` on macOS, `systemd-inhibit --what=idle:sleep … tail --pid=<pid> -f /dev/null` on Linux. The helper exits on its own when the dashboard dies. `daemon.keepAwake: never` leaves a project out, and `FORGE_KEEP_AWAKE=never` turns it off for the machine.
+- **Daemon sessions** may run `forge service status`, but `install`, `uninstall` and `forge dash --service` are refused (exit 1).
+- **Doctor.** `forge doctor` has one `service` row for the machine: the unit, the sleep assertion and the last restart.
 
 ## Local links
 
@@ -519,7 +533,7 @@ The dashboard's headless sessions, from the terminal.
 
 The machine's dashboard and every registered project's session pool.
 
-**`forge dash [--background|--stop] [--port N] [--permission-mode MODE] [--dev] [--quiet]`**: open the machine's dashboard, one server for every project in the machine index: in a repo with .forge/config.yml it registers that repo first (forge project add's default name) and, when it registers it or starts the dashboard, approves the files Forge trusts there as they are (a project's daemon boots with the dashboard only while they still match; a report for a repo already registered approves nothing), then prints the running one's {url: &lt;origin>/?project=&lt;name>, pid, running: true, project, added}, or starts it in the foreground (prints its URL), or detached with --background ({url, pid, started: true, project, added}); outside a project it registers nothing (project: null). Its record is &lt;FORGE_HOME>/dashboard.json ({pid, url, startedAt}, 0600, never the token); a daemon session may only get the report for a registered project
+**`forge dash [--background|--stop|--service] [--port N] [--permission-mode MODE] [--dev] [--quiet]`**: open the machine's dashboard, one server for every project in the machine index: in a repo with .forge/config.yml it registers that repo first (forge project add's default name) and, when it registers it or starts the dashboard, approves the files Forge trusts there as they are (a project's daemon boots with the dashboard only while they still match; a report for a repo already registered approves nothing), then prints the running one's {url: &lt;origin>/?project=&lt;name>, pid, running: true, project, added}, or starts it in the foreground (prints its URL), or detached with --background ({url, pid, started: true, project, added}); outside a project it registers nothing (project: null). Its record is &lt;FORGE_HOME>/dashboard.json ({pid, url, startedAt}, 0600, never the token); a daemon session may only get the report for a registered project
 
 | Flag | Meaning |
 |---|---|
@@ -529,11 +543,12 @@ The machine's dashboard and every registered project's session pool.
 | `--permission-mode MODE` | the job sessions' default permission mode until it stops: default (ask), auto or dontAsk (refuse); refused in a daemon session |
 | `--port N` | the first port to try (default: this repo's dashboard.port, 7400) |
 | `--quiet` | in the foreground in human mode, print only the banner (no activity log) |
+| `--service` | what the login service runs (forge service install): in the foreground, and once the boot passes of the projects loaded at start settle, it records the restart in &lt;FORGE_HOME>/runtime/uptime.json and sends each project with running jobs or open Office requests one service-restarted notification; a usage error with --background, --stop or --dev |
 | `--stop` | stop the machine's dashboard and, in a repo, an older per-repo dashboard (.forge/runtime/dashboard.json), then reap every registered project's orphaned sessions ({stopped, daemonReaped}); a record whose pid is not provably that dashboard is cleared without signalling anything |
 
 | Exit | When |
 |---|---|
-| 1 | no free port near N, --dev from a forge without Vite or while a proven machine dashboard is running, this repo's default name registered for another path, --permission-mode in a daemon session, or a daemon session that would start, stop or register (only the report for a registered project is allowed) |
+| 1 | no free port near N, --dev from a forge without Vite or while a proven machine dashboard is running, this repo's default name registered for another path, --permission-mode in a daemon session, or a daemon session that would start, stop or register, or ran --service (only the report for a registered project is allowed) |
 
 ### `forge doctor`
 
@@ -1466,7 +1481,7 @@ Push gate, PR, failure and budget notifications to webhooks and a command.
 
 | Flag | Meaning |
 |---|---|
-| `--event <name>` | the sample's event (default gate): gate, pr-opened, pr-merged, job-failed, daemon-stopped, budget-exceeded, secret-found |
+| `--event <name>` | the sample's event (default gate): gate, pr-opened, pr-merged, job-failed, daemon-stopped, budget-exceeded, secret-found, service-restarted |
 
 | Exit | When |
 |---|---|
@@ -1714,6 +1729,24 @@ Scan for likely credentials before anything leaves the machine.
 |---|---|
 | 1 | a finding, an incomplete scan, or no such job or worktree |
 | 5 | git failed |
+
+### `forge service`
+
+The per-user login service that starts the machine dashboard at login (a LaunchAgent on macOS, a systemd user unit on Linux).
+
+**`forge service install`**: install the login service for the current user and load it ({installed, manager, file, log, loaded, replaced, error?, note?}): it runs &lt;node> &lt;plugin>/bin/forge dash --service from /, starts at login, restarts 30 s after a crash but not after a clean exit, and appends its output to &lt;FORGE_HOME>/runtime/service.log. Its environment carries only PATH (sanitised), HOME, USER, LOGNAME, SHELL, LANG, LC_\*, TZ, TMPDIR and FORGE_HOME from this shell, never a token. A reinstall overwrites its own file and reloads it, which restarts a running service dashboard; with a dashboard you started running, `note` says the service takes over at the next login
+
+| Exit | When |
+|---|---|
+| 1 | not supported on this platform yet (native Windows, the BSDs), a variable or path with a control character (nothing is written), the load failed (the file stays; loaded: false with error), or a daemon session ran it |
+
+**`forge service status`**: the login service ({platform, supported, manager, file, installed, loaded, current, log}); loaded and current are null when nothing is installed, and then nothing runs. current is false when the unit runs another bin/forge or node (after forge update or a node upgrade: run forge service install again)
+
+**`forge service uninstall`**: unload the login service and remove exactly its file ({manager, file, removed}); the log stays, and with no file nothing runs (removed: false)
+
+| Exit | When |
+|---|---|
+| 1 | not supported on this platform yet, or a daemon session ran it |
 
 ### `forge stats`
 

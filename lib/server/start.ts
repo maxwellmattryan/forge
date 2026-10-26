@@ -12,6 +12,7 @@ import { createMachineSlots } from '#office/slots.ts';
 import type { ApiError } from '#core/types.ts';
 import { guardPost, guardQueryToken, guardToken, isLoopbackAddress, isLoopbackHost, readGuard, send } from './http.ts';
 import { createEntries } from './machine.ts';
+import { startKeepAwake } from './uptime.ts';
 import { DEV_NOT_BUILT, NOT_BUILT, distDirFor, getAsset, getLogo, getPage } from './static.ts';
 import { postJobEnvironment, getEnvironmentLogs, getEnvironments, getJobEnvironment } from './routes/environment.ts';
 import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
@@ -211,7 +212,10 @@ export function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
     server.listen(opts.port ?? 7400, host, () => {
       // Loaded only once the port is ours, so a dash retrying ports never starts a pool.
       machine.entries.start();
+      // Only a non-dev `forge dash` passes keepAwake, so no test or dev dashboard holds the machine awake.
+      const awake = opts.keepAwake && !opts.dev ? startKeepAwake(machine.entries, machine.home, opts.keepAwake) : null;
       const close = async () => {
+        awake?.close();
         if (machine.ping) clearInterval(machine.ping);
         machine.ping = null;
         await machine.entries.close();
@@ -229,8 +233,12 @@ export function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
         entries: () => machine.entries.list(),
         onProject: (fn) => machine.entries.onProject(fn),
         refresh: () => machine.entries.refresh(true),
+        booted: () => machine.entries.booted(),
         close,
-        killSync: () => machine.entries.killSync(),
+        killSync: () => {
+          awake?.killSync();
+          machine.entries.killSync();
+        },
       });
     });
   });
