@@ -7,13 +7,12 @@
   import ProjectSwitcher from './ProjectSwitcher.svelte';
   import { S } from '../lib/app.svelte.ts';
   import { GLOBAL_VIEWS, VIEWS, navCounts, type GlobalViewId, type ViewId } from '../lib/nav.ts';
-  import { routeProject } from '../lib/routes.ts';
   import { railTipOn } from '../lib/rail-tip.svelte.ts';
   import { slideMarker } from '../lib/marker.ts';
   import { t } from '../lib/locale.ts';
 
   let { mobile = false, compact = false, onsettings }: { mobile?: boolean; compact?: boolean; onsettings?: () => void } = $props();
-  const project = $derived(routeProject(S.route));
+  const project = $derived(S.selected);
   const counts = $derived(navCounts(S.data?.jobs ?? []));
   const globalLabels = $derived<Record<GlobalViewId, string>>({ overview: $t('nav.overview'), machine: $t('nav.machine') });
   const labels = $derived<Record<ViewId, string>>({

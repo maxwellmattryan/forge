@@ -155,7 +155,14 @@
     "stillBlocked": "Still blocked",
     "stillBlockedNote": "The last approve ran the scan again and it still found a problem.",
     "budgetFailed": "Budget change failed: {error}",
-    "budgetStillOver": "Still over budget: {keys}. Raise those limits in the note, or approve with no limits to acknowledge them."
+    "budgetStillOver": "Still over budget: {keys}. Raise those limits in the note, or approve with no limits to acknowledge them.",
+    "decision": {
+      "sending": "Sending: {label}",
+      "queued": "Queued: {label}. A job session picks it up and moves the gate.",
+      "queuedManual": "Queued: {label}. Your orchestrator session picks it up (/forge requests).",
+      "applying": "Applying: {label}. A job session is moving the gate.",
+      "elsewhere": "a decision sent from elsewhere"
+    }
   },
   "gate": {
     "foreman": "Foreman deciding",

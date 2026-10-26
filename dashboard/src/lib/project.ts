@@ -1,6 +1,6 @@
-// The selected project, which follows the route (`#/p/<project>/…`, app.svelte.ts route()): every per-project
+// The selected project, which a project page's route sets (`#/p/<project>/…`, app.svelte.ts route()): every per-project
 // request goes to `/api/p/<project>/…` through projectApi, while the machine's own `/api/about` and
-// `/api/projects` never do. A global page selects none.
+// `/api/projects` never do. A global page keeps the selection.
 import { PROJECT_NAME_SOURCE } from './types.ts';
 
 const PROJECT_NAME = new RegExp(PROJECT_NAME_SOURCE);

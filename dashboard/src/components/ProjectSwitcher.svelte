@@ -10,13 +10,12 @@
   import { S } from '../lib/app.svelte.ts';
   import { openPalette } from '../lib/palette.svelte.ts';
   import { railTipOn } from '../lib/rail-tip.svelte.ts';
-  import { routeProject } from '../lib/routes.ts';
   import { switcherChoice, switcherEntries, switcherOptions, type SwitcherEntry } from '../lib/switcher.ts';
   import { t } from '../lib/locale.ts';
 
   let { variant, labelledby }: { variant: 'field' | 'rail' | 'phone'; labelledby?: string } = $props();
 
-  const project = $derived(routeProject(S.route));
+  const project = $derived(S.selected);
   const entries = $derived(switcherEntries(S.machine));
   const hint = (e: SwitcherEntry): string | undefined =>
     e.state === 'missing' ? $t('switcher.missing') : e.state === 'unavailable' ? $t('switcher.unavailable') : e.waiting ? $t('switcher.waiting', { count: e.waiting }) : undefined;
