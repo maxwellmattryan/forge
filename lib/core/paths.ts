@@ -91,10 +91,12 @@ export interface MachinePaths {
   locks: string;
   /** The machine dashboard's runtime record (lib/engine/ops/dashboard-record.ts): `{pid, url, startedAt}`, never the token. */
   dashboard: string;
+  /** The machine dashboard's runtime files (0700): the login service's log and the uptime record (lib/engine/project/login-service.ts). */
+  runtime: string;
 }
 
 export function machinePaths(home: string = forgeHome()): MachinePaths {
-  return { dir: home, projects: path.join(home, 'projects.json'), locks: path.join(home, 'locks'), dashboard: path.join(home, 'dashboard.json') };
+  return { dir: home, projects: path.join(home, 'projects.json'), locks: path.join(home, 'locks'), dashboard: path.join(home, 'dashboard.json'), runtime: path.join(home, 'runtime') };
 }
 
 export function jobDir(root: string, id: string): string {

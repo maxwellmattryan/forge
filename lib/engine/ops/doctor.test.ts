@@ -1,7 +1,11 @@
 // forge doctor's config checks that need no machine state, in-process.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { addProject } from '../project/machine-index.ts';
+import type { ServiceOptions } from '../project/login-service.ts';
 import { commandEnvCheck, commandPathCheck, daemonBillingCheck, doctor, envCopyCheck, instructionsPolicyCheck, requiredChecksCheck } from './doctor.ts';
 import { buildBundle } from './bundle.ts';
 import { droppedVariables } from '../guard/command-env.ts';
@@ -202,4 +206,36 @@ test("a support bundle's doctor.json counts the variable names that say what a m
   const report = JSON.parse(entries.find((e) => e.name === 'doctor.json')!.data.toString('utf8')) as DoctorReport;
   assert.match(detail(report), /\*_HOME or \*_ROOT names?; /);
   assert.ok(!detail(report).includes('ACME_CLIENT_SDK_HOME'), 'the bundle counts it');
+});
+
+test('doctor reports the login service once', { skip: process.platform === 'win32' }, async (t) => {
+  const repo = tempRepo();
+  const other = tempRepo();
+  const top = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-doctor-svc-')));
+  const gh = fakeBin('gh', 'exit 1');
+  const PATH = process.env.PATH;
+  process.env.PATH = `${gh.dir}${path.delimiter}${PATH}`;
+  t.after(() => {
+    process.env.PATH = PATH;
+    repo.cleanup();
+    other.cleanup();
+    fs.rmSync(top, { recursive: true, force: true });
+  });
+  const forgeHome = path.join(top, 'fh');
+  for (const r of [repo, other]) addProject(forgeHome, fs.realpathSync(r.dir));
+  const calls: string[][] = [];
+  const service: ServiceOptions = {
+    platform: 'darwin',
+    userHome: path.join(top, 'home'),
+    forgeHome,
+    env: {},
+    execPath: '/opt/node/bin/node',
+    pluginRoot: path.join(top, 'plugin'),
+    uid: 501,
+    run: (file, args) => (calls.push([file, ...args]), { ok: true, status: 0, stdout: '', stderr: '' }),
+    probe: { platform: 'darwin', alive: () => false, startMs: () => null, command: () => null },
+  };
+  const rows = (await doctor(repo.dir, withPolicy(null), true, undefined, { service })).checks.filter((c) => c.name === 'service');
+  assert.deepEqual(rows, [{ name: 'service', ok: true, detail: 'not installed (forge service install starts the dashboard at login); dashboard not running; no restart recorded' }]);
+  assert.deepEqual(calls, [], 'nothing installed: no launchctl call');
 });

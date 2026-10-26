@@ -299,6 +299,9 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   },
   'daemon.dailyUsd.inbox': { doc: "the inbox session's daily cap in USD (null: none)" },
   'daemon.dailyUsd.office': { doc: "the office session's daily cap in USD, the foreman's assistants included (null: none)" },
+  'daemon.keepAwake': {
+    doc: 'auto: while the pool is started and an active mandate or a running job at an agent stage is in flight, the machine dashboard holds a sleep assertion; never: this project never does (see "Daemon" below)',
+  },
 
   foreman: { doc: 'opt-in: an office daemon session decides gates through assistant sub-agents (see "Foreman" below)' },
   'foreman.enabled': { doc: 'true (with daemon.enabled): parked gates become `gate` requests for the `_office` session' },
