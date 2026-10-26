@@ -18,6 +18,8 @@ import { CONFIG_STEPS } from '#core/versions/config.ts';
 import { JOB_STEPS } from '#core/versions/job.ts';
 import { EVENT_STEPS } from '#core/versions/event.ts';
 import { MACHINE_STEPS } from '#core/versions/machine.ts';
+import { MANDATE_SCHEMA_VERSION, MANDATE_STEPS } from '#core/versions/mandate.ts';
+import { isReadable, mandateSummary, storedMandate } from '#office/mandates/contract.ts';
 import { stepProblems } from '#core/versions/steps.ts';
 import type { Step } from '#core/versions/steps.ts';
 import { API_CHANGES } from '#api/versions.ts';
@@ -132,6 +134,14 @@ const CONFIG_ROWS: Row[] = [
   { step: 'command-env', input: { commands: { test: 'npm test' } }, fields: { 'commands.test': 'npm test' }, removed: ['commandEnv'], note: ONLY_VERSION },
   { step: 'daemon-daily-usd', input: { daemon: { enabled: true, jobBudget: null } }, fields: { daemon: { enabled: true, jobBudget: null } }, removed: ['daemon.dailyUsd'], note: ONLY_VERSION },
   { step: 'merge-required-checks', input: { merge: { auto: true } }, fields: { 'merge.auto': true }, removed: ['merge.requiredChecks'], note: ONLY_VERSION },
+  {
+    step: 'foreman-office',
+    input: { runtime: { models: { builder: 'opus', assistant: 'haiku' }, efforts: { assistant: 'low' } } },
+    fields: { 'foreman.assistants': { model: 'haiku', effort: 'low' }, 'runtime.models': { builder: 'opus' }, 'runtime.efforts': {} },
+    removed: ['runtime.models.assistant', 'runtime.efforts.assistant'],
+    note: "the assistant's model and effort move under foreman.assistants",
+  },
+  { step: 'office-uptime', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.keepAwake'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -200,6 +210,7 @@ const JOB_ROWS: Row[] = [
     removed: ['owner'],
     note: 'the owner keeps driving as epoch 1 for the 30 minutes its heartbeat gave it',
   },
+  { step: 'job-mandate', input: { id: 'x', title: 'Old', state: 'running' }, fields: { mandate: null, state: 'running' }, note: 'a job from before mandates is in none' },
 ];
 
 const EVENT_ROWS: Row[] = [
@@ -254,6 +265,34 @@ const MACHINE_ROWS: Row[] = [
   },
 ];
 
+const MANDATE_V1 = {
+  id: 'm1',
+  title: 'M1',
+  status: 'active',
+  reason: null,
+  scope: { milestones: ['M1'], labels: [], issues: [] },
+  until: 'merge-ready',
+  maxJobs: 1,
+  order: 'graph',
+  decides: [],
+  budget: { usd: 10, jobs: 2 },
+  stall: { cadences: 3, bounces: 3 },
+  onUnfinishable: 'park',
+  after: null,
+  createdAt: '2026-10-01T00:00:00.000Z',
+  updatedAt: '2026-10-01T00:00:00.000Z',
+  closedAt: null,
+};
+
+const MANDATE_ROWS: Row[] = [
+  {
+    step: 'mandate-goal',
+    input: MANDATE_V1,
+    fields: { goal: null, intake: false, 'scope.milestones': ['M1'] },
+    note: 'a mandate written before goals reads as a scoped mandate with no goal',
+  },
+];
+
 /** One versioned shape: its rows, its step list, its current version, the field that holds it, and its reader. */
 type Table = [string, Row[], readonly Step[], number, 'schemaVersion' | 'v', (input: Record<string, unknown>) => { out: any; from: unknown }];
 
@@ -285,6 +324,18 @@ const TABLES: Table[] = [
       } finally {
         fs.rmSync(home, { recursive: true, force: true });
       }
+    },
+  ],
+  [
+    'mandate',
+    MANDATE_ROWS,
+    MANDATE_STEPS,
+    MANDATE_SCHEMA_VERSION,
+    'schemaVersion',
+    (input) => {
+      const m = storedMandate(input, String(input.id), '');
+      assert.ok(isReadable(m), JSON.stringify(m));
+      return { out: { ...m, intake: mandateSummary(m, [m]).intake }, from: undefined };
     },
   ],
 ];
@@ -432,6 +483,16 @@ test('config v13 → v14: an existing downstream value is kept', () => {
 test('config v17 → v18: gate:release is never added twice, nor a foreman block invented', () => {
   assert.deepEqual(migrateConfig({ schemaVersion: 17, foreman: { reserved: ['secret', 'gate:release'] } }).config.foreman.reserved, ['secret', 'gate:release']);
   assert.equal('foreman' in migrateConfig({ schemaVersion: 17, git: { base: 'trunk' } }).config, false);
+});
+
+test('config v34 → v35: other assistant shapes', () => {
+  const v34 = (c: Record<string, unknown>) => migrateConfig({ ...c, schemaVersion: CONFIG_STEPS.findIndex((s) => s.id === 'foreman-office') + 1 }).config;
+  assert.equal('foreman' in v34({ runtime: { models: { builder: 'opus' } } }), false, 'no old key: no foreman block invented');
+  const notMap = v34({ foreman: 'off', runtime: { models: { assistant: 'haiku' } } });
+  assert.deepEqual([notMap.foreman, notMap.runtime.models.assistant], ['off', 'haiku'], 'a foreman that is not a map is left for validation');
+  const kept = v34({ foreman: { enabled: true, assistants: { model: 'opus' } }, runtime: { models: { assistant: 'haiku' }, efforts: { assistant: 'low' } } });
+  assert.deepEqual(kept.foreman, { enabled: true, assistants: { model: 'opus', effort: 'low' } }, 'a value already under foreman.assistants wins');
+  assert.deepEqual(kept.runtime, { models: {}, efforts: {} });
 });
 
 test('config v23 → v24: no outcomes key is added, defaults fill it', () => {

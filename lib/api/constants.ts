@@ -63,17 +63,26 @@ export const COMPLEXITIES = ['low', 'medium', 'high'] as const;
  */
 export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release'] as const;
 
+/** A mandate's status (`.forge/runtime/mandates/<id>.md`): only `forge mandate pause|resume|close` moves it. */
+export const MANDATE_STATUSES = ['active', 'paused', 'closed'] as const;
+/** Where a mandate's work stops: a merge-ready PR, or a merged one (which needs foreman.ship: merge). */
+export const MANDATE_UNTIL = ['merge-ready', 'merged'] as const;
+/** How a mandate orders its work: the dependency graph, tracker priority, or scope.issues as listed. */
+export const MANDATE_ORDERS = ['graph', 'priority', 'listed'] as const;
+/** What a mandate does with a job it can't finish. */
+export const MANDATE_ON_UNFINISHABLE = ['park', 'cancel'] as const;
+
 /** Why the Foreman left a gate for a person (`forge job handoff --class`): a reserved topic or class, the assistant escalated, or the CLI refused its decision. */
 export const HANDOFF_CLASSES = ['reserved', 'escalated', 'refused'] as const;
 
-export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume', 'sync', 'eval-run', 'retro', 'gate'] as const;
+export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume', 'sync', 'eval-run', 'retro', 'gate', 'draft'] as const;
 
 /**
  * The daemon session for requests without a (valid, existing) job. Job ids start with an
  * alphanumeric, so it can never be one.
  */
 export const INBOX_SCOPE = '_inbox';
-/** The foreman's daemon session: it receives every `gate` request and never drives a job. */
+/** The foreman's daemon session: it receives every `gate` and `draft` request and never drives a job. */
 export const OFFICE_SCOPE = '_office';
 /** Not a session: POST /api/daemon/mode's name for the default of every job session without its own choice. */
 export const JOBS_SCOPE = '_jobs';

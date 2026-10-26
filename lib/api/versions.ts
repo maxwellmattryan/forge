@@ -51,6 +51,10 @@ export const API_CHANGES = [
   { id: 'machine-server' },
   // The Overview: MachineProjectSummary.latest and .daemon.office, GET /api/projects/stats.
   { id: 'overview' },
+  // Job.mandate: the mandate a job works under, or null.
+  { id: 'job-mandate' },
+  // RequestType 'draft': a goal mandate's drafting run, written only by forge mandate, routed to the office session.
+  { id: 'draft-request' },
 ] as const;
 
 /**

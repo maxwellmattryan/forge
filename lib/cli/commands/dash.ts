@@ -19,6 +19,7 @@ import { pidAlive, sleepSync } from '#core/os/process.ts';
 import { readText, writeJsonAtomic, writeJsonPrivate } from '#core/os/fs.ts';
 import { legacyDashboardFile, loopbackOrigin, machineDashboardFile, provenDashboard, readDashboardRecord, type DashboardRecord } from '#engine/ops/dashboard-record.ts';
 import { adoptCommandPath } from '#engine/guard/command-path.ts';
+import { spawnSleepHelper } from '#integrations/os-service/sleep.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { out, outputMode } from './args.ts';
 import { colorEnabled } from './render.ts';
@@ -33,7 +34,7 @@ export const HELP: HelpGroup[] = [
     commands: [
       {
         command: 'dash',
-        args: '[--background|--stop] [--port N] [--permission-mode MODE] [--dev] [--quiet]',
+        args: '[--background|--stop|--service] [--port N] [--permission-mode MODE] [--dev] [--quiet]',
         summary:
           "open the machine's dashboard, one server for every project in the machine index: in a repo with .forge/config.yml it registers that repo first (forge project add's default name) and, when it registers it or starts the dashboard, approves the files Forge trusts there as they are (a project's daemon boots with the dashboard only while they still match; a report for a repo already registered approves nothing), then prints the running one's {url: <origin>/?project=<name>, pid, running: true, project, added}, or starts it in the foreground (prints its URL), or detached with --background ({url, pid, started: true, project, added}); outside a project it registers nothing (project: null). Its record is <FORGE_HOME>/dashboard.json ({pid, url, startedAt}, 0600, never the token); a daemon session may only get the report for a registered project",
         flags: [
@@ -44,11 +45,15 @@ export const HELP: HelpGroup[] = [
           ['--permission-mode MODE', "the job sessions' default permission mode until it stops: default (ask), auto or dontAsk (refuse); refused in a daemon session"],
           ['--dev', "serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist for every project of FORGE_HOME, with no pool booting until Start; it builds nothing itself, so start it through npm run dev; refused from a forge without Vite (an installed plugin) and while a proven machine dashboard runs (a stale record does not block it)"],
           ['--quiet', 'in the foreground in human mode, print only the banner (no activity log)'],
+          [
+            '--service',
+            "what the login service runs (forge service install): in the foreground, and once the boot passes of the projects loaded at start settle, it records the restart in <FORGE_HOME>/runtime/uptime.json and sends each project with running jobs or open Office requests one service-restarted notification; a usage error with --background, --stop or --dev",
+          ],
         ],
         exits: [
           [
             1,
-            "no free port near N, --dev from a forge without Vite or while a proven machine dashboard is running, this repo's default name registered for another path, --permission-mode in a daemon session, or a daemon session that would start, stop or register (only the report for a registered project is allowed)",
+            "no free port near N, --dev from a forge without Vite or while a proven machine dashboard is running, this repo's default name registered for another path, --permission-mode in a daemon session, or a daemon session that would start, stop or register, or ran --service (only the report for a registered project is allowed)",
           ],
         ],
       },
@@ -192,6 +197,7 @@ function stopDashboards(home: string, root: string | null, current: DashboardRec
  * or `initialized` false) it registers nothing.
  */
 export async function dash(root: string | null, config: Config | null, flags: Record<string, any>, initialized = root !== null): Promise<void> {
+  if (flags.service && (flags.background || flags.stop || flags.dev)) throw new ForgeError('--service runs the dashboard in the foreground, so it takes no --background, --stop or --dev', 'usage', 'forge help dash');
   const mode = jobPermissionMode(flags);
   const home = forgeHome();
   const machineFile = machineDashboardFile(home);
@@ -202,7 +208,7 @@ export async function dash(root: string | null, config: Config | null, flags: Re
   if (process.env.FORGE_DAEMON === '1') {
     // Only a report: a running machine dashboard, for a project already registered.
     const known = project ? projectByRoot(home, project) : null;
-    if (flags.stop || flags.dev || flags.background || flags.foreground || !current || !known) throw new ForgeError(DASH_DAEMON_REFUSAL);
+    if (flags.stop || flags.dev || flags.background || flags.foreground || flags.service || !current || !known) throw new ForgeError(DASH_DAEMON_REFUSAL);
     return out({ url: `${current.url}/?project=${known.name}`, pid: current.pid, running: true, project: known.name, added: false }, flags);
   }
   if (flags.stop) return stopDashboards(home, root, current, flags);
@@ -279,7 +285,15 @@ export async function dash(root: string | null, config: Config | null, flags: Re
   let res: RunningServer | undefined;
   for (let p = port; p < port + 20; p++) {
     try {
-      res = await startServer({ home, port: p, dev: Boolean(flags.dev), ...(mode ? { daemon: { jobPermissionMode: mode } } : {}), ...(onRequest ? { onRequest } : {}) });
+      res = await startServer({
+        home,
+        port: p,
+        dev: Boolean(flags.dev),
+        ...(mode ? { daemon: { jobPermissionMode: mode } } : {}),
+        ...(onRequest ? { onRequest } : {}),
+        // The one place the real sleep helper is passed: FORGE_KEEP_AWAKE=never here turns it off.
+        ...(flags.dev ? {} : { keepAwake: { spawn: spawnSleepHelper, env: process.env } }),
+      });
       break;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e;
@@ -307,6 +321,11 @@ export async function dash(root: string | null, config: Config | null, flags: Re
   // Last resort (an uncaught exception, a plain exit): signal every session's group synchronously.
   process.on('exit', () => server.killSync());
   process.stdout.write(`⚒️  Forge dashboard${flags.dev ? ' (dev)' : ''} → ${urlOf(res.url)}\n`);
+  // A start by hand sends nothing: only the login service's start is a restart worth telling a team about.
+  if (flags.service) {
+    const { recordRestart } = await import('../../server/uptime.ts');
+    void res.booted().then((boots) => recordRestart(home, boots));
+  }
   // After the banner, so it stays the first line; a session that spawned before this prints as the
   // tracker's baseline.
   if (activity) {

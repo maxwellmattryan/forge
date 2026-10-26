@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import { jobAt, tempRepo } from '../../test/helpers.ts';
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildPayload, dashboardUrl, registerNotify, runCommand, type QueueNotify } from './notify.ts';
+import { LABELS, REASONS, buildPayload, contextFor, dashboardUrl, registerNotify, runCommand, type QueueNotify } from './notify.ts';
+import { uptimeFile, writeUptime } from '#engine/project/login-service.ts';
 import { machineDashboardFile } from '#engine/ops/dashboard-record.ts';
 import { addProject } from '#engine/project/machine-index.ts';
 import { setJob } from '#core/job/store.ts';
@@ -89,5 +90,35 @@ test('dashboardUrl links only a loopback dashboard origin', () => {
   } finally {
     repo.cleanup();
     registered.cleanup();
+  }
+});
+
+test('a service-restarted notification names only its own project', () => {
+  const repos = [tempRepo(), tempRepo(), tempRepo()];
+  try {
+    const home = path.join(repos[0]!.dir, 'home');
+    const [alpha, beta, gamma] = ['alpha', 'beta', 'gamma'].map((name, i) => addProject(home, fs.realpathSync(repos[i]!.dir), { name }).project.path);
+    writeUptime(home, {
+      restart: {
+        at: '2026-10-26T08:00:00.000Z',
+        pid: 4242,
+        projects: [
+          { name: 'alpha', jobs: 2, office: 1, mandates: 1 },
+          { name: 'beta', jobs: 1, office: 0, mandates: 2 },
+        ],
+      },
+    });
+    const title = (root: string) => contextFor(root!, null, 'service-restarted', home).title;
+    assert.equal(title(alpha!), 'alpha resumed: 2 running jobs, 1 Office request, 1 active mandate');
+    assert.equal(title(beta!), 'beta resumed: 1 running job, 0 Office requests, 2 active mandates');
+    assert.equal(title(gamma!), 'gamma resumed', 'no entry of its own');
+    for (const [root, others] of [[alpha!, ['beta', 'gamma']], [beta!, ['alpha', 'gamma']]] as const) for (const o of others) assert.ok(!title(root)!.includes(o), `${root} names ${o}`);
+    fs.writeFileSync(uptimeFile(home), '{"v":1,"restart":{"at":"x"');
+    assert.equal(title(alpha!), 'alpha resumed', 'a malformed record');
+    const payload = buildPayload('service-restarted', contextFor(alpha!, null, 'service-restarted', home), 'http://127.0.0.1:7400/#/pipeline');
+    assert.deepEqual([payload.event, payload.job, payload.reason, LABELS['service-restarted']], ['service-restarted', null, REASONS['service-restarted'], 'Forge restarted']);
+    assert.equal(contextFor(alpha!, null, 'trust', home).title, null, 'other job-less reasons keep no title');
+  } finally {
+    for (const r of repos) r.cleanup();
   }
 });

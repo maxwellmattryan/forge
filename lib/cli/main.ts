@@ -45,12 +45,14 @@ import { helpCmd, usage } from './commands/help.ts';
 import { confirmHuman, mergeNowOp } from './commands/human.ts';
 import { initWrite, migrate } from './commands/init.ts';
 import { jobCmd } from './commands/job.ts';
+import { mandateCmd } from './commands/mandate.ts';
 import { notifyCmd } from './commands/notify.ts';
 import { projectCmd } from './commands/project.ts';
 import { releaseCmd } from './commands/release.ts';
 import { requestsCmd } from './commands/requests.ts';
 import { runCmd } from './commands/run.ts';
 import { secretsCmd } from './commands/secrets.ts';
+import { serviceCmd } from './commands/service.ts';
 import { verifiersCmd } from './commands/verifiers.ts';
 import { renderKey } from './commands/render/registry.ts';
 import { statsText, statusRows, statusTable, statusView } from './commands/status.ts';
@@ -84,6 +86,7 @@ export async function main(rawArgv: string[]): Promise<void> {
   if (cmd === 'version') return versionCmd(flags);
   if (cmd === 'update') return updateCmd(flags);
   if (cmd === 'project') return projectCmd(pos.slice(1), flags);
+  if (cmd === 'service') return serviceCmd(pos.slice(1), flags);
 
   let root: string;
   try {
@@ -265,6 +268,9 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     case 'experiment':
       needInit();
       return experimentCmd(ctx, sub, rest, flags);
+    case 'mandate':
+      needInit();
+      return mandateCmd(ctx, sub, rest, flags);
     case 'requests':
       return ok(requestsCmd(root, config, sub, rest, flags));
     case 'notify':

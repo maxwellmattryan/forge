@@ -100,8 +100,12 @@ export default {
   search(ctx, query, { limit }) { return [/* { ref, title, url, labels, body } */]; },
   // Optional: readiness triage's mark. A one-line note marks the item needs-info; null clears it.
   setNeedsInfo(ctx, ref, note) {},
+  // Optional: the open milestones, for a goal mandate's drafting survey. Throw when they can't be listed.
+  milestones(ctx) { return [/* { title, openIssues: number or null, dueOn: string or null } */]; },
 };
 ```
+
+`milestones` is optional: a goal mandate's drafting survey (docs/architecture/foreman.md "Intake") lists them in a fence, each title through `oneLineTitle`, and without the method it says `unavailable (tracker <kind> lists no milestones)`. The built-in GitHub adapter reads `gh api repos/<slug>/milestones?state=open&per_page=100`; the local backlog has none.
 
 `needsInfo: true` on a `list` item means triage asked for more information first: `forge next` skips it even when `list({ ready: true })` returns it, though `ready` lists should leave such items out. Without `setNeedsInfo`, triage still posts its comment and reports `marked: false`.
 
