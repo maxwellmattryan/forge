@@ -1,10 +1,12 @@
 <!-- A "Needs you" card for a goal mandate's milestone draft at the milestone-approval gate: the mandate, who owns the gate,
      the milestone with its exit criteria, the owner's goal (collapsed) and the issues wave by wave, each a fold with its
      Why / What to do / Done. Pending: a note and Approve and file / Request changes / Reject (with a confirm row, since it
-     closes the mandate). A stopped filing: its error and Retry filing only. The card fetches the draft when it mounts and
-     whenever /api/state's request or digest moves, and every POST carries the request and digest of the draft it rendered.
+     closes the mandate; focus moves to its Confirm, and back to Reject on Cancel). A stopped filing: its error and Retry
+     filing only. The card fetches the draft when it mounts and whenever /api/state's request or digest moves (not on every
+     poll), and every POST carries the request and digest of the draft it rendered.
      Draft, goal and error text is outside text: it renders as Svelte text, and only why / what to do / done go through md(). -->
 <script lang="ts">
+  import { tick } from 'svelte';
   import Chip from './Chip.svelte';
   import { md } from '../lib/markdown.ts';
   import { draftCardActions, draftDecisionBody, fetchDraft, postDraftDecision, wavesOf } from '../lib/drafts.ts';
@@ -23,27 +25,44 @@
   let note = $state('');
   let busy = $state(false);
   let confirming = $state(false);
+  let rejectButton = $state<HTMLButtonElement>();
+  let confirmButton = $state<HTMLButtonElement>();
 
   const owner = $derived(gateOwnerBadge(gate.owner));
   const actions = $derived(draftCardActions(gate.status));
   const waves = $derived(data?.draft ? wavesOf(data.draft) : []);
   const existing = $derived(data?.draft ? data.draft.issues.filter((i) => i.existing).length : 0);
   const noteId = $derived(`draft-note-${gate.mandate}`);
+  // Strings, so a poll that hands over a new but equal gate object changes neither and fetches nothing.
+  const mandate = $derived(gate.mandate);
+  const draftKey = $derived(`${gate.mandate}|${gate.request}|${gate.digest}`);
 
   $effect(() => {
-    const id = gate.mandate;
-    void gate.request;
-    void gate.digest;
+    const id = mandate;
+    void draftKey;
     void loads;
     error = null;
     fetchDraft(id)
       .then((d) => {
-        if (id === gate.mandate) data = d;
+        if (id === mandate) data = d;
       })
       .catch((e) => {
-        if (id === gate.mandate) error = errorText(e instanceof Error ? e.message : String(e));
+        if (id === mandate) error = errorText(e instanceof Error ? e.message : String(e));
       });
   });
+
+  // The button that had focus unmounts with its row: focus goes to the row that replaces it.
+  async function openConfirm(): Promise<void> {
+    confirming = true;
+    await tick();
+    confirmButton?.focus();
+  }
+
+  async function cancelConfirm(): Promise<void> {
+    confirming = false;
+    await tick();
+    rejectButton?.focus();
+  }
 
   async function decide(decision: PostMandateDraftBody['decision']): Promise<void> {
     if (!data?.request || !data.digest || busy) return;
@@ -122,13 +141,13 @@
       <div class="flex flex-wrap gap-2">
         <button class="btn primary" disabled={busy} aria-busy={busy} onclick={() => decide('approve')}>{$t('milestoneDraft.approve')}</button>
         <button class="btn" disabled={busy || !note.trim()} onclick={() => decide('revise')}>{$t('milestoneDraft.revise')}</button>
-        {#if !confirming}<button class="btn" disabled={busy} onclick={() => (confirming = true)}>{$t('milestoneDraft.reject')}</button>{/if}
+        {#if !confirming}<button bind:this={rejectButton} class="btn" disabled={busy} onclick={openConfirm}>{$t('milestoneDraft.reject')}</button>{/if}
       </div>
       {#if confirming}
         <div class="flex flex-wrap items-center gap-2">
           <span class="text-[13px]">{$t('milestoneDraft.rejectConfirm')}</span>
-          <button class="btn sm text-bad" disabled={busy} aria-busy={busy} onclick={() => decide('reject')}>{$t('milestoneDraft.confirm')}</button>
-          <button class="btn sm" disabled={busy} onclick={() => (confirming = false)}>{$t('milestoneDraft.cancel')}</button>
+          <button bind:this={confirmButton} class="btn sm text-bad" disabled={busy} aria-busy={busy} onclick={() => decide('reject')}>{$t('milestoneDraft.confirm')}</button>
+          <button class="btn sm" disabled={busy} onclick={cancelConfirm}>{$t('milestoneDraft.cancel')}</button>
         </div>
       {/if}
     {/if}
