@@ -15,7 +15,7 @@ const VERIFIERS: HelpGroup = {
       args: '',
       summary: "the main checkout's .forge/verifiers/*.md that will run, and the problems that keep the others from running",
       docs: ['Verifiers', 'docs/VERIFIERS.md'],
-      readme: true,
+      common: true,
     },
     {
       command: 'verifiers run',
@@ -26,7 +26,7 @@ const VERIFIERS: HelpGroup = {
         [1, "no such job, no worktree, or no passing verify in the job's round"],
         [5, 'git failed'],
       ],
-      readme: true,
+      common: true,
     },
     {
       command: 'verifiers record',
@@ -36,7 +36,7 @@ const VERIFIERS: HelpGroup = {
         [1, 'no such job, or no pending verifiers run in its round'],
         [5, 'git failed'],
       ],
-      readme: true,
+      common: true,
     },
   ],
 };

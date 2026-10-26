@@ -71,8 +71,8 @@ export interface CommandHelp {
   /** Every exit other than 0 and 2 the command can produce. */
   exits?: [code: 1 | 3 | 4 | 5, when: string][];
   docs?: [label: string, href: string];
-  /** A row of README's generated command table. */
-  readme?: true;
+  /** A row of docs/CLI.md's generated Common commands table. */
+  common?: true;
 }
 
 /** A command group: `forge job …`, or a single command such as `forge verify`. */

@@ -19,7 +19,7 @@ const CONFIG: HelpGroup = {
       args: '[<key>]',
       summary: 'read the effective config: one dotted key (strings raw, null when absent), or all of it',
       docs: ['Changing settings', 'docs/CONFIG.md#changing-settings'],
-      readme: true,
+      common: true,
     },
     {
       command: 'config set',
@@ -27,7 +27,7 @@ const CONFIG: HelpGroup = {
       summary: 'change one editable key in `.forge/config.yml`, keeping its comments',
       exits: [[1, 'an unknown or read-only key, an invalid value, or a layout the edit cannot keep']],
       docs: ['Changing settings', 'docs/CONFIG.md#changing-settings'],
-      readme: true,
+      common: true,
     },
     { command: 'config validate', args: '', summary: 'check the config; prints the problems', exits: [[1, 'the config has problems']] },
   ],
