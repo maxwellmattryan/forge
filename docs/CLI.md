@@ -303,8 +303,8 @@ Archived jobs (`forge job archive`, `forge job prune`, `retention.jobsDays`) are
 
 ## Scoring
 
-**The sync pass.** With `pr.enabled` and `scoring.sample` above 0 (docs/CONFIG.md "Scoring"), `forge sync` runs a scoring pass after the outcome pass. It considers live jobs (not archived, not `kind: eval`) whose root PR is `MERGED`, that have no `score` yet, that are in the sample, and whose merge (`pr.mergedAt`, else `outcome.mergedAt`) was in the last 7 days. At most 5 per run, oldest merge first. Each one is:
-- **held** when it is over its per-job budget (`reason: "budget exceeded"`) or the repo budget holds (`reason: "repo budget"`). No request is written and no judge runs, and a held score is never retried.
+**The sync pass.** With `pr.enabled` (docs/CONFIG.md "Scoring"), `forge sync` runs a scoring pass after the outcome pass. It considers live jobs (not archived, not `kind: eval`) whose root PR is `MERGED`, that have no `score` yet, and whose merge (`pr.mergedAt`, else `outcome.mergedAt`) was in the last 7 days. Of those, a job is due when its mandate's `scoring` term is `all`, or when the term is `sample`, or the job is in no mandate, or its mandate file is missing or can't be read, and the job is in the `scoring.sample` sample. A job whose mandate scores `off` is never due. The job's mandate is the one in the CLI's record of the job (`forge job new --mandate`, `forge office start`, a split child), never the job folder's `job.json`, and its term applies whatever the mandate's status, closed included. At most 5 per run, oldest merge first. Each one is:
+- **held** when it is over its per-job budget (`reason: "budget exceeded"`) or the repo budget holds (`reason: "repo budget"`), a run its mandate forces included. This happens before any `gh` call, file or request: no judge runs, a `score` event `{ status: "held", reason }` is logged, the id is listed in `scoring.held`, and a held score is never retried.
 - **left alone** when `gh pr diff <number> -R <owner/repo>` (read-only) fails. The next sync retries it, inside the 7 days.
 - **queued** otherwise: the diff goes to `<job dir>/score.diff` (cut at 1 MiB with a last line `[forge: diff truncated at 1048576 bytes]`), `job.score` becomes `queued`, a `score` event `{ status: "queued" }` is logged, and a `resume` request `forge sync queued a score run` is added for the job's session.
 
@@ -431,7 +431,7 @@ The commands worth knowing by hand, generated from the `HELP` rows marked `commo
 | `forge job prune --older-than D [--dry-run]` | archive every eligible finished job at least D days old and delete stale daemon session logs; --dry-run lists what it would free and writes nothing (see [Retention](architecture/retention.md)) |
 | `forge job repo add <id> <name> [--verify-only] \| remove <id> <name> \| propose <id> <name> --reason R \| downstream <id> \| interim <id> (<name> \| --root) canary\|git-ref\|local\|sequential\|inherit` | add a member repo (a config repos entry whose clone passes doctor's check) to a job, which then gets its own worktree, verify evidence and PR on the job's branch; remove drops one that has no PR and no worktree left; interim sets one job repo's interim strategy as a dependency (what a consumer's PR points at while it is unmerged: docs/CONFIG.md "Interim strategies"), overriding release.interim, and inherit clears it (add, remove and interim are human-only). propose records an agent's proposal of a repos entry with its reason in repo-proposals.md; the job then waits until a human, or the foreman when allowed, runs forge job human <id> approve-repos\|reject-repos (approving a verify-only member promotes it to an edited one). downstream adds the changed repos' linked consumers as verify-only repos, so verify runs their tests against the job's changes, and prints what it added and skipped with each reason (docs/CONFIG.md "Downstream verification"); it takes no repo name, and the job's own session may run it (see [Job repos](architecture/job-repos.md)) |
 | `forge job step <id> [--session S] [--epoch N]` | the job's next action (`spawn` with a ready agent brief, `run`, `wait`, `procedure` or `done`); read-only, the same state always gives the same answer, except that `--session <driver>` renews that session's lease |
-| `forge mandate new <id> --title T [terms]` | create a mandate, active, with every contract term not given taken from foreman.mandate (the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run) (see [Mandates](CONFIG.md#mandates)) |
+| `forge mandate new <id> --title T [terms]` | create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run) (see [Mandates](CONFIG.md#mandates)) |
 | `forge notify test [--event <name>]` | send one sample notification (job null, title "Forge test notification") to every valid notify.webhooks entry regardless of its events, and run notify.command if set; prints {event, results: [{target, host, format, ok, status, error, attempts}]} and records nothing (see [Notifications](CONFIG.md#notifications)) |
 | `forge office pass` | enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary (and the next link of a chain, in the same pass), the budget pause and the cadence stall; then queue one direct request for the office session when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked}], direct, problems}); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes (see [Foreman › Director loop](architecture/foreman.md)) |
 | `forge release plan [--job ID \| --since TAG] [--force]` | plan a release from each repo's release strategy, dependencies first: write .forge/runtime/release/release.md (steps, checks and rollback) and release.json; nothing runs. With --job, the job's PRs must be merged, except a consumer of an interim edge, which is skipped (it merges after its dependencies' release); the plan logs release-planned and, when the Foreman decides the release gate class, queues its gate request, and approval says who owns the publish decision (see [Releasing a project](RELEASES.md#releasing-a-project)) |
@@ -1451,6 +1451,7 @@ See [Foreman › Intake](architecture/foreman.md).
 | `--milestones A,B` | milestones in the order they are worked (none: empty the list on edit) |
 | `--on-unfinishable park\|cancel` | what it does with a job it can't finish |
 | `--order graph\|priority\|listed` | how it orders its work |
+| `--scoring all\|sample\|off` | whether its merged jobs get a post-merge score run: all (the default) whatever scoring.sample says, sample (scoring.sample decides) or off |
 | `--stall-bounces N` | gate bounces on one job before it is stalled, 1-100 |
 | `--stall-cadences N` | the Foreman's passes with no progress before it is stalled, 1-100 |
 | `--title T` | a new title |
@@ -1466,7 +1467,7 @@ See [Mandates](CONFIG.md#mandates).
 
 See [Mandates](CONFIG.md#mandates).
 
-**`forge mandate new <id> --title T [terms]`**: create a mandate, active, with every contract term not given taken from foreman.mandate (the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run)
+**`forge mandate new <id> --title T [terms]`**: create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run)
 
 | Flag | Meaning |
 |---|---|
@@ -1482,6 +1483,7 @@ See [Mandates](CONFIG.md#mandates).
 | `--milestones A,B` | milestones in the order they are worked (none: empty the list on edit) |
 | `--on-unfinishable park\|cancel` | what it does with a job it can't finish |
 | `--order graph\|priority\|listed` | how it orders its work |
+| `--scoring all\|sample\|off` | whether its merged jobs get a post-merge score run: all (the default) whatever scoring.sample says, sample (scoring.sample decides) or off |
 | `--stall-bounces N` | gate bounces on one job before it is stalled, 1-100 |
 | `--stall-cadences N` | the Foreman's passes with no progress before it is stalled, 1-100 |
 | `--title T` | one line, at most 200 characters (required) |
@@ -1936,7 +1938,7 @@ Stop a job's background command.
 
 Reconcile PRs and trackers for all jobs.
 
-**`forge sync`**: reconcile PRs and trackers for every job, measure merged jobs' outcomes (revert, follow-up bugs, churn; at most 10 per run), queue a post-merge judge score run for sampled merged jobs (scoring.sample; at most 5 per run), retarget stacked PRs, release dependency waits and finish umbrella jobs; a job's failure is reported in its result. Then the reconciler's pass, unless a running forge dash owns it: `reconcile` lists the running jobs it resumed or escalated for having nothing to drive them, and the requests it requeued
+**`forge sync`**: reconcile PRs and trackers for every job, measure merged jobs' outcomes (revert, follow-up bugs, churn; at most 10 per run), queue a post-merge judge score run for sampled merged jobs and every merged job of a mandate that scores all (scoring.sample, the mandate's scoring term; at most 5 per run), retarget stacked PRs, release dependency waits and finish umbrella jobs; a job's failure is reported in its result. Then the reconciler's pass, unless a running forge dash owns it: `reconcile` lists the running jobs it resumed or escalated for having nothing to drive them, and the requests it requeued
 
 ### `forge tracker`
 

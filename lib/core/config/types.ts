@@ -327,7 +327,7 @@ export interface Config {
   environments: { maxRunning: number | null };
   /** How long after a merge `forge sync` watches a job's outcome: docs/CONFIG.md "Outcomes". */
   outcomes: { windowDays: number };
-  /** The share of merged jobs that get one post-merge judge run, and its model: docs/CONFIG.md "Scoring". */
+  /** The share of merged jobs, outside mandates that score all or off, that get one post-merge judge run, and its model: docs/CONFIG.md "Scoring". */
   scoring: { sample: number; model: string | null };
   /** Where Forge pushes gate, PR, failure and budget notifications: docs/CONFIG.md "Notifications". */
   notify: { webhooks: NotifyWebhook[]; command: string | null };

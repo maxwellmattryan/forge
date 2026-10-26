@@ -354,7 +354,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'outcomes.windowDays': { doc: '1-365: days after the merge that a revert, follow-up bug or churn counts' },
 
   scoring: { doc: 'post-merge judge scores for a sample of merged jobs (see "Scoring" below)' },
-  'scoring.sample': { doc: "0-1: the share of merged jobs forge sync queues for one judge run; 0 is off" },
+  'scoring.sample': { doc: "0-1: the share of merged jobs, outside mandates that score all or off, that forge sync queues for one judge run; 0 is off outside mandates" },
   'scoring.model': { doc: "the scoring judge's model; null falls through to runtime.models.judge" },
 
   notify: { doc: 'push notifications on gates, PRs, failures and budget stops (see "Notifications" below)' },

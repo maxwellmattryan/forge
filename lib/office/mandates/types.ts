@@ -51,6 +51,7 @@ export interface MandateInput {
   stallCadences?: number;
   stallBounces?: number;
   onUnfinishable?: string;
+  scoring?: string;
   /** null clears it (`--after none`). */
   after?: string | null;
   body?: string;
