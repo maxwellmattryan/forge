@@ -8,10 +8,9 @@
     "stop": "Stop",
     "failed": "Daemon {action} failed: {error}",
     "modeTitle": "Permission mode: {mode}",
+    "off": "Daemon off",
     "rows": {
-      "label": "Sessions",
-      "inbox": "Inbox session",
-      "inboxAbout": "Handles requests without a job",
+      "label": "Job sessions",
       "foremanRow": "Foreman",
       "foremanRowAbout": "Supervises this pool"
     }
@@ -22,7 +21,6 @@
     "needs": {
       "name": "Needs you",
       "title": "Needs you",
-      "tooltip": "Notifications",
       "count": {
         "one": "{count} decision waiting",
         "other": "{count} decisions waiting"
@@ -31,10 +29,12 @@
     "facts": {
       "focus": "FOCUS"
     },
-    "daemon": {
-      "title": "Daemon",
-      "off": "Daemon off",
+    "workers": {
+      "name": "Workers",
+      "title": "Workers",
       "sessions": "job sessions",
+      "daemonOff": "Workers · daemon off",
+      "empty": "No job sessions.",
       "disabled": "The daemon is off. Set daemon.enabled: true in .forge/config.yml, then start it here.",
       "approval": "Review .forge/config.yml and the other files Forge trusts (notes, reviewers, CLAUDE.md, AGENTS.md), then press Start to approve them for this project.",
       "approvalHint": "Approves this project's trusted files as they are now, then starts the daemon",
@@ -42,8 +42,17 @@
       "jobModeAbout": "Every job without its own choice, now and from its next start. A job's own choice in its panel header overrides it",
       "jobModeAutoWarning": "Auto for every job: unattended sessions approve most tool calls without you. Prompts claude still raises wait until someone answers.",
       "billingIgnored": "{vars} is set where forge dash started; daemon sessions ignore it and use your Claude login (daemon.auth: subscription).",
-      "billingPassed": "{vars} is set where forge dash started; daemon sessions bill that account or go through that endpoint (daemon.auth: api-key).",
-      "inboxLog": "Inbox session log"
+      "billingPassed": "{vars} is set where forge dash started; daemon sessions bill that account or go through that endpoint (daemon.auth: api-key)."
+    },
+    "inbox": {
+      "name": "Inbox",
+      "title": "Inbox session",
+      "about": "Handles requests without a job",
+      "daemonOff": "Inbox session · daemon off",
+      "off": "The Inbox session runs inside the daemon, which is off. Start it from Workers.",
+      "log": "Inbox session log",
+      "needsNote": "Decisions and permission prompts wait in Needs you.",
+      "openNeeds": "Open Needs you"
     },
     "foreman": {
       "name": "Foreman",

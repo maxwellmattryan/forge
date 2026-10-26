@@ -42,7 +42,7 @@ export function closePopover(reason: DismissReason, ctx: DismissCtx = {}): void 
   tick().then(() => setTimeout(() => (shown(back) ? back : heading())?.focus()));
 }
 
-/** Hands the open popover to another indicator of the same id (the Daemon button, when the Held one it opened from goes). */
+/** Hands the open popover to another indicator of the same id (the Workers button, when the held one it opened from goes). */
 export function reanchor(trigger: HTMLElement): void {
   if (popover.open !== null) popover.anchor = trigger;
 }
