@@ -155,6 +155,59 @@ export interface JobAgent {
   outputMissing?: boolean;
   /** This run is the one retry after a missing or malformed output: `agent start --retry`. */
   retry?: boolean;
+  /** The role's ended runs, oldest first, at most MAX_AGENT_RUNS: recordRun in lib/core/job/schema.ts. */
+  runHistory?: AgentRun[];
+  /** Runs that ended before runHistory existed, set by the `agent-run-history` job step: agentRuns rebuilds them from events. */
+  legacyRuns?: number;
+}
+
+/** One run's billing split, as addUsage added it: runBilling in lib/core/job/schema.ts. */
+export interface RunBilling {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  /** The run's total; more than the four counts for a self-reported (`--tokens`) run. */
+  totalTokens: number;
+}
+
+/** One named share of a context composition. */
+export interface ContextPart {
+  name: string;
+  tokens: number;
+}
+
+/**
+ * What filled a run's context at its last request, estimated from its transcript: composeContext in
+ * lib/engine/metrics/composition.ts. The parts sum to `total`.
+ */
+export interface ContextComposition {
+  /** The last request's input + cache read + cache write (exact). */
+  total: number;
+  /** The start prefix's role prompt and brief, estimated from their text. */
+  forgePrompt: number;
+  /** The start prefix minus forgePrompt: Claude Code's system prompt, tools, MCP and skills. */
+  harness: number;
+  /** Earlier runs of a resumed transcript; 0 when fresh. */
+  carried: number;
+  /** Tool results by tool name, MCP as `mcp:<server>`; at most MAX_TOOL_PARTS named plus `other`, largest first. */
+  tools: ContextPart[];
+  assistant: number;
+  user: number;
+}
+
+/** One ended run of a role: recordRun in lib/core/job/schema.ts (recorded), or agentRuns in lib/engine/metrics/runs.ts (legacy, from events). */
+export interface AgentRun {
+  /** null for a legacy run. */
+  round: number | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  status: string | null;
+  model: string | null;
+  /** null when the run recorded no usage (lost, or unmeasured in a daemon session). */
+  usage: RunBilling | null;
+  /** null when the run imported no transcript, or ended before compositions were recorded. */
+  composition: ContextComposition | null;
 }
 
 /** One role's or model's usage totals: addUsage in lib/core/job/store.ts. */

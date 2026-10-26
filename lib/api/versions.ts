@@ -71,6 +71,9 @@ export const API_CHANGES = [
   // The Foreman page's mandate routes: GET /api/mandates (MandatesResponse), GET /api/mandates/:id (MandateDetailResponse),
   // POST /api/mandates and /api/mandates/:id/edit|pause|resume|close (PostMandateResponse); MandateRow, Directive.
   { id: 'foreman-page' },
+  // AgentRow.runs: every ended run of the role with its billing split and context composition; AgentRow.tokens is now
+  // the sum of those runs' totals. JobAgent.runHistory and .legacyRuns are kept out of /api/state and JobDetail.job.
+  { id: 'agent-runs' },
   // MandateContract.scoring (all | sample | off); the scoring term on POST /api/mandates and /api/mandates/:id/edit.
   { id: 'mandate-scoring' },
 ] as const;
