@@ -20,5 +20,5 @@ export interface SleepChild {
   once(ev: 'error', fn: (e: Error) => void): unknown;
 }
 
-/** Starts the sleep helper: spawnSleepHelper in `forge dash`, a fake in tests. */
+/** Starts the sleep helper: the real spawn in `forge dash` (sleep.ts), a fake in tests. */
 export type SleepSpawn = (file: string, args: string[]) => SleepChild;
