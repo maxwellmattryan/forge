@@ -83,12 +83,23 @@
   const logKey = $derived(ownerLog && job ? `${job.id}:owner` : (job?.id ?? ''));
   let head = $state<HTMLDivElement>();
   let panel = $state<HTMLDivElement>();
+  let fileList = $state<HTMLDivElement>();
+  let fileView = $state<HTMLDivElement>();
   // Closing the drawer, or opening another job from inside it, starts the next view at the top. A 2 s poll keeps the
   // id, so it never moves the scroll.
   $effect(() => {
     void S.drawer.id;
     if (panel) panel.scrollTop = 0;
     if (head) head.scrollTop = 0;
+    if (fileList) fileList.scrollTop = 0;
+    if (fileView) fileView.scrollTop = 0;
+  });
+  // Picking another file shows it from its top. This reads the file name, never `shown`: drawerView is a new object on
+  // every 2 s refresh, which must keep the scroll.
+  const openFile = $derived(shown?.file ?? null);
+  $effect(() => {
+    void openFile;
+    if (fileView) fileView.scrollTop = 0;
   });
   /** The header and the tab strip never scroll away, so a new tab simply starts at its own top. */
   function selectTab(tab: DrawerTab, focus = false): void {
@@ -162,7 +173,7 @@
 <!-- Always mounted, so it fades both ways: closed, it is invisible and lets presses through. -->
 <div id="drawer-backdrop" class="fixed inset-0 backdrop z-30 {open ? 'opacity-100 transition-[opacity] duration-(--motion-base) ease-(--ease-enter)' : 'opacity-0 invisible pointer-events-none transition-[opacity,visibility] duration-(--motion-quick) ease-(--ease-exit)'}" onclick={closeDrawer}></div>
 <!-- A full-height column that never scrolls itself: the header (capped at 40%, scrolling inside itself when taller) and
-     the tab strip stay put, the tab panel under them is the one scroller (on Log, the log pane is), and the action dock
+     the tab strip stay put, the tab panel under them is the one scroller (on Log, the log pane is; on Files, the file list and the file view each scroll), and the action dock
      under it stays put on every tab. It runs to the viewport's bottom, over the status bar, which the backdrop dims like
      the rest of the page; the bottom inset keeps the dock clear of a phone's home indicator. Opening slides it 24px in from
      the right as it fades in (base, easing out); closing slides and fades it out (quick, easing in); the reduced-motion
@@ -223,7 +234,7 @@
         <div role="tablist" tabindex="-1" aria-label={$t('drawer.tabs')} {@attach slideMarker('[aria-selected="true"]', 'bar-bottom')} class="tabs slide-marker min-w-0 flex-1 pl-5 md:pl-6 overflow-x-auto overflow-y-hidden" onkeydown={stripKey}>{#each DRAWER_TABS as tab (tab)}<button role="tab" id="drawer-tab-{tab}" aria-selected={shown.tab === tab} aria-controls="drawer-panel-{tab}" tabindex={shown.tab === tab ? 0 : -1} class="tab shrink-0 whitespace-nowrap focus-visible:-outline-offset-2 {shown.tab === tab ? 'active' : ''}" onclick={() => selectTab(tab)}>{#if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<Chip extra="spark ml-1.5" text={$t('drawer.threadUnread', { count: unread })} />{/if}{:else if tab === 'log'}{$t('drawer.logTab')}{#if activity?.kind === 'working'}<span class="inline-flex ml-1.5 align-middle"><LiveDot on={true} /></span><span class="sr-only">{$t('live.working')}</span>{/if}{:else if tab === 'agents'}{$t('drawer.agentsTab')}{#if running.length}<span class="muted num ml-1">({running.length})</span>{/if}{:else if tab === 'files'}{$t('drawer.files')}{:else if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted num">({d.events.length})</span>{:else if tab === 'details'}{$t('drawer.detailsTab')}{/if}</button>{/each}</div>
         {#if !ownerLog}<div class="flex shrink-0 items-center border-b border-line pl-3 pr-5 md:pr-6">{#key j.id}<SessionToggle scope={j.id} />{/key}</div>{/if}
       </div>
-      <div bind:this={panel} role="tabpanel" id="drawer-panel-{shown.tab}" aria-labelledby="drawer-tab-{shown.tab}" tabindex="0" class="min-h-0 flex-1 overscroll-contain {shown.tab === 'log' ? 'overflow-hidden' : 'overflow-y-auto'} p-5 md:p-6 flex flex-col gap-5 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
+      <div bind:this={panel} role="tabpanel" id="drawer-panel-{shown.tab}" aria-labelledby="drawer-tab-{shown.tab}" tabindex="0" class="min-h-0 flex-1 overscroll-contain {shown.tab === 'log' || shown.tab === 'files' ? 'overflow-hidden' : 'overflow-y-auto'} p-5 md:p-6 flex flex-col gap-5 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
         {#if shown.tab === 'thread'}
           <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} events={d.events ?? []} baseline={S.drawer.threadAtOpen} />
         {:else if shown.tab === 'log'}
@@ -235,13 +246,15 @@
         {:else if shown.tab === 'files'}
           {@const file = shown.file}
           {@const content = shown.content}
-          <div class="grid md:grid-cols-[180px_1fr] gap-4">
-            <div class="flex md:flex-col gap-0.5 overflow-x-auto md:overflow-visible">{#each d.files as f (f)}<button class="block w-full text-left truncate px-2 py-1 text-sm font-mono {file === f ? 'bg-raised text-fg' : 'text-muted hover:text-fg'}" onclick={() => loadFile(f)}>{f}</button>{/each}</div>
-            <div class="min-w-0">
+          {#if d.files.length}
+            <div bind:this={fileList} class="shrink-0 max-h-[30%] overflow-y-auto overscroll-contain flex flex-col gap-0.5 border-b border-line pb-3">{#each d.files as f (f)}<button class="block w-full text-left truncate px-2 py-1 text-sm font-mono {file === f ? 'bg-raised text-fg' : 'text-muted hover:text-fg'}" onclick={() => loadFile(f)}>{f}</button>{/each}</div>
+          {/if}
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->
+          <div bind:this={fileView} role="region" aria-label={file ?? $t('drawer.files')} tabindex="0" class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain flex flex-col focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
               {#if file && content}
                 {#if 'html' in content}
-                  <!-- svelte-ignore a11y_missing_attribute (no title, as on main: the iframe sits under the file list that names it) -->
-                  <iframe sandbox="" class="w-full h-[70vh] border border-line bg-white" src="/api/p/{project}/jobs/{encodeURIComponent(j.id)}/raw?path={encodeURIComponent(file)}"></iframe>
+                  <!-- svelte-ignore a11y_missing_attribute (no title, as on main: the iframe sits below the file list that names it) -->
+                  <iframe sandbox="" class="w-full min-h-64 flex-1 border border-line bg-white" src="/api/p/{project}/jobs/{encodeURIComponent(j.id)}/raw?path={encodeURIComponent(file)}"></iframe>
                 {:else if file.endsWith('.md')}
                   <div class="flex justify-end mb-2"><MarkdownToggle surface="files" /></div>
                   {#if mdView.files === 'rendered'}
@@ -255,7 +268,6 @@
               {:else}
                 <div class="text-sm text-muted">{$t('drawer.noFiles')}</div>
               {/if}
-            </div>
           </div>
         {:else if shown.tab === 'timeline'}
           <ul>
