@@ -1,6 +1,7 @@
 // Mandate files: `.forge/runtime/mandates/<id>.md`, YAML frontmatter then the owner's guidance. Read
 // without following a link or blocking on a FIFO, written only by `forge mandate` under one lock, and
-// read for a job whose `mandate` is set to narrow what the Foreman decides (jobMandateDecides).
+// read for a job whose `mandate` is set to narrow what the Foreman decides (jobMandateDecides). A
+// mandate's runtime dir `<id>/` beside it holds its drafting runs' files (draft.ts, intake.ts).
 // docs/architecture/foreman.md.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -76,11 +77,25 @@ export function listMandates(root: string): ReadMandate[] {
     });
 }
 
-/** A mandate as its file holds it: every frontmatter key in order, then the body. */
+/**
+ * A mandate as its file holds it: every frontmatter key in order, then the body. The goal goes last as
+ * one JSON-quoted line, which the YAML subset reads back byte for byte: its block scalars don't (a first
+ * line's leading spaces, a second trailing newline, an indented `---`). `'` is written as `'`
+ * because the subset's double-quoted reader unescapes `\'` before JSON.parse.
+ */
 function render(m: Mandate): string {
-  const front = Object.fromEntries(MANDATE_KEYS.map((k) => [k, m[k]]));
-  return `---\n${yaml.stringify(front)}---\n${m.body ? `${m.body}\n` : ''}`;
+  const front = Object.fromEntries(MANDATE_KEYS.filter((k) => k !== 'goal').map((k) => [k, m[k]]));
+  const goal = m.goal === null ? 'null' : JSON.stringify(m.goal).replace(/'/g, '\\u0027');
+  return `---\n${yaml.stringify(front)}goal: ${goal}\n---\n${m.body ? `${m.body}\n` : ''}`;
 }
+
+/** The lock every mandate write takes, and a drafting run's record under a mandate's runtime dir. */
+export function withMandatesLock<T>(root: string, fn: () => T): T {
+  return withLock(path.join(paths(root).locks, 'mandates'), fn);
+}
+
+/** A mandate's runtime dir: its survey, ledger and draft. listMandates ignores it (no `.md` suffix). */
+export const mandateDir = (root: string, id: string): string => path.join(paths(root).mandates, id);
 
 /**
  * The one write path. Under the mandates lock, `plan` gets every mandate as it is now and returns the
@@ -88,7 +103,7 @@ function render(m: Mandate): string {
  * record appends one `mandate-<action>` event to the repo audit log.
  */
 export function writeMandate<T extends { mandate: Mandate; action: MandateAction; reason?: string | null } | null>(root: string, plan: (all: ReadMandate[]) => T): T {
-  return withLock(path.join(paths(root).locks, 'mandates'), () => {
+  return withMandatesLock(root, () => {
     const out = plan(listMandates(root));
     if (!out) return out;
     const { mandate: m, action, reason } = out;
