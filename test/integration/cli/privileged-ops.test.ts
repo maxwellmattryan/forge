@@ -15,7 +15,7 @@ import { TRUST_ENV, loadConfig, trustDigest } from '#core/config/load.ts';
 import { createJob, jobDir, repoAuditFile, setJob } from '#core/job/store.ts';
 
 const POSIX = { skip: process.platform === 'win32' };
-const PRIVILEGED = ['pr-merge-bypass', 'pr-merged', 'budget-set', 'budget-ack'];
+const PRIVILEGED = ['pr-merge-bypass', 'pr-merged', 'budget-set', 'budget-ack', 'merge-mode'];
 
 /**
  * A Forge-initialised scratch repo (tracker o/r, commands.test the branch's nested.sh) with one job at
@@ -49,7 +49,7 @@ async function scratch(name: string) {
   return { repo, id, gh, daemon, file, cleanup };
 }
 
-test("branch code run by forge verify can't merge --now or lift a budget", POSIX, async () => {
+test("branch code run by forge verify can't merge --now, lift a budget or let agents merge", POSIX, async () => {
   const s = await scratch('privileged from branch code');
   // nested.sh names the CLI through the env: a committed absolute path can read as a secret to verify's
   // scan (a checkout under a random mixed-case directory does), so the link sits under such a name on purpose.
@@ -63,7 +63,7 @@ test("branch code run by forge verify can't merge --now or lift a budget", POSIX
     // The branch's test script: each nested call's exit and output, on the step's captured output.
     // It names node and the CLI through FORGE_TEST_NODE / FORGE_TEST_BIN, so it carries no path.
     const call = (args: string) => `out=$("$FORGE_TEST_NODE" "$FORGE_TEST_BIN" ${args} --json 2>&1); echo "NESTED $? ${args} :: $out"`;
-    const script = [call('pr merge "$FORGE_JOB" --now'), call('job budget "$FORGE_JOB" --set usd=1000000'), call('job budget "$FORGE_JOB" --ack'), call(`budget ack --period ${month}`)].join('\n');
+    const script = [call('pr merge "$FORGE_JOB" --now'), call('job budget "$FORGE_JOB" --set usd=1000000'), call('job budget "$FORGE_JOB" --ack'), call(`budget ack --period ${month}`), call('job merge-mode "$FORGE_JOB" auto')].join('\n');
     fs.writeFileSync(path.join(wt, 'nested.sh'), `${script}\n`);
     execFileSync('git', ['add', '-A'], { cwd: wt });
     execFileSync('git', ['-c', 'user.email=t@e.st', '-c', 'user.name=T', 'commit', '-qm', 'branch code'], { cwd: wt });
@@ -84,9 +84,10 @@ test("branch code run by forge verify can't merge --now or lift a budget", POSIX
       assert.ok(log, `${name}: the test step ran (${r.stdout.slice(0, 400)})`);
       const text = fs.readFileSync(path.isAbsolute(log) ? log : path.join(jobDir(s.repo.dir, s.id), log), 'utf8');
       const nested = text.split('\n').filter((l) => l.startsWith('NESTED '));
-      assert.equal(nested.length, 4, `${name}: ${text}`);
+      assert.equal(nested.length, 5, `${name}: ${text}`);
       for (const line of nested) assert.match(line, /^NESTED 1 .*human_only/, `${name}: ${line}`);
       assert.deepEqual(budget(), before, `${name}: budget.limits and budget.ack unchanged`);
+      assert.equal(JSON.parse(s.file('job.json')).mergeMode, null, `${name}: mergeMode unchanged`);
     }
     assert.deepEqual(s.gh.calls().filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge'), []);
     const types = s.file('events.jsonl').split('\n').filter(Boolean).map((l) => JSON.parse(l).type);
@@ -95,6 +96,26 @@ test("branch code run by forge verify can't merge --now or lift a budget", POSIX
     assert.ok(!audit.includes('repo-budget-ack'), audit);
   } finally {
     fs.rmSync(linkDir, { recursive: true, force: true });
+    s.cleanup();
+  }
+});
+
+test('a daemon session may take merging away from agents, never hand it back', POSIX, async () => {
+  const s = await scratch('merge mode in a daemon');
+  try {
+    const env = s.daemon(s.id);
+    const human = await forgeAsync(s.repo.dir, ['job', 'merge-mode', s.id, 'human', '--json'], env);
+    assert.equal(human.status, 0, human.stderr);
+    assert.deepEqual(JSON.parse(human.stdout), { id: s.id, mergeMode: 'human', previous: null, changed: true });
+    for (const args of [['auto'], ['--inherit']]) {
+      const r = await forgeAsync(s.repo.dir, ['job', 'merge-mode', s.id, ...args, '--json'], env);
+      assert.equal(r.status, 1, args.join(' '));
+      assert.match(r.stderr + r.stdout, /human_only/, args.join(' '));
+    }
+    assert.equal(JSON.parse(s.file('job.json')).mergeMode, 'human');
+    const events = s.file('events.jsonl').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.type === 'merge-mode');
+    assert.deepEqual(events.map((e) => [e.mergeMode, e.actor?.source]), [['human', 'daemon']]);
+  } finally {
     s.cleanup();
   }
 });

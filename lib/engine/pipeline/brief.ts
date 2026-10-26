@@ -335,7 +335,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
         [
           `Acceptance criteria (forge job acs): ${JSON.stringify(input.acs)}`,
           `Always escalate: ${JSON.stringify(c.approver.alwaysEscalate ?? [])}`,
-          `Merge: auto ${autoMerge(c)} · autoWhen ${JSON.stringify(c.merge.autoWhen ?? [])}`,
+          `Merge: auto ${autoMerge(c, j)}${j.mergeMode ? ` (the job's merge mode is ${j.mergeMode})` : ''} · autoWhen ${JSON.stringify(c.merge.autoWhen ?? [])}`,
           protectedLine(j),
           releaseGateLine(c, j, input.events),
           recallLine(input),

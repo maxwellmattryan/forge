@@ -6,14 +6,14 @@ import { isInterimStrategy, servicesToComponents } from '../config/components.ts
 import { isSha } from '#engine/pr/delta.ts';
 import { isSafeUrl, isStoredRef, sameIssue } from './issue-ref.ts';
 import { REPO_NAME, isSafeBranch } from '#engine/project/member-repos.ts';
-import { ACTOR_SOURCES, COMPLEXITIES, EFFORTS, OFFICE_GATES } from '#api/constants.ts';
+import { ACTOR_SOURCES, COMPLEXITIES, EFFORTS, MERGE_MODES, OFFICE_GATES } from '#api/constants.ts';
 import { runSteps } from '../versions/steps.ts';
 import { CONFIG_SCHEMA_VERSION, CONFIG_STEPS } from '../versions/config.ts';
 import { JOB_SCHEMA_VERSION, JOB_STEPS, noLease, ownerToLease, sourceToIssues } from '../versions/job.ts';
 import { EVENT_SCHEMA_VERSION, EVENT_STEPS } from '../versions/event.ts';
 import type { EventActor, HumanGrant, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcome, JobRepo, JobRepoPr, JobScore, LoadedJob } from '../types.ts';
 
-export { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_STATUSES, MANDATE_UNTIL, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, STAGES, STATES, WAITING_ON } from '#api/constants.ts';
+export { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, MERGE_MODES, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_STATUSES, MANDATE_UNTIL, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, STAGES, STATES, WAITING_ON } from '#api/constants.ts';
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from '../config/components.ts';
 export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from '../config/validators/backing.ts';
 export { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, noLease };
@@ -356,6 +356,8 @@ export function normalizeJob(raw: any): LoadedJob {
     splitMode: job.splitMode ?? null,
     // A hand- or session-edited value outside the fixed list must never reach a daemon's argv.
     effort: (EFFORTS as readonly unknown[]).includes(job.effort) ? job.effort : null,
+    // Anything else reads as null, which inherits config: never auto by accident.
+    mergeMode: (MERGE_MODES as readonly unknown[]).includes(job.mergeMode) ? job.mergeMode : null,
     // Never dropped to null when malformed: null would widen what the Foreman decides. A bad value
     // stays a string, which then reads as an unreadable mandate and fails closed.
     mandate: job.mandate == null ? null : String(job.mandate),

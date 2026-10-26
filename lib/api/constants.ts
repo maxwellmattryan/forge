@@ -53,6 +53,9 @@ export const REPO_BUDGET_MODES = ['hold', 'warn'] as const;
 /** Reasoning effort levels: runtime.effort and job.effort, passed to claude as --effort and to agents. */
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 
+/** A job's merge mode (job.mergeMode): auto lets agents merge it as merge.auto does, human leaves every merge to a person. */
+export const MERGE_MODES = ['auto', 'human'] as const;
+
 /** A spec's judged difficulty (its `Complexity:` header), which runtime.effortByComplexity maps to a level. */
 export const COMPLEXITIES = ['low', 'medium', 'high'] as const;
 

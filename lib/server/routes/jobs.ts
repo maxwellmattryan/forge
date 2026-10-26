@@ -8,6 +8,7 @@ import { isPrivateJobFile, isPrivateName, knownValues, redactDeep, redactKnown }
 import { dashboardActor } from '#integrations/github/actor.ts';
 import { containedWorktree, editorArgv, openEditor } from '#engine/workspace/editor.ts';
 import { createJob, isActive, leaseStatus, listJobs, loadJob, progress, readEvents, jobDir, requestBody, setJob, setJobEffort } from '#core/job/store.ts';
+import { setJobMergeMode } from '#engine/pr/eligible.ts';
 import { deleteJob, deleteRefusal } from '#engine/ops/delete.ts';
 import { mergePr } from '#engine/pr/merge.ts';
 import { budgetCmd } from '#engine/metrics/budget.ts';
@@ -15,7 +16,7 @@ import { decideRepoProposals, isRepoProposalPark } from '#engine/project/repo-pr
 import { REPO_NAME } from '#engine/project/member-repos.ts';
 import { parseIssueRef } from '#core/job/issue-ref.ts';
 import { exists } from '#core/paths.ts';
-import { EFFORTS } from '#core/job/schema.ts';
+import { EFFORTS, MERGE_MODES } from '#core/job/schema.ts';
 import { enqueue, listRequests, validJobId } from '#core/job/requests.ts';
 import { deriveTitle, normalizeTitle } from '#engine/ops/title.ts';
 import { isMap } from '#core/shape.ts';
@@ -30,6 +31,7 @@ import type {
   PostEditorResponse,
   PostJobBudgetResponse,
   PostJobEffortResponse,
+  PostJobMergeModeResponse,
   PostJobMergeResponse,
   PostJobReposResponse,
   PostJobResponse,
@@ -163,6 +165,27 @@ export async function postJobEffort(ctx: ServerCtx, req: http.IncomingMessage, r
   if (effort !== null && !(EFFORTS as readonly unknown[]).includes(effort)) return jsonStatus(res, 400, { error: `effort must be one of ${EFFORTS.join(', ')}, or null` });
   // No DAEMON_LOCK: job.json is outside the trust digest, and a running session picks the level up at its next spawn.
   return json(res, setJobEffort(root, id, effort as PostJobEffortResponse['effort'], 'dashboard') satisfies PostJobEffortResponse);
+}
+
+/**
+ * POST /api/jobs/:id/merge-mode: the job's merge mode, or null to inherit merge.auto. The drawer's
+ * Merge setting, the dashboard's half of the human channel for `forge job merge-mode auto|--inherit`
+ * (docs/architecture/daemon-security.md); its event carries the dashboard's actor.
+ */
+export async function postJobMergeMode(ctx: ServerCtx, req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): Promise<void> {
+  const { root } = ctx;
+  const parsed = await readJsonBody(req);
+  if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+  const id = match.params[0];
+  if (!validJobId(id) || !exists(path.join(jobDir(root, id), 'job.json'))) return jsonStatus(res, 404, { error: validJobId(id) ? `no job ${id}` : 'no such job' });
+  const body = parsed.body;
+  const mode = isMap(body) && Object.hasOwn(body, 'mergeMode') ? body.mergeMode : undefined;
+  if (mode !== null && !(MERGE_MODES as readonly unknown[]).includes(mode)) return jsonStatus(res, 400, { error: `mergeMode must be one of ${MERGE_MODES.join(', ')}, or null` });
+  // No DAEMON_LOCK: job.json is outside the trust digest, as for /effort.
+  const r = setJobMergeMode(root, id, mode as PostJobMergeModeResponse['mergeMode'], { channel: 'dashboard', actor: dashboardActor() });
+  // PR4 may now merge a waiting PR, or must not: the pool picks the job up at its next step.
+  ctx.pool?.poke();
+  return json(res, r satisfies PostJobMergeModeResponse);
 }
 
 /** POST /api/jobs/:id/budget: at most this many `set` entries, each at most this long. */

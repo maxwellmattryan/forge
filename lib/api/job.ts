@@ -1,5 +1,5 @@
 // A job as job.json and events.jsonl hold it, as /api/state and /api/jobs/:id serve it.
-import type { ActorSource, BudgetKey, Complexity, Effort, GateClass, HandoffClass, InterimStrategy, JobState, Stage, WaitingOn } from './enums.ts';
+import type { ActorSource, BudgetKey, Complexity, Effort, GateClass, MergeMode, HandoffClass, InterimStrategy, JobState, Stage, WaitingOn } from './enums.ts';
 
 /**
  * One of a job's issues: lib/core/job/issue-ref.ts. `tracker` is the tracker kind; `ref` is `owner/repo#12`
@@ -287,6 +287,11 @@ export interface Job {
   splitMode: 'never' | null;
   /** The human's reasoning effort for this job (`forge job effort`); null inherits runtime.effort. */
   effort: Effort | null;
+  /**
+   * The human's merge mode for this job (`forge job merge-mode`): `auto` lets agents merge it even with
+   * merge.auto off, `human` leaves every merge to a person even with it on; null inherits config.
+   */
+  mergeMode: MergeMode | null;
   /**
    * The mandate this job works under (`forge job new --mandate`, or its split parent's), which narrows
    * the gates the Foreman may decide for it; null when it is in none. Locked once set.

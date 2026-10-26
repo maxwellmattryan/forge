@@ -108,7 +108,7 @@ function mergeable({ x, res, gates, openedAt }: PrCtx): boolean {
   const held = gates.some((g) => g.gate === 'held' || g.gate === 'bump-due');
   const draft = res.edges.length > 0 && (j.pr?.isDraft === true || memberRepos(j).some((m) => m.pr?.isDraft === true));
   const eligible = decisionEligible(lastDecision(x.events)) && x.decisionCurrent === true;
-  return !local && !held && !draft && eligible && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !x.events.some((e, i) => i > openedAt && MERGE_EVENTS.includes(e.type));
+  return !local && !held && !draft && eligible && autoMerge(x.config, j) && !j.protectedPaths?.hits?.length && !x.events.some((e, i) => i > openedAt && MERGE_EVENTS.includes(e.type));
 }
 
 /** PR5's reason. Plain words only: it goes through shellLine, which allows no quote, pipe or angle bracket. */

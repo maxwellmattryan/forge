@@ -2,7 +2,7 @@
 // doctor and its bundle, GitHub previews, and POST /api/focus.
 import type http from 'node:http';
 import path from 'node:path';
-import { loadConfig, resolveEffort } from '#core/config/load.ts';
+import { autoMerge, loadConfig, resolveEffort } from '#core/config/load.ts';
 import { allKnownValues, redactDeep } from '#engine/guard/known-secrets.ts';
 import { dashboardActor } from '#integrations/github/actor.ts';
 import { buildBundle, bundleFileName } from '#engine/ops/bundle.ts';
@@ -237,6 +237,7 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
       daemon: { enabled: config.daemon?.enabled === true, jobBudget: jobBudgetOf(config), billing: billingOf(process.env, config.daemon?.auth ?? 'subscription') },
       // Validated, so an invalid runtime.effort reads as none here while validate and doctor report it.
       effort: resolveEffort(config).level,
+      autoMerge: autoMerge(config, null),
     },
     // `enabled` and the cap from this read of config.yml, so they are current even while the pool is stopped.
     daemons: { ...daemons, enabled: config.daemon?.enabled === true, foreman: config.foreman?.enabled === true, maxConcurrent: validCap(config.daemon?.maxConcurrent) ?? daemons.maxConcurrent },

@@ -6,13 +6,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { jobAt, tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
-import { loadJob, readEvents, updateJob } from '#core/job/store.ts';
+import { createJob, loadJob, readEvents, setJob, updateJob } from '#core/job/store.ts';
 import { jobFiles } from '#core/paths.ts';
 import { EVENT_SCHEMA_VERSION } from '#core/job/schema.ts';
 import { EVENT_STEPS } from '#core/versions/event.ts';
-import type { ForgeRequest, Job, JobEvent, VerifyRun } from '#core/types.ts';
+import type { ForgeRequest, HumanGrant, Job, JobEvent, VerifyRun } from '#core/types.ts';
 import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
-import { decisionCurrent, decisionEligible, decisionSuperseded, headFollows, lastDecision, reviewCurrent } from './eligible.ts';
+import { autoMergeGate, setJobMergeMode, decisionCurrent, decisionEligible, decisionSuperseded, headFollows, lastDecision, reviewCurrent } from './eligible.ts';
 
 const config = defaults();
 
@@ -373,4 +373,54 @@ test('reviewCurrent: an integrate episode moves the anchor only from a reviewed 
   } finally {
     h.repo.cleanup();
   }
+});
+
+test("autoMergeGate's first check is the job's merge mode, else merge.auto", (t) => {
+  const repo = tempRepo();
+  t.after(repo.cleanup);
+  const id = jobAt(repo.dir, 'pr', { config }).id;
+  const on = defaults();
+  on.merge.auto = true;
+  const target = { repo: null, headOid: null, baseRef: 'main' };
+  const gate = (c: typeof config, mergeMode: Job['mergeMode']) => {
+    updateJob(repo.dir, id, (j) => {
+      j.mergeMode = mergeMode;
+    });
+    const r = autoMergeGate(repo.dir, c, loadJob(repo.dir, id), readEvents(repo.dir, id), target);
+    if (r.ok) return 'ok';
+    const { reason, error } = r as { reason: string; error: string };
+    return reason === 'auto-off' ? `auto-off: ${error.split(':')[0]}` : reason;
+  };
+  // Past check 1, a job with no decision stops at check 3.
+  assert.deepEqual(
+    [gate(config, null), gate(config, 'human'), gate(on, 'human'), gate(config, 'auto'), gate(on, null)],
+    ['auto-off: merge.auto is off', "auto-off: the job's merge mode is human", "auto-off: the job's merge mode is human", 'decision', 'decision'],
+  );
+});
+
+test('setJobMergeMode: anyone may set human; auto and inherit need a person, whose actor the event carries', (t) => {
+  const r = tempRepo();
+  t.after(r.cleanup);
+  const root = r.dir;
+  const { id } = createJob(root, defaults(), { title: 'merge me' });
+  const grant: HumanGrant = { channel: 'dashboard', actor: { login: 'al', source: 'dashboard' } };
+  const modes = () => readEvents(root, id).filter((e) => e.type === 'merge-mode');
+  assert.equal(loadJob(root, id).mergeMode, null);
+
+  for (const mode of ['auto', null] as const) {
+    assert.throws(() => setJobMergeMode(root, id, mode), (e: any) => e.code === 'human_only', String(mode));
+    assert.throws(() => setJobMergeMode(root, id, mode, { channel: 'terminal', actor: null } as any), (e: any) => e.code === 'human_only', 'a malformed grant');
+  }
+  assert.throws(() => setJobMergeMode(root, id, 'yes' as any, grant), /unknown merge mode "yes" \(auto, human\)/);
+  assert.deepEqual(modes(), [], 'a refusal writes nothing');
+
+  assert.deepEqual(setJobMergeMode(root, id, 'human'), { id, mergeMode: 'human', previous: null, changed: true });
+  assert.deepEqual(setJobMergeMode(root, id, 'human'), { id, mergeMode: 'human', previous: 'human', changed: false });
+  assert.deepEqual(setJobMergeMode(root, id, 'auto', grant), { id, mergeMode: 'auto', previous: 'human', changed: true });
+  assert.deepEqual(setJobMergeMode(root, id, null, grant), { id, mergeMode: null, previous: 'auto', changed: true });
+  assert.deepEqual(
+    modes().map((e) => [e.mergeMode, e.previous, e.from, e.actor?.source]),
+    [['human', null, 'cli', 'env'], ['auto', 'human', 'dashboard', 'dashboard'], [null, 'auto', 'dashboard', 'dashboard']],
+  );
+  assert.throws(() => setJob(root, id, { fields: { mergeMode: 'auto' } } as any), /forge job merge-mode/);
 });

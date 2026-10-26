@@ -49,7 +49,7 @@ export const DECIDE: Table<DecideCtx> = {
     { id: 'DC11', when: ({ x }) => x.reviewCurrent === false, then: ({ x }) => toStage(x, 'DC11', 'review', 'a commit after review is unreviewed: review the new head', { note: REVIEWED_HEAD_NOTE }) },
     // Only without auto-merge: with it on, a PR or CI rework goes back through the approver (DC1), so
     // the decision PR4 merges on is recorded for the new head.
-    { id: 'DC10', when: (c) => !evalJob(c) && isPrRework(c.x) && !autoMerge(c.x.config), then: ({ x }) => toStage(x, 'DC10', 'pr', 'the PR is open: nothing to decide') },
+    { id: 'DC10', when: (c) => !evalJob(c) && isPrRework(c.x) && !autoMerge(c.x.config, c.x.job), then: ({ x }) => toStage(x, 'DC10', 'pr', 'the PR is open: nothing to decide') },
     // The diff changes reviewer prompts: a recall eval for exactly these prompts comes before the
     // approver. Two starts with no record park on a human, who runs it again or waives it; so do
     // fixtures that do not load, since no start could ever be logged.

@@ -100,6 +100,15 @@ export const JOB: HelpGroup = {
       readme: true,
     },
     {
+      command: 'job merge-mode',
+      args: '<id> auto|human | --inherit',
+      summary: "set whether agents may merge this job's PRs (auto, even with merge.auto off) or a person always does (human, even with it on), or clear it so the job follows merge.auto; auto still needs the approver's eligible decision, protected paths and CI. auto and --inherit are a human-only operation: they ask the person at the terminal to type the job id, or a person uses the drawer's Merge setting in the dashboard; anyone may set human",
+      flags: [['--inherit', "clear the job's merge mode"]],
+      exits: [[1, 'no such job, an unknown mode, not confirmed, or human_only: auto or --inherit in a daemon session or with no person at a terminal (an agent, a script or a configured command)']],
+      docs: ['Merge', 'docs/CONFIG.md#merge'],
+      readme: true,
+    },
+    {
       command: 'job claim',
       args: '<id> --session S [--force] [--epoch N]',
       summary: "take the job's lease for a session (30 minutes, renewed by its own step, advance, agent and worktree commands); a new driver gets the next epoch, which the result returns as `epoch` for every later --epoch. For a job started from its issue, before any plan.md or spec.md exists, it also re-reads request.md from that issue, best effort (`requestRefreshed: true` when it changed)",

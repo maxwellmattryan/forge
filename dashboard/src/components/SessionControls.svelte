@@ -1,5 +1,5 @@
 <!-- One daemon session's controls: in Auto, a flat warning icon (text on the surface, not a button) whose tooltip is the
-     reminder, then the Permissions dropdown, a job's Effort dropdown and, with `toggle`, the Start/Stop icon toggle
+     reminder, then the Permissions dropdown, a job's Effort and Merge dropdowns and, with `toggle`, the Start/Stop icon toggle
      (SessionToggle), with the session's notes (its last error, a mode switch claude hasn't confirmed) under them,
      right-aligned. The session log shows them for the inbox and the office; the job drawer shows a job's in its header,
      so every tab has them, and its Start/Stop at the end of the tab row instead. `live` is the caller's freshest session
@@ -7,6 +7,7 @@
      that state. The last error is session output: text only. -->
 <script lang="ts">
   import EffortSelect from './EffortSelect.svelte';
+  import MergeModeSelect from './MergeModeSelect.svelte';
   import Icon from './Icon.svelte';
   import Select from './Select.svelte';
   import SessionToggle from './SessionToggle.svelte';
@@ -64,7 +65,7 @@
     {#if mode.chosen === 'auto'}<span bind:this={warning} role="img" class="inline-flex items-center px-1 text-warn" aria-label={$t('session.modes.autoWarning')} aria-describedby="{uid}-warning"><Icon name="warning" /></span><span id="{uid}-warning" class="sr-only">{$t('session.modes.autoWarningHint')}</span><Tooltip anchor={warning} text={$t('session.modes.autoWarning')} hint={$t('session.modes.autoWarningHint')} toggle />{/if}
     <!-- The Select stays enabled while its entries can't change, so it still opens and the hints stay readable. -->
     <Select variant="button" icon="shield" align="end" label={$t('session.modeLabel')} value={shownMode} text={modeName[shownMode] ?? shownMode} options={modeOptions} onchange={setMode} />
-    {#if !sharedScope(scope)}<EffortSelect job={scope} />{/if}
+    {#if !sharedScope(scope)}<EffortSelect job={scope} /><MergeModeSelect job={scope} />{/if}
     {#if toggle}<SessionToggle {scope} {live} {onacted} />{/if}
   </div>
   {#if session?.lastError}<div role="status" class="text-xs text-bad text-right break-words">{session.lastError}</div>{/if}

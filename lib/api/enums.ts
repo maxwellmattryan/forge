@@ -1,5 +1,5 @@
 // The unions the /api shapes share, each derived from its runtime list in constants.ts; the only type module that imports constants.ts.
-import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, COMPONENT_KINDS, DEPENDENCY_TYPES, EFFORTS, HANDOFF_CLASSES, INTERIM_STRATEGIES, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, REQUEST_TYPES, STAGES, STATES, WAITING_ON } from './constants.ts';
+import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, COMPONENT_KINDS, DEPENDENCY_TYPES, EFFORTS, HANDOFF_CLASSES, INTERIM_STRATEGIES, MERGE_MODES, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, REQUEST_TYPES, STAGES, STATES, WAITING_ON } from './constants.ts';
 
 /** A pipeline stage: STAGES in lib/core/job/schema.ts. */
 export type Stage = (typeof STAGES)[number];
@@ -15,6 +15,8 @@ export type RepoBudgetKey = (typeof REPO_BUDGET_KEYS)[number];
 export type RepoBudgetMode = (typeof REPO_BUDGET_MODES)[number];
 /** A reasoning effort level: EFFORTS in lib/core/job/schema.ts. */
 export type Effort = (typeof EFFORTS)[number];
+/** A job's merge mode: MERGE_MODES in lib/api/constants.ts. */
+export type MergeMode = (typeof MERGE_MODES)[number];
 /** Where a resolved effort came from: resolveEffort in lib/core/config/load.ts. */
 export type EffortSource = 'job' | 'panel' | 'role' | 'complexity' | 'config' | 'none';
 /** A spec's judged difficulty: COMPLEXITIES in lib/core/job/schema.ts. */

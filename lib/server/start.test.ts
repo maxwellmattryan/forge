@@ -8,7 +8,7 @@ import { PROJECT_ROUTES, ROUTES, matchRoute } from './start.ts';
 import { getAsset, getLogo, getPage } from './static.ts';
 import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
 import { getEnvironmentLogs, getEnvironments, getJobEnvironment, postJobEnvironment } from './routes/environment.ts';
-import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor } from './routes/jobs.ts';
+import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobMergeMode, postJobRepos, postRequest, postRunOrEditor } from './routes/jobs.ts';
 import { getProjects, getProjectsEvents, getProjectsStats } from './routes/machine.ts';
 import { getAbout, getBacklog, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
@@ -98,6 +98,7 @@ test('the route table sends each method and path to its handler, and nothing els
       ['POST', '/jobs/j-1/budget', postJobBudget, ['j-1']],
       ['POST', '/jobs/j-1/delete', postJobDelete, ['j-1']],
       ['POST', '/jobs/j-1/merge', postJobMerge, ['j-1']],
+      ['POST', '/jobs/j-1/merge-mode', postJobMergeMode, ['j-1']],
       ['POST', '/jobs/j-1/repos', postJobRepos, ['j-1']],
       ['POST', '/focus', postFocus, []],
       ['POST', '/jobs/j-1/run', postRunOrEditor, ['j-1', 'run']],

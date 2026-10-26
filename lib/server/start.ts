@@ -16,7 +16,7 @@ import { startKeepAwake } from './uptime.ts';
 import { DEV_NOT_BUILT, NOT_BUILT, distDirFor, getAsset, getLogo, getPage } from './static.ts';
 import { postJobEnvironment, getEnvironmentLogs, getEnvironments, getJobEnvironment } from './routes/environment.ts';
 import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
-import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor } from './routes/jobs.ts';
+import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobMergeMode, postJobRepos, postRequest, postRunOrEditor } from './routes/jobs.ts';
 import { getProjects, getProjectsEvents, getProjectsStats } from './routes/machine.ts';
 import { getAbout, getBacklog, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
@@ -113,6 +113,7 @@ export const PROJECT_ROUTES: readonly Route<ServerCtx>[] = [
   { method: 'POST', path: '/daemon/mode', handler: postDaemonMode },
   { method: 'POST', path: '/daemon', handler: postDaemon },
   { method: 'POST', path: /^\/jobs\/([^/]+)\/effort$/, handler: postJobEffort },
+  { method: 'POST', path: /^\/jobs\/([^/]+)\/merge-mode$/, handler: postJobMergeMode },
   { method: 'POST', path: /^\/jobs\/([^/]+)\/budget$/, handler: postJobBudget },
   { method: 'POST', path: /^\/jobs\/([^/]+)\/delete$/, handler: postJobDelete },
   { method: 'POST', path: /^\/jobs\/([^/]+)\/merge$/, handler: postJobMerge },

@@ -42,6 +42,18 @@
     "restart": "Applies to new agents now and to the session when it restarts",
     "failed": "Changing the effort failed: {error}"
   },
+  "mergeMode": {
+    "label": "Merge",
+    "inheritShort": "Inherit",
+    "inherit": "Inherit ({mode})",
+    "modes": {
+      "auto": "Agents merge",
+      "human": "Person merges"
+    },
+    "hintAuto": "Agents merge this job's PR once the approver allows it and CI passes. Inherit follows merge.auto from Settings.",
+    "hintHuman": "A person merges this job's PR. Inherit follows merge.auto from Settings.",
+    "failed": "Changing the merge mode failed: {error}"
+  },
   "markdown": {
     "files": "Show file as",
     "thread": "Show conversation as",

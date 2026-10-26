@@ -12,6 +12,8 @@ import { tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '../config/keys/defaults.ts';
 import { jobDir, jobFiles, jobRecordDir } from '../paths.ts';
 import { createJob, ensureReviewDir, listJobs, loadJob, markAgentsLost, parseDecision, readEvents, recordAgent, roundVerdicts, setJob, updateJob } from './store.ts';
+import { autoMerge } from '../config/load.ts';
+import { normalizeJob } from './schema.ts';
 import type { ProtectedPaths } from '../types.ts';
 
 const FLAG: ProtectedPaths = { hits: [{ path: '.github/workflows/ci.yml', rule: 0, glob: '.github/**', reason: 'CI', blob: null }], more: 0, at: '2026-10-01T00:00:00.000Z', gate: 'verify', head: null };
@@ -188,4 +190,22 @@ test('review and decision files are read capped, never through a link or a FIFO'
     assert.equal(verdict(), 'MALFORMED');
     assert.deepEqual(decided(), NONE);
   });
+});
+
+test('autoMerge: the job\'s merge mode wins over merge.auto and foreman.ship, and a bad one inherits', () => {
+  const off = defaults();
+  const on = defaults();
+  on.merge.auto = true;
+  const ship = defaults();
+  Object.assign(ship.foreman, { enabled: true, ship: 'merge' });
+  const mode = (m: unknown) => normalizeJob({ id: 'x', mergeMode: m });
+  const rows: [unknown, boolean, boolean, boolean][] = [
+    [null, false, true, true],
+    ['auto', true, true, true],
+    ['human', false, false, false],
+    ['yes', false, true, true],
+    ['AUTO', false, true, true],
+  ];
+  for (const [m, offWant, onWant, shipWant] of rows) assert.deepEqual([autoMerge(off, mode(m)), autoMerge(on, mode(m)), autoMerge(ship, mode(m))], [offWant, onWant, shipWant], String(m));
+  assert.deepEqual([autoMerge(off, null), autoMerge(on, null)], [false, true]);
 });

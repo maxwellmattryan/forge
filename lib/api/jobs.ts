@@ -1,5 +1,5 @@
 // /api/jobs and /api/jobs/:id/*: the job detail, transcript and files, the job POSTs, and the environment routes with GET /api/environments.
-import type { BudgetKey, Effort } from './enums.ts';
+import type { BudgetKey, Effort, MergeMode } from './enums.ts';
 import type { BudgetLimits, BudgetUsed, Job, JobBudget, JobEvent, OwnerStatus, Progress } from './job.ts';
 import type { ForgeRequest } from './state.ts';
 
@@ -77,6 +77,19 @@ export interface PostJobEffortResponse {
   id: string;
   effort: Effort | null;
   previous: Effort | null;
+  changed: boolean;
+}
+
+/** POST /api/jobs/:id/merge-mode body: the handler in lib/server/routes/jobs.ts. null inherits config. */
+export interface PostJobMergeModeBody {
+  mergeMode: MergeMode | null;
+}
+
+/** POST /api/jobs/:id/merge-mode reply, and `forge job merge-mode`'s output: setJobMergeMode in lib/engine/pr/eligible.ts. */
+export interface PostJobMergeModeResponse {
+  id: string;
+  mergeMode: MergeMode | null;
+  previous: MergeMode | null;
   changed: boolean;
 }
 

@@ -4,12 +4,15 @@
 // sync's deferral hint asks decisionSuperseded. decision.md is never read here: only the `decision`
 // event `forge job decision` recorded once per approver run counts. Step also asks reviewCurrent in
 // decide and pr: a commit after the review panel sends the job back to review.
+// setJobMergeMode writes the job's own merge mode, which autoMerge reads before merge.auto.
 import { autoMerge } from '#core/config/load.ts';
 import { ForgeError } from '#core/errors.ts';
 import { reviewedRepoNames } from '#core/job/lens.ts';
+import { MERGE_MODES, isHumanGrant } from '#core/job/schema.ts';
+import { logHumanEvent, updateJob } from '#core/job/store.ts';
 import { listRequests } from '#core/job/requests.ts';
 import { isMap } from '#core/shape.ts';
-import type { Config, ForgeRequest, Job, JobEvent, ProtectedHit } from '#core/types.ts';
+import type { Config, ForgeRequest, HumanGrant, Job, JobEvent, MergeMode, PostJobMergeModeResponse, ProtectedHit } from '#core/types.ts';
 import { git, historyEnv } from '#integrations/git/runner.ts';
 import { branchFloor } from '../guard/floor.ts';
 import { branchHits, clean, prefixHits, protectedApproved, refusalText } from '../guard/protected.ts';
@@ -278,7 +281,8 @@ const named = (b: string | null | undefined): string => (b ? JSON.stringify(clea
  * on a diff that does not land.
  */
 export function autoMergeGate(root: string, config: Config, job: Job, events: JobEvent[], target: GateTarget): GateResult {
-  if (!autoMerge(config)) return { ok: false, reason: 'auto-off', error: 'merge.auto is off: a human merges this PR on GitHub, or runs forge pr merge <id> --now in their own terminal' };
+  if (!autoMerge(config, job))
+    return { ok: false, reason: 'auto-off', error: `${job.mergeMode === 'human' ? "the job's merge mode is human" : 'merge.auto is off'}: a human merges this PR on GitHub, or runs forge pr merge <id> --now in their own terminal` };
   const stale = decisionSuperseded(job, events, listRequests(root));
   if (stale) return { ok: false, reason: 'superseded', error: stale };
   const d = lastDecision(events);
@@ -341,4 +345,36 @@ function protectedGate(cwd: string, config: Config, job: Job, events: JobEvent[]
       `${label} ${short(live)} changes protected paths no human approved at this content: ${pathList((unheld.length ? unheld : found.escalated).map((h) => h.path))}; a human approves them in forge job step's protected-paths gate, or merges with --now in their own terminal`,
       'protected_path',
     );
+}
+
+export const MERGE_MODE_HUMAN_ONLY =
+  "forge job merge-mode auto|--inherit can let agents merge a job, which only a person may allow, in their own terminal (it asks them to type the job id) or with the drawer's Merge setting in the dashboard; anyone may set human";
+
+/**
+ * Sets or (null) clears a job's merge mode: the one write path of `forge job merge-mode` and
+ * POST /api/jobs/:id/merge-mode. `human` only takes merging away from agents, so any caller may set
+ * it; `auto` and null can hand it back, so they need a person's `grant`, whose actor the event
+ * carries (else this process's). Re-validated here because both callers pass outside text. A no-op writes nothing and
+ * logs nothing.
+ */
+export function setJobMergeMode(root: string, id: string, mergeMode: MergeMode | null, grant?: HumanGrant): PostJobMergeModeResponse {
+  if (mergeMode !== null && !(MERGE_MODES as readonly unknown[]).includes(mergeMode)) throw new ForgeError(`unknown merge mode ${JSON.stringify(mergeMode)} (${MERGE_MODES.join(', ')})`);
+  if (mergeMode !== 'human' && !isHumanGrant(grant)) throw new ForgeError(MERGE_MODE_HUMAN_ONLY, 'human_only');
+  const unchanged = new Error('unchanged');
+  let previous: MergeMode | null = null;
+  let jobId = id;
+  try {
+    jobId = updateJob(root, id, (j) => {
+      previous = j.mergeMode;
+      // Thrown rather than returned, so a no-op leaves job.json byte-identical.
+      if (previous === mergeMode) throw unchanged;
+      j.mergeMode = mergeMode;
+    }).id;
+  } catch (e) {
+    if (e === unchanged) return { id: jobId, mergeMode, previous, changed: false };
+    throw e;
+  }
+  // Always with an actor, so the audit trail says who took merging away from agents too.
+  logHumanEvent(root, jobId, 'merge-mode', { mergeMode, previous, from: grant?.channel ?? 'cli' }, grant?.actor);
+  return { id: jobId, mergeMode, previous, changed: true };
 }

@@ -57,6 +57,8 @@ export const API_CHANGES = [
   { id: 'draft-request' },
   // DaemonPoolState.assistants; Stats.cost.sessions.assistant; gate requests route to _assistants.
   { id: 'assistant-foremen' },
+  // Job.mergeMode, ApiState.config.autoMerge and POST /api/jobs/:id/merge-mode: a job's own auto or human merge, or null to inherit config.
+  { id: 'job-merge-mode' },
 ] as const;
 
 /**

@@ -39,7 +39,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `job/repos.ts` | `forge job repo\|interim`: a job's member repos, their interim strategies, canary publishes and recorded releases. |
 | `job/retention.ts` | `forge job archive\|delete\|prune`: archiving finished jobs, deleting a mistaken one, and pruning old jobs and session logs; never from a daemon session. |
 | `job/review.ts` | `forge job round\|verdicts\|decision\|score`: review rounds, the reviewers' and approver's verdicts, and the post-merge score. |
-| `job/state.ts` | `forge job set\|effort\|note\|refresh-request\|budget`: a job's stage, state, fields, effort, notes, request and budget limits. |
+| `job/state.ts` | `forge job set\|effort\|merge-mode\|note\|refresh-request\|budget`: a job's stage, state, fields, effort, merge mode, notes, request and budget limits. |
 | `mandate.ts` | `forge mandate new\|edit\|pause\|resume\|close\|list\|show` and `forge mandate draft start\|prepare\|record\|show`: the owner's mandates to the Office and a goal mandate's drafting runs (lib/office/mandates/, docs/CONFIG.md "Mandates"). |
 | `notify.ts` | `forge notify test\|send`: a sample notification to every configured target, and the detached sender lib/office/notify.ts queueNotify spawns. |
 | `project.ts` | `forge project add\|remove\|list\|settings`: the machine index of registered projects and the machine settings (lib/engine/project/machine-index.ts). |

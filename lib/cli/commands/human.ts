@@ -79,6 +79,16 @@ export function jobBudgetOp(id: string, change: { set: boolean; ack: boolean }):
   };
 }
 
+/** `forge job merge-mode <id> auto|--inherit`; `id` is one loadJob has validated. */
+export function jobMergeModeOp(id: string, mode: 'auto' | null): HumanOp {
+  return {
+    command: 'forge job merge-mode auto|--inherit',
+    what: `forge job merge-mode ${id} ${mode === 'auto' ? `auto lets agents merge job ${id}'s PRs once the approver allows it, even with merge.auto off` : `--inherit lets job ${id} follow merge.auto again, which may let agents merge it`}. It is logged with your name.`,
+    confirm: id,
+    channel: "the drawer's Merge setting in the dashboard",
+  };
+}
+
 /** `forge budget ack --period P`; `period` is one validPeriod accepted. */
 export function budgetAckOp(period: string): HumanOp {
   return {

@@ -75,6 +75,9 @@ export const JOB_STEPS: readonly Step[] = [
   } },
   // v18 adds the mandate a job works under. No v17 job is in one, so the Foreman's gates for it stay as they were.
   { id: 'job-mandate', up: (j) => ({ ...j, mandate: j.mandate ?? null }) },
+  // v19 adds the human's per-job merge mode. null inherits merge.auto, which is what every v18 job
+  // followed, so the upgrade changes no job's merge.
+  { id: 'job-merge-mode', up: (j) => ({ ...j, mergeMode: j.mergeMode ?? null }) },
 ];
 
 export const JOB_SCHEMA_VERSION = versionOf(JOB_STEPS);

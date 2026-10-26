@@ -1070,6 +1070,18 @@ See [Local links](CONFIG.md#local-links).
 |---|---|
 | `--all` | include finished and cancelled jobs |
 
+**`forge job merge-mode <id> auto|human | --inherit`**: set whether agents may merge this job's PRs (auto, even with merge.auto off) or a person always does (human, even with it on), or clear it so the job follows merge.auto; auto still needs the approver's eligible decision, protected paths and CI. auto and --inherit are a human-only operation: they ask the person at the terminal to type the job id, or a person uses the drawer's Merge setting in the dashboard; anyone may set human
+
+| Flag | Meaning |
+|---|---|
+| `--inherit` | clear the job's merge mode |
+
+| Exit | When |
+|---|---|
+| 1 | no such job, an unknown mode, not confirmed, or human_only: auto or --inherit in a daemon session or with no person at a terminal (an agent, a script or a configured command) |
+
+See [Merge](CONFIG.md#merge).
+
 **`forge job new --title T [--body B | --body-file F] [--session S] [options]`**: create a job; with --session, claim it for that session (a split child, with --parent, starts unowned)
 
 | Flag | Meaning |

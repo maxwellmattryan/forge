@@ -1,4 +1,4 @@
-// `forge job set|effort|note|refresh-request|budget`: a job's stage, state, fields, effort, notes, request and budget limits.
+// `forge job set|effort|merge-mode|note|refresh-request|budget`: a job's stage, state, fields, effort, merge mode, notes, request and budget limits.
 import { budgetCmd } from '#engine/metrics/budget.ts';
 import { inInboxOrOffice } from '#office/owner.ts';
 import { checkOfficeSetFor } from '#office/foreman.ts';
@@ -6,14 +6,15 @@ import { inAssistant, inOffice } from '#core/job/requests.ts';
 import { refreshDependencyWait, validateDependsOn } from '#engine/pipeline/moves/deps.ts';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
 import { loadJob, logEvent, setJobEffort } from '#core/job/store.ts';
+import { setJobMergeMode } from '#engine/pr/eligible.ts';
 import { checkFieldKey, checkJobFields } from '#core/job/fields.ts';
-import { EFFORTS } from '#core/job/schema.ts';
+import { EFFORTS, MERGE_MODES } from '#core/job/schema.ts';
 import { refreshRequest } from '#engine/trackers/request-refresh.ts';
 import { ForgeError } from '#core/errors.ts';
 import { coerce } from '#core/text.ts';
 import type { Config } from '#core/types.ts';
 import { bodyFrom, list, oneOf, requireJob, str, usageError } from '../args.ts';
-import { confirmHuman, jobBudgetOp } from '../human.ts';
+import { confirmHuman, jobBudgetOp, jobMergeModeOp } from '../human.ts';
 import { JOB } from './help.ts';
 import { epochFence } from './lease.ts';
 
@@ -32,6 +33,16 @@ export function effort(root: string, config: Config, rest: string[], flags: Reco
   const level = rest[1];
   if ((level !== undefined) === (flags.inherit === true) || rest.length > 2) throw usageError(JOB, 'effort');
   return setJobEffort(root, jobId, level === undefined ? null : oneOf(level, EFFORTS, 'effort'), 'cli');
+}
+
+export async function mergeMode(root: string, config: Config, rest: string[], flags: Record<string, any>) {
+  const jobId = requireJob(root, rest[0]).id;
+  const mode = rest[1];
+  if ((mode !== undefined) === (flags.inherit === true) || rest.length > 2) throw usageError(JOB, 'merge-mode');
+  const next = mode === undefined ? null : oneOf(mode, MERGE_MODES, 'merge mode');
+  // Only human may be set without a person: auto, or inheriting a merge.auto that may be on, lets agents merge.
+  const grant = next === 'human' ? undefined : await confirmHuman(root, jobMergeModeOp(jobId, next));
+  return setJobMergeMode(root, jobId, next, grant);
 }
 
 export async function set(root: string, config: Config, rest: string[], flags: Record<string, any>) {

@@ -98,6 +98,8 @@ export interface ApiState {
     daemon: { enabled: boolean; jobBudget: DaemonJobBudget; billing: DaemonBilling | null };
     /** runtime.effort when it is valid, else null. */
     effort: Effort | null;
+    /** merge.auto, or foreman.ship merge with the foreman on: what a job with no merge mode of its own follows. */
+    autoMerge: boolean;
   };
   daemons: DaemonPoolState;
   jobs: StateJob[];

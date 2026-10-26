@@ -210,7 +210,7 @@ test('every guarded route refuses before its handler runs', async () => {
     const rows: Row[] = [];
     // Invalid JSON: a guard that ran after the body parse would answer 400 instead.
     const body = '{"x":';
-    const posts = ['/jobs', '/requests', '/config', '/budget/ack', '/daemon', '/daemon/permission', '/daemon/mode', '/focus', ...['effort', 'budget', 'delete', 'merge', 'repos', 'environment', 'run', 'editor'].map((x) => `/jobs/j-1/${x}`)].map((p) => `${P}${p}`);
+    const posts = ['/jobs', '/requests', '/config', '/budget/ack', '/daemon', '/daemon/permission', '/daemon/mode', '/focus', ...['effort', 'budget', 'delete', 'merge', 'merge-mode', 'repos', 'environment', 'run', 'editor'].map((x) => `/jobs/j-1/${x}`)].map((p) => `${P}${p}`);
     for (const p of posts) {
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': 'wrong', origin, 'content-type': 'application/json' }, status: 403, text: 'bad token' });
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': token, 'content-type': 'application/json' }, status: 403, text: 'bad origin' });
@@ -378,6 +378,36 @@ test('the job budget route raises or acknowledges as the dashboard', async () =>
     await s.cleanup();
     repo.cleanup();
     other.cleanup();
+  }
+});
+
+test('the job merge-mode route sets or clears the mode as the dashboard', async () => {
+  const repo = tempRepo();
+  const s = await startServer(repo.dir, { daemon: daemonKit().opts });
+  const port = s.port;
+  try {
+    const id = createJob(repo.dir, loadConfig(repo.dir).config, { title: 'merge mode' }).id;
+    const headers = { 'x-forge-token': await tokenOf(port), origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body: unknown, job = id, h: Record<string, string> = headers) => hit(port, { method: 'POST', path: `${P}/jobs/${job}/merge-mode`, headers: h, body: JSON.stringify(body) });
+    const files = () => ['job.json', 'events.jsonl'].map((f) => fs.readFileSync(path.join(repo.dir, '.forge', 'jobs', id, f), 'utf8'));
+    const before = files();
+    assert.equal((await post({ mergeMode: 'auto' }, id, { ...headers, 'x-forge-token': 'wrong' })).status, 403);
+    for (const body of [{}, { mergeMode: 'yes' }, { mergeMode: 'AUTO' }, { mergeMode: true }, ['auto']]) {
+      const r = await post(body);
+      assert.deepEqual({ status: r.status, error: JSON.parse(r.text).error }, { status: 400, error: 'mergeMode must be one of auto, human, or null' }, JSON.stringify(body));
+    }
+    assert.equal((await post({ mergeMode: 'auto' }, 'nope')).status, 404);
+    assert.deepEqual(files(), before, 'no 4xx changes job.json or events.jsonl');
+
+    const auto = await post({ mergeMode: 'auto' });
+    assert.deepEqual([auto.status, JSON.parse(auto.text)], [200, { id, mergeMode: 'auto', previous: null, changed: true }]);
+    const cleared = await post({ mergeMode: null });
+    assert.deepEqual(JSON.parse(cleared.text), { id, mergeMode: null, previous: 'auto', changed: true });
+    const events = fs.readFileSync(path.join(repo.dir, '.forge', 'jobs', id, 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.type === 'merge-mode');
+    assert.deepEqual(events.map((e) => [e.mergeMode, e.from, e.actor?.source]), [['auto', 'dashboard', 'dashboard'], [null, 'dashboard', 'dashboard']]);
+  } finally {
+    await s.cleanup();
+    repo.cleanup();
   }
 });
 

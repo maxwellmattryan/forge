@@ -33,6 +33,9 @@ function detail(e: JobEvent): string | null {
     case 'budget-override':
       d = str(e.month);
       break;
+    case 'merge-mode':
+      d = `${str(e.previous) ?? 'inherit'} -> ${str(e.mergeMode) ?? 'inherit'}`;
+      break;
     case 'linked':
       d = [str(e.tracker), str(e.ref)].filter(Boolean).join(':') || null;
       break;

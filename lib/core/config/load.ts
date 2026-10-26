@@ -7,7 +7,7 @@ import { defaults } from './keys/defaults.ts';
 import { paths, exists, resolveFrom } from '../paths.ts';
 import { migrateConfig } from '../job/schema.ts';
 import { deepMerge } from '../shape.ts';
-import type { Config, LoadedConfig } from '../types.ts';
+import type { Config, Job, LoadedConfig } from '../types.ts';
 import { ForgeError } from '../errors.ts';
 import { readText } from '../os/fs.ts';
 import * as yaml from '../format/yaml.ts';
@@ -20,8 +20,14 @@ export { allInstructionFiles } from './validators/instructions.ts';
 export { RETENTION_DAYS, validateConfig, foremanProblems, verifyShapeProblems, verifyGroups, verifySteps, panelPathsProblems, pathsOnlyProblems, reviewerChecklist } from './validate.ts';
 export { globProblem } from './validators/policy-check.ts';
 
-/** foreman.ship merge (with the foreman on) counts as merge.auto, for the approver brief and step PR4 only. */
-export function autoMerge(config: Config): boolean {
+/**
+ * Whether agents may merge: the job's own merge mode when it has one (`forge job merge-mode`), else
+ * merge.auto, where foreman.ship merge (with the foreman on) counts as merge.auto. It only allows a
+ * merge: the approver's eligible decision, protected paths, the escalate floor and CI still decide it.
+ */
+export function autoMerge(config: Config, job: Pick<Job, 'mergeMode'> | null): boolean {
+  if (job?.mergeMode === 'human') return false;
+  if (job?.mergeMode === 'auto') return true;
   return config.merge?.auto === true || (config.foreman?.enabled === true && config.foreman?.ship === 'merge');
 }
 

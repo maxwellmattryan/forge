@@ -211,6 +211,7 @@ const JOB_ROWS: Row[] = [
     note: 'the owner keeps driving as epoch 1 for the 30 minutes its heartbeat gave it',
   },
   { step: 'job-mandate', input: { id: 'x', title: 'Old', state: 'running' }, fields: { mandate: null, state: 'running' }, note: 'a job from before mandates is in none' },
+  { step: 'job-merge-mode', input: { id: 'x', title: 'Old', state: 'running' }, fields: { mergeMode: null, state: 'running' }, note: 'a job from before merge modes follows merge.auto' },
 ];
 
 const EVENT_ROWS: Row[] = [

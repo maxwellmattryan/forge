@@ -33,6 +33,8 @@ export const LOCKED_FIELDS: Record<string, string> = {
   // A run's start and end times decide when the approver's decision is recorded (once per run).
   agents: 'forge job agent',
   effort: 'forge job effort',
+  // An `auto` set by a session would let agents merge a job a person kept for themselves.
+  mergeMode: 'forge job merge-mode',
   // Leaving a mandate would widen what the Foreman decides for the job; a split child keeps its parent's.
   mandate: 'forge job new --mandate',
   // A cleared flag would skip the PP1 park; pr open recomputes it anyway.
