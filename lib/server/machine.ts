@@ -15,7 +15,7 @@ import { createPreviewer, ghRunner } from '#integrations/github/preview.ts';
 import { whoDrives } from '#office/driver.ts';
 import { createPool } from '#office/pool.ts';
 import { createChatRecorder } from '#office/chat/recorder.ts';
-import type { DaemonPoolState, MachineProjectSummary, ProjectsResponse, RepoBudgetStatus } from '#core/types.ts';
+import type { DaemonPoolState, Job, MachineProjectSummary, ProjectsResponse, RepoBudgetStatus } from '#core/types.ts';
 import { idlePoolState } from './routes/office.ts';
 import { SSE_SLOW_CLIENT_BYTES, broadcast, lineFrame, stateFrame } from './sse.ts';
 import { resumeProject } from './uptime.ts';
@@ -27,6 +27,17 @@ const REFRESH_MS = 2000;
 /** The shortest gap between two re-reads that requests for unregistered names force while the index file is unchanged. */
 const MISS_REFRESH_MS = 250;
 const FINISHED = ['done', 'cancelled', 'failed'];
+
+/**
+ * A project's Overview counts: its unfinished jobs, and those waiting on a person. A dependency park
+ * waits on other jobs and a shelved job on nobody, so neither counts as waiting.
+ */
+export function projectJobCounts(jobs: readonly Pick<Job, 'state' | 'waitingOn'>[]): { active: number; waiting: number } {
+  return {
+    active: jobs.filter((j) => !FINISHED.includes(j.state)).length,
+    waiting: jobs.filter((j) => j.state === 'waiting' && j.waitingOn !== 'external' && j.waitingOn !== 'shelved').length,
+  };
+}
 
 /** One project's route context: the machine's shared objects plus its own caches. */
 export function createContext(machine: MachineCtx, name: string, root: string): ServerCtx {
@@ -206,7 +217,7 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
     let latest: MachineProjectSummary['latest'] = null;
     try {
       const all = listJobs(e.root);
-      jobs = { active: all.filter((j) => !FINISHED.includes(j.state)).length, waiting: all.filter((j) => j.state === 'waiting' && j.waitingOn !== 'external').length };
+      jobs = projectJobCounts(all);
       // The job's own title: the dashboard escapes it, so it is never cut or cleaned here.
       for (const j of all) {
         if (j.kind === 'eval' || !j.updatedAt || (latest && j.updatedAt <= latest.at)) continue;

@@ -16,7 +16,7 @@ import { startKeepAwake } from './uptime.ts';
 import { DEV_NOT_BUILT, NOT_BUILT, distDirFor, getAsset, getLogo, getPage } from './static.ts';
 import { postJobEnvironment, getEnvironmentLogs, getEnvironments, getJobEnvironment } from './routes/environment.ts';
 import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
-import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor } from './routes/jobs.ts';
+import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor, postShelf } from './routes/jobs.ts';
 import { getProjects, getProjectsEvents, getProjectsStats, postProject } from './routes/machine.ts';
 import { getMandateDraft, postMandateDraft } from './routes/mandates.ts';
 import { getAbout, getBacklog, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
@@ -121,6 +121,7 @@ export const PROJECT_ROUTES: readonly Route<ServerCtx>[] = [
   { method: 'POST', path: /^\/jobs\/([^/]+)\/delete$/, handler: postJobDelete },
   { method: 'POST', path: /^\/jobs\/([^/]+)\/merge$/, handler: postJobMerge },
   { method: 'POST', path: /^\/jobs\/([^/]+)\/repos$/, handler: postJobRepos },
+  { method: 'POST', path: '/shelf', handler: postShelf },
   { method: 'GET', path: /^\/mandates\/([^/]+)\/draft$/, guards: ['read'], handler: getMandateDraft },
   // Filing runs in the handler: the tracker methods are synchronous by contract.
   { method: 'POST', path: /^\/mandates\/([^/]+)\/draft$/, handler: postMandateDraft },

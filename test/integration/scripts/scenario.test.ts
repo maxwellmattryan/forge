@@ -76,8 +76,11 @@ const ROWS: { name: string; check: (jobs: SeededJob[], seeded: { worktrees: stri
   {
     name: 'gates',
     check: (jobs) => {
-      assert.equal(jobs.length, NOTIFY_GATES.length);
-      assert.deepEqual(new Set(jobs.map((j) => j.waitingOn)), new Set(NOTIFY_GATES));
+      // One job per human gate, and one a person shelved (the Shelved list), which is no gate.
+      const gated = jobs.filter((j) => j.waitingOn !== 'shelved');
+      assert.equal(gated.length, NOTIFY_GATES.length);
+      assert.deepEqual(new Set(gated.map((j) => j.waitingOn)), new Set(NOTIFY_GATES));
+      assert.deepEqual(jobs.filter((j) => j.waitingOn === 'shelved').map((j) => [j.stage, j.reason]), [['decide', 'shelved: waiting on the billing owner']]);
     },
   },
   {

@@ -223,6 +223,7 @@ test('every guarded route refuses before its handler runs', async () => {
         '/focus',
         '/mandates/g1/draft',
         '/chats',
+        '/shelf',
         ...['rename', 'archive', 'messages'].map((x) => `${chat}/${x}`),
         ...['effort', 'budget', 'delete', 'merge', 'repos', 'environment', 'run', 'editor'].map((x) => `/jobs/j-1/${x}`),
       ].map((p) => `${P}${p}`),
