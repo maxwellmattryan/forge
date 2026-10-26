@@ -2,7 +2,7 @@
 // the default for job sessions without one. In memory on purpose: a session can write files in the
 // repo, runtime records included, so a mode read back from disk would be one the session could pick
 // for itself.
-import { INBOX_SCOPE, OFFICE_SCOPE } from '#core/job/requests.ts';
+import { sharedScope as shared } from '#core/job/requests.ts';
 import { PERMISSION_MODES, commandPermissionMode } from '#integrations/claude/argv.ts';
 import type { DaemonOptions } from './session/contract.ts';
 import type { MachineSlots } from './slots.ts';
@@ -34,7 +34,6 @@ export function createModeBook(jobDefault: DaemonPermissionMode | null = null): 
   const modes = new Map<string, DaemonPermissionMode>();
   let base = 'default';
   let jobs: DaemonPermissionMode | null = PERMISSION_MODES.find((m) => m === jobDefault) ?? null;
-  const shared = (scope: string) => scope === INBOX_SCOPE || scope === OFFICE_SCOPE;
   /** What a scope runs in without its own choice. */
   const fallback = (scope: string): string => (shared(scope) ? base : (jobs ?? base));
   return {

@@ -2,7 +2,7 @@
 // Session state and errors come from session output, i.e. untrusted text: these return plain strings rendered as text.
 import { ago } from './util.ts';
 import { projectApi } from './project.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE } from './types.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, isAssistantScope, sharedScope } from './types.ts';
 import type { DaemonBilling, DaemonPermissionMode, DaemonPoolState, DaemonSessionState } from './types.ts';
 
 export const START_HINT = 'Set daemon.enabled: true in .forge/config.yml';
@@ -95,12 +95,23 @@ export function sessionPill(session: SessionInput): Pill {
   return { label, tone, title };
 }
 
+/**
+ * Several sessions as one chip: the most urgent of their pills by ORDER (needs permission first, the first session on a
+ * tie), titled with one `name: label` line per session. One session keeps its own pill. The Foreman's: the office and its assistant foremen.
+ */
+export function familyPill(sessions: readonly { name: string; session: SessionInput }[]): Pill {
+  const pills = sessions.map(({ name, session }) => ({ name, pill: sessionPill(session) }));
+  if (pills.length <= 1) return pills[0]?.pill ?? sessionPill(null);
+  const top = pills.reduce((a, b) => (ORDER.indexOf(b.pill.label) < ORDER.indexOf(a.pill.label) ? b : a)).pill;
+  return { label: top.label, tone: top.tone, title: pills.map(({ name, pill }) => `${name}: ${pill.label}`).join('\n') };
+}
+
 /** Everything the Daemon popover shows, or null exactly when the daemon is off (not enabled, not wanted, nothing running). */
 export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): PoolModel | null {
   const p = obj(pool);
   const jobs = Object.entries(obj(p.jobs)).map(([id, s]) => [id, obj(s)] as const);
   const foreman = p.foreman === true;
-  const sessions = [obj(p.inbox), ...(foreman ? [obj(p.office)] : []), ...jobs.map(([, s]) => s)];
+  const sessions = [obj(p.inbox), ...(foreman ? [obj(p.office), ...Object.values(obj(p.assistants)).map(obj)] : []), ...jobs.map(([, s]) => s)];
   const anyRunning = sessions.some(running);
   if (!pool || (!p.enabled && !p.wanted && !anyRunning)) return null;
   // Off because nobody has approved the files yet: an expected state a human acts on, never an error.
@@ -188,11 +199,15 @@ export function sessionToggle(controls: { canStart: boolean; canStop: boolean },
   return { action: 'stop', enabled: controls.canStop };
 }
 
-/** The pool's session for a scope (the inbox's, the office's or a job's; own keys only, so a job id never reads Object.prototype), or null. */
+/** The pool's session for a scope (the inbox's, the office's, an assistant foreman's or a job's; own keys only, so a job id never reads Object.prototype), or null. */
 export function scopeSession(pool: PoolInput, scope: string): Partial<DaemonSessionState> | null {
   const p = obj(pool);
   if (scope === INBOX_SCOPE) return p.inbox ?? null;
   if (scope === OFFICE_SCOPE) return p.office ?? null;
+  if (isAssistantScope(scope)) {
+    const assistants = obj(p.assistants);
+    return Object.hasOwn(assistants, scope) ? (assistants[scope] ?? null) : null;
+  }
   const jobs = obj(p.jobs);
   return Object.hasOwn(jobs, scope) ? (jobs[scope] ?? null) : null;
 }
@@ -230,7 +245,7 @@ export interface SessionMode {
 export function sessionMode(pool: PoolInput, scope: string, session: SessionInput): SessionMode {
   const p = obj(pool);
   const override = chosenOverride(p, scope);
-  const shared = scope === INBOX_SCOPE || scope === OFFICE_SCOPE;
+  const shared = sharedScope(scope);
   const chosen = override ?? (shared ? (typeof p.permissionMode === 'string' && p.permissionMode ? p.permissionMode : 'default') : jobFallbackMode(p));
   const s = obj(session);
   const reported = s.running === true && typeof s.permissionMode === 'string' && s.permissionMode ? s.permissionMode : null;

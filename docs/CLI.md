@@ -172,7 +172,7 @@ Set by the `forge dash` supervisor for daemon sessions, never by hand:
 | Variable | Effect |
 |---|---|
 | `FORGE_DAEMON` | `1` in a headless session: the config trust check runs first, config rewrites, job effort changes (`forge job effort`, `forge job new --effort`) and setting or clearing focus (`forge focus <id>`, `forge focus --clear`) are refused, `forge requests` sees only the session's scope, and `--body-file F` (other than `-`, stdin) must be a regular file under 1 MiB inside the session job's folder or its computed worktree, and is refused in the `_inbox` and `_office` sessions (exit 1) |
-| `FORGE_DAEMON_SCOPE` | the session's scope: `_inbox`, `_office` (the foreman), or the id of the job it drives |
+| `FORGE_DAEMON_SCOPE` | the session's scope: `_inbox`, `_office` (the Foreman's own session), `_assistant-1` … `_assistant-16` (an assistant foreman), or the id of the job it drives |
 | `FORGE_DAEMON_TRUST` | the digest of the checkout path, `.forge/config.yml` and `.forge/trackers/` the human started the daemon with; `forge` refuses to run when they no longer match |
 | `FORGE_MODE` | `agent`, so a session's `forge` calls always print agent output (see Output mode) |
 
@@ -242,13 +242,13 @@ The log file gains a `(links <bin dir>)` line after `(cwd …)`. Background comm
 
 ## Foreman decisions
 
-`forge job human <id> <action> [--actor human|foreman]` records who decided. Without `--actor` the event's `actor` is the resolved person, `{ "login": "<login>"|null, "source": "env"|"gh"|"git"|"os"|"dashboard"|"unknown" }` (docs/architecture/audit-trail.md); with `--actor foreman` it is `{ "login": null, "source": "foreman" }`. Events written before event schema v2 said `"human"` or `"foreman"`, and read as source `unknown` and `foreman`. `--actor foreman` is accepted only from the office daemon session (`FORGE_DAEMON_SCOPE=_office`), which in turn must pass it, and only after the authority checks in docs/architecture/foreman.md: the job waits on a gate class in `foreman.decides`, the action belongs to that class, `--note` is given and no reserved pattern matches (nor a latest security verdict other than `PASS`), a pr-feedback `rework` has a queued gate request for the PR's current head, and there is no `--link` or `--reason`. A refusal exits 1 and writes nothing.
+`forge job human <id> <action> [--actor human|foreman]` records who decided. Without `--actor` the event's `actor` is the resolved person, `{ "login": "<login>"|null, "source": "env"|"gh"|"git"|"os"|"dashboard"|"unknown" }` (docs/architecture/audit-trail.md); with `--actor foreman` it is `{ "login": null, "source": "foreman" }`. Events written before event schema v2 said `"human"` or `"foreman"`, and read as source `unknown` and `foreman`. `--actor foreman` is accepted only from an assistant foreman daemon session (`FORGE_DAEMON_SCOPE=_assistant-<n>`), which in turn must pass it (the office session, `_office`, is refused both ways: `--actor foreman refused: only an assistant foreman session records foreman decisions`), and only after the authority checks in docs/architecture/foreman.md: the job waits on a gate class in `foreman.decides`, the action belongs to that class, `--note` is given and no reserved pattern matches (nor a latest security verdict other than `PASS`), a pr-feedback `rework` has a queued gate request for the PR's current head, and there is no `--link` or `--reason`. A refusal exits 1 and writes nothing.
 
-`forge job assist <id> --gate <class>` is read-only and returns `{gate, stale, reserved, model, effort, subagent, brief}`: the `forge:assistant` spawn for that gate, with a brief of paths only. `stale: true` means the job no longer waits on that gate, and `reserved` is re-checked at call time. An unknown `--gate` exits 1, and so does a daemon session other than the office. `forge requests add gate` always exits 1: only `forge job set` and `forge pr sync` write gate requests.
+`forge job assist <id> --gate <class>` is read-only and returns `{gate, stale, reserved, model, effort, subagent, brief}`: the `forge:assistant` spawn for that gate, with a brief of paths only. `stale: true` means the job no longer waits on that gate, and `reserved` is re-checked at call time. An unknown `--gate` exits 1, and so does a daemon session other than an assistant foreman (`forge job assist is for an assistant foreman session (or a human outside the daemon)`). `forge requests add gate` always exits 1: only `forge job set` and `forge pr sync` write gate requests.
 
 A recorded decision moves the job by itself: the next `forge job step` on a job whose current park a `human` event answers returns that gate's follow-up `forge job set` (rules GA1–GA11, docs/architecture/job-model.md › Answered gates), so `forge job human` followed by `forge requests add resume --job <id>` is enough from any session.
 
-`forge job handoff <id> --class reserved|escalated|refused --reason "<text>"` records a **Foreman hand-off**: the office left the gate the job waits at for a person (a reserved topic or class, the assistant escalated, or the CLI refused its decision). Its checks run in this order and all before any write: the office daemon session (anywhere else it exits 1 with `only the office daemon session records a Foreman hand-off`), the job exists, the job waits on a gate the Foreman decides (otherwise exit 1, `job <id> is not waiting on a gate the Foreman decides`; the gate is taken from the job, never passed in), `--class` is one of the three, and `--reason` keeps some text once control characters and backticks are removed and it is cut to 200 characters (otherwise exit 1). It then logs one `foreman-handoff` event `{gate, class, reason, actor: {login: null, source: "foreman"}}` and prints `{"ok": true, "foremanHandoff": {"gate", "class", "reason", "at"}}`.
+`forge job handoff <id> --class reserved|escalated|refused --reason "<text>"` records a **Foreman hand-off**: an assistant foreman left the gate the job waits at for a person (a reserved topic or class, the assistant escalated, or the CLI refused its decision). Its checks run in this order and all before any write: an assistant foreman daemon session (anywhere else, the office included, it exits 1 with `only an assistant foreman session records a Foreman hand-off`), the job exists, the job waits on a gate the Foreman decides (otherwise exit 1, `job <id> is not waiting on a gate the Foreman decides`; the gate is taken from the job, never passed in), `--class` is one of the three, and `--reason` keeps some text once control characters and backticks are removed and it is cut to 200 characters (otherwise exit 1). It then logs one `foreman-handoff` event `{gate, class, reason, actor: {login: null, source: "foreman"}}` and prints `{"ok": true, "foremanHandoff": {"gate", "class", "reason", "at"}}`.
 
 `forge status --json` rows and `forge job show` carry `foremanHandoff`: that `{gate, class, reason, at}` while the job still waits on the gate it was handed off at, with no newer transition and no `human` event (anyone's decision) since, and `null` otherwise. It is derived from events on read; job.json has no such field. `forge status` marks such a job `waiting:<gate> (left for a human)` in its agent-mode table, and adds a `handoff` column (`<class>: <reason>`) in human mode.
 
@@ -370,7 +370,7 @@ Before writing, stderr lists every entry with its size, any file it skipped and 
 | `doctor.json` | what `forge doctor` prints, except that the `command environment` check counts the `*_HOME` and `*_ROOT` variable names it has no fixed entry for instead of naming them ([Command environment](CONFIG.md#command-environment)) |
 | `versions.json` | `{forge, node, git, gh, glab, os}`; a missing tool is `null` |
 | `config.json` | the effective config, with every value that names a command, path, URL or person, and every key Forge doesn't know, replaced by `<redacted>` (`CONFIG_DISCLOSURE` in `lib/core/config/fields.ts`) |
-| `daemon/inbox.log`, `daemon/office.log` | without a job: the last 500 lines of the inbox and office session logs |
+| `daemon/inbox.log`, `daemon/office.log`, `daemon/assistant-<n>.log` | without a job: the last 500 lines of the inbox, office and each existing assistant foreman session log |
 | `jobs/<id>/job.json`, `events.jsonl`, `step.json` | the job, every event, and what `forge job step` decides now |
 | `jobs/<id>/verify/round-<n>.md` | the last 200 lines of the newest verify round |
 | `jobs/<id>/logs/verify-<step>-<ts>.log` | the last 200 lines of the newest verify log per step, at most 20 |
@@ -434,7 +434,7 @@ A job's databases, caches and queues (backing:), run through the Docker CLI.
 
 | Exit | When |
 |---|---|
-| 1 | an invalid job id, or the inbox or office daemon session ran it |
+| 1 | an invalid job id, or the inbox, office or an assistant foreman daemon session ran it |
 | 5 | Docker missing, its daemon stopped, a docker or psql command failed, or a shared container is stopped (the records are kept for a retry) |
 
 See [Backing services](CONFIG.md#backing-services).
@@ -452,7 +452,7 @@ See [Backing services](CONFIG.md#backing-services).
 
 | Exit | When |
 |---|---|
-| 1 | an invalid job id, or the inbox or office daemon session ran it |
+| 1 | an invalid job id, or the inbox, office or an assistant foreman daemon session ran it |
 | 5 | Docker missing, its daemon stopped, a docker command failed, or a same-named container that is not this job's |
 
 See [Backing services](CONFIG.md#backing-services).
@@ -461,7 +461,7 @@ See [Backing services](CONFIG.md#backing-services).
 
 | Exit | When |
 |---|---|
-| 1 | an invalid job id or no such job, or the inbox or office daemon session ran it |
+| 1 | an invalid job id or no such job, or the inbox, office or an assistant foreman daemon session ran it |
 | 5 | Docker missing, its daemon stopped, a docker command failed, or a same-named container that is not this job's; for a job database, also a server not ready in 60 s, a failed migrate, seed or psql call, or no worktree |
 
 See [Backing services](CONFIG.md#backing-services).
@@ -513,14 +513,15 @@ See [Changing settings](CONFIG.md#changing-settings).
 
 The dashboard's headless sessions, from the terminal.
 
-**`forge daemon log <job>|--inbox|--office [--lines N] [--follow]`**: a session's log, from the terminal
+**`forge daemon log <job>|--inbox|--office|--assistant N [--lines N] [--follow]`**: a session's log, from the terminal
 
 | Flag | Meaning |
 |---|---|
+| `--assistant N` | assistant foreman N's log (1-16) instead of a job's |
 | `--follow` | keep printing lines as they are written |
 | `--inbox` | the inbox session's log instead of a job's |
 | `--lines N` | the last N lines (default 100, at most 5000) |
-| `--office` | the foreman's office session's log instead of a job's |
+| `--office` | the Foreman's office session's log instead of a job's |
 
 | Exit | When |
 |---|---|
@@ -575,7 +576,7 @@ A job's environment: its background processes, per-job containers and volumes, a
 
 | Exit | When |
 |---|---|
-| 1 | an invalid job id or no such job, or the inbox or office daemon session ran it |
+| 1 | an invalid job id or no such job, or the inbox, office or an assistant foreman daemon session ran it |
 | 5 | Docker missing, its daemon stopped, a docker or psql command failed, or a shared container is stopped (the records are kept for a retry) |
 
 See [Backing services](CONFIG.md#backing-services).
@@ -588,7 +589,7 @@ See [Backing services](CONFIG.md#backing-services).
 
 | Exit | When |
 |---|---|
-| 1 | an invalid job id or no such job, or the inbox or office daemon session ran it |
+| 1 | an invalid job id or no such job, or the inbox, office or an assistant foreman daemon session ran it |
 | 5 | Docker missing, its daemon stopped or docker stop failed (the record still says stopped) |
 
 See [Backing services](CONFIG.md#backing-services).
@@ -597,7 +598,7 @@ See [Backing services](CONFIG.md#backing-services).
 
 | Exit | When |
 |---|---|
-| 1 | an invalid job id or no such job, a done or cancelled job, or the inbox or office daemon session ran it |
+| 1 | an invalid job id or no such job, a done or cancelled job, or the inbox, office or an assistant foreman daemon session ran it |
 | 5 | a backing service did not start |
 
 See [Backing services](CONFIG.md#backing-services).
@@ -878,7 +879,7 @@ One job's state, agents and reviews; forge job step &lt;id> returns its next act
 
 | Exit | When |
 |---|---|
-| 1 | no such job, an --output outside the job dir, the inbox or office session starting an agent, or attach on a role that is not running |
+| 1 | no such job, an --output outside the job dir, the inbox, office or an assistant foreman session starting an agent, or attach on a role that is not running |
 | 3 | stale_epoch: the lease moved past --epoch |
 
 **`forge job archive <id>|--done --older-than D`**: archive a finished job into .forge/archive/&lt;id>.json (its job.json, events and a summary) and delete its job folder, after tearing down what is left of its environment; with --done --older-than D, every finished job at least D days old. A job whose teardown fails is listed in refused and kept. Stats, audit and retro still read archived jobs
@@ -894,7 +895,7 @@ One job's state, agents and reviews; forge job step &lt;id> returns its next act
 
 See [Retention](architecture/retention.md).
 
-**`forge job assist <id> --gate G`**: the office session's forge:assistant spawn for a gate: model, effort and a brief of paths only, and for repo-proposal the pending repos to pass as --repo; stale when the job no longer waits there. Read-only
+**`forge job assist <id> --gate G`**: an assistant foreman's forge:assistant spawn for a gate: model, effort and a brief of paths only, and for repo-proposal the pending repos to pass as --repo; stale when the job no longer waits there. Read-only
 
 | Flag | Meaning |
 |---|---|
@@ -902,7 +903,7 @@ See [Retention](architecture/retention.md).
 
 | Exit | When |
 |---|---|
-| 1 | no such job, an unknown gate, or a daemon session other than the office |
+| 1 | no such job, an unknown gate, or a daemon session other than an assistant foreman |
 
 **`forge job audit <id> [--json|--csv]`**: the job's audit trail: who did each human action (best effort, unauthenticated), its gate transitions, and its PR opening and merge, in time order
 
@@ -938,7 +939,7 @@ See [Audit trail](architecture/audit-trail.md).
 
 | Exit | When |
 |---|---|
-| 1 | no such job, or the office daemon session ran it |
+| 1 | no such job, or the office or an assistant foreman daemon session ran it |
 | 3 | another session holds a live lease (owned), or the lease moved past --epoch (stale_epoch) |
 | 4 | dependencies pending, or the repo budget holds new work |
 
@@ -997,7 +998,7 @@ See [Effort](CONFIG.md#effort).
 |---|---|
 | 1 | no such job |
 
-**`forge job handoff <id> --class reserved|escalated|refused --reason R`**: record a Foreman hand-off: the office leaves the gate the job waits at for a person (office session only)
+**`forge job handoff <id> --class reserved|escalated|refused --reason R`**: record a Foreman hand-off: an assistant foreman leaves the gate the job waits at for a person (assistant foreman sessions only)
 
 | Flag | Meaning |
 |---|---|
@@ -1006,13 +1007,13 @@ See [Effort](CONFIG.md#effort).
 
 | Exit | When |
 |---|---|
-| 1 | not the office daemon session, no such job, a job not waiting on a gate the Foreman decides, an unknown --class, or an empty --reason |
+| 1 | not an assistant foreman daemon session, no such job, a job not waiting on a gate the Foreman decides, an unknown --class, or an empty --reason |
 
 **`forge job human <id> <action> [--note N] [--link <ref>|new|none] [--reason R] [--repo A[,B]] [--actor human|foreman]`**: record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework, answer, or approve-repos or reject-repos on the pending repo proposals named by --repo (approve adds each repo to the job), or the foreman's approve-release of the job's pending release plan (logs release-approval and moves no job)
 
 | Flag | Meaning |
 |---|---|
-| `--actor human\|foreman` | who decided (default human); foreman only from the office daemon session, which must pass it; approve-release takes only --actor foreman and --note |
+| `--actor human\|foreman` | who decided (default human); foreman only from an assistant foreman daemon session, which must pass it (the office session may record neither); approve-release takes only --actor foreman and --note |
 | `--link <ref>\|new\|none` | with approve or approve-spec: link an issue, create one, or record that none is needed |
 | `--note N` | the human's note |
 | `--reason R` | why, with --link none |
@@ -1020,7 +1021,7 @@ See [Effort](CONFIG.md#effort).
 
 | Exit | When |
 |---|---|
-| 1 | no such job, a --link that cannot be made, a foreman decision the authority checks refuse, or approve-repos or reject-repos with nothing pending, no --repo, a repo that is not pending, a foreman --repo that is not the whole pending set, a failing clone check, or from a daemon session other than the office |
+| 1 | no such job, a --link that cannot be made, a foreman decision the authority checks refuse, or approve-repos or reject-repos with nothing pending, no --repo, a repo that is not pending, a foreman --repo that is not the whole pending set, a failing clone check, or from a daemon session other than an assistant foreman |
 | 3 | the tracker claim was lost to another job |
 | 5 | gh failed (GitHub tracker) |
 
@@ -1184,7 +1185,7 @@ See [Job repos](architecture/job-repos.md).
 |---|---|
 | 1 | unknown job, nothing queued, or missing/malformed score.md |
 
-**`forge job set <id> [--stage S] [--state S] [--waiting-on W|none] [--reason R] [--note N] [--field key=value]...`**: change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox or office daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry. `--field budget` (and any path under it) is refused for every caller: use `forge job budget` at a terminal or the dashboard's Approve on the budget gate
+**`forge job set <id> [--stage S] [--state S] [--waiting-on W|none] [--reason R] [--note N] [--field key=value]...`**: change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox, office or an assistant foreman daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry. `--field budget` (and any path under it) is refused for every caller: use `forge job budget` at a terminal or the dashboard's Approve on the budget gate
 
 | Flag | Meaning |
 |---|---|
@@ -1452,7 +1453,7 @@ A job's pull request.
 
 | Exit | When |
 |---|---|
-| 1 | the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order\|cycle\|release), merge.auto off, a rework, a new round, a stage change, a rework, revise-spec or cancel request still queued, a gate request waiting on the Foreman or a review on GitHub requesting changes on any open PR of the job after the approver's decision, no eligible decision for the PR head, an escalate-floor path (reason auto-off\|superseded\|decision\|floor), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, a daemon session passing --now, another job's id or a broken scope, the office daemon session ran it, or a protected path at the PR head that no human approved at that content (code protected_path; --now overrides), --now not confirmed, or --now with no person at a terminal (code human_only: an agent, a script or a configured command) |
+| 1 | the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order\|cycle\|release), merge.auto off, a rework, a new round, a stage change, a rework, revise-spec or cancel request still queued, a gate request waiting on the Foreman or a review on GitHub requesting changes on any open PR of the job after the approver's decision, no eligible decision for the PR head, an escalate-floor path (reason auto-off\|superseded\|decision\|floor), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, a daemon session passing --now, another job's id or a broken scope, the office or an assistant foreman daemon session ran it, or a protected path at the PR head that no human approved at that content (code protected_path; --now overrides), --now not confirmed, or --now with no person at a terminal (code human_only: an agent, a script or a configured command) |
 | 5 | gh or git failed |
 
 **`forge pr open <id> [--title T] [--draft] [--force]`**: push the verified branch and open or update its PR; with job repos, every repo is checked first, then each non-verify-only member's branch is pushed and its PR opened or updated (result: repos) in dependency order before the root PR; a repo an interim strategy holds back is not pushed (result: deferred; docs/CONFIG.md "Interim strategies")
@@ -1604,7 +1605,7 @@ The dashboard's inbox of requests for an orchestrator session.
 |---|---|
 | 1 | a daemon session's scope is invalid |
 
-**`forge requests scope`**: which session this is: not a daemon, the inbox, the office, or one job
+**`forge requests scope`**: which session this is: not a daemon, the inbox, the office, an assistant foreman (which sees every gate request), or one job
 
 | Exit | When |
 |---|---|
@@ -1900,7 +1901,7 @@ A job's git worktree.
 
 | Exit | When |
 |---|---|
-| 1 | no such job, an unsafe branch name, no free port, a member repo worktree that could not be created (the result names it), or the inbox or office daemon session ran it |
+| 1 | no such job, an unsafe branch name, no free port, a member repo worktree that could not be created (the result names it), or the inbox, office or an assistant foreman daemon session ran it |
 | 5 | git failed |
 
 **`forge worktree path <id> [--repo NAME]`**: the worktree's path, or member repo NAME's (empty when it has none)

@@ -1,17 +1,18 @@
 <!-- Tool calls daemon sessions are waiting on a human to allow: the whole pool's in the status bar's Needs-you popover, one job's in
-     its Thread. The tool input, the agent's description and paths are session output, i.e. untrusted, and render as text.
+     its Thread, one Foreman session's (named by `name`, which each card and the section's label then carry) in the Foreman popover.
+     The tool input, the agent's description and paths are session output, i.e. untrusted, and render as text.
      Only the decision is posted; the server builds what the session receives from claude's own request. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
   import { ago } from '../lib/util.ts';
-  import { INBOX_SCOPE } from '../lib/types.ts';
+  import { INBOX_SCOPE, OFFICE_SCOPE, assistantNumber, isAssistantScope, sharedScope } from '../lib/types.ts';
   import type { PermissionDecision } from '../lib/types.ts';
   import { grantsMore, pendingPrompts, postPermission, promptInput } from '../lib/permissions.ts';
   import { S, forgeToken, openDrawer, refresh } from '../lib/app.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
 
-  let { scope }: { scope?: string } = $props();
+  let { scope, name }: { scope?: string; name?: string } = $props();
   const prompts = $derived(pendingPrompts(S.data?.daemons ?? null, scope));
   /** Prompt ids with a POST in flight, so a double click can't answer twice. */
   let answering = $state<string[]>([]);
@@ -29,13 +30,19 @@
 </script>
 
 {#if prompts.length}
-  <section class="flex flex-col gap-2" aria-label={$t('permission.heading', { count: prompts.length })}>
+  <section class="flex flex-col gap-2" aria-label={name ? $t('permission.headingNamed', { name, count: prompts.length }) : $t('permission.heading', { count: prompts.length })}>
     {#each prompts as { scope: s, prompt: p } (p.id)}
       <article class="plate ember p-3 flex flex-col gap-2">
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
           <Chip tone="warn" text={$t('permission.chip')} />
-          {#if scope === undefined}
-            {#if s === INBOX_SCOPE}<span class="text-muted">{$t('permission.inbox')}</span>{:else}<button class="mono text-fg underline decoration-dotted truncate max-w-full" title={s} onclick={() => openDrawer(s, null, 'log')}>{s}</button>{/if}
+          {#if name}
+            <span class="text-muted">{name}</span>
+          {:else if scope === undefined}
+            {#if s === INBOX_SCOPE}<span class="text-muted">{$t('permission.inbox')}</span>
+            {:else if s === OFFICE_SCOPE}<span class="text-muted">{$t('statusbar.foreman.officeLog')}</span>
+            {:else if isAssistantScope(s)}<span class="text-muted">{$t('statusbar.foreman.assistant', { n: assistantNumber(s) })}</span>
+            {:else if sharedScope(s)}<span class="mono text-muted">{s}</span>
+            {:else}<button class="mono text-fg underline decoration-dotted truncate max-w-full" title={s} onclick={() => openDrawer(s, null, 'log')}>{s}</button>{/if}
           {/if}
           <span class="text-fg">{p.agentId ? $t('permission.asksSubagent', { tool: p.tool }) : $t('permission.asks', { tool: p.tool })}</span>
           <span class="flex-1"></span>
