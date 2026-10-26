@@ -485,6 +485,35 @@ See [Repo budget](CONFIG.md#repo-budget).
 |---|---|
 | 1 | a period that is not current, nothing exceeded in it, not confirmed, or human_only: a daemon session, or no person at a terminal (an agent, a script or a configured command) |
 
+### `forge chat`
+
+The owner's chats with the Foreman in .forge/runtime/chats/, read-only.
+
+**`forge chat brief`**: what a chat session reads before its first reply ({chat, procedure, brief}): the chat id in a chat session (else null), the procedure file, and at most 32 KiB of board and mandates, fenced as data
+
+See [Daemon](architecture/daemon.md).
+
+**`forge chat list [--all]`**: the chats, newest first ({chats})
+
+| Flag | Meaning |
+|---|---|
+| `--all` | archived chats too |
+
+See [Daemon](architecture/daemon.md).
+
+**`forge chat show <id> [--after N] [--limit M]`**: a chat and a page of its log, unredacted ({chat, entries, more}): the entries with index n > N, oldest first; a malformed line is skipped but keeps its index
+
+| Flag | Meaning |
+|---|---|
+| `--after N` | the last index already read (default -1: from the start) |
+| `--limit M` | at most M entries, 1-1000 (default 500) |
+
+| Exit | When |
+|---|---|
+| 1 | no such chat, or its files cannot be read safely |
+
+See [Daemon](architecture/daemon.md).
+
 ### `forge config`
 
 Read, check and change .forge/config.yml.
@@ -1605,7 +1634,7 @@ The dashboard's inbox of requests for an orchestrator session.
 |---|---|
 | 1 | a daemon session's scope is invalid |
 
-**`forge requests scope`**: which session this is: not a daemon, the inbox, the office, an assistant foreman (which sees every gate request), or one job
+**`forge requests scope`**: which session this is: not a daemon, the inbox, the office, an assistant foreman (which sees every gate request), a chat (which sees none), or one job
 
 | Exit | When |
 |---|---|

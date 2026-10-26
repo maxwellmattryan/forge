@@ -8,7 +8,8 @@ import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import { decideRepoProposals, pendingRepoProposals } from '#engine/project/repo-proposals.ts';
 import { RELEASE_APPROVAL, checkReleaseDecision, pendingReleaseHash } from '#engine/release/approval.ts';
 import { HANDOFF_CLASSES, OFFICE_GATES } from '#core/job/schema.ts';
-import { daemonScope, inAssistant, inOffice } from '#core/job/requests.ts';
+import { daemonScope, inAssistant, inChat, inOffice } from '#core/job/requests.ts';
+import { chatGateRefusal } from '#office/chat/authority.ts';
 import { createAndLink, linkJob, markNoIssue } from '#engine/trackers/link.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { resolveEffort, resolveModel } from '#core/config/load.ts';
@@ -33,6 +34,9 @@ export async function human(root: string, config: Config, rest: string[], flags:
   // An assistant foreman session records only foreman decisions, and only it may (checkForemanDecision): provenance is
   // the daemon scope, so a job session misled by request text can't pass off a decision as the foreman's.
   if ((inOffice() || inAssistant()) && who !== 'foreman') throw new ForgeError('a foreman session records decisions only with --actor foreman', 1);
+  // A chat acts for the owner, but a reserved gate stays the owner's own to decide: refused before anything is written.
+  const chatRefusal = inChat() ? chatGateRefusal(root, config, job, action, note) : null;
+  if (chatRefusal) throw new ForgeError(chatRefusal, 1);
   // No job waits on a release, so it skips checkForemanDecision; checkReleaseDecision re-plans and
   // re-reads the policy before the one event it writes, and takes the job's mandate from here (it is
   // engine code). The job's state never changes.

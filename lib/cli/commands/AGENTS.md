@@ -17,6 +17,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `audit.ts` | `forge audit`: the audit trail across every job and the repo-level log, for a period. |
 | `backing.ts` | `forge backing up\|down\|stop\|status`: a job's backing services on demand (lib/engine/environment/backing.ts, docs/CONFIG.md "Backing services"). |
 | `budget.ts` | `forge budget`: repo spend against the day and month caps (config `budget:`), and a human's acknowledgement that grants one more period. |
+| `chat.ts` | `forge chat list\|show\|brief`: the owner's chats with the Foreman, read-only. |
 | `config.ts` | `forge config show\|get\|set\|validate`: read the effective config, and write one editable key. |
 | `daemon.ts` | `forge daemon status\|log`: the terminal's view of the session pool. |
 | `dash.ts` | `forge dash`: the machine's one dashboard for every registered project, started in the foreground or as a detached, pid-tracked process, registering the repo it runs in. |
