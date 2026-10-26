@@ -20,6 +20,7 @@
     project: $t('nav.project'),
     issues: $t('nav.issues'),
     agents: $t('nav.agents'),
+    foreman: $t('nav.foreman'),
     analytics: $t('nav.analytics'),
     evals: $t('nav.evals'),
   });

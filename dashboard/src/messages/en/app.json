@@ -13,6 +13,7 @@
     "pipeline": "Pipeline",
     "issues": "Issues",
     "agents": "Agents",
+    "foreman": "Foreman",
     "analytics": "Analytics",
     "evals": "Evals",
     "project": "Project"

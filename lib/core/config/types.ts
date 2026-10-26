@@ -1,10 +1,10 @@
 // The effective config and its sections' shapes, type-only: re-exported by lib/core/types.ts; unions with a runtime list derive from it.
-import type { BACKING_DB_ENGINES, BACKING_ISOLATIONS, DAEMON_AUTH, EFFORT_ROLES, KEEP_AWAKE_MODES, FOREMAN_SHIP, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL, NOTIFY_EVENTS, NOTIFY_FORMATS } from '../job/schema.ts';
+import type { BACKING_DB_ENGINES, BACKING_ISOLATIONS, DAEMON_AUTH, EFFORT_ROLES, KEEP_AWAKE_MODES, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS } from '../job/schema.ts';
 import type { LINK_ECOSYSTEMS } from './components.ts';
 import type { SINK_FORMATS, SINK_MODES } from './sinks.ts';
 import type { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_PUBLISH, RELEASE_REGISTRIES, RELEASE_VERSIONINGS } from './release-strategy.ts';
 import type { Severity } from '../job/types.ts';
-import type { Complexity, ComponentKind, DaemonJobBudget, DependencyType, Effort, GateClass, InterimStrategy, PipelineConfig, RepoBudgetMode } from '#api/types.ts';
+import type { Complexity, ComponentKind, DaemonJobBudget, DependencyType, Effort, GateClass, InterimStrategy, MandateOnUnfinishable, MandateOrder, MandateUntil, PipelineConfig, RepoBudgetMode } from '#api/types.ts';
 
 /** A role with its own runtime.efforts entry: EFFORT_ROLES in lib/core/job/schema.ts. */
 export type EffortRole = (typeof EFFORT_ROLES)[number];
@@ -362,13 +362,6 @@ export interface ForemanSubRole {
   model: string;
   effort: Effort | null;
 }
-
-/** A mandate's until: MANDATE_UNTIL in lib/api/constants.ts. */
-export type MandateUntil = (typeof MANDATE_UNTIL)[number];
-/** A mandate's order: MANDATE_ORDERS in lib/api/constants.ts. */
-export type MandateOrder = (typeof MANDATE_ORDERS)[number];
-/** A mandate's onUnfinishable: MANDATE_ON_UNFINISHABLE in lib/api/constants.ts. */
-export type MandateOnUnfinishable = (typeof MANDATE_ON_UNFINISHABLE)[number];
 
 /** foreman.mandate: the contract terms a new mandate takes when `forge mandate new` isn't given them. */
 export interface MandateDefaults {

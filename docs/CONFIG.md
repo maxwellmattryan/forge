@@ -885,7 +885,7 @@ The model and effort keys (`foreman.model`, `foreman.effort`, `foreman.assistant
 
 ### Mandates
 
-A **mandate** is the owner's standing instruction to the Office: one file, `.forge/runtime/mandates/<id>.md`, with the mandate contract as YAML frontmatter and the owner's guidance as free text after it. `runtime/` is gitignored and outside every daemon session's write roots, so a mandate is this machine's alone and no branch or PR can change one. Only `forge mandate` writes it (docs/CLI.md):
+A **mandate** is the owner's standing instruction to the Office: one file, `.forge/runtime/mandates/<id>.md`, with the mandate contract as YAML frontmatter and the owner's guidance as free text after it. `runtime/` is gitignored and outside every daemon session's write roots, so a mandate is this machine's alone and no branch or PR can change one. Only the owner writes it: `forge mandate` (docs/CLI.md), or the dashboard's Foreman page, which writes through the same checks and refusals (docs/DASHBOARD.md):
 
 - `forge mandate new <id> --title T [terms] [--goal G]` creates it, `active`. Each term it isn't given comes from `foreman.mandate`, and the default `decides` is cut to the classes the Foreman may decide (`foreman.decides` minus `gate:<class>` reservations), so a default never causes a refusal. `edit` replaces only the terms given (`none` empties a list, `--after none` clears `after`); `pause`, `resume` and `close` move its status (each idempotent; a closed mandate is never edited, paused or resumed); `list` and `show` read.
 - The id matches `^[a-z0-9][a-z0-9-]{0,39}$` and is not `none`.

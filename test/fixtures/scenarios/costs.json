@@ -35,6 +35,7 @@
     "project": ["@project.empty"],
     "issues": ["@issues.empty"],
     "agents": ["@agents.running", "Tidy the changelog script"],
+    "foreman": ["@foreman.title", "@statusbar.foreman.offTitle", "@foreman.office.noMandates", "@foreman.office.noDirectives"],
     "analytics": ["@analytics.byModel", "Rewrite the scheduler", "Add the CSV export", "Tidy the changelog script"],
     "evals": ["@evals.empty"],
     "drawer": { "job": "haiku", "text": ["spec-writer", "@thread.progress.agent"] }
