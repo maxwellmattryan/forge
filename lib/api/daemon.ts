@@ -1,5 +1,5 @@
 // The session pools: /api/daemon, /api/daemon/mode, /api/daemon/permission, /api/daemons/log and the /api/events SSE frames,
-// plus the machine dashboard's own GET /api/projects, /api/projects/events and /api/projects/stats, and the machine cap every pool reports.
+// plus the machine dashboard's own GET and POST /api/projects, /api/projects/events and /api/projects/stats, and the machine cap every pool reports.
 import type { Effort, JobState, Stage } from './enums.ts';
 
 /** The machine cap as a pool reports it: DaemonPoolState.machine. */
@@ -55,6 +55,21 @@ export interface ProjectsResponse {
   machine: { maxConcurrent: number; source: 'settings' | 'auto'; live: number };
   /** Sorted by name. */
   projects: MachineProjectSummary[];
+}
+
+/** POST /api/projects body: postProject in lib/server/routes/machine.ts registers the repo at `path`, as `forge project add`. */
+export interface PostProjectBody {
+  /** An absolute path, or `~` / `~/…`; a worktree or subdirectory registers its main checkout. */
+  path: string;
+  /** Omitted or empty: the directory's default name. */
+  name?: string;
+}
+
+/** POST /api/projects reply on success: `added` is false when the path was already registered (the index untouched). */
+export interface PostProjectResponse {
+  added: boolean;
+  /** Its GET /api/projects entry after the re-read. */
+  project: MachineProjectSummary;
 }
 
 /** One /api/projects/events frame: sent on connect and whenever the summary changes. */
