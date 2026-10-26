@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { inboxGroups, needsCount } from './inbox.ts';
 import { filterJobs, pipelineCounts, sortByRank } from './board.ts';
 import { needsHuman, stateText, stateTone } from './job-state.ts';
-import { postShelf, shelfActionReady, shelfBody, shelfNeedsConfirm, shelfRows, shelfSummary } from './shelf.ts';
+import { postShelf, shelfActionReady, shelfBody, shelfNeedsConfirm, shelfPress, shelfRows, shelfSummary } from './shelf.ts';
 import { setProject } from './project.ts';
 import type { Job } from './types.ts';
 
@@ -35,7 +35,7 @@ test('the batch body names each row\'s shelvedAt', () => {
     rows.map((r) => [r.id, r.from, r.at, r.by, r.reason]),
     [
       ['s', 'Escalated', AT, 'alice', 'waiting on the billing owner'],
-      ['q', 'queued', '2026-10-26T11:00:00.000Z', null, 'waiting on the billing owner'],
+      ['q', 'Queued', '2026-10-26T11:00:00.000Z', null, 'waiting on the billing owner'],
     ],
   );
   assert.deepEqual(shelfBody('approve', rows, '  '), { action: 'approve', jobs: [{ id: 's', shelvedAt: AT }, { id: 'q', shelvedAt: '2026-10-26T11:00:00.000Z' }], note: null });
@@ -44,6 +44,17 @@ test('the batch body names each row\'s shelvedAt', () => {
   assert.equal(shelfActionReady('unshelve', 0, ''), false, 'nothing selected');
   assert.equal(shelfActionReady('rework', 2, ' '), false, 'rework needs its note');
   assert.equal(shelfActionReady('rework', 2, 'why'), true);
+});
+
+test('pressing the same action twice from the bar never posts', () => {
+  // The bar's Approve and Close only open the confirm, so a double-click can't skip the count it names.
+  for (const a of ['approve', 'close'] as const) {
+    assert.deepEqual([1, 2].map(() => shelfPress(a, 'bar', 3, '')), ['confirm', 'confirm']);
+    assert.equal(shelfPress(a, 'confirm', 3, ''), 'post', 'the confirm row\'s own button posts');
+  }
+  // Rework and Un-shelve have no confirm step: the bar posts them, once the rows (and Rework's note) are there.
+  assert.deepEqual([shelfPress('unshelve', 'bar', 1, ''), shelfPress('rework', 'bar', 1, 'why'), shelfPress('rework', 'bar', 1, ' ')], ['post', 'post', 'none']);
+  assert.deepEqual([shelfPress('approve', 'bar', 0, ''), shelfPress('close', 'confirm', 0, '')], ['none', 'none']);
 });
 
 test('the summary lists every skip', async () => {

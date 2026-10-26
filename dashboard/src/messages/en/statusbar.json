@@ -182,7 +182,7 @@
     "from": "From: {gate}",
     "byWhen": "Shelved by {who} · {ago}",
     "when": "Shelved {ago}",
-    "note": "Note for the agents (Rework needs one)",
+    "note": "Note for the agents (sent with Approve and Rework; Rework needs one)",
     "action": {
       "approve": "Approve",
       "rework": "Rework",

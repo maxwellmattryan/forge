@@ -34,10 +34,11 @@
   const drafts = $derived(data.drafts ?? []);
   // The same source PermissionPrompts reads, so the section renders exactly when it lists something.
   const prompts = $derived(pendingPrompts(S.data?.daemons ?? null).length);
-  // An answered prompt or a decided milestone draft unmounts with its buttons: focus back on the popover, not the body.
+  // An answered prompt, a decided milestone draft or the last shelved job leaving unmounts with its buttons: focus back on the popover, not the body.
   $effect(() => {
     void prompts;
     void drafts.length;
+    void groups.shelved.length;
     keepFocus();
   });
 </script>

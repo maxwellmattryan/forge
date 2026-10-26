@@ -11,7 +11,7 @@ export interface ShelfRow {
   id: string;
   title: string;
   reason: string;
-  /** The gate it was shelved from (its WAIT_LABEL), or the state for a job that wasn't waiting. */
+  /** The gate it was shelved from (its WAIT_LABEL), or the state, capitalised, for a job that wasn't waiting. */
   from: string;
   /** `shelved.at`, which the batch body pins each entry to. */
   at: string;
@@ -28,7 +28,8 @@ export function shelfRows(jobs: JobLike[]): ShelfRow[] {
   return jobs.flatMap((j) => {
     const s = j.shelved;
     if (!isShelved(j) || !s || typeof s.at !== 'string') return [];
-    const from = s.from?.waitingOn ? (WAIT_LABEL[s.from.waitingOn as WaitingOn] ?? s.from.waitingOn) : String(s.from?.state ?? '');
+    const state = String(s.from?.state ?? '');
+    const from = s.from?.waitingOn ? (WAIT_LABEL[s.from.waitingOn as WaitingOn] ?? s.from.waitingOn) : state.charAt(0).toUpperCase() + state.slice(1);
     return [{ id: String(j.id), title: String(j.title ?? j.id), reason: String(s.reason ?? ''), from, at: s.at, by: s.actor?.login ?? null, pr: j.pr ?? null }];
   });
 }
@@ -41,6 +42,16 @@ export function shelfBody(action: ShelfAction, rows: Pick<ShelfRow, 'id' | 'at'>
 /** Approve and Close ask for a second click that names the count; Rework needs its note; nothing goes with no rows. */
 export const shelfNeedsConfirm = (action: ShelfAction): boolean => action === 'approve' || action === 'close';
 export const shelfActionReady = (action: ShelfAction, selected: number, note: string): boolean => selected > 0 && (action !== 'rework' || note.trim() !== '');
+
+export type ShelfPress = 'none' | 'confirm' | 'post';
+/**
+ * What a press does. Pressing Approve or Close in the batch bar only opens the confirm row, however often it is pressed
+ * (a double-click included); only the confirm row's own button (`via: 'confirm'`) posts them. The other actions post at once.
+ */
+export function shelfPress(action: ShelfAction, via: 'bar' | 'confirm', selected: number, note: string): ShelfPress {
+  if (!shelfActionReady(action, selected, note)) return 'none';
+  return via === 'bar' && shelfNeedsConfirm(action) ? 'confirm' : 'post';
+}
 
 /** POST /api/shelf. Throws with the server's `error` field, else its text, else the status text. */
 export const postShelf = (body: PostShelfBody, token: string, fetchImpl: typeof fetch = fetch): Promise<PostShelfResponse> => post<PostShelfResponse>('/api/shelf', body, token, fetchImpl);
