@@ -223,7 +223,9 @@ export function parseTemplate(template: string): string[] {
  * root takes its place, so a session writes without a prompt only inside those roots.
  * Any --max-budget-usd in the template is dropped; `maxBudgetUsd`, when a number, becomes the one
  * claude reads. A `model` (the office session's foreman.model) replaces every --model the template
- * has. DENY_TOOLS, then `deny`, and PROMPT_TOOL always follow the template.
+ * has. `appendSystemPrompt`, when a string, follows as `--append-system-prompt <text>`: only a chat
+ * session's spawn passes it, and only the fixed CHAT_PROMPT (lib/office/session/launch.ts). DENY_TOOLS, then
+ * `deny`, and PROMPT_TOOL always follow the template.
  */
 export function buildArgv(
   template: string,
@@ -237,6 +239,7 @@ export function buildArgv(
     writeRoots?: string[];
     deny?: string[];
     maxBudgetUsd?: number | null;
+    appendSystemPrompt?: string | null;
   },
 ): string[] {
   const listed = vars.allowedTools ?? [];
@@ -255,5 +258,6 @@ export function buildArgv(
   if (model && model !== 'inherit') argv = withModel(argv, model);
   argv = withoutBudgetCap(argv);
   if (typeof vars.maxBudgetUsd === 'number' && Number.isFinite(vars.maxBudgetUsd)) argv.push('--max-budget-usd', capArg(vars.maxBudgetUsd));
+  if (typeof vars.appendSystemPrompt === 'string') argv.push('--append-system-prompt', vars.appendSystemPrompt);
   return [...argv, '--disallowedTools', [...DENY_TOOLS, ...(vars.deny ?? [])].join(','), ...PROMPT_TOOL];
 }

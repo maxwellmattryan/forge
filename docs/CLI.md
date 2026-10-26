@@ -160,7 +160,7 @@ Read by Forge:
 | `PATH` | where git, gh, claude, node and docker are found; configured commands get it sanitised (no empty or relative entries) when `FORGE_COMMAND_PATH` is unset |
 | `FORGE_COMMAND_PATH` | the PATH configured commands get, sanitised: `forge dash` sets it at start from its login shell (`$SHELL -lc`, this plugin's `bin/` first), and its sessions and their `forge` calls inherit it. Never passed to a command (docs/CONFIG.md "Command environment") |
 | `FORGE_COMMAND_PATH_SOURCE` | where `FORGE_COMMAND_PATH` came from, `login-shell (<shell>)` or `inherited: <reason>`; `forge doctor`'s `command PATH` check shows it and warns on a failed capture. Never passed to a command |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`, `ANTHROPIC_BASE_URL` | `forge dash` leaves them out of daemon sessions' environment unless `daemon.auth: api-key`; `forge doctor` and the dashboard's Daemon popover say which are set |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`, `ANTHROPIC_BASE_URL` | `forge dash` leaves them out of daemon sessions' environment unless `daemon.auth: api-key`; `forge doctor` and the dashboard's Workers popover say which are set |
 | `GIT_CONFIG_COUNT` | daemon sessions append their git pins after the entries already counted |
 | `CLAUDE_CONFIG_DIR` | Claude Code's own config dir: transcripts are read from `$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects`, by `forge job agent … end --import` and the dashboard's agent activity and transcript views |
 | `CLAUDE_PROJECT_DIR` | set by Claude Code for hooks: the project it runs in. The no-AI-attribution hook reads the `aiAttribution: allow` opt-out from the `.forge/config.yml` of that directory's main checkout (a worktree's own config never counts); unset or not a git checkout means no opt-out |
@@ -370,7 +370,7 @@ Before writing, stderr lists every entry with its size, any file it skipped and 
 | `doctor.json` | what `forge doctor` prints, except that the `command environment` check counts the `*_HOME` and `*_ROOT` variable names it has no fixed entry for instead of naming them ([Command environment](CONFIG.md#command-environment)) |
 | `versions.json` | `{forge, node, git, gh, glab, os}`; a missing tool is `null` |
 | `config.json` | the effective config, with every value that names a command, path, URL or person, and every key Forge doesn't know, replaced by `<redacted>` (`CONFIG_DISCLOSURE` in `lib/core/config/fields.ts`) |
-| `daemon/inbox.log`, `daemon/office.log`, `daemon/assistant-<n>.log` | without a job: the last 500 lines of the inbox, office and each existing assistant foreman session log |
+| `daemon/inbox.log`, `daemon/office.log`, `daemon/assistant-<n>.log` | without a job: the last 500 lines of the inbox, office and each existing assistant foreman session log. Chat session logs (`daemons/_chat-<id>.log`) and chat files are left out on purpose: a chat is the owner's own conversation |
 | `jobs/<id>/job.json`, `events.jsonl`, `step.json` | the job, every event, and what `forge job step` decides now |
 | `jobs/<id>/verify/round-<n>.md` | the last 200 lines of the newest verify round |
 | `jobs/<id>/logs/verify-<step>-<ts>.log` | the last 200 lines of the newest verify log per step, at most 20 |
@@ -540,6 +540,35 @@ See [Repo budget](CONFIG.md#repo-budget).
 | Exit | When |
 |---|---|
 | 1 | a period that is not current, nothing exceeded in it, not confirmed, or human_only: a daemon session, or no person at a terminal (an agent, a script or a configured command) |
+
+### `forge chat`
+
+The owner's chats with the Foreman in .forge/runtime/chats/, read-only.
+
+**`forge chat brief`**: what a chat session reads before its first reply ({chat, procedure, brief}): the chat id in a chat session (else null), the procedure file, and at most 32 KiB of board and mandates, fenced as data
+
+See [Daemon](architecture/daemon.md).
+
+**`forge chat list [--all]`**: the chats, newest first ({chats})
+
+| Flag | Meaning |
+|---|---|
+| `--all` | archived chats too |
+
+See [Daemon](architecture/daemon.md).
+
+**`forge chat show <id> [--after N] [--limit M]`**: a chat and a page of its log, unredacted ({chat, entries, more}): the entries with index n > N, oldest first; a malformed line is skipped but keeps its index
+
+| Flag | Meaning |
+|---|---|
+| `--after N` | the last index already read (default -1: from the start) |
+| `--limit M` | at most M entries, 1-1000 (default 500) |
+
+| Exit | When |
+|---|---|
+| 1 | no such chat, or its files cannot be read safely |
+
+See [Daemon](architecture/daemon.md).
 
 ### `forge config`
 
@@ -1065,7 +1094,7 @@ See [Effort](CONFIG.md#effort).
 |---|---|
 | 1 | not an assistant foreman daemon session, no such job, a job not waiting on a gate the Foreman decides, an unknown --class, or an empty --reason |
 
-**`forge job human <id> <action> [--note N] [--link <ref>|new|none] [--reason R] [--repo A[,B]] [--actor human|foreman]`**: record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework, answer, or approve-repos or reject-repos on the pending repo proposals named by --repo (approve adds each repo to the job), or the foreman's approve-release of the job's pending release plan (logs release-approval and moves no job)
+**`forge job human <id> <action> [--note N] [--link <ref>|new|none] [--reason R] [--repo A[,B]] [--actor human|foreman]`**: record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework, answer, or approve-repos or reject-repos on the pending repo proposals named by --repo (approve adds each repo to the job), or the foreman's approve-release of the job's pending release plan (logs release-approval and moves no job). In a chat session the decision records actor source chat (docs/architecture/daemon-security.md › Chats)
 
 | Flag | Meaning |
 |---|---|
@@ -1077,7 +1106,7 @@ See [Effort](CONFIG.md#effort).
 
 | Exit | When |
 |---|---|
-| 1 | no such job, a --link that cannot be made, a foreman decision the authority checks refuse, or approve-repos or reject-repos with nothing pending, no --repo, a repo that is not pending, a foreman --repo that is not the whole pending set, a failing clone check, or from a daemon session other than an assistant foreman |
+| 1 | no such job, a --link that cannot be made, a foreman decision the authority checks refuse, a gate foreman.reserved or a security review that didn't pass keeps with a person when a chat session decides it (`a chat may not decide <gate> for <job>: …`), or approve-repos or reject-repos with nothing pending, no --repo, a repo that is not pending, a foreman --repo that is not the whole pending set, a failing clone check, or from a daemon session other than an assistant foreman |
 | 3 | the tracker claim was lost to another job |
 | 5 | gh failed (GitHub tracker) |
 
@@ -1241,7 +1270,7 @@ See [Job repos](architecture/job-repos.md).
 |---|---|
 | 1 | unknown job, nothing queued, or missing/malformed score.md |
 
-**`forge job set <id> [--stage S] [--state S] [--waiting-on W|none] [--reason R] [--note N] [--field key=value]...`**: change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox, office or an assistant foreman daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry. `--field budget` (and any path under it) is refused for every caller: use `forge job budget` at a terminal or the dashboard's Approve on the budget gate
+**`forge job set <id> [--stage S] [--state S] [--waiting-on W|none] [--reason R] [--note N] [--field key=value]...`**: change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox, office or an assistant foreman daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a chat session tears it down like a job session, as it may run forge environment down itself; a failed teardown keeps exit 0 and the records, for forge environment down to retry. `--field budget` (and any path under it) is refused for every caller: use `forge job budget` at a terminal or the dashboard's Approve on the budget gate
 
 | Flag | Meaning |
 |---|---|
@@ -1255,7 +1284,7 @@ See [Job repos](architecture/job-repos.md).
 
 | Exit | When |
 |---|---|
-| 1 | no such job, a field set only by another command, a list field that is not a JSON array of strings, or an unknown or cyclic dependency |
+| 1 | no such job, a field set only by another command, a list field that is not a JSON array of strings, or an unknown or cyclic dependency; in a chat session, a job waiting on a gate that foreman.reserved or a security review that didn't pass keeps with a person (`a chat may not decide <gate> for <job>: …`), or any change to such a job beyond --state running with the stage the decision recorded at its park allows (docs/architecture/daemon-security.md › Chats) |
 | 3 | stale_epoch: the lease moved past --epoch |
 
 **`forge job show <id> [--full]`**: one job, compact (the whole job.json with --full)
@@ -1785,7 +1814,7 @@ The dashboard's inbox of requests for an orchestrator session.
 |---|---|
 | 1 | a daemon session's scope is invalid |
 
-**`forge requests scope`**: which session this is: not a daemon, the inbox, the office, an assistant foreman (which sees every gate request), or one job
+**`forge requests scope`**: which session this is: not a daemon, the inbox, the office, an assistant foreman (which sees every gate request), a chat (which sees none), or one job
 
 | Exit | When |
 |---|---|

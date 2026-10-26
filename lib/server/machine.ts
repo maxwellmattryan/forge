@@ -14,6 +14,7 @@ import { trustApproved } from '#engine/project/trust-approval.ts';
 import { createPreviewer, ghRunner } from '#integrations/github/preview.ts';
 import { whoDrives } from '#office/driver.ts';
 import { createPool } from '#office/pool.ts';
+import { createChatRecorder } from '#office/chat/recorder.ts';
 import type { DaemonPoolState, MachineProjectSummary, ProjectsResponse, RepoBudgetStatus } from '#core/types.ts';
 import { idlePoolState } from './routes/office.ts';
 import { SSE_SLOW_CLIENT_BYTES, broadcast, lineFrame, stateFrame } from './sse.ts';
@@ -107,8 +108,11 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
     const ctx = createContext(machine, name, root);
     const pool = (opts.createPool ?? createPool)(root, { ...opts.daemon, slots: machine.slots });
     ctx.pool = pool;
+    // A chat's session lines and session ids go into its chat files first (it never throws).
+    const recordChat = createChatRecorder(root);
     // Each stream gets only its own project's and session's lines and state.
     const unsubscribe = pool.subscribe((e) => {
+      recordChat(e);
       let frame: string;
       try {
         frame = e.kind === 'line' ? lineFrame(e.offset, e.line) : stateFrame(e.state, scopeKnownValues(root, e.scope, loadConfig(root).config));

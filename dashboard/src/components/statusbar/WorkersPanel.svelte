@@ -1,26 +1,23 @@
-<!-- The Daemon popover's body. First the Foreman row: the supervisor above this pool, a button that opens the Foreman
-     popover (StatusBar's openForeman anchors it on the bar's Foreman indicator), in both branches. Below it, under a
-     divider, the pool pill, live/cap, the pool error or, for a project whose files no human has approved, the line that
-     says to review them and press Start, the job sessions' default permission mode (a job's own choice in its
-     Log tab overrides it), a line when billing variables are set where forge dash started (warn tone for a provider switch
-     or ANTHROPIC_BASE_URL, as doctor), the pool's one Start/Stop
-     icon toggle, then one row per session:
-     the Inbox session, then each job session in status order, and under them the Inbox session log toggle (remembered
-     under LOG_KEY). A job row opens that job's pane on the Log tab. The rows say held and waiting themselves, so no chips
-     repeat them; permission prompts are answered in the Needs-you popover. StatusBar owns the pool state and act(), so the
-     indicator and this panel agree. Session errors and job titles are untrusted and render as text. -->
+<!-- The Workers popover's body: the daemon pool and its job sessions. First the Foreman row: the supervisor above this pool,
+     a button that opens the Foreman popover (StatusBar's openForeman anchors it on the bar's Foreman indicator), in both
+     branches. Below it, under a divider, the pool pill, live/cap, the pool error or, for a project whose files no human has
+     approved, the line that says to review them and press Start, the job sessions' default permission mode (a job's own
+     choice in its Log tab overrides it), a line when billing variables are set where forge dash started (warn tone for a
+     provider switch or ANTHROPIC_BASE_URL, as doctor), the pool's one Start/Stop icon toggle, then one row per job session
+     in status order, or a muted line when there is none. A row opens that job's pane on the Log tab. The rows say held and
+     waiting themselves, so no chips repeat them; permission prompts are answered in the Needs-you popover. The inbox
+     session lives in its own Inbox popover. StatusBar owns the pool state and act(), so the indicator and this panel
+     agree. Session errors and job titles are untrusted and render as text. -->
 <script lang="ts">
   import Chip from '../Chip.svelte';
   import Icon from '../Icon.svelte';
   import IconButton from '../IconButton.svelte';
   import Select from '../Select.svelte';
-  import SessionLog from '../SessionLog.svelte';
   import { PERMISSION_MODES, START_HINT, billingNote, daemonRows, jobFallbackMode, postDaemonMode, type Pill, type PoolModel } from '../../lib/daemon.ts';
   import type { DaemonBilling } from '../../lib/types.ts';
   import type { SelectOption } from '../../lib/select.ts';
   import { toast } from '../../lib/toast.svelte.ts';
-  import { LOG_KEY } from '../../lib/daemon-log.ts';
-  import { INBOX_SCOPE, JOBS_SCOPE } from '../../lib/types.ts';
+  import { JOBS_SCOPE } from '../../lib/types.ts';
   import type { ForemanIndicator } from '../../lib/statusbar.ts';
   import { S, forgeToken, openDrawer, refresh } from '../../lib/app.svelte.ts';
   import { closePopover } from '../../lib/popover.svelte.ts';
@@ -68,21 +65,6 @@
   }
   const rows = $derived(model ? daemonRows(model, S.data?.jobs ?? []) : []);
 
-  const readOpen = (): boolean => {
-    try {
-      return localStorage.getItem(LOG_KEY) === '1';
-    } catch {
-      return false;
-    }
-  };
-  let inboxOpen = $state(readOpen());
-  function toggleInbox(): void {
-    inboxOpen = !inboxOpen;
-    try {
-      localStorage.setItem(LOG_KEY, inboxOpen ? '1' : '0');
-    } catch {}
-  }
-
   function openJob(id: string): void {
     closePopover('navigate');
     openDrawer(id, null, 'log');
@@ -113,46 +95,36 @@
       <span class="mono muted num">{$t('daemon.live', { live: model.live, cap: model.cap })}</span>
     </div>
     {#if model.error !== null}<p class="text-sm text-bad whitespace-pre-line break-words">{model.error}</p>{/if}
-    {#if model.approval}<p class="text-sm text-warn break-words">{$t('statusbar.daemon.approval')}</p>{/if}
+    {#if model.approval}<p class="text-sm text-warn break-words">{$t('statusbar.workers.approval')}</p>{/if}
     <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <span class="flex min-w-0 flex-1 flex-col"><span class="text-sm">{$t('statusbar.daemon.jobMode')}</span><span class="caption muted">{$t('statusbar.daemon.jobModeAbout')}</span></span>
-      <Select variant="button" icon="shield" align="end" label={$t('statusbar.daemon.jobMode')} value={shownMode} text={named(shownMode)} options={modeOptions} onchange={setJobMode} />
+      <span class="flex min-w-0 flex-1 flex-col"><span class="text-sm">{$t('statusbar.workers.jobMode')}</span><span class="caption muted">{$t('statusbar.workers.jobModeAbout')}</span></span>
+      <Select variant="button" icon="shield" align="end" label={$t('statusbar.workers.jobMode')} value={shownMode} text={named(shownMode)} options={modeOptions} onchange={setJobMode} />
     </div>
-    {#if jobMode === 'auto'}<p class="text-xs text-warn">{$t('statusbar.daemon.jobModeAutoWarning')}</p>{/if}
-    {#if note}<p class="text-xs {note.warn ? 'text-warn' : 'muted'}">{note.passed ? $t('statusbar.daemon.billingPassed', { vars: note.vars }) : $t('statusbar.daemon.billingIgnored', { vars: note.vars })}</p>{/if}
+    {#if jobMode === 'auto'}<p class="text-xs text-warn">{$t('statusbar.workers.jobModeAutoWarning')}</p>{/if}
+    {#if note}<p class="text-xs {note.warn ? 'text-warn' : 'muted'}">{note.passed ? $t('statusbar.workers.billingPassed', { vars: note.vars }) : $t('statusbar.workers.billingIgnored', { vars: note.vars })}</p>{/if}
     <div class="flex flex-wrap items-center gap-2">
-      <IconButton icon={model.toggle.action === 'start' ? 'play' : 'stop'} label={model.toggle.action === 'start' ? $t('daemon.start') : $t('daemon.stop')} hint={model.toggle.action === 'start' ? (model.approval ? $t('statusbar.daemon.approvalHint') : model.startHint) : null} disabled={!model.toggle.enabled} onclick={() => act(model.toggle.action)} />
+      <IconButton icon={model.toggle.action === 'start' ? 'play' : 'stop'} label={model.toggle.action === 'start' ? $t('daemon.start') : $t('daemon.stop')} hint={model.toggle.action === 'start' ? (model.approval ? $t('statusbar.workers.approvalHint') : model.startHint) : null} disabled={!model.toggle.enabled} onclick={() => act(model.toggle.action)} />
     </div>
-    <ul class="flex flex-col gap-1 border-t border-line pt-3" aria-label={$t('daemon.rows.label')}>
-      {#each rows as r (r.kind === 'job' ? `job:${r.id}` : r.kind)}
-        <li>
-          {#if r.kind === 'job'}
+    {#if rows.length === 0}
+      <p class="text-sm text-muted border-t border-line pt-3">{$t('statusbar.workers.empty')}</p>
+    {:else}
+      <ul class="flex flex-col gap-1 border-t border-line pt-3" aria-label={$t('daemon.rows.label')}>
+        {#each rows as r (r.id)}
+          <li>
             <button class="plain clickable flex w-full min-w-0 items-center gap-3 border border-line-soft px-2 py-1.5 text-left" title={[r.id, r.pill.title, ...(r.mode ? [$t('daemon.modeTitle', { mode: named(r.mode) })] : [])].join('\n')} onclick={() => openJob(r.id)}>
               <span class="flex min-w-0 flex-1 flex-col"><span class="truncate text-sm">{r.title ?? r.id}</span><span class="mono muted truncate">{r.id}{#if r.mode} · {named(r.mode)}{/if}</span></span>
               {@render pill(r.pill)}
             </button>
-          {:else}
-            <div class="plain flex min-w-0 items-center gap-3 border border-transparent px-2 py-1.5">
-              <span class="flex min-w-0 flex-1 flex-col">
-                <span class="text-sm">{$t('daemon.rows.inbox')}</span>
-                <span class="caption muted">{$t('daemon.rows.inboxAbout')}</span>
-              </span>
-              {@render pill(r.pill)}
-            </div>
-          {/if}
-        </li>
-      {/each}
-    </ul>
-    <div class="border-t border-line pt-3">
-      <button class="btn sm" aria-expanded={inboxOpen ? 'true' : 'false'} onclick={toggleInbox}><Icon name="inbox" />{$t('statusbar.daemon.inboxLog')}</button>
-      {#if inboxOpen}<div class="mt-3 border-t border-line pt-3"><SessionLog scope={INBOX_SCOPE} compact /></div>{/if}
-    </div>
+          </li>
+        {/each}
+      </ul>
+    {/if}
   </div>
 {:else}
   <div class="flex flex-col gap-3">
     {@render foremanRow()}
     <div class="border-t border-line"></div>
-    <p class="text-sm text-muted">{$t('statusbar.daemon.disabled')}</p>
+    <p class="text-sm text-muted">{$t('statusbar.workers.disabled')}</p>
     <div><IconButton icon="play" label={$t('daemon.start')} hint={START_HINT} disabled /></div>
   </div>
 {/if}

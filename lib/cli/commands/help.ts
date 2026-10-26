@@ -12,6 +12,7 @@ import { colorEnabled, renderError } from './render.ts';
 import { HELP as AUDIT } from './audit.ts';
 import { HELP as BACKING } from './backing.ts';
 import { HELP as BUDGET } from './budget.ts';
+import { HELP as CHAT } from './chat.ts';
 import { HELP as ENVIRONMENT } from './environment.ts';
 import { HELP as CONFIG } from './config.ts';
 import { HELP as DAEMON } from './daemon.ts';
@@ -220,7 +221,7 @@ export const CORE: HelpGroup[] = [
   },
 ];
 
-const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...PROJECT, ...SERVICE, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...EXPERIMENT, ...MANDATE, ...OFFICE, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
+const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...PROJECT, ...SERVICE, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...EXPERIMENT, ...MANDATE, ...CHAT, ...OFFICE, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
 const byName = (a: string, b: string): number => a.localeCompare(b, 'en');
 const flagKey = (f: string): string => f.replace(/^[-\s]+/, '');
 

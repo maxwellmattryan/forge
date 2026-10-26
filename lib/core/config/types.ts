@@ -297,8 +297,8 @@ export interface Config {
     turnTimeoutMinutes: number | null;
     auth: DaemonAuth;
     jobBudget: DaemonJobBudget;
-    /** Dollars per UTC day the inbox and office sessions may spend (metered); a null key, or null, has no cap. */
-    dailyUsd: { inbox: number | null; office: number | null } | null;
+    /** Dollars per UTC day the inbox, office and chat sessions may spend (metered); a null key, or null, has no cap. */
+    dailyUsd: { inbox: number | null; office: number | null; chat: number | null } | null;
     /** auto: an active mandate or a running job at an agent stage holds the machine dashboard's sleep assertion; never: it doesn't. */
     keepAwake: KeepAwakeMode;
   };

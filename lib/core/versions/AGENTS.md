@@ -12,6 +12,7 @@ The version lists: one append-only list of named steps per persisted shape, whos
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
 |---|---|
+| `chat.ts` | The chat version steps: a chat's chat.json `schemaVersion` (`.forge/runtime/chats/<id>/chat.json`) is CHAT_STEPS' length plus one, and a log.jsonl line's `v` is CHAT_LOG_STEPS' length plus one. |
 | `config.ts` | The config version steps: `.forge/config.yml`'s schemaVersion is this list's length plus one. |
 | `draft.ts` | The milestone draft version steps: a goal mandate's draft.json `schemaVersion` (`.forge/runtime/mandates/<id>/draft.json`) is this list's length plus one. |
 | `event.ts` | The event version steps: an events.jsonl line's `v` is this list's length plus one. |

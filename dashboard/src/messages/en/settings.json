@@ -6,7 +6,8 @@
     "discard": "Discard unsaved changes?",
     "loading": "Loading settings…",
     "retry": "Retry",
-    "locked": "The daemon is running. Close settings and stop it from the Daemon indicator in the status bar to change settings: any change to .forge/config.yml stops it, and only a human may start it again.",
+    "locked": "The daemon is running. Close settings and stop it from the Workers indicator in the status bar to change settings: any change to .forge/config.yml stops it, and only a human may start it again.",
+    "groups": { "forge": "Forge", "project": "Project" },
     "tabs": {
       "general": "General",
       "pipeline": "Pipeline",
