@@ -290,7 +290,7 @@ daemon:                      # opt-in headless sessions supervised by `forge das
 
 foreman:                     # opt-in: assistant foreman daemon sessions decide gates through assistant sub-agents (see "Foreman" below)
   enabled: false             # true (with daemon.enabled): parked gates become `gate` requests that assistant foremen claim
-  decides: [spec-approval, split-approval, escalation, rounds-exhausted, conflicts, pr-feedback]  # add repo-proposal to let it widen a job's repos; release (with gate:release out of reserved) to let it approve a release plan
+  decides: [spec-approval, split-approval, escalation, rounds-exhausted, conflicts, pr-feedback]  # add repo-proposal to let it widen a job's repos; release (with gate:release out of reserved) to let it approve a release plan; milestone-approval to let it approve or revise a goal mandate's milestone draft
                              # the gate classes it may decide; a class left out stays a plain human gate
   reserved:                  # whole-phrase, case-insensitive: a match keeps the gate with a human; gate:<class> keeps a whole class
     - credential

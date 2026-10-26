@@ -11,7 +11,7 @@ import { readJson, writeJsonAtomic } from '../os/fs.ts';
 import { withLock } from '../os/lock.ts';
 import { now, shortId } from '../utils.ts';
 
-import { ASSISTANTS_SCOPE, ASSISTANT_SCOPE_PREFIX, INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
+import { ASSISTANTS_SCOPE, ASSISTANT_SCOPE_PREFIX, INBOX_SCOPE, MANDATE_ID_SOURCE, MAX_ASSISTANTS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
 
 export { ASSISTANTS_SCOPE, ASSISTANT_SCOPE_PREFIX, INBOX_SCOPE, JOBS_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
 
@@ -92,6 +92,10 @@ function dir(root: string): string {
   return path.join(paths(root).runtime, 'requests');
 }
 
+const MANDATE_ID = new RegExp(MANDATE_ID_SOURCE);
+/** A mandate id as a request's `args.mandate`: the id grammar, and never `none`. */
+const isMandateIdArg = (v: unknown): v is string => typeof v === 'string' && MANDATE_ID.test(v) && v !== 'none';
+
 /**
  * `_config` is kept so callers need not change.
  */
@@ -103,7 +107,9 @@ export function enqueue(
   if (!(REQUEST_TYPES as readonly string[]).includes(req.type)) throw new ForgeError(`unknown request type "${req.type}"`);
   if ((JOB_REQUEST_TYPES as readonly string[]).includes(req.type) && !req.job)
     throw new ForgeError(`request "${req.type}" needs a job`);
-  if (req.type === 'gate' && !validJobId(req.job)) throw new ForgeError('a gate request needs a valid job');
+  // A goal mandate's milestone draft is the one gate no job waits on: job-less, with a valid mandate id instead.
+  const mandateGate = req.type === 'gate' && (req.job === null || req.job === undefined) && req.args?.gate === 'milestone-approval' && isMandateIdArg(req.args?.mandate);
+  if (req.type === 'gate' && !mandateGate && !validJobId(req.job)) throw new ForgeError('a gate request needs a valid job');
   const id = `${Date.now()}-${shortId()}`;
   const rec: ForgeRequest = {
     id,

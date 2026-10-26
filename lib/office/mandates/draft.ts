@@ -2,15 +2,16 @@
 // stored `.forge/runtime/mandates/<id>/draft.json` (readDraft, recordDraft), the drafter's staging file
 // under the office session's worktrees root, the draft requests for a mandate, the spend ledger
 // (`ledger.jsonl`), and the status `forge mandate draft show` prints. docs/architecture/foreman.md › Intake.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ForgeError } from '#core/errors.ts';
 import { worktreeRoot } from '#core/config/load.ts';
 import { checkIssueRef } from '#core/job/issue-ref.ts';
-import { listRequests } from '#core/job/requests.ts';
+import { enqueue, listRequests } from '#core/job/requests.ts';
 import { openAppend } from '#core/job/session-files.ts';
 import { logRepoEvent } from '#core/job/store.ts';
-import { confinedDir, readRegular, readRegularText, writeJsonAtomic } from '#core/os/fs.ts';
+import { confinedDir, readRegular, readRegularText, writeTextAtomic } from '#core/os/fs.ts';
 import { isMap } from '#core/shape.ts';
 import { visibleText } from '#core/text.ts';
 import { now } from '#core/utils.ts';
@@ -49,6 +50,7 @@ const ISSUE_KEYS = ['key', 'title', 'why', 'whatToDo', 'done', 'stat', 'wave', '
 const EXISTING_KEYS = ['ref', 'action'];
 const HEADER_KEYS = ['schemaVersion', 'mandate', 'request', 'recordedAt'];
 
+/** Only for Forge's own values (a request id the caller checked): no refusal echoes text the drafter wrote. */
 const show = (v: unknown): string => String(JSON.stringify(String(v))).slice(0, 80);
 
 /** Why `v` is not 1-`max` characters of visible text, on one line or (`lines`) on lines; null when it is. */
@@ -59,10 +61,13 @@ function textProblem(what: string, v: unknown, max: number, lines = false): stri
   return null;
 }
 
-/** The keys of a map that are not `allowed`, and the allowed keys it lacks, as problems. */
+/**
+ * The keys of a map that are not `allowed`, counted (their names are the drafter's text), and the
+ * allowed keys it lacks, named (those are Forge's words), as problems.
+ */
 function keyProblems(where: string, m: Record<string, unknown>, allowed: string[]): string[] {
-  const unknown = Object.keys(m).filter((k) => !allowed.includes(k)).map((k) => `${where}: unknown key ${show(k)}`);
-  return [...unknown, ...allowed.filter((k) => !Object.hasOwn(m, k)).map((k) => `${where}: no ${k}`)];
+  const unknown = Object.keys(m).filter((k) => !allowed.includes(k)).length;
+  return [...(unknown ? [`${where}: ${unknown} unknown key${unknown === 1 ? '' : 's'}`] : []), ...allowed.filter((k) => !Object.hasOwn(m, k)).map((k) => `${where}: no ${k}`)];
 }
 
 /** Why a repo path in `files` is refused: absolute, an option, `..`, a backslash or hidden text. */
@@ -94,28 +99,29 @@ export function trackerRefCheck(root: string, config: Config): RefCheck {
 /** A ref already in its stored form: what readDraft accepts. */
 const storedRefCheck: RefCheck = (raw) => {
   const r = checkIssueRef(raw, { tracker: '', slug: null });
-  return 'ref' in r && r.ref === raw ? r : { error: `${show(raw)} is not a stored issue ref` };
+  return 'ref' in r && r.ref === raw ? r : { error: 'not a stored issue ref' };
 };
 
-/** Every problem of one issue on its own: keys, text, wave, files and the shape of dependsOn. */
-function issueProblems(it: Record<string, any>, i: number, label: string, keys: Set<string>): string[] {
-  const problems = keyProblems(label, it, ISSUE_KEYS);
-  if (typeof it.key !== 'string' || !KEY.test(it.key)) problems.push(`issues[${i}]: key ${show(it.key)} must be lowercase letters, digits and -, at most 40, not starting with -`);
-  else if (keys.has(it.key)) problems.push(`issue key ${it.key} is used twice`);
-  else keys.add(it.key);
+/** Every problem of one issue on its own, named by position: keys, text, wave, files and the shape of dependsOn. */
+function issueProblems(it: Record<string, any>, i: number, firstOf: Map<string, number>): string[] {
+  const at = `issues[${i}]`;
+  const problems = keyProblems(at, it, ISSUE_KEYS);
+  if (typeof it.key !== 'string' || !KEY.test(it.key)) problems.push(`${at}.key must be lowercase letters, digits and -, at most 40, not starting with -`);
+  else if (firstOf.has(it.key)) problems.push(`${at}.key repeats issues[${firstOf.get(it.key)}].key`);
+  else firstOf.set(it.key, i);
   for (const [k, max, lines] of [['title', 200, false], ['stat', 100, false], ['why', 2000, true], ['whatToDo', 4000, true], ['done', 2000, true]] as const) {
     if (!Object.hasOwn(it, k)) continue;
-    const p = textProblem(`${label}: ${k}`, it[k], max, lines);
+    const p = textProblem(`${at}.${k}`, it[k], max, lines);
     if (p) problems.push(p);
   }
-  if (!Number.isInteger(it.wave) || it.wave < 1 || it.wave > WAVES_MAX) problems.push(`${label}: wave must be an integer 1-${WAVES_MAX}`);
-  if (!Array.isArray(it.files) || it.files.length < 1 || it.files.length > FILES_MAX) problems.push(`${label}: files must be a list of 1-${FILES_MAX} repo paths`);
+  if (!Number.isInteger(it.wave) || it.wave < 1 || it.wave > WAVES_MAX) problems.push(`${at}.wave must be an integer 1-${WAVES_MAX}`);
+  if (!Array.isArray(it.files) || it.files.length < 1 || it.files.length > FILES_MAX) problems.push(`${at}.files must be a list of 1-${FILES_MAX} repo paths`);
   else
-    for (const f of it.files) {
+    it.files.forEach((f: unknown, j: number) => {
       const p = fileProblem(f);
-      if (p) problems.push(`${label}: file ${show(f)} ${p}`);
-    }
-  if (!Array.isArray(it.dependsOn)) problems.push(`${label}: dependsOn must be a list of issue keys`);
+      if (p) problems.push(`${at}.files[${j}] ${p}`);
+    });
+  if (!Array.isArray(it.dependsOn)) problems.push(`${at}.dependsOn must be a list of issue keys`);
   return problems;
 }
 
@@ -140,6 +146,8 @@ function milestoneProblems(ms: unknown): string[] {
  * `existing.ref` in its stored form when it breaks none. Exactly the documented keys at every level; text
  * on one line or on lines, visible, bounded; 1-30 issues with unique keys; waves 1…max with no gap;
  * dependencies only on earlier waves; repo-relative files that no two issues in one wave share.
+ * Every problem names a position (`issues[2].files[0]`) and numbers Forge computed, never a string the
+ * drafter wrote: the office session acks with the refusal, so drafter text never reaches its context.
  */
 export function draftProblems(raw: unknown, refOf: RefCheck): { problems: string[]; draft: DraftBody | null } {
   if (!isMap(raw)) return { problems: ['the draft must be a JSON object with milestone and issues'], draft: null };
@@ -151,43 +159,47 @@ export function draftProblems(raw: unknown, refOf: RefCheck): { problems: string
     problems.push(`issues must be a list of 1-${ISSUES_MAX} issues (got ${Array.isArray(issues) ? issues.length : typeof issues})`);
     return { problems, draft: null };
   }
-  const label = (i: number) => (isMap(issues[i]) && typeof issues[i].key === 'string' && KEY.test(issues[i].key) ? `issue ${issues[i].key}` : `issues[${i}]`);
-  const keys = new Set<string>();
+  // A key's first position: dependencies and repeats are named by it.
+  const firstOf = new Map<string, number>();
   const waveOf = new Map<string, number>();
   issues.forEach((it, i) => {
     if (!isMap(it)) return void problems.push(`issues[${i}] must be an object`);
-    problems.push(...issueProblems(it, i, label(i), keys));
+    problems.push(...issueProblems(it, i, firstOf));
     if (typeof it.key === 'string' && Number.isInteger(it.wave) && !waveOf.has(it.key)) waveOf.set(it.key, it.wave as number);
   });
   // Waves, dependencies, file overlaps and existing refs need every issue's key and wave first.
   const used = [...new Set(waveOf.values())];
   const max = used.length ? Math.max(...used) : 0;
   for (let w = 1; w <= max; w++) if (!used.includes(w)) problems.push(`waves must run 1 to ${max} with no gap (no issue in wave ${w})`);
-  const refs = new Map<string, string>();
+  const refs = new Map<string, number>();
   const stored: DraftIssue[] = [];
   issues.forEach((it, i) => {
     if (!isMap(it)) return;
+    const at = `issues[${i}]`;
     const own = typeof it.key === 'string' ? waveOf.get(it.key) : undefined;
     const seen = new Set<unknown>();
-    for (const d of Array.isArray(it.dependsOn) ? it.dependsOn : []) {
-      if (seen.has(d)) problems.push(`${label(i)} lists dependency ${show(d)} twice`);
+    (Array.isArray(it.dependsOn) ? it.dependsOn : []).forEach((d: unknown, j: number) => {
+      const dep = `${at}.dependsOn[${j}]`;
+      if (seen.has(d)) problems.push(`${dep} repeats an earlier entry`);
       seen.add(d);
-      if (d === it.key) problems.push(`${label(i)} depends on itself`);
-      else if (typeof d !== 'string' || !keys.has(d)) problems.push(`${label(i)} depends on unknown issue ${show(d)}`);
-      else if (own !== undefined && (waveOf.get(d) ?? 0) >= own) problems.push(`${label(i)} (wave ${own}) depends on ${d} in wave ${waveOf.get(d)}: a dependency must sit in an earlier wave`);
-    }
+      if (d === it.key) problems.push(`${dep} is the issue itself`);
+      else if (typeof d !== 'string' || !firstOf.has(d)) problems.push(`${dep} names no issue in the draft`);
+      else if (own !== undefined && (waveOf.get(d) ?? 0) >= own)
+        problems.push(`${dep} is issues[${firstOf.get(d)}] in wave ${waveOf.get(d)}, not before wave ${own}: a dependency must sit in an earlier wave`);
+    });
     let existing: DraftIssue['existing'] = null;
     const e = it.existing;
     if (Object.hasOwn(it, 'existing') && e !== null) {
-      if (!isMap(e)) problems.push(`${label(i)}: existing must be null or {ref, action}`);
+      if (!isMap(e)) problems.push(`${at}.existing must be null or {ref, action}`);
       else {
-        problems.push(...keyProblems(`${label(i)}: existing`, e, EXISTING_KEYS));
-        if (e.action !== 'reuse' && e.action !== 'amend') problems.push(`${label(i)}: existing.action must be reuse or amend`);
+        problems.push(...keyProblems(`${at}.existing`, e, EXISTING_KEYS));
+        if (e.action !== 'reuse' && e.action !== 'amend') problems.push(`${at}.existing.action must be reuse or amend`);
         const r = refOf(e.ref);
-        if ('error' in r) problems.push(`${label(i)}: existing.ref: ${r.error}`);
-        else if (refs.has(r.ref)) problems.push(`${label(i)} and issue ${refs.get(r.ref)} both name existing issue ${r.ref}`);
+        // checkIssueRef's error echoes the ref: the fixed text names the position instead.
+        if ('error' in r) problems.push(`${at}.existing.ref is not a valid issue ref for this tracker`);
+        else if (refs.has(r.ref)) problems.push(`issues[${refs.get(r.ref)}] and ${at} name the same existing issue`);
         else {
-          refs.set(r.ref, String(it.key));
+          refs.set(r.ref, i);
           existing = { ref: r.ref, action: e.action as 'reuse' | 'amend' };
         }
       }
@@ -199,9 +211,9 @@ export function draftProblems(raw: unknown, refOf: RefCheck): { problems: string
       const x = issues[a];
       const y = issues[b];
       if (!isMap(x) || !isMap(y) || !Number.isInteger(x.wave) || x.wave !== y.wave || !Array.isArray(x.files) || !Array.isArray(y.files)) continue;
-      const strings = (l: unknown[]) => l.filter((f): f is string => typeof f === 'string');
-      const hit = strings(x.files).flatMap((f) => strings(y.files).filter((g) => overlaps(f, g)).map((g) => [f, g]))[0];
-      if (hit) problems.push(`${label(a)} and ${label(b)} in wave ${x.wave} both touch ${show(hit[0])}${hit[0] === hit[1] ? '' : ` and ${show(hit[1])}`}: issues in one wave must not share files`);
+      const others = y.files.filter((g): g is string => typeof g === 'string');
+      const j = x.files.findIndex((f) => typeof f === 'string' && others.some((g) => overlaps(f, g)));
+      if (j >= 0) problems.push(`issues[${a}] and issues[${b}] in wave ${x.wave} share files[${j}]: issues in one wave must not share files`);
     }
   }
   if (problems.length) return { problems, draft: null };
@@ -235,13 +247,17 @@ export function readDraft(root: string, id: string): ReadDraft {
   const missing = HEADER_KEYS.find((k) => !Object.hasOwn(d, k));
   if (missing !== undefined) return { problem: `no ${missing}` };
   const { schemaVersion: _v, mandate, request, recordedAt, ...body } = d;
-  if (mandate !== id) return { problem: `its mandate ${show(mandate)} differs from ${id}` };
-  if (typeof request !== 'string' || !REQUEST_ID.test(request)) return { problem: `request ${show(request)} is not a request id` };
+  if (mandate !== id) return { problem: `its mandate differs from ${id}` };
+  if (typeof request !== 'string' || !REQUEST_ID.test(request)) return { problem: 'its request is not a request id' };
   if (typeof recordedAt !== 'string' || recordedAt.length > 64 || !Number.isFinite(Date.parse(recordedAt))) return { problem: 'recordedAt must be an ISO time' };
   const checked = draftProblems(body, storedRefCheck);
   if (!checked.draft) return { problem: checked.problems[0] };
-  return { schemaVersion: DRAFT_SCHEMA_VERSION, mandate: id, request, recordedAt, ...checked.draft };
+  // The digest of exactly the bytes parsed: what a decision pins, and what filing files.
+  return { schemaVersion: DRAFT_SCHEMA_VERSION, mandate: id, request, recordedAt, ...checked.draft, digest: sha256(bytes) };
 }
+
+/** The lowercase hex SHA-256 of `bytes`: a draft's digest. */
+export const sha256 = (bytes: Buffer | string): string => crypto.createHash('sha256').update(bytes).digest('hex');
 
 /** Where the drafter writes: `<worktrees.root>/_office/drafts/<id>.json`, inside the office session's write roots. */
 export const stagingFile = (root: string, config: Config, id: string): string => path.join(worktreeRoot(root, config), '_office', 'drafts', `${id}.json`);
@@ -254,7 +270,26 @@ export function draftsDir(root: string, config: Config): string {
 }
 
 /** The draft requests for mandate `id`, oldest first. */
-export const draftRequests = (root: string, id: string): ForgeRequest[] => listRequests(root).filter((r) => r.type === 'draft' && r.args?.mandate === id);
+export const draftRequests = (root: string, id: string, requests: ForgeRequest[] = listRequests(root)): ForgeRequest[] => requests.filter((r) => r.type === 'draft' && r.args?.mandate === id);
+
+/**
+ * The foreman's revisions of one mandate's draft before only a person may revise it: stands in for the
+ * mandate's budget over drafting spend (#538) against an unattended revise loop.
+ */
+export const FOREMAN_REVISIONS_MAX = 2;
+
+/**
+ * A draft request in flight for mandate `id`, else a new one queued with `args` (`{mandate}` for a
+ * first draft; a revision adds `note`, `revises` and, from the foreman, `foreman: true`); under the
+ * mandates lock, so two calls queue one.
+ */
+export function queueDraftRequest(root: string, id: string, args: Record<string, unknown> = {}): { changed: boolean; request: string } {
+  return withMandatesLock(root, () => {
+    const open = draftRequests(root, id).find((r) => r.status === 'pending' || r.status === 'in-progress');
+    if (open) return { changed: false, request: open.id };
+    return { changed: true, request: enqueue(root, null, { type: 'draft', args: { mandate: id, ...args }, from: 'forge' }).id };
+  });
+}
 
 /** `rid` when it is an in-progress draft request for mandate `id`; refused (exit 1) otherwise. Looked up in the listing: no path is built from it. */
 export function boundRequest(root: string, id: string, rid: string): ForgeRequest {
@@ -316,7 +351,7 @@ export function recordDraft(
   m: Mandate,
   request: string,
   opts: { agentId: string | null; metered: boolean },
-): { ok: true; mandate: string; request: string; draft: { issues: number; waves: number; existing: number }; spend: DraftSpend; file: string } {
+): { ok: true; mandate: string; request: string; digest: string; draft: { issues: number; waves: number; existing: number }; spend: DraftSpend; file: string } {
   return withMandatesLock(root, () => {
     const usage = opts.agentId ? importClaudeCodeTranscript(opts.agentId, {}) : null;
     const row = roster(root, config).agents.find((a) => a.role === 'drafter');
@@ -336,7 +371,9 @@ export function recordDraft(
     const { problems, draft } = draftProblems(readStaging(root, config, m.id), trackerRefCheck(root, config));
     if (!draft) throw new ForgeError(problems.slice(0, MAX_PROBLEMS).join('; '), 1);
     const stored: Draft = { schemaVersion: DRAFT_SCHEMA_VERSION, mandate: m.id, request, recordedAt: now(), ...draft };
-    writeJsonAtomic(draftFile(root, m.id), stored, { root });
+    // Serialized once: the bytes written are the bytes digested, so the gate request pins what readDraft reads back.
+    const text = `${JSON.stringify(stored, null, 2)}\n`;
+    writeTextAtomic(draftFile(root, m.id), text, { root });
     logRepoEvent(root, 'mandate-draft', { mandate: m.id, request, issues: draft.issues.length, actor: currentActor(root) });
     try {
       fs.unlinkSync(path.join(draftsDir(root, config), `${m.id}.json`));
@@ -345,6 +382,7 @@ export function recordDraft(
       ok: true as const,
       mandate: m.id,
       request,
+      digest: sha256(text),
       draft: { issues: draft.issues.length, waves: Math.max(...draft.issues.map((i) => i.wave)), existing: draft.issues.filter((i) => i.existing !== null).length },
       spend: draftSpend(root, config, m.id),
       file: path.relative(root, draftFile(root, m.id)),
@@ -391,15 +429,24 @@ export function draftStatus(
   root: string,
   config: Config,
   id: string,
-): { status: DraftStatus; request: { id: string; status: string; result: string | null } | null; note: string | null; problem: string | null; draft: Draft | null } {
-  const reqs = draftRequests(root, id);
+  requests: ForgeRequest[] = listRequests(root),
+): {
+  status: DraftStatus;
+  request: { id: string; status: string; result: string | null } | null;
+  note: string | null;
+  problem: string | null;
+  digest: string | null;
+  draft: Draft | null;
+} {
+  const reqs = draftRequests(root, id, requests);
   const latest = reqs.at(-1) ?? null;
   const read = readDraft(root, id);
-  const draft = read !== null && !('problem' in read) ? read : null;
+  const ok = read !== null && !('problem' in read) ? read : null;
+  const { digest: _d, ...draft } = ok ?? { digest: null };
   let status: DraftStatus = 'none';
   if (reqs.some((r) => r.status === 'pending')) status = 'queued';
   else if (reqs.some((r) => r.status === 'in-progress')) status = 'drafting';
-  else if (draft) status = 'ready';
+  else if (ok) status = 'ready';
   else if (read !== null) status = 'unreadable';
   else if (latest?.status === 'rejected') status = 'failed';
   const off = config.daemon?.enabled !== true || !foremanEnabled(config);
@@ -408,6 +455,7 @@ export function draftStatus(
     request: latest ? { id: latest.id, status: latest.status, result: typeof latest.result === 'string' ? latest.result : null } : null,
     note: status === 'queued' && off ? OFFICE_OFF_NOTE : null,
     problem: read !== null && 'problem' in read ? read.problem : null,
-    draft,
+    digest: ok?.digest ?? null,
+    draft: ok ? (draft as Draft) : null,
   };
 }

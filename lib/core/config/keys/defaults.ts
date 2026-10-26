@@ -267,9 +267,10 @@ export function defaults(): Config {
     // gate with a human, and a false positive errs that way on purpose.
     foreman: {
       enabled: false,
-      // Widening the repos a job pushes to, and publishing a release, are opt-in: an owner adds
-      // repo-proposal or release deliberately (release also needs gate:release out of `reserved`).
-      decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal' && g !== 'release'),
+      // Widening the repos a job pushes to, publishing a release and filing a milestone are opt-in: an
+      // owner adds repo-proposal, release or milestone-approval deliberately (release also needs
+      // gate:release out of `reserved`).
+      decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal' && g !== 'release' && g !== 'milestone-approval'),
       reserved: [...DEFAULT_RESERVED],
       ship: 'propose',
       // The director loop's own model, effort and pace (#538 reads them).
