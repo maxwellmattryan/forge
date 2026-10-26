@@ -4,17 +4,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { agentTranscriptById, claudeProjectsDir, openTranscript } from '#integrations/claude/transcripts.ts';
 import type { TranscriptHit } from '#integrations/claude/transcripts.ts';
-import type { AgentUsage, Job } from '#core/types.ts';
+import { CHARS_PER_TOKEN, composeContext } from './composition.ts';
+import type { AgentUsage, ContextComposition, Job } from '#core/types.ts';
 
 /**
  * What importClaudeCodeTranscript returns: AgentUsage's transcript fields, all set, plus the file
- * read and `through`, the transcript's last timestamp (the cursor the next import of this agent
- * passes as `since`).
+ * read, `through`, the transcript's last timestamp (the cursor the next import of this agent
+ * passes as `since`), and the span's context composition.
  */
 export type TranscriptUsage = Required<Pick<AgentUsage, 'input' | 'output' | 'cacheRead' | 'cacheWrite' | 'toolUses' | 'durationMs' | 'totalTokens' | 'exact' | 'outputEstimated'>> & {
   model: string | null;
   transcript: string;
   through: string | null;
+  composition: ContextComposition | null;
 };
 
 /**
@@ -28,17 +30,18 @@ export type TranscriptUsage = Required<Pick<AgentUsage, 'input' | 'output' | 'ca
  * A line without a timestamp belongs to the span of the timestamped line before it.
  * Given the job and root, the transcript is looked up under the job's sessions in this repo's project
  * dirs first (lib/integrations/claude/transcripts.ts); the scan of every project dir stays as the fallback for an agent
- * whose parent session isn't recorded.
+ * whose parent session isn't recorded. `promptChars` is the role prompt's length, the Forge share
+ * of the composition's start prefix beside the brief (composeContext in ./composition.ts).
  */
 export function importClaudeCodeTranscript(
   agentId: string,
-  opts: { projectsDir?: string; since?: string | null; root?: string; job?: Pick<Job, 'id' | 'lease' | 'runs' | 'agents' | 'worktree'> } = {},
+  opts: { projectsDir?: string; since?: string | null; root?: string; job?: Pick<Job, 'id' | 'lease' | 'runs' | 'agents' | 'worktree'>; promptChars?: number } = {},
 ): TranscriptUsage | null {
   const projects = opts.projectsDir ?? claudeProjectsDir();
   const hit = opts.root && opts.job ? agentTranscriptById(opts.root, opts.job, agentId, { projects }) : null;
   const file = (hit ? readConfined(hit, projects) : null) ?? readScanned(findTranscript(projects, `agent-${agentId}.jsonl`));
   if (!file) return null;
-  return summarise(file.text, file.path, opts.since);
+  return summarise(file.text, file.path, opts.since, opts.promptChars ?? 0);
 }
 
 /** A located transcript's path and text, read through openTranscript's confined descriptor. */
@@ -57,7 +60,19 @@ function readScanned(file: string | null): { path: string; text: string } | null
   return file ? { path: file, text: fs.readFileSync(file, 'utf8') } : null;
 }
 
-function summarise(text: string, file: string, sinceAt: string | null | undefined): TranscriptUsage {
+/** A transcript's lines parsed once, in file order; blank and unparseable lines are left out. */
+function parseLines(text: string): unknown[] {
+  const out: unknown[] = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      out.push(JSON.parse(line));
+    } catch {}
+  }
+  return out;
+}
+
+function summarise(text: string, file: string, sinceAt: string | null | undefined, promptChars: number): TranscriptUsage {
   // usage is a transcript line's raw usage object.
   const byMessage = new Map<string, { usage: any; model: string | null; chars: number }>();
   const toolIds = new Set<string>();
@@ -66,14 +81,10 @@ function summarise(text: string, file: string, sinceAt: string | null | undefine
   let firstTs: string | null = null;
   let lastTs: string | null = null;
   let through: string | null = sinceAt ?? null;
-  for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    let o: any;
-    try {
-      o = JSON.parse(line);
-    } catch {
-      continue;
-    }
+  const lines = parseLines(text);
+  for (const line of lines) {
+    const o = line as any;
+    if (o === null || typeof o !== 'object') continue;
     if (o.timestamp) {
       through = o.timestamp;
       if (skipping) skipping = !(Date.parse(o.timestamp) > since);
@@ -97,14 +108,15 @@ function summarise(text: string, file: string, sinceAt: string | null | undefine
     }
     byMessage.set(key, entry);
   }
-  const out: TranscriptUsage = { model: null, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, toolUses: toolIds.size, durationMs: 0, totalTokens: 0, exact: true, outputEstimated: false, transcript: file, through };
+  const composition = composeContext(lines, { since: sinceAt, promptChars });
+  const out: TranscriptUsage = { model: null, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, toolUses: toolIds.size, durationMs: 0, totalTokens: 0, exact: true, outputEstimated: false, transcript: file, through, composition };
   for (const m of byMessage.values()) {
     const u = m.usage;
     out.model ??= m.model;
     out.input += u.input_tokens ?? 0;
     out.cacheRead += u.cache_read_input_tokens ?? 0;
     out.cacheWrite += u.cache_creation_input_tokens ?? 0;
-    const estimated = Math.ceil(m.chars / 3.5);
+    const estimated = Math.ceil(m.chars / CHARS_PER_TOKEN);
     if (estimated > (u.output_tokens ?? 0)) out.outputEstimated = true;
     out.output += Math.max(u.output_tokens ?? 0, estimated);
   }
