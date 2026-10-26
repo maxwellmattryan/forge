@@ -57,6 +57,8 @@ export interface ReleaseStrategy {
   mechanism?: ReleaseMechanism | null;
   /** The release command a human runs; only read with `mechanism: tag`. */
   command?: string | null;
+  /** The repo-relative release script `forge release plan|run` drives through the script protocol; only read with `mechanism: script`. */
+  script?: string | null;
   registry?: ReleaseRegistry | null;
   cadence?: ReleaseCadence | null;
   /** `allow` lets `forge release run` run this repo's publish steps without asking; null or `confirm` asks on a terminal. */

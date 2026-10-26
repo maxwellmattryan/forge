@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { BIN, forgeInProcess, jobAt, repoTemplate } from '../../helpers.ts';
+import { BIN, FAKE_SCRIPT, SCRIPT_RELEASE, forgeInProcess, jobAt, repoTemplate, setReleaseBlock } from '../../helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { claimRequest, listRequests } from '#core/job/requests.ts';
@@ -315,4 +315,23 @@ test('forge release plan --mandate', async (t) => {
   assert.notEqual(second, first);
   assert.deepEqual([out.hash, out.tag, out.approval.owner], [second.slice(0, 12), 'v0.1.0', 'foreman']);
   assert.deepEqual(releaseGates(r.dir).map((g) => g.args?.key), [first, second]);
+});
+
+test('a mandate plan for a script repo takes the inferred bump from the draft, keeps it on a recompute and takes --bump on a re-plan', async (t) => {
+  const r = scratch(t);
+  fs.mkdirSync(path.join(r.dir, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(r.dir, 'scripts', 'release.mjs'), FAKE_SCRIPT);
+  fs.writeFileSync(path.join(r.dir, 'package.json'), '{\n  "name": "app",\n  "version": "1.0.0"\n}\n');
+  setReleaseBlock(r.dir, SCRIPT_RELEASE);
+  await mandateWithDoneJob(r.dir);
+  const config = loadConfig(r.dir).config;
+  const out = await pass(r.dir, config);
+  assert.equal(out.mandates.find((m) => m.id === 'm1')!.state, 'active');
+  const file = readPlanFile(releaseFiles(r.dir))!;
+  assert.deepEqual([file.selection.kind, file.repos[0].bump?.from, file.repos[0].bump?.to, file.repos[0].bump?.bump], ['since', '1.0.0', '1.1.0', 'minor']);
+  assert.ok(fs.existsSync(file.repos[0].bump!.notes), 'the draft notes are written');
+  assert.equal((await ok(r.dir, ['mandate', 'show', 'm1'])).release.status, 'pending', 'the recompute takes the bump from release.json, so the plan is not stale');
+  const again = await ok(r.dir, ['release', 'plan', '--mandate', 'm1', '--bump', 'patch']);
+  assert.equal(again.bumps[0].to, '1.0.1');
+  assert.equal(events(r.dir, 'mandate-release-planned').length, 2);
 });

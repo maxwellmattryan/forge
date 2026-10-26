@@ -17,7 +17,20 @@ const CHECK_TEXT: Record<CheckKind, (r: ReleaseRepo, base: string, remote: strin
     r.package?.ecosystem === 'cargo'
       ? `\`cargo search ${r.package.name}\` lists the version in Cargo.toml.`
       : `\`npm view ${r.package?.name ?? '<name>'}@<version> version\` prints the version in package.json.`,
+  'pr-merged': (r) => `the release script's \`--check merged ${r.bump?.to ?? '<version>'}\` finds the release PR from release/v${r.bump?.to ?? '<version>'} into main merged.`,
 };
+
+/** A script repo's version bump and notes file, for its section. Script output goes through safeText. */
+function bumpLines(r: ReleaseRepo): string[] {
+  const b = r.bump;
+  if (!b) return [];
+  const reasons = b.reasons.map((x) => safeText(x, 500)).join('; ');
+  const chosen = b.bump === b.inferred ? `${b.bump} (inferred)` : `${b.bump} (inferred ${b.inferred})`;
+  return [
+    `Version: ${safeText(b.from, 40)} → ${safeText(b.to, 40)} · bump ${chosen}${reasons ? `: ${reasons}` : ''}`,
+    `Notes: \`${safeText(b.notes, 500)}\`. Edit the drafted CHANGELOG section there before you run; a re-plan of the same version keeps your edits, and \`forge release plan --bump patch|minor|major\` drafts another version.`,
+  ];
+}
 
 /** A step's command as one line: the argv as shell words, the tag command as written, or the manual instruction. */
 export function stepCommand(s: ReleaseStep): string {
@@ -40,11 +53,12 @@ export function renderReleaseMd(plan: ReleasePlan, config: Config): string {
   out.push(`Selection: ${SELECTION_TEXT(plan.selection)} · planned ${plan.createdAt} · plan ${plan.hash.slice(0, 12)}`);
   out.push(`Order: ${plan.order.length ? plan.order.join(', ') : 'nothing to release'} (dependencies first)${plan.relaxed ? ' · runtime edges ignored: they formed a cycle' : ''}`);
   out.push('');
-  out.push('Run it with `forge release run`. It stops at the first failed check and, run again, resumes there. Steps marked **publish** ask before they run unless the repo sets `release.publish: allow`.');
+  out.push('Preview it with `forge release run --dry-run`, and run it with `forge release run`. It stops at the first failed check and, run again, resumes there. Steps marked **publish** ask before they run unless the repo sets `release.publish: allow`.');
   plan.repos.forEach((r, i) => {
     const base = repoBase(config, r.repo);
     out.push('', `## ${i + 1}. ${r.label} (${r.mechanism} → ${r.registry ?? 'no registry'})`);
     out.push(`Directory: \`${safeText(r.dir, 500)}\` · version ${r.version ?? 'unknown'} · cadence ${r.cadence ?? 'undeclared'}`);
+    out.push(...bumpLines(r));
     if (r.cadence === 'on-merge' || r.cadence === 'scheduled') out.push(`> Cadence ${r.cadence} usually releases from CI; steps CI already did are skipped by their checks.`);
     out.push('');
     r.steps.forEach((s, j) => {

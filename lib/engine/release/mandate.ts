@@ -16,8 +16,9 @@ import { MANDATE_ID_SOURCE } from '#api/constants.ts';
 import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
 import { classReservation, decides, foremanEnabled, reservedMatch } from '../pipeline/moves/foreman-gates.ts';
 import { memberRepos } from '../project/job-repos.ts';
-import { type GitReader, type PlanOptions, type ReleasePlan, type ReleaseState, cloneGit, freshPlan, keptHeads, planHash, planRelease } from './plan.ts';
+import { type GitReader, type PlanOptions, type ReleasePlan, type ReleaseState, type VersionBump, cloneGit, freshPlan, keptHeads, planHash, planRelease } from './plan.ts';
 import { assertNoSymlinks, doneCount, finished, planSteps, readPlanFile, readState, releaseFiles, writeReleasePlan } from './files.ts';
+import { draftBump, fileBumps } from './script.ts';
 import type { Config, EventActor, ForgeRequest, Job, JobEvent } from '#core/types.ts';
 
 /** Why mandate `id` keeps its release with a human, or null when it delegates it (lib/office/foreman.ts mandateReleaseRefusal). */
@@ -185,16 +186,18 @@ export function planMandateRelease(
   root: string,
   config: Config,
   id: string,
-  opts: PlanOptions & { narrow: MandateReleaseNarrow; actor: EventActor; force?: boolean; byPass?: boolean },
+  opts: PlanOptions & { narrow: MandateReleaseNarrow; actor: EventActor; force?: boolean; byPass?: boolean; versionBump?: VersionBump | null },
 ) {
   if (!isMandateId(id)) throw new ForgeError(`${JSON.stringify(String(id).slice(0, 60))} is not a mandate id`);
   const tag = lastReleaseTag(root, opts.git ?? cloneGit);
   if (tag === null) throw new ForgeError("the root repo has no tag to release since; tag its last release, or edit the mandate's until");
   const selection = { kind: 'since' as const, tag, mandate: id };
-  const plan = planRelease(root, config, selection, { git: opts.git, clone: opts.clone });
+  // A script repo's bump comes from its draft (local git only), which writeReleasePlan runs again to write the notes.
+  const bump: PlanOptions['bump'] = opts.bump ?? ((input) => draftBump(root, config, input, opts.versionBump ?? null).bump);
+  const plan = planRelease(root, config, selection, { git: opts.git, clone: opts.clone, bump });
   if (!planSteps(plan).length) throw new ForgeError(line(`nothing to release since ${tag} (${plan.skipped.map((s) => `${s.label}: ${s.reason}`).join('; ')})`));
   if (opts.byPass && otherReleasePlan(root, id) === 'waiting') throw new ForgeError(`blocked by another plan, plan it with forge release plan --mandate ${id}`);
-  const written = writeReleasePlan(root, config, selection, { git: opts.git, clone: opts.clone, force: opts.force });
+  const written = writeReleasePlan(root, config, selection, { git: opts.git, clone: opts.clone, bump: opts.bump, force: opts.force, versionBump: opts.versionBump });
   const file = readFiles(root)?.plan;
   if (!file || file.selection.kind !== 'since' || file.selection.mandate !== id || !PLAN_HASH.test(file.hash)) throw new ForgeError('release.json changed while it was written; plan again');
   const hash = file.hash;
@@ -246,7 +249,7 @@ function plannedState(root: string, config: Config, id: string, latest: { hash: 
   if (failed) return { ...base, ...counts, status: 'failed', owner: owner(), detail: line(`step ${failed.id} failed: ${own!.steps[failed.id].detail ?? 'failed'}`) };
   let stale: string | null = null;
   try {
-    const now = planRelease(root, config, file.selection, { ...opts, heads: keptHeads(file, own) });
+    const now = planRelease(root, config, file.selection, { ...opts, heads: keptHeads(file, own), bump: opts.bump ?? fileBumps(root, file) });
     if (now.hash !== hash || planHash(file) !== hash) stale = `plan ${h12(hash)}, now ${h12(now.hash)}`;
   } catch (e) {
     stale = (e as Error).message;
