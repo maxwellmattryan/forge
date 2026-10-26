@@ -60,13 +60,15 @@ test('switcherChoice', () => {
   const page: Route = { scope: 'project', project: 'api', view: 'issues' };
   const overview: Route = { scope: 'global', view: 'overview' };
   const machine: Route = { scope: 'global', view: 'machine' };
-  assert.equal(switcherChoice(ADD_PROJECT, 'api', page), '#/machine');
-  assert.equal(switcherChoice(ADD_PROJECT, null, overview), '#/machine');
-  assert.equal(switcherChoice(ADD_PROJECT, null, machine), null, 'already there');
+  // Add project opens the dialog wherever it is chosen, and never navigates.
+  assert.deepEqual(switcherChoice(ADD_PROJECT, 'api', page), { add: true });
+  assert.deepEqual(switcherChoice(ADD_PROJECT, null, overview), { add: true });
+  assert.deepEqual(switcherChoice(ADD_PROJECT, null, machine), { add: true });
+  assert.deepEqual(switcherChoice(ADD_PROJECT, 'api', machine), { add: true });
   assert.equal(switcherChoice('api', 'api', page), null, 'the current project');
-  assert.equal(switcherChoice('web', 'api', page), '#/p/web/issues', 'the same view');
-  assert.equal(switcherChoice('web', null, overview), '#/p/web/pipeline', 'Pipeline from a global page');
-  assert.equal(switcherChoice('web', null, machine), '#/p/web/pipeline');
+  assert.deepEqual(switcherChoice('web', 'api', page), { hash: '#/p/web/issues' }, 'the same view');
+  assert.deepEqual(switcherChoice('web', null, overview), { hash: '#/p/web/pipeline' }, 'Pipeline from a global page');
+  assert.deepEqual(switcherChoice('web', null, machine), { hash: '#/p/web/pipeline' });
 });
 
 test('selectionOpenable', () => {
