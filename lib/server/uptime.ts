@@ -12,7 +12,6 @@ import { listMandates } from '#office/mandates/store.ts';
 import { queueNotify, type QueueNotify } from '#office/notify.ts';
 import { reconcile, type SessionFacts } from '#office/reconcile.ts';
 import type { DaemonPool } from '#office/pool.ts';
-import { assistantScopes } from '#office/slots.ts';
 import type { Entries, KeepAwakeOptions, ProjectBoot } from './types.ts';
 
 /** The stages where an agent works on a running job: what a running job must be at to hold the machine awake. */
@@ -106,7 +105,8 @@ export function startKeepAwake(entries: Pick<Entries, 'list'>, home: string, opt
 export async function resumeProject(name: string, root: string, pool: Pick<DaemonPool, 'facts' | 'state' | 'poke'>): Promise<ProjectBoot | null> {
   try {
     const { config } = loadConfig(root);
-    const scopes = [INBOX_SCOPE, OFFICE_SCOPE, ...assistantScopes(config), ...Object.keys(pool.state().jobs)];
+    const state = pool.state();
+    const scopes = [INBOX_SCOPE, OFFICE_SCOPE, ...Object.keys(state.assistants ?? {}), ...Object.keys(state.jobs)];
     const facts = new Map<string, SessionFacts>();
     const busy: string[] = [];
     for (const j of listJobs(root)) {
@@ -121,7 +121,12 @@ export async function resumeProject(name: string, root: string, pool: Pick<Daemo
     // The resume reaches its session at once, not at the pool's next poll.
     if (r.resumed.length) pool.poke();
     const jobs = listJobs(root).filter((j) => j.state === 'running').length;
-    const office = listRequests(root).filter((q) => (q.status === 'pending' || q.status === 'in-progress') && [OFFICE_SCOPE, ASSISTANTS_SCOPE].includes(requestScope(root, q))).length;
+    // Open Office requests: the office session's draft requests and the assistant foremen's gate requests.
+    const office = listRequests(root).filter((q) => {
+      if (q.status !== 'pending' && q.status !== 'in-progress') return false;
+      const scope = requestScope(root, q);
+      return scope === OFFICE_SCOPE || scope === ASSISTANTS_SCOPE;
+    }).length;
     return { name, jobs, office, mandates: activeMandates(root) };
   } catch (e) {
     process.stderr.write(`boot pass (${name}): ${(e as Error).message}\n`);
