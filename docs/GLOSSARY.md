@@ -107,6 +107,19 @@ Words for how the dashboard shows activity, used in the README, Settings and `da
 | **lamp** | A small light that shows state at a glance, on a session log's nameplate (working, waiting, you, done, idle or fault) and on the status bar's indicators. It is decorative: the pill or text beside it carries the meaning. | - |
 | **Screen effect** | The browser preference in Settings › General for the scanlines and soft glow on session logs, on by default and kept per browser like Grain; off leaves the rest of each log's frame as it is. | - |
 
+## The Office
+
+Words for the Office (#281, M009): the Foreman directing work through mandates. Terms marked planned arrive in the named issue.
+
+| Term | Meaning | Config key |
+|---|---|---|
+| **Office** | The user-facing name for everything in one project's `_office` scope: the Foreman, its assistant foremen and surveyors, and the mandates they work under. Lowercase `office` in Code layout is the lib layer. | `foreman` |
+| **mandate** | The owner's standing instruction to the Office. It is a file in `.forge/runtime/mandates/` written only by `forge mandate new\|edit\|pause\|resume\|close`: a mandate contract in its frontmatter, and the owner's guidance as free text, which briefs fence as data. A job joins one with `forge job new --mandate` and keeps it, and a split child keeps its parent's. | `foreman.mandate` |
+| **mandate contract** | Scope, `until`, `maxJobs`, `order`, `decides` (only narrows `foreman.decides`), `budget`, `stall`, `onUnfinishable` and `after`. `forge mandate show` prints it as written and as it applies after `foreman.decides`, `foreman.reserved` and `foreman.ship`. | `foreman.mandate` |
+| **mandate chain** | Mandates linked by `after:`, each starting only once the one before has closed. `forge mandate list` shows each chain and its active link. | - |
+| **assistant foreman** | A pool session that takes the Foreman's `gate` requests and spawns `forge:assistant` per gate. Planned (#537); today the office session does this itself. | `foreman.assistants` |
+| **surveyor** | A sub-agent that summarises the board, or one mandate's jobs, in a few lines, so the Foreman's context stays small. Planned (#538). | `foreman.surveyors` |
+
 ## Collisions we avoid
 
 Some of these words already mean something in Forge. They keep those meanings:
@@ -121,7 +134,7 @@ Some of these words already mean something in Forge. They keep those meanings:
 - "Hand-off" alone means a session handing a job to another with `forge requests add resume`; the Foreman's always carries the name ("Foreman hand-off").
 - "File map" is a spec's `Files:` table; a folder's `AGENTS.md` is its "folder map".
 - "Integrations" never means the integrate stage or the integrator (bringing a branch up to date with its base), nor integration tests (`test/integration/`).
-- "Office" alone means the runtime; the Foreman's session is the "office session".
+- "Office", capitalised, is the Office (the `_office` scope and everything in it); lowercase "office" is the lib layer and runtime in `lib/office/`, and the Foreman's session is the "office session".
 - "Milestone" means a tracker milestone (a group of planned work). The Thread's one-line rows for a job's events are "progress lines".
 - "Layer" alone keeps [its meaning in the architecture docs](architecture/layers.md) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
 
@@ -135,7 +148,7 @@ The new words build on these, which exist today.
 | **move** | A change to a job's stage, state or `waitingOn` made through `lib/engine/pipeline/moves/apply.ts`, which then stops or tears down its environment, queues the Foreman's gate request and mirrors it to its tracker; notifications follow every transition. | - |
 | **output mode** | How a `forge` call prints: `human` (rendered text for a person at a terminal) or `agent` (compact JSON, the CLI's contract), chosen by `--json`, `--mode`, `FORGE_MODE`, then whether stdout is a terminal (docs/CLI.md "Output mode"). | - |
 | **activity log** | The timestamped lines a foreground `forge dash` prints after its banner in human mode, of three kinds: `session` (session transitions), `http` (requests worth noting) and `job` (newly appended job events); `--quiet` and agent mode leave only the banner (docs/CLI.md "Output mode"). | - |
-| **Foreman** | The office session that decides gates for jobs under `foreman.decides`. | `foreman.decides` |
+| **Foreman** | The office session that decides gates for jobs under `foreman.decides`, narrowed for a job in a mandate by that mandate's `decides`. | `foreman.decides` |
 | **Foreman hand-off** | The Foreman leaving a gate it was asked to decide for a person (a reserved topic or class, the assistant escalating, or the CLI refusing its decision), recorded with `forge job handoff` and shown as *left for a human* (`foremanHandoff`) until a decision answers that park or the job parks again. | `foreman.reserved` |
 | **metered spend** | What the supervisor measured a daemon session spend, from claude's own per-turn cost report, kept in `.forge/runtime/meter/`; budgets enforce it. | `daemon.dailyUsd` |
 | **lease** | A job's one claim on who drives it (`lease` in job.json: `driver`, `epoch`, `since`, `renewedAt`, `expiresAt`): taken by `forge job claim`, renewed only by the driver's own activity, expired by the supervisor when the driver's session exits, and `live` until `expiresAt` passes; nobody else may claim a live lease without `--force`. | - |
