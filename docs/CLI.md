@@ -370,7 +370,7 @@ Before writing, stderr lists every entry with its size, any file it skipped and 
 | `doctor.json` | what `forge doctor` prints, except that the `command environment` check counts the `*_HOME` and `*_ROOT` variable names it has no fixed entry for instead of naming them ([Command environment](CONFIG.md#command-environment)) |
 | `versions.json` | `{forge, node, git, gh, glab, os}`; a missing tool is `null` |
 | `config.json` | the effective config, with every value that names a command, path, URL or person, and every key Forge doesn't know, replaced by `<redacted>` (`CONFIG_DISCLOSURE` in `lib/core/config/fields.ts`) |
-| `daemon/inbox.log`, `daemon/office.log`, `daemon/assistant-<n>.log` | without a job: the last 500 lines of the inbox, office and each existing assistant foreman session log |
+| `daemon/inbox.log`, `daemon/office.log`, `daemon/assistant-<n>.log` | without a job: the last 500 lines of the inbox, office and each existing assistant foreman session log. Chat session logs (`daemons/_chat-<id>.log`) and chat files are left out on purpose: a chat is the owner's own conversation |
 | `jobs/<id>/job.json`, `events.jsonl`, `step.json` | the job, every event, and what `forge job step` decides now |
 | `jobs/<id>/verify/round-<n>.md` | the last 200 lines of the newest verify round |
 | `jobs/<id>/logs/verify-<step>-<ts>.log` | the last 200 lines of the newest verify log per step, at most 20 |
@@ -1038,7 +1038,7 @@ See [Effort](CONFIG.md#effort).
 |---|---|
 | 1 | not an assistant foreman daemon session, no such job, a job not waiting on a gate the Foreman decides, an unknown --class, or an empty --reason |
 
-**`forge job human <id> <action> [--note N] [--link <ref>|new|none] [--reason R] [--repo A[,B]] [--actor human|foreman]`**: record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework, answer, or approve-repos or reject-repos on the pending repo proposals named by --repo (approve adds each repo to the job), or the foreman's approve-release of the job's pending release plan (logs release-approval and moves no job)
+**`forge job human <id> <action> [--note N] [--link <ref>|new|none] [--reason R] [--repo A[,B]] [--actor human|foreman]`**: record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework, answer, or approve-repos or reject-repos on the pending repo proposals named by --repo (approve adds each repo to the job), or the foreman's approve-release of the job's pending release plan (logs release-approval and moves no job). In a chat session the decision records actor source chat (docs/architecture/daemon-security.md › Chats)
 
 | Flag | Meaning |
 |---|---|
@@ -1050,7 +1050,7 @@ See [Effort](CONFIG.md#effort).
 
 | Exit | When |
 |---|---|
-| 1 | no such job, a --link that cannot be made, a foreman decision the authority checks refuse, or approve-repos or reject-repos with nothing pending, no --repo, a repo that is not pending, a foreman --repo that is not the whole pending set, a failing clone check, or from a daemon session other than an assistant foreman |
+| 1 | no such job, a --link that cannot be made, a foreman decision the authority checks refuse, a gate foreman.reserved or a security review that didn't pass keeps with a person when a chat session decides it (`a chat may not decide <gate> for <job>: …`), or approve-repos or reject-repos with nothing pending, no --repo, a repo that is not pending, a foreman --repo that is not the whole pending set, a failing clone check, or from a daemon session other than an assistant foreman |
 | 3 | the tracker claim was lost to another job |
 | 5 | gh failed (GitHub tracker) |
 
@@ -1228,7 +1228,7 @@ See [Job repos](architecture/job-repos.md).
 
 | Exit | When |
 |---|---|
-| 1 | no such job, a field set only by another command, a list field that is not a JSON array of strings, or an unknown or cyclic dependency |
+| 1 | no such job, a field set only by another command, a list field that is not a JSON array of strings, or an unknown or cyclic dependency; in a chat session, a job waiting on a gate that foreman.reserved or a security review that didn't pass keeps with a person (`a chat may not decide <gate> for <job>: …`), or any change to such a job beyond --state running with the stage the decision recorded at its park allows (docs/architecture/daemon-security.md › Chats) |
 | 3 | stale_epoch: the lease moved past --epoch |
 
 **`forge job show <id> [--full]`**: one job, compact (the whole job.json with --full)

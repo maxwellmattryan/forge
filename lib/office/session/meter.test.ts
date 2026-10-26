@@ -243,6 +243,7 @@ test('chats share one daily cap', async (t) => {
   assert.equal(first.s.wanted, false);
   assert.deepEqual(first.children[0].signals, ['SIGTERM']);
   assert.match(first.s.lastError ?? '', /daily cap \(daemon\.dailyUsd\.chat\)/);
+  assert.deepEqual(first.notified.map(([, events, ctx]) => [events, ctx]), [[['daemon-stopped'], { job: null, reason: 'daily-cap' }]]);
   await waitFor(() => !first.s.running, { what: 'the capped chat stopped' });
 
   // Another chat's meter that can't be read fails the check closed, and so does a meter dir that is a file.
