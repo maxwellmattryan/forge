@@ -10,7 +10,7 @@ import { PLUGIN_ROOT } from '#core/paths.ts';
 import { launchBrowser, parseRenderArgs, renderCheck, renderExitCode } from '../../../scripts/render-check.ts';
 
 const BROKEN = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'render-broken');
-const VIEW_IDS = ['pipeline', 'project', 'issues', 'agents', 'analytics', 'evals'];
+const VIEW_IDS = ['project', 'pipeline', 'issues', 'agents', 'analytics', 'evals'];
 const USAGE = 'usage: npm run test:render [-- --scenario NAME]... [--dist DIR]';
 
 /** A temp scenario dir holding `one`: a single job the fixture's views and drawer name. */

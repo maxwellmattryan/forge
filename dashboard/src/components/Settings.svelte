@@ -140,6 +140,9 @@
     <div class="flex flex-col md:flex-row flex-1 min-h-0">
       <div role="tablist" tabindex="-1" aria-label={$t('settings.sections')} aria-orientation={wide ? 'vertical' : 'horizontal'} {@attach slideMarker('.active', 'bar-left')} class="navlist slide-marker {wide ? '' : 'row'} shrink-0 overflow-x-auto md:overflow-y-auto overscroll-contain md:w-(--size-settings-rail) border-b md:border-b-0 md:border-r border-line p-2" onkeydown={railKey}>
         {#each tabs as item (item.id)}
+          <!-- In the vertical rail, the project's own tabs sit under its name, and About below a rule. -->
+          {#if wide && item.id === 'pipeline'}<div class="label truncate px-2.5 pt-3 pb-1" aria-hidden="true">{currentProject()}</div>{/if}
+          {#if wide && hasProject && item.id === 'about'}<div class="mx-2 my-1.5 border-t border-line-strong" aria-hidden="true"></div>{/if}
           <button
             role="tab"
             id="settings-tab-{item.id}"

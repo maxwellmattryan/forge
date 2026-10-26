@@ -35,7 +35,7 @@
   import { closeCard, ghCard } from './lib/github-card.svelte.ts';
 
   let settingsOpen = $state(false);
-  /** The tab Settings opens on: the project section's Settings asks for Pipeline; the gear opens the saved tab. */
+  /** The tab Settings opens on; unset opens the saved tab. */
   let settingsStart = $state<SettingsTabId | undefined>();
   let settings = $state<ReturnType<typeof Settings>>();
   let command = $state<ReturnType<typeof CommandBar>>();
@@ -263,7 +263,7 @@
       <kbd class="mono muted pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-[10px]" aria-hidden="true">{shortcut}</kbd>
       {/if}
     </span>
-    <nav id="nav" class="flex flex-col gap-1"><Nav {compact} onsettings={() => openSettings('pipeline')} /></nav>
+    <nav id="nav" class="flex flex-col gap-1"><Nav {compact} /></nav>
     <div class="mt-auto flex flex-col gap-2 pt-3">
       <div class="navlist {compact ? 'rail' : ''}"><button id="settings-open" aria-label={compact ? $t('settings.open') : undefined} aria-haspopup="dialog" aria-keyshortcuts={settingsKeyShortcuts(platform)} onclick={() => openSettings()} {@attach compact && railTipOn($t('settings.open'))}>{#if compact}<Icon name="settings" />{:else}<span class="lbl"><Icon name="settings" />{$t('settings.open')}</span><kbd class="mono muted text-[10px] normal-case" aria-hidden="true">{settingsShortcut}</kbd>{/if}</button></div>
     </div>

@@ -1,5 +1,5 @@
 <!-- The sidebar's two sections: the machine's global pages (Overview, Machine), then the project section, which is the
-     project switcher and, with a project selected, its view links and its Settings. As the sidebar list, the phone strip
+     project switcher and, with a project selected, its view links. As the sidebar list, the phone strip
      (`mobile`: no icons, one scrolling row) or the icon-only rail (`compact`: each control named by aria-label, with a
      rail tooltip). Each section is its own navlist, so the Select never takes the list's link styles. -->
 <script lang="ts">
@@ -11,7 +11,7 @@
   import { slideMarker } from '../lib/marker.ts';
   import { t } from '../lib/locale.ts';
 
-  let { mobile = false, compact = false, onsettings }: { mobile?: boolean; compact?: boolean; onsettings?: () => void } = $props();
+  let { mobile = false, compact = false }: { mobile?: boolean; compact?: boolean } = $props();
   const project = $derived(S.selected);
   const counts = $derived(navCounts(S.data?.jobs ?? []));
   const globalLabels = $derived<Record<GlobalViewId, string>>({ overview: $t('nav.overview'), machine: $t('nav.machine') });
@@ -52,11 +52,6 @@
           {#if n}<span class="mono num {on ? '' : 'muted'}">{n}</span>{/if}{/if}</a
       >
     {/each}
-    {#if !mobile}
-      <button id="project-settings" aria-haspopup="dialog" aria-label={compact ? $t('nav.projectSettings') : undefined} onclick={() => onsettings?.()} {@attach compact && railTipOn($t('nav.projectSettings'))}
-        >{#if compact}<Icon name="general" />{:else}<span class="lbl"><Icon name="general" />{$t('nav.projectSettings')}</span>{/if}</button
-      >
-    {/if}
   </div>
 {/snippet}
 

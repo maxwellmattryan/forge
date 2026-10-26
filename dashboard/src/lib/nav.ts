@@ -12,8 +12,8 @@ export type GlobalViewId = (typeof GLOBAL_VIEWS)[number]['id'];
 
 /** One project's pages, at `#/p/<project>/<view>`. */
 export const VIEWS = [
-  { id: 'pipeline', icon: 'pipeline' },
   { id: 'project', icon: 'graph' },
+  { id: 'pipeline', icon: 'pipeline' },
   { id: 'issues', icon: 'issues' },
   { id: 'agents', icon: 'agents' },
   { id: 'analytics', icon: 'analytics' },

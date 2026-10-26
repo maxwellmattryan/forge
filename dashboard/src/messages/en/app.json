@@ -15,8 +15,7 @@
     "agents": "Agents",
     "analytics": "Analytics",
     "evals": "Evals",
-    "project": "Project",
-    "projectSettings": "Project settings"
+    "project": "Project"
   },
   "switcher": {
     "label": "Project",
