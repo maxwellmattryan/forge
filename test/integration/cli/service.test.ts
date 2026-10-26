@@ -6,8 +6,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
-import { BIN, cliEnv, type CliResult } from '../../helpers.ts';
+import { execFile, spawn } from 'node:child_process';
+import { BIN, cliEnv, waitFor, type CliResult } from '../../helpers.ts';
 
 const made: string[] = [];
 process.on('exit', () => made.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
@@ -59,6 +59,38 @@ describe('forge service', { concurrency: 4 }, () => {
       assert.match(r.stdout + r.stderr, /forge service install\|uninstall changes what starts at login, which a daemon session may not do/, sub);
     }
     assert.equal((await cli(['service', 'status', '--json'], m.cwd, daemon)).status, 0, 'status is allowed');
+    const dash = await cli(['dash', '--service', '--port', '0', '--json'], m.cwd, daemon);
+    assert.equal(dash.status, 1);
+    assert.match(dash.stdout + dash.stderr, /forge dash starts, stops and registers the machine's dashboard, which a daemon session may not do/);
     assert.deepEqual([listing(m.home), listing(m.xdg), fs.existsSync(m.forgeHome)], [[], [], false], 'nothing written');
+
+    // --service runs in the foreground: with --background (or --stop, --dev) it is a usage error that starts nothing.
+    for (const flag of ['--background', '--stop', '--dev']) {
+      const r = await cli(['dash', '--service', flag, '--port', '0', '--json'], m.cwd, m.env);
+      assert.equal(r.status, 2, `${flag}: ${r.stderr}`);
+      assert.equal(JSON.parse(r.stdout).error.code, 'usage', flag);
+    }
+    assert.equal(fs.existsSync(m.forgeHome), false, 'no dashboard started or recorded');
+  });
+
+  it('forge dash --service records its restart', async () => {
+    const m = machine();
+    const child = spawn(process.execPath, [BIN, 'dash', '--service', '--port', '0'], { cwd: m.cwd, env: cliEnv('', m.env), stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    child.stdout.on('data', (c) => (stdout += c));
+    const exited = new Promise<number | null>((resolve) => child.once('exit', (code) => resolve(code)));
+    try {
+      const file = path.join(m.forgeHome, 'runtime', 'uptime.json');
+      const rec = await waitFor(() => fs.existsSync(file) && JSON.parse(fs.readFileSync(file, 'utf8')), { timeoutMs: 20_000, what: 'uptime.json' });
+      assert.deepEqual(rec.restart.projects, []);
+      assert.equal(rec.restart.pid, child.pid);
+      assert.match(stdout, /Forge dashboard → http:\/\/127\.0\.0\.1:\d+/);
+      // FORGE_KEEP_AWAKE=never (test/helpers.ts) reaches it, so it held nothing.
+      assert.equal(rec.keepAwake, null);
+    } finally {
+      child.kill('SIGTERM');
+    }
+    const code = await exited;
+    if (process.platform !== 'win32') assert.equal(code, 0, 'a clean exit on SIGTERM, which the service does not restart');
   });
 });

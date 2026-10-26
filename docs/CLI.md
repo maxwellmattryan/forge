@@ -518,7 +518,7 @@ The dashboard's headless sessions, from the terminal.
 
 The machine's dashboard and every registered project's session pool.
 
-**`forge dash [--background|--stop] [--port N] [--permission-mode MODE] [--dev] [--quiet]`**: open the machine's dashboard, one server for every project in the machine index: in a repo with .forge/config.yml it registers that repo first (forge project add's default name) and, when it registers it or starts the dashboard, approves the files Forge trusts there as they are (a project's daemon boots with the dashboard only while they still match; a report for a repo already registered approves nothing), then prints the running one's {url: &lt;origin>/?project=&lt;name>, pid, running: true, project, added}, or starts it in the foreground (prints its URL), or detached with --background ({url, pid, started: true, project, added}); outside a project it registers nothing (project: null). Its record is &lt;FORGE_HOME>/dashboard.json ({pid, url, startedAt}, 0600, never the token); a daemon session may only get the report for a registered project
+**`forge dash [--background|--stop|--service] [--port N] [--permission-mode MODE] [--dev] [--quiet]`**: open the machine's dashboard, one server for every project in the machine index: in a repo with .forge/config.yml it registers that repo first (forge project add's default name) and, when it registers it or starts the dashboard, approves the files Forge trusts there as they are (a project's daemon boots with the dashboard only while they still match; a report for a repo already registered approves nothing), then prints the running one's {url: &lt;origin>/?project=&lt;name>, pid, running: true, project, added}, or starts it in the foreground (prints its URL), or detached with --background ({url, pid, started: true, project, added}); outside a project it registers nothing (project: null). Its record is &lt;FORGE_HOME>/dashboard.json ({pid, url, startedAt}, 0600, never the token); a daemon session may only get the report for a registered project
 
 | Flag | Meaning |
 |---|---|
@@ -528,11 +528,12 @@ The machine's dashboard and every registered project's session pool.
 | `--permission-mode MODE` | the job sessions' default permission mode until it stops: default (ask), auto or dontAsk (refuse); refused in a daemon session |
 | `--port N` | the first port to try (default: this repo's dashboard.port, 7400) |
 | `--quiet` | in the foreground in human mode, print only the banner (no activity log) |
+| `--service` | what the login service runs (forge service install): in the foreground, and once the boot passes of the projects loaded at start settle, it records the restart in &lt;FORGE_HOME>/runtime/uptime.json and sends each project with running jobs or open Office requests one service-restarted notification; a usage error with --background, --stop or --dev |
 | `--stop` | stop the machine's dashboard and, in a repo, an older per-repo dashboard (.forge/runtime/dashboard.json), then reap every registered project's orphaned sessions ({stopped, daemonReaped}); a record whose pid is not provably that dashboard is cleared without signalling anything |
 
 | Exit | When |
 |---|---|
-| 1 | no free port near N, --dev from a forge without Vite or while a proven machine dashboard is running, this repo's default name registered for another path, --permission-mode in a daemon session, or a daemon session that would start, stop or register (only the report for a registered project is allowed) |
+| 1 | no free port near N, --dev from a forge without Vite or while a proven machine dashboard is running, this repo's default name registered for another path, --permission-mode in a daemon session, or a daemon session that would start, stop or register, or ran --service (only the report for a registered project is allowed) |
 
 ### `forge doctor`
 
