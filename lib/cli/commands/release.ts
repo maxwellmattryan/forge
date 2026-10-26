@@ -84,7 +84,8 @@ function planForMandate(ctx: CliContext, flags: Record<string, any>, narrow: (id
     if (m.problem === 'no such mandate' || m.problem === 'not a mandate id') throw new ForgeError(`no mandate ${JSON.stringify(id).slice(0, 60)}`, 'not_found');
     throw new ForgeError(`mandate ${id} can't be read (${m.problem})`, 1);
   }
-  if (m.status !== 'active') throw new ForgeError(`mandate ${id} is ${m.status}; resume it first`, 1);
+  if (m.status === 'paused') throw new ForgeError(`mandate ${id} is paused; resume it first`, 1);
+  if (m.status !== 'active') throw new ForgeError(`mandate ${id} is ${m.status}; plan a release of its work with forge release plan --since <tag>`, 1);
   const { effective, capped } = effectiveContract(config, m);
   if (effective.until !== 'released') throw new ForgeError(`mandate ${id}'s until is ${effective.until}, not released${capped.length ? ` (${capped.join('; ')})` : ''}`, 1);
   if (latestMandatePlan(root, id) === null) throw new ForgeError(`mandate ${id}'s release isn't planned yet: the Office pass plans it once the mandate's jobs have merged`, 1);

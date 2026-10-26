@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { jobAt, parkedAt, recordingMoveEffects, tempRepo } from '../../../test/helpers.ts';
-import { releaseFiles, writeReleasePlan } from '#engine/release/files.ts';
+import { planSteps, releaseFiles, writeReleasePlan } from '#engine/release/files.ts';
 import { latestMandatePlan } from '#engine/release/mandate.ts';
 import { RELEASE_FILE_VERSION } from '#engine/release/plan.ts';
 import { defaults } from '#core/config/load.ts';
@@ -333,8 +333,8 @@ function releasing(t: test.TestContext, tag: 'behind' | 'head' | 'none' = 'behin
 
 const planned = (root: string) => audit(root).filter((e) => e.type === 'mandate-release-planned');
 const releaseGates = (root: string) => listRequests(root).filter((r) => r.type === 'gate' && r.args?.gate === 'release');
-const writeState = (root: string, hash: string, steps: Record<string, unknown>) =>
-  fs.writeFileSync(releaseFiles(root).state, JSON.stringify({ version: RELEASE_FILE_VERSION, planHash: hash, startedAt: 'x', updatedAt: 'x', finishedAt: null, steps }));
+const writeState = (root: string, hash: string, steps: Record<string, unknown>, finishedAt: string | null = null) =>
+  fs.writeFileSync(releaseFiles(root).state, JSON.stringify({ version: RELEASE_FILE_VERSION, planHash: hash, startedAt: 'x', updatedAt: 'x', finishedAt, steps }));
 
 test('a mandate until released waits for its release and never closes early', async (t) => {
   const pass = (root: string, config: Config, at?: number) => runOfficePass(root, config, { tracker: stub({ M1: [1] }), notify: notifier().fn, at });
@@ -379,6 +379,34 @@ test('a mandate until released waits for its release and never closes early', as
     config.release.command = 'git tag v0.3.0';
     await waits(root, config, /^release: the plan went stale \(plan [0-9a-f]{12}, now [0-9a-f]{12}\)$/, 1);
     assert.equal(releaseGates(root).length, 1, 'no new request');
+  });
+
+  await t.test('another plan in release.json that has not started is never replaced', async (t) => {
+    const { root, config } = releasing(t);
+    const other = jobAt(root, 'done', { pr: { number: 3, url: 'https://github.com/acme/web/pull/3', state: 'MERGED' } }).id;
+    writeReleasePlan(root, config, { kind: 'job', job: other });
+    const before = fs.readFileSync(releaseFiles(root).json, 'utf8');
+    await waits(root, config, /^release: blocked by another plan, plan it with forge release plan --mandate m1$/, 0);
+    assert.equal(fs.readFileSync(releaseFiles(root).json, 'utf8'), before, 'release.json untouched');
+    assert.deepEqual([releaseGates(root), readDirectives(root, { mandate: 'm1' })], [[], []], 'no request, no directive');
+  });
+
+  await t.test('a finished release that a later merge missed is planned again, not closed', async (t) => {
+    const { root, config } = releasing(t);
+    await pass(root, config);
+    const [first] = planned(root);
+    const plan = JSON.parse(fs.readFileSync(releaseFiles(root).json, 'utf8'));
+    writeState(root, first.planHash, Object.fromEntries(planSteps(plan).map((s) => [s.id, { status: 'done', at: 'x' }])), 'x');
+    // Another mandate job merges after the plan was planned: its commit lands in the root.
+    fs.writeFileSync(`${root}/b.txt`, 'b\n');
+    execFileSync('git', ['add', '-A'], { cwd: root, stdio: 'pipe' });
+    execFileSync('git', ['commit', '-qm', 'later'], { cwd: root, stdio: 'pipe' });
+    const mergedAt = new Date(Date.parse(first.ts) + 1000).toISOString();
+    jobAt(root, 'done', { create: { mandate: 'm1', issues: issue(1) }, pr: { number: 4, url: 'https://github.com/acme/web/pull/4', state: 'MERGED', mergedAt } });
+    await waits(root, config, /^release: plan [0-9a-f]{12} waits for release approval \(foreman\)$/, 2);
+    const second = latestMandatePlan(root, 'm1')!.hash;
+    assert.notEqual(second, first.planHash, 'a new hash');
+    assert.deepEqual(releaseGates(root).map((r) => r.args?.key), [first.planHash, second], 'a new request');
   });
 
   await t.test('release.json replaced by another plan', async (t) => {

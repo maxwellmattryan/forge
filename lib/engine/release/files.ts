@@ -10,7 +10,7 @@ import { ForgeError } from '#core/errors.ts';
 import { writeJsonAtomic, writeTextAtomic } from '#core/os/fs.ts';
 import { assertSafeRef } from '#core/text.ts';
 import { MANDATE_ID_SOURCE } from '#api/constants.ts';
-import { type PlanOptions, type ReleasePlan, type ReleaseSelection, type ReleaseState, type ReleaseStep, RELEASE_FILE_VERSION, planRelease } from './plan.ts';
+import { type PlanOptions, type ReleasePlan, type ReleaseSelection, type ReleaseState, type ReleaseStep, COMMIT_SHA, RELEASE_FILE_VERSION, planRelease } from './plan.ts';
 import { renderReleaseMd } from './render.ts';
 
 const MANDATE_ID = new RegExp(MANDATE_ID_SOURCE);
@@ -91,6 +91,10 @@ export function readPlanFile(files: ReleaseFiles): ReleasePlan | null {
     // The mandate names the audit events an approval is matched against.
     if (sel.mandate !== undefined && !(typeof sel.mandate === 'string' && MANDATE_ID.test(sel.mandate) && sel.mandate !== 'none'))
       throw new ForgeError(`${files.json}: selection.mandate ${JSON.stringify(String(sel.mandate).slice(0, 80))} is not a mandate id; re-run forge release plan`);
+    // A run that has started keeps these heads (keptHeads), so they are commit ids by repo label.
+    const heads = sel.heads;
+    if (heads !== undefined && !(heads && typeof heads === 'object' && !Array.isArray(heads) && Object.values(heads).every((h) => typeof h === 'string' && COMMIT_SHA.test(h))))
+      throw new ForgeError(`${files.json}: selection.heads is not a map of commit ids; re-run forge release plan`);
   }
   if (sel.kind === 'job' && !validJobId(sel.job)) throw new ForgeError(`${files.json}: selection.job ${JSON.stringify(sel.job.slice(0, 80))} is not a valid job id; re-run forge release plan`);
   return p as ReleasePlan;

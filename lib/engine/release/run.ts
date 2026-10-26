@@ -28,6 +28,7 @@ import {
   RELEASE_FILE_VERSION,
   cloneGit,
   freshPlan,
+  keptHeads,
   planHash,
   planRelease,
   repoBase,
@@ -551,7 +552,7 @@ export function releaseStatus(root: string, config: Config, opts: PlanOptions & 
   let stale = false;
   let staleReason: string | undefined;
   try {
-    const now = planRelease(root, config, file.selection, opts);
+    const now = planRelease(root, config, file.selection, { ...opts, heads: keptHeads(file, own) });
     stale = now.hash !== file.hash || planHash(file) !== file.hash;
     if (stale) staleReason = `plan ${file.hash.slice(0, 12)}, now ${now.hash.slice(0, 12)}`;
   } catch (e) {

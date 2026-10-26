@@ -3,8 +3,9 @@
 // creation order: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing
 // summary (then the next link of a chain, in the same pass), the budget pause and the cadence stall.
 // An `until: released` mandate whose work is done waits for its release instead of closing: the pass
-// plans it (only when unplanned, or when its own plan went stale before any step ran), never runs it,
-// and closes the mandate once the release run finished; while it waits, no budget pause or stall applies.
+// plans it (only when unplanned, or when its own plan went stale before any step ran, and never over
+// another plan), never runs it, and closes the mandate once the release run finished and no mandate job
+// merged after it was planned; while it waits, no budget pause or stall applies.
 // When a mandate has director work it wakes the office session with one `direct` request. Every
 // status write is guarded: it lands only while the mandate still has the status and updatedAt the
 // pass read, so an owner's edit, pause or close wins. docs/architecture/foreman.md › Director loop.
@@ -176,9 +177,10 @@ const cut = (s: string): string => s.slice(0, REASON_MAX);
 
 /**
  * An `until: released` mandate whose work is done: its release state, after planning it when it is
- * unplanned, or stale with no step of it started, and the mandate is active (a paused one is never
+ * unplanned, or stale with no run of it in progress, and the mandate is active (a paused one is never
  * planned). A plan logs a `release` directive and notifies `gate`; a refusal (no tag, nothing to
- * release, another plan's unfinished run…) plans nothing and becomes the mandate's `blocked`.
+ * release, another plan in release.json that hasn't started, another plan's unfinished run…) plans
+ * nothing and becomes the mandate's `blocked`.
  */
 function awaitRelease(
   root: string,
@@ -193,7 +195,7 @@ function awaitRelease(
   let refusal: string | null = null;
   if (state === 'active' && (view.status === 'unplanned' || (view.status === 'stale' && !mandateReleaseStarted(root, m.id)))) {
     try {
-      const planned = planMandateRelease(root, config, m.id, { narrow, actor: FOREMAN_ACTOR });
+      const planned = planMandateRelease(root, config, m.id, { narrow, actor: FOREMAN_ACTOR, byPass: true });
       directive('release', `planned ${planned.hash} since ${planned.tag}`);
       notify(root, ['gate'], { reason: 'mandate-release', mandate: m.id });
       view = mandateReleaseState(root, config, m.id, narrow);

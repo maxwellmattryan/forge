@@ -1,6 +1,6 @@
 // An `until: released` mandate's plan file and tag: readPlanFile refuses a since selection whose mandate
-// isn't a mandate id (anyone who can write .forge/runtime/ can plant release.json), and lastReleaseTag
-// is null for a repo with no tag or with a tag that isn't a safe ref.
+// isn't a mandate id or whose heads aren't commit ids (anyone who can write .forge/runtime/ can plant
+// release.json), and lastReleaseTag is null for a repo with no tag or with a tag that isn't a safe ref.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -24,6 +24,10 @@ test('readPlanFile checks a since selection’s mandate', (t) => {
     ['an upper-case id', { kind: 'since', tag: 'v1.0.0', mandate: 'M1' }, /selection\.mandate "M1" is not a mandate id/],
     ['a mandate that is not text', { kind: 'since', tag: 'v1.0.0', mandate: 7 }, /selection\.mandate "7" is not a mandate id/],
     ['a null mandate', { kind: 'since', tag: 'v1.0.0', mandate: null }, /selection\.mandate "null" is not a mandate id/],
+    ['heads by label', { kind: 'since', tag: 'v1.0.0', mandate: 'm1', heads: { '(root)': 'a'.repeat(40), api: 'b'.repeat(64) } }, null],
+    ['a head that is not a commit id', { kind: 'since', tag: 'v1.0.0', mandate: 'm1', heads: { '(root)': 'HEAD' } }, /selection\.heads is not a map of commit ids; re-run forge release plan$/],
+    ['heads that are a list', { kind: 'since', tag: 'v1.0.0', mandate: 'm1', heads: ['a'.repeat(40)] }, /selection\.heads is not a map of commit ids/],
+    ['null heads', { kind: 'since', tag: 'v1.0.0', mandate: 'm1', heads: null }, /selection\.heads is not a map of commit ids/],
   ];
   for (const [name, selection, refused] of rows) {
     plant(selection);

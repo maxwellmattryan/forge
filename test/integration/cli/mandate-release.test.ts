@@ -1,7 +1,8 @@
 // An `until: released` mandate through the CLI, in a scratch repo whose root releases with a tag command
 // pushed to a local origin: once its job is done the Office pass plans the release since the root's last
 // tag and waits; an assistant foreman approves it; a run without a terminal publishes on that approval and
-// the next pass closes the mandate. With `gate:release` reserved the plan stays a person's, and `forge
+// the next pass closes the mandate. A merge after the approval makes the plan stale, so the approval stops
+// counting. With `gate:release` reserved the plan stays a person's, and `forge
 // release plan --mandate` re-plans only what the pass planned first. Serial: the daemon rows set
 // process.env through forgeInProcess.
 import test from 'node:test';
@@ -177,6 +178,38 @@ test('a mandate until released plans its release, waits for approval and closes'
   assert.deepEqual(closing.calls, [[['mandate-closed'], { reason: 'mandate-closed', mandate: 'm1' }]]);
 });
 
+test('a merge after the approval makes the plan stale, and the approval stops counting', async (t) => {
+  const r = scratch(t);
+  await mandateWithDoneJob(r.dir);
+  const config = loadConfig(r.dir).config;
+  await pass(r.dir, config);
+  const [gate] = releaseGates(r.dir);
+  claimRequest(r.dir, gate.id, 'sess-a');
+  await ok(r.dir, ['mandate', 'release', 'approve', 'm1', '--actor', 'foreman', '--note', 'the plan releases what m1 merged'], ASSISTANT);
+  assert.equal((await ok(r.dir, ['release', 'status'])).approval.status, 'approved');
+
+  // Another commit merges into main after the approval: the planned HEAD moved, so the plan is stale.
+  fs.writeFileSync(path.join(r.dir, 'b.txt'), 'b\n');
+  r.git('add', '-A');
+  r.git('commit', '-qm', 'merged after the approval');
+  r.git('push', '-q', 'origin', 'main');
+  assert.equal((await ok(r.dir, ['mandate', 'show', 'm1'])).release.status, 'stale');
+  assert.equal((await ok(r.dir, ['release', 'status'])).stale, true);
+  await assert.rejects(run(r.dir, config), /the release plan no longer matches config and the repos/);
+
+  // The pass plans again; the approval was for the old plan, so a run without a terminal stops at the publish step.
+  await pass(r.dir, config);
+  const planned = events(r.dir, 'mandate-release-planned');
+  assert.equal(planned.length, 2);
+  assert.notEqual(planned[1].planHash, planned[0].planHash);
+  assert.deepEqual((await ok(r.dir, ['release', 'status'])).approval, { owner: 'foreman', status: 'pending' });
+  const ran = await run(r.dir, config);
+  assert.equal(ran.exitCode, 1);
+  assert.deepEqual([ran.data.stopped?.step, ran.data.stopped?.reason, ran.data.approvedBy], ['(root)/release', 'needs_confirmation', undefined]);
+  assert.equal(execFileSync('git', ['ls-remote', '--tags', r.bare, 'refs/tags/v0.2.0'], { encoding: 'utf8' }), '', 'nothing published');
+  assert.equal((await ok(r.dir, ['mandate', 'show', 'm1'])).status, 'active');
+});
+
 test("the Foreman's reserved release leaves the plan with a human", async (t) => {
   const r = scratch(t);
   commitConfig(r, (c) => (c.foreman.reserved = ['gate:release']));
@@ -200,12 +233,15 @@ test('forge release plan --mandate', async (t) => {
   await ok(r.dir, ['mandate', 'new', 'm2', '--title', 'M2', '--issues', 'other', '--order', 'listed', '--until', 'merged']);
   await ok(r.dir, ['mandate', 'new', 'm3', '--title', 'M3', '--issues', 'third', '--order', 'listed', '--until', 'released']);
   await ok(r.dir, ['mandate', 'pause', 'm3']);
+  await ok(r.dir, ['mandate', 'new', 'm4', '--title', 'M4', '--issues', 'fourth', '--order', 'listed', '--until', 'released']);
+  await ok(r.dir, ['mandate', 'close', 'm4']);
   const refusals: [string, string[], number, RegExp][] = [
     ['with --since', ['release', 'plan', '--mandate', 'm1', '--since', 'v0.1.0'], 2, /takes one of --job, --since or --mandate/],
     ['with --job', ['release', 'plan', '--mandate', 'm1', '--job', 'j-1'], 2, /takes one of --job, --since or --mandate/],
     ['an unknown mandate', ['release', 'plan', '--mandate', 'nope'], 1, /^no mandate "nope"/],
     ['before the pass planned it', ['release', 'plan', '--mandate', 'm1'], 1, /^mandate m1's release isn't planned yet/],
-    ['a mandate that is not active', ['release', 'plan', '--mandate', 'm3'], 1, /^mandate m3 is paused/],
+    ['a mandate that is not active', ['release', 'plan', '--mandate', 'm3'], 1, /^mandate m3 is paused; resume it first$/],
+    ['a closed mandate', ['release', 'plan', '--mandate', 'm4'], 1, /^mandate m4 is closed; plan a release of its work with forge release plan --since <tag>$/],
     ["a mandate whose until isn't released", ['release', 'plan', '--mandate', 'm2'], 1, /^mandate m2's until is merged, not released/],
   ];
   for (const [name, args, status, want] of refusals) {
