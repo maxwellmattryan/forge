@@ -92,7 +92,7 @@ Both files must be regular files of at most 256 KiB. An unknown key, a bad slug 
 
 ## 3. Retros (`/forge retro`)
 
-With `foreman.enabled`, `forge sync` (which `forge dash` runs every two minutes) queues one `retro` request for the inbox once `forge retro due` says a retro is due, unless a retro request is pending or in progress or a retro job is still open. With the foreman off, the orchestrator tells the human once. Either way a retro job's spec gate stays with a human: no gate request reaches the office, and `--actor foreman` is refused there.
+With `foreman.enabled`, `forge sync` (which `forge dash` runs every two minutes) queues one `retro` request for the inbox once `forge retro due` says a retro is due, unless a retro request is pending or in progress or a retro job is still open. With the foreman off, the orchestrator tells the human once. Either way a retro job's spec gate stays with a human: no gate request reaches the assistant foremen, and `--actor foreman` is refused there.
 
 The retro agent reads the metrics (per-lens dispute, miss and blocker/major rates and recurring findings among them), a digest of human interventions, the human delta after Forge's last push and each job's recurring findings as oscillation signals, and from `forge retro prepare`'s `signals.md`: `## Experiment verdicts` (a dry run of `forge experiment evaluate`), `## Per-lens recall`, `## Recurring findings across jobs` (findings that share a **finding key**, the lens and the first four words of the title, in 2 or more jobs, with counts, job ids and one example) and `## Learnings past review-by`. It then:
 1. proposes reverting changes whose experiment was `reverted`

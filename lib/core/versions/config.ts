@@ -142,6 +142,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // existing foreman.assistants value wins, and the old runtime keys are deleted. A config with neither
   // old key, or whose foreman (or foreman.assistants) isn't a map, is unchanged.
   { id: 'foreman-office', up: foremanOffice },
+  // v36 adds daemon.keepAwake (auto) and the service-restarted notify event, filled from defaults, so
+  // no v35 config changes; the bump lets older Forges refuse a webhook subscribed to an event they lack.
+  { id: 'office-uptime', up: (c) => c },
 ];
 
 const isPlainMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);

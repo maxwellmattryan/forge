@@ -87,6 +87,7 @@ function detail(e: JobEvent): string | null {
     case 'mandate-pause':
     case 'mandate-resume':
     case 'mandate-close':
+    case 'mandate-draft':
       d = str(e.mandate);
       break;
     default:

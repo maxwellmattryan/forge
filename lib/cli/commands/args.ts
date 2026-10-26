@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { worktreeRoot } from '#core/config/load.ts';
-import { daemonScope, INBOX_SCOPE, OFFICE_SCOPE } from '#core/job/requests.ts';
+import { daemonScope, sharedScope } from '#core/job/requests.ts';
 import { loadJob } from '#core/job/store.ts';
 import { ForgeError } from '#core/errors.ts';
 import { AGENT_TEXT_MAX, readRegular } from '#core/os/fs.ts';
@@ -180,7 +180,7 @@ export function bodyFrom(flags: Record<string, any>, root: string, config: Confi
 const below = (rel: string): boolean => rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
 
 function daemonBodyFile(file: string, scope: string, root: string, config: Config): string {
-  if (scope === INBOX_SCOPE || scope === OFFICE_SCOPE) throw new ForgeError(`--body-file in the ${scope} daemon session reads only stdin (--body-file -); pass the text with --body`);
+  if (sharedScope(scope)) throw new ForgeError(`--body-file in the ${scope} daemon session reads only stdin (--body-file -); pass the text with --body`);
   const refused = new ForgeError(`--body-file in a daemon session must name a file inside job ${scope}'s folder or worktree (got ${JSON.stringify(file)}); pass other text with --body or on stdin (--body-file -)`);
   const real = (p: string): string | null => {
     try {

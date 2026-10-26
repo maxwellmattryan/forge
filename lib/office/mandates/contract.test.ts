@@ -9,8 +9,8 @@ import { BIN, forgeInProcess, repoTemplate } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { MANDATE_SCHEMA_VERSION } from '#core/versions/mandate.ts';
-import { applyInput, blankMandate, effectiveContract, isReadable, mandateChain, mandateState } from './contract.ts';
-import { listMandates, readMandate } from './store.ts';
+import { applyInput, blankMandate, effectiveContract, isReadable, mandateChain, mandateState, mandateSummary } from './contract.ts';
+import { listMandates, readMandate, writeMandate } from './store.ts';
 import type { Config } from '#core/types.ts';
 import type { Mandate, MandateInput, ReadMandate } from './types.ts';
 
@@ -53,7 +53,20 @@ test('mandate input refusals', async () => {
       ['a gate:<class> reserved class', [...NEW, '--decides', 'conflicts'], /^conflicts is reserved \(gate:conflicts\)$/],
       ['an invalid foreman.reserved', [...NEW, '--decides', 'spec-approval'], /foreman\.reserved is invalid: every gate stays with a human until it is fixed/, bad.dir],
       ['an unknown class', [...NEW, '--decides', 'nope'], /^nope is not a gate class$/],
-      ['an empty scope', ['mandate', 'new', 'x', '--title', 'X'], /scope needs at least one milestone, label or issue/],
+      ['an empty scope', ['mandate', 'new', 'x', '--title', 'X'], /^a mandate's scope needs at least one milestone, label or issue, or a goal$/],
+      ...(['milestones', 'labels', 'issues'] as const).map((k): [string, string[], RegExp] => [
+        `a goal with --${k}`,
+        ['mandate', 'new', 'x', '--title', 'X', '--goal', 'Ship it', `--${k}`, k === 'issues' ? 'some-item' : 'M1', ...(k === 'issues' ? ['--order', 'listed'] : [])],
+        /^a goal mandate's scope stays empty until its draft is filed$/,
+      ]),
+      ['an empty goal', ['mandate', 'new', 'x', '--title', 'X', '--goal', ''], /^a goal needs at least one character that is not whitespace$/],
+      ['a whitespace-only goal', ['mandate', 'new', 'x', '--title', 'X', '--goal', ' \r\n\t '], /^a goal needs at least one character that is not whitespace$/],
+      ['a goal of 4001 characters', ['mandate', 'new', 'x', '--title', 'X', '--goal', 'g'.repeat(4001)], /^the goal must be at most 4000 characters \(got 4001\)$/],
+      ...[0x07, 0x2028, 0x85].map((c): [string, string[], RegExp] => [
+        `a goal holding U+${c.toString(16).padStart(4, '0').toUpperCase()}`,
+        ['mandate', 'new', 'x', '--title', 'X', '--goal', `ship${String.fromCharCode(c)}it`],
+        /^the goal must hold no control character but line feed and tab, and no line or paragraph separator$/,
+      ]),
       ['listed without issues', [...NEW, '--order', 'listed'], /order listed needs scope\.issues and no milestones or labels/],
       ['issues without listed', ['mandate', 'new', 'x', '--title', 'X', '--issues', 'some-item'], /scope\.issues needs order listed/],
       ['a milestone starting -', ['mandate', 'new', 'x', '--title', 'X', '--milestones', '-x'], /milestone "-x" must be 1-100 characters, not start with "-"/],
@@ -90,6 +103,36 @@ test('mandate input refusals', async () => {
   } finally {
     r.cleanup();
     bad.cleanup();
+  }
+});
+
+test('a goal round-trips through the mandate file', async () => {
+  const r = scratch();
+  try {
+    const goals = [
+      '   leading spaces on the first line\nthen more',
+      'two trailing newlines\n\n',
+      'above\n---\nbelow',
+      '# not a heading "quoted" and #hash',
+      'a\ttab\tand a back\\slash and \\\' and \'single\'',
+      'non-ASCII: café, 日本語, emoji 🚀',
+    ];
+    goals.forEach((goal, i) => {
+      const m = applyInput(blankMandate(`g${i}`, '2026-10-01T00:00:00.000Z'), { title: `G${i}`, goal });
+      writeMandate(r.dir, () => ({ mandate: m, action: 'new' as const }));
+      const back = readMandate(r.dir, `g${i}`);
+      assert.ok(isReadable(back), `${JSON.stringify(goal)}: ${JSON.stringify(back)}`);
+      assert.equal(back.goal, goal, JSON.stringify(goal));
+      assert.equal(back.body, '');
+      // The goal is the last frontmatter key, on one double-quoted line.
+      const lines = fs.readFileSync(path.join(r.dir, '.forge', 'runtime', 'mandates', `g${i}.md`), 'utf8').split('\n');
+      const end = lines.indexOf('---', 1);
+      assert.match(lines[end - 1], /^goal: ".*"$/, JSON.stringify(goal));
+    });
+    const plain = readMandate(r.dir, 'g0');
+    assert.ok(isReadable(plain) && mandateSummary(plain, [plain]).intake);
+  } finally {
+    r.cleanup();
   }
 });
 

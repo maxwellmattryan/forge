@@ -12,7 +12,7 @@
   import SessionToggle from './SessionToggle.svelte';
   import Tooltip from './Tooltip.svelte';
   import type { SelectOption } from '../lib/select.ts';
-  import { INBOX_SCOPE, OFFICE_SCOPE } from '../lib/types.ts';
+  import { sharedScope } from '../lib/types.ts';
   import type { DaemonSessionState } from '../lib/types.ts';
   import { PERMISSION_MODES, postDaemonMode, scopeSession, sessionMode } from '../lib/daemon.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
@@ -64,7 +64,7 @@
     {#if mode.chosen === 'auto'}<span bind:this={warning} role="img" class="inline-flex items-center px-1 text-warn" aria-label={$t('session.modes.autoWarning')} aria-describedby="{uid}-warning"><Icon name="warning" /></span><span id="{uid}-warning" class="sr-only">{$t('session.modes.autoWarningHint')}</span><Tooltip anchor={warning} text={$t('session.modes.autoWarning')} hint={$t('session.modes.autoWarningHint')} toggle />{/if}
     <!-- The Select stays enabled while its entries can't change, so it still opens and the hints stay readable. -->
     <Select variant="button" icon="shield" align="end" label={$t('session.modeLabel')} value={shownMode} text={modeName[shownMode] ?? shownMode} options={modeOptions} onchange={setMode} />
-    {#if scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE}<EffortSelect job={scope} />{/if}
+    {#if !sharedScope(scope)}<EffortSelect job={scope} />{/if}
     {#if toggle}<SessionToggle {scope} {live} {onacted} />{/if}
   </div>
   {#if session?.lastError}<div role="status" class="text-xs text-bad text-right break-words">{session.lastError}</div>{/if}

@@ -5,8 +5,10 @@ import { refuseRun, releaseStatus, runRelease } from '#engine/release/run.ts';
 import { noteReleasePlanned } from '#engine/release/approval.ts';
 import { selectionFrom } from '#engine/release/plan.ts';
 import { writeReleasePlan } from '#engine/release/files.ts';
+import { releaseMandateRefusal } from '#office/foreman.ts';
 import { ForgeError } from '#core/errors.ts';
 import { usageError } from './args.ts';
+import type { Job } from '#core/types.ts';
 import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
 
 const DOCS: [string, string] = ['Releasing a project', 'docs/RELEASES.md#releasing-a-project'];
@@ -67,6 +69,8 @@ async function ask(prompt: string): Promise<boolean> {
 
 export async function releaseCmd(ctx: CliContext, sub: string | undefined, rest: string[], flags: Record<string, any>): Promise<Dispatched> {
   const { root, config } = ctx;
+  // A foreman approval counts only while the job's mandate still delegates release (asked on each run and status).
+  const narrow = (j: Job) => releaseMandateRefusal(root, config, j);
   if (sub === 'plan') {
     if (rest.length) throw usageError(RELEASE, 'plan');
     if (flags.force !== undefined && process.env.FORGE_DAEMON === '1') throw new ForgeError(PLAN_DAEMON_REFUSAL);
@@ -80,11 +84,11 @@ export async function releaseCmd(ctx: CliContext, sub: string | undefined, rest:
     refuseRun();
     if (rest.length) throw usageError(RELEASE, 'run');
     const interactive = process.stdin.isTTY === true && process.stderr.isTTY === true;
-    return runRelease(root, config, { interactive, confirm: ask });
+    return runRelease(root, config, { interactive, confirm: ask, narrow });
   }
   if (sub === 'status') {
     if (rest.length) throw usageError(RELEASE, 'status');
-    return { data: releaseStatus(root, config), exitCode: 0 };
+    return { data: releaseStatus(root, config, { narrow }), exitCode: 0 };
   }
   throw usageError(RELEASE);
 }

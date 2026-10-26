@@ -1,6 +1,6 @@
 // The mandate contract's rules: the stored shape a file needs to be read, the refusals of `forge mandate
 // new|edit`, the defaults a new mandate takes, the contract as it applies under the config (what it caps),
-// the derived state and chain, and the guidance fence. Reads no file: store.ts does. docs/architecture/foreman.md.
+// the derived state and chain, and the guidance and goal fences. Reads no file: store.ts does. docs/architecture/foreman.md.
 import { MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_STATUSES, MANDATE_UNTIL } from '#core/job/schema.ts';
 import { MANDATE_SCHEMA_VERSION, MANDATE_STEPS } from '#core/versions/mandate.ts';
 import { runSteps } from '#core/versions/steps.ts';
@@ -25,12 +25,16 @@ export const BODY_MAX = 8000;
 const ENTRY_MAX = 100;
 const SCOPE_LIST_MAX = 10;
 const ISSUES_MAX = 100;
+export const GOAL_MAX = 4000;
 // C0, DEL, C1 and the line and paragraph separators (built from code points: a literal one ends a regex literal).
-const CONTROL = new RegExp(`[\\x00-\\x1f\\x7f-\\x9f${String.fromCharCode(0x2028, 0x2029)}]`);
+const SEPARATORS = String.fromCharCode(0x2028, 0x2029);
+const CONTROL = new RegExp(`[\\x00-\\x1f\\x7f-\\x9f${SEPARATORS}]`);
+/** CONTROL but LF and TAB: what a goal may not hold. The separators would split its one stored line. */
+const GOAL_CONTROL = new RegExp(`[\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f${SEPARATORS}]`);
 
-/** The frontmatter keys, in the order a file holds them; every one is always written. */
+/** The frontmatter keys, in the order a file holds them; every one is always written, `goal` last (store.ts). */
 export const MANDATE_KEYS = [
-  'schemaVersion', 'id', 'title', 'status', 'reason', 'scope', 'until', 'maxJobs', 'order', 'decides', 'budget', 'stall', 'onUnfinishable', 'after', 'createdAt', 'updatedAt', 'closedAt',
+  'schemaVersion', 'id', 'title', 'status', 'reason', 'scope', 'until', 'maxJobs', 'order', 'decides', 'budget', 'stall', 'onUnfinishable', 'after', 'createdAt', 'updatedAt', 'closedAt', 'goal',
 ] as const;
 
 export const isReadable = (m: ReadMandate | undefined): m is Mandate => m !== undefined && !('problem' in m);
@@ -52,6 +56,15 @@ function scopeListProblems(kind: 'milestone' | 'label', list: unknown): string[]
       problems.push(`${kind} ${JSON.stringify(String(e)).slice(0, 120)} must be 1-${ENTRY_MAX} characters, not start with "-" and have no control or hidden characters`);
   }
   return problems;
+}
+
+/** A goal is null, or owner text on lines: not blank, at most GOAL_MAX characters, no control character but LF and TAB. */
+function goalProblems(goal: unknown): string[] {
+  if (goal === null) return [];
+  if (typeof goal !== 'string' || !goal.trim()) return ['a goal needs at least one character that is not whitespace'];
+  if (goal.length > GOAL_MAX) return [`the goal must be at most ${GOAL_MAX} characters (got ${goal.length})`];
+  if (GOAL_CONTROL.test(goal)) return ['the goal must hold no control character but line feed and tab, and no line or paragraph separator'];
+  return [];
 }
 
 /**
@@ -80,7 +93,9 @@ function termProblems(m: Record<string, any>, opts: { decides: boolean }): strin
       }
     }
     const lists = [s.milestones, s.labels, s.issues].map((l) => (Array.isArray(l) ? l.length : 0));
-    if (lists.every((n) => n === 0)) problems.push("a mandate's scope needs at least one milestone, label or issue");
+    const goal = typeof m.goal === 'string';
+    if (goal && lists.some((n) => n > 0)) problems.push("a goal mandate's scope stays empty until its draft is filed");
+    else if (!goal && lists.every((n) => n === 0)) problems.push("a mandate's scope needs at least one milestone, label or issue, or a goal");
     else if (m.order === 'listed' && (lists[2] === 0 || lists[0] > 0 || lists[1] > 0)) problems.push('order listed needs scope.issues and no milestones or labels');
     else if (lists[2] > 0 && m.order !== 'listed') problems.push('scope.issues needs order listed (issues are worked in the order given)');
   }
@@ -106,6 +121,7 @@ function termProblems(m: Record<string, any>, opts: { decides: boolean }): strin
   else if (m.after !== null && m.after === m.id) problems.push(`--after ${m.after}: a mandate can't follow itself`);
   for (const k of ['createdAt', 'updatedAt'] as const) if (!isIso(m[k])) problems.push(`${k} must be an ISO time`);
   if (m.closedAt !== null && !isIso(m.closedAt)) problems.push('closedAt must be null or an ISO time');
+  problems.push(...goalProblems(m.goal));
   if (typeof m.body !== 'string') problems.push('the body must be text');
   else if (m.body.length > BODY_MAX) problems.push(`the body must be at most ${BODY_MAX} characters (got ${m.body.length})`);
   return problems;
@@ -180,6 +196,7 @@ export function blankMandate(id: string, at: string): Mandate {
     createdAt: at,
     updatedAt: at,
     closedAt: null,
+    goal: null,
     body: '',
   };
 }
@@ -199,6 +216,7 @@ export function applyInput(base: Mandate, input: MandateInput): Mandate {
     stall: { cadences: pick(input.stallCadences, base.stall.cadences), bounces: pick(input.stallBounces, base.stall.bounces) },
     onUnfinishable: pick(input.onUnfinishable, base.onUnfinishable) as Mandate['onUnfinishable'],
     after: pick(input.after, base.after),
+    goal: pick<string | null>(input.goal, base.goal),
     body: pick(input.body, base.body),
   };
 }
@@ -346,6 +364,7 @@ export function mandateSummary(m: Mandate, all: ReadMandate[]): MandateSummary {
     state: mandateState(m, all),
     reason: m.reason,
     after: m.after,
+    intake: m.goal !== null,
     scope: { milestones: [...m.scope.milestones], labels: [...m.scope.labels], issues: [...m.scope.issues] },
     contract: contractOf(m),
     createdAt: m.createdAt,
@@ -356,6 +375,9 @@ export function mandateSummary(m: Mandate, all: ReadMandate[]): MandateSummary {
 
 /** The owner's guidance fenced as data, the only form a brief or `show` ever carries it in; '' for an empty body. */
 export const mandateGuidance = (m: Pick<Mandate, 'id' | 'body'>): string => (m.body.trim() ? fenceImport(m.body, `mandate ${m.id}`) : '');
+
+/** A goal mandate's goal fenced as data, the only form `show` and the drafting survey carry it in; '' for none. */
+export const mandateGoal = (m: Pick<Mandate, 'id' | 'goal'>): string => (m.goal === null ? '' : fenceImport(m.goal, `mandate ${m.id} goal`));
 
 /** A pause or close reason as stored: one line, at most 200 characters, null when empty. */
 export const cleanReason = (raw: unknown): string | null => {

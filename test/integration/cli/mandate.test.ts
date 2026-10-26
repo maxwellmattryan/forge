@@ -46,14 +46,16 @@ test('forge mandate new, show, pause, resume, close and list', async () => {
     const created = await forgeAsync(r.dir, ['mandate', 'new', 'm1', '--title', 'Ship M9', '--milestones', 'M9,M10', '--body', 'Do the docs first.']);
     assert.equal(created.status, 0, created.stderr);
     const out = JSON.parse(created.stdout);
-    assert.deepEqual([out.ok, out.changed, out.mandate.id, out.mandate.status, out.mandate.state], [true, true, 'm1', 'active', 'active']);
+    assert.deepEqual([out.ok, out.changed, out.mandate.id, out.mandate.status, out.mandate.state, out.mandate.intake], [true, true, 'm1', 'active', 'active', false]);
+    assert.equal('draft' in out, false, 'a mandate without a goal queues no drafting run');
 
     // The file: every frontmatter key, then the body; unspecified terms from foreman.mandate, the
     // default decides cut to the classes the foreman decides (split-approval is not among them).
     const text = read(path.join(mandatesDir(r.dir), 'm1.md'));
     const [, front, body] = text.split(/^---$/m);
     const fm = yaml.parse(front);
-    assert.deepEqual(Object.keys(fm), ['schemaVersion', 'id', 'title', 'status', 'reason', 'scope', 'until', 'maxJobs', 'order', 'decides', 'budget', 'stall', 'onUnfinishable', 'after', 'createdAt', 'updatedAt', 'closedAt']);
+    assert.deepEqual(Object.keys(fm), ['schemaVersion', 'id', 'title', 'status', 'reason', 'scope', 'until', 'maxJobs', 'order', 'decides', 'budget', 'stall', 'onUnfinishable', 'after', 'createdAt', 'updatedAt', 'closedAt', 'goal']);
+    assert.equal(fm.goal, null);
     assert.deepEqual(
       { scope: fm.scope, until: fm.until, maxJobs: fm.maxJobs, order: fm.order, decides: fm.decides, budget: fm.budget, stall: fm.stall, onUnfinishable: fm.onUnfinishable, after: fm.after, reason: fm.reason, closedAt: fm.closedAt },
       {
@@ -73,7 +75,7 @@ test('forge mandate new, show, pause, resume, close and list', async () => {
     assert.equal(body.trim(), 'Do the docs first.');
 
     const shown = await ok(r.dir, ['mandate', 'show', 'm1']);
-    assert.deepEqual([shown.chain, shown.activeLink, shown.jobs, shown.capped, shown.file], [['m1'], 'm1', [], [], path.join('.forge', 'runtime', 'mandates', 'm1.md')]);
+    assert.deepEqual([shown.chain, shown.activeLink, shown.jobs, shown.capped, shown.file, shown.goal], [['m1'], 'm1', [], [], path.join('.forge', 'runtime', 'mandates', 'm1.md'), '']);
     assert.deepEqual(shown.effective.decides, ['spec-approval', 'conflicts']);
     assert.deepEqual(shown.contract, shown.effective);
     const guidance = (shown.guidance as string).split('\n');
@@ -91,7 +93,7 @@ test('forge mandate new, show, pause, resume, close and list', async () => {
       const res = await ok(r.dir, args);
       assert.deepEqual({ status: res.mandate.status, reason: res.mandate.reason, changed: res.changed }, want, args.join(' '));
       const listed = (await ok(r.dir, ['mandate', 'list'])).mandates;
-      assert.deepEqual(listed, [{ id: 'm1', title: 'Ship M9', status: want.status, state: want.status, after: null, chain: ['m1'], activeLink: want.status === 'closed' ? null : 'm1' }], args.join(' '));
+      assert.deepEqual(listed, [{ id: 'm1', title: 'Ship M9', status: want.status, state: want.status, after: null, intake: false, chain: ['m1'], activeLink: want.status === 'closed' ? null : 'm1' }], args.join(' '));
     }
     assert.ok((await ok(r.dir, ['mandate', 'show', 'm1'])).closedAt, 'close sets closedAt');
 

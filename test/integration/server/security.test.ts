@@ -381,6 +381,27 @@ test('the job budget route raises or acknowledges as the dashboard', async () =>
   }
 });
 
+test('POST /api/requests refuses gate and draft requests', async () => {
+  const repo = tempRepo();
+  const s = await startServer(repo.dir, { daemon: daemonKit().opts });
+  const port = s.port;
+  try {
+    const headers = { 'x-forge-token': await tokenOf(port), origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const rows: [Record<string, unknown>, string][] = [
+      [{ type: 'gate', job: 'j1', args: { gate: 'spec-approval' } }, 'gate requests are written only by forge job set and forge pr sync'],
+      [{ type: 'draft', args: { mandate: 'g1' } }, 'draft requests are written only by forge mandate'],
+    ];
+    for (const [body, error] of rows) {
+      const r = await hit(port, { method: 'POST', path: `${P}/requests`, headers, body: JSON.stringify(body) });
+      assert.deepEqual({ status: r.status, error: JSON.parse(r.text).error }, { status: 400, error }, String(body.type));
+    }
+    assert.deepEqual(listRequests(repo.dir), [], 'no request file');
+  } finally {
+    await s.cleanup();
+    repo.cleanup();
+  }
+});
+
 test('backlog refresh needs the token', async () => {
   const repo = tempRepo();
   const backlog = path.join(repo.dir, '.forge', 'backlog.md');

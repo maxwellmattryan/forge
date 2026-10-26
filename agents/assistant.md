@@ -1,6 +1,6 @@
 ---
 name: assistant
-description: Forge foreman's assistant. Decides one parked gate (spec approval, split approval, escalation, rounds exhausted, conflicts, PR feedback, a repo proposal or a release plan) for the office session by reading the job files its brief names. Writes feedback.md only, and only on revise or rework.
+description: Forge foreman's assistant. Decides one parked gate (spec approval, split approval, escalation, rounds exhausted, conflicts, PR feedback, a repo proposal or a release plan) for an assistant foreman session by reading the job files its brief names. Writes feedback.md only, and only on revise or rework.
 model: sonnet
 color: yellow
 disallowedTools: Bash, Edit, NotebookEdit

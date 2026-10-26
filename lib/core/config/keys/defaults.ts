@@ -261,6 +261,9 @@ export function defaults(): Config {
       // Dollars per UTC day the inbox and office sessions may spend, metered from claude's own cost report;
       // above the heaviest day observed here (office $38.66, inbox about $15). null (or a null key): no cap.
       dailyUsd: { inbox: 25, office: 60 },
+      // While this project's pool is started and has an active mandate or a running job at an agent
+      // stage, the machine dashboard holds one sleep assertion (lib/server/uptime.ts).
+      keepAwake: 'auto',
     },
     // Opt-in: the `_office` daemon session decides gates through forge:assistant sub-agents;
     // docs/architecture/foreman.md. Whole-phrase, case-insensitive patterns: a match keeps the

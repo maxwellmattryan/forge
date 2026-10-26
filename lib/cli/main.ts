@@ -7,6 +7,7 @@
 import { daemonTrust, loadConfig } from '#core/config/load.ts';
 import { refuseBrokenScope, refuseDaemonMerge, refuseInboxDrive } from '#office/owner.ts';
 import { registerNotify } from '#office/notify.ts';
+import { mandateRefusal } from '#office/foreman.ts';
 import { NEED_INIT } from '#core/config/set.ts';
 import { detect } from '#engine/ops/detect.ts';
 import { stopBackground } from '#engine/environment/lifecycle.ts';
@@ -44,7 +45,7 @@ import { gitRead, gitWrite } from './commands/git.ts';
 import { helpCmd, usage } from './commands/help.ts';
 import { confirmHuman, mergeNowOp } from './commands/human.ts';
 import { initWrite, migrate } from './commands/init.ts';
-import { jobCmd } from './commands/job.ts';
+import { jobCmd, refuseForemanJobCommand } from './commands/job.ts';
 import { mandateCmd } from './commands/mandate.ts';
 import { notifyCmd } from './commands/notify.ts';
 import { projectCmd } from './commands/project.ts';
@@ -52,6 +53,7 @@ import { releaseCmd } from './commands/release.ts';
 import { requestsCmd } from './commands/requests.ts';
 import { runCmd } from './commands/run.ts';
 import { secretsCmd } from './commands/secrets.ts';
+import { serviceCmd } from './commands/service.ts';
 import { verifiersCmd } from './commands/verifiers.ts';
 import { renderKey } from './commands/render/registry.ts';
 import { statsText, statusRows, statusTable, statusView } from './commands/status.ts';
@@ -85,6 +87,7 @@ export async function main(rawArgv: string[]): Promise<void> {
   if (cmd === 'version') return versionCmd(flags);
   if (cmd === 'update') return updateCmd(flags);
   if (cmd === 'project') return projectCmd(pos.slice(1), flags);
+  if (cmd === 'service') return serviceCmd(pos.slice(1), flags);
 
   let root: string;
   try {
@@ -157,7 +160,10 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       return ok(await nextCmd(root, config, flags));
     case 'job':
       needInit();
-      if (sub === 'advance') return advanceCmd(ctx, rest, flags, dispatch);
+      if (sub === 'advance') {
+        refuseForemanJobCommand(sub);
+        return advanceCmd(ctx, rest, flags, dispatch);
+      }
       return ok(await jobCmd(root, config, sub, rest, flags));
     case 'worktree': {
       needInit();
@@ -217,7 +223,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       const id = req(rest[0], 'job id');
       if (sub === 'find') return ok(findPr(root, config, ghGitHub, id));
       if (sub === 'open') return ok(openPr(root, config, ghGitHub, id, { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) }));
-      if (sub === 'sync') return ok(await syncPr(root, config, ghGitHub, id));
+      if (sub === 'sync') return ok(await syncPr(root, config, ghGitHub, id, { narrow: (j) => mandateRefusal(root, config, j, 'pr-feedback') }));
       if (sub === 'merge') {
         // Strictly `true`: `--now <id>` would make parseArgs swallow the id as the flag's value,
         // and that mistake must not silently bypass CI.

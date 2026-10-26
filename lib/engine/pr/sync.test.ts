@@ -9,6 +9,7 @@ import { ghPr, memoryGitHub, parkedAt, tempRepo } from '../../../test/helpers.ts
 import { syncPr } from './sync.ts';
 import { defaults } from '#core/config/load.ts';
 import { jobDir, loadJob, readEvents, setJob } from '#core/job/store.ts';
+import { listRequests } from '#core/job/requests.ts';
 import type { Job } from '#core/types.ts';
 
 const config = defaults();
@@ -106,6 +107,41 @@ const ROWS: { name: string; arrange: (s: Scenario) => void; check: (s: Scenario)
     check: (s) => assert.equal(s.job().pr?.state, 'OPEN'),
   },
 ];
+
+test("the CI rework follows the job's mandate", async () => {
+  const foreman = defaults();
+  foreman.tracker.github.repo = 'o/r';
+  foreman.daemon = { ...foreman.daemon, enabled: true };
+  foreman.foreman = { ...foreman.foreman, enabled: true, decides: ['pr-feedback'], reserved: [] };
+  const refusal = () => 'pr-feedback is not in mandate m1\'s decides: left for a human';
+  const rows: { name: string; mandate: string | null; narrow?: (j: Job) => string | null; rework: boolean }[] = [
+    { name: 'a job in no mandate', mandate: null, rework: true },
+    { name: 'a mandate that keeps pr-feedback with a human', mandate: 'm1', narrow: refusal, rework: false },
+    { name: 'a mandate that delegates pr-feedback', mandate: 'm1', narrow: () => null, rework: true },
+    { name: 'a job in a mandate with no narrowing passed', mandate: 'm1', rework: false },
+  ];
+  for (const row of rows) {
+    const repo = tempRepo();
+    try {
+      const id = parkedAt(repo.dir, 'pr-review', { config: foreman, title: row.name, create: { mandate: row.mandate }, pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', pushedSha: SHA } }).id;
+      const github = memoryGitHub();
+      github.put(ghPr({ headRefOid: SHA, statusCheckRollup: [{ name: 'test', conclusion: 'FAILURE' }] }));
+      await syncPr(repo.dir, foreman, github, id, row.narrow ? { narrow: row.narrow } : {});
+      const reworks = readEvents(repo.dir, id).filter((e) => e.type === 'human' && e.action === 'rework');
+      const gates = listRequests(repo.dir, { status: 'pending' }).filter((r) => r.type === 'gate' && r.job === id);
+      if (row.rework) {
+        assert.deepEqual(at(loadJob(repo.dir, id)), ['build', 'running', null], row.name);
+        assert.deepEqual(reworks.map((e) => e.ciHead), [SHA], row.name);
+      } else {
+        assert.deepEqual(at(loadJob(repo.dir, id)), ['pr', 'waiting', 'pr-review'], row.name);
+        assert.equal(reworks.length, 0, `${row.name}: no rework`);
+        assert.deepEqual(gates.map((r) => [r.args?.gate, r.args?.key]), [['pr-feedback', SHA]], `${row.name}: the gate instead`);
+      }
+    } finally {
+      repo.cleanup();
+    }
+  }
+});
 
 describe("syncPr records GitHub's answer through the adapter", { concurrency: 4 }, () => {
   for (const row of ROWS) {

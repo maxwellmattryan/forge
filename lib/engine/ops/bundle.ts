@@ -16,7 +16,7 @@ import { PINNED_DIFF_OPTS } from '../guard/integrity.ts';
 import { isActive, jobDir, listJobs, loadJob } from '#core/job/store.ts';
 import { isPrivateName } from '../guard/known-secrets.ts';
 import { addCounts, daemonSkeleton, omitProse, omitted, redactContext, redactText } from '../guard/redact.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '#core/job/requests.ts';
+import { INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, assistantScope, validJobId } from '#core/job/requests.ts';
 import { resolveBase } from '../pipeline/scope.ts';
 import { loadStepInput, step } from '../pipeline/step.ts';
 import type { Config, Job } from '#core/types.ts';
@@ -369,7 +369,12 @@ export async function buildBundle(
   if (daemonsOk === false) skipped.push({ name: 'daemon', reason: 'symlink' });
   const daemons = daemonsOk ? daemonsBase : null;
   if (opts.job === undefined && daemons) {
-    for (const [scope, name] of [[INBOX_SCOPE, 'inbox'], [OFFICE_SCOPE, 'office']] as const) {
+    const shared: [string, string][] = [
+      [INBOX_SCOPE, 'inbox'],
+      [OFFICE_SCOPE, 'office'],
+      ...Array.from({ length: MAX_ASSISTANTS }, (_, i): [string, string] => [assistantScope(i + 1), `assistant-${i + 1}`]),
+    ];
+    for (const [scope, name] of shared) {
       const r = tailContained(daemons, `${scope}.log`, DAEMON_LINES);
       if (Array.isArray(r)) raw.push({ name: `daemon/${name}.log`, text: daemonText(r, includeText) });
       else if (r) skipped.push({ name: `daemon/${name}.log`, reason: r.skip });
