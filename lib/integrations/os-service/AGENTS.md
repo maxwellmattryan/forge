@@ -10,6 +10,8 @@ The OS's per-user service managers and sleep assertions: launchd and systemd uni
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
 |---|---|
+| `launchd.ts` | macOS's per-user LaunchAgent for the machine dashboard: the plist file, its reader, and the launchctl argv that loads, unloads and inspects it in the user's GUI domain. |
 | `sleep.ts` | The machine's sleep assertion: caffeinate on macOS and systemd-inhibit on Linux, held by one helper child that exits on its own when the dashboard's pid dies, so a SIGKILLed dashboard leaves nothing behind. |
+| `systemd.ts` | Linux's systemd user unit for the machine dashboard: the unit file, its reader, and the `systemctl --user` argv that enables, disables and inspects it. |
 | `types.ts` | The shapes of the OS service managers and the sleep helper, type-only: a unit's program, environment and log, the runner its manager's CLI goes through, and the helper child a test fakes. |
 <!-- forge:map:end -->

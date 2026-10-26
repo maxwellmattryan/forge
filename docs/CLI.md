@@ -1657,6 +1657,24 @@ Scan for likely credentials before anything leaves the machine.
 | 1 | a finding, an incomplete scan, or no such job or worktree |
 | 5 | git failed |
 
+### `forge service`
+
+The per-user login service that starts the machine dashboard at login (a LaunchAgent on macOS, a systemd user unit on Linux).
+
+**`forge service install`**: install the login service for the current user and load it ({installed, manager, file, log, loaded, replaced, error?, note?}): it runs &lt;node> &lt;plugin>/bin/forge dash --service from /, starts at login, restarts 30 s after a crash but not after a clean exit, and appends its output to &lt;FORGE_HOME>/runtime/service.log. Its environment carries only PATH (sanitised), HOME, USER, LOGNAME, SHELL, LANG, LC_\*, TZ, TMPDIR and FORGE_HOME from this shell, never a token. A reinstall overwrites its own file and reloads it, which restarts a running service dashboard; with a dashboard you started running, `note` says the service takes over at the next login
+
+| Exit | When |
+|---|---|
+| 1 | not supported on this platform yet (native Windows, the BSDs), a variable or path with a control character (nothing is written), the load failed (the file stays; loaded: false with error), or a daemon session ran it |
+
+**`forge service status`**: the login service ({platform, supported, manager, file, installed, loaded, current, log}); loaded and current are null when nothing is installed, and then nothing runs. current is false when the unit runs another bin/forge or node (after forge update or a node upgrade: run forge service install again)
+
+**`forge service uninstall`**: unload the login service and remove exactly its file ({manager, file, removed}); the log stays, and with no file nothing runs (removed: false)
+
+| Exit | When |
+|---|---|
+| 1 | not supported on this platform yet, or a daemon session ran it |
+
 ### `forge stats`
 
 Pipeline metrics: quality, speed and cost.
