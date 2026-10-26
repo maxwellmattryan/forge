@@ -222,6 +222,8 @@ test('every guarded route refuses before its handler runs', async () => {
         '/daemon/mode',
         '/focus',
         '/mandates/g1/draft',
+        '/mandates',
+        ...['edit', 'pause', 'resume', 'close'].map((x) => `/mandates/g1/${x}`),
         '/chats',
         '/shelf',
         ...['rename', 'archive', 'messages'].map((x) => `${chat}/${x}`),
@@ -247,10 +249,10 @@ test('every guarded route refuses before its handler runs', async () => {
       rows.push(...readRows(p), { method: 'GET', path: p, headers: {}, status: 403, text: 'bad token' });
       rows.push({ method: 'GET', path: p, headers: { 'x-forge-token': token, origin: evil }, status: 403, text: 'bad origin' });
     }
-    const reads = ['/state', '/stats', '/evals', '/evals/compare', '/requests', '/roster', '/project', '/backlog?refresh=1', '/config', '/mandates/g1/draft', '/chats'].map((p) => `${P}${p}`);
+    const reads = ['/state', '/stats', '/evals', '/evals/compare', '/requests', '/roster', '/project', '/backlog?refresh=1', '/config', '/mandates/g1/draft', '/mandates', '/chats'].map((p) => `${P}${p}`);
     const streams = ['/events?session=_inbox', '/daemons/log?session=_inbox', '/jobs/j-1', '/jobs/j-1/file?path=x.md', '/jobs/j-1/raw?path=x.html'].map((p) => `${P}${p}`);
     for (const p of [...reads, ...streams, '/api/about', '/api/projects', '/api/projects/events', '/api/projects/stats']) rows.push(...readRows(p));
-    for (const p of ['/environments', '/jobs/j-1/environment', '/jobs/j-1/transcript', '/doctor/bundle', chat, `${chat}/log?after=-1`].map((x) => `${P}${x}`)) {
+    for (const p of ['/environments', '/jobs/j-1/environment', '/jobs/j-1/transcript', '/doctor/bundle', '/mandates/g1', chat, `${chat}/log?after=-1`].map((x) => `${P}${x}`)) {
       rows.push(...readRows(p), { method: 'GET', path: p, headers: { 'sec-fetch-site': 'same-origin' }, status: 403, text: 'bad token' });
     }
     for (const p of ['/jobs/j-1/transcript/events', '/jobs/j-1/environment/logs?source=dev'].map((x) => `${P}${x}`)) {

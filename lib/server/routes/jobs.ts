@@ -18,6 +18,7 @@ import { REPO_NAME } from '#engine/project/member-repos.ts';
 import { parseIssueRef } from '#core/job/issue-ref.ts';
 import { exists } from '#core/paths.ts';
 import { EFFORTS } from '#core/job/schema.ts';
+import { withoutRunHistory } from '#engine/metrics/runs.ts';
 import { enqueue, listRequests, validJobId } from '#core/job/requests.ts';
 import { deriveTitle, normalizeTitle } from '#engine/ops/title.ts';
 import { isMap } from '#core/shape.ts';
@@ -476,7 +477,8 @@ function jobDetail(root: string, id: string, projects: string, drive: ServerCtx[
   const createdSource = created?.source as { ref?: unknown } | null | undefined;
   const fromTracker = createdIssues.some((i) => Boolean(i && typeof i === 'object' && (i as { ref?: unknown }).ref)) || Boolean(createdSource?.ref);
   return redactDeep<JobDetail>({
-    job: { ...job, progress: progress(root, id), ownerStatus: { ...leaseStatus(job), jobSession: drive(job).jobSession } },
+    // Runs reach the dashboard only through `agents[].runs`.
+    job: { ...job, agents: withoutRunHistory(job.agents), progress: progress(root, id), ownerStatus: { ...leaseStatus(job), jobSession: drive(job).jobSession } },
     events: events.slice(-400),
     files,
     screenshots: listScreenshots(dir),

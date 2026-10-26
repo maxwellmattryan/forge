@@ -7,10 +7,10 @@ import { paths, exists, jobDir, jobFiles, resetJobRecord, stateFile } from '../p
 import { currentActor } from '#integrations/github/actor.ts';
 import { clearFocusIf } from './focus.ts';
 import { knownRecordValues, redactDeep } from '#engine/guard/known-secrets.ts';
-import { EFFORTS, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, endFinishedJobAgents, finishedJobRoles, noLease, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
+import { EFFORTS, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, endFinishedJobAgents, finishedJobRoles, noLease, normalizeEvent, normalizeJob, recordRun, serializeJob } from './schema.ts';
 import { idPrefix } from './issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
-import type { AgentUsage, Config, Effort, EventActor, ForgeRequest, Job, JobAgent, JobIssue, JobChange, JobLease, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from '../types.ts';
+import type { AgentRecordChange, AgentUsage, Config, Effort, EventActor, ForgeRequest, Job, JobAgent, JobIssue, JobChange, JobLease, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from '../types.ts';
 import { estimateCost } from '#integrations/claude/pricing.ts';
 import { agentRole, isAgentRole, reviewFileName } from './lens.ts';
 import { requeueOrphans } from './requests.ts';
@@ -498,32 +498,10 @@ function startProvenance(root: string, config: Config, job: Job, role: string): 
   };
 }
 
-export function recordAgent(
-  root: string,
-  id: string,
-  rec: {
-    role: string;
-    phase: 'start' | 'end';
-    model?: string;
-    agentId?: string;
-    status?: string;
-    summary?: string;
-    usage?: AgentUsage;
-    importedThrough?: string | null;
-    /** start: the job-dir-relative output (resolveAgentOutput). */
-    output?: string | null;
-    /** start: this run is the one retry. */
-    retry?: boolean;
-    /** end: the output check's result, when an output is known. */
-    outputMissing?: boolean;
-    /** end: `metered` when the job's own daemon session's meter holds this run's cost, `unmeasured` when its transcript wasn't found. */
-    flags?: { metered?: true; unmeasured?: true };
-  },
-  config: Config,
-  fence?: Fence,
-): LoadedJob {
+export function recordAgent(root: string, id: string, rec: AgentRecordChange, config: Config, fence?: Fence): LoadedJob {
   const job = updateJob(root, id, (j) => {
     const a = Object.hasOwn(j.agents, agentRole(rec.role)) ? j.agents[rec.role] : (j.agents[rec.role] = { runs: 0 });
+    const wasRunning = a.status === 'running';
     if (rec.phase === 'start') {
       a.status = 'running';
       a.model = rec.model ?? a.model ?? null;
@@ -542,6 +520,7 @@ export function recordAgent(
       if (rec.model) a.model = rec.model;
       if (rec.summary) a.summary = rec.summary.slice(0, 280);
       if (rec.usage) addUsage(j, rec.role, a.model, rec.usage, config);
+      recordRun(a, { wasRunning, at: a.endedAt ?? null, round: a.round ?? j.round, status: a.status, model: a.model ?? null, usage: rec.usage, composition: rec.composition });
       if (rec.agentId && rec.importedThrough) (a.importedThrough ??= {})[rec.agentId] = rec.importedThrough;
       if (rec.outputMissing !== undefined) a.outputMissing = rec.outputMissing;
     }

@@ -1,7 +1,7 @@
 // /api/jobs and /api/jobs/:id/*: the job detail, transcript and files, the job POSTs, the Shelved list's
 // POST /api/shelf, and the environment routes with GET /api/environments.
 import type { BudgetKey, Effort, ShelfAction } from './enums.ts';
-import type { BudgetLimits, BudgetUsed, Job, JobBudget, JobEvent, OwnerStatus, Progress } from './job.ts';
+import type { AgentRun, BudgetLimits, BudgetUsed, Job, JobBudget, JobEvent, OwnerStatus, Progress } from './job.ts';
 import type { ForgeRequest } from './state.ts';
 
 /** One agent of the job's current round (or still running) in the job detail: jobDetail() in lib/server/routes/jobs.ts. */
@@ -13,10 +13,12 @@ export interface AgentRow {
   endedAt: string | null;
   /** endedAt − startedAt; null while running or when either is unknown. */
   durationMs: number | null;
-  /** usage.totalTokens of this run's agent-end event, else null. */
+  /** The sum of `runs[].usage.totalTokens`; null when no run has usage: runsTokens in lib/engine/metrics/runs.ts. */
   tokens: number | null;
   /** Its transcript was found. */
   transcript: boolean;
+  /** Every ended run of the role across rounds, oldest first: agentRuns in lib/engine/metrics/runs.ts. */
+  runs: AgentRun[];
 }
 
 /** GET /api/jobs/:id/transcript: a page of an agent's or the interactive owner's transcript, read backwards. */

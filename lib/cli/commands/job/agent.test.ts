@@ -99,3 +99,41 @@ test("a daemon session's agent end is measured, never self-reported", (t) => {
   assert.equal(own.usage?.tokens, 500, 'outside a daemon session --tokens still records usage');
   assert.equal(ends('tester')[0].usage?.totalTokens, 500);
 });
+
+test('agent end records each run with its billing split and composition', (t) => {
+  const repo = tempRepo();
+  t.after(repo.cleanup);
+  const claudeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-claude-'));
+  const prev = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = claudeDir;
+  t.after(() => {
+    if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = prev;
+    fs.rmSync(claudeDir, { recursive: true, force: true });
+  });
+  const subagents = path.join(claudeDir, 'projects', '-scratch', 'session-1', 'subagents');
+  fs.mkdirSync(subagents, { recursive: true });
+  fs.copyFileSync(path.resolve(import.meta.dirname, '..', '..', '..', '..', 'test', 'fixtures', 'transcript-composition.jsonl'), path.join(subagents, 'agent-comp1.jsonl'));
+  const root = repo.dir;
+  const config = defaults();
+  const id = createJob(root, config, { title: 'runs' }).id;
+
+  agent(root, config, [id, 'start'], { role: 'builder' }, {});
+  agent(root, config, [id, 'end'], { role: 'builder', 'agent-id': 'comp1', import: true }, {});
+  let job = loadJob(root, id);
+  const bucket = job.usage.byRole.builder!;
+  const [first] = job.agents.builder!.runHistory!;
+  assert.deepEqual(first!.usage, { input: bucket.input, output: bucket.output, cacheRead: bucket.cacheRead, cacheWrite: bucket.cacheWrite, totalTokens: bucket.tokens }, 'the run holds what the end added to the role');
+  const c = first!.composition!;
+  assert.equal(c.forgePrompt + c.harness + c.carried + c.assistant + c.user + c.tools.reduce((n, p) => n + p.tokens, 0), c.total);
+  assert.ok(c.forgePrompt > 0, "the builder's prompt counts toward the Forge share");
+  const [end] = readEvents(root, id).filter((e) => e.type === 'agent-end' && e.role === 'builder');
+  assert.equal(Object.hasOwn(end!.usage!, 'composition'), false, 'the event keeps only token counts');
+
+  agent(root, config, [id, 'start'], { role: 'builder' }, {});
+  agent(root, config, [id, 'end'], { role: 'builder', tokens: '500' }, {});
+  job = loadJob(root, id);
+  assert.equal(job.agents.builder!.runHistory!.length, 2);
+  const second = job.agents.builder!.runHistory![1]!;
+  assert.deepEqual([second.usage, second.composition], [{ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 500 }, null]);
+});

@@ -7,10 +7,11 @@ import { AGENT_LEASE_MS, agentOutputMissing, attachAgent, checkFence, importCurs
 import { logSecrets, scanAgentOutputs } from '#engine/guard/secrets.ts';
 import { AGENT_ID } from '#integrations/claude/transcripts.ts';
 import { importClaudeCodeTranscript } from '#engine/metrics/usage.ts';
+import { rolePromptChars } from '#engine/evals/provenance.ts';
 import { ForgeError } from '#core/errors.ts';
 import { agentRole } from '#core/job/lens.ts';
 import { daemonScope } from '#core/job/requests.ts';
-import type { AgentUsage, Config } from '#core/types.ts';
+import type { AgentUsage, Config, ContextComposition } from '#core/types.ts';
 import { num, req, requireJob, str } from '../args.ts';
 import { epochFence } from './lease.ts';
 
@@ -58,7 +59,7 @@ export function agent(root: string, config: Config, rest: string[], flags: Recor
   // Before the output dir, the secret scan's event and the import: a stale driver leaves no trace.
   const fence = epochFence(flags);
   if (fence) checkFence(root, jobId, fence);
-  let usage: (AgentUsage & { transcript?: string; through?: string | null }) | undefined;
+  let usage: (AgentUsage & { transcript?: string; through?: string | null; composition?: ContextComposition | null }) | undefined;
   let since: string | null = null;
   let output: string | null = null;
   let outputMissing: boolean | null = null;
@@ -78,7 +79,7 @@ export function agent(root: string, config: Config, rest: string[], flags: Recor
     secrets = scan.findings.length;
     if (agentId && (flags.import || daemon)) {
       since = importCursor(before, String(agentId));
-      usage = importClaudeCodeTranscript(String(agentId), { since, root, job: before }) ?? undefined;
+      usage = importClaudeCodeTranscript(String(agentId), { since, root, job: before, promptChars: rolePromptChars(role) }) ?? undefined;
       // A background agent's transcript can lag its end: the end is recorded, never held for it.
       unmeasured = daemon && !usage;
     }
@@ -95,10 +96,11 @@ export function agent(root: string, config: Config, rest: string[], flags: Recor
       agentId,
       status: flags.status,
       summary,
-      // The transcript's path and cursor are set to undefined, so the usage job.json records is
-      // only token counts; the cursor goes to the agent record instead.
-      usage: usage ? ({ ...usage, transcript: undefined, through: undefined } as AgentUsage) : undefined,
+      // The transcript's path, cursor and composition are set to undefined, so the usage job.json and the
+      // event record is only token counts; the cursor and composition go to the agent record instead.
+      usage: usage ? ({ ...usage, transcript: undefined, through: undefined, composition: undefined } as AgentUsage) : undefined,
       importedThrough: usage?.through,
+      composition: usage?.composition,
       ...(phase === 'start' ? { output, retry: flags.retry === true } : {}),
       ...(outputMissing !== null ? { outputMissing } : {}),
       ...(metered || unmeasured ? { flags: { ...(metered ? { metered: true as const } : {}), ...(unmeasured ? { unmeasured: true as const } : {}) } } : {}),
