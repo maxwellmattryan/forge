@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { paths } from '#core/paths.ts';
 import { sanitizeLogin } from '#core/job/schema.ts';
+import { SCOPE_ENV, isChatScope } from '#core/job/requests.ts';
 import type { EventActor } from '#core/types.ts';
 import { gh } from './gh.ts';
 import { git } from '../git/runner.ts';
@@ -65,11 +66,11 @@ function ghLogin(deps: ActorDeps): string {
   return login;
 }
 
-/** The resolution order: daemon session > FORGE_ACTOR > gh > git email > OS user > unknown. */
+/** The resolution order: chat session > daemon session > FORGE_ACTOR > gh > git email > OS user > unknown. */
 export function resolveActor(deps: ActorDeps): EventActor {
   // A daemon session's action is recorded as the session's, under the OS user that started
-  // `forge dash`; FORGE_ACTOR is ignored there on purpose.
-  if (deps.env.FORGE_DAEMON === '1') return { login: sanitizeLogin(deps.osUser()) || null, source: 'daemon' };
+  // `forge dash`; FORGE_ACTOR is ignored there on purpose. A chat session's is stamped `chat`.
+  if (deps.env.FORGE_DAEMON === '1') return { login: sanitizeLogin(deps.osUser()) || null, source: isChatScope(deps.env[SCOPE_ENV]) ? 'chat' : 'daemon' };
   const env = sanitizeLogin(deps.env.FORGE_ACTOR);
   if (env) return { login: env, source: 'env' };
   const gh = ghLogin(deps);

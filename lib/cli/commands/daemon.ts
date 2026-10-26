@@ -6,7 +6,7 @@ import { loadConfig } from '#core/config/load.ts';
 import { openRead, readInfo, sessionFiles, sessionRecords, tailLines } from '#core/job/session-files.ts';
 import { redactKnown, scopeKnownValues } from '#engine/guard/known-secrets.ts';
 import { ASSISTANT_SCOPE_PREFIX, INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, assistantScope, isAssistantScope, sharedScope, validJobId } from '#core/job/requests.ts';
-import { sessionAgents } from '#office/session-agents.ts';
+import { sessionAgents } from '#office/session/owned.ts';
 import { recordIds } from '#office/driver.ts';
 import { ForgeError } from '#core/errors.ts';
 import { pidAlive } from '#core/os/process.ts';

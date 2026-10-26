@@ -72,4 +72,9 @@ test('refuseInOffice refuses an invalid scope', () => {
   assert.match(refusal(() => refuseInboxDrive('j1', assistant)) ?? '', new RegExp(ASSISTANT_REFUSAL));
   assert.match(refusal(() => refuseInboxOrOffice('hint', assistant)) ?? '', new RegExp(ASSISTANT_REFUSAL));
   assert.equal(inInboxOrOffice(assistant), true);
+  // A chat may drive a job when the owner asks: none of these refuse it, so forge job set tears an environment down there.
+  const chat = daemon('_chat-0123456789ab');
+  assert.equal(refusal(() => refuseInboxDrive('j1', chat)), null);
+  assert.equal(refusal(() => refuseInboxOrOffice('hint', chat)), null);
+  assert.equal(inInboxOrOffice(chat), false);
 });

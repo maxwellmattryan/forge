@@ -22,6 +22,11 @@ test('resolveActor: a daemon session records source daemon', () => {
     ['a daemon session', deps({ FORGE_DAEMON: '1' }), { login: 'carol', source: 'daemon' }],
     ['a daemon session ignores FORGE_ACTOR', deps({ FORGE_DAEMON: '1', FORGE_ACTOR: 'spoof' }), { login: 'carol', source: 'daemon' }],
     ['a daemon session with no OS user', deps({ FORGE_DAEMON: '1' }, null), { login: null, source: 'daemon' }],
+    ['a chat session', deps({ FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_chat-0123456789ab' }), { login: 'carol', source: 'chat' }],
+    ['a chat session ignores FORGE_ACTOR', deps({ FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_chat-0123456789ab', FORGE_ACTOR: 'spoof' }), { login: 'carol', source: 'chat' }],
+    ['a malformed chat scope is no chat', deps({ FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_chat-ABCDEF012345' }), { login: 'carol', source: 'daemon' }],
+    ['a chat scope outside a daemon session', deps({ FORGE_DAEMON_SCOPE: '_chat-0123456789ab', FORGE_ACTOR: 'alice' }), { login: 'alice', source: 'env' }],
+    ['an inbox session', deps({ FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_inbox' }), { login: 'carol', source: 'daemon' }],
     ['FORGE_ACTOR outside a daemon', deps({ FORGE_ACTOR: 'alice' }), { login: 'alice', source: 'env' }],
   ];
   for (const [name, d, want] of rows) assert.deepEqual(resolveActor(d), want, name);

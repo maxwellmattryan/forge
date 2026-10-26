@@ -75,7 +75,7 @@ export const JOB: HelpGroup = {
     {
       command: 'job set',
       args: '<id> [--stage S] [--state S] [--waiting-on W|none] [--reason R] [--note N] [--field key=value]...',
-      summary: "change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox, office or an assistant foreman daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry. `--field budget` (and any path under it) is refused for every caller: use `forge job budget` at a terminal or the dashboard's Approve on the budget gate",
+      summary: "change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox, office or an assistant foreman daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a chat session tears it down like a job session, as it may run forge environment down itself; a failed teardown keeps exit 0 and the records, for forge environment down to retry. `--field budget` (and any path under it) is refused for every caller: use `forge job budget` at a terminal or the dashboard's Approve on the budget gate",
       flags: [
         ['--stage S', 'the pipeline stage'],
         ['--state S', 'queued, running, waiting, blocked, failed, cancelled or done'],
@@ -86,7 +86,10 @@ export const JOB: HelpGroup = {
         ['--epoch N', "the driver's epoch: refused (stale_epoch) before any write once another session took the job over"],
       ],
       exits: [
-        [1, 'no such job, a field set only by another command, a list field that is not a JSON array of strings, or an unknown or cyclic dependency'],
+        [
+          1,
+          "no such job, a field set only by another command, a list field that is not a JSON array of strings, or an unknown or cyclic dependency; in a chat session, a job waiting on a gate that foreman.reserved or a security review that didn't pass keeps with a person (`a chat may not decide <gate> for <job>: …`), or any change to such a job beyond --state running with the stage the decision recorded at its park allows (docs/architecture/daemon-security.md › Chats)",
+        ],
         [3, 'stale_epoch: the lease moved past --epoch'],
       ],
     },
@@ -158,7 +161,7 @@ export const JOB: HelpGroup = {
       command: 'job human',
       args: '<id> <action> [--note N] [--link <ref>|new|none] [--reason R] [--repo A[,B]] [--actor human|foreman]',
       summary:
-        "record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework, answer, or approve-repos or reject-repos on the pending repo proposals named by --repo (approve adds each repo to the job), or the foreman's approve-release of the job's pending release plan (logs release-approval and moves no job)",
+        "record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework, answer, or approve-repos or reject-repos on the pending repo proposals named by --repo (approve adds each repo to the job), or the foreman's approve-release of the job's pending release plan (logs release-approval and moves no job). In a chat session the decision records actor source chat (docs/architecture/daemon-security.md › Chats)",
       flags: [
         ['--note N', 'the human\'s note'],
         ['--repo A[,B]', 'with approve-repos or reject-repos (required): the pending repos you decide; with --actor foreman, every pending one'],
@@ -167,7 +170,10 @@ export const JOB: HelpGroup = {
         ['--actor human|foreman', 'who decided (default human); foreman only from an assistant foreman daemon session, which must pass it (the office session may record neither); approve-release takes only --actor foreman and --note'],
       ],
       exits: [
-        [1, 'no such job, a --link that cannot be made, a foreman decision the authority checks refuse, or approve-repos or reject-repos with nothing pending, no --repo, a repo that is not pending, a foreman --repo that is not the whole pending set, a failing clone check, or from a daemon session other than an assistant foreman'],
+        [
+          1,
+          "no such job, a --link that cannot be made, a foreman decision the authority checks refuse, a gate foreman.reserved or a security review that didn't pass keeps with a person when a chat session decides it (`a chat may not decide <gate> for <job>: …`), or approve-repos or reject-repos with nothing pending, no --repo, a repo that is not pending, a foreman --repo that is not the whole pending set, a failing clone check, or from a daemon session other than an assistant foreman",
+        ],
         [3, 'the tracker claim was lost to another job'],
         [5, 'gh failed (GitHub tracker)'],
       ],

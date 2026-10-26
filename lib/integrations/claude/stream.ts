@@ -1,26 +1,38 @@
 // Claude Code's stream-json protocol, with no I/O of its own: claude's output lines become ClaudeEvents,
-// and every line written to its stdin is built here, from fixed text or a fixed list: the one turn,
-// permission answers and mode switches, plus an error reply that repeats claude's own capped subtype back
-// to it. Nothing from requests, HTTP or config reaches any of them (docs/architecture/daemon-security.md).
+// and every line written to its stdin is built here: the one fixed turn, permission answers and mode
+// switches from a fixed list, an error reply that repeats claude's own capped subtype back to it, and,
+// in a chat session only, the owner's own message (writeMessage), the one free-text line. Nothing from
+// requests or config reaches any of them (docs/architecture/daemon-security.md).
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { CHAT_MESSAGE_MAX } from '#api/constants.ts';
 import { now } from '#core/utils.ts';
 import { PERMISSION_MODES } from './argv.ts';
 import type { ClaudeEvent, ModelCost, SessionCost } from './types.ts';
 import type { DaemonPermissionMode, PermissionDecision } from '#core/types.ts';
 
 /**
- * The only user message the daemon ever writes to the child's stdin; the only other lines are
- * permission answers (permissionResponse) and mode switches (modeRequest), whose only variable part
- * is a value from a fixed list. Nothing from requests, HTTP or config reaches either,
- * so inbox text can't become a prompt: the session reads requests through `forge requests`,
- * where they are fenced as data.
+ * The fixed user message the daemon writes to a session's stdin. The other lines are permission answers
+ * (permissionResponse) and mode switches (modeRequest), whose only variable part is a value from a fixed
+ * list, and a chat session's owner messages (chatMessageLine), which only lib/office/session/lifecycle.ts
+ * writeChat sends and only in a chat scope. Nothing from requests or config reaches any of them, so inbox
+ * text can't become a prompt: the session reads requests through `forge requests`, where they are fenced as data.
  */
 export const TURN = Object.freeze({
   type: 'user',
   message: Object.freeze({ role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: '/forge requests' })]) }),
 });
 export const TURN_LINE = JSON.stringify(TURN) + '\n';
+
+/**
+ * The stdin line for one owner message in a chat, or null for anything but a string that is non-empty
+ * once trimmed and at most CHAT_MESSAGE_MAX characters. JSON.stringify escapes every newline and quote,
+ * so the text stays one user line whatever it holds and can never become a control line.
+ */
+export function chatMessageLine(text: unknown): string | null {
+  if (typeof text !== 'string' || !text.trim() || text.length > CHAT_MESSAGE_MAX) return null;
+  return JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }) + '\n';
+}
 
 /** The control_request line asking claude to switch the session's permission mode. */
 function modeRequest(requestId: string, mode: DaemonPermissionMode): string {
@@ -207,6 +219,8 @@ export interface ClaudeStream {
   stdout(chunk: Buffer | string): void;
   stderr(chunk: Buffer | string): void;
   writeTurn(): void;
+  /** Writes one owner message (chatMessageLine); false, writing nothing, for a text it refuses. */
+  writeMessage(text: string): boolean;
   answerPermission(requestId: string, decision: PermissionDecision): boolean;
   setPermissionMode(mode: DaemonPermissionMode): string | null;
 }
@@ -317,6 +331,13 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
     writeTurn() {
       rateLimit = null;
       write(TURN_LINE);
+    },
+    writeMessage(text) {
+      const msg = chatMessageLine(text);
+      if (msg === null) return false;
+      rateLimit = null;
+      write(msg);
+      return true;
     },
     answerPermission(requestId, decision) {
       const p = pending.get(requestId);

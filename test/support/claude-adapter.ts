@@ -2,6 +2,7 @@
 // ClaudeEvents (child.emit) and reads what the session asked of claude (turns, answers, modes,
 // signals), so no test writes claude's stream-json; lib/integrations/claude/stream.test.ts covers that.
 import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
+import { chatMessageLine } from '#integrations/claude/stream.ts';
 import type { ClaudeAdapter, ClaudeChild, ClaudeEvent } from '#integrations/claude/types.ts';
 import type { DaemonPermissionMode, PermissionDecision } from '#core/types.ts';
 
@@ -15,6 +16,8 @@ export interface FakeClaudeChild extends ClaudeChild {
   readonly pid: number;
   /** Turns written. */
   turns: number;
+  /** Owner messages written (writeMessage), in order. */
+  messages: string[];
   answers: { requestId: string; decision: PermissionDecision }[];
   /** Mode switches asked, with ids `fake-mode-<n>`. */
   modes: { requestId: string; mode: DaemonPermissionMode }[];
@@ -46,6 +49,7 @@ export function fakeClaude(opts: { exitOnSignal?: boolean } = {}): { adapter: Cl
         maxLineBytes: o.maxLineBytes,
         pid: nextPid++,
         turns: 0,
+        messages: [],
         answers: [],
         modes: [],
         signals: [],
@@ -66,6 +70,12 @@ export function fakeClaude(opts: { exitOnSignal?: boolean } = {}): { adapter: Cl
         },
         writeTurn() {
           c.turns++;
+        },
+        writeMessage(text) {
+          // The real stream's own check (chatMessageLine), so a fake child refuses what a real one would.
+          if (chatMessageLine(text) === null) return false;
+          c.messages.push(text);
+          return true;
         },
         answerPermission(requestId, decision) {
           if (!asked.delete(requestId)) return false;
