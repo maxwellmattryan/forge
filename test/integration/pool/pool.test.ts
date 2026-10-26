@@ -127,8 +127,9 @@ function parkedGates(root: string, config: any, gates: number): string[] {
 
 test('a gate request reaches an assistant foreman', async (t) => {
   const on = (sessions: number) => ({ foreman: { enabled: true, assistants: { enabled: true, sessions } } });
-  const rows: { name: string; config: Record<string, unknown>; gates: number; turned: string[] }[] = [
+  const rows: { name: string; config: Record<string, unknown>; gates: number; turned: string[]; mandate?: boolean }[] = [
     { name: 'one assistant, one gate', config: on(1), gates: 1, turned: ['_assistant-1'] },
+    { name: "a milestone draft's job-less gate", config: on(1), gates: 1, turned: ['_assistant-1'], mandate: true },
     { name: 'two assistants, two gates', config: on(2), gates: 2, turned: ['_assistant-1', '_assistant-2'] },
     { name: 'two assistants, one gate', config: on(2), gates: 1, turned: ['_assistant-1'] },
     { name: 'the foreman off', config: { foreman: { enabled: false, assistants: { enabled: true, sessions: 1 } } }, gates: 1, turned: [] },
@@ -136,7 +137,9 @@ test('a gate request reaches an assistant foreman', async (t) => {
   ];
   for (const row of rows) {
     const { root, config } = daemonRepo(t, row.config);
-    const ids = parkedGates(root, config, row.gates);
+    const ids = row.mandate
+      ? [enqueue(root, config, { type: 'gate', job: null, args: { gate: 'milestone-approval', mandate: 'g1', key: '1-abc', digest: 'a'.repeat(64), reserved: null }, from: 'forge' }).id]
+      : parkedGates(root, config, row.gates);
     const claude = fakeClaude();
     const pool = createPool(root, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 });
     t.after(() => pool.close());

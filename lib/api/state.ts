@@ -2,6 +2,7 @@
 import type { Effort, RepoBudgetKey, RepoBudgetMode, RequestType } from './enums.ts';
 import type { BudgetLimits, EventActor, ForemanHandoff, GateOwner, Job, JobEvent, OwnerStatus, Progress } from './job.ts';
 import type { DaemonBilling, DaemonJobBudget, DaemonPoolState } from './daemon.ts';
+import type { DraftGate } from './repo.ts';
 
 /** Repo spend against the caps: repoBudgetStatus in lib/engine/metrics/repo-budget.ts (`forge budget`, /api/state.budget). */
 export interface RepoBudgetStatus {
@@ -101,6 +102,8 @@ export interface ApiState {
   };
   daemons: DaemonPoolState;
   jobs: StateJob[];
+  /** Each active goal mandate whose milestone draft waits at the milestone-approval gate (pending) or stopped filing, by creation time. */
+  drafts: DraftGate[];
   requests: ForgeRequest[];
   /** The focused job (forge focus), or null when none is focused or it is gone or finished. */
   focus: FocusFact | null;

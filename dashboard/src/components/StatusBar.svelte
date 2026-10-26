@@ -32,7 +32,7 @@
   import { mergePoolState, poolModel, postDaemon } from '../lib/daemon.ts';
   import { FACTS_MAX, barLamps, barModel, connectionState, factsHidden, modelSummary, promptAnnouncement, summaryText } from '../lib/statusbar.ts';
   import { runningAgents } from '../lib/agents.ts';
-  import { inboxGroups } from '../lib/inbox.ts';
+  import { needsCount } from '../lib/inbox.ts';
   import { S, forgeToken, openDrawer, refresh } from '../lib/app.svelte.ts';
   import { focusFact } from '../lib/focus.ts';
   import { closePopover, focusInPopover, keepFocus, openPopover, popover, reanchor } from '../lib/popover.svelte.ts';
@@ -52,7 +52,7 @@
   const focusTitle = $derived(focus ? $t('statusbar.focus.title', { id: focus.id, title: focus.title }) : undefined);
   // The Needs-you badge: the decisions waiting on a person plus every pending permission prompt in the pool (the
   // popover's first two sections).
-  const needs = $derived(inboxGroups(S.data?.jobs ?? []).urgent.length);
+  const needs = $derived(needsCount(S.data?.jobs ?? [], S.data?.drafts));
   const needsTotal = $derived(needs + bar.prompts);
   // The overseer's console: each indicator's pilot lamp, decorative beside its sr-only text and title.
   const lamps = $derived(barLamps(bar, { needs: needsTotal, conn: conn.state, working: bar.daemon.active || runningAgents(S.data?.jobs ?? []).length > 0 }));

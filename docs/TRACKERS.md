@@ -94,7 +94,7 @@ export default {
   claim(ctx, ref, job) { return { ok: true } /* or { ok: false, reason } if someone else has it */; },
   update(ctx, ref, job) { /* mirror statusKey(job) → your workflow */ },
   comment(ctx, ref, body) {},
-  create(ctx, { title, body, labels, parentRef }) { return { ref, url }; },
+  create(ctx, { title, body, labels, parentRef, milestone }) { return { ref, url }; },
   close(ctx, ref, { reason }) {},
   // Optional: open items matching a free-text query, bodies included, at most `limit` of them.
   search(ctx, query, { limit }) { return [/* { ref, title, url, labels, body } */]; },
@@ -102,10 +102,18 @@ export default {
   setNeedsInfo(ctx, ref, note) {},
   // Optional: the open milestones, for a goal mandate's drafting survey. Throw when they can't be listed.
   milestones(ctx) { return [/* { title, openIssues: number or null, dueOn: string or null } */]; },
+  // Optional: create an open milestone, or return the open one with exactly that title (filing a milestone draft).
+  createMilestone(ctx, { title, description }) { return { ref, url }; },
+  // Optional: put an existing item in a milestone, with the labels where the tracker has them.
+  milestoneAdd(ctx, ref, { milestone, labels }) {},
 };
 ```
 
-`milestones` is optional: a goal mandate's drafting survey (docs/architecture/foreman.md "Intake") lists them in a fence, each title through `oneLineTitle`, and without the method it says `unavailable (tracker <kind> lists no milestones)`. The built-in GitHub adapter reads `gh api repos/<slug>/milestones?state=open&per_page=100`; the local backlog has none.
+`milestones` is optional: a goal mandate's drafting survey (docs/architecture/foreman.md "Intake") lists them in a fence, each title through `oneLineTitle`, and without the method it says `unavailable (tracker <kind> lists no milestones)`. The built-in GitHub adapter reads `gh api repos/<slug>/milestones?state=open&per_page=100`; the local backlog lists its `## ` headings.
+
+**Filing a milestone draft.** Approving a goal mandate's milestone draft (`forge mandate draft approve`, docs/architecture/foreman.md "Milestone approval and filing") files it through the tracker: `createMilestone`, then `create` with `milestone` (the milestone's title) and a `wave-<n>` label for each new issue, and `milestoneAdd` for each existing issue the draft reuses or amends (an amendment also gets a `comment`). A tracker without `createMilestone` (and `none`) can't take a draft, and one without `milestoneAdd` can't take a draft that names existing issues; approve refuses before writing anything. The loader's guard scans `createMilestone`'s title and description and `milestoneAdd`'s milestone title for likely credentials before the adapter runs.
+- **Local backlog.** A milestone is a level-2 heading, `## <title>`, with its description as `> ` lines; its section runs to the next `#` or `##` heading. `create` with `milestone` puts the item at the end of that section (an unknown milestone throws), and `milestoneAdd` moves an item with its body lines there, ignoring labels. The backlog's `comment` does nothing, so an amendment there only moves the item.
+- **GitHub.** `createMilestone` lists the open milestones first and posts a new one only when none has the title (`gh api -X POST repos/<slug>/milestones -f title=… -f description=…`). Each wave label is created once without `--force`, so an existing label keeps its colour and description, and it never carries `tracker.github.labels.prefix`, which `list` reads as a Forge claim and would hide the issue from triage. `create` adds `--milestone=<title>`, and `milestoneAdd` runs `gh issue edit --milestone=<title> --add-label wave-<n> -- <n>`. Filing composes the bodies, amendments and milestone description with a zero-width joiner after each `@name`'s @ (except inside a fenced code block that opens at column 0), so a draft notifies no one; titles go as written. Live filing against GitHub is untested here: try it on a throwaway repo first.
 
 `needsInfo: true` on a `list` item means triage asked for more information first: `forge next` skips it even when `list({ ready: true })` returns it, though `ready` lists should leave such items out. Without `setNeedsInfo`, triage still posts its comment and reports `marked: false`.
 

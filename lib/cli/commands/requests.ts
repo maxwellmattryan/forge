@@ -103,7 +103,7 @@ export function requestsCmd(
   if (sub === 'add') {
     const type = req(rest[0], 'type');
     // Gate requests carry the reserved check's result, so only the CLI's park and sync paths write them.
-    if (type === 'gate') throw new ForgeError('gate requests are written only by forge job set and forge pr sync, never queued by hand', 1);
+    if (type === 'gate') throw new ForgeError('gate requests are written only by forge job set and forge pr sync (and forge mandate draft record for a milestone draft), never queued by hand', 1);
     // A draft request spends on a drafting run: only the owner's own forge mandate queues one.
     if (type === 'draft') throw new ForgeError('draft requests are written only by forge mandate new --goal and forge mandate draft start, never queued by hand', 1);
     // Read before enqueue, so a bare --job or --session queues nothing.

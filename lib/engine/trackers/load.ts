@@ -27,6 +27,9 @@ const none: Tracker = {
   create: () => {
     throw new ForgeError('tracker.kind is "none"; nothing to create issues in');
   },
+  createMilestone: () => {
+    throw new ForgeError('tracker.kind is "none"; nothing to create milestones in');
+  },
   close: () => {},
 };
 
@@ -53,6 +56,21 @@ function guardTracker(adapter: Tracker, opts: { custom: boolean }): Tracker {
     refuse(ctx, 'the issue title or body', [textUnit('(issue title)', String(item?.title ?? '')), textUnit('(issue body)', String(item?.body ?? ''))]);
     return adapter.create(ctx, item);
   };
+  // Only where the adapter has them: a caller tells "can't file milestones here" by their absence.
+  if (typeof adapter.createMilestone === 'function') {
+    const create = adapter.createMilestone;
+    g.createMilestone = (ctx, ms) => {
+      refuse(ctx, 'the milestone title or description', [textUnit('(milestone title)', String(ms?.title ?? '')), textUnit('(milestone description)', String(ms?.description ?? ''))]);
+      return create.call(adapter, ctx, ms);
+    };
+  }
+  if (typeof adapter.milestoneAdd === 'function') {
+    const add = adapter.milestoneAdd;
+    g.milestoneAdd = (ctx, ref, opts) => {
+      refuse(ctx, 'the milestone title', [textUnit('(milestone title)', String(opts?.milestone ?? ''))]);
+      return add.call(adapter, ctx, ref, opts);
+    };
+  }
   if (opts.custom) {
     const jobUnits = (job: Job) => [textUnit('(job title)', String(job?.title ?? '')), textUnit('(job reason)', String(job?.reason ?? ''))];
     g.update = (ctx, ref, job) => {

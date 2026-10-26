@@ -18,7 +18,7 @@ Forge's public contracts, with no Node imports: the `/api` and SSE shapes, the r
 | `enums.ts` | The unions the /api shapes share, each derived from its runtime list in constants.ts; the only type module that imports constants.ts. |
 | `job.ts` | A job as job.json and events.jsonl hold it, as /api/state and /api/jobs/:id serve it. |
 | `jobs.ts` | /api/jobs and /api/jobs/:id/*: the job detail, transcript and files, the job POSTs, and the environment routes with GET /api/environments. |
-| `repo.ts` | What the repo holds outside any job: /api/project, /api/roster, /api/backlog with the tracker item, and /api/github/preview. |
+| `repo.ts` | What the repo holds outside any job: /api/project, /api/roster, /api/backlog with the tracker item, /api/github/preview, and a goal mandate's milestone draft (/api/state's drafts, GET and POST /api/mandates/:id/draft). |
 | `state.ts` | GET /api/state, plus /api/requests, /api/focus and /api/budget/ack, whose replies are slices of it; and the shared JSON error body. |
 | `stats.ts` | GET /api/stats, /api/evals and /api/evals/compare: the Analytics and Evals pages. |
 | `tracker.ts` | The tracker adapter contract: the handful of statuses a job's stage and state collapse to. |

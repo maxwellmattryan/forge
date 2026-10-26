@@ -21,6 +21,7 @@ import { billingOf } from '#integrations/claude/argv.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from '#engine/evals/run.ts';
 import { listRequests, validJobId } from '#core/job/requests.ts';
 import { foremanHandoff, gateOwner } from '#office/foreman.ts';
+import { draftGates } from '#office/mandates/gate.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { roster } from '#engine/pipeline/roster.ts';
 import { readTriageCache } from '#engine/trackers/triage.ts';
@@ -241,6 +242,7 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
     // `enabled` and the cap from this read of config.yml, so they are current even while the pool is stopped.
     daemons: { ...daemons, enabled: config.daemon?.enabled === true, foreman: config.foreman?.enabled === true, maxConcurrent: validCap(config.daemon?.maxConcurrent) ?? daemons.maxConcurrent },
     jobs,
+    drafts: draftGates(root, config, requests),
     requests: requests.filter((r) => r.status === 'pending' || r.status === 'in-progress'),
     focus: currentFocus(root),
     budget,

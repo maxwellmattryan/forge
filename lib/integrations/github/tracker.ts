@@ -199,6 +199,15 @@ function myLogin(ctx: TrackerCtx): string {
   return gh(ctx.root, ['api', 'user', '-q', '.login']).stdout.trim();
 }
 
+/**
+ * Creates each milestone wave label once, without --force, so an existing label's colour and description
+ * are never overwritten. Wave labels carry no tracker.github.labels.prefix: list() reads a prefixed label as
+ * a Forge claim and would hide the issue from triage.
+ */
+function ensureLabels(ctx: TrackerCtx, slug: string, labels: string[]): void {
+  for (const l of labels) gh(ctx.root, ['label', 'create', l, '-R', slug, '--color', '0E8A16', '--description', 'Forge: milestone wave'], { allowFail: true });
+}
+
 function activeLocalJob(ctx: TrackerCtx, ref: string): LoadedJob | null {
   const slug = localRepoSlug(ctx.root, ctx.config);
   return listJobs(ctx.root).find((j) => isActive(j) && j.issues.some((i) => nativeRef(i, 'github', slug) === String(ref))) ?? null;
@@ -354,8 +363,34 @@ export default {
     const body = attributionForbidden(ctx.config) ? stripAttribution(raw) : raw;
     const args = ['issue', 'create', '-R', slug, '--title', item.title, '--body-file', '-'];
     for (const l of item.labels ?? []) args.push('--label', l);
+    if (item.milestone) {
+      ensureLabels(ctx, slug, item.labels ?? []);
+      // `=`-joined, so a title can never be read as an option.
+      args.push(`--milestone=${item.milestone}`);
+    }
     const url = gh(ctx.root, args, { input: body || ' ' }).stdout.trim().split('\n').pop() ?? '';
     return { ref: url.match(/\/issues\/(\d+)/)?.[1] ?? url, url };
+  },
+  createMilestone(ctx, ms) {
+    // The paths are built from repoSlug's checked slug only; the title and description go in -f key=value arguments.
+    const slug = repoSlug(ctx.root, ctx.config);
+    const open = ghJson(ctx.root, ['api', `repos/${slug}/milestones?state=open&per_page=100`]);
+    const same = Array.isArray(open) ? open.find((m: any) => m && m.title === ms.title) : undefined;
+    if (same) return { ref: String(same.number), url: typeof same.html_url === 'string' ? same.html_url : null };
+    const description = attributionForbidden(ctx.config) ? stripAttribution(ms.description) : ms.description;
+    const made = ghJson(ctx.root, ['api', '-X', 'POST', `repos/${slug}/milestones`, '-f', `title=${ms.title}`, '-f', `description=${description}`]);
+    if (!Number.isSafeInteger(made?.number)) throw new ForgeError(`gh api repos/${slug}/milestones returned no milestone number`, 'external');
+    return { ref: String(made.number), url: typeof made.html_url === 'string' ? made.html_url : null };
+  },
+  milestoneAdd(ctx, ref, opts) {
+    const repo = slugOnce(ctx);
+    const n = issueNumber(ref, repo);
+    const slug = repo();
+    ensureLabels(ctx, slug, opts.labels);
+    const args = ['issue', 'edit', '-R', slug, `--milestone=${opts.milestone}`];
+    for (const l of opts.labels) args.push('--add-label', l);
+    args.push('--', n);
+    gh(ctx.root, args);
   },
   milestones(ctx) {
     // The path is built from repoSlug's checked slug only, so nothing outside reaches gh's argv.
