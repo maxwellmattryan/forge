@@ -1,5 +1,6 @@
 // The Needs-you inbox: its groups and each gate card's kind, doc, note, buttons and badges. No DOM access.
-import type { HandoffClass, LastHuman, RequestType, StateJob, WaitingOn } from './types.ts';
+import { MANDATE_ID_SOURCE } from './types.ts';
+import type { DraftGate, ForgeRequest, HandoffClass, LastHuman, RequestType, StateJob, WaitingOn } from './types.ts';
 import { isRepoHold } from './repo-budget.ts';
 import { isRepoProposal } from './repo-proposals.ts';
 import { hasLinkedIssue, isDependencyPark, needsHuman } from './job-state.ts';
@@ -14,6 +15,23 @@ export function inboxGroups<T extends JobLike>(jobs: T[]): { urgent: T[]; prs: T
     prs: jobs.filter((j) => j.state === 'waiting' && j.waitingOn === 'pr-review'),
     parks: jobs.filter(isDependencyPark),
   };
+}
+
+/** The Needs-you count: the decisions only a person makes (urgent jobs) plus each milestone draft waiting at its gate. */
+export const needsCount = <T extends JobLike>(jobs: T[], drafts: readonly DraftGate[] | null | undefined): number => inboxGroups(jobs).urgent.length + (drafts?.length ?? 0);
+
+const MANDATE_ID = new RegExp(MANDATE_ID_SOURCE);
+
+/**
+ * What a queued request is about, for its row: `{job}` for a job request, `{mandate}` for a goal mandate's
+ * drafting run or its milestone-approval gate request (only a valid mandate id, never `none`), else null.
+ */
+export function requestSubject(r: Pick<ForgeRequest, 'type' | 'job' | 'args'>): { job: string } | { mandate: string } | null {
+  if (typeof r.job === 'string' && r.job) return { job: r.job };
+  const args = obj(r.args);
+  const mandateRequest = r.type === 'draft' || (r.type === 'gate' && args.gate === 'milestone-approval');
+  const id = args.mandate;
+  return mandateRequest && typeof id === 'string' && MANDATE_ID.test(id) && id !== 'none' ? { mandate: id } : null;
 }
 
 /**

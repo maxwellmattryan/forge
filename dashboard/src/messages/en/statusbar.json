@@ -155,7 +155,50 @@
     "stillBlocked": "Still blocked",
     "stillBlockedNote": "The last approve ran the scan again and it still found a problem.",
     "budgetFailed": "Budget change failed: {error}",
-    "budgetStillOver": "Still over budget: {keys}. Raise those limits in the note, or approve with no limits to acknowledge them."
+    "budgetStillOver": "Still over budget: {keys}. Raise those limits in the note, or approve with no limits to acknowledge them.",
+    "mandate": "mandate {id}"
+  },
+  "milestoneDraft": {
+    "kicker": "Milestone draft",
+    "mandate": "Goal mandate {id}",
+    "loading": "Loading the milestone draft…",
+    "loadFailed": "Couldn't load the milestone draft: {error}",
+    "retryLoad": "Try again",
+    "issues": {
+      "one": "{count} issue",
+      "other": "{count} issues"
+    },
+    "waves": {
+      "one": "in {count} wave",
+      "other": "in {count} waves"
+    },
+    "existing": {
+      "one": "{count} reuses an existing issue",
+      "other": "{count} reuse existing issues"
+    },
+    "exitCriteria": "Exit criteria",
+    "goal": "The owner's goal",
+    "wave": "Wave {count}",
+    "why": "Why",
+    "whatToDo": "What to do",
+    "done": "Done",
+    "files": "Files",
+    "dependsOn": "Depends on",
+    "existingRef": "Existing issue: {action} {ref}",
+    "note": "Note for the drafter (what to change), or why you approve or reject",
+    "approve": "Approve and file",
+    "revise": "Request changes",
+    "reject": "Reject",
+    "rejectConfirm": "This closes the mandate",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "filingStopped": "Filing stopped: {error}",
+    "filingHint": "Retry filing picks up where it stopped; nothing filed is filed twice.",
+    "retry": "Retry filing",
+    "filed": "Filed {milestone}: {count} issues",
+    "revised": "Sent back to the drafter",
+    "rejected": "Rejected: the mandate is closed",
+    "failed": "Decision failed: {error}"
   },
   "gate": {
     "foreman": "Foreman deciding",
