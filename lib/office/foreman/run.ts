@@ -10,10 +10,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { GATE_RUN_OUTCOMES, MANDATE_ID_SOURCE } from '#api/constants.ts';
 import { ForgeError } from '#core/errors.ts';
-import { MAX_GATE_RUNS, REQUEUE_REJECTED, ackRequest, claimRequest, enqueue, issueForemanAuthority, listRequests, releaseClaim, validJobId } from '#core/job/requests.ts';
+import { GATES_SCOPE, MAX_GATE_RUNS, REQUEUE_REJECTED, ackRequest, claimRequest, enqueue, issueForemanAuthority, listRequests, releaseClaim, validJobId } from '#core/job/requests.ts';
 import { loadJob, readEvents, requeueOrphanedRequests } from '#core/job/store.ts';
 import { openAppend, openRead, readLogPage, sessionFiles } from '#core/job/session-files.ts';
-import { GATES_SCOPE } from '#core/job/requests.ts';
 import { now } from '#core/utils.ts';
 import { gateClassFor, isGateClass } from '#engine/pipeline/moves/foreman-gates.ts';
 import { pendingReleaseHash } from '#engine/release/approval.ts';
@@ -325,9 +324,10 @@ export function createGateRunner(root: string, deps: { ctx: SessionContext; o: S
         return;
       }
       s.attempts = 0;
-      log('gate-start', { run: session, request: r.id, gate: t.gate, job: t.job, mandate: t.mandate, model, effort });
       const attempt = startAttempt(root, ctx, o, { brief, model, effort, log });
       entry.attempt = attempt;
+      // Logged once the child is spawned, so the record carries its pid (null when the launch was refused).
+      log('gate-start', { run: session, request: r.id, gate: t.gate, job: t.job, mandate: t.mandate, model, effort, pid: attempt.pid });
       const res: AttemptResult = await attempt.done;
       Object.assign(s, { attempts: res.attempts, usd: res.usd, tokens: res.tokens });
       if ('failure' in res) {
@@ -343,8 +343,8 @@ export function createGateRunner(root: string, deps: { ctx: SessionContext; o: S
         reason = cleanReason(reason);
         return;
       }
+      // A verdict resets the backoff's exponent; a hold another run's failure set expires on its own.
       streak = 0;
-      if (holdReason === 'retry') holdUntil = null;
       [outcome, reason] = await decide(r, t, c, res.verdict, res.reason, res.malformed, repos);
     } catch (e) {
       // A non-ForgeError is an infrastructure failure: the request goes back through the counted requeue.
@@ -355,7 +355,11 @@ export function createGateRunner(root: string, deps: { ctx: SessionContext; o: S
       Object.assign(s, { status: 'done', outcome, reason: cut(reason) || null, endedAt: now() });
       done = [s, ...done].slice(0, KEPT);
       log('gate-end', { run: session, request: r.id, gate: t.gate, job: t.job, mandate: t.mandate, outcome, reason: s.reason, attempts: s.attempts, usd: s.usd, tokens: s.tokens, startedAt: s.startedAt });
-      if (!closed) ctx.poke();
+      // A run that ends before its first await (stale, reserved, refused) runs this inside the pool's own tick, which
+      // has no re-entrancy guard: the poke waits for that tick to return.
+      queueMicrotask(() => {
+        if (!closed) ctx.poke();
+      });
     }
   }
 
@@ -401,6 +405,11 @@ export function createGateRunner(root: string, deps: { ctx: SessionContext; o: S
     take(config, pending) {
       lastConfig = config;
       if (closed || !gateRunsEnabled(config)) return;
+      // Nothing waits: no meter read, and no cap hold left showing for a request a person has since decided.
+      if (!pending.some((r) => r.type === 'gate')) {
+        capHeld = null;
+        return;
+      }
       const t0 = Date.now();
       if (holdUntil !== null) {
         if (t0 < holdUntil) return;

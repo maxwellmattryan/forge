@@ -228,7 +228,7 @@ export const OFFICE_JOB_COMMANDS: readonly string[] = ['assist', 'human', 'set',
 /** The longest hand-off reason kept, after safeText. */
 const HANDOFF_REASON_MAX = 200;
 
-/** The reason as `forge job handoff` stores it: control characters and backticks removed, trimmed, at most 200 characters. */
+/** The reason as a hand-off stores it: control characters and backticks removed, trimmed, at most 200 characters. */
 export const cleanHandoffReason = (reason: unknown): string => (typeof reason === 'string' ? safeText(reason, HANDOFF_REASON_MAX).trim() : '');
 
 const isHandoffClass = (c: unknown): c is HandoffClass => (HANDOFF_CLASSES as readonly unknown[]).includes(c);

@@ -125,7 +125,6 @@ export function startAttempt(root: string, ctx: SessionContext, o: SessionOption
     if (!(ms > 0) || ms > 2 ** 31 - 1) return;
     turnTimer = setTimeout(() => {
       turnTimer = null;
-      input.log('gate-timeout', { minutes: Math.round(((ms as number) / 60_000) * 1000) / 1000 });
       void finish(fail('timed-out', 'the gate run passed daemon.turnTimeoutMinutes'), true);
     }, ms);
     turnTimer.unref?.();
@@ -153,6 +152,12 @@ export function startAttempt(root: string, ctx: SessionContext, o: SessionOption
     if (e.kind === 'process-error' && !e.started) {
       exited = true;
       return void finish(fail('no-result', `cannot start the assistant: ${e.message}`), false);
+    }
+    if (e.kind === 'permission-asked') {
+      // dontAsk makes this impossible; if claude asks anyway no one can answer, so deny it rather than hold a slot until the turn timeout.
+      input.log('error', { message: 'the assistant asked for a permission: denied' });
+      claude?.answerPermission(e.requestId, 'deny');
+      return;
     }
     if (e.kind !== 'turn-ended' || settled) return;
     attempts++;
@@ -196,7 +201,6 @@ export function startAttempt(root: string, ctx: SessionContext, o: SessionOption
       // The scope reaches the child only through its environment: `_gates` refuses every forge command.
       const env = { ...sessionEnv(o.env, c.daemon.auth), ...confined.env, [TRUST_ENV]: launch.trusted, [SCOPE_ENV]: GATES_SCOPE };
       claude = o.claude.start(argv, { cwd: root, env, maxLineBytes: o.maxLineBytes }, onEvent);
-      input.log('gate-spawn', { pid: claude.pid, capUsd: left });
       if (!claude.writeBrief(input.brief)) void finish(fail('no-result', 'the brief could not be written'), true);
       else armTurn(c);
     } catch (e) {

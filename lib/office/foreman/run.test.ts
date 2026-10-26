@@ -113,6 +113,54 @@ test('a malformed verdict is asked again once', async (t) => {
   assert.equal(h.runner.state().runs[0].outcome, 'escalated');
 });
 
+test('a permission request is denied and the run goes on', async (t) => {
+  const r = scratch();
+  t.after(r.cleanup);
+  const h = harness(r.dir);
+  const a = parked(r.dir);
+  h.take();
+  const c = h.fake.children[0];
+  c.emit({ kind: 'permission-asked', requestId: 'p1', tool: 'Bash', input: null, description: null, agentId: null, blockedPath: null, rules: [], dirs: [] });
+  assert.deepEqual(c.answers, [{ requestId: 'p1', decision: 'deny' }], 'nobody could answer it: denied');
+  answer(c, 'ASSIST: approve · fine');
+  await h.settled();
+  assert.equal(request(r.dir, a.gid).status, 'done');
+});
+
+test('the gate log records a start with the child pid, then an end', async (t) => {
+  const r = scratch();
+  t.after(r.cleanup);
+  const h = harness(r.dir);
+  const a = parked(r.dir);
+  h.take();
+  const c = h.fake.children[0];
+  answer(c, 'ASSIST: approve · fine');
+  await h.settled();
+  const lines = fs.readFileSync(path.join(r.dir, '.forge', 'runtime', 'daemons', '_gates.log'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(lines.map((l) => l.event), ['gate-start', 'gate-end']);
+  assert.deepEqual([lines[0].request, lines[0].pid, lines[1].outcome], [a.gid, c.pid, 'approve']);
+});
+
+test("a verdict does not end the backoff another run's failure started", async (t) => {
+  const r = scratch();
+  t.after(r.cleanup);
+  const h = harness(r.dir, { retryMinMs: 60_000, retryMaxMs: 60_000 });
+  const a = parked(r.dir);
+  const b = parked(r.dir);
+  h.take();
+  assert.equal(h.fake.children.length, 2);
+  h.fake.children[0].exit(1, null);
+  await waitFor(() => h.runner.state().live === 1, { what: 'the first run failed' });
+  assert.equal(h.runner.state().held?.reason, 'retry');
+  answer(h.fake.children[1], 'ASSIST: approve · fine');
+  await h.settled();
+  assert.equal(request(r.dir, b.gid).status, 'done');
+  assert.equal(h.runner.state().held?.reason, 'retry', 'still waiting out the failure');
+  h.take();
+  assert.equal(h.fake.children.length, 2, 'the failed request is not retaken at once');
+  assert.equal(request(r.dir, a.gid).status, 'pending');
+});
+
 test("hand-offs match today's", async (t) => {
   const r = scratch();
   t.after(r.cleanup);
@@ -279,7 +327,7 @@ test('failed runs are reclaimed', async (t) => {
   h.take();
   h.fake.children[0].exit(1, null);
   await h.settled();
-  await new Promise((res) => setTimeout(res, 5));
+  await waitFor(() => h.runner.state().held === null, { what: 'the backoff over' });
   h.take();
   assert.equal(h.fake.children.length, 2, 'retried after the backoff');
   h.fake.children[1].exit(1, null);
@@ -311,4 +359,6 @@ test('no run starts at the office cap', async (t) => {
   assert.equal(h.runner.state().held?.reason, 'daily-cap');
   assert.match(h.runner.state().held?.message ?? '', /the office session and its gate runs spent \$1\.05 of the \$1\.00 daily cap/);
   assert.equal(request(r.dir, b.gid).status, 'pending');
+  h.runner.take(loadConfig(r.dir).config, []);
+  assert.equal(h.runner.state().held, null, 'no request waits any more: nothing is held');
 });

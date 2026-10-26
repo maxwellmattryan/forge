@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import type http from 'node:http';
 import path from 'node:path';
-import { daemonProblems, loadConfig } from '#core/config/load.ts';
+import { daemonProblems, defaults, loadConfig } from '#core/config/load.ts';
 import { scopeKnownValues } from '#engine/guard/known-secrets.ts';
 import { dashboardActor } from '#integrations/github/actor.ts';
 import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
@@ -205,7 +205,7 @@ export function idlePoolState(root: string): PoolState {
     inbox: offSessionState(root, INBOX_SCOPE),
     office: offSessionState(root, OFFICE_SCOPE),
     foreman: false,
-    gates: { enabled: false, parallel: 2, live: 0, held: null, runs: [] },
+    gates: { enabled: false, parallel: defaults().foreman.assistants.parallel, live: 0, held: null, runs: [] },
     jobs: {},
     permissionMode: 'default',
     permissionModes: {},

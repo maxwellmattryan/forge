@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { BIN, fakeClaude, parkedAt, repoTemplate, waitFor } from '../../helpers.ts';
+import { BIN, fakeClaude, jobAt, parkedAt, repoTemplate, waitFor } from '../../helpers.ts';
 import type { FakeClaudeChild } from '../../helpers.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { loadConfig } from '#core/config/load.ts';
@@ -182,6 +182,21 @@ test("a pool lists the gate log's last runs before it starts, and only the valid
   assert.deepEqual([g.enabled, g.parallel, g.live], [true, 2, 0], 'on, from the config the pool read, before any start');
   assert.deepEqual(g.runs.map((x) => [x.request, x.outcome, x.status]), [['3-c', 'failed', 'done'], ['2-b', 'escalated', 'done'], ['1-a', 'approve', 'done']]);
   assert.deepEqual(claude.children, [], 'nothing spawned');
+});
+
+test("a gate run that ends inside the pool's own tick does not turn a job session twice", async (t) => {
+  const r = scratch();
+  // A stale gate request: its run acks and ends before any await, in the middle of the tick that took it.
+  const moved = jobAt(r.dir, 'spec').id;
+  const stale = enqueue(r.dir, null, { type: 'gate', job: moved, args: { gate: 'spec-approval', reserved: null }, from: 'forge' }).id;
+  const { config } = loadConfig(r.dir);
+  const job = createJob(r.dir, config, { title: 'needs a turn' }).id;
+  enqueue(r.dir, config, { type: 'resume', job, from: 'dashboard' });
+  const { pool: p, claude, gates } = pool(t, r);
+  p.start('boot');
+  await new Promise((res) => setImmediate(res));
+  const child = claude.children.find((c) => c.scope === job);
+  assert.deepEqual([gates(), request(r.dir, stale).result, child?.turns], [[], 'stale', 1], 'one child, one turn');
 });
 
 test('gate runs count against neither daemon.maxConcurrent nor the machine cap', async (t) => {
