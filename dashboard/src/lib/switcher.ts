@@ -1,6 +1,8 @@
 // The machine's registered projects as the project switcher, the Overview, the Machine page and the command bar show them.
 import type { ProjectsResponse } from './types.ts';
 import { PROJECT_NAME_SOURCE } from './types.ts';
+import type { SelectOption } from './select.ts';
+import { switchHash, type Route } from './routes.ts';
 
 const PROJECT_NAME = new RegExp(PROJECT_NAME_SOURCE);
 
@@ -36,4 +38,20 @@ export function switcherEntries(r: ProjectsResponse | null): SwitcherEntry[] {
         daemon: p.daemon ? { live: p.daemon.live, maxConcurrent: p.daemon.maxConcurrent } : null,
       };
     });
+}
+
+/** The Add project entry's value: fails PROJECT_NAME, so no registered project can share it. */
+export const ADD_PROJECT = '+add';
+
+/** The switcher's Select options: the projects, then Add project ruled off below them (no rule when it stands alone). */
+export function switcherOptions(entries: SwitcherEntry[], labels: { add: string; hint: (e: SwitcherEntry) => string | undefined }): SelectOption[] {
+  const projects: SelectOption[] = entries.map((e) => ({ value: e.name, label: e.name, disabled: !e.openable, hint: labels.hint(e) }));
+  return [...projects, { value: ADD_PROJECT, label: labels.add, icon: 'command', action: true, separator: projects.length > 0 }];
+}
+
+/** The hash choosing `value` leads to, or null to stay: Add project opens the Machine page, a project its view (switchHash). */
+export function switcherChoice(value: string, current: string | null, route: Route): string | null {
+  if (value === ADD_PROJECT) return route.scope === 'global' && route.view === 'machine' ? null : '#/machine';
+  if (value === current) return null;
+  return switchHash(value, route);
 }
