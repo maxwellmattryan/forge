@@ -177,7 +177,9 @@ export async function officeStart(
     } else if (stored === null || !refs.includes(stored)) {
       throw new ForgeError(`${title(ref)} is not among mandate ${m.id}'s next issues (${refs.join(', ') || 'none'})`, 1);
     }
-    const tracker = o.tracker!;
+    // A listed mandate's window needs no tracker call, but its start still reads and claims the issue.
+    if (!o.tracker) throw new ForgeError(`tracker: ${o.trackerError ?? 'none loaded'}`, 1);
+    const tracker = o.tracker;
     const native = nativeRef({ tracker: kind, ref: stored! }, kind, slug) ?? stored!;
     const item = tracker.get({ root, config }, native);
     const gone = !item ? 'not found' : String(item.status ?? '').toLowerCase() === 'closed' ? 'closed upstream' : null;
