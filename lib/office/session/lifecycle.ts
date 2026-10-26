@@ -1,16 +1,16 @@
-// One supervised headless session. `forge dash` runs a pool of these (lib/office/pool.ts): one for
-// the inbox and one per job with work. Each is a long-lived `claude -p --input-format stream-json`
-// child that, whenever its pool sees new work for its scope, gets the one fixed `/forge requests`
-// turn. A session never runs agents or writes job state itself: the claude child does, through the
-// same claims and CLI as a human's session. It never reads claude's output either: it reacts to the
-// ClaudeEvents lib/integrations/claude/ reports. docs/architecture/daemon-runtime.md and daemon-security.md
-// describe the rules this file keeps.
+// One supervised headless session. `forge dash` runs a pool of these (lib/office/pool.ts): one for the inbox and one per job
+// with work. Each is a long-lived `claude -p --input-format stream-json` child that, whenever its pool sees new work for its
+// scope, gets the one fixed `/forge requests` turn; a chat's session gets the owner's message instead (writeChat). A session
+// never runs agents or writes job state itself: the claude child does, through the same claims and CLI as a human's session.
+// It never reads claude's output either: it reacts to the ClaudeEvents lib/integrations/claude/ reports.
+// docs/architecture/daemon-runtime.md and daemon-security.md describe the rules this file keeps.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { TRUST_ENV } from '#core/config/load.ts';
 import { UUID, logBaseOf, readInfo, sessionFiles } from '#core/job/session-files.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
-import { SCOPE_ENV, sharedScope, validJobId } from '#core/job/requests.ts';
+import { SCOPE_ENV, isChatScope, sharedScope, validJobId } from '#core/job/requests.ts';
+import { ForgeError } from '#core/errors.ts';
 import { writeJsonAtomic } from '#core/os/fs.ts';
 import { now } from '#core/utils.ts';
 import { billingOf, buildArgv, commandPermissionMode, sessionEnv } from '#integrations/claude/argv.ts';
@@ -21,16 +21,12 @@ import { createControl } from './control.ts';
 import { createMeter } from './meter.ts';
 import { routeHolds } from './holds.ts';
 import { confineDigest, spawnConfinement } from './confine.ts';
-import { checkLaunch } from './launch.ts';
+import { chatPrompt, checkLaunch } from './launch.ts';
 import { createSessionLog } from './log.ts';
 import { createOwned } from './owned.ts';
 import { withSessionId } from './records.ts';
 import { createTimers } from './timers.ts';
 import type { Config, DaemonSessionState, DaemonStatus, Effort } from '#core/types.ts';
-
-/** Why the supervisor stopped: shown in the dashboard, so it speaks to the human. */
-export const TRUST_CHANGED =
-  'daemon stopped: a file Forge trusts (.forge/config.yml, .forge/secrets-allow.txt, .forge/trackers/, .forge/verifiers/, .forge/notes/, .forge/reviewers/, .forge/evals/, .forge/ci/, a CLAUDE.md, AGENTS.md, an instruction file or the hooks dir) changed while it was running, seen by the supervisor or the check after a turn. The session can run commands in this checkout, so only a human may approve that change: review `git status` and `git diff`, then start the daemon again.';
 
 const MAX_FAILURES = 3;
 
@@ -199,7 +195,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     try {
       confined = spawnConfinement(root, c);
       const { roots, deny } = confined;
-      const vars = { allowedTools: c.daemon.allowedTools, permissionMode: launchMode, effort: effort.level, writeRoots: [roots.jobs, ...roots.worktrees], deny, maxBudgetUsd: cap };
+      const vars = { allowedTools: c.daemon.allowedTools, permissionMode: launchMode, effort: effort.level, writeRoots: [roots.jobs, ...roots.worktrees], deny, maxBudgetUsd: cap, appendSystemPrompt: chatPrompt(scope) };
       argv = buildArgv(c.daemon.command, { pluginRoot: PLUGIN_ROOT, session: { id: info.sessionId, resume }, ...vars });
     } catch (e) {
       ctx.fatal(`cannot start daemon: ${(e as Error).message}`);
@@ -493,9 +489,11 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     if (!closed) ctx.poke();
   }
 
-  function writeTurn(ids: string[]): void {
+  /** Hands the child a turn: the fixed one for `ids`, or (writeChat) one owner `message`, which only a running chat session takes; a refusal throws, writing nothing. */
+  function writeTurn(ids: string[], message?: string): void {
     // The pool only calls this once a child is running.
-    child!.claude.writeTurn();
+    if (message === undefined) child!.claude.writeTurn();
+    else if (!isChatScope(scope) || !child?.claude.writeMessage(message)) throw new ForgeError(`no owner message was written to ${scope}: only a running chat session takes one, of 1 to 8000 characters`);
     status = 'busy';
     inFlight = ids;
     retryAt = null;
@@ -504,7 +502,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     persist();
     clearIdle();
     armTurn(child!);
-    logEvent('turn', { requests: ids.length, turn: turns });
+    // Never the text: the chat log holds the owner's message.
+    logEvent('turn', { requests: ids.length, turn: turns, ...(message === undefined ? {} : { chat: true }) });
     changed();
   }
 
@@ -552,7 +551,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       return { eligible, fresh: eligible.some((id) => !committed.has(id)) };
     },
     spawn: spawnChild,
-    writeTurn,
+    writeTurn: (ids) => writeTurn(ids),
+    writeChat: (text) => writeTurn([], typeof text === 'string' ? text : ''),
     answerPermission,
     setPermissionMode,
     kill,

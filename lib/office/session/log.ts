@@ -140,9 +140,10 @@ export function createSessionLog(core: SessionCore) {
   return { logLine, logEvent, rotate, armRotation, backpressure, recent, close };
 }
 
-function capLine(line: string): string {
+/** `line` as it is when at most `max` bytes, else the `forge-truncated` marker that names its type and size. */
+export function capLine(line: string, max = RING_LINE_BYTES): string {
   const bytes = Buffer.byteLength(line);
-  if (bytes <= RING_LINE_BYTES) return line;
+  if (bytes <= max) return line;
   let originalType: unknown = null;
   try {
     originalType = JSON.parse(line)?.type ?? null;

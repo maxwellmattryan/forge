@@ -1,8 +1,9 @@
 // The permission modes `forge dash`'s pool holds for its sessions: a human's choice per scope, and
-// the default for job sessions without one. In memory on purpose: a session can write files in the
+// the default for job sessions without one. A chat launches in `default` (it asks) unless its owner chose
+// otherwise, whatever daemon.command says. In memory on purpose: a session can write files in the
 // repo, runtime records included, so a mode read back from disk would be one the session could pick
 // for itself.
-import { sharedScope as shared } from '#core/job/requests.ts';
+import { isChatScope, sharedScope as shared } from '#core/job/requests.ts';
 import { PERMISSION_MODES, commandPermissionMode } from '#integrations/claude/argv.ts';
 import type { DaemonOptions } from './session/contract.ts';
 import type { MachineSlots } from './slots.ts';
@@ -17,7 +18,7 @@ export type PoolOptions = DaemonOptions & { jobPermissionMode?: DaemonPermission
 export interface ModeBook {
   /** Re-reads daemon.command's mode, the one a scope runs in when nobody chose another. */
   setCommand(template: unknown): void;
-  /** The mode a spawn of `scope` gets: its own choice, else the job default for a job; null keeps daemon.command's. */
+  /** The mode a spawn of `scope` gets: its own choice, else `default` for a chat, else the job default for a job; null keeps daemon.command's. */
   launch(scope: string): DaemonPermissionMode | null;
   /** Whether a human chose a mode for this one scope. */
   chosen(scope: string): boolean;
@@ -35,12 +36,12 @@ export function createModeBook(jobDefault: DaemonPermissionMode | null = null): 
   let base = 'default';
   let jobs: DaemonPermissionMode | null = PERMISSION_MODES.find((m) => m === jobDefault) ?? null;
   /** What a scope runs in without its own choice. */
-  const fallback = (scope: string): string => (shared(scope) ? base : (jobs ?? base));
+  const fallback = (scope: string): string => (isChatScope(scope) ? 'default' : shared(scope) ? base : (jobs ?? base));
   return {
     setCommand(template) {
       base = commandPermissionMode(template);
     },
-    launch: (scope) => modes.get(scope) ?? (shared(scope) ? null : jobs),
+    launch: (scope) => modes.get(scope) ?? (isChatScope(scope) ? 'default' : shared(scope) ? null : jobs),
     chosen: (scope) => modes.has(scope),
     choose(scope, mode) {
       if (mode === fallback(scope)) modes.delete(scope);

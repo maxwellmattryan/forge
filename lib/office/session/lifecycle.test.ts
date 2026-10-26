@@ -21,6 +21,8 @@ import { PROMPT_INPUT_CHARS } from '#integrations/claude/stream.ts';
 import type { ClaudeEvent } from '#integrations/claude/types.ts';
 import { confineDigest, denyRules, writeRoots } from './confine.ts';
 import { createSession } from './lifecycle.ts';
+import { CHAT_PROMPT } from './launch.ts';
+import { CHAT_BUSY, startChat } from '../chat/send.ts';
 import { sessionOptions, type LogSink, type SessionContext } from './contract.ts';
 import { LOST_SUMMARY } from '../driver.ts';
 import type { Config, DaemonPermissionMode } from '#core/types.ts';
@@ -60,6 +62,8 @@ interface RigOpts {
   beforeSnapshot?: (root: string) => void;
   /** null: the pool took no confine snapshot. */
   confined?: null;
+  /** The session's scope, over `job` and the inbox. */
+  scope?: string;
 }
 
 const MAX_LINE_BYTES = 123_456;
@@ -75,7 +79,7 @@ function rig(t: any, opts: RigOpts = {}) {
   const cfg: Config = defaults();
   cfg.daemon = { ...cfg.daemon, enabled: true, command: 'claude {session}', idleStopMinutes: null, ...opts.daemon } as Config['daemon'];
   const confined = opts.confined === null ? null : confineDigest(root, cfg);
-  const scope = opts.job ? createJob(root, cfg, { title: 'kept by its agents' }).id : INBOX_SCOPE;
+  const scope = opts.scope ?? (opts.job ? createJob(root, cfg, { title: 'kept by its agents' }).id : INBOX_SCOPE);
   if (opts.record) {
     const f = sessionFiles(root, scope);
     fs.mkdirSync(f.dir, { recursive: true });
@@ -137,6 +141,37 @@ const asked = (requestId: string, over: Partial<Extract<ClaudeEvent, { kind: 'pe
   ...over,
 });
 const failed = (reason: string, limit = false, resetsAt: number | null = null, budget = false): ClaudeEvent => ({ kind: 'turn-ended', ok: false, reason, limit, resetsAt, budget });
+
+test('only a chat session takes owner text', async (t) => {
+  for (const scope of [INBOX_SCOPE, '_office', '_assistant-1', 'job']) {
+    const r = rig(t, scope === 'job' ? { job: true } : { scope });
+    assert.deepEqual(startChat(r.s, r.cfg, 'hello'), { error: `${r.scope} is not a chat session` });
+    assert.equal(r.children.length, 0, `${scope}: startChat spawns nothing`);
+    assert.equal(r.s.spawn(r.cfg), true);
+    assert.throws(() => r.s.writeChat('hello'), /only a running chat session takes one/, scope);
+    assert.deepEqual([r.children[0].messages, r.children[0].turns, r.s.status], [[], 0, 'idle'], `${scope}: nothing written`);
+    assert.ok(!r.children[0].argv.includes('--append-system-prompt'), `${scope}: no system prompt`);
+  }
+
+  const chat = rig(t, { scope: '_chat-0123456789ab' });
+  assert.throws(() => chat.s.writeChat('hello'), /only a running chat session/, 'no child yet');
+  assert.deepEqual(startChat(chat.s, chat.cfg, 'what is waiting on me?'), { error: null });
+  const [c] = chat.children;
+  assert.deepEqual([c.messages, c.turns, chat.s.status], [['what is waiting on me?'], 0, 'busy']);
+  const at = c.argv.indexOf('--append-system-prompt');
+  assert.equal(c.argv[at + 1], CHAT_PROMPT);
+  assert.equal(c.argv.filter((w) => w === CHAT_PROMPT).length, 1);
+  assert.ok(at > 0 && at < c.argv.indexOf('--disallowedTools'), 'before the deny tail');
+  assert.deepEqual(chat.event('turn').map((l) => [l.requests, l.chat]), [[0, true]]);
+  assert.ok(!chat.lineEvents().some((e) => e.line.includes('waiting on me')), 'the text never reaches the session log');
+  assert.deepEqual(startChat(chat.s, chat.cfg, 'and now?'), { error: CHAT_BUSY }, 'one owner turn at a time');
+  c.emit({ kind: 'turn-ended', ok: true });
+  assert.equal(chat.s.status, 'idle');
+  for (const bad of ['', '  ', 'x'.repeat(8001)]) assert.throws(() => chat.s.writeChat(bad), /of 1 to 8000 characters/);
+  assert.deepEqual([c.messages.length, chat.s.status], [1, 'idle'], 'a refused text writes nothing and leaves it idle');
+  assert.deepEqual(startChat(chat.s, chat.cfg, 'and now?'), { error: null }, 'its running child takes the next one');
+  assert.deepEqual([chat.children.length, c.messages], [1, ['what is waiting on me?', 'and now?']]);
+});
 
 // B11 (a fresh child gets nothing until a request; one written turn; a result makes it idle and
 // commits the request), B43 (offsets and recent), B44 (backpressure until drain).

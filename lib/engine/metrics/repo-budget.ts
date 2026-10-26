@@ -3,6 +3,7 @@
 // next) and the daemon pool holds job sessions' requests while it is exceeded. Repo holds reuse
 // waiting:budget, told apart from a per-job stop by the reason prefix; release re-checks the job's
 // own budget, so rewriting a reason never frees a per-job stop. docs/CONFIG.md "Repo budget".
+import fs from 'node:fs';
 import { effectiveLimits, exceededKeys, measureJob } from './budget.ts';
 import { configForJob } from '../evals/overlay.ts';
 import { isActive, listJobs, loadJob, logEvent, logRepoEvent, parseEventLines, readEvents, repoAuditFile, setJob } from '#core/job/store.ts';
@@ -114,6 +115,33 @@ export function repoBudgetStatus(root: string, config: Config, { at = Date.now()
     held: exceeded.length > 0 && b.onExceeded === 'hold',
     reason: exceeded.length ? formatRepoReason(exceeded, spent, caps) : null,
     heldJobs,
+  };
+}
+
+/** How long the pool's memo reuses the repo budget status. */
+const REPO_BUDGET_MEMO_MS = 10_000;
+
+/**
+ * The daemon pool's repo budget status, reused for up to REPO_BUDGET_MEMO_MS: the ledger stats every job's
+ * events. An acknowledgement (the audit log grows) or a changed `budget:` block recomputes it at once. Null
+ * when the ledger can't be read: that must not stop the supervisor, and per-job budgets still hold.
+ */
+export function createRepoBudgetMemo(root: string): (c: Config) => RepoBudgetStatus | null {
+  let memo: { at: number; key: string; status: RepoBudgetStatus | null } | null = null;
+  return (c) => {
+    let size = 0;
+    try {
+      size = fs.statSync(repoAuditFile(root)).size;
+    } catch {}
+    const key = `${size}|${JSON.stringify(c.budget ?? null)}`;
+    if (memo && memo.key === key && Date.now() - memo.at < REPO_BUDGET_MEMO_MS) return memo.status;
+    let status: RepoBudgetStatus | null = null;
+    try {
+      // write: false: the pool writes no state, the spend cache included.
+      status = repoBudgetStatus(root, c, { write: false });
+    } catch {}
+    memo = { at: Date.now(), key, status };
+    return status;
   };
 }
 

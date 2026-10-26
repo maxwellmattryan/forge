@@ -15,6 +15,7 @@ import { claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
 import { sessionFiles } from '#core/job/session-files.ts';
 import { createPool } from '#office/pool.ts';
 import { createMachineSlots } from '#office/slots.ts';
+import { CHAT_PROMPT } from '#office/session/launch.ts';
 
 test('a draft request turns the office session, never the inbox', async (t) => {
   for (const foreman of [true, false]) {
@@ -152,6 +153,63 @@ test('a gate request reaches an assistant foreman', async (t) => {
       for (const id of ids) assert.equal(listRequests(root).find((r) => r.id === id)?.status, 'pending', `${row.name}: the gate waits`);
     }
   }
+});
+
+test('chat text reaches only its chat session', async (t) => {
+  const { root, config } = daemonRepo(t, { foreman: { enabled: true, assistants: { enabled: true, sessions: 1 } } });
+  const job = createJob(root, config, { title: 'running' }).id;
+  enqueue(root, config, { type: 'resume', job, from: 'dashboard' });
+  enqueue(root, config, { type: 'draft', args: { mandate: 'g1' }, from: 'forge' });
+  parkedGates(root, config, 1);
+  const claude = fakeClaude();
+  const pool = createPool(root, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 });
+  t.after(() => pool.close());
+  pool.start('boot');
+  const others = ['_inbox', '_office', '_assistant-1', job];
+  assert.deepEqual(others.filter((s) => !claude.children.some((c) => c.scope === s)), [], 'the inbox, office, assistant and job sessions all run');
+
+  const chat = '_chat-0123456789ab';
+  assert.deepEqual(pool.sendChat(chat, 'hello, Foreman'), { error: null });
+  for (const scope of others) assert.deepEqual(pool.sendChat(scope, 'hello'), { error: 'invalid chat scope' }, scope);
+  for (const c of claude.children.filter((x) => x.scope !== chat)) {
+    assert.deepEqual(c.messages, [], `${c.scope} took no owner text`);
+    assert.ok(!c.argv.includes('--append-system-prompt'), `${c.scope} has no chat prompt`);
+  }
+  const chats = claude.children.filter((c) => c.scope === chat);
+  assert.equal(chats.length, 1);
+  assert.deepEqual(chats[0]!.messages, ['hello, Foreman']);
+  const argv = chats[0]!.argv;
+  assert.equal(argv.filter((w) => w === CHAT_PROMPT).length, 1);
+  assert.equal(argv[argv.indexOf('--append-system-prompt') + 1], CHAT_PROMPT);
+  assert.ok(argv.indexOf('--append-system-prompt') < argv.indexOf('--disallowedTools'));
+
+  // The tick routes nothing to it, and a scoped start never spawns one.
+  pool.poke();
+  assert.deepEqual([chats[0]!.turns, claude.children.filter((c) => c.scope === chat).length], [0, 1]);
+  assert.deepEqual(pool.startSession('_chat-ffffffffffff'), { error: 'a chat session starts when the owner sends it a message' });
+  assert.ok(!claude.children.some((c) => c.scope === '_chat-ffffffffffff'));
+  await pool.dropSession(chat);
+  assert.equal(chats[0]!.exited, true, 'an archived chat is stopped and dropped');
+  await pool.stop();
+  assert.deepEqual(pool.sendChat(chat, 'again'), { error: 'start the daemon first' });
+});
+
+test('chat sessions count against neither daemon.maxConcurrent nor the machine cap', async (t) => {
+  const { root, config } = daemonRepo(t, { daemon: { maxConcurrent: 1 } });
+  const job = createJob(root, config, { title: 'running' }).id;
+  enqueue(root, config, { type: 'resume', job, from: 'dashboard' });
+  const claude = fakeClaude();
+  const slots = createMachineSlots(() => 1);
+  const pool = createPool(root, { claude: claude.adapter, slots, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 });
+  t.after(() => pool.close());
+  pool.start('boot');
+  assert.ok(claude.children.some((c) => c.scope === job), 'the job session holds the slot');
+  assert.deepEqual({ live: pool.state().live, machine: pool.state().machine?.live }, { live: 1, machine: 1 });
+  for (const chat of ['_chat-0123456789ab', '_chat-aaaaaaaaaaaa']) {
+    assert.deepEqual(pool.sendChat(chat, 'hi'), { error: null });
+    assert.deepEqual(claude.children.find((c) => c.scope === chat)?.messages, ['hi'], `${chat} spawned and written`);
+  }
+  assert.deepEqual({ live: pool.state().live, machine: pool.state().machine?.live, jobs: Object.keys(pool.state().jobs) }, { live: 1, machine: 1, jobs: [job] });
 });
 
 test('assistant foremen count against neither daemon.maxConcurrent nor the machine cap', async (t) => {

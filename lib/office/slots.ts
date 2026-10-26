@@ -4,16 +4,17 @@
 // the oldest pending request on the machine (request ids start with Date.now(), so they compare
 // across projects). Also the one place a pool session's child is started and handed work, and what kind of
 // session a scope is: only job sessions count against `daemon.maxConcurrent` and the machine cap; the inbox,
-// the office and the assistant foremen never do. docs/architecture/daemon.md describes it.
-import { INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, assistantScope, isAssistantScope } from '#core/job/requests.ts';
+// the office, the assistant foremen and the chats never do. docs/architecture/daemon.md describes it.
+import { INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, assistantScope, isAssistantScope, isChatScope } from '#core/job/requests.ts';
 import type { Session } from './session/contract.ts';
 import type { Config, ForgeRequest } from '#core/types.ts';
 
-export type SessionKind = 'inbox' | 'office' | 'assistant' | 'job';
+export type SessionKind = 'inbox' | 'office' | 'assistant' | 'chat' | 'job';
 
 export function sessionKind(scope: string): SessionKind {
   if (scope === INBOX_SCOPE) return 'inbox';
   if (scope === OFFICE_SCOPE) return 'office';
+  if (isChatScope(scope)) return 'chat';
   return isAssistantScope(scope) ? 'assistant' : 'job';
 }
 
