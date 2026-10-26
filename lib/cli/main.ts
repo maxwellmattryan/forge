@@ -58,7 +58,7 @@ import { secretsCmd } from './commands/secrets.ts';
 import { serviceCmd } from './commands/service.ts';
 import { verifiersCmd } from './commands/verifiers.ts';
 import { renderKey } from './commands/render/registry.ts';
-import { statsText, statusRows, statusTable, statusView } from './commands/status.ts';
+import { statsMandate, statsText, statusRows, statusTable, statusView } from './commands/status.ts';
 import { nextCmd, syncAll, trackerCmd } from './commands/tracker.ts';
 import { updateCmd } from './commands/update.ts';
 import { versionCmd } from './commands/version.ts';
@@ -248,6 +248,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       needInit();
       return ok(await trackerCmd(root, config, sub, rest, flags));
     case 'stats': {
+      if (flags.mandate !== undefined) return ok(statsMandate(root, config, flags));
       if (flags.by === 'prompt') return ok(statsByPromptCmd(root, config, flags));
       if (flags.csv || flags.by !== undefined) return ok(statsCsv(root, config, flags));
       const s = computeStats(root, { since: flags.since, includeEvals: Boolean(flags['include-evals']), config });

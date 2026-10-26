@@ -16,6 +16,7 @@ import { dashboardActor } from '#integrations/github/actor.ts';
 import { allKnownValues, redactDeep } from '#engine/guard/known-secrets.ts';
 import { spendLedger } from '#engine/metrics/spend.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
+import { buildReportCard } from '#office/mandates/card.ts';
 import { BODY_MAX, effectiveContract, fillDefaults, grantable, isMandateId, isReadable, mandateChain, mandateSummary } from '#office/mandates/contract.ts';
 import { readDirectives } from '#office/mandates/directives.ts';
 import { decideDraft, draftGate, gateView } from '#office/mandates/gate.ts';
@@ -72,6 +73,8 @@ export function mandateRow(root: string, config: Config, m: Mandate, all: ReadMa
       lastActivity: f.lastActivity,
     },
     draft: gate === null ? null : { status: gate.draftStatus as DraftStatus, gate: gate.status },
+    // Live, closed mandates too: numbers, 'pending', null, WAITING_ON keys and ISO times only, so the tokenless list may carry it.
+    card: buildReportCard(m, f, config, ctx.at),
   };
 }
 

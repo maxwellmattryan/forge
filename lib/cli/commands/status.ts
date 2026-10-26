@@ -1,7 +1,14 @@
-// Human-readable summaries: `forge status` and the text form of `forge stats`.
+// Human-readable summaries: `forge status` and the text form of `forge stats`, and `forge stats --mandate`'s report card.
 import { foremanHandoffFor } from '#office/foreman.ts';
+import { buildReportCard } from '#office/mandates/card.ts';
+import { jobFigures } from '#office/mandates/progress.ts';
+import { listMandates, mandateTarget } from '#office/mandates/store.ts';
+import { listArchived } from '#core/job/archive.ts';
 import { isActive, listJobs, progress } from '#core/job/store.ts';
-import type { Job, Stats } from '#core/types.ts';
+import { ForgeError } from '#core/errors.ts';
+import { spendLedger } from '#engine/metrics/spend.ts';
+import { str } from './args.ts';
+import type { Config, Job, MandateReportCard, Stats } from '#core/types.ts';
 import type { HelpGroup, StatusRow } from '../types.ts';
 
 export const HELP: HelpGroup[] = [
@@ -16,20 +23,40 @@ export const HELP: HelpGroup[] = [
     commands: [
       {
         command: 'stats',
-        args: '[--since DATE] [--include-evals] [--json] | --by prompt [--role R] [--since DATE] [--include-evals] | --csv [--since DATE] [--by job|role|model|day]',
-        summary: 'pipeline metrics: review and verify first-pass rates, per-lens change, dispute and miss rates, recurring findings, escalations, time to PR, tokens and cost (a text summary, or the full object with --json); --by prompt groups jobs into prompt cohorts',
+        args: '[--since DATE] [--include-evals] [--json] | --by prompt [--role R] [--since DATE] [--include-evals] | --csv [--since DATE] [--by job|role|model|day] | --mandate <id>',
+        summary:
+          'pipeline metrics: review and verify first-pass rates, per-lens change, dispute and miss rates, recurring findings, escalations, time to PR, tokens and cost (a text summary, or the full object with --json); --by prompt groups jobs into prompt cohorts; --mandate prints one mandate\'s live report card',
         flags: [
           ['--since DATE', 'only jobs created on or after DATE'],
           ['--include-evals', 'count eval jobs too (--csv always counts every job)'],
           ['--csv', 'spend as RFC 4180 CSV with CRLF line ends: key columns, then runs,tokens,input,output,cache_read,cache_write,usd; with it, --since keeps events at or after DATE'],
           ['--by K', 'with --csv: one row per job (default, keyed job,kind,title), role, model or day; `prompt` (JSON only): one cohort per prompt hash the role last started on, each with its own stats'],
           ['--role R', 'with --by prompt: the agents/*.md role or reviewer:<lens> whose starts key the cohorts (default builder)'],
+          ['--mandate ID', "the mandate's report card as JSON, computed live (any status): what merged, scores, review rounds, interventions by gate, spend against budget and outcomes, a figure still awaiting a score run or outcome window reading pending; takes no other stats flag"],
         ],
         docs: ['Repo budget', 'docs/CLI.md#repo-budget'],
       },
     ],
   },
 ];
+
+const MANDATE_USAGE = 'usage: forge stats --mandate <id>';
+/** The stats flags `--mandate` refuses: each picks another output. */
+const NOT_WITH_MANDATE = ['csv', 'by', 'role', 'since', 'include-evals'];
+
+/**
+ * `forge stats --mandate <id>`: the mandate's live report card, from the records `forge mandate show`
+ * reads (no tracker call). Any status, a goal mandate still drafting too.
+ */
+export function statsMandate(root: string, config: Config, flags: Record<string, any>): MandateReportCard {
+  for (const f of NOT_WITH_MANDATE) if (flags[f] !== undefined) throw new ForgeError(`--mandate takes no --${f}; ${MANDATE_USAGE}`, 'usage', 'forge help stats');
+  const id = str(flags.mandate, '--mandate') as string;
+  const all = listMandates(root);
+  const m = mandateTarget(all, id);
+  const at = Date.now();
+  const f = jobFigures(root, config, m, all, { jobs: listJobs(root), archived: listArchived(root), ledger: spendLedger(root, config, { write: false }), at });
+  return buildReportCard(m, f, config, at);
+}
 
 /** `forge status --json`: one row per job, the data `forge status` prints as a table. */
 export function statusRows(root: string, all: boolean): StatusRow[] {
