@@ -107,7 +107,8 @@ test("roleArgv builds a role child's command line", () => {
   const deny = ['Edit(//r/.forge/config.yml)', 'Edit(//r/CLAUDE.md)'];
   const base = { executable: '/opt/claude', pluginRoot: '/p lugin', agent: 'forge:verifier', model: 'haiku', effort: 'low' as const, permissionMode: 'default', allowedTools: ['Agent', 'Read', 'Edit', 'Write(~/**)', 'Bash(forge:*)'], writeRoots: ['/r/.forge/jobs', '/w'], deny, session };
   type Vars = Parameters<typeof roleArgv>[0];
-  const head = ['/opt/claude', '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--plugin-dir', '/p lugin', '--agent', 'forge:verifier'];
+  // Only the user's settings and the plugin load: the worktree's CLAUDE.md, .claude/settings*.json and .mcp.json are branch-written data.
+  const head = ['/opt/claude', '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--plugin-dir', '/p lugin', '--agent', 'forge:verifier', '--setting-sources', 'user', '--strict-mcp-config'];
   const tail = (mode: string, sid: string[]) => ['--permission-mode', mode, '--allowedTools', 'Agent,Read,Bash(forge:*),Edit(//r/.forge/jobs/**),Edit(//w/**)', ...sid, '--disallowedTools', deny.join(','), '--permission-prompt-tool', 'stdio'];
   const rows: { name: string; vars?: Partial<Vars>; want?: string[]; throws?: RegExp }[] = [
     { name: 'every flag', want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--session-id', uuid])] },

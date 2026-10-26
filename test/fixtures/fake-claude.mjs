@@ -42,7 +42,7 @@ const scope = env.FORGE_DAEMON_SCOPE ?? null;
 // Before the start record: a test that sees the record may signal at once, and a SIGTERM that
 // arrived before the handler would kill a child that is supposed to ignore it.
 if (env.FAKE_CLAUDE_IGNORE_TERM) process.on('SIGTERM', () => {});
-const ROLE_ENV = ['FORGE_DAEMON', 'FORGE_MODE', 'FORGE_DAEMON_SCOPE', 'FORGE_DAEMON_TRUST', 'FORGE_DAEMON_WRITE_ROOTS'];
+const ROLE_ENV = ['FORGE_DAEMON', 'FORGE_MODE', 'FORGE_ROOT', 'FORGE_DAEMON_SCOPE', 'FORGE_DAEMON_TRUST', 'FORGE_DAEMON_WRITE_ROOTS'];
 log({
   argv,
   scope,

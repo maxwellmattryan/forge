@@ -285,7 +285,10 @@ const ABSOLUTE_RULE = /^Edit\(\/\/[^,\r\n]+\)$/;
  * agent and session id must match their patterns or this throws, so no value can become a flag.
  * DENY_TOOLS are not appended: anchored at the worktree cwd they would deny the branch's own
  * `.forge/notes/**` and `CLAUDE.md`. The caller passes the absolute rules (absoluteDenyRules), and a
- * relative one throws.
+ * relative one throws. The cwd is also a branch's checkout of files agents write, so `--setting-sources user`
+ * keeps its project and local scope out (CLAUDE.md and CLAUDE.local.md memory, `.claude/settings*.json` hooks,
+ * permissions and env, `.claude/skills` and `commands`) and `--strict-mcp-config` its `.mcp.json`: only the
+ * user's own settings and the `--plugin-dir` plugin load, as for a subagent of a session at the main checkout.
  */
 export function roleArgv(vars: {
   executable: string;
@@ -317,6 +320,9 @@ export function roleArgv(vars: {
     vars.pluginRoot,
     '--agent',
     vars.agent,
+    '--setting-sources',
+    'user',
+    '--strict-mcp-config',
     ...(model && model !== 'inherit' ? ['--model', model] : []),
     ...(effort ? ['--effort', effort] : []),
     '--permission-mode',
