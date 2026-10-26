@@ -123,6 +123,12 @@ export interface StepInput {
    */
   folderMaps: { maps: string[]; topics: string[]; more?: number } | null;
   /**
+   * At stage build with a spec: the main checkout's valid verifiers matching a file-map path
+   * (verifierQuestions in lib/engine/pipeline/step/input.ts), for the fresh builder brief's
+   * `Verifier questions (JSON)` line; null at every other stage.
+   */
+  verifierQuestions: { name: string; question: string }[] | null;
+  /**
    * The instruction files the branch's committed diff changed (changedInstructionFiles), sorted, for
    * the brief's `Instructions changed by this branch` line: null means the diff could not be read,
    * `[]` means none changed or the job has no worktree yet.

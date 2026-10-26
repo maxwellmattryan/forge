@@ -115,7 +115,7 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
   const counts = { total: jobs.length, active: 0, done: 0, cancelled: 0, failed: 0, waiting: 0, archived: sources.filter((s) => s.archived).length };
   let reviewed = 0, firstPass = 0, roundsSum = 0, decided = 0, escalated = 0, verified = 0, verifyFirstPass = 0;
   let withPr = 0, prWithHumanFeedback = 0, humanRework = 0, foremanDecisions = 0, foremanRework = 0, specJobs = 0, specFirstTry = 0;
-  let merged = 0, deltaMeasured = 0, deltaNonEmpty = 0, recurringFindings = 0;
+  let merged = 0, deltaMeasured = 0, deltaNonEmpty = 0, recurringFindings = 0, verifierChecked = 0, verifierBlocked = 0;
   // Outcomes: only final ones are judged, and each rate's denominator skips checks that never completed.
   let outcomesFinal = 0, outcomesOpen = 0, autonomous = 0, autonomousStrict = 0;
   let revertChecked = 0, reverted = 0, followUpChecked = 0, followedUp = 0, churnChecked = 0, churned = 0;
@@ -222,6 +222,12 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
       if (j.decision === 'ESCALATE') escalated++;
     }
     const events = src.events();
+    // Only the first round-1 record: a re-run after a verifiers rework measures the rework, not the first build.
+    const firstVerifiers = events.find((e) => e.type === 'verifiers' && e.phase === 'record' && e.round === 1);
+    if (Array.isArray(firstVerifiers?.results) && firstVerifiers.results.length) {
+      verifierChecked++;
+      if (firstVerifiers.outcome === 'CHANGES') verifierBlocked++;
+    }
     // createJob always sets createdAt.
     const created = Date.parse(j.createdAt!);
     const opened = events.find((e) => e.type === 'pr-opened');
@@ -319,6 +325,7 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
       firstPassReviewRate: ratio(firstPass, reviewed),
       avgRounds: reviewed ? r2(roundsSum / reviewed) : null,
       verifyFirstPassRate: ratio(verifyFirstPass, verified),
+      verifierFirstRoundBlockRate: ratio(verifierBlocked, verifierChecked),
       escalationRate: ratio(escalated, decided),
       humanFeedbackOnPrRate: ratio(prWithHumanFeedback, withPr),
       humanDeltaRate: ratio(deltaNonEmpty, deltaMeasured),

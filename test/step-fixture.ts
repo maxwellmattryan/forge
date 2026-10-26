@@ -64,6 +64,10 @@ export interface FixtureOpts {
   acs?: Partial<AcCoverage>;
   /** loadStepInput's folderMaps; null by default, as at any stage but build. */
   folderMaps?: StepInput['folderMaps'];
+  /** Checklist path per lens; the plugin's checklist for each panel lens by default. */
+  checklists?: StepInput['checklists'];
+  /** loadStepInput's verifierQuestions; null by default, as at any stage but build. */
+  verifierQuestions?: StepInput['verifierQuestions'];
   /** loadStepInput's instructionsChanged; [] (nothing changed) by default. */
   instructionsChanged?: StepInput['instructionsChanged'];
   /** The keys still over budget at a budget park (loadStepInput's budgetExceeded); null by default. */
@@ -136,12 +140,13 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     verdicts: { round: null, integration: null, ...o.verdicts },
     acs: { ...acCoverage(null, null), ...o.acs },
     folderMaps: o.folderMaps ?? null,
+    verifierQuestions: o.verifierQuestions ?? null,
     instructionsChanged: o.instructionsChanged ?? [],
     runtime: o.runtime ?? [],
     environment: o.environment ?? null,
     events: o.events ?? [],
     evalTask: o.evalTask ?? null,
-    checklists: Object.fromEntries(config.review.panel.map((p) => [p.name, path.join(PLUGIN_ROOT, 'reviewers', `${p.name}.md`)])),
+    checklists: o.checklists ?? Object.fromEntries(config.review.panel.map((p) => [p.name, path.join(PLUGIN_ROOT, 'reviewers', `${p.name}.md`)])),
     integrationTouched: o.integrationTouched ?? null,
     recall: o.recall ? recallGate(job, config, { worktree: o.worktree !== false, fixtures: o.recall.fixtures ?? true, changed: o.recall.changed, pluginHash: o.recall.pluginHash ?? RECALL_HASH, invalid: o.recall.invalid }) : null,
     verifiers: o.verifiers ?? 0,
