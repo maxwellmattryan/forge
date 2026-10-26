@@ -1206,6 +1206,19 @@
   &:popover-open { opacity: 1; scale: 1; transition-duration: var(--motion-base); transition-timing-function: var(--ease-enter); }
   @starting-style { &:popover-open { opacity: 0; scale: .96; } }
 }
+/* menu-list: an option list on a plate popover (Select's listbox). It owns the list's padding, so the first and last
+   rows can cut the outer corner that meets the plate's cut (top-left, bottom-right) parallel to it: a bevel of leg c
+   inset by d sits d away from it all round with leg c - d(2 - sqrt(2)), here d = the plate's 1px border + the padding.
+   Only an ungrouped first row reaches the top corner (a leading group's label sits there); the last row may sit in
+   the last group. A browser without corner-shape shows a soft corner of the same size, inside the plate's soft one. */
+@utility menu-list {
+  --menu-pad: calc(var(--spacing) * 1);
+  --menu-row-cut: calc(var(--radius-cut) - (var(--stroke-line) + var(--menu-pad)) * (2 - sqrt(2)));
+  padding: var(--menu-pad);
+  & > [role="option"]:first-child { corner-shape: bevel; border-top-left-radius: var(--menu-row-cut); }
+  & > [role="option"]:last-child,
+  & > [role="group"]:last-child > [role="none"] > [role="option"]:last-child { corner-shape: bevel; border-bottom-right-radius: var(--menu-row-cut); }
+}
 /* A tooltip: a fade only, quick both ways (Tooltip.svelte). */
 @utility tip-fade {
   opacity: 0;

@@ -6,6 +6,7 @@
   import JobActions from './JobActions.svelte';
   import PermissionPrompts from './PermissionPrompts.svelte';
   import { dockModel } from '../lib/dock.ts';
+  import { decisionInFlight } from '../lib/decision.ts';
   import { ago } from '../lib/util.ts';
   import { S, req } from '../lib/app.svelte.ts';
   import type { JobDetail } from '../lib/types.ts';
@@ -13,6 +14,8 @@
 
   let { job }: { job: JobDetail['job'] } = $props();
   const m = $derived(dockModel(job, S.data?.daemons ?? null));
+  // A decision in flight (its status line is JobActions'; Resume keeps its toast): Resume waits for it rather than racing it.
+  const flight = $derived(decisionInFlight(job.id, S.sent[job.id], S.data?.requests));
 </script>
 
 {#if m.show}
@@ -24,7 +27,7 @@
       {@const o = job.ownerStatus}
       {@const values = { session: o?.session ?? '', since: ago(o?.since), renewed: ago(o?.renewedAt), expired: ago(o?.expiresAt) }}
       <div class="flex flex-wrap items-center gap-2">
-        <button class="btn primary" disabled={!r.enabled} aria-describedby={r.note ? `dock-owner-note-${job.id}` : undefined} onclick={() => req({ type: 'resume', job: job.id })}>{$t('drawer.resume')}</button>
+        <button class="btn primary" disabled={!r.enabled || !!flight} aria-describedby={r.note ? `dock-owner-note-${job.id}` : undefined} onclick={() => req({ type: 'resume', job: job.id })}>{$t('drawer.resume')}</button>
         {#if r.note}<span id="dock-owner-note-{job.id}" class="min-w-0 text-sm text-muted wrap-anywhere">{r.note === 'live' ? $t('drawer.ownerLive', values) : $t('drawer.ownerExpired', values)}</span>{/if}
       </div>
     {/if}

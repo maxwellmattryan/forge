@@ -55,3 +55,6 @@ export function switcherChoice(value: string, current: string | null, route: Rou
   if (value === current) return null;
   return switchHash(value, route);
 }
+
+/** Whether `name` can stay selected: it is registered and its pages can be opened. */
+export const selectionOpenable = (entries: SwitcherEntry[], name: string): boolean => entries.some((e) => e.name === name && e.openable);

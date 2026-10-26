@@ -1,7 +1,7 @@
 // The registered projects as the switcher, the Overview and the command bar list them: sorted, with their state.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ADD_PROJECT, switcherChoice, switcherEntries, switcherOptions, type SwitcherEntry } from './switcher.ts';
+import { ADD_PROJECT, selectionOpenable, switcherChoice, switcherEntries, switcherOptions, type SwitcherEntry } from './switcher.ts';
 import { PROJECT_NAME_SOURCE, type MachineProjectSummary, type ProjectsResponse } from './types.ts';
 import type { Route } from './routes.ts';
 
@@ -67,4 +67,12 @@ test('switcherChoice', () => {
   assert.equal(switcherChoice('web', 'api', page), '#/p/web/issues', 'the same view');
   assert.equal(switcherChoice('web', null, overview), '#/p/web/pipeline', 'Pipeline from a global page');
   assert.equal(switcherChoice('web', null, machine), '#/p/web/pipeline');
+});
+
+test('selectionOpenable', () => {
+  const entries = switcherEntries(response([project('web'), project('gone', { status: 'missing', loaded: false, jobs: null, daemon: null })]));
+  assert.equal(selectionOpenable(entries, 'web'), true);
+  assert.equal(selectionOpenable(entries, 'gone'), false, 'moved or deleted: its directory is missing');
+  assert.equal(selectionOpenable(entries, 'old-name'), false, 'renamed or removed: not registered');
+  assert.equal(selectionOpenable([], 'web'), false);
 });

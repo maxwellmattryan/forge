@@ -22,6 +22,7 @@ import type {
   PostJobBody,
   PostJobResponse,
   PostRequestResponse,
+  RequestsResponse,
   ProjectResponse,
   ProjectsResponse,
   ProjectsStatsResponse,
@@ -33,6 +34,7 @@ import { fetchEnvironments } from './environment.ts';
 import { pref } from './prefs.ts';
 import { toast } from './toast.svelte.ts';
 import { buildRequest, queuedMessage } from './requests.ts';
+import { pruneSent, type SentDecision } from './decision.ts';
 import { statsQuery } from './analytics.ts';
 import { addFlashes, pollChanges, type PollMemo } from './live.ts';
 import { threadItems, threadMarks, threadOpening } from './thread.ts';
@@ -40,6 +42,7 @@ import { DEFAULT_DRAWER_TAB, PANE_DEFAULT, clampPaneWidth, pickDrawerFile, type 
 import type { RequestBody, RequestInput } from './requests.ts';
 import type { ViewId } from './nav.ts';
 import { readSidebar, type SidebarState } from './sidebar.ts';
+import { selectionOpenable, switcherEntries } from './switcher.ts';
 
 const SIDE_START: SidebarState = readSidebar(pref.get);
 
@@ -93,8 +96,10 @@ class AppState {
   online = $state<boolean | null>(null);
   /** When the last poll succeeded (ISO). */
   polledAt = $state<string | null>(null);
-  /** The page the hash names; its project is the selected one (lib/project.ts), none on a global page. */
+  /** The page the hash names. A project page selects its project; a global page keeps the selection. */
   route = $state.raw<Route>({ scope: 'global', view: 'overview' });
+  /** The selected project (lib/project.ts's, as state), remembered as the machine pref `lastProject`; null for none. */
+  selected = $state<string | null>(null);
   /** The last project page's view; a global page leaves it as it was. */
   view = $state<ViewId>('pipeline');
   /** GET /api/projects, polled every 5 s; a failed poll keeps the last list. */
@@ -138,6 +143,8 @@ class AppState {
   readyAt = $state<number | null>(null);
   /** Job id → the Thread marks last shown, for the tab's unread count. In memory, so it lasts the page's lifetime. */
   threadSeen = $state.raw<Record<string, string[]>>({});
+  /** Job id → the gate decision this tab sent, until the request leaves the queue (decision.ts). Per project. */
+  sent = $state.raw<Record<string, SentDecision>>({});
 }
 
 export const S = new AppState();
@@ -171,6 +178,18 @@ export async function refreshMachine(): Promise<void> {
   }
 }
 
+/**
+ * The startup check on the remembered project, once the first /api/projects poll is in: one no longer registered and
+ * openable (removed, renamed, or its directory moved) is forgotten, and a global page selects none. A project page keeps
+ * the selection and shows refresh()'s not-registered banner. A failed poll checks nothing.
+ */
+export function checkSelection(): void {
+  const name = currentProject();
+  if (name === null || S.machineOnline !== true || selectionOpenable(switcherEntries(S.machine), name)) return;
+  if (S.route.scope === 'global') switchProject(null);
+  else pref.set('lastProject', '');
+}
+
 /** GET /api/projects/stats for the Overview's graphs over S.overviewWindow; a failure keeps the last graphs and sets the error line. */
 export async function loadOverview(): Promise<void> {
   const days = S.overviewWindow;
@@ -198,6 +217,12 @@ export async function refresh(): Promise<void> {
   try {
     const data = await api<ApiState>('/api/state');
     if (currentProject() !== project) return;
+    // Before the unchanged-poll check: a request that came and went between two polls can leave the rest of the state as it was.
+    const pruned = pruneSent(S.sent, data.requests ?? [], data.now);
+    if (pruned.resolved.length) {
+      S.sent = pruned.sent;
+      reportRejected(pruned.resolved);
+    }
     // Read before this poll marks the connection good: the first poll after a failed one rebaselines.
     const resumed = S.online === false;
     const now = Date.now();
@@ -284,18 +309,17 @@ export async function loadRoster(): Promise<void> {
 
 /**
  * Shows the page the hash names (lib/routes.ts), rewriting the hash in place when it is not canonical. A route naming
- * another project switches to it; a project page is remembered as `lastProject`, where old `#/<view>` links go.
+ * another project switches to it; a global page keeps the selected project, and the first one the page shows selects
+ * `lastProject`, the project selected when the dashboard was last open (checkSelection drops it if it is gone).
  */
 export function route(): void {
-  const r = parseRoute(location.hash, pref.get('lastProject', '') || null);
+  const last = pref.get('lastProject', '') || null;
+  const r = parseRoute(location.hash, last);
   if (r.replace !== null) history.replaceState(null, '', r.replace);
-  const next = routeProject(r.route);
+  const next = routeProject(r.route) ?? currentProject() ?? last;
   if (next !== currentProject()) switchProject(next);
   S.route = r.route;
-  if (r.route.scope === 'project') {
-    S.view = r.route.view;
-    pref.set('lastProject', r.route.project);
-  }
+  if (r.route.scope === 'project') S.view = r.route.view;
   // Needs you was a page: its old link shows the Pipeline and opens the Needs-you popover (StatusBar does, once it renders).
   if (r.openNeeds) S.openNeeds = true;
   if (r.route.scope === 'global' && r.route.view === 'overview') loadOverview();
@@ -308,6 +332,8 @@ export function route(): void {
  */
 export function switchProject(name: string | null): void {
   setProject(name);
+  S.selected = currentProject();
+  pref.set('lastProject', S.selected ?? '');
   closeDrawer();
   S.data = null;
   S.dataKey = '';
@@ -331,6 +357,7 @@ export function switchProject(name: string | null): void {
   S.flashes = {};
   S.cooling = {};
   S.threadSeen = {};
+  S.sent = {};
   S.openNeeds = false;
   S.layout = pref.get('layout', 'board');
   S.filter = pref.get('filter', 'active');
@@ -391,17 +418,28 @@ const postInit = (body: unknown): RequestInit => ({
 /** Queues a request; throws the server's `error` text, so the command bar can keep it in the dialog. */
 export const postRequest = (body: RequestBody): Promise<PostRequestResponse> => jsonFetch<PostRequestResponse>('/api/requests', postInit(body));
 
-/** Queues a request and toasts the outcome; resolves whether it was queued. */
-export async function request(body: RequestBody): Promise<boolean> {
+/** Queues a request and toasts the outcome; resolves the queued request, or null when it failed. */
+async function post(body: RequestBody, quiet: boolean): Promise<PostRequestResponse | null> {
   try {
     const r = await postRequest(body);
-    toast(queuedMessage(body.type, r.daemon));
+    if (!quiet) toast(queuedMessage(body.type, r.daemon));
     refresh();
-    return true;
+    return r;
   } catch (e) {
     toast(`Request failed: ${message(e)}`, true);
-    return false;
+    return null;
   }
+}
+
+/** Queues a request and toasts the outcome; resolves whether it was queued. */
+export const request = async (body: RequestBody): Promise<boolean> => (await post(body, false)) !== null;
+
+/** Sent decisions that left the queue rejected: the buttons are back, and this toast says why. Done ones need no word, the job moved on. */
+async function reportRejected(ids: string[]): Promise<void> {
+  const project = currentProject();
+  const all = await api<RequestsResponse>('/api/requests').catch(() => null);
+  if (!all || currentProject() !== project) return;
+  for (const r of all) if (ids.includes(r.id) && r.status === 'rejected') toast(`Forge rejected "${r.type}"${r.result ? `: ${r.result}` : '.'}`, true);
 }
 
 /** POST /api/budget/ack: a human acknowledges the current, exceeded month or day. Throws the server's `error` text. */
@@ -422,14 +460,26 @@ export async function loadBacklog(): Promise<void> {
  * A request button: builds the body as the old `req` handler did, or toasts why not. Null when nothing was sent (the
  * input is invalid), else whether it was queued: a composer clears on send and restores its text only on failure.
  */
-export function req(input: RequestInput): Promise<boolean> | null {
+export function req(input: RequestInput, label?: string): Promise<boolean> | null {
   const r = buildRequest(input);
   if ('error' in r) {
     toast(r.error, true);
     return null;
   }
-  return request(r.body);
+  const job = r.body.job;
+  // A gate decision (a button with a label): the job's buttons give way to its status line (decision.ts) at once, so
+  // nobody presses twice or presses another; the status line says it was queued, so it needs no toast.
+  if (!label || !job) return request(r.body);
+  S.sent = { ...S.sent, [job]: { label, id: null, at: null } };
+  return post(r.body, true).then((q) => {
+    const { [job]: mine, ...rest } = S.sent;
+    if (mine?.id === null) S.sent = q ? { ...rest, [job]: { label, id: q.id, at: q.createdAt } } : rest;
+    return q !== null;
+  });
 }
+
+/** A job's sent decision, if this tab has one in flight. */
+export const sentFor = (job: string): SentDecision | null => S.sent[job] ?? null;
 
 // ---------- settings ----------
 

@@ -3,7 +3,7 @@ import { isOpen, needsHuman } from './job-state.ts';
 import type { JobLike } from './job-state.ts';
 
 // Labels come from messages/en/app.json (nav.<id>), through Nav.svelte.
-/** The machine's own pages, shown with no project selected: `#/overview` and `#/machine`. */
+/** The machine's own pages, which keep the selected project: `#/overview` and `#/machine`. */
 export const GLOBAL_VIEWS = [
   { id: 'overview', icon: 'dashboard' },
   { id: 'machine', icon: 'gauge' },

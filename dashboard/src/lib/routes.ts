@@ -1,4 +1,4 @@
-// The hash router: `#/overview` and `#/machine` (global pages, no project selected) and `#/p/<project>/<view>`. A project
+// The hash router: `#/overview` and `#/machine` (global pages, which keep the selected project) and `#/p/<project>/<view>`. A project
 // segment is checked raw, never decoded, against PROJECT_NAME before anything uses it. Old links land on the new routes,
 // and a renamed view's old id on its new one (`backlog` is now `issues`).
 import { GLOBAL_VIEWS, VIEWS, type GlobalViewId, type ViewId } from './nav.ts';

@@ -4,11 +4,10 @@
     "titleRepo": "Forge · {repo}",
     "brand": "Forge",
     "tagline": "software factory",
-    "view": "{view}",
     "noConfig": "This repo has no .forge/config.yml yet. Run /forge init."
   },
   "nav": {
-    "global": "All projects",
+    "global": "General",
     "overview": "Overview",
     "machine": "Machine",
     "pipeline": "Pipeline",

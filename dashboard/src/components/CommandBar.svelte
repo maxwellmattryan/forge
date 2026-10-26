@@ -12,7 +12,7 @@
   import { canRunCommand, commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, scopedJob, suggest, type CommandCtx, type Suggestion, type Verb } from '../lib/command.ts';
   import { clearScope, palette } from '../lib/palette.svelte.ts';
   import { buildRequest } from '../lib/requests.ts';
-  import { routeProject, switchHash } from '../lib/routes.ts';
+  import { switchHash } from '../lib/routes.ts';
   import { switcherEntries } from '../lib/switcher.ts';
   import { TABBABLE, wrapFocus } from '../lib/settings.ts';
   import { toast } from '../lib/toast.svelte.ts';
@@ -36,7 +36,7 @@
     tracker: S.data?.config?.tracker ?? 'none',
     scope: palette.scope,
     projects: switcherEntries(S.machine),
-    project: routeProject(S.route),
+    project: S.selected,
   });
   // Null once the job is unknown or closes, even while the palette is open: then the scope is simply ignored.
   const scoped = $derived(scopedJob(ctx));
