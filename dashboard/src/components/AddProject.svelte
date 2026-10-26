@@ -10,6 +10,7 @@
   import { closeAddProject } from '../lib/add-project.svelte.ts';
   import { t } from '../lib/locale.ts';
   import { EXIT, fade, pop } from '../lib/motion.ts';
+  import { lockScroll } from '../lib/scroll-lock.ts';
   import { wrapFocus } from '../lib/settings.ts';
   import { toast } from '../lib/toast.svelte.ts';
 
@@ -109,12 +110,11 @@
   }
 
   onMount(() => {
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const unlock = lockScroll();
     tick().then(() => pathInput?.focus());
     return () => {
       alive = false;
-      document.body.style.overflow = overflow;
+      unlock();
     };
   });
 </script>

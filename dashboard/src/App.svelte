@@ -36,6 +36,7 @@
   import { addProjectDialog, closeAddProject } from './lib/add-project.svelte.ts';
   import { closePopover, popover } from './lib/popover.svelte.ts';
   import { closeCard, ghCard } from './lib/github-card.svelte.ts';
+  import { lockScroll } from './lib/scroll-lock.ts';
 
   let settingsOpen = $state(false);
   /** The tab Settings opens on; unset opens the saved tab. */
@@ -120,11 +121,10 @@
     };
   });
 
-  // The page under an open drawer does not scroll; html's scrollbar-gutter: stable keeps it from shifting.
+  // The page under an open drawer does not scroll (lib/scroll-lock.ts keeps it from shifting).
   $effect(() => {
     if (!covered) return;
-    document.documentElement.classList.add('overflow-hidden');
-    return () => document.documentElement.classList.remove('overflow-hidden');
+    return lockScroll();
   });
 
   $effect(() => {
