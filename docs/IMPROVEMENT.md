@@ -9,6 +9,7 @@
 | first-pass review rate | share of jobs whose first review round passed |
 | avg rounds | build→review rounds per job |
 | verify first-pass rate | build/lint/test green before any review |
+| first-round verifier block rate | `quality.verifierFirstRoundBlockRate`: of the jobs whose first round-1 verifiers record has results, the share that blocked (CHANGES). Re-runs and later rounds don't count; null without verifiers. JSON and `/api/stats` only |
 | escalation rate | approver escalations / decisions |
 | human feedback on PRs | PRs where humans still left unresolved threads or requested changes: what the panel was asked about, not what humans actually changed |
 | **human delta after push** | the escape rate: merged PRs where humans committed file changes after Forge's last push, out of the merged PRs that could be measured. The median lines changed shows how big the escapes are, and coverage (`measured/merged`) shows how many merges were measured: PRs opened before this metric existed, adopted PRs and rewritten branches are not. Measured once, on the first `forge pr sync` that sees the merge; merges of the base branch into the PR are not counted |
