@@ -52,7 +52,7 @@ export interface RoleRunOptions {
   maxLineBytes: number;
   /** A run still without a result after this long fails as `timeout`; null: no limit. */
   timeoutMs: number | null;
-  /** How long to wait for the exit after closing stdin, and again after SIGTERM and SIGKILL. Default 10 s. */
+  /** How long to wait for the exit after closing stdin (default 10 s); after SIGTERM and SIGKILL it waits this or 5 s, the shorter. */
   graceMs?: number;
   /** Every log line: claude's own (stamped), forge-raw and forge-stderr, and the runner's forge-* lines. Unredacted. */
   onLine: (line: string) => void;
@@ -73,6 +73,7 @@ export interface RoleRun {
 }
 
 const DEFAULT_GRACE_MS = 10_000;
+const KILL_GRACE_MS = 5_000;
 /** setTimeout's own ceiling (about 24.8 days); a longer limit is no limit. */
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
@@ -85,6 +86,8 @@ const forgeLine = (type: string, fields: Record<string, unknown>): string => JSO
 export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun {
   if (briefLine(o.brief) === null) throw new ForgeError('a role brief must be a non-empty string within BRIEF_MAX_CHARS', 'usage');
   const grace = typeof o.graceMs === 'number' && o.graceMs >= 0 ? o.graceMs : DEFAULT_GRACE_MS;
+  // SIGKILL follows SIGTERM after 5 s, as a session stop does, or sooner with a shorter grace.
+  const killGrace = Math.min(grace, KILL_GRACE_MS);
   const t0 = Date.now();
   let settle!: (r: RoleOutcome) => void;
   const done = new Promise<RoleOutcome>((resolve) => (settle = resolve));
@@ -107,9 +110,9 @@ export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun
     if (turnTimer) clearTimeout(turnTimer);
     windTimer = turnTimer = null;
   };
-  const arm = (fn: () => void) => {
+  const arm = (fn: () => void, ms = grace) => {
     if (windTimer) clearTimeout(windTimer);
-    windTimer = setTimeout(fn, grace);
+    windTimer = setTimeout(fn, ms);
   };
 
   function finish(exit: RoleOutcome['exit']): void {
@@ -144,13 +147,13 @@ export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun
     phase = 'term';
     child.endInput();
     child.signal('SIGTERM');
-    arm(kill);
+    arm(kill, killGrace);
   }
   function kill(): void {
     if (finished || !child) return;
     phase = 'kill';
     child.signal('SIGKILL');
-    arm(() => finish(null));
+    arm(() => finish(null), killGrace);
   }
 
   function answer(ask: RolePermissionAsk, decision: PermissionDecision, why?: 'unattended'): void {
