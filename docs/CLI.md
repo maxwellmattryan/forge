@@ -1514,19 +1514,19 @@ See [Mandates](CONFIG.md#mandates).
 
 | Exit | When |
 |---|---|
-| 1 | no --actor foreman, run outside an assistant foreman session, or refused: the foreman doesn't decide release, the mandate doesn't delegate it (narrowed, paused, closed, unreadable, until capped or reserved), no current plan of this mandate, a stale plan, no queued release gate request for it, already approved, or a reserved pattern in the note |
+| 1 | no --actor foreman, run outside an assistant foreman session, or refused: the foreman doesn't decide release, the mandate doesn't delegate it (narrowed, paused, closed, unreadable, until capped or reserved), no current plan of this mandate, a stale plan, no queued gate request of the release gate class for it, already approved, or a reserved pattern in the note |
 
 See [Releasing a project](RELEASES.md#releasing-a-project).
 
-**`forge mandate release assist <id> --request R`**: read-only, for an assistant foreman session (or a person): the forge:assistant spawn for an until: released mandate's release gate request ({mandate, gate, stale, reason?, reserved, subagent, model, effort, brief}); stale once the release is no longer pending approval or its plan is not the one the request was queued for
+**`forge mandate release assist <id> --request R`**: read-only, for an assistant foreman session (or a person): the forge:assistant spawn for an until: released mandate's gate request of the release gate class ({mandate, gate, stale, reason?, reserved, subagent, model, effort, brief}); stale once the release is no longer pending approval or its plan is not the one the request was queued for
 
 | Flag | Meaning |
 |---|---|
-| `--request R` | the claimed release gate request (required): in progress, job-less, for this mandate |
+| `--request R` | the claimed gate request of the release gate class (required): in progress, job-less, for this mandate |
 
 | Exit | When |
 |---|---|
-| 1 | run in a daemon session other than an assistant foreman, or R is not an in-progress release gate request for this mandate |
+| 1 | run in a daemon session other than an assistant foreman, or R is not an in-progress gate request of the release gate class for this mandate |
 
 See [Releasing a project](RELEASES.md#releasing-a-project).
 
