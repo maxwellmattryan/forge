@@ -1019,7 +1019,7 @@ Every path (`env-file`, `file.path`, `file.from`) is relative to the component's
 
 ### Release strategy
 
-Each repo writes down how it releases, so the Foreman and humans read one place instead of guessing: its **versioning**, the **mechanism** (tool) that cuts a release, the **registry** it publishes to, and its **cadence**. The keys sit beside `interim` (below) in the top-level `release` for the root repo and in `repos[].release` for each member, with the same names and values. A single-repo project declares its strategy by editing only `release:`. `forge release plan` reads `mechanism`, `command`, `registry`, `cadence` and `publish` to build a release plan, and `forge release run` runs it ([RELEASES.md "Releasing a project"](RELEASES.md#releasing-a-project)); validation and `forge doctor` read every key. `versioning` is documentation: each mechanism's own tool decides the version.
+Each repo writes down how it releases, so the Foreman and humans read one place instead of guessing: its **versioning**, the **mechanism** (tool) that cuts a release, the **registry** it publishes to, and its **cadence**. The keys sit beside `interim` (below) in the top-level `release` for the root repo and in `repos[].release` for each member, with the same names and values. A single-repo project declares its strategy by editing only `release:`. `forge release plan` reads `mechanism`, `command`, `script`, `registry`, `cadence` and `publish` to build a release plan, and `forge release run` runs it ([RELEASES.md "Releasing a project"](RELEASES.md#releasing-a-project)); validation and `forge doctor` read every key. `versioning` is documentation: each mechanism's own tool decides the version.
 
 ```yaml
 release:
@@ -1039,8 +1039,9 @@ repos:
 | Key | Values | Default | Meaning |
 |---|---|---|---|
 | `versioning` | `semver`, `calver` | `null` | How version numbers are chosen. |
-| `mechanism` | `release-please`, `cargo-release`, `changesets`, `tag` | `null` | The tool that cuts a release; `tag` means a git tag made by the repo's own `command`. |
+| `mechanism` | `release-please`, `cargo-release`, `changesets`, `tag`, `script` | `null` | The tool that cuts a release; `tag` means a git tag made by the repo's own `command`, and `script` a release script that implements the script protocol (below). |
 | `command` | a one-line string, at most 1000 characters | `null` | The command a human runs to release; read only with `mechanism: tag`. `forge release run` runs it, after asking unless `publish: allow`; doctor never does. Support bundles redact it. |
+| `script` | a repo-relative path, at most 200 characters | `null` | The release script `forge release plan` and `forge release run` drive; read only with `mechanism: script`. Doctor never runs it. |
 | `registry` | `crates.io`, `npm`, `none` | `null` | Where released packages are published (`none`: a tag or GitHub Release only). |
 | `cadence` | `on-merge`, `scheduled`, `manual` | `null` | When a release happens: every merge to the default branch, on a timer (usually CI), or when a human decides. |
 | `publish` | `confirm`, `allow` | `null` | Whether `forge release run` asks on a terminal before each of this repo's publish steps (`confirm`, and `null`) or runs them without asking (`allow`). With `allow`, an agent session that runs `forge release run` publishes too: set it only where that is acceptable. Only a hand edit of `.forge/config.yml` sets it: Settings does not edit it. |
@@ -1050,12 +1051,14 @@ Every key is optional, and `null` or absent means undeclared ("unknown"): nothin
 **Validation** (`forge config validate`, `forge doctor`'s `config valid`, `forge init write`, Settings diagnostics), one message per problem, where `<at>` is `release` or `repos "<name>".release` (`repos[<i>].release` for an unnamed entry) and `<v>` is the value as JSON, cut at 120 characters (`nothing` when absent):
 
 - `<at>.versioning must be one of semver | calver (got <v>)`
-- `<at>.mechanism must be one of release-please | cargo-release | changesets | tag (got <v>)`
+- `<at>.mechanism must be one of release-please | cargo-release | changesets | tag | script (got <v>)`
 - `<at>.registry must be one of crates.io | npm | none (got <v>)`
 - `<at>.cadence must be one of on-merge | scheduled | manual (got <v>)`
 - `<at>.publish must be one of confirm | allow (got <v>)`
 - with `mechanism: tag`, a `command` that is absent, not a string, empty after trimming, over 1000 characters, or contains a control character (a newline included): `<at>.command must be a one-line command of at most 1000 characters when mechanism is tag (got <v>)`
 - with any other mechanism, or none, a `command` that is set: `<at>.command is only read when mechanism is tag; remove it or set mechanism: tag`
+- with `mechanism: script`, a `script` that is absent, not a string, empty, over 200 characters, absolute, has a `.`, `..` or empty segment, starts with `-`, is `inspect` or `debug` (words `node` reads as a command), or uses a character outside letters, digits and `. _ / -`: `<at>.script must be a relative path inside the repo of at most 200 characters, using letters, digits and . _ / - (got <v>)`. So the path can only name a file in the repo and never reaches `node` as an option.
+- with any other mechanism, or none, a `script` that is set: `<at>.script is only read when mechanism is script; remove it or set mechanism: script`
 
 **Doctor.** `forge doctor` (and Settings › Diagnostics) adds a `release mechanism` check for the root when `release.mechanism` is set and the top-level `release` validates, then a `release mechanism <name>` check per `repos` entry with a mechanism, in config order, when `repos` validates; they follow the `repo <name>` checks. A member is checked in its `.forge/local.yml` clone, `<dir>` below (the root repo for the root check). Doctor only looks: it never runs `command`, the tool, or the tool with `--version`, and finds tools by `stat` and access checks alone. PATH entries that are empty or relative are skipped, so the current directory never supplies a tool; on Windows each `PATHEXT` extension is tried.
 
@@ -1065,18 +1068,46 @@ Every key is optional, and `null` or absent means undeclared ("unknown"): nothin
 | `changesets` | `changeset` in `<dir>/node_modules/.bin`, then on PATH |
 | `cargo-release` | `cargo-release` on PATH |
 | `tag` | `git` on PATH, and the program `command` runs (below) |
+| `script` | `node`, `git` and `gh` on PATH, and `<dir>/<script>` as a regular file (it need not be executable: `node` reads it) |
 
 | Situation | Result | Detail |
 |---|---|---|
 | every tool found | passes | `<mechanism>: <tool> at <path>` (tag: `tag: git at <path>, <program> at <path>`) |
-| a tool missing, `cadence` unset or `manual` | fails | `<mechanism>: <tool> not found in <dir>/node_modules/.bin or on PATH; install it: <hint>` (`not found on PATH` for a PATH-only tool, `not found at <path>` for a program given as a path) |
+| a tool missing, `cadence` unset or `manual` | fails | `<mechanism>: <tool> not found in <dir>/node_modules/.bin or on PATH; install it: <hint>` (`not found on PATH` for a PATH-only tool, `not found at <path>` for a program given as a path; for the script file, `release.script <script> is not a regular file at <path>; fix release.script`) |
 | a tool missing, `cadence` `on-merge` or `scheduled` | warns | the same, plus `; cadence <c> usually releases from CI, so this matters only to release from this machine` |
 | a `tag` command whose program can't be told | warns | `tag: cannot tell which program release.command runs (<reason>); checked git only` (a missing git still fails, or warns by cadence) |
 | a member with no `local.yml` entry, or whose path is not a directory | warns | `<mechanism>: <name>'s clone is not resolved (see the repo <name> check); not checked` |
 
-The hints: `npm install --save-dev release-please`, `npm install --save-dev @changesets/cli`, `cargo install cargo-release`, `install git`, and for a tag command's program `install <program> or fix release.command`. The program is `command`'s first word after any leading `NAME=value` assignments, with quotes removed (`'my tool' x` runs `my tool`). Doctor can't tell when the command has an unterminated quote, has no word after the assignments, contains any of `` $ ` ( ) ; | & < > `` anywhere, has any of `* ? [ ] { } ~` in the program, the program is a shell builtin or keyword (`cd . source exec eval export set unset if for while until case command builtin time !`), or, on Windows, the program is a network (UNC) path starting with `\\` or `//`. A program containing `/` (or `\` on Windows) is resolved against `<dir>` and must be a regular file (executable outside Windows); any other is looked up on PATH.
+The hints: `npm install --save-dev release-please`, `npm install --save-dev @changesets/cli`, `cargo install cargo-release`, `install git`, for the script mechanism `install Node.js`, `install the GitHub CLI: https://cli.github.com` and `fix release.script`, and for a tag command's program `install <program> or fix release.command`. The program is `command`'s first word after any leading `NAME=value` assignments, with quotes removed (`'my tool' x` runs `my tool`). Doctor can't tell when the command has an unterminated quote, has no word after the assignments, contains any of `` $ ` ( ) ; | & < > `` anywhere, has any of `* ? [ ] { } ~` in the program, the program is a shell builtin or keyword (`cd . source exec eval export set unset if for while until case command builtin time !`), or, on Windows, the program is a network (UNC) path starting with `\\` or `//`. A program containing `/` (or `\` on Windows) is resolved against `<dir>` and must be a regular file (executable outside Windows); any other is looked up on PATH.
 
-**Forge's own release** ([RELEASES.md](RELEASES.md)) maps onto these keys as `versioning: semver`, `mechanism: tag` (`release.yml` tags `v<version>` on a merge to `main` that changes the version; the `command` would be what a human runs by hand, such as `git tag v<version> && git push origin v<version>`, quoted as one string), `registry: none` (a GitHub Release, no package registry) and `cadence: on-merge`. Forge's own `.forge/config.yml` does not declare them.
+**The script protocol.** With `mechanism: script`, Forge runs `node <script> …` in the repo's clone (the repo dir as the working directory) and nothing else for that repo: every check on release branches, PRs and tags is the script's. The script prints progress on stderr, exits 0 on success, and exits 1 with `release: <message>` on stderr when it refuses.
+
+| Call | Who runs it | What the script does |
+|---|---|---|
+| `--draft-notes [--bump patch\|minor\|major]` | `forge release plan`, under the [command environment](#command-environment) with the Node that runs Forge | reads only local git and the working tree, and prints one JSON object on stdout: `{current, next, bump, inferred, reasons, since, draft}` (the current version, the version the release makes, the chosen bump, the inferred one, `patch` or `minor`, up to 5 short reasons, the last tag or `null`, and the draft CHANGELOG section, whose first line is `## <next>`) |
+| `--phase start <X.Y.Z> --notes-file <file>` | the `start` step | cuts the release with the file as its CHANGELOG section, and pushes it |
+| `--phase wait-build <X.Y.Z>` | the `build` step | waits for CI's build of the release |
+| `--phase pr <X.Y.Z>` | the `pr` step | opens the release PR, or checks the one that is open |
+| `--phase wait-tag <X.Y.Z>` | the `tag` step | waits for the tag the merge makes |
+| `--phase land <X.Y.Z>` | the `land` step | lands the release on the base branch and pushes it |
+| `--check merged <X.Y.Z>` | the `merge` step's `pr-merged` check, with the caller's environment and the Node that runs Forge | exits 0 only when the release PR is merged |
+
+Every phase must be idempotent: run again, or after the release has moved past it, it exits 0 without acting, so `forge release run` can resume anywhere. A phase never asks a question on a terminal: the engine asked before each publish step. `forge release plan` refuses a draft that exits non-zero or prints anything but that shape (a `next` that is not `X.Y.Z`, a `bump` outside the three, a `draft` that does not start with `## <next>`, more than 5 reasons, more than 256 KB), naming the repo and the script's last stderr line, and writes nothing. [RELEASES.md "Releasing a project"](RELEASES.md#releasing-a-project) has the steps and their rollback.
+
+**Forge's own release** ([RELEASES.md "Releasing"](RELEASES.md#releasing)) is a script release: `scripts/release.ts` implements the protocol on top of `npm run release`'s own functions, so both paths make the same checks. Forge's `.forge/config.yml` declares:
+
+```yaml
+release:
+  interim: local
+  versioning: semver
+  mechanism: script
+  script: scripts/release.ts
+  registry: none
+  cadence: manual
+  publish: confirm
+```
+
+**Migration** (config `schemaVersion` 38 → 39): nothing changes. v39 adds the `script` mechanism and `release.script` (`null`); the bump lets older Forges refuse a config whose mechanism they would reject or never run.
 
 **Migration** (config `schemaVersion` 15 → 16): nothing changes. v16 adds `release.versioning`, `release.mechanism`, `release.command`, `release.registry` and `release.cadence` (and the same keys on `repos[].release`), all unset by default; the bump lets older Forges refuse a config whose release strategy they would ignore. `forge migrate` writes the new version.
 
@@ -1159,7 +1190,7 @@ A relative path resolves against the root repo, a leading `~/` is the home direc
 - a `remote` that isn't a non-empty string of at most 2000 characters, starts with `-`, or contains whitespace or control characters
 - a `defaultBranch` that isn't a safe branch name (`A-Z a-z 0-9 . _ / -`, starting with a letter or digit, at most 200 characters), or contains `..` or `//`, or ends in `/` or `.lock`
 - a `tracker` that is set but isn't a map with `kind` `github | none`, or a `github` `repo` that isn't `owner/name`
-- a `release` that is set but isn't a map, an `interim` outside `canary | git-ref | local | sequential`, or a `versioning`, `mechanism`, `command`, `registry` or `cadence` that [Release strategy](#release-strategy) refuses (the top-level `release` is checked the same way)
+- a `release` that is set but isn't a map, an `interim` outside `canary | git-ref | local | sequential`, or a `versioning`, `mechanism`, `command`, `script`, `registry`, `cadence` or `publish` that [Release strategy](#release-strategy) refuses (the top-level `release` is checked the same way)
 - `components "<c>".repo names unknown repo "<x>"` for a component whose `repo` names no entry
 
 **Doctor.** When `repos` validates, `forge doctor` (and Settings › Diagnostics) adds one `repo <name>` check per member, after `config valid`, and always prints the fix:
