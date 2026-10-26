@@ -1,20 +1,22 @@
 // Filing an approved milestone draft through decideDraft: what it files and how triage then sees it, every
-// pre-flight refusal (nothing written anywhere), a filing that stops and resumes without filing twice, and
-// the guarded tracker's own scan of milestone text. Against the local backlog only.
+// pre-flight refusal (nothing written anywhere), a filing that stops and resumes without filing twice, the
+// guarded tracker's own scan of milestone text, and the mentions a GitHub body carries. Against the local
+// backlog, and GitHub through the fake gh (serial: it puts the fake first on PATH).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { MILESTONE_DRAFT, draftJson, forgeInProcess, initMilestoneRepo, readyGoal, repoTemplate, seedBacklog } from '../../../test/helpers.ts';
+import { MILESTONE_DRAFT, draftJson, fakeGh, forgeInProcess, initMilestoneRepo, readyGoal, repoTemplate, seedBacklog } from '../../../test/helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
 import { ForgeError } from '#core/errors.ts';
-import { enqueue } from '#core/job/requests.ts';
+import { claimRequest, enqueue } from '#core/job/requests.ts';
 import { withLockAsync } from '#core/os/lock.ts';
 import { paths } from '#core/paths.ts';
 import local from '#integrations/backlog/tracker.ts';
+import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { prepareTriage } from '#engine/trackers/triage.ts';
-import { filingFile, readFiling } from './filing.ts';
+import { filingFile, quietMentions, readFiling } from './filing.ts';
 import { decideDraft, draftGate } from './gate.ts';
 import { readMandate } from './store.ts';
 import type { Config, EventActor, Tracker } from '#core/types.ts';
@@ -101,12 +103,15 @@ test('approve refuses before any write', async () => {
     { name: 'a likely secret in an issue body', body: withIssue(0, { why: `Use ${ACCESS_KEY} for it.` }), want: /possible secret in the milestone draft/, code: 'secret_found' },
     { name: 'tracker.kind none', config: (c) => (c.tracker.kind = 'none'), want: /^tracker none can't create milestones/ },
     { name: 'a tracker without createMilestone', tracker: () => bare, want: /^tracker stub can't create milestones, so a draft can't be filed there$/ },
-    { name: 'the milestone heading exists', arrange: (root) => seedBacklog(root, '\n## Fewer review rounds\n'), want: /^milestone "Fewer review rounds" already exists in the tracker; revise the draft$/ },
+    { name: 'the milestone heading exists', arrange: (root) => seedBacklog(root, '\n## Fewer review rounds\n'), want: /^an open milestone already has the draft's milestone title; revise the draft$/ },
     { name: 'a new issue titled like an item', arrange: (root) => seedBacklog(root, '- [ ] Sharper code lens\n'), want: /^issues\[0\]'s title matches sharper-code-lens; revise the draft to reuse it$/ },
     { name: 'an existing ref get does not find', body: withIssue(1, { existing: { ref: 'missing-item', action: 'reuse' } }), want: /^issues\[1\]\.existing\.ref names no item in the tracker$/ },
     { name: 'an existing ref that is done', arrange: (root) => fs.writeFileSync(backlog(root), '# Backlog\n\n- [x] Old item\n'), want: /^issues\[1\]\.existing\.ref is no longer open/ },
     { name: 'order listed', flags: ['--order', 'listed'], want: /order listed needs scope\.issues and no milestones or labels; forge mandate edit g1 --order graph$/ },
     { name: 'a milestone title starting -', body: { ...MILESTONE_DRAFT, milestone: { ...MILESTONE_DRAFT.milestone, title: '-rf' } }, want: /^the milestone title must be 1-200 characters, not start with "-"/ },
+    // The backlog would write `## Fewer review rounds ` and never find that heading again: filing would stop at the first issue on every retry.
+    { name: 'a milestone title with a trailing space', body: { ...MILESTONE_DRAFT, milestone: { ...MILESTONE_DRAFT.milestone, title: 'Fewer review rounds ' } }, want: /^the milestone title must have no leading, trailing or repeated whitespace; revise the draft$/ },
+    { name: 'a milestone title with a doubled space', body: { ...MILESTONE_DRAFT, milestone: { ...MILESTONE_DRAFT.milestone, title: 'Fewer  review rounds' } }, want: /^the milestone title must have no leading, trailing or repeated whitespace; revise the draft$/ },
     { name: '--request naming another request', pins: (d) => ({ request: '1-other', digest: d.digest }), want: /^the draft changed since you read it \(now \d+-\w+\)$/ },
     { name: '--digest that is not the current one', pins: (d) => ({ request: d.request, digest: 'c'.repeat(64) }), want: /^the draft changed since you read it \(digest now [0-9a-f]{12}\)$/ },
     {
@@ -165,7 +170,7 @@ test('filing resumes where it stopped', async () => {
     });
     await assert.rejects(approve(r.dir, config, async () => failing.tracker), (e: unknown) => {
       assert.ok(e instanceof ForgeError);
-      assert.equal(e.message, 'filing stopped at issues[2]: gh: HTTP 502; run forge mandate draft approve g1 again to finish');
+      assert.equal(e.message, 'filing stopped at issues[2]: "gh: HTTP 502"; run forge mandate draft approve g1 again to finish');
       assert.equal(e.exitCode, 5, "the tracker's own code");
       return true;
     });
@@ -196,7 +201,7 @@ test('filing resumes where it stopped', async () => {
       if (n === 2) throw new Error('killed');
       return { ref: 'sharper-code-lens', url: null };
     });
-    await assert.rejects(approve(a.dir, config, async () => crashing.tracker), /filing stopped at issues\[2\]: killed/);
+    await assert.rejects(approve(a.dir, config, async () => crashing.tracker), /filing stopped at issues\[2\]: "killed"/);
     const working = counting();
     const out = await approve(a.dir, config, async () => working.tracker);
     assert.equal(working.calls.create, undefined, 'adopted, not created again');
@@ -230,6 +235,103 @@ test('filing resumes where it stopped', async () => {
     });
   } finally {
     b.cleanup();
+  }
+});
+
+test("a foreman's stopped filing carries no tracker text", async () => {
+  const r = scratch();
+  try {
+    seedBacklog(r.dir);
+    const d = await readyGoal(r.dir, 'g1', ['--decides', 'milestone-approval']);
+    const gate = enqueue(r.dir, null, { type: 'gate', job: null, args: { gate: 'milestone-approval', mandate: 'g1', key: d.request, digest: d.digest, reserved: null }, from: 'forge' });
+    claimRequest(r.dir, gate.id, 'assistant-1');
+    const { config } = loadConfig(r.dir);
+    // A tracker error that echoes the drafter's milestone title, as the backlog's own does.
+    const failing = counting(() => {
+      throw new ForgeError(`no milestone "${MILESTONE_DRAFT.milestone.title}" in backlog.md`, 1);
+    });
+    const env = { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_assistant-1' };
+    await assert.rejects(decideDraft(r.dir, config, 'g1', 'approve', { note: 'covers the goal', foreman: true, actor: FOREMAN_ACTOR, tracker: async () => failing.tracker, env }), (e: unknown) => {
+      assert.ok(e instanceof ForgeError);
+      assert.equal(e.message, 'filing stopped at issues[0] (its error is in filing.json, for a person); run forge mandate draft approve g1 again to finish');
+      return true;
+    });
+    const rec = readFiling(r.dir, 'g1');
+    assert.ok(rec && !('problem' in rec), JSON.stringify(rec));
+    assert.equal(rec.error, 'no milestone "Fewer review rounds" in backlog.md', 'the person reads it in the record');
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('quietMentions breaks every GitHub mention outside fenced code', () => {
+  const z = String.fromCharCode(0x200d);
+  const rows: [string, string, string][] = [
+    ['prose', 'ask @alice, @Bob-2 and (@carol)', `ask @${z}alice, @${z}Bob-2 and (@${z}carol)`],
+    ['a team and a line start', '@org/team\n@dave', `@${z}org/team\n@${z}dave`],
+    ['inline code is not a fence', 'add `@types/node`', `add \`@${z}types/node\``],
+    ['an email, a word before, a bare @', 'a@b.example x_@y @ @-z', 'a@b.example x_@y @ @-z'],
+    ['a column-0 fence keeps its bytes', 'x @a\n```py\n@property\n```\n@b', `x @${z}a\n\`\`\`py\n@property\n\`\`\`\n@${z}b`],
+    ['a tilde fence closes on tildes only', '~~~\n@a\n```\n@b\n~~~~\n@c', `~~~\n@a\n\`\`\`\n@b\n~~~~\n@${z}c`],
+    ['an unclosed fence runs to the end', '```\n@a\n@b', '```\n@a\n@b'],
+    ['a backtick in the info string opens nothing', '```a`b\n@a', `\`\`\`a\`b\n@${z}a`],
+    ['an indented fence may end with its list', '- item\n  ```\n@a', `- item\n  \`\`\`\n@${z}a`],
+    ['an HTML block makes every fence plain text', '<div>\n```\n@a\n```\n</div>', `<div>\n\`\`\`\n@${z}a\n\`\`\`\n</div>`],
+    ['already quiet', `@${z}alice`, `@${z}alice`],
+  ];
+  for (const [name, input, want] of rows) assert.equal(quietMentions(input), want, name);
+  // Outside text: a long hostile line finishes at once.
+  const hostile = `${'`'.repeat(10_000)}x\`@a${' @'.repeat(5000)}`;
+  assert.equal(quietMentions(hostile), hostile.replace('`@a', `\`@${z}a`));
+});
+
+test('a draft filed on GitHub pings no one', { skip: process.platform === 'win32' }, async () => {
+  const r = scratch();
+  const z = String.fromCharCode(0x200d);
+  const fake = fakeGh({
+    'api repos/acme/web/milestones?state=open&per_page=100': '[]',
+    'api -X POST repos/acme/web/milestones': JSON.stringify({ number: 7, html_url: 'https://github.com/acme/web/milestone/7' }),
+    'issue list': '[]',
+    'issue view': JSON.stringify({ number: 5, title: 'Old item', body: '', url: 'https://github.com/acme/web/issues/5', labels: [], assignees: [], comments: [], state: 'OPEN', author: { login: 'a' } }),
+    'issue edit': '',
+    'issue comment': '',
+    'label create': '',
+    'issue create': 'https://github.com/acme/web/issues/12\n',
+  });
+  const saved = process.env.PATH;
+  try {
+    const body = {
+      milestone: { title: 'Fewer review rounds', exitCriteria: ['@alice signs off'] },
+      issues: [
+        { ...MILESTONE_DRAFT.issues[0], why: 'Ask @alice and @org/team, not a@b.example.', whatToDo: 'Add it:\n```py\n@property\ndef x(self): ...\n```\nthen tell @bob.' },
+        { ...MILESTONE_DRAFT.issues[1], why: 'cc @carol', existing: { ref: 'acme/web#5', action: 'amend' } },
+        MILESTONE_DRAFT.issues[2],
+      ],
+    };
+    await readyGoal(r.dir, 'g1', [], body);
+    const config = structuredClone(loadConfig(r.dir).config);
+    config.tracker.kind = 'github';
+    config.tracker.github.repo = 'acme/web';
+    process.env.PATH = fake.env.PATH;
+    const out = await approve(r.dir, config, () => loadTracker(r.dir, config));
+    assert.ok(out.decision === 'approve' && out.filing.completedAt, JSON.stringify(out));
+    const calls = fake.calls();
+    const sent = (verb: string) => calls.filter((c) => c.args[0] === 'issue' && c.args[1] === verb).map((c) => c.stdin);
+    const [lens, brief] = sent('create');
+    assert.ok(lens.includes(`Ask @${z}alice and @${z}org/team, not a@b.example.`), lens);
+    assert.ok(lens.includes('```py\n@property\ndef x(self): ...\n```'), 'a fenced code sample keeps its bytes');
+    assert.ok(lens.includes(`then tell @${z}bob.`), lens);
+    assert.ok(!brief.includes(`@${z}`) && brief.includes('Depends on: #12'), brief);
+    const [amendment] = sent('comment');
+    assert.ok(amendment.includes(`cc @${z}carol`) && !amendment.includes('@carol'), amendment);
+    const post = calls.find((c) => c.args.includes('POST'))!.args;
+    assert.ok(post.includes(`description=Exit criteria:\n- @${z}alice signs off\n\nMandate: g1`), post.join(' '));
+    assert.ok(post.includes('title=Fewer review rounds'), 'the milestone title goes as written');
+    assert.equal(calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'create')!.args[5], 'Sharper code lens', 'issue titles go as written');
+  } finally {
+    process.env.PATH = saved;
+    fs.rmSync(fake.dir, { recursive: true, force: true });
+    r.cleanup();
   }
 });
 
