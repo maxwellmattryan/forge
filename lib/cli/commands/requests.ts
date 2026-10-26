@@ -34,7 +34,7 @@ const REQUESTS: HelpGroup = {
         ['--intake run|next|new', 'with resume: how the job starts'],
         ['--session S', 'with resume: the session handing the job off'],
       ],
-      exits: [[1, 'a gate or draft request (only the CLI writes those), a daemon session queued anything but resume, or its scope is invalid']],
+      exits: [[1, 'a gate, draft or direct request (only the CLI writes those), a daemon session queued anything but resume, or its scope is invalid']],
     },
     {
       command: 'requests claim',
@@ -106,6 +106,8 @@ export function requestsCmd(
     if (type === 'gate') throw new ForgeError('gate requests are written only by forge job set and forge pr sync, never queued by hand', 1);
     // A draft request spends on a drafting run: only the owner's own forge mandate queues one.
     if (type === 'draft') throw new ForgeError('draft requests are written only by forge mandate new --goal and forge mandate draft start, never queued by hand', 1);
+    // A direct request turns the office session: only the Office pass, which checked the mandates, writes one.
+    if (type === 'direct') throw new ForgeError('direct requests are written only by the Office pass, never queued by hand', 1);
     // Read before enqueue, so a bare --job or --session queues nothing.
     const jobFlag = str(flags.job, '--job');
     const session = str(flags.session, '--session') ?? null;

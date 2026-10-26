@@ -58,12 +58,13 @@ export function validScope(s: unknown): s is string {
 }
 
 /**
- * Which daemon session a request belongs to: the assistant foremen's group for a gate, the office for a draft, its
- * job's for a job request whose job exists, the inbox for everything else (which rejects malformed or unknown jobs per the skill).
+ * Which daemon session a request belongs to: the assistant foremen's group for a gate, the office for a draft or
+ * a direct (the Office pass's wake), its job's for a job request whose job exists, the inbox for everything else
+ * (which rejects malformed or unknown jobs per the skill).
  */
 export function requestScope(root: string, rec: { type?: unknown; job?: unknown }): string {
   if (rec?.type === 'gate') return ASSISTANTS_SCOPE;
-  if (rec?.type === 'draft') return OFFICE_SCOPE;
+  if (rec?.type === 'draft' || rec?.type === 'direct') return OFFICE_SCOPE;
   if (!(JOB_REQUEST_TYPES as readonly unknown[]).includes(rec?.type) || !validJobId(rec.job)) return INBOX_SCOPE;
   return exists(path.join(paths(root).jobs, rec.job, 'job.json')) ? rec.job : INBOX_SCOPE;
 }

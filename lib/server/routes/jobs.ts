@@ -140,6 +140,8 @@ export async function postRequest(ctx: ServerCtx, req: http.IncomingMessage, res
   if (body.type === 'gate') return jsonStatus(res, 400, { error: 'gate requests are written only by forge job set and forge pr sync' });
   // A drafting run spends on the office session: only the owner's own forge mandate queues one.
   if (body.type === 'draft') return jsonStatus(res, 400, { error: 'draft requests are written only by forge mandate' });
+  // A direct request turns the office session: only the Office pass writes one.
+  if (body.type === 'direct') return jsonStatus(res, 400, { error: 'direct requests are written only by the Office pass' });
   const problem = requestArgsProblem(body, loadConfig(root).config.tracker.kind);
   if (problem) return jsonStatus(res, 400, { error: problem });
   const held = resumeHeld(root, body, ctx.drive);

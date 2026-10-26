@@ -47,4 +47,11 @@ export interface Tracker {
    * can't list them.
    */
   milestones?: (ctx: TrackerCtx) => { title: string; openIssues: number | null; dueOn: string | null }[];
+  /**
+   * Optional: the open items in `milestone` (any milestone when null) that carry every label in `labels`,
+   * at most `limit`, for a mandate's scope (lib/office/mandates/progress.ts). Marked like list's items
+   * (needsInfo, claimedBy, project status and priority). Throws when it can't list them; a mandate with a
+   * milestone or label scope and no `scope` method is not worked.
+   */
+  scope?: (ctx: TrackerCtx, q: { milestone: string | null; labels: string[]; limit: number }) => TrackerItem[];
 }

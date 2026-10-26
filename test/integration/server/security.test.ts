@@ -390,6 +390,7 @@ test('POST /api/requests refuses gate and draft requests', async () => {
     const rows: [Record<string, unknown>, string][] = [
       [{ type: 'gate', job: 'j1', args: { gate: 'spec-approval' } }, 'gate requests are written only by forge job set and forge pr sync'],
       [{ type: 'draft', args: { mandate: 'g1' } }, 'draft requests are written only by forge mandate'],
+      [{ type: 'direct' }, 'direct requests are written only by the Office pass'],
     ];
     for (const [body, error] of rows) {
       const r = await hit(port, { method: 'POST', path: `${P}/requests`, headers, body: JSON.stringify(body) });

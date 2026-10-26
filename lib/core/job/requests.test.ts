@@ -21,6 +21,7 @@ test('assistant scopes, the gate route and shared scopes', (t) => {
   ];
   for (const [s, want] of valid) assert.equal(validScope(s), want, `validScope(${JSON.stringify(s)})`);
   assert.equal(requestScope(r.dir, { type: 'gate', job: 'j-1' }), ASSISTANTS_SCOPE);
+  assert.equal(requestScope(r.dir, { type: 'direct' }), OFFICE_SCOPE);
   const shared: [unknown, boolean][] = [
     [INBOX_SCOPE, true],
     [OFFICE_SCOPE, true],
