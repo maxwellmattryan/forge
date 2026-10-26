@@ -75,6 +75,9 @@ export const JOB_STEPS: readonly Step[] = [
   } },
   // v18 adds the mandate a job works under. No v17 job is in one, so the Foreman's gates for it stay as they were.
   { id: 'job-mandate', up: (j) => ({ ...j, mandate: j.mandate ?? null }) },
+  // v19 adds `waitingOn: shelved` and the shelf record a shelved job carries. No v18 job is shelved, and
+  // the bump makes an older Forge refuse a job parked where it would not know to leave it alone.
+  { id: 'shelved', up: (j) => ({ ...j, shelved: j.shelved ?? null }) },
 ];
 
 export const JOB_SCHEMA_VERSION = versionOf(JOB_STEPS);

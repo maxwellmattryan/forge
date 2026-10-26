@@ -1,5 +1,6 @@
-// /api/jobs and /api/jobs/:id/*: the job detail, transcript and files, the job POSTs, and the environment routes with GET /api/environments.
-import type { BudgetKey, Effort } from './enums.ts';
+// /api/jobs and /api/jobs/:id/*: the job detail, transcript and files, the job POSTs, the Shelved list's
+// POST /api/shelf, and the environment routes with GET /api/environments.
+import type { BudgetKey, Effort, ShelfAction } from './enums.ts';
 import type { BudgetLimits, BudgetUsed, Job, JobBudget, JobEvent, OwnerStatus, Progress } from './job.ts';
 import type { ForgeRequest } from './state.ts';
 
@@ -233,6 +234,28 @@ export interface PostJobBudgetResponse {
   ack: JobBudget['ack'];
   acked: BudgetKey[];
   stillExceeded: BudgetKey[];
+}
+
+/**
+ * POST /api/shelf body: the Shelved list's batch action on the rows a person selected, each pinned to
+ * the `shelved.at` the list showed (1 to 50 entries); `note` (at most 2000 characters) is required for rework.
+ */
+export interface PostShelfBody {
+  action: ShelfAction;
+  jobs: { id: string; shelvedAt: string }[];
+  note?: string | null;
+}
+
+/** What POST /api/shelf did to one job: shelfAction in lib/engine/pipeline/moves/shelve.ts; `reason` only when skipped. */
+export interface ShelfResult {
+  id: string;
+  outcome: 'approved' | 'reworked' | 'unshelved' | 'closed' | 'skipped';
+  reason?: string;
+}
+
+/** POST /api/shelf reply: one result per entry, in the body's order. */
+export interface PostShelfResponse {
+  results: ShelfResult[];
 }
 
 /** POST /api/jobs/:id/merge reply: mergePr's result in lib/engine/pr/merge.ts, whatever its action. */

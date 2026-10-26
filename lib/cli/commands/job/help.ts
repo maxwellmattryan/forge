@@ -230,6 +230,21 @@ export const JOB: HelpGroup = {
       exits: [[1, 'no such job, an unknown budget key or bad value, not confirmed, or human_only: --set or --ack in a daemon session or with no person at a terminal (an agent, a script or a configured command)']],
     },
     {
+      command: 'job shelve',
+      args: '<id> --reason TEXT',
+      summary:
+        "set a waiting, queued, failed or blocked job aside: it waits on `shelved` at its stage, lets go of its lease, stops its environment (the worktree stays), keeps its PR, and leaves the waiting count; one note with the reason goes to its linked issues. Nothing resumes it: only a person takes it off the shelf (`forge job unshelve`, or the dashboard's Shelved list). A person runs it from their own terminal; no daemon session does",
+      flags: [['--reason TEXT', 'why it is set aside: one line of at most 200 characters (control characters and backticks are dropped)']],
+      exits: [[1, 'no such job; a done, cancelled, running, eval or already shelved job, or one with an agent running; or any daemon session']],
+    },
+    {
+      command: 'job unshelve',
+      args: '<id>',
+      summary:
+        "take a shelved job off the shelf: back to the wait, queue or failure it was shelved from, at its stage, so it can spend again, and back in Needs you (no Foreman gate request). A human-only operation: it asks the person at the terminal to type the job id, or a person uses Un-shelve in the dashboard's Shelved list instead",
+      exits: [[1, 'no such job, a job that is not shelved, not confirmed, or human_only: run in a daemon session or with no person at a terminal (an agent, a script or a configured command)']],
+    },
+    {
       command: 'job audit',
       args: '<id> [--json|--csv]',
       summary: "the job's audit trail: who did each human action (best effort, unauthenticated), its gate transitions, and its PR opening and merge, in time order",

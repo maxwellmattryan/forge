@@ -61,6 +61,8 @@ function memberWait(m: MemberPrState): string {
   return `PR merged; waiting on repo ${m.repo} PR #${m.number}${m.state === 'CLOSED' ? ' (closed without merging)' : ''}`;
 }
 
+const shelved = (job: Pick<Job, 'state' | 'waitingOn'>): boolean => job.state === 'waiting' && job.waitingOn === 'shelved';
+
 function rootTransition(
   job: Pick<Job, 'stage' | 'state' | 'waitingOn' | 'pr'> & { reason?: string | null },
   pr: JobPr,
@@ -80,12 +82,14 @@ function rootTransition(
     // A member whose sync failed counts as not merged: done is final, so it waits for an answer.
     const open = members.find((m) => m.state !== 'MERGED');
     if (!open) return stay(job.state !== 'done' ? { stage: 'done', state: 'done', reason: 'all PRs merged' } : {});
-    if (['running', 'done', 'cancelled'].includes(job.state)) return stay();
+    if (['running', 'done', 'cancelled'].includes(job.state) || shelved(job)) return stay();
     const reason = memberWait(open);
     if (job.stage === 'pr' && job.state === 'waiting' && job.waitingOn === 'pr-review' && job.reason === reason) return stay();
     return stay({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', reason });
   }
   if (pr.state === 'CLOSED') return stay(!['cancelled', 'done'].includes(job.state) ? { state: 'cancelled', reason: 'PR closed without merging' } : {});
+  // A person set it aside: only their merge or close on GitHub (above) moves it, never an update, a park or a reopen.
+  if (shelved(job)) return stay();
   // A cancel or a failure keeps stage pr, and only a person reopens the job: parking it on pr-review
   // again would hand forge pr merge a job a human stopped.
   if (pr.state !== 'OPEN' || job.stage !== 'pr' || job.state === 'cancelled' || job.state === 'failed') return stay();

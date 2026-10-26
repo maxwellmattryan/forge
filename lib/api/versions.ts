@@ -68,6 +68,8 @@ export const API_CHANGES = [
   // The chat routes under /api/p/<project>/chats (Chat, ChatLogEntry, ChatLogPage, ChatDetail, ChatList); scope `_chat-<id>`
   // in /events, /daemons/log, /daemon/permission, /daemon/mode and /daemon; ActorSource 'chat'; Stats.cost.sessions.chat.
   { id: 'chats' },
+  // Shelve: WaitingOn 'shelved', Job.shelved, Stats.counts.shelved and POST /api/shelf.
+  { id: 'shelve' },
 ] as const;
 
 /**

@@ -18,8 +18,8 @@ const record = (round: number, outcome: 'PASS' | 'CHANGES', results: unknown[]):
 const RESULTS = [{ name: 'cli-help', mode: 'block', answer: 'no' }];
 
 /** A job with no verdicts, so stats never reads its findings. */
-const source = (id: string, events: JobEvent[]): StatsSource => ({
-  job: normalizeJob({ id }),
+const source = (id: string, events: JobEvent[], job: Record<string, unknown> = {}): StatsSource => ({
+  job: normalizeJob({ id, ...job }),
   events: () => events,
   findings: () => {
     throw new Error('a job without verdicts has no findings to read');
@@ -39,4 +39,14 @@ test("verifierFirstRoundBlockRate counts each job's first round-1 verifiers reco
   assert.equal(statsFrom(five).quality.verifierFirstRoundBlockRate, 0.333, '1 blocked of 3 counted');
   assert.equal(statsFrom([five[0]]).quality.verifierFirstRoundBlockRate, 1);
   assert.equal(statsFrom([five[2], five[3]]).quality.verifierFirstRoundBlockRate, null, 'no job counts');
+});
+
+test('a shelved job counts as shelved, not waiting', () => {
+  const s = statsFrom([
+    source('shelved', [], { state: 'waiting', waitingOn: 'shelved' }),
+    source('escalated', [], { state: 'waiting', waitingOn: 'escalation' }),
+    source('queued', [], { state: 'queued' }),
+  ]);
+  assert.deepEqual([s.counts.active, s.counts.waiting, s.counts.shelved], [3, 1, 1]);
+  assert.deepEqual(s.waitingOn, { escalation: 1 });
 });

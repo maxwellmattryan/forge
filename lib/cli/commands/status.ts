@@ -36,19 +36,26 @@ export function statusRows(root: string, all: boolean): StatusRow[] {
   return activeJobs(root, all).map((j) => statusRow(root, j));
 }
 
-const activeJobs = (root: string, all: boolean): Job[] => listJobs(root).filter((j) => all || isActive(j));
+const isShelved = (j: Pick<Job, 'state' | 'waitingOn'>): boolean => j.state === 'waiting' && j.waitingOn === 'shelved';
+
+/** listJobs' order, with shelved jobs after every other: set aside, they wait on nobody. */
+const activeJobs = (root: string, all: boolean): Job[] => {
+  const jobs = listJobs(root).filter((j) => all || isActive(j));
+  return [...jobs.filter((j) => !isShelved(j)), ...jobs.filter(isShelved)];
+};
 
 function statusRow(root: string, j: Job): StatusRow {
   const p = progress(root, j.id);
+  const shelved = isShelved(j) && j.shelved ? { at: j.shelved.at, reason: j.shelved.reason } : null;
   // foremanHandoffFor reads events only for a waiting job.
-  return { id: j.id, stage: j.stage, state: j.state, waitingOn: j.waitingOn, round: j.round, tasks: { done: p.done, total: p.total }, pr: j.pr?.number ?? null, session: j.lease.driver, foremanHandoff: foremanHandoffFor(root, j) };
+  return { id: j.id, stage: j.stage, state: j.state, waitingOn: j.waitingOn, round: j.round, tasks: { done: p.done, total: p.total }, pr: j.pr?.number ?? null, session: j.lease.driver, foremanHandoff: foremanHandoffFor(root, j), shelved };
 }
 
 export function statusTable(root: string, all: boolean): string {
   const jobs = statusRows(root, all);
   if (!jobs.length) return 'no active jobs';
   const rows = jobs.map((j) => {
-    const st = j.state === 'waiting' ? `waiting:${j.waitingOn}${j.foremanHandoff ? ' (left for a human)' : ''}` : j.state;
+    const st = isShelved(j) ? 'shelved' : j.state === 'waiting' ? `waiting:${j.waitingOn}${j.foremanHandoff ? ' (left for a human)' : ''}` : j.state;
     return [j.id, j.stage, st, j.round ? `r${j.round}` : '-', j.tasks.total ? `${j.tasks.done}/${j.tasks.total}` : '-', j.pr ? `#${j.pr}` : '-', j.session?.slice(0, 8) ?? '-'];
   });
   const head = ['job', 'stage', 'state', 'round', 'tasks', 'pr', 'session'];
@@ -81,7 +88,8 @@ export function statsSections(s: Stats): StatsSections {
   const pct = (x: number | null) => (x === null ? '—' : `${Math.round(x * 100)}%`);
   const q = s.quality;
   return {
-    jobs: [`jobs ${s.counts.total}${s.counts.archived ? ` (${s.counts.archived} archived)` : ''} (active ${s.counts.active}, done ${s.counts.done}, waiting ${s.counts.waiting}, cancelled ${s.counts.cancelled})`],
+    // An older stats.json (or /api/stats) has no shelved count.
+    jobs: [`jobs ${s.counts.total}${s.counts.archived ? ` (${s.counts.archived} archived)` : ''} (active ${s.counts.active}, done ${s.counts.done}, waiting ${s.counts.waiting}, shelved ${s.counts.shelved ?? 0}, cancelled ${s.counts.cancelled})`],
     quality: [
       // An older stats.json (or /api/stats) has no outcome fields.
       `autonomy ${pct(q.autonomyRate ?? null)} (strict ${pct(q.autonomyRateStrict ?? null)}) · reverted ${pct(q.revertRate ?? null)} · follow-ups ${pct(q.followUpRate ?? null)} · churn ${pct(q.churnRate ?? null)} · outcomes final ${q.outcomeCoverage?.final ?? 0}/${q.outcomeCoverage?.merged ?? 0} (open ${q.outcomeCoverage?.open ?? 0})`,

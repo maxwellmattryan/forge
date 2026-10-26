@@ -79,6 +79,16 @@ export function jobBudgetOp(id: string, change: { set: boolean; ack: boolean }):
   };
 }
 
+/** `forge job unshelve <id>`; `id` is one loadJob has validated. The dashboard's channel is POST /api/shelf. */
+export function unshelveOp(id: string): HumanOp {
+  return {
+    command: 'forge job unshelve',
+    what: `forge job unshelve ${id} takes job ${id} off the shelf and puts it back where it was shelved, so it can spend again. It is logged with your name.`,
+    confirm: id,
+    channel: "Un-shelve in the dashboard's Shelved list",
+  };
+}
+
 /** `forge budget ack --period P`; `period` is one validPeriod accepted. */
 export function budgetAckOp(period: string): HumanOp {
   return {

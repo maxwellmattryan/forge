@@ -5,8 +5,10 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { ghPr, memoryGitHub, parkedAt, tempRepo } from '../../../test/helpers.ts';
 import { syncPr } from './sync.ts';
+import { shelveJob } from '../pipeline/moves/shelve.ts';
 import { defaults } from '#core/config/load.ts';
 import { jobDir, loadJob, readEvents, setJob } from '#core/job/store.ts';
 import { listRequests } from '#core/job/requests.ts';
@@ -31,7 +33,14 @@ const at = (j: Job) => [j.stage, j.state, j.waitingOn];
 
 const feedbackLines = (s: Scenario) => fs.readFileSync(path.join(jobDir(s.root, s.id), 'pr-feedback.md'), 'utf8').split('\n');
 
-const ROWS: { name: string; arrange: (s: Scenario) => void; check: (s: Scenario) => void }[] = [
+/** A person shelves the parked job. */
+const shelve = (s: Scenario) => shelveJob(s.root, config, s.id, { reason: 'later', actor: { login: 'al', source: 'env' } });
+const stillShelved = (s: Scenario) => {
+  assert.deepEqual(at(s.job()), ['pr', 'waiting', 'shelved']);
+  assert.equal(s.job().shelved?.reason, 'later');
+};
+
+const ROWS: { name: string; arrange: (s: Scenario) => void | Promise<void>; check: (s: Scenario) => void }[] = [
   {
     name: '(a) failing checks, a member thread and a contributor change request are recorded, and only the member reaches pr-feedback.md',
     arrange: (s) => {
@@ -106,6 +115,67 @@ const ROWS: { name: string; arrange: (s: Scenario) => void; check: (s: Scenario)
     arrange: (s) => s.github.put(ghPr({ state: 'DRAFT' })),
     check: (s) => assert.equal(s.job().pr?.state, 'OPEN'),
   },
+  {
+    name: '(g) a shelved job stays shelved when its PR is behind its base',
+    arrange: async (s) => {
+      await shelve(s);
+      // The remote-tracking refs the behind count reads: the base one commit past the head.
+      const git = (...args: string[]) => execFileSync('git', args, { cwd: s.root, stdio: 'pipe' });
+      git('update-ref', 'refs/remotes/origin/forge/x', 'HEAD');
+      git('commit', '-q', '--allow-empty', '-m', 'base moves on');
+      git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+      s.github.put(ghPr({ headRefOid: SHA }));
+    },
+    check: (s) => {
+      assert.equal(s.job().pr?.behindBy, 1);
+      stillShelved(s);
+    },
+  },
+  {
+    name: '(h) a shelved job stays shelved when its PR conflicts with its base',
+    arrange: async (s) => {
+      await shelve(s);
+      s.github.put(ghPr({ headRefOid: SHA, mergeable: 'CONFLICTING' }));
+    },
+    check: (s) => {
+      assert.equal(s.job().pr?.conflicts, true);
+      stillShelved(s);
+    },
+  },
+  {
+    name: '(i) a shelved job stays shelved when its PR has review feedback and failing checks',
+    arrange: async (s) => {
+      await shelve(s);
+      s.github.put(ghPr({ headRefOid: SHA, statusCheckRollup: [{ name: 'test', conclusion: 'FAILURE' }] }));
+      s.github.setFeedback(7, { reviewThreads: { nodes: [{ isResolved: false, isOutdated: false, path: 'lib/a.ts', line: 3, comments: { nodes: [comment('maint', 'MEMBER', 'please rename this')] } }] }, reviews: { nodes: [] }, comments: { nodes: [] } });
+    },
+    check: (s) => {
+      assert.equal(s.job().pr?.unresolvedThreads, 1);
+      stillShelved(s);
+    },
+  },
+  {
+    name: '(j) a shelved job is done when a person merged its PR',
+    arrange: async (s) => {
+      await shelve(s);
+      s.github.put(ghPr({ state: 'MERGED', mergedAt: '2026-10-01T00:00:00Z' }));
+    },
+    check: (s) => {
+      const j = s.job();
+      assert.deepEqual([j.stage, j.state, j.shelved], ['done', 'done', null]);
+    },
+  },
+  {
+    name: '(k) a shelved job is cancelled when a person closed its PR',
+    arrange: async (s) => {
+      await shelve(s);
+      s.github.put(ghPr({ state: 'CLOSED' }));
+    },
+    check: (s) => {
+      const j = s.job();
+      assert.deepEqual([j.stage, j.state, j.shelved], ['pr', 'cancelled', null]);
+    },
+  },
 ];
 
 test("the CI rework follows the job's mandate", async () => {
@@ -148,7 +218,7 @@ describe("syncPr records GitHub's answer through the adapter", { concurrency: 4 
     test(row.name, async () => {
       const s = scenario();
       try {
-        row.arrange(s);
+        await row.arrange(s);
         await syncPr(s.root, config, s.github, s.id);
         row.check(s);
       } finally {

@@ -57,6 +57,8 @@ export interface StatusRow {
   session: string | null;
   /** The Foreman left the gate the job waits at for a person; null otherwise. */
   foremanHandoff: ForemanHandoff | null;
+  /** When and why a person shelved the job; null unless it waits on `shelved`. */
+  shelved: { at: string; reason: string } | null;
 }
 
 /** One `forge <command>` in the help tables (`HELP` beside each command module). */

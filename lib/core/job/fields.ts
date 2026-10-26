@@ -1,10 +1,11 @@
 // The rules for the job fields setJob writes: which keys are locked to their owning command, which
 // lists must hold strings, and which values `complexity` and `kind` may take. setJob enforces them
 // for every caller (`forge job set`, the dashboard, any module), so a locked key can't be reached
-// by going around the CLI. Kept apart from jobs.ts and schema.ts, which are both past 600 lines.
-import { COMPLEXITIES } from './schema.ts';
+// by going around the CLI; likewise the stage, state and waitingOn values, and who may move a shelved
+// job. Kept apart from jobs.ts and schema.ts, which are both past 600 lines.
+import { COMPLEXITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import { hasProtoSegment } from '../shape.ts';
-import type { Job } from '../types.ts';
+import type { Job, JobChange, TransitionSide } from '../types.ts';
 import { ForgeError } from '../errors.ts';
 
 // List fields `step`, the briefs and the dashboard iterate; each maps to the example its error shows.
@@ -46,6 +47,8 @@ export const LOCKED_FIELDS: Record<string, string> = {
   score: 'forge sync or forge job score record',
   // A session could otherwise null its own spend caps; only a person raises or acknowledges them.
   budget: "forge job budget or the dashboard's Approve on the budget gate",
+  // `from` decides where un-shelving puts the job, and only a person takes it off the shelf.
+  shelved: 'forge job shelve|unshelve',
 };
 
 // Kinds step routes differently: a retro job's review panel is fixed at code and docs, and an eval
@@ -88,6 +91,32 @@ export function checkJobFields(fields: Record<string, unknown>, job: Pick<Job, '
     const nested = kindKeys.find((key) => key !== 'kind');
     if (nested !== undefined) throw new ForgeError(`--field ${nested} is not settable; kind is one value, set it with --field kind=<kind>`);
   }
+}
+
+/** Throws a usage error when the change's stage, state or waitingOn is not one of its list's values. */
+export function checkChange(change: JobChange): void {
+  if (change.stage && !STAGES.includes(change.stage as any))
+    throw new ForgeError(`unknown stage "${change.stage}" (${STAGES.join(', ')})`, 'usage');
+  if (change.state && !STATES.includes(change.state as any))
+    throw new ForgeError(`unknown state "${change.state}" (${STATES.join(', ')})`, 'usage');
+  if (change.waitingOn && !WAITING_ON.includes(change.waitingOn as any))
+    throw new ForgeError(`unknown waiting-on "${change.waitingOn}" (${WAITING_ON.join(', ')})`, 'usage');
+}
+
+const onShelf = (s: Pick<TransitionSide, 'state' | 'waitingOn'>): boolean => s.state === 'waiting' && s.waitingOn === 'shelved';
+
+/**
+ * Only a person takes a job off the shelf: a write that moves a shelved job's stage, state or
+ * waitingOn throws unless it is un-shelving (`shelf: 'unshelve'`) or finishes the job, and only
+ * `forge job shelve` (`shelf: 'shelve'`) puts a job on it. `before` is the job as the lock read it,
+ * `j` the job with the change applied; a job that ends off the shelf keeps no shelf record.
+ */
+export function checkShelfMove(id: string, before: TransitionSide, j: Job, shelf: 'shelve' | 'unshelve' | undefined): void {
+  const moved = before.stage !== j.stage || before.state !== j.state || before.waitingOn !== j.waitingOn;
+  if (onShelf(before) && moved && shelf !== 'unshelve' && j.state !== 'done' && j.state !== 'cancelled')
+    throw new ForgeError(`job ${id} is shelved: only a person un-shelves it, with forge job unshelve ${id} in their own terminal or Un-shelve in the dashboard's Shelved list`, 'human_only');
+  if (onShelf(j) && !onShelf(before) && shelf !== 'shelve') throw new ForgeError('only forge job shelve shelves a job');
+  if (!onShelf(j)) j.shelved = null;
 }
 
 /** Throws unless every `owned` key sits under a locked field: `owned` is for the module that owns it, never a way past checkJobFields. */

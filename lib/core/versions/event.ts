@@ -30,6 +30,9 @@ export const EVENT_STEPS: readonly Step[] = [
   { id: 'agent-end-metering', up: (e) => e },
   // v8 lets an actor's `source` be `chat` (an action a chat session took for the owner); an older Forge reads it as `unknown`.
   { id: 'actor-source-chat', up: (e) => e },
+  // v9 adds the `shelved` and `unshelved` events and `waitingOn: shelved` in transitions; an older Forge
+  // reads them as generic events.
+  { id: 'shelve-events', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

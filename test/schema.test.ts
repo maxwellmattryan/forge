@@ -218,6 +218,7 @@ const JOB_ROWS: Row[] = [
     note: 'the owner keeps driving as epoch 1 for the 30 minutes its heartbeat gave it',
   },
   { step: 'job-mandate', input: { id: 'x', title: 'Old', state: 'running' }, fields: { mandate: null, state: 'running' }, note: 'a job from before mandates is in none' },
+  { step: 'shelved', input: { id: 'x', state: 'waiting', waitingOn: 'escalation', reason: 'r' }, fields: { shelved: null, waitingOn: 'escalation' }, note: 'a job from before the shelf is on none' },
 ];
 
 const EVENT_ROWS: Row[] = [
@@ -266,6 +267,12 @@ const EVENT_ROWS: Row[] = [
     input: { ts: 't', type: 'human', action: 'rework', actor: { login: 'al', source: 'chat' } },
     fields: { type: 'human', ts: 't', action: 'rework', actor: { login: 'al', source: 'chat' } },
     note: 'an actor recorded by a chat session keeps source chat',
+  },
+  {
+    step: 'shelve-events',
+    input: { ts: 't', type: 'shelved', reason: 'later', from: { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }, actor: { login: 'al', source: 'gh' } },
+    fields: { type: 'shelved', ts: 't', reason: 'later', 'from.waitingOn': 'escalation', actor: { login: 'al', source: 'gh' } },
+    note: 'shelve and unshelve events read as written',
   },
 ];
 
@@ -644,6 +651,28 @@ test('a current-version lease is read field by field', () => {
   // A partial or planted lease never reads as live by accident.
   assert.deepEqual(normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x' }).lease, { driver: null, epoch: 0, since: null, renewedAt: null, expiresAt: null });
   assert.deepEqual(normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x', lease: { driver: 'S', epoch: -2, expiresAt: 42 } }).lease, { driver: 'S', epoch: 0, since: null, renewedAt: null, expiresAt: null });
+});
+
+test('a shelf record is kept only well formed and only on a job waiting on shelved', () => {
+  const at = '2026-10-01T10:00:00.000Z';
+  const shelf = { at, reason: ' later\u0007 `x` ', actor: { login: 'al', source: 'gh' }, from: { state: 'waiting', waitingOn: 'escalation', reason: 'touches billing' } };
+  const read = (shelved: unknown, waitingOn = 'shelved') => normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x', state: 'waiting', waitingOn, shelved }).shelved;
+  assert.deepEqual(read(shelf), { ...shelf, reason: 'later x' }, 'the reason is cleaned again');
+  assert.equal(read(shelf, 'escalation'), null, 'a job off the shelf keeps none');
+  const queued = { ...shelf, from: { state: 'queued', waitingOn: null, reason: null } };
+  assert.deepEqual(read(queued)?.from, queued.from);
+  assert.deepEqual(read({ ...shelf, actor: { login: 'al', source: 'root' } })?.actor, { login: null, source: 'unknown' }, 'an unknown source keeps no login');
+  const malformed: [string, unknown][] = [
+    ['a bad time', { ...shelf, at: 'yesterday' }],
+    ['an empty reason', { ...shelf, reason: '``' }],
+    ['from running', { ...shelf, from: { state: 'running', waitingOn: null, reason: null } }],
+    ['from the shelf', { ...shelf, from: { state: 'waiting', waitingOn: 'shelved', reason: null } }],
+    ['a wait with no waitingOn', { ...shelf, from: { state: 'waiting', waitingOn: null, reason: null } }],
+    ['a queued job with a waitingOn', { ...shelf, from: { state: 'queued', waitingOn: 'escalation', reason: null } }],
+    ['a reason that is not text', { ...shelf, from: { ...shelf.from, reason: 3 } }],
+    ['no record', 'shelved'],
+  ];
+  for (const [name, raw] of malformed) assert.equal(read(raw), null, name);
 });
 
 test('validates maxTotalRounds, maxCiReworks and daemon.jobBudget', () => {
