@@ -1,6 +1,6 @@
 # lib/office/mandates/
 
-Mandates: the owner's standing instructions to the Office, one file each in `.forge/runtime/mandates/`, written only by `forge mandate` (`lib/cli/commands/mandate.ts`).
+Mandates: the owner's standing instructions to the Office, one file each in `.forge/runtime/mandates/`, written by the owner through `mandateWrite` (`store.ts`), which `forge mandate new|edit|pause|resume|close` (`lib/cli/commands/mandate.ts`) and the dashboard's Foreman page (`lib/server/routes/mandates.ts`) both call, with the same checks.
 
 - `store.ts` is the only reader and writer of the files. A file that can't be read safely is unreadable with a `problem`, and nothing acts on it: narrowing fails closed.
 - A mandate's `decides` only ever narrows `foreman.decides`: `checkForemanDecision` and `gateOwner` (`lib/office/foreman.ts`) and `forge job assist` read it through `jobMandateDecides`, and the milestone-approval gate through `mandateDecides`. Engine code can't import this module, so `assistantBrief` takes the mandate as a parameter.
@@ -25,5 +25,5 @@ Mandates: the owner's standing instructions to the Office, one file each in `.fo
 | `pass.ts` | The Office pass (`forge office pass`, which `forge dash` runs every foreman.cadence minutes and on events): deterministic code, no model, that enforces each mandate's contract. |
 | `progress.ts` | A mandate's progress, which the Office pass enforces and `forge office survey\|start` and `forge mandate show` read: its jobs and how each stands against its `until`, its spend and starts, the scope items the tracker lists for it, the candidates and the window the Foreman may start from, why it is blocked, and its stalls. |
 | `store.ts` | Mandate files: `.forge/runtime/mandates/<id>.md`, YAML frontmatter then the owner's guidance. |
-| `types.ts` | The mandate shapes, type-only: the file `forge mandate` writes, the contract terms, the summary and state the CLI prints, and a goal mandate's milestone draft. |
+| `types.ts` | The mandate shapes, type-only: the file `forge mandate` and the Foreman page write, what a write may set, and a goal mandate's milestone draft and filing; the contract terms, summary and state the CLI and the dashboard show are /api shapes, re-exported here. |
 <!-- forge:map:end -->

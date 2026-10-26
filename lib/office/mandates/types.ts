@@ -1,32 +1,11 @@
-// The mandate shapes, type-only: the file `forge mandate` writes, the contract terms, the summary and
-// state the CLI prints, and a goal mandate's milestone draft. The rules over them are contract.ts and
-// draft.ts, the file I/O store.ts and draft.ts.
-import type { DraftBody, EventActor, GateClass, MandateOnUnfinishable, MandateOrder, MandateUntil } from '#core/types.ts';
-import type { MANDATE_STATUSES } from '#core/job/schema.ts';
+// The mandate shapes, type-only: the file `forge mandate` and the Foreman page write, what a write may
+// set, and a goal mandate's milestone draft and filing; the contract terms, summary and state the CLI and
+// the dashboard show are /api shapes, re-exported here. The rules over them are contract.ts and draft.ts,
+// the file I/O store.ts and draft.ts.
+import type { DraftBody, EventActor, MandateContract, MandateScope, MandateStatus } from '#core/types.ts';
 
-/** A mandate's written status: only `forge mandate pause|resume|close` moves it. */
-export type MandateStatus = (typeof MANDATE_STATUSES)[number];
-
-/** What `forge mandate list|show` derives: `waiting` while `after` names a mandate that isn't closed. */
-export type MandateState = 'active' | 'paused' | 'waiting' | 'closed';
-
-/** The work a mandate covers: at least one list is non-empty (all empty for a goal mandate), milestones in order. */
-export interface MandateScope {
-  milestones: string[];
-  labels: string[];
-  issues: string[];
-}
-
-/** The contract terms besides scope and after. */
-export interface MandateContract {
-  until: MandateUntil;
-  maxJobs: number;
-  order: MandateOrder;
-  decides: GateClass[];
-  budget: { usd: number; jobs: number };
-  stall: { cadences: number; bounces: number };
-  onUnfinishable: MandateOnUnfinishable;
-}
+// The shapes the Foreman page reads too are /api shapes, owned by lib/api/repo.ts and lib/api/enums.ts.
+export type { DraftStatus, MandateContract, MandateScope, MandateState, MandateStatus, MandateSummary } from '#api/types.ts';
 
 /** One `.forge/runtime/mandates/<id>.md`: every frontmatter key, then the owner's guidance as `body`. */
 export interface Mandate extends MandateContract {
@@ -56,25 +35,6 @@ export interface UnreadableMandate {
 
 /** What readMandate returns. */
 export type ReadMandate = Mandate | UnreadableMandate;
-
-/** `forge mandate new|edit|pause|resume|close|show`'s `mandate`. */
-export interface MandateSummary {
-  id: string;
-  title: string;
-  status: MandateStatus;
-  state: MandateState;
-  reason: string | null;
-  after: string | null;
-  /** A goal mandate: its scope stays empty while drafting runs plan its work. */
-  intake: boolean;
-  scope: MandateScope;
-  contract: MandateContract;
-  createdAt: string;
-  updatedAt: string;
-  closedAt: string | null;
-  /** Set once a goal mandate's draft is filed: its scope is then the filed milestone. */
-  filedAt: string | null;
-}
 
 /** What `forge mandate edit` (and `new`) may set: any contract term, scope list, title, after or body. */
 export interface MandateInput {
@@ -131,9 +91,6 @@ export interface Filing {
   error: string | null;
   completedAt: string | null;
 }
-
-/** `forge mandate draft show`'s status, the first that applies in this order. */
-export type DraftStatus = 'queued' | 'drafting' | 'ready' | 'unreadable' | 'failed' | 'none';
 
 /** The drafting runs' spend, summed over the mandate's ledger.jsonl. */
 export interface DraftSpend {
