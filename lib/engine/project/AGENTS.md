@@ -1,6 +1,6 @@
 # lib/engine/project/
 
-Multi-repo projects: member repos and trackers, a job's repos and their order, proposals, links and downstream checks, and the machine index of registered projects.
+Multi-repo projects: member repos and trackers, a job's repos and their order, proposals, links and downstream checks, the machine index of registered projects, and the machine's login service and uptime record.
 
 - `member-repos.ts` holds the member repo validators that `lib/core/` still reads through allowed upward edges; they move down into `lib/core/config/` later (docs/design/lib-layout.md › Today's upward edges).
 - Design: [Job repos](../../../docs/architecture/job-repos.md), [Interim strategies](../../../docs/architecture/interim-strategies.md).
@@ -12,6 +12,7 @@ Multi-repo projects: member repos and trackers, a job's repos and their order, p
 | `graph.ts` | The project graph GET /api/project serves: `components` reduced to names, repos, kinds, paths and dependsOn edges. |
 | `job-repos.ts` | Job repos: the member repos (config `repos`) one job changes beside the root repo. |
 | `links.ts` | Local links: while a multi-repo job is in progress, a consumer repo builds against the dependency's job worktree instead of its released version (docs/CONFIG.md "Components", docs/architecture/job-repos.md "Local links"). |
+| `login-service.ts` | The machine's login service and uptime record: which per-user unit starts the machine dashboard at login on each platform, the environment it carries, `forge service install\|uninstall\|status`, the doctor row, and `<FORGE_HOME>/runtime/uptime.json` (the sleep assertion and the last restart). |
 | `machine-index.ts` | The machine index: the projects registered on this machine in `<FORGE_HOME>/projects.json`, never their config, commands or secrets. |
 | `member-repos.ts` | Member repos: the other repos a project spans (`config.repos`), and where each is cloned on this machine (`.forge/local.yml`, gitignored). |
 | `member-trackers.ts` | Member repo trackers: the GitHub issue trackers of config `repos` entries, read and written beside the root's. |
