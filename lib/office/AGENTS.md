@@ -13,6 +13,7 @@ Forge's long-running runtime: the session pool, per-job sessions, the reconciler
 |---|---|
 | `driver.ts` | Who drives a job and whether that driver is one of this pool's sessions, by every id the session has had; and the one release of everything a gone session held. |
 | `foreman.ts` | The Foreman's session side: who owns a gate for the dashboard, the checks on a foreman decision and on the office's `forge job set`, and hand-offs; the gate policy is lib/engine/pipeline/moves/foreman-gates.ts. |
+| `mandates/` | Mandates: the owner's standing instructions to the Office, one file each in `.forge/runtime/mandates/`, written only by `forge mandate` (`lib/cli/commands/mandate.ts`). |
 | `modes.ts` | The permission modes `forge dash`'s pool holds for its sessions: a human's choice per scope, and the default for job sessions without one. |
 | `notify.ts` | Notifications: a small, fixed-shape message to the team's webhooks and command when a job needs a human, a PR opens or merges, a job fails, the daemon stops, a budget is exceeded or a secret is found. |
 | `owner.ts` | The refusals that keep the inbox and office daemon sessions from driving a job: the inbox only routes and the office only decides gates. |

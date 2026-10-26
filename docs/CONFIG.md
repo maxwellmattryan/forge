@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `/bin/sh -c <cmd>` with an allowl
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 34            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 35            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -92,7 +92,6 @@ runtime:                     # the agent runtime: how many jobs run, and each ro
     integrator: null
     retro: null
     judge: null
-    assistant: null          # the foreman's gate assistant
   effortByComplexity: { low: null, medium: null, high: null }  # by the spec's Complexity: header, for roles without their own
   models:                    # per role; aliases (opus, sonnet, haiku, fable) or full model ids
     orchestrator: inherit
@@ -106,7 +105,6 @@ runtime:                     # the agent runtime: how many jobs run, and each ro
     retro: opus
     judge: opus
     verifier: haiku          # answers the repo's .forge/verifiers/ yes/no checks (docs/VERIFIERS.md)
-    assistant: sonnet        # the foreman's gate assistant (see "Foreman")
   modelByComplexity: { low: null, medium: null, high: null }  # the builder's model by the spec's Complexity: header; see "Builder model"
   reworkModel: null          # the builder's model on a rework round that only addresses review findings; see "Builder model"
 
@@ -322,6 +320,30 @@ foreman:                     # opt-in: an office daemon session decides gates th
     - encryption
     - gate:release
   ship: propose              # propose | merge: merge counts as merge.auto for PRs the approver marks eligible
+  model: inherit             # the Foreman's own model when it directs work under mandates (read by the director loop, #538)
+  effort: null               # the Foreman's own effort (null: runtime.effort; read by the director loop, #538)
+  cadence: 10                # 1-1440: minutes between the Foreman's passes over its mandates (read by the director loop, #538)
+  assistants:                # the forge:assistant sub-agent that judges one gate, and the assistant foremen that will run it
+    enabled: true            # assistant foremen take the Foreman's gate requests (read by assistant routing, #537)
+    sessions: 1              # assistant foreman sessions at once (read by assistant routing, #537)
+    model: sonnet            # forge job assist returns it as the assistant's model; see "Foreman"
+    effort: null             # the assistant's effort; a job's effort beats it, and null falls through to effortByComplexity, then effort
+  surveyors:                 # sub-agents that summarise the board for the Foreman (read by the director loop, #538)
+    enabled: false           # the Foreman spawns surveyors
+    model: haiku             # the surveyors' model
+    effort: null             # the surveyors' effort (null: runtime.effort)
+  mandate:                   # what forge mandate new fills a contract term it is not given with (see "Mandates" below)
+    until: merge-ready       # merge-ready | merged: where its work stops (merged needs ship: merge, else merge-ready applies)
+    maxJobs: 2               # 1-16: its jobs running at once
+    order: graph             # graph | priority | listed: how it orders its work (listed: scope.issues in order)
+    decides: [spec-approval, split-approval, conflicts]  # the gate classes it delegates, intersected with the effective foreman.decides
+    budget:                  # its spend caps
+      usd: 150               # USD, more than 0 and at most 100000
+      jobs: 5                # 1-1000: jobs it may start
+    stall:                   # when its work counts as stalled
+      cadences: 3            # 1-100: the Foreman's passes with no progress
+      bounces: 3             # 1-100: gate bounces on one job
+    onUnfinishable: park     # park | cancel: what it does with a job it can't finish
 
 policy:                      # enforced by the CLI, not a prompt (see "Protected paths" below)
   protectedPaths:            # [] turns it off; a config without `policy` gets these
@@ -834,7 +856,7 @@ A budget transition carries `[budget-exceeded, gate]`: each webhook gets at most
 
 ## Foreman
 
-With `foreman.enabled: true` and `daemon.enabled: true`, `forge dash` runs one more supervised session, the **office** (scope `_office`), beside the inbox. It never counts against `daemon.maxConcurrent`, and it shares the pool's trust check, deny rules, budget holds and failure handling. When `forge job set` parks a job on a gate whose class is in `decides`, the CLI queues a `gate` request; `forge pr sync` does the same for a job waiting on `pr-review` with changes requested or unresolved threads from someone with write access to the repo (`pr-feedback`, once per PR head; feedback only from others stays with a human). Failing checks need no judgement, so they skip the office: while the foreman decides `pr-feedback`, `forge pr sync` itself records a foreman `rework` (once per PR head, any head, a GitHub "Update branch" included), writes a fixed `feedback.md` pointing the builder at `gh pr checks`, moves the job to `build` and queues a `resume` for its session. A reserved match (a security review that isn't `PASS`, or a `reserved` pattern in the job's reason) still goes through the `pr-feedback` gate. After `pr.maxCiReworks` CI reworks in a row the next red head waits for a person instead, with no gate queued (see [Open PRs](#open-prs)), and a `rounds-exhausted` park past the [total-round ceiling](#total-round-ceiling) is a person's alone. Every rework round on an open PR starts from the PR's head: `forge job round` fetches the job's branch and fast-forwards or merges it into the worktree (a conflicting merge is aborted, logged as `pr-head-pulled`, and left for the next push to surface). When `forge pr open` finds the PR branch moved, it merges it in and step re-verifies the merged HEAD (PR2b), unless the merge is not a clean base merge on the reviewed head: then the job first goes back to review (PR12); a conflicting one is aborted, and step parks the job on `human` (PR11) until a person merges it in the worktree and runs `forge verify <id>`. The office session hands each one to a `forge:assistant` sub-agent (model `runtime.models.assistant`, effort `runtime.efforts.assistant`) that reads the job's files, then records the verdict with `forge job human … --actor foreman` and queues a `resume` for the job's session. It never reads a job file itself.
+With `foreman.enabled: true` and `daemon.enabled: true`, `forge dash` runs one more supervised session, the **office** (scope `_office`), beside the inbox. It never counts against `daemon.maxConcurrent`, and it shares the pool's trust check, deny rules, budget holds and failure handling. When `forge job set` parks a job on a gate whose class is in `decides`, the CLI queues a `gate` request; `forge pr sync` does the same for a job waiting on `pr-review` with changes requested or unresolved threads from someone with write access to the repo (`pr-feedback`, once per PR head; feedback only from others stays with a human). Failing checks need no judgement, so they skip the office: while the foreman decides `pr-feedback`, `forge pr sync` itself records a foreman `rework` (once per PR head, any head, a GitHub "Update branch" included), writes a fixed `feedback.md` pointing the builder at `gh pr checks`, moves the job to `build` and queues a `resume` for its session. A reserved match (a security review that isn't `PASS`, or a `reserved` pattern in the job's reason) still goes through the `pr-feedback` gate. After `pr.maxCiReworks` CI reworks in a row the next red head waits for a person instead, with no gate queued (see [Open PRs](#open-prs)), and a `rounds-exhausted` park past the [total-round ceiling](#total-round-ceiling) is a person's alone. Every rework round on an open PR starts from the PR's head: `forge job round` fetches the job's branch and fast-forwards or merges it into the worktree (a conflicting merge is aborted, logged as `pr-head-pulled`, and left for the next push to surface). When `forge pr open` finds the PR branch moved, it merges it in and step re-verifies the merged HEAD (PR2b), unless the merge is not a clean base merge on the reviewed head: then the job first goes back to review (PR12); a conflicting one is aborted, and step parks the job on `human` (PR11) until a person merges it in the worktree and runs `forge verify <id>`. The office session hands each one to a `forge:assistant` sub-agent (model `foreman.assistants.model`, effort `foreman.assistants.effort`) that reads the job's files, then records the verdict with `forge job human … --actor foreman` and queues a `resume` for the job's session. It never reads a job file itself.
 
 - **`enabled`** (default `false`): nothing changes while it is off. No `gate` request is written and no office session runs. The status bar's Foreman indicator still shows, dashed, as **Foreman off**, and its popover says how to turn it on here (the key is locked in Settings and `forge config set`).
 - **`decides`**: the classes it may decide, from `spec-approval`, `split-approval`, `escalation`, `rounds-exhausted`, `conflicts`, `pr-feedback`, `repo-proposal` and `release`. The default lists every class but `repo-proposal` and `release`: approving an agent's repo proposal widens the repos a job pushes to (docs/architecture/job-repos.md), and a release publishes what can't be unpublished (RELEASES.md "Releasing a project"), so an owner adds them deliberately. `release` is a job's `forge release plan --job` awaiting approval: the Foreman's approval stands in for `forge release run`'s publish prompt when there is no terminal, for that exact plan only. `input`, `issue-link`, `infra`, `budget`, `human` and `external` are never foreman gates. An unknown entry is reported by `forge config validate` / `forge doctor` and ignored at run time.
@@ -842,10 +864,29 @@ With `foreman.enabled: true` and `daemon.enabled: true`, `forge dash` runs one m
 - **Reserved wins.** The Foreman decides a class only when `enabled` is true, the class is in `decides`, and `reserved` has no `gate:<class>` entry. Listing `release` in `decides` while keeping the default `reserved` still leaves releases with a human; to hand the class over, *move* it: add `release` to `decides` and remove `gate:release` from `reserved`. `gate:` works for every class (`gate:repo-proposal` keeps repo proposals with a human whatever `decides` says). A `gate:` entry naming no class (`gate:relase`) is reported by `forge config validate` / `forge doctor`, and at run time fails closed like any invalid `reserved`. A plain `release` text pattern would not do the same job: it would keep every gate whose reason mentions "release" with a human, and still not reserve the class.
 - **`ship`** (`propose` or `merge`): `merge` (with `enabled`) counts as `merge.auto: true` in the approver's brief and in step rule PR4, so a PR the approver marks `Auto-merge eligible: yes` under `merge.autoWhen` is merged, and `forge pr merge` still enforces every check in [Merge](#merge). The office session itself can never run `forge pr merge`.
 
-All four keys are read-only in the settings: edit them by hand.
+- **`model`**, **`effort`** and **`cadence`** (defaults `inherit`, `null`, `10`): the Foreman's own model and effort when it directs work under mandates, and the minutes (1–1440) between its passes. The director loop (#538) reads them; nothing does yet.
+- **`assistants`** (`{ enabled: true, sessions: 1, model: sonnet, effort: null }`): `model` and `effort` are the `forge:assistant` sub-agent's, which `forge job assist` returns and `forge roster` shows (its effort: the job's own, then `assistants.effort`, then `runtime.effortByComplexity`, then `runtime.effort`). `enabled` and `sessions` are read by assistant routing (#537): assistant foremen that take the gate requests in their own sessions.
+- **`surveyors`** (`{ enabled: false, model: haiku, effort: null }`): sub-agents that summarise the board, or one mandate's jobs, for the Foreman. The director loop (#538) reads them.
+- **`mandate`**: the contract terms `forge mandate new` fills a term it isn't given with (see [Mandates](#mandates)). `decides` is read now; the director loop (#538) reads the rest.
 
+The model and effort keys (`foreman.model`, `foreman.effort`, `foreman.assistants.model|effort`, `foreman.surveyors.model|effort`) are editable in the settings and with `forge config set`: they pick a model and how much it thinks, never what it may do. Every other key here is read-only there: edit it by hand.
+
+- **Migration** (config `schemaVersion` 34 → 35): `runtime.models.assistant` moves to `foreman.assistants.model` and `runtime.efforts.assistant` to `foreman.assistants.effort`, as written; a value already under `foreman.assistants` wins, and the old keys are deleted. A config with neither key, or whose `foreman` isn't a map, is unchanged; the other new keys come from the defaults. A hand-written `runtime.efforts.assistant` in a current config is reported as `runtime.efforts.assistant is not a role`.
 - **Migration** (config `schemaVersion` 17 → 18): a `foreman.reserved` list without `gate:release` gains it at the end; nothing else changes. `deepMerge` replaces lists, so a config that wrote out its own `reserved` would otherwise miss the new default. A v17 `decides` can't name `release` (it was invalid there), so no delegation is taken away, and the bump lets older Forges refuse a config whose `decides` names a class they would ignore.
 - **Migration** (config `schemaVersion` 4 → 5): nothing changes. v5 adds `foreman.*` (off by default), `runtime.models.assistant` and `runtime.efforts.assistant`; the bump lets older Forges refuse a config whose foreman policy they would ignore. docs/architecture/foreman.md covers routing and the authority checks.
+
+### Mandates
+
+A **mandate** is the owner's standing instruction to the Office: one file, `.forge/runtime/mandates/<id>.md`, with the mandate contract as YAML frontmatter and the owner's guidance as free text after it. `runtime/` is gitignored and outside every daemon session's write roots, so a mandate is this machine's alone and no branch or PR can change one. Only `forge mandate` writes it (docs/CLI.md):
+
+- `forge mandate new <id> --title T [terms]` creates it, `active`. Each term it isn't given comes from `foreman.mandate`, and the default `decides` is cut to the classes the Foreman may decide (`foreman.decides` minus `gate:<class>` reservations), so a default never causes a refusal. `edit` replaces only the terms given (`none` empties a list, `--after none` clears `after`); `pause`, `resume` and `close` move its status (each idempotent; a closed mandate is never edited, paused or resumed); `list` and `show` read.
+- The id matches `^[a-z0-9][a-z0-9-]{0,39}$` and is not `none`.
+- **The contract.** `scope` (`milestones`, in order; `labels`; `issues`, at least one non-empty), `until` (`merge-ready` or `merged`), `maxJobs` (1–16), `order` (`graph`, `priority` or `listed`: `listed` works exactly `scope.issues` in order, and issues need it), `decides` (gate classes), `budget` (`usd` over 0 and at most 100000, `jobs` 1–1000), `stall` (`cadences` and `bounces`, 1–100), `onUnfinishable` (`park` or `cancel`) and `after` (another mandate's id). Milestones and labels are 1–100 characters, never start with `-` and have no control characters, at most 10 each; at most 100 issues, each a ref the tracker accepts. A write that breaks any rule is refused with every problem named, and nothing is written.
+- **As it applies now.** `forge mandate show` prints the contract as written (`contract`) and as it applies (`effective`), with one `capped` line per term the config changed: `decides` keeps only the classes in `foreman.decides` that `foreman.reserved` doesn't hold as a class (none while `foreman.enabled` is false or `foreman.reserved` can't be read), and `until: merged` applies only under `foreman.ship: merge`. Defaults are filled at write time, so a file states its own contract; caps apply at read time.
+- **Chains.** `after` links mandates into linear chains: a mandate is `waiting` until the one it follows is closed (or while that one is missing or unreadable), and closing a link makes the next one `active` without writing to it. `list` and `show` give each mandate's `chain` and its `activeLink`, the first link not closed.
+- **Jobs and narrowing.** `forge job new --mandate <id>` puts a job in a mandate (refused for an unknown, closed or unreadable one), and a split child keeps its parent's; `mandate` is locked, so `forge job set` can't move a job out. For a job in a mandate, the Foreman decides only the classes the effective `foreman.decides` and that mandate's `decides` both name, whatever the mandate's status; `checkForemanDecision` refuses the rest, `gateOwner` shows them as a human's, and `forge job assist` returns them as `reserved` so the office hands them off. A mandate file that is missing or can't be read (a link, not a regular file, over 64 KiB, bad frontmatter, a term that breaks the rules, a `schemaVersion` from a newer Forge, an id unlike its file name) delegates nothing.
+- **Guidance is data.** The body (at most 8000 characters) reaches the assistant's brief and `forge mandate show` only fenced, as for tracker text: a provenance line, then `>` lines, with hidden characters and HTML comments removed. It never widens what the Foreman may decide.
+- **Daemon sessions** (job, inbox or office) may run `list` and `show` but no write: `new`, `edit`, `pause`, `resume` and `close` are refused before anything is read. Each write that changes something appends a `mandate-<action>` event to the repo audit log, which `forge audit` lists with the mandate's id as its detail.
 
 ## Components
 

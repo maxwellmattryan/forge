@@ -81,6 +81,14 @@ function detail(e: JobEvent): string | null {
     case 'config-set':
       d = `${String(e.key)}: ${JSON.stringify(e.previous ?? null)} -> ${JSON.stringify(e.value ?? null)}`;
       break;
+    // forge mandate's writes name the mandate.
+    case 'mandate-new':
+    case 'mandate-edit':
+    case 'mandate-pause':
+    case 'mandate-resume':
+    case 'mandate-close':
+      d = str(e.mandate);
+      break;
     default:
       d = null;
   }

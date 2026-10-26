@@ -51,6 +51,8 @@ export const API_CHANGES = [
   { id: 'machine-server' },
   // The Overview: MachineProjectSummary.latest and .daemon.office, GET /api/projects/stats.
   { id: 'overview' },
+  // Job.mandate: the mandate a job works under, or null.
+  { id: 'job-mandate' },
 ] as const;
 
 /**

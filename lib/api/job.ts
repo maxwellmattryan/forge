@@ -287,6 +287,11 @@ export interface Job {
   splitMode: 'never' | null;
   /** The human's reasoning effort for this job (`forge job effort`); null inherits runtime.effort. */
   effort: Effort | null;
+  /**
+   * The mandate this job works under (`forge job new --mandate`, or its split parent's), which narrows
+   * the gates the Foreman may decide for it; null when it is in none. Locked once set.
+   */
+  mandate: string | null;
   /** The spec's `Complexity:` header, recorded at SP3; picks runtime.effortByComplexity. */
   complexity: Complexity | null;
   /** Escalate paths the branch changes, recorded by the CLI only: recordProtected in lib/engine/guard/protected.ts. */

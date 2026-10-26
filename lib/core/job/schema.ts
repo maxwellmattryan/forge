@@ -13,7 +13,7 @@ import { JOB_SCHEMA_VERSION, JOB_STEPS, noLease, ownerToLease, sourceToIssues } 
 import { EVENT_SCHEMA_VERSION, EVENT_STEPS } from '../versions/event.ts';
 import type { EventActor, HumanGrant, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcome, JobRepo, JobRepoPr, JobScore, LoadedJob } from '../types.ts';
 
-export { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, STAGES, STATES, WAITING_ON } from '#api/constants.ts';
+export { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_STATUSES, MANDATE_UNTIL, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, STAGES, STATES, WAITING_ON } from '#api/constants.ts';
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from '../config/components.ts';
 export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from '../config/validators/backing.ts';
 export { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, noLease };
@@ -40,8 +40,11 @@ export const NOTIFY_GATES = ['spec-approval', 'split-approval', 'issue-link', 'i
 /** A model alias or id as runtime.models and the builder overrides take it; here so config.ts and config-fields.ts share it without an import cycle. */
 export const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]*$/;
 
-/** The roles runtime.efforts sets, in runtime.models order. No orchestrator: sessions take runtime.effort. */
-export const EFFORT_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'reviewer', 'approver', 'integrator', 'retro', 'judge', 'assistant'] as const;
+/**
+ * The roles runtime.efforts sets, in runtime.models order. No orchestrator: sessions take runtime.effort.
+ * No assistant: its effort is foreman.assistants.effort.
+ */
+export const EFFORT_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'reviewer', 'approver', 'integrator', 'retro', 'judge'] as const;
 
 /**
  * A foreman.reserved entry read as a class reservation: the class for exactly `gate:<class>`
@@ -350,6 +353,9 @@ export function normalizeJob(raw: any): LoadedJob {
     splitMode: job.splitMode ?? null,
     // A hand- or session-edited value outside the fixed list must never reach a daemon's argv.
     effort: (EFFORTS as readonly unknown[]).includes(job.effort) ? job.effort : null,
+    // Never dropped to null when malformed: null would widen what the Foreman decides. A bad value
+    // stays a string, which then reads as an unreadable mandate and fails closed.
+    mandate: job.mandate == null ? null : String(job.mandate),
     complexity: (COMPLEXITIES as readonly unknown[]).includes(job.complexity) ? job.complexity : null,
     // Tolerant: anything but an object with a hits list reads as no flag. Safe, because verify and
     // pr open recompute the set from git rather than trusting this.

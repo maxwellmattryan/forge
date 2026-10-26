@@ -33,9 +33,10 @@ export const JOB: HelpGroup = {
         ['--parent ID', 'the umbrella job this one was split from'],
         ['--services a,b', 'the services it touches'],
         ['--effort E', "the job's reasoning effort: low, medium, high, xhigh or max (default: inherit runtime.effort)"],
+        ['--mandate ID', "the mandate it works under, which narrows what the Foreman decides for it (default: --parent's); locked once set"],
         ['--force', 'start it past an exceeded repo budget (budget:), logged as a budget-override; a human only'],
       ],
-      exits: [[1, 'an unsafe --branch or ref, --no-issue with tracker.kind none, or --effort or --force from a daemon session']],
+      exits: [[1, "an unsafe --branch or ref, --no-issue with tracker.kind none, --effort or --force from a daemon session, or a --mandate that is unknown (not_found), closed, unreadable or not --parent's"]],
     },
     {
       command: 'job from-ref',

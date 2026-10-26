@@ -11,7 +11,9 @@ import { HANDOFF_CLASSES, OFFICE_GATES } from '#core/job/schema.ts';
 import { daemonScope, inOffice } from '#core/job/requests.ts';
 import { createAndLink, linkJob, markNoIssue } from '#engine/trackers/link.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
-import { modelFor, resolveEffort } from '#core/config/load.ts';
+import { resolveEffort, resolveModel } from '#core/config/load.ts';
+import { jobMandateDecides } from '#office/mandates/store.ts';
+import { mandateGuidance } from '#office/mandates/contract.ts';
 import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
 import { ForgeError } from '#core/errors.ts';
 import type { Config, Job } from '#core/types.ts';
@@ -114,18 +116,24 @@ function assist(root: string, config: Config, job: Job, rawGate: unknown) {
   // A release is a plan awaiting approval, not a park: stale once release.json moves on or it is approved.
   const releaseHash = gate === 'release' ? pendingReleaseHash(root, job.id, events) : null;
   const stale = gate === 'release' ? releaseHash === null : gateClassFor(root, job) !== gate;
+  // A job in a mandate: a class the mandate doesn't delegate, or a mandate that can't be read, is a
+  // human's, and the office's reserved path hands it off.
+  const m = stale ? null : jobMandateDecides(root, config, job);
+  const delegated = m !== null && !('problem' in m) && m.decides.includes(gate) ? m : null;
+  const mandateHold = m === null || delegated ? null : 'problem' in m ? `mandate ${m.id}: can't be read` : `mandate ${m.id}: ${gate} is not delegated`;
   // A class reserved with gate:<class> is a human's even when a request for it exists.
-  const reserved = stale ? null : (classReservation(config, gate) ?? reservedFor(root, config, job, gate));
+  const reserved = stale ? null : (classReservation(config, gate) ?? mandateHold ?? reservedFor(root, config, job, gate));
   // One read of the events for both the brief and `repos`, so the foreman's --repo is exactly the set the assistant judged.
   const pending = gate === 'repo-proposal' && !stale ? pendingRepoProposals(job, events) : [];
+  const mandate = delegated ? { id: delegated.id, decides: delegated.decides, guidance: mandateGuidance(delegated.mandate) } : null;
   return {
     gate,
     stale,
     reserved,
-    model: modelFor(config, 'assistant'),
+    model: resolveModel(config, job, 'assistant'),
     effort: resolveEffort(config, job, 'assistant').level,
     subagent: 'forge:assistant',
-    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved, events, pending, releaseHash, stale ? null : securityHold(job)),
+    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved, events, pending, releaseHash, stale ? null : securityHold(job), mandate),
     // The brief's `Pending repos` names: the foreman passes exactly these as --repo, and `exact` refuses once they stop being the pending set.
     ...(gate === 'repo-proposal' && !stale ? { repos: pending.map((r) => r.repo) } : {}),
   };

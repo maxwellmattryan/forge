@@ -45,6 +45,7 @@ import { helpCmd, usage } from './commands/help.ts';
 import { confirmHuman, mergeNowOp } from './commands/human.ts';
 import { initWrite, migrate } from './commands/init.ts';
 import { jobCmd } from './commands/job.ts';
+import { mandateCmd } from './commands/mandate.ts';
 import { notifyCmd } from './commands/notify.ts';
 import { projectCmd } from './commands/project.ts';
 import { releaseCmd } from './commands/release.ts';
@@ -265,6 +266,9 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     case 'experiment':
       needInit();
       return experimentCmd(ctx, sub, rest, flags);
+    case 'mandate':
+      needInit();
+      return mandateCmd(ctx, sub, rest, flags);
     case 'requests':
       return ok(requestsCmd(root, config, sub, rest, flags));
     case 'notify':

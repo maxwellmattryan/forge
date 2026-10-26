@@ -1,0 +1,120 @@
+// Mandate files: `.forge/runtime/mandates/<id>.md`, YAML frontmatter then the owner's guidance. Read
+// without following a link or blocking on a FIFO, written only by `forge mandate` under one lock, and
+// read for a job whose `mandate` is set to narrow what the Foreman decides (jobMandateDecides).
+// docs/architecture/foreman.md.
+import fs from 'node:fs';
+import path from 'node:path';
+import { paths } from '#core/paths.ts';
+import { listJobs, logRepoEvent } from '#core/job/store.ts';
+import { readRegular, writeTextAtomic } from '#core/os/fs.ts';
+import { withLock } from '#core/os/lock.ts';
+import * as yaml from '#core/format/yaml.ts';
+import { currentActor } from '#integrations/github/actor.ts';
+import { decides } from '#engine/pipeline/moves/foreman-gates.ts';
+import { MANDATE_ID, MANDATE_KEYS, isMandateId, isReadable, storedMandate } from './contract.ts';
+import type { Config, GateClass, Job } from '#core/types.ts';
+import type { Mandate, ReadMandate } from './types.ts';
+
+export { MANDATE_ID };
+
+/** A mandate file is a short contract and at most 8000 characters of guidance: anything larger is not one. */
+const MAX_BYTES = 64 * 1024;
+
+/** The audit actions a mandate write logs, as `mandate-<action>`. */
+export type MandateAction = 'new' | 'edit' | 'pause' | 'resume' | 'close';
+
+const fileOf = (root: string, id: string): string => path.join(paths(root).mandates, `${id}.md`);
+
+/** The repo-relative path of a mandate's file, as `forge mandate show` prints it. */
+export const mandateFile = (root: string, id: string): string => path.relative(root, fileOf(root, id));
+
+/** The frontmatter between the first two `---` lines, and the body after them; null when there is none. */
+function splitFrontmatter(text: string): { front: string; body: string } | null {
+  const lines = text.split('\n');
+  if (lines[0]?.replace(/\r$/, '') !== '---') return null;
+  const end = lines.findIndex((l, i) => i > 0 && l.replace(/\r$/, '') === '---');
+  if (end < 0) return null;
+  const body = lines.slice(end + 1).join('\n');
+  return { front: lines.slice(1, end).join('\n'), body: body.endsWith('\n') ? body.slice(0, -1) : body };
+}
+
+/**
+ * One mandate, or `{ id, problem }` when its file can't be read safely: a bad id, no file (`no such
+ * mandate`), a link, a non-regular file, over 64 KiB, bad frontmatter, or a term that breaks the
+ * contract's rules (storedMandate). Callers never act on an unreadable mandate.
+ */
+export function readMandate(root: string, id: string): ReadMandate {
+  if (!isMandateId(id)) return { id: String(id).slice(0, 60), problem: 'not a mandate id' };
+  const bytes = readRegular(fileOf(root, id), MAX_BYTES);
+  if (typeof bytes === 'string') return { id, problem: bytes === 'unreadable (ENOENT)' ? 'no such mandate' : bytes };
+  const parts = splitFrontmatter(bytes.toString('utf8'));
+  if (!parts) return { id, problem: 'no frontmatter between --- lines' };
+  let raw: unknown;
+  try {
+    raw = yaml.parse(parts.front);
+  } catch (e) {
+    return { id, problem: `bad frontmatter: ${(e as Error).message.slice(0, 120)}` };
+  }
+  return storedMandate(raw, id, parts.body);
+}
+
+/** Every `<id>.md` in the mandates dir whose name is a mandate id, read; other names are ignored. */
+export function listMandates(root: string): ReadMandate[] {
+  let names: string[];
+  try {
+    names = fs.readdirSync(paths(root).mandates);
+  } catch {
+    return [];
+  }
+  return names
+    .filter((n) => n.endsWith('.md') && isMandateId(n.slice(0, -3)))
+    .map((n) => readMandate(root, n.slice(0, -3)))
+    .sort((a, b) => {
+      // Unreadable files have no creation time; they sort after the rest, by id.
+      const at = (m: ReadMandate) => (isReadable(m) ? m.createdAt : '￿');
+      return at(a).localeCompare(at(b)) || a.id.localeCompare(b.id);
+    });
+}
+
+/** A mandate as its file holds it: every frontmatter key in order, then the body. */
+function render(m: Mandate): string {
+  const front = Object.fromEntries(MANDATE_KEYS.map((k) => [k, m[k]]));
+  return `---\n${yaml.stringify(front)}---\n${m.body ? `${m.body}\n` : ''}`;
+}
+
+/**
+ * The one write path. Under the mandates lock, `plan` gets every mandate as it is now and returns the
+ * record to write with its audit action, or null to write nothing (it throws to refuse). A written
+ * record appends one `mandate-<action>` event to the repo audit log.
+ */
+export function writeMandate<T extends { mandate: Mandate; action: MandateAction; reason?: string | null } | null>(root: string, plan: (all: ReadMandate[]) => T): T {
+  return withLock(path.join(paths(root).locks, 'mandates'), () => {
+    const out = plan(listMandates(root));
+    if (!out) return out;
+    const { mandate: m, action, reason } = out;
+    writeTextAtomic(fileOf(root, m.id), render(m), { root });
+    logRepoEvent(root, `mandate-${action}`, { mandate: m.id, ...(reason ? { reason } : {}), actor: currentActor(root) });
+    return out;
+  });
+}
+
+/** The ids of the jobs whose `mandate` is `id`. */
+export function mandateJobs(root: string, id: string): string[] {
+  return listJobs(root)
+    .filter((j) => j.mandate === id)
+    .map((j) => j.id)
+    .sort();
+}
+
+/**
+ * What a job's mandate lets the Foreman decide: null when the job is in none; the written decides cut to
+ * the effective foreman.decides, whatever the mandate's status; or the problem when its file is missing
+ * or can't be read, which the callers treat as no class delegated (fail closed).
+ */
+export function jobMandateDecides(root: string, config: Config, job: Pick<Job, 'mandate'>): null | { id: string; decides: GateClass[]; mandate: Mandate } | { id: string; problem: string } {
+  if (job.mandate === null || job.mandate === undefined) return null;
+  const m = readMandate(root, job.mandate);
+  if (!isReadable(m)) return { id: m.id, problem: m.problem };
+  const granted = decides(config);
+  return { id: m.id, decides: m.decides.filter((g) => granted.includes(g)), mandate: m };
+}
