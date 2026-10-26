@@ -292,7 +292,8 @@ export interface MandateTermsBody {
 
 /** POST /api/mandates: a new mandate; every term not sent comes from foreman.mandate. */
 export interface PostMandateBody extends MandateTermsBody {
-  id: string;
+  /** Absent: the server picks m-<8 hex>, returned as mandate.id. */
+  id?: string;
   title: string;
 }
 

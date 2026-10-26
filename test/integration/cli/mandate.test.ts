@@ -122,6 +122,36 @@ test('forge mandate new, show, pause, resume, close and list', async () => {
   }
 });
 
+test('forge mandate new picks an id when none is given', async () => {
+  const r = scratch();
+  try {
+    const out = await ok(r.dir, ['mandate', 'new', '--title', 'T', '--milestones', 'M1']);
+    const id = out.mandate.id as string;
+    assert.match(id, /^m-[0-9a-f]{8}$/);
+    assert.deepEqual([out.ok, out.changed, out.mandate.title], [true, true, 'T']);
+    const fm = yaml.parse(read(path.join(mandatesDir(r.dir), `${id}.md`)).split(/^---$/m)[1]);
+    assert.equal(fm.id, id);
+    const events = read(auditFile(r.dir)).split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.type === 'mandate-new');
+    assert.deepEqual(events.map((e) => e.mandate), [id], 'one mandate-new event naming the picked id');
+
+    // Two ids are a usage error, and write nothing.
+    const before = snapshot(r.dir);
+    const two = await forgeInProcess(r.dir, ['mandate', 'new', 'a', 'b', '--title', 'T', '--milestones', 'M1']);
+    assert.equal(two.error?.code, 'usage', JSON.stringify(two.error));
+    assert.deepEqual(snapshot(r.dir), before);
+
+    // A goal mandate's first drafting run is queued for the picked id.
+    const goal = await ok(r.dir, ['mandate', 'new', '--title', 'G', '--goal', 'Halve review rounds']);
+    assert.match(goal.mandate.id, /^m-[0-9a-f]{8}$/);
+    assert.notEqual(goal.mandate.id, id);
+    assert.equal(typeof goal.draft.request, 'string');
+    const draft = await ok(r.dir, ['mandate', 'draft', 'show', goal.mandate.id]);
+    assert.deepEqual([draft.status, draft.request?.id], ['queued', goal.draft.request]);
+  } finally {
+    r.cleanup();
+  }
+});
+
 test('mandate writes are refused in daemon sessions', async () => {
   const r = scratch();
   try {

@@ -76,6 +76,8 @@ export const API_CHANGES = [
   { id: 'agent-runs' },
   // MandateContract.scoring (all | sample | off); the scoring term on POST /api/mandates and /api/mandates/:id/edit.
   { id: 'mandate-scoring' },
+  // PostMandateBody.id is optional: POST /api/mandates without one gets a generated id (m-<8 hex>), returned as mandate.id.
+  { id: 'mandate-auto-id' },
 ] as const;
 
 /**
