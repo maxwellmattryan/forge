@@ -1041,7 +1041,7 @@ repos:
 | `versioning` | `semver`, `calver` | `null` | How version numbers are chosen. |
 | `mechanism` | `release-please`, `cargo-release`, `changesets`, `tag`, `script` | `null` | The tool that cuts a release; `tag` means a git tag made by the repo's own `command`, and `script` a release script that implements the script protocol (below). |
 | `command` | a one-line string, at most 1000 characters | `null` | The command a human runs to release; read only with `mechanism: tag`. `forge release run` runs it, after asking unless `publish: allow`; doctor never does. Support bundles redact it. |
-| `script` | a repo-relative path, at most 200 characters | `null` | The release script `forge release plan` and `forge release run` drive; read only with `mechanism: script`. Doctor never runs it. |
+| `script` | a repo-relative path, at most 200 characters, with the other limits in the validation list below | `null` | The release script `forge release plan` and `forge release run` drive; read only with `mechanism: script`. Doctor never runs it. |
 | `registry` | `crates.io`, `npm`, `none` | `null` | Where released packages are published (`none`: a tag or GitHub Release only). |
 | `cadence` | `on-merge`, `scheduled`, `manual` | `null` | When a release happens: every merge to the default branch, on a timer (usually CI), or when a human decides. |
 | `publish` | `confirm`, `allow` | `null` | Whether `forge release run` asks on a terminal before each of this repo's publish steps (`confirm`, and `null`) or runs them without asking (`allow`). With `allow`, an agent session that runs `forge release run` publishes too: set it only where that is acceptable. Only a hand edit of `.forge/config.yml` sets it: Settings does not edit it. |
@@ -1094,7 +1094,7 @@ The hints: `npm install --save-dev release-please`, `npm install --save-dev @cha
 
 Every phase must be idempotent: run again, or after the release has moved past it, it exits 0 without acting, so `forge release run` can resume anywhere. A phase never asks a question on a terminal: the engine asked before each publish step. `forge release plan` refuses a draft that exits non-zero or prints anything but that shape (a `next` that is not `X.Y.Z`, a `bump` outside the three, a `draft` that does not start with `## <next>`, more than 5 reasons, more than 256 KB), naming the repo and the script's last stderr line, and writes nothing. [RELEASES.md "Releasing a project"](RELEASES.md#releasing-a-project) has the steps and their rollback.
 
-**Forge's own release** ([RELEASES.md "Releasing"](RELEASES.md#releasing)) is a script release: `scripts/release.ts` implements the protocol on top of `npm run release`'s own functions, so both paths make the same checks. Forge's `.forge/config.yml` declares:
+**Forge's own release** ([RELEASES.md "Releasing"](RELEASES.md#releasing)) is written for the script mechanism: `scripts/release.ts` implements the protocol on top of `npm run release`'s own functions, so both paths make the same checks. With this block in Forge's `.forge/config.yml`, `forge release plan|run` drives it; without it `forge release` skips the repo (`no release.mechanism`) and `npm run release` is the whole release. The block is a maintainer's edit on `develop`, because `forge git commit` refuses `.forge/config.yml` to a job (Forge's own policy changes only by a human):
 
 ```yaml
 release:

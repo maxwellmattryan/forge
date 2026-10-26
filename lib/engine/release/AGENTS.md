@@ -4,7 +4,7 @@ Releases: plans, runs and approvals, and interim releases across member repos.
 
 - `interim.ts` is pure (no fs or git), so `forge job step` can import it; the git-dependent half is `interim-apply.ts`.
 - `plan.ts` was split in #419, with runtime imports one way: `manifest.ts` imports nothing here, `steps.ts` imports only types from `plan.ts`, `script.ts` imports `steps.ts` and only types from `plan.ts`, `plan.ts` imports `steps.ts`, `script.ts` and `manifest.ts`, `render.ts` imports `plan.ts`, `files.ts` imports `plan.ts`, `render.ts` and `script.ts`, and `dry-run.ts` imports `plan.ts`, `files.ts` and `render.ts`.
-- This is the release flow Forge runs for the repos it works on, and for Forge's own release too: Forge's `.forge/config.yml` declares `mechanism: script`, so `forge release plan|run` drives `scripts/release.ts`, which keeps every trust check, as `npm run release` does (docs/RELEASES.md "Releasing"). `script.ts` only ever spawns `node <script> …`.
+- This is the release flow Forge runs for the repos it works on, and for Forge's own release too, once `.forge/config.yml` declares `mechanism: script` (a maintainer's edit; docs/CONFIG.md "Release strategy" has the block): `forge release plan|run` then drives `scripts/release.ts`, which keeps every trust check, as `npm run release` does (docs/RELEASES.md "Releasing"). `script.ts` only ever spawns `node <script> …`.
 - Design: [Interim strategies](../../../docs/architecture/interim-strategies.md), [Foreman](../../../docs/architecture/foreman.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
