@@ -1,6 +1,7 @@
 // `forge mandate new|edit|pause|resume|close|list|show`: the owner's mandates to the Office
 // (lib/office/mandates/, docs/CONFIG.md "Mandates"). Every write is refused in a daemon session, before
 // anything is read: a session misled by tracker or PR text must not widen or create what directs the Office.
+import fs from 'node:fs';
 import { ForgeError } from '#core/errors.ts';
 import { now } from '#core/utils.ts';
 import { listMandates, mandateFile, mandateJobs, writeMandate } from '#office/mandates/store.ts';
@@ -14,6 +15,7 @@ import {
   isReadable,
   issueRefs,
   mandateChain,
+  mandateGoal,
   mandateGuidance,
   mandateProblems,
   mandateState,
@@ -52,7 +54,14 @@ const MANDATE: HelpGroup = {
       args: '<id> --title T [terms]',
       summary:
         'create a mandate, active, with every contract term not given taken from foreman.mandate (the default decides cut to the classes the foreman may decide) ({ok, changed, mandate})',
-      flags: [['--title T', 'one line, at most 200 characters (required)'], ...TERMS],
+      flags: [
+        ['--title T', 'one line, at most 200 characters (required)'],
+        [
+          '--goal T | --goal-file F',
+          "a goal mandate: the owner's goal, set once, at most 4000 characters (F may be - for stdin), fenced as data wherever it is shown; its scope stays empty, and the first drafting run is queued (draft.request)",
+        ],
+        ...TERMS,
+      ],
       exits: [[1, `the id exists or is not a mandate id, a term breaks the contract (every problem named), or ${DAEMON_EXIT}`]],
       docs: DOCS,
       readme: true,
@@ -124,6 +133,27 @@ function numFlag(v: unknown, flag: string): number | undefined {
   return s === undefined ? undefined : Number(s);
 }
 
+/**
+ * `--goal` or `--goal-file` (`-` for stdin) as `new` stores it: CRLF and lone CR to LF, then trimmed;
+ * undefined when neither is given. The contract judges the result, so an empty goal is refused there.
+ */
+function goalFrom(flags: Record<string, any>): string | undefined {
+  const inline = flags.goal;
+  const file = flags['goal-file'];
+  if (inline === undefined && file === undefined) return undefined;
+  if (inline !== undefined && file !== undefined) throw new ForgeError('pass --goal or --goal-file, not both', 'usage');
+  let raw: string;
+  if (file !== undefined) {
+    const f = str(file, '--goal-file')!;
+    try {
+      raw = fs.readFileSync(f === '-' ? 0 : f, 'utf8');
+    } catch (e) {
+      throw new ForgeError(`can't read --goal-file ${JSON.stringify(f).slice(0, 200)} (${(e as NodeJS.ErrnoException).code ?? 'error'})`, 1);
+    }
+  } else raw = inline === '' ? '' : str(inline, '--goal')!;
+  return raw.replace(/\r\n?/g, '\n').trim();
+}
+
 /** The terms the flags give, and nothing else, so an edit replaces only those. */
 function inputFrom(ctx: CliContext, flags: Record<string, any>): MandateInput {
   const input: MandateInput = {};
@@ -177,7 +207,8 @@ function written(root: string, id: string, changed: boolean) {
 function write(ctx: CliContext, sub: string, id: string, flags: Record<string, any>) {
   const { root, config } = ctx;
   if (sub === 'new') {
-    const input = inputFrom(ctx, { ...flags, title: req(flags.title, '--title') });
+    const goal = goalFrom(flags);
+    const input = { ...inputFrom(ctx, { ...flags, title: req(flags.title, '--title') }), ...(goal === undefined ? {} : { goal }) };
     writeMandate(root, (all) => {
       if (all.some((m) => m.id === id)) throw new ForgeError(`mandate ${id} exists; change it with forge mandate edit`, 1);
       const refs = issueRefs(root, config, fillDefaults(config, input));
@@ -210,14 +241,25 @@ function show(ctx: CliContext, id: string) {
   const all = listMandates(root);
   const m = target(all, id);
   const { effective, capped } = effectiveContract(config, m);
-  return { ...mandateSummary(m, all), effective, capped, ...mandateChain(m, all), jobs: mandateJobs(root, m.id), guidance: mandateGuidance(m), file: mandateFile(root, m.id) };
+  return {
+    ...mandateSummary(m, all),
+    effective,
+    capped,
+    ...mandateChain(m, all),
+    jobs: mandateJobs(root, m.id),
+    guidance: mandateGuidance(m),
+    goal: mandateGoal(m),
+    file: mandateFile(root, m.id),
+  };
 }
 
 function listCmd(root: string) {
   const all = listMandates(root);
   return {
     mandates: all.map((m) =>
-      isReadable(m) ? { id: m.id, title: m.title, status: m.status, state: mandateState(m, all), after: m.after, ...mandateChain(m, all) } : { id: m.id, problem: m.problem },
+      isReadable(m)
+        ? { id: m.id, title: m.title, status: m.status, state: mandateState(m, all), after: m.after, intake: m.goal !== null, ...mandateChain(m, all) }
+        : { id: m.id, problem: m.problem },
     ),
   };
 }
@@ -232,6 +274,7 @@ export function mandateCmd(ctx: CliContext, sub: string | undefined, rest: strin
   }
   if (sub === undefined || (!WRITES.has(sub) && sub !== 'show')) throw usageError(MANDATE);
   if (rest.length !== 1) throw usageError(MANDATE, sub);
+  if (sub === 'edit' && (flags.goal !== undefined || flags['goal-file'] !== undefined)) throw new ForgeError('--goal is set only by forge mandate new', 'usage');
   const id = rest[0];
   if (sub === 'show') return { data: show(ctx, id), exitCode: 0 };
   return { data: write(ctx, sub, id, flags as Record<string, any>), exitCode: 0 };
