@@ -499,14 +499,15 @@ See [Changing settings](CONFIG.md#changing-settings).
 
 The dashboard's headless sessions, from the terminal.
 
-**`forge daemon log <job>|--inbox|--office [--lines N] [--follow]`**: a session's log, from the terminal
+**`forge daemon log <job>|--inbox|--office|--assistant N [--lines N] [--follow]`**: a session's log, from the terminal
 
 | Flag | Meaning |
 |---|---|
+| `--assistant N` | assistant foreman N's log (1-16) instead of a job's |
 | `--follow` | keep printing lines as they are written |
 | `--inbox` | the inbox session's log instead of a job's |
 | `--lines N` | the last N lines (default 100, at most 5000) |
-| `--office` | the foreman's office session's log instead of a job's |
+| `--office` | the Foreman's office session's log instead of a job's |
 
 | Exit | When |
 |---|---|
@@ -1547,7 +1548,7 @@ The dashboard's inbox of requests for an orchestrator session.
 |---|---|
 | 1 | a daemon session's scope is invalid |
 
-**`forge requests scope`**: which session this is: not a daemon, the inbox, the office, or one job
+**`forge requests scope`**: which session this is: not a daemon, the inbox, the office, an assistant foreman (which sees every gate request), or one job
 
 | Exit | When |
 |---|---|

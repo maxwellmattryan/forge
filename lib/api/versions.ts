@@ -53,6 +53,8 @@ export const API_CHANGES = [
   { id: 'overview' },
   // Job.mandate: the mandate a job works under, or null.
   { id: 'job-mandate' },
+  // DaemonPoolState.assistants; Stats.cost.sessions.assistant; gate requests route to _assistants.
+  { id: 'assistant-foremen' },
 ] as const;
 
 /**

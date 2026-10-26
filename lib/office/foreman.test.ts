@@ -8,10 +8,13 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { BIN, forgeInProcess, parkedAt, repoTemplate } from '../../test/helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
-import { jobDir, loadJob, readEvents } from '#core/job/store.ts';
-import { checkForemanDecision, gateOwner } from './foreman.ts';
+import { jobDir, loadJob, logHumanEvent, readEvents } from '#core/job/store.ts';
+import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
+import { foremanReleaseApproval, releaseApprovalStatus } from '#engine/release/approval.ts';
+import { checkForemanDecision, gateOwner, releaseMandateRefusal } from './foreman.ts';
+import type { Job } from '#core/types.ts';
 
-const OFFICE: NodeJS.ProcessEnv = { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_office' };
+const OFFICE: NodeJS.ProcessEnv = { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_assistant-1' };
 
 const scratch = repoTemplate((dir) => {
   const answers = path.join(dir, '.answers.json');
@@ -110,6 +113,58 @@ test('a mandate narrows approve-release too', async () => {
       assert.match(res.error?.message ?? '', row.refused ? row.refused('release') : /--actor foreman refused: no release plan; a human runs forge release plan --job first/, row.name);
       assert.ok(!readEvents(r.dir, r.jobs[i]).some((e) => e.type === 'release-approval'), `${row.name}: nothing recorded`);
     }
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('a foreman release approval stops counting once its mandate narrows', async () => {
+  const r = scratch();
+  try {
+    const config = loadConfig(r.dir).config;
+    const hash = 'a'.repeat(64);
+    const rows: { name: string; mandate: string | null; then?: (id: string) => Promise<void> | void; counts: boolean }[] = [
+      { name: 'the mandate still delegates release', mandate: 'kept', counts: true },
+      { name: 'the mandate is narrowed', mandate: 'edited', then: (id) => cli(r.dir, ['mandate', 'edit', id, '--decides', 'split-approval']), counts: false },
+      { name: 'the mandate is paused', mandate: 'halted', then: (id) => cli(r.dir, ['mandate', 'pause', id]), counts: false },
+      { name: 'the mandate is closed', mandate: 'ended', then: (id) => cli(r.dir, ['mandate', 'close', id]), counts: false },
+      { name: 'the mandate file was deleted', mandate: 'gone', then: (id) => fs.rmSync(path.join(mandates(r.dir), `${id}.md`)), counts: false },
+      {
+        name: 'the mandate file is a symlink',
+        mandate: 'swapped',
+        then: (id) => {
+          fs.rmSync(path.join(mandates(r.dir), `${id}.md`));
+          fs.symlinkSync(path.join(mandates(r.dir), 'kept.md'), path.join(mandates(r.dir), `${id}.md`));
+        },
+        counts: false,
+      },
+      { name: 'a job in no mandate', mandate: null, counts: true },
+    ];
+    for (const row of rows) if (row.mandate) await cli(r.dir, ['mandate', 'new', row.mandate, '--title', row.mandate, '--milestones', 'M1', '--decides', 'split-approval,release']);
+    const narrow = (j: Job) => releaseMandateRefusal(r.dir, config, j);
+    for (const row of rows) {
+      const job = parkedAt(r.dir, 'spec-approval', { title: row.name, create: { mandate: row.mandate } }).id;
+      logHumanEvent(r.dir, job, 'release-approval', { planHash: hash, note: 'the plan is fine' }, FOREMAN_ACTOR);
+      const plan = { selection: { kind: 'job' as const, job }, hash };
+      assert.ok(foremanReleaseApproval(r.dir, config, plan, narrow), `${row.name}: counts before`);
+      assert.equal(releaseApprovalStatus(r.dir, config, plan, narrow).status, 'approved', `${row.name}: approved before`);
+      if (row.mandate) await row.then?.(row.mandate);
+      if (row.counts) {
+        assert.ok(foremanReleaseApproval(r.dir, config, plan, narrow), `${row.name}: still counts`);
+        assert.equal(releaseApprovalStatus(r.dir, config, plan, narrow).status, 'approved', `${row.name}: still approved`);
+      } else {
+        assert.equal(foremanReleaseApproval(r.dir, config, plan, narrow), null, `${row.name}: stops counting`);
+        assert.deepEqual(releaseApprovalStatus(r.dir, config, plan, narrow), { owner: 'human', status: 'pending' }, row.name);
+      }
+    }
+    // A paused mandate that still lists release delegates no release: the approval is refused before it is recorded.
+    await cli(r.dir, ['mandate', 'new', 'resting', '--title', 'resting', '--milestones', 'M1', '--decides', 'release']);
+    await cli(r.dir, ['mandate', 'pause', 'resting']);
+    const job = parkedAt(r.dir, 'spec-approval', { title: 'paused release', create: { mandate: 'resting' } }).id;
+    const res = await forgeInProcess(r.dir, ['job', 'human', job, 'approve-release', '--actor', 'foreman', '--note', 'ok'], { env: OFFICE });
+    assert.equal(res.status, 1);
+    assert.match(res.error?.message ?? '', /--actor foreman refused: mandate resting is paused: release left for a human/);
+    assert.ok(!readEvents(r.dir, job).some((e) => e.type === 'release-approval'), 'nothing recorded');
   } finally {
     r.cleanup();
   }

@@ -286,10 +286,10 @@ daemon:                      # opt-in headless sessions supervised by `forge das
     usd: 150                 # estimated USD per job
   dailyUsd:                  # dollars per UTC day the inbox and office sessions may spend, as the supervisor meters it; at the cap the session stops: start it again after midnight UTC, or raise the cap (null: no caps; see "Daemon" below)
     inbox: 25                # the inbox session's daily cap in USD (null: none)
-    office: 60               # the office session's daily cap in USD, the foreman's assistants included (null: none)
+    office: 60               # the daily cap in USD on the office session and its assistant foremen, summed (null: none)
 
-foreman:                     # opt-in: an office daemon session decides gates through assistant sub-agents (see "Foreman" below)
-  enabled: false             # true (with daemon.enabled): parked gates become `gate` requests for the `_office` session
+foreman:                     # opt-in: assistant foreman daemon sessions decide gates through assistant sub-agents (see "Foreman" below)
+  enabled: false             # true (with daemon.enabled): parked gates become `gate` requests that assistant foremen claim
   decides: [spec-approval, split-approval, escalation, rounds-exhausted, conflicts, pr-feedback]  # add repo-proposal to let it widen a job's repos; release (with gate:release out of reserved) to let it approve a release plan
                              # the gate classes it may decide; a class left out stays a plain human gate
   reserved:                  # whole-phrase, case-insensitive: a match keeps the gate with a human; gate:<class> keeps a whole class
@@ -323,9 +323,9 @@ foreman:                     # opt-in: an office daemon session decides gates th
   model: inherit             # the Foreman's own model when it directs work under mandates (read by the director loop, #538)
   effort: null               # the Foreman's own effort (null: runtime.effort; read by the director loop, #538)
   cadence: 10                # 1-1440: minutes between the Foreman's passes over its mandates (read by the director loop, #538)
-  assistants:                # the forge:assistant sub-agent that judges one gate, and the assistant foremen that will run it
-    enabled: true            # assistant foremen take the Foreman's gate requests (not read yet, #537)
-    sessions: 1              # assistant foreman sessions at once (not read yet, #537)
+  assistants:                # the forge:assistant sub-agent that judges one gate, and the assistant foremen that run it
+    enabled: true            # assistant foremen claim the Foreman's gate requests (false: gates wait for a human)
+    sessions: 1              # 1-16: assistant foreman sessions at once, outside daemon.maxConcurrent and the machine cap
     model: sonnet            # forge job assist returns it as the assistant's model; see "Foreman"
     effort: null             # the assistant's effort; a job's effort beats it, and null falls through to effortByComplexity, then effort
   surveyors:                 # sub-agents that summarise the board for the Foreman (read by the director loop, #538)

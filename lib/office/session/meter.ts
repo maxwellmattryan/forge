@@ -1,13 +1,13 @@
 // The supervisor's meter for one session: each result's cost, as a delta against a baseline held per spawn,
 // appended to the scope's meter file (lib/engine/metrics/meter.ts), then enforced. A job scope runs the budget
-// checkpoint `session-meter`; the inbox and the office stop at their daemon.dailyUsd cap, and when their meter
-// can't be read the cap can't be checked, so they stop too. claude reports its cost itself, so a session's own
+// checkpoint `session-meter`; the inbox and the office stop at their daemon.dailyUsd cap (the assistant foremen share
+// the office's, summed), and when a meter it sums can't be read the cap can't be checked, so they stop too. claude reports its cost itself, so a session's own
 // reporting never moves what is enforced (docs/architecture/daemon-security.md).
 import crypto from 'node:crypto';
 import { enforceBudget } from '#engine/metrics/budget.ts';
 import { appendMeter, lastMeterCum, METER_VERSION, meterDelta, meterTodayUsd, readMeter, readMeterChecked } from '#engine/metrics/meter.ts';
 import type { MeterCum, MeterRecord } from '#engine/metrics/meter.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '#core/job/requests.ts';
+import { INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, assistantScope, isAssistantScope, validJobId } from '#core/job/requests.ts';
 import type { ClaudeEvent } from '#integrations/claude/types.ts';
 import type { SessionCore } from './contract.ts';
 import type { Config } from '#core/types.ts';
@@ -33,9 +33,17 @@ function dailyCap(c: Config, name: 'inbox' | 'office'): number | null {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
 }
 
+/**
+ * The meter files one shared scope's cap sums: the inbox's own, or for the office family (the office and every
+ * assistant foreman) all 17, so running more assistants never multiplies daemon.dailyUsd.office.
+ */
+function capScopes(shared: 'inbox' | 'office'): string[] {
+  return shared === 'inbox' ? [INBOX_SCOPE] : [OFFICE_SCOPE, ...Array.from({ length: MAX_ASSISTANTS }, (_, i) => assistantScope(i + 1))];
+}
+
 export function createMeter(core: SessionCore, stop: StopSelf) {
   const { root, scope } = core;
-  const shared = scope === INBOX_SCOPE ? 'inbox' : scope === OFFICE_SCOPE ? 'office' : null;
+  const shared = scope === INBOX_SCOPE ? 'inbox' : scope === OFFICE_SCOPE || isAssistantScope(scope) ? 'office' : null;
   let spawnId: string | null = null;
   /** The cumulative this spawn measures from: zero for a fresh conversation, null until a rebase. */
   let base: MeterCum | null = ZERO;
@@ -53,13 +61,18 @@ export function createMeter(core: SessionCore, stop: StopSelf) {
    */
   function overCap(c: Config, at: number): { message: string; announce: 'daily-cap' | null } | null {
     const cap = shared ? dailyCap(c, shared) : null;
-    if (cap === null) return null;
-    const { records, problem } = readMeterChecked(root, scope);
-    if (problem) return { message: unchecked(problem, 'fix or move the file aside'), announce: null };
-    const spent = meterTodayUsd(records, at);
+    if (cap === null || !shared) return null;
+    let spent = 0;
+    for (const s of capScopes(shared)) {
+      // A missing file reads as no records; any one that can't be read fails the whole family closed.
+      const { records, problem } = readMeterChecked(root, s);
+      if (problem) return { message: unchecked(problem, 'fix or move the file aside'), announce: null };
+      spent += meterTodayUsd(records, at);
+    }
     if (spent < cap) return null;
     const day = new Date(at).toISOString().slice(0, 10);
-    return { message: `daemon stopped: the ${shared} session spent $${spent.toFixed(2)} of its $${cap.toFixed(2)} daily cap (daemon.dailyUsd.${shared}) on ${day} (UTC); start it again after midnight UTC, or raise the cap`, announce: 'daily-cap' };
+    const who = shared === 'office' ? 'the office session and its assistant foremen' : 'the inbox session';
+    return { message: `daemon stopped: ${who} spent $${spent.toFixed(2)} of the $${cap.toFixed(2)} daily cap (daemon.dailyUsd.${shared}) on ${day} (UTC); start it again after midnight UTC, or raise the cap`, announce: 'daily-cap' };
   }
 
   /** A shared scope's stop after a result, from overCap. Never throws: a check that throws stops it too (fails closed). */

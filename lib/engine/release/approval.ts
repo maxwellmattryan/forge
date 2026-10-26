@@ -8,9 +8,15 @@ import { isForemanActor, loadJob, logEvent, readEvents } from '#core/job/store.t
 import { classReservation, decides, foremanEnabled, reservedFor } from '../pipeline/moves/foreman-gates.ts';
 import { freshPlan, type ReleasePlan } from './plan.ts';
 import { assertNoSymlinks, readPlanFile, readState, releaseFiles } from './files.ts';
-import { enqueue, inOffice, listRequests } from '#core/job/requests.ts';
+import { enqueue, inAssistant, listRequests } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';
-import type { Config, ForgeRequest, JobEvent } from '#core/types.ts';
+import type { Config, ForgeRequest, Job, JobEvent } from '#core/types.ts';
+
+/**
+ * The job's mandate refusal for `release` (lib/office/foreman.ts releaseMandateRefusal), or null. Passed in
+ * because engine code can't import lib/office/.
+ */
+export type ReleaseNarrow = (job: Job) => string | null;
 
 const RELEASE_PLANNED = 'release-planned';
 export const RELEASE_APPROVAL = 'release-approval';
@@ -97,7 +103,7 @@ export function checkReleaseDecision(
   const refuse = (why: string): never => {
     throw new ForgeError(`--actor foreman refused: ${why}`, 1);
   };
-  if (!inOffice(env)) refuse('only the office daemon session records foreman decisions');
+  if (!inAssistant(env)) refuse('only an assistant foreman session records foreman decisions');
   if (typeof note !== 'string' || !note.trim()) refuse('a foreman decision needs --note with its reason');
   if (flags.link !== undefined || flags.reason !== undefined || flags.repo !== undefined) refuse('approve-release takes only --note (no --link, --reason or --repo)');
   if (!foremanEnabled(config)) refuse('foreman.enabled is false');
@@ -138,10 +144,11 @@ export interface ForemanApproval {
 
 /**
  * The Foreman's approval of `plan` (recomputed now, never release.json's word) that `forge release run`
- * may act on without a terminal, or null. It counts only while the policy that allowed it still holds:
- * the Foreman decides `release`, and nothing reserved shows in the job or the approval's note.
+ * may act on without a terminal, or null. It counts only while the policy and the job's mandate that
+ * allowed it still hold: the Foreman decides `release`, `narrow` finds the job's mandate still delegating
+ * it (not narrowed, paused, closed, deleted or unreadable), and nothing reserved shows in the job or the approval's note.
  */
-export function foremanReleaseApproval(root: string, config: Config, plan: Pick<ReleasePlan, 'selection' | 'hash'>): ForemanApproval | null {
+export function foremanReleaseApproval(root: string, config: Config, plan: Pick<ReleasePlan, 'selection' | 'hash'>, narrow: ReleaseNarrow): ForemanApproval | null {
   if (plan.selection.kind !== 'job' || !PLAN_HASH.test(plan.hash) || !foremanDecidesRelease(config)) return null;
   const id = plan.selection.job;
   let job;
@@ -150,6 +157,7 @@ export function foremanReleaseApproval(root: string, config: Config, plan: Pick<
   } catch {
     return null;
   }
+  if (narrow(job) !== null) return null;
   const e = approvalsFor(readEvents(root, id), plan.hash)
     .filter((x) => isForemanActor(x))
     .at(-1);
@@ -160,13 +168,19 @@ export function foremanReleaseApproval(root: string, config: Config, plan: Pick<
 }
 
 /** `forge release status`'s `approval` for release.json's plan, under the same conditions as a run. */
-export function releaseApprovalStatus(root: string, config: Config, file: Pick<ReleasePlan, 'selection' | 'hash'>): { owner: ReleaseOwner; status: 'pending' | 'approved'; actor?: 'foreman'; at?: string } {
-  const a = foremanReleaseApproval(root, config, file);
+export function releaseApprovalStatus(
+  root: string,
+  config: Config,
+  file: Pick<ReleasePlan, 'selection' | 'hash'>,
+  narrow: ReleaseNarrow,
+): { owner: ReleaseOwner; status: 'pending' | 'approved'; actor?: 'foreman'; at?: string } {
+  const a = foremanReleaseApproval(root, config, file, narrow);
   if (a) return { owner: 'foreman', status: 'approved', actor: 'foreman', at: a.at };
   let owner: ReleaseOwner = 'human';
   if (file.selection.kind === 'job' && foremanDecidesRelease(config)) {
     try {
-      owner = reservedFor(root, config, loadJob(root, file.selection.job), GATE) ? 'human' : 'foreman';
+      const job = loadJob(root, file.selection.job);
+      owner = reservedFor(root, config, job, GATE) || narrow(job) !== null ? 'human' : 'foreman';
     } catch {
       owner = 'human';
     }

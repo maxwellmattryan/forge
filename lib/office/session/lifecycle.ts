@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import { TRUST_ENV } from '#core/config/load.ts';
 import { UUID, logBaseOf, readInfo, sessionFiles } from '#core/job/session-files.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, validJobId } from '#core/job/requests.ts';
+import { SCOPE_ENV, sharedScope, validJobId } from '#core/job/requests.ts';
 import { writeJsonAtomic } from '#core/os/fs.ts';
 import { now } from '#core/utils.ts';
 import { billingOf, buildArgv, commandPermissionMode, sessionEnv } from '#integrations/claude/argv.ts';
@@ -60,7 +60,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   /** A session that stopped on its own says so; a job scope's stop is recorded on the job. Never throws. */
   const announceStop = (reason: 'failed-turns' | 'failed-starts' | 'daily-cap') => {
     try {
-      o.notify(root, ['daemon-stopped'], { job: scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE && validJobId(scope) ? scope : null, reason });
+      o.notify(root, ['daemon-stopped'], { job: !sharedScope(scope) && validJobId(scope) ? scope : null, reason });
     } catch {}
   };
   /** Last computed by refreshKept: running agents of its job keep it. */

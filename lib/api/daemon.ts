@@ -146,10 +146,12 @@ export interface DaemonPoolState {
   /** The pool is off only because no human has approved the files Forge trusts as they are now (the machine dashboard boots a project's pool only while its approval matches); Start approves them. */
   needsApproval: boolean;
   inbox: DaemonSessionState;
-  /** The foreman's office session (scope `_office`), never counted against maxConcurrent. */
+  /** The Foreman's office session (scope `_office`), never counted against maxConcurrent. */
   office: DaemonSessionState;
   /** foreman.enabled, from the latest read of config.yml: the dashboard shows the office only then. */
   foreman: boolean;
+  /** Assistant foreman sessions by scope (`_assistant-<n>`), never counted against maxConcurrent or the machine cap; `{}` while the foreman or its assistants are off. */
+  assistants: Record<string, DaemonSessionState>;
   /** Job sessions worth showing: running, stopping, waiting, held, failed or stopped by a human. */
   jobs: Record<string, DaemonSessionState>;
   /** The permission mode daemon.command starts sessions in (`manual` reads as `default`). */

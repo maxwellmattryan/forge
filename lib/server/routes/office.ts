@@ -11,7 +11,7 @@ import { UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from '#core/job/
 import type { PoolState } from '#office/pool.ts';
 import { jobDir } from '#core/job/store.ts';
 import { exists } from '#core/paths.ts';
-import { INBOX_SCOPE, JOBS_SCOPE, OFFICE_SCOPE, validScope } from '#core/job/requests.ts';
+import { INBOX_SCOPE, JOBS_SCOPE, OFFICE_SCOPE, sharedScope, validScope } from '#core/job/requests.ts';
 import { openConfinedLog } from '#engine/environment/status.ts';
 import { approveTrust } from '#engine/project/trust-approval.ts';
 import type { DaemonLogPage, DaemonSessionState, PermissionDecision, PostDaemonModeResponse } from '#core/types.ts';
@@ -130,8 +130,8 @@ export async function postDaemonMode(ctx: ServerCtx, req: http.IncomingMessage, 
   }
   const obj = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
   const jobs = obj.scope === JOBS_SCOPE;
-  if (!jobs && !validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office", "_jobs" or a job id' });
-  if (!jobs && obj.scope !== INBOX_SCOPE && obj.scope !== OFFICE_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
+  if (!jobs && !validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office", "_assistant-<n>", "_jobs" or a job id' });
+  if (!jobs && !sharedScope(obj.scope) && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
   if (!PERMISSION_MODES.includes(obj.mode)) return jsonStatus(res, 400, { error: `mode must be one of ${PERMISSION_MODES.join(', ')}` });
   // Only a value from that fixed list travels on, to the supervisor's memory and the session's stdin.
   const r = (jobs ? ctx.pool?.setJobPermissionMode(obj.mode, dashboardActor()) : ctx.pool?.setPermissionMode(obj.scope, obj.mode, dashboardActor())) ?? { error: 'the daemon pool is not ready' };
@@ -153,8 +153,8 @@ export async function postDaemon(ctx: ServerCtx, req: http.IncomingMessage, res:
   if (action !== 'start' && action !== 'stop') return jsonStatus(res, 400, { error: 'action must be "start" or "stop"' });
   if (obj.scope !== undefined) {
     // Checked before anything is built from it.
-    if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office" or a job id' });
-    if (obj.scope !== INBOX_SCOPE && obj.scope !== OFFICE_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
+    if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office", "_assistant-<n>" or a job id' });
+    if (!sharedScope(obj.scope) && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
     if (action === 'stop') {
       await ctx.pool?.stopSession(obj.scope);
       return json(res, ctx.poolState());
@@ -196,6 +196,7 @@ export function idlePoolState(root: string): PoolState {
     inbox: offSessionState(root, INBOX_SCOPE),
     office: offSessionState(root, OFFICE_SCOPE),
     foreman: false,
+    assistants: {},
     jobs: {},
     permissionMode: 'default',
     permissionModes: {},

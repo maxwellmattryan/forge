@@ -62,6 +62,7 @@ test('metered sessions join the ledger without double counting', (t) => {
   meter(root, id, 7);
   meter(root, '_office', 5);
   meter(root, '_inbox', 1);
+  meter(root, '_assistant-1', 2);
 
   const ledger = spendLedger(root, config, { write: false });
   assert.deepEqual(Object.keys(ledger[id].metered), [`${D}|orchestrator|usd-model`]);
@@ -69,7 +70,8 @@ test('metered sessions join the ledger without double counting', (t) => {
   assert.equal(ledger[id].metered[`${D}|orchestrator|usd-model`].tokens, 4);
   assert.deepEqual([ledger._office.kind, ledger._office.title, ledger._office.metered[`${D}|office|usd-model`].usd], ['session', 'Office session', 5]);
   assert.deepEqual([ledger._inbox.kind, ledger._inbox.title, ledger._inbox.metered[`${D}|inbox|usd-model`].usd], ['session', 'Inbox session', 1]);
-  assert.equal(periodTotals(ledger, AT).dayUsd, 15, '5 reported + 4 + 5 + 1');
+  assert.deepEqual([ledger['_assistant-1'].kind, ledger['_assistant-1'].title, ledger['_assistant-1'].metered[`${D}|assistant|usd-model`].usd], ['session', 'Assistant foreman 1', 2]);
+  assert.equal(periodTotals(ledger, AT).dayUsd, 17, '5 reported + 4 + 5 + 1 + 2');
 
   const byRole = ledgerRows(ledger, { by: 'role' });
   assert.ok(byRole.every((row) => row.key.length === 2 && ['reported', 'supervisor'].includes(row.key[1])), 'keyed by role and source');
@@ -79,13 +81,13 @@ test('metered sessions join the ledger without double counting', (t) => {
   assert.ok(csv.includes('builder,reported,1,3,3,0,0,0,3.0000'), csv.join('\n'));
 
   const sessions = sessionRows(ledger);
-  assert.deepEqual(Object.fromEntries(Object.entries(sessions).map(([k, v]) => [k, v.estCostUsd])), { orchestrator: 4, office: 5, inbox: 1 });
+  assert.deepEqual(Object.fromEntries(Object.entries(sessions).map(([k, v]) => [k, v.estCostUsd])), { orchestrator: 4, office: 5, inbox: 1, assistant: 2 });
   // A cached spend.json is a file: a role outside the sessions' is skipped, never used as a key.
   const cell = ledger._office.metered[`${D}|office|usd-model`];
   const forged = { x: { ...ledger._office, metered: { [`${D}|__proto__|m`]: cell, [`${D}|builder|m`]: cell } } };
   assert.deepEqual(sessionRows(forged), {});
   assert.equal(({} as Record<string, unknown>).tokens, undefined, 'Object.prototype is untouched');
-  assert.equal(repoBudgetStatus(root, config, { at: AT, write: false }).spent.dayUsd, 15);
+  assert.equal(repoBudgetStatus(root, config, { at: AT, write: false }).spent.dayUsd, 17);
 
   assert.equal(SPEND_CACHE_VERSION, 2);
   spendLedger(root, config);
