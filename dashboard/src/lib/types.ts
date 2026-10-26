@@ -10,6 +10,9 @@ import type {
   INBOX_SCOPE as ENGINE_INBOX_SCOPE,
   JOBS_SCOPE as ENGINE_JOBS_SCOPE,
   MANDATE_ID_SOURCE as ENGINE_MANDATE_ID_SOURCE,
+  MANDATE_ON_UNFINISHABLE as ENGINE_MANDATE_ON_UNFINISHABLE,
+  MANDATE_ORDERS as ENGINE_MANDATE_ORDERS,
+  MANDATE_UNTIL as ENGINE_MANDATE_UNTIL,
   OFFICE_SCOPE as ENGINE_OFFICE_SCOPE,
   PROJECT_NAME_SOURCE as ENGINE_PROJECT_NAME_SOURCE,
 } from '#api/constants.ts';
@@ -48,6 +51,11 @@ export function assistantNumber(scope: string): number {
 }
 /** lib/api/constants.ts JOBS_SCOPE: POST /api/daemon/mode's scope for the job sessions' default. */
 export const JOBS_SCOPE = '_jobs' satisfies typeof ENGINE_JOBS_SCOPE;
+
+/** lib/api/constants.ts MANDATE_UNTIL, MANDATE_ORDERS and MANDATE_ON_UNFINISHABLE: the mandate editor's choices. */
+export const MANDATE_UNTIL = ['merge-ready', 'merged'] as const satisfies typeof ENGINE_MANDATE_UNTIL;
+export const MANDATE_ORDERS = ['graph', 'priority', 'listed'] as const satisfies typeof ENGINE_MANDATE_ORDERS;
+export const MANDATE_ON_UNFINISHABLE = ['park', 'cancel'] as const satisfies typeof ENGINE_MANDATE_ON_UNFINISHABLE;
 
 /** lib/core/job/schema.ts EFFORTS: reasoning effort levels, lowest first. */
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const satisfies typeof ENGINE_EFFORTS;
