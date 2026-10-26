@@ -50,6 +50,20 @@ test('the deny tail follows every template', () => {
     assert.ok(DENY_TOOLS.includes(t), t);
 });
 
+test('a system prompt to append goes once, before the deny tail', () => {
+  const vars = { pluginRoot: '/p', session, allowedTools: ['Agent'], maxBudgetUsd: 5 };
+  const plain = buildArgv('claude {session}', vars);
+  assert.deepEqual(buildArgv('claude {session}', { ...vars, appendSystemPrompt: null }), plain, 'null changes nothing');
+  assert.ok(!plain.includes('--append-system-prompt'));
+  const text = 'You are the Foreman.\nRun `forge chat brief` first.';
+  const argv = buildArgv('claude {session}', { ...vars, appendSystemPrompt: text });
+  assert.equal(argv.filter((w) => w === text).length, 1, 'the text once');
+  const at = argv.indexOf('--append-system-prompt');
+  assert.equal(argv[at + 1], text);
+  assert.ok(at > argv.indexOf('--max-budget-usd') && at < argv.indexOf('--disallowedTools'), 'after the cap, before the deny tail');
+  assert.deepEqual([...argv.slice(0, at), ...argv.slice(at + 2)], plain, 'nothing else changes');
+});
+
 test("the dollar cap is Forge's, once", () => {
   const caps = (argv: string[]) => argv.flatMap((w, i) => (w === '--max-budget-usd' ? [argv[i + 1]] : w.startsWith('--max-budget-usd=') ? [w] : []));
   const rows: { name: string; template?: string; usd: number | null | undefined; want: string[] }[] = [
@@ -68,6 +82,23 @@ test("the dollar cap is Forge's, once", () => {
     assert.deepEqual(caps(argv), row.want, row.name);
     if (row.want.length) assert.ok(argv.indexOf('--max-budget-usd') < argv.indexOf('--disallowedTools'), `${row.name}: before the deny tail`);
     assert.ok(argv.includes('--session-id'), `${row.name}: the rest of argv stays`);
+  }
+});
+
+test("the office model is Forge's, once", () => {
+  const models = (argv: string[]) => argv.flatMap((w, i) => (w === '--model' ? [argv[i + 1]] : w.startsWith('--model=') ? [w] : []));
+  const template = 'claude {session} --model sonnet --verbose --model=haiku';
+  const rows: { name: string; model: string | null | undefined; want: string[] }[] = [
+    { name: 'opus replaces both', model: 'opus', want: ['opus'] },
+    { name: "null keeps the template's", model: null, want: ['sonnet', '--model=haiku'] },
+    { name: "inherit keeps the template's", model: 'inherit', want: ['sonnet', '--model=haiku'] },
+    { name: 'a flag-like model is never a word', model: '--dangerously-skip-permissions', want: ['sonnet', '--model=haiku'] },
+  ];
+  for (const row of rows) {
+    const argv = buildArgv(template, { pluginRoot: '/p', session, allowedTools: ['Agent'], model: row.model });
+    assert.deepEqual(models(argv), row.want, row.name);
+    assert.ok(argv.includes('--verbose') && argv.includes('--session-id'), `${row.name}: the rest of argv stays`);
+    if (row.model === 'opus') assert.ok(argv.indexOf('--model') > argv.indexOf('--verbose') && argv.indexOf('--model') < argv.indexOf('--disallowedTools'), 'after the template, before the deny tail');
   }
 });
 

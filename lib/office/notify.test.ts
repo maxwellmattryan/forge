@@ -3,10 +3,13 @@
 // runs with a configured command's environment and /bin/sh -c, in and out of the daemon.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { jobAt, tempRepo } from '../../test/helpers.ts';
+import { forgeInProcess, jobAt, tempRepo } from '../../test/helpers.ts';
 import fs from 'node:fs';
 import path from 'node:path';
-import { LABELS, REASONS, buildPayload, contextFor, dashboardUrl, registerNotify, runCommand, type QueueNotify } from './notify.ts';
+import { LABELS, REASONS, buildPayload, contextFor, dashboardUrl, notifyProblems, registerNotify, runCommand, type QueueNotify } from './notify.ts';
+import { applyInput, blankMandate } from './mandates/contract.ts';
+import { writeMandate } from './mandates/store.ts';
+import { CONFIG_SCHEMA_VERSION } from '#core/versions/config.ts';
 import { uptimeFile, writeUptime } from '#engine/project/login-service.ts';
 import { machineDashboardFile } from '#engine/ops/dashboard-record.ts';
 import { addProject } from '#engine/project/machine-index.ts';
@@ -120,5 +123,27 @@ test('a service-restarted notification names only its own project', () => {
     assert.equal(contextFor(alpha!, null, 'trust', home).title, null, 'other job-less reasons keep no title');
   } finally {
     for (const r of repos) r.cleanup();
+  }
+});
+
+test('mandate notifications name the mandate', async () => {
+  const repo = tempRepo();
+  try {
+    for (const e of ['mandate-stalled', 'mandate-budget', 'mandate-closed'] as const) {
+      assert.ok(LABELS[e] && REASONS[e], `${e} has a label and a reason`);
+      assert.deepEqual(notifyProblems({ notify: { webhooks: [{ url: 'https://hooks.example.com/x', events: [e] }], command: null } }), [], `a webhook on ${e} validates`);
+    }
+    const home = path.join(repo.dir, 'home');
+    writeMandate(repo.dir, () => ({ mandate: applyInput(blankMandate('m1', new Date().toISOString()), { title: 'Ship M1', milestones: ['M1'] }), action: 'new' as const }));
+    const ctx = contextFor(repo.dir, null, 'mandate-closed', home, 'm1');
+    assert.equal(buildPayload('mandate-closed', ctx, 'http://127.0.0.1:7400/#/pipeline').title, 'Mandate m1: Ship M1');
+    assert.equal(contextFor(repo.dir, null, 'mandate-closed', home, 'gone').title, 'Mandate gone', 'an unreadable mandate keeps its id');
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\n`);
+    const bad = await forgeInProcess(repo.dir, ['notify', 'send', '--events', 'mandate-closed', '--reason', 'mandate-closed', '--mandate', 'BAD']);
+    assert.equal(bad.error?.code, 'usage', JSON.stringify(bad.error));
+    const wrongReason = await forgeInProcess(repo.dir, ['notify', 'send', '--events', 'gate', '--reason', 'failed', '--mandate', 'm1']);
+    assert.equal(wrongReason.error?.code, 'usage', 'only the mandate reasons take --mandate');
+  } finally {
+    repo.cleanup();
   }
 });

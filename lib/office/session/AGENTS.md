@@ -19,7 +19,7 @@ One supervised headless Claude Code session (`createSession`) and the pieces it 
 | `lifecycle.ts` | One supervised headless session. |
 | `log.ts` | A session's log: `<scope>.log` on disk, the replay ring the dashboard reads, and the redaction every line gets on its way into both. |
 | `meter.ts` | The supervisor's meter for one session: each result's cost, as a delta against a baseline held per spawn, appended to the scope's meter file (lib/engine/metrics/meter.ts), then enforced. |
-| `owned.ts` | What a session answers for: whether its job's agents keep it, the reconciler's facts, and the one release (lib/office/driver.ts releaseSession) its exit runs over every id it has had. |
+| `owned.ts` | What a session answers for: whether its job's agents keep it (sessionAgents, which `forge daemon status` reads without loading the supervisor), the reconciler's facts, and the one release (lib/office/driver.ts releaseSession) its exit runs over every id it has had. |
 | `records.ts` | What a session record (`.forge/runtime/daemons/<scope>.json`) says about its child, and reaping the children a dead `forge dash` left behind. |
 | `timers.ts` | A session's two timers: the turn limit (daemon.turnTimeoutMinutes), which stops a hung turn, and the idle stop (daemon.idleStopMinutes), which stops a child nothing keeps. |
 <!-- forge:map:end -->

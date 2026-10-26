@@ -6,7 +6,7 @@ import { inboxSessionIds } from '#office/driver.ts';
 import { releaseJob, requeueOrphanedRequests } from '#core/job/store.ts';
 import { exists, paths } from '#core/paths.ts';
 import { dashRunning } from '#office/reconcile.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, ackRequest, claimRequest, daemonScope, enqueue, isAssistantScope, listRequests, requestScope, servesScope, validJobId } from '#core/job/requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, ackRequest, claimRequest, daemonScope, enqueue, isAssistantScope, isChatScope, listRequests, requestScope, servesScope, validJobId } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';
 import { req, str, usageError } from './args.ts';
 import type { Config, ForgeRequest } from '#core/types.ts';
@@ -23,7 +23,7 @@ const REQUESTS: HelpGroup = {
       flags: [['--all', 'include handled requests']],
       exits: [[1, "a daemon session's scope is invalid"]],
     },
-    { command: 'requests scope', args: '', summary: 'which session this is: not a daemon, the inbox, the office, an assistant foreman (which sees every gate request), or one job', exits: [[1, "a daemon session's scope is invalid"]] },
+    { command: 'requests scope', args: '', summary: 'which session this is: not a daemon, the inbox, the office, an assistant foreman (which sees every gate request), a chat (which sees none), or one job', exits: [[1, "a daemon session's scope is invalid"]] },
     {
       command: 'requests add',
       args: '<type> [--job ID] [--text T] [--intake run|next|new] [--session S]',
@@ -34,7 +34,7 @@ const REQUESTS: HelpGroup = {
         ['--intake run|next|new', 'with resume: how the job starts'],
         ['--session S', 'with resume: the session handing the job off'],
       ],
-      exits: [[1, 'a gate or draft request (only the CLI writes those), a daemon session queued anything but resume, or its scope is invalid']],
+      exits: [[1, 'a gate, draft or direct request (only the CLI writes those), a daemon session queued anything but resume, or its scope is invalid']],
     },
     {
       command: 'requests claim',
@@ -67,7 +67,7 @@ export const HELP: HelpGroup[] = [REQUESTS];
 /** What `forge requests scope` prints: which session this is, so the orchestrator knows its role. */
 export interface ScopeInfo {
   daemon: boolean;
-  scope: 'inbox' | 'office' | 'assistant' | 'job' | null;
+  scope: 'inbox' | 'office' | 'assistant' | 'chat' | 'job' | null;
   job: string | null;
 }
 
@@ -98,6 +98,7 @@ export function requestsCmd(
     if (s.scope === INBOX_SCOPE) return { daemon: true, scope: 'inbox', job: null };
     if (s.scope === OFFICE_SCOPE) return { daemon: true, scope: 'office', job: null };
     if (isAssistantScope(s.scope)) return { daemon: true, scope: 'assistant', job: null };
+    if (isChatScope(s.scope)) return { daemon: true, scope: 'chat', job: null };
     return { daemon: true, scope: 'job', job: s.scope };
   }
   if (sub === 'add') {
@@ -106,6 +107,8 @@ export function requestsCmd(
     if (type === 'gate') throw new ForgeError('gate requests are written only by forge job set and forge pr sync (and forge mandate draft record for a milestone draft), never queued by hand', 1);
     // A draft request spends on a drafting run: only the owner's own forge mandate queues one.
     if (type === 'draft') throw new ForgeError('draft requests are written only by forge mandate new --goal and forge mandate draft start, never queued by hand', 1);
+    // A direct request turns the office session: only the Office pass, which checked the mandates, writes one.
+    if (type === 'direct') throw new ForgeError('direct requests are written only by the Office pass, never queued by hand', 1);
     // Read before enqueue, so a bare --job or --session queues nothing.
     const jobFlag = str(flags.job, '--job');
     const session = str(flags.session, '--session') ?? null;

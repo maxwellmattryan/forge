@@ -4,10 +4,10 @@
 
 /**
  * Where an event's `actor` came from: lib/integrations/github/actor.ts resolves env, gh, git, os, dashboard and
- * daemon (a daemon session's own action); the foreman's decisions say `foreman`; anything Forge cannot vouch for
- * reads as `unknown`.
+ * daemon (a daemon session's own action) and chat (a chat session's action for the owner); the foreman's decisions
+ * say `foreman`; anything Forge cannot vouch for reads as `unknown`.
  */
-export const ACTOR_SOURCES = ['env', 'gh', 'git', 'os', 'dashboard', 'daemon', 'foreman', 'unknown'] as const;
+export const ACTOR_SOURCES = ['env', 'gh', 'git', 'os', 'dashboard', 'daemon', 'foreman', 'unknown', 'chat'] as const;
 
 export const STAGES = [
   'backlog',
@@ -76,14 +76,20 @@ export const MANDATE_ON_UNFINISHABLE = ['park', 'cancel'] as const;
 /** Why the Foreman left a gate for a person (`forge job handoff --class`): a reserved topic or class, the assistant escalated, or the CLI refused its decision. */
 export const HANDOFF_CLASSES = ['reserved', 'escalated', 'refused'] as const;
 
-export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume', 'sync', 'eval-run', 'retro', 'gate', 'draft'] as const;
+export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume', 'sync', 'eval-run', 'retro', 'gate', 'draft', 'direct'] as const;
+
+/**
+ * A directive's action: one record of the director loop (`directive` in the repo audit log). The office
+ * session's choices are start, resume, note and skip; the Office pass's enforcements are the rest.
+ */
+export const DIRECTIVE_ACTIONS = ['start', 'resume', 'note', 'skip', 'pause', 'close', 'stall', 'park', 'cancel'] as const;
 
 /**
  * The daemon session for requests without a (valid, existing) job. Job ids start with an
  * alphanumeric, so it can never be one.
  */
 export const INBOX_SCOPE = '_inbox';
-/** The Foreman's daemon session: it receives every `draft` request (its assistant foremen take the `gate` requests) and never drives a job. */
+/** The Foreman's daemon session: it receives every `draft` and `direct` request (its assistant foremen take the `gate` requests) and never drives a job. */
 export const OFFICE_SCOPE = '_office';
 /** Not a session: the request group every `gate` request routes to, which any assistant foreman session may claim from. */
 export const ASSISTANTS_SCOPE = '_assistants';
@@ -91,6 +97,10 @@ export const ASSISTANTS_SCOPE = '_assistants';
 export const ASSISTANT_SCOPE_PREFIX = '_assistant-';
 /** The most assistant foreman sessions a pool runs (foreman.assistants.sessions). */
 export const MAX_ASSISTANTS = 16;
+/** A chat's session scope is this prefix and the chat's id, 12 lowercase hex characters. */
+export const CHAT_SCOPE_PREFIX = '_chat-';
+/** The longest owner message a chat takes, in characters. */
+export const CHAT_MESSAGE_MAX = 8000;
 /** Not a session: POST /api/daemon/mode's name for the default of every job session without its own choice. */
 export const JOBS_SCOPE = '_jobs';
 

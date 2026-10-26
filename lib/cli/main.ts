@@ -47,7 +47,9 @@ import { confirmHuman, mergeNowOp } from './commands/human.ts';
 import { initWrite, migrate } from './commands/init.ts';
 import { jobCmd, refuseForemanJobCommand } from './commands/job.ts';
 import { mandateCmd } from './commands/mandate.ts';
+import { chatCmd } from './commands/chat.ts';
 import { notifyCmd } from './commands/notify.ts';
+import { officeCmd } from './commands/office.ts';
 import { projectCmd } from './commands/project.ts';
 import { releaseCmd } from './commands/release.ts';
 import { requestsCmd } from './commands/requests.ts';
@@ -275,6 +277,12 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     case 'mandate':
       needInit();
       return mandateCmd(ctx, sub, rest, flags);
+    case 'chat':
+      needInit();
+      return chatCmd(ctx, sub, rest, flags);
+    case 'office':
+      needInit();
+      return officeCmd(ctx, sub, rest, flags);
     case 'requests':
       return ok(requestsCmd(root, config, sub, rest, flags));
     case 'notify':

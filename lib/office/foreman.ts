@@ -13,6 +13,7 @@ import { ForgeError } from '#core/errors.ts';
 import { safeText } from '#core/text.ts';
 import { FOREMAN_REVISIONS_MAX } from './mandates/draft.ts';
 import { jobMandateDecides, mandateDecides } from './mandates/store.ts';
+import { bounceHold } from './mandates/progress.ts';
 import type { Config, DraftGateStatus, ForemanHandoff, ForgeRequest, GateClass, GateOwner, HandoffClass, Job, JobEvent } from '#core/types.ts';
 import type { Mandate } from './mandates/types.ts';
 
@@ -30,9 +31,10 @@ export function gateOwner(root: string, config: Config, job: Job, requests: Forg
   if (config.foreman?.assistants?.enabled !== true) return 'human';
   const gate = gateClassFor(root, job);
   if (!gate || !decides(config).includes(gate)) return 'human';
-  // A job in a mandate: only what the mandate delegates, and nothing when its file can't be read.
+  // A job in a mandate: only what the mandate delegates (nothing once it is closed), nothing when its
+  // file can't be read, and not a gate the job keeps coming back to (the bounce hold).
   const m = jobMandateDecides(root, config, job);
-  if (m && ('problem' in m || !m.decides.includes(gate))) return 'human';
+  if (m && ('problem' in m || !m.decides.includes(gate) || bounceHold(job, readEvents(root, job.id), m.mandate))) return 'human';
   if (reservedFor(root, config, job, gate)) return 'human';
   const latest = requests.filter((r) => isGateRequest(r, job.id, gate) && (gate !== 'pr-feedback' || r.args?.key === job.pr?.headOid)).at(-1);
   // pr-feedback is the foreman's only once sync queued a gate for this head (trusted feedback or failing checks).
@@ -77,18 +79,24 @@ export function foremanPolicyRefusal(config: Config, gate: GateClass, mandate: D
 
 /**
  * Why a job's mandate leaves `gate` with a human, or null when the job is in no mandate or the mandate
- * delegates the class. Read from the CLI's record of the job, which a session can't edit, whatever the
- * mandate's status: a mandate only ever narrows, and one that can't be read delegates nothing.
+ * delegates the class. Read from the CLI's record of the job and the CLI copy of its events, which a
+ * session can't edit: a mandate only ever narrows, one that can't be read or is closed delegates nothing,
+ * and a gate the job has come back to `stall.bounces` times since a person decided is a person's (the
+ * bounce hold). A paused mandate still delegates, so its in-flight jobs finish.
  */
 export function mandateRefusal(root: string, config: Config, job: Job, gate: GateClass): string | null {
-  return mandateLeaves(gate, jobMandateDecides(root, config, job));
+  const m = jobMandateDecides(root, config, job);
+  if (m && !('problem' in m) && m.mandate.status === 'closed') return `mandate ${m.id} is closed: left for a human`;
+  const left = mandateLeaves(gate, m);
+  if (left || !m || 'problem' in m) return left;
+  return bounceHold(job, readEvents(root, job.id), m.mandate);
 }
 
 /**
  * mandateRefusal for the `release` class, plus its status: a paused or closed mandate delegates no
- * release, because publishing can't be undone. The other classes keep "whatever the status" until the
- * director loop (#538). Asked at approval time and again at release run and status time, so an approval
- * stops counting once the mandate that allowed it narrows, pauses, closes or can't be read.
+ * release, because publishing can't be undone (the other classes stay delegated while paused). Asked at
+ * approval time and again at release run and status time, so an approval stops counting once the
+ * mandate that allowed it narrows, pauses, closes or can't be read.
  */
 export function releaseMandateRefusal(root: string, config: Config, job: Job): string | null {
   const narrowed = mandateRefusal(root, config, job, 'release');
@@ -124,7 +132,8 @@ export function checkForemanDecision(
   if (typeof note !== 'string' || !note.trim()) refuse('a foreman decision needs --note with its reason');
   const gate = gateClassFor(root, job);
   if (!gate) refuse(`job ${job.id} is not waiting on a gate the foreman decides`);
-  const policy = foremanPolicyRefusal(config, gate!, jobMandateDecides(root, config, job));
+  // The job's mandate narrows through mandateRefusal: its decides, a closed mandate and the bounce hold.
+  const policy = foremanPolicyRefusal(config, gate!, null) ?? mandateRefusal(root, config, job, gate!);
   if (policy) refuse(policy);
   if (!ACTIONS_BY_GATE[gate!].includes(action)) refuse(`${action} is not a ${gate} action (${ACTIONS_BY_GATE[gate!].join(', ')})`);
   // pr-feedback is the foreman's only once sync armed it for this head (trusted feedback or failing
@@ -195,8 +204,9 @@ export function checkMandateGateDecision(
 /**
  * The stages a `forge job set --state running` may move a job to right after each foreman action: the
  * second column of the gate table in skills/forge/reference/foreman.md. undefined: the stage stays.
+ * A chat's set after a recorded decision takes the same table (chatSetRefusal, lib/office/chat/authority.ts).
  */
-const SET_AFTER: Record<string, readonly (string | undefined)[]> = {
+export const SET_AFTER: Record<string, readonly (string | undefined)[]> = {
   'approve-spec': [undefined, 'spec'],
   'revise-spec': ['spec'],
   'approve-split': ['plan'],

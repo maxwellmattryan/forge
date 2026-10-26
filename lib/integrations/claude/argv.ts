@@ -5,6 +5,7 @@ import path from 'node:path';
 import { ForgeError } from '#core/errors.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { EFFORTS } from '#core/job/schema.ts';
+import { validModel } from '#core/config/models.ts';
 import { SESSION_PINS, pinEnv } from '../git/runner.ts';
 import { splitWords } from '#core/text.ts';
 import type { DaemonAuth, DaemonBilling, DaemonPermissionMode, Effort } from '#core/types.ts';
@@ -122,6 +123,20 @@ export function withEffort(argv: string[], effort: Effort): string[] {
 }
 
 /**
+ * argv with every --model dropped and `model` appended as its own word, so the office session's
+ * foreman.model is the one claude reads rather than one daemon.command already passes.
+ */
+export function withModel(argv: string[], model: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (i > 0 && argv[i] === '--model') i++;
+    else if (i > 0 && argv[i].startsWith('--model=')) continue;
+    else out.push(argv[i]);
+  }
+  return [...out, '--model', model];
+}
+
+/**
  * How much a mode lets a session do without a human, for deciding which way a switch goes. A mode
  * Forge doesn't know ranks above them all, so a switch away from it counts as a narrowing.
  */
@@ -207,7 +222,10 @@ export function parseTemplate(template: string): string[] {
  * `{allowedTools}` loses every file tool, bare or scoped; when it had one, an Edit rule per write
  * root takes its place, so a session writes without a prompt only inside those roots.
  * Any --max-budget-usd in the template is dropped; `maxBudgetUsd`, when a number, becomes the one
- * claude reads. DENY_TOOLS, then `deny`, and PROMPT_TOOL always follow the template.
+ * claude reads. A `model` (the office session's foreman.model) replaces every --model the template
+ * has. `appendSystemPrompt`, when a string, follows as `--append-system-prompt <text>`: only a chat
+ * session's spawn passes it, and only the fixed CHAT_PROMPT (lib/office/session/launch.ts). DENY_TOOLS, then
+ * `deny`, and PROMPT_TOOL always follow the template.
  */
 export function buildArgv(
   template: string,
@@ -217,9 +235,11 @@ export function buildArgv(
     allowedTools: string[];
     permissionMode?: DaemonPermissionMode | null;
     effort?: Effort | null;
+    model?: string | null;
     writeRoots?: string[];
     deny?: string[];
     maxBudgetUsd?: number | null;
+    appendSystemPrompt?: string | null;
   },
 ): string[] {
   const listed = vars.allowedTools ?? [];
@@ -233,7 +253,11 @@ export function buildArgv(
   if (vars.permissionMode) argv = withPermissionMode(argv, vars.permissionMode);
   // Checked again here, not only by resolveEffort: anything outside the fixed list never becomes a word of argv.
   if (vars.effort && (EFFORTS as readonly unknown[]).includes(vars.effort)) argv = withEffort(argv, vars.effort);
+  // Checked again here too: a model that starts with `-` or holds a space never becomes a word of argv.
+  const model = validModel(vars.model);
+  if (model && model !== 'inherit') argv = withModel(argv, model);
   argv = withoutBudgetCap(argv);
   if (typeof vars.maxBudgetUsd === 'number' && Number.isFinite(vars.maxBudgetUsd)) argv.push('--max-budget-usd', capArg(vars.maxBudgetUsd));
+  if (typeof vars.appendSystemPrompt === 'string') argv.push('--append-system-prompt', vars.appendSystemPrompt);
   return [...argv, '--disallowedTools', [...DENY_TOOLS, ...(vars.deny ?? [])].join(','), ...PROMPT_TOOL];
 }

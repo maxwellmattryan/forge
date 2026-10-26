@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '../config/keys/defaults.ts';
 import { ForgeError } from '../errors.ts';
-import { ASSISTANTS_SCOPE, INBOX_SCOPE, OFFICE_SCOPE, assistantScope, claimRequest, enqueue, listRequests, requestScope, requeueOrphans, sharedScope, validScope } from './requests.ts';
+import { ASSISTANTS_SCOPE, INBOX_SCOPE, OFFICE_SCOPE, assistantScope, chatIdOf, chatScope, claimRequest, enqueue, inChat, isChatScope, listRequests, requestScope, requeueOrphans, sharedScope, validScope } from './requests.ts';
 
 test('assistant scopes, the gate route and shared scopes', (t) => {
   const r = tempRepo();
@@ -23,6 +23,7 @@ test('assistant scopes, the gate route and shared scopes', (t) => {
   ];
   for (const [s, want] of valid) assert.equal(validScope(s), want, `validScope(${JSON.stringify(s)})`);
   assert.equal(requestScope(r.dir, { type: 'gate', job: 'j-1' }), ASSISTANTS_SCOPE);
+  assert.equal(requestScope(r.dir, { type: 'direct' }), OFFICE_SCOPE);
   const shared: [unknown, boolean][] = [
     [INBOX_SCOPE, true],
     [OFFICE_SCOPE, true],
@@ -34,6 +35,39 @@ test('assistant scopes, the gate route and shared scopes', (t) => {
   assert.equal(assistantScope(16), '_assistant-16');
   assert.throws(() => assistantScope(17));
   assert.throws(() => assistantScope(0));
+});
+
+test('chat scopes', (t) => {
+  const r = tempRepo();
+  t.after(r.cleanup);
+  const good = '_chat-0123456789ab';
+  const rows: [unknown, boolean][] = [
+    [good, true],
+    ['_chat-ffffffffffff', true],
+    ['_chat-', false],
+    ['_chat-ABCDEF012345', false],
+    ['_chat-0123456789a', false],
+    ['_chat-0123456789abc', false],
+    ['_chat-../aaaaaaaaaa', false],
+    ['_chats', false],
+    [`${good}\n`, false],
+    [12, false],
+  ];
+  for (const [s, want] of rows) {
+    assert.equal(isChatScope(s), want, `isChatScope(${JSON.stringify(s)})`);
+    assert.equal(validScope(s), want, `validScope(${JSON.stringify(s)})`);
+    assert.equal(sharedScope(s), want, `sharedScope(${JSON.stringify(s)})`);
+  }
+  assert.equal(chatScope('0123456789ab'), good);
+  assert.equal(chatIdOf(good), '0123456789ab');
+  assert.equal(chatIdOf('_inbox'), null);
+  for (const bad of ['', '0123456789AB', '0123456789a', '../aaaaaaaaa', 'x'.repeat(12)]) assert.throws(() => chatScope(bad), /no chat/);
+  // No request ever routes to a chat: its scope is no job id, so even a job request naming it goes to the inbox.
+  for (const type of ['resume', 'rework', 'gate', 'draft', 'sync']) assert.ok(!isChatScope(requestScope(r.dir, { type, job: good })), type);
+  assert.equal(requestScope(r.dir, { type: 'resume', job: good }), INBOX_SCOPE);
+  assert.equal(inChat({ FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: good }), true);
+  assert.equal(inChat({ FORGE_DAEMON_SCOPE: good }), false, 'outside a daemon session');
+  assert.equal(inChat({ FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_inbox' }), false);
 });
 
 test('a gate request without a job is only a milestone draft with a valid mandate id', (t) => {

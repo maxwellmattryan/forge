@@ -11,9 +11,9 @@ import { readJson, writeJsonAtomic } from '../os/fs.ts';
 import { withLock } from '../os/lock.ts';
 import { now, shortId } from '../utils.ts';
 
-import { ASSISTANTS_SCOPE, ASSISTANT_SCOPE_PREFIX, INBOX_SCOPE, MANDATE_ID_SOURCE, MAX_ASSISTANTS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
+import { ASSISTANTS_SCOPE, ASSISTANT_SCOPE_PREFIX, CHAT_SCOPE_PREFIX, INBOX_SCOPE, MANDATE_ID_SOURCE, MAX_ASSISTANTS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
 
-export { ASSISTANTS_SCOPE, ASSISTANT_SCOPE_PREFIX, INBOX_SCOPE, JOBS_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
+export { ASSISTANTS_SCOPE, ASSISTANT_SCOPE_PREFIX, CHAT_SCOPE_PREFIX, INBOX_SCOPE, JOBS_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
 
 /** Request types that act on one job, so they need one and route to that job's daemon session. */
 const JOB_REQUEST_TYPES = ['approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume'] as const;
@@ -42,9 +42,28 @@ export function assistantScope(n: number): string {
   return `${ASSISTANT_SCOPE_PREFIX}${n}`;
 }
 
-/** Not a job's scope: the inbox, the office, the gate group or an assistant foreman. Never counted against a cap, never leased. */
+/** A chat's id: 12 lowercase hex characters (crypto.randomBytes(6)), so no path or meter file is built from a forged one. */
+export const CHAT_ID = /^[0-9a-f]{12}$/;
+
+/** A chat session's scope: CHAT_SCOPE_PREFIX and a chat id, nothing else. */
+export function isChatScope(s: unknown): s is string {
+  return typeof s === 'string' && s.startsWith(CHAT_SCOPE_PREFIX) && CHAT_ID.test(s.slice(CHAT_SCOPE_PREFIX.length));
+}
+
+/** The session scope of chat `id`. */
+export function chatScope(id: string): string {
+  if (typeof id !== 'string' || !CHAT_ID.test(id)) throw new ForgeError(`no chat ${JSON.stringify(String(id).slice(0, 40))}`);
+  return `${CHAT_SCOPE_PREFIX}${id}`;
+}
+
+/** The chat id in a chat scope, or null for any other scope. */
+export function chatIdOf(scope: unknown): string | null {
+  return isChatScope(scope) ? scope.slice(CHAT_SCOPE_PREFIX.length) : null;
+}
+
+/** Not a job's scope: the inbox, the office, the gate group, an assistant foreman or a chat. Never counted against a cap, never leased. */
 export function sharedScope(s: unknown): boolean {
-  return s === INBOX_SCOPE || s === OFFICE_SCOPE || s === ASSISTANTS_SCOPE || isAssistantScope(s);
+  return s === INBOX_SCOPE || s === OFFICE_SCOPE || s === ASSISTANTS_SCOPE || isAssistantScope(s) || isChatScope(s);
 }
 
 /** Whether a session in `sessionScope` takes a request routed to `routed`: its own, or the gate group for an assistant foreman. */
@@ -52,18 +71,19 @@ export function servesScope(sessionScope: string, routed: string): boolean {
   return sessionScope === routed || (isAssistantScope(sessionScope) && routed === ASSISTANTS_SCOPE);
 }
 
-/** Syntax only: the inbox, the office, an assistant foreman or a valid job id (never the gate group). Existence is requestScope's business. */
+/** Syntax only: the inbox, the office, an assistant foreman, a chat or a valid job id (never the gate group). Existence is requestScope's business. */
 export function validScope(s: unknown): s is string {
-  return s === INBOX_SCOPE || s === OFFICE_SCOPE || isAssistantScope(s) || validJobId(s);
+  return s === INBOX_SCOPE || s === OFFICE_SCOPE || isAssistantScope(s) || isChatScope(s) || validJobId(s);
 }
 
 /**
- * Which daemon session a request belongs to: the assistant foremen's group for a gate, the office for a draft, its
- * job's for a job request whose job exists, the inbox for everything else (which rejects malformed or unknown jobs per the skill).
+ * Which daemon session a request belongs to: the assistant foremen's group for a gate, the office for a draft or
+ * a direct (the Office pass's wake), its job's for a job request whose job exists, the inbox for everything else
+ * (which rejects malformed or unknown jobs per the skill).
  */
 export function requestScope(root: string, rec: { type?: unknown; job?: unknown }): string {
   if (rec?.type === 'gate') return ASSISTANTS_SCOPE;
-  if (rec?.type === 'draft') return OFFICE_SCOPE;
+  if (rec?.type === 'draft' || rec?.type === 'direct') return OFFICE_SCOPE;
   if (!(JOB_REQUEST_TYPES as readonly unknown[]).includes(rec?.type) || !validJobId(rec.job)) return INBOX_SCOPE;
   return exists(path.join(paths(root).jobs, rec.job, 'job.json')) ? rec.job : INBOX_SCOPE;
 }
@@ -86,6 +106,12 @@ export function inOffice(env: NodeJS.ProcessEnv = process.env): boolean {
 export function inAssistant(env: NodeJS.ProcessEnv = process.env): boolean {
   const s = daemonScope(env);
   return 'daemon' in s && s.daemon && isAssistantScope(s.scope);
+}
+
+/** The daemon scope this call runs in is a chat session. */
+export function inChat(env: NodeJS.ProcessEnv = process.env): boolean {
+  const s = daemonScope(env);
+  return 'daemon' in s && s.daemon && isChatScope(s.scope);
 }
 
 function dir(root: string): string {

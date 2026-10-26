@@ -17,6 +17,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `audit.ts` | `forge audit`: the audit trail across every job and the repo-level log, for a period. |
 | `backing.ts` | `forge backing up\|down\|stop\|status`: a job's backing services on demand (lib/engine/environment/backing.ts, docs/CONFIG.md "Backing services"). |
 | `budget.ts` | `forge budget`: repo spend against the day and month caps (config `budget:`), and a human's acknowledgement that grants one more period. |
+| `chat.ts` | `forge chat list\|show\|brief`: the owner's chats with the Foreman, read-only. |
 | `config.ts` | `forge config show\|get\|set\|validate`: read the effective config, and write one editable key. |
 | `daemon.ts` | `forge daemon status\|log`: the terminal's view of the session pool. |
 | `dash.ts` | `forge dash`: the machine's one dashboard for every registered project, started in the foreground or as a detached, pid-tracked process, registering the repo it runs in. |
@@ -42,6 +43,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `job/state.ts` | `forge job set\|effort\|note\|refresh-request\|budget`: a job's stage, state, fields, effort, notes, request and budget limits. |
 | `mandate.ts` | `forge mandate new\|edit\|pause\|resume\|close\|list\|show` and `forge mandate draft start\|prepare\|record\|show\|approve\|revise\|reject\|assist`: the owner's mandates to the Office, a goal mandate's drafting runs and its milestone-approval gate (lib/office/mandates/, docs/CONFIG.md "Mandates"). |
 | `notify.ts` | `forge notify test\|send`: a sample notification to every configured target, and the detached sender lib/office/notify.ts queueNotify spawns. |
+| `office.ts` | `forge office pass\|survey\|board\|start\|resume\|note`: the Office's director loop (lib/office/mandates/pass.ts and director.ts). |
 | `project.ts` | `forge project add\|remove\|list\|settings`: the machine index of registered projects and the machine settings (lib/engine/project/machine-index.ts). |
 | `release.ts` | `forge release plan\|run\|status`: a release a human runs from the CLI, single- or multi-repo (lib/engine/release/plan.ts plans it, lib/engine/release/run.ts runs it; docs/RELEASES.md "Releasing a project"). |
 | `render.ts` | Human output mode (docs/CLI.md "Output mode"): the generic renderer for results and errors. |

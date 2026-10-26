@@ -426,7 +426,7 @@
 
 /* ---------- base (preflight already zeroes margins and box-sizing) ---------- */
 @layer base {
-  /* A stable gutter: locking body scroll under the palette or a dialog does not shift the page sideways. */
+  /* A stable gutter where the browser honours it; lib/scroll-lock.ts pads the page where it does not (Chromium under ::-webkit-scrollbar). */
   html { background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; scrollbar-gutter: stable; }
   body { font-family: var(--font-sans); font-size: 14px; line-height: 20px; }
   /* The chrome is an app, not a document: no I-beam and no drag-selection over buttons, chips, labels and cards, and
@@ -444,14 +444,16 @@
   :is(button, summary, input, [role]):disabled, [role][aria-disabled=true], label:has(>input:disabled) { cursor: not-allowed; }
   h1, h2, h3, h4 { font-family: var(--font-head); letter-spacing: 0; }
   ::selection { background: var(--spark); color: var(--on-spark); }
-  /* Slim scrollbars: a hairline rail and a squared thumb that heats to ember while held or hovered. WebKit/Blink get the
-     pseudo-elements (setting the standard properties there would disable them); Firefox gets the standard pair. */
+  /* Slim scrollbars: a 2px rail and a squared thumb that heats to ember while held or hovered. WebKit/Blink get the
+     pseudo-elements (setting the standard properties there would disable them); Firefox gets the standard pair. The
+     thumb's transparent border clips its paint to the rail's 2px, so it rides inside the line, while the whole 6px
+     gutter stays grabbable. */
   ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: linear-gradient(to right, transparent 2.5px, var(--line-soft) 2.5px, var(--line-soft) 3.5px, transparent 3.5px); }
-  ::-webkit-scrollbar-track:horizontal { background: linear-gradient(to bottom, transparent 2.5px, var(--line-soft) 2.5px, var(--line-soft) 3.5px, transparent 3.5px); }
-  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 1px; }
-  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ember) 55%, var(--line)); }
-  ::-webkit-scrollbar-thumb:active { background: var(--ember); }
+  ::-webkit-scrollbar-track { background: linear-gradient(to right, transparent 2px, var(--line-soft) 2px, var(--line-soft) 4px, transparent 4px); }
+  ::-webkit-scrollbar-track:horizontal { background: linear-gradient(to bottom, transparent 2px, var(--line-soft) 2px, var(--line-soft) 4px, transparent 4px); }
+  ::-webkit-scrollbar-thumb { background-color: var(--line); background-clip: padding-box; border: 2px solid transparent; border-radius: 1px; }
+  ::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--ember) 55%, var(--line)); }
+  ::-webkit-scrollbar-thumb:active { background-color: var(--ember); }
   ::-webkit-scrollbar-corner { background: transparent; }
   @supports not selector(::-webkit-scrollbar) {
     * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }

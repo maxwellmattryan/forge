@@ -41,6 +41,8 @@ export interface ForgePaths {
   records: string;
   /** The Office's mandates (lib/office/mandates/), one `<id>.md` each: runtime state, outside every session's write roots. */
   mandates: string;
+  /** The owner's chats with the Foreman (lib/office/chat/), one `<id>/` each: written only by the dashboard server. */
+  chats: string;
   backlog: string;
   notes: string;
   reviewers: string;
@@ -65,6 +67,7 @@ export function paths(root: string): ForgePaths {
     runtime: path.join(dir, 'runtime'),
     records: path.join(dir, 'runtime', 'job-records'),
     mandates: path.join(dir, 'runtime', 'mandates'),
+    chats: path.join(dir, 'runtime', 'chats'),
     backlog: path.join(dir, 'backlog.md'),
     notes: path.join(dir, 'notes'),
     reviewers: path.join(dir, 'reviewers'),

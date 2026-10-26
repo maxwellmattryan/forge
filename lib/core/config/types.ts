@@ -297,8 +297,8 @@ export interface Config {
     turnTimeoutMinutes: number | null;
     auth: DaemonAuth;
     jobBudget: DaemonJobBudget;
-    /** Dollars per UTC day the inbox and office sessions may spend (metered); a null key, or null, has no cap. */
-    dailyUsd: { inbox: number | null; office: number | null } | null;
+    /** Dollars per UTC day the inbox, office and chat sessions may spend (metered); a null key, or null, has no cap. */
+    dailyUsd: { inbox: number | null; office: number | null; chat: number | null } | null;
     /** auto: an active mandate or a running job at an agent stage holds the machine dashboard's sleep assertion; never: it doesn't. */
     keepAwake: KeepAwakeMode;
   };
@@ -308,7 +308,7 @@ export interface Config {
     decides: GateClass[];
     reserved: string[];
     ship: ForemanShip;
-    /** The Foreman's own model, effort and pace: read by the director loop (#538). */
+    /** The office session's model and effort when it directs mandates (lib/office/slots.ts), and the Office pass's pace. */
     model: string;
     effort: Effort | null;
     /** Minutes between the director's passes (1–1440). */

@@ -32,7 +32,7 @@ export const DAEMON_AUTH = ['subscription', 'api-key'] as const;
 export const KEEP_AWAKE_MODES = ['auto', 'never'] as const;
 
 /** notify.webhooks[].events: what Forge can notify about, most specific first where two overlap. */
-export const NOTIFY_EVENTS = ['gate', 'pr-opened', 'pr-merged', 'job-failed', 'daemon-stopped', 'budget-exceeded', 'secret-found', 'service-restarted'] as const;
+export const NOTIFY_EVENTS = ['gate', 'pr-opened', 'pr-merged', 'job-failed', 'daemon-stopped', 'budget-exceeded', 'secret-found', 'service-restarted', 'mandate-stalled', 'mandate-budget', 'mandate-closed'] as const;
 
 /** notify.webhooks[].format: the body Forge posts. */
 export const NOTIFY_FORMATS = ['json', 'slack'] as const;

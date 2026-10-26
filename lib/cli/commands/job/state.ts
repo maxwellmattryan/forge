@@ -2,7 +2,8 @@
 import { budgetCmd } from '#engine/metrics/budget.ts';
 import { inInboxOrOffice } from '#office/owner.ts';
 import { checkOfficeSetFor } from '#office/foreman.ts';
-import { inAssistant, inOffice } from '#core/job/requests.ts';
+import { inAssistant, inChat, inOffice } from '#core/job/requests.ts';
+import { chatSetRefusal } from '#office/chat/authority.ts';
 import { refreshDependencyWait, validateDependsOn } from '#engine/pipeline/moves/deps.ts';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
 import { loadJob, logEvent, setJobEffort } from '#core/job/store.ts';
@@ -48,11 +49,15 @@ export async function set(root: string, config: Config, rest: string[], flags: R
     fields[key] = coerce(kv.slice(eq + 1), key);
   }
   const before = loadJob(root, jobId);
+  const waitingOn = flags['waiting-on'] === undefined ? undefined : flags['waiting-on'] === 'none' ? null : flags['waiting-on'];
+  const change = { stage: flags.stage, state: flags.state, waitingOn, reason: flags.reason, fields };
+  // Any other move of a gated job would decide its gate: a chat only carries out the decision recorded there.
+  const chatRefusal = inChat() ? chatSetRefusal(root, config, before, change, note) : null;
+  if (chatRefusal) throw new ForgeError(chatRefusal, 1);
   // setJob checks again inside its lock; checked here too so the office check and
   // validateDependsOn only see fields that pass, and `dependsOn={}` gets the array message.
   checkJobFields(fields, before);
-  const waitingOn = flags['waiting-on'] === undefined ? undefined : flags['waiting-on'] === 'none' ? null : flags['waiting-on'];
-  if (inOffice() || inAssistant()) checkOfficeSetFor(root, before, { stage: flags.stage, state: flags.state, waitingOn, reason: flags.reason, fields });
+  if (inOffice() || inAssistant()) checkOfficeSetFor(root, before, change);
   if ('dependsOn' in fields) fields.dependsOn = validateDependsOn(root, jobId, fields.dependsOn);
   // A failed teardown is never rolled back: the result says so and any later teardown path retries.
   // The inbox and office sessions only stop it, as `forge environment down` is refused there.

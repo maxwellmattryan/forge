@@ -1,26 +1,29 @@
-// The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests with no job, one office session for draft requests, up to
-// `foreman.assistants.sessions` assistant foremen that take gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job sessions,
-// each spawned on demand for the job its requests name. Sessions fail, hold and stop on their own (lib/office/session/lifecycle.ts); the pool owns
-// what is repo-wide: the trust snapshot, routing, the cap and the stops config changes force. docs/architecture/daemon.md describes the rules.
+// The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests with no job, one office session for draft and direct
+// requests, up to `foreman.assistants.sessions` assistant foremen that take gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job
+// sessions, each spawned on demand for the job its requests name, and a session per chat the owner sends a message (sendChat). Sessions fail, hold and stop
+// on their own (lib/office/session/lifecycle.ts); the pool owns what is repo-wide: the trust snapshot, routing, the cap, the stops config changes force, and
+// the periodic sync and Office pass children. docs/architecture/daemon.md describes the rules.
 import fs from 'node:fs';
-import { resolveEffort, trustDigest } from '#core/config/load.ts';
+import { trustDigest } from '#core/config/load.ts';
 import { confineDigest } from './session/confine.ts';
-import { TRUST_CHANGED, createSession } from './session/lifecycle.ts';
-import { runSyncChild } from './sync-child.ts';
+import { createSession } from './session/lifecycle.ts';
+import { TRUST_CHANGED } from './session/launch.ts';
+import { CHAT_START, sendChat } from './chat/send.ts';
+import { runPassChild, runSyncChild } from './sync-child.ts';
+import { createPassScheduler } from './mandates/cadence.ts';
 import { sessionOptions, type DaemonOptions, type Session, type SessionContext, type SessionEvent } from './session/contract.ts';
 import { offState, otherOwner, reapOrphans } from './session/records.ts';
 import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
 import { createModeBook, type PoolOptions } from './modes.ts';
-import { assistantScopes, routeAssistants, sessionKind, startWork, type SlotMember } from './slots.ts';
+import { assistantScopes, routeAssistants, sessionEffort, sessionKind, sessionModel, startWork, type SlotMember } from './slots.ts';
 import { daemonSessionIds, releaseSession } from './driver.ts';
-import { configForJob } from '#engine/evals/overlay.ts';
-import { loadJob, logHumanEvent, repoAuditFile } from '#core/job/store.ts';
+import { loadJob, logHumanEvent } from '#core/job/store.ts';
 import { RECONCILE_MS, daemonLockDir, reconcile, type SessionFacts } from './reconcile.ts';
 import { tryLock } from '#core/os/lock.ts';
-import { repoBudgetStatus } from '#engine/metrics/repo-budget.ts';
+import { createRepoBudgetMemo } from '#engine/metrics/repo-budget.ts';
 import { daemonPlatformProblem } from '#core/os/platform.ts';
-import { ASSISTANTS_SCOPE, INBOX_SCOPE, OFFICE_SCOPE, listRequests, requestScope, sharedScope as shared, validScope } from '#core/job/requests.ts';
-import type { Config, RepoBudgetStatus, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, Job, PermissionDecision } from '#core/types.ts';
+import { ASSISTANTS_SCOPE, INBOX_SCOPE, OFFICE_SCOPE, isChatScope, listRequests, requestScope, sharedScope as shared, validScope } from '#core/job/requests.ts';
+import type { Config, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, PermissionDecision } from '#core/types.ts';
 
 /** The pool's own state: state() below. The server adds `clients` and `needsApproval` to make a DaemonPoolState. */
 export type PoolState = Omit<DaemonPoolState, 'clients' | 'needsApproval'>;
@@ -32,8 +35,10 @@ export interface DaemonPool {
   /** Re-enables one session inside a wanted pool; `error` when the pool isn't wanted. */
   startSession(scope: string): { error: string | null };
   stopSession(scope: string): Promise<PoolState>;
-  /** Stops a job's session and forgets it, for a job that is about to be deleted. */
+  /** Stops a job's or a chat's session and forgets it, for a job about to be deleted or an archived chat. */
   dropSession(scope: string): Promise<void>;
+  /** Hands an owner's message to its chat session, spawning it if none runs (lib/office/chat/send.ts); `error` when refused. */
+  sendChat(scope: string, text: string): { error: string | null };
   /** Answers one session's permission prompt as `actor`; false when there is no such prompt. */
   answerPermission(scope: string, id: string, decision: PermissionDecision, actor: EventActor): boolean;
   /** Puts one session in a permission mode as `actor`: now if its child runs, else from its next spawn. */
@@ -54,8 +59,6 @@ export interface DaemonPool {
 }
 
 const FINISHED = ['done', 'cancelled', 'failed'];
-/** How long a tick reuses the repo budget status. */
-const REPO_BUDGET_MEMO_MS = 10_000;
 /** How often a wanted pool runs `forge sync`, so CI results and PR feedback reach the office unasked. */
 const SYNC_MS = 120_000;
 
@@ -106,28 +109,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     daemonLock?.release();
     daemonLock = null;
   };
-  /**
-   * The repo budget status, reused for up to REPO_BUDGET_MEMO_MS: the ledger stats every job's events.
-   * An acknowledgement (the audit log grows) or a changed `budget:` block recomputes it at once.
-   */
-  let repoMemo: { at: number; key: string; status: RepoBudgetStatus | null } | null = null;
-  const repoBudget = (c: Config): RepoBudgetStatus | null => {
-    let size = 0;
-    try {
-      size = fs.statSync(repoAuditFile(root)).size;
-    } catch {}
-    const key = `${size}|${JSON.stringify(c.budget ?? null)}`;
-    if (repoMemo && repoMemo.key === key && Date.now() - repoMemo.at < REPO_BUDGET_MEMO_MS) return repoMemo.status;
-    let status: RepoBudgetStatus | null = null;
-    try {
-      // write: false: the pool writes no state, the spend cache included.
-      status = repoBudgetStatus(root, c, { write: false });
-    } catch {
-      // An unreadable ledger must not stop the supervisor; per-job budgets still hold.
-    }
-    repoMemo = { at: Date.now(), key, status };
-    return status;
-  };
+  const repoBudget = createRepoBudgetMemo(root);
   const modes = createModeBook(opts.jobPermissionMode);
   const subscribers = new Set<(e: SessionEvent) => void>();
 
@@ -159,31 +141,11 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     permissionMode: (scope) => modes.launch(scope),
     permissionModeRefused: (scope, mode, live) => modes.refused(scope, mode, live),
     // Read at every spawn and never pushed to a running session: a change applies at its next spawn.
-    // No role: a session runs the orchestrator, so per-role, panel and complexity levels never
-    // reach its argv; only job.effort and runtime.effort do.
-    effort: (scope, c) => {
-      const job = shared(scope) ? null : jobOrNull(scope);
-      return resolveEffort(job ? jobConfig(c, job) : c, job);
-    },
+    effort: (scope, c) => sessionEffort(root, scope, c),
+    model: (scope, c) => sessionModel(scope, c),
   };
-
-  /** An eval job's overlaid config; a tampered overlay falls back to the base, since step and verify refuse that job anyway. */
-  function jobConfig(c: Config, job: Job): Config {
-    try {
-      return configForJob(root, c, job);
-    } catch {
-      return c;
-    }
-  }
-
-  /** The job a session drives, or null when it is missing or unreadable: its effort then falls back to the config's. */
-  function jobOrNull(scope: string): Job | null {
-    try {
-      return loadJob(root, scope);
-    } catch {
-      return null;
-    }
-  }
+  /** The Office pass (lib/office/mandates/cadence.ts): its child ends with a tick, so the direct request it queued turns the office at once. */
+  const passes = createPassScheduler(root, { run: opts.runPass ?? ((r) => runPassChild(r, o.env)), done: () => tick(), log: (message) => office.logEvent('error', { message }) });
 
   function session(scope: string): Session {
     let s = sessions.get(scope);
@@ -250,6 +212,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       let scoring = false;
       try {
         const job = loadJob(root, scope);
+        passes.after(job);
         state = job.state;
         scoring = job.score?.status === 'queued';
       } catch {}
@@ -297,6 +260,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     try {
       const c = config();
       if (trustDigest(root) !== trusted) return poolStop(TRUST_CHANGED, 'trust');
+      passes.check(c);
       const groups = new Map<string, ForgeRequest[]>();
       for (const r of listRequests(root, { status: 'pending' })) {
         const scope = requestScope(root, r);
@@ -315,7 +279,8 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       }
       const waiters: { s: Session; eligible: string[]; oldest: string }[] = [];
       const assistant = (s: Session) => sessionKind(s.scope) === 'assistant';
-      for (const s of [...sessions.values()].filter((x) => !assistant(x))) {
+      // A chat is turned only by its owner's messages (sendChat), never by routing.
+      for (const s of [...sessions.values()].filter((x) => !assistant(x) && sessionKind(x.scope) !== 'chat')) {
         if (!wanted) return;
         if (s.scope === OFFICE_SCOPE && !foreman) {
           s.setWaiting(false);
@@ -505,6 +470,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       }
       inboxEager = true;
       startReason = reason;
+      passes.want();
       tick();
       return state();
     },
@@ -519,6 +485,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     },
     startSession(scope) {
       if (!validScope(scope)) return { error: 'invalid scope' };
+      if (isChatScope(scope)) return { error: CHAT_START };
       if (!wanted || closed) return { error: 'start the daemon first' };
       session(scope).reset();
       if (scope === INBOX_SCOPE) inboxEager = true;
@@ -536,11 +503,12 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     },
     async dropSession(scope) {
       const s = sessions.get(scope);
-      if (!s || shared(scope)) return;
+      if (!s || (shared(scope) && !isChatScope(scope))) return;
       await s.kill('stop', false, 'deleted');
       sessions.delete(scope);
       await s.close();
     },
+    sendChat: (scope, text) => sendChat({ wanted: () => wanted && !closed, session, config, lastError: () => lastError }, scope, text),
     answerPermission(scope, id, decision, actor) {
       const tool = sessions.get(scope)?.answerPermission(id, decision, actor) ?? null;
       if (tool === null) return false;
