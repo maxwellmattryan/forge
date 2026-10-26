@@ -50,7 +50,7 @@ export const CORE: HelpGroup[] = [
         args: '<id>',
         summary:
           "create the job's worktree and branch (stacked on its one unmerged dependency, if any) bring its backing services up (a failed one skips setup and fails the result, listed as backing), and run worktrees.setup there; with worktrees.seed and matching key files it clones the seed and runs seed.setup instead of worktrees.setup, listed as seed; then each missing member repo worktree (forge job repo add) on the job's branch, or detached at its base for a verify-only repo; with members, the result lists them as repos",
-        exits: [[1, 'no such job, an unsafe branch name, no free port, a member repo worktree that could not be created (the result names it), or the inbox or office daemon session ran it'], GIT_FAILED],
+        exits: [[1, 'no such job, an unsafe branch name, no free port, a member repo worktree that could not be created (the result names it), or the inbox, office or an assistant foreman daemon session ran it'], GIT_FAILED],
       },
       {
         command: 'worktree remove',
@@ -163,7 +163,7 @@ export const CORE: HelpGroup[] = [
         exits: [
           [
             1,
-            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order|cycle|release), merge.auto off, a rework, a new round, a stage change, a rework, revise-spec or cancel request still queued, a gate request waiting on the Foreman or a review on GitHub requesting changes on any open PR of the job after the approver's decision, no eligible decision for the PR head, an escalate-floor path (reason auto-off|superseded|decision|floor), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, a daemon session passing --now, another job's id or a broken scope, the office daemon session ran it, or a protected path at the PR head that no human approved at that content (code protected_path; --now overrides), --now not confirmed, or --now with no person at a terminal (code human_only: an agent, a script or a configured command)",
+            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order|cycle|release), merge.auto off, a rework, a new round, a stage change, a rework, revise-spec or cancel request still queued, a gate request waiting on the Foreman or a review on GitHub requesting changes on any open PR of the job after the approver's decision, no eligible decision for the PR head, an escalate-floor path (reason auto-off|superseded|decision|floor), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, a daemon session passing --now, another job's id or a broken scope, the office or an assistant foreman daemon session ran it, or a protected path at the PR head that no human approved at that content (code protected_path; --now overrides), --now not confirmed, or --now with no person at a terminal (code human_only: an agent, a script or a configured command)",
           ],
           GH_FAILED,
         ],
