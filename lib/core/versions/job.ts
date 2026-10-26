@@ -75,6 +75,18 @@ export const JOB_STEPS: readonly Step[] = [
   } },
   // v18 adds the mandate a job works under. No v17 job is in one, so the Foreman's gates for it stay as they were.
   { id: 'job-mandate', up: (j) => ({ ...j, mandate: j.mandate ?? null }) },
+  // v19 records each run's billing split and context composition in the agent's runHistory. A v18 agent counts the
+  // runs that had already ended as legacyRuns, which the job detail rebuilds from agent-end events. A running agent's
+  // end is recorded by the new code, so that run is not legacy, and runHistory starts absent.
+  { id: 'agent-run-history', up: (j) => ({
+    ...j,
+    agents: Object.fromEntries(
+      Object.entries(j.agents ?? {}).map(([role, a]: [string, any]) => [
+        role,
+        a && typeof a === 'object' && a.legacyRuns === undefined ? { ...a, legacyRuns: Math.max(0, (a.runs | 0) - (a.status === 'running' ? 1 : 0)) } : a,
+      ]),
+    ),
+  }) },
 ];
 
 export const JOB_SCHEMA_VERSION = versionOf(JOB_STEPS);

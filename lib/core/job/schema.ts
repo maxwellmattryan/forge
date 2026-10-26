@@ -11,9 +11,9 @@ import { runSteps } from '../versions/steps.ts';
 import { CONFIG_SCHEMA_VERSION, CONFIG_STEPS } from '../versions/config.ts';
 import { JOB_SCHEMA_VERSION, JOB_STEPS, noLease, ownerToLease, sourceToIssues } from '../versions/job.ts';
 import { EVENT_SCHEMA_VERSION, EVENT_STEPS } from '../versions/event.ts';
-import type { EventActor, HumanGrant, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcome, JobRepo, JobRepoPr, JobScore, LoadedJob } from '../types.ts';
+import type { AgentRun, AgentRunEnd, AgentUsage, ContextComposition, ContextPart, EventActor, HumanGrant, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcome, JobRepo, JobRepoPr, JobScore, LoadedJob, RunBilling } from '../types.ts';
 
-export { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_STATUSES, MANDATE_UNTIL, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, STAGES, STATES, WAITING_ON } from '#api/constants.ts';
+export { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_SCORING, MANDATE_STATUSES, MANDATE_UNTIL, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, STAGES, STATES, WAITING_ON } from '#api/constants.ts';
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from '../config/components.ts';
 export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from '../config/validators/backing.ts';
 export { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, noLease };
@@ -297,6 +297,93 @@ export function endFinishedJobAgents(agents: Record<string, JobAgent>, state: st
 /** The roles a finished job may still run: the judge of a done job's queued post-merge score run (JS1-JS3). */
 export function finishedJobRoles(job: { state?: unknown; kind?: unknown; score?: unknown }): string[] {
   return job.state === 'done' && job.kind !== 'eval' && (job.score as JobScore | null | undefined)?.status === 'queued' ? ['judge'] : [];
+}
+
+/** The agent runs one agent record keeps in runHistory; the oldest drop first. */
+export const MAX_AGENT_RUNS = 50;
+/** A composition tool part's name as composeContext stores it: `mcp:` and a 64-char name, with room to spare. */
+const MAX_PART_NAME = 70;
+/** A token count as usage reports it: any finite number ≥ 0. */
+const isTokens = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+const countOf = (v: unknown): number => (isTokens(v) ? v : 0);
+const strOrNull = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+
+/**
+ * A run's billing split from the usage its end reported: counts that are not finite numbers ≥ 0 read as 0, and the
+ * total is the reported one or, as addUsage computes it, their sum. Null without usage.
+ */
+export function runBilling(u?: AgentUsage | null): RunBilling | null {
+  if (!u || typeof u !== 'object') return null;
+  const b = { input: countOf(u.input), output: countOf(u.output), cacheRead: countOf(u.cacheRead), cacheWrite: countOf(u.cacheWrite) };
+  return { ...b, totalTokens: isTokens(u.totalTokens) ? u.totalTokens : b.input + b.output + b.cacheRead + b.cacheWrite };
+}
+
+/** Adds `more`'s counts to `run`'s billing. */
+export function addBilling(run: AgentRun, more: RunBilling): void {
+  const u = run.usage;
+  run.usage = u
+    ? { input: u.input + more.input, output: u.output + more.output, cacheRead: u.cacheRead + more.cacheRead, cacheWrite: u.cacheWrite + more.cacheWrite, totalTokens: u.totalTokens + more.totalTokens }
+    : more;
+}
+
+/**
+ * Records an agent end on the agent's runHistory (recordAgent in ./store.ts). The end of a running agent is a new
+ * agent run, usage or not (a lost run has none). A further end with usage on an ended agent adds its counts to the
+ * last run and, when it has one, its composition; with no recorded run it is a run of its own unless legacy runs
+ * exist, whose events fold it in. An end without usage on an ended agent records nothing. The newest MAX_AGENT_RUNS stay.
+ */
+export function recordRun(a: JobAgent, end: AgentRunEnd): void {
+  if (!Array.isArray(a.runHistory)) a.runHistory = [];
+  const list = a.runHistory;
+  const usage = runBilling(end.usage);
+  const last = list.at(-1);
+  if (!end.wasRunning) {
+    if (!usage) return;
+    if (last) {
+      addBilling(last, usage);
+      if (end.composition) last.composition = end.composition;
+      return;
+    }
+    if (countOf(a.legacyRuns) > 0) return;
+  }
+  list.push({ round: end.round, startedAt: end.wasRunning ? (a.startedAt ?? null) : null, endedAt: end.at, status: end.status, model: end.model, usage, composition: end.composition ?? null });
+  if (list.length > MAX_AGENT_RUNS) list.splice(0, list.length - MAX_AGENT_RUNS);
+}
+
+/** A stored composition, or null unless every count is a finite number ≥ 0, every tool part is named, and the parts sum to the total. */
+export function cleanComposition(v: unknown): ContextComposition | null {
+  if (!v || typeof v !== 'object') return null;
+  const c = v as Record<string, unknown>;
+  const keys = ['total', 'forgePrompt', 'harness', 'carried', 'assistant', 'user'] as const;
+  if (!keys.every((k) => isTokens(c[k])) || !Array.isArray(c.tools)) return null;
+  const tools: ContextPart[] = [];
+  for (const p of c.tools as unknown[]) {
+    const part = p as { name?: unknown; tokens?: unknown } | null;
+    if (!part || typeof part !== 'object' || typeof part.name !== 'string' || !part.name || part.name.length > MAX_PART_NAME || !isTokens(part.tokens)) return null;
+    tools.push({ name: part.name, tokens: part.tokens });
+  }
+  const n = (k: (typeof keys)[number]) => c[k] as number;
+  const sum = n('forgePrompt') + n('harness') + n('carried') + n('assistant') + n('user') + tools.reduce((s, p) => s + p.tokens, 0);
+  if (sum !== n('total')) return null;
+  return { total: n('total'), forgePrompt: n('forgePrompt'), harness: n('harness'), carried: n('carried'), tools, assistant: n('assistant'), user: n('user') };
+}
+
+/** A stored agent run, or null when it is not an object or its usage is malformed; a malformed composition reads as null. */
+export function cleanRun(v: unknown): AgentRun | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const u = r.usage as Record<string, unknown> | null | undefined;
+  const billing = ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const;
+  if (u != null && (typeof u !== 'object' || !billing.every((k) => isTokens(u[k])))) return null;
+  return {
+    round: typeof r.round === 'number' && Number.isInteger(r.round) ? r.round : null,
+    startedAt: strOrNull(r.startedAt),
+    endedAt: strOrNull(r.endedAt),
+    status: strOrNull(r.status),
+    model: strOrNull(r.model),
+    usage: u == null ? null : { input: u.input as number, output: u.output as number, cacheRead: u.cacheRead as number, cacheWrite: u.cacheWrite as number, totalTokens: u.totalTokens as number },
+    composition: cleanComposition(r.composition),
+  };
 }
 
 /**

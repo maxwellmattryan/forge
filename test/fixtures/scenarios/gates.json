@@ -73,6 +73,7 @@
     "project": ["@project.empty"],
     "issues": ["@issues.empty"],
     "agents": ["@agents.noRunning", "@agents.noSessions"],
+    "foreman": ["@foreman.title", "@statusbar.foreman.offTitle", "@foreman.office.noMandates", "@foreman.office.noDirectives"],
     "analytics": ["@analytics.jobs", "@analytics.noUsage"],
     "evals": ["@evals.empty"],
     "drawer": { "job": "spec", "text": ["Spec approval", "spec ready", "@dock.label"] }

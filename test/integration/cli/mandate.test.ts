@@ -54,10 +54,10 @@ test('forge mandate new, show, pause, resume, close and list', async () => {
     const text = read(path.join(mandatesDir(r.dir), 'm1.md'));
     const [, front, body] = text.split(/^---$/m);
     const fm = yaml.parse(front);
-    assert.deepEqual(Object.keys(fm), ['schemaVersion', 'id', 'title', 'status', 'reason', 'scope', 'until', 'maxJobs', 'order', 'decides', 'budget', 'stall', 'onUnfinishable', 'after', 'createdAt', 'updatedAt', 'closedAt', 'filedAt', 'goal']);
+    assert.deepEqual(Object.keys(fm), ['schemaVersion', 'id', 'title', 'status', 'reason', 'scope', 'until', 'maxJobs', 'order', 'decides', 'budget', 'stall', 'onUnfinishable', 'scoring', 'after', 'createdAt', 'updatedAt', 'closedAt', 'filedAt', 'goal']);
     assert.equal(fm.goal, null);
     assert.deepEqual(
-      { scope: fm.scope, until: fm.until, maxJobs: fm.maxJobs, order: fm.order, decides: fm.decides, budget: fm.budget, stall: fm.stall, onUnfinishable: fm.onUnfinishable, after: fm.after, reason: fm.reason, closedAt: fm.closedAt },
+      { scope: fm.scope, until: fm.until, maxJobs: fm.maxJobs, order: fm.order, decides: fm.decides, budget: fm.budget, stall: fm.stall, onUnfinishable: fm.onUnfinishable, scoring: fm.scoring, after: fm.after, reason: fm.reason, closedAt: fm.closedAt },
       {
         scope: { milestones: ['M9', 'M10'], labels: [], issues: [] },
         until: 'merge-ready',
@@ -67,12 +67,14 @@ test('forge mandate new, show, pause, resume, close and list', async () => {
         budget: { usd: 150, jobs: 5 },
         stall: { cadences: 3, bounces: 3 },
         onUnfinishable: 'park',
+        scoring: 'all',
         after: null,
         reason: null,
         closedAt: null,
       },
     );
     assert.equal(body.trim(), 'Do the docs first.');
+    assert.equal(out.mandate.contract.scoring, 'all');
 
     const shown = await ok(r.dir, ['mandate', 'show', 'm1']);
     assert.deepEqual([shown.chain, shown.activeLink, shown.jobs, shown.capped, shown.file, shown.goal], [['m1'], 'm1', [], [], path.join('.forge', 'runtime', 'mandates', 'm1.md'), '']);
@@ -81,6 +83,11 @@ test('forge mandate new, show, pause, resume, close and list', async () => {
     const guidance = (shown.guidance as string).split('\n');
     assert.match(guidance[0], /^Imported from mandate m1\. /);
     assert.ok(guidance.includes('> Do the docs first.'), shown.guidance);
+
+    // An edit replaces only the scoring term.
+    const scored = await ok(r.dir, ['mandate', 'edit', 'm1', '--scoring', 'off']);
+    assert.deepEqual([scored.changed, scored.mandate.contract.scoring, scored.mandate.contract.maxJobs], [true, 'off', 3]);
+    assert.equal(yaml.parse(read(path.join(mandatesDir(r.dir), 'm1.md')).split(/^---$/m)[1]).scoring, 'off');
 
     const steps: [string[], { status: string; reason: string | null; changed: boolean }][] = [
       [['mandate', 'pause', 'm1', '--reason', 'waiting on review'], { status: 'paused', reason: 'waiting on review', changed: true }],
@@ -104,6 +111,7 @@ test('forge mandate new, show, pause, resume, close and list', async () => {
       rows.map((x) => [x.action, x.detail, x.job]),
       [
         ['mandate-new', 'm1', null],
+        ['mandate-edit', 'm1', null],
         ['mandate-pause', 'm1', null],
         ['mandate-resume', 'm1', null],
         ['mandate-close', 'm1', null],

@@ -6,6 +6,7 @@
     "project": ["@project.empty"],
     "issues": ["@issues.empty"],
     "agents": ["@agents.noRunning", "@agents.noSessions", "@agents.roster"],
+    "foreman": ["@foreman.title", "@statusbar.foreman.offTitle", "@foreman.office.noMandates", "@foreman.office.noDirectives"],
     "analytics": ["@analytics.noUsage", "@analytics.noReviews"],
     "evals": ["@evals.empty"]
   }

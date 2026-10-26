@@ -326,7 +326,7 @@ export function defaults(): Config {
     outcomes: {
       windowDays: 14,
     },
-    // Off by default: sample 0 queues no post-merge score run; docs/CONFIG.md "Scoring".
+    // Off by default outside mandates: sample 0 queues no post-merge score run for a job in no mandate; docs/CONFIG.md "Scoring".
     scoring: {
       sample: 0,
       model: null,
