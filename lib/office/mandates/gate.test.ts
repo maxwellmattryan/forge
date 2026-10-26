@@ -1,16 +1,21 @@
 // The milestone-approval gate: its status from the draft, the requests and the filing record; who owns
-// it; the gate request and notification a recorded draft queues; and the decision note's rules.
+// it; the gate request and notification a recorded draft queues; a revise that loses the race to another
+// drafting run; and the decision note's rules.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { MILESTONE_DRAFT, forgeInProcess, initMilestoneRepo, readyGoal, repoTemplate, writeDraftFile } from '../../../test/helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
+import { ForgeError } from '#core/errors.ts';
 import { ackRequest, claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
+import { repoAuditFile } from '#core/job/store.ts';
 import { writeJsonAtomic } from '#core/os/fs.ts';
 import { FILING_SCHEMA_VERSION } from '#core/versions/filing.ts';
 import { REASONS } from '../notify.ts';
 import type { QueueNotify } from '../notify.ts';
+import { queueDraftRequest } from './draft.ts';
 import { filingFile } from './filing.ts';
-import { cleanDraftNote, draftGate, draftGateOwner, draftGates, onDraftRecorded } from './gate.ts';
+import { cleanDraftNote, decideDraft, draftGate, draftGateOwner, draftGates, onDraftRecorded } from './gate.ts';
 import { readMandate, writeMandate } from './store.ts';
 import type { Config, ForgeRequest } from '#core/types.ts';
 import type { Filing, Mandate } from './types.ts';
@@ -163,6 +168,37 @@ test('a recorded draft notifies and queues its gate', async () => {
     const narrow = await readyGoal(root, 'g4', ['--decides', 'spec-approval']);
     assert.equal(onDraftRecorded(root, config, mandate(root, 'g4'), narrow, { notify }), null, "the mandate's decides leaves it out");
     assert.equal(listRequests(root).filter((x) => x.type === 'gate').length, 1);
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('revise refuses when another drafting run was queued first', async () => {
+  const r = scratch();
+  try {
+    const root = r.dir;
+    const { config } = loadConfig(root);
+    const { request } = await readyGoal(root, 'g1');
+    let racing = '';
+    // A `forge mandate draft start` that lands between the gate read and revise's queue.
+    const queue: typeof queueDraftRequest = (at, id, args) => {
+      racing = enqueue(at, null, { type: 'draft', args: { mandate: id }, from: 'forge' }).id;
+      return queueDraftRequest(at, id, args);
+    };
+    const tracker = async () => {
+      throw new Error('revise loads no tracker');
+    };
+    await assert.rejects(decideDraft(root, config, 'g1', 'revise', { note: 'split issue b', foreman: false, actor: { login: 'owner', source: 'os' }, tracker, env: {}, queue }), (e: unknown) => {
+      assert.ok(e instanceof ForgeError, String(e));
+      assert.equal(e.exitCode, 1);
+      assert.equal(e.message, `drafting run ${racing} for mandate g1 was queued first, so the note was not queued; decide on the draft it records`);
+      return true;
+    });
+    const drafts = listRequests(root).filter((x) => x.type === 'draft' && x.args?.mandate === 'g1');
+    assert.deepEqual(drafts.map((x) => x.id), [request, racing], 'no second drafting run');
+    assert.ok(!drafts.some((x) => x.args?.note), 'the note went nowhere');
+    const audit = fs.existsSync(repoAuditFile(root)) ? fs.readFileSync(repoAuditFile(root), 'utf8') : '';
+    assert.ok(!audit.includes('mandate-draft-revised'), 'nothing logged');
   } finally {
     r.cleanup();
   }

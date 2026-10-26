@@ -257,13 +257,14 @@ function gateFor(root: string, config: Config, m: Mandate, decision: DraftDecisi
  * daemon session without `--actor foreman` (before anything is read), then the foreman's scope, the note,
  * the mandate and its gate, the pins, and for the foreman every policy check; then, under the mandate's
  * decision lock (a second decision exits 1), the gate is read again and the decision carried out.
+ * `queue` stands in for queueDraftRequest in tests.
  */
 export async function decideDraft(
   root: string,
   config: Config,
   id: string,
   decision: DraftDecision,
-  opts: { request?: string; digest?: string; note?: string | null; foreman: boolean; actor: EventActor; tracker: () => Promise<Tracker>; env?: NodeJS.ProcessEnv },
+  opts: { request?: string; digest?: string; note?: string | null; foreman: boolean; actor: EventActor; tracker: () => Promise<Tracker>; env?: NodeJS.ProcessEnv; queue?: typeof queueDraftRequest },
 ): Promise<DecideResult> {
   const env = opts.env ?? process.env;
   if (env.FORGE_DAEMON === '1' && !opts.foreman)
@@ -309,13 +310,17 @@ export async function decideDraft(
   }
 }
 
-/** The decision under the lock: the mandate and the gate read again, the pins re-checked, then approve, revise or reject. */
+/**
+ * The decision under the lock: the mandate and the gate read again, the pins re-checked, then approve,
+ * revise or reject. The lock doesn't cover the mandates lock, so a `draft start` can queue a drafting run
+ * between the gate read and revise's queue: then revise refuses, and nothing is logged.
+ */
 function carryOut(
   root: string,
   config: Config,
   id: string,
   decision: DraftDecision,
-  opts: { note: string | null; foreman: boolean; actor: EventActor },
+  opts: { note: string | null; foreman: boolean; actor: EventActor; queue?: typeof queueDraftRequest },
   pin: { request: string; digest: string },
   tracker: Tracker | null,
 ): DecideResult {
@@ -333,7 +338,8 @@ function carryOut(
   }
   const request = draft!.request;
   if (decision === 'revise') {
-    const queued = queueDraftRequest(root, id, { note: opts.note, revises: request, ...(opts.foreman ? { foreman: true } : {}) });
+    const queued = (opts.queue ?? queueDraftRequest)(root, id, { note: opts.note, revises: request, ...(opts.foreman ? { foreman: true } : {}) });
+    if (!queued.changed) refuse(`drafting run ${queued.request} for mandate ${id} was queued first, so the note was not queued; decide on the draft it records`);
     logRepoEvent(root, 'mandate-draft-revised', { mandate: id, request, note: opts.note, actor: opts.actor });
     return { ok: true, decision, mandate: id, request, queued: queued.request };
   }
