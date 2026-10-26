@@ -202,7 +202,7 @@ export interface AssistResult {
  */
 export function assistDraft(root: string, config: Config, id: string, gid: string, requests: ForgeRequest[] = listRequests(root)): AssistResult {
   const r = requests.find((x) => x.id === gid);
-  if (!r || r.status !== 'in-progress' || !isDraftGateRequest(r, id)) throw new ForgeError(`--request ${String(gid).slice(0, 80)} is not an in-progress ${GATE} gate request for mandate ${id}`, 1);
+  if (!r || r.status !== 'in-progress' || !isDraftGateRequest(r, id)) throw new ForgeError(`--request ${JSON.stringify(String(gid)).slice(1, -1).slice(0, 80)} is not an in-progress ${GATE} gate request for mandate ${id}`, 1);
   const base = { mandate: id, gate: GATE, subagent: 'forge:assistant' as const, model: resolveModel(config, null, 'assistant'), effort: resolveEffort(config, null, 'assistant').level ?? null };
   const stale = (reason: string): AssistResult => ({ ...base, stale: true, reason, reserved: null, brief: null });
   const m = readMandate(root, id);
