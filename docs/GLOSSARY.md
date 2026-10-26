@@ -149,6 +149,7 @@ Some of these words already mean something in Forge. They keep those meanings:
 - "Milestone" means a tracker milestone (a group of planned work). The Thread's one-line rows for a job's events are "progress lines".
 - "Layer" alone keeps [its meaning in the architecture docs](architecture/layers.md) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
 - "backlog" means the local tracker (`tracker.kind: local`, `.forge/backlog.md` and its title-slug refs) and the pipeline's first stage (`backlog`); the dashboard page that lists any tracker's items is "Issues", and its data route `GET /api/backlog` keeps its name.
+- "Workers" is the status bar's pool of job sessions; "agent" stays a pipeline role's subagent (agent stages, the Agents view and tab), never a pool session.
 
 ## Existing terms
 
@@ -162,6 +163,7 @@ The new words build on these, which exist today.
 | **activity log** | The timestamped lines a foreground `forge dash` prints after its banner in human mode, of three kinds: `session` (session transitions), `http` (requests worth noting) and `job` (newly appended job events); `--quiet` and agent mode leave only the banner (docs/CLI.md "Output mode"). | - |
 | **Foreman** | The Office's director (the office session); its gate decisions are made by assistant foremen, for jobs under `foreman.decides`, narrowed for a job in a mandate by that mandate's `decides`. | `foreman.decides` |
 | **Foreman hand-off** | The Foreman leaving a gate it was asked to decide for a person (a reserved topic or class, the assistant escalating, or the CLI refusing its decision), recorded with `forge job handoff` and shown as *left for a human* (`foremanHandoff`) until a decision answers that park or the job parks again. | `foreman.reserved` |
+| **Workers** | The status bar's indicator and popover for the daemon pool's job sessions, one per running job up to the cap (its live/cap count): Start/Stop, the default permission mode for job sessions and a row per job session. The inbox session has its own **Inbox** indicator. | `daemon.maxConcurrent` |
 | **metered spend** | What the supervisor measured a daemon session spend, from claude's own per-turn cost report, kept in `.forge/runtime/meter/`; budgets enforce it. | `daemon.dailyUsd` |
 | **lease** | A job's one claim on who drives it (`lease` in job.json: `driver`, `epoch`, `since`, `renewedAt`, `expiresAt`): taken by `forge job claim`, renewed only by the driver's own activity, expired by the supervisor when the driver's session exits, and `live` until `expiresAt` passes; nobody else may claim a live lease without `--force`. | - |
 | **epoch** | The lease's counter, one higher at every change of driver and never lower; a driver passes the epoch its claim returned as `--epoch`, and a write with an older one is refused (`stale_epoch`), so a session that was taken over can't write after it. | - |
