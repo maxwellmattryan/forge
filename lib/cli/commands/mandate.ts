@@ -49,7 +49,7 @@ const TERMS: [string, string][] = [
   ['--milestones A,B', 'milestones in the order they are worked (none: empty the list on edit)'],
   ['--labels a,b', 'labels an issue in scope carries (none: empty)'],
   ['--issues r1,r2', 'issues worked in the order given; needs --order listed (none: empty)'],
-  ['--until merge-ready|merged', 'where its work stops (merged applies only under foreman.ship: merge)'],
+  ['--until merge-ready|merged|released', 'where its work stops (merged applies only under foreman.ship: merge or release, released only under release)'],
   ['--max-jobs N', 'its jobs running at once, 1-16'],
   ['--order graph|priority|listed', 'how it orders its work'],
   ['--decides g1,g2|none', 'the gate classes it delegates, within foreman.decides minus gate:<class> reservations'],

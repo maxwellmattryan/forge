@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `/bin/sh -c <cmd>` with an allowl
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 38            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 39            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -321,7 +321,7 @@ foreman:                     # opt-in: assistant foreman daemon sessions decide 
     - cryptography
     - encryption
     - gate:release
-  ship: propose              # propose | merge: merge counts as merge.auto for PRs the approver marks eligible
+  ship: propose              # propose | merge | release: merge counts as merge.auto for PRs the approver marks eligible; release does too, and lets a mandate run until released
   model: inherit             # the office session's model when it directs work under mandates (inherit: daemon.command's)
   effort: null               # the office session's effort (null: runtime.effort)
   cadence: 10                # 1-1440: minutes between the Office's passes over its mandates
@@ -335,7 +335,7 @@ foreman:                     # opt-in: assistant foreman daemon sessions decide 
     model: haiku             # the surveyors' model
     effort: null             # the surveyors' effort (null: runtime.effort)
   mandate:                   # what forge mandate new fills a contract term it is not given with (see "Mandates" below)
-    until: merge-ready       # merge-ready | merged: where its work stops (merged needs ship: merge, else merge-ready applies)
+    until: merge-ready       # merge-ready | merged | released: where its work stops (merged needs ship: merge or release, else merge-ready applies; released needs ship: release, else merged or merge-ready applies)
     maxJobs: 2               # 1-16: its jobs running at once
     order: graph             # graph | priority | listed: how it orders its work (listed: scope.issues in order)
     decides: [spec-approval, split-approval, conflicts]  # the gate classes it delegates, intersected with the effective foreman.decides

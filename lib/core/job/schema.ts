@@ -63,8 +63,12 @@ export function reservedGateEntry(p: string): (typeof OFFICE_GATES)[number] | 'i
   return (OFFICE_GATES as readonly string[]).includes(c) ? (c as (typeof OFFICE_GATES)[number]) : 'invalid';
 }
 
-/** foreman.ship: propose leaves merging as it was; merge counts as merge.auto for the approver and PR4. */
-export const FOREMAN_SHIP = ['propose', 'merge'] as const;
+/**
+ * foreman.ship, in order, each level including the one before (shipAllows in lib/core/config/load.ts):
+ * propose leaves merging as it was; merge counts as merge.auto for the approver and PR4; release also
+ * lets a mandate run until `released`. No level makes the Foreman decide a release: foreman.decides does.
+ */
+export const FOREMAN_SHIP = ['propose', 'merge', 'release'] as const;
 
 const isoOrNull = (v: unknown): string | null => (typeof v === 'string' && v.length <= 64 && Number.isFinite(Date.parse(v)) ? v : null);
 

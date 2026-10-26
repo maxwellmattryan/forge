@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { defaults } from './keys/defaults.ts';
 import { paths, exists, resolveFrom } from '../paths.ts';
-import { migrateConfig } from '../job/schema.ts';
+import { FOREMAN_SHIP, migrateConfig } from '../job/schema.ts';
 import { deepMerge } from '../shape.ts';
 import type { Config, LoadedConfig } from '../types.ts';
 import { ForgeError } from '../errors.ts';
@@ -20,9 +20,18 @@ export { allInstructionFiles } from './validators/instructions.ts';
 export { RETENTION_DAYS, validateConfig, foremanProblems, verifyShapeProblems, verifyGroups, verifySteps, panelPathsProblems, pathsOnlyProblems, reviewerChecklist } from './validate.ts';
 export { globProblem } from './validators/policy-check.ts';
 
-/** foreman.ship merge (with the foreman on) counts as merge.auto, for the approver brief and step PR4 only. */
+/**
+ * Whether foreman.ship reaches `level`: the levels are ordered (FOREMAN_SHIP), so release includes merge.
+ * It reads ship alone; the callers decide whether the foreman must be on.
+ */
+export function shipAllows(config: Config, level: 'merge' | 'release'): boolean {
+  const at = (FOREMAN_SHIP as readonly unknown[]).indexOf(config.foreman?.ship);
+  return at >= 0 && at >= FOREMAN_SHIP.indexOf(level);
+}
+
+/** foreman.ship merge or release (with the foreman on) counts as merge.auto, for the approver brief and step PR4 only. */
 export function autoMerge(config: Config): boolean {
-  return config.merge?.auto === true || (config.foreman?.enabled === true && config.foreman?.ship === 'merge');
+  return config.merge?.auto === true || (config.foreman?.enabled === true && shipAllows(config, 'merge'));
 }
 
 /**

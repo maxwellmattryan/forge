@@ -68,6 +68,8 @@ export const API_CHANGES = [
   // The chat routes under /api/p/<project>/chats (Chat, ChatLogEntry, ChatLogPage, ChatDetail, ChatList); scope `_chat-<id>`
   // in /events, /daemons/log, /daemon/permission, /daemon/mode and /daemon; ActorSource 'chat'; Stats.cost.sessions.chat.
   { id: 'chats' },
+  // MandateUntil 'released'; DirectiveAction 'release'; a job-less `release` gate request naming a mandate.
+  { id: 'mandate-until-released' },
 ] as const;
 
 /**

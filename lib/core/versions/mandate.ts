@@ -10,6 +10,9 @@ export const MANDATE_STEPS: readonly Step[] = [
   { id: 'mandate-goal', up: (m) => ({ ...m, goal: null }) },
   // A goal mandate's filing (forge mandate draft approve): when its draft was filed, null on every mandate written before it.
   { id: 'mandate-filed', up: (m) => ({ ...m, filedAt: null }) },
+  // until may be released (the mandate waits for its release run): no older file changes; the bump lets
+  // an older Forge refuse a file whose until it would reject.
+  { id: 'mandate-until-released', up: (m) => m },
 ];
 
 export const MANDATE_SCHEMA_VERSION = versionOf(MANDATE_STEPS);

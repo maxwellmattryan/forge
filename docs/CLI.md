@@ -1454,7 +1454,7 @@ See [Foreman › Intake](architecture/foreman.md).
 | `--stall-bounces N` | gate bounces on one job before it is stalled, 1-100 |
 | `--stall-cadences N` | the Foreman's passes with no progress before it is stalled, 1-100 |
 | `--title T` | a new title |
-| `--until merge-ready\|merged` | where its work stops (merged applies only under foreman.ship: merge) |
+| `--until merge-ready\|merged\|released` | where its work stops (merged applies only under foreman.ship: merge or release, released only under release) |
 
 | Exit | When |
 |---|---|
@@ -1485,7 +1485,7 @@ See [Mandates](CONFIG.md#mandates).
 | `--stall-bounces N` | gate bounces on one job before it is stalled, 1-100 |
 | `--stall-cadences N` | the Foreman's passes with no progress before it is stalled, 1-100 |
 | `--title T` | one line, at most 200 characters (required) |
-| `--until merge-ready\|merged` | where its work stops (merged applies only under foreman.ship: merge) |
+| `--until merge-ready\|merged\|released` | where its work stops (merged applies only under foreman.ship: merge or release, released only under release) |
 
 | Exit | When |
 |---|---|
