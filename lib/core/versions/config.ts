@@ -145,6 +145,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v36 adds daemon.keepAwake (auto) and the service-restarted notify event, filled from defaults, so
   // no v35 config changes; the bump lets older Forges refuse a webhook subscribed to an event they lack.
   { id: 'office-uptime', up: (c) => c },
+  // v37 adds daemon.dailyUsd.chat (25), filled from defaults, so no v36 config changes; the bump lets older
+  // Forges refuse a config whose chat cap they would reject as an unknown key.
+  { id: 'daemon-daily-usd-chat', up: (c) => c },
 ];
 
 const isPlainMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);

@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `/bin/sh -c <cmd>` with an allowl
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 36            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 37            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -284,9 +284,10 @@ daemon:                      # opt-in headless sessions supervised by `forge das
   jobBudget:                 # with enabled: true, fills each of tokens, usd and minutes the job's budget leaves unset (null: off; see "Daemon" below)
     tokens: 600000000        # total tokens per job
     usd: 150                 # estimated USD per job
-  dailyUsd:                  # dollars per UTC day the inbox and office sessions may spend, as the supervisor meters it; at the cap the session stops: start it again after midnight UTC, or raise the cap (null: no caps; see "Daemon" below)
+  dailyUsd:                  # dollars per UTC day the inbox, office and chat sessions may spend, as the supervisor meters it; at the cap the session stops: start it again after midnight UTC, or raise the cap (null: no caps; see "Daemon" below)
     inbox: 25                # the inbox session's daily cap in USD (null: none)
     office: 60               # the daily cap in USD on the office session and its assistant foremen, summed (null: none)
+    chat: 25                 # the daily cap in USD on every chat session of the project, summed: at the cap a chat refuses the owner's next message, and a running one stops after its reply (null: none)
   keepAwake: auto            # auto: while the pool is started and an active mandate or a running job at an agent stage is in flight, the machine dashboard holds a sleep assertion; never: this project never does (see "Daemon" below)
 
 foreman:                     # opt-in: assistant foreman daemon sessions decide gates through assistant sub-agents (see "Foreman" below)

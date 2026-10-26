@@ -50,11 +50,13 @@ test('daemonProblems refuses a bad daily cap', () => {
     (c.daemon as { dailyUsd: unknown }).dailyUsd = dailyUsd;
     return daemonProblems(c).filter((p) => p.startsWith('daemon.dailyUsd'));
   };
-  assert.deepEqual(defaults().daemon.dailyUsd, { inbox: 25, office: 60 }, 'the defaults');
-  for (const ok of [null, { office: null }, defaults().daemon.dailyUsd, { inbox: 0 }]) assert.deepEqual(problemsFor(ok), [], JSON.stringify(ok));
+  assert.deepEqual(defaults().daemon.dailyUsd, { inbox: 25, office: 60, chat: 25 }, 'the defaults');
+  for (const ok of [null, { office: null }, defaults().daemon.dailyUsd, { inbox: 0 }, { chat: null }, { chat: 0 }, { chat: 12.5 }]) assert.deepEqual(problemsFor(ok), [], JSON.stringify(ok));
   const rows: [unknown, RegExp][] = [
-    [5, /^daemon\.dailyUsd must be null or a map of inbox, office/],
+    [5, /^daemon\.dailyUsd must be null or a map of inbox, office, chat/],
     [{ office: -1 }, /^daemon\.dailyUsd\.office must be null or a number >= 0/],
+    [{ chat: -1 }, /^daemon\.dailyUsd\.chat must be null or a number >= 0/],
+    [{ chat: 'lots' }, /^daemon\.dailyUsd\.chat must be null or a number >= 0/],
     [{ office: 'lots' }, /^daemon\.dailyUsd\.office must be null or a number >= 0/],
     [{ other: 1 }, /^daemon\.dailyUsd\.other is not a key/],
   ];

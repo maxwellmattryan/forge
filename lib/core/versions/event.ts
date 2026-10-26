@@ -28,6 +28,8 @@ export const EVENT_STEPS: readonly Step[] = [
   // v7 adds metered and unmeasured to agent-end (forge job agent end in a daemon session). An older agent-end has
   // neither, and readers (lib/engine/metrics/spend.ts) treat its usage as reported and not covered by any meter.
   { id: 'agent-end-metering', up: (e) => e },
+  // v8 lets an actor's `source` be `chat` (an action a chat session took for the owner); an older Forge reads it as `unknown`.
+  { id: 'actor-source-chat', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

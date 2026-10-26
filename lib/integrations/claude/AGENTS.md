@@ -14,7 +14,7 @@ Claude Code's command line, protocol, files and prices: the session argv and env
 | `argv.ts` | Claude Code's command line and environment for a headless session: the permission-mode and effort flags, `daemon.command` to argv, and the child's env. |
 | `child.ts` | The real ClaudeAdapter: spawns claude as the leader of its own process group, feeds its stdout and stderr through the protocol (stream.ts), and signals the whole group to stop it. |
 | `pricing.ts` | Model prices (lib/integrations/claude/pricing.json merged with config.usage.pricing) and the cost estimate built on them. |
-| `stream.ts` | Claude Code's stream-json protocol, with no I/O of its own: claude's output lines become ClaudeEvents, and every line written to its stdin is built here, from fixed text or a fixed list: the one turn, permission answers and mode switches, plus an error reply that repeats claude's own capped subtype back to it. |
+| `stream.ts` | Claude Code's stream-json protocol, with no I/O of its own: claude's output lines become ClaudeEvents, and every line written to its stdin is built here: the one fixed turn, permission answers and mode switches from a fixed list, an error reply that repeats claude's own capped subtype back to it, and, in a chat session only, the owner's own message (writeMessage), the one free-text line. |
 | `transcripts.ts` | Claude Code transcripts of this repo's sessions and their agents, located from job state only. |
 | `types.ts` | The shapes of a headless Claude Code child as the office sees it: the domain events its stream-json output means (ClaudeEvent), the handle that is the only way to write to it (ClaudeChild), and the adapter that starts one (ClaudeAdapter). |
 <!-- forge:map:end -->

@@ -69,7 +69,7 @@ export type ClaudeEvent =
   /** The process closed. Sent once, last. */
   | { kind: 'exit'; code: number | null; signal: string | null };
 
-/** One running claude child. Every line it writes to claude is built from fixed text or a fixed list. */
+/** One running claude child. Every line it writes to claude is built from fixed text or a fixed list, except a chat's owner message (writeMessage). */
 export interface ClaudeChild {
   readonly pid: number | null;
   /** Whether its stdout is paused (backpressure from a full log). */
@@ -78,6 +78,8 @@ export interface ClaudeChild {
   readonly closed: Promise<void>;
   /** Writes the one fixed turn, `/forge requests`. */
   writeTurn(): void;
+  /** Writes one owner message as a user line (stream.ts chatMessageLine); false, writing nothing, for a text it refuses. Only a chat session calls it. */
+  writeMessage(text: string): boolean;
   /** Answers a request claude asked; false, writing nothing, when it is not waiting (answered, cancelled or unknown). */
   answerPermission(requestId: string, decision: PermissionDecision): boolean;
   /** Asks claude to switch mode; returns the request id, or null for a mode outside PERMISSION_MODES. */

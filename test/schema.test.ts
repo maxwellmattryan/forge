@@ -142,6 +142,7 @@ const CONFIG_ROWS: Row[] = [
     note: "the assistant's model and effort move under foreman.assistants",
   },
   { step: 'office-uptime', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.keepAwake'], note: ONLY_VERSION },
+  { step: 'daemon-daily-usd-chat', input: { daemon: { enabled: true, dailyUsd: { inbox: 25, office: 60 } } }, fields: { 'daemon.dailyUsd': { inbox: 25, office: 60 } }, removed: ['daemon.dailyUsd.chat'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -253,6 +254,12 @@ const EVENT_ROWS: Row[] = [
     fields: { type: 'agent-end', ts: 't', role: 'builder', usage: { totalTokens: 10 } },
     removed: ['metered', 'unmeasured'],
     note: 'an agent-end from before metering reads unchanged: reported usage no meter covers',
+  },
+  {
+    step: 'actor-source-chat',
+    input: { ts: 't', type: 'human', action: 'rework', actor: { login: 'al', source: 'chat' } },
+    fields: { type: 'human', ts: 't', action: 'rework', actor: { login: 'al', source: 'chat' } },
+    note: 'an actor recorded by a chat session keeps source chat',
   },
 ];
 

@@ -50,6 +50,20 @@ test('the deny tail follows every template', () => {
     assert.ok(DENY_TOOLS.includes(t), t);
 });
 
+test('a system prompt to append goes once, before the deny tail', () => {
+  const vars = { pluginRoot: '/p', session, allowedTools: ['Agent'], maxBudgetUsd: 5 };
+  const plain = buildArgv('claude {session}', vars);
+  assert.deepEqual(buildArgv('claude {session}', { ...vars, appendSystemPrompt: null }), plain, 'null changes nothing');
+  assert.ok(!plain.includes('--append-system-prompt'));
+  const text = 'You are the Foreman.\nRun `forge chat brief` first.';
+  const argv = buildArgv('claude {session}', { ...vars, appendSystemPrompt: text });
+  assert.equal(argv.filter((w) => w === text).length, 1, 'the text once');
+  const at = argv.indexOf('--append-system-prompt');
+  assert.equal(argv[at + 1], text);
+  assert.ok(at > argv.indexOf('--max-budget-usd') && at < argv.indexOf('--disallowedTools'), 'after the cap, before the deny tail');
+  assert.deepEqual([...argv.slice(0, at), ...argv.slice(at + 2)], plain, 'nothing else changes');
+});
+
 test("the dollar cap is Forge's, once", () => {
   const caps = (argv: string[]) => argv.flatMap((w, i) => (w === '--max-budget-usd' ? [argv[i + 1]] : w.startsWith('--max-budget-usd=') ? [w] : []));
   const rows: { name: string; template?: string; usd: number | null | undefined; want: string[] }[] = [

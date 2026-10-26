@@ -4,10 +4,10 @@
 
 /**
  * Where an event's `actor` came from: lib/integrations/github/actor.ts resolves env, gh, git, os, dashboard and
- * daemon (a daemon session's own action); the foreman's decisions say `foreman`; anything Forge cannot vouch for
- * reads as `unknown`.
+ * daemon (a daemon session's own action) and chat (a chat session's action for the owner); the foreman's decisions
+ * say `foreman`; anything Forge cannot vouch for reads as `unknown`.
  */
-export const ACTOR_SOURCES = ['env', 'gh', 'git', 'os', 'dashboard', 'daemon', 'foreman', 'unknown'] as const;
+export const ACTOR_SOURCES = ['env', 'gh', 'git', 'os', 'dashboard', 'daemon', 'foreman', 'unknown', 'chat'] as const;
 
 export const STAGES = [
   'backlog',
@@ -90,6 +90,10 @@ export const ASSISTANTS_SCOPE = '_assistants';
 export const ASSISTANT_SCOPE_PREFIX = '_assistant-';
 /** The most assistant foreman sessions a pool runs (foreman.assistants.sessions). */
 export const MAX_ASSISTANTS = 16;
+/** A chat's session scope is this prefix and the chat's id, 12 lowercase hex characters. */
+export const CHAT_SCOPE_PREFIX = '_chat-';
+/** The longest owner message a chat takes, in characters. */
+export const CHAT_MESSAGE_MAX = 8000;
 /** Not a session: POST /api/daemon/mode's name for the default of every job session without its own choice. */
 export const JOBS_SCOPE = '_jobs';
 

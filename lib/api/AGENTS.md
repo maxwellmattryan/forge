@@ -14,7 +14,7 @@ Forge's public contracts, with no Node imports: the `/api` and SSE shapes, the r
 |---|---|
 | `config.ts` | The Settings modal's endpoints: /api/config, /api/doctor and /api/about. |
 | `constants.ts` | The runtime lists the /api shapes in types.ts derive from, plus the daemon scopes the dashboard pins. |
-| `daemon.ts` | The session pools: /api/daemon, /api/daemon/mode, /api/daemon/permission, /api/daemons/log and the /api/events SSE frames, plus the machine dashboard's own GET /api/projects, /api/projects/events and /api/projects/stats, and the machine cap every pool reports. |
+| `daemon.ts` | The session pools: /api/daemon, /api/daemon/mode, /api/daemon/permission, /api/daemons/log and the /api/events SSE frames, plus the machine dashboard's own GET /api/projects, /api/projects/events and /api/projects/stats, the machine cap every pool reports, and the owner's chats with the Foreman (/api/p/<project>/chats…). |
 | `enums.ts` | The unions the /api shapes share, each derived from its runtime list in constants.ts; the only type module that imports constants.ts. |
 | `job.ts` | A job as job.json and events.jsonl hold it, as /api/state and /api/jobs/:id serve it. |
 | `jobs.ts` | /api/jobs and /api/jobs/:id/*: the job detail, transcript and files, the job POSTs, and the environment routes with GET /api/environments. |
