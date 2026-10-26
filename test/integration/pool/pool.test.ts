@@ -154,6 +154,48 @@ test('a gate request reaches an assistant foreman', async (t) => {
   }
 });
 
+test('the Office pass runs at start and on a mandate change, and its direct request turns the office', async (t) => {
+  for (const enabled of [true, false]) {
+    const { root, config } = daemonRepo(t, { foreman: { enabled, model: 'opus', effort: 'high' } });
+    const job = createJob(root, config, { title: 'work' }).id;
+    enqueue(root, config, { type: 'resume', job, from: 'dashboard' });
+    let calls = 0;
+    // The pass child's stand-in: the first finds director work.
+    const runPass = async (r: string) => {
+      calls++;
+      if (calls === 1) enqueue(r, config, { type: 'direct', job: null, args: {}, from: 'forge' });
+      return null;
+    };
+    const claude = fakeClaude();
+    const pool = createPool(root, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass });
+    t.after(() => pool.close());
+    pool.start('boot');
+    const of = (scope: string) => claude.children.filter((c) => c.scope === scope);
+    if (!enabled) {
+      pool.poke();
+      assert.equal(calls, 0, 'no pass while the foreman is off');
+      assert.deepEqual(of('_office'), [], 'the office never spawns');
+      await pool.close();
+      continue;
+    }
+    assert.equal(calls, 1, 'one pass at start');
+    await waitFor(() => of('_office')[0]?.turns === 1, { what: 'the office turn' });
+    assert.equal(of('_office').length, 1);
+    const argv = of('_office')[0].argv;
+    const after = (w: string) => argv.flatMap((x, i) => (x === w ? [argv[i + 1]] : []));
+    assert.deepEqual([after('--model'), after('--effort')], [['opus'], ['high']]);
+    await waitFor(() => of(job).length === 1, { what: 'the job session' });
+    for (const c of claude.children.filter((x) => x.scope !== '_office')) assert.ok(!c.argv.includes('--model'), `${c.scope}: no --model`);
+    const dir = path.join(root, '.forge', 'runtime', 'mandates');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'm2.md'), '---\n---\n');
+    pool.poke();
+    await waitFor(() => calls === 2, { what: 'a pass after the mandate change' });
+    assert.equal(of('_office')[0].turns, 1, 'the second pass queued no direct request');
+    await pool.close();
+  }
+});
+
 test('assistant foremen count against neither daemon.maxConcurrent nor the machine cap', async (t) => {
   const { root, config } = daemonRepo(t, { daemon: { maxConcurrent: 1 }, foreman: { enabled: true, assistants: { enabled: true, sessions: 1 } } });
   const job = createJob(root, config, { title: 'running' }).id;
