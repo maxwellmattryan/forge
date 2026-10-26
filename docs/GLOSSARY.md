@@ -117,6 +117,10 @@ Words for the Office (#281, M009): the Foreman directing work through mandates. 
 | **mandate** | The owner's standing instruction to the Office. It is a file in `.forge/runtime/mandates/` written only by `forge mandate new\|edit\|pause\|resume\|close`: a mandate contract in its frontmatter, and the owner's guidance as free text, which briefs fence as data. A job joins one with `forge job new --mandate` and keeps it, and a split child keeps its parent's. | `foreman.mandate` |
 | **mandate contract** | Scope, `until`, `maxJobs`, `order`, `decides` (only narrows `foreman.decides`), `budget`, `stall`, `onUnfinishable` and `after`. `forge mandate show` prints it as written and as it applies after `foreman.decides`, `foreman.reserved` and `foreman.ship`. | `foreman.mandate` |
 | **mandate chain** | Mandates linked by `after:`, each starting only once the one before has closed. `forge mandate list` shows each chain and its active link. | - |
+| **intake** | The Office turning an owner's goal into planned work: a goal mandate's drafting runs, and in a later phase filing the draft to the tracker (#434). `forge mandate list` marks a goal mandate `intake: true`. | - |
+| **goal mandate** | A mandate created with `forge mandate new --goal`: the owner states what to achieve, and its scope stays empty until its milestone draft is filed. The goal is owner text, fenced as data wherever it is shown. | `foreman.mandate` |
+| **milestone draft** | The plan a drafting run writes for a goal mandate: one milestone with exit criteria, and up to 30 issues in waves, each naming the stat it should move. It is `draft.json` in the mandate's runtime dir, read with `forge mandate draft show`, and nothing reaches the tracker yet. | - |
+| **drafting run** | One turn of intake: the office session claims a `draft` request, `forge mandate draft prepare` writes the survey, one `forge:drafter` writes the draft, and `forge mandate draft record` checks and stores it with its spend. | `daemon.dailyUsd.office` |
 | **assistant foreman** | A pool session that takes the Foreman's `gate` requests and spawns `forge:assistant` per gate. Planned (#537); today the office session does this itself. | `foreman.assistants` |
 | **surveyor** | A sub-agent that summarises the board, or one mandate's jobs, in a few lines, so the Foreman's context stays small. Planned (#538). | `foreman.surveyors` |
 
@@ -135,6 +139,7 @@ Some of these words already mean something in Forge. They keep those meanings:
 - "File map" is a spec's `Files:` table; a folder's `AGENTS.md` is its "folder map".
 - "Integrations" never means the integrate stage or the integrator (bringing a branch up to date with its base), nor integration tests (`test/integration/`).
 - "Office", capitalised, is the Office (the `_office` scope and everything in it); lowercase "office" is the lib layer and runtime in `lib/office/`, and the Foreman's session is the "office session".
+- The Office's "intake" (a goal mandate's drafting runs) differs from a job's intake, `forge requests add resume --intake run|next|new`, which says how a job starts.
 - "Milestone" means a tracker milestone (a group of planned work). The Thread's one-line rows for a job's events are "progress lines".
 - "Layer" alone keeps [its meaning in the architecture docs](architecture/layers.md) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
 
