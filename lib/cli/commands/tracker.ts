@@ -25,6 +25,7 @@ import { memberIssues } from '#engine/trackers/mirror.ts';
 import { memberForRef, memberTrackerConfig, memberTrackers, qualify, type MemberTracker } from '#engine/project/member-trackers.ts';
 import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '#engine/trackers/triage.ts';
 import { dashRunning, reconcile, type ReconcileResult } from '#office/reconcile.ts';
+import { mandateRefusal } from '#office/foreman.ts';
 import { ForgeError } from '#core/errors.ts';
 import { removeWorktree } from '#engine/workspace/worktree.ts';
 import { bodyFrom, list, num, req, str, usageError } from './args.ts';
@@ -453,7 +454,7 @@ export async function syncAll(
     if (!watch || !config.pr.enabled) continue;
     try {
       const before: Partial<JobPr> = job.pr ?? {};
-      const r = await syncPr(root, config, ghGitHub, job.id);
+      const r = await syncPr(root, config, ghGitHub, job.id, { narrow: (j) => mandateRefusal(root, config, j, 'pr-feedback') });
       if (r.integrate) integrating.push(job.id);
       const after = loadJob(root, job.id);
       if (r.pr?.state === 'MERGED' && before.state !== 'MERGED') await commentApproval(root, config, after);

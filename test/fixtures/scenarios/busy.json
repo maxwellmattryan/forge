@@ -72,7 +72,7 @@
       "PR review"
     ],
     "project": ["@project.empty"],
-    "backlog": ["@backlog.empty"],
+    "issues": ["@issues.empty"],
     "agents": ["@agents.running", "Build the export command"],
     "analytics": ["@analytics.jobs", "@analytics.noUsage"],
     "evals": ["@evals.empty"],

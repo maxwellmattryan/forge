@@ -37,7 +37,7 @@ import {
 import { assertNoSymlinks, doneCount, planSteps, readPlanFile, readState, releaseFiles } from './files.ts';
 import { readManifestPackage } from './manifest.ts';
 import { stepCommand } from './render.ts';
-import { foremanReleaseApproval, releaseApprovalStatus } from './approval.ts';
+import { foremanReleaseApproval, releaseApprovalStatus, type ReleaseNarrow } from './approval.ts';
 import type { RepoKey } from '../project/repo-order.ts';
 import type { Config } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -90,6 +90,8 @@ export interface RunOptions extends PlanOptions {
   interactive: boolean;
   /** Asks `prompt` and resolves true on yes. Only called when `interactive`. */
   confirm: (prompt: string) => Promise<boolean>;
+  /** The job's mandate check for `release`, asked again on every run: a foreman approval counts only while it is null. */
+  narrow: ReleaseNarrow;
   spawn?: SpawnFn;
   /** Where step output and prompts go besides the log; stderr by default. */
   echo?: (chunk: string | Buffer) => void;
@@ -395,7 +397,7 @@ export async function runRelease(root: string, config: Config, opts: RunOptions)
     const skipped: string[] = [];
     let stopped: RunStop | null = null;
     // A terminal always asks; only a run without one may lean on the Foreman's approval of this plan.
-    const approval = opts.interactive ? null : foremanReleaseApproval(root, config, plan);
+    const approval = opts.interactive ? null : foremanReleaseApproval(root, config, plan, opts.narrow);
     let approvedBy: 'foreman' | undefined;
     const recorded = (c: CheckResult) => ({ ...(c.tags ? { tags: c.tags } : {}), ...(c.version ? { version: c.version } : {}) });
     for (let i = 0; i < steps.length && !stopped; i++) {
@@ -534,7 +536,7 @@ function recordReleases(root: string, config: Config, plan: ReleasePlan, id: str
 }
 
 /** `forge release status`: read-only progress, recorded tags and versions, and whether the plan is stale. */
-export function releaseStatus(root: string, config: Config, opts: PlanOptions = {}) {
+export function releaseStatus(root: string, config: Config, opts: PlanOptions & { narrow: ReleaseNarrow }) {
   const files = releaseFiles(root);
   assertNoSymlinks(files);
   const file = readPlanFile(files);
@@ -578,6 +580,6 @@ export function releaseStatus(root: string, config: Config, opts: PlanOptions = 
     ...(staleReason !== undefined ? { staleReason } : {}),
     steps,
     finishedAt: own?.finishedAt ?? null,
-    approval: releaseApprovalStatus(root, config, file),
+    approval: releaseApprovalStatus(root, config, file, opts.narrow),
   };
 }

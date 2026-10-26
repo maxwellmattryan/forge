@@ -103,7 +103,7 @@ export interface Stats {
     reportingCoverage: { agentRuns: number; withUsage: number; exact: number };
     byRole: Record<string, UsageRow>;
     byModel: Record<string, UsageRow>;
-    /** Supervisor-metered spend by session kind (orchestrator, inbox, office), on or after `since`; {} over a given job list. */
+    /** Supervisor-metered spend by session kind (orchestrator, inbox, office, assistant), on or after `since`; {} over a given job list. */
     sessions: Record<string, UsageRow>;
   };
   reviewers: Record<string, ReviewerStats>;

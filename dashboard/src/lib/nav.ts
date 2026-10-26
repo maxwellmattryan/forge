@@ -14,7 +14,7 @@ export type GlobalViewId = (typeof GLOBAL_VIEWS)[number]['id'];
 export const VIEWS = [
   { id: 'pipeline', icon: 'pipeline' },
   { id: 'project', icon: 'graph' },
-  { id: 'backlog', icon: 'backlog' },
+  { id: 'issues', icon: 'issues' },
   { id: 'agents', icon: 'agents' },
   { id: 'analytics', icon: 'analytics' },
   { id: 'evals', icon: 'evals' },

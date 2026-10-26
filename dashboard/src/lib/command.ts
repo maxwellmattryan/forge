@@ -296,13 +296,13 @@ export const shortcutLabel = (platform: string): string => (isMac(platform) ? 'â
  * Why the input has no options, for the visible line in place of the list; null when it has some. `noProject`: with no
  * project selected, anything but `project â€¦` waits for one.
  */
-export function emptyReason(p: Parsed, options: Suggestion[], backlogError: string | null | undefined, ctx: CommandCtx): 'noJobs' | 'noItems' | 'backlogLoading' | 'backlogFailed' | 'noProject' | null {
+export function emptyReason(p: Parsed, options: Suggestion[], backlogError: string | null | undefined, ctx: CommandCtx): 'noJobs' | 'noItems' | 'issuesLoading' | 'issuesFailed' | 'noProject' | null {
   if (options.length) return null;
   if (ctx.project === null && p.kind !== 'empty' && p.kind !== 'project' && !(p.kind === 'partial' && p.verb === 'project')) return 'noProject';
   if (p.kind !== 'partial') return null;
   if (p.verb !== 'issue') return isJobVerb(p.verb) ? 'noJobs' : null;
-  if (backlogError) return 'backlogFailed';
-  return ctx.backlog === null ? 'backlogLoading' : 'noItems';
+  if (backlogError) return 'issuesFailed';
+  return ctx.backlog === null ? 'issuesLoading' : 'noItems';
 }
 
 /** The toast after a command: a job verb names its job. */

@@ -82,8 +82,14 @@ export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework',
  * alphanumeric, so it can never be one.
  */
 export const INBOX_SCOPE = '_inbox';
-/** The foreman's daemon session: it receives every `gate` and `draft` request and never drives a job. */
+/** The Foreman's daemon session: it receives every `draft` request (its assistant foremen take the `gate` requests) and never drives a job. */
 export const OFFICE_SCOPE = '_office';
+/** Not a session: the request group every `gate` request routes to, which any assistant foreman session may claim from. */
+export const ASSISTANTS_SCOPE = '_assistants';
+/** An assistant foreman session's scope is this prefix and its number, 1 to MAX_ASSISTANTS, with no leading zero. */
+export const ASSISTANT_SCOPE_PREFIX = '_assistant-';
+/** The most assistant foreman sessions a pool runs (foreman.assistants.sessions). */
+export const MAX_ASSISTANTS = 16;
 /** Not a session: POST /api/daemon/mode's name for the default of every job session without its own choice. */
 export const JOBS_SCOPE = '_jobs';
 

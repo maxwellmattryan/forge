@@ -1,6 +1,6 @@
-// The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests with no job, an office
-// session for gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job sessions, each spawned on demand
-// for the job its requests name. Sessions fail, hold and stop on their own (lib/office/session/lifecycle.ts); the pool owns
+// The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests with no job, one office session for draft requests, up to
+// `foreman.assistants.sessions` assistant foremen that take gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job sessions,
+// each spawned on demand for the job its requests name. Sessions fail, hold and stop on their own (lib/office/session/lifecycle.ts); the pool owns
 // what is repo-wide: the trust snapshot, routing, the cap and the stops config changes force. docs/architecture/daemon.md describes the rules.
 import fs from 'node:fs';
 import { resolveEffort, trustDigest } from '#core/config/load.ts';
@@ -11,7 +11,7 @@ import { sessionOptions, type DaemonOptions, type Session, type SessionContext, 
 import { offState, otherOwner, reapOrphans } from './session/records.ts';
 import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
 import { createModeBook, type PoolOptions } from './modes.ts';
-import type { SlotMember } from './slots.ts';
+import { assistantScopes, routeAssistants, sessionKind, startWork, type SlotMember } from './slots.ts';
 import { daemonSessionIds, releaseSession } from './driver.ts';
 import { configForJob } from '#engine/evals/overlay.ts';
 import { loadJob, logHumanEvent, repoAuditFile } from '#core/job/store.ts';
@@ -19,7 +19,7 @@ import { RECONCILE_MS, daemonLockDir, reconcile, type SessionFacts } from './rec
 import { tryLock } from '#core/os/lock.ts';
 import { repoBudgetStatus } from '#engine/metrics/repo-budget.ts';
 import { daemonPlatformProblem } from '#core/os/platform.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, listRequests, requestScope, validScope } from '#core/job/requests.ts';
+import { ASSISTANTS_SCOPE, INBOX_SCOPE, OFFICE_SCOPE, listRequests, requestScope, sharedScope as shared, validScope } from '#core/job/requests.ts';
 import type { Config, RepoBudgetStatus, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, Job, PermissionDecision } from '#core/types.ts';
 
 /** The pool's own state: state() below. The server adds `clients` and `needsApproval` to make a DaemonPoolState. */
@@ -72,7 +72,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
 
   // A person's answer in a job's session also lands on that job's own trail (forge job audit).
   function jobAudit(scope: string, type: string, data: Record<string, unknown>, actor: EventActor): void {
-    if (scope === INBOX_SCOPE || scope === OFFICE_SCOPE) return;
+    if (shared(scope)) return;
     try {
       logHumanEvent(root, scope, type, data, actor);
     } catch {
@@ -162,7 +162,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     // No role: a session runs the orchestrator, so per-role, panel and complexity levels never
     // reach its argv; only job.effort and runtime.effort do.
     effort: (scope, c) => {
-      const job = scope === INBOX_SCOPE || scope === OFFICE_SCOPE ? null : jobOrNull(scope);
+      const job = shared(scope) ? null : jobOrNull(scope);
       return resolveEffort(job ? jobConfig(c, job) : c, job);
     },
   };
@@ -195,8 +195,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
   }
   const inbox = session(INBOX_SCOPE);
   const office = session(OFFICE_SCOPE);
-  /** Neither the inbox nor the office is a job session: they are never counted against the cap. */
-  const shared = (scope: string) => scope === INBOX_SCOPE || scope === OFFICE_SCOPE;
+  // Shared sessions (inbox, office, assistant foremen) are never job sessions: never counted against a cap, never pruned.
   const jobSessions = () => [...sessions.values()].filter((s) => !shared(s.scope));
   /** The oldest request the machine cap held at the last tick, below this pool's own cap (lib/office/slots.ts). */
   let heldOldest: string | null = null;
@@ -209,9 +208,11 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     poke: () => tick(),
   };
   const leave = slots?.join(member) ?? null;
-
+  /** The config the last tick (or start) read: state() lists its assistant foremen. */
+  let lastConfig: Config | null = null;
   function config(): Config {
     const { config: c } = o.readConfig(root);
+    lastConfig = c;
     enabled = c.daemon?.enabled === true;
     foreman = c.foreman?.enabled === true;
     const m = c.daemon?.maxConcurrent;
@@ -303,22 +304,25 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
         if (g) g.push(r);
         else groups.set(scope, [r]);
       }
-      for (const scope of groups.keys()) session(scope);
+      // The gate group is never a session: assistant foremen claim from it. None run while the foreman or its
+      // assistants are off, and gate requests then wait, unturned, for a human.
+      const assistants = assistantScopes(c);
+      for (const scope of [...groups.keys(), ...assistants]) if (validScope(scope)) session(scope);
       if (inboxEager && inbox.wanted && !inbox.running && inbox.status !== 'stopping') {
         inboxEager = false;
-        inbox.spawn(c, startReason);
+        startWork(inbox, c, startReason, null);
         if (!wanted) return;
       }
       const waiters: { s: Session; eligible: string[]; oldest: string }[] = [];
-      for (const s of [...sessions.values()]) {
+      const assistant = (s: Session) => sessionKind(s.scope) === 'assistant';
+      for (const s of [...sessions.values()].filter((x) => !assistant(x))) {
         if (!wanted) return;
-        // Gate requests wait, unturned, while the foreman is off: they stay for a human.
         if (s.scope === OFFICE_SCOPE && !foreman) {
           s.setWaiting(false);
           continue;
         }
         const routed = groups.get(s.scope) ?? [];
-        // Never the inbox or the office: gate and job-less requests are not the repo budget's to hold.
+        // Never the inbox or the office: draft and job-less requests are not the repo budget's to hold.
         const { eligible, fresh } = s.route(c, routed, shared(s.scope) || !routed.length ? null : repoBudget(c));
         if (!fresh || !s.wanted) {
           s.setWaiting(false);
@@ -328,12 +332,10 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
         if (s.running) s.writeTurn(eligible);
         else if (shared(s.scope)) {
           // The inbox and the office are never counted against the cap, and the office is never eager.
-          if (s.spawn(c, 'work')) {
-            if (s.scope === INBOX_SCOPE) inboxEager = false;
-            s.writeTurn(eligible);
-          }
+          if (startWork(s, c, 'work', eligible) && s.scope === INBOX_SCOPE) inboxEager = false;
         } else waiters.push({ s, eligible, oldest: routed[0].id });
       }
+      routeAssistants(c, [...sessions.values()].filter(assistant), assistants, groups.get(ASSISTANTS_SCOPE) ?? [], () => wanted);
       // Slots go to the job whose oldest pending request is oldest (request ids sort by time).
       waiters.sort((a, b) => a.oldest.localeCompare(b.oldest));
       let live = jobSessions().filter((s) => s.running).length;
@@ -341,10 +343,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       for (const w of waiters) {
         if (!wanted) return;
         if (live < maxConcurrent && (!slots || slots.mayTake(member, w.oldest))) {
-          if (w.s.spawn(c, 'work')) {
-            live++;
-            w.s.writeTurn(w.eligible);
-          }
+          if (startWork(w.s, c, 'work', w.eligible)) live++;
         } else {
           w.s.setWaiting(true);
           // Below this pool's own cap, only the machine cap holds it.
@@ -438,6 +437,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       inbox: inbox.state(),
       office: office.state(),
       foreman,
+      assistants: Object.fromEntries((lastConfig ? assistantScopes(lastConfig) : []).map((a) => [a, session(a).state()])),
       jobs,
       ...modes.state(),
       machine: slots ? { maxConcurrent: slots.cap(), live: slots.live() } : null,

@@ -20,6 +20,7 @@ import { PLUGIN_ROOT, exists, paths, resolveFrom } from '../paths.ts';
 import { globProblem, policyProblems } from './validators/policy-check.ts';
 import { CONFIG_SCHEMA_VERSION, EFFORTS, FOREMAN_SHIP, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL, OFFICE_GATES, REPO_BUDGET_MODES, reservedGateEntry } from '../job/schema.ts';
 import { secretRefProblems } from './validators/secret-refs.ts';
+import { MAX_ASSISTANTS } from '#api/constants.ts';
 import { instructionsProblems } from './validators/instructions.ts';
 import { isMap, show } from '../shape.ts';
 import type { VerifyEntry } from '../types.ts';
@@ -286,7 +287,7 @@ function foremanOfficeProblems(f: Record<string, any>): string[] {
     bool(`${role}.enabled`, m.enabled);
     model(`${role}.model`, m.model);
     effort(`${role}.effort`, m.effort);
-    if (role === 'assistants') int('assistants.sessions', m.sessions, 1, 16);
+    if (role === 'assistants') int('assistants.sessions', m.sessions, 1, MAX_ASSISTANTS);
   }
   const m = map('mandate', f.mandate);
   if (!m) return problems;

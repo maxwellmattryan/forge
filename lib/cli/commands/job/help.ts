@@ -75,7 +75,7 @@ export const JOB: HelpGroup = {
     {
       command: 'job set',
       args: '<id> [--stage S] [--state S] [--waiting-on W|none] [--reason R] [--note N] [--field key=value]...',
-      summary: "change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox or office daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry. `--field budget` (and any path under it) is refused for every caller: use `forge job budget` at a terminal or the dashboard's Approve on the budget gate",
+      summary: "change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox, office or an assistant foreman daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry. `--field budget` (and any path under it) is refused for every caller: use `forge job budget` at a terminal or the dashboard's Approve on the budget gate",
       flags: [
         ['--stage S', 'the pipeline stage'],
         ['--state S', 'queued, running, waiting, blocked, failed, cancelled or done'],
@@ -108,7 +108,7 @@ export const JOB: HelpGroup = {
         ['--force', 'take it from a live lease, or claim it with dependencies not done'],
         ['--epoch N', 'a re-claim by the driver holding epoch N; refused (stale_epoch) once the job moved on'],
       ],
-      exits: [[1, 'no such job, or the office daemon session ran it'], [3, 'another session holds a live lease (owned), or the lease moved past --epoch (stale_epoch)'], [4, 'dependencies pending, or the repo budget holds new work']],
+      exits: [[1, 'no such job, or the office or an assistant foreman daemon session ran it'], [3, 'another session holds a live lease (owned), or the lease moved past --epoch (stale_epoch)'], [4, 'dependencies pending, or the repo budget holds new work']],
     },
     { command: 'job release', args: '<id>', summary: "drop the job's driver (its epoch stays)", exits: [NO_JOB] },
     {
@@ -164,10 +164,10 @@ export const JOB: HelpGroup = {
         ['--repo A[,B]', 'with approve-repos or reject-repos (required): the pending repos you decide; with --actor foreman, every pending one'],
         ['--link <ref>|new|none', 'with approve or approve-spec: link an issue, create one, or record that none is needed'],
         ['--reason R', 'why, with --link none'],
-        ['--actor human|foreman', 'who decided (default human); foreman only from the office daemon session, which must pass it; approve-release takes only --actor foreman and --note'],
+        ['--actor human|foreman', 'who decided (default human); foreman only from an assistant foreman daemon session, which must pass it (the office session may record neither); approve-release takes only --actor foreman and --note'],
       ],
       exits: [
-        [1, 'no such job, a --link that cannot be made, a foreman decision the authority checks refuse, or approve-repos or reject-repos with nothing pending, no --repo, a repo that is not pending, a foreman --repo that is not the whole pending set, a failing clone check, or from a daemon session other than the office'],
+        [1, 'no such job, a --link that cannot be made, a foreman decision the authority checks refuse, or approve-repos or reject-repos with nothing pending, no --repo, a repo that is not pending, a foreman --repo that is not the whole pending set, a failing clone check, or from a daemon session other than an assistant foreman'],
         [3, 'the tracker claim was lost to another job'],
         [5, 'gh failed (GitHub tracker)'],
       ],
@@ -175,19 +175,19 @@ export const JOB: HelpGroup = {
     {
       command: 'job assist',
       args: '<id> --gate G',
-      summary: "the office session's forge:assistant spawn for a gate: model, effort and a brief of paths only, and for repo-proposal the pending repos to pass as --repo; stale when the job no longer waits there. Read-only",
+      summary: "an assistant foreman's forge:assistant spawn for a gate: model, effort and a brief of paths only, and for repo-proposal the pending repos to pass as --repo; stale when the job no longer waits there. Read-only",
       flags: [['--gate G', `the gate class: ${OFFICE_GATES.join(', ')}`]],
-      exits: [[1, 'no such job, an unknown gate, or a daemon session other than the office']],
+      exits: [[1, 'no such job, an unknown gate, or a daemon session other than an assistant foreman']],
     },
     {
       command: 'job handoff',
       args: '<id> --class reserved|escalated|refused --reason R',
-      summary: 'record a Foreman hand-off: the office leaves the gate the job waits at for a person (office session only)',
+      summary: 'record a Foreman hand-off: an assistant foreman leaves the gate the job waits at for a person (assistant foreman sessions only)',
       flags: [
         ['--class C', 'why: reserved (a reserved topic or class), escalated (the assistant escalated) or refused (the CLI refused the decision)'],
         ['--reason R', 'one line for the person, at most 200 characters once control characters are removed (required)'],
       ],
-      exits: [[1, 'not the office daemon session, no such job, a job not waiting on a gate the Foreman decides, an unknown --class, or an empty --reason']],
+      exits: [[1, 'not an assistant foreman daemon session, no such job, a job not waiting on a gate the Foreman decides, an unknown --class, or an empty --reason']],
     },
     {
       command: 'job agent',
@@ -208,7 +208,7 @@ export const JOB: HelpGroup = {
         ['--epoch N', "with start and end: the driver's epoch, refused (stale_epoch) before any write once another session took the job over"],
       ],
       exits: [
-        [1, 'no such job, an --output outside the job dir, the inbox or office session starting an agent, or attach on a role that is not running'],
+        [1, 'no such job, an --output outside the job dir, the inbox, office or an assistant foreman session starting an agent, or attach on a role that is not running'],
         [3, 'stale_epoch: the lease moved past --epoch'],
       ],
     },

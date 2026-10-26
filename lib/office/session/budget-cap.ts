@@ -5,17 +5,17 @@ import { configForJob } from '#engine/evals/overlay.ts';
 import { remainingUsd } from '#engine/metrics/budget.ts';
 import { jobSpend, spentFrom } from '#engine/metrics/spend.ts';
 import { loadJob } from '#core/job/store.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE } from '#core/job/requests.ts';
+import { sharedScope } from '#core/job/requests.ts';
 import { capArg } from '#integrations/claude/argv.ts';
 import type { Config, Job } from '#core/types.ts';
 
 /**
- * The job's remaining dollars plus `baselineUsd`, or null (no flag) for the inbox and office, an unreadable job or
+ * The job's remaining dollars plus `baselineUsd`, or null (no flag) for a shared session (inbox, office, assistant foreman), an unreadable job or
  * an unlimited usd. `baselineUsd` is the resumed conversation's last metered cumulative: claude's own running total
  * already includes it on a resume, so the cap adds it back. A fresh spawn's is 0.
  */
 export function spawnBudgetCap(root: string, scope: string, config: Config, baselineUsd = 0): number | null {
-  if (scope === INBOX_SCOPE || scope === OFFICE_SCOPE) return null;
+  if (sharedScope(scope)) return null;
   let job: Job;
   try {
     job = loadJob(root, scope);

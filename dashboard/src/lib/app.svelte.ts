@@ -43,7 +43,7 @@ import { readSidebar, type SidebarState } from './sidebar.ts';
 
 const SIDE_START: SidebarState = readSidebar(pref.get);
 
-/** The backlog, or the error a forced refresh hit (that reply has no tracker). */
+/** The tracker's items, or the error a forced refresh hit (that reply has no tracker). */
 export type BacklogView = Omit<BacklogResponse, 'tracker'> & { tracker?: string };
 export type DrawerContent = { html: true } | { text: string };
 /** What Drawer.svelte shows; reassigned only where the old renderDrawer() ran. */
@@ -267,7 +267,7 @@ export async function loadView(): Promise<void> {
       if (current()) S.project = graph;
       await envs;
     }
-    if (S.view === 'backlog') {
+    if (S.view === 'issues') {
       const backlog = await api<BacklogResponse>('/api/backlog');
       if (current()) S.backlog = backlog;
     }
