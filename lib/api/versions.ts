@@ -65,6 +65,9 @@ export const API_CHANGES = [
   { id: 'add-project' },
   // RequestType 'direct': the Office pass's wake for the office session; NotifyEvent mandate-stalled, mandate-budget and mandate-closed.
   { id: 'director-loop' },
+  // AgentRow.runs: every ended run of the role with its billing split and context composition; AgentRow.tokens is now
+  // the sum of those runs' totals. JobAgent.runHistory and .legacyRuns are kept out of /api/state and JobDetail.job.
+  { id: 'agent-runs' },
 ] as const;
 
 /**

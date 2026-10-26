@@ -8,6 +8,7 @@ import { knownValues, redactKnown } from '#engine/guard/known-secrets.ts';
 import { UUID, readLogPage } from '#core/job/session-files.ts';
 import { daemonSessionIds } from '#office/driver.ts';
 import { AGENT_LEASE_MS, loadJob, jobDir } from '#core/job/store.ts';
+import { agentRuns, runsTokens } from '#core/job/runs.ts';
 import { exists } from '#core/paths.ts';
 import { validJobId } from '#core/job/requests.ts';
 import { agentTranscript, cachedActivity, openTranscript, ownerTranscript } from '#integrations/claude/transcripts.ts';
@@ -125,15 +126,14 @@ export function jobActivity(root: string, job: LoadedJob, projects: string, at =
   return out.sort(newestFirst);
 }
 
-/** The current round's agent records plus any still running, newest first, with each run's tokens from its agent-end event. */
+/** The current round's agent records plus any still running, newest first, each with every ended run of its role and their total tokens. */
 export function roundAgents(root: string, job: LoadedJob, events: JobEvent[], projects: string): AgentRow[] {
   const rows: AgentRow[] = [];
   for (const [role, a] of Object.entries(job.agents ?? {})) {
     if (!a || (a.round !== job.round && a.status !== 'running')) continue;
     const started = startMs(a.startedAt);
     const running = a.status === 'running';
-    const end = running ? undefined : events.findLast((e) => e.type === 'agent-end' && e.role === role && !(Date.parse(e.ts) < started));
-    const tokens = end?.usage?.totalTokens;
+    const runs = agentRuns(role, a, events);
     const ended = startMs(a.endedAt);
     rows.push({
       role,
@@ -142,8 +142,9 @@ export function roundAgents(root: string, job: LoadedJob, events: JobEvent[], pr
       startedAt: a.startedAt ?? null,
       endedAt: a.endedAt ?? null,
       durationMs: !running && Number.isFinite(started) && Number.isFinite(ended) ? Math.max(0, ended - started) : null,
-      tokens: typeof tokens === 'number' && Number.isFinite(tokens) ? tokens : null,
+      tokens: runsTokens(runs),
       transcript: agentTranscript(root, job, role, { projects }) !== null,
+      runs,
     });
   }
   return rows.sort(newestFirst);

@@ -1,6 +1,28 @@
 // The job shapes the store, the archive and the findings summary share, type-only: re-exported by lib/core/types.ts.
 import type { SEVERITIES } from './schema.ts';
-import type { EventActor, Job, JobEvent } from '#api/types.ts';
+import type { AgentUsage, ContextComposition, EventActor, Job, JobEvent } from '#api/types.ts';
+
+/** What recordAgent in lib/core/job/store.ts records for one agent start or end. */
+export interface AgentRecordChange {
+  role: string;
+  phase: 'start' | 'end';
+  model?: string;
+  agentId?: string;
+  status?: string;
+  summary?: string;
+  usage?: AgentUsage;
+  importedThrough?: string | null;
+  /** end: the imported transcript's context composition, recorded on the run only (recordRun in ./runs.ts), never in the event. */
+  composition?: ContextComposition | null;
+  /** start: the job-dir-relative output (resolveAgentOutput). */
+  output?: string | null;
+  /** start: this run is the one retry. */
+  retry?: boolean;
+  /** end: the output check's result, when an output is known. */
+  outputMissing?: boolean;
+  /** end: `metered` when the job's own daemon session's meter holds this run's cost, `unmeasured` when its transcript wasn't found. */
+  flags?: { metered?: true; unmeasured?: true };
+}
 
 /**
  * A person's go-ahead for a human-only operation, from a channel a session's children can't reach:
