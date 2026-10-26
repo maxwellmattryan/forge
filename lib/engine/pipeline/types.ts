@@ -100,7 +100,19 @@ export interface StepInput {
   spec: { size: string | null; complexity: string | null; needsDesign: boolean; services: string[]; suggested: string[]; approachPaths: string[]; uiAcs: string[] };
   /** design.md's `## Spec deltas` section is non-empty and not None. */
   designDeltas: boolean;
-  decision: { decision: string | null; autoMerge: boolean };
+  /** decision.md's first line. Its Auto-merge eligible line is not here: only the recorded decision event counts (lib/engine/pr/eligible.ts). */
+  decision: { decision: string | null };
+  /**
+   * At stage pr with auto-merge on and an eligible recorded decision: whether every job repo's
+   * worktree HEAD still follows the head it was decided on (decisionCurrent); null otherwise.
+   */
+  decisionCurrent: boolean | null;
+  /**
+   * At stage decide or pr, state running, for a non-eval job: whether every job repo's HEAD still
+   * follows the head the round's review was given (reviewCurrent); null otherwise, or when the round
+   * has no recorded review.
+   */
+  reviewCurrent: boolean | null;
   runbookBeforeMerge: boolean;
   verdicts: { round: StepVerdicts | null; integration: StepVerdicts | null };
   acs: AcCoverage;
@@ -110,6 +122,12 @@ export interface StepInput {
    * for the fresh builder brief's `Maps (JSON)` line; null at every other stage.
    */
   folderMaps: { maps: string[]; topics: string[]; more?: number } | null;
+  /**
+   * The instruction files the branch's committed diff changed (changedInstructionFiles), sorted, for
+   * the brief's `Instructions changed by this branch` line: null means the diff could not be read,
+   * `[]` means none changed or the job has no worktree yet.
+   */
+  instructionsChanged: string[] | null;
   /** The record names in runtime.json. */
   runtime: string[];
   /** The job's entry in the environment record (lib/engine/environment/record.ts); null when it has none. */

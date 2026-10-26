@@ -1,11 +1,11 @@
-// The job branch against its remote: the base refresh before the secret scan, the push of the
-// checked commit, and pulling a PR head that moved.
+// The job branch against its remote: the base refresh before the secret scan, the base's tip for a
+// merge's checks, the push of the checked commit, and pulling a PR head that moved.
 import { logEvent } from '#core/job/store.ts';
 import { exists } from '#core/paths.ts';
 import type { Config, Job } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { SAFE_REF } from '#core/text.ts';
-import { git } from '#integrations/git/runner.ts';
+import { git, historyEnv } from '#integrations/git/runner.ts';
 import { isSha } from './delta.ts';
 import { FULL_SHA } from '../release/interim.ts';
 
@@ -21,26 +21,50 @@ import { FULL_SHA } from '../release/interim.ts';
  */
 export function refreshBase(job: Job, config: Config, mode: 'block' | 'warn'): void {
   const remote = config.git.remote;
-  const fail = (why: string, rewritten = false) => {
-    if (mode !== 'block') return;
-    const fix = rewritten ? `fix the git config's insteadOf/pushInsteadOf entries` : `check that ${remote}'s push remote is reachable`;
-    throw new ForgeError(`can't refresh base ${job.base} from the push remote before the secret scan (${why}); forge pr open won't push a range it can't scan against the real base: ${fix}, then retry forge pr open ${job.id}`, 'external', `forge pr open ${job.id}`);
-  };
-  if (!SAFE_REF.test(String(job.base)) || !SAFE_REF.test(String(remote))) return fail('unsafe base or remote name');
   // Callers check the worktree first.
-  const cwd = job.worktree!;
+  const fetched = fetchBase(job.worktree!, config, job.base, `refs/remotes/${remote}/${job.base}`);
+  // `=== true`, not truthiness: the tests' loose type check narrows the union only on the literal.
+  if (fetched.ok === true || mode !== 'block') return;
+  const fix = fetched.rewritten ? `fix the git config's insteadOf/pushInsteadOf entries` : `check that ${remote}'s push remote is reachable`;
+  throw new ForgeError(`can't refresh base ${job.base} from the push remote before the secret scan (${fetched.why}); forge pr open won't push a range it can't scan against the real base: ${fix}, then retry forge pr open ${job.id}`, 'external', `forge pr open ${job.id}`);
+}
+
+/** fetchBase's answer: it worked, or why not (`rewritten`: a url.*.insteadOf chain sent the fetch elsewhere). */
+type BaseFetch = { ok: true } | { ok: false; why: string; rewritten?: true };
+
+/** Force-fetches `base` from the remote's push URL into `dest` (a fully qualified ref); never throws. */
+function fetchBase(cwd: string, config: Config, base: string | null | undefined, dest: string): BaseFetch {
+  const remote = config.git.remote;
+  if (typeof base !== 'string' || !SAFE_REF.test(base) || !SAFE_REF.test(String(remote))) return { ok: false, why: 'unsafe base or remote name' };
   const url = git(cwd, ['remote', 'get-url', '--push', remote], { allowFail: true });
   const pushUrl = url.stdout.trim().split('\n')[0] ?? '';
   // A leading - would read as an option; the push would use the same value, so nothing is lost.
-  if (!url.ok || !pushUrl || pushUrl.startsWith('-')) return fail(`no usable push URL for ${remote}`);
+  if (!url.ok || !pushUrl || pushUrl.startsWith('-')) return { ok: false, why: `no usable push URL for ${remote}` };
   // Needs no network. Neither URL is ever printed: a URL can carry credentials.
   const resolved = git(cwd, ['ls-remote', '--get-url', '--', pushUrl], { allowFail: true });
   if (!resolved.ok || (resolved.stdout.trim().split('\n')[0] ?? '').trim() !== pushUrl) {
-    return fail(`${remote}'s push URL is rewritten again by url.*.insteadOf, so a fetch would reach another repository`, true);
+    return { ok: false, why: `${remote}'s push URL is rewritten again by url.*.insteadOf, so a fetch would reach another repository`, rewritten: true };
   }
-  const fetched = git(cwd, ['-c', 'protocol.ext.allow=never', 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head', '--', pushUrl, `+refs/heads/${job.base}:refs/remotes/${remote}/${job.base}`], { write: true, allowFail: true });
+  const fetched = git(cwd, ['-c', 'protocol.ext.allow=never', 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head', '--', pushUrl, `+refs/heads/${base}:${dest}`], { write: true, allowFail: true });
   // Only the exit status: git's stderr can quote the URL, and a URL can carry credentials.
-  if (!fetched.ok) fail(`git fetch from ${remote}'s push URL exited ${fetched.status}`);
+  return fetched.ok ? { ok: true } : { ok: false, why: `git fetch from ${remote}'s push URL exited ${fetched.status}` };
+}
+
+/**
+ * The commit `base` is at on the push remote right now, for a merge's checks: fetched into a
+ * Forge-private ref, read, and the ref dropped. A merge never compares against `refs/remotes/<remote>/<base>`,
+ * which the job's worktree shares with the clone and can move (`git update-ref`): a forged base would
+ * hide a commit the approver never saw behind an empty diff. Throws when it can't be read.
+ */
+export function remoteBaseTip(cwd: string, config: Config, id: string, base: string | null | undefined): string {
+  const dest = `refs/forge/merge-base/${id}`;
+  if (!SAFE_REF.test(id)) throw new ForgeError(`${JSON.stringify(id.slice(0, 80))} is not a job id`);
+  const fetched = fetchBase(cwd, config, base, dest);
+  if (fetched.ok === false) throw new ForgeError(`can't re-read base ${String(base).slice(0, 80)} from ${config.git.remote}'s push remote (${fetched.why})`, 'external');
+  const tip = git(cwd, ['rev-parse', '--verify', '--quiet', `${dest}^{commit}`], { env: historyEnv(), allowFail: true }).stdout.trim();
+  git(cwd, ['update-ref', '-d', dest], { write: true, allowFail: true });
+  if (!FULL_SHA.test(tip)) throw new ForgeError(`base ${String(base).slice(0, 80)} on ${config.git.remote} is not a commit`, 'external');
+  return tip;
 }
 
 export function pushBranch(job: Job, config: Config, sha: string, opts: { force?: boolean } = {}): void {

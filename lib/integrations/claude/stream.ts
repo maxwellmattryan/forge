@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { now } from '#core/utils.ts';
 import { PERMISSION_MODES } from './argv.ts';
-import type { ClaudeEvent } from './types.ts';
+import type { ClaudeEvent, ModelCost, SessionCost } from './types.ts';
 import type { DaemonPermissionMode, PermissionDecision } from '#core/types.ts';
 
 /**
@@ -124,6 +124,28 @@ export function parseRateLimit(info: unknown): RateLimitInfo | null {
   // Observed as epoch seconds; accept milliseconds too, in case that changes.
   const resetsAt = raw === null ? null : raw < 1e12 ? Math.round(raw * 1000) : Math.round(raw);
   return { status: r.status, resetsAt };
+}
+
+const MAX_COST_MODELS = 20;
+const costCount = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
+
+/**
+ * The cost a result line reports: `total_cost_usd` and up to 20 `modelUsage` entries, each number finite
+ * and >= 0 or else 0. Null when it carries neither. The supervisor meters it (lib/office/session/meter.ts),
+ * so a model name is a short string and never `__proto__`.
+ */
+export function resultCost(ev: Record<string, any>): SessionCost | null {
+  const total = ev.total_cost_usd;
+  const usd = typeof total === 'number' && Number.isFinite(total) && total >= 0 ? total : null;
+  const entries = Object.entries(record(ev.modelUsage))
+    .slice(0, MAX_COST_MODELS)
+    .filter(([name]) => name && name.length <= 100 && name !== '__proto__')
+    .map(([name, raw]): [string, ModelCost] => {
+      const m = record(raw);
+      return [name, { usd: costCount(m.costUSD), input: costCount(m.inputTokens), output: costCount(m.outputTokens), cacheRead: costCount(m.cacheReadInputTokens), cacheWrite: costCount(m.cacheCreationInputTokens) }];
+    });
+  if (usd === null && !entries.length) return null;
+  return { usd, models: Object.fromEntries(entries) };
 }
 
 /**
@@ -280,10 +302,13 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
    * turn said `rejected`, or when its text reads like one.
    */
   function onResult(ev: Record<string, any>): void {
-    if (ev.is_error !== true) return emit({ kind: 'turn-ended', ok: true });
+    const cost = resultCost(ev);
+    // The --max-budget-usd stop is a failed turn whatever is_error says, and never a quota limit to wait out.
+    const budget = ev.subtype === 'error_max_budget_usd';
+    if (ev.is_error !== true && !budget) return emit({ kind: 'turn-ended', ok: true, cost });
     const reason = (typeof ev.result === 'string' && ev.result.trim() ? ev.result.trim() : String(ev.subtype ?? 'error')).slice(0, 300);
     const rejected = rateLimit?.status === 'rejected';
-    emit({ kind: 'turn-ended', ok: false, reason, limit: rejected || LIMIT_TEXT.test(reason), resetsAt: rejected ? rateLimit!.resetsAt : null });
+    emit({ kind: 'turn-ended', ok: false, reason, limit: budget ? false : rejected || LIMIT_TEXT.test(reason), resetsAt: rejected && !budget ? rateLimit!.resetsAt : null, budget, cost });
   }
 
   return {

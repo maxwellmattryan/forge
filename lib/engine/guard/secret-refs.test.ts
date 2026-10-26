@@ -86,3 +86,22 @@ test('fails closed without the value in the error', () => {
     x.cleanup();
   }
 });
+
+test('a file secret with one name and entry in two roots reads each root its own file', () => {
+  const a = scratch();
+  const b = scratch();
+  try {
+    clearSecretMemo();
+    const config = { secrets: { DB: { file: '.secrets/db' } } } as any;
+    const want = [val(), val()];
+    [a, b].forEach((x, i) => {
+      fs.mkdirSync(path.join(x.root, '.secrets'));
+      fs.writeFileSync(path.join(x.root, '.secrets', 'db'), `${want[i]}\n`);
+    });
+    assert.equal(resolveSecret(a.root, config, 'DB', { env: a.env() }), want[0]);
+    assert.equal(resolveSecret(b.root, config, 'DB', { env: b.env() }), want[1]);
+  } finally {
+    a.cleanup();
+    b.cleanup();
+  }
+});

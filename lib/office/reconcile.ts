@@ -2,10 +2,14 @@
 // not. Level-triggered: it looks at what is (job states, leases, requests, and in `forge dash` its
 // sessions), never at which event happened, so a missed event can't strand a job. Its only memory,
 // one record per job it resumed, lives on disk, so a restarted dashboard keeps its count. A job it
-// finds undriven gets one resume; undriven again with no progress since, it is parked on escalation
-// for the foreman or a person. docs/architecture/daemon.md "Reconciler".
+// finds undriven gets one resume; undriven again with no progress since, or after MAX_RESUMES_PER_STAGE
+// resumes at one stage, it is parked on escalation for the foreman or a person. Only pipeline moves, agent
+// ends with usage and turns the supervisor metered (the job's meter file) count as progress.
+// docs/architecture/daemon.md "Reconciler".
 import path from 'node:path';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
+import { hasUsage } from '#engine/metrics/spend.ts';
+import { lastMeterAt, readMeter } from '#engine/metrics/meter.ts';
 import { whoDrives } from './driver.ts';
 import { listJobs, loadJob, logEvent, readEvents, requeueOrphanedRequests } from '#core/job/store.ts';
 import { paths } from '#core/paths.ts';
@@ -14,13 +18,29 @@ import { readJson, writeJsonAtomic } from '#core/os/fs.ts';
 import { lockHeld, withLockAsync } from '#core/os/lock.ts';
 import type { Config, ForgeRequest, Job, JobEvent, LoadedJob } from '#core/types.ts';
 
-/** Event types that mean the pipeline moved; renewals, syncs, notes and failures don't count. */
-const PROGRESS_EVENTS: ReadonlySet<string> = new Set(['transition', 'round', 'verify', 'agent-start', 'agent-end', 'human', 'integrated', 'integration-review', 'pr-opened', 'pr-updated', 'pr-head-pulled', 'verdicts']);
+/**
+ * Event types that mean the pipeline moved; renewals, syncs, notes and failures don't count. Nor do an
+ * agent's start, a human event or an agent end without usage: a session can log those every turn
+ * without moving anything, which would buy it a fresh resume each time.
+ */
+const PROGRESS_EVENTS: ReadonlySet<string> = new Set(['transition', 'round', 'verify', 'integrated', 'integration-review', 'pr-opened', 'pr-updated', 'pr-head-pulled', 'verdicts']);
 
-/** The newest progress event's time, or null: what a later pass or failure compares against. */
-export function progressMark(events: Pick<JobEvent, 'type' | 'ts'>[]): string | null {
-  return events.findLast((e) => PROGRESS_EVENTS.has(e.type))?.ts ?? null;
+/**
+ * The newest progress event's time (a PROGRESS_EVENTS type, or an agent end with usage), or null: what a later pass or
+ * failure compares against. With `meteredAt` (the job's newest meter record), the later of the two: a turn the
+ * supervisor metered is progress even when its agent's transcript lagged and its end was recorded unmeasured.
+ */
+export function progressMark(events: (Pick<JobEvent, 'type' | 'ts'> & { usage?: unknown })[], meteredAt: string | null = null): string | null {
+  const mark = events.findLast((e) => PROGRESS_EVENTS.has(e.type) || hasUsage(e))?.ts ?? null;
+  if (meteredAt === null || Number.isNaN(Date.parse(meteredAt))) return mark;
+  return mark === null || Date.parse(meteredAt) > Date.parse(mark) ? meteredAt : mark;
 }
+
+/**
+ * Resumes per job per stage visit, however the mark moves: an absolute bound, since a session that
+ * meters one agent per turn still moves the mark every time.
+ */
+export const MAX_RESUMES_PER_STAGE = 3;
 
 /** How often a wanted pool reconciles. */
 export const RECONCILE_MS = 30_000;
@@ -65,12 +85,13 @@ export function judge(job: Pick<Job, 'lease' | 'agents'>, routed: readonly Pick<
   return { driven: true, why: 'lease' };
 }
 
-/** One job's memory: the progress mark when the reconciler resumed it, and that resume. */
+/** One job's memory: the progress mark when the reconciler resumed it, that resume, and how many resumes it had at `stage`. */
 interface Record_ {
   mark: string | null;
   stage: string;
   resumedAt: string;
   request: string;
+  resumes: number;
 }
 
 interface Memory {
@@ -94,7 +115,9 @@ function readMemory(root: string): Memory {
     for (const [id, r] of Object.entries(raw.jobs as Record<string, any>)) {
       if (!validJobId(id) || !r || typeof r !== 'object') continue;
       if (!(r.mark === null || typeof r.mark === 'string') || typeof r.stage !== 'string' || typeof r.resumedAt !== 'string' || typeof r.request !== 'string') continue;
-      jobs[id] = { mark: r.mark, stage: r.stage, resumedAt: r.resumedAt, request: r.request };
+      // An older Forge wrote no count: its record stands for the one resume it made.
+      const resumes = Number.isInteger(r.resumes) && r.resumes >= 1 ? r.resumes : 1;
+      jobs[id] = { mark: r.mark, stage: r.stage, resumedAt: r.resumedAt, request: r.request, resumes };
     }
   }
   return { v: 1, jobs };
@@ -109,7 +132,8 @@ export interface ReconcileResult {
 /**
  * One pass: requeue orphaned requests, then judge every running job (or only `only`). An undriven
  * job is resumed the first time and whenever it made progress since the last resume, and escalated
- * when it is undriven again at the same mark with nothing routed to it. Jobs in any other state
+ * when it is undriven again at the same mark with nothing routed to it, or once it has been resumed
+ * MAX_RESUMES_PER_STAGE times at the stage it is still at. Jobs in any other state
  * lose their record. `facts` are the dash's sessions by job id; `busy`, the ids of the dash's
  * sessions mid-turn, whose claims stay however old. A session's exit requeues its own claims
  * (lib/office/driver.ts releaseSession).
@@ -142,17 +166,19 @@ export async function reconcile(root: string, config: Config, opts: { at?: numbe
       }
       const routed = open.filter((r) => requestScope(root, r) === job.id);
       if (judge(job, routed, opts.facts?.get(job.id), at).driven) continue;
-      const mark = progressMark(readEvents(root, job.id));
+      const mark = progressMark(readEvents(root, job.id), lastMeterAt(readMeter(root, job.id)));
       const rec = mem.jobs[job.id];
-      if (!rec || rec.mark !== mark) {
+      const same = rec !== undefined && rec.stage === job.stage;
+      const ceiling = same && rec.resumes >= MAX_RESUMES_PER_STAGE;
+      if (!ceiling && (!same || rec.mark !== mark)) {
         const r = enqueue(root, null, { type: 'resume', job: job.id, text: RECONCILE_TEXT, from: 'reconciler' });
-        mem.jobs[job.id] = { mark, stage: job.stage, resumedAt: new Date(at).toISOString(), request: r.id };
+        mem.jobs[job.id] = { mark, stage: job.stage, resumedAt: new Date(at).toISOString(), request: r.id, resumes: same ? rec.resumes + 1 : 1 };
         logEvent(root, job.id, 'reconcile', { action: 'resume', stage: job.stage });
         out.resumed.push(job.id);
         continue;
       }
       delete mem.jobs[job.id];
-      const reason = `undriven at ${job.stage}: resumed once with no progress since`;
+      const reason = ceiling ? `undriven at ${job.stage}: resumed ${MAX_RESUMES_PER_STAGE} times at this stage` : `undriven at ${job.stage}: resumed once with no progress since`;
       // Decided again under the job lock: a job that parked or moved meanwhile is left alone.
       const { job: after } = await moveJob(root, config, job.id, { derive: (j) => (j.state === 'running' && j.stage === job.stage ? { state: 'waiting', waitingOn: 'escalation', reason } : null) });
       if (after.state !== 'waiting' || after.reason !== reason) continue;

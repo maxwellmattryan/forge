@@ -142,8 +142,19 @@ export interface CommandsConfig {
   [name: string]: string | null;
 }
 
+/** What a configured command inherits beyond the allowlist, and its shell (docs/CONFIG.md "Command environment"). */
+export interface CommandEnvConfig {
+  /** Variable names (`*` globs allowed) commands get from Forge's environment; a glob never passes a credential-like name. */
+  inherit: string[];
+  /** Run commands as `<shell> -lc`, sourcing the login profile, instead of `/bin/sh -c`. */
+  loginShell: boolean;
+}
+
 /** One `verify` entry: a step name, or a group of step names that run at the same time (config schemaVersion 3). */
 export type VerifyEntry = string | string[];
+
+/** One `merge.requiredChecks` entry: a check name (any check run), or a name bound to an app, a workflow file or a status creator. */
+export type RequiredCheckConfig = string | { name: string; app?: string; workflow?: string; creator?: string };
 
 /** The effective config: defaults() in lib/core/config/keys/defaults.ts merged with .forge/config.yml by loadConfig. docs/CONFIG.md documents each key. */
 export interface Config {
@@ -173,6 +184,7 @@ export interface Config {
     generatedBy: string;
   };
   commands: CommandsConfig;
+  commandEnv: CommandEnvConfig;
   verify: VerifyEntry[];
   verifyE2e: {
     when: 'ui' | 'always' | 'never';
@@ -243,6 +255,8 @@ export interface Config {
     auto: boolean;
     method: 'squash' | 'merge' | 'rebase';
     autoWhen: string[];
+    /** The root PR's required checks, each optionally bound to its source; empty: the base's protection decides (docs/CONFIG.md "Merge"). */
+    requiredChecks: RequiredCheckConfig[];
   };
   aiAttribution: 'forbid' | 'allow';
   /** The root repo's release settings: its interim strategy as a dependency and its release strategy, every key present once defaults fill it (docs/CONFIG.md "Release strategy"). */
@@ -283,6 +297,8 @@ export interface Config {
     turnTimeoutMinutes: number | null;
     auth: DaemonAuth;
     jobBudget: DaemonJobBudget;
+    /** Dollars per UTC day the inbox and office sessions may spend (metered); a null key, or null, has no cap. */
+    dailyUsd: { inbox: number | null; office: number | null } | null;
   };
   /** The office session's authority: docs/CONFIG.md "Foreman". */
   foreman: {

@@ -1,6 +1,7 @@
 // Every config key Forge reads, with its default: what loadConfig merges a repo's config.yml over.
 // `load.ts` re-exports it, and each key's doc string is in `docs.ts` beside it.
 import { CONFIG_SCHEMA_VERSION, EFFORT_ROLES, OFFICE_GATES } from '../../job/schema.ts';
+import { INSTRUCTIONS_RULE } from '../validators/instructions.ts';
 import type { Config, Effort, EffortRole } from '../../types.ts';
 
 /** foreman.reserved's default: topics that always stay with a human. */
@@ -73,6 +74,8 @@ export function defaults(): Config {
       dev: null,
       e2e: null,
     },
+    // Configured commands get an allowlisted environment and /bin/sh -c; these widen it.
+    commandEnv: { inherit: [], loginShell: false },
     verify: ['build', 'lint', 'test'],
     // After the verify steps pass, run commands.e2e when the diff touches UI paths (or always/never).
     verifyE2e: {
@@ -180,6 +183,8 @@ export function defaults(): Config {
       auto: false,
       method: 'squash',
       autoWhen: [],
+      // Empty: the base branch's protection names the required checks (docs/CONFIG.md "Merge").
+      requiredChecks: [],
     },
     aiAttribution: 'forbid',
     release: { interim: 'local', versioning: null, mechanism: null, command: null, registry: null, cadence: null, publish: null },
@@ -251,9 +256,12 @@ export function defaults(): Config {
       // `forge dash` is dropped from their environment unless this is api-key, because claude
       // would silently bill it instead of the subscription.
       auth: 'subscription',
-      // With the daemon on, fills a job's spend limits when none of tokens, usd or minutes is set
-      // anywhere (lib/engine/metrics/budget.ts effectiveLimits); null turns it off.
+      // With the daemon on, fills each of a job's tokens, usd and minutes limits that config and the
+      // job's own overrides leave unset (lib/engine/metrics/budget.ts effectiveLimits); null turns it off.
       jobBudget: { tokens: 600000000, usd: 150 },
+      // Dollars per UTC day the inbox and office sessions may spend, metered from claude's own cost report;
+      // above the heaviest day observed here (office $38.66, inbox about $15). null (or a null key): no cap.
+      dailyUsd: { inbox: 25, office: 60 },
     },
     // Opt-in: the `_office` daemon session decides gates through forge:assistant sub-agents;
     // docs/architecture/foreman.md. Whole-phrase, case-insensitive patterns: a match keeps the
@@ -276,6 +284,8 @@ export function defaults(): Config {
         { paths: ['**/.env*'], action: 'escalate', reason: 'environment files can hold credentials' },
         { paths: ['**/*.pem'], action: 'refuse', reason: 'private keys and certificates are never committed by Forge' },
         { paths: ['.forge/config.yml', '.forge/secrets-allow.txt', '.forge/trackers/**', '.forge/ci/**'], action: 'refuse', reason: "Forge's own policy changes only by a human on the base branch" },
+        // Last, so rules 1-7 keep their numbers.
+        { ...INSTRUCTIONS_RULE, paths: [...INSTRUCTIONS_RULE.paths] },
       ],
     },
     // Off by default: nothing is archived, deleted or rotated mid-session until a human sets a key;

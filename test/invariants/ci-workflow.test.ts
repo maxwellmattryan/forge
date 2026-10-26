@@ -8,15 +8,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parse } from '#core/format/yaml.ts';
-import { credentialRefs, dependencyCaches, excessPermissions, forbiddenTriggers, loadWorkflow, persistedCredentials, runExpressions, secretLeaks, unpinnedActions } from './workflow-lint.ts';
+import { credentialRefs, dependencyCaches, eventExpressions, excessPermissions, forbiddenTriggers, loadWorkflow, persistedCredentials, runExpressions, secretLeaks, unpinnedActions } from './workflow-lint.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const POSIX = { skip: process.platform === 'win32' && 'POSIX-only' };
 
 const VALIDATE = 'claude plugin validate . --strict';
-const CLI_INSTALL = /^npm install -g @anthropic-ai\/claude-code(?:@\S*)?$/;
-const CLI_PINNED = /^npm install -g @anthropic-ai\/claude-code@\d+\.\d+\.\d+$/;
+// CI installs without install scripts, so it runs the package's own wrapper instead of the `claude` stub.
+const CI_VALIDATE = 'node "$(npm root -g)/@anthropic-ai/claude-code/cli-wrapper.cjs" plugin validate . --strict';
+const CLI_INSTALL = /^npm install -g(?: --ignore-scripts)? @anthropic-ai\/claude-code(?:@\S*)?$/;
+const CLI_PINNED = /^npm install -g --ignore-scripts @anthropic-ai\/claude-code@\d+\.\d+\.\d+$/;
 const TEST_CMD = 'node --test "test/**/*.test.ts" "lib/**/*.test.ts" "dashboard/src/**/*.test.ts"';
 const SHARDED_TEST_CMD = 'node --test --test-shard="$TEST_SHARD" "test/**/*.test.ts" "lib/**/*.test.ts" "dashboard/src/**/*.test.ts"';
 // `|| true`, `|| :`, `|| exit 0` and `set +e` turn a failing command into a passing step.
@@ -83,6 +85,7 @@ function ciVerifyCommands(wf: any): string[] {
     if (run === null) return [];
     if (CLI_INSTALL.test(run.trim())) return [];
     if (run.trim() === SHARDED_TEST_CMD) return [TEST_CMD];
+    if (run.trim() === CI_VALIDATE) return [VALIDATE];
     return [run.trim()];
   });
 }
@@ -102,12 +105,12 @@ function cliProblems(wf: any): string[] {
   const out: string[] = [];
   const steps = stepsOf(wf?.jobs?.verify);
   const installs = steps.filter((s) => CLI_INSTALL.test(runOf(s)?.trim() ?? ''));
-  for (const s of installs) if (!CLI_PINNED.test(runOf(s)!.trim())) out.push(`the Claude Code CLI install must pin an exact x.y.z version: ${runOf(s)}`);
+  for (const s of installs) if (!CLI_PINNED.test(runOf(s)!.trim())) out.push(`the Claude Code CLI install must pin an exact x.y.z version and pass --ignore-scripts: ${runOf(s)}`);
   // The last install decides which CLI validates, so allow exactly one, directly before validation.
   if (installs.length !== 1) out.push(`verify must install the Claude Code CLI exactly once, got ${installs.length}`);
   const install = steps.findIndex((s) => CLI_INSTALL.test(runOf(s)?.trim() ?? ''));
-  const validate = steps.findIndex((s) => runOf(s)?.trim() === VALIDATE);
-  if (validate === -1) out.push(`verify must run ${VALIDATE}`);
+  const validate = steps.findIndex((s) => runOf(s)?.trim() === CI_VALIDATE);
+  if (validate === -1) out.push(`verify must run ${CI_VALIDATE}`);
   if (install !== -1 && validate !== -1 && install !== validate - 1) out.push('the CLI must be installed in the step directly before the plugin is validated');
   return out;
 }
@@ -195,6 +198,24 @@ test('workflow-lint reports each bypass and accepts each safe form', () => {
   }
   assert.equal(credentialRefs(accepted[3][1]).length, 1, 'the step-level token is found, then accepted');
   assert.deepEqual(persistedCredentials(workflow(steps(`- uses: actions/checkout@${SHA}`))).length, 1, 'a checkout keeping credentials');
+
+  // Event payload text reaches no step, not even through env; comparing it in if or concurrency is fine.
+  const eventReported: [string, any][] = [
+    ['a step env', workflow(steps('- env:', '    BODY: ${{ github.event.pull_request.body }}', '  run: echo "$BODY"'))],
+    ['the index form', workflow(steps('- env:', "    BODY: ${{ github['event'].pull_request.body }}", '  run: echo "$BODY"'))],
+    ['toJSON(github)', workflow(steps('- env:', '    ALL: ${{ toJSON(github) }}', '  run: echo "$ALL"'))],
+    ['a run', workflow(steps('- run: echo "${{ github.event.head_commit.message }}"'))],
+    ['job env', workflow(`    env:\n      REF: \${{ github.event.pull_request.head.ref }}\n${steps('- run: make')}`)],
+    ['workflow env', workflow(steps('- run: make'), 'permissions:\n  contents: read\nenv:\n  TITLE: ${{ github.event.pull_request.title }}\n')],
+  ];
+  for (const [what, wf] of eventReported) assertFlags(eventExpressions(wf), what);
+  const eventAccepted: [string, any][] = [
+    ['concurrency', workflow(steps('- run: make'), 'permissions:\n  contents: read\nconcurrency:\n  group: x-${{ github.event.pull_request.number || github.sha }}\n')],
+    ['a step if', workflow(steps("- if: github.event_name == 'push'", '  run: make'))],
+    ['a job if', workflow(`    if: \${{ github.event.pull_request.draft == false }}\n${steps('- run: make')}`)],
+    ['other expressions in env', workflow(steps('- env:', '    V: ${{ needs.detect.outputs.version }}', '    R: ${{ github.base_ref || github.ref_name }}', '  run: echo "$V $R"'))],
+  ];
+  for (const [what, wf] of eventAccepted) assert.deepEqual(eventExpressions(wf), [], what);
 });
 
 test('ci.yml pins every action, keeps a read-only token, holds no credential and persists none', () => {
@@ -204,6 +225,9 @@ test('ci.yml pins every action, keeps a read-only token, holds no credential and
   assert.deepEqual(persistedCredentials(WF), []);
   // PR code runs here: a cache it writes would be restored into the next push run.
   assert.deepEqual(dependencyCaches(WF), []);
+  // The concurrency group compares the PR number; no step reads event text.
+  assert.deepEqual(eventExpressions(WF), []);
+  assertFlags(eventExpressions(mutate((wf) => { stepRunning(wf, 'release-check', (r) => r.includes('release:check')).env.TITLE = '${{ github.event.pull_request.title }}'; })), 'the PR title in a step env');
   assertFlags(dependencyCaches(mutate((wf) => { delete wf.jobs.audit.steps.find((s: Step) => String(s.uses).startsWith('actions/setup-node@')).with['package-manager-cache']; })), 'package-manager-cache unset');
   assertFlags(dependencyCaches(mutate((wf) => { wf.jobs.verify.steps.splice(2, 0, { uses: `actions/cache@${SHA}`, with: { path: 'node_modules', key: 'k' } }); })), 'an actions/cache step');
   assertFlags(unpinnedActions(mutate((wf) => { wf.jobs.verify.steps[0].uses = 'actions/checkout@v7'; })), 'a pin rewritten to @v7');
@@ -224,7 +248,7 @@ test('no trigger, env or step can make a red run read green', () => {
   assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r === SHARDED_TEST_CMD)['continue-on-error'] = true; })), 'continue-on-error on Run tests');
   assertFlags(gateBypasses(mutate((wf) => { wf.jobs.verify['continue-on-error'] = true; })), 'continue-on-error on a job');
   assertFlags(gateBypasses(mutate((wf) => { wf.jobs.verify.if = false; })), 'a job that never runs');
-  assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r === VALIDATE).if = false; })), 'a skipped validate step');
+  assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r === CI_VALIDATE).if = false; })), 'a skipped validate step');
   assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r.includes('node --check')).shell = 'bash {0}'; })), 'a step dropping -e with its own shell');
   assertFlags(gateBypasses(mutate((wf) => { stepRunning(wf, 'verify', (r) => r === 'npm ci').run = 'echo "${{ github.event.pull_request.title }}"'; })), 'a run interpolating the PR title');
   const testOnly = { NODE_OPTIONS: '--test-only' };
@@ -311,13 +335,15 @@ test('the touchpoints step compares against the previous commit', () => {
 test('the Claude Code CLI is pinned and installed once, directly before validation', () => {
   assert.deepEqual(cliProblems(WF), []);
   const setInstall = (run: string) => mutate((wf) => { stepRunning(wf, 'verify', (r) => CLI_INSTALL.test(r)).run = run; });
-  assertFlags(cliProblems(setInstall('npm install -g @anthropic-ai/claude-code@latest')), 'an install at @latest');
-  assertFlags(cliProblems(setInstall('npm install -g @anthropic-ai/claude-code')), 'an install with no version');
-  assertFlags(cliProblems(mutate((wf) => { wf.jobs.verify.steps = wf.jobs.verify.steps.filter((s: Step) => s.run !== VALIDATE); })), 'no validate step');
+  assertFlags(cliProblems(setInstall('npm install -g --ignore-scripts @anthropic-ai/claude-code@latest')), 'an install at @latest');
+  assertFlags(cliProblems(setInstall('npm install -g --ignore-scripts @anthropic-ai/claude-code')), 'an install with no version');
+  // An install script is code from the package that runs before anything validates it.
+  assertFlags(cliProblems(setInstall('npm install -g @anthropic-ai/claude-code@2.1.299')), 'an install without --ignore-scripts');
+  assertFlags(cliProblems(mutate((wf) => { wf.jobs.verify.steps = wf.jobs.verify.steps.filter((s: Step) => s.run !== CI_VALIDATE); })), 'no validate step');
   // The last install wins, so a second one could run validation on any version.
   const downgrade = mutate((wf) => {
     const s = wf.jobs.verify.steps;
-    s.splice(s.findIndex((x: Step) => x.run === VALIDATE), 0, { name: 'Downgrade', run: 'npm install -g @anthropic-ai/claude-code@1.0.0' });
+    s.splice(s.findIndex((x: Step) => x.run === CI_VALIDATE), 0, { name: 'Downgrade', run: 'npm install -g --ignore-scripts @anthropic-ai/claude-code@1.0.0' });
   });
   assert.deepEqual(verifyListProblems(AGENTS, downgrade), [], 'the list check skips every install');
   assertFlags(cliProblems(downgrade), 'a second, pinned install just before validate');
@@ -348,6 +374,10 @@ test('the syntax-check step fails when any file has a syntax error, not only the
 });
 
 test('the release check picks --dist from the PR base or the branch', POSIX, () => {
+  // The present check compares the version's tag with HEAD, so the clone needs the tags; still no credentials.
+  const checkout = stepsOf(WF.jobs['release-check']).find((s) => String(s?.uses ?? '').startsWith('actions/checkout@'));
+  assert.equal(checkout?.with?.['fetch-depth'], 0);
+  assert.equal(checkout?.with?.['persist-credentials'], false);
   const script = runOf(stepRunning(WF, 'release-check', (r) => r.includes('release:check')))!;
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-ci-dist-')));
   try {
@@ -365,7 +395,7 @@ test('the release check picks --dist from the PR base or the branch', POSIX, () 
     };
     assert.equal(ran('develop'), 'run release:check -- --dist absent');
     assert.equal(ran('main'), 'run release:check -- --dist present');
-    for (const other of ['ci/main-update', 'forge/309-x', 'develop2', 'main/x', '']) assert.equal(ran(other), 'run release:check', JSON.stringify(other));
+    for (const other of ['ci/main-update', 'forge/309-x', 'release/v1.2.3', 'develop2', 'main/x', '']) assert.equal(ran(other), 'run release:check', JSON.stringify(other));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

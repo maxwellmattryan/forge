@@ -13,11 +13,14 @@ import { PLUGIN_ROOT } from '#core/paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, validJobId } from '#core/job/requests.ts';
 import { writeJsonAtomic } from '#core/os/fs.ts';
 import { now } from '#core/utils.ts';
-import { apiKeyVars, buildArgv, commandPermissionMode, sessionEnv } from '#integrations/claude/argv.ts';
+import { billingOf, buildArgv, commandPermissionMode, sessionEnv } from '#integrations/claude/argv.ts';
 import type { ClaudeChild, ClaudeEvent } from '#integrations/claude/types.ts';
 import type { ChildMeta, DaemonChild, Session, SessionContext, SessionCore, SessionOptions } from './contract.ts';
+import { budgetStopMessage, spawnBudgetCap } from './budget-cap.ts';
 import { createControl } from './control.ts';
+import { createMeter } from './meter.ts';
 import { routeHolds } from './holds.ts';
+import { confineDigest, spawnConfinement } from './confine.ts';
 import { checkLaunch } from './launch.ts';
 import { createSessionLog } from './log.ts';
 import { createOwned } from './owned.ts';
@@ -27,7 +30,7 @@ import type { Config, DaemonSessionState, DaemonStatus, Effort } from '#core/typ
 
 /** Why the supervisor stopped: shown in the dashboard, so it speaks to the human. */
 export const TRUST_CHANGED =
-  'daemon stopped: .forge/config.yml, .forge/trackers/ or .forge/verifiers/ changed while it was running. The session can write files in this checkout, so only a human may approve that change: review `git diff .forge/`, then start the daemon again.';
+  'daemon stopped: a file Forge trusts (.forge/config.yml, .forge/secrets-allow.txt, .forge/trackers/, .forge/verifiers/, .forge/notes/, .forge/reviewers/, .forge/evals/, .forge/ci/, a CLAUDE.md, AGENTS.md, an instruction file or the hooks dir) changed while it was running, seen by the supervisor or the check after a turn. The session can run commands in this checkout, so only a human may approve that change: review `git status` and `git diff`, then start the daemon again.';
 
 const MAX_FAILURES = 3;
 
@@ -55,7 +58,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   /** Failed turns in a row that were not a quota limit: at MAX_FAILURES the session stops wanting itself. */
   let strikes = 0;
   /** A session that stopped on its own says so; a job scope's stop is recorded on the job. Never throws. */
-  const announceStop = (reason: 'failed-turns' | 'failed-starts') => {
+  const announceStop = (reason: 'failed-turns' | 'failed-starts' | 'daily-cap') => {
     try {
       o.notify(root, ['daemon-stopped'], { job: scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE && validJobId(scope) ? scope : null, reason });
     } catch {}
@@ -71,6 +74,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   let liveMode: string | null = null;
   /** The --effort the current child was spawned with (null: none passed). A later change waits for the next spawn. */
   let spawnEffort: Effort | null = null;
+  /** The --max-budget-usd the current child was spawned with (null: none passed), for the stop message. */
+  let spawnCap: number | null = null;
 
   // Never recreate a repo that was deleted under a running supervisor (or a test's temp repo).
   const persist = () => {
@@ -116,6 +121,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   const control = createControl(core);
   const { setPermissionMode, answerPermission, clearModeRequests } = control;
   const { armTurn, clearTurn, armIdle, clearIdle } = createTimers(core, agents);
+  const meter = createMeter(core, stopSelf);
 
   function state(): DaemonSessionState {
     return {
@@ -161,6 +167,17 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     changed();
   }
 
+  /** The session stops its child and says why; unless keepWanted, it stops wanting itself until a human starts it. */
+  function stopSelf(message: string, reason: string, announce: 'failed-turns' | 'daily-cap' | null, keepWanted = false): void {
+    if (!keepWanted) wanted = false;
+    retryAt = null;
+    lastError = message;
+    logEvent('error', { message });
+    if (announce) announceStop(announce);
+    changed();
+    void kill('stop', true, reason);
+  }
+
   function spawnChild(c: Config, reason?: string): boolean {
     if (child) return true;
     if (closed) return false;
@@ -172,11 +189,18 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     const resume = Boolean(info.resumable && typeof info.sessionId === 'string' && UUID.test(info.sessionId));
     if (!resume) info = { ...withSessionId(info, crypto.randomUUID()), resumable: false };
     let argv;
+    let confined: ReturnType<typeof spawnConfinement>;
     const launchMode = ctx.permissionMode(scope);
     // From the config bytes just hashed (never a second read) and the job.json read now, so a change made since the last spawn applies.
     const effort = ctx.effort(scope, c);
+    const base = meter.spawned(c, resume);
+    if (base === null) return false;
+    const cap = spawnBudgetCap(root, scope, c, base);
     try {
-      argv = buildArgv(c.daemon.command, { pluginRoot: PLUGIN_ROOT, session: { id: info.sessionId, resume }, allowedTools: c.daemon.allowedTools, permissionMode: launchMode, effort: effort.level });
+      confined = spawnConfinement(root, c);
+      const { roots, deny } = confined;
+      const vars = { allowedTools: c.daemon.allowedTools, permissionMode: launchMode, effort: effort.level, writeRoots: [roots.jobs, ...roots.worktrees], deny, maxBudgetUsd: cap };
+      argv = buildArgv(c.daemon.command, { pluginRoot: PLUGIN_ROOT, session: { id: info.sessionId, resume }, ...vars });
     } catch (e) {
       ctx.fatal(`cannot start daemon: ${(e as Error).message}`);
       return false;
@@ -187,7 +211,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     let claude: ClaudeChild;
     try {
       // The scope reaches the session only through its environment, never stdin or argv.
-      const env = { ...sessionEnv(o.env, c.daemon.auth), [TRUST_ENV]: launch.trusted, [SCOPE_ENV]: scope };
+      const env = { ...sessionEnv(o.env, c.daemon.auth), ...confined.env, [TRUST_ENV]: launch.trusted, [SCOPE_ENV]: scope };
       claude = o.claude.start(argv, { cwd: root, env, maxLineBytes: o.maxLineBytes }, (e) => onEvent(proc, e));
     } catch (e) {
       sessionFatal(`cannot start daemon: ${(e as Error).message}`);
@@ -199,13 +223,14 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     waiting = false;
     liveMode = launchMode ?? commandPermissionMode(c.daemon.command);
     spawnEffort = effort.level;
+    spawnCap = cap;
     clearModeRequests();
     info = { ...info, pid: claude.pid, serverPid: process.pid, argv0: argv[0], startedAt: now(), spawnSessionId: info.sessionId };
     persist();
-    logEvent('spawn', { pid: claude.pid, sessionId: info.sessionId, resume, ...(reason ? { reason } : {}) });
+    logEvent('spawn', { pid: claude.pid, sessionId: info.sessionId, resume, capUsd: cap, ...(reason ? { reason } : {}) });
     logEvent('effort', { level: effort.level ?? 'inherit', source: effort.source });
-    const keys = apiKeyVars(o.env);
-    if (keys.length) logEvent('auth', { auth: c.daemon.auth, vars: keys, passed: c.daemon.auth === 'api-key' });
+    const billing = billingOf(o.env, c.daemon.auth);
+    if (billing) logEvent('auth', { auth: c.daemon.auth, ...billing });
     armIdle(c);
     changed();
     return true;
@@ -289,10 +314,11 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   }
 
   function onResult(proc: DaemonChild, e: Extract<ClaudeEvent, { kind: 'turn-ended' }>): void {
+    const stop = meter.result(e, turns);
     proc.meta.result = true;
     failures = 0;
-    // A result clears errors from earlier exits and failed turns; a refusal or fatal error stays.
-    if (lastError && /^(daemon exited|last turn failed)/.test(lastError)) lastError = null;
+    // A result clears errors from earlier exits, failed turns and a cleared budget stop; a refusal or fatal error stays.
+    if (lastError && /^(daemon exited|last turn failed|daemon stopped: this job's metered)/.test(lastError)) lastError = null;
     const ids = inFlight;
     inFlight = [];
     lastResultAt = now();
@@ -314,6 +340,13 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
         armIdle(ctx.config());
       } catch {}
     }
+    // The post-turn check: a protected path this turn changed (through forge, git or a nested CLAUDE.md) stops the pool.
+    let same = false;
+    try {
+      same = confineDigest(root, ctx.config()) === ctx.confined();
+    } catch {}
+    if (!same) return ctx.untrusted();
+    if (stop) stopSelf(stop.message, stop.reason, stop.announce, stop.keepWanted);
     ctx.onResult(scope);
   }
 
@@ -323,7 +356,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
    * turn: until the quota window resets when claude said when, otherwise with a doubling backoff. A
    * limit is retried for as long as it takes; any other error strikes out at MAX_FAILURES.
    */
-  function failedTurn(proc: DaemonChild, e: { reason: string; limit: boolean; resetsAt: number | null }, ids: string[]): void {
+  function failedTurn(proc: DaemonChild, e: { reason: string; limit: boolean; resetsAt: number | null; budget: boolean }, ids: string[]): void {
     const why = e.reason;
     const meta = proc.meta;
     const t = Date.now();
@@ -337,17 +370,10 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     const { limit } = e;
     const reset = e.resetsAt !== null && e.resetsAt > t ? e.resetsAt : null;
     turnFailures++;
-    if (!limit) strikes++;
-    if (!limit && strikes >= MAX_FAILURES) {
-      wanted = false;
-      retryAt = null;
-      lastError = `daemon stopped after ${MAX_FAILURES} failed turns: ${why}`;
-      logEvent('error', { message: lastError });
-      announceStop('failed-turns');
-      // The child would otherwise sit idle in a slot other jobs could use.
-      void kill('stop', true, 'failed-turns');
-      return;
-    }
+    // Reaching the dollar cap stops at once: every later turn of this child would hit it again.
+    if (!limit) strikes = e.budget ? MAX_FAILURES : strikes + 1;
+    // Stopped, because the child would otherwise sit idle in a slot other jobs could use.
+    if (!limit && strikes >= MAX_FAILURES) return stopSelf(e.budget ? budgetStopMessage(spawnCap ?? 0) : `daemon stopped after ${MAX_FAILURES} failed turns: ${why}`, e.budget ? 'budget-cap' : 'failed-turns', 'failed-turns');
     // A limit with no reset time (a spend cap's 400, say) starts its backoff higher: retrying sooner can't help.
     const backoff = Math.min(o.retryMaxMs, o.retryMinMs * (limit ? 5 : 1) * 2 ** (turnFailures - 1));
     retryAt = reset ?? t + backoff;

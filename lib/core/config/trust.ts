@@ -5,11 +5,15 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { validEffort } from './models.ts';
+import { defaults } from './keys/defaults.ts';
+import { allInstructionFiles } from './validators/instructions.ts';
 import { paths } from '../paths.ts';
 import { DAEMON_AUTH, EFFORTS } from '../job/schema.ts';
+import * as yaml from '../format/yaml.ts';
 import { isMap } from '../shape.ts';
 import { isClaudeExecutable } from '../os/process.ts';
 import { splitWords } from '../text.ts';
+import type { Config } from './types.ts';
 
 /**
  * Checked whether or not the daemon is enabled, so a migrated launcher surfaces in
@@ -50,6 +54,12 @@ export function daemonProblems(c: unknown, root?: string): string[] {
       problems.push(
         `daemon.allowedTools must not include ${broad.map((t: any) => JSON.stringify(t)).join(', ')}: those reach arbitrary code execution, file writes or GitHub writes in an unattended session; use the scoped forms and \`forge git\` (docs/CONFIG.md "Daemon")`,
       );
+    // A scoped file rule would widen what the spawn scopes (Edit(//**) reaches ~/.ssh), and an MCP tool writes where no rule sees.
+    const unscoped = tools.filter((t: any) => typeof t === 'string' && (/^(Edit|Write|MultiEdit|NotebookEdit)\(/.test(t.trim()) || t.trim().startsWith('mcp__')));
+    if (unscoped.length)
+      problems.push(
+        `daemon.allowedTools must not include ${unscoped.map((t: any) => JSON.stringify(t)).join(', ')}: list bare Edit and Write, which the daemon scopes to the job folders and worktrees at spawn; MCP tools are allowed per call from the dashboard (docs/CONFIG.md "Daemon")`,
+      );
   }
   if (words) problems.push(...wideningFlags(words));
   const max = d.maxConcurrent;
@@ -61,7 +71,7 @@ export function daemonProblems(c: unknown, root?: string): string[] {
   if (turn !== null && !(typeof turn === 'number' && Number.isFinite(turn) && turn > 0))
     problems.push(`daemon.turnTimeoutMinutes must be null or a positive number (got ${JSON.stringify(turn)})`);
   if (!DAEMON_AUTH.includes(d.auth)) problems.push(`daemon.auth must be one of ${DAEMON_AUTH.join(' | ')} (got ${JSON.stringify(d.auth)})`);
-  problems.push(...jobBudgetProblems(d.jobBudget));
+  problems.push(...jobBudgetProblems(d.jobBudget), ...dailyUsdProblems(d.dailyUsd));
   const effort = cfg.runtime?.effort ?? null;
   if (effort !== null && !validEffort(effort))
     problems.push(`runtime.effort must be one of ${EFFORTS.join(' | ')}, or null (got ${JSON.stringify(effort)})`);
@@ -84,17 +94,47 @@ function jobBudgetProblems(b: unknown): string[] {
   return problems;
 }
 
+const DAILY_USD_KEYS = ['inbox', 'office'];
+
+/** daemon.dailyUsd: null, or a map of inbox and office, each null or a number >= 0 (dollars per UTC day). */
+function dailyUsdProblems(b: unknown): string[] {
+  if (b === null || b === undefined) return [];
+  if (typeof b !== 'object' || Array.isArray(b)) return [`daemon.dailyUsd must be null or a map of ${DAILY_USD_KEYS.join(', ')} (got ${JSON.stringify(b)})`];
+  const problems: string[] = [];
+  for (const [k, v] of Object.entries(b)) {
+    if (!DAILY_USD_KEYS.includes(k)) problems.push(`daemon.dailyUsd.${k} is not a key (use ${DAILY_USD_KEYS.join(', ')})`);
+    else if (v !== null && (typeof v !== 'number' || !Number.isFinite(v) || v < 0)) problems.push(`daemon.dailyUsd.${k} must be null or a number >= 0 (got ${JSON.stringify(v)})`);
+  }
+  return problems;
+}
+
+/**
+ * The main-checkout paths that decide what `forge` runs or what every later agent reads with no
+ * review: the trust digest hashes them, the post-turn check (lib/office/session/confine.ts) watches
+ * them, and a daemon session's file tools may not write them. `forgeWrites` are the entries under
+ * them that `forge` itself writes, which neither check counts. `anyDepth` names files watched
+ * wherever they sit in the checkout.
+ */
+export const PROTECTED = Object.freeze({
+  files: Object.freeze(['.forge/config.yml', '.forge/secrets-allow.txt', 'CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md']),
+  dirs: Object.freeze(['.forge/trackers', '.forge/verifiers', '.forge/notes', '.forge/reviewers', '.forge/evals', '.forge/ci']),
+  forgeWrites: Object.freeze(['.forge/evals/runs', '.forge/evals/recall/runs']),
+  anyDepth: Object.freeze(['CLAUDE.md', 'CLAUDE.local.md']),
+});
+
 /** Carries the supervisor's trustDigest into the daemon session's environment. */
 export const TRUST_ENV = 'FORGE_DAEMON_TRUST';
 
 /**
- * Fingerprint of what decides the code `forge` runs from the main checkout: the checkout's
- * realpath, `.forge/config.yml` (commands run through a shell; daemon.* starts sessions), the
- * secret scanner's allowlist `.forge/secrets-allow.txt` (a session that could edit it could allow
- * its own leak), the custom tracker modules imported from `.forge/trackers/` and the verifiers in
- * `.forge/verifiers/`, which gate the pipeline. An unreadable entry hashes as a
- * marker rather than throwing, so a tampered file can't turn the check into a crash.
- * `configBytes` is config.yml as already read (null: absent).
+ * Fingerprint of what decides the code `forge` runs from the main checkout, and of what every
+ * later agent reads with no review: the checkout's realpath, `.forge/config.yml` (commands run
+ * through a shell; daemon.* starts sessions), the secret scanner's allowlist
+ * `.forge/secrets-allow.txt` (a session that could edit it could allow its own leak), the custom
+ * tracker modules imported from `.forge/trackers/` and the verifiers in `.forge/verifiers/`, which
+ * gate the pipeline, then the rest of PROTECTED (notes, reviewer checklists, evals, CI checks, the
+ * root's CLAUDE.md, CLAUDE.local.md and AGENTS.md) and every configured instruction file. An
+ * unreadable entry hashes as a marker rather than throwing, so a tampered file can't turn the check
+ * into a crash. `configBytes` is config.yml as already read (null: absent).
  */
 export function trustDigest(root: string, configBytes?: Buffer | null): string {
   const h = crypto.createHash('sha256');
@@ -112,8 +152,18 @@ export function trustDigest(root: string, configBytes?: Buffer | null): string {
       add(label, `!${(e as any).code ?? 'unreadable'}`);
     }
   };
-  if (configBytes === undefined) file('config', p.config);
-  else add('config', configBytes ?? '!ENOENT');
+  let config: Buffer | null = null;
+  if (configBytes === undefined) {
+    try {
+      config = fs.readFileSync(p.config);
+      add('config', config);
+    } catch (e) {
+      add('config', `!${(e as any).code ?? 'unreadable'}`);
+    }
+  } else {
+    config = configBytes;
+    add('config', configBytes ?? '!ENOENT');
+  }
   file('secrets-allow', path.join(p.dir, 'secrets-allow.txt'));
   // Verifiers gate the pipeline: a session that could weaken a block verifier could pass its own work.
   for (const [label, base] of [['trackers', p.trackers], ['verifiers', p.verifiers]] as const) {
@@ -126,7 +176,36 @@ export function trustDigest(root: string, configBytes?: Buffer | null): string {
       } else if (!dir) file(`${label}/${rel}`, f);
     }
   }
+  // The entries hashed above keep their labels and order, so a digest over them alone is unchanged in form.
+  const early = ['.forge/config.yml', '.forge/secrets-allow.txt', '.forge/trackers', '.forge/verifiers'];
+  for (const f of PROTECTED.files.filter((x) => !early.includes(x))) file(f, path.join(root, f));
+  const skip = (rel: string) => PROTECTED.forgeWrites.includes(rel);
+  for (const d of PROTECTED.dirs.filter((x) => !early.includes(x))) {
+    const base = path.join(root, d);
+    for (const { rel, link, dir } of walk(base, '', (r) => skip(`${d}/${r}`))) {
+      const f = path.join(base, rel);
+      if (link) {
+        try {
+          add(`link ${d}/${rel}`, fs.readlinkSync(f));
+        } catch {}
+      } else if (!dir) file(`${d}/${rel}`, f);
+    }
+  }
+  const instructions = configuredInstructions(config);
+  if (instructions === null) add('instructions', '!unparsable');
+  else for (const f of instructions) file(`instructions/${f}`, path.join(root, f));
   return h.digest('hex');
+}
+
+/** Every role's instruction files as config.yml's bytes name them (the defaults when absent), or null when they don't parse. Never throws. */
+function configuredInstructions(bytes: Buffer | null): string[] | null {
+  try {
+    const raw = bytes === null ? {} : (yaml.parse(bytes.toString('utf8')) ?? {});
+    const listed = isMap(raw) && isMap(raw.project) && raw.project.instructions !== undefined ? raw.project.instructions : defaults().project.instructions;
+    return allInstructionFiles({ project: { instructions: listed } } as Pick<Config, 'project'>);
+  } catch {
+    return null;
+  }
 }
 
 /** Symlinks under `.forge/trackers/`, which a daemon session refuses. */
@@ -141,9 +220,9 @@ function symlinksUnder(dir: string): string[] {
 
 /**
  * Every entry under `dir`, sorted, without following symlinks (`readdir`'s recursive mode
- * follows them, so a link loop never ends).
+ * follows them, so a link loop never ends). An entry `skip` names is left out with everything under it.
  */
-function walk(dir: string, prefix = ''): { rel: string; link: boolean; dir: boolean }[] {
+function walk(dir: string, prefix = '', skip: (rel: string) => boolean = () => false): { rel: string; link: boolean; dir: boolean }[] {
   let entries: fs.Dirent[] = [];
   try {
     entries = fs.readdirSync(path.join(dir, prefix), { withFileTypes: true });
@@ -154,8 +233,9 @@ function walk(dir: string, prefix = ''): { rel: string; link: boolean; dir: bool
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     .flatMap((e) => {
       const rel = prefix ? `${prefix}/${e.name}` : e.name;
+      if (skip(rel)) return [];
       const me = { rel, link: e.isSymbolicLink(), dir: e.isDirectory() };
-      return me.dir ? [me, ...walk(dir, rel)] : [me];
+      return me.dir ? [me, ...walk(dir, rel, skip)] : [me];
     });
 }
 
@@ -183,7 +263,7 @@ export function daemonTrust(root: string, env: NodeJS.ProcessEnv = process.env):
   }
   if (trustDigest(root, bytes) !== want)
     return refuse(
-      '.forge/config.yml, .forge/secrets-allow.txt, .forge/trackers/ or .forge/verifiers/ changed since a human started the daemon (or this is another checkout). Only a human may change what Forge executes: stop here and leave the change for them to review.',
+      'a file Forge trusts (.forge/config.yml, .forge/secrets-allow.txt, .forge/trackers/, .forge/verifiers/, .forge/notes/, .forge/reviewers/, .forge/evals/, .forge/ci/, CLAUDE.md, CLAUDE.local.md, AGENTS.md or a project.instructions file) changed since a human started the daemon (or this is another checkout). Only a human may change what Forge executes or what every agent reads: stop here and leave the change for them to review.',
     );
   return { problem: null, configText: bytes === null ? null : bytes.toString('utf8') };
 }
@@ -234,6 +314,9 @@ function wideningFlags(words: string[]): string[] {
       problems.push(`daemon.command must not pass ${flag}: ${why}`);
     else if (flag === '--permission-mode' && !SAFE_PERMISSION_MODES.includes(value ?? ''))
       problems.push(`daemon.command must not pass --permission-mode ${value ?? ''}: ${why}; use default or manual (ask a human in the dashboard) or dontAsk (refuse)`);
+    // A literal cap would replace the job's own (buildArgv drops it anyway; refusing it says so up front).
+    else if (flag === '--max-budget-usd')
+      problems.push('daemon.command must not pass --max-budget-usd: Forge passes its own from the job\'s dollar budget (docs/CONFIG.md "Daemon")');
     else if (flag === '--plugin-dir' && value !== '{pluginRoot}') problems.push(`daemon.command must not pass --plugin-dir ${value ?? ''}: only {pluginRoot} may be loaded, since ${why}`);
     else if ((flag === '--allowedTools' || flag === '--allowed-tools') && value !== '{allowedTools}')
       problems.push(`daemon.command must pass ${flag} {allowedTools}, not a literal list, so daemon.allowedTools is validated`);

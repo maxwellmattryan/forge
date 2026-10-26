@@ -2,6 +2,7 @@
 // list and log viewer, and the Project page's Running environments section, over the routes in lib/server/routes/environment.ts. Plain TS,
 // so a test can pin it. Log lines are untrusted text: they only ever reach `{line}`.
 import { post } from './focus.ts';
+import { projectApi } from './project.ts';
 import type { DevState, EnvironmentAction, EnvironmentRow, EnvironmentService, EnvironmentsResponse, EnvironmentTarget, JobEnvironmentResponse, PostEnvironmentResponse } from './types.ts';
 
 /** A state chip: its tone (TONE_CLASS) and the state it names, which the component turns into a message. */
@@ -67,7 +68,7 @@ export function actionToast(target: EnvironmentTarget, action: EnvironmentAction
 
 /** A GET that sends the token header and throws the server's `error`, else its text, else the status text. */
 async function getJson<T>(url: string, token: string, fetchImpl: typeof fetch): Promise<T> {
-  const res = await fetchImpl(url, { headers: { 'x-forge-token': token } });
+  const res = await fetchImpl(projectApi(url), { headers: { 'x-forge-token': token } });
   const text = await res.text();
   let parsed: unknown = null;
   try {
@@ -93,7 +94,7 @@ export const postEnvironment = (id: string, target: EnvironmentTarget, action: E
 export const fetchEnvironments = (token: string, fetchImpl: typeof fetch = fetch): Promise<EnvironmentsResponse> => getJson<EnvironmentsResponse>('/api/environments', token, fetchImpl);
 
 /** The log stream: EventSource sends no headers, so the token travels as a query parameter (as the transcript stream's). */
-export const logStreamUrl = (id: string, source: string, token: string): string => `${jobPath(id)}/logs?${new URLSearchParams({ source, token })}`;
+export const logStreamUrl = (id: string, source: string, token: string): string => projectApi(`${jobPath(id)}/logs?${new URLSearchParams({ source, token })}`);
 
 /** A log source for one backing service. */
 export const backingSource = (name: string): string => `backing:${name}`;

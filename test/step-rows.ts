@@ -7,7 +7,8 @@ import type { Config, Job, VerifyRun } from '#core/types.ts';
 import type { StepInput } from '#engine/pipeline/types.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { acCoverage } from '#engine/pipeline/acs.ts';
-import { JOB_DIR, RECALL_HASH, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
+import { REVIEWED_HEAD_NOTE } from '#engine/pipeline/step/facts.ts';
+import { JOB_DIR, RECALL_HASH, ROOT, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
 import type { FixtureOpts } from './step-fixture.ts';
 
 export interface Row {
@@ -118,10 +119,10 @@ const PROPOSED = (n: number) => ev('repo-proposed', n, { repo: 'lib', reason: 'c
 /** The job's repos once lib was added: the root mirror, then lib. */
 const WITH_LIB = [{ repo: null }, { repo: 'lib', worktree: '/lib.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }] as Job['repos'];
 
-/** A per-role project.instructions map, with both files in the worktree (AC5 of #433). */
+/** A per-role project.instructions map, with both files in the main checkout (AC5 of #433; #388). */
 const ROLE_INSTRUCTIONS: Pick<FixtureOpts, 'config' | 'present'> = {
   config: (c) => (c.project.instructions = { default: ['AGENTS.md'], 'spec-writer': ['AGENTS.md', 'docs/DEVELOPING.md'], approver: [] }),
-  present: [path.join(WT, 'AGENTS.md'), path.join(WT, 'docs', 'DEVELOPING.md')],
+  present: [path.join(ROOT, 'AGENTS.md'), path.join(ROOT, 'docs', 'DEVELOPING.md')],
 };
 /** The brief's `Job paths (JSON)` instructions, and whether it has the Instructions: line. */
 const briefInstructions = (brief: string): { files: unknown; line: boolean } => {
@@ -162,6 +163,9 @@ const conflicts = ev('integrate-conflicts', 31, { strategy: 'rebase', conflicts:
 /** An integrate-conflicts event at minute 31 naming these conflicts. */
 const HEAD_SHA = 'a'.repeat(40);
 const BASE_SHA = 'b'.repeat(40);
+/** `forge job decision` recorded an auto-merge eligible APPROVE bound to HEAD_SHA at minute 9 (PR4 reads only this). */
+const decided = (decision: string, autoMerge: boolean, n = 9) => ev('decision', n, { decision, reason: null, autoMerge, head: HEAD_SHA });
+const APPROVED = decided('APPROVE', true);
 const resolvedConflicts = (names: string[], more: Record<string, unknown> = {}) => ev('integrate-conflicts', 31, { strategy: 'merge', conflicts: names, behind: 1, head: HEAD_SHA, upstream: BASE_SHA, ...more });
 const docsConflicts = resolvedConflicts(['README.md'], { regenerated: ['dashboard/dist/app.js'] });
 /** What the resolution changed by default: exactly the listed conflicted and regenerated paths. */
@@ -182,6 +186,11 @@ type Side = { stage: string; state?: string; waitingOn?: string | null };
 const tr = (n: number, from: Side, to: Side) => ev('transition', n, { from: { state: 'running', waitingOn: null, ...from }, to: { state: 'running', waitingOn: null, ...to } });
 /** The new order: every lens passed and RV8 sent the job straight to integrate at minute 25. */
 const reviewed = tr(25, { stage: 'review' }, { stage: 'integrate' });
+/** DC11 or PR12's `job set`: back to review with the reviewed-head note. */
+const BACK_TO_REVIEW = run('job', 'set', 'j', '--stage', 'review', '--state', 'running', '--note', REVIEWED_HEAD_NOTE);
+/** A round-2 build that RV11 opened: round 1 at 4, review → build at 30, round 2 at 32 (a `between` event goes at 31). */
+const reReview = (between: ReturnType<typeof ev>[] = []) => [ev('round', 4, { round: 1 }), tr(30, { stage: 'review' }, { stage: 'build' }), ...between, ev('round', 32, { round: 2 })];
+const atReReview = (more: Partial<Job> = {}): Partial<Job> => job({ stage: 'build', round: 2, reviewers: ['code'], verdicts: { 1: { code: 'PASS' } }, verifyRuns: [vr(1, 10, true)], agents: { builder: ag(1, 5, 6) }, ...more });
 /** The old order: review → decide at 15, the approver's decision at 22, then integrate at 30 (`entered`). */
 const legacy = [tr(15, { stage: 'review' }, { stage: 'decide' }), ev('decision', 22), entered];
 /** The new order up to a decide gate: integrated clean, decide at 33, the approver's decision at 36, parked on `gate` at 37, a human approve at 40. */
@@ -294,7 +303,7 @@ export const rows: Row[] = [
     fx: { config: (c) => (c.tracker.kind = 'local'), job: job({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }) },
     want: { action: 'wait', waitingOn: 'pr-review', running: [], tell: 'j PR https://github.com/o/r/pull/7 waits on review\nj has no linked issue: `forge job link j <ref>` or `--none`' },
   },
-  { name: 'G4b waiting on budget', fx: { job: job({ stage: 'build', state: 'waiting', waitingOn: 'budget', reason: 'usd 12 > 10' }) }, want: { action: 'wait', waitingOn: 'budget', tell: 'j over budget: usd 12 > 10. /forge approve j to acknowledge, or raise it: forge job budget j --set usd=…' } },
+  { name: 'G4b waiting on budget', fx: { job: job({ stage: 'build', state: 'waiting', waitingOn: 'budget', reason: 'usd 12 > 10' }) }, want: { action: 'wait', waitingOn: 'budget', tell: 'j over budget: usd 12 > 10. A human presses Approve & continue on the budget gate in the dashboard (new limits such as usd=… go in its note), or runs forge job budget j --ack (or --set usd=…) in their own terminal, then /forge approve j' } },
   {
     name: 'G4b a repo budget hold tells the ack of the current month, not the per-job budget',
     fx: { job: job({ stage: 'build', state: 'waiting', waitingOn: 'budget', reason: 'repo budget: $103.20 of $100.00 this month' }) },
@@ -356,7 +365,7 @@ export const rows: Row[] = [
     fx: { ...answeredAt('decide', 'escalation', 'approve'), events: [tr(10, { stage: 'decide' }, { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }), ev('note', 11, { text: 'approve' }), ev('budget-ack', 12, { keys: ['usd'] }), ev('release-approval', 13, { action: 'approve' }), ev('foreman-handoff', 14, { gate: 'escalation', class: 'escalated', reason: 'x' })] },
     want: { action: 'wait', waitingOn: 'escalation' },
   },
-  { name: 'G4b budget still exceeded', fx: { ...answeredAt('build', 'budget', 'approve', { reason: 'budget exceeded: usd 12.00/10.00' }), budgetExceeded: ['usd'] }, want: { action: 'wait', waitingOn: 'budget', tell: 'j over budget: budget exceeded: usd 12.00/10.00. /forge approve j to acknowledge, or raise it: forge job budget j --set usd=…' } },
+  { name: 'G4b budget still exceeded', fx: { ...answeredAt('build', 'budget', 'approve', { reason: 'budget exceeded: usd 12.00/10.00' }), budgetExceeded: ['usd'] }, want: { action: 'wait', waitingOn: 'budget', tell: 'j over budget: budget exceeded: usd 12.00/10.00. A human presses Approve & continue on the budget gate in the dashboard (new limits such as usd=… go in its note), or runs forge job budget j --ack (or --set usd=…) in their own terminal, then /forge approve j' } },
   { name: 'G4b … not an answer: approve at a repo budget hold', fx: { ...answeredAt('build', 'budget', 'approve', { reason: 'repo budget: $5.00 of $5.00 today' }), budgetExceeded: [] }, want: { action: 'wait', waitingOn: 'budget' } },
   { name: 'G5 waits on running agents', fx: { job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5) } }) }, want: { action: 'wait', waitingOn: 'agents', running: ['builder'] } },
   { name: 'L1 respawns a lost builder without resume', fx: { files: ['spec'], job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5, 6, { status: 'lost' }) } }), events: [ev('round', 4)] }, want: { action: 'spawn', role: 'builder' }, check: (a) => assert.equal(a.resume, undefined) },
@@ -462,7 +471,7 @@ export const rows: Row[] = [
     name: 'P1 the planner gets the default instruction files',
     fx: { ...ROLE_INSTRUCTIONS, job: job({ stage: 'plan' }) },
     want: { action: 'spawn', rule: 'P1', role: 'planner' },
-    check: (a) => assert.deepEqual(briefInstructions(a.brief), { files: [path.join(WT, 'AGENTS.md')], line: true }),
+    check: (a) => assert.deepEqual(briefInstructions(a.brief), { files: [path.join(ROOT, 'AGENTS.md')], line: true }),
   },
   { name: 'P1 re-plans after revise-split with split mode never', fx: { job: job({ stage: 'plan', splitMode: 'never', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SPLIT', jobs: 2 }, events: [ev('human', 3, { action: 'revise-split' })] }, want: { action: 'spawn', role: 'planner' }, check: (a) => assert.ok(a.brief.includes('Split mode: never')) },
   { name: 'P2 a split under auto follows split.md', fx: { config: (c) => (c.pipeline.split = 'auto'), job: job({ stage: 'plan', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SPLIT', jobs: 3 } }, want: { action: 'procedure', why: 'PLAN: SPLIT under pipeline.split auto' }, check: (a) => assert.ok(a.reference.endsWith(path.join('reference', 'split.md'))) },
@@ -490,7 +499,7 @@ export const rows: Row[] = [
     name: "SP1 the spec-writer gets its role's instruction files",
     fx: { ...ROLE_INSTRUCTIONS, files: ['request'], job: job({ stage: 'spec' }) },
     want: { action: 'spawn', rule: 'SP1', role: 'spec-writer' },
-    check: (a) => assert.deepEqual(briefInstructions(a.brief), { files: [path.join(WT, 'AGENTS.md'), path.join(WT, 'docs', 'DEVELOPING.md')], line: true }),
+    check: (a) => assert.deepEqual(briefInstructions(a.brief), { files: [path.join(ROOT, 'AGENTS.md'), path.join(ROOT, 'docs', 'DEVELOPING.md')], line: true }),
   },
   { name: 'SP2 a revise-spec re-runs the spec-writer with feedback', fx: { files: ['feedback'], job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'revise-spec' })] }, want: { action: 'spawn', role: 'spec-writer' }, check: (a) => assert.ok(a.brief.includes(path.join(JOB_DIR, 'feedback.md'))) },
   { name: 'SP3 panel always lenses', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }) }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]') },
@@ -788,6 +797,15 @@ export const rows: Row[] = [
     },
   },
   { name: 'B5 the builder committed: verify', fx: { job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5, 6) } }), events: [ev('round', 4)] }, want: run('job', 'set', 'j', '--stage', 'verify', '--state', 'running') },
+  // B8: RV11 sent a reviewed all-PASS round back for a commit after review; the new round verifies it with no builder.
+  { name: 'B8 a re-review round verifies with no builder', fx: { job: atReReview(), events: reReview() }, want: { ...run('job', 'set', 'j', '--stage', 'verify', '--state', 'running'), rule: 'B8' } },
+  { name: 'B4 a human rework after the re-review entry spawns the builder', fx: { job: atReReview(), events: reReview([ev('human', 31, { action: 'rework' })]) }, want: { action: 'spawn', rule: 'B4', role: 'builder' } },
+  { name: 'B4 entered from review after a CHANGES round spawns the builder', fx: { job: atReReview({ verdicts: { 1: { code: 'CHANGES' } } }), events: reReview() }, want: { action: 'spawn', rule: 'B4', role: 'builder' } },
+  {
+    name: 'B2 a re-review round past maxRounds parks',
+    fx: { job: atReReview({ round: 4, maxRounds: 3, verdicts: { 3: { code: 'PASS' } }, agents: { builder: ag(2, 5, 6) } }), events: reReview() },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 4 exceeds maxRounds 3'), rule: 'B2' },
+  },
 
   // ---- Verify
   { name: 'V1 verifies the round', fx: { job: job({ stage: 'verify', round: 1, agents: { builder: ag(1, 5, 6) } }) }, want: { ...run('verify', 'j'), shell: "forge verify j" } },
@@ -959,6 +977,22 @@ export const rows: Row[] = [
   { name: 'RV8c a UI lens with the dev server stopped moves on, never restarting it', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13), 'reviewer:ui': ag(1, 12, 13) }, { reviewers: ['code', 'ui'], verdicts: { 1: { code: 'PASS', ui: 'PASS' } } }), events: scoped, runtime: [] }, want: run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running') },
   { name: 'RV3 a UI retry before the verdicts gets the app again', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false }), 'reviewer:ui': ag(1, 12, 13, { outputMissing: true }) }, { reviewers: ['code', 'ui'] }), events: scoped, runtime: [] }, want: run('run', 'j', 'dev', '--background') },
   { name: 'RV8c every lens passed: integrate', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: scoped }, want: run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running') },
+  // RV11: DC11 or PR12 sent a recorded round back for a commit after review; build opens the next round.
+  {
+    name: 'RV11 a reviewed round sent back from decide goes to build',
+    fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: [...scoped, reviewed, tr(27, { stage: 'integrate' }, { stage: 'decide' }), tr(30, { stage: 'decide' }, { stage: 'review' })] },
+    want: { ...run('job', 'set', 'j', '--stage', 'build', '--state', 'running'), rule: 'RV11' },
+  },
+  {
+    name: 'RV11 a reviewed round sent back from pr goes to build, ahead of RV1 under onPrFeedback none',
+    fx: { config: (c) => (c.review.onPrFeedback = 'none'), job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } }, pr: OPEN_PR }), events: [...scoped, tr(30, { stage: 'pr' }, { stage: 'review' })] },
+    want: { ...run('job', 'set', 'j', '--stage', 'build', '--state', 'running'), rule: 'RV11' },
+  },
+  {
+    name: 'RV8c entered from verify, every lens passed: integrate',
+    fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: [ev('round', 4, { round: 1 }), tr(10, { stage: 'verify' }, { stage: 'review' }), panelled, ev('scope', 11, { round: 1 })] },
+    want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'RV8c' },
+  },
   { name: 'RV8b an eval job goes to decide', fx: { job: inReview({}, { kind: 'eval', eval: { run: 'r', task: 'hello' }, verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: scoped }, want: run('job', 'set', 'j', '--stage', 'decide', '--state', 'running') },
   { name: 'RV8d a lens asked for changes: build', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'CHANGES' } } }), events: scoped }, want: run('job', 'set', 'j', '--stage', 'build', '--state', 'running') },
   { name: 'RV8 a PR rework that passed goes to pr', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } }, pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }), events: scoped }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
@@ -1032,6 +1066,13 @@ export const rows: Row[] = [
   { name: 'DC3 a budget acknowledgement does not clear a missing decision line', fx: { job: decidedLate(), events: budgetAck('APPROVE').slice(0, -1) }, want: { rule: 'DC3' } },
   { name: 'cleared gate: DC3 a human-cleared missing decision line goes on to DC9', fx: { job: decidedLate(), events: sentBack }, want: { rule: 'DC9' } },
   { name: 'DC10 an open PR in decide goes to pr', fx: { job: job({ stage: 'decide', round: 1, pr: OPEN_PR }) }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'DC10' } },
+  // DC11: HEAD no longer follows the head the round's review was given (reviewCurrent false).
+  { name: 'DC11 a commit after review goes back to review', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], reviewCurrent: false }, want: { ...BACK_TO_REVIEW, rule: 'DC11' } },
+  { name: 'DC11 wins over DC10 with an open PR and no auto-merge', fx: { job: job({ stage: 'decide', round: 1, pr: OPEN_PR }), reviewCurrent: false }, want: { ...BACK_TO_REVIEW, rule: 'DC11' } },
+  { name: 'DC11 wins over DC1 before the approver starts', fx: { job: freshDecide(), files: ['spec'], reviewCurrent: false }, want: { ...BACK_TO_REVIEW, rule: 'DC11' } },
+  { name: 'DC9b a round with no recorded review still integrates (reviewCurrent null)', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], reviewCurrent: null }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9b' } },
+  { name: 'DC9b a HEAD that follows the reviewed head integrates (reviewCurrent true)', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], reviewCurrent: true }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9b' } },
+  { name: 'DC1 under auto-merge a PR rework goes back to the approver', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'decide', round: 2, pr: OPEN_PR }), files: ['spec'] }, want: { action: 'spawn', rule: 'DC1', role: 'approver' } },
   // ---- Recall eval before the approver (RC1, RC2)
   { name: 'RC1 a diff touching agents/ runs the recall procedure', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] } }, want: { action: 'procedure', rule: 'RC1', reference: RECALL_MD } },
   { name: 'RC1 a diff touching reviewers/code.md runs it', fx: { job: freshDecide(), recall: { changed: ['lib/x.ts', 'reviewers/code.md'] } }, want: { action: 'procedure', reference: RECALL_MD } },
@@ -1277,7 +1318,7 @@ export const rows: Row[] = [
   { name: 'protected paths: PP2 a refusal older than the last verify does not count', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 14, true)] }), events: [ev('protected-path', 12, { gate: 'pr', action: 'refuse', blocked: true })] }, want: { rule: 'PR3' } },
   {
     name: 'protected paths: PR4 never auto-merges protected paths',
-    fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], protectedPaths: FLAG(5) }), decision: { decision: 'APPROVE', autoMerge: true }, events: [...ppPark(6, 7), ev('pr-opened', 11)] },
+    fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], protectedPaths: FLAG(5) }), decision: { decision: 'APPROVE' }, events: [APPROVED,...ppPark(6, 7), ev('pr-opened', 11)] },
     want: { action: 'run', rule: 'PR5' },
   },
 
@@ -1335,20 +1376,47 @@ export const rows: Row[] = [
     want: { action: 'wait', waitingOn: 'human', tell: 'j stopped on a possible secret (secret scan blocked verify round 1). Masked findings and fingerprints: forge secrets scan j. Remove the value (rewrite the branch if it was committed) or add its fingerprint to .forge/secrets-allow.txt in the main checkout, then /forge approve j to scan again, or /forge rework j <note>' },
   },
   { name: 'G4b human with another reason gets the generic tell', fx: { job: job({ stage: 'build', state: 'waiting', waitingOn: 'human', reason: 'protected path edited' }) }, want: { action: 'wait', waitingOn: 'human', tell: 'j needs a human: protected path edited. /forge approve j once it is resolved, or /forge rework j <note>' } },
-  { name: 'PR4 merges an eligible PR', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: run('pr', 'merge', 'j') },
-  { name: 'PR5 ship propose never merges (PR4 holds off)', fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'propose' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
-  { name: 'PR4 ship merge needs approver eligibility: eligible merges', fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'merge' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },
-  { name: 'PR5 ship merge needs approver eligibility: not eligible waits', fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'merge' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE', autoMerge: false }, events: [ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
-  { name: 'PR5 ship merge without the foreman on never merges', fx: { config: (c) => Object.assign(c.foreman, { enabled: false, ship: 'merge' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
-  { name: 'PR5 once a merge was tried, the PR waits', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11), ev('pr-merge-refused', 12)] }, want: { action: 'run', rule: 'PR5' } },
+  { name: 'PR4 merges an eligible PR', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11)] }, want: run('pr', 'merge', 'j') },
+  { name: 'PR5 ship propose never merges (PR4 holds off)', fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'propose' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
+  { name: 'PR4 ship merge needs approver eligibility: eligible merges', fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'merge' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11)] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },
+  { name: 'PR5 ship merge needs approver eligibility: not eligible waits', fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'merge' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [decided('APPROVE', false), ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
+  { name: 'PR5 an ESCALATE marked eligible never merges, even after a human cleared it', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'ESCALATE' }, events: [decided('ESCALATE', true), ev('human', 10, { action: 'approve' }), ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
+  { name: 'PR5 a yes written into decision.md after a recorded no waits', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [decided('APPROVE', false), ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
+  {
+    name: 'PR5 a reviewed integrate episode after the decision waits (reviewCurrent true, decisionCurrent false)',
+    fx: {
+      config: (c) => (c.merge.auto = true),
+      job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 12, true)] }),
+      decision: { decision: 'APPROVE' },
+      reviewCurrent: true,
+      decisionCurrent: false,
+      events: [APPROVED, ev('integrate-conflicts', 10, { strategy: 'merge', conflicts: ['a.ts'], behind: 1, head: HEAD_SHA, upstream: BASE_SHA }), tr(13, { stage: 'integrate' }, { stage: 'pr' }), ev('pr-opened', 14)],
+    },
+    want: { action: 'run', rule: 'PR5' },
+  },
+  // PR12: the round's review covered X, verify passed on Y; a plain commit between them is unreviewed.
+  {
+    name: 'PR12 a commit after review goes back to review, ahead of PR4',
+    fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verdicts: { 1: { code: 'PASS' } }, verifyRuns: [{ ...vr(1, 10, true), sha: HEAD_SHA }] }), decision: { decision: 'APPROVE' }, reviewCurrent: false, events: [APPROVED, ev('pr-opened', 11)] },
+    want: { ...BACK_TO_REVIEW, rule: 'PR12' },
+  },
+  { name: 'PR12 wins over PR1 with PRs off', fx: { config: (c) => (c.pr.enabled = false), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), reviewCurrent: false }, want: { ...BACK_TO_REVIEW, rule: 'PR12' } },
+  {
+    name: "PR3 only integrate's clean merges between the reviewed and verified heads open the PR (reviewCurrent true)",
+    fx: { job: job({ stage: 'pr', round: 1, verdicts: { 1: { code: 'PASS' } }, verifyRuns: [{ ...vr(1, 10, true), sha: HEAD_SHA }] }), reviewCurrent: true, events: [ev('integrated', 8, { behind: 1, strategy: 'merge' })] },
+    want: { ...run('pr', 'open', 'j'), rule: 'PR3' },
+  },
+  { name: 'PR5 an APPROVE recorded before the head binding waits', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [ev('decision', 9, { decision: 'APPROVE', reason: null }), ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
+  { name: 'PR5 ship merge without the foreman on never merges', fx: { config: (c) => Object.assign(c.foreman, { enabled: false, ship: 'merge' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
+  { name: 'PR5 once a merge was tried, the PR waits', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11), ev('pr-merge-refused', 12)] }, want: { action: 'run', rule: 'PR5' } },
   { name: 'PR5 waits on PR review', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-updated', 11)] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review') },
   // ---- Interim strategies: a local edge holds off PR4; a deferral parks (PR6, PR8) or reopens (PR7)
-  { name: 'local: PR4 skipped while an edge is local', fx: { config: (c) => (twoRepoConfig(c), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo(null) }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
-  { name: 'release gate: PR4 skipped while a sequential release is unrecorded', fx: { config: (c) => (twoRepoConfig(c, 'sequential'), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('MERGED') }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review', '--reason', 'the root repo PR stays a draft until the release of repo lib is recorded [interim: sequential]: a human runs forge job interim release j lib VERSION') },
-  { name: 'release gate: PR4 merges once the release is recorded', fx: { config: (c) => (twoRepoConfig(c, 'sequential'), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('MERGED') }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11), ev('interim-released', 12, { repo: 'lib', version: '1.2.0' })] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },
-  { name: 'release gate: a malformed release record keeps PR4 off', fx: { config: (c) => (twoRepoConfig(c, 'sequential'), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('MERGED') }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11), ev('interim-released', 12, { repo: 'lib', version: '1.2.0-canary.abc' })] }, want: { action: 'run', rule: 'PR5' } },
-  { name: 'release gate: PR4 never merges a draft PR', fx: { config: (c) => (twoRepoConfig(c, 'sequential'), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('OPEN').map((r) => (r.repo === 'lib' ? { ...r, pr: { ...r.pr!, isDraft: true } } : r)) }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11), ev('interim-released', 12, { repo: 'lib', version: '1.2.0' })] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review') },
-  { name: 'release gate: a single-repo draft PR still auto-merges', fx: { config: (c) => ((c.pr.draft = true), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], pr: { ...OPEN_PR, isDraft: true } }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },
+  { name: 'local: PR4 skipped while an edge is local', fx: { config: (c) => (twoRepoConfig(c), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo(null) }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
+  { name: 'release gate: PR4 skipped while a sequential release is unrecorded', fx: { config: (c) => (twoRepoConfig(c, 'sequential'), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('MERGED') }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11)] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review', '--reason', 'the root repo PR stays a draft until the release of repo lib is recorded [interim: sequential]: a human runs forge job interim release j lib VERSION') },
+  { name: 'release gate: PR4 merges once the release is recorded', fx: { config: (c) => (twoRepoConfig(c, 'sequential'), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('MERGED') }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11), ev('interim-released', 12, { repo: 'lib', version: '1.2.0' })] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },
+  { name: 'release gate: a malformed release record keeps PR4 off', fx: { config: (c) => (twoRepoConfig(c, 'sequential'), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('MERGED') }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11), ev('interim-released', 12, { repo: 'lib', version: '1.2.0-canary.abc' })] }, want: { action: 'run', rule: 'PR5' } },
+  { name: 'release gate: PR4 never merges a draft PR', fx: { config: (c) => (twoRepoConfig(c, 'sequential'), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('OPEN').map((r) => (r.repo === 'lib' ? { ...r, pr: { ...r.pr!, isDraft: true } } : r)) }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11), ev('interim-released', 12, { repo: 'lib', version: '1.2.0' })] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review') },
+  { name: 'release gate: a single-repo draft PR still auto-merges', fx: { config: (c) => ((c.pr.draft = true), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], pr: { ...OPEN_PR, isDraft: true } }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11)] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },
   // ---- A recorded release: PR9 bumps the consumers through verify, PR10 takes an all-released draft out of draft
   { name: 'PR9 runs verify for a bump due', fx: { config: (c) => linkedConfig(c, 'git-ref'), job: atPr([vr(1, 10, true)]), events: [ev('pr-opened', 11), REL(12)] }, want: { ...run('verify', 'j'), rule: 'PR9', why: 'release of repo lib 1.2.0 recorded: bump its consumers and verify' } },
   { name: 'PR9b parks on escalation after a failed verify past the release', fx: { config: (c) => linkedConfig(c, 'local'), job: atPr([vr(1, 10, true), vr(1, 13, false)]), events: [ev('pr-opened', 11), REL(12)] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'release bump: verify failed after the release of repo lib 1.2.0') },
@@ -1360,8 +1428,8 @@ export const rows: Row[] = [
   { name: 'PR10 readies the root once every gate is released', fx: { config: (c) => twoRepoConfig(c, 'local'), job: atPr([vr(1, 10, true)], { pr: { ...OPEN_PR, isDraft: true } }), events: [ev('pr-opened', 11), REL(12)] }, want: { ...run('pr', 'ready', 'j', '--root'), rule: 'PR10', why: 'release recorded and consumers bumped: mark the consumer ready for review' } },
   { name: 'PR10 readies a member consumer with --repo', fx: { config: (c) => (twoRepoConfig(c), (c.components[0].dependsOn = []), (c.components[1].dependsOn = [{ component: 'app', type: 'build' }]), (c.release = { ...c.release, interim: 'sequential' })), job: atPr([vr(1, 10, true)], { pr: { ...OPEN_PR, state: 'MERGED' }, repos: libRepo('OPEN').map((r) => (r.repo === 'lib' ? { ...r, pr: { ...r.pr!, isDraft: true } } : r)) }), events: [ev('pr-opened', 11), ev('interim-released', 12, { repo: null, version: '2.0.0' })] }, want: { ...run('pr', 'ready', 'j', '--repo', 'lib'), rule: 'PR10' } },
   { name: 'PR5 a held gate keeps the draft (no PR10)', fx: { config: (c) => twoRepoConfig(c, 'local'), job: atPr([vr(1, 10, true)], { pr: { ...OPEN_PR, isDraft: true } }), events: [ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
-  { name: 'PR4 after a release: auto-merges once the local gate is released', fx: { config: (c) => (twoRepoConfig(c, 'local'), (c.merge.auto = true)), job: atPr([vr(1, 10, true)]), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11), REL(12)] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },
-  { name: 'PR2 after a release: PR4 holds off while a gate is bump-due', fx: { config: (c) => (linkedConfig(c, 'local'), (c.merge.auto = true)), job: atPr([vr(1, 10, true), vr(1, 13, false)]), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11), REL(12), ev('human', 14, { action: 'approve' })] }, want: { ...run('verify', 'j'), rule: 'PR2' } },
+  { name: 'PR4 after a release: auto-merges once the local gate is released', fx: { config: (c) => (twoRepoConfig(c, 'local'), (c.merge.auto = true)), job: atPr([vr(1, 10, true)]), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11), REL(12)] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },
+  { name: 'PR2 after a release: PR4 holds off while a gate is bump-due', fx: { config: (c) => (linkedConfig(c, 'local'), (c.merge.auto = true)), job: atPr([vr(1, 10, true), vr(1, 13, false)]), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11), REL(12), ev('human', 14, { action: 'approve' })] }, want: { ...run('verify', 'j'), rule: 'PR2' } },
   { name: 'PR3 counts pr-deferred as an open attempt', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true), vr(1, 14, true)], repos: libRepo('OPEN') }), events: [ev('pr-deferred', 11, { deferred: [SEQ] })] }, want: { ...run('pr', 'open', 'j'), rule: 'PR3' } },
   { name: 'PR6 canary deferral waits on a human', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('OPEN') }), events: [ev('pr-deferred', 11, { deferred: [CANARY] })] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'the root repo waits on a canary of repo lib [@acme/lib@1.4.0-canary.0123456789ab]: a human runs forge job interim publish j lib --confirm') },
   { name: 'PR6 another version published does not count', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('OPEN') }), events: [ev('pr-deferred', 11, { deferred: [CANARY] }), ev('canary-published', 12, { repo: 'lib', name: '@acme/lib', version: '1.4.0-canary.ffffffffffff' })] }, want: { action: 'run', rule: 'PR6' } },

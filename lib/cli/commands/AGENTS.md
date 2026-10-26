@@ -19,7 +19,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `budget.ts` | `forge budget`: repo spend against the day and month caps (config `budget:`), and a human's acknowledgement that grants one more period. |
 | `config.ts` | `forge config show\|get\|set\|validate`: read the effective config, and write one editable key. |
 | `daemon.ts` | `forge daemon status\|log`: the terminal's view of the session pool. |
-| `dash.ts` | `forge dash`: start the dashboard in the foreground or as a detached, pid-tracked process. |
+| `dash.ts` | `forge dash`: the machine's one dashboard for every registered project, started in the foreground or as a detached, pid-tracked process, registering the repo it runs in. |
 | `doctor.ts` | `forge doctor`: is this machine and repo ready for Forge, and with --bundle, a redacted support bundle (lib/engine/ops/bundle.ts) a user can attach to a bug report. |
 | `environment.ts` | `forge environment up\|stop\|down\|list`: a job's environment on demand (lib/engine/environment/lifecycle.ts, docs/CONFIG.md "Backing services" › Lifecycle). |
 | `eval.ts` | `forge eval …`: lists, mines, starts, grades and reports eval tasks, and the reviewer recall evals. |
@@ -27,6 +27,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `focus.ts` | `forge focus`: which job the human is QA-ing in its worktree. |
 | `git.ts` | `forge git diff\|log\|show\|range-diff …`: read-only history for agents (`add`/`commit`, which write, are further down). |
 | `help.ts` | `forge help`, `--help` and the CLI's error contract (docs/CLI.md). |
+| `human.ts` | A person at this terminal confirming a human-only operation: the CLI's half of the human channel; the dashboard's routes are the other (docs/architecture/daemon-security.md). |
 | `init.ts` | `forge init write` and `forge migrate`: setting a repo up and keeping its files current. |
 | `job.ts` | `forge job …`: every write to a job's state goes through here. |
 | `job/agent.ts` | `forge job agent start\|end\|attach`: recording an agent's run, its usage and the secret scan of what it wrote. |
@@ -40,6 +41,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `job/review.ts` | `forge job round\|verdicts\|decision\|score`: review rounds, the reviewers' and approver's verdicts, and the post-merge score. |
 | `job/state.ts` | `forge job set\|effort\|note\|refresh-request\|budget`: a job's stage, state, fields, effort, notes, request and budget limits. |
 | `notify.ts` | `forge notify test\|send`: a sample notification to every configured target, and the detached sender lib/office/notify.ts queueNotify spawns. |
+| `project.ts` | `forge project add\|remove\|list\|settings`: the machine index of registered projects and the machine settings (lib/engine/project/machine-index.ts). |
 | `release.ts` | `forge release plan\|run\|status`: a release a human runs from the CLI, single- or multi-repo (lib/engine/release/plan.ts plans it, lib/engine/release/run.ts runs it; docs/RELEASES.md "Releasing a project"). |
 | `render.ts` | Human output mode (docs/CLI.md "Output mode"): the generic renderer for results and errors. |
 | `render/backing.ts` | `forge backing status` in human mode. |

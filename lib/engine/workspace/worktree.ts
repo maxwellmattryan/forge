@@ -2,9 +2,10 @@
 // `worktrees.root`.
 import fs from 'node:fs';
 import path from 'node:path';
-import { backingDown, hasJobBacking, portsLock } from '../environment/backing.ts';
+import { backingDown, hasJobBacking } from '../environment/backing.ts';
 import { ensureEnvironment, stopBackground } from '../environment/lifecycle.ts';
 import { checkRefs, jobEnv, shell, vars } from './job-command.ts';
+import { loginShell } from '../guard/command-env.ts';
 import { knownValues, redactKnown, removeKnown } from '../guard/known-secrets.ts';
 import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
 import { loadConfig, worktreeRoot } from '#core/config/load.ts';
@@ -13,16 +14,16 @@ import { git as runGit } from '#integrations/git/runner.ts';
 import { loadJob, logEvent, setJob, updateJob } from '#core/job/store.ts';
 import { exists, resolveFrom } from '#core/paths.ts';
 import { jobComponent } from '#core/config/components.ts';
-import { allocatePorts, portBearing } from '../environment/ports.ts';
+import { allocatePorts, portBearing, withPortsLock } from '../environment/ports.ts';
 import { commandPort } from '../environment/endpoints.ts';
 import { memberClone, memberEntry, memberRepos, memberWorktreePath } from '../project/job-repos.ts';
 import { runCommandAsync } from './run.ts';
+import { containedWorktree } from './editor.ts';
 import { applySeed, dropSeed, lockSeed, refreshSeed, removeSeeded, seedKey, seedPathsPresent, seedRoot, seedTaken } from './seed.ts';
 import type { SeedCommandLog, WorktreeSeedResult } from './seed.ts';
 import type { Config, Job } from '#core/types.ts';
 import type { BackingDownResult, BackingUpEntry } from '../environment/types.ts';
 import { ForgeError } from '#core/errors.ts';
-import { withLock } from '#core/os/lock.ts';
 import { assertSafeRef, fill, tail } from '#core/text.ts';
 
 /** One member repo's part of `forge worktree create`: createMemberWorktrees. */
@@ -110,7 +111,7 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   copyUntracked(root, dir, config.worktrees.copy ?? [], opts.sparseExclude ?? []);
   if (config.worktrees.cargo?.sharedTarget) writeSharedCargoTarget(root, config, wtRoot);
   // Chosen and saved under the lock backing ports are allocated under, so a concurrent create never takes it.
-  const ports = withLock(portsLock(root), () => {
+  const ports = withPortsLock(root, () => {
     const p = allocatePorts(root, config, job);
     setJob(root, id, { owned: { worktree: dir, port: p[portBearing(config, job)[0]] }, fields: { ports: p } });
     return p;
@@ -134,7 +135,7 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   const runCommands: RunCommands = (cmds, keepGoing = false) => {
     const log: SeedCommandLog[] = [];
     for (const cmd of cmds) {
-      const res = shell(fill(cmd, vars(root, config, job, dir, setupPort, cmd)), dir, jobEnv(root, config, job, dir, setupPort));
+      const res = shell(fill(cmd, vars(root, config, job, dir, setupPort, cmd)), dir, jobEnv(root, config, job, dir, setupPort), { login: loginShell(config) });
       log.push({ cmd, ok: res.ok, tail: redactKnown(tail(res.output, 15), known) });
       if (!res.ok && !keepGoing) break;
     }
@@ -410,13 +411,14 @@ function writeSharedCargoTarget(root: string, config: Config, wtRoot: string): v
 
 /**
  * Removes the job's worktrees: the root's and then every member's, or with `repo` only that member's.
- * `removed` stays the root's path; `repos` lists the members handled, only when there are any.
+ * `removed` is the root path actually removed (null when none was); `branchKept` says why a
+ * `--delete-branch` kept the branch; `repos` lists the members handled, only when there are any.
  */
 export async function removeWorktree(
   root: string,
   id: string,
   opts: { deleteBranch?: boolean; force?: boolean; repo?: string } = {},
-): Promise<{ removed: string | null; repos?: { repo: string; removed: string | null; error?: string }[]; backing?: BackingDownResult }> {
+): Promise<{ removed: string | null; branchKept?: string; repos?: { repo: string; removed: string | null; error?: string }[]; backing?: BackingDownResult }> {
   if (opts.repo !== undefined) {
     const job = loadJob(root, id);
     if (!memberEntry(job, opts.repo)) throw new ForgeError(`job ${id} has no repo ${JSON.stringify(opts.repo).slice(0, 110)}`);
@@ -476,39 +478,76 @@ function removeMemberWorktree(root: string, config: Config, job: Job, name: stri
   return { repo: name, removed };
 }
 
-async function removeRootWorktree(root: string, id: string, opts: { deleteBranch?: boolean; force?: boolean }): Promise<{ removed: string | null }> {
+/**
+ * The stored root worktree when it is the job's own `<worktrees.root>/<id>` and resolves there, null
+ * when nothing is stored or the stored path does not exist (stale, or from before a `worktrees.root`
+ * change). job.json is agent-writable, so any other existing path is refused: another job's worktree,
+ * the main checkout, or `<root>/<id>` swapped for a link out.
+ */
+function ownWorktree(root: string, config: Config, job: Job): string | null {
+  const wt = job.worktree;
+  if (typeof wt !== 'string' || !wt) return null;
+  if (containedWorktree(root, config, job) !== null) return wt;
+  if (!exists(wt)) return null;
+  throw notOwnWorktree(root, config, job);
+}
+
+function notOwnWorktree(root: string, config: Config, job: Job): ForgeError {
+  return new ForgeError(`refusing to remove ${JSON.stringify(String(job.worktree).slice(0, 120))}: it is not this job's worktree ${path.join(worktreeRoot(root, config), job.id)}; nothing was removed`);
+}
+
+/**
+ * Removes only what Forge computes for the job: job.json's `worktree` and `branch` are agent-writable,
+ * so every check runs before the checkout undo or anything else changes, and the worktree check runs
+ * again right before the delete. `--delete-branch` deletes only `git.branchPrefix` + id; any other
+ * branch (another job's, the base, a `--branch` or adopted PR branch a human may own) is kept and
+ * reported as `branchKept`, as `forge job delete` does.
+ */
+async function removeRootWorktree(root: string, id: string, opts: { deleteBranch?: boolean; force?: boolean }): Promise<{ removed: string | null; branchKept?: string }> {
   const job = loadJob(root, id);
+  const config = loadConfig(root).config;
+  const target = ownWorktree(root, config, job);
+  // Eval jobs get a standalone clone (a .git directory) that `git worktree remove` does not know.
+  const standalone = Boolean(target && isDir(path.join(target, '.git')));
+  let branch: string | null = null;
+  let branchKept: string | undefined;
+  if (opts.deleteBranch && !standalone) {
+    const own = `${config.git.branchPrefix}${id}`;
+    if (assertSafeRef(job.branch, 'job.branch') === own) branch = own;
+    else branchKept = `${job.branch} is not this job's branch ${own}; Forge deletes only that one`;
+  }
   // Before anything is deleted: a fixed path must never be left pointing into a removed worktree,
   // and the undo commands need the worktree to run in.
   if (readCheckoutRecord(root)?.job === id) {
-    const config = loadConfig(root).config;
     const runner = (jid: string, name: string, label: string) => runCommandAsync(root, config, jid, name, { label, tail: 20 });
     await withCheckoutLock(root, async () => {
       if (readCheckoutRecord(root)?.job === id) await undoCheckout(root, config, runner);
     });
   }
   stopBackground(root, id);
-  // Eval jobs get a standalone clone (a .git directory) that `git worktree remove` does not know.
-  const standalone = Boolean(job.worktree && exists(job.worktree) && isDir(path.join(job.worktree, '.git')));
-  if (standalone) {
-    // job.worktree is writable job state; deleting a directory is only safe for an eval clone Forge made.
-    // standalone implies job.worktree is set, here and below.
-    if (!job.eval || !insideDir(worktreeRoot(root, loadConfig(root).config), job.worktree!) || insideDir(job.worktree!, root) || realpath(job.worktree!) === realpath(root)) {
-      throw new ForgeError(`refusing to delete ${job.worktree}: not an eval checkout inside the worktrees root`);
+  // The undo above is async and runs configured commands, so the path could have been swapped since.
+  const recheck = () => {
+    if (ownWorktree(root, config, job) !== target) throw notOwnWorktree(root, config, job);
+  };
+  if (target && standalone) {
+    // A second layer: deleting a directory is only safe for an eval clone Forge made.
+    if (!job.eval || !insideDir(worktreeRoot(root, config), target) || insideDir(target, root) || realpath(target) === realpath(root)) {
+      throw new ForgeError(`refusing to delete ${target}: not an eval checkout inside the worktrees root`);
     }
-    if (!opts.force && runGit(job.worktree!, ['status', '--porcelain']).stdout.trim()) {
-      throw new ForgeError(`${job.worktree} has uncommitted changes; use --force to remove it anyway`);
+    if (!opts.force && runGit(target, ['status', '--porcelain']).stdout.trim()) {
+      throw new ForgeError(`${target} has uncommitted changes; use --force to remove it anyway`);
     }
-    fs.rmSync(job.worktree!, { recursive: true, force: true });
-  } else if (job.worktree && exists(job.worktree)) {
-    runGit(root, ['worktree', 'remove', ...(opts.force ? ['--force'] : []), job.worktree], { write: true });
+    recheck();
+    fs.rmSync(target, { recursive: true, force: true });
+  } else if (target) {
+    recheck();
+    runGit(root, ['worktree', 'remove', ...(opts.force ? ['--force'] : []), target], { write: true });
   }
   runGit(root, ['worktree', 'prune'], { allowFail: true, write: true });
-  // createJob always sets branch.
-  if (opts.deleteBranch && !standalone) runGit(root, ['branch', '-D', job.branch!], { allowFail: true, write: true });
+  if (branch) runGit(root, ['branch', '-D', branch], { allowFail: true, write: true });
   setJob(root, id, { owned: { worktree: null } });
-  logEvent(root, id, 'worktree-removed', { branchDeleted: Boolean(opts.deleteBranch) });
-  return { removed: job.worktree };
+  logEvent(root, id, 'worktree-removed', { branchDeleted: branch !== null });
+  return { removed: target, ...(branchKept ? { branchKept } : {}) };
 }
 
 function realpath(p: string): string {

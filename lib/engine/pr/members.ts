@@ -223,12 +223,15 @@ export interface MemberSync {
   /** The PR turned CLOSED in this sync. */
   newlyClosed: boolean;
   headOid: string | null;
+  /** The base branch GitHub says the PR targets (assertJobPr already matched it to the member's base). */
+  baseRef: string | null;
   checks: PrChecks['state'] | undefined;
   mergeState: string | null;
 }
 
 /**
- * Records each member PR's state: by its number, or found by branch when none is recorded yet. The
+ * Records each member PR's state, and while GitHub has not merged or closed it its count of reviews
+ * requesting changes: by its number, or found by branch when none is recorded yet. The
  * adapter's snapshot holds checked values only (a safe number, an https url, a sha); a failure logs
  * `repo-pr-sync-failed` and never stops the root sync. Returns what this call read, so the job's
  * transition and a merge decide on GitHub's answers now, never on a stored (writable) state.
@@ -237,7 +240,7 @@ export function syncMemberPrs(root: string, config: Config, github: GitHub, id: 
   const job = loadJob(root, id);
   const out = new Map<string, MemberSync>();
   for (const m of memberRepos(job).filter((x) => !x.verifyOnly)) {
-    const unread: MemberSync = { repo: m.repo, number: safePrNumber(m.pr?.number), state: null, newlyClosed: false, headOid: null, checks: undefined, mergeState: null };
+    const unread: MemberSync = { repo: m.repo, number: safePrNumber(m.pr?.number), state: null, newlyClosed: false, headOid: null, baseRef: null, checks: undefined, mergeState: null };
     out.set(m.repo, unread);
     try {
       const slug = memberSlug(config, m.repo);
@@ -251,6 +254,10 @@ export function syncMemberPrs(root: string, config: Config, github: GitHub, id: 
       const pr = github.view(root, slug, number);
       if (pr.isCrossRepository) throw new ForgeError(`PR #${number} in ${slug} comes from a fork`);
       assertJobPr(pr, job.branch, m.base, `PR #${number} in ${slug}`);
+      // A change request here holds the job's auto-merge as one on the root PR does (decisionSuperseded),
+      // so it is counted at this read, as the root sync counts its own. A PR GitHub merged or closed
+      // holds nothing, so its reviews are not read. A failed read fails this member's sync whole.
+      const reviews = pr.state === 'MERGED' || pr.state === 'CLOSED' ? null : github.feedback(root, slug, number).reviews;
       const fresh = {
         // Null when gh returns an unusable number: cleanRepoPr then drops this record on the next
         // load, and the next sync finds the PR by branch again.
@@ -262,6 +269,7 @@ export function syncMemberPrs(root: string, config: Config, github: GitHub, id: 
         mergeable: pr.mergeable ?? undefined,
         mergeState: pr.mergeState ?? undefined,
         checks: pr.checks,
+        ...(reviews ? { changesRequested: reviews.filter((r) => r.state === 'CHANGES_REQUESTED').length } : {}),
         mergedAt: pr.mergedAt,
         lastSyncedAt: now(),
       };
@@ -271,7 +279,7 @@ export function syncMemberPrs(root: string, config: Config, github: GitHub, id: 
       const state: PrStateKey = fresh.number !== null ? pr.state : null;
       const newlyClosed = state === 'CLOSED' && m.pr?.state !== 'CLOSED';
       if (newlyClosed) logEvent(root, id, 'repo-pr-closed', { repo: m.repo, number: fresh.number });
-      out.set(m.repo, { repo: m.repo, number: fresh.number, state, newlyClosed, headOid: fresh.headOid, checks: fresh.checks.state, mergeState: fresh.mergeState ?? null });
+      out.set(m.repo, { repo: m.repo, number: fresh.number, state, newlyClosed, headOid: fresh.headOid, baseRef: pr.baseRefName, checks: fresh.checks.state, mergeState: fresh.mergeState ?? null });
     } catch {
       logEvent(root, id, 'repo-pr-sync-failed', { repo: m.repo });
     }

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { acCoverage, specFileMapPaths, specUiAcs } from '../acs.ts';
 import { readJobRecord, readSharedRecord } from '../../environment/backing.ts';
-import { effectiveLimits, exceededKeys, measureBudget } from '../../metrics/budget.ts';
+import { effectiveLimits, exceededKeys, measureJob } from '../../metrics/budget.ts';
 import { jobPathMap } from '../brief.ts';
 import { environmentState } from '../../environment/record.ts';
 import { configForJob } from '../../evals/overlay.ts';
@@ -21,10 +21,12 @@ import { approachPaths, committedChanges, integrationTouched, resolveBase } from
 import type { Config, Job, JobEvent } from '#core/types.ts';
 import type { StepFile, StepInput, StepVerdicts } from '../types.ts';
 import { isInsidePath, readJson, readText } from '#core/os/fs.ts';
-import { INSTRUCTION_ROLES, instructionsFor } from '#core/config/validators/instructions.ts';
+import { INSTRUCTION_ROLES, changedInstructionFiles, instructionsFor } from '#core/config/validators/instructions.ts';
 import { verifierCount } from '../verifiers.ts';
 import { currentRerun, reworkReviewFiles, roundLenses } from './panel.ts';
 import { lastRun } from '../../verify/record.ts';
+import { decisionCurrent, decisionEligible, lastDecision, reviewCurrent } from '../../pr/eligible.ts';
+import { autoMerge } from '#core/config/load.ts';
 
 /** Request bodies above this, or with this many list or heading lines, get a planner under `pipeline.plan: auto`. */
 export const PLAN_AUTO_CHARS = 600;
@@ -77,15 +79,18 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
   const present = Object.values(paths).filter((v): v is string => typeof v === 'string' && exists(v));
   // The only I/O for the rework brief's review inputs, so step itself stays pure.
   for (const f of reworkReviewFiles(job, (paths.previousReviewDir as string | null) ?? null)) if (exists(f)) present.push(f);
-  // Every role's instruction files, so renderBrief picks its role's list without reading disk.
+  // Every role's instruction files, so renderBrief picks its role's list without reading disk. The
+  // main checkout's copies: the worktree's are the branch's edits, data to review.
   for (const r of [undefined, ...INSTRUCTION_ROLES])
     for (const f of instructionsFor(config, r)) {
-      const abs = path.join(job.worktree ?? root, f);
+      const abs = path.join(root, f);
       if (!present.includes(abs) && exists(abs)) present.push(abs);
     }
   const body = requestBody(root, job.id);
   const specText = read('spec.md') ?? '';
-  const events = readEvents(root, job.id).filter((e) => STEP_EVENTS.has(e.type));
+  // reviewCurrent reads the full log: the `verdicts` event stays out of step's own events.
+  const all = readEvents(root, job.id);
+  const events = all.filter((e) => STEP_EVENTS.has(e.type));
   // The same list review() reads, or a narrowed round's verdicts would never complete.
   const lenses = roundLenses(job, config, currentRerun({ job, config, events }));
   const compact =(v: ReturnType<typeof roundVerdicts>): StepVerdicts => ({
@@ -122,7 +127,11 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     plan: parsePlan(read('plan.md') ?? ''),
     spec: { ...parseSpecHeader(specText), approachPaths: approachPaths(specText), uiAcs: specUiAcs(specText) },
     designDeltas: hasSpecDeltas(read('design.md') ?? ''),
-    decision: { decision: parseDecision(root, job.id).decision, autoMerge: /^\s*(?:[-*]\s*)?Auto-merge eligible:\s*yes\b/im.test(read('decision.md') ?? '') },
+    decision: { decision: parseDecision(root, job.id).decision },
+    // Only where PR4 can use it: the check runs git in every job repo.
+    decisionCurrent: job.stage === 'pr' && autoMerge(config) && decisionEligible(lastDecision(events)) ? decisionCurrent(root, config, job, events) : null,
+    // Only where DC11 and PR12 read it: the check runs git in every job repo.
+    reviewCurrent: ['decide', 'pr'].includes(job.stage) && job.state === 'running' && job.kind !== 'eval' ? reviewCurrent(root, config, job, all) : null,
     runbookBeforeMerge: /^\s*(?:[-*]\s*)?When:\s*before merge\b/im.test(read('runbook.md') ?? ''),
     verdicts: {
       round: job.round >= 1 && lenses.length ? compact(roundVerdicts(root, job.id, job.round, lenses, config.review.blockOn)) : null,
@@ -131,6 +140,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     acs: acCoverage(read('spec.md'), read('build.md')),
     // Only at build: the walk reads the worktree, and only the fresh builder brief uses it.
     folderMaps: job.stage === 'build' && job.worktree && exists(job.worktree) && specText ? folderMaps(job.worktree, specFileMapPaths(specText)) : null,
+    instructionsChanged: loadInstructionsChanged(config, job),
     runtime,
     environment: environmentState(root, job.id),
     events,
@@ -147,7 +157,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     // The computed path, never job.json's: the session can write job.json, and verdicts trusts the same value.
     memberWorktrees: Object.fromEntries(memberRepos(job).map((m) => [m.repo, trustedMemberWorktree(root, config, job, m.repo)])),
     // Only at a budget park: measuring runs git, and only GA7 reads it.
-    budgetExceeded: job.state === 'waiting' && job.waitingOn === 'budget' ? exceededKeys(effectiveLimits(config, job), measureBudget(job), job.budget.ack, job.round).map((e) => e.key) : null,
+    budgetExceeded: job.state === 'waiting' && job.waitingOn === 'budget' ? exceededKeys(effectiveLimits(config, job), measureJob(root, config, job), job.budget.ack, job.round).map((e) => e.key) : null,
   };
 }
 
@@ -257,6 +267,21 @@ export function loadIntegrationTouched(job: Job, config: Config, events: JobEven
   const ev = events.findLast((e) => e.type === 'integrate-conflicts');
   if (!last?.ok || !last.sha || !ev || typeof ev.head !== 'string' || typeof ev.upstream !== 'string') return null;
   return { head: ev.head, upstream: ev.upstream, sha: last.sha, files: integrationTouched(job.worktree, ev.head, ev.upstream, last.sha) };
+}
+
+/**
+ * The instruction files the branch's committed diff (merge base up to HEAD) changed: [] without a
+ * worktree, null when git fails or the base does not resolve. Not gated on round: an adopted PR
+ * branch has commits before round 1.
+ */
+export function loadInstructionsChanged(config: Config, job: Job): string[] | null {
+  const wt = job.worktree;
+  if (!wt || !exists(wt)) return [];
+  try {
+    return changedInstructionFiles(config, committedChanges(wt, resolveBase(wt, config, job).mergeBase));
+  } catch {
+    return null;
+  }
 }
 
 /** The recall gate's paths when a config predates evals.recall. */

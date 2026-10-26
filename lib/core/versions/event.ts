@@ -16,6 +16,18 @@ export const EVENT_STEPS: readonly Step[] = [
   // v3 adds pluginHash, promptHash and configHash to agent-start (lib/engine/evals/provenance.ts); a v2 start
   // simply has none, and readers treat it as unrecorded.
   { id: 'agent-start-provenance', up: (e) => e },
+  // v4 adds autoMerge, head and heads to `decision` (forge job decision binds it to the worktree HEAD).
+  // A v3 decision has none of them, and readers (lib/engine/pr/eligible.ts) treat it as not eligible.
+  { id: 'decision-head', up: (e) => e },
+  // v5 lets an actor's `source` be `daemon` (a daemon session's action); an older Forge reads it as `unknown`.
+  { id: 'actor-source-daemon', up: (e) => e },
+  // v6 adds actor (on every pr-merged, not only --now), scope and via to pr-merged, and reason
+  // superseded to pr-merge-refused; an older pr-merged without --now has no actor, and readers treat
+  // it as unrecorded.
+  { id: 'merge-provenance', up: (e) => e },
+  // v7 adds metered and unmeasured to agent-end (forge job agent end in a daemon session). An older agent-end has
+  // neither, and readers (lib/engine/metrics/spend.ts) treat its usage as reported and not covered by any meter.
+  { id: 'agent-end-metering', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

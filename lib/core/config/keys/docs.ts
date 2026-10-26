@@ -34,7 +34,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
 
   worktrees: { doc: 'one git worktree per job: where it lives, what it gets and when it goes' },
   'worktrees.root': { doc: 'outside the repo on purpose (bundlers, watchers, cargo workspaces)' },
-  'worktrees.copy': { doc: 'untracked files/dirs copied from the main checkout, e.g. [CLAUDE.md, .env, "packages/*/CLAUDE.md"]' },
+  'worktrees.copy': { doc: 'untracked files/dirs copied from the main checkout, e.g. [CLAUDE.md, "packages/*/CLAUDE.md"]' },
   'worktrees.setup': { doc: 'commands run once in a new worktree, e.g. ["yarn install --frozen-lockfile"]' },
   'worktrees.seed': { doc: 'warm worktrees: clone untracked paths from a private seed instead of running setup\n(docs/CONFIG.md › Worktree seed); off while paths is empty' },
   'worktrees.seed.paths': { doc: 'untracked paths a new worktree clones from the seed instead of building, e.g. [node_modules]' },
@@ -55,6 +55,10 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   commands: { doc: 'what `forge run <job> <name>` executes inside the worktree', uniform: true },
   'commands.dev': { doc: 'e.g. "yarn dev --port {port}"' },
   'commands.e2e': { doc: 'browser/e2e suite; `forge run <job> e2e`, and verify runs it per verifyE2e below' },
+
+  commandEnv: { doc: 'what configured commands inherit: an allowlist of Forge\'s environment, under /bin/sh -c\n("Command environment")' },
+  'commandEnv.inherit': { doc: 'more variable names commands get, e.g. [JAVA_HOME, "ANDROID_*"]; a * glob never\npasses a credential-like name, and declared secret sources never pass' },
+  'commandEnv.loginShell': { doc: 'true runs commands as `$SHELL -lc`, so the login profile is sourced and can export\nwhat the allowlist dropped' },
 
   verify: {
     doc: 'the deterministic gate before review, in order; unset commands are skipped. A list\nentry such as [lint, test] is a group whose steps run at the same time ("Verify groups")',
@@ -109,7 +113,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'tracker.github.ready.projectStatus': { doc: 'e.g. "🔖 Todo" (needs a project; see below)' },
   'tracker.github.claim': { doc: 'what claiming an issue does' },
   'tracker.github.claim.assign': { doc: 'assign the issue to you when a job claims it' },
-  'tracker.github.comments': { doc: 'collaborators | all: whose issue comments reach agents (anyone can comment on public repos)' },
+  'tracker.github.comments': { doc: 'collaborators | all: whose issue and PR comments reach agents (anyone can comment on public repos)' },
   'tracker.github.statusSync': { doc: 'none | labels | project | both' },
   'tracker.github.labels': { doc: 'status labels (statusSync: labels or both)' },
   'tracker.github.labels.prefix': { doc: 'labels mode: forge:in-progress, forge:review, …' },
@@ -137,7 +141,10 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   },
   'pipeline.budget': {
     doc: 'per-job limits; null = unlimited. Over budget → waiting on "budget"',
-    more: ['`forge job budget <id> --ack` grants one more full budget past the current use;', '`--set key=value` overrides a limit for one job'],
+    more: [
+      "a person runs `forge job budget <id> --ack` in their own terminal (it asks them to type the job id), or presses Approve & continue on the budget gate in the dashboard, to grant one more full budget past the current use;",
+      '`--set key=value` (or `key=value` in that Approve\'s note) overrides a limit for one job, the same way',
+    ],
   },
   'pipeline.budget.tokens': { doc: 'job.usage.totalTokens' },
   'pipeline.budget.usd': { doc: 'estimated cost (job.usage.estCostUsd)' },
@@ -183,9 +190,12 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   },
 
   merge: { doc: 'whether and how Forge merges approved PRs' },
-  'merge.auto': { doc: 'let Forge merge approved PRs (waits for CI, even without branch protection; see README)' },
+  'merge.auto': { doc: 'let Forge merge a PR whose recorded APPROVE covers its head, with no escalate-floor path, once CI passes at a settled head (see "Merge")' },
   'merge.method': { doc: 'squash | merge | rebase' },
   'merge.autoWhen': { doc: 'plain-language conditions, e.g. ["docs-only changes", "test-only changes"]' },
+  'merge.requiredChecks': {
+    doc: "the checks the root PR's merge needs, each a name or {name, app | workflow | creator} bound to its source; empty: the base branch's protection names them (see \"Merge\")",
+  },
 
   aiAttribution: { doc: 'forbid | allow: whether commits, PRs, issues and comments may credit an AI (see README)' },
 
@@ -271,18 +281,26 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'dashboard.port': { doc: 'the first port forge dash tries (--port overrides it)' },
 
   daemon: { doc: 'opt-in headless sessions supervised by `forge dash`: an inbox plus one per job (see "Daemon" below)' },
-  'daemon.enabled': { doc: 'true: `forge dash` starts it, and POST /api/daemon may start it again after a stop' },
+  'daemon.enabled': { doc: 'true: `forge dash` starts it, and POST /api/p/<project>/daemon may start it again after a stop' },
   'daemon.command': { doc: 'the claude command each session runs, split into words without a shell (see "Daemon" below)' },
-  'daemon.allowedTools': { doc: 'refused if it names blanket git/gh (see "Daemon" below)', layout: 'block' },
+  'daemon.allowedTools': {
+    doc: 'refused if it names blanket git/gh, a scoped file rule or an MCP tool; bare Edit/Write are scoped to the job folders and worktrees at spawn (see "Daemon" below)',
+    layout: 'block',
+  },
   'daemon.maxConcurrent': { doc: 'job sessions at once (1-16), besides the inbox' },
   'daemon.idleStopMinutes': { doc: 'stop an idle session after this long (null: never); new work resumes it' },
   'daemon.turnTimeoutMinutes': { doc: 'stop a turn still running after this long and requeue its work (null: no limit)' },
   'daemon.auth': { doc: "what sessions run on: your Claude login, or api-key for an ANTHROPIC_API_KEY in forge dash's shell" },
   'daemon.jobBudget': {
-    doc: 'with enabled: true, the limits of a job whose budget sets no tokens, usd or minutes (null: off; see "Daemon" below)',
+    doc: 'with enabled: true, fills each of tokens, usd and minutes the job\'s budget leaves unset (null: off; see "Daemon" below)',
   },
   'daemon.jobBudget.tokens': { doc: 'total tokens per job' },
   'daemon.jobBudget.usd': { doc: 'estimated USD per job' },
+  'daemon.dailyUsd': {
+    doc: 'dollars per UTC day the inbox and office sessions may spend, as the supervisor meters it; at the cap the session stops: start it again after midnight UTC, or raise the cap (null: no caps; see "Daemon" below)',
+  },
+  'daemon.dailyUsd.inbox': { doc: "the inbox session's daily cap in USD (null: none)" },
+  'daemon.dailyUsd.office': { doc: "the office session's daily cap in USD, the foreman's assistants included (null: none)" },
 
   foreman: { doc: 'opt-in: an office daemon session decides gates through assistant sub-agents (see "Foreman" below)' },
   'foreman.enabled': { doc: 'true (with daemon.enabled): parked gates become `gate` requests for the `_office` session' },

@@ -26,10 +26,12 @@
 | `validate.ts` | validateConfig, and the validators for the config sections that have no file of their own. |
 | `validators/backing.ts` | backing: validation, apart from lib/engine/environment/backing.ts so lib/core/config/validate.ts and lib/core/job/schema.ts can import it without pulling in the job store (which imports config/load.ts). |
 | `validators/checkout.ts` | checkout: validation, apart from lib/engine/workspace/checkout.ts so lib/core/config/validate.ts can import it without pulling in the job store (which imports config/load.ts). |
+| `validators/command-env.ts` | commandEnv: validation of what configured commands inherit beyond the allowlist and whether they run under the login shell (docs/CONFIG.md "Command environment"). |
 | `validators/deprecations.ts` | Config keys on their way out (docs/RELEASES.md "Deprecation"). |
 | `validators/endpoints.ts` | The config-time half of lib/engine/environment/endpoints.ts: the env name of a component and the problems with the `{endpoint.<c>}` / `{backing.<n>.*}` placeholders a config's templates use. |
 | `validators/instructions.ts` | project.instructions: the files each agent reads first. |
 | `validators/notify.ts` | notify.* validation, apart from lib/office/notify.ts so lib/core/config/validate.ts can import it without pulling in the delivery code (which imports lib/core/job/store.ts, which imports lib/core/config/load.ts). |
 | `validators/policy-check.ts` | Config-time validation of the glob lists and the protected-paths policy, and the matcher that applies it. |
+| `validators/required-checks.ts` | merge.requiredChecks: validation and the normalised entries, self-contained in core. |
 | `validators/secret-refs.ts` | secrets: validation, apart from lib/engine/guard/secret-refs.ts so lib/core/config/validate.ts can import it without pulling in processes or git. |
 <!-- forge:map:end -->

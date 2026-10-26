@@ -5,7 +5,7 @@
   "plugins": [
     {
       "name": "forge",
-      "source": { "source": "url", "url": "https://github.com/maxwellmattryan/forge.git", "ref": "main" },
+      "source": { "source": "url", "url": "https://github.com/maxwellmattryan/forge.git", "ref": "v0.21.0" },
       "description": "Forge: a lightweight, self-improving software factory for AI coding agents.",
       "category": "development"
     }

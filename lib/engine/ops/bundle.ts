@@ -358,7 +358,7 @@ export async function buildBundle(
   const ctx = redactContext(root, config, opts.home);
   const skipped: BundleSkip[] = [];
   const raw: Raw[] = [
-    { name: 'doctor.json', text: pretty(await doctor(root, config, initialized)) },
+    { name: 'doctor.json', text: pretty(await doctor(root, config, initialized, undefined, { bundle: true })) },
     { name: 'versions.json', text: pretty(versions()) },
     { name: 'config.json', text: pretty(redactedConfig(config)) },
   ];

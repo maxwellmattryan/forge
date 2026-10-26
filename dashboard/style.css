@@ -149,7 +149,12 @@
   --info: #8fa2b8;
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
-  --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  /* who: each Thread sender's own colour (src/lib/sender.ts WHO), fixed per sender. The tracker's hue is the one
+     this theme's gleam and ember leave free. */
+  --who-you: var(--gleam);
+  --who-cli: var(--muted);
+  --who-forge: var(--ember);
+  --who-tracker: #c3a8f7;
   /* heat: activity (a working lamp, a hot bezel, the screen's glow). Ember on forge only: on crucible ember is the
      carmine "waits on you", so elsewhere heat is the gleam. */
   --heat: var(--ember);
@@ -192,7 +197,11 @@
   --info: #44546a;
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
-  --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  /* Ash's gleam is a slate too close to the CLI's muted steel, so you take a clearer blue. */
+  --who-you: #1d5aa6;
+  --who-cli: var(--muted);
+  --who-forge: var(--ember);
+  --who-tracker: #6a3d9a;
   --heat: var(--gleam);
   --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
   --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
@@ -233,7 +242,10 @@
   --info: #b9a2f7;
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
-  --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --who-you: var(--gleam);
+  --who-cli: var(--muted);
+  --who-forge: var(--ember);
+  --who-tracker: #ff9fd0;
   --heat: var(--gleam);
   --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
   --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
@@ -276,7 +288,10 @@
   --info: #b2b9c4;
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
-  --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --who-you: var(--gleam);
+  --who-cli: var(--muted);
+  --who-forge: var(--ember);
+  --who-tracker: #6fd6cf;
   --heat: var(--gleam);
   --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
   --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
@@ -318,7 +333,10 @@
   --info: #92aac4;
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
-  --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --who-you: var(--gleam);
+  --who-cli: var(--muted);
+  --who-forge: var(--ember);
+  --who-tracker: #c2aaf5;
   --heat: var(--gleam);
   --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
   --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
@@ -361,7 +379,10 @@
   --info: #8fa8c2;
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
-  --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --who-you: var(--gleam);
+  --who-cli: var(--muted);
+  --who-forge: var(--ember);
+  --who-tracker: #6fd3da;
   --heat: var(--gleam);
   --screen: color-mix(in srgb, var(--panel), var(--bg-deep) 35%);
   --scanline: color-mix(in srgb, var(--fg) 4%, transparent);
@@ -585,13 +606,34 @@
     background-position: 8px 8px, 5px 5px, 5px 5px, calc(100% - 8px) 8px, calc(100% - 5px) 5px, calc(100% - 5px) 5px, 8px calc(100% - 8px), 5px calc(100% - 5px), 5px calc(100% - 5px), calc(100% - 8px) calc(100% - 8px), calc(100% - 5px) calc(100% - 5px), calc(100% - 5px) calc(100% - 5px);
   }
 }
-/* tint: who a Thread message or a log line comes from (src/lib/sender.ts), as a faint opaque wash of the panel: agent (Claude)
-   cool, cli (the CLI and the supervisor) neutral, forge (Forge itself) warm. It sets --surface, so text on it is off the
-   grain; on a plate, `.tint.agent` (two classes) beats the plate's fill whatever the order. Never the only cue. */
+/* tint: who a log line comes from (src/lib/sender.ts), as a faint opaque wash of the panel: agent (Claude) cool, cli (the
+   CLI and the supervisor) neutral. It sets --surface, so text on it is off the grain. Never the only cue. */
 @utility tint {
   &.agent { background-color: var(--tint-agent); --surface: var(--tint-agent); }
   &.cli { background-color: var(--tint-cli); --surface: var(--tint-cli); }
-  &.forge { background-color: var(--tint-forge); --surface: var(--tint-forge); }
+}
+/* who: a Thread sender's own colour (src/lib/sender.ts WHO), as --who for the parts inside to pick up. On a plate it is
+   the message: a bar of the colour down its left edge and a faint wash of it; .reply is Forge's reply inside a message,
+   with a thinner bar. .who-mark is the sender's icon struck on a slug of the colour, and .who-name the name in it. `.who.you` (two classes) beats the plate's fill whatever the order.
+   Never the only cue: the name stands beside the icon. */
+@utility who {
+  &.you { --who: var(--who-you); }
+  &.cli { --who: var(--who-cli); }
+  &.forge { --who: var(--who-forge); }
+  &.tracker { --who: var(--who-tracker); }
+  &.plate {
+    --surface: color-mix(in srgb, var(--panel), var(--who) 6%);
+    background-color: var(--surface);
+    box-shadow: inset var(--bar-rule) 0 0 0 var(--who), var(--shadow-bevel);
+  }
+  &.reply {
+    --surface: color-mix(in srgb, var(--panel), var(--who) 6%);
+    background-color: var(--surface);
+    border-left: 2px solid var(--who);
+  }
+  & .who-mark { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex-shrink: 0; border-radius: var(--radius-1); background-color: var(--who); color: var(--surface, var(--panel)); }
+  & .who-mark .ic { width: 12px; height: 12px; }
+  & .who-name { color: var(--who); font-family: var(--font-head); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 }
 /* log-row: one session log line on a fixed grid, so the eye can run down each column: the time, the disclosure caret
    (empty on a line that doesn't expand), the tag (a tool's name or a line's chip) and the body. Every line places its
@@ -742,7 +784,7 @@
   @media (hover: hover) { &.primary:hover { background: var(--gleam-fill-hot); border-color: var(--gleam-hot); box-shadow: var(--gleam-spec), var(--shadow-primary), var(--shadow-glow); } }
   &.primary.hover { background: var(--gleam-fill-hot); border-color: var(--gleam-hot); box-shadow: var(--gleam-spec), var(--shadow-primary), var(--shadow-glow); }
   &.primary:active, &.primary.active { box-shadow: var(--gleam-spec); transform: translateY(2px); background: var(--gleam-fill); }
-  &.primary[disabled] { background: var(--surface, var(--bg)); color: var(--fg); border-color: var(--line-strong); box-shadow: none; transform: none; }
+  &.primary[disabled], &.primary.disabled { background: var(--surface, var(--bg)); color: var(--fg); border-color: var(--line-strong); box-shadow: none; transform: none; }
   /* .flush: a primary in a row of segment buttons (Run Next). Its 2px drop moves inside the box, as .sel's cooled
      edge, so its visible top and bottom line up with theirs. */
   &.primary.flush { box-shadow: inset 0 -2px 0 0 var(--gleam-deep), var(--gleam-spec); }
@@ -1025,6 +1067,20 @@
 @utility graph-edge-lit { stroke: var(--gleam); stroke-width: 2; }
 @utility graph-arrow { fill: var(--line-strong); &.lit { fill: var(--gleam); } }
 
+/* ---------- series: the Overview's stacked bars (components/StackedBars.svelte) ----------
+   One colour per project, the same in the bars (fill) and the legend swatch (background), cycling by name order
+   (src/lib/overview.ts SERIES). The hues are the theme's own tokens, spread apart in every theme: gleam, ok, the
+   tracker's hue (the one gleam and ember leave free) and warn first. Spark stays out: on crucible it is gleam's gold.
+   Ember comes last because it means "waits on you", so it shows only from the sixth project. The legend names every
+   project with its total and share, so colour is never the only cue. */
+@utility series-1 { fill: var(--gleam); background-color: var(--gleam); }
+@utility series-2 { fill: var(--ok); background-color: var(--ok); }
+@utility series-3 { fill: var(--who-tracker); background-color: var(--who-tracker); }
+@utility series-4 { fill: var(--warn); background-color: var(--warn); }
+@utility series-5 { fill: var(--info); background-color: var(--info); }
+@utility series-6 { fill: var(--ember); background-color: var(--ember); }
+@utility series-swatch { display: inline-block; width: 10px; height: 10px; flex: none; border-radius: var(--radius-1); box-shadow: inset 0 0 0 1px var(--edge-dark); }
+
 /* ---------- facts: the status bar's stamped row (version, API, sessions, sheet) ---------- */
 @utility facts {
   display: flex;
@@ -1241,16 +1297,20 @@
   html[data-screen="off"] & { background-image: none; text-shadow: none; }
 }
 @keyframes power-on { from { clip-path: inset(50% 0 50% 0); } to { clip-path: inset(0); } }
-/* The block cursor after the last line. Its rest state is lit, so reduced motion (no blink) leaves it visible. */
-@utility cursor {
-  display: inline-block;
-  width: .6em;
-  height: 1.1em;
-  vertical-align: text-bottom;
-  background-color: var(--heat);
-  opacity: 1;
-  &.blink { animation: blink var(--heat-blink) steps(1) infinite; }
-  &.hold { opacity: .45; }
+/* caret: the block cursor after the text a Thread message has typed so far (src/lib/typing.ts), in its sender's colour;
+   the dashboard's only cursor. On a .prose body it follows the last block's text (a list's last item), else the element's
+   own. Reduced motion never types, so it never shows there. */
+@utility caret {
+  &:not(.prose)::after, &.prose > :last-child:not(ul, ol, pre)::after, &.prose > :is(ul, ol):last-child > li:last-child::after {
+    content: "";
+    display: inline-block;
+    width: .55em;
+    height: 1.05em;
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    background-color: var(--who, var(--heat));
+    animation: blink var(--heat-blink) steps(1) infinite;
+  }
 }
 @keyframes blink { 50% { opacity: 0; } }
 /* A tool or subagent call that arrived live: one quick spark tick in its left gutter. The tick's rest state is gone, so

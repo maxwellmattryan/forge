@@ -73,7 +73,7 @@ export const systemProbe: ProcessProbe = {
  * terminal (startBackground spawns detached, which starts a new session; a shell the human opened in the
  * worktree, and anything it runs, keeps its terminal), is not our group, started within 30 s of
  * `startedAt`, and runs inside the job's contained worktree. The command line is not compared:
- * `sh -lc '<one command>'` execs that command, so the shell is often gone from it. Always false on
+ * `sh -c '<one command>'` execs that command, so the shell is often gone from it. Always false on
  * Windows, which has none of these probes.
  */
 export function ownDevProcess(worktree: string, rec: unknown, probe: ProcessProbe = systemProbe): boolean {

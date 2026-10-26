@@ -15,7 +15,8 @@ import { redactContext, redactText } from '#engine/guard/redact.ts';
 import { isMap } from '#core/shape.ts';
 import { ForgeError } from '#core/errors.ts';
 import { startBackground, stopDevProven } from '#engine/workspace/dev-server.ts';
-import { containerName, entriesOrNone, isManaged, projectSlug } from '#engine/environment/backing.ts';
+import { entriesOrNone, isManaged } from '#engine/environment/backing.ts';
+import { containerName, ownersOf } from '#engine/environment/backing-names.ts';
 import { dockerSpawn } from '#integrations/docker/runner.ts';
 import { DOCKER_NAME, environmentsSnapshot, forgeJson, jobEnvironment, openDevLog } from '#engine/environment/status.ts';
 import type {
@@ -161,11 +162,14 @@ export async function getEnvironmentLogs(ctx: ServerCtx, req: http.IncomingMessa
   const source = match.url.searchParams.get('source') ?? '';
   let entry: BackingEntry | null = null;
   let container: string | null = null;
+  // The qualified name and the legacy one (backing-names.ts); status says which one exists.
+  let candidates: string[] = [];
   if (source !== 'dev') {
     const name = source.startsWith('backing:') ? source.slice('backing:'.length) : null;
     entry = name === null ? null : (entriesOrNone(config).find((e) => e.name === name && isManaged(e)) ?? null);
-    container = entry ? containerName(entry.isolation === 'shared' ? projectSlug(root, config) : id, entry.name) : null;
-    if (!entry || !container || !DOCKER_NAME.test(container)) return jsonStatus(res, 400, { error: 'source must be "dev" or "backing:<name>" for a backing service Forge runs' });
+    candidates = entry ? ownersOf(root, config, entry.isolation === 'shared' ? null : id).map((o) => containerName(o, entry!.name)) : [];
+    container = candidates[0] ?? null;
+    if (!entry || !container || !candidates.every((c) => DOCKER_NAME.test(c))) return jsonStatus(res, 400, { error: 'source must be "dev" or "backing:<name>" for a backing service Forge runs' });
   }
   if (clients.size >= MAX_SSE_CLIENTS) return send(res, 503, 'text/plain', 'too many event streams');
   const scope = `env:${id}:${source}`;
@@ -176,7 +180,7 @@ export async function getEnvironmentLogs(ctx: ServerCtx, req: http.IncomingMessa
     const known = knownReader(root, id);
     sseHead(res);
     res.write('retry: 3000\n\n');
-    clients.set(res, scope);
+    clients.set(res, `${ctx.name}/${scope}`);
     const stop = followFd(
       res,
       fd,
@@ -193,7 +197,7 @@ export async function getEnvironmentLogs(ctx: ServerCtx, req: http.IncomingMessa
       clients.delete(res);
       fs.closeSync(fd);
     });
-    return startPing(ctx);
+    return startPing(ctx.machine);
   }
   // A client that leaves during the status call has already fired `close`, so the handler below would
   // never run: its slot and its `docker logs --follow` child would outlive it.
@@ -202,12 +206,13 @@ export async function getEnvironmentLogs(ctx: ServerCtx, req: http.IncomingMessa
   const status = await forgeJson(root, ['backing', 'status', id], ENV_STATUS_TIMEOUT_MS);
   if (gone || res.destroyed) return;
   const svc = Array.isArray(status.data?.services) ? status.data.services.find((s: any) => s?.name === entry!.name) : null;
+  if (svc && candidates.includes(svc.container)) container = svc.container;
   if (!svc || (svc.state !== 'running' && svc.state !== 'stopped')) return jsonStatus(res, 409, { error: `container ${container} is ${svc?.state ?? 'unknown'}: its logs are not shown` });
   // Checked again: the status call above took time, and other streams may have opened meanwhile.
   if (clients.size >= MAX_SSE_CLIENTS) return send(res, 503, 'text/plain', 'too many event streams');
   sseHead(res);
   res.write('retry: 3000\n\n');
-  clients.set(res, scope);
+  clients.set(res, `${ctx.name}/${scope}`);
   const known = knownReader(root, id);
   const child = dockerSpawn(['logs', '--follow', '--tail', '200', '--', container!]);
   let ended = false;
@@ -255,7 +260,7 @@ export async function getEnvironmentLogs(ctx: ServerCtx, req: http.IncomingMessa
     clients.delete(res);
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
   });
-  startPing(ctx);
+  startPing(ctx.machine);
 }
 
 /** GET /api/environments: every running environment, reused for 5 s, with one computation shared by concurrent callers. */

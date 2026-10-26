@@ -435,8 +435,9 @@ test('runtime code never imports dashboard sources', () => {
     const text = fs.readFileSync(f, 'utf8');
     const rel = path.relative(ROOT, f);
     assert.ok(!text.includes('dashboard/src'), `${rel} mentions dashboard/src`);
-    // The engine is TypeScript too now, so only a .ts import that reaches into dashboard/ is refused.
-    assert.doesNotMatch(text, /(?:from\s*|import\s*\(\s*|require\s*\(\s*)['"][^'"]*dashboard[^'"]*\.ts['"]/, `${rel} imports a dashboard .ts file`);
+    // The engine is TypeScript too now, so only a .ts import that reaches into dashboard/ is refused
+    // (a path segment, so an engine module merely named dashboard-*.ts is not one).
+    assert.doesNotMatch(text, /(?:from\s*|import\s*\(\s*|require\s*\(\s*)['"][^'"]*dashboard\/[^'"]*\.ts['"]/, `${rel} imports a dashboard .ts file`);
   }
 });
 

@@ -37,6 +37,10 @@ export interface FixtureOpts {
   spec?: Partial<StepInput['spec']>;
   designDeltas?: boolean;
   decision?: Partial<StepInput['decision']>;
+  /** loadStepInput's decisionCurrent: every job repo's HEAD follows the decided head; true by default. */
+  decisionCurrent?: StepInput['decisionCurrent'];
+  /** loadStepInput's reviewCurrent: every job repo's HEAD follows the head the round's review was given; true by default. */
+  reviewCurrent?: StepInput['reviewCurrent'];
   runbookBeforeMerge?: boolean;
   verdicts?: Partial<StepInput['verdicts']>;
   runtime?: string[];
@@ -60,6 +64,8 @@ export interface FixtureOpts {
   acs?: Partial<AcCoverage>;
   /** loadStepInput's folderMaps; null by default, as at any stage but build. */
   folderMaps?: StepInput['folderMaps'];
+  /** loadStepInput's instructionsChanged; [] (nothing changed) by default. */
+  instructionsChanged?: StepInput['instructionsChanged'];
   /** The keys still over budget at a budget park (loadStepInput's budgetExceeded); null by default. */
   budgetExceeded?: StepInput['budgetExceeded'];
   /**
@@ -123,11 +129,14 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     plan: { verdict: null, jobs: 0, recommendSplit: false, ...o.plan },
     spec: { size: null, complexity: null, needsDesign: false, services: [], suggested: [], approachPaths: [], uiAcs: [], ...o.spec },
     designDeltas: o.designDeltas ?? false,
-    decision: { decision: null, autoMerge: false, ...o.decision },
+    decision: { decision: null, ...o.decision },
+    decisionCurrent: o.decisionCurrent ?? true,
+    reviewCurrent: o.reviewCurrent === undefined ? true : o.reviewCurrent,
     runbookBeforeMerge: o.runbookBeforeMerge ?? false,
     verdicts: { round: null, integration: null, ...o.verdicts },
     acs: { ...acCoverage(null, null), ...o.acs },
     folderMaps: o.folderMaps ?? null,
+    instructionsChanged: o.instructionsChanged ?? [],
     runtime: o.runtime ?? [],
     environment: o.environment ?? null,
     events: o.events ?? [],

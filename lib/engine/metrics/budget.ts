@@ -5,10 +5,11 @@ import { configForJob } from '../evals/overlay.ts';
 import { git } from '#integrations/git/runner.ts';
 import { loadJob, logEvent, logHumanEvent, setJob, updateJob } from '#core/job/store.ts';
 import { exists } from '#core/paths.ts';
-import { BUDGET_KEYS } from '#core/job/schema.ts';
-import type { BudgetKey, BudgetLimits, BudgetUsed, Config, DaemonJobBudget, Job, JobBudget } from '#core/types.ts';
+import { BUDGET_KEYS, isHumanGrant } from '#core/job/schema.ts';
+import type { BudgetKey, BudgetLimits, BudgetUsed, Config, DaemonJobBudget, HumanGrant, Job, JobBudget, PostJobBudgetResponse } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { now } from '#core/utils.ts';
+import { jobSpend, spentFrom } from './spend.ts';
 
 const TERMINAL = ['done', 'cancelled', 'failed'];
 
@@ -34,9 +35,10 @@ export function jobBudgetOf(config: Config): DaemonJobBudget {
 }
 
 /**
- * pipeline.budget with the job's overrides on top. With the daemon on, a job whose limits set no
- * spend key (none non-null in config, none present in its own overrides) gets daemon.jobBudget's
- * non-null keys, so an unattended job never loops without a spend ceiling. Every budget check, the
+ * pipeline.budget with the job's overrides on top. With the daemon on, each spend key that is null
+ * in config and absent from the job's own overrides gets daemon.jobBudget's value for it, so an
+ * unattended job never loops without a spend ceiling, and setting one key keeps the others' backstop.
+ * A person's explicit null override still means unlimited for that key. Every budget check, the
  * supervisor's hold and the repo budget read limits through this rule, and the dashboard mirrors it.
  */
 export function effectiveLimits(config: Config, job: Pick<Job, 'budget'>): BudgetLimits {
@@ -44,25 +46,44 @@ export function effectiveLimits(config: Config, job: Pick<Job, 'budget'>): Budge
   const merged: Record<string, number | null | undefined> = { ...(config?.pipeline?.budget ?? {}), ...own };
   const limits = Object.fromEntries(BUDGET_KEYS.map((k) => [k, merged[k] ?? null])) as BudgetLimits;
   const fill = config?.daemon?.enabled === true ? jobBudgetOf(config) : null;
-  if (fill && SPEND_KEYS.every((k) => limits[k] === null && !Object.hasOwn(own, k))) {
-    for (const k of SPEND_KEYS) if (fill[k] !== null && fill[k] !== undefined) limits[k] = fill[k];
-  }
+  for (const k of SPEND_KEYS) if (fill && limits[k] === null && !Object.hasOwn(own, k) && fill[k] != null) limits[k] = fill[k];
   return limits;
 }
 
 /**
- * What the job has spent. `null` means unmeasured and never trips.
+ * The dollars left before the job's usd limit trips: the limit past the acknowledged point minus `usedUsd` (the
+ * spent figure, spentFrom; the reported total by default), or null when usd is unlimited. Reads no git, so a spawn
+ * can call it cheaply.
  */
-export function measureBudget(job: Job): BudgetUsed {
+export function remainingUsd(config: Config, job: Pick<Job, 'budget' | 'usage'>, usedUsd: number = job.usage?.estCostUsd ?? 0): number | null {
+  const limit = effectiveLimits(config, job).usd;
+  if (limit === null || limit === undefined) return null;
+  const base = Number(job.budget?.ack?.usd?.used) || 0;
+  return limit + base - (Number(usedUsd) || 0);
+}
+
+/**
+ * What the job has spent. `spent` (usd and tokens) replaces the reported totals when given: measureJob passes the
+ * metered figure. `null` means unmeasured and never trips.
+ */
+export function measureBudget(job: Job, spent?: { usd: number; tokens: number }): BudgetUsed {
   // byModel holds the same runs as byRole, so summing both would double-count.
   const ms = Object.values(job.usage?.byRole ?? {}).reduce((n, r) => n + (Number(r?.durationMs) || 0), 0);
   return {
-    tokens: job.usage?.totalTokens ?? 0,
-    usd: job.usage?.estCostUsd ?? 0,
+    tokens: spent?.tokens ?? job.usage?.totalTokens ?? 0,
+    usd: spent?.usd ?? job.usage?.estCostUsd ?? 0,
     minutes: Math.round((ms / 60000) * 10000) / 10000,
     changedLines: changedLines(job),
     verifyRetries: job.verifyRetries?.[String(job.round)] ?? 0,
   };
+}
+
+/**
+ * What the job has spent, with usd and tokens from both sources (spentFrom): the figure every budget check enforces,
+ * so a session's reporting, or an edited events.jsonl, never lowers it below what the supervisor metered.
+ */
+export function measureJob(root: string, config: Config, job: Job): BudgetUsed {
+  return measureBudget(job, spentFrom(jobSpend(root, config, job)));
 }
 
 /** Committed lines added + deleted against the base. */
@@ -113,7 +134,7 @@ export function enforceBudget(
   checkpoint: string,
 ): { stopped: true; reason: string; exceeded: BudgetExceeded[] } | null {
   const job = loadJob(root, id);
-  const used = measureBudget(job);
+  const used = measureJob(root, config, job);
   const exceeded = exceededKeys(effectiveLimits(configForJob(root, config, job), job), used, job.budget.ack, job.round);
   let state = job.state;
   let waitingOn = job.waitingOn;
@@ -150,15 +171,23 @@ function parseSet(kv: string): [BudgetKey, number | null | undefined] {
 
 /**
  * `forge job budget <id> [--set k=v …] [--ack]`. Never changes state: the orchestrator resumes
- * the job so every transition stays visible through the normal loop.
+ * the job so every transition stays visible through the normal loop. `--set` and `--ack` change a
+ * job's spend limits, so they need a person's `grant` (a confirmed terminal or the dashboard), whose
+ * actor their events carry; without either, it only reports.
  */
 export function budgetCmd(
   root: string,
   config: Config,
   id: string,
-  opts: { set?: string[]; ack?: boolean } = {},
-): { id: string; limits: BudgetLimits; used: BudgetUsed; exceeded: BudgetKey[]; ack: JobBudget['ack']; acked: BudgetKey[]; stillExceeded: BudgetKey[] } {
+  opts: { set?: string[]; ack?: boolean; grant?: HumanGrant } = {},
+): PostJobBudgetResponse {
   const sets = (opts.set ?? []).map(parseSet);
+  const grant = opts.grant;
+  if ((sets.length || opts.ack) && !isHumanGrant(grant))
+    throw new ForgeError(
+      "forge job budget --set|--ack changes a job's spend limits, which only a person may do, in their own terminal (it asks them to type the job id) or with the dashboard's Approve & continue on the budget gate",
+      'human_only',
+    );
   if (sets.length) {
     updateJob(root, id, (j) => {
       for (const [k, v] of sets) {
@@ -166,18 +195,18 @@ export function budgetCmd(
         else j.budget.limits[k] = v;
       }
     });
-    for (const [key, value] of sets) logHumanEvent(root, id, 'budget-set', { key, value: value === undefined ? 'default' : value });
+    for (const [key, value] of sets) logHumanEvent(root, id, 'budget-set', { key, value: value === undefined ? 'default' : value }, grant!.actor);
   }
   const job = loadJob(root, id);
   const limits = effectiveLimits(configForJob(root, config, job), job);
-  const used = measureBudget(job);
+  const used = measureJob(root, config, job);
   const exceeded = exceededKeys(limits, used, job.budget.ack, job.round);
   const acked = opts.ack ? exceeded.map((e) => e.key) : [];
   const saved = updateJob(root, id, (j) => {
     for (const e of opts.ack ? exceeded : []) j.budget.ack[e.key] = { used: e.used, round: j.round };
     j.budget.lastCheck = { at: now(), checkpoint: 'budget', used };
   });
-  if (acked.length) logHumanEvent(root, id, 'budget-ack', { keys: acked, used: Object.fromEntries(exceeded.map((e) => [e.key, e.used])) });
+  if (acked.length) logHumanEvent(root, id, 'budget-ack', { keys: acked, used: Object.fromEntries(exceeded.map((e) => [e.key, e.used])) }, grant!.actor);
   const still = exceededKeys(limits, used, saved.budget.ack, saved.round).map((e) => e.key);
   return { id: saved.id, limits, used, exceeded: exceeded.map((e) => e.key), ack: saved.budget.ack, acked, stillExceeded: still };
 }

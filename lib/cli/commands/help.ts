@@ -24,6 +24,7 @@ import { HELP as GIT } from './git.ts';
 import { HELP as INIT } from './init.ts';
 import { HELP as JOB } from './job/help.ts';
 import { HELP as NOTIFY } from './notify.ts';
+import { HELP as PROJECT } from './project.ts';
 import { HELP as RELEASE } from './release.ts';
 import { HELP as REQUESTS } from './requests.ts';
 import { HELP as SECRETS } from './secrets.ts';
@@ -56,10 +57,10 @@ export const CORE: HelpGroup[] = [
         summary: "remove the job's worktree and every member repo worktree, or with --repo only that member's; without --repo also its per-job backing containers and volumes (listed as backing)",
         flags: [
           ['--repo NAME', 'only the worktree of member repo NAME'],
-          ['--delete-branch', "delete the job's branch too (not in a verify-only repo)"],
+          ['--delete-branch', "delete the job's branch too, only the one Forge named (git.branchPrefix + id; another is kept and listed as branchKept), not in a verify-only repo"],
           ['--force', 'remove it with uncommitted changes'],
         ],
-        exits: [[1, 'no such job or repo, a member worktree that could not be removed (the result names it), or a backing teardown that failed (backing.json is kept for a retry)'], GIT_FAILED],
+        exits: [[1, "no such job or repo, a stored worktree that is not the job's own <worktrees.root>/<id>, an unsafe branch name with --delete-branch, a member worktree that could not be removed (the result names it), or a backing teardown that failed (backing.json is kept for a retry)"], GIT_FAILED],
       },
       {
         command: 'worktree path',
@@ -148,16 +149,20 @@ export const CORE: HelpGroup[] = [
       {
         command: 'pr merge',
         args: '<id> [--repo NAME | --root] [--now]',
-        summary: "merge once CI passes, or queue auto-merge, or defer; a multi-repo job's PRs merge in the components' dependsOn order, never a PR before its dependencies; --now is a human override that bypasses CI",
+        summary:
+          "merge once merge.auto is on, the approver's recorded APPROVE still stands and covers the PR head, no escalate-floor path changed and CI passed at a settled head; or queue auto-merge, or defer; a multi-repo job's PRs merge in the components' dependsOn order, never a PR before its dependencies; --now is a human's override",
         flags: [
           ['--repo NAME', 'merge only that member repo PR, once every PR it depends on merged'],
           ['--root', 'merge only the root repo PR, once every PR it depends on merged'],
-          ['--now', 'merge without waiting for CI, or a head forge pr open did not check (logged as pr-merge-bypass); never bypasses the merge order or a release gate'],
+          [
+            '--now',
+            "a human's override, confirmed by typing the job id at a terminal (or Merge now in the dashboard): merge without the eligibility, floor and CI checks (logged as pr-merge-bypass with the person's name); refused in a daemon session and without a terminal; never bypasses the merge order or a release gate",
+          ],
         ],
         exits: [
           [
             1,
-            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order|cycle|release), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, the office daemon session ran it, or protected paths apply and the PR head is not the one forge pr open checked (code protected_path; --now overrides)",
+            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order|cycle|release), merge.auto off, a rework, a new round, a stage change, a rework, revise-spec or cancel request still queued, a gate request waiting on the Foreman or a review on GitHub requesting changes on any open PR of the job after the approver's decision, no eligible decision for the PR head, an escalate-floor path (reason auto-off|superseded|decision|floor), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, a daemon session passing --now, another job's id or a broken scope, the office daemon session ran it, or a protected path at the PR head that no human approved at that content (code protected_path; --now overrides), --now not confirmed, or --now with no person at a terminal (code human_only: an agent, a script or a configured command)",
           ],
           GH_FAILED,
         ],
@@ -212,7 +217,7 @@ export const CORE: HelpGroup[] = [
   },
 ];
 
-const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...EXPERIMENT, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
+const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...PROJECT, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...EXPERIMENT, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
 const byName = (a: string, b: string): number => a.localeCompare(b, 'en');
 const flagKey = (f: string): string => f.replace(/^[-\s]+/, '');
 

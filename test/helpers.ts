@@ -13,6 +13,7 @@ export { fakeBin } from './support/fake-bin.ts';
 export { fakeGh, type GhReply } from './support/fake-gh.ts';
 export { forgeInProcess, type InProcessResult } from './support/in-process.ts';
 export { jobAt, parkedAt, withLease, withRound, type JobAtOptions } from './support/job-state.ts';
+export { serveProjects, type ServedProjects } from './support/machine-server.ts';
 export { ghPr, memoryGitHub, type GitHubCall, type MemoryGitHub } from './support/memory-github.ts';
 export { recordingMoveEffects, type MoveEffectCall, type MoveSide } from './support/move-effects.ts';
 
@@ -44,16 +45,27 @@ process.env.GIT_CONFIG_NOSYSTEM = '1';
 // on to the scratch jobs' commands beside their own and which tests that read a command's env
 // would otherwise count as the scratch job's own.
 for (const k of Object.keys(process.env)) if (/^FORGE_(DAEMON|PORT|ENDPOINT|BACKING)(_|$)|^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/.test(k)) delete process.env[k];
+// A suite run from a shell `forge dash` spawned inherits its captured PATH, which every CLI the suite
+// starts would give its commands over the PATH the test chose. Tests of the capture set these themselves.
+delete process.env.FORGE_COMMAND_PATH;
+delete process.env.FORGE_COMMAND_PATH_SOURCE;
 // Transcript lookups follow Claude Code's own CLAUDE_CONFIG_DIR; tests that fake a HOME must not
 // read the developer's real one instead. Tests that need it set it themselves.
 delete process.env.CLAUDE_CONFIG_DIR;
 // Every human action resolves who did it, and without this the CLI would ask the developer's real
 // gh. Tests of the fallbacks drop it in their own child env.
 process.env.FORGE_ACTOR = 'forge-test';
+// The machine index (`forge project add`) lives in ~/.forge by default: every test process gets its
+// own, overriding any inherited FORGE_HOME, so the suite never writes the developer's. Tests of the
+// default set HOME and drop FORGE_HOME in their own child env.
+const FORGE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-home-'));
+process.env.FORGE_HOME = FORGE_HOME;
+process.on('exit', () => fs.rmSync(FORGE_HOME, { recursive: true, force: true }));
 // The suite parses the CLI's stdout, so a developer's own FORGE_MODE=human must not reach it.
 process.env.FORGE_MODE = 'agent';
-// Forge runs configured commands as `$SHELL -lc`. A login profile (nvm, for one) can cost a second
-// per command and reorder PATH, and no test needs one, so commands run in the same shell without -l.
+// Configured commands run as `/bin/sh -c`; `$SHELL -lc` only matters under commandEnv.loginShell: true
+// and for the login-shell PATH `forge dash` captures. A login profile (nvm, for one) can cost a second
+// per run and reorder PATH, and no test needs one, so those run in the same shell without -l.
 const NO_LOGIN_SHELL = path.resolve(import.meta.dirname, 'fixtures', 'bin', 'no-login-shell');
 if (process.env.SHELL !== NO_LOGIN_SHELL) {
   process.env.FORGE_TEST_SHELL = process.env.SHELL || '/bin/sh';
@@ -86,6 +98,18 @@ export function tempRepo() {
   git('add', '-A');
   git('commit', '-qm', 'init');
   return { dir, git, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+}
+
+/**
+ * A bare repo inside the repo's own .git as its `origin`, with `main` pushed: the push remote a merge
+ * re-reads the base from. Removed with the repo. Returns the bare repo's path.
+ */
+export function addOrigin(repo: ReturnType<typeof tempRepo>): string {
+  const bare = path.join(repo.dir, '.git', 'origin.git');
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', bare], { stdio: 'pipe' });
+  repo.git('remote', 'add', 'origin', bare);
+  repo.git('push', '-q', 'origin', 'main');
+  return bare;
 }
 
 /**
@@ -172,4 +196,21 @@ export function evalScratch(): { dir: string; git: (...args: string[]) => Buffer
       fs.rmSync(`${r.dir}.wt`, { recursive: true, force: true });
     },
   };
+}
+
+/**
+ * A scratch dir `<repo root>/.cache/t-<rand>` (0700, real path) for a FORGE_CACHE_DIR test: the start-up
+ * and seed caches honour the override only inside the plugin root, so a temp dir would be refused
+ * before the permission checks a test means to exercise. `.cache` gets bin/forge's own `.gitignore`.
+ */
+export function cacheScratch(): { dir: string; cleanup: () => void } {
+  const cacheDir = path.resolve(import.meta.dirname, '..', '.cache');
+  fs.mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
+  try {
+    fs.writeFileSync(path.join(cacheDir, '.gitignore'), '*\n', { flag: 'wx' });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+  }
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(cacheDir, 't-')));
+  return { dir, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }

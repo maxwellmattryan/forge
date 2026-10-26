@@ -17,6 +17,7 @@ import { API_VERSION, CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VE
 import { computeStats } from '#engine/metrics/stats.ts';
 import { projectGraph } from '#engine/project/graph.ts';
 import { jobBudgetOf } from '#engine/metrics/budget.ts';
+import { billingOf } from '#integrations/claude/argv.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from '#engine/evals/run.ts';
 import { listRequests, validJobId } from '#core/job/requests.ts';
 import { foremanHandoff, gateOwner } from '#office/foreman.ts';
@@ -49,8 +50,8 @@ import type {
   RepoBudgetStatus,
 } from '#core/types.ts';
 import type { VersionInfo } from '#engine/ops/types.ts';
-import { json, jsonStatus, readJsonBody } from '../http.ts';
-import type { RouteMatch, ServerCtx } from '../types.ts';
+import { json, jsonStatus, readJsonBody, tokenMatches } from '../http.ts';
+import type { MachineCtx, RouteMatch, ServerCtx } from '../types.ts';
 import { jobActivity } from './transcripts.ts';
 
 /** GET /api/state: the jobs, the pool, the open requests and the budget. */
@@ -90,9 +91,13 @@ export function getProject(ctx: ServerCtx, _req: http.IncomingMessage, res: http
 }
 
 /** GET /api/backlog: the tracker's items, reused for a minute, with each one's triage verdict. */
-export async function getBacklog(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): Promise<void> {
+export async function getBacklog(ctx: ServerCtx, req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): Promise<void> {
   const { root } = ctx;
-  if (!ctx.backlogCache || Date.now() - ctx.backlogCache.at > 60_000 || match.url.searchParams.has('refresh')) {
+  // A refetch spends the tracker's rate limit: without the page's token, `refresh` is ignored, so a
+  // no-cors GET from another site can't loop it (and it still gets no reply to read).
+  const header = req.headers['x-forge-token'];
+  const refresh = match.url.searchParams.has('refresh') && tokenMatches(typeof header === 'string' ? header : null, ctx.token);
+  if (!ctx.backlogCache || Date.now() - ctx.backlogCache.at > 60_000 || refresh) {
     const { config } = loadConfig(root);
     try {
       const tracker = await loadTracker(root, config);
@@ -112,7 +117,7 @@ export async function getBacklog(ctx: ServerCtx, _req: http.IncomingMessage, res
 }
 
 /** GET /api/about: versions and links. */
-export function getAbout(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse): void {
+export function getAbout(ctx: MachineCtx, _req: http.IncomingMessage, res: http.ServerResponse): void {
   const { provenance } = ctx;
   return json(res, about(provenance));
 }
@@ -228,7 +233,8 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
       panel: config.review.panel.map((r) => r.name),
       pipeline: config.pipeline,
       models: config.runtime.models,
-      daemon: { enabled: config.daemon?.enabled === true, jobBudget: jobBudgetOf(config) },
+      // Sessions inherit forge dash's environment (sessionOptions defaults env to process.env), so that is the one to check.
+      daemon: { enabled: config.daemon?.enabled === true, jobBudget: jobBudgetOf(config), billing: billingOf(process.env, config.daemon?.auth ?? 'subscription') },
       // Validated, so an invalid runtime.effort reads as none here while validate and doctor report it.
       effort: resolveEffort(config).level,
     },

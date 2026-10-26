@@ -1,6 +1,6 @@
 # Data and versioning
 
-Every persisted shape carries a version: `config.yml` → `schemaVersion`, `job.json` → `schemaVersion`, each event line → `v`, `/api/state` → `apiVersion`. `apiVersion` (`API_VERSION`) also covers the other `/api/*` shapes the dashboard reads, such as `/api/config`, `/api/doctor` and `/api/about`.
+Every persisted shape carries a version: `config.yml` → `schemaVersion`, `job.json` → `schemaVersion`, each event line → `v`, `/api/state` → `apiVersion`, and the machine index's `projects.json` → `schemaVersion` (`MACHINE_INDEX_VERSION`, the list in `lib/core/versions/machine.ts`, version 1; a file from a newer Forge is refused and never rewritten). `apiVersion` (`API_VERSION`) also covers the other `/api/*` shapes the dashboard reads, such as `/api/config`, `/api/doctor` and `/api/about`.
 
 - **Readers upgrade, writers write current.** `normalizeJob`, `migrateConfig` and `normalizeEvent` (in `lib/core/job/schema.ts`) upgrade old shapes in memory and fill defaults, so new code reads old jobs. `forge migrate` rewrites jobs and configs on disk; event files are never rewritten.
 - **Newer-than-me is refused, not guessed.** A plugin that meets a job from a newer schema stops with "update the plugin".
@@ -8,7 +8,7 @@ Every persisted shape carries a version: `config.yml` → `schemaVersion`, `job.
 - **The dashboard is served by the same plugin version as the CLI**, so they can't disagree. The page checks `apiVersion` anyway, for a dashboard left open across an update.
 - **Events are append-only**, so history is never rewritten by a migration.
 
-When a shape must change: append a named step to its version list (`lib/core/versions/` for config, job and event shapes, `API_CHANGES` in `lib/api/versions.ts` for `/api`), and keep normalisers tolerant. A version is its list's length + 1, never a number typed by hand, so two branches that each append a step conflict at the end of the list; on conflict keep both, in merge order (the base branch's entries first), and `test/schema.test.ts` proves the merged list.
+When a shape must change: append a named step to its version list (`lib/core/versions/` for config, job, event and machine index shapes, `API_CHANGES` in `lib/api/versions.ts` for `/api`), and keep normalisers tolerant. A version is its list's length + 1, never a number typed by hand, so two branches that each append a step conflict at the end of the list; on conflict keep both, in merge order (the base branch's entries first), and `test/schema.test.ts` proves the merged list.
 
 Job schema v6 (API version 10) records what `forge job step` decides from: `splitMode` (`never` for jobs from `forge job from-ref` and after a `revise-split`, else null; a v5 job reads as null, because v5 never recorded how a job started), each agent record's `output`, `retry` and `outputMissing`, and each verify run's `failure` (the failing step's name). Events gained `pr-find` (`forge pr find` adopted nothing) and `scope` (`forge job scope` ran, with its round and HEAD). API version 12 (from 11) adds `ownerStatus` (`none | live | stale | dead`, with the session, its claim and last-activity times, `agentRunning` and a `dead` reason) and `jobSession` to each `/api/state` job and to the job detail; job.json and events are unchanged.
 

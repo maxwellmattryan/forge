@@ -1,5 +1,6 @@
 // The environment, placeholders and shell of a configured command Forge runs for a job, with the
-// shell's async twin verify runs steps through. Apart from run.ts and worktree.ts so
+// shell's async twin verify runs steps through: the env builds on commandEnv and the argv comes from
+// commandShell (lib/engine/guard/command-env.ts). Apart from run.ts and worktree.ts so
 // environment-lifecycle.ts can build a job's template database without loading them.
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -9,7 +10,8 @@ import { jobComponent } from '#core/config/components.ts';
 import { isOwnWorktreePath, worktreeRoot } from '#core/config/load.ts';
 import { commandPort, endpointEnv, endpointPlaceholders, jobEndpoints } from '../environment/endpoints.ts';
 import { exists } from '#core/paths.ts';
-import { posixShell } from '#core/os/platform.ts';
+import { commandEnv, commandShell, loginShell } from '../guard/command-env.ts';
+import type { CommandEnvSource } from '../guard/command-env.ts';
 import type { Config, Job } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { run } from '#core/os/process.ts';
@@ -39,23 +41,18 @@ export function vars(root: string, config: Config, job: Job, dir: string, port: 
   return { ...endpointPlaceholders(jobEndpoints(root, config, job), { shell: true }), job: job.id, port: port ?? '', worktree: dir, root, branch: job.branch!, base: job.base!, args: '' };
 }
 
-// The daemon's trust check guards the session's own `forge` calls; a configured command that
-// calls `forge` (a test suite on scratch repos) must behave as it does for a human.
-const DAEMON_MARKER = /^FORGE_DAEMON(_|$)/;
-// An outer job's per-component and backing variables would otherwise reach a nested job's
-// commands (the suite run by `forge verify` driving scratch jobs) beside that job's own.
-const JOB_VARS = /^FORGE_(PORT|ENDPOINT|BACKING)_/;
-
-/** A configured command's environment: `base` without the daemon markers or an outer job's variables (git pins kept), plus the job's variables. */
-export function envFor(job: Job, dir: string, port: number | null, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...base };
-  for (const k of Object.keys(env)) if (DAEMON_MARKER.test(k) || JOB_VARS.test(k)) delete env[k];
-  return Object.assign(env, { FORGE_JOB: job.id, FORGE_WORKTREE: dir, PORT: port ? String(port) : '', FORGE_PORT: port ? String(port) : '' });
+/**
+ * A configured command's environment, the same in and out of the daemon: commandEnv's allowlist of
+ * `base` (plus commandEnv.inherit, the git pins included, never an internal variable or a declared
+ * secret source), plus the job's variables.
+ */
+export function envFor(config: CommandEnvSource, job: Job, dir: string, port: number | null, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return Object.assign(commandEnv(config, base), { FORGE_JOB: job.id, FORGE_WORKTREE: dir, PORT: port ? String(port) : '', FORGE_PORT: port ? String(port) : '' });
 }
 
 /** envFor plus the job's FORGE_BACKING_* and FORGE_PORT_* / FORGE_ENDPOINT_* variables: what every configured command Forge runs for a job sees. */
 export function jobEnv(root: string, config: Config, job: Job, dir: string, port: number | null): NodeJS.ProcessEnv {
-  return { ...envFor(job, dir, port), ...backingEnv(root, config, job), ...endpointEnv(jobEndpoints(root, config, job)) };
+  return { ...envFor(config, job, dir, port), ...backingEnv(root, config, job), ...endpointEnv(jobEndpoints(root, config, job)) };
 }
 
 /**
@@ -71,7 +68,7 @@ export function databaseCommands(root: string, config: Config, job: Job): Databa
     worktree,
     runCommand: (cmd, envOverride) => {
       if (!worktree) return { ok: false, output: `job ${job.id} has no worktree` };
-      const res = shell(fill(cmd, vars(root, config, job, worktree, port, cmd)), worktree, { ...jobEnv(root, config, job, worktree, port), ...envOverride });
+      const res = shell(fill(cmd, vars(root, config, job, worktree, port, cmd)), worktree, { ...jobEnv(root, config, job, worktree, port), ...envOverride }, { login: loginShell(config) });
       return { ok: res.ok, output: res.output };
     },
   };
@@ -85,8 +82,15 @@ export interface ShellResult {
 
 export const joinOutput = (stdout: string, stderr: string): string => `${stdout}${stderr ? `\n${stderr}` : ''}`;
 
-export function shell(cmd: string, cwd: string, env: NodeJS.ProcessEnv): ShellResult {
-  const res = run(posixShell(), ['-lc', cmd], { cwd, env, allowFail: true });
+/** What shell() and shellAsync() pass to commandShell: `login` is loginShell(config). */
+export interface ShellOptions {
+  login?: boolean;
+}
+
+/** Runs `cmd` under commandShell, which resolves the shell from this process's own environment, never `env`. */
+export function shell(cmd: string, cwd: string, env: NodeJS.ProcessEnv, opts: ShellOptions = {}): ShellResult {
+  const sh = commandShell(cmd, { login: opts.login });
+  const res = run(sh.file, sh.args, { cwd, env, allowFail: true });
   return { ok: res.ok, status: res.status, output: joinOutput(res.stdout, res.stderr) };
 }
 
@@ -98,9 +102,9 @@ export const MAX_OUTPUT = 64 * 1024 * 1024;
  * stream the child is killed and the step fails, as spawnSync's ENOBUFS does; a spawn error is a
  * failure with no exit code.
  */
-export function shellAsync(cmd: string, cwd: string, env: NodeJS.ProcessEnv): Promise<ShellResult> {
+export function shellAsync(cmd: string, cwd: string, env: NodeJS.ProcessEnv, opts: ShellOptions = {}): Promise<ShellResult> {
   // Outside the Promise, so a refused shell throws here as it does in shell().
-  const sh = posixShell();
+  const sh = commandShell(cmd, { login: opts.login });
   return new Promise((resolve) => {
     let settled = false;
     const finish = (r: ShellResult) => {
@@ -110,7 +114,7 @@ export function shellAsync(cmd: string, cwd: string, env: NodeJS.ProcessEnv): Pr
     };
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(sh, ['-lc', cmd], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(sh.file, sh.args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) {
       return finish({ ok: false, status: null, output: joinOutput('', (e as Error).message) });
     }
@@ -122,7 +126,7 @@ export function shellAsync(cmd: string, cwd: string, env: NodeJS.ProcessEnv): Pr
         if (overflow) return;
         sizes[k] += chunk.length;
         if (sizes[k] <= MAX_OUTPUT) return void chunks[k].push(chunk);
-        overflow = `spawn ${sh} ENOBUFS: ${k} passed ${MAX_OUTPUT / 1024 / 1024} MiB, so the command was stopped`;
+        overflow = `spawn ${sh.file} ENOBUFS: ${k} passed ${MAX_OUTPUT / 1024 / 1024} MiB, so the command was stopped`;
         chunks.stdout = [];
         chunks.stderr = [];
         child.kill('SIGTERM');

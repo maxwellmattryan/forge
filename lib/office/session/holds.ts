@@ -1,5 +1,5 @@
 // What keeps a request waiting: a job parked on its budget, or the repo budget.
-import { effectiveLimits, exceededKeys, measureBudget } from '#engine/metrics/budget.ts';
+import { effectiveLimits, exceededKeys, measureJob } from '#engine/metrics/budget.ts';
 import { configForJob } from '#engine/evals/overlay.ts';
 import { loadJob } from '#core/job/store.ts';
 import { validJobId } from '#core/job/requests.ts';
@@ -34,7 +34,7 @@ export function heldByBudget(root: string, config: Config, rec: { type: string; 
   } catch {
     // A tampered overlay must not crash the supervisor; step and verify already refuse that job.
   }
-  return exceededKeys(effectiveLimits(limitsConfig, job), measureBudget(job), job.budget.ack, job.round).length > 0;
+  return exceededKeys(effectiveLimits(limitsConfig, job), measureJob(root, config, job), job.budget.ack, job.round).length > 0;
 }
 
 /** A request is held while the repo budget holds new work and its job is not exempt (retro, or forced past the cap this month). */

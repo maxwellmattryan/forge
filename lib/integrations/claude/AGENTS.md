@@ -3,7 +3,7 @@
 Claude Code's command line, protocol, files and prices: the session argv and env, the stream-json protocol and the child that speaks it, transcripts and the model price table.
 
 - `stream.ts` builds every line written to a session's stdin from fixed text or a fixed list: the one turn, permission answers (an allow echoes claude's own input) and mode switches. Nothing from requests, HTTP or config reaches one (docs/architecture/daemon-security.md). Line caps (`maxLineBytes`, `STDERR_CAP`) apply there too. Redaction is the office's job (`lib/office/session/log.ts` `logLine`): integrations can't import engine's known-secrets.
-- `DENY_TOOLS` and `PROMPT_TOOL` end every argv, and API keys are dropped unless `daemon.auth` is `api-key` (docs/architecture/daemon-security.md).
+- `DENY_TOOLS` (then the caller's `deny`) and `PROMPT_TOOL` end every argv, `buildArgv` swaps every file tool in `{allowedTools}` for one `Edit(//<root>/**)` rule per write root, and API keys are dropped unless `daemon.auth` is `api-key` (docs/architecture/daemon-security.md).
 - `pricing.json` holds the model prices: take them from Anthropic's current pricing, never from memory, and bump `asOf`. `pricing()` and `/api/about` read it through `PLUGIN_ROOT`.
 - Transcript paths come from job state only, which an agent or a checkout can write, so each id is checked before it becomes a path segment.
 - Design: [Daemon security](../../../docs/architecture/daemon-security.md), [Daemon runtime](../../../docs/architecture/daemon-runtime.md).

@@ -67,7 +67,7 @@ export function newCmd(root: string, config: Config, rest: string[], flags: Reco
   const job = createJob(root, config, {
     title: req(flags.title, '--title'),
     issues,
-    body: bodyFrom(flags),
+    body: bodyFrom(flags, root, config),
     parent: flags.parent,
     branch: flags.branch,
     kind: flags.kind,

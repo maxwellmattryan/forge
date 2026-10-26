@@ -2,6 +2,7 @@
 import { DEP_REASON, claimRespectingDeps, refreshDependencyWait, retargetPlan, unmetDependencies } from '#engine/pipeline/moves/deps.ts';
 import { createJob, isActive, leaseStatus, listJobs, loadJob, logEvent, readEvents, claimJob } from '#core/job/store.ts';
 import { approvedBy, escalationApproval } from '#engine/pr/body.ts';
+import { continueMerge, deferredMergeDue } from '#engine/pr/merge.ts';
 import { retargetPr } from '#engine/pr/open.ts';
 import { syncPr } from '#engine/pr/sync.ts';
 import { ghGitHub } from '#integrations/github/pull-requests.ts';
@@ -16,8 +17,7 @@ import { mirrorJob, moveJob } from '#engine/pipeline/moves/apply.ts';
 import { searchTerms } from '#core/job/issue-link.ts';
 import { checkIssueRef, isSafeUrl, nativeRef, nativeRefs, parseIssueRef, primaryIssue, sameIssue } from '#core/job/issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
-import { isLinkedJob, jobRepoOrder, nextMergeable, type PrStateKey, type RepoKey } from '#engine/project/repo-order.ts';
-import { memberClone, memberConfig, memberRepos, recordJobRepo } from '#engine/project/job-repos.ts';
+import { memberClone, memberConfig, recordJobRepo } from '#engine/project/job-repos.ts';
 import { memberCheck, readLocalConfig } from '#engine/project/member-repos.ts';
 import { clampLimit, publicHits, searchTracker } from '#engine/trackers/link.ts';
 import { loadTracker, memberTracker } from '#engine/trackers/load.ts';
@@ -35,11 +35,11 @@ const TRACKER_EXITS: [1 | 5, string][] = [
   [1, 'the tracker refused the call, no such item or job, or a likely secret in the text Forge would send (code secret_found)'],
   [5, 'gh failed (GitHub tracker)'],
 ];
-const BODY: [string, string][] = [['--body B', 'the text'], ['--body-file F', 'read the text from F (- for stdin)']];
+const BODY: [string, string][] = [['--body B', 'the text'], ['--body-file F', "read the text from F (- for stdin); in a daemon session F must be inside the session job's folder or worktree"]];
 
 const TRACKER: HelpGroup = {
   name: 'tracker',
-  summary: 'the configured issue tracker (tracker.kind): items, claims, comments',
+  summary: 'the configured issue tracker (tracker.kind): items, claims, comments; under github a <ref> is an issue in this repo (12, #12 or owner/repo#12)',
   commands: [
     {
       command: 'tracker list',
@@ -140,10 +140,10 @@ export async function trackerCmd(root: string, config: Config, sub: string | und
       tracker.update(ctx, req(rest[0], 'ref'), loadJob(root, req(rest[1], 'job id')));
       return { ok: true };
     case 'comment':
-      tracker.comment(ctx, req(rest[0], 'ref'), bodyFrom(flags));
+      tracker.comment(ctx, req(rest[0], 'ref'), bodyFrom(flags, root, config));
       return { ok: true };
     case 'create':
-      return tracker.create(ctx, { title: req(flags.title, '--title'), body: bodyFrom(flags), labels: list(flags.label), parentRef: flags.parent ?? null });
+      return tracker.create(ctx, { title: req(flags.title, '--title'), body: bodyFrom(flags, root, config), labels: list(flags.label), parentRef: flags.parent ?? null });
     case 'close':
       tracker.close(ctx, req(rest[0], 'ref'), { reason: flags.reason });
       return { ok: true };
@@ -428,36 +428,6 @@ export async function commentApproval(root: string, config: Config, job: Job): P
   if (ok && posted.length) logEvent(root, job.id, 'tracker-approval-comment', { refs: posted, pr: number ?? null });
 }
 
-const MERGE_EVENTS = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed']);
-
-/** A deferred merge has no GitHub-side queue, so sync surfaces it for the orchestrator to retry. */
-function lastMergeEvent(root: string, id: string): string | null {
-  return readEvents(root, id).filter((e) => MERGE_EVENTS.has(e.type)).pop()?.type ?? null;
-}
-
-const CONTINUES = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred']);
-
-/**
- * Whether a linked job's merge walk should go on: its last merge event since the last push was an
- * untargeted merge, queue or deferral, and the next OPEN PR in merge order has every dependency
- * MERGED (a queued dependency landed), unless that PR is the one already queued. Only a hint from stored states: mergePr re-reads every state itself.
- */
-function linkedMergeDeferred(root: string, config: Config, job: Job): boolean {
-  const events = readEvents(root, job.id);
-  const pushed = events.findLastIndex((e) => e.type === 'pr-opened' || e.type === 'pr-updated');
-  const last = events.slice(pushed + 1).filter((e) => MERGE_EVENTS.has(e.type)).pop();
-  if (!last || last.target === true || !CONTINUES.has(last.type)) return false;
-  const { order, deps, cycle } = jobRepoOrder(config, job);
-  if (cycle) return false;
-  const known = (s: unknown): PrStateKey => (s === 'OPEN' || s === 'CLOSED' || s === 'MERGED' ? s : null);
-  const states = new Map<RepoKey, PrStateKey>([[null, known(job.pr?.state)]]);
-  for (const m of memberRepos(job)) states.set(m.repo, known(m.pr?.state));
-  const next = nextMergeable(order, deps, states);
-  // A PR queued with --auto is GitHub's to merge: the walk goes on once it has.
-  if (last.type === 'pr-auto-merge' && next === (typeof last.repo === 'string' ? last.repo : null)) return false;
-  return next !== undefined && states.get(next) === 'OPEN';
-}
-
 /**
  * `forge sync`: PRs and trackers for every job, then stacked-branch retargets, dependency waits and
  * umbrella jobs. `integrating` lists the jobs this sync moved to integrate.
@@ -494,6 +464,7 @@ export async function syncAll(
           cleaned = true;
         } catch {}
       }
+      const mergeDeferred = deferredMergeDue(root, config, after, r.pr?.state);
       results.push({
         id: job.id,
         pr: r.pr?.number ?? null,
@@ -502,9 +473,9 @@ export async function syncAll(
         conflicts: r.pr?.conflicts ?? false,
         behindBy: r.pr?.behindBy ?? null,
         checks: r.pr?.checks?.state ?? null,
-        mergeDeferred: isLinkedJob(after) ? linkedMergeDeferred(root, config, after) : r.pr?.state === 'OPEN' && lastMergeEvent(root, job.id) === 'pr-merge-deferred',
+        mergeDeferred,
         newFeedback: (r.pr?.unresolvedThreads ?? 0) > (before.unresolvedThreads ?? 0) || (r.pr?.changesRequested ?? 0) > (before.changesRequested ?? 0),
-        cleaned,
+        cleaned, ...(mergeDeferred ? await continueMerge(root, config, ghGitHub, job.id) : {}),
       });
     } catch (e) {
       results.push({ id: job.id, error: (e as Error).message.slice(0, 300) });

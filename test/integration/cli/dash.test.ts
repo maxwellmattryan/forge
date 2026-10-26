@@ -1,0 +1,296 @@
+// `forge dash` and `forge daemon status` trust the machine record (<FORGE_HOME>/dashboard.json), or an
+// older per-repo .forge/runtime/dashboard.json, only when it names a live process with `forge` in the
+// script position, then `dash`, that started when the record says, at a loopback url: a planted record
+// never gets a process signalled or its url shown. A second repo's `forge dash` opens the one running
+// machine dashboard, and a daemon session may only ask for that report. Each test has its own FORGE_HOME.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import http from 'node:http';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { forgeAsync, tempRepo, waitFor } from '../../helpers.ts';
+import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
+import { TRUST_ENV, trustDigest } from '#core/config/load.ts';
+import { processStartMs } from '#core/os/process.ts';
+import { writeJsonAtomic } from '#core/os/fs.ts';
+import { legacyDashboardFile, machineDashboardFile } from '#engine/ops/dashboard-record.ts';
+import { addProject, defaultProjectName } from '#engine/project/machine-index.ts';
+import { trustApproved } from '#engine/project/trust-approval.ts';
+
+const HOUR_MS = 3_600_000;
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const json = (stdout: string) => JSON.parse(stdout);
+
+const made: string[] = [];
+process.on('exit', () => made.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
+/** A fresh FORGE_HOME (not yet created) in its own scratch dir. */
+function freshHome(): string {
+  const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-dash-home-')));
+  made.push(d);
+  return path.join(d, 'home');
+}
+
+type Argv = 'foreign' | 'wordsAfterE' | 'script';
+
+/**
+ * A live process whose command line is: `foreign`, a plain `node -e` loop; `wordsAfterE`, the same
+ * with `<dir>/bin/forge dash` after the script (node ignores them, so they only change what ps
+ * shows, outside the script position); `script`, `node <dir>/bin/forge dash` running a stub that
+ * idles, so `forge` sits in the script position.
+ */
+function spawnIdle(dir: string, argv: Argv): ChildProcess {
+  const bin = path.join(dir, 'bin', 'forge');
+  if (argv === 'script') {
+    fs.mkdirSync(path.dirname(bin), { recursive: true });
+    fs.writeFileSync(bin, 'setInterval(() => {}, 1e3);\n');
+    return spawn(process.execPath, [bin, 'dash'], { stdio: 'ignore' });
+  }
+  return spawn(process.execPath, ['-e', 'setInterval(()=>{},1e3)', ...(argv === 'wordsAfterE' ? [bin, 'dash'] : [])], { stdio: 'ignore' });
+}
+
+function setupRepo(): ReturnType<typeof tempRepo> {
+  const repo = tempRepo();
+  fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\ndaemon:\n  enabled: false\n`);
+  return repo;
+}
+
+test('dash --stop signals only a proven dashboard', async () => {
+  type Row = { name: string; argv: Argv; url: string; startOffsetMs: number; proven: boolean; legacy?: boolean; skip?: boolean };
+  // Native Windows has no start-time probe, so no record is ever proven there.
+  const win = process.platform === 'win32';
+  const rows: Row[] = [
+    { name: 'foreign process, matching start', argv: 'foreign', url: 'http://127.0.0.1:7999', startOffsetMs: 0, proven: false },
+    { name: 'foreign process, start 1 h off', argv: 'foreign', url: 'http://127.0.0.1:7999', startOffsetMs: -HOUR_MS, proven: false },
+    { name: 'forge dash words after -e', argv: 'wordsAfterE', url: 'http://127.0.0.1:7999', startOffsetMs: 0, proven: false },
+    { name: 'forge dash argv, non-loopback url', argv: 'script', url: 'http://evil.example/', startOffsetMs: 0, proven: false },
+    { name: 'proven dashboard', argv: 'script', url: 'http://127.0.0.1:7999', startOffsetMs: 0, proven: true, skip: win },
+    { name: 'proven legacy per-repo dashboard', argv: 'script', url: 'http://127.0.0.1:7998', startOffsetMs: 0, proven: true, legacy: true, skip: win },
+  ];
+  const children: ChildProcess[] = [];
+  const repos: ReturnType<typeof tempRepo>[] = [];
+  try {
+    for (const row of rows) {
+      if (row.skip) continue;
+      const repo = setupRepo();
+      repos.push(repo);
+      const home = freshHome();
+      const env = { FORGE_HOME: home };
+      const child = spawnIdle(repo.dir, row.argv);
+      children.push(child);
+      const pid = child.pid!;
+      const startedAt = new Date((processStartMs(pid) ?? Date.now()) + row.startOffsetMs).toISOString();
+      const file = row.legacy ? legacyDashboardFile(repo.dir) : machineDashboardFile(home);
+      writeJsonAtomic(file, { pid, url: row.url, startedAt });
+
+      const status = await forgeAsync(repo.dir, ['daemon', 'status', '--json'], env);
+      assert.equal(status.status, 0, `${row.name}: ${status.stderr}`);
+      assert.deepEqual(json(status.stdout).dashboard, row.proven ? { pid, url: row.url, alive: true } : { pid, url: null, alive: false }, `${row.name}: daemon status`);
+      assert.ok(!status.stdout.includes('evil.example'), `${row.name}: a stale url is never printed`);
+
+      if (row.proven && !row.legacy) {
+        const running = await forgeAsync(repo.dir, ['dash', '--json'], env);
+        assert.equal(running.status, 0, `${row.name}: ${running.stderr}`);
+        const name = defaultProjectName(repo.dir);
+        assert.deepEqual(json(running.stdout), { url: `${row.url}/?project=${name}`, pid, running: true, project: name, added: true }, `${row.name}: dash reports the running one`);
+      }
+
+      const stop = await forgeAsync(repo.dir, ['dash', '--stop', '--json'], env);
+      assert.equal(stop.status, 0, `${row.name}: ${stop.stderr}`);
+      assert.deepEqual(json(stop.stdout), { stopped: row.proven, daemonReaped: false }, `${row.name}: dash --stop`);
+      assert.equal(alive(pid), !row.proven, `${row.name}: ${row.proven ? 'the dashboard exited' : 'the process was not signalled'}`);
+      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {}, `${row.name}: the record is cleared`);
+    }
+  } finally {
+    for (const c of children) c.kill('SIGKILL');
+    for (const r of repos) r.cleanup();
+  }
+});
+
+async function freePort(): Promise<number> {
+  const server = net.createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as net.AddressInfo;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
+}
+
+const recordPid = (home: string): unknown => {
+  const file = machineDashboardFile(home);
+  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).pid : undefined;
+};
+
+test("dash captures the login shell's PATH once at start, outside any job", { skip: process.platform === 'win32' }, async () => {
+  const repo = setupRepo();
+  const home = freshHome();
+  const log = path.join(repo.dir, '..', `${path.basename(repo.dir)}-shell.log`);
+  let pid: number | undefined;
+  try {
+    const port = await freePort();
+    const shell = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'bin', 'fake-login-shell');
+    const started = await forgeAsync(repo.dir, ['dash', '--dev', '--background', '--port', String(port), '--json'], { SHELL: shell, FAKE_SHELL_LOG: log, FORGE_HOME: home });
+    assert.equal(started.status, 0, started.stderr);
+    pid = json(started.stdout).pid as number;
+    await waitFor(() => recordPid(home) === pid, { what: "the dev child's record" });
+    const calls = fs.readFileSync(log, 'utf8').trim().split('\n');
+    assert.equal(calls.length, 1, calls.join('\n'));
+    const [cwd, args] = calls[0].split('|');
+    assert.equal(cwd, fs.realpathSync(os.homedir()));
+    assert.ok(args.startsWith('-lc '), args);
+    const stop = await forgeAsync(repo.dir, ['dash', '--stop', '--json'], { FORGE_HOME: home });
+    assert.equal(stop.status, 0, stop.stderr);
+    await waitFor(() => !alive(pid!), { what: 'the dev child to exit' });
+  } finally {
+    try {
+      if (pid) process.kill(pid, 'SIGKILL');
+    } catch {}
+    fs.rmSync(log, { force: true });
+    repo.cleanup();
+  }
+});
+
+// Native Windows proves no record, so --stop could never stop the child there.
+test('a stale record does not block dash --dev, and --stop stops the real background child', { skip: process.platform === 'win32' }, async () => {
+  const repo = setupRepo();
+  const home = freshHome();
+  const env = { FORGE_HOME: home };
+  const stale = spawnIdle(repo.dir, 'wordsAfterE');
+  const stalePid = stale.pid!;
+  let devPid: number | undefined;
+  try {
+    writeJsonAtomic(machineDashboardFile(home), { pid: stalePid, url: 'http://127.0.0.1:7999', startedAt: new Date(processStartMs(stalePid) ?? Date.now()).toISOString() });
+
+    const port = await freePort();
+    const dev = await forgeAsync(repo.dir, ['dash', '--dev', '--background', '--port', String(port), '--json'], env);
+    assert.equal(dev.status, 0, dev.stderr);
+    assert.ok(!`${dev.stdout}${dev.stderr}`.includes('already running'), 'a stale record does not refuse --dev');
+    const started = json(dev.stdout);
+    assert.equal(started.started, true);
+    assert.equal(typeof started.pid, 'number');
+    assert.notEqual(started.pid, stalePid);
+    devPid = started.pid as number;
+
+    await waitFor(() => recordPid(home) === devPid, { what: "the dev child's record" });
+    const stop = await forgeAsync(repo.dir, ['dash', '--stop', '--json'], env);
+    assert.equal(stop.status, 0, stop.stderr);
+    assert.deepEqual(json(stop.stdout), { stopped: true, daemonReaped: false });
+    await waitFor(() => !alive(devPid!), { what: 'the dev child to exit' });
+    assert.ok(alive(stalePid), 'the stale process was not signalled');
+  } finally {
+    for (const pid of [devPid, stalePid]) {
+      try {
+        if (pid) process.kill(pid, 'SIGKILL');
+      } catch {}
+    }
+    repo.cleanup();
+  }
+});
+
+const status = (url: string): Promise<number> =>
+  new Promise((resolve) => {
+    const u = new URL(url);
+    const req = http.get({ host: u.hostname, port: u.port, path: u.pathname, agent: false }, (res) => {
+      res.resume();
+      resolve(res.statusCode ?? 0);
+    });
+    req.on('error', () => resolve(0));
+  });
+
+test('dash in a second repo opens the running machine dashboard', { skip: process.platform === 'win32' }, async () => {
+  const a = setupRepo();
+  const b = setupRepo();
+  const home = freshHome();
+  const env = { FORGE_HOME: home };
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-dash-outside-')));
+  made.push(outside);
+  let pid: number | undefined;
+  try {
+    const port = await freePort();
+    const started = await forgeAsync(a.dir, ['dash', '--background', '--port', String(port), '--json'], env);
+    assert.equal(started.status, 0, started.stderr);
+    pid = json(started.stdout).pid as number;
+    await waitFor(() => recordPid(home) === pid, { what: "a's dashboard record" });
+    const origin = JSON.parse(fs.readFileSync(machineDashboardFile(home), 'utf8')).url as string;
+    const [nameA, nameB] = [defaultProjectName(a.dir), defaultProjectName(b.dir)];
+    assert.deepEqual(json(started.stdout), { url: `${origin}/?project=${nameA}`, pid, started: true, project: nameA, added: true });
+    assert.equal(trustApproved(home, a.dir), true, 'a human ran forge dash in a: its files are approved');
+    assert.equal(trustApproved(home, b.dir), false, "forge dash in a approves nothing of b's");
+
+    const second = await forgeAsync(b.dir, ['dash', '--json'], env);
+    assert.equal(second.status, 0, second.stderr);
+    assert.deepEqual(json(second.stdout), { url: `${origin}/?project=${nameB}`, pid, running: true, project: nameB, added: true });
+    assert.equal(trustApproved(home, b.dir), true, 'and forge dash in b approves its own');
+    // Opening the running dashboard again for a registered repo approves nothing: a change since then waits for Start.
+    fs.appendFileSync(path.join(b.dir, 'CLAUDE.md'), 'a change nobody reviewed\n');
+    const reopened = await forgeAsync(b.dir, ['dash', '--json'], env);
+    assert.equal(reopened.status, 0, reopened.stderr);
+    assert.deepEqual(json(reopened.stdout), { url: `${origin}/?project=${nameB}`, pid, running: true, project: nameB, added: false });
+    assert.equal(trustApproved(home, b.dir), false, 'a report for a registered repo approves nothing');
+    const list = json((await forgeAsync(b.dir, ['project', 'list', '--json'], env)).stdout);
+    assert.deepEqual(list.projects.map((p: { name: string }) => p.name).sort(), [nameA, nameB].sort());
+    const dashes = execFileSync('ps', ['-A', '-ww', '-o', 'command='], { encoding: 'utf8' })
+      .split('\n')
+      .filter((l) => l.includes(`dash --foreground --port ${port}`));
+    assert.equal(dashes.length, 1, dashes.join('\n'));
+    await waitFor(async () => (await status(`${origin}/api/p/${nameB}/state`)) === 200, { what: "b's routes", timeoutMs: 5000 });
+
+    const out = await forgeAsync(outside, ['dash', '--json'], { ...env, FORGE_ROOT: '' });
+    assert.equal(out.status, 0, out.stderr);
+    assert.deepEqual(json(out.stdout), { url: origin, pid, running: true, project: null });
+  } finally {
+    await forgeAsync(a.dir, ['dash', '--stop', '--json'], env);
+    try {
+      if (pid) process.kill(pid, 'SIGKILL');
+    } catch {}
+    a.cleanup();
+    b.cleanup();
+  }
+});
+
+test('a daemon session may only ask for the running dashboard of a registered project', { skip: process.platform === 'win32' }, async () => {
+  const repo = setupRepo();
+  const registered = setupRepo();
+  const home = freshHome();
+  const server = spawnIdle(repo.dir, 'script');
+  const pid = server.pid!;
+  try {
+    const url = 'http://127.0.0.1:7997';
+    writeJsonAtomic(machineDashboardFile(home), { pid, url, startedAt: new Date(processStartMs(pid) ?? Date.now()).toISOString() });
+    const daemon = (dir: string) => ({ FORGE_HOME: home, FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_inbox', [TRUST_ENV]: trustDigest(dir) });
+    const index = () => (fs.existsSync(path.join(home, 'projects.json')) ? fs.readFileSync(path.join(home, 'projects.json'), 'utf8') : null);
+    const record = () => fs.readFileSync(machineDashboardFile(home), 'utf8');
+    const before = [index(), record()];
+    for (const args of [['dash', '--json'], ['dash', '--stop', '--json'], ['dash', '--background', '--json']]) {
+      const r = await forgeAsync(repo.dir, args, daemon(repo.dir));
+      assert.equal(r.status, 1, `${args.join(' ')}: ${r.stdout}${r.stderr}`);
+      assert.match(json(r.stdout).error.message, /forge dash starts, stops and registers the machine's dashboard, which a daemon session may not do/, args.join(' '));
+    }
+    assert.deepEqual([index(), record()], before, 'the index and the record are byte-identical');
+    assert.ok(alive(pid), 'the running dashboard was not signalled');
+
+    addProject(home, registered.dir);
+    const name = defaultProjectName(registered.dir);
+    const added = index();
+    const report = await forgeAsync(registered.dir, ['dash', '--json'], daemon(registered.dir));
+    assert.equal(report.status, 0, report.stderr);
+    assert.deepEqual(json(report.stdout), { url: `${url}/?project=${name}`, pid, running: true, project: name, added: false });
+    assert.equal(index(), added);
+    assert.equal(trustApproved(home, registered.dir), false, "a session's report approves no files");
+  } finally {
+    server.kill('SIGKILL');
+    repo.cleanup();
+    registered.cleanup();
+  }
+});

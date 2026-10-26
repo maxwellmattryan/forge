@@ -1,6 +1,7 @@
-// The two decisions .github/workflows/release.yml takes from the repo, run in the checkout:
-//   node scripts/release-plan.ts detect   prints `version=<v>` and `release=<true|false>` for $GITHUB_OUTPUT
-//   node scripts/release-plan.ts notes    prints the version's CHANGELOG section, the Release body
+// The two decisions .github/workflows/release.yml takes from the repo, run in the checkout of its read-only jobs:
+//   node scripts/release-plan.ts detect   (detect) prints `version=<v>` and `release=<true|false>` for $GITHUB_OUTPUT
+//   node scripts/release-plan.ts notes    (build) prints the version's CHANGELOG section of the merged commit,
+//                                         the Release body, frozen in the release commit and reviewed in the PR diff
 // Repo text reaches the workflow only through these, and only after validation (docs/RELEASES.md).
 import fs from 'node:fs';
 import path from 'node:path';

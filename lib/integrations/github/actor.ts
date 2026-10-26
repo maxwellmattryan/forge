@@ -1,6 +1,6 @@
 // Who did a human action. Best effort and unauthenticated: every source below is whatever the
 // environment says, so the actor is a record for auditors, never a grant of authority. It is
-// resolved lazily, at most once per process, and only on a path that writes a human-action event,
+// resolved lazily, at most once per process and root, and only on a path that writes a human-action event,
 // so a CLI call that writes none never spawns gh or git.
 import os from 'node:os';
 import path from 'node:path';
@@ -67,9 +67,9 @@ function ghLogin(deps: ActorDeps): string {
 
 /** The resolution order: daemon session > FORGE_ACTOR > gh > git email > OS user > unknown. */
 export function resolveActor(deps: ActorDeps): EventActor {
-  // A daemon session acts on requests a person queued from the dashboard, run as the OS user that
-  // started `forge dash`; FORGE_ACTOR is ignored there on purpose.
-  if (deps.env.FORGE_DAEMON === '1') return { login: sanitizeLogin(deps.osUser()) || null, source: 'dashboard' };
+  // A daemon session's action is recorded as the session's, under the OS user that started
+  // `forge dash`; FORGE_ACTOR is ignored there on purpose.
+  if (deps.env.FORGE_DAEMON === '1') return { login: sanitizeLogin(deps.osUser()) || null, source: 'daemon' };
   const env = sanitizeLogin(deps.env.FORGE_ACTOR);
   if (env) return { login: env, source: 'env' };
   const gh = ghLogin(deps);
@@ -107,12 +107,17 @@ function realDeps(root: string): ActorDeps {
   };
 }
 
-let memo: EventActor | undefined;
+/** Per root: one machine server acts for several projects, each with its own cache and git config. */
+const memo = new Map<string, EventActor>();
 
-/** This process's actor, resolved on first use. */
+/** This process's actor for `root`, resolved on first use. */
 export function currentActor(root: string): EventActor {
-  memo ??= resolveActor(realDeps(root));
-  return memo;
+  let actor = memo.get(root);
+  if (!actor) {
+    actor = resolveActor(realDeps(root));
+    memo.set(root, actor);
+  }
+  return actor;
 }
 
 /** The person behind a dashboard action: the OS user running `forge dash`. */

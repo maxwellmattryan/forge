@@ -32,7 +32,7 @@ Human mode:
 - **Control characters** in rendered keys, values, cells, headlines, sections and error messages are shown as visible escapes (`\x1b`, `\u202e`), so text from trackers, PRs or job state can't move the cursor, rewrite lines or set the clipboard. Raw strings are not touched.
 - **Errors** print on stderr, nothing on stdout: `error: <message>`, then `fix: <hint>` when the error has a hint (the `hint` `--json` reports). Later lines of a message or hint are indented under its text, so only the real hint starts with `fix:`. The exit code is unchanged, and `FORGE_DEBUG` still adds the stack.
 - **Colour**: keys, table headers and section headings are bold, `true` green, `false` red, `error:` red and `fix:` yellow. In the commands with their own renderer, `✓` and a running state are green, `!` and a waiting or blocked state yellow, `✗` and a failed state red. Colour is on only when the stream is a terminal and `NO_COLOR` is unset or empty.
-- **`forge dash` in the foreground** prints its banner line, then an **activity log**: one line per event, `[HH:MM:SS] <kind> <text>` in local time, where `<kind>` is `session` (a session spawned, ended, went busy, idle or stopping, was held, waited for a slot, failed, wrote to stderr or raised a permission prompt), `http` (`<METHOD> <path> <status> <ms>ms`, the path without its query string) or `job` (an event appended to a job's `events.jsonl`: a transition, an agent's start or end, or the event type). Successful requests for the page, `/assets/*`, `/forge.png`, the `GET /api/state` poll and every event stream are not logged; a status of 400 or more always is. Events already in a job's log when `forge dash` starts are never replayed, and assistant and tool lines from session logs never print (`forge daemon log --follow` shows them). Untrusted text is escaped like any rendered value and each line's text is capped at 300 characters; with colour on, the kind is bold, and each session scope or job id has its own colour, the same on its `session` and `job` lines: `_inbox` blue, `_office` magenta, and jobs one of four cyans, blues and magentas, taken in turn as they first appear (so it is stable for that `forge dash` run, not across restarts). Spawns and running or done states are green; holds, waits, permission prompts, `stopping` and waiting or blocked states yellow; errors, stderr and failed states red; idle, ended, pids, reasons and summaries dim. In `http` lines the method is bold and the status takes its class's colour (2xx green, 3xx cyan, 4xx yellow, 5xx red, with the path red too), and the time is dim, or yellow from 1000 ms. The timestamp is never painted, and the text without colour is the same. `--quiet` turns the log off, and `forge dash --background` starts its child with `--quiet`.
+- **`forge dash` in the foreground** prints its banner line, then an **activity log**: one line per event, `[HH:MM:SS] <kind> <text>` in local time, where `<kind>` is `session` (a session spawned, ended, went busy, idle or stopping, was held, waited for a slot, failed, wrote to stderr or raised a permission prompt), `http` (`<METHOD> <path> <status> <ms>ms`, the path without its query string) or `job` (an event appended to a job's `events.jsonl`: a transition, an agent's start or end, or the event type). It follows every project the machine dashboard serves, including ones registered later, and names each session and job by project, e.g. `[12:04:31] session web/_inbox spawned (pid 4242)` and `[12:04:33] job web/42-add-login spec/running → spec/waiting`. Successful requests for the page, `/assets/*`, `/forge.png`, `GET /api/projects`, the Overview's `GET /api/projects/stats`, each project's `GET /api/p/<project>/state` poll and every event stream are not logged; a status of 400 or more always is. Events already in a job's log when `forge dash` starts are never replayed, and assistant and tool lines from session logs never print (`forge daemon log --follow` shows them). Untrusted text is escaped like any rendered value and each line's text is capped at 300 characters; with colour on, the kind is bold, and each session scope or job id (the part after `<project>/`) has its own colour, the same on its `session` and `job` lines: `_inbox` blue, `_office` magenta, and jobs one of four cyans, blues and magentas, taken in turn as they first appear (so it is stable for that `forge dash` run, not across restarts). Spawns and running or done states are green; holds, waits, permission prompts, `stopping` and waiting or blocked states yellow; errors, stderr and failed states red; idle, ended, pids, reasons and summaries dim. In `http` lines the method is bold and the status takes its class's colour (2xx green, 3xx cyan, 4xx yellow, 5xx red, with the path red too), and the time is dim, or yellow from 1000 ms. The timestamp is never painted, and the text without colour is the same. `--quiet` turns the log off, and `forge dash --background` starts its child with `--quiet`.
 - Other streams that write for themselves are the same in both modes: `forge daemon log --follow` and the `forge git diff|log|show|range-diff` passthrough.
 
 Agent mode is pinned wherever Forge or Claude Code start the CLI: the plugin's SessionStart hook writes `export FORGE_MODE=agent` to `CLAUDE_ENV_FILE` (every Bash command of a Claude Code session, even under a PTY), `forge dash` sets `FORGE_MODE=agent` for daemon sessions, and the test suite sets it in `test/helpers.ts`. A script that might run on a terminal should pass `--json` or set `FORGE_MODE=agent`.
@@ -76,7 +76,7 @@ With `--json`:
   4. Otherwise `null`.
 - `node` is the Node version running the CLI.
 
-Like `forge version`, it needs no repo and no `.forge/`. The commit is self-reported: the audit anchors are the release tag and the archive's `.sha256` ([RELEASES.md](RELEASES.md#provenance-and-pinning)).
+Like `forge version`, it needs no repo and no `.forge/`. The commit is self-reported: the audit anchors are the annotated release tag and comparing the archive with `git archive` of the tag ([RELEASES.md](RELEASES.md#provenance-and-pinning)).
 
 ## Exit codes
 
@@ -94,6 +94,8 @@ The exceptions:
 - `forge git diff|log|show|range-diff` exit with git's own code once git runs.
 - `forge release run` prints its own result and exits 1 when it stops at a step (the result's `stopped` says why), and exits 3 (`owned`) while another `forge release run` holds the release lock.
 - `forge backing up|down|stop|status` exit 5 when Docker is missing, its daemon is stopped or a docker command fails (for `up`, also a same-named container that isn't this job's); `status` without a job and `down --shared` throw `docker_missing` or `docker_stopped` for the first two, and `external` for a failed docker command. `status <job>` still exits 0, reports `unknown` for each managed service, and says why in its `docker` field (`ok`, `missing` or `stopped`; `null` when no service is managed). `forge worktree remove` exits 1 when its backing teardown fails (docs/CONFIG.md "Backing services"). With a job database, `forge backing up` also exits 5 when the server does not accept connections within 60 s, migrate or seed fails, a psql call fails, or the job has no worktree (`job <id> has no worktree: run forge worktree create <id>`); `forge backing down` and `forge worktree remove` count a stopped shared container or a failed psql call as a failed teardown and keep `backing-db.json` for a retry (docs/CONFIG.md "Job databases").
+- `forge dash` opens the machine dashboard, one server for every project in the machine index. In a repo with `.forge/config.yml` it first registers the repo (`forge project add`'s default name; exit 1 when another path holds that name, with the `forge project add <path> --name <name>` hint), then prints the running one's `{url: "<origin>/?project=<name>", pid, running: true, project, added}` or starts one; the server picks up a new registration within 2 s. Outside a project it registers nothing and prints `project: null` (plus a `note` in a repo without `.forge/config.yml`). `--stop` stops the machine dashboard and, in a repo, an older per-repo one (`.forge/runtime/dashboard.json`), then reaps every registered project's orphaned sessions. `--dev` exits 1 while a proven machine dashboard runs. Inside a daemon session it only reports a running dashboard for a registered project and exits 1 for anything else.
+- `forge project settings --max-concurrent <1-64|auto>` sets the machine cap (docs/CONFIG.md, `daemon.maxConcurrent`); any other value exits 2 (`usage`), and it exits 1 inside a daemon session.
 - `forge dash --permission-mode default|auto|dontAsk` sets the job sessions' default permission mode until that dashboard stops (docs/CONFIG.md "Default for job sessions"). It exits 1 inside a daemon session, which may not widen its own permissions, and exits 2 (`usage`) for any other value.
 - `forge focus <id>|--clear` exits 1 when a configured checkout step fails (docs/CONFIG.md "Checkout steps"): the message names the step, why it failed and its log, and focus is unchanged.
 - The no-AI-attribution hook's exit 2 belongs to Claude Code's hook protocol, not this table.
@@ -106,12 +108,13 @@ Every error carries one of these codes, and the code fixes the exit.
 | Code | Exit | Meaning |
 |---|---|---|
 | `failed` | 1 | the default for exit 1: the command ran and failed, or refused by policy |
-| `not_found` | 1 | no such job or request |
+| `not_found` | 1 | no such job, request or registered project |
 | `internal` | 1 | not a Forge error: a bug or an unexpected Node error (rerun with `FORGE_DEBUG=1` for the stack) |
 | `secret_found` | 1 | the secret scanner found a likely credential in what Forge was about to commit or send (a commit, the PR title or body, a tracker write); the message shows it masked, with its fingerprint |
-| `protected_path` | 1 | a path the `policy.protectedPaths` policy refuses is in what `forge git add\|commit` would stage or commit, `forge pr open` found a refused path or escalate paths no human approved, or `forge pr merge` found a PR head `forge pr open` never checked (docs/CONFIG.md "Protected paths") |
+| `protected_path` | 1 | a path the `policy.protectedPaths` policy refuses is in what `forge git add\|commit` would stage or commit, `forge pr open` found a refused path or escalate paths no human approved, or `forge pr merge` finds a protected path at the live PR head that no human approved at that content (docs/CONFIG.md "Protected paths") |
 | `interim_stale` | 1 | `forge pr open` found a git-ref or canary pin in the checked commits that is not the dependency's checked HEAD (a hand-edited pin, or a dependency that moved without a verify), or, after a recorded release, a consumer manifest that does not name the released version yet; the hint is `forge verify <id>` (docs/CONFIG.md "Interim strategies") |
 | `release_gate` | 1 | `forge pr ready` targeted a consumer PR whose local or sequential dependency's release is not recorded (a human runs `forge job interim release <id> <name>\|--root <version>`), or whose manifests don't name a recorded release yet (gate `bump-due`, or a HEAD that doesn't carry it: run `forge verify <id>`, then `forge pr open <id>`); nothing was called (docs/CONFIG.md "Interim strategies") |
+| `human_only` | 1 | a human-only operation (`forge pr merge --now`, `forge job budget --set\|--ack`, `forge budget ack`) needs a person who confirms it at a terminal by typing the job id or period, or, for `pr merge --now`, the dashboard's Merge now, for `job budget`, its Approve & continue on the budget gate and, for `budget ack`, its Acknowledge in Needs you; a daemon session, an agent, a script or a configured command can't run it, and nothing was changed (docs/architecture/daemon-security.md "Human-only operations") |
 | `usage` | 2 | the default for exit 2: the call could not be parsed; the hint names the help to read |
 | `unknown_command` | 2 | the first word is not a command |
 | `not_initialized` | 2 | the repo has no `.forge/config.yml`; run `/forge init` |
@@ -142,20 +145,24 @@ Read by Forge:
 | Variable | Effect |
 |---|---|
 | `FORGE_ROOT` | the main checkout Forge keeps its state in; without it, the checkout of the current directory's git repository |
-| `FORGE_CACHE_DIR` | where `bin/forge` keeps its start-up cache (V8 code cache, and stripped modules on Node 22); default `.cache/` in the plugin root. It must be private to the current user, and no easier to write than the plugin itself, since it holds code the CLI runs (docs/architecture/startup-cache.md) |
+| `FORGE_HOME` | where the machine index lives (`projects.json`, written by `forge project add\|remove`); default `~/.forge`, and an empty value counts as unset. Tests and the scenario seeder always set it |
+| `FORGE_CACHE_DIR` | where `bin/forge` keeps its start-up cache (V8 code cache, and stripped modules on Node 22); default `.cache/` in the plugin root. Honoured only inside the plugin root (its parent must exist; a temp dir, a symlinked parent that leaves the plugin, or the plugin root itself runs uncached), and it must be private to the current user, since it holds code the CLI runs (docs/architecture/startup-cache.md) |
 | `NODE_DISABLE_COMPILE_CACHE` | any non-empty value turns the start-up cache off |
 | `FORGE_DEBUG` | any non-empty value prints an error's stack trace on stderr, with or without `--json` |
 | `FORGE_MODE` | `human` or `agent`: the output mode when neither `--json` nor `--mode` is given (see Output mode); empty counts as unset, any other value is a usage error. The SessionStart hook and daemon sessions set it to `agent` |
 | `NO_COLOR` | any non-empty value turns colour off in human mode |
 | `FORGE_AI_ATTRIBUTION` | `allow` turns the no-AI-attribution policy off for the hook, `forge git commit`, `forge pr open` and the GitHub tracker |
-| `FORGE_ACTOR` | the login human-action events record (`actor: { login, source: "env" }`), ahead of `gh`, `git config user.email` and the OS user; ignored inside daemon sessions, which record the dashboard's OS user. Sanitised to `[A-Za-z0-9 ._@+-]`, at most 100 characters, and unauthenticated (docs/architecture/audit-trail.md) |
+| `FORGE_ACTOR` | the login human-action events record (`actor: { login, source: "env" }`), ahead of `gh`, `git config user.email` and the OS user; ignored inside daemon sessions, which record the OS user running `forge dash` as source `daemon`. Sanitised to `[A-Za-z0-9 ._@+-]`, at most 100 characters, and unauthenticated (docs/architecture/audit-trail.md) |
 | `FORGE_EDITOR` | the editor command `forge dash`'s Open in editor runs, split into words without a shell, with the job's worktree path appended; default `code`. Read from `forge dash`'s own environment |
 | `GH_HOST` | a GitHub Enterprise host whose issue URLs count as the configured repo's, besides github.com |
-| `SHELL` | the shell configured commands run in (`$SHELL -lc`; `/bin/sh` when unset): `forge run`, `forge verify`, worktree setup and eval checks |
-| `PATH` | where git, gh, claude, node and docker are found |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | `forge dash` leaves them out of daemon sessions' environment unless `daemon.auth: api-key` |
+| `SHELL` | the login shell (`/bin/sh` when unset) that `forge dash` captures `FORGE_COMMAND_PATH` from, that `forge release run` steps run in (`$SHELL -lc`), and that configured commands run in only with `commandEnv.loginShell: true`; otherwise they run as `/bin/sh -c` in and out of the daemon (docs/CONFIG.md "Command environment") |
+| `PATH` | where git, gh, claude, node and docker are found; configured commands get it sanitised (no empty or relative entries) when `FORGE_COMMAND_PATH` is unset |
+| `FORGE_COMMAND_PATH` | the PATH configured commands get, sanitised: `forge dash` sets it at start from its login shell (`$SHELL -lc`, this plugin's `bin/` first), and its sessions and their `forge` calls inherit it. Never passed to a command (docs/CONFIG.md "Command environment") |
+| `FORGE_COMMAND_PATH_SOURCE` | where `FORGE_COMMAND_PATH` came from, `login-shell (<shell>)` or `inherited: <reason>`; `forge doctor`'s `command PATH` check shows it and warns on a failed capture. Never passed to a command |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`, `ANTHROPIC_BASE_URL` | `forge dash` leaves them out of daemon sessions' environment unless `daemon.auth: api-key`; `forge doctor` and the dashboard's Daemon popover say which are set |
 | `GIT_CONFIG_COUNT` | daemon sessions append their git pins after the entries already counted |
 | `CLAUDE_CONFIG_DIR` | Claude Code's own config dir: transcripts are read from `$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects`, by `forge job agent … end --import` and the dashboard's agent activity and transcript views |
+| `CLAUDE_PROJECT_DIR` | set by Claude Code for hooks: the project it runs in. The no-AI-attribution hook reads the `aiAttribution: allow` opt-out from the `.forge/config.yml` of that directory's main checkout (a worktree's own config never counts); unset or not a git checkout means no opt-out |
 | `CLAUDE_ENV_FILE` | set by Claude Code for SessionStart hooks; the plugin's hook appends a line that puts this plugin's `bin/` first on PATH for the session's Bash commands, and `export FORGE_MODE=agent` so they always get agent output; nothing happens when it is unset |
 | `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_COMMON_DIR` | cleared before `forge git add\|commit` (with `GIT_OBJECT_DIRECTORY` and `GIT_NAMESPACE`) and eval checkouts run git, so an inherited one can't point git at another repository |
 
@@ -163,7 +170,7 @@ Set by the `forge dash` supervisor for daemon sessions, never by hand:
 
 | Variable | Effect |
 |---|---|
-| `FORGE_DAEMON` | `1` in a headless session: the config trust check runs first, config rewrites, job effort changes (`forge job effort`, `forge job new --effort`) and setting or clearing focus (`forge focus <id>`, `forge focus --clear`) are refused, and `forge requests` sees only the session's scope |
+| `FORGE_DAEMON` | `1` in a headless session: the config trust check runs first, config rewrites, job effort changes (`forge job effort`, `forge job new --effort`) and setting or clearing focus (`forge focus <id>`, `forge focus --clear`) are refused, `forge requests` sees only the session's scope, and `--body-file F` (other than `-`, stdin) must be a regular file under 1 MiB inside the session job's folder or its computed worktree, and is refused in the `_inbox` and `_office` sessions (exit 1) |
 | `FORGE_DAEMON_SCOPE` | the session's scope: `_inbox`, `_office` (the foreman), or the id of the job it drives |
 | `FORGE_DAEMON_TRUST` | the digest of the checkout path, `.forge/config.yml` and `.forge/trackers/` the human started the daemon with; `forge` refuses to run when they no longer match |
 | `FORGE_MODE` | `agent`, so a session's `forge` calls always print agent output (see Output mode) |
@@ -198,7 +205,7 @@ Set by Forge for `notify.command` (docs/CONFIG.md "Notifications"), whose `{plac
 
 `forge job links <id>` prints `{ id, links }`, one entry per `link` declared on a `components[].dependsOn[]` edge (docs/CONFIG.md "Components"): `{ consumer, consumerRepo, dependency, dependencyRepo, ecosystem, name, source, dir, active, reason }`. `consumerRepo` and `dependencyRepo` are `null` for the root repo, `source` is `null` except for cargo, `dir` is the dependency directory when the link is active, and `reason` says why it is not (`repo <r> is not on the job`, `repo <r> has no worktree yet; run: forge worktree create <id>`, `repo <r>'s stored worktree is not the path Forge computes`, `<path> does not exist in repo <r>'s worktree`). Entries are sorted by consumer repo (root first), ecosystem and name; a job with no declared links prints `links: []`. It only reads, so daemon sessions may run it.
 
-`forge run` (with or without `--repo`) and every verify step render the links of the repo the command runs in into `<jobDir>/links/<repo or _root>/` and put its `bin/` shims first on PATH, after the login profile. The result (`forge run`'s JSON and each verify step) then gains:
+`forge run` (with or without `--repo`) and every verify step render the links of the repo the command runs in into `<jobDir>/links/<repo or _root>/` and put its `bin/` shims first on PATH, after the login profile when `commandEnv.loginShell` sources one. The result (`forge run`'s JSON and each verify step) then gains:
 
 | Key | When | Value |
 |---|---|---|
@@ -217,6 +224,8 @@ The log file gains a `(links <bin dir>)` line after `(cwd …)`. Background comm
 
 `forge job agent <id> attach --role R --agent-id A` records the runtime's id of an agent that is already `running` (the orchestrator runs it right after a background spawn), so `forge dash` can follow that agent's transcript while it works. It changes nothing else: `runs`, `startedAt` and `status` stay, and no event is logged. It prints `{ "role", "status", "agentId" }`, exits 1 when the role isn't running, and exits 2 (`usage`) without writing anything when `A` doesn't match `^[A-Za-z0-9_-]{1,100}$`, since the id becomes part of a transcript's file name.
 
+`forge job agent <id> end` in a daemon session (`FORGE_DAEMON=1`) is measured, never self-reported. `--tokens`, `--tool-uses` and `--duration-ms` are refused before anything is written (exit 2, `usage`: `forge job agent end refuses --tokens, --tool-uses and --duration-ms in a daemon session: pass --agent-id and Forge reads the agent's transcript`). The agent id is `--agent-id`, else the one `start` or `attach` recorded for the role; with neither, the end is refused (exit 2) unless it is `--status lost`. With an id the transcript is always imported, as if `--import` were passed. When the transcript isn't found (a background agent's can lag), the end is still recorded and the job is never held for it: the `agent-end` event carries `unmeasured: true` and no usage, and the output has `usage: null, unmeasured: true`. When the session's scope is the job itself, the `agent-end` event carries `metered: true`: that session's meter already holds the run's cost (docs/CONFIG.md "Daemon" › Metered spend). Outside a daemon session nothing changes, and `--tokens`, `--tool-uses` and `--duration-ms` remain the fallback for a missing transcript.
+
 ## Foreman decisions
 
 `forge job human <id> <action> [--actor human|foreman]` records who decided. Without `--actor` the event's `actor` is the resolved person, `{ "login": "<login>"|null, "source": "env"|"gh"|"git"|"os"|"dashboard"|"unknown" }` (docs/architecture/audit-trail.md); with `--actor foreman` it is `{ "login": null, "source": "foreman" }`. Events written before event schema v2 said `"human"` or `"foreman"`, and read as source `unknown` and `foreman`. `--actor foreman` is accepted only from the office daemon session (`FORGE_DAEMON_SCOPE=_office`), which in turn must pass it, and only after the authority checks in docs/architecture/foreman.md: the job waits on a gate class in `foreman.decides`, the action belongs to that class, `--note` is given and no reserved pattern matches (nor a latest security verdict other than `PASS`), a pr-feedback `rework` has a queued gate request for the PR's current head, and there is no `--link` or `--reason`. A refusal exits 1 and writes nothing.
@@ -231,9 +240,13 @@ A recorded decision moves the job by itself: the next `forge job step` on a job 
 
 ## Merging
 
-`forge pr merge <id> [--repo NAME | --root] [--now]` syncs first, then merges one PR at a time with exactly one `gh pr merge` call each: directly when checks pass or the repo has no CI, queued with `--auto` while checks are pending only when GitHub holds the PR and no protected-paths policy applies, deferred otherwise, and refused when checks fail. A single-repo job has one PR, and the result is `{ merged, autoMerge, action, checks, mergeState?, error? }` with `action` one of `already-merged`, `merged`, `auto`, `deferred`, `refused`, `failed`.
+`forge pr merge <id> [--repo NAME | --root] [--now]` syncs first, then decides one PR at a time, with exactly one `gh pr merge` call each at most. Without `--now`, each PR first passes these checks, in order, before any CI decision (docs/CONFIG.md "Merge"): `merge.auto` is on (else `reason: auto-off`); no rework, new round or stage change has replaced the approver's decision: the job is at stage `pr`, not `cancelled` or `failed` and not set to either after the last `decision` event, no `round` event and no `human` `rework` or `revise-spec` comes after it in the log, no `rework`, `revise-spec` or `cancel` request for the job is still `pending` or `in-progress` in the request inbox, no `gate` request for it waits on the Foreman (`pending` or `in-progress`), and no review on GitHub requests changes on any open PR of the job, the root's or a linked job's member PR, by the `changesRequested` this call's sync counted at each live head (else `reason: superseded`, `error` naming the rule that matched); the last `decision` event `forge job decision` recorded is an `APPROVE` marked auto-merge eligible and bound to a head (else `reason: decision`); the PR still targets the job's base on GitHub, and its live head is that head, or it with only clean merges of the base on top (else `reason: decision`); protected paths recomputed at the live head are all approved (else code `protected_path`); and the escalate floor finds nothing in the PR's diff (else `reason: floor`). A refusal exits 1, logs `pr-merge-refused` with its `reason` and calls nothing. Then CI: a direct merge when checks pass, or the base has no CI on any system Forge knows, at a head Forge pushed at least 5 minutes ago (passing while GitHub reports `UNSTABLE` counts as pending); queued with `--auto` while checks are pending or the head is settling, only when GitHub holds the PR, no protected-paths policy applies and the required checks do not come from `merge.requiredChecks`; deferred otherwise (`pr-merge-deferred`, `reason: settling` while the head settles); and refused when checks fail. The CI decision also needs the PR's required checks, each bound to its source (docs/CONFIG.md "Merge" › Required checks): the root's `merge.requiredChecks`, else the base branch's protection, read through `gh api` once per base per call (a member PR always uses its own repo's protection). A required check that has not reported from its source is pending; one failing, `SKIPPED`, `NEUTRAL` or reported by more than one source refuses with `required checks are not passing: <name> (<why>), …`. A root `merge.requiredChecks` that fails validation refuses the merge too, with `required: { source: "config", state: "failing", blocking: [], note }` and `error` set to the note, which names the first problem. A single-repo job has one PR, and the result is `{ merged, autoMerge, action, checks, mergeState?, reason?, error?, required? }` with `action` one of `already-merged`, `merged`, `auto`, `deferred`, `refused`, `failed`. `required` is `{ source, state, blocking, note? }` on every result that reached the CI decision without `--now`: `source` is `config`, `protection`, `none` (no required checks: the rollup alone decides, as before) or `unavailable` (protection could not be read: the rollup alone decides, and `note` says why); `state` is `passing`, `pending`, `failing` or null (for `none` and `unavailable`); `blocking` lists at most 10 `{ name, why }` with `why` one of `missing`, `pending`, `failing`, `skipped`, `neutral`, `foreign`, `status`, `ambiguous`, `incomplete`. `pr-merge-deferred` and the CI `pr-merge-refused` events carry the same `required`. Gate refusals, `already-merged` and `--now` results have none.
 
-A job with a member repo that gets a PR merges its PRs in the order of the components' `dependsOn` (docs/architecture/job-repos.md): a PR is merged, or queued with `--auto`, only when every PR it depends on is MERGED by this call's own sync. The walk goes on after a direct merge and stops at the first PR it queues, defers, refuses or fails to merge, so a consumer is never queued while a dependency is unmerged. `--repo NAME` merges only that member's PR and `--root` only the root's; either is refused while a PR it depends on is not merged, has no PR, or could not be read. The result adds `repo` (the PR acted on last, null for the root), `parts` (one `{ repo, number, action, checks, mergeState?, error? }` per PR acted on, in order) and, on an order refusal, `reason`: `order` when a dependency PR is not merged, `cycle` when the components' `dependsOn` form a cycle between the job's repos, which refuses every merge of the job. Both exit 1 with no `gh pr merge` call and log `pr-merge-refused` with that `reason`. `merged` is true only when every PR of the job is MERGED. `--now` bypasses CI and the head pin for each PR it merges, never the order. `--repo` with `--root`, `--repo` naming no PR member, and `--root` with a value (`--root <id>` swallows the id) exit 1.
+`--now` is a human-only operation: before any `gh` call it needs a TTY on stdin and stderr (else exit 1, code `human_only`, so an agent, a script or a configured command can't run it), prints what it skips and asks the person to type the job id; any other answer exits 1 (`not confirmed; nothing changed`). No flag or env var skips the prompt; the dashboard's **Merge now** is the other way in. it skips every check above, logs `pr-merge-bypass` with the person's actor before the call and `pr-merged { bypass: true }` after it. Every `pr-merged`, with or without `--now`, carries `actor` (who ran the merge), `scope` (the `FORGE_DAEMON_SCOPE`) when a daemon session ran it, and `via: sync` when `forge sync` continued it; `pr-auto-merge` and `pr-merge-failed` carry an actor only with `--now`. In a daemon session (`FORGE_DAEMON=1`) `forge pr merge` refuses, before any `gh` call, `--now` with any value in every scope, a job id other than the session's own scope (the inbox included), the office, and a missing or invalid `FORGE_DAEMON_SCOPE`. `forge sync` continues each deferred merge itself (a row with `mergeDeferred: true` gets `merge: { action, reason?, error? }`), so no session merges another job. `mergeDeferred` is true for a single-repo job only when its PR is OPEN, its last merge event is a `pr-merge-deferred` logged after the last `decision` event, and the decision still stands (the superseded check above); for a linked job when the merge walk should go on and the decision still stands. Otherwise the row has no `merge` key and sync calls nothing.
+
+A job with a member repo that gets a PR merges its PRs in the order of the components' `dependsOn` (docs/architecture/job-repos.md): a PR is merged, or queued with `--auto`, only when every PR it depends on is MERGED by this call's own sync. The walk goes on after a direct merge and stops at the first PR it queues, defers, refuses or fails to merge, so a consumer is never queued while a dependency is unmerged. `--repo NAME` merges only that member's PR and `--root` only the root's; either is refused while a PR it depends on is not merged, has no PR, or could not be read. The result adds `repo` (the PR acted on last, null for the root), `parts` (one `{ repo, number, action, checks, mergeState?, error?, required? }` per PR acted on, in order; the top-level `required` is the last part's) and, on an order refusal, `reason`: `order` when a dependency PR is not merged, `cycle` when the components' `dependsOn` form a cycle between the job's repos, which refuses every merge of the job. Both exit 1 with no `gh pr merge` call and log `pr-merge-refused` with that `reason`. `merged` is true only when every PR of the job is MERGED. Each PR gets the checks above against its own decided head (`heads.<repo>` for a member), and the walk's `reason` is the refused PR's. `--now` bypasses those checks for each PR it merges, never the order. `--repo` with `--root`, `--repo` naming no PR member, and `--root` with a value (`--root <id>` swallows the id) exit 1.
+
+When the root PR's base has neither `merge.requiredChecks` nor protection with at least one required check and one required review, Forge merges on whatever CI has reported, and two commands say so with the same text, ending in the `gh api -X PUT 'repos/{owner}/{repo}/branches/<base>/protection' …` command that turns protection on: `forge pr open` adds `requiredChecksWarning: "<text>"` to its result when it opens or updates the root PR (one protection read, only when the key is empty; a read that fails never fails `pr open` and gives the could-not-read text), and `forge doctor` adds a `merge required checks` row (`ok: true`, with `warn: true` when warning) once the config is valid, `pr.enabled` is on and gh is authenticated. A review count only an admin can read counts as unknown and does not warn.
 
 ## Leases and fencing
 
@@ -305,11 +318,11 @@ The result gains `scoring: { queued: [ids], held: [ids] }` when either list is n
   "projectedMonthUsd", "exceeded": [key…], "held": bool, "reason": s|null, "heldJobs": [id…] }
 ```
 
-`forge budget ack --period <YYYY-MM|YYYY-MM-DD> [--note N]` grants one more period's cap and prints `{ "acked", "status" }`. The period must be the current UTC month (for `usdPerMonth` or `tokensPerMonth`) or day (`usdPerDay`), and exceeded; otherwise it exits 1 (`nothing to acknowledge: <period> is within its cap`). A missing or malformed period exits 2. A daemon session (`FORGE_DAEMON=1`) is refused with exit 1, as is `forge job new --force`. The ack is a `repo-budget-ack` line in `.forge/runtime/audit.jsonl`, so `forge audit` lists it.
+`forge budget ack --period <YYYY-MM|YYYY-MM-DD> [--note N]` grants one more period's cap and prints `{ "acked", "status" }`. The period must be the current UTC month (for `usdPerMonth` or `tokensPerMonth`) or day (`usdPerDay`), and exceeded; otherwise it exits 1 (`nothing to acknowledge: <period> is within its cap`). A missing or malformed period exits 2. It is a human-only operation, like `forge job budget --set|--ack`: a daemon session (`FORGE_DAEMON=1`), or a call without a TTY on stdin and stderr, is refused with exit 1 (code `human_only`), and otherwise the person types the period back to confirm (the job id for `job budget`); a wrong answer exits 1 with nothing changed. A daemon session's `forge job new --force` is refused with exit 1 too. The ack is a `repo-budget-ack` line in `.forge/runtime/audit.jsonl`, so `forge audit` lists it.
 
 While the repo is held, `forge next` prints `{ "held": true, "repoBudget": { "held", "reason" } }` and exits 0, `forge job new` creates the job parked on `budget` (its result adds `repoBudget`), and `forge job claim` and `forge job from-ref` exit 4. Under `onExceeded: warn` they proceed and add `repoBudget` with `held: false`.
 
-`forge stats --csv [--since DATE] [--by job|role|model|day]` prints the same spend as RFC 4180 CSV with CRLF line ends: the key column(s) (`job,kind,title` for `--by job`, the default; else `role`, `model` or `day`), then `runs,tokens,input,output,cache_read,cache_write,usd` (`usd` with 4 decimals), sorted by key. `--since` (YYYY-MM-DD or a full ISO timestamp) keeps events at or after it. Every job counts, evals and retros included, so the totals match `forge budget`. Cells go through the same formula guard as `forge audit --csv`. `--csv` with `--json`, `--by` (other than `prompt`) without `--csv`, or an unknown `--by` exits 2.
+`forge stats --csv [--since DATE] [--by job|role|model|day]` prints the same spend as RFC 4180 CSV with CRLF line ends: the key column(s) (`job,kind,title` for `--by job`, the default; else `role`, `model` or `day`), then `source` (`reported` for agent-end usage, `supervisor` for the daemon sessions' metered spend), then `runs,tokens,input,output,cache_read,cache_write,usd` (`usd` with 4 decimals), one row per key and source, sorted by key then source. `--since` (YYYY-MM-DD or a full ISO timestamp) keeps events and meter records at or after it. Every job and daemon session counts, evals, retros, the inbox and the office included, so the totals match `forge budget`; a supervisor row is what a session spent beyond the agents it reported (docs/CONFIG.md "Repo budget"). Cells go through the same formula guard as `forge audit --csv`. `--csv` with `--json`, `--by` (other than `prompt`) without `--csv`, or an unknown `--by` exits 2.
 
 ## Prompt cohorts
 
@@ -340,7 +353,7 @@ Before writing, stderr lists every entry with its size, any file it skipped and 
 | Entry | Content |
 |---|---|
 | `manifest.json` | `{createdAt, forgeVersion, includeText, jobs, entries, skipped, redactions}` |
-| `doctor.json` | what `forge doctor` prints |
+| `doctor.json` | what `forge doctor` prints, except that the `command environment` check counts the `*_HOME` and `*_ROOT` variable names it has no fixed entry for instead of naming them ([Command environment](CONFIG.md#command-environment)) |
 | `versions.json` | `{forge, node, git, gh, glab, os}`; a missing tool is `null` |
 | `config.json` | the effective config, with every value that names a command, path, URL or person, and every key Forge doesn't know, replaced by `<redacted>` (`CONFIG_DISCLOSURE` in `lib/core/config/fields.ts`) |
 | `daemon/inbox.log`, `daemon/office.log` | without a job: the last 500 lines of the inbox and office session logs |
@@ -447,7 +460,7 @@ Repo spend against the day and month caps (budget:), and acknowledging an exceed
 
 See [Repo budget](CONFIG.md#repo-budget).
 
-**`forge budget ack --period <YYYY-MM|YYYY-MM-DD> [--note N]`**: grant one more period's cap for the current, exceeded UTC month or day, then free the jobs it held; a human only
+**`forge budget ack --period <YYYY-MM|YYYY-MM-DD> [--note N]`**: grant one more period's cap for the current, exceeded UTC month or day, then free the jobs it held; a human-only operation: it asks the person at the terminal to type the period
 
 | Flag | Meaning |
 |---|---|
@@ -456,7 +469,7 @@ See [Repo budget](CONFIG.md#repo-budget).
 
 | Exit | When |
 |---|---|
-| 1 | a period that is not current, nothing exceeded in it, or a daemon session |
+| 1 | a period that is not current, nothing exceeded in it, not confirmed, or human_only: a daemon session, or no person at a terminal (an agent, a script or a configured command) |
 
 ### `forge config`
 
@@ -503,23 +516,23 @@ The dashboard's headless sessions, from the terminal.
 
 ### `forge dash`
 
-The live dashboard and its session pool.
+The machine's dashboard and every registered project's session pool.
 
-**`forge dash [--background|--stop] [--port N] [--permission-mode MODE] [--dev] [--quiet]`**: start the dashboard in the foreground (prints its URL), or detached with --background; --stop stops it and its sessions
+**`forge dash [--background|--stop] [--port N] [--permission-mode MODE] [--dev] [--quiet]`**: open the machine's dashboard, one server for every project in the machine index: in a repo with .forge/config.yml it registers that repo first (forge project add's default name) and, when it registers it or starts the dashboard, approves the files Forge trusts there as they are (a project's daemon boots with the dashboard only while they still match; a report for a repo already registered approves nothing), then prints the running one's {url: &lt;origin>/?project=&lt;name>, pid, running: true, project, added}, or starts it in the foreground (prints its URL), or detached with --background ({url, pid, started: true, project, added}); outside a project it registers nothing (project: null). Its record is &lt;FORGE_HOME>/dashboard.json ({pid, url, startedAt}, 0600, never the token); a daemon session may only get the report for a registered project
 
 | Flag | Meaning |
 |---|---|
-| `--background` | start it detached and print {url, pid} |
-| `--dev` | serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist; the daemon stays off until Start; refused while a dashboard runs for this repo |
+| `--background` | start it detached and print {url, pid, started: true, project, added} |
+| `--dev` | serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist for every project of FORGE_HOME, with no pool booting until Start; refused while a proven machine dashboard runs (a stale record does not block it) |
 | `--foreground` | run in the foreground even when one is running |
 | `--permission-mode MODE` | the job sessions' default permission mode until it stops: default (ask), auto or dontAsk (refuse); refused in a daemon session |
-| `--port N` | the first port to try (default: dashboard.port, 7400) |
+| `--port N` | the first port to try (default: this repo's dashboard.port, 7400) |
 | `--quiet` | in the foreground in human mode, print only the banner (no activity log) |
-| `--stop` | stop it and reap its sessions |
+| `--stop` | stop the machine's dashboard and, in a repo, an older per-repo dashboard (.forge/runtime/dashboard.json), then reap every registered project's orphaned sessions ({stopped, daemonReaped}); a record whose pid is not provably that dashboard is cleared without signalling anything |
 
 | Exit | When |
 |---|---|
-| 1 | no free port near N, --dev while a dashboard is already running for this repo, or --permission-mode in a daemon session |
+| 1 | no free port near N, --dev while a proven machine dashboard is running, this repo's default name registered for another path, --permission-mode in a daemon session, or a daemon session that would start, stop or register (only the report for a registered project is allowed) |
 
 ### `forge doctor`
 
@@ -611,7 +624,7 @@ Measure Forge on frozen tasks: the task suite, runs and comparisons.
 | Flag | Meaning |
 |---|---|
 | `--body B` | the request text |
-| `--body-file F` | read the request from F (- for stdin) |
+| `--body-file F` | read the request from F (- for stdin); in a daemon session F must be inside the session job's folder or worktree |
 | `--request R` | the request text |
 | `--title T` | the title (default: the name) |
 
@@ -836,17 +849,17 @@ One job's state, agents and reviews; forge job step &lt;id> returns its next act
 | Flag | Meaning |
 |---|---|
 | `--agent-id A` | the runtime's id for the agent (required with attach) |
-| `--duration-ms N` | with end: wall time |
+| `--duration-ms N` | with end: wall time (refused in a daemon session) |
 | `--epoch N` | with start and end: the driver's epoch, refused (stale_epoch) before any write once another session took the job over |
-| `--import` | with end and --agent-id: read usage from the agent's Claude Code transcript |
+| `--import` | with end and --agent-id: read usage from the agent's Claude Code transcript (implied in a daemon session) |
 | `--model M` | the model it ran on |
 | `--output P` | with start: the file it must write, inside the job dir |
 | `--retry` | with start: a retry of a lost agent |
-| `--role R` | the role, e.g. builder or reviewer:code (required) |
+| `--role R` | the role: a role name (a-z, 0-9, -) or reviewer:&lt;lens> (required; anything else exits 2) |
 | `--status S` | how it ended |
 | `--summary S` | its one-line reply |
-| `--tokens N` | with end: tokens used |
-| `--tool-uses N` | with end: tool calls made |
+| `--tokens N` | with end: tokens used (refused in a daemon session) |
+| `--tool-uses N` | with end: tool calls made (refused in a daemon session) |
 
 | Exit | When |
 |---|---|
@@ -889,7 +902,7 @@ See [Retention](architecture/retention.md).
 
 See [Audit trail](architecture/audit-trail.md).
 
-**`forge job budget <id> [--set key=value,...] [--ack]`**: the job's budget limits and use
+**`forge job budget <id> [--set key=value,...] [--ack]`**: the job's budget limits and use; --set and --ack are a human-only operation: they ask the person at the terminal to type the job id, or a person uses the dashboard's Approve & continue on the budget gate instead
 
 | Flag | Meaning |
 |---|---|
@@ -898,7 +911,7 @@ See [Audit trail](architecture/audit-trail.md).
 
 | Exit | When |
 |---|---|
-| 1 | no such job, or an unknown budget key or bad value |
+| 1 | no such job, an unknown budget key or bad value, not confirmed, or human_only: --set or --ack in a daemon session or with no person at a terminal (an agent, a script or a configured command) |
 
 **`forge job claim <id> --session S [--force] [--epoch N]`**: take the job's lease for a session (30 minutes, renewed by its own step, advance, agent and worktree commands); a new driver gets the next epoch, which the result returns as `epoch` for every later --epoch. For a job started from its issue, before any plan.md or spec.md exists, it also re-reads request.md from that issue, best effort (`requestRefreshed: true` when it changed)
 
@@ -914,7 +927,7 @@ See [Audit trail](architecture/audit-trail.md).
 | 3 | another session holds a live lease (owned), or the lease moved past --epoch (stale_epoch) |
 | 4 | dependencies pending, or the repo budget holds new work |
 
-**`forge job decision <id>`**: read decision.md and record the approver's decision
+**`forge job decision <id>`**: read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); once per approver run: a later call returns that record with recorded: false and logs nothing
 
 | Exit | When |
 |---|---|
@@ -1046,7 +1059,7 @@ See [Local links](CONFIG.md#local-links).
 | Flag | Meaning |
 |---|---|
 | `--body B` | the text |
-| `--body-file F` | read the text from F (- for stdin) |
+| `--body-file F` | read the text from F (- for stdin); in a daemon session F must be inside the session job's folder or worktree |
 | `--branch B` | the branch to push to (default: git.branchPrefix + id) |
 | `--effort E` | the job's reasoning effort: low, medium, high, xhigh or max (default: inherit runtime.effort) |
 | `--force` | start it past an exceeded repo budget (budget:), logged as a budget-override; a human only |
@@ -1072,7 +1085,7 @@ See [Local links](CONFIG.md#local-links).
 | Flag | Meaning |
 |---|---|
 | `--body B` | the text |
-| `--body-file F` | read the text from F (- for stdin) |
+| `--body-file F` | read the text from F (- for stdin); in a daemon session F must be inside the session job's folder or worktree |
 
 | Exit | When |
 |---|---|
@@ -1155,7 +1168,7 @@ See [Job repos](architecture/job-repos.md).
 |---|---|
 | 1 | unknown job, nothing queued, or missing/malformed score.md |
 
-**`forge job set <id> [--stage S] [--state S] [--waiting-on W|none] [--reason R] [--note N] [--field key=value]...`**: change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox or office daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry
+**`forge job set <id> [--stage S] [--state S] [--waiting-on W|none] [--reason R] [--note N] [--field key=value]...`**: change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox or office daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry. `--field budget` (and any path under it) is refused for every caller: use `forge job budget` at a terminal or the dashboard's Approve on the budget gate
 
 | Flag | Meaning |
 |---|---|
@@ -1271,17 +1284,17 @@ A job's pull request.
 | 1 | no such job |
 | 5 | gh or git failed |
 
-**`forge pr merge <id> [--repo NAME | --root] [--now]`**: merge once CI passes, or queue auto-merge, or defer; a multi-repo job's PRs merge in the components' dependsOn order, never a PR before its dependencies; --now is a human override that bypasses CI
+**`forge pr merge <id> [--repo NAME | --root] [--now]`**: merge once merge.auto is on, the approver's recorded APPROVE still stands and covers the PR head, no escalate-floor path changed and CI passed at a settled head; or queue auto-merge, or defer; a multi-repo job's PRs merge in the components' dependsOn order, never a PR before its dependencies; --now is a human's override
 
 | Flag | Meaning |
 |---|---|
-| `--now` | merge without waiting for CI, or a head forge pr open did not check (logged as pr-merge-bypass); never bypasses the merge order or a release gate |
+| `--now` | a human's override, confirmed by typing the job id at a terminal (or Merge now in the dashboard): merge without the eligibility, floor and CI checks (logged as pr-merge-bypass with the person's name); refused in a daemon session and without a terminal; never bypasses the merge order or a release gate |
 | `--repo NAME` | merge only that member repo PR, once every PR it depends on merged |
 | `--root` | merge only the root repo PR, once every PR it depends on merged |
 
 | Exit | When |
 |---|---|
-| 1 | the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order\|cycle\|release), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, the office daemon session ran it, or protected paths apply and the PR head is not the one forge pr open checked (code protected_path; --now overrides) |
+| 1 | the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order\|cycle\|release), merge.auto off, a rework, a new round, a stage change, a rework, revise-spec or cancel request still queued, a gate request waiting on the Foreman or a review on GitHub requesting changes on any open PR of the job after the approver's decision, no eligible decision for the PR head, an escalate-floor path (reason auto-off\|superseded\|decision\|floor), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, a daemon session passing --now, another job's id or a broken scope, the office daemon session ran it, or a protected path at the PR head that no human approved at that content (code protected_path; --now overrides), --now not confirmed, or --now with no person at a terminal (code human_only: an agent, a script or a configured command) |
 | 5 | gh or git failed |
 
 **`forge pr open <id> [--title T] [--draft] [--force]`**: push the verified branch and open or update its PR; with job repos, every repo is checked first, then each non-verify-only member's branch is pushed and its PR opened or updated (result: repos) in dependency order before the root PR; a repo an interim strategy holds back is not pushed (result: deferred; docs/CONFIG.md "Interim strategies")
@@ -1315,6 +1328,42 @@ A job's pull request.
 |---|---|
 | 1 | no such job |
 | 5 | gh or git failed |
+
+### `forge project`
+
+The projects registered on this machine (the machine index in ~/.forge or FORGE_HOME).
+
+**`forge project add [<path>] [--name N]`**: register a project in the machine index: this repo's main checkout (FORGE_ROOT, else the cwd's), or the main checkout of the repo at &lt;path> (FORGE_ROOT ignored), stored as its realpath with a name from the directory ({added, project: {name, path, addedAt}}). The same path again is a no-op (added: false). It reads nothing from the project's config and writes nothing inside it
+
+| Flag | Meaning |
+|---|---|
+| `--name N` | the project's name instead of the directory's (^[a-z0-9][a-z0-9._-]{0,63}$) |
+
+| Exit | When |
+|---|---|
+| 1 | the name is registered for another path, a daemon session ran it, or the index file is unreadable or from a newer Forge (never rewritten) |
+
+**`forge project list`**: the registered projects, sorted by name ({home, projects: [{name, path, addedAt, status}]}), status ok, missing or not-initialized; it never writes, so a missing project stays until remove drops it
+
+| Exit | When |
+|---|---|
+| 1 | the index file is unreadable or from a newer Forge |
+
+**`forge project remove <name|path>`**: drop one project from the machine index ({removed}), by name or by path (absolute, or containing /, or starting with . or ~); a path that no longer exists still matches. It never touches the project's directory
+
+| Exit | When |
+|---|---|
+| 1 | no such registered project (not_found), a daemon session ran it, or the index file is unreadable or from a newer Forge |
+
+**`forge project settings [--max-concurrent <1-64|auto>]`**: the machine settings ({home, settings: {maxConcurrent}}). maxConcurrent is the machine cap: how many job sessions run at once across every project the machine's dashboard serves, on top of each project's daemon.maxConcurrent; null (auto, the default) uses the highest loaded project's daemon.maxConcurrent. With the flag it writes first, under the index lock
+
+| Flag | Meaning |
+|---|---|
+| `--max-concurrent N\|auto` | set the machine cap to N (1-64), or auto to unset it |
+
+| Exit | When |
+|---|---|
+| 1 | a daemon session set it, or the index file is unreadable or from a newer Forge |
 
 ### `forge release`
 
@@ -1505,7 +1554,7 @@ Reconcile PRs and trackers for all jobs.
 
 ### `forge tracker`
 
-The configured issue tracker (tracker.kind): items, claims, comments.
+The configured issue tracker (tracker.kind): items, claims, comments; under github a &lt;ref> is an issue in this repo (12, #12 or owner/repo#12).
 
 **`forge tracker claim <ref> <job>`**: mark an item as taken by a job
 
@@ -1530,7 +1579,7 @@ The configured issue tracker (tracker.kind): items, claims, comments.
 | Flag | Meaning |
 |---|---|
 | `--body B` | the text |
-| `--body-file F` | read the text from F (- for stdin) |
+| `--body-file F` | read the text from F (- for stdin); in a daemon session F must be inside the session job's folder or worktree |
 
 | Exit | When |
 |---|---|
@@ -1542,7 +1591,7 @@ The configured issue tracker (tracker.kind): items, claims, comments.
 | Flag | Meaning |
 |---|---|
 | `--body B` | the text |
-| `--body-file F` | read the text from F (- for stdin) |
+| `--body-file F` | read the text from F (- for stdin); in a daemon session F must be inside the session job's folder or worktree |
 | `--label L` | a label (repeatable, or comma-separated) |
 | `--parent REF` | the parent item |
 | `--title T` | the title (required) |
@@ -1698,12 +1747,12 @@ A job's git worktree.
 
 | Flag | Meaning |
 |---|---|
-| `--delete-branch` | delete the job's branch too (not in a verify-only repo) |
+| `--delete-branch` | delete the job's branch too, only the one Forge named (git.branchPrefix + id; another is kept and listed as branchKept), not in a verify-only repo |
 | `--force` | remove it with uncommitted changes |
 | `--repo NAME` | only the worktree of member repo NAME |
 
 | Exit | When |
 |---|---|
-| 1 | no such job or repo, a member worktree that could not be removed (the result names it), or a backing teardown that failed (backing.json is kept for a retry) |
+| 1 | no such job or repo, a stored worktree that is not the job's own &lt;worktrees.root>/&lt;id>, an unsafe branch name with --delete-branch, a member worktree that could not be removed (the result names it), or a backing teardown that failed (backing.json is kept for a retry) |
 | 5 | git failed |
 <!-- forge:cli:end -->

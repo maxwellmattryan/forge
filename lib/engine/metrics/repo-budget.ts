@@ -3,7 +3,7 @@
 // next) and the daemon pool holds job sessions' requests while it is exceeded. Repo holds reuse
 // waiting:budget, told apart from a per-job stop by the reason prefix; release re-checks the job's
 // own budget, so rewriting a reason never frees a per-job stop. docs/CONFIG.md "Repo budget".
-import { effectiveLimits, exceededKeys, measureBudget } from './budget.ts';
+import { effectiveLimits, exceededKeys, measureJob } from './budget.ts';
 import { configForJob } from '../evals/overlay.ts';
 import { isActive, listJobs, loadJob, logEvent, logRepoEvent, parseEventLines, readEvents, repoAuditFile, setJob } from '#core/job/store.ts';
 import { enqueue, listRequests } from '#core/job/requests.ts';
@@ -145,7 +145,7 @@ function perJobExceeded(root: string, config: Config, job: Job): boolean {
     // A tampered overlay keeps the job held: release must never be the route past a budget.
     return true;
   }
-  return exceededKeys(effectiveLimits(limitsConfig, job), measureBudget(job), job.budget?.ack, job.round).length > 0;
+  return exceededKeys(effectiveLimits(limitsConfig, job), measureJob(root, config, job), job.budget?.ack, job.round).length > 0;
 }
 
 /**
@@ -179,16 +179,27 @@ export function checkRepoBudget(root: string, config: Config): RepoBudgetStatus 
 export const repoBudgetBlock = (s: RepoBudgetStatus): { held: boolean; reason: string | null } => ({ held: s.held, reason: s.reason });
 
 /**
- * `forge budget ack` and POST /api/budget/ack: grants one more period's cap for the current, exceeded
- * month or day, recorded in .forge/runtime/audit.jsonl, then releases holds.
+ * The status, when `period` is the current, exceeded month or day an ack can grant; otherwise a
+ * RepoBudgetAckError. `forge budget ack` runs it before asking a person to confirm, so nobody is asked
+ * for an ack that would be refused.
  */
-export function ackRepoBudget(root: string, config: Config, period: unknown, note: string | null, actor: EventActor): { acked: string; status: RepoBudgetStatus } {
-  if (!validPeriod(period)) throw new RepoBudgetAckError('period', `--period must be YYYY-MM or YYYY-MM-DD (got ${JSON.stringify(String(period ?? '')).slice(0, 40)})`, 'usage');
+export function assertAckable(root: string, config: Config, period: string): RepoBudgetStatus {
   const status = repoBudgetStatus(root, config);
   if (period !== status.month && period !== status.day)
     throw new RepoBudgetAckError('period', `--period must be the current UTC month (${status.month}) or day (${status.day}); got ${period}`);
   const keys = period === status.month ? MONTH_KEYS : (['usdPerDay'] as const);
   if (!status.exceeded.some((k) => keys.includes(k))) throw new RepoBudgetAckError('within', `nothing to acknowledge: ${period} is within its cap`);
+  return status;
+}
+
+/**
+ * `forge budget ack` and POST /api/budget/ack: grants one more period's cap for the current, exceeded
+ * month or day, recorded in .forge/runtime/audit.jsonl, then releases holds.
+ */
+export function ackRepoBudget(root: string, config: Config, period: unknown, note: string | null, actor: EventActor): { acked: string; status: RepoBudgetStatus } {
+  if (!validPeriod(period)) throw new RepoBudgetAckError('period', `--period must be YYYY-MM or YYYY-MM-DD (got ${JSON.stringify(String(period ?? '')).slice(0, 40)})`, 'usage');
+  // Again after the CLI's prompt: the day or month may have turned while the person typed.
+  const status = assertAckable(root, config, period);
   logRepoEvent(root, 'repo-budget-ack', { period, note: note ?? undefined, spent: status.spent, caps: status.caps, actor });
   return { acked: period, status: checkRepoBudget(root, config) };
 }

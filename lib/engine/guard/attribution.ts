@@ -1,9 +1,12 @@
 // AI-attribution policy. Forge's default is that nothing it produces (commits, PR bodies,
 // issues, comments, releases) credits an AI: the human who runs Forge is the author. Messages
 // may still *mention* AI tools; only signatures, trailers and "generated with" footers are removed.
+import fs from 'node:fs';
+import path from 'node:path';
 import { git, gitEnv } from '#integrations/git/runner.ts';
 import type { Config } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
+import { readText } from '#core/os/fs.ts';
 
 const AI = '(claude|anthropic|openai|chatgpt|gpt-?\\d|copilot|gemini|codex|cursor|devin|aider|windsurf|ai assistant|ai agent)';
 
@@ -36,6 +39,132 @@ export function stripAttribution(text: string): string {
     .filter((l) => !isAttributionLine(l));
   while (kept.length && !kept[kept.length - 1].trim()) kept.pop();
   return kept.join('\n') + (String(text ?? '').endsWith('\n') ? '\n' : '');
+}
+
+// The hook's view of a Bash command. Any mention of git, gh or glab counts, so global options before
+// the subcommand (`git -c k=v commit`, `gh -R o/r pr create`) and a path to the binary hide nothing.
+const PUBLISHING = /\b(git|gh|glab)\b/;
+const VALUE = String.raw`("[^"]*"|'[^']*'|[^\s;&|]+)`;
+// git's unambiguous abbreviations count (`--fil`, `--templ`), but only with `=` or a space right after
+// the name, so `--filter=`, `--fixup=` and `--text` never do.
+const LONG_FILE_FLAG = new RegExp(String.raw`(?:^|\s)--(?:fi(?:le?)?|body-file|notes-file|input|te(?:m(?:p(?:l(?:a(?:te?)?)?)?)?)?)(?:=|\s+)${VALUE}`, 'g');
+// `-F msg`, `-Fmsg` and a cluster ending in the flag (`-aF msg`); `-t` is commit's --template.
+const SHORT_FILE_FLAG = new RegExp(String.raw`(?:^|\s)-[A-Za-z]*?[Ft]\s*${VALUE}`, 'g');
+// gh's and glab's fields (`-F key=@file`, `-f`, `--field`, `--raw-field`): only the `key=@path` form reads a file.
+const FIELD_FLAG = new RegExp(String.raw`(?:^|\s)(?:-[Ff]\s*|--(?:raw-)?field(?:=|\s+))${VALUE}`, 'g');
+const FIELD_VALUE = /^[^=\s]*=@([\s\S]+)$/;
+const DIR_FLAG = new RegExp(String.raw`(?:^|\s)-C\s*${VALUE}`, 'g');
+const MAX_MESSAGE_FILE = 1024 * 1024;
+/**
+ * The hook's work stays bounded on any command: past these, nothing more is read. The byte budget
+ * bounds the bytes read across all of a command's message files, so up to 288 files (32 values in
+ * 9 bases) near 1 MiB each cannot make the hook slow enough for Claude Code to let it through.
+ */
+const MAX_DIR_BASES = 8;
+const MAX_MESSAGE_FILES = 32;
+const MAX_READ_BYTES = 8 * 1024 * 1024;
+// A quoted argument (`-m "Co-Authored-By: …"`), a `$'…\n…'` line or a JSON string starts mid-line,
+// so text is scanned once more with quotes and literal `\n` as line breaks.
+const LINE_BREAKS = /["']|\\n/;
+
+const unquote = (v: string): string => v.replace(/^(["'])([\s\S]*)\1$/, '$2');
+
+/** The path a flag's value names, or null: a field names only the part after `=@`, and `-` is stdin. */
+function namedFile(raw: string, kind: 'long' | 'short' | 'field'): string | null {
+  const v = unquote(raw);
+  const field = kind === 'long' ? null : FIELD_VALUE.exec(v);
+  const p = field ? unquote(field[1]) : kind === 'field' ? '' : v;
+  return p && p !== '-' ? p : null;
+}
+
+/**
+ * A message file's text and the bytes read, or null. Only an existing regular file under 1 MiB
+ * whose size fits in `room` (what is left of the command's byte budget) is read, and it is opened
+ * non-blocking and checked again on the descriptor, so a FIFO or device an agent names (or swaps in
+ * after the stat) never blocks the hook. At most the descriptor's size is read, never to EOF, so a
+ * file that grows after the check (or reports size 0) cannot take the read past the budget.
+ */
+function readMessageFile(file: string, room: number): { text: string; bytes: number } | null {
+  try {
+    const st = fs.statSync(file);
+    if (!st.isFile() || st.size >= MAX_MESSAGE_FILE || st.size > room) return null;
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0));
+    try {
+      const real = fs.fstatSync(fd);
+      if (!real.isFile() || real.size >= MAX_MESSAGE_FILE || real.size > room) return null;
+      const buf = Buffer.alloc(real.size);
+      let n = 0;
+      while (n < buf.length) {
+        const got = fs.readSync(fd, buf, n, buf.length - n, n);
+        if (got === 0) break;
+        n += got;
+      }
+      return { text: buf.toString('utf8', 0, n), bytes: n };
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The attribution lines a Bash command would publish: in the command itself and in every message
+ * file it names (`--file`, `--body-file`, `--notes-file`, `--input`, `--template` and git's
+ * unambiguous abbreviations `--fi`, `--fil`, `--te`…, with `=` or a space; `-F` or `-t`, attached,
+ * spaced or ending a cluster; a `key=@path` field of `-F`, `-f`, `--field` or `--raw-field`). A
+ * relative file is tried against `cwd` and against each of the first 8 `-C <dir>`, each resolved
+ * against the one before, as git does; only the first 32 distinct files are read, and at most
+ * `maxBytes` (8 MiB) in total: a file whose size would pass what is left is skipped unread, and a
+ * later one that fits is still read. So the cost is bounded on any command. The command text is
+ * always scanned, outside the budget. The command and each file are scanned as they are and once
+ * more split on quotes and literal `\n`. `[]` when the command names no git, gh or glab. Commands
+ * built at run time (`$(cat msg)`, `$F`, `cd dir &&`, `~`) and a file skipped for the budget are the
+ * documented residuals.
+ */
+export function commandAttribution(command: string, cwd: string, maxBytes = MAX_READ_BYTES): string[] {
+  if (!PUBLISHING.test(command)) return [];
+  const bases = new Set([cwd]);
+  let base = cwd;
+  let dirs = 0;
+  for (const m of command.matchAll(DIR_FLAG)) {
+    if (dirs++ === MAX_DIR_BASES) break;
+    bases.add((base = path.resolve(base, unquote(m[1]))));
+  }
+  const named: { at: number; file: string | null }[] = [];
+  for (const [re, kind] of [[LONG_FILE_FLAG, 'long'], [SHORT_FILE_FLAG, 'short'], [FIELD_FLAG, 'field']] as const)
+    for (const m of command.matchAll(re)) named.push({ at: m.index, file: namedFile(m[1], kind) });
+  const values = [...new Set(named.sort((a, b) => a.at - b.at).flatMap((n) => (n.file === null ? [] : [n.file])))].slice(0, MAX_MESSAGE_FILES);
+  const files = new Set<string>();
+  for (const p of values) for (const b of path.isAbsolute(p) ? [''] : bases) files.add(path.resolve(b, p));
+  const texts = [command];
+  let room = maxBytes;
+  for (const f of files) {
+    const read = readMessageFile(f, room);
+    if (read) {
+      room -= read.bytes;
+      texts.push(read.text);
+    }
+  }
+  return [...new Set(texts.flatMap((t) => [...findAttribution(t), ...findAttribution(t.split(LINE_BREAKS).join('\n'))]))];
+}
+
+/**
+ * Whether the project Claude Code runs in opted out with `aiAttribution: allow`, read only from the
+ * main checkout of `projectDir`'s repository (`<common dir>/../.forge/config.yml`), never from a
+ * worktree's own `.forge/`, the Bash cwd or FORGE_ROOT, all of which an agent can choose or write.
+ * Every failure is false, so the lookup fails closed.
+ */
+export function repoAllowsAttribution(projectDir: string | undefined): boolean {
+  if (!projectDir) return false;
+  try {
+    const r = git(projectDir, ['rev-parse', '--path-format=absolute', '--git-common-dir'], { allowFail: true, timeoutMs: 3000 });
+    const common = r.ok ? r.stdout.trim() : '';
+    if (!common || path.basename(common) !== '.git') return false;
+    return /^aiAttribution:\s*["']?allow\b/m.test(readText(path.join(path.dirname(common), '.forge', 'config.yml')));
+  } catch {
+    return false;
+  }
 }
 
 export function attributionForbidden(config: Config | null | undefined): boolean {

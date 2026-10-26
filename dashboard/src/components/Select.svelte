@@ -31,6 +31,7 @@
     variant = 'field',
     icon,
     text,
+    placeholder,
     title,
     badge = false,
     align = 'start',
@@ -52,6 +53,8 @@
     icon?: IconName;
     /** The trigger's text in place of the chosen entry's label. */
     text?: string;
+    /** The muted trigger text while no entry is chosen, in place of the generic "Choose…". */
+    placeholder?: string;
     title?: string;
     /** The button variant's spark dot, as MenuButton's. */
     badge?: boolean;
@@ -224,7 +227,7 @@
   onkeydown={key}
   onkeyup={keyUp}
   onfocusout={focusOut}
->{#if variant === 'button' && icon}<Icon name={icon} />{/if}<span class={sel || text !== undefined ? 'truncate' : 'truncate text-muted'} lang={text === undefined ? sel?.lang : undefined}>{text ?? sel?.label ?? $t('select.choose')}</span><Icon name="chevron-down" class="shrink-0" />{#if variant === 'button' && badge}<span class="dot spark absolute -top-1 -right-1 size-2" aria-hidden="true"></span>{/if}</button>
+>{#if variant === 'button' && icon}<Icon name={icon} />{/if}<span class={sel || text !== undefined ? 'truncate' : 'truncate text-muted'} lang={text === undefined ? sel?.lang : undefined}>{text ?? sel?.label ?? placeholder ?? $t('select.choose')}</span><Icon name="chevron-down" class="shrink-0" />{#if variant === 'button' && badge}<span class="dot spark absolute -top-1 -right-1 size-2" aria-hidden="true"></span>{/if}</button>
 <ul
   bind:this={list}
   id={listId}

@@ -28,7 +28,7 @@ forge sync     # PRs and trackers; cleans merged worktrees
 forge requests # inbox requests: reference/requests.md, before new work
 ```
 No `.forge/config.yml` (exit 2) → **init** unless told otherwise.
-Report `sync`, a line each: merges, PR feedback, conflicts, finished umbrellas, `unblocked: true`/`integrating` (`/forge continue <id>`), `retargeted`. For each `mergeDeferred: true`, run `forge pr merge <id>`.
+Report `sync`, a line each: merges, PR feedback, conflicts, finished umbrellas, `unblocked: true`/`integrating` (`/forge continue <id>`), `retargeted`. `forge sync` continues deferred merges itself (`merge` on the row), only for a job still at `pr` whose decision no rework or round replaced; never run `forge pr merge` for a job this session does not drive.
 
 ## Commands (route on the first word)
 | Arguments | Do |
@@ -49,7 +49,7 @@ Report `sync`, a line each: merges, PR feedback, conflicts, finished umbrellas, 
 Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`, note its `epoch`. Exit 3: another live session owns it: tell the human, stop. Exit 4: blocked (dependencies, repo budget); report, move on (`--force` only if the human asks).
 
 Then loop: `forge job advance <id> --session ${CLAUDE_SESSION_ID} --epoch <epoch>` (Bash timeout 600000), report each `tell` in `ran`, act on `action`, advance again.
-- `spawn` (`verifier`: yes/no): run `startShell`. Spawn `agent` as `subagent_type` with `brief` as the prompt, `model` unless `inherit` and `effort` unless null (if `resume` names a live agent, SendMessage it the brief). At the first of its report or notification: `forge job agent <id> end --role <role> --agent-id <agentId> --import [--tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms>] --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and advance at once. With `spawns`, run all `startShell`s in one Bash call, then spawn all in one message of background Agent calls. Then `forge job agent <id> attach --role <role> --agent-id <agentId>` for each, in one Bash call.
+- `spawn` (`verifier`: yes/no): run `startShell`. Spawn `agent` as `subagent_type` with `brief` as the prompt, `model` unless `inherit` and `effort` unless null (if `resume` names a live agent, SendMessage it the brief). At the first of its report or notification: `forge job agent <id> end --role <role> --agent-id <agentId> --import --summary "<first line of its reply>"` (outside a daemon session, add --tokens/--tool-uses/--duration-ms from its notification as a fallback; a daemon session never passes them). With `parallel: true`, spawn it in the background and advance at once. With `spawns`, run all `startShell`s in one Bash call, then spawn all in one message of background Agent calls. Then `forge job agent <id> attach --role <role> --agent-id <agentId>` for each, in one Bash call.
 - `failed: true`: advance again; `parked: true` (it parked on `escalation`): report, stop. `capped: true`: advance again. Exit 3: stop (`stale_epoch`: taken over).
 - `wait` on `agents`: end each as above; one not spawned by this session ends with `--status lost`.
 - `wait` on a gate: report `tell` (for `input`, also `questions.md`) and stop driving it.

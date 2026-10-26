@@ -1,7 +1,9 @@
 // `npm run release:check [-- --root <dir>] [--dist absent|present]`: is this checkout fit to be a
-// release commit? Versions agree, CHANGELOG has the version's notes, the tree is clean, and the
-// built dashboard is untracked (`absent`, develop) or tracked and fresh (`present`, main and the
-// main update); with no `--dist` the stamp is checked only when dist is tracked.
+// release commit? Versions agree, CHANGELOG has the version's notes, .claude-plugin/marketplace.json
+// points installs at the version's tag, the tree is clean, and the built dashboard is untracked
+// (`absent`, develop and the release commit) or tracked and fresh (`present`, main, the main update and
+// any PR into main, where the version must also not be tagged at another commit); with no `--dist` the
+// stamp is checked only when dist is tracked.
 // Built-ins only, so CI's `release check` job runs it without `npm ci` (docs/RELEASES.md).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -37,6 +39,22 @@ function version(file: string): { value: unknown; problem?: string } {
   }
 }
 
+/** The forge plugin's `source.ref` in a parsed marketplace.json: the ref plugin installs get. */
+export const forgeRef = (marketplace: any): unknown =>
+  Array.isArray(marketplace?.plugins) ? marketplace.plugins.find((p: any) => p?.name === 'forge')?.source?.ref : undefined;
+
+/** Why marketplace.json does not point installs at `v<version>`, or null when it does. */
+function marketplaceProblem(root: string, version: string): string | null {
+  let ref: unknown;
+  try {
+    ref = forgeRef(JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'marketplace.json'), 'utf8')));
+  } catch (e) {
+    return `cannot read marketplace.json: ${(e as Error).message}`;
+  }
+  if (typeof ref !== 'string') return '.claude-plugin/marketplace.json has no forge plugin with a source.ref';
+  return ref === `v${version}` ? null : `.claude-plugin/marketplace.json points installs at ${JSON.stringify(ref)}, not v${version}`;
+}
+
 export type DistMode = 'absent' | 'present';
 const DIST_MODES: readonly string[] = ['absent', 'present'];
 
@@ -64,6 +82,21 @@ export function releaseProblems(root: string, opts: { dist?: DistMode } = {}): s
     if (section === null) problems.push(`CHANGELOG.md has no "## ${v}" heading`);
     else if (!hasNotes(section)) problems.push(`CHANGELOG.md "## ${v}" has no notes`);
     else if (findAttribution(section).length) problems.push(`CHANGELOG.md "## ${v}" has an AI attribution line: ${findAttribution(section)[0]}`);
+  }
+
+  // Installs read develop's marketplace.json: its ref names the tag of the version it carries.
+  if (v && SEMVER.test(v)) {
+    const marketplace = marketplaceProblem(root, v);
+    if (marketplace) problems.push(marketplace);
+  }
+
+  // main moves only to release: a commit for main whose version is already tagged elsewhere (a hotfix
+  // without a bump) would never be tagged or published. Needs the tags in the checkout.
+  if (opts.dist === 'present' && v && SEMVER.test(v)) {
+    const tag = gitSync(['--no-optional-locks', '-C', root, 'rev-parse', '-q', '--verify', `refs/tags/v${v}^{commit}`]);
+    const head = gitSync(['--no-optional-locks', '-C', root, 'rev-parse', '-q', '--verify', 'HEAD^{commit}']);
+    const [at, here] = [tag.stdout.trim(), head.stdout.trim()];
+    if (tag.status === 0 && at && at !== here) problems.push(`v${v} is already tagged at ${at.slice(0, 7)}, not this commit (${here.slice(0, 7)}): bump the version to release again`);
   }
 
   // Pinned so repo config can't hide untracked files or reshape the listing.

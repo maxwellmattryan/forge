@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { claudeAdapter } from '#integrations/claude/child.ts';
 import type { ClaudeAdapter, ClaudeChild } from '#integrations/claude/types.ts';
 import { loadConfig as defaultLoadConfig } from '#core/config/load.ts';
-import { openAppend } from '#core/job/session-files.ts';
+import { LOG_ROTATE_BYTES, openAppend } from '#core/job/session-files.ts';
 import type { sessionFiles } from '#core/job/session-files.ts';
 import type { SessionFacts } from '../reconcile.ts';
 import { scopeKnownValues } from '#engine/guard/known-secrets.ts';
@@ -82,7 +82,7 @@ export function sessionOptions(opts: DaemonOptions = {}): SessionOptions {
     claude: opts.claude ?? claudeAdapter(),
     graceMs: opts.graceMs ?? 5000,
     maxLineBytes: opts.maxLineBytes ?? 8 * 1024 * 1024,
-    rotateBytes: opts.rotateBytes ?? 20 * 1024 * 1024,
+    rotateBytes: opts.rotateBytes ?? LOG_ROTATE_BYTES,
     retryMinMs: opts.retryMinMs ?? 60_000,
     retryMaxMs: opts.retryMaxMs ?? 60 * 60_000,
     modeConfirmMs: opts.modeConfirmMs ?? 15_000,
@@ -100,9 +100,11 @@ export function sessionOptions(opts: DaemonOptions = {}): SessionOptions {
 export interface SessionContext {
   /** The trustDigest a human's pool start took. */
   trusted(): string | null;
+  /** The confineDigest (./confine.ts) the same pool start took; every turn's end and every spawn compare against it. */
+  confined(): string | null;
   poolWanted(): boolean;
   config(): Config;
-  /** .forge/config.yml, .forge/trackers/ or .forge/verifiers/ changed: the pool stops every session. */
+  /** A file the trust or confine digest covers changed: the pool stops every session. */
   untrusted(): void;
   /** A repo-wide refusal (config, daemon.enabled, tracker symlinks): the pool stops every session. */
   fatal(message: string): void;
