@@ -212,18 +212,23 @@ test('every guarded route refuses before its handler runs', async () => {
     const body = '{"x":';
     const chat = '/chats/0123456789ab';
     const posts = [
-      '/jobs',
-      '/requests',
-      '/config',
-      '/budget/ack',
-      '/daemon',
-      '/daemon/permission',
-      '/daemon/mode',
-      '/focus',
-      '/chats',
-      ...['rename', 'archive', 'messages'].map((x) => `${chat}/${x}`),
-      ...['effort', 'budget', 'delete', 'merge', 'repos', 'environment', 'run', 'editor'].map((x) => `/jobs/j-1/${x}`),
-    ].map((p) => `${P}${p}`);
+      ...[
+        '/jobs',
+        '/requests',
+        '/config',
+        '/budget/ack',
+        '/daemon',
+        '/daemon/permission',
+        '/daemon/mode',
+        '/focus',
+        '/mandates/g1/draft',
+        '/chats',
+        ...['rename', 'archive', 'messages'].map((x) => `${chat}/${x}`),
+        ...['effort', 'budget', 'delete', 'merge', 'repos', 'environment', 'run', 'editor'].map((x) => `/jobs/j-1/${x}`),
+      ].map((p) => `${P}${p}`),
+      // The machine's own POST: no project prefix.
+      '/api/projects',
+    ];
     for (const p of posts) {
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': 'wrong', origin, 'content-type': 'application/json' }, status: 403, text: 'bad token' });
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': token, 'content-type': 'application/json' }, status: 403, text: 'bad origin' });
@@ -241,7 +246,7 @@ test('every guarded route refuses before its handler runs', async () => {
       rows.push(...readRows(p), { method: 'GET', path: p, headers: {}, status: 403, text: 'bad token' });
       rows.push({ method: 'GET', path: p, headers: { 'x-forge-token': token, origin: evil }, status: 403, text: 'bad origin' });
     }
-    const reads = ['/state', '/stats', '/evals', '/evals/compare', '/requests', '/roster', '/project', '/backlog?refresh=1', '/config', '/chats'].map((p) => `${P}${p}`);
+    const reads = ['/state', '/stats', '/evals', '/evals/compare', '/requests', '/roster', '/project', '/backlog?refresh=1', '/config', '/mandates/g1/draft', '/chats'].map((p) => `${P}${p}`);
     const streams = ['/events?session=_inbox', '/daemons/log?session=_inbox', '/jobs/j-1', '/jobs/j-1/file?path=x.md', '/jobs/j-1/raw?path=x.html'].map((p) => `${P}${p}`);
     for (const p of [...reads, ...streams, '/api/about', '/api/projects', '/api/projects/events', '/api/projects/stats']) rows.push(...readRows(p));
     for (const p of ['/environments', '/jobs/j-1/environment', '/jobs/j-1/transcript', '/doctor/bundle', chat, `${chat}/log?after=-1`].map((x) => `${P}${x}`)) {
@@ -286,7 +291,8 @@ test('machine routes keep the read guard and project segments are validated', as
     }
     const token = await tokenOf(port);
     const origin = `http://127.0.0.1:${port}`;
-    assert.equal((await raw(port, 'POST', '/api/projects', { 'x-forge-token': token, origin, 'content-type': 'application/json' }, '{}')).status, 404);
+    // Past the guard, Add project's handler refuses a body with no path.
+    assert.equal((await raw(port, 'POST', '/api/projects', { 'x-forge-token': token, origin, 'content-type': 'application/json' }, '{}')).status, 400);
 
     // Registered after start: an invalid segment must not refresh the index and so load it.
     addProject(s.home, fs.realpathSync(later.dir), { name: 'c' });
@@ -401,8 +407,10 @@ test('POST /api/requests refuses gate and draft requests', async () => {
   try {
     const headers = { 'x-forge-token': await tokenOf(port), origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
     const rows: [Record<string, unknown>, string][] = [
-      [{ type: 'gate', job: 'j1', args: { gate: 'spec-approval' } }, 'gate requests are written only by forge job set and forge pr sync'],
+      [{ type: 'gate', job: 'j1', args: { gate: 'spec-approval' } }, 'gate requests are written only by forge job set and forge pr sync (and forge mandate draft record for a milestone draft)'],
+      [{ type: 'gate', job: null, args: { gate: 'milestone-approval', mandate: 'g1' } }, 'gate requests are written only by forge job set and forge pr sync (and forge mandate draft record for a milestone draft)'],
       [{ type: 'draft', args: { mandate: 'g1' } }, 'draft requests are written only by forge mandate'],
+      [{ type: 'direct' }, 'direct requests are written only by the Office pass'],
     ];
     for (const [body, error] of rows) {
       const r = await hit(port, { method: 'POST', path: `${P}/requests`, headers, body: JSON.stringify(body) });

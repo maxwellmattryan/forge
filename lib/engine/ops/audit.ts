@@ -87,8 +87,16 @@ function detail(e: JobEvent): string | null {
     case 'mandate-pause':
     case 'mandate-resume':
     case 'mandate-close':
+    case 'mandate-filed':
     case 'mandate-draft':
+    case 'mandate-draft-approved':
+    case 'mandate-draft-revised':
+    case 'mandate-draft-rejected':
       d = str(e.mandate);
+      break;
+    // The director loop's record: what it did, under which mandate, to which issue and job.
+    case 'directive':
+      d = [str(e.mandate), str(e.action), str(e.issue), str(e.job)].filter(Boolean).join(' ') || null;
       break;
     default:
       d = null;
@@ -112,7 +120,9 @@ function eventRows(e: JobEvent, job: string | null): AuditRow[] {
   }
   if (e.actor === undefined && !PR_EVENTS.has(e.type)) return [];
   const action = e.type === 'human' && typeof e.action === 'string' ? e.action : e.type;
-  return [row(action, typeof e.note === 'string' ? e.note : null, detail(e))];
+  // A directive's note is its reason.
+  const note = e.type === 'directive' ? str(e.reason) : typeof e.note === 'string' ? e.note : null;
+  return [row(action, note, detail(e))];
 }
 
 function rowsOf(events: JobEvent[], job: string | null): AuditRow[] {
@@ -165,7 +175,8 @@ export function auditAll(root: string, since: string, until: string): RepoAudit 
       continue;
     }
     prs[a.id] = a.pr;
-    all.push(...a.rows);
+    // A job's directives are also in the repo log, which lists every directive once.
+    all.push(...a.rows.filter((r) => r.action !== 'directive'));
   }
   all.push(...repoAuditRows(root));
   const rows = all

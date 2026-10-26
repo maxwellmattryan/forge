@@ -1,6 +1,7 @@
 // The mandate contract's rules: the stored shape a file needs to be read, the refusals of `forge mandate
 // new|edit`, the defaults a new mandate takes, the contract as it applies under the config (what it caps),
 // the derived state and chain, and the guidance and goal fences. Reads no file: store.ts does. docs/architecture/foreman.md.
+import { MANDATE_ID_SOURCE } from '#api/constants.ts';
 import { MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_STATUSES, MANDATE_UNTIL } from '#core/job/schema.ts';
 import { MANDATE_SCHEMA_VERSION, MANDATE_STEPS } from '#core/versions/mandate.ts';
 import { runSteps } from '#core/versions/steps.ts';
@@ -14,14 +15,14 @@ import type { Config, GateClass } from '#core/types.ts';
 import type { Mandate, MandateContract, MandateInput, MandateState, MandateSummary, ReadMandate } from './types.ts';
 
 /** A mandate id: also its file name, so the grammar is what keeps a path inside the mandates dir. */
-export const MANDATE_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
+export const MANDATE_ID = new RegExp(MANDATE_ID_SOURCE);
 /** `none` clears a list or `after` on the command line, so it can never be an id. */
 export const isMandateId = (v: unknown): v is string => typeof v === 'string' && MANDATE_ID.test(v) && v !== 'none';
 
 const TITLE_MAX = 200;
 const REASON_MAX = 200;
 export const BODY_MAX = 8000;
-/** Milestones and labels later reach `gh` as arguments (#538): bounded, and never a flag. */
+/** Milestones and labels reach `gh` as arguments (a tracker's `scope`): bounded, and never a flag. */
 const ENTRY_MAX = 100;
 const SCOPE_LIST_MAX = 10;
 const ISSUES_MAX = 100;
@@ -30,11 +31,11 @@ export const GOAL_MAX = 4000;
 const SEPARATORS = String.fromCharCode(0x2028, 0x2029);
 const CONTROL = new RegExp(`[\\x00-\\x1f\\x7f-\\x9f${SEPARATORS}]`);
 /** CONTROL but LF and TAB: what a goal may not hold. The separators would split its one stored line. */
-const GOAL_CONTROL = new RegExp(`[\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f${SEPARATORS}]`);
+export const GOAL_CONTROL = new RegExp(`[\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f${SEPARATORS}]`);
 
 /** The frontmatter keys, in the order a file holds them; every one is always written, `goal` last (store.ts). */
 export const MANDATE_KEYS = [
-  'schemaVersion', 'id', 'title', 'status', 'reason', 'scope', 'until', 'maxJobs', 'order', 'decides', 'budget', 'stall', 'onUnfinishable', 'after', 'createdAt', 'updatedAt', 'closedAt', 'goal',
+  'schemaVersion', 'id', 'title', 'status', 'reason', 'scope', 'until', 'maxJobs', 'order', 'decides', 'budget', 'stall', 'onUnfinishable', 'after', 'createdAt', 'updatedAt', 'closedAt', 'filedAt', 'goal',
 ] as const;
 
 export const isReadable = (m: ReadMandate | undefined): m is Mandate => m !== undefined && !('problem' in m);
@@ -45,26 +46,45 @@ const isIso = (v: unknown): v is string => typeof v === 'string' && v.length <= 
 const oneOf = (v: unknown, allowed: readonly string[]): boolean => typeof v === 'string' && allowed.includes(v);
 const badId = (what: string, v: unknown) => `${what} ${JSON.stringify(String(v ?? '')).slice(0, 60)} is not a mandate id (lowercase letters, digits and -, at most 40, not starting with -, and not none)`;
 
+/** A milestone filed from a draft becomes a scope milestone, so it follows the same rule (filing.ts checks it before any write). */
+export const SCOPE_MILESTONE_MAX = 200;
+
+/** Whether `e` may be a scope milestone or label of at most `max` characters: not empty, never a flag, no control or hidden character. */
+export const scopeEntryOk = (e: unknown, max: number): e is string =>
+  typeof e === 'string' && e.length > 0 && e.length <= max && !e.startsWith('-') && !CONTROL.test(e) && visibleText(e).removed === 0;
+
 function scopeListProblems(kind: 'milestone' | 'label', list: unknown): string[] {
   const key = `scope.${kind}s`;
   if (!Array.isArray(list)) return [`${key} must be a list ${got(list)}`];
   const problems: string[] = [];
   if (list.length > SCOPE_LIST_MAX) problems.push(`more than ${SCOPE_LIST_MAX} ${kind}s (${list.length})`);
+  // A milestone filed from a draft may carry a title up to the draft's 200; a label stays at 100.
+  const max = kind === 'milestone' ? SCOPE_MILESTONE_MAX : ENTRY_MAX;
   for (const e of list) {
     // Hidden characters (zero-width, bidi overrides) would read differently on the page than in argv, as titles lose them in oneLineTitle.
-    if (typeof e !== 'string' || !e || e.length > ENTRY_MAX || e.startsWith('-') || CONTROL.test(e) || visibleText(e).removed > 0)
-      problems.push(`${kind} ${JSON.stringify(String(e)).slice(0, 120)} must be 1-${ENTRY_MAX} characters, not start with "-" and have no control or hidden characters`);
+    if (!scopeEntryOk(e, max)) problems.push(`${kind} ${JSON.stringify(String(e)).slice(0, 120)} must be 1-${max} characters, not start with "-" and have no control or hidden characters`);
   }
   return problems;
+}
+
+/**
+ * Why owner text on lines breaks the goal's rules (not blank, at most `max` characters, no control
+ * character but LF and TAB, no line or paragraph separator), or null: shared by the goal and a draft
+ * decision's note (gate.ts), which add their own hidden-text check.
+ */
+export function textLinesProblem(what: string, v: unknown, max: number): string | null {
+  if (typeof v !== 'string' || !v.trim()) return `${what} needs at least one character that is not whitespace`;
+  if (v.length > max) return `${what} must be at most ${max} characters (got ${v.length})`;
+  if (GOAL_CONTROL.test(v)) return `${what} must hold no control character but line feed and tab, and no line or paragraph separator`;
+  return null;
 }
 
 /** A goal is null, or owner text on lines: not blank, at most GOAL_MAX characters, no control character but LF and TAB. */
 function goalProblems(goal: unknown): string[] {
   if (goal === null) return [];
   if (typeof goal !== 'string' || !goal.trim()) return ['a goal needs at least one character that is not whitespace'];
-  if (goal.length > GOAL_MAX) return [`the goal must be at most ${GOAL_MAX} characters (got ${goal.length})`];
-  if (GOAL_CONTROL.test(goal)) return ['the goal must hold no control character but line feed and tab, and no line or paragraph separator'];
-  return [];
+  const p = textLinesProblem('the goal', goal, GOAL_MAX);
+  return p ? [p] : [];
 }
 
 /**
@@ -94,11 +114,15 @@ function termProblems(m: Record<string, any>, opts: { decides: boolean }): strin
     }
     const lists = [s.milestones, s.labels, s.issues].map((l) => (Array.isArray(l) ? l.length : 0));
     const goal = typeof m.goal === 'string';
-    if (goal && lists.some((n) => n > 0)) problems.push("a goal mandate's scope stays empty until its draft is filed");
-    else if (!goal && lists.every((n) => n === 0)) problems.push("a mandate's scope needs at least one milestone, label or issue, or a goal");
+    // A goal mandate is in intake until its draft is filed: its scope stays empty. Filed, it is an ordinary scoped mandate.
+    if (goal && m.filedAt === null) {
+      if (lists.some((n) => n > 0)) problems.push("a goal mandate's scope stays empty until its draft is filed");
+    } else if (lists.every((n) => n === 0)) problems.push(goal ? "a filed goal mandate's scope needs at least one milestone, label or issue" : "a mandate's scope needs at least one milestone, label or issue, or a goal");
     else if (m.order === 'listed' && (lists[2] === 0 || lists[0] > 0 || lists[1] > 0)) problems.push('order listed needs scope.issues and no milestones or labels');
     else if (lists[2] > 0 && m.order !== 'listed') problems.push('scope.issues needs order listed (issues are worked in the order given)');
   }
+  if (m.filedAt !== null && !isIso(m.filedAt)) problems.push('filedAt must be null or an ISO time');
+  else if (m.filedAt !== null && typeof m.goal !== 'string') problems.push('filedAt is set only on a goal mandate, when its draft is filed');
   if (!oneOf(m.until, MANDATE_UNTIL)) problems.push(`until must be one of ${MANDATE_UNTIL.join(' | ')} ${got(m.until)}`);
   if (!isInt(m.maxJobs, 1, 16)) problems.push(`maxJobs must be an integer 1-16 ${got(m.maxJobs)}`);
   if (!oneOf(m.order, MANDATE_ORDERS)) problems.push(`order must be one of ${MANDATE_ORDERS.join(' | ')} ${got(m.order)}`);
@@ -196,6 +220,7 @@ export function blankMandate(id: string, at: string): Mandate {
     createdAt: at,
     updatedAt: at,
     closedAt: null,
+    filedAt: null,
     goal: null,
     body: '',
   };
@@ -370,6 +395,7 @@ export function mandateSummary(m: Mandate, all: ReadMandate[]): MandateSummary {
     createdAt: m.createdAt,
     updatedAt: m.updatedAt,
     closedAt: m.closedAt,
+    filedAt: m.filedAt,
   };
 }
 

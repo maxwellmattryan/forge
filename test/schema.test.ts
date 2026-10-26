@@ -142,6 +142,12 @@ const CONFIG_ROWS: Row[] = [
     note: "the assistant's model and effort move under foreman.assistants",
   },
   { step: 'office-uptime', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.keepAwake'], note: ONLY_VERSION },
+  {
+    step: 'mandate-notify',
+    input: { notify: { webhooks: [{ url: 'https://example.com/hook', events: ['gate'] }] } },
+    fields: { 'notify.webhooks': [{ url: 'https://example.com/hook', events: ['gate'] }] },
+    note: ONLY_VERSION,
+  },
   { step: 'daemon-daily-usd-chat', input: { daemon: { enabled: true, dailyUsd: { inbox: 25, office: 60 } } }, fields: { 'daemon.dailyUsd': { inbox: 25, office: 60 } }, removed: ['daemon.dailyUsd.chat'], note: ONLY_VERSION },
 ];
 
@@ -297,6 +303,12 @@ const MANDATE_ROWS: Row[] = [
     input: MANDATE_V1,
     fields: { goal: null, intake: false, 'scope.milestones': ['M1'] },
     note: 'a mandate written before goals reads as a scoped mandate with no goal',
+  },
+  {
+    step: 'mandate-filed',
+    input: { ...MANDATE_V1, goal: null },
+    fields: { filedAt: null, goal: null, 'scope.milestones': ['M1'] },
+    note: 'a mandate written before filing reads as never filed',
   },
 ];
 

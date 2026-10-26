@@ -136,7 +136,7 @@ Every error carries one of these codes, and the code fixes the exit.
 - Help works before `.forge/config.yml` exists and outside any git repository. A first word that is not a command exits 2 (`unknown_command`); a second word that is not a subcommand shows the group's help.
 - `--json` prints the tables instead: `{"version", "groups"}` for the overview, the group for a group, and `{"command", "args", "summary", "flags", "exits", "docs"}` for a command.
 
-The tables live beside each command module as `HELP` (`lib/cli/commands/<group>.ts`; the commands `lib/cli/main.ts` routes itself are in `lib/cli/commands/help.ts`). They also build every `usage:` error, README's CLI table and the [Command reference](#command-reference) below; `npm run docs` regenerates both.
+The tables live beside each command module as `HELP` (`lib/cli/commands/<group>.ts`; the commands `lib/cli/main.ts` routes itself are in `lib/cli/commands/help.ts`). They also build every `usage:` error, the [Common commands](#common-commands) table and the [Command reference](#command-reference) below; `npm run docs` regenerates both.
 
 ## Environment variables
 
@@ -392,6 +392,62 @@ Redaction is pattern-based and best-effort: a secret no pattern knows, or a logi
 ## Stability
 
 Forge follows semver for this contract. Any release may add commands, flags, JSON fields, error codes and environment variables. Renaming or removing a JSON field, an error code or an exit number is a breaking change: it ships only in a release whose version says so (a new major version, or a new minor version while Forge is below 1.0) and is called out in [CHANGELOG.md](../CHANGELOG.md). Message and hint text, human-mode output, and the order of JSON keys, are not covered: match on `code` and `exit`, never on `message`. `test/invariants/cli-contract.test.ts` pins the JSON keys of `forge job list|show|step`, `forge status --json`, `forge verify`, `forge stats --json` and `forge version --json` (`version`, `commit`, `installedAs`, `node`), so an accidental rename fails the build.
+
+## Common commands
+
+The commands worth knowing by hand, generated from the `HELP` rows marked `common` by `npm run docs:commands`. Every command is in the [Command reference](#command-reference) below.
+
+<!-- forge:commands:start (generated from lib/cli/commands/*.ts by npm run docs:commands; edit those tables) -->
+| Command | What it does |
+|---|---|
+| `forge audit --since <date> [--until <date>] [--json\|--csv]` | every job's audit rows (forge job audit) and the repo-level ones such as config set (job null), with since <= ts < until, sorted by time then job; dates are YYYY-MM-DD (UTC midnight) or full ISO timestamps, and until defaults to now (see [Audit trail](architecture/audit-trail.md)) |
+| `forge backing down <id> \| --shared` | remove the job's per-job containers and volumes (only those labelled with this checkout and job), drop its job databases and role, and delete backing.json and backing-db.json, for any job, done or cancelled too; --shared removes this checkout's shared containers and keeps their volumes and ports (see [Backing services](CONFIG.md#backing-services)) |
+| `forge backing status [<id>]` | with a job: docker (ok, missing or stopped; null when no service is managed) and each service's container, state (unknown when Docker is unreachable), health (healthy, unhealthy or starting while running; null without a healthcheck), ports, job database (name and template) and the FORGE_BACKING_* names its commands see (never values); without: every container labelled with this checkout, with orphan: true for a per-job one whose job is unknown, done or cancelled (see [Backing services](CONFIG.md#backing-services)) |
+| `forge backing stop <id>` | docker stop the job's per-job containers (only those labelled with this checkout and job), keeping their volumes, records and every shared container; a missing, stopped or foreign container is listed in skipped with the reason; `backing up` starts them again (see [Backing services](CONFIG.md#backing-services)) |
+| `forge backing up <id>` | bring the job's per-job and the project's shared services up, idempotently: run a missing container, start a stopped one, leave a running one; then give the job its job database on each shared entry with database (cloned from the template database, built in the job's worktree when missing); the result lists each service's action and database, never a password (see [Backing services](CONFIG.md#backing-services)) |
+| `forge budget` | repo spend this UTC day and month against budget.usdPerDay, usdPerMonth and tokensPerMonth: caps, remaining, projected month-end and held jobs; frees repo-held jobs once nothing is exceeded (see [Repo budget](CONFIG.md#repo-budget)) |
+| `forge config get [<key>]` | read the effective config: one dotted key (strings raw, null when absent), or all of it (see [Changing settings](CONFIG.md#changing-settings)) |
+| `forge config set <key> <value>` | change one editable key in `.forge/config.yml`, keeping its comments (see [Changing settings](CONFIG.md#changing-settings)) |
+| `forge daemon log <job>\|--inbox\|--office\|--assistant N [--lines N] [--follow]` | a session's log, from the terminal |
+| `forge daemon status` | the daemon's sessions, from the terminal |
+| `forge doctor [<job>] [--bundle] [--out <dir>] [--include-text]` | check this repo and machine for Forge (tools, config, job files, and the tool of each declared release mechanism) and print what is wrong, indented; --bundle writes a redacted support bundle for a bug report (see [Support bundle](CLI.md#support-bundle)) |
+| `forge environment down <id>` | tear the job's environment down, for any job, done or cancelled too: stop its background processes, remove its per-job containers and volumes, drop its job databases, delete backing.json and backing-db.json and drop it from the environment record; the worktree stays (see [Backing services](CONFIG.md#backing-services)) |
+| `forge environment list` | the environment record: {maxRunning, focused, jobs: [{id, state, usedAt}]}, running or stopped as Forge last left each one, most recently used first, only for jobs that exist and are active (see [Backing services](CONFIG.md#backing-services)) |
+| `forge environment stop <id>` | stop a job's environment while keeping it: stop its background processes and docker stop its own per-job containers, keeping volumes, job databases and shared containers, and mark it stopped in the environment record. Forge does this itself when a job parks (see [Backing services](CONFIG.md#backing-services)) |
+| `forge environment up <id>` | start an active job's environment: run a missing per-job container, start a stopped one, give the job its job databases, and mark it running in the environment record. Forge does this itself on resume, verify, run --background and focus. Starts no background process (see [Backing services](CONFIG.md#backing-services)) |
+| `forge experiment check [<job>]` | check the notes layer: new learnings and addenda carry experiment: and review-by:, new ledger entries are open with a stats-path metric, and only evaluate settles one; with <job>, what its branch adds or edits against the merge base, else a full audit of the repo's files (see [Settling experiments](IMPROVEMENT.md#settling-experiments)) |
+| `forge experiment evaluate [<job>] [--dry-run]` | settle each open .forge/notes/experiments.md entry: its metric over the done or cancelled jobs created after it, against its baseline; writes kept, reverted or inconclusive (the only writer of a ledger status), in the job worktree's ledger with <job>, else the repo's (see [Settling experiments](IMPROVEMENT.md#settling-experiments)) |
+| `forge focus [<id>] [--clear]` | print the focused job ({focus: {id, title, since} \| null}), focus an active job, or clear focus; a pointer in .forge/runtime/focus.json that a job lets go of when it finishes. Moving it undoes the previous job's configured checkout steps and runs the new job's; a failing step rolls back and keeps the previous focus. With backing services configured, it then starts the focused job's environment (no background process) and adds environment: {ok, error?}; a failed start keeps the focus |
+| `forge git add <id> [--repo NAME] -- <path>...` | stage paths in the job's worktree, from any cwd; refuses git options, paths outside the worktree and a protected path the policy refuses; prints protected: <n> when the branch changes escalate paths |
+| `forge git commit <id> [--repo NAME] (--message T \| --message-file F) [-- <path>...]` | commit in the job's worktree, on its branch, from any cwd (how agents commit, in a daemon session too); refuses git options, paths outside the worktree, AI attribution, a protected path the policy refuses and a likely secret (in the message always; in the staged changes under verifySecrets: block); prints protected: <n> when the branch changes escalate paths |
+| `forge job advance <id> --session S [--epoch N] [--max N]` | runs step's `run` actions in-process (at most N, default 20) and returns the next `spawn`, `wait`, `procedure` or `done` with `ran`, one line per command it ran; refuses (exit 3) a job session S does not hold, and stops at the first failed command (exit 1) |
+| `forge job archive <id>\|--done --older-than D` | archive a finished job into .forge/archive/<id>.json (its job.json, events and a summary) and delete its job folder, after tearing down what is left of its environment; with --done --older-than D, every finished job at least D days old. A job whose teardown fails is listed in refused and kept. Stats, audit and retro still read archived jobs (see [Retention](architecture/retention.md)) |
+| `forge job audit <id> [--json\|--csv]` | the job's audit trail: who did each human action (best effort, unauthenticated), its gate transitions, and its PR opening and merge, in time order (see [Audit trail](architecture/audit-trail.md)) |
+| `forge job delete <id> [--force]` | delete a job started by mistake, for good: releases its tracker claim, removes its worktrees, per-job backing services and the branch Forge named for it, rejects its open requests and deletes its job folder and session logs, keeping no archive record. A job with a PR, split children or an active dependent is refused: cancel and archive real work instead (see [Deleting a job](architecture/deleting-a-job.md)) |
+| `forge job effort <id> low\|medium\|high\|xhigh\|max \| --inherit` | set a job's reasoning effort (forge job new --effort sets it at creation), or clear it so the job inherits runtime.effort; daemon sessions start with --effort and every agent gets it (see [Effort](CONFIG.md#effort)) |
+| `forge job interim <id> \| publish <id> (<name> \| --root) [--confirm] \| release <id> (<name> \| --root) <version>` | each dependency edge between the job's repos: its interim strategy (job or config), links, state (held, waiting, ready, blocked, stale or released) and why, with no network call, plus each edge's release gate (ci, held, bump-due or released). publish publishes a dependency repo's canary: each npm link's package, exported from the verified commit's git objects, as <version>-canary.<sha12> under the canary dist-tag; without --confirm it only lists what it would publish, and --confirm needs a terminal on stdin. publish and forge release run are the only commands that publish anything. release records that the dependency of an edge of any strategy was released as <version>, after its PR merged (result: recorded, clear, bump, resumed): forge verify then bumps each unmerged consumer's manifests (and a tracked lockfile) to it, after which the consumer's PR may leave draft (forge pr ready) and merge; a job waiting on pr-review at stage pr resumes. publish and release are human-only (see [Interim strategies](CONFIG.md#interim-strategies)) |
+| `forge job link <id> <ref>…\|--remove <ref>\|--create\|--none [--reason R]\|--suggest` | add issues to a job (this repo's are checked and claimed, other repos' only recorded), remove them, create one, or record that it needs none (see [Linking jobs to issues](TRACKERS.md#linking-jobs-to-issues)) |
+| `forge job links <id>` | the job's local links (config dependsOn links), active or not, with the dependency dir or the reason (see [Local links](CONFIG.md#local-links)) |
+| `forge job prune --older-than D [--dry-run]` | archive every eligible finished job at least D days old and delete stale daemon session logs; --dry-run lists what it would free and writes nothing (see [Retention](architecture/retention.md)) |
+| `forge job repo add <id> <name> [--verify-only] \| remove <id> <name> \| propose <id> <name> --reason R \| downstream <id> \| interim <id> (<name> \| --root) canary\|git-ref\|local\|sequential\|inherit` | add a member repo (a config repos entry whose clone passes doctor's check) to a job, which then gets its own worktree, verify evidence and PR on the job's branch; remove drops one that has no PR and no worktree left; interim sets one job repo's interim strategy as a dependency (what a consumer's PR points at while it is unmerged: docs/CONFIG.md "Interim strategies"), overriding release.interim, and inherit clears it (add, remove and interim are human-only). propose records an agent's proposal of a repos entry with its reason in repo-proposals.md; the job then waits until a human, or the foreman when allowed, runs forge job human <id> approve-repos\|reject-repos (approving a verify-only member promotes it to an edited one). downstream adds the changed repos' linked consumers as verify-only repos, so verify runs their tests against the job's changes, and prints what it added and skipped with each reason (docs/CONFIG.md "Downstream verification"); it takes no repo name, and the job's own session may run it (see [Job repos](architecture/job-repos.md)) |
+| `forge job step <id> [--session S] [--epoch N]` | the job's next action (`spawn` with a ready agent brief, `run`, `wait`, `procedure` or `done`); read-only, the same state always gives the same answer, except that `--session <driver>` renews that session's lease |
+| `forge mandate new <id> --title T [terms]` | create a mandate, active, with every contract term not given taken from foreman.mandate (the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run) (see [Mandates](CONFIG.md#mandates)) |
+| `forge notify test [--event <name>]` | send one sample notification (job null, title "Forge test notification") to every valid notify.webhooks entry regardless of its events, and run notify.command if set; prints {event, results: [{target, host, format, ok, status, error, attempts}]} and records nothing (see [Notifications](CONFIG.md#notifications)) |
+| `forge office pass` | enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary (and the next link of a chain, in the same pass), the budget pause and the cadence stall; then queue one direct request for the office session when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked}], direct, problems}); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes (see [Foreman › Director loop](architecture/foreman.md)) |
+| `forge release plan [--job ID \| --since TAG] [--force]` | plan a release from each repo's release strategy, dependencies first: write .forge/runtime/release/release.md (steps, checks and rollback) and release.json; nothing runs. With --job, the job's PRs must be merged, except a consumer of an interim edge, which is skipped (it merges after its dependencies' release); the plan logs release-planned and, when the Foreman decides the release gate class, queues its gate request, and approval says who owns the publish decision (see [Releasing a project](RELEASES.md#releasing-a-project)) |
+| `forge release run` | run the plan step by step, checking each, with checkpoints so a second run resumes at the first step not done; a step whose check already passes is skipped, and publish steps ask on a terminal unless the repo sets release.publish: allow, and without a terminal they run only when the Foreman approved this exact plan (approvedBy: foreman). On a --job plan, each dependency repo whose last step finished in this run gets its release recorded on the job from the checks of this run (released: version, recorded, and a hint when no single version showed), which resumes the job to bump its consumers. Prints its own result (see [Releasing a project](RELEASES.md#releasing-a-project)) |
+| `forge release status` | the plan's progress: each step's status with the tags and versions its checks recorded, the next step, whether config or the repos have moved since planning, and the publish approval (owner, pending or approved) (see [Releasing a project](RELEASES.md#releasing-a-project)) |
+| `forge secrets check [<name>...]` | resolve each named secret (every declared one by default) from its source and report ok or the error; never prints a value or its length |
+| `forge secrets list` | the declared secret references (`secrets` in .forge/config.yml): each name and its source kind, resolving nothing |
+| `forge secrets scan [<id> \| --paths <globs>]` | report likely credentials, masked with their fingerprints: a job's commits, commit messages, net diff, staged changes and PR title and body, or the main checkout's tracked files matching the globs; prints text (--json for the full result) |
+| `forge service install` | install the login service for the current user and load it ({installed, manager, file, log, loaded, replaced, error?, note?}): it runs <node> <plugin>/bin/forge dash --service from /, starts at login, restarts 30 s after a crash but not after a clean exit, and appends its output to <FORGE_HOME>/runtime/service.log. Its environment carries only PATH (sanitised), HOME, USER, LOGNAME, SHELL, LANG, LC_*, TZ, TMPDIR and FORGE_HOME from this shell, never a token. A reinstall overwrites its own file and reloads it, which restarts a running service dashboard; with a dashboard you started running, `note` says the service takes over at the next login |
+| `forge tracker search <query> [--limit N] [--job <id>]` | search the tracker (see [Linking jobs to issues](TRACKERS.md#linking-jobs-to-issues)) |
+| `forge tracker triage [--limit N] [--all] \| --apply <batch>` | readiness triage: write a batch of ready and needs-info items for the forge:triage agent, then apply its verdicts (a templated comment and the needs-info mark, or the mark cleared) (see [Readiness triage](TRACKERS.md#readiness-triage)) |
+| `forge update [--check] [--keep-dash]` | update this Forge install (plugin or clone) and restart this repo's dashboard on the new code (see [Installing and updating](RELEASES.md#installing-and-updating)) |
+| `forge verifiers list` | the main checkout's .forge/verifiers/*.md that will run, and the problems that keep the others from running (see [Verifiers](VERIFIERS.md)) |
+| `forge verifiers record <id>` | turn the verifier agent's answers into verify/round-<n>-verifiers.md; a block-mode NO (or no valid answer) whose severity is in review.blockOn fails the round's verify |
+| `forge verifiers run <id>` | select the verifiers whose paths match the diff of the commit the round's passing verify checked, and write the verifier agent's input; with none selected, write the PASS report straight away |
+<!-- forge:commands:end -->
 
 ## Command reference
 
@@ -928,7 +984,7 @@ See [Retention](architecture/retention.md).
 
 | Flag | Meaning |
 |---|---|
-| `--gate G` | the gate class: spec-approval, split-approval, escalation, rounds-exhausted, conflicts, pr-feedback, repo-proposal, release |
+| `--gate G` | the gate class: spec-approval, split-approval, escalation, rounds-exhausted, conflicts, pr-feedback, repo-proposal, release, milestone-approval |
 
 | Exit | When |
 |---|---|
@@ -1282,7 +1338,35 @@ The owner's mandates: standing instructions to the Office in .forge/runtime/mand
 
 See [Mandates](CONFIG.md#mandates).
 
-**`forge mandate draft prepare <id> --request R`**: the office session's first call of a drafting run: write the survey and return the forge:drafter brief ({mandate, request, stale: false, subagent, model, effort, brief, survey, staging}), or {stale: true, reason} for a mandate that is missing, unreadable, closed, paused or has no goal
+**`forge mandate draft approve <id> [--request R] [--digest D] [--note N] [--actor foreman]`**: approve a pending milestone draft and file it: the milestone, then each issue in wave order (wave-&lt;n> labels), then the mandate turns into a scoped mandate over the milestone ({ok, decision, mandate, request, digest, filing, scope}); run it again to resume a stopped filing
+
+| Flag | Meaning |
+|---|---|
+| `--actor foreman` | an assistant foreman records it, under foreman.decides, foreman.reserved and the mandate's decides |
+| `--digest D` | the 64-hex digest you read (draft show): refused once draft.json differs |
+| `--note N` | why, at most 2000 characters (required with --actor foreman) |
+| `--request R` | the draft request you read (draft show): refused once the draft changed |
+
+| Exit | When |
+|---|---|
+| 1 | no such mandate (not_found), it can't be read, is paused or closed, the draft isn't pending (or filing), a pin doesn't match, a pre-flight check fails (secret_found for a likely secret), a decision is already running, a tracker call failed (filing.json keeps what was filed), --actor foreman is refused, or a daemon session ran it without --actor foreman |
+| 5 | gh failed while filing |
+
+See [Foreman › Intake](architecture/foreman.md).
+
+**`forge mandate draft assist <id> --request G`**: read-only, for an assistant foreman session (or a person): the forge:assistant spawn for a milestone-approval gate request ({mandate, gate, stale, reason?, reserved, subagent, model, effort, brief}); stale once the draft moved or was decided
+
+| Flag | Meaning |
+|---|---|
+| `--request G` | the claimed milestone-approval gate request (required): in progress, for this mandate |
+
+| Exit | When |
+|---|---|
+| 1 | run in a daemon session other than an assistant foreman, or G is not an in-progress milestone-approval gate request for this mandate |
+
+See [Foreman › Intake](architecture/foreman.md).
+
+**`forge mandate draft prepare <id> --request R`**: the office session's first call of a drafting run: write the survey and return the forge:drafter brief ({mandate, request, stale: false, subagent, model, effort, brief, survey, staging}; a revision request's brief adds the previous draft's path and its title and the note, both fenced as data), or {stale: true, reason} for a mandate that is missing, unreadable, closed, paused, has no goal or is filed
 
 | Flag | Meaning |
 |---|---|
@@ -1290,11 +1374,11 @@ See [Mandates](CONFIG.md#mandates).
 
 | Exit | When |
 |---|---|
-| 1 | run in a daemon session other than the office, R is not an in-progress draft request for this mandate, or a link or a file sits at the drafts dir |
+| 1 | run in a daemon session other than the office, R is not an in-progress draft request for this mandate, R's revision note breaks the note rules, or a link or a file sits at the drafts dir |
 
 See [Foreman › Intake](architecture/foreman.md).
 
-**`forge mandate draft record <id> --request R [--agent-id A]`**: the office session's last call of a drafting run: append its spend to the mandate's ledger, then check the drafter's staging file and store it as draft.json ({ok, mandate, request, draft: {issues, waves, existing}, spend, file})
+**`forge mandate draft record <id> --request R [--agent-id A]`**: the office session's last call of a drafting run: append its spend to the mandate's ledger, then check the drafter's staging file and store it as draft.json ({ok, mandate, request, digest, draft: {issues, waves, existing}, spend, file}); notifies that the draft waits for approval, and queues its milestone-approval gate request when the project and the mandate delegate the class
 
 | Flag | Meaning |
 |---|---|
@@ -1307,7 +1391,36 @@ See [Foreman › Intake](architecture/foreman.md).
 
 See [Foreman › Intake](architecture/foreman.md).
 
-**`forge mandate draft show <id>`**: a goal mandate's milestone draft: {mandate, title, status (queued, drafting, ready, unreadable, failed or none), request, note, problem, draft, spend: {runs, withUsage, tokens, usd, metered}, file}
+**`forge mandate draft reject <id> [--note N] [--request R] [--digest D]`**: reject a pending milestone draft: closes the mandate with reason milestone draft rejected (and the note), files nothing, and starts the next link of its chain ({ok, decision, mandate, request, status})
+
+| Flag | Meaning |
+|---|---|
+| `--digest D` | the digest you read |
+| `--note N` | why, at most 2000 characters |
+| `--request R` | the draft request you read |
+
+| Exit | When |
+|---|---|
+| 1 | no such mandate (not_found), it can't be read, is paused or closed, the draft isn't pending, a pin doesn't match, a decision is already running, or a daemon session ran it (reject is never the foreman's) |
+
+See [Foreman › Intake](architecture/foreman.md).
+
+**`forge mandate draft revise <id> --note N [--request R] [--digest D] [--actor foreman]`**: send a pending milestone draft back with a note: queues another drafting run whose brief carries the note and the previous draft, fenced ({ok, decision, mandate, request, queued})
+
+| Flag | Meaning |
+|---|---|
+| `--actor foreman` | an assistant foreman records it (at most 2 foreman revisions per mandate) |
+| `--digest D` | the digest you read |
+| `--note N` | what the drafter should change, at most 2000 characters (required) |
+| `--request R` | the draft request you read |
+
+| Exit | When |
+|---|---|
+| 1 | no such mandate (not_found), it can't be read, is paused or closed, the draft isn't pending, a pin doesn't match, the note breaks the rules, a decision is already running, --actor foreman is refused, or a daemon session ran it without --actor foreman |
+
+See [Foreman › Intake](architecture/foreman.md).
+
+**`forge mandate draft show <id>`**: a goal mandate's milestone draft: {mandate, title, status (queued, drafting, ready, unreadable, failed or none), request, note, problem, digest (the SHA-256 of draft.json's bytes, null without a readable draft), draft, gate: {status (none, pending, filing or filed), request, owner, filing}, spend: {runs, withUsage, tokens, usd, metered}, file}
 
 | Exit | When |
 |---|---|
@@ -1319,7 +1432,7 @@ See [Foreman › Intake](architecture/foreman.md).
 
 | Exit | When |
 |---|---|
-| 1 | no such mandate (not_found), it can't be read, is not active or has no goal, or a daemon session ran it |
+| 1 | no such mandate (not_found), it can't be read, is not active, has no goal or its draft is filed, or a daemon session ran it |
 
 See [Foreman › Intake](architecture/foreman.md).
 
@@ -1349,11 +1462,11 @@ See [Foreman › Intake](architecture/foreman.md).
 
 See [Mandates](CONFIG.md#mandates).
 
-**`forge mandate list`**: every mandate by creation time ({mandates: [{id, title, status, state, after, chain, activeLink} | {id, problem}]}); state is waiting while after names a mandate not closed
+**`forge mandate list`**: every mandate by creation time ({mandates: [{id, title, status, state, after, intake, chain, activeLink} | {id, problem}]}); state is waiting while after names a mandate not closed; intake is true for a goal mandate, whose draft forge mandate draft show &lt;id> gives
 
 See [Mandates](CONFIG.md#mandates).
 
-**`forge mandate new <id> --title T [terms]`**: create a mandate, active, with every contract term not given taken from foreman.mandate (the default decides cut to the classes the foreman may decide) ({ok, changed, mandate})
+**`forge mandate new <id> --title T [terms]`**: create a mandate, active, with every contract term not given taken from foreman.mandate (the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run)
 
 | Flag | Meaning |
 |---|---|
@@ -1400,7 +1513,7 @@ See [Mandates](CONFIG.md#mandates).
 
 See [Mandates](CONFIG.md#mandates).
 
-**`forge mandate show <id>`**: one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request} (else null), and its file
+**`forge mandate show <id>`**: one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request, gate} (gate: none, pending, filing or filed; else null), its file, its progress {jobs: {reached, inFlight, handled, unfinishable}, spend: {usd, budget}, started: {jobs, budget}, lastActivity} (no tracker call), its closing summary once the Office pass closed it (else null) and its latest 10 directives
 
 | Exit | When |
 |---|---|
@@ -1437,12 +1550,13 @@ Take the next piece of work.
 
 Push gate, PR, failure and budget notifications to webhooks and a command.
 
-**`forge notify send --events <e1[,e2]> [--job <id>] --reason <code>`**: internal: what a state change spawns, detached. Delivers to the targets that subscribe to the first matching event, reading the job's title, stage and PR url itself, and records notified or notify-failed per target on the job (else in .forge/runtime/notify.jsonl)
+**`forge notify send --events <e1[,e2]> [--job <id> | --mandate <id>] --reason <code>`**: internal: what a state change spawns, detached. Delivers to the targets that subscribe to the first matching event, reading the job's title, stage and PR url itself (or the mandate's title), and records notified or notify-failed per target on the job (else in .forge/runtime/notify.jsonl)
 
 | Flag | Meaning |
 |---|---|
 | `--events <e1[,e2]>` | the events, most specific first |
 | `--job <id>` | the job it is about (none for a pool-wide daemon stop) |
+| `--mandate <id>` | the mandate it is about, with no job: only for the mandate-stalled, mandate-budget and mandate-closed reasons |
 | `--reason <code>` | the reason code, mapped to a fixed English string |
 
 | Exit | When |
@@ -1453,13 +1567,79 @@ Push gate, PR, failure and budget notifications to webhooks and a command.
 
 | Flag | Meaning |
 |---|---|
-| `--event <name>` | the sample's event (default gate): gate, pr-opened, pr-merged, job-failed, daemon-stopped, budget-exceeded, secret-found, service-restarted |
+| `--event <name>` | the sample's event (default gate): gate, pr-opened, pr-merged, job-failed, daemon-stopped, budget-exceeded, secret-found, service-restarted, mandate-stalled, mandate-budget, mandate-closed |
 
 | Exit | When |
 |---|---|
 | 1 | a target failed, or notify has no webhooks or command |
 
 See [Notifications](CONFIG.md#notifications).
+
+### `forge office`
+
+The Office's director loop: the pass forge dash runs, and the office session's survey and directives.
+
+**`forge office board <mandate>`**: write the mandate's board (&lt;mandate dir>/board.md: up to 100 job lines, in-flight first, in one fence under a data line) and return the forge:surveyor brief ({mandate, subagent, model, effort, brief, board})
+
+| Exit | When |
+|---|---|
+| 1 | foreman.surveyors.enabled is false, no such mandate or it can't be read, or run in a daemon session other than the office, or with a missing or invalid scope |
+
+See [Foreman › Director loop](architecture/foreman.md).
+
+**`forge office note <mandate> --reason R`**: log a note directive on a mandate that is not closed, such as why nothing starts though candidates exist ({ok, mandate})
+
+| Flag | Meaning |
+|---|---|
+| `--reason R` | why, one line of at most 200 characters (required) |
+
+| Exit | When |
+|---|---|
+| 1 | the mandate is missing, unreadable or closed, or run in a daemon session other than the office, or with a missing or invalid scope |
+
+See [Foreman › Director loop](architecture/foreman.md).
+
+**`forge office pass`**: enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary (and the next link of a chain, in the same pass), the budget pause and the cadence stall; then queue one direct request for the office session when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked}], direct, problems}); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes
+
+| Exit | When |
+|---|---|
+| 1 | run in a daemon session (forge dash runs it) |
+
+See [Foreman › Director loop](architecture/foreman.md).
+
+**`forge office resume <mandate> <job> --reason R`**: queue a resume for one of an active mandate's resumable jobs (queued, no live lease, no open request) and log a resume directive ({ok, mandate, job, request})
+
+| Flag | Meaning |
+|---|---|
+| `--reason R` | why, one line of at most 200 characters (required) |
+
+| Exit | When |
+|---|---|
+| 1 | the mandate is missing, unreadable or not active, the job is not one of its resumable jobs, or run in a daemon session other than the office, or with a missing or invalid scope |
+
+See [Foreman › Director loop](architecture/foreman.md).
+
+**`forge office start <mandate> <ref> --reason R`**: start one issue of an active mandate: under the office lock, re-check its limits and that ref is in its window now (under order listed, its next issue), then create the job in the mandate, claim the issue, queue its resume and log a start directive ({ok, mandate, issue, job, request}); an issue the tracker reports closed or missing is skipped instead ({ok, skipped: true, issue, reason})
+
+| Flag | Meaning |
+|---|---|
+| `--reason R` | why, one line of at most 200 characters (required) |
+
+| Exit | When |
+|---|---|
+| 1 | the mandate is missing, unreadable or not active, it is blocked (budget, tracker error, foreman off), ref is not in its window, the issue already has a job, or run in a daemon session other than the office, or with a missing or invalid scope |
+| 3 | the tracker refused the claim |
+| 4 | the repo budget holds new work |
+
+See [Foreman › Director loop](architecture/foreman.md).
+
+**`forge office survey`**: read-only: every active mandate's figures, its window of candidates (titles one line), its resumable jobs, its latest 5 directives and its guidance fenced as data ({enabled, cadence, surveyors, repoBudget, mandates, problems})
+
+| Exit | When |
+|---|---|
+| 1 | run in a daemon session other than the office, or with a missing or invalid scope |
+
+See [Foreman › Director loop](architecture/foreman.md).
 
 ### `forge pr`
 
@@ -1610,7 +1790,7 @@ The dashboard's inbox of requests for an orchestrator session.
 
 | Exit | When |
 |---|---|
-| 1 | a gate or draft request (only the CLI writes those), a daemon session queued anything but resume, or its scope is invalid |
+| 1 | a gate, draft or direct request (only the CLI writes those), a daemon session queued anything but resume, or its scope is invalid |
 
 **`forge requests claim <id> --session S [--force]`**: claim a request before handling it
 
@@ -1878,7 +2058,7 @@ Update this Forge install (Claude Code plugin or git clone).
 | 1 | the install is unknown or blocked (a clone with local changes, no upstream, a detached HEAD), a daemon session asked, or it runs on native Windows |
 | 5 | a step it ran (claude or git) failed |
 
-See [Updating](../README.md#updating).
+See [Installing and updating](RELEASES.md#installing-and-updating).
 
 ### `forge verifiers`
 

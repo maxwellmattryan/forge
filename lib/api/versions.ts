@@ -59,6 +59,12 @@ export const API_CHANGES = [
   { id: 'assistant-foremen' },
   // Stats.quality.verifierFirstRoundBlockRate: the share of jobs whose first round-1 verifiers record blocked.
   { id: 'verifier-first-round-block-rate' },
+  // ApiState.drafts (DraftGate), GET and POST /api/mandates/:id/draft; a job-less milestone-approval gate request.
+  { id: 'milestone-approval' },
+  // POST /api/projects: register a project from the dashboard's Add project dialog.
+  { id: 'add-project' },
+  // RequestType 'direct': the Office pass's wake for the office session; NotifyEvent mandate-stalled, mandate-budget and mandate-closed.
+  { id: 'director-loop' },
   // The chat routes under /api/p/<project>/chats (Chat, ChatLogEntry, ChatLogPage, ChatDetail, ChatList); scope `_chat-<id>`
   // in /events, /daemons/log, /daemon/permission, /daemon/mode and /daemon; ActorSource 'chat'; Stats.cost.sessions.chat.
   { id: 'chats' },

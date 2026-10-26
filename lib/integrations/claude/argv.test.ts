@@ -85,6 +85,23 @@ test("the dollar cap is Forge's, once", () => {
   }
 });
 
+test("the office model is Forge's, once", () => {
+  const models = (argv: string[]) => argv.flatMap((w, i) => (w === '--model' ? [argv[i + 1]] : w.startsWith('--model=') ? [w] : []));
+  const template = 'claude {session} --model sonnet --verbose --model=haiku';
+  const rows: { name: string; model: string | null | undefined; want: string[] }[] = [
+    { name: 'opus replaces both', model: 'opus', want: ['opus'] },
+    { name: "null keeps the template's", model: null, want: ['sonnet', '--model=haiku'] },
+    { name: "inherit keeps the template's", model: 'inherit', want: ['sonnet', '--model=haiku'] },
+    { name: 'a flag-like model is never a word', model: '--dangerously-skip-permissions', want: ['sonnet', '--model=haiku'] },
+  ];
+  for (const row of rows) {
+    const argv = buildArgv(template, { pluginRoot: '/p', session, allowedTools: ['Agent'], model: row.model });
+    assert.deepEqual(models(argv), row.want, row.name);
+    assert.ok(argv.includes('--verbose') && argv.includes('--session-id'), `${row.name}: the rest of argv stays`);
+    if (row.model === 'opus') assert.ok(argv.indexOf('--model') > argv.indexOf('--verbose') && argv.indexOf('--model') < argv.indexOf('--disallowedTools'), 'after the template, before the deny tail');
+  }
+});
+
 test('sessions lose provider switches unless daemon.auth is api-key', () => {
   const six = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
   const env = { PATH: '/bin', OTHER: 'kept', ...Object.fromEntries(six.map((k) => [k, '1'])) };

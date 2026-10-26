@@ -13,6 +13,7 @@
   import { clearScope, palette } from '../lib/palette.svelte.ts';
   import { buildRequest } from '../lib/requests.ts';
   import { switchHash } from '../lib/routes.ts';
+  import { lockScroll } from '../lib/scroll-lock.ts';
   import { switcherEntries } from '../lib/switcher.ts';
   import { TABBABLE, wrapFocus } from '../lib/settings.ts';
   import { toast } from '../lib/toast.svelte.ts';
@@ -204,14 +205,13 @@
 
   onMount(() => {
     if (!S.backlog) loadBacklog();
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const unlock = lockScroll();
     tick().then(() => {
       input?.focus();
       input?.setSelectionRange(text.length, text.length);
     });
     return () => {
-      document.body.style.overflow = overflow;
+      unlock();
     };
   });
 </script>

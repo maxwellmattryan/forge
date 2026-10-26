@@ -15,8 +15,7 @@
     "agents": "Agents",
     "analytics": "Analytics",
     "evals": "Evals",
-    "project": "Project",
-    "projectSettings": "Project settings"
+    "project": "Project"
   },
   "switcher": {
     "label": "Project",
@@ -29,6 +28,25 @@
     "unavailable": "unavailable",
     "rail": "Switch project",
     "add": "Add project"
+  },
+  "addProject": {
+    "title": "Add project",
+    "close": "Close",
+    "path": "Directory",
+    "pathPlaceholder": "~/src/my-repo",
+    "pathHelp": "A git repository set up with /forge (it has .forge/config.yml): an absolute path, or one starting with ~.",
+    "name": "Name",
+    "namePlaceholder": "Defaults to the directory's name",
+    "nameHelp": "Lowercase letters, digits, dots, dashes and underscores, starting with a letter or digit; up to 64 characters.",
+    "add": "Add",
+    "adding": "Adding…",
+    "cancel": "Cancel",
+    "pathRequired": "Enter the repository's directory.",
+    "pathRelative": "Use an absolute path, or one starting with ~.",
+    "nameInvalid": "Use lowercase letters, digits, dots, dashes and underscores, starting with a letter or digit (up to 64).",
+    "added": "Added {name}",
+    "already": "{name} was already registered",
+    "unavailable": "Registered {name}, but the dashboard can't open it yet; the project switcher lists it as unavailable."
   },
   "sidebar": {
     "resize": "Resize sidebar"

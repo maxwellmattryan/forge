@@ -426,7 +426,7 @@
 
 /* ---------- base (preflight already zeroes margins and box-sizing) ---------- */
 @layer base {
-  /* A stable gutter: locking body scroll under the palette or a dialog does not shift the page sideways. */
+  /* A stable gutter where the browser honours it; lib/scroll-lock.ts pads the page where it does not (Chromium under ::-webkit-scrollbar). */
   html { background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; scrollbar-gutter: stable; }
   body { font-family: var(--font-sans); font-size: 14px; line-height: 20px; }
   /* The chrome is an app, not a document: no I-beam and no drag-selection over buttons, chips, labels and cards, and

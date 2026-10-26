@@ -19,7 +19,7 @@ const DAEMON: HelpGroup = {
   name: 'daemon',
   summary: "the dashboard's headless sessions, from the terminal",
   commands: [
-    { command: 'daemon status', args: '', summary: "the daemon's sessions, from the terminal", readme: true },
+    { command: 'daemon status', args: '', summary: "the daemon's sessions, from the terminal", common: true },
     {
       command: 'daemon log',
       args: '<job>|--inbox|--office|--assistant N [--lines N] [--follow]',
@@ -32,7 +32,7 @@ const DAEMON: HelpGroup = {
         ['--follow', 'keep printing lines as they are written'],
       ],
       exits: [[1, 'an invalid job id, or no readable log']],
-      readme: true,
+      common: true,
     },
   ],
 };

@@ -1,6 +1,6 @@
 // `forge help`, `--help` and the CLI's error contract (docs/CLI.md). The help tables live beside
 // their command modules as `HELP`; CORE holds the commands lib/cli/main.ts routes itself. The same tables
-// build `usage:` errors, the README command table and the `--json` error hint.
+// build `usage:` errors, docs/CLI.md's command tables and the `--json` error hint.
 import path from 'node:path';
 import { forgeVersion } from '#engine/evals/run.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
@@ -26,6 +26,7 @@ import { HELP as INIT } from './init.ts';
 import { HELP as JOB } from './job/help.ts';
 import { HELP as MANDATE } from './mandate.ts';
 import { HELP as NOTIFY } from './notify.ts';
+import { HELP as OFFICE } from './office.ts';
 import { HELP as PROJECT } from './project.ts';
 import { HELP as RELEASE } from './release.ts';
 import { HELP as REQUESTS } from './requests.ts';
@@ -220,7 +221,7 @@ export const CORE: HelpGroup[] = [
   },
 ];
 
-const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...PROJECT, ...SERVICE, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...EXPERIMENT, ...MANDATE, ...CHAT, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
+const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...PROJECT, ...SERVICE, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...EXPERIMENT, ...MANDATE, ...CHAT, ...OFFICE, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
 const byName = (a: string, b: string): number => a.localeCompare(b, 'en');
 const flagKey = (f: string): string => f.replace(/^[-\s]+/, '');
 
@@ -316,11 +317,11 @@ export function renderCommand(c: CommandHelp): string {
 }
 
 /**
- * A command as `forge help --json` prints it. `readme` only picks README rows, so it stays out of
- * the JSON, where docs/CLI.md "Stability" would make it a field scripts may rely on.
+ * A command as `forge help --json` prints it. `common` only picks docs/CLI.md's Common commands
+ * rows, so it stays out of the JSON, where docs/CLI.md "Stability" would make it a field scripts may rely on.
  */
-function publicCommand(c: CommandHelp): Omit<CommandHelp, 'readme'> {
-  const { readme: _readme, ...rest } = c;
+function publicCommand(c: CommandHelp): Omit<CommandHelp, 'common'> {
+  const { common: _common, ...rest } = c;
   return rest;
 }
 const publicGroup = (g: HelpGroup) => ({ ...g, commands: g.commands.map(publicCommand) });
@@ -333,23 +334,23 @@ export function helpCmd(words: readonly string[], flags: Record<string, any>): v
   out(h.command ? renderCommand(h.command) : h.group ? renderGroup(h.group) : renderOverview(), flags);
 }
 
-export const README_START = '<!-- forge:commands:start (generated from lib/cli/commands/*.ts by npm run docs:commands; edit those tables) -->';
-export const README_END = '<!-- forge:commands:end -->';
+export const COMMON_START = '<!-- forge:commands:start (generated from lib/cli/commands/*.ts by npm run docs:commands; edit those tables) -->';
+export const COMMON_END = '<!-- forge:commands:end -->';
 
-/** README's CLI table: the `readme: true` rows, in overview order. */
-export function readmeTable(): string {
+/** docs/CLI.md's "Common commands" table: the `common: true` rows, in overview order. */
+export function commonTable(): string {
   const cell = (text: string) => text.replace(/\|/g, '\\|');
-  const rows = GROUPS.flatMap((g) => g.commands.filter((c) => c.readme));
+  const rows = GROUPS.flatMap((g) => g.commands.filter((c) => c.common));
   return [
     '| Command | What it does |',
     '|---|---|',
-    ...rows.map((c) => `| ${cell(`\`${usageLine(c)}\``)} | ${cell(c.summary)}${c.docs ? ` (see [${c.docs[0]}](${c.docs[1]}))` : ''} |`),
+    ...rows.map((c) => `| ${cell(`\`${usageLine(c)}\``)} | ${cell(c.summary)}${c.docs ? ` (see [${c.docs[0]}](${docsHref(c.docs[1])}))` : ''} |`),
   ].join('\n');
 }
 
-/** README.md's text with the lines between the markers replaced by readmeTable(). */
-export function syncReadme(readme: string): string {
-  return replaceRegion(readme, README_START, README_END, readmeTable(), 'README.md');
+/** docs/CLI.md's text with the lines between the commands markers replaced by commonTable(). */
+export function syncCommonCommands(doc: string): string {
+  return replaceRegion(doc, COMMON_START, COMMON_END, commonTable(), 'docs/CLI.md');
 }
 
 export const CLI_START = '<!-- forge:cli:start (generated from lib/cli/commands/*.ts by npm run docs:cli; edit those tables) -->';

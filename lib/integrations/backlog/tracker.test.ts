@@ -9,6 +9,45 @@ import { tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
 import local from './tracker.ts';
 
+test('milestones are level-2 headings', () => {
+  const repo = tempRepo();
+  try {
+    const config = defaults();
+    config.tracker.kind = 'local';
+    const file = path.join(repo.dir, config.tracker.local.path);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, ['# Backlog', '', '- [ ] Loose item', '  Its body.', '', '## M0', '', '- [ ] Open one', '- [x] Done one', '- [~] Claimed one → j1', '### Not a milestone', '- [?] Asked one', ''].join('\n'));
+    const ctx = { root: repo.dir, config };
+    const read = () => fs.readFileSync(file, 'utf8');
+    assert.deepEqual(local.milestones(ctx), [{ title: 'M0', openIssues: 3, dueOn: null }]);
+
+    assert.deepEqual(local.createMilestone(ctx, { title: 'M1', description: 'Exit criteria:\n- it works\n\nMandate: g1' }), { ref: 'M1', url: null });
+    const once = read();
+    assert.ok(once.endsWith('\n## M1\n> Exit criteria:\n> - it works\n>\n> Mandate: g1\n'), JSON.stringify(once));
+    assert.deepEqual(local.createMilestone(ctx, { title: 'M1', description: 'other' }), { ref: 'M1', url: null });
+    assert.equal(read(), once, 'an existing heading is returned, nothing written');
+
+    // M0's section ends at M1's heading: the new item lands before it, after M0's last line.
+    local.create(ctx, { title: 'Into M0', body: 'line one\nline two', milestone: 'M0' });
+    local.create(ctx, { title: 'Into M1', milestone: 'M1' });
+    const lines = read().split('\n');
+    const at = (l: string) => lines.indexOf(l);
+    assert.ok(at('- [ ] Into M0') > at('- [?] Asked one') && at('- [ ] Into M0') < at('## M1'), lines.join('\n'));
+    assert.deepEqual(lines.slice(at('- [ ] Into M0'), at('- [ ] Into M0') + 3), ['- [ ] Into M0', '  line one', '  line two']);
+    assert.ok(at('- [ ] Into M1') > at('> Mandate: g1'));
+    assert.deepEqual(local.milestones(ctx).map((m) => [m.title, m.openIssues]), [['M0', 4], ['M1', 1]]);
+    assert.throws(() => local.create(ctx, { title: 'Nowhere', milestone: 'M9' }), /no milestone "M9"/);
+
+    local.milestoneAdd(ctx, 'loose-item', { milestone: 'M1', labels: ['wave-1'] });
+    const moved = read().split('\n');
+    assert.ok(moved.indexOf('- [ ] Loose item') > moved.indexOf('## M1'));
+    assert.equal(moved[moved.indexOf('- [ ] Loose item') + 1], '  Its body.', 'its body moves with it');
+    assert.equal(moved.filter((l) => l === '- [ ] Loose item').length, 1);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("get fences an item's description as data", () => {
   const repo = tempRepo();
   try {

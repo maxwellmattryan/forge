@@ -1,19 +1,20 @@
 // Mandate files: `.forge/runtime/mandates/<id>.md`, YAML frontmatter then the owner's guidance. Read
-// without following a link or blocking on a FIFO, written only by `forge mandate` under one lock, and
-// read for a job whose `mandate` is set to narrow what the Foreman decides (jobMandateDecides). A
-// mandate's runtime dir `<id>/` beside it holds its drafting runs' files (draft.ts, intake.ts).
-// docs/architecture/foreman.md.
+// without following a link or blocking on a FIFO, written only by `forge mandate` and the Office pass
+// (`forge office pass`, which pauses and closes) under one lock, and read for a job whose `mandate` is
+// set to narrow what the Foreman decides (jobMandateDecides). A mandate's runtime dir `<id>/` beside it
+// holds its drafting runs' files (draft.ts, intake.ts), its board and its closing summary (pass.ts,
+// director.ts). docs/architecture/foreman.md.
 import fs from 'node:fs';
 import path from 'node:path';
 import { paths } from '#core/paths.ts';
 import { listJobs, logRepoEvent } from '#core/job/store.ts';
 import { readRegular, writeTextAtomic } from '#core/os/fs.ts';
-import { withLock } from '#core/os/lock.ts';
+import { withLock, withLockAsync } from '#core/os/lock.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { currentActor } from '#integrations/github/actor.ts';
 import { decides } from '#engine/pipeline/moves/foreman-gates.ts';
 import { MANDATE_ID, MANDATE_KEYS, isMandateId, isReadable, storedMandate } from './contract.ts';
-import type { Config, GateClass, Job } from '#core/types.ts';
+import type { Config, EventActor, GateClass, Job } from '#core/types.ts';
 import type { Mandate, ReadMandate } from './types.ts';
 
 export { MANDATE_ID };
@@ -21,8 +22,8 @@ export { MANDATE_ID };
 /** A mandate file is a short contract and at most 8000 characters of guidance: anything larger is not one. */
 const MAX_BYTES = 64 * 1024;
 
-/** The audit actions a mandate write logs, as `mandate-<action>`. */
-export type MandateAction = 'new' | 'edit' | 'pause' | 'resume' | 'close';
+/** The audit actions a mandate write logs, as `mandate-<action>`; `filed` is a goal mandate's draft filed (filing.ts). */
+export type MandateAction = 'new' | 'edit' | 'pause' | 'resume' | 'close' | 'filed';
 
 const fileOf = (root: string, id: string): string => path.join(paths(root).mandates, `${id}.md`);
 
@@ -94,21 +95,36 @@ export function withMandatesLock<T>(root: string, fn: () => T): T {
   return withLock(path.join(paths(root).locks, 'mandates'), fn);
 }
 
+/**
+ * The director loop's lock: the Office pass holds it for its whole run, and `forge office start`
+ * while it re-checks the limits and starts a job, so two starts can't both take the last free slot.
+ */
+export function withOfficeLock<T>(root: string, fn: () => Promise<T>): Promise<T> {
+  return withLockAsync(path.join(paths(root).locks, 'office'), fn, { timeoutMs: OFFICE_LOCK_WAIT_MS });
+}
+
+/** A pass may call the tracker once per milestone: a start waits this long for one to finish. */
+const OFFICE_LOCK_WAIT_MS = 5 * 60 * 1000;
+
 /** A mandate's runtime dir: its survey, ledger and draft. listMandates ignores it (no `.md` suffix). */
 export const mandateDir = (root: string, id: string): string => path.join(paths(root).mandates, id);
+
+/** A closed mandate's closing summary, which the Office pass writes (lib/office/mandates/pass.ts). */
+export const summaryFile = (root: string, id: string): string => path.join(mandateDir(root, id), 'summary.json');
 
 /**
  * The one write path. Under the mandates lock, `plan` gets every mandate as it is now and returns the
  * record to write with its audit action, or null to write nothing (it throws to refuse). A written
- * record appends one `mandate-<action>` event to the repo audit log.
+ * record appends one `mandate-<action>` event to the repo audit log, with `actor` when the plan names
+ * one (the foreman or the dashboard deciding a draft), else whoever runs the CLI.
  */
-export function writeMandate<T extends { mandate: Mandate; action: MandateAction; reason?: string | null } | null>(root: string, plan: (all: ReadMandate[]) => T): T {
+export function writeMandate<T extends { mandate: Mandate; action: MandateAction; reason?: string | null; actor?: EventActor } | null>(root: string, plan: (all: ReadMandate[]) => T): T {
   return withMandatesLock(root, () => {
     const out = plan(listMandates(root));
     if (!out) return out;
     const { mandate: m, action, reason } = out;
     writeTextAtomic(fileOf(root, m.id), render(m), { root });
-    logRepoEvent(root, `mandate-${action}`, { mandate: m.id, ...(reason ? { reason } : {}), actor: currentActor(root) });
+    logRepoEvent(root, `mandate-${action}`, { mandate: m.id, ...(reason ? { reason } : {}), actor: out.actor ?? currentActor(root) });
     return out;
   });
 }
@@ -122,14 +138,26 @@ export function mandateJobs(root: string, id: string): string[] {
 }
 
 /**
- * What a job's mandate lets the Foreman decide: null when the job is in none; the written decides cut to
- * the effective foreman.decides, whatever the mandate's status; or the problem when its file is missing
- * or can't be read, which the callers treat as no class delegated (fail closed).
+ * What a job's mandate lets the Foreman decide: null when the job is in none; nothing for a closed
+ * mandate; the written decides cut to the effective foreman.decides for an active or paused one (a
+ * paused mandate's in-flight jobs finish); or the problem when its file is missing or can't be read,
+ * which the callers treat as no class delegated (fail closed).
  */
-export function jobMandateDecides(root: string, config: Config, job: Pick<Job, 'mandate'>): null | { id: string; decides: GateClass[]; mandate: Mandate } | { id: string; problem: string } {
-  if (job.mandate === null || job.mandate === undefined) return null;
-  const m = readMandate(root, job.mandate);
+export function jobMandateDecides(root: string, config: Config, job: Pick<Job, 'mandate'>): MandateDecides | null {
+  return job.mandate === null || job.mandate === undefined ? null : mandateDecides(root, config, job.mandate);
+}
+
+/** What mandateDecides returns: the cut decides and the mandate, or why its file can't be read. */
+export type MandateDecides = { id: string; decides: GateClass[]; mandate: Mandate } | { id: string; problem: string };
+
+/**
+ * What mandate `id` lets the Foreman decide: its written decides cut to the effective foreman.decides,
+ * whatever its status, or the problem when its file is missing or can't be read (no class delegated).
+ */
+export function mandateDecides(root: string, config: Config, id: string): MandateDecides {
+  const m = readMandate(root, id);
   if (!isReadable(m)) return { id: m.id, problem: m.problem };
+  if (m.status === 'closed') return { id: m.id, decides: [], mandate: m };
   const granted = decides(config);
   return { id: m.id, decides: m.decides.filter((g) => granted.includes(g)), mandate: m };
 }

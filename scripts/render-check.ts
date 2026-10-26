@@ -118,7 +118,8 @@ async function waitForTexts(scope: Page | ReturnType<Page['locator']>, texts: st
 /**
  * Checks each scenario's views and drawer at `#/p/<project>/<view>`, then the machine's pages (the Overview and the
  * Machine page, which must list all three projects), a switch to the companion through the sidebar switcher and its Add
- * project entry, which must open the Machine page without becoming the selection. Throws
+ * project entry, which must open the Add project dialog in place without becoming the selection, refuse a relative
+ * directory inline and, given the companion's directory, land on its Project page. Throws
  * a RenderError for an unknown scenario (exit 2), and for a build without manifest.json or a Chrome that won't start
  * (exit 1): neither ever passes.
  */
@@ -216,22 +217,58 @@ export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: st
             await waitForTexts(page.locator('#view'), other.expect.views.issues, timeout, p);
           }),
         );
-        // Add project, below the projects, opens the Machine page (and stays there when chosen again) without ever
-        // becoming the switcher's selection.
+        // Add project, below the projects, opens the Add project dialog where the person is, never becoming the switcher's
+        // selection; Escape closes it in place. A relative directory is refused inline, and the companion's directory
+        // (already registered, so added: false) closes the dialog on its Project page.
         const addLabel = catalogText('switcher.add');
+        const addTitle = catalogText('addProject.title');
         await timed(name, 'add', () =>
           checkPage(context, at('issues'), async (page, p) => {
-            try {
-              const trigger = page.locator('#project-switcher');
-              for (let i = 0; i < 2; i++) {
+            const issues = `#/p/${project.name}/issues`;
+            const trigger = page.locator('#project-switcher');
+            const dialog = page.getByRole('dialog', { name: addTitle });
+            const step = async (what: string, run: () => Promise<void>): Promise<boolean> => {
+              try {
+                await run();
+                return true;
+              } catch {
+                p.push(what);
+                return false;
+              }
+            };
+            const open = () =>
+              step('could not choose Add project in the project switcher', async () => {
                 await trigger.click({ timeout });
                 await page.getByRole('option', { name: addLabel }).click({ timeout });
-                await page.waitForURL((u) => u.hash === '#/machine', { timeout });
-              }
-              if ((await trigger.textContent({ timeout }))?.includes(addLabel)) throw new Error('Add project became the selection');
-            } catch {
-              p.push('could not choose Add project in the project switcher');
-            }
+                await dialog.waitFor({ state: 'visible', timeout });
+              });
+            const stayed = (what: string) => {
+              if (new URL(page.url()).hash !== issues) p.push(`${what} changed the hash to ${new URL(page.url()).hash}`);
+            };
+            if (!(await open())) return;
+            stayed('opening Add project');
+            if ((await trigger.textContent({ timeout }))?.includes(addLabel)) p.push('Add project became the selection');
+            if (!(await step('Escape did not close the Add project dialog', async () => {
+              await page.keyboard.press('Escape');
+              await dialog.waitFor({ state: 'hidden', timeout });
+            })))
+              return;
+            stayed('Escape');
+            if (!(await open())) return;
+            const add = dialog.getByRole('button', { name: catalogText('addProject.add'), exact: true });
+            if (!(await step('a relative directory was not refused inline', async () => {
+              await page.locator('#add-project-path').fill('src/app', { timeout });
+              await add.click({ timeout });
+              await dialog.getByText(catalogText('addProject.pathRelative'), { exact: true }).waitFor({ state: 'visible', timeout });
+            })))
+              return;
+            stayed('a refused directory');
+            await step(`adding ${other.root} did not open ${OTHER_PROJECT}'s Project page`, async () => {
+              await page.locator('#add-project-path').fill(other.root, { timeout });
+              await add.click({ timeout });
+              await page.waitForURL((u) => u.hash === `#/p/${OTHER_PROJECT}/project`, { timeout });
+              await dialog.waitFor({ state: 'hidden', timeout });
+            });
           }),
         );
       } finally {

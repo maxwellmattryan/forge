@@ -1,8 +1,10 @@
 <!-- The dashboard shell: sidebar (with the "New job or command" input, the global pages and the project section), phone
      nav, banners, the active view (a global page, or the selected project's), the job drawer over it, the status bar
-     and its popovers, the command palette, and the toast. Everything a project owns remounts when the project changes. -->
+     and its popovers, the command palette, the Add project dialog, and the toast. Everything a project owns remounts when
+     the project changes. -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
+  import AddProject from './components/AddProject.svelte';
   import Banner from './components/Banner.svelte';
   import CommandBar from './components/CommandBar.svelte';
   import Drawer from './components/Drawer.svelte';
@@ -31,11 +33,13 @@
   import { settingsKey, settingsKeyShortcuts, settingsShortcutLabel, type SettingsTabId } from './lib/settings.ts';
   import { commandKey, isMac, shellEscape, shortcutAction, shortcutLabel } from './lib/command.ts';
   import { closePalette, openPalette, palette } from './lib/palette.svelte.ts';
+  import { addProjectDialog, closeAddProject } from './lib/add-project.svelte.ts';
   import { closePopover, popover } from './lib/popover.svelte.ts';
   import { closeCard, ghCard } from './lib/github-card.svelte.ts';
+  import { lockScroll } from './lib/scroll-lock.ts';
 
   let settingsOpen = $state(false);
-  /** The tab Settings opens on: the project section's Settings asks for Pipeline; the gear opens the saved tab. */
+  /** The tab Settings opens on; unset opens the saved tab. */
   let settingsStart = $state<SettingsTabId | undefined>();
   let settings = $state<ReturnType<typeof Settings>>();
   let command = $state<ReturnType<typeof CommandBar>>();
@@ -87,9 +91,9 @@
     if (!compact || covered) hideTip();
   });
 
-  // Settings or the palette taking over closes a popover and leaves focus to that dialog.
+  // Settings, the palette or the Add project dialog taking over closes a popover and leaves focus to that dialog.
   $effect(() => {
-    if (settingsOpen || palette.open) untrack(() => closePopover('external'));
+    if (settingsOpen || palette.open || addProjectDialog.open) untrack(() => closePopover('external'));
   });
 
   // The toast and the job drawer follow the md breakpoint; the drawer's width clamps to the window (bound below).
@@ -117,11 +121,10 @@
     };
   });
 
-  // The page under an open drawer does not scroll; html's scrollbar-gutter: stable keeps it from shifting.
+  // The page under an open drawer does not scroll (lib/scroll-lock.ts keeps it from shifting).
   $effect(() => {
     if (!covered) return;
-    document.documentElement.classList.add('overflow-hidden');
-    return () => document.documentElement.classList.remove('overflow-hidden');
+    return lockScroll();
   });
 
   $effect(() => {
@@ -152,7 +155,8 @@
   }
 
   function onKey(e: KeyboardEvent): void {
-    if (commandKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, open: palette.open, settingsOpen, repeat: e.repeat, composing: e.isComposing }) === 'open') {
+    // The Add project dialog counts as Settings here: while it is open, Cmd/Ctrl-K and the Settings shortcut do nothing.
+    if (commandKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, open: palette.open, settingsOpen: settingsOpen || addProjectDialog.open, repeat: e.repeat, composing: e.isComposing }) === 'open') {
       e.preventDefault();
       // Open: back to its input, keeping the scope. md and up: the first press focuses the bar's input, the second opens.
       const inline = commandState();
@@ -165,13 +169,16 @@
     if (e.key === 'Escape') {
       // Escape that cancels an IME composition closes nothing.
       if (e.isComposing) return;
-      const layer = shellEscape({ card: ghCard.link !== null, command: palette.open, settings: settingsOpen, popover: popover.open !== null, drawer: S.drawer.id !== null });
+      const layer = shellEscape({ card: ghCard.link !== null, command: palette.open, addProject: addProjectDialog.open, settings: settingsOpen, popover: popover.open !== null, drawer: S.drawer.id !== null });
       if (layer === 'card') {
         e.preventDefault();
         closeCard();
       } else if (layer === 'command') {
         e.preventDefault();
         closePalette();
+      } else if (layer === 'addProject') {
+        e.preventDefault();
+        closeAddProject();
       } else if (layer === 'settings') {
         e.preventDefault();
         settings?.requestClose();
@@ -181,7 +188,7 @@
       } else if (layer === 'drawer') closeDrawer();
       return;
     }
-    const action = settingsKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, open: settingsOpen, mac, palette: palette.open, repeat: e.repeat, composing: e.isComposing });
+    const action = settingsKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, open: settingsOpen || addProjectDialog.open, mac, palette: palette.open, repeat: e.repeat, composing: e.isComposing });
     if (action === 'open') {
       e.preventDefault();
       openSettings();
@@ -232,7 +239,7 @@
 
 <svelte:window bind:innerWidth={S.pane.viewport} onhashchange={route} onkeydown={onKey} />
 
-<div class="flex min-h-screen" style="--size-sidebar: {shown}px" inert={settingsOpen || palette.open}>
+<div class="flex min-h-screen" style="--size-sidebar: {shown}px" inert={settingsOpen || palette.open || addProjectDialog.open}>
   <!-- Compact, the sidebar is a 64px rail: the brand's mark, an icon button for the palette, the view icons and the gear,
        each named by aria-label and shown a tooltip (RailTip) on hover and focus. -->
   <aside id="sidebar" class="hidden md:flex w-(--size-sidebar) shrink-0 flex-col gap-1 border-r chrome z-10 border-line-strong shadow-(--shadow-chrome) {compact ? 'px-2 pb-2' : 'px-3 pb-3'} pt-4 sticky top-0 h-screen overflow-y-auto overscroll-contain" inert={covered}>
@@ -263,7 +270,7 @@
       <kbd class="mono muted pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-[10px]" aria-hidden="true">{shortcut}</kbd>
       {/if}
     </span>
-    <nav id="nav" class="flex flex-col gap-1"><Nav {compact} onsettings={() => openSettings('pipeline')} /></nav>
+    <nav id="nav" class="flex flex-col gap-1"><Nav {compact} /></nav>
     <div class="mt-auto flex flex-col gap-2 pt-3">
       <div class="navlist {compact ? 'rail' : ''}"><button id="settings-open" aria-label={compact ? $t('settings.open') : undefined} aria-haspopup="dialog" aria-keyshortcuts={settingsKeyShortcuts(platform)} onclick={() => openSettings()} {@attach compact && railTipOn($t('settings.open'))}>{#if compact}<Icon name="settings" />{:else}<span class="lbl"><Icon name="settings" />{$t('settings.open')}</span><kbd class="mono muted text-[10px] normal-case" aria-hidden="true">{settingsShortcut}</kbd>{/if}</button></div>
     </div>
@@ -329,8 +336,9 @@
   {#if project !== null}{#key project}<StatusBar />{/key}{/if}
 </div>
 <!-- Outside main as well: inside main.falloff's stacking context, the sidebar's z-10 would sit above the backdrop. -->
-<div inert={settingsOpen || palette.open}>{#key project}<Drawer />{/key}</div>
+<div inert={settingsOpen || palette.open || addProjectDialog.open}>{#key project}<Drawer />{/key}</div>
 {#if settingsOpen}{#key project}<Settings bind:this={settings} start={settingsStart} onclose={closeSettings} />{/key}{/if}
+{#if addProjectDialog.open}<AddProject />{/if}
 {#if palette.open}{#key project}<CommandBar bind:this={command} onclose={closePalette} />{/key}{/if}
 <Toast />
 <!-- Last and outside every inert wrapper: it describes links in Settings and the palette too. -->

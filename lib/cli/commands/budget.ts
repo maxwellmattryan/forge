@@ -16,7 +16,7 @@ const BUDGET: HelpGroup = {
       args: '',
       summary: 'repo spend this UTC day and month against budget.usdPerDay, usdPerMonth and tokensPerMonth: caps, remaining, projected month-end and held jobs; frees repo-held jobs once nothing is exceeded',
       docs: ['Repo budget', 'docs/CONFIG.md#repo-budget'],
-      readme: true,
+      common: true,
     },
     {
       command: 'budget ack',

@@ -1,6 +1,7 @@
 <!-- The Needs-you popover's body (the page it replaced): every pending permission prompt in the pool, answered right here,
-     then decisions only a human can make, PRs awaiting review, jobs parked on their dependencies (listed apart: they resume
-     by themselves, but a human may unblock one), and queued requests.
+     then decisions only a human can make (goal mandates' milestone drafts first, then jobs), PRs awaiting review, jobs
+     parked on their dependencies (listed apart: they resume by themselves, but a human may unblock one), and queued
+     requests (a job-less one names its mandate when it has one).
      Opening a job opens its pane, and StatusBar closes the popover. Titles, reasons and request text are untrusted and
      render as text; the PR link goes through safeUrl. -->
 <script lang="ts">
@@ -16,7 +17,8 @@
   import { ago } from '../../lib/util.ts';
   import type { ApiState } from '../../lib/types.ts';
   import { cardRef } from '../../lib/board.ts';
-  import { inboxGroups } from '../../lib/inbox.ts';
+  import { inboxGroups, requestSubject } from '../../lib/inbox.ts';
+  import MilestoneDraftCard from '../MilestoneDraftCard.svelte';
   import { pendingPrompts } from '../../lib/permissions.ts';
   import { S, openDrawer, req } from '../../lib/app.svelte.ts';
   import { ticker } from '../../lib/clock.svelte.ts';
@@ -26,11 +28,14 @@
   let { data }: { data: ApiState } = $props();
   const groups = $derived(inboxGroups(data.jobs));
   const reqs = $derived(data.requests ?? []);
+  // An older server sends no drafts.
+  const drafts = $derived(data.drafts ?? []);
   // The same source PermissionPrompts reads, so the section renders exactly when it lists something.
   const prompts = $derived(pendingPrompts(S.data?.daemons ?? null).length);
-  // An answered prompt unmounts with its buttons: focus back on the popover, not the body.
+  // An answered prompt or a decided milestone draft unmounts with its buttons: focus back on the popover, not the body.
   $effect(() => {
     void prompts;
+    void drafts.length;
     keepFocus();
   });
 </script>
@@ -41,7 +46,8 @@
   {#if showRepoSection(data.budget)}<RepoBudgetSection {data} />{/if}
   <section class="flex flex-col gap-3" aria-labelledby="needs-urgent">
     <h3 id="needs-urgent" class="label">{$t('needs.urgent')}</h3>
-    {#if groups.urgent.length}
+    {#if groups.urgent.length || drafts.length}
+      {#each drafts as d (d.mandate)}<MilestoneDraftCard gate={d} />{/each}
       {#each groups.urgent as j (j.id)}<InboxCard job={j} />{/each}
     {:else if prompts}
       <p class="text-sm text-muted">{$t('needs.noDecisions')}</p>
@@ -91,8 +97,9 @@
       <h3 id="needs-queued" class="label">{$t('inbox.queued')}</h3>
       <ul class="plate flat needs-list">
         {#each reqs as r (r.id)}
+          {@const subject = requestSubject(r)}
           <li class="needs-row gap-1">
-            <div class="flex min-w-0 flex-wrap items-baseline gap-x-2"><span class="font-mono text-xs">{r.type}</span>{#if r.job}<span class="min-w-0 truncate" title={r.job}>{r.job}</span>{/if}</div>
+            <div class="flex min-w-0 flex-wrap items-baseline gap-x-2"><span class="font-mono text-xs">{r.type}</span>{#if subject && 'job' in subject}<span class="min-w-0 truncate" title={subject.job}>{subject.job}</span>{:else if subject}<span class="min-w-0 truncate" title={subject.mandate}>{$t('inbox.mandate', { id: subject.mandate })}</span>{/if}</div>
             {#if r.text}<p class="text-muted break-words">{r.text}</p>{/if}
             <p class="text-muted text-xs">{r.status === 'in-progress' ? $t('inbox.handling', { session: String(r.session ?? '').slice(0, 8) }) : $t('inbox.queuedStatus')} · {ago(r.createdAt, ticker.now)}</p>
           </li>

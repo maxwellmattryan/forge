@@ -11,7 +11,7 @@ import { readJson, writeJsonAtomic } from '../os/fs.ts';
 import { withLock } from '../os/lock.ts';
 import { now, shortId } from '../utils.ts';
 
-import { ASSISTANTS_SCOPE, ASSISTANT_SCOPE_PREFIX, CHAT_SCOPE_PREFIX, INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
+import { ASSISTANTS_SCOPE, ASSISTANT_SCOPE_PREFIX, CHAT_SCOPE_PREFIX, INBOX_SCOPE, MANDATE_ID_SOURCE, MAX_ASSISTANTS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
 
 export { ASSISTANTS_SCOPE, ASSISTANT_SCOPE_PREFIX, CHAT_SCOPE_PREFIX, INBOX_SCOPE, JOBS_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
 
@@ -77,12 +77,13 @@ export function validScope(s: unknown): s is string {
 }
 
 /**
- * Which daemon session a request belongs to: the assistant foremen's group for a gate, the office for a draft, its
- * job's for a job request whose job exists, the inbox for everything else (which rejects malformed or unknown jobs per the skill).
+ * Which daemon session a request belongs to: the assistant foremen's group for a gate, the office for a draft or
+ * a direct (the Office pass's wake), its job's for a job request whose job exists, the inbox for everything else
+ * (which rejects malformed or unknown jobs per the skill).
  */
 export function requestScope(root: string, rec: { type?: unknown; job?: unknown }): string {
   if (rec?.type === 'gate') return ASSISTANTS_SCOPE;
-  if (rec?.type === 'draft') return OFFICE_SCOPE;
+  if (rec?.type === 'draft' || rec?.type === 'direct') return OFFICE_SCOPE;
   if (!(JOB_REQUEST_TYPES as readonly unknown[]).includes(rec?.type) || !validJobId(rec.job)) return INBOX_SCOPE;
   return exists(path.join(paths(root).jobs, rec.job, 'job.json')) ? rec.job : INBOX_SCOPE;
 }
@@ -117,6 +118,10 @@ function dir(root: string): string {
   return path.join(paths(root).runtime, 'requests');
 }
 
+const MANDATE_ID = new RegExp(MANDATE_ID_SOURCE);
+/** A mandate id as a request's `args.mandate`: the id grammar, and never `none`. */
+const isMandateIdArg = (v: unknown): v is string => typeof v === 'string' && MANDATE_ID.test(v) && v !== 'none';
+
 /**
  * `_config` is kept so callers need not change.
  */
@@ -128,7 +133,9 @@ export function enqueue(
   if (!(REQUEST_TYPES as readonly string[]).includes(req.type)) throw new ForgeError(`unknown request type "${req.type}"`);
   if ((JOB_REQUEST_TYPES as readonly string[]).includes(req.type) && !req.job)
     throw new ForgeError(`request "${req.type}" needs a job`);
-  if (req.type === 'gate' && !validJobId(req.job)) throw new ForgeError('a gate request needs a valid job');
+  // A goal mandate's milestone draft is the one gate no job waits on: job-less, with a valid mandate id instead.
+  const mandateGate = req.type === 'gate' && (req.job === null || req.job === undefined) && req.args?.gate === 'milestone-approval' && isMandateIdArg(req.args?.mandate);
+  if (req.type === 'gate' && !mandateGate && !validJobId(req.job)) throw new ForgeError('a gate request needs a valid job');
   const id = `${Date.now()}-${shortId()}`;
   const rec: ForgeRequest = {
     id,

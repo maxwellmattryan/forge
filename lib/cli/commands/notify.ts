@@ -1,6 +1,7 @@
 // `forge notify test|send`: a sample notification to every configured target, and the detached
 // sender lib/office/notify.ts queueNotify spawns. Delivery itself lives in lib/office/notify.ts.
-import { contextFor, deliver, isNotifyEvent, isReasonCode, notifyConfigured } from '#office/notify.ts';
+import { MANDATE_REASONS, contextFor, deliver, isNotifyEvent, isReasonCode, notifyConfigured } from '#office/notify.ts';
+import { isMandateId } from '#office/mandates/contract.ts';
 import { NOTIFY_EVENTS } from '#core/job/schema.ts';
 import type { NotifyEvent } from '#core/types.ts';
 import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
@@ -19,16 +20,17 @@ const NOTIFY: HelpGroup = {
       flags: [['--event <name>', `the sample's event (default gate): ${NOTIFY_EVENTS.join(', ')}`]],
       exits: [[1, 'a target failed, or notify has no webhooks or command']],
       docs: ['Notifications', 'docs/CONFIG.md#notifications'],
-      readme: true,
+      common: true,
     },
     {
       command: 'notify send',
-      args: '--events <e1[,e2]> [--job <id>] --reason <code>',
+      args: '--events <e1[,e2]> [--job <id> | --mandate <id>] --reason <code>',
       summary:
-        "internal: what a state change spawns, detached. Delivers to the targets that subscribe to the first matching event, reading the job's title, stage and PR url itself, and records notified or notify-failed per target on the job (else in .forge/runtime/notify.jsonl)",
+        "internal: what a state change spawns, detached. Delivers to the targets that subscribe to the first matching event, reading the job's title, stage and PR url itself (or the mandate's title), and records notified or notify-failed per target on the job (else in .forge/runtime/notify.jsonl)",
       flags: [
         ['--events <e1[,e2]>', 'the events, most specific first'],
         ['--job <id>', 'the job it is about (none for a pool-wide daemon stop)'],
+        ['--mandate <id>', 'the mandate it is about, with no job: only for the mandate-stalled, mandate-budget and mandate-closed reasons'],
         ['--reason <code>', 'the reason code, mapped to a fixed English string'],
       ],
       exits: [[1, 'a target failed, or no such job']],
@@ -62,8 +64,14 @@ export async function notifyCmd(ctx: CliContext, sub: string | undefined, rest: 
     const checked = events.map((e) => eventArg(e, '--events'));
     if (!isReasonCode(flags.reason) || flags.reason === 'test') throw new ForgeError(`--reason ${JSON.stringify(String(flags.reason)).slice(0, 60)} is not a notification reason code`, 'usage', 'forge help notify send');
     const job = flags.job === undefined ? null : String(flags.job);
+    let mandate: string | null = null;
+    if (flags.mandate !== undefined) {
+      if (!isMandateId(flags.mandate) || !MANDATE_REASONS.includes(flags.reason) || job !== null)
+        throw new ForgeError(`--mandate takes a mandate id, with --reason ${MANDATE_REASONS.join(', ')} and no --job`, 'usage', 'forge help notify send');
+      mandate = flags.mandate;
+    }
     // contextFor loads the job (its title, stage and PR url), so a missing one fails here.
-    const nctx = contextFor(root, job, flags.reason);
+    const nctx = contextFor(root, job, flags.reason, undefined, mandate);
     const results = await deliver(root, config, checked, nctx);
     return { data: { events: checked, results: results.map(({ event, target, ok, error, attempts }) => ({ event, target, ok, ...(error ? { error } : {}), attempts })) }, exitCode: results.every((r) => r.ok) ? 0 : 1 };
   }

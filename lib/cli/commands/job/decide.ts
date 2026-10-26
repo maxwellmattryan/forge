@@ -14,6 +14,7 @@ import { createAndLink, linkJob, markNoIssue } from '#engine/trackers/link.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { resolveEffort, resolveModel } from '#core/config/load.ts';
 import { jobMandateDecides } from '#office/mandates/store.ts';
+import { bounceHold } from '#office/mandates/progress.ts';
 import { mandateGuidance } from '#office/mandates/contract.ts';
 import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -128,8 +129,17 @@ function assist(root: string, config: Config, job: Job, rawGate: unknown) {
   // A release under a paused or closed mandate too (releaseMandateRefusal), since publishing can't be undone.
   const halted = m !== null && !('problem' in m) && gate === 'release' && (m.mandate.status === 'paused' || m.mandate.status === 'closed') ? m.mandate.status : null;
   const delegated = m !== null && !('problem' in m) && m.decides.includes(gate) && !halted ? m : null;
+  // A closed mandate delegates nothing (decides is empty); a delegated gate the job keeps coming back to is held too.
   const mandateHold =
-    m === null || delegated ? null : 'problem' in m ? `mandate ${m.id}: can't be read` : halted ? `mandate ${m.id}: ${halted}, so release is not delegated` : `mandate ${m.id}: ${gate} is not delegated`;
+    m === null
+      ? null
+      : delegated
+        ? bounceHold(job, events, delegated.mandate)
+        : 'problem' in m
+          ? `mandate ${m.id}: can't be read`
+          : halted
+            ? `mandate ${m.id}: ${halted}, so release is not delegated`
+            : `mandate ${m.id}: ${gate} is not delegated`;
   // A class reserved with gate:<class> is a human's even when a request for it exists.
   const reserved = stale ? null : (classReservation(config, gate) ?? mandateHold ?? reservedFor(root, config, job, gate));
   // One read of the events for both the brief and `repos`, so the foreman's --repo is exactly the set the assistant judged.

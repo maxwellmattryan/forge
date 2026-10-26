@@ -5,9 +5,12 @@
 // across projects). Also the one place a pool session's child is started and handed work, and what kind of
 // session a scope is: only job sessions count against `daemon.maxConcurrent` and the machine cap; the inbox,
 // the office, the assistant foremen and the chats never do. docs/architecture/daemon.md describes it.
-import { INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, assistantScope, isAssistantScope, isChatScope } from '#core/job/requests.ts';
+import { INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, assistantScope, isAssistantScope, isChatScope, sharedScope } from '#core/job/requests.ts';
+import { resolveEffort, validEffort, validModel } from '#core/config/load.ts';
+import { loadJob } from '#core/job/store.ts';
+import { configForJob } from '#engine/evals/overlay.ts';
 import type { Session } from './session/contract.ts';
-import type { Config, ForgeRequest } from '#core/types.ts';
+import type { Config, Effort, EffortSource, ForgeRequest, Job } from '#core/types.ts';
 
 export type SessionKind = 'inbox' | 'office' | 'assistant' | 'chat' | 'job';
 
@@ -31,6 +34,38 @@ export function assistantScopes(c: Config): string[] {
   const count = Number.isInteger(n) && n >= 1 && n <= MAX_ASSISTANTS ? n : 1;
   return Array.from({ length: count }, (_, i) => assistantScope(i + 1));
 }
+
+/** The office session's --model at its spawn: foreman.model when it is a valid model and not inherit, else null (daemon.command's). */
+export function officeModel(c: Config): string | null {
+  const m = validModel(c.foreman?.model);
+  return m && m !== 'inherit' ? m : null;
+}
+
+/** The office session's --effort at its spawn: foreman.effort when it is valid, else the default effort (resolveEffort with no job). */
+export function officeEffort(c: Config): { level: Effort | null; source: EffortSource } {
+  const own = validEffort(c.foreman?.effort);
+  return own ? { level: own, source: 'role' } : resolveEffort(c, null);
+}
+
+/**
+ * The --effort a spawn of `scope` gets: the office session's officeEffort. Any other session runs the
+ * orchestrator, with no role, so per-role, panel and complexity levels never reach its argv: only its
+ * job's effort and runtime.effort do, under an eval job's overlaid config (a tampered overlay falls back
+ * to the base, since step and verify refuse that job anyway). A missing or unreadable job falls back to the config's.
+ */
+export function sessionEffort(root: string, scope: string, c: Config): { level: Effort | null; source: EffortSource } {
+  if (scope === OFFICE_SCOPE) return officeEffort(c);
+  let job: Job | null = null;
+  let jc = c;
+  try {
+    if (!sharedScope(scope)) job = loadJob(root, scope);
+    if (job) jc = configForJob(root, c, job);
+  } catch {}
+  return resolveEffort(jc, job);
+}
+
+/** The --model a spawn of `scope` gets: the office session's officeModel; every other session keeps daemon.command's. */
+export const sessionModel = (scope: string, c: Config): string | null => (scope === OFFICE_SCOPE ? officeModel(c) : null);
 
 /** Spawns `s` when no child runs, then hands it `eligible` as a turn (none for null: the eager inbox). False when the spawn was refused. */
 export function startWork(s: Session, c: Config, reason: string, eligible: string[] | null): boolean {

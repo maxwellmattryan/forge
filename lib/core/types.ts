@@ -28,7 +28,8 @@ export interface Tracker {
   claim: (ctx: TrackerCtx, ref: string, job: Job) => { ok: boolean; reason?: string };
   update: (ctx: TrackerCtx, ref: string, job: Job) => void;
   comment: (ctx: TrackerCtx, ref: string, body: string) => void;
-  create: (ctx: TrackerCtx, item: { title: string; body?: string; labels?: string[]; parentRef?: string | null }) => { ref: string; url?: string | null };
+  /** `milestone` is a milestone title the item is filed under (createMilestone made it first). */
+  create: (ctx: TrackerCtx, item: { title: string; body?: string; labels?: string[]; parentRef?: string | null; milestone?: string | null }) => { ref: string; url?: string | null };
   close: (ctx: TrackerCtx, ref: string, opts?: { reason?: 'completed' | 'not-planned' }) => void;
   /**
    * Optional: open items matching a free-text query, best first, at most `opts.limit` of them
@@ -47,4 +48,18 @@ export interface Tracker {
    * can't list them.
    */
   milestones?: (ctx: TrackerCtx) => { title: string; openIssues: number | null; dueOn: string | null }[];
+  /**
+   * Optional: the open items in `milestone` (any milestone when null) that carry every label in `labels`,
+   * at most `limit`, for a mandate's scope (lib/office/mandates/progress.ts). Marked like list's items
+   * (needsInfo, claimedBy, project status and priority). Throws when it can't list them; a mandate with a
+   * milestone or label scope and no `scope` method is not worked.
+   */
+  scope?: (ctx: TrackerCtx, q: { milestone: string | null; labels: string[]; limit: number }) => TrackerItem[];
+  /**
+   * Optional: creates an open milestone, or returns the open one with exactly that title, for filing an
+   * approved milestone draft (lib/office/mandates/filing.ts). Without it, a draft can't be filed there.
+   */
+  createMilestone?: (ctx: TrackerCtx, milestone: { title: string; description: string }) => { ref: string; url?: string | null };
+  /** Optional: puts an existing item in a milestone, with the labels where the tracker supports them (a draft's `existing` issues). */
+  milestoneAdd?: (ctx: TrackerCtx, ref: string, opts: { milestone: string; labels: string[] }) => void;
 }

@@ -5,7 +5,8 @@
      opened against (`menu-pop` in style.css); its first and last rows follow the plate's cut corners (`menu-list`).
      Entries are dense rows: a check column, then the label with an optional
      icon and hint line, or the caller's `entry` snippet; `separator` rules an entry off and consecutive entries of one
-     `group` sit under its name; an `action` entry calls onchange but never becomes the value. Focus never leaves the
+     `group` sit under its name; an `action` entry calls onchange but never becomes the value, and
+     its icon takes the check column it never needs, so its label lines up with the others'. Focus never leaves the
      button and aria-activedescendant names the active option, so the settings focus trap and the drawer's focus handling
      see one control. src/lib/select.ts decides what each key does, src/lib/menu.ts placeMenu where the list opens, and
      dismissal follows MenuButton: Escape closes only the list, a press outside, focus leaving, a resize, a scroll that
@@ -273,6 +274,6 @@
     onmousemove={() => hover(i)}
     onclick={() => pick(i)}
   >
-    {#if i === selected}<Icon name="check" class="shrink-0" />{:else}<span class="ic shrink-0" aria-hidden="true"></span>{/if}{#if entry}{@render entry(o, i)}{:else}{#if o.icon}<Icon name={o.icon} class="shrink-0" />{/if}<span class="flex min-w-0 flex-col"><span class="truncate">{o.label}</span>{#if o.hint}<span class="text-xs text-muted whitespace-normal">{o.hint}</span>{/if}</span>{/if}
+    {#if i === selected}<Icon name="check" class="shrink-0" />{:else if o.action && o.icon && !entry}<Icon name={o.icon} class="shrink-0" />{:else}<span class="ic shrink-0" aria-hidden="true"></span>{/if}{#if entry}{@render entry(o, i)}{:else}{#if o.icon && !o.action}<Icon name={o.icon} class="shrink-0" />{/if}<span class="flex min-w-0 flex-col"><span class="truncate">{o.label}</span>{#if o.hint}<span class="text-xs text-muted whitespace-normal">{o.hint}</span>{/if}</span>{/if}
   </li>
 {/snippet}

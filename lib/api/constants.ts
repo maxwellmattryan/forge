@@ -59,9 +59,10 @@ export const COMPLEXITIES = ['low', 'medium', 'high'] as const;
 /**
  * The gate classes the foreman may decide (foreman.decides); `pr-feedback` is a pr-review wait with
  * feedback, `repo-proposal` a `human` wait with pending repo proposals, and `release` a job's release
- * plan awaiting approval (lib/engine/release/approval.ts), which no job waits on.
+ * plan awaiting approval (lib/engine/release/approval.ts), which no job waits on. `milestone-approval` is
+ * a goal mandate's ready milestone draft (lib/office/mandates/gate.ts): it belongs to a mandate, not a job.
  */
-export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release'] as const;
+export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release', 'milestone-approval'] as const;
 
 /** A mandate's status (`.forge/runtime/mandates/<id>.md`): only `forge mandate pause|resume|close` moves it. */
 export const MANDATE_STATUSES = ['active', 'paused', 'closed'] as const;
@@ -75,14 +76,20 @@ export const MANDATE_ON_UNFINISHABLE = ['park', 'cancel'] as const;
 /** Why the Foreman left a gate for a person (`forge job handoff --class`): a reserved topic or class, the assistant escalated, or the CLI refused its decision. */
 export const HANDOFF_CLASSES = ['reserved', 'escalated', 'refused'] as const;
 
-export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume', 'sync', 'eval-run', 'retro', 'gate', 'draft'] as const;
+export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume', 'sync', 'eval-run', 'retro', 'gate', 'draft', 'direct'] as const;
+
+/**
+ * A directive's action: one record of the director loop (`directive` in the repo audit log). The office
+ * session's choices are start, resume, note and skip; the Office pass's enforcements are the rest.
+ */
+export const DIRECTIVE_ACTIONS = ['start', 'resume', 'note', 'skip', 'pause', 'close', 'stall', 'park', 'cancel'] as const;
 
 /**
  * The daemon session for requests without a (valid, existing) job. Job ids start with an
  * alphanumeric, so it can never be one.
  */
 export const INBOX_SCOPE = '_inbox';
-/** The Foreman's daemon session: it receives every `draft` request (its assistant foremen take the `gate` requests) and never drives a job. */
+/** The Foreman's daemon session: it receives every `draft` and `direct` request (its assistant foremen take the `gate` requests) and never drives a job. */
 export const OFFICE_SCOPE = '_office';
 /** Not a session: the request group every `gate` request routes to, which any assistant foreman session may claim from. */
 export const ASSISTANTS_SCOPE = '_assistants';
@@ -102,6 +109,12 @@ export const JOBS_SCOPE = '_jobs';
  * `/api/p/<project>/` URL segment: no `/`, no leading `.` or `-`, at most 64 characters.
  */
 export const PROJECT_NAME_SOURCE = '^[a-z0-9][a-z0-9._-]{0,63}$';
+
+/**
+ * A mandate id (`.forge/runtime/mandates/<id>.md`), which is also its file name: lowercase letters,
+ * digits and `-`, at most 40, not starting with `-`. `none` matches but is never an id (isMandateId).
+ */
+export const MANDATE_ID_SOURCE = '^[a-z0-9][a-z0-9-]{0,39}$';
 
 export const COMPONENT_KINDS =['library', 'service', 'app'] as const;
 export const DEPENDENCY_TYPES = ['build', 'runtime'] as const;

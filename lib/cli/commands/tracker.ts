@@ -63,7 +63,7 @@ const TRACKER: HelpGroup = {
       ],
       exits: TRACKER_EXITS,
       docs: ['Linking jobs to issues', 'docs/TRACKERS.md#linking-jobs-to-issues'],
-      readme: true,
+      common: true,
     },
     { command: 'tracker claim', args: '<ref> <job>', summary: 'mark an item as taken by a job', exits: TRACKER_EXITS },
     { command: 'tracker update', args: '<ref> <job>', summary: "mirror a job's status to its item", exits: TRACKER_EXITS },
@@ -87,7 +87,7 @@ const TRACKER: HelpGroup = {
       ],
       exits: TRACKER_EXITS,
       docs: ['Readiness triage', 'docs/TRACKERS.md#readiness-triage'],
-      readme: true,
+      common: true,
     },
   ],
 };
@@ -310,8 +310,11 @@ const CONTROL = /[\x00-\x1f\x7f\u2028\u2029]/;
 
 type Started = { id: string; existing: true; stage: Job['stage']; state: Job['state'] } | { id: string; ref: string; title: string; branch: Job['branch']; repo?: string };
 
+/** How startFromRef creates a job: its split mode, and the mandate it works under (forge office start). */
+export type StartOpts = { splitMode?: 'never'; mandate?: string | null };
+
 /** Starts (or finds) the job for a tracker item and claims the item for it. */
-export async function startFromRef(root: string, config: Config, tracker: Tracker, ref: string, flags: Record<string, any>, opts: { splitMode?: 'never' } = {}): Promise<Started> {
+export async function startFromRef(root: string, config: Config, tracker: Tracker, ref: string, flags: Record<string, any>, opts: StartOpts = {}): Promise<Started> {
   const session = str(flags.session, '--session');
   const ctx = { root, config };
   const kind = config.tracker.kind;
@@ -335,7 +338,7 @@ export async function startFromRef(root: string, config: Config, tracker: Tracke
   if (existing) return { id: existing.id, existing: true, stage: existing.stage, state: existing.state };
   const stored = kind === 'github' ? (parseIssueRef(itemRef, { tracker: kind, slug }) ?? itemRef) : itemRef;
   const issues = [{ tracker: kind, ref: stored, url: typeof item.url === 'string' ? item.url : null }];
-  const job = createJob(root, config, { title: item.title, issues, body: item.body ?? '', splitMode: opts.splitMode, origin: 'issue' });
+  const job = createJob(root, config, { title: item.title, issues, body: item.body ?? '', splitMode: opts.splitMode, origin: 'issue', mandate: opts.mandate ?? null });
   const claim = tracker.claim(ctx, item.ref, job);
   if (!claim.ok) {
     await moveJob(root, config, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` }, { mirror: false });
@@ -356,7 +359,7 @@ async function startFromMemberRef(
   member: MemberTracker & { n: string },
   slug: string | null,
   flags: Record<string, any>,
-  opts: { splitMode?: 'never' },
+  opts: StartOpts,
 ): Promise<Started> {
   const session = str(flags.session, '--session');
   const ref = qualify(member.slug, member.n);
@@ -368,7 +371,7 @@ async function startFromMemberRef(
   // Only the digits reach gh as the issue argument; -R is the configured slug.
   const item = tracker.get(ctx, member.n);
   if (!item) throw new ForgeError(`no github item "${ref}"`);
-  const job = createJob(root, config, { title: item.title, issues: [{ tracker: 'github', ref, url: isSafeUrl(item.url) ? item.url : null }], body: item.body ?? '', splitMode: opts.splitMode, origin: 'issue' });
+  const job = createJob(root, config, { title: item.title, issues: [{ tracker: 'github', ref, url: isSafeUrl(item.url) ? item.url : null }], body: item.body ?? '', splitMode: opts.splitMode, origin: 'issue', mandate: opts.mandate ?? null });
   recordJobRepo(root, config, job.id, member.name, false);
   const claim = tracker.claim(ctx, member.n, loadJob(root, job.id));
   if (!claim.ok) {

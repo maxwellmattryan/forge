@@ -107,5 +107,5 @@ test('the survey says what it couldn\'t read', async (t) => {
   // The loader's guard passes the adapter's own milestones through, and adds none.
   const github = { ...config, tracker: { ...config.tracker, kind: 'github' } } as Config;
   assert.equal(typeof (await loadTracker(root, github)).milestones, 'function');
-  assert.equal((await loadTracker(root, config)).milestones, undefined);
+  assert.equal((await loadTracker(root, none)).milestones, undefined);
 });

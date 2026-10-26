@@ -100,6 +100,7 @@ function rig(t: any, opts: RigOpts = {}) {
     permissionMode: () => opts.mode ?? null,
     permissionModeRefused: (s, mode, live) => void calls.refused.push({ scope: s, mode, live }),
     effort: () => ({ level: null, source: 'none' }),
+    model: () => null,
   };
   const claude = fakeClaude(opts.exitOnSignal === undefined ? {} : { exitOnSignal: opts.exitOnSignal });
   const mem = memorySink();

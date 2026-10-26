@@ -67,7 +67,7 @@ export const JOB: HelpGroup = {
         [5, 'gh failed (GitHub tracker)'],
       ],
       docs: ['Linking jobs to issues', 'docs/TRACKERS.md#linking-jobs-to-issues'],
-      readme: true,
+      common: true,
     },
     { command: 'job list', args: '[--all]', summary: 'active jobs, one object each', flags: [['--all', 'include finished and cancelled jobs']] },
     { command: 'job show', args: '<id> [--full]', summary: 'one job, compact (the whole job.json with --full)', flags: [['--full', 'print the whole job.json']], exits: [NO_JOB] },
@@ -100,7 +100,7 @@ export const JOB: HelpGroup = {
       flags: [['--inherit', "clear the job's effort"]],
       exits: [[1, 'no such job, or a daemon session']],
       docs: ['Effort', 'docs/CONFIG.md#effort'],
-      readme: true,
+      common: true,
     },
     {
       command: 'job claim',
@@ -136,7 +136,7 @@ export const JOB: HelpGroup = {
         ],
       ],
       docs: ['Job repos', 'docs/architecture/job-repos.md'],
-      readme: true,
+      common: true,
     },
     {
       command: 'job interim',
@@ -154,7 +154,7 @@ export const JOB: HelpGroup = {
         ],
       ],
       docs: ['Interim strategies', 'docs/CONFIG.md#interim-strategies'],
-      readme: true,
+      common: true,
     },
     { command: 'job note', args: '<id> [text] [--body B | --body-file F]', summary: 'log a note event', flags: BODY, exits: [NO_JOB] },
     {
@@ -239,7 +239,7 @@ export const JOB: HelpGroup = {
       ],
       exits: [NO_JOB],
       docs: ['Audit trail', 'docs/architecture/audit-trail.md'],
-      readme: true,
+      common: true,
     },
     {
       command: 'job archive',
@@ -252,7 +252,7 @@ export const JOB: HelpGroup = {
       ],
       exits: [[1, 'not eligible, or a daemon session']],
       docs: ['Retention', 'docs/architecture/retention.md'],
-      readme: true,
+      common: true,
     },
     {
       command: 'job delete',
@@ -261,7 +261,7 @@ export const JOB: HelpGroup = {
       flags: [['--force', 'delete it even while a live interactive session owns it']],
       exits: [[1, 'no such job, not eligible (the message says why), a worktree or backing teardown that failed (rerun once fixed), or a daemon session']],
       docs: ['Deleting a job', 'docs/architecture/deleting-a-job.md'],
-      readme: true,
+      common: true,
     },
     {
       command: 'job prune',
@@ -273,7 +273,7 @@ export const JOB: HelpGroup = {
       ],
       exits: [[1, 'not eligible, or a daemon session']],
       docs: ['Retention', 'docs/architecture/retention.md'],
-      readme: true,
+      common: true,
     },
     {
       command: 'job verdicts',
@@ -302,7 +302,7 @@ export const JOB: HelpGroup = {
       summary: "the job's local links (config dependsOn links), active or not, with the dependency dir or the reason",
       exits: [NO_JOB],
       docs: ['Local links', 'docs/CONFIG.md#local-links'],
-      readme: true,
+      common: true,
     },
     {
       command: 'job scope',
@@ -343,7 +343,7 @@ export const JOB: HelpGroup = {
         ['--epoch N', 'the epoch your claim returned: refused (exit 3, stale_epoch) once another session took the job over'],
       ],
       exits: [NO_JOB, [3, 'stale_epoch: the lease moved past --epoch, or to another driver']],
-      readme: true,
+      common: true,
     },
     {
       command: 'job advance',
@@ -358,7 +358,7 @@ export const JOB: HelpGroup = {
         [1, 'no such job, or a command it ran failed (the result says which)'],
         [3, 'session S does not hold the job, or (stale_epoch) another session took it over'],
       ],
-      readme: true,
+      common: true,
     },
   ],
 };
