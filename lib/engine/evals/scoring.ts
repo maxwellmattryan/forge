@@ -1,5 +1,7 @@
-// Post-merge scoring: a sampled share of merged jobs gets one run of the judge against the spec's
-// acceptance criteria and the merged PR's diff, so real work has a quality score beside the evals'.
+// Post-merge scoring: a sampled share of merged jobs, plus every merged job of a mandate that scores all,
+// gets one run of the judge against the spec's acceptance criteria and the merged PR's diff, so real work
+// has a quality score beside the evals'. The mandate's term comes from a resolver the CLI passes (this
+// layer can't read mandates), asked only for the CLI record's `mandate`, never the job folder's job.json.
 //
 // score.md and the diff are untrusted (the judge, or the builder's merged code, wrote them): from
 // score.md only a regex-parsed number is stored, and the diff reaches only the judge, fenced as data.
@@ -15,6 +17,7 @@ import { repoSlug } from '#integrations/github/pull-requests.ts';
 import { repoBudgetStatus } from '../metrics/repo-budget.ts';
 import { enqueue, listRequests } from '#core/job/requests.ts';
 import type { Config, Job, JobScore } from '#core/types.ts';
+import type { MandateScoring } from '#api/types.ts';
 import { gh } from '#integrations/github/gh.ts';
 import { ForgeError } from '#core/errors.ts';
 import { writeAtomic } from '#core/os/fs.ts';
@@ -53,12 +56,23 @@ export function mergeTime(job: Pick<Job, 'pr' | 'outcome'>): number | null {
   return timeOf(job.pr?.mergedAt) ?? timeOf(job.outcome?.mergedAt);
 }
 
-/** Whether sync should queue a score run for `job` now: sampled, merged in the lookback, never scored. */
-function scoreDue(job: Job, now: Date, config: Config): boolean {
+/** A job's mandate's scoring term, or null for none or an unreadable mandate (lib/office/mandates/store.ts jobMandateScoring). */
+export type MandateScoringFn = (job: Job) => MandateScoring | null;
+
+/**
+ * Whether sync should queue a score run for `job` now: merged in the lookback, never scored, and either
+ * in a mandate that scores all or sampled. A mandate that scores off is never due; one that samples,
+ * no mandate and an unreadable one (null) fall back to scoring.sample.
+ */
+function scoreDue(job: Job, now: Date, config: Config, mandateScoring?: MandateScoringFn): boolean {
   if (job.kind === 'eval' || job.pr?.state !== 'MERGED' || job.score !== null) return false;
-  if (!isSampled(job.id, config.scoring?.sample ?? 0)) return false;
   const at = mergeTime(job);
-  return at !== null && at <= now.getTime() && now.getTime() - at <= SCORE_LOOKBACK_DAYS * DAY_MS;
+  if (at === null || at > now.getTime() || now.getTime() - at > SCORE_LOOKBACK_DAYS * DAY_MS) return false;
+  // Only after the cheap checks: the resolver reads a file.
+  const term = mandateScoring && typeof job.mandate === 'string' && job.mandate ? mandateScoring(job) : null;
+  if (term === 'off') return false;
+  if (term === 'all') return true;
+  return isSampled(job.id, config.scoring?.sample ?? 0);
 }
 
 function slugOf(root: string, config: Config): string | null {
@@ -80,17 +94,22 @@ export function capDiff(diff: string): Buffer {
 const blankScore = (): Omit<JobScore, 'status'> => ({ queuedAt: null, value: null, outOf: 5, recordedAt: null, judgeModel: null, builderModel: null });
 
 /**
- * `forge sync`'s scoring pass: for up to `limit` due jobs, oldest merge first, hold the ones over a
- * budget, or fetch the merged PR's diff and queue one judge run with a `resume` request. A failed
- * fetch leaves the job alone for the next sync, inside the lookback.
+ * `forge sync`'s scoring pass over a sampled share of merged jobs, plus every merged job of a mandate
+ * that scores all (`mandateScoring` gives a job's term): for up to `limit` due jobs, oldest merge first,
+ * hold the ones over a budget, or fetch the merged PR's diff and queue one judge run with a `resume`
+ * request. A failed fetch leaves the job alone for the next sync, inside the lookback.
  */
-export function queueScores(root: string, config: Config, opts: { now?: Date; gh?: GhFn; limit?: number } = {}): { queued: string[]; held: string[] } {
+export function queueScores(
+  root: string,
+  config: Config,
+  opts: { now?: Date; gh?: GhFn; limit?: number; mandateScoring?: MandateScoringFn } = {},
+): { queued: string[]; held: string[] } {
   const queued: string[] = [];
   const held: string[] = [];
-  if (!config.pr?.enabled || !((config.scoring?.sample ?? 0) > 0)) return { queued, held };
+  if (!config.pr?.enabled) return { queued, held };
   const now = opts.now ?? new Date();
   const due = listJobs(root)
-    .filter((j) => scoreDue(j, now, config))
+    .filter((j) => scoreDue(j, now, config, opts.mandateScoring))
     .sort((a, b) => (mergeTime(a) as number) - (mergeTime(b) as number) || a.id.localeCompare(b.id))
     .slice(0, opts.limit ?? PER_SYNC);
   if (!due.length) return { queued, held };

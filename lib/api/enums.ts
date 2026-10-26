@@ -11,6 +11,7 @@ import type {
   INTERIM_STRATEGIES,
   MANDATE_ON_UNFINISHABLE,
   MANDATE_ORDERS,
+  MANDATE_SCORING,
   MANDATE_STATUSES,
   MANDATE_UNTIL,
   OFFICE_GATES,
@@ -63,5 +64,7 @@ export type MandateUntil = (typeof MANDATE_UNTIL)[number];
 export type MandateOrder = (typeof MANDATE_ORDERS)[number];
 /** A mandate's onUnfinishable: MANDATE_ON_UNFINISHABLE. */
 export type MandateOnUnfinishable = (typeof MANDATE_ON_UNFINISHABLE)[number];
+/** A mandate's scoring: MANDATE_SCORING. */
+export type MandateScoring = (typeof MANDATE_SCORING)[number];
 /** A directive's action: DIRECTIVE_ACTIONS. */
 export type DirectiveAction = (typeof DIRECTIVE_ACTIONS)[number];

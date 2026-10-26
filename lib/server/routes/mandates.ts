@@ -75,7 +75,7 @@ export function mandateRow(root: string, config: Config, m: Mandate, all: ReadMa
   };
 }
 
-/** The contract a new mandate takes when no term is sent: foreman.mandate, its decides cut to the grantable classes. */
+/** The contract a new mandate takes when no term is sent: foreman.mandate, its decides cut to the grantable classes, and scoring all. */
 function newDefaults(config: Config): MandateContract {
   const d = fillDefaults(config, {});
   return {
@@ -86,6 +86,7 @@ function newDefaults(config: Config): MandateContract {
     budget: { usd: d.budgetUsd!, jobs: d.budgetJobs! },
     stall: { cadences: d.stallCadences!, bounces: d.stallBounces! },
     onUnfinishable: d.onUnfinishable as MandateContract['onUnfinishable'],
+    scoring: d.scoring as MandateContract['scoring'],
   };
 }
 
@@ -125,10 +126,10 @@ export function getMandate(ctx: ServerCtx, _req: http.IncomingMessage, res: http
 }
 
 // The body's shape, checked before anything is read: the contract judges the values, as for the CLI.
-const STRING_MAX: Record<string, number> = { title: 1000, until: 40, order: 40, onUnfinishable: 40, body: BODY_MAX, updatedAt: 64 };
+const STRING_MAX: Record<string, number> = { title: 1000, until: 40, order: 40, onUnfinishable: 40, scoring: 40, body: BODY_MAX, updatedAt: 64 };
 const LISTS = ['milestones', 'labels', 'issues', 'decides'];
 const NUMBERS = ['maxJobs', 'budgetUsd', 'budgetJobs', 'stallCadences', 'stallBounces'];
-const TERMS = ['title', ...LISTS, 'until', ...NUMBERS, 'order', 'onUnfinishable', 'after', 'body'];
+const TERMS = ['title', ...LISTS, 'until', ...NUMBERS, 'order', 'onUnfinishable', 'scoring', 'after', 'body'];
 const LIST_MAX = 100;
 const ENTRY_MAX = 200;
 const AFTER_MAX = 60;
@@ -136,7 +137,7 @@ const REASON_BODY_MAX = 1000;
 
 const TERMS_SHAPE =
   `title (at most 1000 characters), milestones, labels, issues and decides (lists of at most ${LIST_MAX} strings of at most ${ENTRY_MAX}), ` +
-  `until, order and onUnfinishable (strings), maxJobs, budgetUsd, budgetJobs, stallCadences and stallBounces (numbers), after (a mandate id or null), body (at most ${BODY_MAX} characters)`;
+  `until, order, onUnfinishable and scoring (strings), maxJobs, budgetUsd, budgetJobs, stallCadences and stallBounces (numbers), after (a mandate id or null), body (at most ${BODY_MAX} characters)`;
 const SHAPE = {
   new: `body must be {"id": <mandate id>, "title": string, ...terms}, terms: ${TERMS_SHAPE}`,
   edit: `body must be {"updatedAt": string, ...terms}, terms: ${TERMS_SHAPE}`,

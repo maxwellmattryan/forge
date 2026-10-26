@@ -18,7 +18,7 @@ Evals and self-improvement: eval runs and stats, experiments, learnings, retros,
 | `recall.ts` | The cheap eval tier for reviewer prompts: frozen diffs with planted defects (and clean ones), reviewed by `forge:reviewer` under the prompts being changed, then graded by recall (planted defects caught) and precision (clean fixtures left alone). |
 | `retro.ts` | Assembles the retro agent's inputs deterministically, so the expensive model spends its context on judgement rather than on trawling job folders. |
 | `run.ts` | Forge evaluation. |
-| `scoring.ts` | Post-merge scoring: a sampled share of merged jobs gets one run of the judge against the spec's acceptance criteria and the merged PR's diff, so real work has a quality score beside the evals'. |
+| `scoring.ts` | Post-merge scoring: a sampled share of merged jobs, plus every merged job of a mandate that scores all, gets one run of the judge against the spec's acceptance criteria and the merged PR's diff, so real work has a quality score beside the evals'. |
 | `stats.ts` | Eval statistics: where a job's time went, and n / mean / min / max over a run's repeats, so an A/B comparison shows the sample behind every number. |
 | `types.ts` | The notes layer's shapes, type-only: learnings and experiment entries and what `forge experiment` prints. |
 <!-- forge:map:end -->

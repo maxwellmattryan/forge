@@ -1,11 +1,16 @@
 <!-- The drawer's Agents tab: the current round's agents (plus any still running), newest first, and the chosen agent's
-     Claude Code transcript below the list, followed live while it runs. Transcript text is untrusted and renders through
-     SessionLog's rules. Keyed by job id in the Drawer, so the choice resets with the job. -->
+     Claude Code transcript below the list, followed live while it runs. Each role button also opens or closes that
+     row's runs panel (AgentRuns), several at once; its Tokens are the sum of the role's runs. Transcript text is
+     untrusted and renders through SessionLog's rules. Keyed by job id in the Drawer, so the choice resets with the job. -->
 <script lang="ts">
+  import { SvelteSet } from 'svelte/reactivity';
+  import AgentRuns from './AgentRuns.svelte';
   import Chip from './Chip.svelte';
   import Empty from './Empty.svelte';
+  import Icon from './Icon.svelte';
   import SessionLog from './SessionLog.svelte';
   import { roundAgents } from '../lib/agent-activity.ts';
+  import { statusTone } from '../lib/agent-runs.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import type { JobDetail } from '../lib/types.ts';
   import { dur, tokensShort } from '../lib/util.ts';
@@ -15,27 +20,46 @@
   const rows = $derived(roundAgents(detail, ticker.now));
   /** The chosen row; null follows the newest agent with a transcript. */
   let pick = $state<string | null>(null);
+  /** The roles whose runs panel is open. */
+  const open = new SvelteSet<string>();
   const role = $derived(pick !== null && rows.some((r) => r.role === pick) ? pick : (rows.find((r) => r.transcript)?.role ?? rows[0]?.role ?? null));
   const row = $derived(rows.find((r) => r.role === role) ?? null);
-  const tone = (status: string | null, running: boolean): string => (running ? 'live' : status === 'done' ? 'ok' : status === 'lost' ? 'warn' : 'muted');
+
+  /** The role button picks the role's transcript and opens or closes its runs panel. */
+  function toggle(r: string): void {
+    pick = r;
+    if (open.has(r)) open.delete(r);
+    else open.add(r);
+  }
 </script>
 
 {#if !rows.length}
   <Empty>{$t('agentsTab.empty')}</Empty>
 {:else}
-  <div class="plate flat"><div class="overflow-x-auto">
+  <!-- A size container, so a runs panel fits the visible width even when the table scrolls sideways (phone widths). -->
+  <div class="plate flat"><div class="@container overflow-x-auto">
     <table class="tbl">
       <thead><tr><th>{$t('agentsTab.role')}</th><th>{$t('agentsTab.status')}</th><th>{$t('common.model')}</th><th class="r">{$t('agentsTab.duration')}</th><th class="r">{$t('common.tokens')}</th></tr></thead>
       <tbody>
-        {#each rows as r (r.role)}
+        {#each rows as r, i (r.role)}
           {@const on = r.role === role}
+          {@const expanded = open.has(r.role)}
           <tr class={on ? 'bg-raised' : ''}>
-            <td><button type="button" class="text-left whitespace-nowrap hover:text-gleam {on ? 'text-gleam' : ''}" aria-current={on ? 'true' : undefined} onclick={() => (pick = r.role)}>{r.role}</button></td>
-            <td><Chip tone={tone(r.status, r.running)} text={r.status ?? '—'} /></td>
+            <td>
+              <button
+                type="button"
+                class="inline-flex items-center gap-1 text-left whitespace-nowrap hover:text-gleam {on ? 'text-gleam' : ''}"
+                aria-current={on ? 'true' : undefined}
+                aria-expanded={expanded ? 'true' : 'false'}
+                aria-controls="agent-runs-{i}"
+                onclick={() => toggle(r.role)}><Icon name="chevron-down" class={expanded ? 'shrink-0' : 'shrink-0 -rotate-90'} />{r.role}</button>
+            </td>
+            <td><Chip tone={statusTone(r.status, r.running)} text={r.status ?? '—'} /></td>
             <td>{r.model ?? '—'}</td>
             <td class="r num">{dur(r.elapsedMs)}</td>
             <td class="r num">{tokensShort(r.tokens)}</td>
           </tr>
+          <tr id="agent-runs-{i}" hidden={!expanded}><td colspan="5"><div class="max-w-[calc(100cqw-24px)]"><AgentRuns runs={r.runs ?? []} running={r.running} /></div></td></tr>
         {/each}
       </tbody>
     </table>

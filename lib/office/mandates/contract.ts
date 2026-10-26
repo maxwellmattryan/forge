@@ -2,7 +2,7 @@
 // new|edit`, the defaults a new mandate takes, the contract as it applies under the config (what it caps),
 // the derived state and chain, and the guidance and goal fences. Reads no file: store.ts does. docs/architecture/foreman.md.
 import { MANDATE_ID_SOURCE } from '#api/constants.ts';
-import { MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_STATUSES, MANDATE_UNTIL } from '#core/job/schema.ts';
+import { MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_SCORING, MANDATE_STATUSES, MANDATE_UNTIL } from '#core/job/schema.ts';
 import { MANDATE_SCHEMA_VERSION, MANDATE_STEPS } from '#core/versions/mandate.ts';
 import { runSteps } from '#core/versions/steps.ts';
 import { checkIssueRef } from '#core/job/issue-ref.ts';
@@ -35,7 +35,7 @@ export const GOAL_CONTROL = new RegExp(`[\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f${SEPA
 
 /** The frontmatter keys, in the order a file holds them; every one is always written, `goal` last (store.ts). */
 export const MANDATE_KEYS = [
-  'schemaVersion', 'id', 'title', 'status', 'reason', 'scope', 'until', 'maxJobs', 'order', 'decides', 'budget', 'stall', 'onUnfinishable', 'after', 'createdAt', 'updatedAt', 'closedAt', 'filedAt', 'goal',
+  'schemaVersion', 'id', 'title', 'status', 'reason', 'scope', 'until', 'maxJobs', 'order', 'decides', 'budget', 'stall', 'onUnfinishable', 'scoring', 'after', 'createdAt', 'updatedAt', 'closedAt', 'filedAt', 'goal',
 ] as const;
 
 export const isReadable = (m: ReadMandate | undefined): m is Mandate => m !== undefined && !('problem' in m);
@@ -141,6 +141,7 @@ function termProblems(m: Record<string, any>, opts: { decides: boolean }): strin
     if (!isInt(st.bounces, 1, 100)) problems.push(`stall.bounces must be an integer 1-100 ${got(st.bounces)}`);
   }
   if (!oneOf(m.onUnfinishable, MANDATE_ON_UNFINISHABLE)) problems.push(`onUnfinishable must be one of ${MANDATE_ON_UNFINISHABLE.join(' | ')} ${got(m.onUnfinishable)}`);
+  if (!oneOf(m.scoring, MANDATE_SCORING)) problems.push(`scoring must be one of ${MANDATE_SCORING.join(' | ')} ${got(m.scoring)}`);
   if (m.after !== null && !isMandateId(m.after)) problems.push(badId('after', m.after));
   else if (m.after !== null && m.after === m.id) problems.push(`--after ${m.after}: a mandate can't follow itself`);
   for (const k of ['createdAt', 'updatedAt'] as const) if (!isIso(m[k])) problems.push(`${k} must be an ISO time`);
@@ -179,8 +180,9 @@ export function storedMandate(raw: unknown, fileId: string, body: string): ReadM
 export const grantable = (config: Config): GateClass[] => (reservedMatch(config, []) === INVALID_RESERVED ? [] : decides(config));
 
 /**
- * `input` with every contract term it lacks taken from foreman.mandate. The default decides is cut to
- * the classes the config grants, so a default never causes a refusal; a decides the owner names is not.
+ * `input` with every contract term it lacks taken from foreman.mandate, but scoring, which is `all` (no
+ * config key sets it). The default decides is cut to the classes the config grants, so a default never
+ * causes a refusal; a decides the owner names is not.
  */
 export function fillDefaults(config: Config, input: MandateInput): MandateInput {
   const d = { ...defaults().foreman.mandate, ...(isMap(config.foreman?.mandate) ? config.foreman.mandate : {}) };
@@ -197,6 +199,7 @@ export function fillDefaults(config: Config, input: MandateInput): MandateInput 
     stallCadences: input.stallCadences ?? d.stall?.cadences,
     stallBounces: input.stallBounces ?? d.stall?.bounces,
     onUnfinishable: input.onUnfinishable ?? d.onUnfinishable,
+    scoring: input.scoring ?? 'all',
   };
 }
 
@@ -216,6 +219,7 @@ export function blankMandate(id: string, at: string): Mandate {
     budget: { usd: 1, jobs: 1 },
     stall: { cadences: 1, bounces: 1 },
     onUnfinishable: 'park',
+    scoring: 'all',
     after: null,
     createdAt: at,
     updatedAt: at,
@@ -240,6 +244,7 @@ export function applyInput(base: Mandate, input: MandateInput): Mandate {
     budget: { usd: pick(input.budgetUsd, base.budget.usd), jobs: pick(input.budgetJobs, base.budget.jobs) },
     stall: { cadences: pick(input.stallCadences, base.stall.cadences), bounces: pick(input.stallBounces, base.stall.bounces) },
     onUnfinishable: pick(input.onUnfinishable, base.onUnfinishable) as Mandate['onUnfinishable'],
+    scoring: pick(input.scoring, base.scoring) as Mandate['scoring'],
     after: pick(input.after, base.after),
     goal: pick<string | null>(input.goal, base.goal),
     body: pick(input.body, base.body),
@@ -344,6 +349,7 @@ const contractOf = (m: Mandate): MandateContract => ({
   budget: { ...m.budget },
   stall: { ...m.stall },
   onUnfinishable: m.onUnfinishable,
+  scoring: m.scoring,
 });
 
 /** closed; paused; waiting while `after` names a mandate that isn't closed (or is missing or unreadable); else active. */

@@ -46,6 +46,7 @@ const TERMS: [string, string][] = [
   ['--stall-cadences N', "the Foreman's passes with no progress before it is stalled, 1-100"],
   ['--stall-bounces N', 'gate bounces on one job before it is stalled, 1-100'],
   ['--on-unfinishable park|cancel', "what it does with a job it can't finish"],
+  ['--scoring all|sample|off', 'whether its merged jobs get a post-merge score run: all (the default) whatever scoring.sample says, sample (scoring.sample decides) or off'],
   ['--after ID', 'start only once mandate ID has closed (none: clear it on edit)'],
   ['--body T | --body-file F', "the owner's guidance, fenced as data wherever it is shown (at most 8000 characters)"],
 ];
@@ -63,7 +64,7 @@ const MANDATE: HelpGroup = {
       command: 'mandate new',
       args: '<id> --title T [terms]',
       summary:
-        'create a mandate, active, with every contract term not given taken from foreman.mandate (the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run)',
+        'create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run)',
       flags: [
         ['--title T', 'one line, at most 200 characters (required)'],
         [
@@ -291,6 +292,7 @@ function inputFrom(ctx: CliContext, flags: Record<string, any>): MandateInput {
   set('stallCadences', numFlag(flags['stall-cadences'], '--stall-cadences'));
   set('stallBounces', numFlag(flags['stall-bounces'], '--stall-bounces'));
   set('onUnfinishable', str(flags['on-unfinishable'], '--on-unfinishable'));
+  set('scoring', str(flags.scoring, '--scoring'));
   const after = str(flags.after, '--after');
   if (after !== undefined) input.after = after === 'none' ? null : after;
   if (flags.body !== undefined || flags['body-file'] !== undefined) input.body = bodyFrom(flags, ctx.root, ctx.config);

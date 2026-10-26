@@ -1,7 +1,7 @@
 // What the repo holds outside any job: /api/project, /api/roster, /api/backlog with the tracker item, /api/github/preview,
 // the mandates with their directives (GET and POST /api/mandates and /api/mandates/:id/*, the Foreman page), and a
 // goal mandate's milestone draft (/api/state's drafts, GET and POST /api/mandates/:id/draft).
-import type { ComponentKind, DependencyType, DirectiveAction, Effort, EffortSource, GateClass, MandateOnUnfinishable, MandateOrder, MandateStatus, MandateUntil } from './enums.ts';
+import type { ComponentKind, DependencyType, DirectiveAction, Effort, EffortSource, GateClass, MandateOnUnfinishable, MandateOrder, MandateScoring, MandateStatus, MandateUntil } from './enums.ts';
 import type { EventActor, GateOwner } from './job.ts';
 
 /** A backlog item, as a tracker's list() and get() return it (lib/engine/trackers/load.ts). */
@@ -194,6 +194,8 @@ export interface MandateContract {
   budget: { usd: number; jobs: number };
   stall: { cadences: number; bounces: number };
   onUnfinishable: MandateOnUnfinishable;
+  /** Whether its merged jobs get a post-merge score run: all, sample (scoring.sample decides) or off. */
+  scoring: MandateScoring;
 }
 
 /** `forge mandate new|edit|pause|resume|close|show`'s `mandate`. */
@@ -282,6 +284,7 @@ export interface MandateTermsBody {
   stallCadences?: number;
   stallBounces?: number;
   onUnfinishable?: string;
+  scoring?: string;
   /** null clears it. */
   after?: string | null;
   body?: string;

@@ -75,6 +75,8 @@ export const MANDATE_UNTIL = ['merge-ready', 'merged', 'released'] as const;
 export const MANDATE_ORDERS = ['graph', 'priority', 'listed'] as const;
 /** What a mandate does with a job it can't finish. */
 export const MANDATE_ON_UNFINISHABLE = ['park', 'cancel'] as const;
+/** Whether a mandate's merged jobs get a post-merge score run: every one, scoring.sample's share, or none. */
+export const MANDATE_SCORING = ['all', 'sample', 'off'] as const;
 
 /** Why the Foreman left a gate for a person (`forge job handoff --class`): a reserved topic or class, the assistant escalated, or the CLI refused its decision. */
 export const HANDOFF_CLASSES = ['reserved', 'escalated', 'refused'] as const;

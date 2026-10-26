@@ -8,6 +8,7 @@ import { dashboardActor } from '#integrations/github/actor.ts';
 import { buildBundle, bundleFileName } from '#engine/ops/bundle.ts';
 import { doctor } from '#engine/ops/doctor.ts';
 import { readSmallJson } from '#core/job/focus.ts';
+import { withoutRunHistory } from '#engine/metrics/runs.ts';
 import { CheckoutError } from '#engine/workspace/checkout.ts';
 import { InactiveJobError, currentFocus, focusJob } from '#engine/workspace/focus-actions.ts';
 import { parseGitHubUrl } from '#integrations/github/preview.ts';
@@ -220,7 +221,8 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
   const jobs = listJobs(root).map((j) => {
     const events = readEvents(root, j.id);
     const last = events[events.length - 1] ?? null;
-    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: leaseStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events), endpoints: endpointsFor(root, config, j), foremanHandoff: foremanHandoff(j, events) };
+    // Without the per-run lists, so /api/state doesn't grow with every run: the job detail serves them.
+    return { ...j, agents: withoutRunHistory(j.agents), progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: leaseStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events), endpoints: endpointsFor(root, config, j), foremanHandoff: foremanHandoff(j, events) };
   });
   // Every string leaf: titles, events and activity lines can all carry what a command printed.
   return redactDeep<ApiState>({

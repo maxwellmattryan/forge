@@ -179,7 +179,7 @@ const JOB_ROWS: Row[] = [
   {
     step: 'split-mode',
     input: { id: 'x', agents: AGENTS, verifyRuns: [run(1, 1, false, 'abc')] },
-    fields: { splitMode: null, effort: null, agents: AGENTS, verifyRuns: [run(1, 1, false, 'abc')] },
+    fields: { splitMode: null, effort: null, agents: { builder: { ...AGENTS.builder, legacyRuns: 2 } }, verifyRuns: [run(1, 1, false, 'abc')] },
   },
   { step: 'job-effort', input: { id: 'x' }, fields: { effort: null } },
   {
@@ -219,6 +219,13 @@ const JOB_ROWS: Row[] = [
     note: 'the owner keeps driving as epoch 1 for the 30 minutes its heartbeat gave it',
   },
   { step: 'job-mandate', input: { id: 'x', title: 'Old', state: 'running' }, fields: { mandate: null, state: 'running' }, note: 'a job from before mandates is in none' },
+  {
+    step: 'agent-run-history',
+    input: { id: 'x', state: 'running', agents: { builder: { runs: 2, status: 'done', model: 'opus' }, 'reviewer:code': { runs: 1, status: 'running' } } },
+    fields: { 'agents.builder': { runs: 2, status: 'done', model: 'opus', legacyRuns: 2 }, 'agents.reviewer:code': { runs: 1, status: 'running', legacyRuns: 0 } },
+    removed: ['agents.builder.runHistory', 'agents.reviewer:code.runHistory'],
+    note: "every ended run is legacy; a running agent's run is recorded by its end",
+  },
 ];
 
 const EVENT_ROWS: Row[] = [
@@ -312,9 +319,15 @@ const MANDATE_ROWS: Row[] = [
     note: 'a mandate written before filing reads as never filed',
   },
   {
+    step: 'mandate-scoring',
+    input: { ...MANDATE_V1, goal: null, filedAt: null },
+    fields: { scoring: 'all', 'scope.milestones': ['M1'] },
+    note: 'a mandate written before scoring scores all its merged jobs',
+  },
+  {
     step: 'mandate-until-released',
-    input: { ...MANDATE_V1, until: 'merged', goal: null, filedAt: null },
-    fields: { until: 'merged', filedAt: null, 'scope.milestones': ['M1'] },
+    input: { ...MANDATE_V1, until: 'merged', goal: null, filedAt: null, scoring: 'all' },
+    fields: { until: 'merged', filedAt: null, scoring: 'all', 'scope.milestones': ['M1'] },
     note: ONLY_VERSION,
   },
 ];
