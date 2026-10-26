@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `/bin/sh -c <cmd>` with an allowl
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 38            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 39            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -200,8 +200,9 @@ aiAttribution: forbid        # forbid | allow: whether commits, PRs, issues and 
 release:                     # how this (root) repo releases (see Release strategy)
   interim: local             # canary | git-ref | local | sequential: what a consumer's PR points at while this (root) repo's change is unmerged (see Interim strategies)
   versioning: null           # semver | calver; null = undeclared (see Release strategy)
-  mechanism: null            # release-please | cargo-release | changesets | tag: the tool that cuts a release; doctor checks it is installed
+  mechanism: null            # release-please | cargo-release | changesets | tag | script: the tool that cuts a release; doctor checks it is installed
   command: null              # with mechanism: tag only, the one-line command a human runs to release (never run by Forge)
+  script: null               # with mechanism: script only, the repo-relative release script forge release plan and run drive through the script protocol (see Release strategy)
   registry: null             # crates.io | npm | none
   cadence: null              # on-merge | scheduled | manual
   publish: null              # confirm | allow: whether forge release run asks on a terminal before a publish step (null: asks)

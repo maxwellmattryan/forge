@@ -186,7 +186,7 @@ export function defaults(): Config {
       requiredChecks: [],
     },
     aiAttribution: 'forbid',
-    release: { interim: 'local', versioning: null, mechanism: null, command: null, registry: null, cadence: null, publish: null },
+    release: { interim: 'local', versioning: null, mechanism: null, command: null, script: null, registry: null, cadence: null, publish: null },
     resources: [],
     components: [],
     repos: [],
