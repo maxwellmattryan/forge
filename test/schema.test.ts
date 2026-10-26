@@ -141,6 +141,7 @@ const CONFIG_ROWS: Row[] = [
     removed: ['runtime.models.assistant', 'runtime.efforts.assistant'],
     note: "the assistant's model and effort move under foreman.assistants",
   },
+  { step: 'office-uptime', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.keepAwake'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [

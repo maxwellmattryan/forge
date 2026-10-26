@@ -45,6 +45,7 @@ export const REASONS = {
   'failed-turns': 'The daemon stopped after repeated failed turns',
   'failed-starts': 'The daemon stopped after repeated failed starts',
   'daily-cap': 'A daemon session reached its daily spend cap',
+  'service-restarted': 'The machine dashboard restarted and resumed the work in flight',
   test: 'Test notification from forge notify test',
 } as const;
 export type ReasonCode = keyof typeof REASONS;
@@ -58,6 +59,7 @@ export const LABELS: Record<NotifyEvent, string> = {
   'daemon-stopped': 'Daemon stopped',
   'budget-exceeded': 'Budget exceeded',
   'secret-found': 'Secret found',
+  'service-restarted': 'Forge restarted',
 };
 
 export const isNotifyEvent = (e: unknown): e is NotifyEvent => (NOTIFY_EVENTS as readonly unknown[]).includes(e);

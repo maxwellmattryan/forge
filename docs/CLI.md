@@ -1408,7 +1408,7 @@ Push gate, PR, failure and budget notifications to webhooks and a command.
 
 | Flag | Meaning |
 |---|---|
-| `--event <name>` | the sample's event (default gate): gate, pr-opened, pr-merged, job-failed, daemon-stopped, budget-exceeded, secret-found |
+| `--event <name>` | the sample's event (default gate): gate, pr-opened, pr-merged, job-failed, daemon-stopped, budget-exceeded, secret-found, service-restarted |
 
 | Exit | When |
 |---|---|
