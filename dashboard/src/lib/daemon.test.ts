@@ -1,13 +1,38 @@
-// The Daemon popover's two pure halves: the billing line (which text /api/state's config.daemon.billing shows, and whether it warns)
-// and the pool model (the pill, the note and Start for a pool that is off).
+// The Workers popover's pure halves: the billing line (which text /api/state's config.daemon.billing shows, and whether it warns),
+// the pool model (the pill, the note and Start for a pool that is off) and its job session rows.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { billingNote, poolModel, scopeSession, sessionMode, sessionPill } from './daemon.ts';
+import { billingNote, daemonRows, poolModel, scopeSession, sessionMode, sessionPill } from './daemon.ts';
 import { activeSessions } from './live.ts';
 import { pendingPrompts } from './permissions.ts';
 import { barModel } from './statusbar.ts';
 
-test("billingNote picks the Daemon popover's warning", () => {
+test('daemonRows lists only job sessions, in status order', () => {
+  const pool = {
+    enabled: true,
+    wanted: true,
+    maxConcurrent: 3,
+    live: 2,
+    lastError: null,
+    foreman: false,
+    inbox: { scope: '_inbox', status: 'idle', running: true, wanted: true },
+    jobs: {
+      'b-job': { scope: 'b-job', status: 'idle', running: true, wanted: true },
+      'a-job': { scope: 'a-job', status: 'busy', running: true, wanted: true },
+      ghost: { scope: 'ghost', status: 'off', running: false, held: 'budget' },
+    },
+    permissionModes: { 'b-job': 'auto' },
+  } as any;
+  const rows = daemonRows(poolModel(pool, { pending: false })!, [{ id: 'a-job', title: 'Job A' }]);
+  assert.deepEqual(rows.map((r) => r.id), ['a-job', 'b-job', 'ghost']);
+  assert.equal(rows.find((r) => r.id === 'b-job')!.mode, 'auto');
+  assert.equal(rows.find((r) => r.id === 'ghost')!.title, null);
+  assert.equal(rows.find((r) => r.id === 'a-job')!.title, 'Job A');
+  assert.ok(!rows.some((r) => r.id === '_inbox' || r.id === 'inbox'), 'no row is the inbox');
+  assert.deepEqual(daemonRows(poolModel({ ...pool, jobs: {}, permissionModes: {} }, { pending: false })!, []), []);
+});
+
+test("billingNote picks the Workers popover's warning", () => {
   assert.equal(billingNote(null), null);
   assert.equal(billingNote(undefined), null);
   assert.equal(billingNote({ vars: [], passed: false, warn: false }), null);

@@ -1,5 +1,6 @@
-// The status bar's pure half: its Foreman and daemon indicators, the facts strip's drop order, the model label, the
-// connection state, the prompt announcement, and the rule of the sidebar's "New job or command" input. No DOM and no svelte import, so node:test can pin them.
+// The status bar's pure half: its Foreman, Workers and Inbox indicators and their lamps, the facts strip's drop order, the
+// model label, the connection state, the prompt announcement, and the rule of the sidebar's "New job or command" input.
+// No DOM and no svelte component import, so node:test can pin them.
 // Model strings come from config.yml and the roster, session state from session output: all plain strings, rendered as text.
 import { familyPill, obj, poolModel } from './daemon.ts';
 import type { Pill, PoolInput } from './daemon.ts';
@@ -7,6 +8,7 @@ import { activeSessions } from './live.ts';
 import { pendingPrompts } from './permissions.ts';
 import { OFFICE_SCOPE, assistantNumber, isAssistantScope } from './types.ts';
 import type { Roster } from './types.ts';
+import { lampState } from './station.ts';
 import type { LampState } from './station.ts';
 
 // ---------- models ----------
@@ -104,9 +106,9 @@ export function connectionState({ online, apiVersion, clientApi }: { online: boo
   return { state: 'live', tone: 'ok' };
 }
 
-// ---------- daemon and foreman ----------
+// ---------- workers, inbox and foreman ----------
 
-/** Off, the bar still shows `Daemon 0/<cap>`: cap is daemon.maxConcurrent, 0 when the server sends none. */
+/** The pool behind the Workers indicator. Off, the bar still shows `Workers 0/<cap>`: cap is daemon.maxConcurrent, 0 when the server sends none. */
 export type DaemonIndicator = { off: true; active: false; cap: number } | { off: false; pill: Pill; live: number; cap: number; active: boolean };
 
 /**
@@ -116,8 +118,12 @@ export type DaemonIndicator = { off: true; active: false; cap: number } | { off:
  */
 export type ForemanIndicator = { on: false } | { on: true; daemon: boolean; pill: Pill; active: boolean; prompts: number; assistants: string[] };
 
+/** The Inbox indicator: off while the daemon is, else the inbox session's pill and its own lamp (no other session's). */
+export type InboxIndicator = { off: true } | { off: false; pill: Pill; lamp: LampState };
+
 export interface BarModel {
   daemon: DaemonIndicator;
+  inbox: InboxIndicator;
   /** On exactly while foreman.enabled; an older server that sends no flag reads as off. */
   foreman: ForemanIndicator;
   /** Pending permission prompts across the whole pool, the office's included: the Needs-you badge counts them. */
@@ -150,6 +156,7 @@ export function barModel(pool: PoolInput, opts: { pending: boolean }): BarModel 
       : { on: false };
   return {
     daemon: m ? { off: false, pill: m.pill, live: m.live, cap: m.cap, active: activeSessions(pool).count > 0 } : { off: true, active: false, cap: Number(p.maxConcurrent) || 0 },
+    inbox: m ? { off: false, pill: m.inbox, lamp: lampState({ kind: 'session', session: p.inbox ?? null, waiting: false, streaming: false }) } : { off: true },
     foreman,
     prompts,
     held: m ? m.held.length : 0,
@@ -161,25 +168,27 @@ export function barModel(pool: PoolInput, opts: { pending: boolean }): BarModel 
 export interface BarLamps {
   needs: LampState;
   foreman: LampState;
-  daemon: LampState;
-  model: LampState;
+  workers: LampState;
+  inbox: LampState;
   connection: LampState;
 }
 
 /**
- * The bar's lamps. Needs: you while anything waits on a person. Foreman: dark while it or the daemon is off, you with
- * office or assistant foreman prompts, working while the office or an assistant foreman is busy, else done. Daemon: dark while off, you with any prompt in the pool,
- * working while any session works, else done. Model: working while any session or agent works. Connection: done when
- * live, dark while connecting, fault offline, you when the server is newer.
+ * The bar's lamps; the model button has none. Needs: you while anything waits on a person. Foreman: dark while it or the
+ * daemon is off, you with office or assistant foreman prompts, working while the office or an assistant foreman is busy,
+ * else done. Workers: dark while the daemon is off, you with any prompt in the pool (the inbox's and the office's
+ * included), working while any session works, else done. Inbox: dark while the daemon is off, else the inbox session's
+ * own lamp (station.ts lampState). Connection: done when live, dark while connecting, fault offline, you when the server is newer.
  */
-export function barLamps(bar: BarModel, { needs, conn, working }: { needs: number; conn: ConnectionState; working: boolean }): BarLamps {
+export function barLamps(bar: BarModel, { needs, conn }: { needs: number; conn: ConnectionState }): BarLamps {
   const f = bar.foreman;
   const d = bar.daemon;
   return {
     needs: needs > 0 ? 'you' : 'idle',
     foreman: !f.on || !f.daemon ? 'idle' : f.prompts > 0 ? 'you' : f.active ? 'working' : 'done',
-    daemon: d.off ? 'idle' : bar.prompts > 0 ? 'you' : d.active ? 'working' : 'done',
-    model: working ? 'working' : 'idle',
+    workers: d.off ? 'idle' : bar.prompts > 0 ? 'you' : d.active ? 'working' : 'done',
+    // `in`, not `.off`: test/tsconfig.json (strict: false) reads this file too, and there a boolean discriminant doesn't narrow.
+    inbox: 'lamp' in bar.inbox ? bar.inbox.lamp : 'idle',
     connection: conn === 'live' ? 'done' : conn === 'offline' ? 'fault' : conn === 'outdated' ? 'you' : 'idle',
   };
 }
