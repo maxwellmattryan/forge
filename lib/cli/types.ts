@@ -70,8 +70,11 @@ export interface CommandHelp {
   summary: string;
   /** Every flag the command reads, beyond the global ones. */
   flags?: [flag: string, meaning: string][];
-  /** Every exit other than 0 and 2 the command can produce. */
-  exits?: [code: 1 | 3 | 4 | 5, when: string][];
+  /**
+   * Every exit other than 0 and 2 the command can produce, and 2 only for a usage refusal of the
+   * command's own worth naming: that row replaces the generic usage line, so it keeps its meaning.
+   */
+  exits?: [code: 1 | 2 | 3 | 4 | 5, when: string][];
   docs?: [label: string, href: string];
   /** A row of docs/CLI.md's generated Common commands table. */
   common?: true;
