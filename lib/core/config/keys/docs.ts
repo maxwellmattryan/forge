@@ -306,7 +306,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   foreman: { doc: 'opt-in: assistant foreman daemon sessions decide gates through assistant sub-agents (see "Foreman" below)' },
   'foreman.enabled': { doc: 'true (with daemon.enabled): parked gates become `gate` requests that assistant foremen claim' },
   'foreman.decides': {
-    doc: "add repo-proposal to let it widen a job's repos; release (with gate:release out of reserved) to let it approve a release plan\nthe gate classes it may decide; a class left out stays a plain human gate",
+    doc: "add repo-proposal to let it widen a job's repos; release (with gate:release out of reserved) to let it approve a release plan; milestone-approval to let it approve or revise a goal mandate's milestone draft\nthe gate classes it may decide; a class left out stays a plain human gate",
   },
   'foreman.reserved': {
     doc: 'whole-phrase, case-insensitive: a match keeps the gate with a human; gate:<class> keeps a whole class',

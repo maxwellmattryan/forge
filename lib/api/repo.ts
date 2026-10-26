@@ -1,5 +1,7 @@
-// What the repo holds outside any job: /api/project, /api/roster, /api/backlog with the tracker item, and /api/github/preview.
+// What the repo holds outside any job: /api/project, /api/roster, /api/backlog with the tracker item, /api/github/preview,
+// and a goal mandate's milestone draft (/api/state's drafts, GET and POST /api/mandates/:id/draft).
 import type { ComponentKind, DependencyType, Effort, EffortSource } from './enums.ts';
+import type { GateOwner } from './job.ts';
 
 /** A backlog item, as a tracker's list() and get() return it (lib/engine/trackers/load.ts). */
 export interface TrackerItem {
@@ -169,3 +171,115 @@ export interface BacklogResponse {
   items: BacklogItem[];
   error?: string;
 }
+
+// ---------- a goal mandate's milestone draft and its approval gate ----------
+
+/** A milestone draft's milestone: one line of title and its exit criteria. */
+export interface DraftMilestone {
+  title: string;
+  exitCriteria: string[];
+}
+
+/** An open tracker issue a draft issue reuses as it is or amends, instead of filing a new one. */
+export interface DraftExisting {
+  ref: string;
+  action: 'reuse' | 'amend';
+}
+
+/** One planned issue: Why / What to do / Done, the stat it moves, its wave and the paths it touches. */
+export interface DraftIssue {
+  key: string;
+  title: string;
+  why: string;
+  whatToDo: string;
+  done: string;
+  stat: string;
+  wave: number;
+  dependsOn: string[];
+  files: string[];
+  existing: DraftExisting | null;
+}
+
+/** What the drafter writes to its staging file (lib/office/mandates/draft.ts checks it). */
+export interface DraftBody {
+  milestone: DraftMilestone;
+  issues: DraftIssue[];
+}
+
+/** A stored draft as the dashboard reads it: the body plus the drafting request that recorded it and when. */
+export type MilestoneDraft = DraftBody & { request: string; recordedAt: string };
+
+/**
+ * The milestone-approval gate's status, the first that applies: `filed` once the mandate's filedAt is set,
+ * `filing` while an approved filing record is incomplete, `pending` for a ready draft of an open goal
+ * mandate, else `none`.
+ */
+export type DraftGateStatus = 'none' | 'pending' | 'filing' | 'filed';
+
+/** One goal mandate at the milestone-approval gate, as /api/state's drafts lists it. */
+export interface DraftGate {
+  mandate: string;
+  title: string;
+  status: 'pending' | 'filing';
+  /** The draft's drafting request id: the key a decision pins. */
+  request: string;
+  /** The lowercase hex SHA-256 of draft.json's bytes: the digest a decision pins. */
+  digest: string;
+  recordedAt: string;
+  milestone: string;
+  issues: number;
+  waves: number;
+  existing: number;
+  /** The stopped filing's error, or null. */
+  error: string | null;
+  owner: GateOwner;
+  /** The latest gate request for this draft was rejected: an assistant foreman left it for a person. */
+  leftForHuman: boolean;
+}
+
+/** One filed issue in a filing record's view, in draft order: ref and url null until it is filed. */
+export interface FilingIssueView {
+  key: string;
+  ref: string | null;
+  url: string | null;
+  action: 'created' | 'reused' | 'amended';
+}
+
+/** An approved draft's filing record, as the CLI and the API show it. */
+export interface FilingView {
+  milestone: { title: string; ref: string | null; url: string | null };
+  issues: FilingIssueView[];
+  digest: string;
+  error: string | null;
+  approvedAt: string;
+  completedAt: string | null;
+}
+
+/** GET /api/mandates/:id/draft. */
+export interface MandateDraftResponse {
+  mandate: string;
+  title: string;
+  /** The owner's goal as written: the page renders it as text. */
+  goal: string;
+  status: DraftGateStatus;
+  request: string | null;
+  digest: string | null;
+  owner: GateOwner;
+  leftForHuman: boolean;
+  draft: MilestoneDraft | null;
+  filing: FilingView | null;
+}
+
+/** POST /api/mandates/:id/draft's body: exactly these keys. */
+export interface PostMandateDraftBody {
+  decision: 'approve' | 'revise' | 'reject';
+  request: string;
+  digest: string;
+  note?: string | null;
+}
+
+/** POST /api/mandates/:id/draft's reply: the CLI's result for the decision. */
+export type PostMandateDraftResponse =
+  | { ok: true; decision: 'approve'; mandate: string; request: string; digest: string; filing: FilingView; scope: { milestones: string[] } }
+  | { ok: true; decision: 'revise'; mandate: string; request: string; queued: string }
+  | { ok: true; decision: 'reject'; mandate: string; request: string; status: 'closed' };

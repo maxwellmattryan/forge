@@ -59,9 +59,10 @@ export const COMPLEXITIES = ['low', 'medium', 'high'] as const;
 /**
  * The gate classes the foreman may decide (foreman.decides); `pr-feedback` is a pr-review wait with
  * feedback, `repo-proposal` a `human` wait with pending repo proposals, and `release` a job's release
- * plan awaiting approval (lib/engine/release/approval.ts), which no job waits on.
+ * plan awaiting approval (lib/engine/release/approval.ts), which no job waits on. `milestone-approval` is
+ * a goal mandate's ready milestone draft (lib/office/mandates/gate.ts): it belongs to a mandate, not a job.
  */
-export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release'] as const;
+export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release', 'milestone-approval'] as const;
 
 /** A mandate's status (`.forge/runtime/mandates/<id>.md`): only `forge mandate pause|resume|close` moves it. */
 export const MANDATE_STATUSES = ['active', 'paused', 'closed'] as const;
@@ -98,6 +99,12 @@ export const JOBS_SCOPE = '_jobs';
  * `/api/p/<project>/` URL segment: no `/`, no leading `.` or `-`, at most 64 characters.
  */
 export const PROJECT_NAME_SOURCE = '^[a-z0-9][a-z0-9._-]{0,63}$';
+
+/**
+ * A mandate id (`.forge/runtime/mandates/<id>.md`), which is also its file name: lowercase letters,
+ * digits and `-`, at most 40, not starting with `-`. `none` matches but is never an id (isMandateId).
+ */
+export const MANDATE_ID_SOURCE = '^[a-z0-9][a-z0-9-]{0,39}$';
 
 export const COMPONENT_KINDS =['library', 'service', 'app'] as const;
 export const DEPENDENCY_TYPES = ['build', 'runtime'] as const;

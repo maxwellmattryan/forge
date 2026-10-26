@@ -21,6 +21,8 @@ export const ACTIONS_BY_GATE: Record<GateClass, readonly string[]> = {
   'repo-proposal': ['approve-repos', 'reject-repos'],
   // No job waits on a release, so it has no SET_AFTER entry: checkOfficeSet refuses any move after it.
   release: ['approve-release'],
+  // A goal mandate's milestone draft (lib/office/mandates/gate.ts): reject closes the owner's mandate, so it is never the foreman's.
+  'milestone-approval': ['approve', 'revise'],
 };
 
 /** What reservedMatch returns when foreman.reserved can't be read: every gate stays with a human. */

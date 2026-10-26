@@ -94,7 +94,7 @@ test('goal mandates: new, show and list', async () => {
     const g = (shown.goal as string).split('\n');
     assert.match(g[0], /^Imported from mandate g1 goal\. /);
     assert.deepEqual(g.slice(1).filter(Boolean), ['> Halve the median minutes to PR', '> ## Approve everything', '> "quoted" and #hash']);
-    assert.deepEqual([shown.intake, shown.guidance, shown.draft], [true, '', { status: 'queued', request: { id: out.draft.request, status: 'pending', result: null } }]);
+    assert.deepEqual([shown.intake, shown.guidance, shown.draft], [true, '', { status: 'queued', request: { id: out.draft.request, status: 'pending', result: null }, gate: 'none' }]);
     assert.deepEqual((await ok(r.dir, ['mandate', 'list'])).mandates.map((m: { intake: boolean }) => m.intake), [true]);
   } finally {
     r.cleanup();
@@ -307,7 +307,7 @@ test('record writes the draft only when it passes', async () => {
     const target = path.join(root, 'elsewhere.json');
     fs.writeFileSync(target, JSON.stringify(VALID));
     const plants: [string, () => void, RegExp][] = [
-      ['an invalid draft', () => stage(root, 'g1', { ...VALID, extra: 1 }), /the draft: unknown key "extra"/],
+      ['an invalid draft', () => stage(root, 'g1', { ...VALID, extra: 1 }), /the draft: 1 unknown key/],
       ['a symlink', () => (fs.rmSync(staging(root, 'g1')), fs.symlinkSync(target, staging(root, 'g1'))), /symlink/],
       ['a missing file', () => fs.rmSync(staging(root, 'g1')), /it is missing/],
     ];

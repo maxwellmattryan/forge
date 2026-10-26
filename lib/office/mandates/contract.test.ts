@@ -47,6 +47,10 @@ test('mandate input refusals', async () => {
     await ok(r.dir, ['mandate', 'new', 'b', '--title', 'B', '--milestones', 'M2', '--after', 'a']);
     await ok(r.dir, ['mandate', 'new', 'c', '--title', 'C', '--labels', 'docs']);
     await ok(r.dir, ['mandate', 'close', 'c']);
+    // A filed goal mandate: an ordinary scoped mandate over its milestone.
+    const filed: Mandate = { ...applyInput(blankMandate('f', '2026-10-01T00:00:00.000Z'), { title: 'F', goal: 'Ship it', milestones: ['M1'] }), filedAt: '2026-10-02T00:00:00.000Z' };
+    writeMandate(r.dir, () => ({ mandate: filed, action: 'filed' as const }));
+    assert.deepEqual((readMandate(r.dir, 'f') as Mandate).scope.milestones, ['M1'], 'with filedAt set, a goal mandate has a scope');
     const NEW = ['mandate', 'new', 'x', '--title', 'X', '--milestones', 'M1'];
     const rows: [string, string[], RegExp, string?][] = [
       ['a class outside foreman.decides', [...NEW, '--decides', 'escalation'], /^escalation is not in foreman\.decides$/],
@@ -69,9 +73,9 @@ test('mandate input refusals', async () => {
       ]),
       ['listed without issues', [...NEW, '--order', 'listed'], /order listed needs scope\.issues and no milestones or labels/],
       ['issues without listed', ['mandate', 'new', 'x', '--title', 'X', '--issues', 'some-item'], /scope\.issues needs order listed/],
-      ['a milestone starting -', ['mandate', 'new', 'x', '--title', 'X', '--milestones', '-x'], /milestone "-x" must be 1-100 characters, not start with "-"/],
+      ['a milestone starting -', ['mandate', 'new', 'x', '--title', 'X', '--milestones', '-x'], /milestone "-x" must be 1-200 characters, not start with "-"/],
       ['a label with a newline', ['mandate', 'new', 'x', '--title', 'X', '--labels', 'a\nb'], /label "a\\nb" must be 1-100 characters/],
-      ['a milestone with a zero-width space', ['mandate', 'new', 'x', '--title', 'X', '--milestones', `M${String.fromCharCode(0x200b)}1`], /^milestone "M.1" must be 1-100 characters, not start with "-" and have no control or hidden characters$/],
+      ['a milestone with a zero-width space', ['mandate', 'new', 'x', '--title', 'X', '--milestones', `M${String.fromCharCode(0x200b)}1`], /^milestone "M.1" must be 1-200 characters, not start with "-" and have no control or hidden characters$/],
       ['id ../x', ['mandate', 'new', '../x', '--title', 'X', '--milestones', 'M1'], /mandate id "\.\.\/x" is not a mandate id/],
       ['id none', ['mandate', 'new', 'none', '--title', 'X', '--milestones', 'M1'], /mandate id "none" is not a mandate id/],
       ['id M1', ['mandate', 'new', 'M1', '--title', 'X', '--milestones', 'M1'], /mandate id "M1" is not a mandate id/],
@@ -90,6 +94,7 @@ test('mandate input refusals', async () => {
       ['a body of 8001 characters', [...NEW, '--body', 'x'.repeat(8001)], /the body must be at most 8000 characters \(got 8001\)/],
       ['a title empty after cleaning', ['mandate', 'new', 'x', '--title', ' \n ', '--milestones', 'M1'], /^a mandate needs a title$/],
       ['an existing id', ['mandate', 'new', 'a', '--title', 'A', '--milestones', 'M1'], /^mandate a exists/],
+      ["a filed goal mandate's scope edited to empty", ['mandate', 'edit', 'f', '--milestones', 'none'], /^a filed goal mandate's scope needs at least one milestone, label or issue$/],
     ];
     for (const [name, args, want, root = r.dir] of rows) {
       const before = snapshot(root);
@@ -100,6 +105,15 @@ test('mandate input refusals', async () => {
     }
     const missing = await forgeInProcess(r.dir, ['mandate', 'edit', 'nope', '--title', 'N']);
     assert.deepEqual([missing.status, missing.error?.code], [1, 'not_found']);
+    // filedAt is only ever a goal mandate's ISO time: any other file is refused on read.
+    const plain = applyInput(blankMandate('p', '2026-10-01T00:00:00.000Z'), { title: 'P', milestones: ['M1'] });
+    for (const [id, m, want] of [
+      ['p', { ...plain, filedAt: '2026-10-02T00:00:00.000Z' }, 'filedAt is set only on a goal mandate, when its draft is filed'],
+      ['q', { ...filed, id: 'q', filedAt: 'soon' }, 'filedAt must be null or an ISO time'],
+    ] as const) {
+      writeMandate(r.dir, () => ({ mandate: { ...m, id } as Mandate, action: 'new' as const }));
+      assert.deepEqual(readMandate(r.dir, id), { id, problem: want }, id);
+    }
   } finally {
     r.cleanup();
     bad.cleanup();

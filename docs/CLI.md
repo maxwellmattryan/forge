@@ -899,7 +899,7 @@ See [Retention](architecture/retention.md).
 
 | Flag | Meaning |
 |---|---|
-| `--gate G` | the gate class: spec-approval, split-approval, escalation, rounds-exhausted, conflicts, pr-feedback, repo-proposal, release |
+| `--gate G` | the gate class: spec-approval, split-approval, escalation, rounds-exhausted, conflicts, pr-feedback, repo-proposal, release, milestone-approval |
 
 | Exit | When |
 |---|---|
@@ -1253,7 +1253,35 @@ The owner's mandates: standing instructions to the Office in .forge/runtime/mand
 
 See [Mandates](CONFIG.md#mandates).
 
-**`forge mandate draft prepare <id> --request R`**: the office session's first call of a drafting run: write the survey and return the forge:drafter brief ({mandate, request, stale: false, subagent, model, effort, brief, survey, staging}), or {stale: true, reason} for a mandate that is missing, unreadable, closed, paused or has no goal
+**`forge mandate draft approve <id> [--request R] [--digest D] [--note N] [--actor foreman]`**: approve a pending milestone draft and file it: the milestone, then each issue in wave order (wave-&lt;n> labels), then the mandate turns into a scoped mandate over the milestone ({ok, decision, mandate, request, digest, filing, scope}); run it again to resume a stopped filing
+
+| Flag | Meaning |
+|---|---|
+| `--actor foreman` | an assistant foreman records it, under foreman.decides, foreman.reserved and the mandate's decides |
+| `--digest D` | the 64-hex digest you read (draft show): refused once draft.json differs |
+| `--note N` | why, at most 2000 characters (required with --actor foreman) |
+| `--request R` | the draft request you read (draft show): refused once the draft changed |
+
+| Exit | When |
+|---|---|
+| 1 | no such mandate (not_found), it can't be read, is paused or closed, the draft isn't pending (or filing), a pin doesn't match, a pre-flight check fails (secret_found for a likely secret), a decision is already running, a tracker call failed (filing.json keeps what was filed), --actor foreman is refused, or a daemon session ran it without --actor foreman |
+| 5 | gh failed while filing |
+
+See [Foreman › Intake](architecture/foreman.md).
+
+**`forge mandate draft assist <id> --request G`**: read-only, for an assistant foreman session (or a person): the forge:assistant spawn for a milestone-approval gate request ({mandate, gate, stale, reason?, reserved, subagent, model, effort, brief}); stale once the draft moved or was decided
+
+| Flag | Meaning |
+|---|---|
+| `--request G` | the claimed milestone-approval gate request (required): in progress, for this mandate |
+
+| Exit | When |
+|---|---|
+| 1 | run in a daemon session other than an assistant foreman, or G is not an in-progress milestone-approval gate request for this mandate |
+
+See [Foreman › Intake](architecture/foreman.md).
+
+**`forge mandate draft prepare <id> --request R`**: the office session's first call of a drafting run: write the survey and return the forge:drafter brief ({mandate, request, stale: false, subagent, model, effort, brief, survey, staging}; a revision request's brief adds the previous draft's path and its title and the note, both fenced as data), or {stale: true, reason} for a mandate that is missing, unreadable, closed, paused, has no goal or is filed
 
 | Flag | Meaning |
 |---|---|
@@ -1261,11 +1289,11 @@ See [Mandates](CONFIG.md#mandates).
 
 | Exit | When |
 |---|---|
-| 1 | run in a daemon session other than the office, R is not an in-progress draft request for this mandate, or a link or a file sits at the drafts dir |
+| 1 | run in a daemon session other than the office, R is not an in-progress draft request for this mandate, R's revision note breaks the note rules, or a link or a file sits at the drafts dir |
 
 See [Foreman › Intake](architecture/foreman.md).
 
-**`forge mandate draft record <id> --request R [--agent-id A]`**: the office session's last call of a drafting run: append its spend to the mandate's ledger, then check the drafter's staging file and store it as draft.json ({ok, mandate, request, draft: {issues, waves, existing}, spend, file})
+**`forge mandate draft record <id> --request R [--agent-id A]`**: the office session's last call of a drafting run: append its spend to the mandate's ledger, then check the drafter's staging file and store it as draft.json ({ok, mandate, request, digest, draft: {issues, waves, existing}, spend, file}); notifies that the draft waits for approval, and queues its milestone-approval gate request when the project and the mandate delegate the class
 
 | Flag | Meaning |
 |---|---|
@@ -1278,7 +1306,36 @@ See [Foreman › Intake](architecture/foreman.md).
 
 See [Foreman › Intake](architecture/foreman.md).
 
-**`forge mandate draft show <id>`**: a goal mandate's milestone draft: {mandate, title, status (queued, drafting, ready, unreadable, failed or none), request, note, problem, draft, spend: {runs, withUsage, tokens, usd, metered}, file}
+**`forge mandate draft reject <id> [--note N] [--request R] [--digest D]`**: reject a pending milestone draft: closes the mandate with reason milestone draft rejected (and the note), files nothing, and starts the next link of its chain ({ok, decision, mandate, request, status})
+
+| Flag | Meaning |
+|---|---|
+| `--digest D` | the digest you read |
+| `--note N` | why, at most 2000 characters |
+| `--request R` | the draft request you read |
+
+| Exit | When |
+|---|---|
+| 1 | no such mandate (not_found), it can't be read, is paused or closed, the draft isn't pending, a pin doesn't match, a decision is already running, or a daemon session ran it (reject is never the foreman's) |
+
+See [Foreman › Intake](architecture/foreman.md).
+
+**`forge mandate draft revise <id> --note N [--request R] [--digest D] [--actor foreman]`**: send a pending milestone draft back with a note: queues another drafting run whose brief carries the note and the previous draft, fenced ({ok, decision, mandate, request, queued})
+
+| Flag | Meaning |
+|---|---|
+| `--actor foreman` | an assistant foreman records it (at most 2 foreman revisions per mandate) |
+| `--digest D` | the digest you read |
+| `--note N` | what the drafter should change, at most 2000 characters (required) |
+| `--request R` | the draft request you read |
+
+| Exit | When |
+|---|---|
+| 1 | no such mandate (not_found), it can't be read, is paused or closed, the draft isn't pending, a pin doesn't match, the note breaks the rules, a decision is already running, --actor foreman is refused, or a daemon session ran it without --actor foreman |
+
+See [Foreman › Intake](architecture/foreman.md).
+
+**`forge mandate draft show <id>`**: a goal mandate's milestone draft: {mandate, title, status (queued, drafting, ready, unreadable, failed or none), request, note, problem, digest (the SHA-256 of draft.json's bytes, null without a readable draft), draft, gate: {status (none, pending, filing or filed), request, owner, filing}, spend: {runs, withUsage, tokens, usd, metered}, file}
 
 | Exit | When |
 |---|---|
@@ -1290,7 +1347,7 @@ See [Foreman › Intake](architecture/foreman.md).
 
 | Exit | When |
 |---|---|
-| 1 | no such mandate (not_found), it can't be read, is not active or has no goal, or a daemon session ran it |
+| 1 | no such mandate (not_found), it can't be read, is not active, has no goal or its draft is filed, or a daemon session ran it |
 
 See [Foreman › Intake](architecture/foreman.md).
 
@@ -1320,11 +1377,11 @@ See [Foreman › Intake](architecture/foreman.md).
 
 See [Mandates](CONFIG.md#mandates).
 
-**`forge mandate list`**: every mandate by creation time ({mandates: [{id, title, status, state, after, chain, activeLink} | {id, problem}]}); state is waiting while after names a mandate not closed
+**`forge mandate list`**: every mandate by creation time ({mandates: [{id, title, status, state, after, intake, chain, activeLink} | {id, problem}]}); state is waiting while after names a mandate not closed; intake is true for a goal mandate, whose draft forge mandate draft show &lt;id> gives
 
 See [Mandates](CONFIG.md#mandates).
 
-**`forge mandate new <id> --title T [terms]`**: create a mandate, active, with every contract term not given taken from foreman.mandate (the default decides cut to the classes the foreman may decide) ({ok, changed, mandate})
+**`forge mandate new <id> --title T [terms]`**: create a mandate, active, with every contract term not given taken from foreman.mandate (the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run)
 
 | Flag | Meaning |
 |---|---|
@@ -1371,7 +1428,7 @@ See [Mandates](CONFIG.md#mandates).
 
 See [Mandates](CONFIG.md#mandates).
 
-**`forge mandate show <id>`**: one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request} (else null), and its file
+**`forge mandate show <id>`**: one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request, gate} (gate: none, pending, filing or filed; else null), and its file
 
 | Exit | When |
 |---|---|

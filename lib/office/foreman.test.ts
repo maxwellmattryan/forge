@@ -4,15 +4,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { BIN, forgeInProcess, parkedAt, repoTemplate } from '../../test/helpers.ts';
-import { loadConfig } from '#core/config/load.ts';
+import { BIN, MILESTONE_DRAFT, forgeInProcess, initMilestoneRepo, parkedAt, readyGoal, repoTemplate } from '../../test/helpers.ts';
+import { defaults, loadConfig } from '#core/config/load.ts';
+import { validateConfig } from '#core/config/validate.ts';
 import { jobDir, loadJob, logHumanEvent, readEvents } from '#core/job/store.ts';
 import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
+import { ACTIONS_BY_GATE } from '#engine/pipeline/moves/foreman-gates.ts';
 import { foremanReleaseApproval, releaseApprovalStatus } from '#engine/release/approval.ts';
-import { checkForemanDecision, gateOwner, releaseMandateRefusal } from './foreman.ts';
-import type { Job } from '#core/types.ts';
+import { draftReservedTexts } from './mandates/gate.ts';
+import { OFFICE_GATES, checkForemanDecision, checkMandateGateDecision, gateOwner, releaseMandateRefusal } from './foreman.ts';
+import type { DraftUnderDecision } from './foreman.ts';
+import type { ForgeRequest, Job } from '#core/types.ts';
 
 const OFFICE: NodeJS.ProcessEnv = { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_assistant-1' };
 
@@ -165,6 +170,105 @@ test('a foreman release approval stops counting once its mandate narrows', async
     assert.equal(res.status, 1);
     assert.match(res.error?.message ?? '', /--actor foreman refused: mandate resting is paused: release left for a human/);
     assert.ok(!readEvents(r.dir, job).some((e) => e.type === 'release-approval'), 'nothing recorded');
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('the milestone-approval gate class and its defaults', () => {
+  assert.equal(OFFICE_GATES.at(-1), 'milestone-approval');
+  assert.deepEqual(ACTIONS_BY_GATE['milestone-approval'], ['approve', 'revise']);
+  assert.ok(!(defaults().foreman.decides as string[]).includes('milestone-approval'), 'opt-in: the default leaves it out');
+  const c = defaults();
+  c.foreman.decides = ['milestone-approval'];
+  c.foreman.reserved = ['gate:milestone-approval'];
+  assert.deepEqual(validateConfig(c, os.tmpdir()).filter((p) => p.startsWith('foreman.')), []);
+});
+
+const draftScratch = repoTemplate((dir) => initMilestoneRepo(dir, { reserved: ['payments'] }));
+
+/**
+ * A foreman decision on goal mandate g1's pending draft. g2's decides leaves milestone-approval out, g3's
+ * file is a symlink. Each row changes one thing from the passing case.
+ */
+test('a foreman decision on a milestone draft', async () => {
+  const r = draftScratch();
+  try {
+    const { request, digest } = await readyGoal(r.dir, 'g1', ['--decides', 'milestone-approval']);
+    await readyGoal(r.dir, 'g2', ['--decides', 'spec-approval']);
+    await readyGoal(r.dir, 'g3', ['--decides', 'milestone-approval']);
+    const m3 = path.join(mandates(r.dir), 'g3.md');
+    fs.renameSync(m3, path.join(r.dir, 'g3.md'));
+    fs.symlinkSync(path.join(r.dir, 'g3.md'), m3);
+    const config = loadConfig(r.dir).config;
+    const goal = { goal: 'Halve review rounds' };
+    const texts = draftReservedTexts(goal, MILESTONE_DRAFT);
+    const draft: DraftUnderDecision = { request, digest, gate: 'pending', texts };
+    const gate = (over: Record<string, unknown> = {}): ForgeRequest => ({
+      id: '1-gate',
+      type: 'gate',
+      job: null,
+      text: null,
+      args: { gate: 'milestone-approval', mandate: 'g1', key: request, digest, reserved: null, ...over },
+      from: 'forge',
+      status: 'in-progress',
+      createdAt: '2026-10-26T00:00:00.000Z',
+    });
+    const revision = (n: number): ForgeRequest => ({ ...gate(), id: `${n}-rev`, type: 'draft', args: { mandate: 'g1', note: 'x', revises: request, foreman: true }, status: 'done' });
+    const off = (patch: (c: any) => void) => {
+      const c = structuredClone(config);
+      patch(c);
+      return c;
+    };
+    interface DecisionRow {
+      name: string;
+      action?: string;
+      note?: string | null;
+      env?: NodeJS.ProcessEnv;
+      config?: typeof config;
+      mandate?: string;
+      draft?: Partial<DraftUnderDecision>;
+      requests?: ForgeRequest[];
+      refused: RegExp | null;
+    }
+    const refused = (why: string) => new RegExp(`--actor foreman refused: ${why}$`);
+    const SCOPE = refused('only an assistant foreman session records foreman decisions');
+    const rows: DecisionRow[] = [
+      { name: 'the inbox', env: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_inbox' }, refused: SCOPE },
+      { name: 'the office', env: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_office' }, refused: SCOPE },
+      { name: 'a job scope', env: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: 'some-job' }, refused: SCOPE },
+      { name: 'no daemon scope', env: {}, refused: SCOPE },
+      { name: 'no note', note: '  ', refused: refused('a foreman decision needs --note with its reason') },
+      { name: 'foreman.enabled false', config: off((c) => (c.foreman.enabled = false)), refused: refused('foreman\\.enabled is false') },
+      { name: 'the class not in foreman.decides', config: off((c) => (c.foreman.decides = ['spec-approval'])), refused: refused('milestone-approval is not in foreman\\.decides') },
+      { name: 'gate:milestone-approval reserved', config: off((c) => (c.foreman.reserved = ['gate:milestone-approval'])), refused: refused('milestone-approval is reserved \\(gate:milestone-approval\\): left for a human') },
+      { name: "the mandate's decides leaves it out", mandate: 'g2', refused: refused("milestone-approval is not in mandate g2's decides: left for a human") },
+      { name: 'the mandate file is a symlink', mandate: 'g3', refused: refused("mandate g3 can't be read \\(a symlink, not a regular file\\): left for a human") },
+      { name: 'reject', action: 'reject', refused: refused('reject is not a milestone-approval action \\(approve, revise\\)') },
+      { name: 'a stopped filing', draft: { gate: 'filing' }, refused: refused("retrying a stopped filing is a person's call") },
+      { name: 'no in-progress gate request for the key', requests: [gate({ key: '2-other' }), { ...gate(), id: '3-gate', status: 'pending' }], refused: refused('no queued milestone-approval gate request for this draft') },
+      { name: 'a gate request for another digest', requests: [gate({ digest: 'b'.repeat(64) })], refused: refused('no queued milestone-approval gate request for this draft') },
+      { name: 'revise after two foreman revisions', action: 'revise', requests: [revision(1), revision(2), gate()], refused: refused('the foreman has revised this draft 2 times: left for a human') },
+      { name: 'a reserved pattern in an issue title', draft: { texts: draftReservedTexts(goal, { ...MILESTONE_DRAFT, issues: [{ ...MILESTONE_DRAFT.issues[0], title: 'Payments retry' }] }) }, refused: refused('reserved \\(payments\\): left for a human') },
+      { name: 'a reserved pattern in the goal', draft: { texts: draftReservedTexts({ goal: 'Ship payments faster' }, MILESTONE_DRAFT) }, refused: refused('reserved \\(payments\\): left for a human') },
+      { name: 'approve', refused: null },
+      { name: 'revise', action: 'revise', requests: [revision(1), gate()], refused: null },
+    ];
+    for (const row of rows) {
+      const decide = () =>
+        checkMandateGateDecision(
+          r.dir,
+          row.config ?? config,
+          { id: row.mandate ?? 'g1' },
+          { ...draft, ...row.draft },
+          row.action ?? 'approve',
+          row.note === undefined ? 'covers the goal' : row.note,
+          row.env ?? OFFICE,
+          row.requests ?? [gate()],
+        );
+      if (row.refused) assert.throws(decide, row.refused, row.name);
+      else assert.equal(decide().id, '1-gate', row.name);
+    }
   } finally {
     r.cleanup();
   }

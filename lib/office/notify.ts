@@ -38,6 +38,7 @@ export const REASONS = {
   'rounds-exhausted': 'Review rounds are exhausted',
   budget: 'The job stopped at its budget',
   human: 'A Forge check stopped the job until a human clears it',
+  'milestone-approval': 'A milestone draft is waiting for approval',
   failed: 'The job failed',
   'pr-opened': 'A pull request was opened',
   'pr-merged': 'The pull request was merged',

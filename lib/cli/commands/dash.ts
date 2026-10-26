@@ -255,7 +255,9 @@ export async function dash(root: string | null, config: Config | null, flags: Re
       stdio: 'ignore',
     });
     child.unref();
-    for (let i = 0; i < 60; i++) {
+    // The child captures the login shell's PATH (up to 5 s) and loads the server before it writes its
+    // record. 15 s covers that on a loaded machine; a healthy start returns as soon as the record appears.
+    for (let i = 0; i < 300; i++) {
       // The pid is the child just spawned, so only the url needs proving.
       const rt = readDashboardRecord(machineFile);
       const url = rt && rt.pid === child.pid ? loopbackOrigin(rt.url) : null;

@@ -8,11 +8,13 @@
 import { isForemanActor, readEvents } from '#core/job/store.ts';
 import { inAssistant, listRequests } from '#core/job/requests.ts';
 import { HANDOFF_CLASSES } from '#core/job/schema.ts';
-import { ACTIONS_BY_GATE, classReservation, decides, foremanEnabled, gateClass, gateClassFor, isGateRequest, listedDecides, reservedFor } from '#engine/pipeline/moves/foreman-gates.ts';
+import { ACTIONS_BY_GATE, classReservation, decides, foremanEnabled, gateClass, gateClassFor, isGateRequest, listedDecides, reservedFor, reservedMatch } from '#engine/pipeline/moves/foreman-gates.ts';
 import { ForgeError } from '#core/errors.ts';
 import { safeText } from '#core/text.ts';
-import { jobMandateDecides } from './mandates/store.ts';
-import type { Config, ForemanHandoff, ForgeRequest, GateClass, GateOwner, HandoffClass, Job, JobEvent } from '#core/types.ts';
+import { FOREMAN_REVISIONS_MAX } from './mandates/draft.ts';
+import { jobMandateDecides, mandateDecides } from './mandates/store.ts';
+import type { Config, DraftGateStatus, ForemanHandoff, ForgeRequest, GateClass, GateOwner, HandoffClass, Job, JobEvent } from '#core/types.ts';
+import type { Mandate } from './mandates/types.ts';
 
 export { OFFICE_GATES } from '#core/job/schema.ts';
 
@@ -45,16 +47,41 @@ function queuedPrFeedbackGate(root: string, job: Pick<Job, 'id' | 'pr'>, request
   return requests.some((r) => isGateRequest(r, job.id, 'pr-feedback') && r.args?.key === head && (r.status === 'pending' || r.status === 'in-progress'));
 }
 
+/** The mandate a foreman decision is judged under: its cut decides, why it can't be read, or null for none. */
+type DecidingMandate = { id: string; decides: readonly GateClass[] } | { id: string; problem: string } | null;
+
+/** Why a mandate leaves `gate` with a human, or null: one that can't be read delegates nothing. */
+function mandateLeaves(gate: GateClass, m: DecidingMandate): string | null {
+  if (!m) return null;
+  if ('problem' in m) return `mandate ${m.id} can't be read (${m.problem}): left for a human`;
+  return m.decides.includes(gate) ? null : `${gate} is not in mandate ${m.id}'s decides: left for a human`;
+}
+
+/** Why this call may not record a foreman decision: only an assistant foreman session may. Null when it may. */
+export function foremanScopeRefusal(env: NodeJS.ProcessEnv = process.env): string | null {
+  return inAssistant(env) ? null : 'only an assistant foreman session records foreman decisions';
+}
+
+/**
+ * Why the policy keeps `gate` with a human, in this order: the foreman is off, the class isn't in
+ * foreman.decides, `gate:<class>` reserves it, or the mandate (when there is one) leaves it out or
+ * can't be read. Null when the foreman may decide the class. Job gates and mandate gates both ask it.
+ */
+export function foremanPolicyRefusal(config: Config, gate: GateClass, mandate: DecidingMandate): string | null {
+  if (!foremanEnabled(config)) return 'foreman.enabled is false';
+  if (!listedDecides(config).includes(gate)) return `${gate} is not in foreman.decides`;
+  const held = classReservation(config, gate);
+  if (held) return `${gate} is reserved (${held}): left for a human`;
+  return mandateLeaves(gate, mandate);
+}
+
 /**
  * Why a job's mandate leaves `gate` with a human, or null when the job is in no mandate or the mandate
  * delegates the class. Read from the CLI's record of the job, which a session can't edit, whatever the
  * mandate's status: a mandate only ever narrows, and one that can't be read delegates nothing.
  */
 export function mandateRefusal(root: string, config: Config, job: Job, gate: GateClass): string | null {
-  const m = jobMandateDecides(root, config, job);
-  if (!m) return null;
-  if ('problem' in m) return `mandate ${m.id} can't be read (${m.problem}): left for a human`;
-  return m.decides.includes(gate) ? null : `${gate} is not in mandate ${m.id}'s decides: left for a human`;
+  return mandateLeaves(gate, jobMandateDecides(root, config, job));
 }
 
 /**
@@ -91,17 +118,14 @@ export function checkForemanDecision(
   const refuse = (why: string): never => {
     throw new ForgeError(`--actor foreman refused: ${why}`, 1);
   };
-  if (!inAssistant(env)) refuse('only an assistant foreman session records foreman decisions');
+  const scope = foremanScopeRefusal(env);
+  if (scope) refuse(scope);
   if (flags.link !== undefined || flags.reason !== undefined) refuse('linking an issue stays a human call (no --link or --reason)');
   if (typeof note !== 'string' || !note.trim()) refuse('a foreman decision needs --note with its reason');
   const gate = gateClassFor(root, job);
   if (!gate) refuse(`job ${job.id} is not waiting on a gate the foreman decides`);
-  if (!foremanEnabled(config)) refuse('foreman.enabled is false');
-  if (!listedDecides(config).includes(gate!)) refuse(`${gate} is not in foreman.decides`);
-  const held = classReservation(config, gate!);
-  if (held) refuse(`${gate} is reserved (${held}): left for a human`);
-  const narrowed = mandateRefusal(root, config, job, gate!);
-  if (narrowed) refuse(narrowed);
+  const policy = foremanPolicyRefusal(config, gate!, jobMandateDecides(root, config, job));
+  if (policy) refuse(policy);
   if (!ACTIONS_BY_GATE[gate!].includes(action)) refuse(`${action} is not a ${gate} action (${ACTIONS_BY_GATE[gate!].join(', ')})`);
   // pr-feedback is the foreman's only once sync armed it for this head (trusted feedback or failing
   // checks): a queued gate request keyed by the PR's current head sha must exist.
@@ -109,6 +133,63 @@ export function checkForemanDecision(
   const reserved = reservedFor(root, config, job, gate, [note], { action });
   if (reserved) refuse(`reserved (${reserved}): left for a human`);
   return gate!;
+}
+
+/** What checkMandateGateDecision judges of a goal mandate's draft: read once by the caller (gate.ts), with the gate's status and the texts reserved patterns are matched against. */
+export interface DraftUnderDecision {
+  request: string;
+  digest: string;
+  gate: DraftGateStatus;
+  texts: string[];
+}
+
+/**
+ * Every check on a foreman decision on a goal mandate's milestone draft, before anything is written, in
+ * order: an assistant foreman scope, a note, the policy (foremanPolicyRefusal with the mandate's own cut
+ * decides, read now), an action of the class (never reject), a gate waiting for approval, an in-progress
+ * gate request for exactly this draft (its key and digest), the revision cap, and no reserved pattern in
+ * the draft, the goal or the note. Returns the matched gate request, whose key and digest pin what the
+ * foreman decides. Throws ForgeError (exit 1).
+ */
+export function checkMandateGateDecision(
+  root: string,
+  config: Config,
+  m: Pick<Mandate, 'id'>,
+  draft: DraftUnderDecision,
+  action: string,
+  note: string | null | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+  requests: ForgeRequest[] = listRequests(root),
+): ForgeRequest {
+  const gate: GateClass = 'milestone-approval';
+  const refuse = (why: string): never => {
+    throw new ForgeError(`--actor foreman refused: ${why}`, 1);
+  };
+  const scope = foremanScopeRefusal(env);
+  if (scope) refuse(scope);
+  if (typeof note !== 'string' || !note.trim()) refuse('a foreman decision needs --note with its reason');
+  const policy = foremanPolicyRefusal(config, gate, mandateDecides(root, config, m.id));
+  if (policy) refuse(policy);
+  if (!ACTIONS_BY_GATE[gate].includes(action)) refuse(`${action} is not a ${gate} action (${ACTIONS_BY_GATE[gate].join(', ')})`);
+  if (draft.gate === 'filing') refuse("retrying a stopped filing is a person's call");
+  if (draft.gate !== 'pending') refuse('the draft is not waiting for approval');
+  const matched = requests.find(
+    (r) =>
+      r.type === 'gate' &&
+      r.status === 'in-progress' &&
+      r.args?.gate === gate &&
+      r.args?.mandate === m.id &&
+      r.args?.key === draft.request &&
+      r.args?.digest === draft.digest,
+  );
+  if (!matched) refuse(`no queued ${gate} gate request for this draft`);
+  if (action === 'revise') {
+    const revisions = requests.filter((r) => r.type === 'draft' && r.args?.mandate === m.id && r.args?.foreman === true).length;
+    if (revisions >= FOREMAN_REVISIONS_MAX) refuse(`the foreman has revised this draft ${revisions} times: left for a human`);
+  }
+  const reserved = reservedMatch(config, [...draft.texts, note]);
+  if (reserved) refuse(`reserved (${reserved}): left for a human`);
+  return matched!;
 }
 
 /**

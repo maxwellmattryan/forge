@@ -1,6 +1,6 @@
 # lib/core/versions/
 
-The version lists: one append-only list of named steps per persisted shape, whose length plus one is that shape's version. `lib/core/job/schema.ts` runs them and re-exports the versions, except the machine index's (`machine.ts`), which `lib/engine/project/machine-index.ts` runs, the mandates' (`mandate.ts`), which `lib/office/mandates/store.ts` runs (through `contract.ts`'s `storedMandate`), and a goal mandate's milestone draft's (`draft.ts`), which `lib/office/mandates/draft.ts` runs (`readDraft`); the `/api` list is `lib/api/versions.ts`.
+The version lists: one append-only list of named steps per persisted shape, whose length plus one is that shape's version. `lib/core/job/schema.ts` runs them and re-exports the versions, except the machine index's (`machine.ts`), which `lib/engine/project/machine-index.ts` runs, the mandates' (`mandate.ts`), which `lib/office/mandates/store.ts` runs (through `contract.ts`'s `storedMandate`), a goal mandate's milestone draft's (`draft.ts`), which `lib/office/mandates/draft.ts` runs (`readDraft`), and an approved draft's filing record's (`filing.ts`), which `lib/office/mandates/filing.ts` runs (`readFiling`); the `/api` list is `lib/api/versions.ts`.
 
 - **Append only.** A shape change appends one step at the end of its list. Never edit, reorder or remove an entry: behaviour fixes to an old step are rare, and need its row in `test/schema.test.ts` updated.
 - Each entry starts on its own line as `  { id: '<kebab-id>'` (two-space indent), which the release notes count (`scripts/release.ts`).
@@ -15,6 +15,7 @@ The version lists: one append-only list of named steps per persisted shape, whos
 | `config.ts` | The config version steps: `.forge/config.yml`'s schemaVersion is this list's length plus one. |
 | `draft.ts` | The milestone draft version steps: a goal mandate's draft.json `schemaVersion` (`.forge/runtime/mandates/<id>/draft.json`) is this list's length plus one. |
 | `event.ts` | The event version steps: an events.jsonl line's `v` is this list's length plus one. |
+| `filing.ts` | The filing record version steps: an approved milestone draft's filing.json `schemaVersion` (`.forge/runtime/mandates/<id>/filing.json`) is this list's length plus one. |
 | `job.ts` | The job version steps: job.json's schemaVersion is this list's length plus one, with the helpers the steps need. |
 | `machine.ts` | The machine index version steps: `<FORGE_HOME>/projects.json`'s schemaVersion is this list's length plus one. |
 | `mandate.ts` | The mandate version steps: a mandate file's `schemaVersion` (`.forge/runtime/mandates/<id>.md`) is this list's length plus one. |
