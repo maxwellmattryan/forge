@@ -89,6 +89,18 @@ export function unshelveOp(id: string): HumanOp {
   };
 }
 
+/**
+ * `forge job set <id> --state` that puts a job cancelled or set done while shelved back to work; `id`
+ * is one loadJob has validated. No dashboard control does this, so the refusals offer none.
+ */
+export function reopenShelvedOp(id: string): HumanOp {
+  return {
+    command: 'forge job set --state on a job finished while shelved',
+    what: `forge job set ${id} puts job ${id}, which was cancelled or set done while shelved, back to work, so it can spend again. It is logged with your name.`,
+    confirm: id,
+  };
+}
+
 /** `forge budget ack --period P`; `period` is one validPeriod accepted. */
 export function budgetAckOp(period: string): HumanOp {
   return {

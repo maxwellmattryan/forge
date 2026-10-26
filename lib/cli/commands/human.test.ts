@@ -10,7 +10,7 @@ import { PassThrough } from 'node:stream';
 import '../../../test/helpers.ts';
 import { ForgeError } from '#core/errors.ts';
 import { currentActor } from '#integrations/github/actor.ts';
-import { budgetAckOp, confirmHuman, jobBudgetOp, mergeNowOp, processTerminal, unshelveOp } from './human.ts';
+import { budgetAckOp, confirmHuman, jobBudgetOp, mergeNowOp, processTerminal, reopenShelvedOp, unshelveOp } from './human.ts';
 import type { HumanOp, Terminal } from './human.ts';
 
 const OP = { command: 'forge pr merge --now', what: 'merges j1 now', confirm: 'j1' };
@@ -93,6 +93,7 @@ test("both refusals offer the dashboard's control only for an operation that has
       ['budget ack', budgetAckOp('2026-10'), "Acknowledge in the dashboard's Needs you"],
       ['job budget --set|--ack', jobBudgetOp('j1', { set: true, ack: true }), 'Approve & continue on the budget gate in the dashboard'],
       ['job unshelve', unshelveOp('j1'), "Un-shelve in the dashboard's Shelved list"],
+      ['job set --state, finished while shelved', reopenShelvedOp('j1'), null],
     ];
     const refusals: [string, Terminal, NodeJS.ProcessEnv, (channel: string) => string, string][] = [
       ['a daemon session', { interactive: true, ask: async () => 'j1' }, { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: 'j1' }, (c) => ` or uses ${c}`, 'a human runs it in their own terminal'],
@@ -122,6 +123,7 @@ test('each human-only operation asks for a validated id or period and names what
     ['job budget --set --ack', jobBudgetOp('j1', { set: true, ack: true }), 'j1', ['--set', '--ack'], []],
     ['budget ack', budgetAckOp('2026-10'), '2026-10', ['forge budget ack --period 2026-10'], []],
     ['job unshelve', unshelveOp('j1'), 'j1', ['forge job unshelve j1', 'back where it was shelved', 'spend again'], []],
+    ['job set --state, finished while shelved', reopenShelvedOp('j1'), 'j1', ['forge job set j1', 'cancelled or set done while shelved', 'spend again'], []],
   ];
   for (const [name, op, confirm, names, omits] of rows) {
     assert.equal(op.confirm, confirm, name);

@@ -2,8 +2,8 @@
 // lists must hold strings, and which values `complexity` and `kind` may take. setJob enforces them
 // for every caller (`forge job set`, the dashboard, any module), so a locked key can't be reached
 // by going around the CLI; likewise the stage, state and waitingOn values, and who may move a shelved
-// job. Kept apart from jobs.ts and schema.ts, which are both past 600 lines.
-import { COMPLEXITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
+// job, or one finished while shelved. Kept apart from jobs.ts and schema.ts, which are both past 600 lines.
+import { COMPLEXITIES, STAGES, STATES, WAITING_ON, isHumanGrant } from './schema.ts';
 import { hasProtoSegment } from '../shape.ts';
 import type { Job, JobChange, TransitionSide } from '../types.ts';
 import { ForgeError } from '../errors.ts';
@@ -49,6 +49,8 @@ export const LOCKED_FIELDS: Record<string, string> = {
   budget: "forge job budget or the dashboard's Approve on the budget gate",
   // `from` decides where un-shelving puts the job, and only a person takes it off the shelf.
   shelved: 'forge job shelve|unshelve',
+  // A cleared mark would let a cancel take a job off the shelf with nobody having decided it.
+  finishedWhileShelved: 'forge job set --state, from a person, which clears it as the job goes back to work',
 };
 
 // Kinds step routes differently: a retro job's review panel is fixed at code and docs, and an eval
@@ -104,19 +106,38 @@ export function checkChange(change: JobChange): void {
 }
 
 const onShelf = (s: Pick<TransitionSide, 'state' | 'waitingOn'>): boolean => s.state === 'waiting' && s.waitingOn === 'shelved';
+const finished = (state: unknown): boolean => state === 'done' || state === 'cancelled';
+
+/**
+ * Whether setting `state` puts a job finished while shelved back to work, which needs a person's
+ * grant (checkShelfMove): `forge job set` asks for one first. An unknown state is left to checkChange.
+ */
+export function reopensShelved(job: Pick<Job, 'state' | 'finishedWhileShelved'>, state: unknown): boolean {
+  return job.finishedWhileShelved && finished(job.state) && (STATES as readonly unknown[]).includes(state) && !finished(state);
+}
 
 /**
  * Only a person takes a job off the shelf: a write that moves a shelved job's stage, state or
  * waitingOn throws unless it is un-shelving (`shelf: 'unshelve'`) or finishes the job, and only
- * `forge job shelve` (`shelf: 'shelve'`) puts a job on it. `before` is the job as the lock read it,
- * `j` the job with the change applied; a job that ends off the shelf keeps no shelf record.
+ * `forge job shelve` (`shelf: 'shelve'`) puts a job on it. Finishing it marks it
+ * `finishedWhileShelved`, and a marked job goes back to work only with a person's `grant`, so a
+ * cancel is no way around the shelf. `before` is the job as the lock read it, `j` the job with the
+ * change applied; a job that ends off the shelf keeps no shelf record.
  */
-export function checkShelfMove(id: string, before: TransitionSide, j: Job, shelf: 'shelve' | 'unshelve' | undefined): void {
+export function checkShelfMove(id: string, before: TransitionSide, j: Job, shelf: 'shelve' | 'unshelve' | undefined, grant?: unknown): void {
   const moved = before.stage !== j.stage || before.state !== j.state || before.waitingOn !== j.waitingOn;
-  if (onShelf(before) && moved && shelf !== 'unshelve' && j.state !== 'done' && j.state !== 'cancelled')
+  if (onShelf(before) && moved && shelf !== 'unshelve' && !finished(j.state))
     throw new ForgeError(`job ${id} is shelved: only a person un-shelves it, with forge job unshelve ${id} in their own terminal or Un-shelve in the dashboard's Shelved list`, 'human_only');
+  // The mark as the lock read it: it is a locked field, so no `fields` key reaches it.
+  if (j.finishedWhileShelved && finished(before.state) && !finished(j.state) && !isHumanGrant(grant))
+    throw new ForgeError(
+      `job ${id} was ${before.state === 'done' ? 'set done' : 'cancelled'} while shelved: only a person puts it back to work, with forge job set ${id} --state <state> in their own terminal`,
+      'human_only',
+    );
   if (onShelf(j) && !onShelf(before) && shelf !== 'shelve') throw new ForgeError('only forge job shelve shelves a job');
   if (!onShelf(j)) j.shelved = null;
+  if (onShelf(before) && finished(j.state)) j.finishedWhileShelved = true;
+  else if (!finished(j.state)) j.finishedWhileShelved = false;
 }
 
 /** Throws unless every `owned` key sits under a locked field: `owned` is for the module that owns it, never a way past checkJobFields. */

@@ -225,7 +225,7 @@ const JOB_ROWS: Row[] = [
     removed: ['agents.builder.runHistory', 'agents.reviewer:code.runHistory'],
     note: "every ended run is legacy; a running agent's run is recorded by its end",
   },
-  { step: 'shelved', input: { id: 'x', state: 'waiting', waitingOn: 'escalation', reason: 'r' }, fields: { shelved: null, waitingOn: 'escalation' }, note: 'a job from before the shelf is on none' },
+  { step: 'shelved', input: { id: 'x', state: 'waiting', waitingOn: 'escalation', reason: 'r' }, fields: { shelved: null, finishedWhileShelved: false, waitingOn: 'escalation' }, note: 'a job from before the shelf is on none' },
 ];
 
 const EVENT_ROWS: Row[] = [
@@ -680,6 +680,12 @@ test('a shelf record is kept only well formed and only on a job waiting on shelv
     ['no record', 'shelved'],
   ];
   for (const [name, raw] of malformed) assert.equal(read(raw), null, name);
+});
+
+test('a finished-while-shelved mark is kept only as true, and only on a done or cancelled job', () => {
+  const read = (mark: unknown, state: string) => normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x', state, finishedWhileShelved: mark }).finishedWhileShelved;
+  assert.deepEqual([read(true, 'cancelled'), read(true, 'done')], [true, true]);
+  assert.deepEqual([read(true, 'queued'), read(true, 'waiting'), read('true', 'cancelled'), read(1, 'done'), read(undefined, 'cancelled')], [false, false, false, false, false]);
 });
 
 test('validates maxTotalRounds, maxCiReworks and daemon.jobBudget', () => {

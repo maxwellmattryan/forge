@@ -74,7 +74,7 @@ export const API_CHANGES = [
   // AgentRow.runs: every ended run of the role with its billing split and context composition; AgentRow.tokens is now
   // the sum of those runs' totals. JobAgent.runHistory and .legacyRuns are kept out of /api/state and JobDetail.job.
   { id: 'agent-runs' },
-  // Shelve: WaitingOn 'shelved', Job.shelved, Stats.counts.shelved and POST /api/shelf.
+  // Shelve: WaitingOn 'shelved', Job.shelved, Job.finishedWhileShelved, Stats.counts.shelved and POST /api/shelf.
   { id: 'shelve' },
 ] as const;
 

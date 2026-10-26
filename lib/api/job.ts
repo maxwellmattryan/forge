@@ -359,6 +359,11 @@ export interface Job {
   score: JobScore | null;
   /** Why and from where a person shelved the job (`forge job shelve`); non-null only while it waits on `shelved`. */
   shelved: JobShelf | null;
+  /**
+   * True when the job was cancelled or set done while shelved (a cancel, Close in the Shelved list, a
+   * merge or close on GitHub), and only while it stays done or cancelled: only a person's grant moves it back to work.
+   */
+  finishedWhileShelved: boolean;
 }
 
 /** A shelved job's record: shelveJob in lib/engine/pipeline/moves/shelve.ts, cleanShelf in lib/core/job/schema.ts. */

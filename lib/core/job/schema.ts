@@ -489,6 +489,8 @@ export function normalizeJob(raw: any): LoadedJob {
     outcome: cleanOutcome(job.outcome),
     score,
     shelved: cleanShelf(job.shelved, { state: job.state ?? 'queued', waitingOn: job.waitingOn ?? null }),
+    // Only true marks it, and only on a finished job: checkShelfMove sets and clears it with the state.
+    finishedWhileShelved: job.finishedWhileShelved === true && (job.state === 'done' || job.state === 'cancelled'),
   };
 }
 

@@ -7,10 +7,10 @@ import { paths, exists, jobDir, jobFiles, resetJobRecord, stateFile } from '../p
 import { currentActor } from '#integrations/github/actor.ts';
 import { clearFocusIf } from './focus.ts';
 import { knownRecordValues, redactDeep } from '#engine/guard/known-secrets.ts';
-import { EFFORTS, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, endFinishedJobAgents, finishedJobRoles, noLease, normalizeEvent, normalizeJob, recordRun, serializeJob } from './schema.ts';
+import { EFFORTS, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, endFinishedJobAgents, finishedJobRoles, isHumanGrant, noLease, normalizeEvent, normalizeJob, recordRun, serializeJob } from './schema.ts';
 import { idPrefix } from './issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
-import type { AgentRecordChange, AgentUsage, Config, Effort, EventActor, ForgeRequest, Job, JobAgent, JobIssue, JobChange, JobLease, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from '../types.ts';
+import type { AgentRecordChange, AgentUsage, Config, Effort, EventActor, ForgeRequest, HumanGrant, Job, JobAgent, JobIssue, JobChange, JobLease, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from '../types.ts';
 import { estimateCost } from '#integrations/claude/pricing.ts';
 import { agentRole, isAgentRole, reviewFileName } from './lens.ts';
 import { requeueOrphans } from './requests.ts';
@@ -343,16 +343,16 @@ export function isActive(job: Job): boolean {
 /**
  * `derive` decides part of the change from the job as stored at write time, inside the lock, so a
  * claim or edit that lands between a caller's load and its write is what the decision sees. Its
- * result is merged over the static change; null applies the static change alone. `shelf` is set only
- * by shelve.ts, outside JobChange so derive can't set it (checkShelfMove).
+ * result is merged over the static change; null applies the static change alone. `shelf` (shelve.ts
+ * only) and a person's `grant` sit outside JobChange, so derive can't set them (checkShelfMove).
  */
 export function setJob(
   root: string,
   id: string,
-  change: JobChange & { release?: boolean; derive?: (j: LoadedJob) => JobChange | null; fence?: Fence; shelf?: 'shelve' | 'unshelve' },
+  change: JobChange & { release?: boolean; derive?: (j: LoadedJob) => JobChange | null; fence?: Fence; shelf?: 'shelve' | 'unshelve'; grant?: HumanGrant },
 ): LoadedJob {
   checkChange(change);
-  const { derive, release, fence, shelf, ...base } = change;
+  const { derive, release, fence, shelf, grant, ...base } = change;
   let before: TransitionSide | null = null;
   let released = false;
   let lost: string[] = [];
@@ -380,7 +380,7 @@ export function setJob(
     if (j.state === 'waiting' && !j.waitingOn) throw new ForgeError('state "waiting" needs --waiting-on', 'usage');
     for (const [k, v] of Object.entries(c.owned ?? {})) setPath(j, k, v);
     for (const [k, v] of Object.entries(c.fields ?? {})) setPath(j, k, v);
-    checkShelfMove(id, before, j, shelf);
+    checkShelfMove(id, before, j, shelf, grant);
     if (['done', 'cancelled'].includes(j.state) && !j.finishedAt) j.finishedAt = now();
     // In the same write as the state, so no reader sees a finished job with an agent still running.
     const ended = endFinishedJobAgents(j.agents, j.state, now(), finishedJobRoles(j));
@@ -397,7 +397,7 @@ export function setJob(
   const b = before as any;
   if (b.stage !== job.stage || b.state !== job.state || b.waitingOn !== job.waitingOn) {
     const to = { stage: job.stage, state: job.state, waitingOn: job.waitingOn };
-    logEvent(root, id, 'transition', { from: b, to, reason: c.reason ?? undefined });
+    logEvent(root, id, 'transition', { from: b, to, reason: c.reason ?? undefined, actor: isHumanGrant(grant) ? grant.actor : undefined });
     // Once per state change: a repeated set with the same state and waitingOn logs no transition.
     runTransitionHooks(root, job, b, to);
   }

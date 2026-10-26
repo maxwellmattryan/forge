@@ -218,6 +218,7 @@ test('a shelved job leaves the shelf only through a person', async () => {
     { name: '--state waiting --waiting-on escalation', args: ['--state', 'waiting', '--waiting-on', 'escalation'], on: 'shelved', code: 'human_only', message: human },
     { name: '--stage build', args: ['--stage', 'build'], on: 'shelved', code: 'human_only', message: human },
     { name: '--field shelved=null', args: ['--field', 'shelved=null'], on: 'shelved', code: 'failed', message: /^--field shelved is not settable; use forge job shelve\|unshelve$/ },
+    { name: '--field finishedWhileShelved=false', args: ['--field', 'finishedWhileShelved=false'], on: 'shelved', code: 'failed', message: /^--field finishedWhileShelved is not settable; use forge job set --state, from a person/ },
     { name: 'a forged shelf', args: ['--state', 'waiting', '--waiting-on', 'shelved'], on: 'escalation', code: 'failed', message: /^only forge job shelve shelves a job$/ },
   ];
   for (const row of rows) {
@@ -240,4 +241,39 @@ test('a shelved job leaves the shelf only through a person', async () => {
     const other = parkedAt(root, 'shelved').id;
     assert.throws(() => setJob(root, other, { state: 'running' }), (e: unknown) => e instanceof ForgeError && e.code === 'human_only');
   });
+});
+
+test('a job cancelled or set done while shelved goes back to work only through a person', async () => {
+  const humanOnly = (e: unknown) => e instanceof ForgeError && e.code === 'human_only';
+  for (const [finish, said] of [['cancelled', 'cancelled'], ['done', 'set done']] as const) {
+    await inRepo(async (root) => {
+      const id = parkedAt(root, 'shelved').id;
+      const daemon = { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: id };
+      // A daemon session may finish a shelved job: that is the way around the shelf this closes.
+      const done = await forgeInProcess(root, ['job', 'set', id, '--state', finish], { env: daemon });
+      assert.equal(done.status, 0, `${finish}: ${JSON.stringify(done.error)}`);
+      assert.deepEqual([loadJob(root, id).state, loadJob(root, id).shelved, loadJob(root, id).finishedWhileShelved], [finish, null, true], finish);
+      const before = files(root, id);
+      for (const [name, env] of [
+        ['a daemon session', daemon],
+        ['no terminal', { FORGE_DAEMON: undefined }],
+      ] as const) {
+        const r = await forgeInProcess(root, ['job', 'set', id, '--state', 'queued'], { env });
+        assert.equal(r.error?.code, 'human_only', `${finish}, ${name}: ${JSON.stringify(r.error)}`);
+        assert.deepEqual(files(root, id), before, `${finish}, ${name}: job.json and events.jsonl unchanged`);
+      }
+      // setJob alone, as any module would write: refused without a valid grant, whatever else it changes.
+      for (const grant of [undefined, true, {}, { channel: 'email', actor: ACTOR }]) {
+        assert.throws(() => setJob(root, id, { state: 'queued', grant: grant as unknown as HumanGrant }), humanOnly, `${finish}: ${JSON.stringify(grant)}`);
+      }
+      assert.throws(() => setJob(root, id, { state: 'waiting', waitingOn: 'escalation' }), (e: unknown) => humanOnly(e) && (e as Error).message.includes(`was ${said} while shelved: only a person puts it back to work`));
+      assert.deepEqual(files(root, id), before, `${finish}: setJob wrote nothing`);
+      // Staying finished needs no grant, and keeps the mark.
+      assert.equal(setJob(root, id, { reason: 'still finished' }).finishedWhileShelved, true, finish);
+      const j = setJob(root, id, { state: 'queued', grant: GRANT });
+      assert.deepEqual([j.state, j.finishedWhileShelved], ['queued', false], `${finish}: a person's grant puts it back to work`);
+      const moved = readEvents(root, id).filter((e) => e.type === 'transition').at(-1);
+      assert.deepEqual([moved?.to, moved?.actor], [{ stage: j.stage, state: 'queued', waitingOn: null }, ACTOR], `${finish}: the transition names the person`);
+    });
+  }
 });
