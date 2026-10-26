@@ -13,7 +13,7 @@ import { usageError } from './args.ts';
 import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
 
 const DOCS: [string, string] = ['Backing services', 'docs/CONFIG.md#backing-services'];
-const REFUSED: [1, string] = [1, 'an invalid job id or no such job, or the inbox or office daemon session ran it'];
+const REFUSED: [1, string] = [1, 'an invalid job id or no such job, or the inbox, office or an assistant foreman daemon session ran it'];
 
 const ENVIRONMENT: HelpGroup = {
   name: 'environment',
@@ -24,7 +24,7 @@ const ENVIRONMENT: HelpGroup = {
       args: '<id>',
       summary:
         "start an active job's environment: run a missing per-job container, start a stopped one, give the job its job databases, and mark it running in the environment record. Forge does this itself on resume, verify, run --background and focus. Starts no background process",
-      exits: [[1, 'an invalid job id or no such job, a done or cancelled job, or the inbox or office daemon session ran it'], [5, 'a backing service did not start']],
+      exits: [[1, 'an invalid job id or no such job, a done or cancelled job, or the inbox, office or an assistant foreman daemon session ran it'], [5, 'a backing service did not start']],
       docs: DOCS,
       readme: true,
     },

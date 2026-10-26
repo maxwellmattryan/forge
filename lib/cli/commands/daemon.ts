@@ -5,7 +5,7 @@ import path from 'node:path';
 import { loadConfig } from '#core/config/load.ts';
 import { openRead, readInfo, sessionFiles, sessionRecords, tailLines } from '#core/job/session-files.ts';
 import { redactKnown, scopeKnownValues } from '#engine/guard/known-secrets.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '#core/job/requests.ts';
+import { ASSISTANT_SCOPE_PREFIX, INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, assistantScope, isAssistantScope, sharedScope, validJobId } from '#core/job/requests.ts';
 import { sessionAgents } from '#office/session-agents.ts';
 import { recordIds } from '#office/driver.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -22,11 +22,12 @@ const DAEMON: HelpGroup = {
     { command: 'daemon status', args: '', summary: "the daemon's sessions, from the terminal", readme: true },
     {
       command: 'daemon log',
-      args: '<job>|--inbox|--office [--lines N] [--follow]',
+      args: '<job>|--inbox|--office|--assistant N [--lines N] [--follow]',
       summary: "a session's log, from the terminal",
       flags: [
         ['--inbox', "the inbox session's log instead of a job's"],
-        ['--office', "the foreman's office session's log instead of a job's"],
+        ['--office', "the Foreman's office session's log instead of a job's"],
+        ['--assistant N', "assistant foreman N's log (1-16) instead of a job's"],
         ['--lines N', 'the last N lines (default 100, at most 5000)'],
         ['--follow', 'keep printing lines as they are written'],
       ],
@@ -87,9 +88,10 @@ function status(root: string): DaemonStatusOut {
     : raw && typeof raw.pid === 'number' && Number.isInteger(raw.pid)
       ? { pid: raw.pid, url: null, alive: false }
       : null;
-  // _inbox, then _office, before every job id ('_' > 'Z' in code points, so they are placed first explicitly).
-  const rank = (s: string) => (s === INBOX_SCOPE ? 0 : s === OFFICE_SCOPE ? 1 : 2);
-  const records = sessionRecords(root).sort((a, b) => rank(a.scope) - rank(b.scope) || (a.scope < b.scope ? -1 : a.scope > b.scope ? 1 : 0));
+  // _inbox, then _office, then the assistant foremen by number, before every job id ('_' > 'Z' in code points, so they are placed first explicitly).
+  const rank = (s: string) => (s === INBOX_SCOPE ? 0 : s === OFFICE_SCOPE ? 1 : isAssistantScope(s) ? 2 : 3);
+  const nth = (s: string) => (isAssistantScope(s) ? Number(s.slice(ASSISTANT_SCOPE_PREFIX.length)) : 0);
+  const records = sessionRecords(root).sort((a, b) => rank(a.scope) - rank(b.scope) || nth(a.scope) - nth(b.scope) || (a.scope < b.scope ? -1 : a.scope > b.scope ? 1 : 0));
   const sessions = records.map((r) => {
     const info = readInfo(r.info);
     const pid = Number.isInteger(info.pid) ? info.pid : null;
@@ -98,7 +100,7 @@ function status(root: string): DaemonStatusOut {
       logBytes = fs.statSync(r.log).size;
     } catch {}
     const alive = pid !== null && pidAlive(pid);
-    const shared = r.scope === INBOX_SCOPE || r.scope === OFFICE_SCOPE;
+    const shared = sharedScope(r.scope);
     const owned = alive && !shared ? sessionAgents(root, r.scope, recordIds(info)) : null;
     return {
       scope: r.scope,
@@ -118,10 +120,15 @@ function status(root: string): DaemonStatusOut {
 
 async function log(root: string, job: string | undefined, flags: Record<string, any>): Promise<string | undefined> {
   let scope: string;
-  if (flags.inbox && flags.office) throw usageError(DAEMON, 'log');
+  const assistant = flags.assistant;
+  if ([flags.inbox, flags.office, assistant].filter((f) => f !== undefined).length > 1 || (assistant !== undefined && job !== undefined)) throw usageError(DAEMON, 'log');
   if (flags.inbox) scope = INBOX_SCOPE;
   else if (flags.office) scope = OFFICE_SCOPE;
-  else {
+  else if (assistant !== undefined) {
+    // Checked as text before any path is built from it: 1 to MAX_ASSISTANTS, no leading zero.
+    if (typeof assistant !== 'string' || !/^([1-9]|1[0-6])$/.test(assistant)) throw new ForgeError(`--assistant must be an integer from 1 to ${MAX_ASSISTANTS}`, 'usage');
+    scope = assistantScope(Number(assistant));
+  } else {
     // Refused before any path is built from it.
     if (!validJobId(job)) throw job === undefined ? usageError(DAEMON, 'log') : new ForgeError(`invalid job id ${JSON.stringify(String(job).slice(0, 80))}`);
     scope = job;
