@@ -205,7 +205,6 @@ export function idlePoolState(root: string): PoolState {
     inbox: offSessionState(root, INBOX_SCOPE),
     office: offSessionState(root, OFFICE_SCOPE),
     foreman: false,
-    assistants: {},
     gates: { enabled: false, parallel: 2, live: 0, held: null, runs: [] },
     jobs: {},
     permissionMode: 'default',

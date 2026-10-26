@@ -39,6 +39,8 @@ const SESSION_PREFIX = 'gate-run:';
 export interface GateRunner {
   /** Starts runs for `pending` (this tick's gate group, oldest first) up to foreman.assistants.parallel. */
   take(config: Config, pending: ForgeRequest[]): void;
+  /** The config the pool read last, so state() says whether runs are on before the first tick (a pool not started yet). */
+  configure(config: Config): void;
   /** The claim sessions of the live runs: the reconciler's claim-age rule counts them busy. */
   sessions(): string[];
   /** At a fresh start: requeues (counted) every gate request an earlier dash's run left in progress. */
@@ -422,6 +424,9 @@ export function createGateRunner(root: string, deps: { ctx: SessionContext; o: S
         if (r.type !== 'gate' || live.has(r.id)) continue;
         start(r, config);
       }
+    },
+    configure(config) {
+      lastConfig = config;
     },
     sessions: () => [...live.values()].map((e) => e.session),
     recover() {

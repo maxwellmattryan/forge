@@ -181,6 +181,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     // An out-of-range value is a daemonProblems refusal at spawn; until then count it as 1.
     maxConcurrent = Number.isInteger(m) && m >= 1 && m <= 16 ? m : 1;
     modes.setCommand(c.daemon?.command);
+    gates.configure(c);
     return c;
   }
   try {
@@ -403,7 +404,6 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       inbox: inbox.state(),
       office: office.state(),
       foreman,
-      assistants: {},
       gates: gates.state(),
       jobs,
       ...modes.state(),

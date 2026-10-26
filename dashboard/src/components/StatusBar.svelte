@@ -94,7 +94,7 @@
   const workersTone = $derived(bar.daemon.off ? 'muted' : holdsOut && bar.daemon.pill.tone !== 'bad' ? 'warn' : bar.daemon.pill.tone);
   // The inbox session's pill tones the Inbox glyph only while the daemon runs.
   const inboxTone = $derived(bar.inbox.off ? 'muted' : bar.inbox.pill.tone);
-  // The Foreman's pill (its most urgent session's: the office or an assistant foreman) tones its glyph only while the daemon runs.
+  // The Foreman's pill (the office session's) tones its glyph only while the daemon runs.
   const foremanTone = $derived(bar.foreman.on && bar.foreman.daemon ? bar.foreman.pill.tone : 'muted');
   const connWord = $derived(
     conn.state === 'connecting' ? $t('statusbar.conn.connecting') : conn.state === 'offline' ? $t('statusbar.conn.offline') : conn.state === 'outdated' ? $t('statusbar.conn.outdated') : $t('statusbar.conn.live'),

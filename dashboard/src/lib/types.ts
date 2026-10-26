@@ -5,7 +5,9 @@
 // after an append to API_CHANGES, set it to the list's new length + 1, or `npm run check:dashboard` fails.
 import type {
   EFFORTS as ENGINE_EFFORTS,
+  GATE_RUN_OUTCOMES as ENGINE_GATE_RUN_OUTCOMES,
   INBOX_SCOPE as ENGINE_INBOX_SCOPE,
+  OFFICE_GATES as ENGINE_OFFICE_GATES,
   JOBS_SCOPE as ENGINE_JOBS_SCOPE,
   MANDATE_ID_SOURCE as ENGINE_MANDATE_ID_SOURCE,
   OFFICE_SCOPE as ENGINE_OFFICE_SCOPE,
@@ -23,26 +25,18 @@ export const PROJECT_NAME_SOURCE = '^[a-z0-9][a-z0-9._-]{0,63}$' satisfies typeo
 export const MANDATE_ID_SOURCE = '^[a-z0-9][a-z0-9-]{0,39}$' satisfies typeof ENGINE_MANDATE_ID_SOURCE;
 /** lib/core/job/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox' satisfies typeof ENGINE_INBOX_SCOPE;
-/** lib/core/job/requests.ts OFFICE_SCOPE: the Foreman's session; its assistant foremen decide gate requests. */
+/** lib/core/job/requests.ts OFFICE_SCOPE: the Foreman's session for draft and direct requests; forge dash's gate runner decides the gates. */
 export const OFFICE_SCOPE = '_office' satisfies typeof ENGINE_OFFICE_SCOPE;
-// TODO(phase 3): removed with the Foreman popover's session list.
-export const ASSISTANTS_SCOPE = '_assistants';
-export const ASSISTANT_SCOPE_PREFIX = '_assistant-';
 
-/** lib/core/job/requests.ts isAssistantScope: `_assistant-1` … `_assistant-16`. */
-export function isAssistantScope(s: unknown): s is string {
-  return typeof s === 'string' && /^_assistant-([1-9]|1[0-6])$/.test(s);
-}
-
-/** lib/core/job/requests.ts sharedScope: not a job's scope (the inbox, the office, the gate group or an assistant foreman). */
+/** lib/core/job/requests.ts sharedScope, as far as the dashboard sees sessions: not a job's scope (the inbox or the office). */
 export function sharedScope(s: unknown): boolean {
-  return s === INBOX_SCOPE || s === OFFICE_SCOPE || s === ASSISTANTS_SCOPE || isAssistantScope(s);
+  return s === INBOX_SCOPE || s === OFFICE_SCOPE;
 }
 
-/** An assistant foreman scope's number, for its label. */
-export function assistantNumber(scope: string): number {
-  return Number(scope.slice(ASSISTANT_SCOPE_PREFIX.length));
-}
+/** lib/api/constants.ts OFFICE_GATES: the gate classes the Foreman may decide, each a gate run's gate. */
+export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release', 'milestone-approval'] as const satisfies typeof ENGINE_OFFICE_GATES;
+/** lib/api/constants.ts GATE_RUN_OUTCOMES: how a gate run ended. */
+export const GATE_RUN_OUTCOMES = ['approve', 'revise', 'rework', 'no-action', 'escalated', 'reserved', 'refused', 'stale', 'requeued', 'failed'] as const satisfies typeof ENGINE_GATE_RUN_OUTCOMES;
 /** lib/api/constants.ts JOBS_SCOPE: POST /api/daemon/mode's scope for the job sessions' default. */
 export const JOBS_SCOPE = '_jobs' satisfies typeof ENGINE_JOBS_SCOPE;
 

@@ -6,7 +6,8 @@ import { familyPill, obj, poolModel } from './daemon.ts';
 import type { Pill, PoolInput } from './daemon.ts';
 import { activeSessions } from './live.ts';
 import { pendingPrompts } from './permissions.ts';
-import { OFFICE_SCOPE, assistantNumber, isAssistantScope } from './types.ts';
+import { gateRunsHeader } from './gate-runs.ts';
+import { OFFICE_SCOPE } from './types.ts';
 import type { Roster } from './types.ts';
 import { lampState } from './station.ts';
 import type { LampState } from './station.ts';
@@ -112,11 +113,29 @@ export function connectionState({ online, apiVersion, clientApi }: { online: boo
 export type DaemonIndicator = { off: true; active: false; cap: number } | { off: false; pill: Pill; live: number; cap: number; active: boolean };
 
 /**
- * The Foreman (the office session) supervises the pool, so the bar always shows it, even while it or the daemon is off.
- * `pill` (the most urgent session's, titled with each one's state), `active` and `prompts` cover the office and its
- * assistant foremen; `assistants` are their scopes in order, for the popover.
+ * The Foreman (the office session and forge dash's gate runs) supervises the pool, so the bar always shows it, even while
+ * it or the daemon is off. `pill` and `prompts` are the office session's (a gate run asks no one), `officeError` its last
+ * error; `active` is true while the office is busy or any gate run is live; `gates` is /api/state's gate runner, as sent,
+ * for the popover's list (lib/gate-runs.ts reads it).
  */
-export type ForemanIndicator = { on: false } | { on: true; daemon: boolean; pill: Pill; active: boolean; prompts: number; assistants: string[] };
+export type ForemanIndicator = { on: false } | { on: true; daemon: boolean; pill: Pill; active: boolean; prompts: number; officeError: string | null; gates: unknown };
+
+/** The Foreman indicator for a pool; `daemon` says whether the daemon is on (poolModel is not null). */
+export function foremanIndicator(pool: PoolInput, daemon: boolean): ForemanIndicator {
+  const p = obj(pool);
+  if (p.foreman !== true) return { on: false };
+  const office = p.office ?? null;
+  const error = obj(office).lastError;
+  return {
+    on: true,
+    daemon,
+    pill: familyPill([{ name: 'Foreman', session: office }]),
+    active: obj(office).status === 'busy' || gateRunsHeader(p.gates).live > 0,
+    prompts: pendingPrompts(pool ?? null, OFFICE_SCOPE).length,
+    officeError: typeof error === 'string' && error.trim() ? error : null,
+    gates: p.gates ?? null,
+  };
+}
 
 /** The Inbox indicator: off while the daemon is, else the inbox session's pill and its own lamp (no other session's). */
 export type InboxIndicator = { off: true } | { off: false; pill: Pill; lamp: LampState };
@@ -137,23 +156,7 @@ export function barModel(pool: PoolInput, opts: { pending: boolean }): BarModel 
   const m = poolModel(pool, opts);
   const prompts = pendingPrompts(pool ?? null).length;
   const p = obj(pool);
-  const office = p.office ?? null;
-  const helpers = obj(p.assistants);
-  const assistants = Object.keys(helpers)
-    .filter(isAssistantScope)
-    .sort((a, b) => assistantNumber(a) - assistantNumber(b));
-  const scopes = [OFFICE_SCOPE, ...assistants];
-  const foreman: ForemanIndicator =
-    p.foreman === true
-      ? {
-          on: true,
-          daemon: m !== null,
-          pill: familyPill([{ name: 'Foreman', session: office }, ...assistants.map((a) => ({ name: `Assistant foreman ${assistantNumber(a)}`, session: helpers[a] }))]),
-          active: obj(office).status === 'busy' || assistants.some((a) => obj(helpers[a]).status === 'busy'),
-          prompts: scopes.reduce((n, s) => n + pendingPrompts(pool ?? null, s).length, 0),
-          assistants,
-        }
-      : { on: false };
+  const foreman = foremanIndicator(pool, m !== null);
   return {
     daemon: m ? { off: false, pill: m.pill, live: m.live, cap: m.cap, active: activeSessions(pool).count > 0 } : { off: true, active: false, cap: Number(p.maxConcurrent) || 0 },
     inbox: m ? { off: false, pill: m.inbox, lamp: lampState({ kind: 'session', session: p.inbox ?? null, waiting: false, streaming: false }) } : { off: true },
@@ -175,8 +178,7 @@ export interface BarLamps {
 
 /**
  * The bar's lamps; the model button has none. Needs: you while anything waits on a person. Foreman: dark while it or the
- * daemon is off, you with office or assistant foreman prompts, working while the office or an assistant foreman is busy,
- * else done. Workers: dark while the daemon is off, you with any prompt in the pool (the inbox's and the office's
+ * daemon is off, you with office prompts, working while the office is busy or a gate run is live, else done. Workers: dark while the daemon is off, you with any prompt in the pool (the inbox's and the office's
  * included), working while any session works, else done. Inbox: dark while the daemon is off, else the inbox session's
  * own lamp (station.ts lampState). Connection: done when live, dark while connecting, fault offline, you when the server is newer.
  */

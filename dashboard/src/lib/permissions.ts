@@ -30,10 +30,10 @@ export function readPrompt(v: unknown): DaemonPermissionPrompt | null {
   };
 }
 
-/** Every prompt in the pool (the inbox's, the office's, each assistant foreman's, then each job's), oldest first; only `scope`'s when given. */
+/** Every prompt in the pool (the inbox's, the office's, then each job's), oldest first; only `scope`'s when given. */
 export function pendingPrompts(pool: Partial<DaemonPoolState> | null | undefined, scope?: string): PendingPrompt[] {
   const p = obj(pool);
-  const sessions = [obj(p.inbox), obj(p.office), ...Object.values(obj(p.assistants)).map(obj), ...Object.values(obj(p.jobs)).map(obj)];
+  const sessions = [obj(p.inbox), obj(p.office), ...Object.values(obj(p.jobs)).map(obj)];
   const out: PendingPrompt[] = [];
   for (const s of sessions) {
     if (typeof s.scope !== 'string' || (scope !== undefined && s.scope !== scope)) continue;

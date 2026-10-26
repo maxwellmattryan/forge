@@ -33,11 +33,14 @@ function editConfig(root: string, edit: (c: any) => void): void {
   fs.writeFileSync(file, yaml.stringify(c));
 }
 
-/** A pool over `root` with a fake claude; closed after the test. */
-function pool(t: any, root: string, extra: Record<string, unknown> = {}) {
+/** A pool over the scratch repo `r` with a fake claude; after the test it is closed, then the repo removed, in that order. */
+function pool(t: any, r: { dir: string; cleanup: () => void }, extra: Record<string, unknown> = {}) {
   const claude = fakeClaude();
-  const p = createPool(root, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 20, ...extra });
-  t.after(() => p.close());
+  const p = createPool(r.dir, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 20, ...extra });
+  t.after(async () => {
+    await p.close();
+    r.cleanup();
+  });
   const gates = () => claude.children.filter((c) => c.scope === '_gates');
   return { pool: p, claude, gates };
 }
@@ -56,11 +59,10 @@ const after = (argv: string[], flag: string) => argv[argv.indexOf(flag) + 1];
 
 test('one gate run per gate request, capped by parallel', async (t) => {
   const r = scratch();
-  t.after(r.cleanup);
   const a = parked(r.dir);
   const { config } = loadConfig(r.dir);
   const assist = gateAssist(r.dir, config, loadJob(r.dir, a.job), 'spec-approval');
-  const { pool: p, claude, gates } = pool(t, r.dir);
+  const { pool: p, claude, gates } = pool(t, r);
   p.start('boot');
   assert.equal(gates().length, 1, 'exactly one child for one gate request');
   const c = gates()[0];
@@ -79,9 +81,8 @@ test('one gate run per gate request, capped by parallel', async (t) => {
 
 test('three gates with parallel 2: the oldest two run, the third when one ends', async (t) => {
   const r = scratch();
-  t.after(r.cleanup);
   const runs = [parked(r.dir), parked(r.dir), parked(r.dir)];
-  const { pool: p, gates } = pool(t, r.dir);
+  const { pool: p, gates } = pool(t, r);
   p.start('boot');
   assert.equal(gates().length, 2);
   const briefOf = (c: FakeClaudeChild) => runs.findIndex((x) => c.briefs[0]?.includes(`/${x.job}/`));
@@ -99,10 +100,9 @@ test('with the foreman or its gate runs off, no gate run starts', async (t) => {
   ];
   for (const [name, edit] of rows) {
     const r = scratch();
-    t.after(r.cleanup);
     editConfig(r.dir, edit);
     const a = parked(r.dir);
-    const { pool: p, gates } = pool(t, r.dir);
+    const { pool: p, gates } = pool(t, r);
     p.start('boot');
     p.poke();
     assert.deepEqual(gates(), [], `${name}: no child`);
@@ -114,14 +114,13 @@ test('with the foreman or its gate runs off, no gate run starts', async (t) => {
 
 test('drives spec-approval, escalation and pr-feedback gates', async (t) => {
   const r = scratch();
-  t.after(r.cleanup);
   const head = 'a'.repeat(40);
   const spec = parked(r.dir);
   const esc = parked(r.dir, 'escalation');
   const pr = parked(r.dir, 'pr-review', { key: head, pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', headOid: head } });
   const left = parked(r.dir, 'escalation');
   editConfig(r.dir, (c) => (c.foreman.assistants.parallel = 4));
-  const { pool: p, gates } = pool(t, r.dir);
+  const { pool: p, gates } = pool(t, r);
   p.start('boot');
   assert.equal(gates().length, 4);
   const childOf = (job: string) => gates().find((c) => c.briefs[0]?.includes(`/${job}/`))!;
@@ -146,7 +145,6 @@ test('drives spec-approval, escalation and pr-feedback gates', async (t) => {
 
 test('a start requeues gate runs an earlier dash left claimed', async (t) => {
   const r = scratch();
-  t.after(r.cleanup);
   // Gate runs off, so the requeued request is not taken again at once.
   editConfig(r.dir, (c) => (c.foreman.assistants.enabled = false));
   const a = parked(r.dir);
@@ -154,21 +152,46 @@ test('a start requeues gate runs an earlier dash left claimed', async (t) => {
   claimRequest(r.dir, a.gid, 'gate-run:x');
   // A claim that is no gate run's is the reconciler's business, not the gate runner's.
   claimRequest(r.dir, b.gid, 'some-session');
-  const { pool: p } = pool(t, r.dir);
+  const { pool: p } = pool(t, r);
   p.start('boot');
   assert.deepEqual([request(r.dir, a.gid).status, request(r.dir, a.gid).requeues, request(r.dir, a.gid).session], ['pending', 1, undefined]);
   assert.equal(request(r.dir, b.gid).status, 'in-progress');
 });
 
+test("a pool lists the gate log's last runs before it starts, and only the valid ones", async (t) => {
+  const r = scratch();
+  const log = path.join(r.dir, '.forge', 'runtime', 'daemons', '_gates.log');
+  fs.mkdirSync(path.dirname(log), { recursive: true });
+  const end = (request: string, outcome: string, at: string, over: Record<string, unknown> = {}) =>
+    JSON.stringify({ type: 'forge-gates', at, event: 'gate-end', run: 'gate-run:x', request, gate: 'spec-approval', job: 'add-json-flag', mandate: null, outcome, reason: `${outcome} reason`, attempts: 1, usd: 0.1, tokens: 900, startedAt: at, ...over });
+  fs.writeFileSync(
+    log,
+    [
+      end('1-a', 'approve', '2026-10-26T10:00:00.000Z'),
+      end('2-b', 'escalated', '2026-10-26T10:05:00.000Z'),
+      '{not json',
+      end('3-c', 'failed', '2026-10-26T10:10:00.000Z'),
+      end('4-d', 'approved', '2026-10-26T10:15:00.000Z'),
+      end('5-e', 'approve', '2026-10-26T10:20:00.000Z', { job: '../x' }),
+      JSON.stringify({ type: 'forge-gates', at: '2026-10-26T10:25:00.000Z', event: 'gate-start', request: '6-f' }),
+      '',
+    ].join('\n'),
+  );
+  const { pool: p, claude } = pool(t, r);
+  const g = p.state().gates;
+  assert.deepEqual([g.enabled, g.parallel, g.live], [true, 2, 0], 'on, from the config the pool read, before any start');
+  assert.deepEqual(g.runs.map((x) => [x.request, x.outcome, x.status]), [['3-c', 'failed', 'done'], ['2-b', 'escalated', 'done'], ['1-a', 'approve', 'done']]);
+  assert.deepEqual(claude.children, [], 'nothing spawned');
+});
+
 test('gate runs count against neither daemon.maxConcurrent nor the machine cap', async (t) => {
   const r = scratch();
-  t.after(r.cleanup);
   editConfig(r.dir, (c) => (c.daemon.maxConcurrent = 1));
   const { config } = loadConfig(r.dir);
   const job = createJob(r.dir, config, { title: 'running' }).id;
   enqueue(r.dir, config, { type: 'resume', job, from: 'dashboard' });
   const slots = createMachineSlots(() => 1);
-  const { pool: p, claude, gates } = pool(t, r.dir, { slots });
+  const { pool: p, claude, gates } = pool(t, r, { slots });
   p.start('boot');
   assert.ok(claude.children.some((c) => c.scope === job), 'the job session holds the slot');
   parked(r.dir);

@@ -113,25 +113,11 @@ function daemonRepo(t: any, extra: Record<string, unknown>) {
   return { root, config: loadConfig(root).config };
 }
 
-/** A job parked on spec approval, with one gate request for it per `gates`. */
-function parkedGates(root: string, config: any, gates: number): string[] {
-  return Array.from({ length: gates }, (_, i) => {
-    const job = createJob(root, config, { title: `parked ${i}` }).id;
-    updateJob(root, job, (j) => {
-      j.stage = 'spec';
-      j.state = 'waiting';
-      j.waitingOn = 'spec-approval';
-    });
-    return enqueue(root, config, { type: 'gate', job, args: { gate: 'spec-approval', reserved: null }, from: 'forge' }).id;
-  });
-}
-
 test('chat text reaches only its chat session', async (t) => {
   const { root, config } = daemonRepo(t, { foreman: { enabled: true, assistants: { enabled: true } } });
   const job = createJob(root, config, { title: 'running' }).id;
   enqueue(root, config, { type: 'resume', job, from: 'dashboard' });
   enqueue(root, config, { type: 'draft', args: { mandate: 'g1' }, from: 'forge' });
-  parkedGates(root, config, 1);
   const claude = fakeClaude();
   const pool = createPool(root, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 });
   t.after(() => pool.close());

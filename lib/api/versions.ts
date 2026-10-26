@@ -69,7 +69,7 @@ export const API_CHANGES = [
   // in /events, /daemons/log, /daemon/permission, /daemon/mode and /daemon; ActorSource 'chat'; Stats.cost.sessions.chat.
   { id: 'chats' },
   // DaemonPoolState.gates (GateRunsState, GateRunState): forge dash's gate runner and its runs; gate requests route to
-  // `_gates`, which no session serves; DaemonPoolState.assistants is always {} (dropped with the dashboard's last reader).
+  // `_gates`, which no session serves; DaemonPoolState.assistants is gone.
   { id: 'gate-runs' },
 ] as const;
 
