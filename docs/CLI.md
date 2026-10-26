@@ -370,7 +370,7 @@ Before writing, stderr lists every entry with its size, any file it skipped and 
 | `doctor.json` | what `forge doctor` prints, except that the `command environment` check counts the `*_HOME` and `*_ROOT` variable names it has no fixed entry for instead of naming them ([Command environment](CONFIG.md#command-environment)) |
 | `versions.json` | `{forge, node, git, gh, glab, os}`; a missing tool is `null` |
 | `config.json` | the effective config, with every value that names a command, path, URL or person, and every key Forge doesn't know, replaced by `<redacted>` (`CONFIG_DISCLOSURE` in `lib/core/config/fields.ts`) |
-| `daemon/inbox.log`, `daemon/office.log`, `daemon/assistant-<n>.log` | without a job: the last 500 lines of the inbox, office and each existing assistant foreman session log. Chat session logs (`daemons/_chat-<id>.log`) and chat files are left out on purpose: a chat is the owner's own conversation |
+| `daemon/inbox.log`, `daemon/office.log`, `daemon/gates.log` | without a job: the last 500 lines of the inbox log, the office log and the gate runs' log (`gate-start`, `gate-end`, `gate-held` and `error` lines). Chat session logs (`daemons/_chat-<id>.log`) and chat files are left out on purpose: a chat is the owner's own conversation |
 | `jobs/<id>/job.json`, `events.jsonl`, `step.json` | the job, every event, and what `forge job step` decides now |
 | `jobs/<id>/verify/round-<n>.md` | the last 200 lines of the newest verify round |
 | `jobs/<id>/logs/verify-<step>-<ts>.log` | the last 200 lines of the newest verify log per step, at most 20 |
