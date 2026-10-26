@@ -142,6 +142,12 @@ const CONFIG_ROWS: Row[] = [
     note: "the assistant's model and effort move under foreman.assistants",
   },
   { step: 'office-uptime', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.keepAwake'], note: ONLY_VERSION },
+  {
+    step: 'mandate-notify',
+    input: { notify: { webhooks: [{ url: 'https://example.com/hook', events: ['gate'] }] } },
+    fields: { 'notify.webhooks': [{ url: 'https://example.com/hook', events: ['gate'] }] },
+    note: ONLY_VERSION,
+  },
 ];
 
 const JOB_ROWS: Row[] = [
