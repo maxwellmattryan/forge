@@ -36,7 +36,7 @@ test('a pool off until a human approves its files asks for that, and is no error
 
 test('assistant foremen in the pool model', () => {
   const prompt = { id: 'p1', tool: 'Bash', input: '{}', description: null, agentId: null, blockedPath: null, sessionRules: [], sessionDirs: [], at: '2026-10-25T00:00:00.000Z' };
-  const assistant = { scope: '_assistant-1', status: 'busy', running: true, wanted: true, permissions: [prompt] };
+  const assistant = { scope: '_assistant-1', status: 'busy', running: true, wanted: true, permissions: [prompt] } as any;
   const pool = {
     enabled: true,
     wanted: true,

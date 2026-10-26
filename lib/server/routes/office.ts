@@ -111,7 +111,7 @@ export async function postPermission(ctx: ServerCtx, req: http.IncomingMessage, 
     return jsonStatus(res, 400, { error: 'body is not JSON' });
   }
   const obj = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
-  if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office" or a job id' });
+  if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office", "_assistant-<n>" or a job id' });
   if (typeof obj.id !== 'string' || !UUID.test(obj.id)) return jsonStatus(res, 400, { error: 'id must be a permission prompt id' });
   if (!PERMISSION_DECISIONS.includes(obj.decision)) return jsonStatus(res, 400, { error: `decision must be one of ${PERMISSION_DECISIONS.join(', ')}` });
   // Only the decision travels on: what the session gets back is built from claude's own request.
