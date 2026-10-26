@@ -210,7 +210,20 @@ test('every guarded route refuses before its handler runs', async () => {
     const rows: Row[] = [];
     // Invalid JSON: a guard that ran after the body parse would answer 400 instead.
     const body = '{"x":';
-    const posts = ['/jobs', '/requests', '/config', '/budget/ack', '/daemon', '/daemon/permission', '/daemon/mode', '/focus', ...['effort', 'budget', 'delete', 'merge', 'repos', 'environment', 'run', 'editor'].map((x) => `/jobs/j-1/${x}`)].map((p) => `${P}${p}`);
+    const chat = '/chats/0123456789ab';
+    const posts = [
+      '/jobs',
+      '/requests',
+      '/config',
+      '/budget/ack',
+      '/daemon',
+      '/daemon/permission',
+      '/daemon/mode',
+      '/focus',
+      '/chats',
+      ...['rename', 'archive', 'messages'].map((x) => `${chat}/${x}`),
+      ...['effort', 'budget', 'delete', 'merge', 'repos', 'environment', 'run', 'editor'].map((x) => `/jobs/j-1/${x}`),
+    ].map((p) => `${P}${p}`);
     for (const p of posts) {
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': 'wrong', origin, 'content-type': 'application/json' }, status: 403, text: 'bad token' });
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': token, 'content-type': 'application/json' }, status: 403, text: 'bad origin' });
@@ -228,10 +241,10 @@ test('every guarded route refuses before its handler runs', async () => {
       rows.push(...readRows(p), { method: 'GET', path: p, headers: {}, status: 403, text: 'bad token' });
       rows.push({ method: 'GET', path: p, headers: { 'x-forge-token': token, origin: evil }, status: 403, text: 'bad origin' });
     }
-    const reads = ['/state', '/stats', '/evals', '/evals/compare', '/requests', '/roster', '/project', '/backlog?refresh=1', '/config'].map((p) => `${P}${p}`);
+    const reads = ['/state', '/stats', '/evals', '/evals/compare', '/requests', '/roster', '/project', '/backlog?refresh=1', '/config', '/chats'].map((p) => `${P}${p}`);
     const streams = ['/events?session=_inbox', '/daemons/log?session=_inbox', '/jobs/j-1', '/jobs/j-1/file?path=x.md', '/jobs/j-1/raw?path=x.html'].map((p) => `${P}${p}`);
     for (const p of [...reads, ...streams, '/api/about', '/api/projects', '/api/projects/events', '/api/projects/stats']) rows.push(...readRows(p));
-    for (const p of ['/environments', '/jobs/j-1/environment', '/jobs/j-1/transcript', '/doctor/bundle'].map((x) => `${P}${x}`)) {
+    for (const p of ['/environments', '/jobs/j-1/environment', '/jobs/j-1/transcript', '/doctor/bundle', chat, `${chat}/log?after=-1`].map((x) => `${P}${x}`)) {
       rows.push(...readRows(p), { method: 'GET', path: p, headers: { 'sec-fetch-site': 'same-origin' }, status: 403, text: 'bad token' });
     }
     for (const p of ['/jobs/j-1/transcript/events', '/jobs/j-1/environment/logs?source=dev'].map((x) => `${P}${x}`)) {

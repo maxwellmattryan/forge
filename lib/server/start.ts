@@ -20,6 +20,7 @@ import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete,
 import { getProjects, getProjectsEvents, getProjectsStats } from './routes/machine.ts';
 import { getAbout, getBacklog, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
+import { getChat, getChatLog, getChats, postChat, postChatArchive, postChatMessage, postChatRename } from './routes/chats.ts';
 import { getTranscript, getTranscriptEvents } from './routes/transcripts.ts';
 import type { Guard, MachineCtx, RequestInfo, Route, RunningServer, ServerCtx, ServerOptions } from './types.ts';
 
@@ -118,6 +119,15 @@ export const PROJECT_ROUTES: readonly Route<ServerCtx>[] = [
   { method: 'POST', path: /^\/jobs\/([^/]+)\/merge$/, handler: postJobMerge },
   { method: 'POST', path: /^\/jobs\/([^/]+)\/repos$/, handler: postJobRepos },
   { method: 'POST', path: '/focus', handler: postFocus },
+  // The owner's chats. Only a 12-hex id matches, so any other id is a 404 here; the detail and the log carry
+  // the owner's words and the session's output, so they take the token like a POST.
+  { method: 'GET', path: '/chats', guards: ['read'], handler: getChats },
+  { method: 'POST', path: '/chats', handler: postChat },
+  { method: 'GET', path: /^\/chats\/([0-9a-f]{12})$/, guards: ['read', 'token'], handler: getChat },
+  { method: 'GET', path: /^\/chats\/([0-9a-f]{12})\/log$/, guards: ['read', 'token'], handler: getChatLog },
+  { method: 'POST', path: /^\/chats\/([0-9a-f]{12})\/rename$/, handler: postChatRename },
+  { method: 'POST', path: /^\/chats\/([0-9a-f]{12})\/archive$/, handler: postChatArchive },
+  { method: 'POST', path: /^\/chats\/([0-9a-f]{12})\/messages$/, handler: postChatMessage },
   { method: 'POST', path: /^\/jobs\/([^/]+)\/(run|editor)$/, handler: postRunOrEditor },
 ];
 

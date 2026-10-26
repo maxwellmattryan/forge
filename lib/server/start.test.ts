@@ -13,6 +13,7 @@ import { getProjects, getProjectsEvents, getProjectsStats } from './routes/machi
 import { getAbout, getBacklog, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
 import { getTranscript, getTranscriptEvents } from './routes/transcripts.ts';
+import { getChat, getChatLog, getChats, postChat, postChatArchive, postChatMessage, postChatRename } from './routes/chats.ts';
 import type { Route } from './types.ts';
 
 type Hit = [string, string, unknown, string[]];
@@ -100,6 +101,13 @@ test('the route table sends each method and path to its handler, and nothing els
       ['POST', '/jobs/j-1/merge', postJobMerge, ['j-1']],
       ['POST', '/jobs/j-1/repos', postJobRepos, ['j-1']],
       ['POST', '/focus', postFocus, []],
+      ['GET', '/chats', getChats, []],
+      ['POST', '/chats', postChat, []],
+      ['GET', '/chats/0123456789ab', getChat, ['0123456789ab']],
+      ['GET', '/chats/0123456789ab/log', getChatLog, ['0123456789ab']],
+      ['POST', '/chats/0123456789ab/rename', postChatRename, ['0123456789ab']],
+      ['POST', '/chats/0123456789ab/archive', postChatArchive, ['0123456789ab']],
+      ['POST', '/chats/0123456789ab/messages', postChatMessage, ['0123456789ab']],
       ['POST', '/jobs/j-1/run', postRunOrEditor, ['j-1', 'run']],
       ['POST', '/jobs/j-1/editor', postRunOrEditor, ['j-1', 'editor']],
     ],
@@ -124,6 +132,13 @@ test('the route table sends each method and path to its handler, and nothing els
       ['POST', '/jobs/j-1'],
       ['POST', '/jobs/j-1/environment/logs'],
       ['POST', '/jobs/j-1/transcript'],
+      // Only a 12-hex chat id matches.
+      ['GET', '/chats/0123456789AB'],
+      ['GET', '/chats/0123456789a'],
+      ['GET', '/chats/0123456789abc/log'],
+      ['POST', '/chats/..%2f0123456789/messages'],
+      ['POST', '/chats/0123456789ab'],
+      ['GET', '/chats/0123456789ab/messages'],
     ],
   );
 });

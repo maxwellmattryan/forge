@@ -59,6 +59,9 @@ export const API_CHANGES = [
   { id: 'assistant-foremen' },
   // Stats.quality.verifierFirstRoundBlockRate: the share of jobs whose first round-1 verifiers record blocked.
   { id: 'verifier-first-round-block-rate' },
+  // The chat routes under /api/p/<project>/chats (Chat, ChatLogEntry, ChatLogPage, ChatDetail, ChatList); scope `_chat-<id>`
+  // in /events, /daemons/log, /daemon/permission, /daemon/mode and /daemon; ActorSource 'chat'; Stats.cost.sessions.chat.
+  { id: 'chats' },
 ] as const;
 
 /**
