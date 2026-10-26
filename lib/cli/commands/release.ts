@@ -5,7 +5,7 @@ import { refuseRun, releaseStatus, runRelease } from '#engine/release/run.ts';
 import { noteReleasePlanned } from '#engine/release/approval.ts';
 import { selectionFrom } from '#engine/release/plan.ts';
 import { writeReleasePlan } from '#engine/release/files.ts';
-import { releaseMandateRefusal } from '#office/foreman.ts';
+import { releaseMandateRefusal } from '#office/foreman/policy.ts';
 import { ForgeError } from '#core/errors.ts';
 import { usageError } from './args.ts';
 import type { Job } from '#core/types.ts';

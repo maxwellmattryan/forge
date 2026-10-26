@@ -1,21 +1,21 @@
-// The Foreman's session side: who owns a gate for the dashboard, the checks on a foreman decision
-// and on an office or assistant foreman session's `forge job set`, and hand-offs; the gate policy is
-// lib/engine/pipeline/moves/foreman-gates.ts. With `foreman.enabled`, a job parking on a gate the
-// foreman decides becomes a `gate` request routed to `_assistants`, which an assistant foreman session
-// claims, hands to a forge:assistant sub-agent and records the verdict of with `forge job human …
-// --actor foreman`. The CLI, not the prompt, holds the authority line: checkForemanDecision runs before
-// any write. docs/architecture/foreman.md.
+// The Foreman's policy side: who owns a gate for the dashboard, the checks on a foreman decision and on
+// the office session's `forge job set`, and hand-offs; the gate policy is
+// lib/engine/pipeline/moves/foreman-gates.ts. With `foreman.enabled`, a job parking on a gate the foreman
+// decides becomes a `gate` request routed to `_gates`, which forge dash's gate runner (./run.ts) takes,
+// hands to one headless forge:assistant and records the verdict of in-process. The checks here, not a
+// prompt, hold the authority line: each runs before any write and refuses anyone without the runner's
+// ForemanAuthority. docs/architecture/foreman.md.
 import { isForemanActor, readEvents } from '#core/job/store.ts';
-import { inAssistant, listRequests } from '#core/job/requests.ts';
+import { FOREMAN_AUTHORITY_REFUSAL, holdsForemanAuthority, inAssistant, listRequests } from '#core/job/requests.ts';
 import { HANDOFF_CLASSES } from '#core/job/schema.ts';
 import { ACTIONS_BY_GATE, classReservation, decides, foremanEnabled, gateClass, gateClassFor, isGateRequest, listedDecides, reservedFor, reservedMatch } from '#engine/pipeline/moves/foreman-gates.ts';
 import { ForgeError } from '#core/errors.ts';
 import { safeText } from '#core/text.ts';
-import { FOREMAN_REVISIONS_MAX } from './mandates/draft.ts';
-import { jobMandateDecides, mandateDecides } from './mandates/store.ts';
-import { bounceHold } from './mandates/progress.ts';
+import { FOREMAN_REVISIONS_MAX } from '../mandates/draft.ts';
+import { jobMandateDecides, mandateDecides } from '../mandates/store.ts';
+import { bounceHold } from '../mandates/progress.ts';
 import type { Config, DraftGateStatus, ForemanHandoff, ForgeRequest, GateClass, GateOwner, HandoffClass, Job, JobEvent } from '#core/types.ts';
-import type { Mandate } from './mandates/types.ts';
+import type { Mandate } from '../mandates/types.ts';
 
 export { OFFICE_GATES } from '#core/job/schema.ts';
 
@@ -59,9 +59,16 @@ function mandateLeaves(gate: GateClass, m: DecidingMandate): string | null {
   return m.decides.includes(gate) ? null : `${gate} is not in mandate ${m.id}'s decides: left for a human`;
 }
 
-/** Why this call may not record a foreman decision: only an assistant foreman session may. Null when it may. */
-export function foremanScopeRefusal(env: NodeJS.ProcessEnv = process.env): string | null {
-  return inAssistant(env) ? null : 'only an assistant foreman session records foreman decisions';
+export { FOREMAN_AUTHORITY_REFUSAL };
+
+/**
+ * Why `by` may not record a foreman decision: only a holder of the gate runner's ForemanAuthority may. Null when it may.
+ * TODO(phase 2): an assistant foreman's env is still accepted while its sessions run.
+ */
+export function foremanAuthorityRefusal(by: unknown): string | null {
+  if (holdsForemanAuthority(by)) return null;
+  if (by && typeof by === 'object' && inAssistant(by as NodeJS.ProcessEnv)) return null;
+  return FOREMAN_AUTHORITY_REFUSAL;
 }
 
 /**
@@ -107,7 +114,7 @@ export function releaseMandateRefusal(root: string, config: Config, job: Job): s
 }
 
 /**
- * Every check on a foreman decision, before anything is written: an assistant foreman scope, no --link or
+ * Every check on a foreman decision, before anything is written: the gate runner's authority (`by`), no --link or
  * --reason, a job waiting on a gate the foreman decides (and, in a mandate, one the mandate's decides
  * names), an action that belongs to that gate, for
  * pr-feedback a queued gate request for the current PR head, and no reserved pattern in the reason,
@@ -121,13 +128,13 @@ export function checkForemanDecision(
   action: string,
   note: string | null | undefined,
   flags: { link?: unknown; reason?: unknown },
-  env: NodeJS.ProcessEnv = process.env,
+  by: unknown = null,
 ): GateClass {
   const refuse = (why: string): never => {
     throw new ForgeError(`--actor foreman refused: ${why}`, 1);
   };
-  const scope = foremanScopeRefusal(env);
-  if (scope) refuse(scope);
+  const authority = foremanAuthorityRefusal(by);
+  if (authority) refuse(authority);
   if (flags.link !== undefined || flags.reason !== undefined) refuse('linking an issue stays a human call (no --link or --reason)');
   if (typeof note !== 'string' || !note.trim()) refuse('a foreman decision needs --note with its reason');
   const gate = gateClassFor(root, job);
@@ -154,7 +161,7 @@ export interface DraftUnderDecision {
 
 /**
  * Every check on a foreman decision on a goal mandate's milestone draft, before anything is written, in
- * order: an assistant foreman scope, a note, the policy (foremanPolicyRefusal with the mandate's own cut
+ * order: the gate runner's authority (`by`), a note, the policy (foremanPolicyRefusal with the mandate's own cut
  * decides, read now), an action of the class (never reject), a gate waiting for approval, an in-progress
  * gate request for exactly this draft (its key and digest), the revision cap, and no reserved pattern in
  * the draft, the goal or the note. Returns the matched gate request, whose key and digest pin what the
@@ -167,15 +174,15 @@ export function checkMandateGateDecision(
   draft: DraftUnderDecision,
   action: string,
   note: string | null | undefined,
-  env: NodeJS.ProcessEnv = process.env,
+  by: unknown = null,
   requests: ForgeRequest[] = listRequests(root),
 ): ForgeRequest {
   const gate: GateClass = 'milestone-approval';
   const refuse = (why: string): never => {
     throw new ForgeError(`--actor foreman refused: ${why}`, 1);
   };
-  const scope = foremanScopeRefusal(env);
-  if (scope) refuse(scope);
+  const authority = foremanAuthorityRefusal(by);
+  if (authority) refuse(authority);
   if (typeof note !== 'string' || !note.trim()) refuse('a foreman decision needs --note with its reason');
   const policy = foremanPolicyRefusal(config, gate, mandateDecides(root, config, m.id));
   if (policy) refuse(policy);

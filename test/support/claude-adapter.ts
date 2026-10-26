@@ -2,7 +2,7 @@
 // ClaudeEvents (child.emit) and reads what the session asked of claude (turns, answers, modes,
 // signals), so no test writes claude's stream-json; lib/integrations/claude/stream.test.ts covers that.
 import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
-import { chatMessageLine } from '#integrations/claude/stream.ts';
+import { briefLine, chatMessageLine } from '#integrations/claude/stream.ts';
 import type { ClaudeAdapter, ClaudeChild, ClaudeEvent } from '#integrations/claude/types.ts';
 import type { DaemonPermissionMode, PermissionDecision } from '#core/types.ts';
 
@@ -18,6 +18,10 @@ export interface FakeClaudeChild extends ClaudeChild {
   turns: number;
   /** Owner messages written (writeMessage), in order. */
   messages: string[];
+  /** Gate-run briefs written (writeBrief), in order. */
+  briefs: string[];
+  /** Verdict retries written (writeVerdictRetry). */
+  verdictRetries: number;
   answers: { requestId: string; decision: PermissionDecision }[];
   /** Mode switches asked, with ids `fake-mode-<n>`. */
   modes: { requestId: string; mode: DaemonPermissionMode }[];
@@ -50,6 +54,8 @@ export function fakeClaude(opts: { exitOnSignal?: boolean } = {}): { adapter: Cl
         pid: nextPid++,
         turns: 0,
         messages: [],
+        briefs: [],
+        verdictRetries: 0,
         answers: [],
         modes: [],
         signals: [],
@@ -76,6 +82,14 @@ export function fakeClaude(opts: { exitOnSignal?: boolean } = {}): { adapter: Cl
           if (chatMessageLine(text) === null) return false;
           c.messages.push(text);
           return true;
+        },
+        writeBrief(text) {
+          if (briefLine(text) === null) return false;
+          c.briefs.push(text);
+          return true;
+        },
+        writeVerdictRetry() {
+          c.verdictRetries++;
         },
         answerPermission(requestId, decision) {
           if (!asked.delete(requestId)) return false;

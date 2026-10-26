@@ -15,7 +15,7 @@ import { now } from '#core/utils.ts';
 import { resolveEffort, resolveModel } from '#core/config/load.ts';
 import { REPLY_LINE } from '#engine/pipeline/brief.ts';
 import { classReservation, decides, foremanEnabled, reservedMatch } from '#engine/pipeline/moves/foreman-gates.ts';
-import { checkMandateGateDecision, foremanScopeRefusal } from '../foreman.ts';
+import { checkMandateGateDecision, foremanAuthorityRefusal } from '../foreman/policy.ts';
 import { queueNotify } from '../notify.ts';
 import type { QueueNotify } from '../notify.ts';
 import { cleanReason, isReadable, mandateGoal, mandateGuidance, textLinesProblem } from './contract.ts';
@@ -264,14 +264,16 @@ export async function decideDraft(
   config: Config,
   id: string,
   decision: DraftDecision,
-  opts: { request?: string; digest?: string; note?: string | null; foreman: boolean; actor: EventActor; tracker: () => Promise<Tracker>; env?: NodeJS.ProcessEnv; queue?: typeof queueDraftRequest },
+  opts: { request?: string; digest?: string; note?: string | null; foreman: boolean; actor: EventActor; tracker: () => Promise<Tracker>; env?: NodeJS.ProcessEnv; by?: unknown; queue?: typeof queueDraftRequest },
 ): Promise<DecideResult> {
   const env = opts.env ?? process.env;
+  // TODO(phase 2): only the gate runner's authority; the env stands in while assistant foremen run.
+  const by = opts.by ?? env;
   if (env.FORGE_DAEMON === '1' && !opts.foreman)
     refuse(`forge mandate draft ${decision} decides the owner's milestone draft, which a daemon session may not do; decide in the dashboard or your own terminal`);
   if (opts.foreman) {
-    const scope = foremanScopeRefusal(env);
-    if (scope) refuse(`--actor foreman refused: ${scope}`);
+    const authority = foremanAuthorityRefusal(by);
+    if (authority) refuse(`--actor foreman refused: ${authority}`);
   }
   let note: string | null = null;
   if (opts.note !== undefined && opts.note !== null) {
@@ -294,7 +296,7 @@ export async function decideDraft(
       { request: g.read.draft?.request ?? '', digest: g.digest, gate: g.read.status, texts: draftReservedTexts(m, g.read.draft) },
       decision,
       note,
-      env,
+      by,
       requests,
     );
     pin = { request: String(matched.args?.key), digest: String(matched.args?.digest) };

@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { paths } from '#core/paths.ts';
 import { openAppend, openRead } from '#core/job/session-files.ts';
-import { validScope } from '#core/job/requests.ts';
+import { validRuntimeScope } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';
 import type { ModelCost, SessionCost } from '#integrations/claude/types.ts';
 
@@ -56,7 +56,7 @@ const tokensOf = (m: ModelCost): number => m.input + m.output + m.cacheRead + m.
 
 /** A scope's meter file. The scope is checked first, so no path is ever built from an unvalidated one. */
 export function meterFile(root: string, scope: string): string {
-  if (!validScope(scope)) throw new ForgeError(`invalid meter scope ${JSON.stringify(String(scope).slice(0, 80))}`, 'usage');
+  if (!validRuntimeScope(scope)) throw new ForgeError(`invalid meter scope ${JSON.stringify(String(scope).slice(0, 80))}`, 'usage');
   return path.join(paths(root).runtime, 'meter', `${scope}.jsonl`);
 }
 

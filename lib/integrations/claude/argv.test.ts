@@ -62,6 +62,13 @@ test('a system prompt to append goes once, before the deny tail', () => {
   assert.equal(argv[at + 1], text);
   assert.ok(at > argv.indexOf('--max-budget-usd') && at < argv.indexOf('--disallowedTools'), 'after the cap, before the deny tail');
   assert.deepEqual([...argv.slice(0, at), ...argv.slice(at + 2)], plain, 'nothing else changes');
+  // A gate run's agent: fixed, once, before the deny tail.
+  assert.deepEqual(buildArgv('claude {session}', { ...vars, agent: null }), plain, 'no agent changes nothing');
+  const agent = buildArgv('claude {session}', { ...vars, agent: 'forge:assistant' });
+  const a = agent.indexOf('--agent');
+  assert.deepEqual([agent[a + 1], agent.filter((w) => w === '--agent').length], ['forge:assistant', 1]);
+  assert.ok(a < agent.indexOf('--disallowedTools'), 'before the deny tail');
+  assert.deepEqual([...agent.slice(0, a), ...agent.slice(a + 2)], plain, 'nothing else changes');
 });
 
 test("the dollar cap is Forge's, once", () => {

@@ -4,17 +4,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { paths } from '../paths.ts';
-import { validScope } from './requests.ts';
+import { validRuntimeScope, validScope } from './requests.ts';
 import { ForgeError } from '../errors.ts';
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * A scope's runtime files. The scope is checked first, so no path is ever built from an
- * unvalidated one.
+ * A scope's runtime files: a session's, or the gate runs' `_gates.log`. The scope is checked first, so no path is
+ * ever built from an unvalidated one.
  */
 export function sessionFiles(root: string, scope: string): { dir: string; info: string; log: string } {
-  if (!validScope(scope)) throw new ForgeError(`invalid daemon scope ${JSON.stringify(String(scope).slice(0, 80))}`, 'usage');
+  if (!validRuntimeScope(scope)) throw new ForgeError(`invalid daemon scope ${JSON.stringify(String(scope).slice(0, 80))}`, 'usage');
   const dir = daemonsDir(root);
   return { dir, info: path.join(dir, `${scope}.json`), log: path.join(dir, `${scope}.log`) };
 }

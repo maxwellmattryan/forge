@@ -16,7 +16,7 @@ Forge's long-running runtime: the session pool, per-job sessions, the reconciler
 |---|---|
 | `chat/` | The owner's chats with the Foreman: each chat's files in `.forge/runtime/chats/<id>/`, the one path an owner's message takes to its chat session, what a chat may not decide, and the brief a chat session reads first. |
 | `driver.ts` | Who drives a job and whether that driver is one of this pool's sessions, by every id the session has had; and the one release of everything a gone session held. |
-| `foreman.ts` | The Foreman's session side: who owns a gate for the dashboard, the checks on a foreman decision and on an office or assistant foreman session's `forge job set`, and hand-offs; the gate policy is lib/engine/pipeline/moves/foreman-gates.ts. |
+| `foreman/` | The Foreman's gate decisions: the policy checks on every foreman decision, forge dash's gate runner that decides each `gate` request in code, its one-shot forge:assistant, and the verdict parser and gate table. |
 | `mandates/` | Mandates: the owner's standing instructions to the Office, one file each in `.forge/runtime/mandates/`, written only by `forge mandate` (`lib/cli/commands/mandate.ts`). |
 | `modes.ts` | The permission modes `forge dash`'s pool holds for its sessions: a human's choice per scope, and the default for job sessions without one. |
 | `notify.ts` | Notifications: a small, fixed-shape message to the team's webhooks and command when a job needs a human, a PR opens or merges, a job fails, the daemon stops, a budget is exceeded, a secret is found, the login service restarted with work in flight, or the Office pass stalled, paused at its budget or closed a mandate. |

@@ -1,5 +1,5 @@
 // The unions the /api shapes share, each derived from its runtime list in constants.ts; the only type module that imports constants.ts.
-import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, COMPONENT_KINDS, DEPENDENCY_TYPES, EFFORTS, HANDOFF_CLASSES, INTERIM_STRATEGIES, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, REQUEST_TYPES, STAGES, STATES, WAITING_ON } from './constants.ts';
+import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, COMPONENT_KINDS, DEPENDENCY_TYPES, EFFORTS, GATE_RUN_OUTCOMES, HANDOFF_CLASSES, INTERIM_STRATEGIES, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, REQUEST_TYPES, STAGES, STATES, WAITING_ON } from './constants.ts';
 
 /** A pipeline stage: STAGES in lib/core/job/schema.ts. */
 export type Stage = (typeof STAGES)[number];
@@ -28,6 +28,8 @@ export type InterimStrategy = (typeof INTERIM_STRATEGIES)[number];
 export type GateClass = (typeof OFFICE_GATES)[number];
 /** Why the Foreman left a gate for a person: HANDOFF_CLASSES in lib/core/job/schema.ts. */
 export type HandoffClass = (typeof HANDOFF_CLASSES)[number];
+/** How a gate run ended: GATE_RUN_OUTCOMES in lib/api/constants.ts. */
+export type GateRunOutcome = (typeof GATE_RUN_OUTCOMES)[number];
 /** Where an event's actor came from: ACTOR_SOURCES in lib/core/job/schema.ts. */
 export type ActorSource = (typeof ACTOR_SOURCES)[number];
 

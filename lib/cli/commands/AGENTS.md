@@ -33,7 +33,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `job.ts` | `forge job …`: every write to a job's state goes through here. |
 | `job/agent.ts` | `forge job agent start\|end\|attach`: recording an agent's run, its usage and the secret scan of what it wrote. |
 | `job/create.ts` | `forge job new\|from-ref\|link`: creating a job, starting one from a tracker item, and the issues it carries. |
-| `job/decide.ts` | `forge job human\|handoff\|assist`: recording a human's or the foreman's decision at a gate, a Foreman hand-off, and the office's assistant spawn. |
+| `job/decide.ts` | `forge job human\|handoff\|assist`: recording a person's decision at a gate, the refusals of a foreman one, and the read-only assist. |
 | `job/help.ts` | `forge job`'s help table: every subcommand's usage, flags and exits, which `forge help job` prints and `npm run docs` reads. |
 | `job/lease.ts` | `forge job claim\|release\|step`: a job's lease and its driver's epoch, and the `--epoch` fence other handlers share. |
 | `job/read.ts` | `forge job list\|show\|get\|progress\|paths\|links\|scope\|panel\|acs\|findings\|audit`: the read-only views of one job, or of every job. |

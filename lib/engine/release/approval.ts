@@ -8,12 +8,12 @@ import { isForemanActor, loadJob, logEvent, readEvents } from '#core/job/store.t
 import { classReservation, decides, foremanEnabled, reservedFor } from '../pipeline/moves/foreman-gates.ts';
 import { freshPlan, type ReleasePlan } from './plan.ts';
 import { assertNoSymlinks, readPlanFile, readState, releaseFiles } from './files.ts';
-import { enqueue, inAssistant, listRequests } from '#core/job/requests.ts';
+import { FOREMAN_AUTHORITY_REFUSAL, enqueue, holdsForemanAuthority, inAssistant, listRequests } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';
 import type { Config, ForgeRequest, Job, JobEvent } from '#core/types.ts';
 
 /**
- * The job's mandate refusal for `release` (lib/office/foreman.ts releaseMandateRefusal), or null. Passed in
+ * The job's mandate refusal for `release` (lib/office/foreman/policy.ts releaseMandateRefusal), or null. Passed in
  * because engine code can't import lib/office/.
  */
 export type ReleaseNarrow = (job: Job) => string | null;
@@ -86,10 +86,11 @@ export function pendingReleaseHash(root: string, id: string, events: JobEvent[] 
 }
 
 /**
- * Every check on `forge job human <job> approve-release --actor foreman`, before anything is written,
- * in the order docs/architecture/foreman.md lists them. Returns the plan hash to record. Throws
- * ForgeError (exit 1). `narrow` is the job's mandate check, passed in because engine code can't
- * import lib/office/: the refusal it returns for `release` ends the decision, after the policy checks.
+ * Every check on a foreman release approval, before anything is written, in the order
+ * docs/architecture/foreman.md lists them, the first being that `by` holds the gate runner's authority.
+ * Returns the plan hash to record. Throws ForgeError (exit 1). `narrow` is the job's mandate check, passed
+ * in because engine code can't import lib/office/: the refusal it returns for `release` ends the
+ * decision, after the policy checks.
  */
 export function checkReleaseDecision(
   root: string,
@@ -98,12 +99,13 @@ export function checkReleaseDecision(
   note: string | null | undefined,
   flags: { link?: unknown; reason?: unknown; repo?: unknown },
   narrow: (gate: typeof GATE) => string | null,
-  env: NodeJS.ProcessEnv = process.env,
+  by: unknown = null,
 ): string {
   const refuse = (why: string): never => {
     throw new ForgeError(`--actor foreman refused: ${why}`, 1);
   };
-  if (!inAssistant(env)) refuse('only an assistant foreman session records foreman decisions');
+  // TODO(phase 2): only the gate runner's authority; an assistant foreman's env stands in while its sessions run.
+  if (!holdsForemanAuthority(by) && !(by && typeof by === 'object' && inAssistant(by as NodeJS.ProcessEnv))) refuse(FOREMAN_AUTHORITY_REFUSAL);
   if (typeof note !== 'string' || !note.trim()) refuse('a foreman decision needs --note with its reason');
   if (flags.link !== undefined || flags.reason !== undefined || flags.repo !== undefined) refuse('approve-release takes only --note (no --link, --reason or --repo)');
   if (!foremanEnabled(config)) refuse('foreman.enabled is false');

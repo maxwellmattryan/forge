@@ -1,8 +1,9 @@
 // Claude Code's stream-json protocol, with no I/O of its own: claude's output lines become ClaudeEvents,
 // and every line written to its stdin is built here: the one fixed turn, permission answers and mode
-// switches from a fixed list, an error reply that repeats claude's own capped subtype back to it, and,
-// in a chat session only, the owner's own message (writeMessage), the one free-text line. Nothing from
-// requests or config reaches any of them (docs/architecture/daemon-security.md).
+// switches from a fixed list, an error reply that repeats claude's own capped subtype back to it, the
+// fixed verdict retry, and two free-text lines: in a chat session the owner's own message (writeMessage),
+// and in a gate run the CLI-built assist brief (writeBrief). Nothing from requests or config reaches the
+// rest (docs/architecture/daemon-security.md).
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { CHAT_MESSAGE_MAX } from '#api/constants.ts';
@@ -14,9 +15,10 @@ import type { DaemonPermissionMode, PermissionDecision } from '#core/types.ts';
 /**
  * The fixed user message the daemon writes to a session's stdin. The other lines are permission answers
  * (permissionResponse) and mode switches (modeRequest), whose only variable part is a value from a fixed
- * list, and a chat session's owner messages (chatMessageLine), which only lib/office/session/lifecycle.ts
- * writeChat sends and only in a chat scope. Nothing from requests or config reaches any of them, so inbox
- * text can't become a prompt: the session reads requests through `forge requests`, where they are fenced as data.
+ * list, a chat session's owner messages (chatMessageLine), which only lib/office/session/lifecycle.ts
+ * writeChat sends and only in a chat scope, and a gate run's brief (briefLine) and verdict retry, which only
+ * lib/office/foreman/attempt.ts sends. Nothing from requests reaches a session's lines, so inbox text can't
+ * become a prompt: the session reads requests through `forge requests`, where they are fenced as data.
  */
 export const TURN = Object.freeze({
   type: 'user',
@@ -31,8 +33,31 @@ export const TURN_LINE = JSON.stringify(TURN) + '\n';
  */
 export function chatMessageLine(text: unknown): string | null {
   if (typeof text !== 'string' || !text.trim() || text.length > CHAT_MESSAGE_MAX) return null;
-  return JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }) + '\n';
+  return userLine(text);
 }
+
+/** The longest assist brief a gate run writes: a CLI-built brief is a few KiB, so anything this large is refused. */
+export const BRIEF_MAX_BYTES = 256 * 1024;
+
+const userLine = (text: string): string => JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }) + '\n';
+
+/**
+ * The stdin line for a gate run's first message: the assist brief (lib/office/foreman/decide.ts gateAssist), which
+ * the CLI built from paths, the gate class, config lists and fenced mandate guidance. Null for a non-string, an
+ * empty one or one over BRIEF_MAX_BYTES. JSON-encoded, so it stays one user line and can never become a control line.
+ */
+export function briefLine(text: unknown): string | null {
+  if (typeof text !== 'string' || !text.trim() || Buffer.byteLength(text) > BRIEF_MAX_BYTES) return null;
+  return userLine(text);
+}
+
+/** The fixed message a gate run sends once when the assistant's reply did not end with a well-formed verdict line. */
+export const VERDICT_RETRY_LINE = userLine(
+  'Your reply did not end with the line Forge needs. Reply with exactly one line: `ASSIST: approve|revise|rework|escalate · <reason>`, the reason under 200 characters without quotes, backticks, $ or backslashes.',
+);
+
+/** The most of a result line's `result` text a working turn reports (a gate run's verdict is its last line). */
+export const RESULT_TEXT_MAX = 4000;
 
 /** The control_request line asking claude to switch the session's permission mode. */
 function modeRequest(requestId: string, mode: DaemonPermissionMode): string {
@@ -221,6 +246,10 @@ export interface ClaudeStream {
   writeTurn(): void;
   /** Writes one owner message (chatMessageLine); false, writing nothing, for a text it refuses. */
   writeMessage(text: string): boolean;
+  /** Writes a gate run's brief (briefLine); false, writing nothing, for a text it refuses. */
+  writeBrief(text: string): boolean;
+  /** Writes VERDICT_RETRY_LINE. */
+  writeVerdictRetry(): void;
   answerPermission(requestId: string, decision: PermissionDecision): boolean;
   setPermissionMode(mode: DaemonPermissionMode): string | null;
 }
@@ -319,7 +348,7 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
     const cost = resultCost(ev);
     // The --max-budget-usd stop is a failed turn whatever is_error says, and never a quota limit to wait out.
     const budget = ev.subtype === 'error_max_budget_usd';
-    if (ev.is_error !== true && !budget) return emit({ kind: 'turn-ended', ok: true, cost });
+    if (ev.is_error !== true && !budget) return emit({ kind: 'turn-ended', ok: true, cost, text: typeof ev.result === 'string' ? ev.result.slice(-RESULT_TEXT_MAX) : null });
     const reason = (typeof ev.result === 'string' && ev.result.trim() ? ev.result.trim() : String(ev.subtype ?? 'error')).slice(0, 300);
     const rejected = rateLimit?.status === 'rejected';
     emit({ kind: 'turn-ended', ok: false, reason, limit: budget ? false : rejected || LIMIT_TEXT.test(reason), resetsAt: rejected && !budget ? rateLimit!.resetsAt : null, budget, cost });
@@ -338,6 +367,17 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
       rateLimit = null;
       write(msg);
       return true;
+    },
+    writeBrief(text) {
+      const line = briefLine(text);
+      if (line === null) return false;
+      rateLimit = null;
+      write(line);
+      return true;
+    },
+    writeVerdictRetry() {
+      rateLimit = null;
+      write(VERDICT_RETRY_LINE);
     },
     answerPermission(requestId, decision) {
       const p = pending.get(requestId);

@@ -1,7 +1,7 @@
 // The session pools: /api/daemon, /api/daemon/mode, /api/daemon/permission, /api/daemons/log and the /api/events SSE frames,
 // plus the machine dashboard's own GET and POST /api/projects, /api/projects/events and /api/projects/stats, the machine cap every pool reports,
 // and the owner's chats with the Foreman (/api/p/<project>/chats…).
-import type { Effort, JobState, Stage } from './enums.ts';
+import type { Effort, GateClass, GateRunOutcome, JobState, Stage } from './enums.ts';
 
 /** The machine cap as a pool reports it: DaemonPoolState.machine. */
 export interface MachineSlotsState {
@@ -149,6 +149,41 @@ export interface DaemonPermissionPrompt {
   sessionDirs: string[];
   /** When the supervisor received it. */
   at: string;
+}
+
+/** One gate run of forge dash's gate runner (lib/office/foreman/run.ts): running, or one of the 50 last kept. */
+export interface GateRunState {
+  /** The gate request's id. */
+  request: string;
+  gate: GateClass;
+  /** The job the gate is on, or null for a milestone draft's (then `mandate` is set). */
+  job: string | null;
+  mandate: string | null;
+  status: 'running' | 'done';
+  /** Null while it runs. */
+  outcome: GateRunOutcome | null;
+  /** The verdict's reason, a hand-off's or refusal's text, or why it failed: model or policy text, at most 200 characters, rendered as text. */
+  reason: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  /** Assistant turns: 1, or 2 after a malformed verdict was asked again. */
+  attempts: number;
+  /** Metered spend of the run's turns. */
+  usd: number;
+  tokens: number;
+}
+
+/** DaemonPoolState.gates: the gate runner's cap, its hold, and its runs, newest first. */
+export interface GateRunsState {
+  /** foreman.enabled and foreman.assistants.enabled: the runner takes gate requests. */
+  enabled: boolean;
+  /** foreman.assistants.parallel: runs at once. */
+  parallel: number;
+  /** Runs live now. */
+  live: number;
+  /** Why no new run starts now: the office's daily cap, a failure's backoff or a usage limit; null when none holds. */
+  held: { reason: 'daily-cap' | 'retry' | 'limit'; until: string | null; message: string } | null;
+  runs: GateRunState[];
 }
 
 /** The session pool as the dashboard sees it: state() in lib/office/pool.ts plus `clients` from createContext in lib/server/start.ts. */

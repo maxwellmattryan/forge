@@ -1,5 +1,5 @@
 // Human-readable summaries: `forge status` and the text form of `forge stats`.
-import { foremanHandoffFor } from '#office/foreman.ts';
+import { foremanHandoffFor } from '#office/foreman/policy.ts';
 import { isActive, listJobs, progress } from '#core/job/store.ts';
 import type { Job, Stats } from '#core/types.ts';
 import type { HelpGroup, StatusRow } from '../types.ts';

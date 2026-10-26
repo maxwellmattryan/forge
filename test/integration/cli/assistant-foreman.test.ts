@@ -74,9 +74,9 @@ test("the Foreman's gate authority is the assistant foremen's", async () => {
 
     const refused = await forgeInProcess(r.dir, decide, { env: OFFICE });
     assert.equal(refused.status, 1);
-    assert.equal(refused.error?.message, '--actor foreman refused: only an assistant foreman session records foreman decisions');
+    assert.equal(refused.error?.message, "--actor foreman refused: only the Foreman's gate runner in forge dash records foreman decisions");
     const h = await forgeInProcess(r.dir, handoff, { env: OFFICE });
-    assert.deepEqual([h.status, h.error?.message], [1, 'only an assistant foreman session records a Foreman hand-off']);
+    assert.deepEqual([h.status, h.error?.message], [1, "Foreman hand-off refused: only the Foreman's gate runner in forge dash records foreman decisions"]);
     const a = await forgeInProcess(r.dir, assist, { env: OFFICE });
     assert.deepEqual([a.status, a.error?.message], [1, 'forge job assist is for an assistant foreman session (or a human outside the daemon)']);
     assert.equal(events(), before, 'the office wrote nothing');

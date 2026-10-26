@@ -7,16 +7,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { BIN, MILESTONE_DRAFT, forgeInProcess, initMilestoneRepo, parkedAt, readyGoal, repoTemplate } from '../../test/helpers.ts';
+import { BIN, MILESTONE_DRAFT, forgeInProcess, initMilestoneRepo, parkedAt, readyGoal, repoTemplate } from '../../../test/helpers.ts';
 import { defaults, loadConfig } from '#core/config/load.ts';
 import { validateConfig } from '#core/config/validate.ts';
 import { jobDir, loadJob, logHumanEvent, readEvents, setJob } from '#core/job/store.ts';
 import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
 import { ACTIONS_BY_GATE } from '#engine/pipeline/moves/foreman-gates.ts';
 import { foremanReleaseApproval, releaseApprovalStatus } from '#engine/release/approval.ts';
-import { draftReservedTexts } from './mandates/gate.ts';
-import { OFFICE_GATES, checkForemanDecision, checkMandateGateDecision, gateOwner, releaseMandateRefusal } from './foreman.ts';
-import type { DraftUnderDecision } from './foreman.ts';
+import { draftReservedTexts } from '../mandates/gate.ts';
+import { OFFICE_GATES, checkForemanDecision, checkMandateGateDecision, gateOwner, releaseMandateRefusal } from './policy.ts';
+import type { DraftUnderDecision } from './policy.ts';
 import type { ForgeRequest, Job } from '#core/types.ts';
 
 const OFFICE: NodeJS.ProcessEnv = { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_assistant-1' };
@@ -274,7 +274,7 @@ test('a foreman decision on a milestone draft', async () => {
       refused: RegExp | null;
     }
     const refused = (why: string) => new RegExp(`--actor foreman refused: ${why}$`);
-    const SCOPE = refused('only an assistant foreman session records foreman decisions');
+    const SCOPE = refused("only the Foreman's gate runner in forge dash records foreman decisions");
     const rows: DecisionRow[] = [
       { name: 'the inbox', env: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_inbox' }, refused: SCOPE },
       { name: 'the office', env: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_office' }, refused: SCOPE },

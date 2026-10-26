@@ -53,8 +53,11 @@ export type ClaudeEvent =
   | { kind: 'permission-cancelled'; requestId: string }
   /** claude's answer to a mode switch this child's handle sent. */
   | { kind: 'mode-answer'; requestId: string; ok: boolean; error: string | null }
-  /** A working turn; `cost` is claude's own cumulative cost report on the result line (resultCost), null when it sent none. */
-  | { kind: 'turn-ended'; ok: true; cost?: SessionCost | null }
+  /**
+   * A working turn; `cost` is claude's own cumulative cost report on the result line (resultCost), null when it sent none;
+   * `text` is the line's `result` (its last 4000 characters), null when it carried none: a gate run reads its verdict there.
+   */
+  | { kind: 'turn-ended'; ok: true; cost?: SessionCost | null; text?: string | null }
   /**
    * A failed turn: `limit` when it was a quota refusal, `resetsAt` (ms) when claude said when the window resets,
    * `budget` when the child reached its --max-budget-usd cap (never a limit: retrying can't lift it).
@@ -69,7 +72,7 @@ export type ClaudeEvent =
   /** The process closed. Sent once, last. */
   | { kind: 'exit'; code: number | null; signal: string | null };
 
-/** One running claude child. Every line it writes to claude is built from fixed text or a fixed list, except a chat's owner message (writeMessage). */
+/** One running claude child. Every line it writes to claude is built from fixed text or a fixed list, except a chat's owner message (writeMessage) and a gate run's brief (writeBrief). */
 export interface ClaudeChild {
   readonly pid: number | null;
   /** Whether its stdout is paused (backpressure from a full log). */
@@ -80,6 +83,10 @@ export interface ClaudeChild {
   writeTurn(): void;
   /** Writes one owner message as a user line (stream.ts chatMessageLine); false, writing nothing, for a text it refuses. Only a chat session calls it. */
   writeMessage(text: string): boolean;
+  /** Writes a gate run's assist brief as its first user line (stream.ts briefLine); false, writing nothing, for a text it refuses. Only a gate run calls it. */
+  writeBrief(text: string): boolean;
+  /** Writes the fixed verdict retry (stream.ts VERDICT_RETRY_LINE). Only a gate run calls it. */
+  writeVerdictRetry(): void;
   /** Answers a request claude asked; false, writing nothing, when it is not waiting (answered, cancelled or unknown). */
   answerPermission(requestId: string, decision: PermissionDecision): boolean;
   /** Asks claude to switch mode; returns the request id, or null for a mode outside PERMISSION_MODES. */

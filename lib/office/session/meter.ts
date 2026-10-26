@@ -11,7 +11,7 @@ import { paths } from '#core/paths.ts';
 import { enforceBudget } from '#engine/metrics/budget.ts';
 import { appendMeter, lastMeterCum, METER_VERSION, meterDelta, meterTodayUsd, readMeter, readMeterChecked } from '#engine/metrics/meter.ts';
 import type { MeterCum, MeterRecord } from '#engine/metrics/meter.ts';
-import { INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, assistantScope, isAssistantScope, isChatScope, validJobId } from '#core/job/requests.ts';
+import { GATES_SCOPE, INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, assistantScope, isAssistantScope, isChatScope, validJobId } from '#core/job/requests.ts';
 import type { ClaudeEvent } from '#integrations/claude/types.ts';
 import type { SessionCore } from './contract.ts';
 import type { Config } from '#core/types.ts';
@@ -48,7 +48,7 @@ function dailyCap(c: Config, name: Family): number | null {
  */
 function capScopes(root: string, shared: Family): string[] {
   if (shared === 'inbox') return [INBOX_SCOPE];
-  if (shared === 'office') return [OFFICE_SCOPE, ...Array.from({ length: MAX_ASSISTANTS }, (_, i) => assistantScope(i + 1))];
+  if (shared === 'office') return [OFFICE_SCOPE, GATES_SCOPE, ...Array.from({ length: MAX_ASSISTANTS }, (_, i) => assistantScope(i + 1))];
   const dir = path.join(paths(root).runtime, 'meter');
   let st: fs.Stats;
   try {
@@ -65,6 +65,62 @@ function capScopes(root: string, shared: Family): string[] {
     .sort();
 }
 
+/** The stop text when a family's cap can't be checked, so it fails closed. */
+function unchecked(shared: Family, problem: string, fix: string): string {
+  const whose = shared === 'chat' ? "the chat sessions'" : `the ${shared} session's`;
+  return `meter: ${problem}, so ${whose} daily cap (daemon.dailyUsd.${shared}) can't be checked and it stops; ${fix}, then start it again`;
+}
+
+/** A family's metered spend today, or why one of its meters can't be read. */
+function familySpend(root: string, shared: Family, at: number): { spent: number } | { problem: string } {
+  let scopes: string[];
+  try {
+    scopes = capScopes(root, shared);
+  } catch (e) {
+    return { problem: unchecked(shared, (e as Error).message, 'fix or move it aside') };
+  }
+  let spent = 0;
+  for (const s of scopes) {
+    // A missing file reads as no records; any one that can't be read fails the whole family closed.
+    const { records, problem } = readMeterChecked(root, s);
+    if (problem) return { problem: unchecked(shared, problem, 'fix or move the file aside') };
+    spent += meterTodayUsd(records, at);
+  }
+  return { spent };
+}
+
+/**
+ * Why a family with a cap may not spend now, else null: its metered spend today reached the cap
+ * (announced), or one of its meters can't be read, so the cap can't be checked and it fails closed.
+ */
+function familyOverCap(root: string, c: Config, shared: Family, at: number): { message: string; announce: 'daily-cap' | null } | null {
+  const cap = dailyCap(c, shared);
+  if (cap === null) return null;
+  const s = familySpend(root, shared, at);
+  if ('problem' in s) return { message: s.problem, announce: null };
+  if (s.spent < cap) return null;
+  const day = new Date(at).toISOString().slice(0, 10);
+  const who = shared === 'office' ? 'the office session and its gate runs' : shared === 'chat' ? 'the chat sessions' : 'the inbox session';
+  return { message: `daemon stopped: ${who} spent $${s.spent.toFixed(2)} of the $${cap.toFixed(2)} daily cap (daemon.dailyUsd.${shared}) on ${day} (UTC); start it again after midnight UTC, or raise the cap`, announce: 'daily-cap' };
+}
+
+/**
+ * Why the office family (the office session and forge dash's gate runs, which share daemon.dailyUsd.office) may not
+ * spend at `at`, else null: today's metered spend reached the cap, or a meter it sums can't be read (fails closed).
+ */
+export function officeCapRefusal(root: string, c: Config, at: number): { message: string } | null {
+  const over = familyOverCap(root, c, 'office', at);
+  return over ? { message: over.message } : null;
+}
+
+/** What is left of daemon.dailyUsd.office today, for a gate run's --max-budget-usd; null when there is no cap, 0 when a meter can't be read. */
+export function officeCapLeft(root: string, c: Config, at: number): number | null {
+  const cap = dailyCap(c, 'office');
+  if (cap === null) return null;
+  const s = familySpend(root, 'office', at);
+  return 'problem' in s ? 0 : Math.max(0, cap - s.spent);
+}
+
 export function createMeter(core: SessionCore, stop: StopSelf) {
   const { root, scope } = core;
   const shared: Family | null = scope === INBOX_SCOPE ? 'inbox' : scope === OFFICE_SCOPE || isAssistantScope(scope) ? 'office' : isChatScope(scope) ? 'chat' : null;
@@ -74,37 +130,7 @@ export function createMeter(core: SessionCore, stop: StopSelf) {
   /** The read problem a job scope's log last named, so each is said once. */
   let unread: string | null = null;
 
-  /** The stop text when a shared scope's cap can't be checked, so it fails closed. */
-  function unchecked(problem: string, fix: string): string {
-    const whose = shared === 'chat' ? "the chat sessions'" : `the ${shared} session's`;
-    return `meter: ${problem}, so ${whose} daily cap (daemon.dailyUsd.${shared}) can't be checked and it stops; ${fix}, then start it again`;
-  }
-
-  /**
-   * Why a shared scope with a cap may not spend now, else null: its metered spend today reached the cap
-   * (announced), or its meter can't be read, so the cap can't be checked and it fails closed.
-   */
-  function overCap(c: Config, at: number): { message: string; announce: 'daily-cap' | null } | null {
-    const cap = shared ? dailyCap(c, shared) : null;
-    if (cap === null || !shared) return null;
-    let scopes: string[];
-    try {
-      scopes = capScopes(root, shared);
-    } catch (e) {
-      return { message: unchecked((e as Error).message, 'fix or move it aside'), announce: null };
-    }
-    let spent = 0;
-    for (const s of scopes) {
-      // A missing file reads as no records; any one that can't be read fails the whole family closed.
-      const { records, problem } = readMeterChecked(root, s);
-      if (problem) return { message: unchecked(problem, 'fix or move the file aside'), announce: null };
-      spent += meterTodayUsd(records, at);
-    }
-    if (spent < cap) return null;
-    const day = new Date(at).toISOString().slice(0, 10);
-    const who = shared === 'office' ? 'the office session and its assistant foremen' : shared === 'chat' ? 'the chat sessions' : 'the inbox session';
-    return { message: `daemon stopped: ${who} spent $${spent.toFixed(2)} of the $${cap.toFixed(2)} daily cap (daemon.dailyUsd.${shared}) on ${day} (UTC); start it again after midnight UTC, or raise the cap`, announce: 'daily-cap' };
-  }
+  const overCap = (c: Config, at: number) => (shared ? familyOverCap(root, c, shared, at) : null);
 
   /** A shared scope's stop after a result, from overCap. Never throws: a check that throws stops it too (fails closed). */
   function sharedStop(at: number): MeterStop | null {
@@ -112,7 +138,7 @@ export function createMeter(core: SessionCore, stop: StopSelf) {
       const over = overCap(core.ctx.config(), at);
       return over ? { ...over, reason: 'daily-cap', keepWanted: false } : null;
     } catch (err) {
-      return { message: unchecked((err as Error).message, 'fix the cause'), reason: 'daily-cap', announce: null, keepWanted: false };
+      return { message: unchecked(shared!, (err as Error).message, 'fix the cause'), reason: 'daily-cap', announce: null, keepWanted: false };
     }
   }
 

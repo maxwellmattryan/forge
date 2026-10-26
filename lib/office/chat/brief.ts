@@ -7,7 +7,7 @@ import { PLUGIN_ROOT } from '#core/paths.ts';
 import { chatIdOf, daemonScope, listRequests } from '#core/job/requests.ts';
 import { listJobs } from '#core/job/store.ts';
 import { fenced, oneLineTitle } from '#core/text.ts';
-import { gateOwner } from '../foreman.ts';
+import { gateOwner } from '../foreman/policy.ts';
 import { isReadable, mandateGoal, mandateGuidance } from '../mandates/contract.ts';
 import { listMandates } from '../mandates/store.ts';
 import type { Config } from '#core/types.ts';

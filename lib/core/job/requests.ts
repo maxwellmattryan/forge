@@ -11,9 +11,9 @@ import { readJson, writeJsonAtomic } from '../os/fs.ts';
 import { withLock } from '../os/lock.ts';
 import { now, shortId } from '../utils.ts';
 
-import { ASSISTANTS_SCOPE, ASSISTANT_SCOPE_PREFIX, CHAT_SCOPE_PREFIX, INBOX_SCOPE, MANDATE_ID_SOURCE, MAX_ASSISTANTS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
+import { ASSISTANTS_SCOPE, ASSISTANT_SCOPE_PREFIX, CHAT_SCOPE_PREFIX, GATES_SCOPE, INBOX_SCOPE, MANDATE_ID_SOURCE, MAX_ASSISTANTS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
 
-export { ASSISTANTS_SCOPE, ASSISTANT_SCOPE_PREFIX, CHAT_SCOPE_PREFIX, INBOX_SCOPE, JOBS_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
+export { ASSISTANTS_SCOPE, ASSISTANT_SCOPE_PREFIX, CHAT_SCOPE_PREFIX, GATES_SCOPE, INBOX_SCOPE, JOBS_SCOPE, MAX_ASSISTANTS, MAX_GATE_RUNS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
 
 /** Request types that act on one job, so they need one and route to that job's daemon session. */
 const JOB_REQUEST_TYPES = ['approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume'] as const;
@@ -76,6 +76,42 @@ export function validScope(s: unknown): s is string {
   return s === INBOX_SCOPE || s === OFFICE_SCOPE || isAssistantScope(s) || isChatScope(s) || validJobId(s);
 }
 
+/** A legacy assistant foreman's scope, `_assistant-1` … `_assistant-16`: only so meter files written before gate runs stay readable. */
+const LEGACY_ASSISTANT_SCOPE = /^_assistant-([1-9]|1[0-6])$/;
+
+/**
+ * A scope a runtime file (a meter file, a log) may be named after: a session scope, the gate runs' `_gates`, or a
+ * legacy assistant scope whose meter file still counts in the ledger. Never a session's scope: validScope is.
+ */
+export function validRuntimeScope(s: unknown): s is string {
+  return validScope(s) || s === GATES_SCOPE || (typeof s === 'string' && LEGACY_ASSISTANT_SCOPE.test(s));
+}
+
+/** The Foreman's authority: a capability object only forge dash's gate runner holds. No argv, env or file can produce one. */
+export interface ForemanAuthority {
+  readonly kind: 'foreman-authority';
+}
+
+const AUTHORITIES = new WeakSet<object>();
+
+/** What every foreman decision, release approval, milestone-draft decision or hand-off without the authority is refused with. */
+export const FOREMAN_AUTHORITY_REFUSAL = "only the Foreman's gate runner in forge dash records foreman decisions";
+
+/**
+ * A new authority object, for lib/office/foreman/run.ts alone: the CLI never calls it, so no `forge` command, in any
+ * scope, can record a foreman decision. A hostile local process could import this module itself; the line guards a misled model.
+ */
+export function issueForemanAuthority(): ForemanAuthority {
+  const a: ForemanAuthority = Object.freeze({ kind: 'foreman-authority' as const });
+  AUTHORITIES.add(a);
+  return a;
+}
+
+/** Whether `v` is an authority issueForemanAuthority made: a lookalike object, or anything parsed from text, never is. */
+export function holdsForemanAuthority(v: unknown): v is ForemanAuthority {
+  return typeof v === 'object' && v !== null && AUTHORITIES.has(v);
+}
+
 /**
  * Which daemon session a request belongs to: the assistant foremen's group for a gate, the office for a draft or
  * a direct (the Office pass's wake), its job's for a job request whose job exists, the inbox for everything else
@@ -92,6 +128,8 @@ export function requestScope(root: string, rec: { type?: unknown; job?: unknown 
 export function daemonScope(env: NodeJS.ProcessEnv = process.env): { daemon: false; scope: null } | { daemon: true; scope: string } | { problem: string } {
   if (env.FORGE_DAEMON !== '1') return { daemon: false, scope: null };
   const scope = env[SCOPE_ENV];
+  // A gate run's assistant reads files and writes feedback.md; it has no Bash, and no forge call it could make is answered.
+  if (scope === GATES_SCOPE) return { problem: "forge refuses: a gate run's assistant runs no forge commands" };
   if (!validScope(scope)) return { problem: `forge refuses: ${SCOPE_ENV} is missing or invalid in this daemon session` };
   return { daemon: true, scope };
 }
@@ -252,6 +290,25 @@ export function requeueOrphans(
   for (const r of requeued) if (validJobId(r.job)) opts.note?.(r.job, `request ${r.id} (${r.type}) is pending again: the session handling it ended`);
   for (const r of rejected) if (validJobId(r.job)) opts.note?.(r.job, `request ${r.id} (${r.type}) rejected: ${REQUEUE_REJECTED}`);
   return { requeued, rejected };
+}
+
+/**
+ * Gives a claim back without counting it: back to `pending` only while `session` still holds it in progress,
+ * `requeues` untouched. For a run that ended through no fault of the request (a usage limit, a pool stop).
+ * False when the claim is no longer that session's.
+ */
+export function releaseClaim(root: string, id: string, session: string): boolean {
+  const file = requestFile(root, id);
+  if (!exists(file)) return false;
+  return withLock(lockDir(root), () => {
+    const rec = readJson(file, null);
+    if (!rec || rec.status !== 'in-progress' || rec.session !== session) return false;
+    rec.status = 'pending';
+    delete rec.session;
+    rec.updatedAt = now();
+    writeJsonAtomic(file, rec);
+    return true;
+  });
 }
 
 export function ackRequest(root: string, id: string, update: { status: 'done' | 'rejected' | 'in-progress'; result?: string }): ForgeRequest {

@@ -1,7 +1,7 @@
 // `forge job set|effort|note|refresh-request|budget`: a job's stage, state, fields, effort, notes, request and budget limits.
 import { budgetCmd } from '#engine/metrics/budget.ts';
 import { inInboxOrOffice } from '#office/owner.ts';
-import { checkOfficeSetFor } from '#office/foreman.ts';
+import { checkOfficeSetFor } from '#office/foreman/policy.ts';
 import { inAssistant, inChat, inOffice } from '#core/job/requests.ts';
 import { chatSetRefusal } from '#office/chat/authority.ts';
 import { refreshDependencyWait, validateDependsOn } from '#engine/pipeline/moves/deps.ts';

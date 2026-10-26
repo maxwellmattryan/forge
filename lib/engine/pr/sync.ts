@@ -233,7 +233,7 @@ export async function syncPr(root: string, config: Config, github: GitHub, id: s
 }
 
 /**
- * `narrow` is the job's mandate refusal for `pr-feedback` (lib/office/foreman.ts mandateRefusal), passed in
+ * `narrow` is the job's mandate refusal for `pr-feedback` (lib/office/foreman/policy.ts mandateRefusal), passed in
  * because engine code can't import lib/office/; a job in a mandate gets no CI rework without it.
  */
 export interface SyncOptions {

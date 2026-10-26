@@ -1,7 +1,7 @@
 // createStream as a pure decoder: claude's stream-json chunks in, ClaudeEvents and stdin lines out.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PERMISSION_DENIED, TURN_LINE, createStream, resultCost, sessionGrant } from './stream.ts';
+import { PERMISSION_DENIED, TURN_LINE, VERDICT_RETRY_LINE, briefLine, createStream, resultCost, sessionGrant } from './stream.ts';
 import type { ClaudeEvent, SessionCost } from './types.ts';
 
 /** One stream over in-memory sinks. */
@@ -74,7 +74,12 @@ test("claude's stream-json lines become domain events", () => {
       events: [logged({ type: 'system', subtype: 'background_tasks_changed', tasks: [{}, {}] }), { kind: 'background', count: 2 }],
     },
     { name: 'background without tasks', feed: (s) => s.stdout(line({ type: 'system', subtype: 'background_tasks_changed' })), events: [logged({ type: 'system', subtype: 'background_tasks_changed' })] },
-    { name: 'a working result', feed: (s) => s.stdout(line({ type: 'result', is_error: false })), events: [logged({ type: 'result', is_error: false }), { kind: 'turn-ended', ok: true, cost: null }] },
+    { name: 'a working result', feed: (s) => s.stdout(line({ type: 'result', is_error: false })), events: [logged({ type: 'result', is_error: false }), { kind: 'turn-ended', ok: true, cost: null, text: null }] },
+    {
+      name: "a working result's text, its last 4000 characters",
+      feed: (s) => s.stdout(line({ type: 'result', is_error: false, result: `${'x'.repeat(5000)}\nASSIST: approve · fine` })),
+      events: [logged({ type: 'result', is_error: false, result: `${'x'.repeat(5000)}\nASSIST: approve · fine` }), { kind: 'turn-ended', ok: true, cost: null, text: `${'x'.repeat(3977)}\nASSIST: approve · fine` }],
+    },
     {
       name: 'a failed result',
       feed: (s) => s.stdout(line(errorResult('Failed to authenticate'))),
@@ -86,7 +91,7 @@ test("claude's stream-json lines become domain events", () => {
     }),
     ...costRows.map(([name, fields, cost, ok]) => {
       const ev = ok ? { type: 'result', is_error: false, ...fields } : { ...errorResult('boom'), ...fields };
-      const ended: ClaudeEvent = ok ? { kind: 'turn-ended', ok: true, cost } : { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, resetsAt: null, budget: false, cost };
+      const ended: ClaudeEvent = ok ? { kind: 'turn-ended', ok: true, cost, text: null } : { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, resetsAt: null, budget: false, cost };
       return { name: `cost: ${name}`, feed: (s: S) => s.stdout(line(ev)), events: [logged(ev), ended] };
     }),
     {
@@ -236,6 +241,21 @@ test('every stdin line is built from fixed text', () => {
   for (const bad of ['', '   \n\t', 'x'.repeat(8001), 42, null, undefined, ['hi'], { text: 'hi' }]) assert.equal(refused.s.writeMessage(bad as never), false, JSON.stringify(bad));
   assert.deepEqual(refused.written, [], 'a refused message writes nothing');
   assert.equal(decoder().s.writeMessage('x'.repeat(8000)), true, '8000 characters is allowed');
+
+  // A gate run's brief: one user line, whatever it holds, up to 256 KiB; and the one fixed verdict retry.
+  const brief = decoder();
+  assert.equal(brief.s.writeBrief(hostile), true);
+  assert.equal(brief.written.length, 1);
+  assert.equal(brief.written[0].indexOf('\n'), brief.written[0].length - 1, 'the brief is one line');
+  assert.equal(JSON.parse(brief.written[0]).message.content[0].text, hostile);
+  assert.notEqual(briefLine('é'.repeat(128 * 1024)), null, 'exactly 256 KiB of UTF-8 is allowed');
+  const noBrief = decoder();
+  for (const bad of ['', '  \n', 'é'.repeat(128 * 1024 + 1), 42, null, undefined, ['hi']]) assert.equal(noBrief.s.writeBrief(bad as never), false, JSON.stringify(bad)?.slice(0, 20));
+  assert.deepEqual(noBrief.written, [], 'a refused brief writes nothing');
+  const retry = decoder();
+  retry.s.writeVerdictRetry();
+  assert.deepEqual(retry.written, [VERDICT_RETRY_LINE]);
+  assert.match(JSON.parse(VERDICT_RETRY_LINE).message.content[0].text, /^Your reply did not end with the line Forge needs\. Reply with exactly one line: `ASSIST: approve\|revise\|rework\|escalate · <reason>`/);
 
   const input = { command: 'cp a b', nested: { keep: [1, 2] } };
   const answer = (decision: 'allow' | 'session' | 'deny') => {
