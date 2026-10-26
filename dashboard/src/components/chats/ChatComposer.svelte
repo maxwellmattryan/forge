@@ -1,6 +1,7 @@
 <!-- The open chat's composer (chats/ChatView.svelte): a text area and Send. Enter sends, Shift+Enter adds a newline, and
      Enter during IME composition never sends. Send posts the text as typed, and is disabled while the trimmed text is
-     empty, the text is over CHAT_MESSAGE_MAX (a counter shows past 90%), a send is in flight, or the Foreman is replying.
+     empty, the text is over CHAT_MESSAGE_MAX (a counter shows past 90%; an always-mounted status region announces once,
+     when the text crosses the cap, not on every keystroke after), a send is in flight, or the Foreman is replying.
      A sent message clears the box and keeps focus; a refused one keeps the text and shows the server's error under it.
      In place of the box: a note while the daemon is disabled in config, a note with Start daemon while it is stopped, and
      the archived note for an archived chat. It exports focus(), which the panel calls after New chat. -->
@@ -118,7 +119,8 @@
       {onkeydown}
     ></textarea>
     <div class="flex flex-wrap items-center justify-end gap-3">
-      {#if text.length > COUNTER_FROM}<span class="num text-xs {over ? 'text-bad' : 'text-muted'}" aria-live="polite">{$t('foreman.chats.counter', { count: text.length, max: CHAT_MESSAGE_MAX })}</span>{/if}
+      {#if text.length > COUNTER_FROM}<span class="num text-xs {over ? 'text-bad' : 'text-muted'}">{$t('foreman.chats.counter', { count: text.length, max: CHAT_MESSAGE_MAX })}</span>{/if}
+      <span role="status" class="sr-only">{over ? $t('foreman.chats.tooLong', { max: CHAT_MESSAGE_MAX }) : ''}</span>
       <button type="submit" class="btn sm primary" disabled={!canSend} aria-busy={sending}>{replying ? $t('foreman.chats.replying') : $t('foreman.chats.send')}</button>
     </div>
     {#if error !== null}<p id="{uid}-error" role="alert" class="text-sm text-bad break-words">{error}</p>{/if}

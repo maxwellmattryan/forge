@@ -1,8 +1,10 @@
 <!-- One open chat (the Chats panel keys it by id): ChatHeader, the log, the chat session's permission prompts, and
      ChatComposer. The log is one chronological pane, oldest at the top, in the station's screen: owner messages tagged as
-     yours, not-delivered notes in the warn tone, and the Foreman's replies as LogItem rows, with forge CLI calls tagged as
-     CLI actions. Every block and every top-level reply item has its time and a Copy button. It follows the newest entry
-     while the pane is at the bottom, with Jump to latest when scrolled up. The data is createChatLog (src/lib/chat-log.ts):
+     yours (the gleam `you` tag, never the ember "a person is needed" tone), not-delivered notes in the warn tone, and the
+     Foreman's replies as LogItem rows, with forge CLI calls tagged as CLI actions. Every block and every top-level reply
+     item has its time and a Copy button named for what it copies. It follows the newest entry while the pane is at the
+     bottom, with Jump to latest when scrolled up. The log itself is not announced; one sr-only status region says when the
+     Foreman starts replying (the session goes busy) and when it has replied (back to idle). The data is createChatLog (src/lib/chat-log.ts):
      paged from the start, then caught up on each `line` of the chat's session stream; its `state` frames, GET
      /api/chats/<id> on mount, after a prompt is answered and every 15 s while the session works, and a send's reply drive
      the session state. Owner text renders only through md() or as text; session lines follow LogItem's rules. -->
@@ -16,7 +18,7 @@
   import ChatComposer from './ChatComposer.svelte';
   import ChatHeader from './ChatHeader.svelte';
   import { createChatLog } from '../../lib/chat-log.ts';
-  import { buildChatView, copyText, fetchChat, type ChatBlock, type ChatEntry } from '../../lib/chats.ts';
+  import { buildChatView, cliAction, copyText, fetchChat, type ChatBlock, type ChatEntry } from '../../lib/chats.ts';
   import { mergeSessionState } from '../../lib/daemon.ts';
   import { md } from '../../lib/markdown.ts';
   import { renderable } from '../../lib/md-view.ts';
@@ -102,6 +104,26 @@
     return () => clearInterval(h);
   });
 
+  // What the sr-only status region says: the Foreman is replying while its session is busy, and replied once it is idle
+  // again. The log stays unannounced; this is the one cue a screen-reader user gets after Send.
+  let announcement = $state('');
+  let wasBusy = false;
+  $effect(() => {
+    const status = session?.status;
+    untrack(() => {
+      if (status === 'busy') {
+        announcement = $t('foreman.chats.replying');
+        wasBusy = true;
+      } else if (status === 'idle' && wasBusy) {
+        announcement = $t('foreman.chats.replied');
+        wasBusy = false;
+      } else if (status === 'off') {
+        announcement = '';
+        wasBusy = false;
+      }
+    });
+  });
+
   function onVisibility(): void {
     log.visibilityChanged();
     if (document.visibilityState !== 'hidden') void reread();
@@ -117,6 +139,22 @@
     session = d.session;
     log.refresh();
     onchanged();
+  }
+
+  /** The Copy button's name: a screen reader's list of buttons says what each one copies. */
+  function copyLabel(x: ChatBlock | Item): string {
+    switch (x.kind) {
+      case 'owner':
+        return $t('foreman.chats.copyYours');
+      case 'note':
+        return $t('foreman.chats.copyNote');
+      case 'text':
+        return $t('foreman.chats.copyReply');
+      case 'tool':
+        return cliAction(x) ? $t('foreman.chats.copyCli') : $t('foreman.chats.copyTool');
+      default:
+        return $t('foreman.chats.copyEntry');
+    }
   }
 
   async function copy(x: ChatBlock | Item): Promise<void> {
@@ -158,7 +196,7 @@
 <svelte:document onvisibilitychange={onVisibility} />
 
 {#snippet copyButton(x: ChatBlock | Item)}
-  <IconButton icon="copy" label={$t('foreman.chats.copy')} ghost onclick={() => copy(x)} />
+  <IconButton icon="copy" label={copyLabel(x)} ghost onclick={() => copy(x)} />
 {/snippet}
 
 {#snippet when(at: string)}
@@ -167,6 +205,7 @@
 
 <section class="flex min-w-0 flex-col gap-3" aria-label={current.title ?? $t('foreman.chats.untitled')}>
   <div class="plate px-4 py-3"><ChatHeader chat={current} {session} onchanged={changed} /></div>
+  <div role="status" class="sr-only">{announcement}</div>
   {#if error !== null}<Banner msg={$t('foreman.chats.logFailed', { error })} />{/if}
   <div class="station flex flex-col gap-2">
     <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->
@@ -181,7 +220,7 @@
           <!-- The owner's message opens each exchange: a rule above it, and the `you` tag in the tag column. -->
           <div class="mt-2 flex items-start gap-1 border-t border-line-soft pt-2 first:mt-0 first:border-t-0">
             <div class="log-row min-w-0 flex-1 font-sans py-0.5">
-              {@render when(b.at)}<span class="log-tag"><Chip tone="you" extra="max-w-full" text={$t('foreman.chats.you')} /></span>
+              {@render when(b.at)}<span class="log-tag"><Chip tone="gleam" extra="max-w-full" text={$t('foreman.chats.you')} /></span>
               {#if renderable(b.text, mdView.chat)}<div class="log-body prose break-words text-fg [&>:first-child]:mt-0 [&>:last-child]:mb-0">{@html md(b.text)}</div>{:else}<div class="log-body whitespace-pre-wrap break-words text-fg">{b.text}</div>{/if}
             </div>
             {@render copyButton(b)}

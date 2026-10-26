@@ -4,7 +4,8 @@
      sub-agent's prompt and result render only through the escape-first md() (as text in Raw, `view`, or above MD_MAX);
      tool input, tool results and every other line render as text. `arrived` says when a call's line arrived live, which
      strikes its gutter. With `cli`, a Bash call to the forge CLI (cliAction) is tagged `forge` and shows its command and
-     effect, at any depth. -->
+     effect, at any depth; the command keeps up to 70% of the row and the effect truncates first, and a failed call also
+     carries the same error chip as any other tool row, so colour is not the only cue. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
   import Icon from './Icon.svelte';
@@ -87,7 +88,7 @@
   <details class="log-fold {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5 {struck(arrived(it.offset), ticker.now) ? 'strike' : ''}">
     {#if action}
       <!-- A forge CLI call: the command, then its effect (its result's first line) or that it is still running. -->
-      <summary class="log-row">{@render when(it.at)}{@render caret()}<span class="log-tag" title={it.name}><span class={action.isError ? 'text-bad' : 'text-gleam'}>{$t('foreman.chats.cliTag')}</span></span><span class="log-body flex items-baseline gap-2"><span class="min-w-0 truncate" title={action.command}>{action.command}</span>{#if action.effect === null}<span class="shrink-0 text-muted">{$t('foreman.chats.cliRunning')}</span>{:else}<span class="min-w-0 shrink-[3] truncate {action.isError ? 'text-bad' : 'text-muted'}" title={action.effect}>{action.effect}</span>{/if}</span></summary>
+      <summary class="log-row">{@render when(it.at)}{@render caret()}<span class="log-tag" title={it.name}><span class={action.isError ? 'text-bad' : 'text-gleam'}>{$t('foreman.chats.cliTag')}</span></span><span class="log-body flex items-baseline gap-2"><span class="max-w-[70%] shrink-0 truncate" title={action.command}>{action.command}</span>{#if action.effect === null}<span class="shrink-0 text-muted">{$t('foreman.chats.cliRunning')}</span>{:else}<span class="min-w-0 truncate {action.isError ? 'text-bad' : 'text-muted'}" title={action.effect}>{action.effect}</span>{/if}{#if action.isError}<Chip tone="bad" text={$t('session.error')} extra="shrink-0" />{/if}</span></summary>
     {:else}
       <summary class="log-row">{@render when(it.at)}{@render caret()}<span class="log-tag" title={it.name}><span class={it.result?.isError ? 'text-bad' : 'text-gleam'}>{it.name}</span></span><span class="log-body flex items-baseline gap-2"><span class="min-w-0 truncate" title={it.summary}>{it.summary}</span>{#if it.task?.text}<span class="min-w-0 shrink-[3] truncate text-muted" title={it.task.text}>{it.task.text}</span>{/if}{#if it.result?.isError}<Chip tone="bad" text={$t('session.error')} extra="shrink-0" />{/if}</span></summary>
     {/if}

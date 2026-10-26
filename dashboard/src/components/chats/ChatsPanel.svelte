@@ -79,7 +79,7 @@
 {#snippet row(c: Chat)}
   <li>
     <button
-      class="flex w-full min-w-0 flex-col items-start gap-0.5 border-l-2 px-3 py-2 text-left clickable {c.id === selected ? 'border-gleam bg-raised' : 'border-transparent'}"
+      class="flex w-full min-w-0 flex-col items-start gap-0.5 border-l-2 px-3 py-2 text-left clickable focus-visible:-outline-offset-2 {c.id === selected ? 'border-gleam bg-raised' : 'border-transparent'}"
       aria-current={c.id === selected ? 'true' : undefined}
       onclick={() => select(c.id)}
     >
