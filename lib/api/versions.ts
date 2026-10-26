@@ -55,7 +55,7 @@ export const API_CHANGES = [
   { id: 'job-mandate' },
   // RequestType 'draft': a goal mandate's drafting run, written only by forge mandate, routed to the office session.
   { id: 'draft-request' },
-  // DaemonPoolState.assistants; Stats.cost.sessions.assistant; gate requests route to _assistants.
+  // DaemonPoolState.assistants; Stats.cost.sessions.assistant; gate requests route to the assistant sessions' request group.
   { id: 'assistant-foremen' },
   // Stats.quality.verifierFirstRoundBlockRate: the share of jobs whose first round-1 verifiers record blocked.
   { id: 'verifier-first-round-block-rate' },
@@ -68,6 +68,9 @@ export const API_CHANGES = [
   // The chat routes under /api/p/<project>/chats (Chat, ChatLogEntry, ChatLogPage, ChatDetail, ChatList); scope `_chat-<id>`
   // in /events, /daemons/log, /daemon/permission, /daemon/mode and /daemon; ActorSource 'chat'; Stats.cost.sessions.chat.
   { id: 'chats' },
+  // DaemonPoolState.gates (GateRunsState, GateRunState): forge dash's gate runner and its runs; gate requests route to
+  // `_gates`, which no session serves; DaemonPoolState.assistants is always {} (dropped with the dashboard's last reader).
+  { id: 'gate-runs' },
 ] as const;
 
 /**

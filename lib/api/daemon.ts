@@ -201,8 +201,10 @@ export interface DaemonPoolState {
   office: DaemonSessionState;
   /** foreman.enabled, from the latest read of config.yml: the dashboard shows the office only then. */
   foreman: boolean;
-  /** Assistant foreman sessions by scope (`_assistant-<n>`), never counted against maxConcurrent or the machine cap; `{}` while the foreman or its assistants are off. */
+  /** Deprecated: always `{}` since gate runs replaced the assistant sessions; removed with the dashboard's last reader. */
   assistants: Record<string, DaemonSessionState>;
+  /** forge dash's gate runner: its cap, hold and runs (lib/office/foreman/run.ts). Gate runs count against neither maxConcurrent nor the machine cap. */
+  gates: GateRunsState;
   /** Job sessions worth showing: running, stopping, waiting, held, failed or stopped by a human. */
   jobs: Record<string, DaemonSessionState>;
   /** The permission mode daemon.command starts sessions in (`manual` reads as `default`). */

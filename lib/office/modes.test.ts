@@ -3,14 +3,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createModeBook } from './modes.ts';
 
-test('assistant foremen are shared scopes', () => {
+test('the office is a shared scope', () => {
   const book = createModeBook('auto');
-  assert.equal(book.launch('_assistant-1'), null, "daemon.command's mode, not the job default");
+  assert.equal(book.launch('_office'), null, "daemon.command's mode, not the job default");
   assert.equal(book.launch('j-1'), 'auto');
-  book.choose('_assistant-1', 'auto');
-  assert.equal(book.launch('_assistant-1'), 'auto');
+  book.choose('_office', 'auto');
+  assert.equal(book.launch('_office'), 'auto');
   book.chooseJobs('dontAsk');
-  assert.equal(book.launch('_assistant-1'), 'auto', 'the job default leaves it alone');
+  assert.equal(book.launch('_office'), 'auto', 'the job default leaves it alone');
   assert.equal(book.launch('j-1'), 'dontAsk');
 });
 

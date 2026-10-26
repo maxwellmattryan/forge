@@ -4,11 +4,12 @@
 // "Mandates"). Every write and `draft start` is refused in a daemon session, before anything is read: a
 // session misled by tracker or PR text must not widen or create what directs the Office, or spend on
 // drafting. `draft prepare|record` run only in the office session or a person's terminal; `draft
-// approve|revise|reject` are a person's, or an assistant foreman's with `--actor foreman`.
+// approve|revise|reject` are a person's: `--actor foreman` is refused in every scope, since only forge dash's
+// gate runner records the Foreman's decision on a draft, in-process.
 import fs from 'node:fs';
 import path from 'node:path';
 import { ForgeError } from '#core/errors.ts';
-import { daemonScope, inAssistant } from '#core/job/requests.ts';
+import { daemonScope } from '#core/job/requests.ts';
 import { listArchived } from '#core/job/archive.ts';
 import { listJobs } from '#core/job/store.ts';
 import { now } from '#core/utils.ts';
@@ -178,8 +179,8 @@ const MANDATE: HelpGroup = {
       flags: [
         ['--request R', 'the draft request you read (draft show): refused once the draft changed'],
         ['--digest D', 'the 64-hex digest you read (draft show): refused once draft.json differs'],
-        ['--note N', 'why, at most 2000 characters (required with --actor foreman)'],
-        ['--actor foreman', 'an assistant foreman records it, under foreman.decides, foreman.reserved and the mandate\'s decides'],
+        ['--note N', 'why, at most 2000 characters'],
+        ['--actor foreman', "refused in every scope: only forge dash's gate runner records the Foreman's decision"],
       ],
       exits: [
         [1, `no such mandate (not_found), it can't be read, is paused or closed, the draft isn't pending (or filing), a pin doesn't match, a pre-flight check fails (secret_found for a likely secret), a decision is already running, a tracker call failed (filing.json keeps what was filed), --actor foreman is refused, or ${DAEMON_EXIT} without --actor foreman`],
@@ -195,7 +196,7 @@ const MANDATE: HelpGroup = {
         ['--note N', 'what the drafter should change, at most 2000 characters (required)'],
         ['--request R', 'the draft request you read'],
         ['--digest D', 'the digest you read'],
-        ['--actor foreman', 'an assistant foreman records it (at most 2 foreman revisions per mandate)'],
+        ['--actor foreman', "refused in every scope: only forge dash's gate runner records the Foreman's decision"],
       ],
       exits: [[1, `no such mandate (not_found), it can't be read, is paused or closed, the draft isn't pending, a pin doesn't match, the note breaks the rules, a decision is already running, --actor foreman is refused, or ${DAEMON_EXIT} without --actor foreman`]],
       docs: INTAKE,
@@ -216,9 +217,9 @@ const MANDATE: HelpGroup = {
       command: 'mandate draft assist',
       args: '<id> --request G',
       summary:
-        "read-only, for an assistant foreman session (or a person): the forge:assistant spawn for a milestone-approval gate request ({mandate, gate, stale, reason?, reserved, subagent, model, effort, brief}); stale once the draft moved or was decided",
+        "read-only, for a person's own terminal: what a gate run's forge:assistant is briefed with for a milestone-approval gate request ({mandate, gate, stale, reason?, reserved, subagent, model, effort, brief}); stale once the draft moved or was decided",
       flags: [['--request G', 'the claimed milestone-approval gate request (required): in progress, for this mandate']],
-      exits: [[1, 'run in a daemon session other than an assistant foreman, or G is not an in-progress milestone-approval gate request for this mandate']],
+      exits: [[1, 'run in any daemon session, or G is not an in-progress milestone-approval gate request for this mandate']],
       docs: INTAKE,
     },
   ],
@@ -387,16 +388,16 @@ function listCmd(root: string) {
   };
 }
 
-/** assist: only an assistant foreman session, or a person outside the daemon. Checked before anything is read. */
-function assistantOnly(env: NodeJS.ProcessEnv): void {
+/** assist: only a person's own terminal; every daemon session is refused, since forge dash's gate runner assists in-process. Checked before anything is read. */
+function outsideDaemon(env: NodeJS.ProcessEnv): void {
   const s = daemonScope(env);
   if ('problem' in s) throw new ForgeError(s.problem, 1);
-  if (s.daemon && !inAssistant(env)) throw new ForgeError('forge mandate draft assist is for an assistant foreman session (or a person outside the daemon)', 1);
+  if (s.daemon) throw new ForgeError("forge mandate draft assist is for a person's own terminal: forge dash's gate runner assists each gate in-process", 1);
 }
 
 const DECISIONS = new Set(['approve', 'revise', 'reject']);
 
-/** approve, revise and reject: one decideDraft call, as a person or (`--actor foreman`) as an assistant foreman. */
+/** approve, revise and reject: one decideDraft call, as a person; `--actor foreman` is refused there, since only the gate runner holds the authority. */
 async function decide(ctx: CliContext, decision: DraftDecision, rest: string[], flags: Record<string, any>, env: NodeJS.ProcessEnv) {
   if (rest.length !== 2) throw usageError(MANDATE, `draft ${decision}`);
   const actor = str(flags.actor, '--actor');
@@ -441,7 +442,7 @@ async function draftCmd(ctx: CliContext, rest: string[], flags: Record<string, a
   // decideDraft refuses a daemon session without --actor foreman first, before anything is read.
   if (DECISIONS.has(action)) return decide(ctx, action as DraftDecision, rest, flags, env);
   if (action === 'assist') {
-    assistantOnly(env);
+    outsideDaemon(env);
     if (rest.length !== 2) throw usageError(MANDATE, 'draft assist');
     return assistDraft(root, config, rest[1], req(str(flags.request, '--request'), '--request'));
   }

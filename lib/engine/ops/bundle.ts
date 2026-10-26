@@ -16,7 +16,7 @@ import { PINNED_DIFF_OPTS } from '../guard/integrity.ts';
 import { isActive, jobDir, listJobs, loadJob } from '#core/job/store.ts';
 import { isPrivateName } from '../guard/known-secrets.ts';
 import { addCounts, daemonSkeleton, omitProse, omitted, redactContext, redactText } from '../guard/redact.ts';
-import { INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, assistantScope, validJobId } from '#core/job/requests.ts';
+import { GATES_SCOPE, INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '#core/job/requests.ts';
 import { resolveBase } from '../pipeline/scope.ts';
 import { loadStepInput, step } from '../pipeline/step.ts';
 import type { Config, Job } from '#core/types.ts';
@@ -372,7 +372,7 @@ export async function buildBundle(
     const shared: [string, string][] = [
       [INBOX_SCOPE, 'inbox'],
       [OFFICE_SCOPE, 'office'],
-      ...Array.from({ length: MAX_ASSISTANTS }, (_, i): [string, string] => [assistantScope(i + 1), `assistant-${i + 1}`]),
+      [GATES_SCOPE, 'gates'],
     ];
     for (const [scope, name] of shared) {
       const r = tailContained(daemons, `${scope}.log`, DAEMON_LINES);

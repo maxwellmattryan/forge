@@ -6,7 +6,7 @@
 // prompt, hold the authority line: each runs before any write and refuses anyone without the runner's
 // ForemanAuthority. docs/architecture/foreman.md.
 import { isForemanActor, readEvents } from '#core/job/store.ts';
-import { FOREMAN_AUTHORITY_REFUSAL, holdsForemanAuthority, inAssistant, listRequests } from '#core/job/requests.ts';
+import { FOREMAN_AUTHORITY_REFUSAL, holdsForemanAuthority, listRequests } from '#core/job/requests.ts';
 import { HANDOFF_CLASSES } from '#core/job/schema.ts';
 import { ACTIONS_BY_GATE, classReservation, decides, foremanEnabled, gateClass, gateClassFor, isGateRequest, listedDecides, reservedFor, reservedMatch } from '#engine/pipeline/moves/foreman-gates.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -24,7 +24,7 @@ const SHA = /^[0-9a-f]{40}$/;
 /**
  * Who owns a waiting job's gate, for the dashboard: `foreman` when the foreman is on and the gate is
  * one it decides and isn't reserved (or refused by the foreman already), `human` for every other
- * gate (every gate while no assistant foreman runs to take it), null when the job waits on nothing or the foreman is off.
+ * gate (every gate while foreman.assistants.enabled is false, so no gate run takes it), null when the job waits on nothing or the foreman is off.
  */
 export function gateOwner(root: string, config: Config, job: Job, requests: ForgeRequest[] = listRequests(root)): GateOwner {
   if (!foremanEnabled(config) || job.state !== 'waiting') return null;
@@ -62,13 +62,11 @@ function mandateLeaves(gate: GateClass, m: DecidingMandate): string | null {
 export { FOREMAN_AUTHORITY_REFUSAL };
 
 /**
- * Why `by` may not record a foreman decision: only a holder of the gate runner's ForemanAuthority may. Null when it may.
- * TODO(phase 2): an assistant foreman's env is still accepted while its sessions run.
+ * Why `by` may not record a foreman decision: only a holder of the gate runner's ForemanAuthority may, so no env,
+ * argv or object parsed from text passes. Null when it may.
  */
 export function foremanAuthorityRefusal(by: unknown): string | null {
-  if (holdsForemanAuthority(by)) return null;
-  if (by && typeof by === 'object' && inAssistant(by as NodeJS.ProcessEnv)) return null;
-  return FOREMAN_AUTHORITY_REFUSAL;
+  return holdsForemanAuthority(by) ? null : FOREMAN_AUTHORITY_REFUSAL;
 }
 
 /**
@@ -224,8 +222,8 @@ export const SET_AFTER: Record<string, readonly (string | undefined)[]> = {
   'reject-repos': [undefined],
 };
 
-/** Only these `forge job` subcommands run in the office and assistant foreman sessions: they read, decide and note, nothing more. */
-export const OFFICE_JOB_COMMANDS: readonly string[] = ['assist', 'human', 'set', 'note', 'handoff', 'show', 'get', 'list', 'step'];
+/** Only these `forge job` subcommands run in the office session: they read and note, nothing more (assist and human then refuse there too). */
+export const OFFICE_JOB_COMMANDS: readonly string[] = ['assist', 'human', 'set', 'note', 'show', 'get', 'list', 'step'];
 
 /** The longest hand-off reason kept, after safeText. */
 const HANDOFF_REASON_MAX = 200;
@@ -260,10 +258,10 @@ export function foremanHandoffFor(root: string, job: Pick<Job, 'id' | 'state' | 
 }
 
 /**
- * In the office and assistant foreman sessions, `forge job set` only carries out a foreman decision: the job still waits, its latest
+ * In the office session, `forge job set` only carries out a foreman decision: the job still waits, its latest
  * `human` event is the foreman's and came after the job parked, and the change is that action's
- * `--state running` (with its stage) and nothing else. So a misled foreman or assistant can't move a job
- * off a gate the CLI refused it, or that a human owns. Throws ForgeError (exit 1) before any write.
+ * `--state running` (with its stage) and nothing else. So a misled office session can't move a job
+ * off a gate the policy refused, or that a human owns. Throws ForgeError (exit 1) before any write.
  */
 function checkOfficeSet(
   job: Pick<Job, 'id' | 'state'>,

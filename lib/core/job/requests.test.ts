@@ -1,40 +1,84 @@
-// Request routing: the scopes a daemon session may run in, where a gate request goes, the one gate
-// request with no job (a goal mandate's milestone draft), and the requeue of a gate whose assistant
-// foreman exited.
+// Request routing: the scopes a daemon session may run in, where a gate request goes (the gate group no
+// session serves), the one gate request with no job (a goal mandate's milestone draft), the Foreman's
+// authority object, and how a gate run's claim is given back or requeued.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '../config/keys/defaults.ts';
 import { ForgeError } from '../errors.ts';
-import { ASSISTANTS_SCOPE, INBOX_SCOPE, OFFICE_SCOPE, assistantScope, chatIdOf, chatScope, claimRequest, enqueue, inChat, isChatScope, listRequests, requestScope, requeueOrphans, sharedScope, validScope } from './requests.ts';
+import {
+  GATES_SCOPE,
+  INBOX_SCOPE,
+  OFFICE_SCOPE,
+  chatIdOf,
+  chatScope,
+  claimRequest,
+  daemonScope,
+  enqueue,
+  holdsForemanAuthority,
+  inChat,
+  isChatScope,
+  issueForemanAuthority,
+  listRequests,
+  releaseClaim,
+  requestScope,
+  requeueOrphans,
+  servesScope,
+  sharedScope,
+  validRuntimeScope,
+  validScope,
+} from './requests.ts';
 
-test('assistant scopes, the gate route and shared scopes', (t) => {
+test('the gate group, shared scopes and runtime scopes', (t) => {
   const r = tempRepo();
   t.after(r.cleanup);
-  const valid: [unknown, boolean][] = [
-    ['_assistant-1', true],
-    ['_assistant-16', true],
-    ['_assistant-0', false],
-    ['_assistant-17', false],
-    ['_assistant-01', false],
-    ['_assistant-', false],
-    ['_assistant-1x', false],
-    ['_assistants', false],
+  // [scope, a session may run in it, a runtime file may be named after it]
+  const rows: [unknown, boolean, boolean][] = [
+    [INBOX_SCOPE, true, true],
+    [OFFICE_SCOPE, true, true],
+    [GATES_SCOPE, false, true],
+    ['_assistant-1', false, true],
+    ['_assistant-16', false, true],
+    ['_assistant-0', false, false],
+    ['_assistant-17', false, false],
+    ['_assistant-01', false, false],
+    ['_assistant-1x', false, false],
+    ['_assistants', false, false],
+    ['j-1', true, true],
   ];
-  for (const [s, want] of valid) assert.equal(validScope(s), want, `validScope(${JSON.stringify(s)})`);
-  assert.equal(requestScope(r.dir, { type: 'gate', job: 'j-1' }), ASSISTANTS_SCOPE);
+  for (const [s, valid, runtime] of rows) {
+    assert.equal(validScope(s), valid, `validScope(${JSON.stringify(s)})`);
+    assert.equal(validRuntimeScope(s), runtime, `validRuntimeScope(${JSON.stringify(s)})`);
+  }
+  assert.equal(requestScope(r.dir, { type: 'gate', job: 'j-1' }), GATES_SCOPE);
   assert.equal(requestScope(r.dir, { type: 'direct' }), OFFICE_SCOPE);
-  const shared: [unknown, boolean][] = [
-    [INBOX_SCOPE, true],
-    [OFFICE_SCOPE, true],
-    [ASSISTANTS_SCOPE, true],
-    ['_assistant-3', true],
-    ['j-1', false],
-  ];
-  for (const [s, want] of shared) assert.equal(sharedScope(s), want, `sharedScope(${JSON.stringify(s)})`);
-  assert.equal(assistantScope(16), '_assistant-16');
-  assert.throws(() => assistantScope(17));
-  assert.throws(() => assistantScope(0));
+  for (const [s, want] of [[INBOX_SCOPE, true], [OFFICE_SCOPE, true], [GATES_SCOPE, true], ['_assistant-3', false], ['j-1', false]] as const)
+    assert.equal(sharedScope(s), want, `sharedScope(${JSON.stringify(s)})`);
+  // No session serves the gate group, whatever its scope.
+  for (const s of [INBOX_SCOPE, OFFICE_SCOPE, '_chat-0123456789ab', 'j-1', '_assistant-1']) assert.equal(servesScope(s, GATES_SCOPE), false, s);
+  assert.equal(servesScope('j-1', 'j-1'), true);
+  assert.deepEqual(daemonScope({ FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: GATES_SCOPE }), { problem: "forge refuses: a gate run's assistant runs no forge commands" });
+  assert.ok('problem' in daemonScope({ FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_assistant-1' }), 'a legacy assistant scope is a broken scope');
+});
+
+test('only an issued authority holds the Foreman authority', () => {
+  const a = issueForemanAuthority();
+  assert.equal(holdsForemanAuthority(a), true);
+  assert.ok(Object.isFrozen(a));
+  for (const v of [null, undefined, {}, { kind: 'foreman-authority' }, { ...a }, JSON.parse(JSON.stringify(a)), { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_assistant-1' }, 'foreman'])
+    assert.equal(holdsForemanAuthority(v), false, JSON.stringify(v));
+});
+
+test('a gate run gives its claim back uncounted', (t) => {
+  const r = tempRepo();
+  t.after(r.cleanup);
+  const req = enqueue(r.dir, defaults(), { type: 'gate', job: 'j-1', args: { gate: 'spec-approval' } });
+  claimRequest(r.dir, req.id, 'gate-run:a');
+  assert.equal(releaseClaim(r.dir, req.id, 'gate-run:b'), false, "another session's claim stays");
+  assert.equal(releaseClaim(r.dir, req.id, 'gate-run:a'), true);
+  const rec = listRequests(r.dir).find((x) => x.id === req.id)!;
+  assert.deepEqual([rec.status, rec.session, rec.requeues], ['pending', undefined, undefined]);
+  assert.equal(releaseClaim(r.dir, req.id, 'gate-run:a'), false, 'a pending request has no claim to give back');
 });
 
 test('chat scopes', (t) => {
@@ -77,7 +121,7 @@ test('a gate request without a job is only a milestone draft with a valid mandat
   for (const job of [null, undefined]) {
     const ok = enqueue(r.dir, null, { type: 'gate', job, args, from: 'forge' });
     assert.deepEqual([ok.job, ok.args], [null, args], `job ${job}`);
-    assert.equal(requestScope(r.dir, ok), ASSISTANTS_SCOPE);
+    assert.equal(requestScope(r.dir, ok), GATES_SCOPE);
   }
   const refused: [string, { job?: string | null; args?: Record<string, unknown> }][] = [
     ['another gate class', { job: null, args: { ...args, gate: 'spec-approval' } }],
@@ -97,14 +141,14 @@ test('a gate request without a job is only a milestone draft with a valid mandat
   assert.equal(listRequests(r.dir).length, before, 'a refused request writes nothing');
 });
 
-test('a gate claimed by an exited assistant goes back to pending', (t) => {
+test('a gate claimed by a failed gate run goes back to pending', (t) => {
   const r = tempRepo();
   t.after(r.cleanup);
   const req = enqueue(r.dir, defaults(), { type: 'gate', job: 'j-1', args: { gate: 'spec-approval' } });
-  claimRequest(r.dir, req.id, 'sess-a');
+  claimRequest(r.dir, req.id, 'gate-run:a');
   const asked: string[] = [];
-  const out = requeueOrphans(r.dir, { leaseOf: (s) => (asked.push(s), null), exited: ['sess-a'] });
+  const out = requeueOrphans(r.dir, { leaseOf: (s) => (asked.push(s), null), exited: ['gate-run:a'], byAge: false });
   assert.deepEqual(out.requeued.map((x) => x.id), [req.id]);
   assert.equal(listRequests(r.dir).find((x) => x.id === req.id)?.status, 'pending');
-  assert.ok(!asked.includes(ASSISTANTS_SCOPE), 'no lease is read for the gate group');
+  assert.ok(!asked.includes(GATES_SCOPE), 'no lease is read for the gate group');
 });

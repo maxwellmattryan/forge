@@ -1,7 +1,7 @@
 // `forge job …`: every write to a job's state goes through here.
-import { ASSISTANT_REFUSAL, OFFICE_REFUSAL } from '#office/owner.ts';
+import { OFFICE_REFUSAL } from '#office/owner.ts';
 import { OFFICE_JOB_COMMANDS } from '#office/foreman/policy.ts';
-import { inAssistant, inOffice } from '#core/job/requests.ts';
+import { inOffice } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';
 import type { Config } from '#core/types.ts';
 import type { JobHandler } from '../types.ts';
@@ -11,7 +11,7 @@ import { fromRef, link, newCmd } from './job/create.ts';
 import { acs, audit, findings, get, links, listCmd, panel, paths, progressCmd, scope, show } from './job/read.ts';
 import { budget, effort, note, refreshRequestCmd, set } from './job/state.ts';
 import { claim, release, stepCmd } from './job/lease.ts';
-import { assistCmd, handoff, human } from './job/decide.ts';
+import { assistCmd, human } from './job/decide.ts';
 import { interim, repo } from './job/repos.ts';
 import { agent } from './job/agent.ts';
 import { decision, round, score, verdicts } from './job/review.ts';
@@ -35,7 +35,6 @@ export const JOB_HANDLERS: Readonly<Record<string, JobHandler>> = {
   note,
   human,
   assist: assistCmd,
-  handoff,
   agent,
   round,
   budget,
@@ -57,13 +56,12 @@ export const JOB_HANDLERS: Readonly<Record<string, JobHandler>> = {
 };
 
 /**
- * The office and the assistant foremen read, decide gates and note, nothing else: an allowlist, so a new
- * subcommand starts out refused there. lib/cli/main.ts asks it before routing `forge job advance` too.
+ * The office reads and notes, nothing else: an allowlist, so a new subcommand starts out refused there.
+ * lib/cli/main.ts asks it before routing `forge job advance` too.
  */
 export function refuseForemanJobCommand(sub: string | undefined): void {
   if (OFFICE_JOB_COMMANDS.includes(String(sub))) return;
   if (inOffice()) throw new ForgeError(`${OFFICE_REFUSAL}; forge job ${String(sub).slice(0, 40)} is not available in the office session`, 1);
-  if (inAssistant()) throw new ForgeError(`${ASSISTANT_REFUSAL}; forge job ${String(sub).slice(0, 40)} is not available in an assistant foreman session (only ${OFFICE_JOB_COMMANDS.join(', ')})`, 1);
 }
 
 /** The result is printed as JSON. */

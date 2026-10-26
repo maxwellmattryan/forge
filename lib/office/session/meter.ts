@@ -1,9 +1,9 @@
 // The supervisor's meter for one session: each result's cost, as a delta against a baseline held per spawn,
 // appended to the scope's meter file (lib/engine/metrics/meter.ts), then enforced. A job scope runs the budget
-// checkpoint `session-meter`; the inbox, the office and the chats stop at their daemon.dailyUsd cap (the assistant foremen
-// share the office's, and every chat the project's one chat cap, summed), and when a meter it sums can't be read the cap
-// can't be checked, so they stop too. claude reports its cost itself, so a session's own
-// reporting never moves what is enforced (docs/architecture/daemon-security.md).
+// checkpoint `session-meter`; the inbox, the office and the chats stop at their daemon.dailyUsd cap (forge dash's gate
+// runs share the office's through officeCapRefusal and officeCapLeft, and every chat the project's one chat cap,
+// summed), and when a meter it sums can't be read the cap can't be checked, so they stop too. claude reports its cost
+// itself, so a session's own reporting never moves what is enforced (docs/architecture/daemon-security.md).
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -11,7 +11,7 @@ import { paths } from '#core/paths.ts';
 import { enforceBudget } from '#engine/metrics/budget.ts';
 import { appendMeter, lastMeterCum, METER_VERSION, meterDelta, meterTodayUsd, readMeter, readMeterChecked } from '#engine/metrics/meter.ts';
 import type { MeterCum, MeterRecord } from '#engine/metrics/meter.ts';
-import { GATES_SCOPE, INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, assistantScope, isAssistantScope, isChatScope, validJobId } from '#core/job/requests.ts';
+import { GATES_SCOPE, INBOX_SCOPE, OFFICE_SCOPE, isChatScope, validJobId } from '#core/job/requests.ts';
 import type { ClaudeEvent } from '#integrations/claude/types.ts';
 import type { SessionCore } from './contract.ts';
 import type { Config } from '#core/types.ts';
@@ -40,15 +40,14 @@ function dailyCap(c: Config, name: Family): number | null {
 }
 
 /**
- * The meter files one shared scope's cap sums: the inbox's own; for the office family (the office and every
- * assistant foreman) all 17, so running more assistants never multiplies daemon.dailyUsd.office; and for a
- * chat every chat's meter in `meter/`, so opening more chats never multiplies daemon.dailyUsd.chat. That dir
+ * The meter files one shared scope's cap sums: the inbox's own; for the office family the office's and the gate
+ * runs' (`_gates`), so gate runs never multiply daemon.dailyUsd.office; and for a chat every chat's meter in `meter/`, so opening more chats never multiplies daemon.dailyUsd.chat. That dir
  * must be missing or a real directory (a link or file there throws, and the cap fails closed); only names
  * whose scope isChatScope accepts are kept.
  */
 function capScopes(root: string, shared: Family): string[] {
   if (shared === 'inbox') return [INBOX_SCOPE];
-  if (shared === 'office') return [OFFICE_SCOPE, GATES_SCOPE, ...Array.from({ length: MAX_ASSISTANTS }, (_, i) => assistantScope(i + 1))];
+  if (shared === 'office') return [OFFICE_SCOPE, GATES_SCOPE];
   const dir = path.join(paths(root).runtime, 'meter');
   let st: fs.Stats;
   try {
@@ -123,7 +122,7 @@ export function officeCapLeft(root: string, c: Config, at: number): number | nul
 
 export function createMeter(core: SessionCore, stop: StopSelf) {
   const { root, scope } = core;
-  const shared: Family | null = scope === INBOX_SCOPE ? 'inbox' : scope === OFFICE_SCOPE || isAssistantScope(scope) ? 'office' : isChatScope(scope) ? 'chat' : null;
+  const shared: Family | null = scope === INBOX_SCOPE ? 'inbox' : scope === OFFICE_SCOPE ? 'office' : isChatScope(scope) ? 'chat' : null;
   let spawnId: string | null = null;
   /** The cumulative this spawn measures from: zero for a fresh conversation, null until a rebase. */
   let base: MeterCum | null = ZERO;

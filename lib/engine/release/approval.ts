@@ -8,7 +8,7 @@ import { isForemanActor, loadJob, logEvent, readEvents } from '#core/job/store.t
 import { classReservation, decides, foremanEnabled, reservedFor } from '../pipeline/moves/foreman-gates.ts';
 import { freshPlan, type ReleasePlan } from './plan.ts';
 import { assertNoSymlinks, readPlanFile, readState, releaseFiles } from './files.ts';
-import { FOREMAN_AUTHORITY_REFUSAL, enqueue, holdsForemanAuthority, inAssistant, listRequests } from '#core/job/requests.ts';
+import { FOREMAN_AUTHORITY_REFUSAL, enqueue, holdsForemanAuthority, listRequests } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';
 import type { Config, ForgeRequest, Job, JobEvent } from '#core/types.ts';
 
@@ -104,8 +104,7 @@ export function checkReleaseDecision(
   const refuse = (why: string): never => {
     throw new ForgeError(`--actor foreman refused: ${why}`, 1);
   };
-  // TODO(phase 2): only the gate runner's authority; an assistant foreman's env stands in while its sessions run.
-  if (!holdsForemanAuthority(by) && !(by && typeof by === 'object' && inAssistant(by as NodeJS.ProcessEnv))) refuse(FOREMAN_AUTHORITY_REFUSAL);
+  if (!holdsForemanAuthority(by)) refuse(FOREMAN_AUTHORITY_REFUSAL);
   if (typeof note !== 'string' || !note.trim()) refuse('a foreman decision needs --note with its reason');
   if (flags.link !== undefined || flags.reason !== undefined || flags.repo !== undefined) refuse('approve-release takes only --note (no --link, --reason or --repo)');
   if (!foremanEnabled(config)) refuse('foreman.enabled is false');

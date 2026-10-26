@@ -22,8 +22,8 @@ import { MAX_SSE_CLIENTS, SSE_MAX_AGE_MS, lineFrame, sseHead, startPing, stateFr
 import type { RouteMatch, ServerCtx } from '../types.ts';
 
 const PERMISSION_DECISIONS: readonly PermissionDecision[] = ['allow', 'session', 'deny'];
-const SESSION_400 = 'session must be "_inbox", "_office", "_assistant-<n>", "_chat-<id>" or a job id';
-const SCOPE_400 = 'scope must be "_inbox", "_office", "_assistant-<n>", "_chat-<id>" or a job id';
+const SESSION_400 = 'session must be "_inbox", "_office", "_chat-<id>" or a job id';
+const SCOPE_400 = 'scope must be "_inbox", "_office", "_chat-<id>" or a job id';
 
 /**
  * Server-sent events for one session: its state, then its buffered log lines, then live ones,
@@ -133,7 +133,7 @@ export async function postDaemonMode(ctx: ServerCtx, req: http.IncomingMessage, 
   }
   const obj = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
   const jobs = obj.scope === JOBS_SCOPE;
-  if (!jobs && !validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office", "_assistant-<n>", "_chat-<id>", "_jobs" or a job id' });
+  if (!jobs && !validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office", "_chat-<id>", "_jobs" or a job id' });
   if (!jobs && !sharedScope(obj.scope) && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
   const chat = jobs ? null : chatIdOf(obj.scope);
   if (chat !== null && !readChat(root, chat)) return jsonStatus(res, 404, { error: `no chat ${chat}` });
@@ -206,6 +206,7 @@ export function idlePoolState(root: string): PoolState {
     office: offSessionState(root, OFFICE_SCOPE),
     foreman: false,
     assistants: {},
+    gates: { enabled: false, parallel: 2, live: 0, held: null, runs: [] },
     jobs: {},
     permissionMode: 'default',
     permissionModes: {},

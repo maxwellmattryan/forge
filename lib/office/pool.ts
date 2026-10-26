@@ -1,5 +1,5 @@
 // The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests with no job, one office session for draft and direct
-// requests, up to `foreman.assistants.sessions` assistant foremen that take gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job
+// requests, the gate runner (lib/office/foreman/run.ts) that decides gate requests in code when `foreman.enabled`, plus up to `daemon.maxConcurrent` job
 // sessions, each spawned on demand for the job its requests name, and a session per chat the owner sends a message (sendChat). Sessions fail, hold and stop
 // on their own (lib/office/session/lifecycle.ts); the pool owns what is repo-wide: the trust snapshot, routing, the cap, the stops config changes force, and
 // the periodic sync and Office pass children. docs/architecture/daemon.md describes the rules.
@@ -15,14 +15,15 @@ import { sessionOptions, type DaemonOptions, type Session, type SessionContext, 
 import { offState, otherOwner, reapOrphans } from './session/records.ts';
 import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
 import { createModeBook, type PoolOptions } from './modes.ts';
-import { assistantScopes, routeAssistants, sessionEffort, sessionKind, sessionModel, startWork, type SlotMember } from './slots.ts';
+import { sessionEffort, sessionKind, sessionModel, startWork, type SlotMember } from './slots.ts';
+import { createGateRunner } from './foreman/run.ts';
 import { daemonSessionIds, releaseSession } from './driver.ts';
 import { loadJob, logHumanEvent } from '#core/job/store.ts';
 import { RECONCILE_MS, daemonLockDir, reconcile, type SessionFacts } from './reconcile.ts';
 import { tryLock } from '#core/os/lock.ts';
 import { createRepoBudgetMemo } from '#engine/metrics/repo-budget.ts';
 import { daemonPlatformProblem } from '#core/os/platform.ts';
-import { ASSISTANTS_SCOPE, INBOX_SCOPE, OFFICE_SCOPE, isChatScope, listRequests, requestScope, sharedScope as shared, validScope } from '#core/job/requests.ts';
+import { GATES_SCOPE, INBOX_SCOPE, OFFICE_SCOPE, isChatScope, listRequests, requestScope, sharedScope as shared, validScope } from '#core/job/requests.ts';
 import type { Config, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, PermissionDecision } from '#core/types.ts';
 
 /** The pool's own state: state() below. The server adds `clients` and `needsApproval` to make a DaemonPoolState. */
@@ -144,6 +145,8 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     effort: (scope, c) => sessionEffort(root, scope, c),
     model: (scope, c) => sessionModel(scope, c),
   };
+  /** Decides gate requests in code, one forge:assistant child per run; its runs count against no cap and end with a poke. */
+  const gates = createGateRunner(root, { ctx, o });
   /** The Office pass (lib/office/mandates/cadence.ts): its child ends with a tick, so the direct request it queued turns the office at once. */
   const passes = createPassScheduler(root, { run: opts.runPass ?? ((r) => runPassChild(r, o.env)), done: () => tick(), log: (message) => office.logEvent('error', { message }) });
 
@@ -157,7 +160,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
   }
   const inbox = session(INBOX_SCOPE);
   const office = session(OFFICE_SCOPE);
-  // Shared sessions (inbox, office, assistant foremen) are never job sessions: never counted against a cap, never pruned.
+  // Shared sessions (inbox, office, chats) are never job sessions: never counted against a cap, never pruned.
   const jobSessions = () => [...sessions.values()].filter((s) => !shared(s.scope));
   /** The oldest request the machine cap held at the last tick, below this pool's own cap (lib/office/slots.ts). */
   let heldOldest: string | null = null;
@@ -170,11 +173,8 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     poke: () => tick(),
   };
   const leave = slots?.join(member) ?? null;
-  /** The config the last tick (or start) read: state() lists its assistant foremen. */
-  let lastConfig: Config | null = null;
   function config(): Config {
     const { config: c } = o.readConfig(root);
-    lastConfig = c;
     enabled = c.daemon?.enabled === true;
     foreman = c.foreman?.enabled === true;
     const m = c.daemon?.maxConcurrent;
@@ -199,6 +199,8 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       s.setWaiting(false);
     }
     for (const s of sessions.values()) void s.kill('stop', false, reason);
+    // Live gate runs are killed too, their claims given back uncounted.
+    void gates.stop();
     if (announce)
       try {
         o.notify(root, ['daemon-stopped'], { job: null, reason: 'trust' });
@@ -240,8 +242,8 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
   async function runReconcile(only?: string): Promise<void> {
     if (closed || !fs.existsSync(root)) return;
     try {
-      // Inbox and office sessions too: their requests have no lease, so only this keeps a long turn's claim.
-      const busy = [...sessions.values()].filter((s) => s.status === 'busy' || s.status === 'stopping').flatMap((s) => s.facts().ids);
+      // Inbox and office sessions and gate runs too: their requests have no lease, so only this keeps a long turn's claim.
+      const busy = [...[...sessions.values()].filter((s) => s.status === 'busy' || s.status === 'stopping').flatMap((s) => s.facts().ids), ...gates.sessions()];
       const r = await reconcile(root, config(), { facts: sessionFacts(), busy, ...(only !== undefined ? { only } : {}) });
       for (const id of r.resumed) sessions.get(id)?.logEvent('reconcile', { action: 'resume' });
       for (const id of r.escalated) sessions.get(id)?.logEvent('reconcile', { action: 'escalate' });
@@ -268,19 +270,17 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
         if (g) g.push(r);
         else groups.set(scope, [r]);
       }
-      // The gate group is never a session: assistant foremen claim from it. None run while the foreman or its
-      // assistants are off, and gate requests then wait, unturned, for a human.
-      const assistants = assistantScopes(c);
-      for (const scope of [...groups.keys(), ...assistants]) if (validScope(scope)) session(scope);
+      // The gate group is never a session (validScope refuses it): the gate runner takes from it below. While the
+      // foreman or its gate runs are off, gate requests wait, untouched, for a person.
+      for (const scope of groups.keys()) if (validScope(scope)) session(scope);
       if (inboxEager && inbox.wanted && !inbox.running && inbox.status !== 'stopping') {
         inboxEager = false;
         startWork(inbox, c, startReason, null);
         if (!wanted) return;
       }
       const waiters: { s: Session; eligible: string[]; oldest: string }[] = [];
-      const assistant = (s: Session) => sessionKind(s.scope) === 'assistant';
       // A chat is turned only by its owner's messages (sendChat), never by routing.
-      for (const s of [...sessions.values()].filter((x) => !assistant(x) && sessionKind(x.scope) !== 'chat')) {
+      for (const s of [...sessions.values()].filter((x) => sessionKind(x.scope) !== 'chat')) {
         if (!wanted) return;
         if (s.scope === OFFICE_SCOPE && !foreman) {
           s.setWaiting(false);
@@ -300,7 +300,8 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
           if (startWork(s, c, 'work', eligible) && s.scope === INBOX_SCOPE) inboxEager = false;
         } else waiters.push({ s, eligible, oldest: routed[0].id });
       }
-      routeAssistants(c, [...sessions.values()].filter(assistant), assistants, groups.get(ASSISTANTS_SCOPE) ?? [], () => wanted);
+      if (!wanted) return;
+      gates.take(c, foreman ? (groups.get(GATES_SCOPE) ?? []) : []);
       // Slots go to the job whose oldest pending request is oldest (request ids sort by time).
       waiters.sort((a, b) => a.oldest.localeCompare(b.oldest));
       let live = jobSessions().filter((s) => s.running).length;
@@ -402,7 +403,8 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       inbox: inbox.state(),
       office: office.state(),
       foreman,
-      assistants: Object.fromEntries((lastConfig ? assistantScopes(lastConfig) : []).map((a) => [a, session(a).state()])),
+      assistants: {},
+      gates: gates.state(),
       jobs,
       ...modes.state(),
       machine: slots ? { maxConcurrent: slots.cap(), live: slots.live() } : null,
@@ -445,6 +447,8 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       if (fresh && ![...sessions.values()].some((s) => s.running || s.status === 'stopping')) {
         reapOrphans(root, { graceMs: o.graceMs });
         expireBootLeases();
+        // No earlier dash's gate run can still be live: what one left claimed goes back, counted.
+        gates.recover();
       }
       wanted = true;
       lastError = null;
@@ -478,7 +482,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       wanted = false;
       inboxEager = false;
       for (const s of sessions.values()) s.setWaiting(false);
-      await Promise.all([...sessions.values()].map((s) => s.kill('stop', false, reason)));
+      await Promise.all([...[...sessions.values()].map((s) => s.kill('stop', false, reason)), gates.stop()]);
       // Unless a start came in while the sessions stopped.
       if (!wanted) releaseDaemonLock();
       return state();
@@ -563,13 +567,14 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       wanted = false;
       closed = true;
       leave?.();
-      await Promise.all([...sessions.values()].map((s) => s.close()));
+      await Promise.all([...[...sessions.values()].map((s) => s.close()), gates.close()]);
       releaseDaemonLock();
       subscribers.clear();
     },
     /** Last resort from a process `exit` handler: synchronous, so it can't wait for the grace period. */
     killSync() {
       for (const s of sessions.values()) s.killSync();
+      gates.killSync();
       releaseDaemonLock();
     },
   };

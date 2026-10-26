@@ -80,7 +80,10 @@ test('foreman problems', () => {
   const rows: [string, (f: any) => void, RegExp][] = [
     ['cadence 0', (f) => (f.cadence = 0), /^foreman\.cadence must be an integer 1-1440 \(got 0\)$/],
     ['cadence 1.5', (f) => (f.cadence = 1.5), /^foreman\.cadence must be an integer 1-1440/],
-    ['assistants.sessions 0', (f) => (f.assistants.sessions = 0), /^foreman\.assistants\.sessions must be an integer 1-16/],
+    ['assistants.parallel 0', (f) => (f.assistants.parallel = 0), /^foreman\.assistants\.parallel must be an integer 1-16 \(got 0\)$/],
+    ['assistants.parallel 17', (f) => (f.assistants.parallel = 17), /^foreman\.assistants\.parallel must be an integer 1-16 \(got 17\)$/],
+    ['assistants.parallel "x"', (f) => (f.assistants.parallel = 'x'), /^foreman\.assistants\.parallel must be an integer 1-16/],
+    ['assistants.sessions written by hand', (f) => (f.assistants.sessions = 2), /^foreman\.assistants has unknown key "sessions"/],
     ['assistants.model --x', (f) => (f.assistants.model = '--x'), /^foreman\.assistants\.model must be a model alias or id/],
     ['surveyors.effort ultra', (f) => (f.surveyors.effort = 'ultra'), /^foreman\.surveyors\.effort must be one of low \| medium/],
     ['mandate.until released', (f) => (f.mandate.until = 'released'), /^foreman\.mandate\.until must be one of merge-ready \| merged/],

@@ -2,7 +2,7 @@
 import { budgetCmd } from '#engine/metrics/budget.ts';
 import { inInboxOrOffice } from '#office/owner.ts';
 import { checkOfficeSetFor } from '#office/foreman/policy.ts';
-import { inAssistant, inChat, inOffice } from '#core/job/requests.ts';
+import { inChat, inOffice } from '#core/job/requests.ts';
 import { chatSetRefusal } from '#office/chat/authority.ts';
 import { refreshDependencyWait, validateDependsOn } from '#engine/pipeline/moves/deps.ts';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
@@ -57,7 +57,7 @@ export async function set(root: string, config: Config, rest: string[], flags: R
   // setJob checks again inside its lock; checked here too so the office check and
   // validateDependsOn only see fields that pass, and `dependsOn={}` gets the array message.
   checkJobFields(fields, before);
-  if (inOffice() || inAssistant()) checkOfficeSetFor(root, before, change);
+  if (inOffice()) checkOfficeSetFor(root, before, change);
   if ('dependsOn' in fields) fields.dependsOn = validateDependsOn(root, jobId, fields.dependsOn);
   // A failed teardown is never rolled back: the result says so and any later teardown path retries.
   // The inbox and office sessions only stop it, as `forge environment down` is refused there.

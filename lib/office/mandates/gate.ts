@@ -1,5 +1,5 @@
 // The milestone-approval gate over a goal mandate's ready draft: its status, who owns it, the gate request
-// a recorded draft queues for an assistant foreman, the assistant's brief (`forge mandate draft assist`),
+// a recorded draft queues for forge dash's gate runner, the assistant's brief (`forge mandate draft assist`),
 // and the one decision path (`decideDraft`) the CLI and the dashboard both call, with the daemon refusal,
 // the request and digest pins and a per-mandate lock. Approve files the draft (filing.ts); revise queues
 // another drafting run with the note; reject closes the mandate. docs/architecture/foreman.md › Milestone
@@ -135,7 +135,7 @@ export function draftGates(root: string, config: Config, requests: ForgeRequest[
 
 /**
  * Called by `forge mandate draft record` after a draft is stored: always one `gate` notification (no free
- * text: job and title are null), then one gate request for an assistant foreman when the foreman is on,
+ * text: job and title are null), then one gate request for the gate runner when the foreman is on,
  * the project and the mandate delegate the class, the mandate is active, the foreman has revised it fewer
  * than FOREMAN_REVISIONS_MAX times, and no gate request for this draft's key exists in any status.
  */
@@ -267,8 +267,8 @@ export async function decideDraft(
   opts: { request?: string; digest?: string; note?: string | null; foreman: boolean; actor: EventActor; tracker: () => Promise<Tracker>; env?: NodeJS.ProcessEnv; by?: unknown; queue?: typeof queueDraftRequest },
 ): Promise<DecideResult> {
   const env = opts.env ?? process.env;
-  // TODO(phase 2): only the gate runner's authority; the env stands in while assistant foremen run.
-  const by = opts.by ?? env;
+  // Only the gate runner passes `by`: a foreman decision from anywhere else is refused.
+  const by = opts.by ?? null;
   if (env.FORGE_DAEMON === '1' && !opts.foreman)
     refuse(`forge mandate draft ${decision} decides the owner's milestone draft, which a daemon session may not do; decide in the dashboard or your own terminal`);
   if (opts.foreman) {

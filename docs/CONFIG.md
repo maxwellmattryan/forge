@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `/bin/sh -c <cmd>` with an allowl
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 38            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 39            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -286,12 +286,12 @@ daemon:                      # opt-in headless sessions supervised by `forge das
     usd: 150                 # estimated USD per job
   dailyUsd:                  # dollars per UTC day the inbox, office and chat sessions may spend, as the supervisor meters it; at the cap the session stops: start it again after midnight UTC, or raise the cap (null: no caps; see "Daemon" below)
     inbox: 25                # the inbox session's daily cap in USD (null: none)
-    office: 60               # the daily cap in USD on the office session and its assistant foremen, summed (null: none)
+    office: 60               # the daily cap in USD on the office session and its gate runs, summed: at the cap no gate run starts (null: none)
     chat: 25                 # the daily cap in USD on every chat session of the project, summed: at the cap a chat refuses the owner's next message, and a running one stops after its reply (null: none)
   keepAwake: auto            # auto: while the pool is started and an active mandate or a running job at an agent stage is in flight, the machine dashboard holds a sleep assertion; never: this project never does (see "Daemon" below)
 
-foreman:                     # opt-in: assistant foreman daemon sessions decide gates through assistant sub-agents (see "Foreman" below)
-  enabled: false             # true (with daemon.enabled): parked gates become `gate` requests that assistant foremen claim
+foreman:                     # opt-in: forge dash decides parked gates in code, one forge:assistant process per gate (see "Foreman" below)
+  enabled: false             # true (with daemon.enabled): parked gates become `gate` requests that forge dash's gate runner decides
   decides: [spec-approval, split-approval, escalation, rounds-exhausted, conflicts, pr-feedback]  # add repo-proposal to let it widen a job's repos; release (with gate:release out of reserved) to let it approve a release plan; milestone-approval to let it approve or revise a goal mandate's milestone draft
                              # the gate classes it may decide; a class left out stays a plain human gate
   reserved:                  # whole-phrase, case-insensitive: a match keeps the gate with a human; gate:<class> keeps a whole class
@@ -325,10 +325,10 @@ foreman:                     # opt-in: assistant foreman daemon sessions decide 
   model: inherit             # the office session's model when it directs work under mandates (inherit: daemon.command's)
   effort: null               # the office session's effort (null: runtime.effort)
   cadence: 10                # 1-1440: minutes between the Office's passes over its mandates
-  assistants:                # the forge:assistant sub-agent that judges one gate, and the assistant foremen that run it
-    enabled: true            # assistant foremen claim the Foreman's gate requests (false: gates wait for a human)
-    sessions: 1              # 1-16: assistant foreman sessions at once, outside daemon.maxConcurrent and the machine cap
-    model: sonnet            # forge job assist returns it as the assistant's model; see "Foreman"
+  assistants:                # the forge:assistant that judges one gate, and the gate runs that start it
+    enabled: true            # the gate runner takes the Foreman's gate requests (false: every gate waits for a person)
+    parallel: 2              # 1-16: gate runs at once, outside daemon.maxConcurrent and the machine cap
+    model: sonnet            # the model of each gate run's forge:assistant; see "Foreman"
     effort: null             # the assistant's effort; a job's effort beats it, and null falls through to effortByComplexity, then effort
   surveyors:                 # sub-agents that summarise a mandate's board for the Foreman
     enabled: false           # the Foreman spawns surveyors

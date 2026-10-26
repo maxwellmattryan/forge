@@ -10,7 +10,7 @@ import { capArg } from '#integrations/claude/argv.ts';
 import type { Config, Job } from '#core/types.ts';
 
 /**
- * The job's remaining dollars plus `baselineUsd`, or null (no flag) for a shared session (inbox, office, assistant foreman), an unreadable job or
+ * The job's remaining dollars plus `baselineUsd`, or null (no flag) for a shared session (inbox, office, chat), an unreadable job or
  * an unlimited usd. `baselineUsd` is the resumed conversation's last metered cumulative: claude's own running total
  * already includes it on a resume, so the cap adds it back. A fresh spawn's is 0.
  */

@@ -192,7 +192,7 @@ const converted = (m: Mandate, title: string, at: string): Mandate => ({ ...m, s
  * mandate passes the contract, no open milestone or item already has the title (first attempt only: on
  * a retry they may be this filing's own), each existing ref is an open item of this repo's tracker, and
  * one secret scan over every outgoing string. On a retry, the record's tracker and digest must match.
- * No refusal quotes the draft: an assistant foreman acks with it.
+ * No refusal quotes the draft: a gate run acks with it.
  */
 export function preflight(root: string, config: Config, m: Mandate, draft: Draft, digest: string, tracker: Tracker, record: Filing | null): void {
   const ctx: TrackerCtx = { root, config };

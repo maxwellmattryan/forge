@@ -313,8 +313,8 @@ export interface Config {
     effort: Effort | null;
     /** Minutes between the director's passes (1–1440). */
     cadence: number;
-    /** forge:assistant's model and effort (forge job assist); enabled and sessions are read by assistant routing (#537). */
-    assistants: ForemanSubRole & { sessions: number };
+    /** forge:assistant's model and effort (assist); enabled and parallel (1–16 gate runs at once) are read by the gate runner. */
+    assistants: ForemanSubRole & { parallel: number };
     surveyors: ForemanSubRole;
     /** What `forge mandate new` fills a term it isn't given with. */
     mandate: MandateDefaults;

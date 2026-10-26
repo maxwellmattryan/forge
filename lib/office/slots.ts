@@ -4,36 +4,25 @@
 // the oldest pending request on the machine (request ids start with Date.now(), so they compare
 // across projects). Also the one place a pool session's child is started and handed work, and what kind of
 // session a scope is: only job sessions count against `daemon.maxConcurrent` and the machine cap; the inbox,
-// the office, the assistant foremen and the chats never do. docs/architecture/daemon.md describes it.
-import { INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, assistantScope, isAssistantScope, isChatScope, sharedScope } from '#core/job/requests.ts';
+// the office and the chats never do, and neither do the gate runs (lib/office/foreman/run.ts), which are no
+// sessions. docs/architecture/daemon.md describes it.
+import { INBOX_SCOPE, OFFICE_SCOPE, isChatScope, sharedScope } from '#core/job/requests.ts';
 import { resolveEffort, validEffort, validModel } from '#core/config/load.ts';
 import { loadJob } from '#core/job/store.ts';
 import { configForJob } from '#engine/evals/overlay.ts';
 import type { Session } from './session/contract.ts';
-import type { Config, Effort, EffortSource, ForgeRequest, Job } from '#core/types.ts';
+import type { Config, Effort, EffortSource, Job } from '#core/types.ts';
 
-export type SessionKind = 'inbox' | 'office' | 'assistant' | 'chat' | 'job';
+export type SessionKind = 'inbox' | 'office' | 'chat' | 'job';
 
 export function sessionKind(scope: string): SessionKind {
   if (scope === INBOX_SCOPE) return 'inbox';
   if (scope === OFFICE_SCOPE) return 'office';
-  if (isChatScope(scope)) return 'chat';
-  return isAssistantScope(scope) ? 'assistant' : 'job';
+  return isChatScope(scope) ? 'chat' : 'job';
 }
 
 /** Counted against daemon.maxConcurrent and the machine cap: job sessions only. */
 export const counted = (scope: string): boolean => sessionKind(scope) === 'job';
-
-/**
- * The assistant foreman scopes the pool keeps this tick: none unless `foreman.enabled` and
- * `foreman.assistants.enabled`. An out-of-range count is a validation refusal elsewhere; until then it counts as 1.
- */
-export function assistantScopes(c: Config): string[] {
-  if (c.foreman?.enabled !== true || c.foreman.assistants?.enabled !== true) return [];
-  const n = c.foreman.assistants.sessions;
-  const count = Number.isInteger(n) && n >= 1 && n <= MAX_ASSISTANTS ? n : 1;
-  return Array.from({ length: count }, (_, i) => assistantScope(i + 1));
-}
 
 /** The office session's --model at its spawn: foreman.model when it is a valid model and not inherit, else null (daemon.command's). */
 export function officeModel(c: Config): string | null {
@@ -72,37 +61,6 @@ export function startWork(s: Session, c: Config, reason: string, eligible: strin
   if (!s.running && !s.spawn(c, reason)) return false;
   if (eligible !== null) s.writeTurn(eligible);
   return true;
-}
-
-/**
- * One tick's gate requests for the assistant foremen (`all`, every assistant Session the pool holds). Those outside
- * `assistants` (this tick's assistantScopes) get no turn. With P the gates eligible after holds and B the assistants
- * mid-turn or stopping, at most P − B fresh, idle ones get a turn, in scope order: a running one is turned, one that
- * is off is spawned first. A heuristic: the claim lock keeps two assistants off one gate, so an extra turn costs one refused claim.
- */
-export function routeAssistants(c: Config, all: Session[], assistants: string[], gates: ForgeRequest[], wanted: () => boolean): void {
-  const fresh: { s: Session; eligible: string[] }[] = [];
-  let eligibleGates = 0;
-  let busy = 0;
-  for (const s of [...all].sort((a, b) => assistants.indexOf(a.scope) - assistants.indexOf(b.scope))) {
-    if (!assistants.includes(s.scope)) {
-      s.setWaiting(false);
-      continue;
-    }
-    // Never the repo budget's to hold, as for the inbox and the office.
-    const r = s.route(c, gates, null);
-    eligibleGates = Math.max(eligibleGates, r.eligible.length);
-    const mid = s.status === 'busy' || s.status === 'stopping';
-    if (mid) busy++;
-    if (!r.fresh || !s.wanted) s.setWaiting(false);
-    else if (!mid) fresh.push({ s, eligible: r.eligible });
-  }
-  let turns = eligibleGates - busy;
-  for (const a of fresh) {
-    if (!wanted()) return;
-    if (turns > 0 && startWork(a.s, c, 'work', a.eligible)) turns--;
-    else a.s.setWaiting(false);
-  }
 }
 
 /** An idle, unkept job session a member could stop to free its slot. */

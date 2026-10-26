@@ -11,9 +11,9 @@ import { readJson, writeJsonAtomic } from '../os/fs.ts';
 import { withLock } from '../os/lock.ts';
 import { now, shortId } from '../utils.ts';
 
-import { ASSISTANTS_SCOPE, ASSISTANT_SCOPE_PREFIX, CHAT_SCOPE_PREFIX, GATES_SCOPE, INBOX_SCOPE, MANDATE_ID_SOURCE, MAX_ASSISTANTS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
+import { CHAT_SCOPE_PREFIX, GATES_SCOPE, INBOX_SCOPE, MANDATE_ID_SOURCE, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
 
-export { ASSISTANTS_SCOPE, ASSISTANT_SCOPE_PREFIX, CHAT_SCOPE_PREFIX, GATES_SCOPE, INBOX_SCOPE, JOBS_SCOPE, MAX_ASSISTANTS, MAX_GATE_RUNS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
+export { CHAT_SCOPE_PREFIX, GATES_SCOPE, INBOX_SCOPE, JOBS_SCOPE, MAX_GATE_RUNS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
 
 /** Request types that act on one job, so they need one and route to that job's daemon session. */
 const JOB_REQUEST_TYPES = ['approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume'] as const;
@@ -26,20 +26,6 @@ const MAX_JOB_ID = 200;
 /** A syntactically valid job id: safe to build a path or an env value from. */
 export function validJobId(s: unknown): s is string {
   return typeof s === 'string' && s.length <= MAX_JOB_ID && JOB_ID.test(s);
-}
-
-/** `_assistant-1` … `_assistant-16`: no leading zero and nothing after the digits, so no path or meter file is built from a forged one. */
-const ASSISTANT_SCOPE = /^_assistant-([1-9]|1[0-6])$/;
-
-/** An assistant foreman session's scope. */
-export function isAssistantScope(s: unknown): s is string {
-  return typeof s === 'string' && ASSISTANT_SCOPE.test(s);
-}
-
-/** The scope of assistant foreman `n`, 1 to MAX_ASSISTANTS. */
-export function assistantScope(n: number): string {
-  if (!Number.isInteger(n) || n < 1 || n > MAX_ASSISTANTS) throw new ForgeError(`assistant foreman ${n} is outside 1-${MAX_ASSISTANTS}`);
-  return `${ASSISTANT_SCOPE_PREFIX}${n}`;
 }
 
 /** A chat's id: 12 lowercase hex characters (crypto.randomBytes(6)), so no path or meter file is built from a forged one. */
@@ -61,23 +47,26 @@ export function chatIdOf(scope: unknown): string | null {
   return isChatScope(scope) ? scope.slice(CHAT_SCOPE_PREFIX.length) : null;
 }
 
-/** Not a job's scope: the inbox, the office, the gate group, an assistant foreman or a chat. Never counted against a cap, never leased. */
+/** Not a job's scope: the inbox, the office, the gate group or a chat. Never counted against a cap, never leased. */
 export function sharedScope(s: unknown): boolean {
-  return s === INBOX_SCOPE || s === OFFICE_SCOPE || s === ASSISTANTS_SCOPE || isAssistantScope(s) || isChatScope(s);
+  return s === INBOX_SCOPE || s === OFFICE_SCOPE || s === GATES_SCOPE || isChatScope(s);
 }
 
-/** Whether a session in `sessionScope` takes a request routed to `routed`: its own, or the gate group for an assistant foreman. */
+/** Whether a session in `sessionScope` takes a request routed to `routed`: only its own. No session serves the gate group. */
 export function servesScope(sessionScope: string, routed: string): boolean {
-  return sessionScope === routed || (isAssistantScope(sessionScope) && routed === ASSISTANTS_SCOPE);
+  return sessionScope === routed;
 }
 
-/** Syntax only: the inbox, the office, an assistant foreman, a chat or a valid job id (never the gate group). Existence is requestScope's business. */
+/** Syntax only: the inbox, the office, a chat or a valid job id (never the gate group). Existence is requestScope's business. */
 export function validScope(s: unknown): s is string {
-  return s === INBOX_SCOPE || s === OFFICE_SCOPE || isAssistantScope(s) || isChatScope(s) || validJobId(s);
+  return s === INBOX_SCOPE || s === OFFICE_SCOPE || isChatScope(s) || validJobId(s);
 }
 
-/** A legacy assistant foreman's scope, `_assistant-1` … `_assistant-16`: only so meter files written before gate runs stay readable. */
-const LEGACY_ASSISTANT_SCOPE = /^_assistant-([1-9]|1[0-6])$/;
+/**
+ * A legacy assistant foreman's scope, `_assistant-1` … `_assistant-16` (no leading zero, nothing after the digits),
+ * only so meter files written before gate runs stay readable: no session runs in one.
+ */
+export const LEGACY_ASSISTANT_SCOPE = /^_assistant-([1-9]|1[0-6])$/;
 
 /**
  * A scope a runtime file (a meter file, a log) may be named after: a session scope, the gate runs' `_gates`, or a
@@ -113,12 +102,12 @@ export function holdsForemanAuthority(v: unknown): v is ForemanAuthority {
 }
 
 /**
- * Which daemon session a request belongs to: the assistant foremen's group for a gate, the office for a draft or
- * a direct (the Office pass's wake), its job's for a job request whose job exists, the inbox for everything else
- * (which rejects malformed or unknown jobs per the skill).
+ * Which daemon session a request belongs to: the gate group for a gate (no session: forge dash's gate runner takes
+ * them), the office for a draft or a direct (the Office pass's wake), its job's for a job request whose job exists,
+ * the inbox for everything else (which rejects malformed or unknown jobs per the skill).
  */
 export function requestScope(root: string, rec: { type?: unknown; job?: unknown }): string {
-  if (rec?.type === 'gate') return ASSISTANTS_SCOPE;
+  if (rec?.type === 'gate') return GATES_SCOPE;
   if (rec?.type === 'draft' || rec?.type === 'direct') return OFFICE_SCOPE;
   if (!(JOB_REQUEST_TYPES as readonly unknown[]).includes(rec?.type) || !validJobId(rec.job)) return INBOX_SCOPE;
   return exists(path.join(paths(root).jobs, rec.job, 'job.json')) ? rec.job : INBOX_SCOPE;
@@ -138,12 +127,6 @@ export function daemonScope(env: NodeJS.ProcessEnv = process.env): { daemon: fal
 export function inOffice(env: NodeJS.ProcessEnv = process.env): boolean {
   const s = daemonScope(env);
   return 'daemon' in s && s.daemon && s.scope === OFFICE_SCOPE;
-}
-
-/** The daemon scope this call runs in is an assistant foreman session. */
-export function inAssistant(env: NodeJS.ProcessEnv = process.env): boolean {
-  const s = daemonScope(env);
-  return 'daemon' in s && s.daemon && isAssistantScope(s.scope);
 }
 
 /** The daemon scope this call runs in is a chat session. */

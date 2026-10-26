@@ -139,7 +139,7 @@ function ciReworkStreak(events: JobEvent[]): number {
  * After `pr.maxCiReworks` in a row with no person's event between, a red head starts nothing: the
  * reason says so, a `ci-rework-capped` event is logged once per head, and the caller queues no gate.
  * A job in a mandate gets the rework only when `narrow` finds its mandate delegating `pr-feedback`; else
- * (or with no `narrow`, failing closed) the caller queues the gate, which an assistant foreman hands off.
+ * (or with no `narrow`, failing closed) the caller queues the gate, which a gate run hands off.
  * `job` is the CLI's record (moveJob's `after`), so a session clearing `mandate` in job.json changes nothing.
  */
 async function startCiRework(

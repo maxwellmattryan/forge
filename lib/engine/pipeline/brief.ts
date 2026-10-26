@@ -436,8 +436,8 @@ export function renderBrief(input: StepInput, spec: BriefSpec): string {
 }
 
 /**
- * The forge:assistant brief `forge job assist` returns to the office session: paths, the gate class
- * and the reserved list, never file contents, so the office session's context holds no job text.
+ * The forge:assistant brief a gate run writes to its child's stdin (lib/office/foreman/decide.ts gateAssist,
+ * and `forge job assist` for a person): paths, the gate class and the reserved list, never file contents.
  * Reads nothing: every path is listed whether or not it exists, and the assistant skips the missing.
  */
 export function assistantBrief(

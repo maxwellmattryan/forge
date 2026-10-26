@@ -20,7 +20,7 @@ import { PLUGIN_ROOT, exists, paths, resolveFrom } from '../paths.ts';
 import { globProblem, policyProblems } from './validators/policy-check.ts';
 import { CONFIG_SCHEMA_VERSION, EFFORTS, FOREMAN_SHIP, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL, OFFICE_GATES, REPO_BUDGET_MODES, reservedGateEntry } from '../job/schema.ts';
 import { secretRefProblems } from './validators/secret-refs.ts';
-import { MAX_ASSISTANTS } from '#api/constants.ts';
+import { MAX_GATE_RUNS } from '#api/constants.ts';
 import { instructionsProblems } from './validators/instructions.ts';
 import { isMap, show } from '../shape.ts';
 import type { VerifyEntry } from '../types.ts';
@@ -287,7 +287,11 @@ function foremanOfficeProblems(f: Record<string, any>): string[] {
     bool(`${role}.enabled`, m.enabled);
     model(`${role}.model`, m.model);
     effort(`${role}.effort`, m.effort);
-    if (role === 'assistants') int('assistants.sessions', m.sessions, 1, MAX_ASSISTANTS);
+    if (role === 'assistants') {
+      int('assistants.parallel', m.parallel, 1, MAX_GATE_RUNS);
+      // The foreman-gate-runs step moved it; written again by hand, it would be ignored without a word.
+      if (Object.hasOwn(m, 'sessions')) problems.push('foreman.assistants has unknown key "sessions": gate runs replaced the assistant sessions; set foreman.assistants.parallel');
+    }
   }
   const m = map('mandate', f.mandate);
   if (!m) return problems;
