@@ -13,6 +13,7 @@ The version lists: one append-only list of named steps per persisted shape, whos
 | File | What it holds |
 |---|---|
 | `config.ts` | The config version steps: `.forge/config.yml`'s schemaVersion is this list's length plus one. |
+| `draft.ts` | The milestone draft version steps: a goal mandate's draft.json `schemaVersion` (`.forge/runtime/mandates/<id>/draft.json`) is this list's length plus one. |
 | `event.ts` | The event version steps: an events.jsonl line's `v` is this list's length plus one. |
 | `job.ts` | The job version steps: job.json's schemaVersion is this list's length plus one, with the helpers the steps need. |
 | `machine.ts` | The machine index version steps: `<FORGE_HOME>/projects.json`'s schemaVersion is this list's length plus one. |

@@ -10,7 +10,9 @@ Mandates: the owner's standing instructions to the Office, one file each in `.fo
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
 |---|---|
-| `contract.ts` | The mandate contract's rules: the stored shape a file needs to be read, the refusals of `forge mandate new\|edit`, the defaults a new mandate takes, the contract as it applies under the config (what it caps), the derived state and chain, and the guidance fence. |
+| `contract.ts` | The mandate contract's rules: the stored shape a file needs to be read, the refusals of `forge mandate new\|edit`, the defaults a new mandate takes, the contract as it applies under the config (what it caps), the derived state and chain, and the guidance and goal fences. |
+| `draft.ts` | A goal mandate's milestone draft and its drafting runs' records: the draft rules (draftProblems), the stored `.forge/runtime/mandates/<id>/draft.json` (readDraft, recordDraft), the drafter's staging file under the office session's worktrees root, the draft requests for a mandate, the spend ledger (`ledger.jsonl`), and the status `forge mandate draft show` prints. |
+| `intake.ts` | Intake's first CLI call: `forge mandate draft prepare` writes a goal mandate's survey (`.forge/runtime/mandates/<id>/survey.md`, outside every session's write roots) and returns the `forge:drafter` brief. |
 | `store.ts` | Mandate files: `.forge/runtime/mandates/<id>.md`, YAML frontmatter then the owner's guidance. |
-| `types.ts` | The mandate shapes, type-only: the file `forge mandate` writes, the contract terms, and the summary and state the CLI prints. |
+| `types.ts` | The mandate shapes, type-only: the file `forge mandate` writes, the contract terms, the summary and state the CLI prints, and a goal mandate's milestone draft. |
 <!-- forge:map:end -->

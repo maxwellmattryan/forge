@@ -1,10 +1,19 @@
-// `forge mandate new|edit|pause|resume|close|list|show`: the owner's mandates to the Office
-// (lib/office/mandates/, docs/CONFIG.md "Mandates"). Every write is refused in a daemon session, before
-// anything is read: a session misled by tracker or PR text must not widen or create what directs the Office.
+// `forge mandate new|edit|pause|resume|close|list|show` and `forge mandate draft start|prepare|record|show`:
+// the owner's mandates to the Office and a goal mandate's drafting runs (lib/office/mandates/,
+// docs/CONFIG.md "Mandates"). Every write and `draft start` is refused in a daemon session, before
+// anything is read: a session misled by tracker or PR text must not widen or create what directs the
+// Office, or spend on drafting. `draft prepare|record` run only in the office session or a person's terminal.
 import fs from 'node:fs';
+import path from 'node:path';
 import { ForgeError } from '#core/errors.ts';
+import { OFFICE_SCOPE, SCOPE_ENV, daemonScope, enqueue } from '#core/job/requests.ts';
+import { oneLineTitle } from '#core/text.ts';
 import { now } from '#core/utils.ts';
-import { listMandates, mandateFile, mandateJobs, writeMandate } from '#office/mandates/store.ts';
+import { AGENT_ID } from '#integrations/claude/transcripts.ts';
+import { loadTracker } from '#engine/trackers/load.ts';
+import { boundRequest, draftFile, draftRequests, draftSpend, draftStatus, recordDraft } from '#office/mandates/draft.ts';
+import { prepareDraft, staleReason } from '#office/mandates/intake.ts';
+import { listMandates, mandateFile, mandateJobs, withMandatesLock, writeMandate } from '#office/mandates/store.ts';
 import type { MandateAction } from '#office/mandates/store.ts';
 import {
   applyInput,
@@ -43,6 +52,7 @@ const TERMS: [string, string][] = [
 ];
 
 const DOCS: [string, string] = ['Mandates', 'docs/CONFIG.md#mandates'];
+const INTAKE: [string, string] = ['Foreman › Intake', 'docs/architecture/foreman.md'];
 const DAEMON_EXIT = 'a daemon session ran it';
 
 const MANDATE: HelpGroup = {
@@ -107,9 +117,46 @@ const MANDATE: HelpGroup = {
       command: 'mandate show',
       args: '<id>',
       summary:
-        "one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance fenced as data, and its file",
+        "one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request} (else null), and its file",
       exits: [[1, "no such mandate (not_found), or it can't be read"]],
       docs: DOCS,
+    },
+    {
+      command: 'mandate draft start',
+      args: '<id>',
+      summary:
+        "queue a drafting run for an active goal mandate, for the office session to turn ({ok, changed, request}; changed false with the request already pending or in progress)",
+      exits: [[1, `no such mandate (not_found), it can't be read, is not active or has no goal, or ${DAEMON_EXIT}`]],
+      docs: INTAKE,
+    },
+    {
+      command: 'mandate draft prepare',
+      args: '<id> --request R',
+      summary:
+        "the office session's first call of a drafting run: write the survey and return the forge:drafter brief ({mandate, request, stale: false, subagent, model, effort, brief, survey, staging}), or {stale: true, reason} for a mandate that is missing, unreadable, closed, paused or has no goal",
+      flags: [['--request R', "the claimed draft request (required): in progress, for this mandate"]],
+      exits: [[1, 'run in a daemon session other than the office, R is not an in-progress draft request for this mandate, or a link or a file sits at the drafts dir']],
+      docs: INTAKE,
+    },
+    {
+      command: 'mandate draft record',
+      args: '<id> --request R [--agent-id A]',
+      summary:
+        "the office session's last call of a drafting run: append its spend to the mandate's ledger, then check the drafter's staging file and store it as draft.json ({ok, mandate, request, draft: {issues, waves, existing}, spend, file})",
+      flags: [
+        ['--request R', 'the claimed draft request (required): in progress, for this mandate'],
+        ['--agent-id A', "the drafter's agent id, whose transcript gives the run's usage"],
+      ],
+      exits: [[1, "run in a daemon session other than the office, R is not an in-progress draft request for this mandate, the mandate can't be read, is closed or has no goal, or the draft breaks the rules (every problem named, at most 20; the spend stays recorded)"]],
+      docs: INTAKE,
+    },
+    {
+      command: 'mandate draft show',
+      args: '<id>',
+      summary:
+        "a goal mandate's milestone draft: {mandate, title, status (queued, drafting, ready, unreadable, failed or none), request, note, problem, draft, spend: {runs, withUsage, tokens, usd, metered}, file}",
+      exits: [[1, "no such mandate (not_found), it can't be read, or it has no goal"]],
+      docs: INTAKE,
     },
   ],
 };
@@ -217,6 +264,8 @@ function write(ctx: CliContext, sub: string, id: string, flags: Record<string, a
       if (problems.length) throw refused(problems);
       return { mandate: m, action: 'new' as MandateAction };
     });
+    // A goal mandate's first drafting run, for the office session to turn.
+    if (goal !== undefined) return { ...written(root, id, true), draft: { request: queueDraft(ctx, id).request } };
     return written(root, id, true);
   }
   const input = sub === 'edit' ? inputFrom(ctx, flags) : {};
@@ -249,6 +298,7 @@ function show(ctx: CliContext, id: string) {
     jobs: mandateJobs(root, m.id),
     guidance: mandateGuidance(m),
     goal: mandateGoal(m),
+    draft: m.goal === null ? null : (({ status, request }) => ({ status, request }))(draftStatus(root, config, m.id)),
     file: mandateFile(root, m.id),
   };
 }
@@ -264,10 +314,77 @@ function listCmd(root: string) {
   };
 }
 
-export function mandateCmd(ctx: CliContext, sub: string | undefined, rest: string[], flags: Record<string, unknown>): Dispatched {
+/** prepare and record: only the office session, or a person outside the daemon. Checked before anything is read. */
+function officeOnly(action: string, env: NodeJS.ProcessEnv): { daemon: boolean } {
+  const s = daemonScope(env);
+  if ('problem' in s || (s.daemon && s.scope !== OFFICE_SCOPE)) {
+    const scope = 'problem' in s ? oneLineTitle(env[SCOPE_ENV] ?? '').slice(0, 60) || 'unscoped' : s.scope;
+    throw new ForgeError(`forge mandate draft ${action} runs in the office session or a person's own terminal, not the ${scope} session`, 1);
+  }
+  return { daemon: s.daemon };
+}
+
+/** A draft request in flight for mandate `id`, else a new one queued; under the mandates lock, so two calls queue one. */
+function queueDraft(ctx: CliContext, id: string): { changed: boolean; request: string } {
+  return withMandatesLock(ctx.root, () => {
+    const open = draftRequests(ctx.root, id).find((r) => r.status === 'pending' || r.status === 'in-progress');
+    if (open) return { changed: false, request: open.id };
+    return { changed: true, request: enqueue(ctx.root, ctx.config, { type: 'draft', args: { mandate: id }, from: 'forge' }).id };
+  });
+}
+
+/** The readable goal mandate `id` for `draft start|show`: not_found, or refused (exit 1) when it can't be read or has no goal. */
+function goalMandate(root: string, id: string): Mandate {
+  const m = target(listMandates(root), id);
+  if (m.goal === null) throw new ForgeError(`mandate ${id} has no goal: drafts are for goal mandates (forge mandate new --goal)`, 1);
+  return m;
+}
+
+/** `forge mandate show`'s and `draft show`'s view of a goal mandate's draft. */
+function draftView(ctx: CliContext, m: Mandate) {
+  const { root, config } = ctx;
+  return { mandate: m.id, title: m.title, ...draftStatus(root, config, m.id), spend: draftSpend(root, config, m.id), file: path.relative(root, draftFile(root, m.id)) };
+}
+
+async function draftCmd(ctx: CliContext, rest: string[], flags: Record<string, any>, env: NodeJS.ProcessEnv = process.env): Promise<unknown> {
+  const { root, config } = ctx;
+  const action = rest[0];
+  if (action === 'start' && env.FORGE_DAEMON === '1')
+    throw new ForgeError("forge mandate draft start writes the owner's instructions to the Office, which a daemon session may not do; run it in your own terminal", 1);
+  if (action === 'prepare' || action === 'record') {
+    const { daemon } = officeOnly(action, env);
+    if (rest.length !== 2) throw usageError(MANDATE, `draft ${action}`);
+    const id = rest[1];
+    const rid = req(str(flags.request, '--request'), '--request');
+    const agentId = action === 'record' ? str(flags['agent-id'], '--agent-id') : undefined;
+    if (agentId !== undefined && !AGENT_ID.test(agentId)) throw new ForgeError('--agent-id must match [A-Za-z0-9_-]{1,100}', 'usage');
+    boundRequest(root, id, rid);
+    const m = listMandates(root).find((x) => x.id === id);
+    if (action === 'prepare') {
+      const reason = staleReason(m, id);
+      if (reason !== null) return { mandate: id, request: rid, stale: true, reason };
+      return prepareDraft(root, config, m as Mandate, rid, await loadTracker(root, config));
+    }
+    // A paused mandate is recorded: the run already happened.
+    if (!m) throw new ForgeError(`no mandate ${id}`, 1);
+    if (!isReadable(m)) throw new ForgeError(`mandate ${id} can't be read (${m.problem})`, 1);
+    if (m.goal === null) throw new ForgeError(`mandate ${id} has no goal: drafts are for goal mandates (forge mandate new --goal)`, 1);
+    if (m.status === 'closed') throw new ForgeError(`mandate ${id} is closed`, 1);
+    return recordDraft(root, config, m, rid, { agentId: agentId ?? null, metered: daemon });
+  }
+  if (action !== 'start' && action !== 'show') throw usageError(MANDATE, 'draft');
+  if (rest.length !== 2) throw usageError(MANDATE, `draft ${action}`);
+  const m = goalMandate(root, rest[1]);
+  if (action === 'show') return draftView(ctx, m);
+  if (m.status !== 'active') throw new ForgeError(`mandate ${m.id} is ${m.status}`, 1);
+  return { ok: true, ...queueDraft(ctx, m.id) };
+}
+
+export async function mandateCmd(ctx: CliContext, sub: string | undefined, rest: string[], flags: Record<string, unknown>): Promise<Dispatched> {
   // First, before the body or any mandate is read: a daemon session writes no mandate, whatever its scope.
   if (sub !== undefined && WRITES.has(sub) && process.env.FORGE_DAEMON === '1')
     throw new ForgeError(`forge mandate ${sub} writes the owner's instructions to the Office, which a daemon session may not do; run it in your own terminal`, 1);
+  if (sub === 'draft') return { data: await draftCmd(ctx, rest, flags as Record<string, any>), exitCode: 0 };
   if (sub === 'list') {
     if (rest.length) throw usageError(MANDATE, sub);
     return { data: listCmd(ctx.root), exitCode: 0 };
