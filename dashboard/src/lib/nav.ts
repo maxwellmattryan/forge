@@ -16,6 +16,7 @@ export const VIEWS = [
   { id: 'pipeline', icon: 'pipeline' },
   { id: 'issues', icon: 'issues' },
   { id: 'agents', icon: 'agents' },
+  { id: 'foreman', icon: 'foreman' },
   { id: 'analytics', icon: 'analytics' },
   { id: 'evals', icon: 'evals' },
 ] as const;

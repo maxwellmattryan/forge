@@ -8,20 +8,10 @@ import { validJobId } from '#core/job/requests.ts';
 import { readRegularText } from '#core/os/fs.ts';
 import { DIRECTIVE_ACTIONS } from '#api/constants.ts';
 import { cleanReason, isMandateId } from './contract.ts';
-import type { EventActor } from '#core/types.ts';
+import type { Directive, DirectiveAction, EventActor } from '#core/types.ts';
 
-export type DirectiveAction = (typeof DIRECTIVE_ACTIONS)[number];
-
-/** One directive as `forge mandate show` and `forge office survey` print it. */
-export interface Directive {
-  ts: string;
-  mandate: string;
-  action: DirectiveAction;
-  issue: string | null;
-  job: string | null;
-  reason: string;
-  actor: EventActor | null;
-}
+// The Foreman page reads directives too, so the shapes are /api shapes (lib/api/repo.ts).
+export type { Directive, DirectiveAction } from '#api/types.ts';
 
 /** The audit log is append-only and never rotated here: past this it is read no further, rather than whole. */
 const AUDIT_MAX_BYTES = 32 * 1024 * 1024;

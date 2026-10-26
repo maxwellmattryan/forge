@@ -10,7 +10,7 @@ import { PLUGIN_ROOT } from '#core/paths.ts';
 import { launchBrowser, parseRenderArgs, renderCheck, renderExitCode } from '../../../scripts/render-check.ts';
 
 const BROKEN = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'render-broken');
-const VIEW_IDS = ['project', 'pipeline', 'issues', 'agents', 'analytics', 'evals'];
+const VIEW_IDS = ['project', 'pipeline', 'issues', 'agents', 'foreman', 'analytics', 'evals'];
 const USAGE = 'usage: npm run test:render [-- --scenario NAME]... [--dist DIR]';
 
 /** A temp scenario dir holding `one`: a single job the fixture's views and drawer name. */
@@ -64,7 +64,7 @@ describe('scripts/render-check.ts', () => {
         JSON.stringify(of('evals')),
       );
       assert.deepEqual(of('analytics'), ['missing text "Render fixture job"']);
-      for (const view of ['pipeline', 'project', 'issues', 'drawer']) assert.deepEqual(of(view), [], view);
+      for (const view of ['pipeline', 'project', 'issues', 'foreman', 'drawer']) assert.deepEqual(of(view), [], view);
       // The machine's checks: the fixture lists no project and has no switcher, so each reports what is missing.
       const registered = ['repo', 'other-project', 'gone-project'].map((n) => `missing text "${n}"`);
       assert.deepEqual(of('overview'), [...registered, ...['Jobs shipped', 'Cost', 'Machine'].map((n) => `missing text "${n}"`)]);
@@ -72,7 +72,7 @@ describe('scripts/render-check.ts', () => {
       assert.deepEqual(of('switch'), ['could not switch to other-project in the project switcher']);
       assert.deepEqual(of('add'), ['could not choose Add project in the project switcher']);
       assert.equal(result.checked, VIEW_IDS.length + 1 + 4);
-      assert.equal(result.passed, 4);
+      assert.equal(result.passed, 5);
       assert.equal(renderExitCode(result), 1);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
