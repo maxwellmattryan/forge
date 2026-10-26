@@ -39,6 +39,8 @@ export interface ForgePaths {
   runtime: string;
   /** The CLI copies of each job's job.json and events.jsonl, which Forge reads (jobRecordDir). */
   records: string;
+  /** The Office's mandates (lib/office/mandates/), one `<id>.md` each: runtime state, outside every session's write roots. */
+  mandates: string;
   backlog: string;
   notes: string;
   reviewers: string;
@@ -62,6 +64,7 @@ export function paths(root: string): ForgePaths {
     locks: path.join(dir, 'locks'),
     runtime: path.join(dir, 'runtime'),
     records: path.join(dir, 'runtime', 'job-records'),
+    mandates: path.join(dir, 'runtime', 'mandates'),
     backlog: path.join(dir, 'backlog.md'),
     notes: path.join(dir, 'notes'),
     reviewers: path.join(dir, 'reviewers'),
@@ -88,10 +91,12 @@ export interface MachinePaths {
   locks: string;
   /** The machine dashboard's runtime record (lib/engine/ops/dashboard-record.ts): `{pid, url, startedAt}`, never the token. */
   dashboard: string;
+  /** The machine dashboard's runtime files (0700): the login service's log and the uptime record (lib/engine/project/login-service.ts). */
+  runtime: string;
 }
 
 export function machinePaths(home: string = forgeHome()): MachinePaths {
-  return { dir: home, projects: path.join(home, 'projects.json'), locks: path.join(home, 'locks'), dashboard: path.join(home, 'dashboard.json') };
+  return { dir: home, projects: path.join(home, 'projects.json'), locks: path.join(home, 'locks'), dashboard: path.join(home, 'dashboard.json'), runtime: path.join(home, 'runtime') };
 }
 
 export function jobDir(root: string, id: string): string {

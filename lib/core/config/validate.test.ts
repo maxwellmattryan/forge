@@ -2,8 +2,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
-import { validateConfig } from './validate.ts';
+import { foremanProblems, validateConfig } from './validate.ts';
 import { defaults } from './keys/defaults.ts';
+import { setConfigValue } from './set.ts';
 
 const seedProblems = (seed: unknown): string[] => {
   const c: any = defaults();
@@ -67,6 +68,40 @@ test('merge.requiredChecks problems', () => {
     if (want === null) assert.deepEqual(got, [], name);
     else assert.ok(got.length === 1 && want.test(got[0]), `${name}: ${JSON.stringify(got)}`);
   }
+});
+
+test('foreman problems', () => {
+  const problems = (edit: (f: any) => void): string[] => {
+    const c: any = defaults();
+    edit(c.foreman);
+    return validateConfig(c, os.tmpdir()).filter((p) => p.startsWith('foreman.'));
+  };
+  assert.deepEqual(problems(() => {}), [], 'defaults() validates clean');
+  const rows: [string, (f: any) => void, RegExp][] = [
+    ['cadence 0', (f) => (f.cadence = 0), /^foreman\.cadence must be an integer 1-1440 \(got 0\)$/],
+    ['cadence 1.5', (f) => (f.cadence = 1.5), /^foreman\.cadence must be an integer 1-1440/],
+    ['assistants.sessions 0', (f) => (f.assistants.sessions = 0), /^foreman\.assistants\.sessions must be an integer 1-16/],
+    ['assistants.model --x', (f) => (f.assistants.model = '--x'), /^foreman\.assistants\.model must be a model alias or id/],
+    ['surveyors.effort ultra', (f) => (f.surveyors.effort = 'ultra'), /^foreman\.surveyors\.effort must be one of low \| medium/],
+    ['mandate.until released', (f) => (f.mandate.until = 'released'), /^foreman\.mandate\.until must be one of merge-ready \| merged/],
+    ['mandate.order random', (f) => (f.mandate.order = 'random'), /^foreman\.mandate\.order must be one of graph \| priority \| listed/],
+    ['mandate.decides [nope]', (f) => (f.mandate.decides = ['nope']), /^foreman\.mandate\.decides must be a list of gate classes/],
+    ['mandate.budget.usd -1', (f) => (f.mandate.budget.usd = -1), /^foreman\.mandate\.budget\.usd must be a number over 0 and at most 100000/],
+    ['mandate.stall.bounces 0', (f) => (f.mandate.stall.bounces = 0), /^foreman\.mandate\.stall\.bounces must be an integer 1-100/],
+    ['mandate.onUnfinishable drop', (f) => (f.mandate.onUnfinishable = 'drop'), /^foreman\.mandate\.onUnfinishable must be one of park \| cancel/],
+    ['assistants.enabled "yes"', (f) => (f.assistants.enabled = 'yes'), /^foreman\.assistants\.enabled must be true or false/],
+  ];
+  for (const [name, edit, want] of rows) {
+    const got = problems(edit);
+    assert.ok(got.length === 1 && want.test(got[0]), `${name}: ${JSON.stringify(got)}`);
+  }
+  // A partial block a user wrote merges over the defaults, so an absent key is no problem.
+  assert.deepEqual(foremanProblems({ foreman: { decides: [], reserved: [], ship: 'propose', assistants: { model: 'haiku' }, mandate: { maxJobs: 4 } } }), []);
+  // forge config set checks the value before anything is read: an editable model key still refuses a flag-shaped one.
+  assert.throws(
+    () => setConfigValue(os.tmpdir(), 'foreman.assistants.model', '--x', () => ({ login: null, source: 'unknown' })),
+    (e: any) => e.reason === 'invalid' && /foreman\.assistants\.model must be a model alias or id/.test(e.message),
+  );
 });
 
 test('worktrees.seed commands get the placeholder check', () => {

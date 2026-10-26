@@ -23,11 +23,13 @@ import { HELP as FOCUS } from './focus.ts';
 import { HELP as GIT } from './git.ts';
 import { HELP as INIT } from './init.ts';
 import { HELP as JOB } from './job/help.ts';
+import { HELP as MANDATE } from './mandate.ts';
 import { HELP as NOTIFY } from './notify.ts';
 import { HELP as PROJECT } from './project.ts';
 import { HELP as RELEASE } from './release.ts';
 import { HELP as REQUESTS } from './requests.ts';
 import { HELP as SECRETS } from './secrets.ts';
+import { HELP as SERVICE } from './service.ts';
 import { HELP as STATUS } from './status.ts';
 import { HELP as TRACKER } from './tracker.ts';
 import { HELP as UPDATE } from './update.ts';
@@ -217,7 +219,7 @@ export const CORE: HelpGroup[] = [
   },
 ];
 
-const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...PROJECT, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...EXPERIMENT, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
+const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...PROJECT, ...SERVICE, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...EXPERIMENT, ...MANDATE, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
 const byName = (a: string, b: string): number => a.localeCompare(b, 'en');
 const flagKey = (f: string): string => f.replace(/^[-\s]+/, '');
 

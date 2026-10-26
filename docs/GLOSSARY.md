@@ -9,11 +9,13 @@ Planned in M004, except where a config key exists today.
 | Term | Meaning | Config key |
 |---|---|---|
 | **project** | One or more repos Forge works on together, configured from the root repo's `.forge/`, with nothing outside those repos but the machine index (today's block describes a project of one repo). | `project` |
-| **machine index** | The machine's list of registered projects (`forge project add\|remove\|list`), the machine settings (`forge project settings`: the machine cap) and the machine dashboard's runtime record (`dashboard.json`), in `~/.forge/` or `FORGE_HOME`. It never holds project policy, commands or secrets, which stay in each project's `.forge/`. | - |
+| **machine index** | The machine's list of registered projects (`forge project add\|remove\|list`), the machine settings (`forge project settings`: the machine cap), the machine dashboard's runtime record (`dashboard.json`) and its `runtime/` dir (the login service's log and `uptime.json`, the sleep assertion and last restart), in `~/.forge/` or `FORGE_HOME`. It never holds project policy, commands or secrets, which stay in each project's `.forge/`. | - |
 | **machine dashboard** | The one `forge dash` server per machine: it serves every project in the machine index, each with its own pool, under `/api/p/<project>/`. The global pages (the Overview at `#/overview`, Machine at `#/machine`) select no project, and a project's pages live at `#/p/<project>/<view>`; the `?project=<name>` link `forge dash` prints lands on that project's Pipeline. | `dashboard.port` |
+| **login service** | The per-user unit `forge service install` writes so the machine dashboard starts at login and comes back 30 s after a crash: a LaunchAgent on macOS, a systemd user unit on Linux. It runs `forge dash --service`, whose start records a restart and notifies each project with work in flight. | - |
+| **sleep assertion** | The one hold the machine dashboard keeps on the machine's idle sleep (`caffeinate` on macOS, `systemd-inhibit` on Linux) while any project's started pool has an active mandate or a running job at an agent stage; released when none does. | `daemon.keepAwake` |
 | **machine cap** | How many job sessions run at once across every project the machine dashboard serves, on top of each project's `daemon.maxConcurrent`: the machine index's `settings.maxConcurrent` (1–64), else the highest loaded project's `daemon.maxConcurrent`. Inbox and office sessions never count; set with forge project settings --max-concurrent. | - |
 | **Overview** | The dashboard's cross-project page and its default route (`#/overview`, or the bare `/`), with no project selected: a card per registered project (active and waiting jobs, Foreman, sessions, latest activity), what waits on you first, then graphs of jobs shipped and cost per UTC day stacked by project, and the machine cap with today's and this month's spend. "Dashboard" keeps meaning the whole web app. | - |
-| **project switcher** | The control in the sidebar's project section that selects the project whose pages the dashboard shows (on the rail, a button that opens the palette's `project <name>` command); choosing one opens its same view, and a missing or unavailable project can't be chosen. Layout, filter and window choices, session log filters and the Thread's Progress toggle are kept per project; the theme, language, sidebar and panel widths and the Rendered/Raw choices are kept for the whole browser. | - |
+| **project switcher** | The control in the sidebar's project section that selects the project whose pages the dashboard shows (on the rail, a button that opens the palette's `project <name>` command); choosing one opens its same view, a missing or unavailable project can't be chosen, and **Add project**, ruled off below the projects, opens the Machine page with the `forge project add` command. Layout, filter and window choices, session log filters and the Thread's Progress toggle are kept per project; the theme, language, sidebar and panel widths and the Rendered/Raw choices are kept for the whole browser. | - |
 | **root repo** | The repo that holds the project's `.forge/`, which for a project of one repo is that repo and is never listed in `repos`. | `repos` |
 | **member repo** | Any other repo the root repo's config lists as part of the project. | `repos` |
 | **component** | A buildable unit inside a repo, of kind `library`, `service` or `app`. | planned (M004) |
@@ -107,6 +109,23 @@ Words for how the dashboard shows activity, used in the README, Settings and `da
 | **lamp** | A small light that shows state at a glance, on a session log's nameplate (working, waiting, you, done, idle or fault) and on the status bar's indicators. It is decorative: the pill or text beside it carries the meaning. | - |
 | **Screen effect** | The browser preference in Settings › General for the scanlines and soft glow on session logs, on by default and kept per browser like Grain; off leaves the rest of each log's frame as it is. | - |
 
+## The Office
+
+Words for the Office (#281, M009): the Foreman directing work through mandates. Terms marked planned arrive in the named issue.
+
+| Term | Meaning | Config key |
+|---|---|---|
+| **Office** | The user-facing name for everything in one project's `_office` scope: the Foreman and the mandates it works under; assistant foremen (#537) and surveyors (#538) are planned. Lowercase `office` in Code layout is the lib layer. | `foreman` |
+| **mandate** | The owner's standing instruction to the Office. It is a file in `.forge/runtime/mandates/` written only by `forge mandate new\|edit\|pause\|resume\|close`: a mandate contract in its frontmatter, and the owner's guidance as free text, which briefs fence as data. A job joins one with `forge job new --mandate` and keeps it, and a split child keeps its parent's. | `foreman.mandate` |
+| **mandate contract** | Scope, `until`, `maxJobs`, `order`, `decides` (only narrows `foreman.decides`), `budget`, `stall`, `onUnfinishable` and `after`. `forge mandate show` prints it as written and as it applies after `foreman.decides`, `foreman.reserved` and `foreman.ship`. | `foreman.mandate` |
+| **mandate chain** | Mandates linked by `after:`, each starting only once the one before has closed. `forge mandate list` shows each chain and its active link. | - |
+| **intake** | The Office turning an owner's goal into planned work: a goal mandate's drafting runs, and in a later phase filing the draft to the tracker (#434). `forge mandate list` marks a goal mandate `intake: true`. | - |
+| **goal mandate** | A mandate created with `forge mandate new --goal`: the owner states what to achieve, and its scope stays empty until its milestone draft is filed. The goal is owner text, fenced as data wherever it is shown. | `foreman.mandate` |
+| **milestone draft** | The plan a drafting run writes for a goal mandate: one milestone with exit criteria, and up to 30 issues in waves, each naming the stat it should move. It is `draft.json` in the mandate's runtime dir, read with `forge mandate draft show`, and nothing reaches the tracker yet. | - |
+| **drafting run** | One turn of intake: the office session claims a `draft` request, `forge mandate draft prepare` writes the survey, one `forge:drafter` writes the draft, and `forge mandate draft record` checks and stores it with its spend. | `daemon.dailyUsd.office` |
+| **assistant foreman** | A pool session that takes the Foreman's `gate` requests and spawns `forge:assistant` per gate. Planned (#537); today the office session does this itself. | `foreman.assistants` |
+| **surveyor** | A sub-agent that summarises the board, or one mandate's jobs, in a few lines, so the Foreman's context stays small. Planned (#538). | `foreman.surveyors` |
+
 ## Collisions we avoid
 
 Some of these words already mean something in Forge. They keep those meanings:
@@ -121,7 +140,8 @@ Some of these words already mean something in Forge. They keep those meanings:
 - "Hand-off" alone means a session handing a job to another with `forge requests add resume`; the Foreman's always carries the name ("Foreman hand-off").
 - "File map" is a spec's `Files:` table; a folder's `AGENTS.md` is its "folder map".
 - "Integrations" never means the integrate stage or the integrator (bringing a branch up to date with its base), nor integration tests (`test/integration/`).
-- "Office" alone means the runtime; the Foreman's session is the "office session".
+- "Office", capitalised, is the Office (the `_office` scope and everything in it); lowercase "office" is the lib layer and runtime in `lib/office/`, and the Foreman's session is the "office session".
+- The Office's "intake" (a goal mandate's drafting runs) differs from a job's intake, `forge requests add resume --intake run|next|new`, which says how a job starts.
 - "Milestone" means a tracker milestone (a group of planned work). The Thread's one-line rows for a job's events are "progress lines".
 - "Layer" alone keeps [its meaning in the architecture docs](architecture/layers.md) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
 
@@ -135,7 +155,7 @@ The new words build on these, which exist today.
 | **move** | A change to a job's stage, state or `waitingOn` made through `lib/engine/pipeline/moves/apply.ts`, which then stops or tears down its environment, queues the Foreman's gate request and mirrors it to its tracker; notifications follow every transition. | - |
 | **output mode** | How a `forge` call prints: `human` (rendered text for a person at a terminal) or `agent` (compact JSON, the CLI's contract), chosen by `--json`, `--mode`, `FORGE_MODE`, then whether stdout is a terminal (docs/CLI.md "Output mode"). | - |
 | **activity log** | The timestamped lines a foreground `forge dash` prints after its banner in human mode, of three kinds: `session` (session transitions), `http` (requests worth noting) and `job` (newly appended job events); `--quiet` and agent mode leave only the banner (docs/CLI.md "Output mode"). | - |
-| **Foreman** | The office session that decides gates for jobs under `foreman.decides`. | `foreman.decides` |
+| **Foreman** | The office session that decides gates for jobs under `foreman.decides`, narrowed for a job in a mandate by that mandate's `decides`. | `foreman.decides` |
 | **Foreman hand-off** | The Foreman leaving a gate it was asked to decide for a person (a reserved topic or class, the assistant escalating, or the CLI refusing its decision), recorded with `forge job handoff` and shown as *left for a human* (`foremanHandoff`) until a decision answers that park or the job parks again. | `foreman.reserved` |
 | **metered spend** | What the supervisor measured a daemon session spend, from claude's own per-turn cost report, kept in `.forge/runtime/meter/`; budgets enforce it. | `daemon.dailyUsd` |
 | **lease** | A job's one claim on who drives it (`lease` in job.json: `driver`, `epoch`, `since`, `renewedAt`, `expiresAt`): taken by `forge job claim`, renewed only by the driver's own activity, expired by the supervisor when the driver's session exits, and `live` until `expiresAt` passes; nobody else may claim a live lease without `--force`. | - |

@@ -8,6 +8,7 @@ import { deprecationChecks } from '#core/config/validators/deprecations.ts';
 import { uncoveredInstructionProbes } from '#core/config/validators/instructions.ts';
 import { policyRules } from '#core/config/validators/policy-check.ts';
 import { memberRepoChecks, releaseChecks, repoProblems } from '../project/member-repos.ts';
+import { defaultServiceOptions, serviceCheck, type ServiceOptions } from '../project/login-service.ts';
 import { isActive, listJobs } from '#core/job/store.ts';
 import { notifyChecks } from '#office/notify.ts';
 import { paths, exists, BUILD_DASHBOARD, PLUGIN_ROOT } from '#core/paths.ts';
@@ -178,6 +179,8 @@ export interface DoctorOptions {
    * has (the bundle's config.json hides commandEnv.inherit for the same reason).
    */
   bundle?: boolean;
+  /** The machine the `service` row reads: defaultServiceOptions() when absent; a test passes a temp home and a fake runner. */
+  service?: ServiceOptions;
 }
 
 const CARRIER_ADVICE = 'can carry credentials: inherit such a name only if a command needs it, or declare a secret with a config sink';
@@ -315,6 +318,8 @@ export async function doctor(root: string, config: Config, initialized: boolean,
   if (unsupported.length) add('job schema', false, `${unsupported.length} job(s) from a newer Forge`);
   checks.push(storageCheck(root));
   checks.push(dashboardCheck());
+  // One row for the machine, whatever the number of projects: it runs only read-only manager calls, and only with a unit installed.
+  checks.push(serviceCheck(opts.service ?? defaultServiceOptions(), { bundle: opts.bundle === true }));
   if (initialized) checks.push(...(await notifyChecks(config)));
   // Last, and bounded: the only network call, and left out entirely when it cannot tell.
   const release = latestReleaseCheck();

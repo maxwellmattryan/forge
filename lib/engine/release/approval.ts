@@ -82,7 +82,8 @@ export function pendingReleaseHash(root: string, id: string, events: JobEvent[] 
 /**
  * Every check on `forge job human <job> approve-release --actor foreman`, before anything is written,
  * in the order docs/architecture/foreman.md lists them. Returns the plan hash to record. Throws
- * ForgeError (exit 1).
+ * ForgeError (exit 1). `narrow` is the job's mandate check, passed in because engine code can't
+ * import lib/office/: the refusal it returns for `release` ends the decision, after the policy checks.
  */
 export function checkReleaseDecision(
   root: string,
@@ -90,6 +91,7 @@ export function checkReleaseDecision(
   id: string,
   note: string | null | undefined,
   flags: { link?: unknown; reason?: unknown; repo?: unknown },
+  narrow: (gate: typeof GATE) => string | null,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const refuse = (why: string): never => {
@@ -102,6 +104,8 @@ export function checkReleaseDecision(
   if (!(Array.isArray(config.foreman?.decides) && config.foreman.decides.includes(GATE))) refuse('release is not in foreman.decides');
   const held = classReservation(config, GATE);
   if (held) refuse(`release is reserved (${held}): left for a human`);
+  const narrowed = narrow(GATE);
+  if (narrowed) refuse(narrowed);
   const files = releaseFiles(root);
   let file: ReleasePlan | null = null;
   let plan: ReleasePlan | null = null;

@@ -110,7 +110,6 @@ export function defaults(): Config {
         judge: 'opus',
         // A cheap yes/no answer per verifier; not in EFFORT_ROLES, so it takes runtime.effort.
         verifier: 'haiku',
-        assistant: 'sonnet',
       },
       // The builder only (resolveModel): null falls through to runtime.models.builder.
       modelByComplexity: { low: null, medium: null, high: null },
@@ -262,6 +261,9 @@ export function defaults(): Config {
       // Dollars per UTC day the inbox and office sessions may spend, metered from claude's own cost report;
       // above the heaviest day observed here (office $38.66, inbox about $15). null (or a null key): no cap.
       dailyUsd: { inbox: 25, office: 60 },
+      // While this project's pool is started and has an active mandate or a running job at an agent
+      // stage, the machine dashboard holds one sleep assertion (lib/server/uptime.ts).
+      keepAwake: 'auto',
     },
     // Opt-in: the `_office` daemon session decides gates through forge:assistant sub-agents;
     // docs/architecture/foreman.md. Whole-phrase, case-insensitive patterns: a match keeps the
@@ -273,6 +275,24 @@ export function defaults(): Config {
       decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal' && g !== 'release'),
       reserved: [...DEFAULT_RESERVED],
       ship: 'propose',
+      // The director loop's own model, effort and pace (#538 reads them).
+      model: 'inherit',
+      effort: null,
+      cadence: 10,
+      // forge job assist reads model and effort; assistant routing (#537) reads enabled and sessions.
+      assistants: { enabled: true, sessions: 1, model: 'sonnet', effort: null },
+      surveyors: { enabled: false, model: 'haiku', effort: null },
+      // What `forge mandate new` fills a term it isn't given with. The default decides is intersected
+      // with the effective foreman classes there, so it never causes a refusal.
+      mandate: {
+        until: 'merge-ready',
+        maxJobs: 2,
+        order: 'graph',
+        decides: ['spec-approval', 'split-approval', 'conflicts'],
+        budget: { usd: 150, jobs: 5 },
+        stall: { cadences: 3, bounces: 3 },
+        onUnfinishable: 'park',
+      },
     },
     // Enforced by the CLI at forge git add|commit, verify and pr open; docs/CONFIG.md "Protected paths".
     policy: {

@@ -31,7 +31,7 @@ const OTHER_PROJECT = 'other-project';
 /** A registered project whose directory is gone: the Overview and the switcher show it as missing. */
 const GONE_PROJECT = 'gone-project';
 
-export type RenderCheckId = ViewId | 'overview' | 'machine' | 'switch' | 'drawer';
+export type RenderCheckId = ViewId | 'overview' | 'machine' | 'switch' | 'add' | 'drawer';
 
 export interface RenderProblem {
   scenario: string;
@@ -117,7 +117,8 @@ async function waitForTexts(scope: Page | ReturnType<Page['locator']>, texts: st
 
 /**
  * Checks each scenario's views and drawer at `#/p/<project>/<view>`, then the machine's pages (the Overview and the
- * Machine page, which must list all three projects) and a switch to the companion through the sidebar switcher. Throws
+ * Machine page, which must list all three projects), a switch to the companion through the sidebar switcher and its Add
+ * project entry, which must open the Machine page without becoming the selection. Throws
  * a RenderError for an unknown scenario (exit 2), and for a build without manifest.json or a Chrome that won't start
  * (exit 1): neither ever passes.
  */
@@ -213,6 +214,24 @@ export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: st
               return;
             }
             await waitForTexts(page.locator('#view'), other.expect.views.backlog, timeout, p);
+          }),
+        );
+        // Add project, below the projects, opens the Machine page (and stays there when chosen again) without ever
+        // becoming the switcher's selection.
+        const addLabel = catalogText('switcher.add');
+        await timed(name, 'add', () =>
+          checkPage(context, at('backlog'), async (page, p) => {
+            try {
+              const trigger = page.locator('#project-switcher');
+              for (let i = 0; i < 2; i++) {
+                await trigger.click({ timeout });
+                await page.getByRole('option', { name: addLabel }).click({ timeout });
+                await page.waitForURL((u) => u.hash === '#/machine', { timeout });
+              }
+              if ((await trigger.textContent({ timeout }))?.includes(addLabel)) throw new Error('Add project became the selection');
+            } catch {
+              p.push('could not choose Add project in the project switcher');
+            }
           }),
         );
       } finally {

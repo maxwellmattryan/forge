@@ -1,8 +1,9 @@
 // The registered projects as the switcher, the Overview and the command bar list them: sorted, with their state.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { switcherEntries } from './switcher.ts';
-import type { MachineProjectSummary, ProjectsResponse } from './types.ts';
+import { ADD_PROJECT, switcherChoice, switcherEntries, switcherOptions, type SwitcherEntry } from './switcher.ts';
+import { PROJECT_NAME_SOURCE, type MachineProjectSummary, type ProjectsResponse } from './types.ts';
+import type { Route } from './routes.ts';
 
 const project = (name: string, over: Partial<MachineProjectSummary> = {}): MachineProjectSummary => ({
   name,
@@ -39,4 +40,31 @@ test('switcherEntries', () => {
   assert.deepEqual([by.gone.state, by.gone.openable, by.gone.waiting, by.gone.daemon], ['missing', false, 0, null], 'missing is never openable');
   assert.deepEqual([by.fresh.state, by.fresh.openable], ['unavailable', false], 'not loaded is unavailable');
   assert.deepEqual([by.broken.state, by.broken.openable], ['unavailable', false]);
+});
+
+test('switcherOptions', () => {
+  assert.ok(!new RegExp(PROJECT_NAME_SOURCE).test(ADD_PROJECT), 'Add project can never be a registered name');
+  const labels = { add: 'Add project', hint: (e: SwitcherEntry) => (e.openable ? undefined : `hint ${e.name}`) };
+  const add = { value: ADD_PROJECT, label: 'Add project', icon: 'command', action: true };
+  assert.deepEqual(switcherOptions([], labels), [{ ...add, separator: false }], 'alone, with no rule');
+  const entries = switcherEntries(response([project('web'), project('gone', { status: 'missing', loaded: false, jobs: null, daemon: null }), project('api')]));
+  assert.deepEqual(switcherOptions(entries, labels), [
+    { value: 'api', label: 'api', disabled: false, hint: undefined },
+    { value: 'gone', label: 'gone', disabled: true, hint: 'hint gone' },
+    { value: 'web', label: 'web', disabled: false, hint: undefined },
+    { ...add, separator: true },
+  ]);
+});
+
+test('switcherChoice', () => {
+  const page: Route = { scope: 'project', project: 'api', view: 'backlog' };
+  const overview: Route = { scope: 'global', view: 'overview' };
+  const machine: Route = { scope: 'global', view: 'machine' };
+  assert.equal(switcherChoice(ADD_PROJECT, 'api', page), '#/machine');
+  assert.equal(switcherChoice(ADD_PROJECT, null, overview), '#/machine');
+  assert.equal(switcherChoice(ADD_PROJECT, null, machine), null, 'already there');
+  assert.equal(switcherChoice('api', 'api', page), null, 'the current project');
+  assert.equal(switcherChoice('web', 'api', page), '#/p/web/backlog', 'the same view');
+  assert.equal(switcherChoice('web', null, overview), '#/p/web/pipeline', 'Pipeline from a global page');
+  assert.equal(switcherChoice('web', null, machine), '#/p/web/pipeline');
 });

@@ -5,10 +5,11 @@
      opened against (`menu-pop` in style.css); its first and last rows follow the plate's cut corners (`menu-list`).
      Entries are dense rows: a check column, then the label with an optional
      icon and hint line, or the caller's `entry` snippet; `separator` rules an entry off and consecutive entries of one
-     `group` sit under its name. Focus never leaves the button and aria-activedescendant names the active option, so the
-     settings focus trap and the drawer's focus handling see one control. src/lib/select.ts decides what each key does,
-     src/lib/menu.ts placeMenu where the list opens, and dismissal follows MenuButton: Escape closes only the list, a press
-     outside, focus leaving, a resize, a scroll that moves the button or unmounting close it without a change. -->
+     `group` sit under its name; an `action` entry calls onchange but never becomes the value. Focus never leaves the
+     button and aria-activedescendant names the active option, so the settings focus trap and the drawer's focus handling
+     see one control. src/lib/select.ts decides what each key does, src/lib/menu.ts placeMenu where the list opens, and
+     dismissal follows MenuButton: Escape closes only the list, a press outside, focus leaving, a resize, a scroll that
+     moves the button or unmounting close it without a change. -->
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
   import Icon from './Icon.svelte';
@@ -129,7 +130,12 @@
 
   function choose(i: number): void {
     const o = options[i];
-    if (!o || o.disabled || o.value === value) return;
+    if (!o || o.disabled) return;
+    if (o.action) {
+      onchange?.(o.value);
+      return;
+    }
+    if (o.value === value) return;
     value = o.value;
     onchange?.(o.value);
   }

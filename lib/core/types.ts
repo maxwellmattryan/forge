@@ -41,4 +41,10 @@ export interface Tracker {
    * text) marks the item needs-info, so list({ready: true}) leaves it out; null clears the mark.
    */
   setNeedsInfo?: (ctx: TrackerCtx, ref: string, note: string | null) => void;
+  /**
+   * Optional: the open milestones, for a goal mandate's drafting survey (lib/office/mandates/intake.ts).
+   * Titles are one line; `openIssues` and `dueOn` are null when the tracker doesn't say. Throws when it
+   * can't list them.
+   */
+  milestones?: (ctx: TrackerCtx) => { title: string; openIssues: number | null; dueOn: string | null }[];
 }
