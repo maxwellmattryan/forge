@@ -10,9 +10,10 @@ import type { DaemonPermissionMode, DaemonPoolState } from '#core/types.ts';
 
 /**
  * createPool's options. `jobPermissionMode` is `forge dash --permission-mode`: the human's own command line.
- * `slots` is the machine dashboard's slot gate (./slots.ts), shared by every project's pool.
+ * `slots` is the machine dashboard's slot gate (./slots.ts), shared by every project's pool. `runPass`
+ * stands in for the Office pass child (./sync-child.ts runPassChild), as `runSync` does for sync's.
  */
-export type PoolOptions = DaemonOptions & { jobPermissionMode?: DaemonPermissionMode | null; slots?: MachineSlots };
+export type PoolOptions = DaemonOptions & { jobPermissionMode?: DaemonPermissionMode | null; slots?: MachineSlots; runPass?: (root: string) => Promise<string | null> };
 
 export interface ModeBook {
   /** Re-reads daemon.command's mode, the one a scope runs in when nobody chose another. */

@@ -213,42 +213,68 @@ function activeLocalJob(ctx: TrackerCtx, ref: string): LoadedJob | null {
   return listJobs(ctx.root).find((j) => isActive(j) && j.issues.some((i) => nativeRef(i, 'github', slug) === String(ref))) ?? null;
 }
 
+/**
+ * `gh issue list` with `extra` flags, as items: project status and priority merged in when a project is
+ * in use (its failure thrown only when `strict`), then needsInfo and claimedBy marked. list and scope share it.
+ */
+function listIssues(ctx: TrackerCtx, extra: string[], limit: number, strict: boolean): TrackerItem[] {
+  const slug = repoSlug(ctx.root, ctx.config);
+  const ready = gcfg(ctx).ready;
+  const args = ['issue', 'list', '-R', slug, '--state', 'open', '--json', 'number,title,url,labels,assignees', '--limit', String(limit), ...extra];
+  const items: TrackerItem[] = ghJson(ctx.root, args).map(toItem);
+  const useProject = projectCoords(ctx) && (ready.projectStatus || ['project', 'both'].includes(gcfg(ctx).statusSync));
+  if (useProject) {
+    try {
+      const statuses = projectStatuses(ctx);
+      // gh issue list always returns url (it is in --json).
+      for (const it of items) Object.assign(it, statuses.get(it.url!) ?? {});
+    } catch (e) {
+      if (strict) throw e;
+    }
+  }
+  const prefix = gcfg(ctx).labels.prefix;
+  const needs = needsLabel(ctx);
+  for (const it of items) {
+    it.needsInfo = (it.labels ?? []).includes(needs);
+    const job = activeLocalJob(ctx, it.ref);
+    if (job) it.claimedBy = job.id;
+    else if ((it.labels ?? []).some((l: string) => l.startsWith(prefix) && l !== `${prefix}queued` && l !== needs)) it.claimedBy = 'forge (label)';
+  }
+  return items;
+}
+
+/** A milestone or label as a gh flag's value: a non-empty string that can never read as a flag itself. */
+function scopeValue(kind: 'milestone' | 'label', v: unknown): string {
+  if (typeof v !== 'string' || !v || v.startsWith('-') || /[\x00-\x1f\x7f]/.test(v))
+    throw new ForgeError(`a mandate's ${kind} must be a non-empty string that does not start with "-" (got ${JSON.stringify(String(v)).slice(0, 60)})`);
+  return v;
+}
+
 export default {
   name: 'github',
   list(ctx, opts = {}) {
-    const slug = repoSlug(ctx.root, ctx.config);
     const ready = gcfg(ctx).ready;
-    const args = ['issue', 'list', '-R', slug, '--state', 'open', '--json', 'number,title,url,labels,assignees', '--limit', String(opts.limit ?? 100)];
+    const extra: string[] = [];
     if (opts.ready) {
-      for (const l of ready.labels ?? []) args.push('--label', l);
-      if (ready.assignee) args.push('--assignee', ready.assignee);
-      if (ready.milestone) args.push('--milestone', ready.milestone);
+      for (const l of ready.labels ?? []) extra.push('--label', l);
+      if (ready.assignee) extra.push('--assignee', ready.assignee);
+      if (ready.milestone) extra.push('--milestone', ready.milestone);
     }
-    let items: TrackerItem[] = ghJson(ctx.root, args).map(toItem);
-    const useProject = projectCoords(ctx) && (ready.projectStatus || ['project', 'both'].includes(gcfg(ctx).statusSync));
-    if (useProject) {
-      try {
-        const statuses = projectStatuses(ctx);
-        // gh issue list always returns url (it is in --json).
-        for (const it of items) Object.assign(it, statuses.get(it.url!) ?? {});
-      } catch (e) {
-        if (ready.projectStatus && opts.ready) throw e;
-      }
-    }
-    const prefix = gcfg(ctx).labels.prefix;
-    const needs = needsLabel(ctx);
-    for (const it of items) {
-      it.needsInfo = (it.labels ?? []).includes(needs);
-      const job = activeLocalJob(ctx, it.ref);
-      if (job) it.claimedBy = job.id;
-      else if ((it.labels ?? []).some((l: string) => l.startsWith(prefix) && l !== `${prefix}queued` && l !== needs)) it.claimedBy = 'forge (label)';
-    }
+    let items = listIssues(ctx, extra, opts.limit ?? 100, Boolean(ready.projectStatus && opts.ready));
     if (opts.ready) {
       const exclude = new Set(ready.excludeLabels ?? []);
       items = items.filter((it) => !it.claimedBy && !it.needsInfo && !(it.labels ?? []).some((l: string) => exclude.has(l)));
       if (ready.projectStatus) items = items.filter((it) => it.status === ready.projectStatus);
     }
     return items;
+  },
+  scope(ctx, q) {
+    // Checked before gh runs: the contract already refuses these, and gh would read a leading `-` as a flag.
+    const extra: string[] = [];
+    if (q.milestone !== null) extra.push('--milestone', scopeValue('milestone', q.milestone));
+    for (const l of q.labels) extra.push('--label', scopeValue('label', l));
+    const limit = Number.isSafeInteger(q.limit) && q.limit > 0 ? q.limit : 100;
+    return listIssues(ctx, extra, limit, false);
   },
   search(ctx, query, opts) {
     const slug = repoSlug(ctx.root, ctx.config);
