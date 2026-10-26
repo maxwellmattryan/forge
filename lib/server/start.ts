@@ -17,7 +17,7 @@ import { DEV_NOT_BUILT, NOT_BUILT, distDirFor, getAsset, getLogo, getPage } from
 import { postJobEnvironment, getEnvironmentLogs, getEnvironments, getJobEnvironment } from './routes/environment.ts';
 import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
 import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor } from './routes/jobs.ts';
-import { getProjects, getProjectsEvents, getProjectsStats } from './routes/machine.ts';
+import { getProjects, getProjectsEvents, getProjectsStats, postProject } from './routes/machine.ts';
 import { getMandateDraft, postMandateDraft } from './routes/mandates.ts';
 import { getAbout, getBacklog, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
@@ -60,10 +60,10 @@ const GUARDS: Record<Guard, (m: MachineCtx, req: http.IncomingMessage, res: http
 };
 
 /**
- * The machine's routes, matched on the full pathname: the page and its assets, /api/about and the
- * registered projects. Rows are a method, an exact path or an anchored RegExp with no flags, the guards
- * a GET runs before its handler, and the handler. Every POST row gets guardPost first, so a POST row
- * names no guards. Anything that matches no row in either table is a 404.
+ * The machine's routes, matched on the full pathname: the page and its assets, /api/about, the
+ * registered projects and the dashboard's Add project. Rows are a method, an exact path or an anchored
+ * RegExp with no flags, the guards a GET runs before its handler, and the handler. Every POST row gets
+ * guardPost first, so a POST row names no guards. Anything that matches no row in either table is a 404.
  */
 export const ROUTES: readonly Route<MachineCtx>[] = [
   { method: 'GET', path: '/', handler: getPage },
@@ -72,6 +72,8 @@ export const ROUTES: readonly Route<MachineCtx>[] = [
   { method: 'GET', path: '/forge.png', handler: getLogo },
   { method: 'GET', path: '/api/about', guards: ['read'], handler: getAbout },
   { method: 'GET', path: '/api/projects', guards: ['read'], handler: getProjects },
+  // Registers a repo; it never approves its trusted files, so its pool waits for a human's Start.
+  { method: 'POST', path: '/api/projects', handler: postProject },
   { method: 'GET', path: '/api/projects/events', guards: ['read'], handler: getProjectsEvents },
   { method: 'GET', path: '/api/projects/stats', guards: ['read'], handler: getProjectsStats },
 ];

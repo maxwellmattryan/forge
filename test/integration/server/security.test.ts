@@ -210,7 +210,11 @@ test('every guarded route refuses before its handler runs', async () => {
     const rows: Row[] = [];
     // Invalid JSON: a guard that ran after the body parse would answer 400 instead.
     const body = '{"x":';
-    const posts = ['/jobs', '/requests', '/config', '/budget/ack', '/daemon', '/daemon/permission', '/daemon/mode', '/focus', '/mandates/g1/draft', ...['effort', 'budget', 'delete', 'merge', 'repos', 'environment', 'run', 'editor'].map((x) => `/jobs/j-1/${x}`)].map((p) => `${P}${p}`);
+    const posts = [
+      ...['/jobs', '/requests', '/config', '/budget/ack', '/daemon', '/daemon/permission', '/daemon/mode', '/focus', '/mandates/g1/draft', ...['effort', 'budget', 'delete', 'merge', 'repos', 'environment', 'run', 'editor'].map((x) => `/jobs/j-1/${x}`)].map((p) => `${P}${p}`),
+      // The machine's own POST: no project prefix.
+      '/api/projects',
+    ];
     for (const p of posts) {
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': 'wrong', origin, 'content-type': 'application/json' }, status: 403, text: 'bad token' });
       rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': token, 'content-type': 'application/json' }, status: 403, text: 'bad origin' });
@@ -273,7 +277,8 @@ test('machine routes keep the read guard and project segments are validated', as
     }
     const token = await tokenOf(port);
     const origin = `http://127.0.0.1:${port}`;
-    assert.equal((await raw(port, 'POST', '/api/projects', { 'x-forge-token': token, origin, 'content-type': 'application/json' }, '{}')).status, 404);
+    // Past the guard, Add project's handler refuses a body with no path.
+    assert.equal((await raw(port, 'POST', '/api/projects', { 'x-forge-token': token, origin, 'content-type': 'application/json' }, '{}')).status, 400);
 
     // Registered after start: an invalid segment must not refresh the index and so load it.
     addProject(s.home, fs.realpathSync(later.dir), { name: 'c' });
