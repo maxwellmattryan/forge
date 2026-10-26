@@ -113,6 +113,10 @@
       "one": "{count} tool call waiting for permission",
       "other": "{count} tool calls waiting for permission"
     },
+    "headingNamed": {
+      "one": "{name}: {count} tool call waiting for permission",
+      "other": "{name}: {count} tool calls waiting for permission"
+    },
     "chip": "needs permission",
     "inbox": "Inbox session",
     "asks": "The session asks to use {tool}",

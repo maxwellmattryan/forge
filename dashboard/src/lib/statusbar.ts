@@ -1,7 +1,7 @@
 // The status bar's pure half: its Foreman and daemon indicators, the facts strip's drop order, the model label, the
 // connection state, the prompt announcement, and the rule of the sidebar's "New job or command" input. No DOM and no svelte import, so node:test can pin them.
 // Model strings come from config.yml and the roster, session state from session output: all plain strings, rendered as text.
-import { obj, poolModel, sessionPill } from './daemon.ts';
+import { familyPill, obj, poolModel } from './daemon.ts';
 import type { Pill, PoolInput } from './daemon.ts';
 import { activeSessions } from './live.ts';
 import { pendingPrompts } from './permissions.ts';
@@ -111,7 +111,8 @@ export type DaemonIndicator = { off: true; active: false; cap: number } | { off:
 
 /**
  * The Foreman (the office session) supervises the pool, so the bar always shows it, even while it or the daemon is off.
- * `active` and `prompts` cover the office and its assistant foremen; `assistants` are their scopes in order, for the popover.
+ * `pill` (the most urgent session's, titled with each one's state), `active` and `prompts` cover the office and its
+ * assistant foremen; `assistants` are their scopes in order, for the popover.
  */
 export type ForemanIndicator = { on: false } | { on: true; daemon: boolean; pill: Pill; active: boolean; prompts: number; assistants: string[] };
 
@@ -141,7 +142,7 @@ export function barModel(pool: PoolInput, opts: { pending: boolean }): BarModel 
       ? {
           on: true,
           daemon: m !== null,
-          pill: sessionPill(office),
+          pill: familyPill([{ name: 'Foreman', session: office }, ...assistants.map((a) => ({ name: `Assistant foreman ${assistantNumber(a)}`, session: helpers[a] }))]),
           active: obj(office).status === 'busy' || assistants.some((a) => obj(helpers[a]).status === 'busy'),
           prompts: scopes.reduce((n, s) => n + pendingPrompts(pool ?? null, s).length, 0),
           assistants,

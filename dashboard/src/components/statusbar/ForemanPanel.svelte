@@ -1,5 +1,6 @@
 <!-- The Foreman popover's body. On: a short identity block (and, with the daemon off, how to start it), the permission
-     prompts of the office and of each assistant foreman that has some, stacked in scope order, then one session's live
+     prompts of the office and of each assistant foreman that has some, stacked in scope order and each named by the session
+     that asked (the Select's label), then one session's live
      thread, the same SessionLog the drawer's Log tab uses, filling the chat-sized popover so its log pane is the one
      scroller. With assistant foremen, a Select above the log picks whose: the office's or an assistant's (the first by
      default, since gate work happens there). Off: what the Foreman is and how to turn it on by hand. foreman.enabled is
@@ -47,7 +48,7 @@
     </div>
     {#if foreman.prompts}
       <div class="flex max-h-[40%] shrink-0 flex-col gap-2 overflow-y-auto">
-        {#each promptScopes as scope (scope)}<PermissionPrompts {scope} />{/each}
+        {#each promptScopes as scope (scope)}<PermissionPrompts {scope} name={logOptions.find((o) => o.value === scope)?.label} />{/each}
       </div>
     {/if}
     <div class="flex min-h-0 flex-1 flex-col gap-2 border-t border-line pt-3">

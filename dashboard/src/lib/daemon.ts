@@ -95,6 +95,17 @@ export function sessionPill(session: SessionInput): Pill {
   return { label, tone, title };
 }
 
+/**
+ * Several sessions as one chip: the most urgent of their pills by ORDER (needs permission first, the first session on a
+ * tie), titled with one `name: label` line per session. One session keeps its own pill. The Foreman's: the office and its assistant foremen.
+ */
+export function familyPill(sessions: readonly { name: string; session: SessionInput }[]): Pill {
+  const pills = sessions.map(({ name, session }) => ({ name, pill: sessionPill(session) }));
+  if (pills.length <= 1) return pills[0]?.pill ?? sessionPill(null);
+  const top = pills.reduce((a, b) => (ORDER.indexOf(b.pill.label) < ORDER.indexOf(a.pill.label) ? b : a)).pill;
+  return { label: top.label, tone: top.tone, title: pills.map(({ name, pill }) => `${name}: ${pill.label}`).join('\n') };
+}
+
 /** Everything the Daemon popover shows, or null exactly when the daemon is off (not enabled, not wanted, nothing running). */
 export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): PoolModel | null {
   const p = obj(pool);

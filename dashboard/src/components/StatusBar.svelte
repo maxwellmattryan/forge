@@ -85,7 +85,7 @@
   );
   // A hidden hold or wait tones the daemon glyph warn, so the bar still says something needs a look.
   const daemonTone = $derived(bar.daemon.off ? 'muted' : holdsOut && bar.daemon.pill.tone !== 'bad' ? 'warn' : bar.daemon.pill.tone);
-  // The office pill tones the Foreman's glyph only while the daemon runs it.
+  // The Foreman's pill (its most urgent session's: the office or an assistant foreman) tones its glyph only while the daemon runs.
   const foremanTone = $derived(bar.foreman.on && bar.foreman.daemon ? bar.foreman.pill.tone : 'muted');
   const connWord = $derived(
     conn.state === 'connecting' ? $t('statusbar.conn.connecting') : conn.state === 'offline' ? $t('statusbar.conn.offline') : conn.state === 'outdated' ? $t('statusbar.conn.outdated') : $t('statusbar.conn.live'),

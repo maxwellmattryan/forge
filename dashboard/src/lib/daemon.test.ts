@@ -2,7 +2,7 @@
 // and the pool model (the pill, the note and Start for a pool that is off).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { billingNote, poolModel, scopeSession, sessionMode } from './daemon.ts';
+import { billingNote, poolModel, scopeSession, sessionMode, sessionPill } from './daemon.ts';
 import { activeSessions } from './live.ts';
 import { pendingPrompts } from './permissions.ts';
 import { barModel } from './statusbar.ts';
@@ -58,5 +58,14 @@ test('assistant foremen in the pool model', () => {
   const foreman = barModel(pool, { pending: false }).foreman;
   assert.ok(foreman.on);
   assert.deepEqual([foreman.active, foreman.prompts, foreman.assistants], [true, 1, ['_assistant-1']]);
+  // The office never runs here: the Foreman's pill is its most urgent session's, with one title line per session.
+  assert.deepEqual([foreman.pill.label, foreman.pill.tone], ['needs permission', 'warn']);
+  assert.equal(foreman.pill.title.split('\n').length, 2);
+  const working = barModel({ ...pool, assistants: { '_assistant-1': { ...assistant, permissions: [] } } }, { pending: false }).foreman;
+  assert.ok(working.on);
+  assert.deepEqual([working.pill.label, working.pill.tone], ['busy', 'live']);
+  const alone = barModel({ ...pool, assistants: {} }, { pending: false }).foreman;
+  assert.ok(alone.on);
+  assert.deepEqual(alone.pill, sessionPill(pool.office), 'with no assistant foremen, the office keeps its own pill');
   assert.deepEqual(activeSessions(pool).ids, ['_assistant-1']);
 });
