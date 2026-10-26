@@ -113,7 +113,7 @@ Words for the Office (#281, M009): the Foreman directing work through mandates. 
 
 | Term | Meaning | Config key |
 |---|---|---|
-| **Office** | The user-facing name for everything in one project's `_office` scope: the Foreman, its assistant foremen and surveyors, and the mandates they work under. Lowercase `office` in Code layout is the lib layer. | `foreman` |
+| **Office** | The user-facing name for everything in one project's `_office` scope: the Foreman and the mandates it works under; assistant foremen (#537) and surveyors (#538) are planned. Lowercase `office` in Code layout is the lib layer. | `foreman` |
 | **mandate** | The owner's standing instruction to the Office. It is a file in `.forge/runtime/mandates/` written only by `forge mandate new\|edit\|pause\|resume\|close`: a mandate contract in its frontmatter, and the owner's guidance as free text, which briefs fence as data. A job joins one with `forge job new --mandate` and keeps it, and a split child keeps its parent's. | `foreman.mandate` |
 | **mandate contract** | Scope, `until`, `maxJobs`, `order`, `decides` (only narrows `foreman.decides`), `budget`, `stall`, `onUnfinishable` and `after`. `forge mandate show` prints it as written and as it applies after `foreman.decides`, `foreman.reserved` and `foreman.ship`. | `foreman.mandate` |
 | **mandate chain** | Mandates linked by `after:`, each starting only once the one before has closed. `forge mandate list` shows each chain and its active link. | - |
