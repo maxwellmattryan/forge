@@ -20,7 +20,7 @@ const ALLOWED: Record<string, number> = {
   'engine/guard/integrity.ts': 832,
   'engine/release/interim-apply.ts': 905,
   'engine/release/interim.ts': 698,
-  'core/job/store.ts': 788,
+  'core/job/store.ts': 787,
   'engine/guard/secrets.ts': 705,
 };
 

@@ -1,9 +1,10 @@
-// A role's agent runs: what each end records on the agent (recordRun), the runs rebuilt for the dashboard
-// (agentRuns, runsTokens) and the agents served without them (withoutRunHistory).
+// A role's agent runs: what each end records on the agent (recordRun in lib/core/job/schema.ts), the runs rebuilt
+// for the dashboard (agentRuns, runsTokens) and the agents served without them (withoutRunHistory).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_AGENT_RUNS, agentRuns, recordRun, runsTokens, withoutRunHistory } from './runs.ts';
-import type { AgentRun, ContextComposition, JobAgent, JobEvent } from '../types.ts';
+import { MAX_AGENT_RUNS, recordRun } from '#core/job/schema.ts';
+import { agentRuns, runsTokens, withoutRunHistory } from './runs.ts';
+import type { AgentRun, ContextComposition, JobAgent, JobEvent } from '#core/types.ts';
 
 const COMP: ContextComposition = { total: 100, forgePrompt: 10, harness: 50, carried: 0, tools: [{ name: 'Read', tokens: 30 }], assistant: 6, user: 4 };
 const COMP2: ContextComposition = { ...COMP, total: 200, harness: 150 };

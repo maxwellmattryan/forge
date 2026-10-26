@@ -16,7 +16,7 @@ import { REPO_NAME } from '#engine/project/member-repos.ts';
 import { parseIssueRef } from '#core/job/issue-ref.ts';
 import { exists } from '#core/paths.ts';
 import { EFFORTS } from '#core/job/schema.ts';
-import { withoutRunHistory } from '#core/job/runs.ts';
+import { withoutRunHistory } from '#engine/metrics/runs.ts';
 import { enqueue, listRequests, validJobId } from '#core/job/requests.ts';
 import { deriveTitle, normalizeTitle } from '#engine/ops/title.ts';
 import { isMap } from '#core/shape.ts';

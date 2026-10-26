@@ -8,7 +8,7 @@ import { dashboardActor } from '#integrations/github/actor.ts';
 import { buildBundle, bundleFileName } from '#engine/ops/bundle.ts';
 import { doctor } from '#engine/ops/doctor.ts';
 import { readSmallJson } from '#core/job/focus.ts';
-import { withoutRunHistory } from '#core/job/runs.ts';
+import { withoutRunHistory } from '#engine/metrics/runs.ts';
 import { CheckoutError } from '#engine/workspace/checkout.ts';
 import { InactiveJobError, currentFocus, focusJob } from '#engine/workspace/focus-actions.ts';
 import { parseGitHubUrl } from '#integrations/github/preview.ts';

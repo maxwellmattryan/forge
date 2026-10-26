@@ -2,6 +2,17 @@
 import type { SEVERITIES } from './schema.ts';
 import type { AgentUsage, ContextComposition, EventActor, Job, JobEvent } from '#api/types.ts';
 
+/** What recordAgent knows about an agent end when it records the run: recordRun in lib/core/job/schema.ts. */
+export interface AgentRunEnd {
+  wasRunning: boolean;
+  at: string | null;
+  round: number;
+  status: string;
+  model: string | null;
+  usage?: AgentUsage;
+  composition?: ContextComposition | null;
+}
+
 /** What recordAgent in lib/core/job/store.ts records for one agent start or end. */
 export interface AgentRecordChange {
   role: string;
@@ -12,7 +23,7 @@ export interface AgentRecordChange {
   summary?: string;
   usage?: AgentUsage;
   importedThrough?: string | null;
-  /** end: the imported transcript's context composition, recorded on the run only (recordRun in ./runs.ts), never in the event. */
+  /** end: the imported transcript's context composition, recorded on the run only (recordRun in ./schema.ts), never in the event. */
   composition?: ContextComposition | null;
   /** start: the job-dir-relative output (resolveAgentOutput). */
   output?: string | null;

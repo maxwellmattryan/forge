@@ -12,11 +12,11 @@ export interface AgentRow {
   endedAt: string | null;
   /** endedAt − startedAt; null while running or when either is unknown. */
   durationMs: number | null;
-  /** The sum of `runs[].usage.totalTokens`; null when no run has usage: runsTokens in lib/core/job/runs.ts. */
+  /** The sum of `runs[].usage.totalTokens`; null when no run has usage: runsTokens in lib/engine/metrics/runs.ts. */
   tokens: number | null;
   /** Its transcript was found. */
   transcript: boolean;
-  /** Every ended run of the role across rounds, oldest first: agentRuns in lib/core/job/runs.ts. */
+  /** Every ended run of the role across rounds, oldest first: agentRuns in lib/engine/metrics/runs.ts. */
   runs: AgentRun[];
 }
 

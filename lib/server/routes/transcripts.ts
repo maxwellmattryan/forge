@@ -8,7 +8,7 @@ import { knownValues, redactKnown } from '#engine/guard/known-secrets.ts';
 import { UUID, readLogPage } from '#core/job/session-files.ts';
 import { daemonSessionIds } from '#office/driver.ts';
 import { AGENT_LEASE_MS, loadJob, jobDir } from '#core/job/store.ts';
-import { agentRuns, runsTokens } from '#core/job/runs.ts';
+import { agentRuns, runsTokens } from '#engine/metrics/runs.ts';
 import { exists } from '#core/paths.ts';
 import { validJobId } from '#core/job/requests.ts';
 import { agentTranscript, cachedActivity, openTranscript, ownerTranscript } from '#integrations/claude/transcripts.ts';

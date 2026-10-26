@@ -155,13 +155,13 @@ export interface JobAgent {
   outputMissing?: boolean;
   /** This run is the one retry after a missing or malformed output: `agent start --retry`. */
   retry?: boolean;
-  /** The role's ended runs, oldest first, at most MAX_AGENT_RUNS: recordRun in lib/core/job/runs.ts. */
+  /** The role's ended runs, oldest first, at most MAX_AGENT_RUNS: recordRun in lib/core/job/schema.ts. */
   runHistory?: AgentRun[];
   /** Runs that ended before runHistory existed, set by the `agent-run-history` job step: agentRuns rebuilds them from events. */
   legacyRuns?: number;
 }
 
-/** One run's billing split, as addUsage added it: runBilling in lib/core/job/runs.ts. */
+/** One run's billing split, as addUsage added it: runBilling in lib/core/job/schema.ts. */
 export interface RunBilling {
   input: number;
   output: number;
@@ -196,7 +196,7 @@ export interface ContextComposition {
   user: number;
 }
 
-/** One ended run of a role: recordRun (recorded) or agentRuns (legacy, from events) in lib/core/job/runs.ts. */
+/** One ended run of a role: recordRun in lib/core/job/schema.ts (recorded), or agentRuns in lib/engine/metrics/runs.ts (legacy, from events). */
 export interface AgentRun {
   /** null for a legacy run. */
   round: number | null;
