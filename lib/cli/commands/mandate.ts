@@ -12,7 +12,6 @@ import { ForgeError } from '#core/errors.ts';
 import { daemonScope, inAssistant } from '#core/job/requests.ts';
 import { listArchived } from '#core/job/archive.ts';
 import { listJobs } from '#core/job/store.ts';
-import { now } from '#core/utils.ts';
 import { spendLedger } from '#engine/metrics/spend.ts';
 import { refuseOutsideOffice } from '#office/owner.ts';
 import { assistMandateRelease, mandateReleaseRefusal } from '#office/foreman.ts';
@@ -27,24 +26,10 @@ import { boundRequest, draftFile, draftSpend, draftStatus, queueDraftRequest, re
 import { assistDraft, decideDraft, draftGate, gateView, onDraftRecorded } from '#office/mandates/gate.ts';
 import type { DraftDecision } from '#office/mandates/gate.ts';
 import { prepareDraft, staleReason } from '#office/mandates/intake.ts';
-import { listMandates, mandateFile, mandateJobs, writeMandate } from '#office/mandates/store.ts';
-import type { MandateAction } from '#office/mandates/store.ts';
-import {
-  applyInput,
-  blankMandate,
-  cleanReason,
-  effectiveContract,
-  fillDefaults,
-  isReadable,
-  issueRefs,
-  mandateChain,
-  mandateGoal,
-  mandateGuidance,
-  mandateProblems,
-  mandateState,
-  mandateSummary,
-} from '#office/mandates/contract.ts';
-import type { Mandate, MandateInput, ReadMandate } from '#office/mandates/types.ts';
+import { listMandates, mandateFile, mandateJobs, mandateTarget, mandateWrite } from '#office/mandates/store.ts';
+import type { MandateOp } from '#office/mandates/store.ts';
+import { effectiveContract, isReadable, mandateChain, mandateGoal, mandateGuidance, mandateState, mandateSummary } from '#office/mandates/contract.ts';
+import type { Mandate, MandateInput } from '#office/mandates/types.ts';
 import { bodyFrom, list, req, str, usageError } from './args.ts';
 import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
 
@@ -253,8 +238,6 @@ export const HELP: HelpGroup[] = [MANDATE];
 
 const WRITES = new Set(['new', 'edit', 'pause', 'resume', 'close']);
 
-const refused = (problems: string[]) => new ForgeError(problems.join('; '), 1);
-
 /** A list flag: undefined when absent, [] for `none`, else the comma-split entries. */
 function listFlag(v: unknown, flag: string): string[] | undefined {
   const s = str(v, flag);
@@ -314,69 +297,31 @@ function inputFrom(ctx: CliContext, flags: Record<string, any>): MandateInput {
   return input;
 }
 
-/** The readable mandate `id` among `all`; not_found when there is none, refused when it can't be read. */
-function target(all: ReadMandate[], id: string): Mandate {
-  const m = all.find((x) => x.id === id);
-  if (!m) throw new ForgeError(`no mandate ${JSON.stringify(id).slice(0, 60)}`, 'not_found');
-  if (!isReadable(m)) throw new ForgeError(`mandate ${id} can't be read (${m.problem})`, 1);
-  return m;
-}
-
-/** Whether two records say the same thing, the edit time aside. */
-const same = (a: Mandate, b: Mandate): boolean => JSON.stringify({ ...a, updatedAt: '' }) === JSON.stringify({ ...b, updatedAt: '' });
-
-/** The status moves: each idempotent, so the move to the status a mandate already has writes nothing. */
-function statusMove(sub: 'pause' | 'resume' | 'close', m: Mandate, reason: string | null, at: string): Mandate | null {
-  if (sub === 'close') return m.status === 'closed' ? null : { ...m, status: 'closed', reason, closedAt: at, updatedAt: at };
-  if (m.status === 'closed') throw new ForgeError(`mandate ${m.id} is closed`, 1);
-  if (sub === 'pause') return m.status === 'paused' ? null : { ...m, status: 'paused', reason, updatedAt: at };
-  return m.status === 'active' ? null : { ...m, status: 'active', reason: null, updatedAt: at };
-}
-
 /** What every write returns: the mandate's summary as it now stands. */
 function written(root: string, id: string, changed: boolean) {
   const all = listMandates(root);
-  return { ok: true, changed, mandate: mandateSummary(target(all, id), all) };
+  return { ok: true, changed, mandate: mandateSummary(mandateTarget(all, id), all) };
 }
 
-function write(ctx: CliContext, sub: string, id: string, flags: Record<string, any>) {
+function write(ctx: CliContext, sub: MandateOp, id: string, flags: Record<string, any>) {
   const { root, config } = ctx;
   if (sub === 'new') {
     const goal = goalFrom(flags);
     const input = { ...inputFrom(ctx, { ...flags, title: req(flags.title, '--title') }), ...(goal === undefined ? {} : { goal }) };
-    writeMandate(root, (all) => {
-      if (all.some((m) => m.id === id)) throw new ForgeError(`mandate ${id} exists; change it with forge mandate edit`, 1);
-      const refs = issueRefs(root, config, fillDefaults(config, input));
-      const m = applyInput(blankMandate(id, now()), refs.input);
-      const problems = [...refs.problems, ...mandateProblems(config, m, all, null)];
-      if (problems.length) throw refused(problems);
-      return { mandate: m, action: 'new' as MandateAction };
-    });
+    mandateWrite(root, config, 'new', id, { input });
     // A goal mandate's first drafting run, for the office session to turn.
     if (goal !== undefined) return { ...written(root, id, true), draft: { request: queueDraftRequest(root, id).request } };
     return written(root, id, true);
   }
-  const input = sub === 'edit' ? inputFrom(ctx, flags) : {};
-  const reason = sub === 'pause' || sub === 'close' ? cleanReason(str(flags.reason, '--reason')) : null;
-  const out = writeMandate(root, (all) => {
-    const existing = target(all, id);
-    if (sub !== 'edit') {
-      const next = statusMove(sub as 'pause' | 'resume' | 'close', existing, reason, now());
-      return next ? { mandate: next, action: sub as MandateAction, reason } : null;
-    }
-    const refs = issueRefs(root, config, input);
-    const m = applyInput(existing, refs.input);
-    const problems = [...refs.problems, ...mandateProblems(config, m, all, existing)];
-    if (problems.length) throw refused(problems);
-    return same(m, existing) ? null : { mandate: { ...m, updatedAt: now() }, action: 'edit' as MandateAction };
-  });
-  return written(root, id, out !== null);
+  const input = sub === 'edit' ? inputFrom(ctx, flags) : undefined;
+  const reason = sub === 'pause' || sub === 'close' ? str(flags.reason, '--reason') : undefined;
+  return written(root, id, mandateWrite(root, config, sub, id, { input, reason }).changed);
 }
 
 function show(ctx: CliContext, id: string) {
   const { root, config } = ctx;
   const all = listMandates(root);
-  const m = target(all, id);
+  const m = mandateTarget(all, id);
   const { effective, capped } = effectiveContract(config, m);
   // No tracker call: the jobs, spend and starts from the CLI's records.
   const f = jobFigures(root, config, m, all, { jobs: listJobs(root), archived: listArchived(root), ledger: spendLedger(root, config, { write: false }), at: Date.now() });
@@ -468,7 +413,7 @@ async function decide(ctx: CliContext, decision: DraftDecision, rest: string[], 
 
 /** The readable goal mandate `id` for `draft start|show`: not_found, or refused (exit 1) when it can't be read or has no goal. */
 function goalMandate(root: string, id: string): Mandate {
-  const m = target(listMandates(root), id);
+  const m = mandateTarget(listMandates(root), id);
   if (m.goal === null) throw new ForgeError(`mandate ${id} has no goal: drafts are for goal mandates (forge mandate new --goal)`, 1);
   return m;
 }
@@ -548,5 +493,5 @@ export async function mandateCmd(ctx: CliContext, sub: string | undefined, rest:
   if (sub === 'edit' && (flags.goal !== undefined || flags['goal-file'] !== undefined)) throw new ForgeError('--goal is set only by forge mandate new', 'usage');
   const id = rest[0];
   if (sub === 'show') return { data: show(ctx, id), exitCode: 0 };
-  return { data: write(ctx, sub, id, flags as Record<string, any>), exitCode: 0 };
+  return { data: write(ctx, sub as MandateOp, id, flags as Record<string, any>), exitCode: 0 };
 }

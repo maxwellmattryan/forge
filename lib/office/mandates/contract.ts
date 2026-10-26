@@ -176,7 +176,7 @@ export function storedMandate(raw: unknown, fileId: string, body: string): ReadM
 }
 
 /** The classes a mandate may be given: the effective foreman.decides, or none while foreman.reserved can't be read. */
-const grantable = (config: Config): GateClass[] => (reservedMatch(config, []) === INVALID_RESERVED ? [] : decides(config));
+export const grantable = (config: Config): GateClass[] => (reservedMatch(config, []) === INVALID_RESERVED ? [] : decides(config));
 
 /**
  * `input` with every contract term it lacks taken from foreman.mandate. The default decides is cut to
