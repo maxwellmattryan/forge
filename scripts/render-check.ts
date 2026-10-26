@@ -220,7 +220,7 @@ export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: st
         // becoming the switcher's selection.
         const addLabel = catalogText('switcher.add');
         await timed(name, 'add', () =>
-          checkPage(context, at('backlog'), async (page, p) => {
+          checkPage(context, at('issues'), async (page, p) => {
             try {
               const trigger = page.locator('#project-switcher');
               for (let i = 0; i < 2; i++) {
