@@ -116,7 +116,7 @@ Words for the Office (#281, M009): the Foreman directing work through mandates. 
 
 | Term | Meaning | Config key |
 |---|---|---|
-| **Office** | The user-facing name for the Foreman and everything working for it in one project: the office session (`_office`), its assistant foremen (`_assistant-<n>`) and the mandates they work under; surveyors (#538) are planned. Lowercase `office` in Code layout is the lib layer. | `foreman` |
+| **Office** | The user-facing name for the Foreman and everything working for it in one project: the office session (`_office`), its assistant foremen (`_assistant-<n>`), the owner's chats with it (`_chat-<id>`) and the mandates they work under; surveyors (#538) are planned. Lowercase `office` in Code layout is the lib layer. | `foreman` |
 | **mandate** | The owner's standing instruction to the Office. It is a file in `.forge/runtime/mandates/` written only by `forge mandate new\|edit\|pause\|resume\|close`: a mandate contract in its frontmatter, and the owner's guidance as free text, which briefs fence as data. A job joins one with `forge job new --mandate` and keeps it, and a split child keeps its parent's. | `foreman.mandate` |
 | **mandate contract** | Scope, `until`, `maxJobs`, `order`, `decides` (only narrows `foreman.decides`), `budget`, `stall`, `onUnfinishable` and `after`. `forge mandate show` prints it as written and as it applies after `foreman.decides`, `foreman.reserved` and `foreman.ship`. | `foreman.mandate` |
 | **mandate chain** | Mandates linked by `after:`, each starting only once the one before has closed. `forge mandate list` shows each chain and its active link. | - |
@@ -125,6 +125,7 @@ Words for the Office (#281, M009): the Foreman directing work through mandates. 
 | **milestone draft** | The plan a drafting run writes for a goal mandate: one milestone with exit criteria, and up to 30 issues in waves, each naming the stat it should move. It is `draft.json` in the mandate's runtime dir, read with `forge mandate draft show`, and nothing reaches the tracker yet. | - |
 | **drafting run** | One turn of intake: the office session claims a `draft` request, `forge mandate draft prepare` writes the survey, one `forge:drafter` writes the draft, and `forge mandate draft record` checks and stores it with its spend. | `daemon.dailyUsd.office` |
 | **assistant foreman** | A pool session (scope `_assistant-<n>`, up to `foreman.assistants.sessions`) that claims the Foreman's `gate` requests from the `_assistants` group, spawns one `forge:assistant` per gate and records its verdict with `--actor foreman`. Only an assistant foreman records a foreman decision or a Foreman hand-off, and it drives no job. | `foreman.assistants` |
+| **chat** | The owner's conversation with the Foreman in the dashboard. Each chat is its own pool session (scope `_chat-<id>`), started by the owner's message and never routed a request, with `chat.json` and `log.jsonl` in `.forge/runtime/chats/<id>/`, written only by the dashboard server and read with `forge chat`. A chat acts only through the CLI, which records its actions as source `chat` and refuses it the reserved gates. Every chat of a project shares one daily cap. | `daemon.dailyUsd.chat` |
 | **surveyor** | A sub-agent that summarises the board, or one mandate's jobs, in a few lines, so the Foreman's context stays small. Planned (#538). | `foreman.surveyors` |
 
 ## Collisions we avoid
@@ -144,6 +145,7 @@ Some of these words already mean something in Forge. They keep those meanings:
 - "Office", capitalised, is the Office (the Foreman, its assistant foremen and its mandates); lowercase "office" is the lib layer and runtime in `lib/office/`, and the Foreman's session is the "office session".
 - The Office's "intake" (a goal mandate's drafting runs) differs from a job's intake, `forge requests add resume --intake run|next|new`, which says how a job starts.
 - "Milestone" means a tracker milestone (a group of planned work). The Thread's one-line rows for a job's events are "progress lines".
+- "Chat" is always the owner's conversation with the Foreman; it never means the job panel's Thread, whose messages are a job's agents and decisions.
 - "Layer" alone keeps [its meaning in the architecture docs](architecture/layers.md) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
 - "backlog" means the local tracker (`tracker.kind: local`, `.forge/backlog.md` and its title-slug refs) and the pipeline's first stage (`backlog`); the dashboard page that lists any tracker's items is "Issues", and its data route `GET /api/backlog` keeps its name.
 
