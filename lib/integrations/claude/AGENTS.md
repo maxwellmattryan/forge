@@ -11,10 +11,11 @@ Claude Code's command line, protocol, files and prices: the session argv and env
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
 |---|---|
-| `argv.ts` | Claude Code's command line and environment for a headless session: the permission-mode and effort flags, `daemon.command` to argv, and the child's env. |
+| `argv.ts` | Claude Code's command line and environment for a headless session: the permission-mode and effort flags, `daemon.command` to argv, a role child's argv, and the child's env. |
 | `child.ts` | The real ClaudeAdapter: spawns claude as the leader of its own process group, feeds its stdout and stderr through the protocol (stream.ts), and signals the whole group to stop it. |
 | `pricing.ts` | Model prices (lib/integrations/claude/pricing.json merged with config.usage.pricing) and the cost estimate built on them. |
-| `stream.ts` | Claude Code's stream-json protocol, with no I/O of its own: claude's output lines become ClaudeEvents, and every line written to its stdin is built here: the one fixed turn, permission answers and mode switches from a fixed list, an error reply that repeats claude's own capped subtype back to it, and, in a chat session only, the owner's own message (writeMessage), the one free-text line. |
+| `role.ts` | One pipeline role as its own headless claude child: the launch, the brief as its only user message, the answers to its permission prompts, its end once the result is in (stdin closed, then SIGTERM, then SIGKILL to its process group), and the class of a failure. |
+| `stream.ts` | Claude Code's stream-json protocol, with no I/O of its own: claude's output lines become ClaudeEvents, and every line written to its stdin is built here: the one fixed turn, permission answers and mode switches from a fixed list, an error reply that repeats claude's own capped subtype back to it, and two free-text lines: in a chat session only, the owner's own message (writeMessage), and in a role child only, the brief `forge job step` built (writeBrief, sent once by role.ts runRoleChild). |
 | `transcripts.ts` | Claude Code transcripts of this repo's sessions and their agents, located from job state only. |
 | `types.ts` | The shapes of a headless Claude Code child as the office sees it: the domain events its stream-json output means (ClaudeEvent), the handle that is the only way to write to it (ClaudeChild), and the adapter that starts one (ClaudeAdapter). |
 <!-- forge:map:end -->

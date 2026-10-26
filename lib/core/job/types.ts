@@ -18,6 +18,17 @@ export type Severity = (typeof SEVERITIES)[number];
 /** A job as loadJob and normalizeJob return it: normalizeJob marks one written by a newer Forge. */
 export type LoadedJob = Job & { _unsupported?: true };
 
+/**
+ * A fenced write (lib/core/job/store.ts updateJob, checkFence): refused (stale_epoch) unless the lease
+ * is still at `epoch` and, with `session`, still that driver's. `check` then runs under the same job
+ * lock and throws to refuse, so a caller can re-check what it decided from before writing.
+ */
+export interface Fence {
+  epoch: number;
+  session?: string;
+  check?: (job: LoadedJob) => void;
+}
+
 /** What setJob in lib/core/job/store.ts applies; stage, state and waitingOn are checked against their lists before the write. */
 export interface JobChange {
   stage?: string;

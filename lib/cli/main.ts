@@ -29,6 +29,7 @@ import { readJson } from '#core/os/fs.ts';
 import { createWorktree, removeWorktree } from '#engine/workspace/worktree.ts';
 import { verify } from '#engine/verify/gate.ts';
 import { advanceCmd } from './commands/advance.ts';
+import { agentRunCmd } from './commands/job/agent-run.ts';
 import { auditCmd } from './commands/audit.ts';
 import { backingCmd } from './commands/backing.ts';
 import { budgetCmd } from './commands/budget.ts';
@@ -165,6 +166,11 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       if (sub === 'advance') {
         refuseForemanJobCommand(sub);
         return advanceCmd(ctx, rest, flags, dispatch);
+      }
+      // Like advance, its non-zero exits carry data; `forge job agent <id> run` stays an unknown phase.
+      if (sub === 'agent' && rest[0] === 'run') {
+        refuseForemanJobCommand(sub);
+        return agentRunCmd(ctx, rest.slice(1), flags);
       }
       return ok(await jobCmd(root, config, sub, rest, flags));
     case 'worktree': {

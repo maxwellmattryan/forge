@@ -10,7 +10,7 @@ import { knownRecordValues, redactDeep } from '#engine/guard/known-secrets.ts';
 import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, endFinishedJobAgents, finishedJobRoles, noLease, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
 import { idPrefix } from './issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
-import type { AgentUsage, Config, Effort, EventActor, ForgeRequest, Job, JobAgent, JobIssue, JobChange, JobLease, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from '../types.ts';
+import type { AgentUsage, Config, Effort, EventActor, Fence, ForgeRequest, Job, JobAgent, JobIssue, JobChange, JobLease, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from '../types.ts';
 import { estimateCost } from '#integrations/claude/pricing.ts';
 import { agentRole, isAgentRole, reviewFileName } from './lens.ts';
 import { requeueOrphans } from './requests.ts';
@@ -33,11 +33,7 @@ export const LEASE_MS = 30 * 60 * 1000;
  */
 export const AGENT_LEASE_MS = 2 * 60 * 60 * 1000;
 
-/** A fenced write: refused (stale_epoch) unless the lease is still at `epoch` and, with `session`, still that driver's. */
-export interface Fence {
-  epoch: number;
-  session?: string;
-}
+export type { Fence } from './types.ts';
 
 // jobDir lives in paths.ts, a leaf, so low modules can use it without loading this one.
 export { jobDir } from '../paths.ts';
@@ -64,7 +60,7 @@ export function loadJob(root: string, id: string): LoadedJob {
 export function updateJob(root: string, id: string, mutate: (job: LoadedJob) => void, fence?: Fence): LoadedJob {
   return withLock(path.join(jobDir(root, id), '.lock'), () => {
     const job = loadJob(root, id);
-    if (fence) assertEpoch(job, fence.epoch, fence.session);
+    if (fence) assertFence(job, fence);
     mutate(job);
     job.updatedAt = now();
     for (const f of jobFiles(root, id, 'job.json')) writeJsonAtomic(f, serializeJob(job));
@@ -82,9 +78,12 @@ export function assertEpoch(job: Pick<Job, 'id' | 'lease'>, epoch: number, sessi
   throw new ForgeError(`job ${job.id} was taken over (lease epoch ${l.epoch}, you hold ${epoch}); stop driving it`, 'stale_epoch');
 }
 
-/** assertEpoch under the job lock, for a fenced command whose first write is not job.json's. */
+/** assertEpoch, then the fence's own check: the caller holds the job lock. */
+const assertFence = (job: LoadedJob, fence: Fence): void => (assertEpoch(job, fence.epoch, fence.session), fence.check?.(job));
+
+/** assertFence under the job lock, for a fenced command whose first write is not job.json's. */
 export function checkFence(root: string, id: string, fence: Fence): void {
-  withLock(path.join(jobDir(root, id), '.lock'), () => assertEpoch(loadJob(root, id), fence.epoch, fence.session));
+  withLock(path.join(jobDir(root, id), '.lock'), () => assertFence(loadJob(root, id), fence));
 }
 
 /** The later of an ISO time and a ms time, as ISO; an unreadable ISO loses. */
