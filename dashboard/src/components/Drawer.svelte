@@ -89,10 +89,14 @@
   // id, so it never moves the scroll.
   $effect(() => {
     void S.drawer.id;
-    if (panel) panel.scrollTop = 0;
-    if (head) head.scrollTop = 0;
-    if (fileList) fileList.scrollTop = 0;
-    if (fileView) fileView.scrollTop = 0;
+    untrack(() => {
+      if (panel) panel.scrollTop = 0;
+      if (head) head.scrollTop = 0;
+    });
+    untrack(() => {
+      if (fileList) fileList.scrollTop = 0;
+      if (fileView) fileView.scrollTop = 0;
+    });
   });
   // Picking another file shows it from its top. This reads the file name, never `shown`: drawerView is a new object on
   // every 2 s refresh, which must keep the scroll.
@@ -173,8 +177,8 @@
 <!-- Always mounted, so it fades both ways: closed, it is invisible and lets presses through. -->
 <div id="drawer-backdrop" class="fixed inset-0 backdrop z-30 {open ? 'opacity-100 transition-[opacity] duration-(--motion-base) ease-(--ease-enter)' : 'opacity-0 invisible pointer-events-none transition-[opacity,visibility] duration-(--motion-quick) ease-(--ease-exit)'}" onclick={closeDrawer}></div>
 <!-- A full-height column that never scrolls itself: the header (capped at 40%, scrolling inside itself when taller) and
-     the tab strip stay put, the tab panel under them is the one scroller (on Log, the log pane is; on Files, the file list and the file view each scroll), and the action dock
-     under it stays put on every tab. It runs to the viewport's bottom, over the status bar, which the backdrop dims like
+     the tab strip stay put, the tab panel under them is the one scroller (on Log, the log pane is; on Files, the file
+     list and the file view each scroll), and the action dock under it stays put on every tab. It runs to the viewport's bottom, over the status bar, which the backdrop dims like
      the rest of the page; the bottom inset keeps the dock clear of a phone's home indicator. Opening slides it 24px in from
      the right as it fades in (base, easing out); closing slides and fades it out (quick, easing in); the reduced-motion
      block turns both off. Only a close transitions visibility, so it turns invisible at the end of the exit: on open it
@@ -247,10 +251,10 @@
           {@const file = shown.file}
           {@const content = shown.content}
           {#if d.files.length}
-            <div bind:this={fileList} class="shrink-0 max-h-[30%] overflow-y-auto overscroll-contain flex flex-col gap-0.5 border-b border-line pb-3">{#each d.files as f (f)}<button class="block w-full text-left truncate px-2 py-1 text-sm font-mono {file === f ? 'bg-raised text-fg' : 'text-muted hover:text-fg'}" onclick={() => loadFile(f)}>{f}</button>{/each}</div>
+            <div bind:this={fileList} class="shrink-0 max-h-[30%] overflow-y-auto overscroll-contain flex flex-col gap-0.5 border-b border-line pb-3">{#each d.files as f (f)}<button class="block w-full shrink-0 text-left truncate focus-visible:-outline-offset-2 px-2 py-1 text-sm font-mono {file === f ? 'bg-raised text-fg' : 'text-muted hover:text-fg'}" onclick={() => loadFile(f)}>{f}</button>{/each}</div>
           {/if}
           <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->
-          <div bind:this={fileView} role="region" aria-label={file ?? $t('drawer.files')} tabindex="0" class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain flex flex-col focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
+          <div bind:this={fileView} role="region" aria-label={file ?? $t('drawer.files')} tabindex={d.files.length ? 0 : undefined} class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain flex flex-col focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
               {#if file && content}
                 {#if 'html' in content}
                   <!-- svelte-ignore a11y_missing_attribute (no title, as on main: the iframe sits below the file list that names it) -->
