@@ -2,7 +2,7 @@
 
 One module per command group, each with its `HELP` table, and the human-mode renderers.
 
-- A command or JSON output change edits its group's module and `HELP` table (`CORE` in `help.ts` for what `main.ts` routes), then `npm run docs` regenerates README's CLI table and docs/CLI.md's command reference. New commands return compact JSON; large outputs go to files in the job dir, and the CLI returns their paths.
+- A command or JSON output change edits its group's module and `HELP` table (`CORE` in `help.ts` for what `main.ts` routes), then `npm run docs` regenerates docs/CLI.md's Common commands table and command reference. New commands return compact JSON; large outputs go to files in the job dir, and the CLI returns their paths.
 - Only this folder and `lib/cli/main.ts` import it (`test/invariants/layers.test.ts`). It is a registry, so it may hold more than 12 entries; so is `render/`.
 - **`job/`** holds `forge job`'s help table (`help.ts`) and one handler function per subcommand, grouped by concern; `job.ts` only routes, through `JOB_HANDLERS`.
 - **CLI output**: string results print raw (e.g. `forge worktree path`), everything else prints compact JSON.

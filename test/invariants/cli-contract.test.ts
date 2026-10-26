@@ -1,4 +1,4 @@
-// README's CLI table is what `npm run docs:commands` writes from the help tables, and every row matches
+// docs/CLI.md's Common commands table is what `npm run docs:commands` writes from the help tables, and every row matches
 // `forge help`. Kept through the test rewrite (docs/test-rewrite/README.md): docs stay in sync with code
 // (docs/TESTING.md › Allowed source-text tests, entry 6).
 import test from 'node:test';
@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { BIN } from '../helpers.ts';
-import { GROUPS, README_END, README_START, readmeTable, syncReadme } from '../../lib/cli/commands/help.ts';
+import { GROUPS, COMMON_END, COMMON_START, commonTable, syncCommonCommands } from '../../lib/cli/commands/help.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 
@@ -45,17 +45,17 @@ async function helpCli(...args: string[]): Promise<Run> {
 
 const read = (f: string) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 
-test('README CLI table is generated from the help tables', async () => {
-  const readme = read('README.md');
-  const start = readme.indexOf(README_START);
-  const end = readme.indexOf(README_END);
-  assert.ok(start >= 0 && end > start, 'README has the generated region');
-  const region = readme.slice(start + README_START.length + 1, end).replace(/\n$/, '');
-  assert.equal(region, readmeTable());
-  assert.equal(syncReadme(readme), readme, 'npm run docs:commands would change nothing');
+test('Common commands table is generated from the help tables', async () => {
+  const doc = read('docs/CLI.md');
+  const start = doc.indexOf(COMMON_START);
+  const end = doc.indexOf(COMMON_END);
+  assert.ok(start >= 0 && end > start, 'docs/CLI.md has the generated region');
+  const region = doc.slice(start + COMMON_START.length + 1, end).replace(/\n$/, '');
+  assert.equal(region, commonTable());
+  assert.equal(syncCommonCommands(doc), doc, 'npm run docs:commands would change nothing');
 
   const rows = region.split('\n').slice(2);
-  assert.equal(rows.length, GROUPS.flatMap((g) => g.commands).filter((c) => c.readme).length);
+  assert.equal(rows.length, GROUPS.flatMap((g) => g.commands).filter((c) => c.common).length);
   assert.ok(rows.length >= 11);
   for (const row of rows) {
     // Cells are separated by ` | `; a pipe inside a cell is written `\|`, never with a space before it.
@@ -69,6 +69,6 @@ test('README CLI table is generated from the help tables', async () => {
     assert.ok(help.stdout.includes(usage), `forge help ${words.join(' ')} shows ${usage}`);
     assert.ok(help.stdout.includes(summary), `forge help ${words.join(' ')} shows its summary`);
   }
-  // A README without the markers is refused rather than silently left alone.
-  assert.throws(() => syncReadme('# no markers\n'), /no <!-- forge:commands:start/);
+  // A doc without the markers is refused rather than silently left alone.
+  assert.throws(() => syncCommonCommands('# no markers\n'), /no <!-- forge:commands:start/);
 });

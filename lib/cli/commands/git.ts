@@ -50,7 +50,7 @@ const GIT: HelpGroup = {
         [1, 'no such job or worktree, an option, a path outside the worktree or in .git, or a protected path (code protected_path)'],
         [5, 'git failed'],
       ],
-      readme: true,
+      common: true,
     },
     {
       command: 'git commit',
@@ -66,7 +66,7 @@ const GIT: HelpGroup = {
         [1, 'no such job or worktree, the wrong branch, a merge or rebase in progress, nothing to commit, a refused option, path or message, a protected path (code protected_path), or a likely secret (code secret_found)'],
         [5, 'git failed'],
       ],
-      readme: true,
+      common: true,
     },
   ],
 };

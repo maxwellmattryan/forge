@@ -19,7 +19,7 @@ const NOTIFY: HelpGroup = {
       flags: [['--event <name>', `the sample's event (default gate): ${NOTIFY_EVENTS.join(', ')}`]],
       exits: [[1, 'a target failed, or notify has no webhooks or command']],
       docs: ['Notifications', 'docs/CONFIG.md#notifications'],
-      readme: true,
+      common: true,
     },
     {
       command: 'notify send',

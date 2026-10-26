@@ -29,7 +29,7 @@ const RELEASE: HelpGroup = {
       ],
       exits: [[1, 'config problems, an unmerged PR that is no interim consumer, no merged PR at all (--job), an unusable member clone (--job), no repo with the tag, a build cycle, an unfinished run of another plan, a symlinked release dir, or --force in a daemon session']],
       docs: DOCS,
-      readme: true,
+      common: true,
     },
     {
       command: 'release run',
@@ -41,14 +41,14 @@ const RELEASE: HelpGroup = {
         [3, 'another forge release run holds the lock'],
       ],
       docs: DOCS,
-      readme: true,
+      common: true,
     },
     {
       command: 'release status',
       args: '',
       summary: "the plan's progress: each step's status with the tags and versions its checks recorded, the next step, whether config or the repos have moved since planning, and the publish approval (owner, pending or approved)",
       docs: DOCS,
-      readme: true,
+      common: true,
     },
   ],
 };
