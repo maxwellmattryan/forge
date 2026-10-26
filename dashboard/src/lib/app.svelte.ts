@@ -16,6 +16,7 @@ import type {
   EvalsResponse,
   GitHubPreviewResponse,
   JobDetail,
+  MandatesResponse,
   PostConfigBody,
   PostBudgetAckResponse,
   PostConfigResponse,
@@ -31,6 +32,7 @@ import type {
 } from './types.ts';
 import { bundleFilename } from './diagnostics.ts';
 import { fetchEnvironments } from './environment.ts';
+import { fetchMandates } from './foreman.ts';
 import { pref } from './prefs.ts';
 import { toast } from './toast.svelte.ts';
 import { buildRequest, queuedMessage } from './requests.ts';
@@ -124,6 +126,9 @@ class AppState {
   environments = $state.raw<EnvironmentsResponse | null>(null);
   environmentsError = $state<string | null>(null);
   backlog = $state.raw<BacklogView | null>(null);
+  /** The Foreman page's GET /api/mandates; a failed load keeps the last answer and sets `mandatesError`. */
+  mandates = $state.raw<MandatesResponse | null>(null);
+  mandatesError = $state<string | null>(null);
   compare = new CompareState();
   drawer = new DrawerState();
   drawerView = $state.raw<DrawerView>(null);
@@ -296,9 +301,27 @@ export async function loadView(): Promise<void> {
       const backlog = await api<BacklogResponse>('/api/backlog');
       if (current()) S.backlog = backlog;
     }
+    if (S.view === 'foreman') await loadMandates();
   } catch (e) {
     // An unregistered project is the Banner's message (the next poll sets it), not a toast of the server's JSON.
     if (current() && !isUnregistered(e)) toast(message(e), true);
+  }
+}
+
+/**
+ * GET /api/mandates into S.mandates for the Foreman page: on open, on the view poll and after each write. Its failure is
+ * the page's banner, not a toast every 15 s; a reply for another project is dropped.
+ */
+export async function loadMandates(): Promise<void> {
+  const project = currentProject();
+  if (project === null) return;
+  try {
+    const r = await fetchMandates(forgeToken());
+    if (currentProject() !== project) return;
+    S.mandates = r;
+    S.mandatesError = null;
+  } catch (e) {
+    if (currentProject() === project && !isUnregistered(e)) S.mandatesError = message(e);
   }
 }
 
@@ -350,6 +373,8 @@ export function switchProject(name: string | null): void {
   S.environments = null;
   S.environmentsError = null;
   S.backlog = null;
+  S.mandates = null;
+  S.mandatesError = null;
   S.compare.a = '';
   S.compare.b = '';
   S.compare.result = null;

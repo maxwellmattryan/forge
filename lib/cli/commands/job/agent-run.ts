@@ -10,6 +10,7 @@ import { loadStepInput, step } from '#engine/pipeline/step.ts';
 import { jobWorktreeProblem } from '#engine/workspace/regenerate.ts';
 import { meterDelta, type MeterCum } from '#engine/metrics/meter.ts';
 import { importClaudeCodeTranscript } from '#engine/metrics/usage.ts';
+import { rolePromptChars } from '#engine/evals/provenance.ts';
 import { knownValues, redactKnown } from '#engine/guard/known-secrets.ts';
 import { claudeAdapter } from '#integrations/claude/child.ts';
 import { commandPermissionMode, parseTemplate, roleArgv, sessionEnv } from '#integrations/claude/argv.ts';
@@ -254,7 +255,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   // A child that ran but sent no cost (a timeout, a kill, an exit before the result), or a resume with no baseline,
   // still spent tokens: its session transcript is the measure, and `unmeasured` when there is none.
   if (outcome.started && (!outcome.cost || (resumed && !baseline))) {
-    const imported = importClaudeCodeTranscript(agentId, { since: importCursor(loadJob(root, jobId), agentId), root, job: loadJob(root, jobId) });
+    const imported = importClaudeCodeTranscript(agentId, { since: importCursor(loadJob(root, jobId), agentId), root, job: loadJob(root, jobId), promptChars: rolePromptChars(sp.role) });
     usage = imported ? { ...imported, durationMs: imported.durationMs || wallMs } : null;
     unmeasured = !imported;
   }
