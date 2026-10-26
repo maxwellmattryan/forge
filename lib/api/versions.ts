@@ -71,6 +71,8 @@ export const API_CHANGES = [
   // The Foreman page's mandate routes: GET /api/mandates (MandatesResponse), GET /api/mandates/:id (MandateDetailResponse),
   // POST /api/mandates and /api/mandates/:id/edit|pause|resume|close (PostMandateResponse); MandateRow, Directive.
   { id: 'foreman-page' },
+  // MandateContract.scoring (all | sample | off); the scoring term on POST /api/mandates and /api/mandates/:id/edit.
+  { id: 'mandate-scoring' },
 ] as const;
 
 /**

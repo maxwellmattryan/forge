@@ -10,6 +10,8 @@ export const MANDATE_STEPS: readonly Step[] = [
   { id: 'mandate-goal', up: (m) => ({ ...m, goal: null }) },
   // A goal mandate's filing (forge mandate draft approve): when its draft was filed, null on every mandate written before it.
   { id: 'mandate-filed', up: (m) => ({ ...m, filedAt: null }) },
+  // The mandate's scoring term (#590): every mandate written before it scores all its merged jobs, the default.
+  { id: 'mandate-scoring', up: (m) => ({ ...m, scoring: 'all' }) },
 ];
 
 export const MANDATE_SCHEMA_VERSION = versionOf(MANDATE_STEPS);

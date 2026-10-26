@@ -10,7 +10,7 @@ import { defaults } from '#core/config/load.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { MANDATE_SCHEMA_VERSION } from '#core/versions/mandate.ts';
 import { applyInput, blankMandate, effectiveContract, isReadable, mandateChain, mandateState, mandateSummary } from './contract.ts';
-import { listMandates, readMandate, writeMandate } from './store.ts';
+import { jobMandateScoring, listMandates, readMandate, writeMandate } from './store.ts';
 import type { Config } from '#core/types.ts';
 import type { Mandate, MandateInput, ReadMandate } from './types.ts';
 
@@ -88,6 +88,8 @@ test('mandate input refusals', async () => {
       ['maxJobs not a number', [...NEW, '--max-jobs', 'two'], /^maxJobs must be an integer 1-16 \(got NaN\)$/],
       ['budget.usd 0', [...NEW, '--budget-usd', '0'], /^budget\.usd must be a number over 0 and at most 100000 \(got 0\)$/],
       ['an unknown enum value', [...NEW, '--until', 'released'], /^until must be one of merge-ready \| merged/],
+      ['an unknown scoring term on new', [...NEW, '--scoring', 'some'], /^scoring must be one of all \| sample \| off \(got "some"\)$/],
+      ['an unknown scoring term on edit', ['mandate', 'edit', 'a', '--scoring', 'some'], /^scoring must be one of all \| sample \| off \(got "some"\)$/],
       ['every problem, joined', [...NEW, '--max-jobs', '0', '--stall-bounces', '101'], /^maxJobs must be an integer 1-16 \(got 0\); stall\.bounces must be an integer 1-100 \(got 101\)$/],
       ['editing a closed mandate', ['mandate', 'edit', 'c', '--title', 'Again'], /^mandate c is closed$/],
       ['pausing a closed mandate', ['mandate', 'pause', 'c'], /^mandate c is closed$/],
@@ -222,8 +224,10 @@ test('unreadable mandate files', async () => {
       ['an id that differs from its file name', () => fs.writeFileSync(path.join(dir, 'other.md'), good), /differs from its file name/],
       ['a term that breaks the rules', () => fs.writeFileSync(path.join(dir, 'wide.md'), good.replace('id: good', 'id: wide').replace(/maxJobs: \d+/, 'maxJobs: 99')), /maxJobs must be an integer 1-16/],
       ['an unknown key', () => fs.writeFileSync(path.join(dir, 'extra.md'), good.replace('id: good', 'id: extra').replace('---\n', '---\nwiden: true\n')), /unknown key "widen"/],
+      ['a current file with no scoring', () => fs.writeFileSync(path.join(dir, 'unscored.md'), good.replace('id: good', 'id: unscored').replace(/^scoring: all\n/m, '')), /^no scoring$/],
+      ['an unknown scoring term', () => fs.writeFileSync(path.join(dir, 'maybe.md'), good.replace('id: good', 'id: maybe').replace(/^scoring: all$/m, 'scoring: maybe')), /^scoring must be one of all \| sample \| off \(got "maybe"\)$/],
     ];
-    const ids = ['link', 'big', 'broken', 'plain', 'newer', 'other', 'wide', 'extra'];
+    const ids = ['link', 'big', 'broken', 'plain', 'newer', 'other', 'wide', 'extra', 'unscored', 'maybe'];
     rows.forEach(([, plant]) => plant());
     rows.forEach(([name, , want], i) => {
       const m = readMandate(r.dir, ids[i]);
@@ -236,6 +240,33 @@ test('unreadable mandate files', async () => {
     // An unreadable mandate is never acted on: no write goes through it.
     const edit = await forgeInProcess(r.dir, ['mandate', 'pause', 'wide']);
     assert.deepEqual([edit.status, edit.error?.message], [1, "mandate wide can't be read (maxJobs must be an integer 1-16 (got 99))"]);
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a job's mandate scoring term", async () => {
+  const r = scratch();
+  try {
+    await ok(r.dir, ['mandate', 'new', 'all', '--title', 'All', '--milestones', 'M1']);
+    await ok(r.dir, ['mandate', 'new', 'sampled', '--title', 'Sampled', '--milestones', 'M2', '--scoring', 'sample']);
+    await ok(r.dir, ['mandate', 'pause', 'sampled']);
+    await ok(r.dir, ['mandate', 'new', 'off', '--title', 'Off', '--milestones', 'M3', '--scoring', 'off']);
+    await ok(r.dir, ['mandate', 'new', 'closed', '--title', 'Closed', '--milestones', 'M4']);
+    await ok(r.dir, ['mandate', 'close', 'closed']);
+    await ok(r.dir, ['mandate', 'close', 'off']);
+    const dir = path.join(r.dir, '.forge', 'runtime', 'mandates');
+    fs.symlinkSync(path.join(dir, 'all.md'), path.join(dir, 'linked.md'));
+    const rows: [string, string | null, string | null][] = [
+      ['no mandate', null, null],
+      ['an active mandate, all by default', 'all', 'all'],
+      ['a paused mandate that samples', 'sampled', 'sample'],
+      ['a closed mandate that scores off', 'off', 'off'],
+      ['a closed mandate that scores all', 'closed', 'all'],
+      ['a missing mandate file', 'nope', null],
+      ['a link at the mandate file', 'linked', null],
+    ];
+    for (const [name, mandate, want] of rows) assert.equal(jobMandateScoring(r.dir, { mandate }), want, name);
   } finally {
     r.cleanup();
   }

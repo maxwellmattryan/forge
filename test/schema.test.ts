@@ -310,6 +310,12 @@ const MANDATE_ROWS: Row[] = [
     fields: { filedAt: null, goal: null, 'scope.milestones': ['M1'] },
     note: 'a mandate written before filing reads as never filed',
   },
+  {
+    step: 'mandate-scoring',
+    input: { ...MANDATE_V1, goal: null, filedAt: null },
+    fields: { scoring: 'all', 'scope.milestones': ['M1'] },
+    note: 'a mandate written before scoring scores all its merged jobs',
+  },
 ];
 
 /** One versioned shape: its rows, its step list, its current version, the field that holds it, and its reader. */
