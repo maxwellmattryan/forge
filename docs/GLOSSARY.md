@@ -16,6 +16,7 @@ Planned in M004, except where a config key exists today.
 | **machine cap** | How many job sessions run at once across every project the machine dashboard serves, on top of each project's `daemon.maxConcurrent`: the machine index's `settings.maxConcurrent` (1–64), else the highest loaded project's `daemon.maxConcurrent`. Inbox, office and assistant foreman sessions never count; set with forge project settings --max-concurrent. | - |
 | **Overview** | The dashboard's cross-project page and its default route (`#/overview`, or the bare `/`), with no project selected: a card per registered project (active and waiting jobs, Foreman, sessions, latest activity), what waits on you first, then graphs of jobs shipped and cost per UTC day stacked by project, and the machine cap with today's and this month's spend. "Dashboard" keeps meaning the whole web app. | - |
 | **project switcher** | The control in the sidebar's project section that selects the project whose pages the dashboard shows (on the rail, a button that opens the palette's `project <name>` command); choosing one opens its same view, a missing or unavailable project can't be chosen, and **Add project**, ruled off below the projects, opens the Machine page with the `forge project add` command. Layout, filter and window choices, session log filters and the Thread's Progress toggle are kept per project; the theme, language, sidebar and panel widths and the Rendered/Raw choices are kept for the whole browser. | - |
+| **Issues** | The dashboard's per-project page (`#/p/<project>/issues`) that lists the project tracker's items, whatever the tracker, with their triage readiness and Start for unclaimed ones. Old `#/p/<project>/backlog`, `#/backlog` and `?project=<name>#/backlog` links land on it. | `tracker` |
 | **root repo** | The repo that holds the project's `.forge/`, which for a project of one repo is that repo and is never listed in `repos`. | `repos` |
 | **member repo** | Any other repo the root repo's config lists as part of the project. | `repos` |
 | **component** | A buildable unit inside a repo, of kind `library`, `service` or `app`. | planned (M004) |
@@ -147,6 +148,7 @@ Some of these words already mean something in Forge. They keep those meanings:
 - The Office's "intake" (a goal mandate's drafting runs) differs from a job's intake, `forge requests add resume --intake run|next|new`, which says how a job starts.
 - "Milestone" means a tracker milestone (a group of planned work). The Thread's one-line rows for a job's events are "progress lines".
 - "Layer" alone keeps [its meaning in the architecture docs](architecture/layers.md) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
+- "backlog" means the local tracker (`tracker.kind: local`, `.forge/backlog.md` and its title-slug refs) and the pipeline's first stage (`backlog`); the dashboard page that lists any tracker's items is "Issues", and its data route `GET /api/backlog` keeps its name.
 
 ## Existing terms
 

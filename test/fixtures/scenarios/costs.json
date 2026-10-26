@@ -33,7 +33,7 @@
   "expect": {
     "pipeline": ["Tidy the changelog script", "90k tok"],
     "project": ["@project.empty"],
-    "backlog": ["@backlog.empty"],
+    "issues": ["@issues.empty"],
     "agents": ["@agents.running", "Tidy the changelog script"],
     "analytics": ["@analytics.byModel", "Rewrite the scheduler", "Add the CSV export", "Tidy the changelog script"],
     "evals": ["@evals.empty"],

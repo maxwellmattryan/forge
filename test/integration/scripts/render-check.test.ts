@@ -10,7 +10,7 @@ import { PLUGIN_ROOT } from '#core/paths.ts';
 import { launchBrowser, parseRenderArgs, renderCheck, renderExitCode } from '../../../scripts/render-check.ts';
 
 const BROKEN = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'render-broken');
-const VIEW_IDS = ['pipeline', 'project', 'backlog', 'agents', 'analytics', 'evals'];
+const VIEW_IDS = ['pipeline', 'project', 'issues', 'agents', 'analytics', 'evals'];
 const USAGE = 'usage: npm run test:render [-- --scenario NAME]... [--dist DIR]';
 
 /** A temp scenario dir holding `one`: a single job the fixture's views and drawer name. */
@@ -64,7 +64,7 @@ describe('scripts/render-check.ts', () => {
         JSON.stringify(of('evals')),
       );
       assert.deepEqual(of('analytics'), ['missing text "Render fixture job"']);
-      for (const view of ['pipeline', 'project', 'backlog', 'drawer']) assert.deepEqual(of(view), [], view);
+      for (const view of ['pipeline', 'project', 'issues', 'drawer']) assert.deepEqual(of(view), [], view);
       // The machine's checks: the fixture lists no project and has no switcher, so each reports what is missing.
       const registered = ['repo', 'other-project', 'gone-project'].map((n) => `missing text "${n}"`);
       assert.deepEqual(of('overview'), [...registered, ...['Jobs shipped', 'Cost', 'Machine'].map((n) => `missing text "${n}"`)]);

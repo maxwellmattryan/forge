@@ -19,7 +19,7 @@
   const labels = $derived<Record<ViewId, string>>({
     pipeline: $t('nav.pipeline'),
     project: $t('nav.project'),
-    backlog: $t('nav.backlog'),
+    issues: $t('nav.issues'),
     agents: $t('nav.agents'),
     analytics: $t('nav.analytics'),
     evals: $t('nav.evals'),
