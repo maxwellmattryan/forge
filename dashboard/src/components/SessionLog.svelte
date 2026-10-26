@@ -1,4 +1,4 @@
-<!-- One session's structured log (a job's, or the inbox's in the status bar's Daemon popover): one compact control row
+<!-- One session's structured log (a job's, or the inbox's in the status bar's Inbox popover): one compact control row
      (status facts, then SessionControls' Permissions and Effort dropdowns and Start/Stop toggle, the Filter button, the rendered/raw
      icon toggle, Follow and Load older; the filters sit in a MenuButton popover), and turns with tool calls
      and subagents, followed live. Every log string is untrusted session output: text and thinking bodies and a

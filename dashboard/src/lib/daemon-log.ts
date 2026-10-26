@@ -8,7 +8,7 @@ import { isLiveLine } from './station.ts';
 import type { Entry } from './session-parse.ts';
 import type { DaemonLogPage } from './types.ts';
 
-/** localStorage key for whether the Daemon popover's Inbox session log is on (statusbar/DaemonPanel.svelte reads and writes it). */
+/** localStorage key for whether the Inbox popover's Inbox session log is on (statusbar/InboxPanel.svelte reads and writes it). */
 export const LOG_KEY = 'forge.daemonLog';
 export const CLOSED_NOTE = 'Log stream closed. Reopen the tab to retry.';
 /** EventSource.CLOSED, as a literal because Node has no EventSource global. */

@@ -25,6 +25,8 @@ export const ICONS = {
   close: [{ el: 'path', d: 'M6 6l12 12M18 6 6 18' }],
   command: [{ el: 'path', d: 'M12 5v14M5 12h14' }],
   copy: [{ el: 'rect', x: '9', y: '9', width: '11', height: '11', rx: '1' }, { el: 'path', d: 'M5 15V4h11' }],
+  // A chip with its die: the model a session runs on.
+  cpu: [{ el: 'rect', x: '6', y: '6', width: '12', height: '12', rx: '1' }, { el: 'rect', x: '9.5', y: '9.5', width: '5', height: '5' }, { el: 'path', d: 'M9.5 3v3M14.5 3v3M9.5 18v3M14.5 18v3M3 9.5h3M3 14.5h3M18 9.5h3M18 14.5h3' }],
   daemon: [{ el: 'rect', x: '7', y: '7', width: '10', height: '10', rx: '1' }, { el: 'path', d: 'M4 10h3M4 14h3M17 10h3M17 14h3M10 4v3M14 4v3M10 17v3M14 17v3' }],
   dashboard: [{ el: 'rect', x: '3', y: '3', width: '8', height: '8', rx: '1' }, { el: 'rect', x: '13', y: '3', width: '8', height: '5', rx: '1' }, { el: 'rect', x: '13', y: '11', width: '8', height: '10', rx: '1' }, { el: 'rect', x: '3', y: '14', width: '8', height: '7', rx: '1' }],
   diagnostics: [{ el: 'path', d: 'M2 12h4l2.5-7 4 14 2.5-7h7' }],

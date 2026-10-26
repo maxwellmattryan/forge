@@ -3,7 +3,7 @@
 
 import { TABBABLE } from './settings.ts';
 
-export const POPOVERS = ['foreman', 'needs', 'daemon', 'model', 'connection'] as const;
+export const POPOVERS = ['needs', 'foreman', 'workers', 'inbox', 'model', 'connection'] as const;
 /**
  * What a press can focus: whether a press outside a popover landed on something that takes focus itself (a select, the
  * view's heading, a summary), so focus stays there rather than going back to the indicator. Wider than TABBABLE.
@@ -16,7 +16,7 @@ export const FOCUSABLE = `${TABBABLE}, select:not([disabled]), [tabindex], [cont
 export const TAB_STOPS = `${TABBABLE}, select:not([disabled]), summary, [contenteditable]:not([contenteditable="false"])`;
 export type PopoverId = (typeof POPOVERS)[number];
 
-/** A popover's preferred width, px: most are normal, the Daemon and Needs you wide, the Foreman's thread chat. */
+/** A popover's preferred width, px: most are normal, Workers, Inbox and Needs you wide, the Foreman's thread chat. */
 export const POPOVER_WIDTH = { normal: 400, wide: 560, chat: 760 } as const;
 export type PopoverSize = keyof typeof POPOVER_WIDTH;
 
