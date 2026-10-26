@@ -1,7 +1,7 @@
-// buildArgv's file-tool rewrite, dollar cap and deny tail, absRule, and the session env's billing scrub, in-process.
+// buildArgv's file-tool rewrite, dollar cap and deny tail, roleArgv, absRule, and the session env's billing scrub, in-process.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DENY_TOOLS, PROMPT_TOOL, absRule, billingOf, buildArgv, sessionEnv } from './argv.ts';
+import { DENY_TOOLS, PROMPT_TOOL, absRule, billingOf, buildArgv, roleArgv, sessionEnv } from './argv.ts';
 
 const session = { id: '00000000-0000-4000-8000-000000000000', resume: false };
 const allowedOf = (argv: string[]) => argv[argv.indexOf('--allowedTools') + 1];
@@ -99,6 +99,37 @@ test("the office model is Forge's, once", () => {
     assert.deepEqual(models(argv), row.want, row.name);
     assert.ok(argv.includes('--verbose') && argv.includes('--session-id'), `${row.name}: the rest of argv stays`);
     if (row.model === 'opus') assert.ok(argv.indexOf('--model') > argv.indexOf('--verbose') && argv.indexOf('--model') < argv.indexOf('--disallowedTools'), 'after the template, before the deny tail');
+  }
+});
+
+test("roleArgv builds a role child's command line", () => {
+  const uuid = session.id;
+  const deny = ['Edit(//r/.forge/config.yml)', 'Edit(//r/CLAUDE.md)'];
+  const base = { executable: '/opt/claude', pluginRoot: '/p lugin', agent: 'forge:verifier', model: 'haiku', effort: 'low' as const, permissionMode: 'default', allowedTools: ['Agent', 'Read', 'Edit', 'Write(~/**)', 'Bash(forge:*)'], writeRoots: ['/r/.forge/jobs', '/w'], deny, session };
+  type Vars = Parameters<typeof roleArgv>[0];
+  const head = ['/opt/claude', '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--plugin-dir', '/p lugin', '--agent', 'forge:verifier'];
+  const tail = (mode: string, sid: string[]) => ['--permission-mode', mode, '--allowedTools', 'Agent,Read,Bash(forge:*),Edit(//r/.forge/jobs/**),Edit(//w/**)', ...sid, '--disallowedTools', deny.join(','), '--permission-prompt-tool', 'stdio'];
+  const rows: { name: string; vars?: Partial<Vars>; want?: string[]; throws?: RegExp }[] = [
+    { name: 'every flag', want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--session-id', uuid])] },
+    { name: 'a resume', vars: { session: { id: uuid, resume: true } }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--resume', uuid])] },
+    { name: 'inherit drops --model', vars: { model: 'inherit' }, want: [...head, '--effort', 'low', ...tail('default', ['--session-id', uuid])] },
+    { name: 'a flag-like model drops --model', vars: { model: '--dangerously-skip-permissions' }, want: [...head, '--effort', 'low', ...tail('default', ['--session-id', uuid])] },
+    { name: 'a null effort drops --effort', vars: { effort: null }, want: [...head, '--model', 'haiku', ...tail('default', ['--session-id', uuid])] },
+    { name: 'an effort outside EFFORTS drops --effort', vars: { effort: '--verbose' as never }, want: [...head, '--model', 'haiku', ...tail('default', ['--session-id', uuid])] },
+    { name: "the command's own mode", vars: { permissionMode: 'dontAsk' }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('dontAsk', ['--session-id', uuid])] },
+    { name: 'a relative deny rule', vars: { deny: ['Edit(//r/x)', 'Edit(.forge/config.yml)'] }, throws: /must be absolute/ },
+    { name: 'a deny rule with one slash', vars: { deny: ['Edit(/r/x)'] }, throws: /must be absolute/ },
+    { name: 'a deny rule that is not a file rule', vars: { deny: ['Bash(rm:*)'] }, throws: /must be absolute/ },
+    { name: 'a deny rule carrying a comma', vars: { deny: ['Edit(//r/a),Edit(x)'] }, throws: /must be absolute/ },
+    { name: 'an agent outside forge:', vars: { agent: 'other:builder' }, throws: /agent must match/ },
+    { name: 'an agent that is a flag', vars: { agent: 'forge:--x y' }, throws: /agent must match/ },
+    { name: 'a session id that is not a uuid', vars: { session: { id: 'a1b2c3', resume: true } }, throws: /must be a uuid/ },
+    { name: 'a session id that is a flag', vars: { session: { id: '--dangerously-skip-permissions', resume: false } }, throws: /must be a uuid/ },
+  ];
+  for (const row of rows) {
+    const vars = { ...base, ...row.vars } as Vars;
+    if (row.throws) assert.throws(() => roleArgv(vars), row.throws, row.name);
+    else assert.deepEqual(roleArgv(vars), row.want, row.name);
   }
 });
 
