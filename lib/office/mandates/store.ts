@@ -9,7 +9,7 @@ import path from 'node:path';
 import { paths } from '#core/paths.ts';
 import { listJobs, logRepoEvent } from '#core/job/store.ts';
 import { readRegular, writeTextAtomic } from '#core/os/fs.ts';
-import { withLock } from '#core/os/lock.ts';
+import { withLock, withLockAsync } from '#core/os/lock.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { currentActor } from '#integrations/github/actor.ts';
 import { decides } from '#engine/pipeline/moves/foreman-gates.ts';
@@ -94,6 +94,17 @@ function render(m: Mandate): string {
 export function withMandatesLock<T>(root: string, fn: () => T): T {
   return withLock(path.join(paths(root).locks, 'mandates'), fn);
 }
+
+/**
+ * The director loop's lock: the Office pass holds it for its whole run, and `forge office start`
+ * while it re-checks the limits and starts a job, so two starts can't both take the last free slot.
+ */
+export function withOfficeLock<T>(root: string, fn: () => Promise<T>): Promise<T> {
+  return withLockAsync(path.join(paths(root).locks, 'office'), fn, { timeoutMs: OFFICE_LOCK_WAIT_MS });
+}
+
+/** A pass may call the tracker once per milestone: a start waits this long for one to finish. */
+const OFFICE_LOCK_WAIT_MS = 5 * 60 * 1000;
 
 /** A mandate's runtime dir: its survey, ledger and draft. listMandates ignores it (no `.md` suffix). */
 export const mandateDir = (root: string, id: string): string => path.join(paths(root).mandates, id);

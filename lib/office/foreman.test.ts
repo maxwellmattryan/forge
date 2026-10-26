@@ -190,7 +190,7 @@ test('a job back at its gate stall.bounces times is left for a human', async () 
       setJob(r.dir, id, { state: 'waiting', waitingOn: 'escalation' });
     };
     const decide = () => checkForemanDecision(r.dir, config, loadJob(r.dir, id), 'approve', 'the decision is sound', {}, OFFICE);
-    const assist = () => forgeInProcess(r.dir, ['job', 'assist', id, '--gate', 'escalation'], { env: OFFICE });
+    const assist = async () => (await forgeInProcess(r.dir, ['job', 'assist', id, '--gate', 'escalation'], { env: OFFICE })) as { data: { reserved: string | null } | null };
     repark();
     assert.equal(decide(), 'escalation', 'the second park is still the foreman’s');
     // A reason change while waiting is no new entry.
