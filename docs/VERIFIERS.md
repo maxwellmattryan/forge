@@ -20,7 +20,7 @@ mode: block
 ---
 Does every new `forge` subcommand in this diff have a row in its group's HELP table?
 
-`forge help` and README's CLI table are generated from HELP, so a missing row hides the command.
+`forge help` and docs/CLI.md's command tables are generated from HELP, so a missing row hides the command.
 ```
 
 - **`<name>`** matches `^[a-z0-9][a-z0-9-]{0,63}$`.

@@ -79,7 +79,7 @@ const MANDATE: HelpGroup = {
       ],
       exits: [[1, `the id exists or is not a mandate id, a term breaks the contract (every problem named), or ${DAEMON_EXIT}`]],
       docs: DOCS,
-      readme: true,
+      common: true,
     },
     {
       command: 'mandate edit',

@@ -1,11 +1,11 @@
-// `npm run docs:commands`: regenerates README.md's CLI command table from the help tables beside
-// each command module (lib/cli/commands/*.ts), so README and `forge help` can't drift.
+// `npm run docs:commands`: regenerates docs/CLI.md's Common commands table from the help tables beside
+// each command module (lib/cli/commands/*.ts), so that table and `forge help` can't drift.
 import fs from 'node:fs';
 import path from 'node:path';
-import { syncReadme } from '../lib/cli/commands/help.ts';
+import { syncCommonCommands } from '../lib/cli/commands/help.ts';
 
-const file = path.resolve(import.meta.dirname, '..', 'README.md');
+const file = path.resolve(import.meta.dirname, '..', 'docs', 'CLI.md');
 const before = fs.readFileSync(file, 'utf8');
-const after = syncReadme(before);
+const after = syncCommonCommands(before);
 if (after !== before) fs.writeFileSync(file, after);
-process.stdout.write(after === before ? 'README.md is up to date\n' : 'README.md updated\n');
+process.stdout.write(after === before ? 'docs/CLI.md is up to date\n' : 'docs/CLI.md updated\n');
