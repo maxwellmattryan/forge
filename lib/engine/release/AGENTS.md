@@ -11,6 +11,7 @@ Releases: plans, runs and approvals, and interim releases across member repos.
 | File | What it holds |
 |---|---|
 | `approval.ts` | The `release` gate class (#192): a job's release plan the Foreman may approve in place of `forge release run`'s publish prompt. |
+| `dry-run.ts` | `forge release run --dry-run`: the plan `forge release run` would run, recomputed and compared as a run does, with each step's command, whether it would ask, and its status from a state.json of this plan. |
 | `files.ts` | The files in `.forge/runtime/release/` (their paths, symlink refusal, and reading `release.json` and `state.json` as untrusted data, since an agent session can write them) and `forge release plan`'s write. |
 | `interim-apply.ts` | The side of interim strategies that touches git (docs/CONFIG.md "Interim strategies"): verify's pin refresh, the git-dependent edge states `forge job interim` and `pr open` read, and the one command in Forge that publishes anything, `forge job interim publish`. |
 | `interim.ts` | Interim strategies: what a multi-repo job's consumer PR points at while its dependency's change is unmerged or unreleased (docs/CONFIG.md "Interim strategies"). |
