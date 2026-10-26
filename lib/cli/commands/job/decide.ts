@@ -1,6 +1,6 @@
 // `forge job human|handoff|assist`: recording a human's or the foreman's decision at a gate, a Foreman hand-off, and the office's assistant spawn.
 import { assistantBrief } from '#engine/pipeline/brief.ts';
-import { checkForemanDecision, cleanHandoffReason, foremanHandoffFor } from '#office/foreman.ts';
+import { checkForemanDecision, cleanHandoffReason, foremanHandoffFor, mandateRefusal } from '#office/foreman.ts';
 import { classReservation, gateClassFor, isGateClass, reservedFor, securityHold } from '#engine/pipeline/moves/foreman-gates.ts';
 import { loadJob, logHumanEvent, readEvents, setJob } from '#core/job/store.ts';
 import { checkIssueRef } from '#core/job/issue-ref.ts';
@@ -34,10 +34,11 @@ export async function human(root: string, config: Config, rest: string[], flags:
   // daemon scope, so a job session misled by request text can't pass off a decision as the foreman's.
   if (inOffice() && who !== 'foreman') throw new ForgeError('the office session records decisions only with --actor foreman', 1);
   // No job waits on a release, so it skips checkForemanDecision; checkReleaseDecision re-plans and
-  // re-reads the policy before the one event it writes. The job's state never changes.
+  // re-reads the policy before the one event it writes, and takes the job's mandate from here (it is
+  // engine code). The job's state never changes.
   if (action === 'approve-release') {
     if (who !== 'foreman') throw new ForgeError("approve-release is the foreman's (--actor foreman); a person approves a release by answering forge release run's publish prompt in a terminal", 1);
-    const planHash = checkReleaseDecision(root, config, jobId, note, { link: flags.link, reason: flags.reason, repo: flags.repo });
+    const planHash = checkReleaseDecision(root, config, jobId, note, { link: flags.link, reason: flags.reason, repo: flags.repo }, (gate) => mandateRefusal(root, config, job, gate));
     logHumanEvent(root, jobId, RELEASE_APPROVAL, { planHash, note }, FOREMAN_ACTOR);
     return { ok: true, release: { plan: planHash.slice(0, 12), actor: 'foreman' } };
   }

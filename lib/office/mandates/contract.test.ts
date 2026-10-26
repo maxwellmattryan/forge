@@ -58,6 +58,7 @@ test('mandate input refusals', async () => {
       ['issues without listed', ['mandate', 'new', 'x', '--title', 'X', '--issues', 'some-item'], /scope\.issues needs order listed/],
       ['a milestone starting -', ['mandate', 'new', 'x', '--title', 'X', '--milestones', '-x'], /milestone "-x" must be 1-100 characters, not start with "-"/],
       ['a label with a newline', ['mandate', 'new', 'x', '--title', 'X', '--labels', 'a\nb'], /label "a\\nb" must be 1-100 characters/],
+      ['a milestone with a zero-width space', ['mandate', 'new', 'x', '--title', 'X', '--milestones', `M${String.fromCharCode(0x200b)}1`], /^milestone "M.1" must be 1-100 characters, not start with "-" and have no control or hidden characters$/],
       ['id ../x', ['mandate', 'new', '../x', '--title', 'X', '--milestones', 'M1'], /mandate id "\.\.\/x" is not a mandate id/],
       ['id none', ['mandate', 'new', 'none', '--title', 'X', '--milestones', 'M1'], /mandate id "none" is not a mandate id/],
       ['id M1', ['mandate', 'new', 'M1', '--title', 'X', '--milestones', 'M1'], /mandate id "M1" is not a mandate id/],

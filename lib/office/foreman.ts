@@ -45,11 +45,24 @@ function queuedPrFeedbackGate(root: string, job: Pick<Job, 'id' | 'pr'>, request
 }
 
 /**
+ * Why a job's mandate leaves `gate` with a human, or null when the job is in no mandate or the mandate
+ * delegates the class. Read from the CLI's record of the job, which a session can't edit, whatever the
+ * mandate's status: a mandate only ever narrows, and one that can't be read delegates nothing.
+ */
+export function mandateRefusal(root: string, config: Config, job: Job, gate: GateClass): string | null {
+  const m = jobMandateDecides(root, config, job);
+  if (!m) return null;
+  if ('problem' in m) return `mandate ${m.id} can't be read (${m.problem}): left for a human`;
+  return m.decides.includes(gate) ? null : `${gate} is not in mandate ${m.id}'s decides: left for a human`;
+}
+
+/**
  * Every check on a foreman decision, before anything is written: the office scope, no --link or
  * --reason, a job waiting on a gate the foreman decides (and, in a mandate, one the mandate's decides
  * names), an action that belongs to that gate, for
  * pr-feedback a queued gate request for the current PR head, and no reserved pattern in the reason,
- * decision.md or the note. Throws ForgeError (exit 1).
+ * decision.md or the note. Throws ForgeError (exit 1). The `release` class has its own checks
+ * (checkReleaseDecision), which take the same mandate refusal from `mandateRefusal`.
  */
 export function checkForemanDecision(
   root: string,
@@ -72,11 +85,8 @@ export function checkForemanDecision(
   if (!listedDecides(config).includes(gate!)) refuse(`${gate} is not in foreman.decides`);
   const held = classReservation(config, gate!);
   if (held) refuse(`${gate} is reserved (${held}): left for a human`);
-  // From the CLI's record of the job, which a session can't edit, whatever the mandate's status: a
-  // mandate only ever narrows, and one that can't be read delegates nothing.
-  const m = jobMandateDecides(root, config, job);
-  if (m && 'problem' in m) refuse(`mandate ${m.id} can't be read (${m.problem}): left for a human`);
-  if (m && !('problem' in m) && !m.decides.includes(gate!)) refuse(`${gate} is not in mandate ${m.id}'s decides: left for a human`);
+  const narrowed = mandateRefusal(root, config, job, gate!);
+  if (narrowed) refuse(narrowed);
   if (!ACTIONS_BY_GATE[gate!].includes(action)) refuse(`${action} is not a ${gate} action (${ACTIONS_BY_GATE[gate!].join(', ')})`);
   // pr-feedback is the foreman's only once sync armed it for this head (trusted feedback or failing
   // checks): a queued gate request keyed by the PR's current head sha must exist.

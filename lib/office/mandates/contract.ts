@@ -7,7 +7,7 @@ import { runSteps } from '#core/versions/steps.ts';
 import { checkIssueRef } from '#core/job/issue-ref.ts';
 import { defaults } from '#core/config/load.ts';
 import { isMap } from '#core/shape.ts';
-import { fenceImport, oneLineTitle } from '#core/text.ts';
+import { fenceImport, oneLineTitle, visibleText } from '#core/text.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import { INVALID_RESERVED, classReservation, decides, foremanEnabled, isGateClass, listedDecides, reservedMatch } from '#engine/pipeline/moves/foreman-gates.ts';
 import type { Config, GateClass } from '#core/types.ts';
@@ -47,8 +47,9 @@ function scopeListProblems(kind: 'milestone' | 'label', list: unknown): string[]
   const problems: string[] = [];
   if (list.length > SCOPE_LIST_MAX) problems.push(`more than ${SCOPE_LIST_MAX} ${kind}s (${list.length})`);
   for (const e of list) {
-    if (typeof e !== 'string' || !e || e.length > ENTRY_MAX || e.startsWith('-') || CONTROL.test(e))
-      problems.push(`${kind} ${JSON.stringify(String(e)).slice(0, 120)} must be 1-${ENTRY_MAX} characters, not start with "-" and have no control characters`);
+    // Hidden characters (zero-width, bidi overrides) would read differently on the page than in argv, as titles lose them in oneLineTitle.
+    if (typeof e !== 'string' || !e || e.length > ENTRY_MAX || e.startsWith('-') || CONTROL.test(e) || visibleText(e).removed > 0)
+      problems.push(`${kind} ${JSON.stringify(String(e)).slice(0, 120)} must be 1-${ENTRY_MAX} characters, not start with "-" and have no control or hidden characters`);
   }
   return problems;
 }
