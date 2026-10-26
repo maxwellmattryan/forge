@@ -5,7 +5,7 @@ import { obj, poolModel, sessionPill } from './daemon.ts';
 import type { Pill, PoolInput } from './daemon.ts';
 import { activeSessions } from './live.ts';
 import { pendingPrompts } from './permissions.ts';
-import { OFFICE_SCOPE } from './types.ts';
+import { OFFICE_SCOPE, assistantNumber, isAssistantScope } from './types.ts';
 import type { Roster } from './types.ts';
 import type { LampState } from './station.ts';
 
@@ -109,8 +109,11 @@ export function connectionState({ online, apiVersion, clientApi }: { online: boo
 /** Off, the bar still shows `Daemon 0/<cap>`: cap is daemon.maxConcurrent, 0 when the server sends none. */
 export type DaemonIndicator = { off: true; active: false; cap: number } | { off: false; pill: Pill; live: number; cap: number; active: boolean };
 
-/** The Foreman (the office session) supervises the pool, so the bar always shows it, even while it or the daemon is off. */
-export type ForemanIndicator = { on: false } | { on: true; daemon: boolean; pill: Pill; active: boolean; prompts: number };
+/**
+ * The Foreman (the office session) supervises the pool, so the bar always shows it, even while it or the daemon is off.
+ * `active` and `prompts` cover the office and its assistant foremen; `assistants` are their scopes in order, for the popover.
+ */
+export type ForemanIndicator = { on: false } | { on: true; daemon: boolean; pill: Pill; active: boolean; prompts: number; assistants: string[] };
 
 export interface BarModel {
   daemon: DaemonIndicator;
@@ -128,9 +131,21 @@ export function barModel(pool: PoolInput, opts: { pending: boolean }): BarModel 
   const prompts = pendingPrompts(pool ?? null).length;
   const p = obj(pool);
   const office = p.office ?? null;
+  const helpers = obj(p.assistants);
+  const assistants = Object.keys(helpers)
+    .filter(isAssistantScope)
+    .sort((a, b) => assistantNumber(a) - assistantNumber(b));
+  const scopes = [OFFICE_SCOPE, ...assistants];
   const foreman: ForemanIndicator =
     p.foreman === true
-      ? { on: true, daemon: m !== null, pill: sessionPill(office), active: obj(office).status === 'busy', prompts: pendingPrompts(pool ?? null, OFFICE_SCOPE).length }
+      ? {
+          on: true,
+          daemon: m !== null,
+          pill: sessionPill(office),
+          active: obj(office).status === 'busy' || assistants.some((a) => obj(helpers[a]).status === 'busy'),
+          prompts: scopes.reduce((n, s) => n + pendingPrompts(pool ?? null, s).length, 0),
+          assistants,
+        }
       : { on: false };
   return {
     daemon: m ? { off: false, pill: m.pill, live: m.live, cap: m.cap, active: activeSessions(pool).count > 0 } : { off: true, active: false, cap: Number(p.maxConcurrent) || 0 },
@@ -152,7 +167,7 @@ export interface BarLamps {
 
 /**
  * The bar's lamps. Needs: you while anything waits on a person. Foreman: dark while it or the daemon is off, you with
- * office prompts, working while the office is busy, else done. Daemon: dark while off, you with any prompt in the pool,
+ * office or assistant foreman prompts, working while the office or an assistant foreman is busy, else done. Daemon: dark while off, you with any prompt in the pool,
  * working while any session works, else done. Model: working while any session or agent works. Connection: done when
  * live, dark while connecting, fault offline, you when the server is newer.
  */

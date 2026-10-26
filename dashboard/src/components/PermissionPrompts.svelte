@@ -4,7 +4,7 @@
 <script lang="ts">
   import Chip from './Chip.svelte';
   import { ago } from '../lib/util.ts';
-  import { INBOX_SCOPE } from '../lib/types.ts';
+  import { INBOX_SCOPE, sharedScope } from '../lib/types.ts';
   import type { PermissionDecision } from '../lib/types.ts';
   import { grantsMore, pendingPrompts, postPermission, promptInput } from '../lib/permissions.ts';
   import { S, forgeToken, openDrawer, refresh } from '../lib/app.svelte.ts';
@@ -35,7 +35,7 @@
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
           <Chip tone="warn" text={$t('permission.chip')} />
           {#if scope === undefined}
-            {#if s === INBOX_SCOPE}<span class="text-muted">{$t('permission.inbox')}</span>{:else}<button class="mono text-fg underline decoration-dotted truncate max-w-full" title={s} onclick={() => openDrawer(s, null, 'log')}>{s}</button>{/if}
+            {#if s === INBOX_SCOPE}<span class="text-muted">{$t('permission.inbox')}</span>{:else if sharedScope(s)}<span class="mono text-muted">{s}</span>{:else}<button class="mono text-fg underline decoration-dotted truncate max-w-full" title={s} onclick={() => openDrawer(s, null, 'log')}>{s}</button>{/if}
           {/if}
           <span class="text-fg">{p.agentId ? $t('permission.asksSubagent', { tool: p.tool }) : $t('permission.asks', { tool: p.tool })}</span>
           <span class="flex-1"></span>
