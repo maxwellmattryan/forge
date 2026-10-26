@@ -1,4 +1,4 @@
-// The Backlog view's readiness column, kept here so it is tested without the Svelte compiler.
+// The Issues view's readiness column, kept here so it is tested without the Svelte compiler.
 import type { BacklogItem } from './types.ts';
 
 export type Readiness = 'needs-info' | 'ready' | 'untriaged';

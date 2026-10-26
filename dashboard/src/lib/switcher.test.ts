@@ -57,14 +57,14 @@ test('switcherOptions', () => {
 });
 
 test('switcherChoice', () => {
-  const page: Route = { scope: 'project', project: 'api', view: 'backlog' };
+  const page: Route = { scope: 'project', project: 'api', view: 'issues' };
   const overview: Route = { scope: 'global', view: 'overview' };
   const machine: Route = { scope: 'global', view: 'machine' };
   assert.equal(switcherChoice(ADD_PROJECT, 'api', page), '#/machine');
   assert.equal(switcherChoice(ADD_PROJECT, null, overview), '#/machine');
   assert.equal(switcherChoice(ADD_PROJECT, null, machine), null, 'already there');
   assert.equal(switcherChoice('api', 'api', page), null, 'the current project');
-  assert.equal(switcherChoice('web', 'api', page), '#/p/web/backlog', 'the same view');
+  assert.equal(switcherChoice('web', 'api', page), '#/p/web/issues', 'the same view');
   assert.equal(switcherChoice('web', null, overview), '#/p/web/pipeline', 'Pipeline from a global page');
   assert.equal(switcherChoice('web', null, machine), '#/p/web/pipeline');
 });
