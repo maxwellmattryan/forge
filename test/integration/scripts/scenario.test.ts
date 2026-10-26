@@ -44,6 +44,7 @@ interface SeededJob {
   title: string;
   stage: string;
   state: string;
+  reason: string | null;
   waitingOn: string | null;
   verify: string | null;
   lastVerdicts: Record<string, string> | null;
