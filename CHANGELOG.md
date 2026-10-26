@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.21.0
+
+- Dashboard: Overview page with project cards and cross-project graphs (#534)
+- Dashboard: sidebar split into global and project pages, with a project switcher (#533)
+- One forge dash per machine: serve every registered project from one server (#532)
+- Machine index: register projects in ~/.forge with forge project add|remove|list (#531)
+- merge.requiredChecks, with branch protection as the fallback and a doctor warning when neither exists (#530)
+- Meter every session the supervisor runs: orchestrators, inbox, office, foreman assistants, into the one spend ledger (#528)
+- privileged-ops test fails from a checkout at a high-entropy path (#527)
+- Daemon budget enforcement: refuse self-raises, a dashboard budget route, --max-budget-usd, a resume ceiling (#526)
+- Releases as PRs against the previous tag; installs follow tags; the write-token job runs only gh (#524)
+- Flaky test: a forge process notifies through the hook main registers (#522)
+- A stale deferred merge ships a PR after a human asked for rework (#519)
+- Privileged CLI operations are reachable from branch code: env-keyed daemon refusals don't hold (#518)
+- Small CLI input hardening: role names, triage verdicts, capped review reads, --body-file, CI install (#516)
+- Bind the pushed head to the reviewed head: commits after review ship unreviewed (#515)
+- Strict command environment: an allowlist with commands.env.inherit and commands.loginShell, default on (#512)
+- Attribution hook follow-ups: a byte cap on message-file reads, a garbled escape in policies.md (#514)
+- Engine hardening follow-ups: attribution hook cost and file flags, writeAtomic parent dirs (#392 follow-up) (#505)
+- Instructions from the main checkout, an untrusted paragraph for the approver, adopt-by-number through the CLI path (#502)
+- Run the render and touchpoints checks in this repo's verify (#485)
+- Job view: a typed Thread with a colour per sender, Start/Stop by the tabs (#496)
+- Daemon write confinement: scoped file tools, extended deny list and trust digest, a write-guard hook (#503)
+- Daemon command environment: strip declared secrets, drop token-like variables and the login shell (#498)
+- Engine hardening: random atomic temp names, YAML proto-key refusal, attribution hook gaps, cache dir inside the plugin root (#501)
+- Merge path in code: no --now under the daemon, approval bound to the head, an escalate floor (#495)
+- Recall evals grade a caught defect as missed when the reviewer cites the patch's line (#499)
+- forge dash record proof: forge dash only in the script position, and docs (#453 follow-up) (#500)
+- forge dash --stop signals whatever pid runtime/dashboard.json names (#493)
+- Import hygiene: strip hidden text, fence local and PR feedback bodies, filter PR comments by association (#492)
+- Dashboard reads: confine /file and /raw, guard backlog refresh, frame-src on the page, bound readBody (#491)
+- forge tracker verbs pass the raw ref to gh: a URL reaches any repo (#489)
+- forge worktree remove trusts the stored job.worktree and job.branch (#487)
+- Update config
+- Versions: config schema 31 → 34, event schema 3 → 7, `API_VERSION` 37 → 44.
+
 ## 0.20.0
 
 - Instructions per role, and a builder brief that points at the folder maps first (#484)

@@ -1,5 +1,6 @@
-// The machine's registered projects as the project switcher, the Overview, the Machine page and the command bar show them.
-import type { ProjectsResponse } from './types.ts';
+// The machine's registered projects as the project switcher, the Overview, the Machine page, the command bar and the
+// Add project dialog show them.
+import type { MachineProjectSummary, ProjectsResponse } from './types.ts';
 import { PROJECT_NAME_SOURCE } from './types.ts';
 import type { SelectOption } from './select.ts';
 import { switchHash, type Route } from './routes.ts';
@@ -20,24 +21,25 @@ export interface SwitcherEntry {
   daemon: { live: number; maxConcurrent: number } | null;
 }
 
+/** One registered project's entry. */
+export function entryOf(p: MachineProjectSummary): SwitcherEntry {
+  // A name the router would refuse can't be opened, whatever the server says about it.
+  const state = p.status === 'missing' ? 'missing' : p.loaded && PROJECT_NAME.test(p.name) ? 'ok' : 'unavailable';
+  return {
+    name: p.name,
+    path: p.path,
+    state,
+    openable: state === 'ok',
+    waiting: p.jobs?.waiting ?? 0,
+    active: p.jobs?.active ?? 0,
+    daemon: p.daemon ? { live: p.daemon.live, maxConcurrent: p.daemon.maxConcurrent } : null,
+  };
+}
+
 /** One entry per registered project, sorted by name; [] before the list loads. */
 export function switcherEntries(r: ProjectsResponse | null): SwitcherEntry[] {
   if (!r) return [];
-  return [...r.projects]
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-    .map((p) => {
-      // A name the router would refuse can't be opened, whatever the server says about it.
-      const state = p.status === 'missing' ? 'missing' : p.loaded && PROJECT_NAME.test(p.name) ? 'ok' : 'unavailable';
-      return {
-        name: p.name,
-        path: p.path,
-        state,
-        openable: state === 'ok',
-        waiting: p.jobs?.waiting ?? 0,
-        active: p.jobs?.active ?? 0,
-        daemon: p.daemon ? { live: p.daemon.live, maxConcurrent: p.daemon.maxConcurrent } : null,
-      };
-    });
+  return [...r.projects].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)).map(entryOf);
 }
 
 /** The Add project entry's value: fails PROJECT_NAME, so no registered project can share it. */
@@ -49,11 +51,14 @@ export function switcherOptions(entries: SwitcherEntry[], labels: { add: string;
   return [...projects, { value: ADD_PROJECT, label: labels.add, icon: 'command', action: true, separator: projects.length > 0 }];
 }
 
-/** The hash choosing `value` leads to, or null to stay: Add project opens the Machine page, a project its view (switchHash). */
-export function switcherChoice(value: string, current: string | null, route: Route): string | null {
-  if (value === ADD_PROJECT) return route.scope === 'global' && route.view === 'machine' ? null : '#/machine';
+/**
+ * What choosing `value` does: Add project opens the Add project dialog wherever it is chosen (`add`), a project opens its
+ * view (`hash`, switchHash), and the current project stays (null).
+ */
+export function switcherChoice(value: string, current: string | null, route: Route): { add: true } | { hash: string } | null {
+  if (value === ADD_PROJECT) return { add: true };
   if (value === current) return null;
-  return switchHash(value, route);
+  return { hash: switchHash(value, route) };
 }
 
 /** Whether `name` can stay selected: it is registered and its pages can be opened. */

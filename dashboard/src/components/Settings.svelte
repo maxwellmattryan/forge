@@ -13,6 +13,7 @@
   import { EXIT, fade, pop } from '../lib/motion.ts';
   import { pref } from '../lib/prefs.ts';
   import { currentProject } from '../lib/project.ts';
+  import { lockScroll } from '../lib/scroll-lock.ts';
   import { SETTINGS_TABS, moveTab, openingTab, sectionOf, settingsTabsFor, wrapFocus, type SettingsTabId } from '../lib/settings.ts';
   import { SettingsSession } from '../lib/settings-session.svelte.ts';
 
@@ -118,14 +119,13 @@
     const onWidth = () => (wide = mq.matches);
     onWidth();
     mq.addEventListener('change', onWidth);
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const unlock = lockScroll();
     // The config is a project's: with none selected there is nothing to load.
     if (hasProject) session.loadConfig();
     tick().then(() => document.getElementById(`settings-tab-${tab}`)?.focus());
     return () => {
       mq.removeEventListener('change', onWidth);
-      document.body.style.overflow = overflow;
+      unlock();
     };
   });
 </script>
