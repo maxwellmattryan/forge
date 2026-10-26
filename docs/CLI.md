@@ -115,6 +115,7 @@ Every error carries one of these codes, and the code fixes the exit.
 | `interim_stale` | 1 | `forge pr open` found a git-ref or canary pin in the checked commits that is not the dependency's checked HEAD (a hand-edited pin, or a dependency that moved without a verify), or, after a recorded release, a consumer manifest that does not name the released version yet; the hint is `forge verify <id>` (docs/CONFIG.md "Interim strategies") |
 | `release_gate` | 1 | `forge pr ready` targeted a consumer PR whose local or sequential dependency's release is not recorded (a human runs `forge job interim release <id> <name>\|--root <version>`), or whose manifests don't name a recorded release yet (gate `bump-due`, or a HEAD that doesn't carry it: run `forge verify <id>`, then `forge pr open <id>`); nothing was called (docs/CONFIG.md "Interim strategies") |
 | `human_only` | 1 | a human-only operation (`forge pr merge --now`, `forge job budget --set\|--ack`, `forge budget ack`) needs a person who confirms it at a terminal by typing the job id or period, or, for `pr merge --now`, the dashboard's Merge now, for `job budget`, its Approve & continue on the budget gate and, for `budget ack`, its Acknowledge in Needs you; a daemon session, an agent, a script or a configured command can't run it, and nothing was changed (docs/architecture/daemon-security.md "Human-only operations") |
+| `stale_step` | 1 | `forge job agent run` found that `forge job step` no longer returns that spawn (another caller started it, the job moved on, or a human changed it); nothing was started: read step again |
 | `usage` | 2 | the default for exit 2: the call could not be parsed; the hint names the help to read |
 | `unknown_command` | 2 | the first word is not a command |
 | `not_initialized` | 2 | the repo has no `.forge/config.yml`; run `/forge init` |
@@ -421,6 +422,7 @@ The commands worth knowing by hand, generated from the `HELP` rows marked `commo
 | `forge git add <id> [--repo NAME] -- <path>...` | stage paths in the job's worktree, from any cwd; refuses git options, paths outside the worktree and a protected path the policy refuses; prints protected: <n> when the branch changes escalate paths |
 | `forge git commit <id> [--repo NAME] (--message T \| --message-file F) [-- <path>...]` | commit in the job's worktree, on its branch, from any cwd (how agents commit, in a daemon session too); refuses git options, paths outside the worktree, AI attribution, a protected path the policy refuses and a likely secret (in the message always; in the staged changes under verifySecrets: block); prints protected: <n> when the branch changes escalate paths |
 | `forge job advance <id> --session S [--epoch N] [--max N]` | runs step's `run` actions in-process (at most N, default 20) and returns the next `spawn`, `wait`, `procedure` or `done` with `ran`, one line per command it ran; refuses (exit 3) a job session S does not hold, and stops at the first failed command (exit 1) |
+| `forge job agent run <id> --session S [--spawn-index N] [--epoch N]` | run the spawn `forge job step` returns as its own headless `claude -p --agent forge:<role>` child in the job's worktree, the brief on its stdin, and record its start, attach and end, with the usage from its own result line; tool calls outside daemon.allowedTools are denied unattended. Prints {id, role, rule, agentId, resumed, status, summary, failure, denied, wallMs, log, usage, jobTokens, jobCostUsd} on every exit after the start |
 | `forge job archive <id>\|--done --older-than D` | archive a finished job into .forge/archive/<id>.json (its job.json, events and a summary) and delete its job folder, after tearing down what is left of its environment; with --done --older-than D, every finished job at least D days old. A job whose teardown fails is listed in refused and kept. Stats, audit and retro still read archived jobs (see [Retention](architecture/retention.md)) |
 | `forge job audit <id> [--json\|--csv]` | the job's audit trail: who did each human action (best effort, unauthenticated), its gate transitions, and its PR opening and merge, in time order (see [Audit trail](architecture/audit-trail.md)) |
 | `forge job delete <id> [--force]` | delete a job started by mistake, for good: releases its tracker claim, removes its worktrees, per-job backing services and the branch Forge named for it, rejects its open requests and deletes its job folder and session logs, keeping no archive record. A job with a PR, split children or an active dependent is refused: cancel and archive real work instead (see [Deleting a job](architecture/deleting-a-job.md)) |
@@ -966,6 +968,20 @@ One job's state, agents and reviews; forge job step &lt;id> returns its next act
 |---|---|
 | 1 | no such job, an --output outside the job dir, the inbox, office or an assistant foreman session starting an agent, or attach on a role that is not running |
 | 3 | stale_epoch: the lease moved past --epoch |
+
+**`forge job agent run <id> --session S [--spawn-index N] [--epoch N]`**: run the spawn `forge job step` returns as its own headless `claude -p --agent forge:<role>` child in the job's worktree, the brief on its stdin, and record its start, attach and end, with the usage from its own result line; tool calls outside daemon.allowedTools are denied unattended. Prints {id, role, rule, agentId, resumed, status, summary, failure, denied, wallMs, log, usage, jobTokens, jobCostUsd} on every exit after the start
+
+| Flag | Meaning |
+|---|---|
+| `--epoch N` | the driver's epoch, refused (stale_epoch) before any write once another session took the job over |
+| `--session S` | the session that holds the job (required): only its driver may run a role |
+| `--spawn-index N` | which spawn of step's list to run: 0 (the default) is the action itself, 1 on its `spawns` |
+
+| Exit | When |
+|---|---|
+| 1 | no such job; the inbox, office, an assistant foreman or another job's session; stale_step: step no longer returns that spawn (another caller started it, or the job moved on); a worktree that is missing or under no worktrees root, a daemon.command problem, a tracker symlink, a trust digest that does not match under FORGE_DAEMON=1, or an empty brief; or the role failed (failure.class limit, auth, budget, error, timeout, untrusted or interrupted) |
+| 3 | another live session drives the job, the session does not hold it, or stale_epoch: the lease moved past --epoch or was taken over before the end |
+| 5 | the role failed because claude never started (failure.class spawn) or closed without a result (exit) |
 
 **`forge job archive <id>|--done --older-than D`**: archive a finished job into .forge/archive/&lt;id>.json (its job.json, events and a summary) and delete its job folder, after tearing down what is left of its environment; with --done --older-than D, every finished job at least D days old. A job whose teardown fails is listed in refused and kept. Stats, audit and retro still read archived jobs
 

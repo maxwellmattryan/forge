@@ -19,7 +19,7 @@ The job store and what it persists: job.json, events and the lease, schema versi
 | `lens.ts` | Review lens names. |
 | `requests.ts` | A small file-based inbox. |
 | `schema.ts` | Versioned data shapes. |
-| `session-files.ts` | The daemon's session records and logs under .forge/runtime/daemons/, opened without following links or blocking on a FIFO. |
+| `session-files.ts` | The daemon's session records and logs under .forge/runtime/daemons/, and a role run's log and cost sidecar under .forge/runtime/agents/, opened without following links or blocking on a FIFO. |
 | `store.ts` | Job state and its event log: load, update and list jobs, and the job lease (claim, renew, expire, the epoch fence). |
 | `transitions.ts` | Transition hooks: what setJob calls once per stage, state or waitingOn change, so a higher layer (notify, registered by lib/cli/main.ts at start) can follow every writer without core importing it. |
 | `types.ts` | The job shapes the store, the archive and the findings summary share, type-only: re-exported by lib/core/types.ts. |

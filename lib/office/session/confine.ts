@@ -104,6 +104,15 @@ export function denyRules(root: string, config: Config, roots: WriteRoots = writ
 }
 
 /**
+ * denyRules' absolute rules only, for a role child (`forge job agent run`) whose cwd is the job's
+ * worktree: there a relative rule would anchor at the worktree and deny the branch's own files, while
+ * the absolute ones still pin every protected path at the main checkout, by realpath and as given.
+ */
+export function absoluteDenyRules(root: string, config: Config, roots: WriteRoots = writeRoots(root, config)): string[] {
+  return denyRules(root, config, roots).filter((r) => r.startsWith('Edit(//'));
+}
+
+/**
  * What a turn may not change in the main checkout, as one hash: `git status` over every PROTECTED
  * path (minus what `forge` writes there), `**\/CLAUDE.md` and `**\/CLAUDE.local.md` at any depth, the
  * configured instruction files and an in-checkout hooks dir, plus the content of each path it lists,
