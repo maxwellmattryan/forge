@@ -24,6 +24,7 @@ export const MACHINE_PREFS: ReadonlySet<string> = new Set([
   'mdView.files',
   'mdView.thread',
   'mdView.session',
+  'mdView.chat',
 ]);
 
 /** The storage key for `key` under `project`; null for a project pref with no valid project selected. */

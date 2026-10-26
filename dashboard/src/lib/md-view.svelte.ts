@@ -8,6 +8,7 @@ class MdViewState {
   files = $state<MdView>(readMdView(pref.get(mdPrefKey('files'), '')));
   thread = $state<MdView>(readMdView(pref.get(mdPrefKey('thread'), '')));
   session = $state<MdView>(readMdView(pref.get(mdPrefKey('session'), '')));
+  chat = $state<MdView>(readMdView(pref.get(mdPrefKey('chat'), '')));
 }
 
 export const mdView = new MdViewState();

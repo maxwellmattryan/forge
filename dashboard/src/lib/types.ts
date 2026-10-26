@@ -6,6 +6,8 @@
 import type {
   ASSISTANTS_SCOPE as ENGINE_ASSISTANTS_SCOPE,
   ASSISTANT_SCOPE_PREFIX as ENGINE_ASSISTANT_SCOPE_PREFIX,
+  CHAT_MESSAGE_MAX as ENGINE_CHAT_MESSAGE_MAX,
+  CHAT_SCOPE_PREFIX as ENGINE_CHAT_SCOPE_PREFIX,
   EFFORTS as ENGINE_EFFORTS,
   INBOX_SCOPE as ENGINE_INBOX_SCOPE,
   JOBS_SCOPE as ENGINE_JOBS_SCOPE,
@@ -40,9 +42,27 @@ export function isAssistantScope(s: unknown): s is string {
   return typeof s === 'string' && /^_assistant-([1-9]|1[0-6])$/.test(s);
 }
 
-/** lib/core/job/requests.ts sharedScope: not a job's scope (the inbox, the office, the gate group or an assistant foreman). */
+/** lib/api/constants.ts CHAT_SCOPE_PREFIX: a chat session's scope is this prefix and the chat's id. */
+export const CHAT_SCOPE_PREFIX = '_chat-' satisfies typeof ENGINE_CHAT_SCOPE_PREFIX;
+/** lib/api/constants.ts CHAT_MESSAGE_MAX: the longest owner message a chat takes, in characters. */
+export const CHAT_MESSAGE_MAX = 8000 satisfies typeof ENGINE_CHAT_MESSAGE_MAX;
+/** lib/core/job/requests.ts CHAT_ID's source, kept here so this file imports nothing from chats.ts. */
+const CHAT_ID_RE = /^[0-9a-f]{12}$/;
+
+/** lib/core/job/requests.ts isChatScope: CHAT_SCOPE_PREFIX and a chat id (12 lowercase hex characters), nothing else. */
+export function isChatScope(s: unknown): s is string {
+  return typeof s === 'string' && s.startsWith(CHAT_SCOPE_PREFIX) && CHAT_ID_RE.test(s.slice(CHAT_SCOPE_PREFIX.length));
+}
+
+/** lib/core/job/requests.ts chatScope: the session scope of chat `id`; throws on an id that is not one. */
+export function chatScope(id: string): string {
+  if (typeof id !== 'string' || !CHAT_ID_RE.test(id)) throw new Error(`no chat ${JSON.stringify(String(id).slice(0, 40))}`);
+  return `${CHAT_SCOPE_PREFIX}${id}`;
+}
+
+/** lib/core/job/requests.ts sharedScope: not a job's scope (the inbox, the office, the gate group, an assistant foreman or a chat). */
 export function sharedScope(s: unknown): boolean {
-  return s === INBOX_SCOPE || s === OFFICE_SCOPE || s === ASSISTANTS_SCOPE || isAssistantScope(s);
+  return s === INBOX_SCOPE || s === OFFICE_SCOPE || s === ASSISTANTS_SCOPE || isAssistantScope(s) || isChatScope(s);
 }
 
 /** An assistant foreman scope's number, for its label. */
