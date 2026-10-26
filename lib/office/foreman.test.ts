@@ -8,7 +8,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { BIN, forgeInProcess, parkedAt, repoTemplate } from '../../test/helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
-import { jobDir, loadJob, logHumanEvent, readEvents } from '#core/job/store.ts';
+import { jobDir, loadJob, logHumanEvent, readEvents, setJob } from '#core/job/store.ts';
 import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
 import { foremanReleaseApproval, releaseApprovalStatus } from '#engine/release/approval.ts';
 import { checkForemanDecision, gateOwner, releaseMandateRefusal } from './foreman.ts';
@@ -36,6 +36,7 @@ interface Row {
 const mandates = (root: string) => path.join(root, '.forge', 'runtime', 'mandates');
 const notIn = (id: string) => (gate: string) => new RegExp(`--actor foreman refused: ${gate} is not in mandate ${id}'s decides: left for a human`);
 const unreadable = (id: string, why: string) => () => new RegExp(`--actor foreman refused: mandate ${id} can't be read \\(${why}\\): left for a human`);
+const isClosed = (id: string) => () => new RegExp(`--actor foreman refused: mandate ${id} is closed: left for a human`);
 
 const ROWS: Row[] = [
   { name: "the mandate's decides leaves the gate out", mandate: 'narrow', refused: notIn('narrow') },
@@ -55,7 +56,8 @@ const ROWS: Row[] = [
     refused: unreadable('linked', 'a symlink, not a regular file'),
   },
   { name: 'the mandate is paused', mandate: 'paused', then: (root) => cli(root, ['mandate', 'pause', 'paused']), refused: notIn('paused') },
-  { name: 'the mandate is closed', mandate: 'closed', then: (root) => cli(root, ['mandate', 'close', 'closed']), refused: notIn('closed') },
+  { name: 'the mandate is closed', mandate: 'closed', then: (root) => cli(root, ['mandate', 'close', 'closed']), refused: isClosed('closed') },
+  { name: 'the mandate delegates the gate but is closed', mandate: 'shut', then: (root) => cli(root, ['mandate', 'close', 'shut']), refused: isClosed('shut') },
   {
     name: "the session-writable job.json says no mandate, the CLI's record still does",
     mandate: 'narrow',
@@ -78,7 +80,7 @@ async function cli(root: string, args: string[]): Promise<void> {
 async function arrange() {
   const r = scratch();
   for (const id of ['narrow', 'deleted', 'linked', 'paused', 'closed']) await cli(r.dir, ['mandate', 'new', id, '--title', id, '--milestones', 'M1', '--decides', 'split-approval']);
-  await cli(r.dir, ['mandate', 'new', 'wide', '--title', 'wide', '--milestones', 'M1', '--decides', 'spec-approval,split-approval,release']);
+  for (const id of ['wide', 'shut']) await cli(r.dir, ['mandate', 'new', id, '--title', id, '--milestones', 'M1', '--decides', 'spec-approval,split-approval,release']);
   const jobs: string[] = [];
   for (const row of ROWS) {
     const job = parkedAt(r.dir, 'spec-approval', { title: row.name, create: { mandate: row.mandate } }).id;
@@ -165,6 +167,46 @@ test('a foreman release approval stops counting once its mandate narrows', async
     assert.equal(res.status, 1);
     assert.match(res.error?.message ?? '', /--actor foreman refused: mandate resting is paused: release left for a human/);
     assert.ok(!readEvents(r.dir, job).some((e) => e.type === 'release-approval'), 'nothing recorded');
+  } finally {
+    r.cleanup();
+  }
+});
+
+const escalations = repoTemplate((dir) => {
+  const answers = path.join(dir, '.answers.json');
+  fs.writeFileSync(answers, JSON.stringify({ foreman: { enabled: true, decides: ['escalation'], reserved: [] } }));
+  execFileSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, env: { ...process.env, FORGE_ROOT: dir }, stdio: 'pipe' });
+  fs.rmSync(answers);
+});
+
+test('a job back at its gate stall.bounces times is left for a human', async () => {
+  const r = escalations();
+  try {
+    await cli(r.dir, ['mandate', 'new', 'b1', '--title', 'b1', '--milestones', 'M1', '--decides', 'escalation', '--stall-bounces', '3']);
+    const config = loadConfig(r.dir).config;
+    const id = parkedAt(r.dir, 'escalation', { create: { mandate: 'b1' } }).id;
+    const repark = () => {
+      setJob(r.dir, id, { state: 'running' });
+      setJob(r.dir, id, { state: 'waiting', waitingOn: 'escalation' });
+    };
+    const decide = () => checkForemanDecision(r.dir, config, loadJob(r.dir, id), 'approve', 'the decision is sound', {}, OFFICE);
+    const assist = () => forgeInProcess(r.dir, ['job', 'assist', id, '--gate', 'escalation'], { env: OFFICE });
+    repark();
+    assert.equal(decide(), 'escalation', 'the second park is still the foreman’s');
+    // A reason change while waiting is no new entry.
+    setJob(r.dir, id, { reason: 'still waiting' });
+    repark();
+    const held = 'mandate b1: back at escalation 3 times (stall.bounces 3): left for a human';
+    assert.throws(decide, new RegExp(`--actor foreman refused: ${held.replace(/[()]/g, '\\$&')}`));
+    assert.equal((await assist()).data?.reserved, held);
+    assert.equal(gateOwner(r.dir, config, loadJob(r.dir, id), []), 'human');
+    // A person's decision resets the count; a foreman one never does.
+    logHumanEvent(r.dir, id, 'human', { action: 'approve', note: 'go on' }, FOREMAN_ACTOR);
+    assert.throws(decide, /back at escalation 3 times/);
+    logHumanEvent(r.dir, id, 'human', { action: 'approve', note: 'go on' }, { login: 'alice', source: 'gh' });
+    assert.equal(decide(), 'escalation');
+    assert.equal((await assist()).data?.reserved, null);
+    assert.equal(gateOwner(r.dir, config, loadJob(r.dir, id), []), 'foreman');
   } finally {
     r.cleanup();
   }

@@ -1,6 +1,6 @@
 # lib/core/versions/
 
-The version lists: one append-only list of named steps per persisted shape, whose length plus one is that shape's version. `lib/core/job/schema.ts` runs them and re-exports the versions, except the machine index's (`machine.ts`), which `lib/engine/project/machine-index.ts` runs, the mandates' (`mandate.ts`), which `lib/office/mandates/store.ts` runs (through `contract.ts`'s `storedMandate`), and a goal mandate's milestone draft's (`draft.ts`), which `lib/office/mandates/draft.ts` runs (`readDraft`); the `/api` list is `lib/api/versions.ts`.
+The version lists: one append-only list of named steps per persisted shape, whose length plus one is that shape's version. `lib/core/job/schema.ts` runs them and re-exports the versions, except the machine index's (`machine.ts`), which `lib/engine/project/machine-index.ts` runs, the mandates' (`mandate.ts`), which `lib/office/mandates/store.ts` runs (through `contract.ts`'s `storedMandate`), a goal mandate's milestone draft's (`draft.ts`), which `lib/office/mandates/draft.ts` runs (`readDraft`), and a closed mandate's summary's (`mandate-summary.ts`), which `lib/office/mandates/pass.ts` reads (`readSummary`); the `/api` list is `lib/api/versions.ts`.
 
 - **Append only.** A shape change appends one step at the end of its list. Never edit, reorder or remove an entry: behaviour fixes to an old step are rare, and need its row in `test/schema.test.ts` updated.
 - Each entry starts on its own line as `  { id: '<kebab-id>'` (two-space indent), which the release notes count (`scripts/release.ts`).

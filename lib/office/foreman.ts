@@ -12,6 +12,7 @@ import { ACTIONS_BY_GATE, classReservation, decides, foremanEnabled, gateClass, 
 import { ForgeError } from '#core/errors.ts';
 import { safeText } from '#core/text.ts';
 import { jobMandateDecides } from './mandates/store.ts';
+import { bounceHold } from './mandates/progress.ts';
 import type { Config, ForemanHandoff, ForgeRequest, GateClass, GateOwner, HandoffClass, Job, JobEvent } from '#core/types.ts';
 
 export { OFFICE_GATES } from '#core/job/schema.ts';
@@ -28,9 +29,10 @@ export function gateOwner(root: string, config: Config, job: Job, requests: Forg
   if (config.foreman?.assistants?.enabled !== true) return 'human';
   const gate = gateClassFor(root, job);
   if (!gate || !decides(config).includes(gate)) return 'human';
-  // A job in a mandate: only what the mandate delegates, and nothing when its file can't be read.
+  // A job in a mandate: only what the mandate delegates (nothing once it is closed), nothing when its
+  // file can't be read, and not a gate the job keeps coming back to (the bounce hold).
   const m = jobMandateDecides(root, config, job);
-  if (m && ('problem' in m || !m.decides.includes(gate))) return 'human';
+  if (m && ('problem' in m || !m.decides.includes(gate) || bounceHold(job, readEvents(root, job.id), m.mandate))) return 'human';
   if (reservedFor(root, config, job, gate)) return 'human';
   const latest = requests.filter((r) => isGateRequest(r, job.id, gate) && (gate !== 'pr-feedback' || r.args?.key === job.pr?.headOid)).at(-1);
   // pr-feedback is the foreman's only once sync queued a gate for this head (trusted feedback or failing checks).
@@ -47,21 +49,25 @@ function queuedPrFeedbackGate(root: string, job: Pick<Job, 'id' | 'pr'>, request
 
 /**
  * Why a job's mandate leaves `gate` with a human, or null when the job is in no mandate or the mandate
- * delegates the class. Read from the CLI's record of the job, which a session can't edit, whatever the
- * mandate's status: a mandate only ever narrows, and one that can't be read delegates nothing.
+ * delegates the class. Read from the CLI's record of the job and the CLI copy of its events, which a
+ * session can't edit: a mandate only ever narrows, one that can't be read or is closed delegates nothing,
+ * and a gate the job has come back to `stall.bounces` times since a person decided is a person's (the
+ * bounce hold). A paused mandate still delegates, so its in-flight jobs finish.
  */
 export function mandateRefusal(root: string, config: Config, job: Job, gate: GateClass): string | null {
   const m = jobMandateDecides(root, config, job);
   if (!m) return null;
   if ('problem' in m) return `mandate ${m.id} can't be read (${m.problem}): left for a human`;
-  return m.decides.includes(gate) ? null : `${gate} is not in mandate ${m.id}'s decides: left for a human`;
+  if (m.mandate.status === 'closed') return `mandate ${m.id} is closed: left for a human`;
+  if (!m.decides.includes(gate)) return `${gate} is not in mandate ${m.id}'s decides: left for a human`;
+  return bounceHold(job, readEvents(root, job.id), m.mandate);
 }
 
 /**
  * mandateRefusal for the `release` class, plus its status: a paused or closed mandate delegates no
- * release, because publishing can't be undone. The other classes keep "whatever the status" until the
- * director loop (#538). Asked at approval time and again at release run and status time, so an approval
- * stops counting once the mandate that allowed it narrows, pauses, closes or can't be read.
+ * release, because publishing can't be undone (the other classes stay delegated while paused). Asked at
+ * approval time and again at release run and status time, so an approval stops counting once the
+ * mandate that allowed it narrows, pauses, closes or can't be read.
  */
 export function releaseMandateRefusal(root: string, config: Config, job: Job): string | null {
   const narrowed = mandateRefusal(root, config, job, 'release');

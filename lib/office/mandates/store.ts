@@ -1,8 +1,9 @@
 // Mandate files: `.forge/runtime/mandates/<id>.md`, YAML frontmatter then the owner's guidance. Read
-// without following a link or blocking on a FIFO, written only by `forge mandate` under one lock, and
-// read for a job whose `mandate` is set to narrow what the Foreman decides (jobMandateDecides). A
-// mandate's runtime dir `<id>/` beside it holds its drafting runs' files (draft.ts, intake.ts).
-// docs/architecture/foreman.md.
+// without following a link or blocking on a FIFO, written only by `forge mandate` and the Office pass
+// (`forge office pass`, which pauses and closes) under one lock, and read for a job whose `mandate` is
+// set to narrow what the Foreman decides (jobMandateDecides). A mandate's runtime dir `<id>/` beside it
+// holds its drafting runs' files (draft.ts, intake.ts), its board and its closing summary (pass.ts,
+// director.ts). docs/architecture/foreman.md.
 import fs from 'node:fs';
 import path from 'node:path';
 import { paths } from '#core/paths.ts';
@@ -13,7 +14,7 @@ import * as yaml from '#core/format/yaml.ts';
 import { currentActor } from '#integrations/github/actor.ts';
 import { decides } from '#engine/pipeline/moves/foreman-gates.ts';
 import { MANDATE_ID, MANDATE_KEYS, isMandateId, isReadable, storedMandate } from './contract.ts';
-import type { Config, GateClass, Job } from '#core/types.ts';
+import type { Config, EventActor, GateClass, Job } from '#core/types.ts';
 import type { Mandate, ReadMandate } from './types.ts';
 
 export { MANDATE_ID };
@@ -97,18 +98,22 @@ export function withMandatesLock<T>(root: string, fn: () => T): T {
 /** A mandate's runtime dir: its survey, ledger and draft. listMandates ignores it (no `.md` suffix). */
 export const mandateDir = (root: string, id: string): string => path.join(paths(root).mandates, id);
 
+/** A closed mandate's closing summary, which the Office pass writes (lib/office/mandates/pass.ts). */
+export const summaryFile = (root: string, id: string): string => path.join(mandateDir(root, id), 'summary.json');
+
 /**
  * The one write path. Under the mandates lock, `plan` gets every mandate as it is now and returns the
  * record to write with its audit action, or null to write nothing (it throws to refuse). A written
- * record appends one `mandate-<action>` event to the repo audit log.
+ * record appends one `mandate-<action>` event to the repo audit log, by `actor` when the plan names one
+ * (the Office pass: FOREMAN_ACTOR), else by this process's actor.
  */
-export function writeMandate<T extends { mandate: Mandate; action: MandateAction; reason?: string | null } | null>(root: string, plan: (all: ReadMandate[]) => T): T {
+export function writeMandate<T extends { mandate: Mandate; action: MandateAction; reason?: string | null; actor?: EventActor } | null>(root: string, plan: (all: ReadMandate[]) => T): T {
   return withMandatesLock(root, () => {
     const out = plan(listMandates(root));
     if (!out) return out;
     const { mandate: m, action, reason } = out;
     writeTextAtomic(fileOf(root, m.id), render(m), { root });
-    logRepoEvent(root, `mandate-${action}`, { mandate: m.id, ...(reason ? { reason } : {}), actor: currentActor(root) });
+    logRepoEvent(root, `mandate-${action}`, { mandate: m.id, ...(reason ? { reason } : {}), actor: out.actor ?? currentActor(root) });
     return out;
   });
 }
@@ -122,14 +127,16 @@ export function mandateJobs(root: string, id: string): string[] {
 }
 
 /**
- * What a job's mandate lets the Foreman decide: null when the job is in none; the written decides cut to
- * the effective foreman.decides, whatever the mandate's status; or the problem when its file is missing
- * or can't be read, which the callers treat as no class delegated (fail closed).
+ * What a job's mandate lets the Foreman decide: null when the job is in none; nothing for a closed
+ * mandate; the written decides cut to the effective foreman.decides for an active or paused one (a
+ * paused mandate's in-flight jobs finish); or the problem when its file is missing or can't be read,
+ * which the callers treat as no class delegated (fail closed).
  */
 export function jobMandateDecides(root: string, config: Config, job: Pick<Job, 'mandate'>): null | { id: string; decides: GateClass[]; mandate: Mandate } | { id: string; problem: string } {
   if (job.mandate === null || job.mandate === undefined) return null;
   const m = readMandate(root, job.mandate);
   if (!isReadable(m)) return { id: m.id, problem: m.problem };
+  if (m.status === 'closed') return { id: m.id, decides: [], mandate: m };
   const granted = decides(config);
   return { id: m.id, decides: m.decides.filter((g) => granted.includes(g)), mandate: m };
 }
