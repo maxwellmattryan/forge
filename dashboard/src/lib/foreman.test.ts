@@ -45,11 +45,20 @@ const row = (id: string, o: Partial<MandateRow> = {}): MandateRow => ({
 });
 
 test("the Foreman page's panels start with the Office", () => {
-  assert.equal(FOREMAN_PANELS[0], 'office');
-  assert.equal(DEFAULT_FOREMAN_PANEL, FOREMAN_PANELS[0]);
-  for (const key of ['ArrowLeft', 'ArrowRight', 'Home', 'End']) assert.equal(panelKey('office', key), 'office', key);
+  assert.deepEqual(FOREMAN_PANELS, ['office', 'chats']);
+  assert.equal(DEFAULT_FOREMAN_PANEL, 'office');
+  // The two real panels: Left and Right wrap, Home and End jump.
+  assert.deepEqual(
+    ['ArrowLeft', 'ArrowRight', 'Home', 'End'].map((key) => panelKey('office', key)),
+    ['chats', 'chats', 'office', 'chats'],
+  );
+  assert.deepEqual(
+    ['ArrowLeft', 'ArrowRight', 'Home', 'End'].map((key) => panelKey('chats', key)),
+    ['office', 'office', 'office', 'chats'],
+  );
   assert.equal(panelKey('office', 'ArrowDown'), null);
-  // With more panels (#396's Chats), the keys wrap and jump through the list in order.
+  assert.equal(panelKey('chats', 'Enter'), null);
+  // With more panels, the keys wrap and jump through the list in order.
   const three = ['office', 'chats', 'third'] as unknown as ForemanPanel[];
   const at = (p: string) => p as ForemanPanel;
   assert.deepEqual(

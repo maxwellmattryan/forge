@@ -71,7 +71,8 @@
       "offTitle": "The Foreman is off.",
       "offBody": "Without it, every parked gate (spec approval, escalation, PR feedback) waits for you.",
       "offHow": "To turn it on, set {key} (and {daemonKey}) in {file} by hand. It is locked in Settings and in forge config set, because it lets the daemon decide gates unattended.",
-      "daemonOffHow": "The Foreman runs inside the daemon. Set {daemonKey} in {file}, then start the daemon."
+      "daemonOffHow": "The Foreman runs inside the daemon. Set {daemonKey} in {file}, then start the daemon.",
+      "openChat": "Open chat"
     },
     "held": {
       "word": "held",

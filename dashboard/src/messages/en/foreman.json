@@ -1,10 +1,54 @@
 {
   "foreman": {
     "title": "Foreman",
-    "sub": "The Office: the mandates you give the Foreman, the assistant foremen deciding gates, and the directives it records.",
+    "sub": "The Office: the mandates you give the Foreman, the assistant foremen deciding gates, and the directives it records. Chats: talk with the Foreman.",
     "panels": "Foreman panels",
     "panel": {
-      "office": "Office"
+      "office": "Office",
+      "chats": "Chats"
+    },
+    "chats": {
+      "list": "Chats",
+      "new": "New chat",
+      "untitled": "Untitled chat",
+      "archived": {
+        "one": "Archived ({count})",
+        "other": "Archived ({count})"
+      },
+      "loadFailed": "Couldn't load the chats: {error}",
+      "retry": "Retry",
+      "emptyTitle": "No chats yet",
+      "emptyBody": "Ask the Foreman about the board, or have it act for you through the CLI.",
+      "pick": "Pick a chat, or start a new one.",
+      "archivedChip": "archived",
+      "rename": "Rename",
+      "titleLabel": "Chat title",
+      "save": "Save",
+      "cancel": "Cancel",
+      "archive": "Archive",
+      "archiveConfirm": "Archive this chat? It stops its session, and an archived chat can't be reopened.",
+      "logLabel": "Chat log",
+      "logEmpty": "Send a message to start. The Foreman reads the board before it replies.",
+      "logFailed": "Couldn't load the chat log: {error}",
+      "trimmed": "Showing the newest {max} entries. {cmd} prints the full history.",
+      "jump": "Jump to latest",
+      "you": "you",
+      "undelivered": "not delivered",
+      "thisChat": "This chat",
+      "copy": "Copy",
+      "copied": "Copied",
+      "copyFailed": "Couldn't copy: {error}",
+      "cliTag": "forge",
+      "cliRunning": "running…",
+      "message": "Message the Foreman",
+      "placeholder": "Ask the Foreman about the board…",
+      "send": "Send",
+      "replying": "The Foreman is replying…",
+      "counter": "{count} / {max}",
+      "daemonDisabled": "Chats run in the daemon. Set {daemonKey} in {file} to use them.",
+      "daemonStopped": "Chats run in the daemon. Start it to send a message.",
+      "startDaemon": "Start daemon",
+      "archivedNote": "This chat is archived. Start a new chat to keep talking."
     },
     "office": {
       "session": "Office session",
