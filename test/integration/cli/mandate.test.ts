@@ -126,7 +126,7 @@ test('mandate writes are refused in daemon sessions', async () => {
       ['resume', ['mandate', 'resume', 'm1']],
       ['close', ['mandate', 'close', 'm1']],
     ];
-    for (const scope of ['_office', '_inbox', job]) {
+    for (const scope of ['_office', '_inbox', job, '_chat-0123456789ab']) {
       const env = { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: scope };
       for (const [sub, args] of writes) {
         const before = { mandates: snapshot(r.dir), audit: read(auditFile(r.dir)) };

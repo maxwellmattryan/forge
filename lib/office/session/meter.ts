@@ -1,13 +1,17 @@
 // The supervisor's meter for one session: each result's cost, as a delta against a baseline held per spawn,
 // appended to the scope's meter file (lib/engine/metrics/meter.ts), then enforced. A job scope runs the budget
-// checkpoint `session-meter`; the inbox and the office stop at their daemon.dailyUsd cap (the assistant foremen share
-// the office's, summed), and when a meter it sums can't be read the cap can't be checked, so they stop too. claude reports its cost itself, so a session's own
+// checkpoint `session-meter`; the inbox, the office and the chats stop at their daemon.dailyUsd cap (the assistant foremen
+// share the office's, and every chat the project's one chat cap, summed), and when a meter it sums can't be read the cap
+// can't be checked, so they stop too. claude reports its cost itself, so a session's own
 // reporting never moves what is enforced (docs/architecture/daemon-security.md).
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { paths } from '#core/paths.ts';
 import { enforceBudget } from '#engine/metrics/budget.ts';
 import { appendMeter, lastMeterCum, METER_VERSION, meterDelta, meterTodayUsd, readMeter, readMeterChecked } from '#engine/metrics/meter.ts';
 import type { MeterCum, MeterRecord } from '#engine/metrics/meter.ts';
-import { INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, assistantScope, isAssistantScope, validJobId } from '#core/job/requests.ts';
+import { INBOX_SCOPE, MAX_ASSISTANTS, OFFICE_SCOPE, assistantScope, isAssistantScope, isChatScope, validJobId } from '#core/job/requests.ts';
 import type { ClaudeEvent } from '#integrations/claude/types.ts';
 import type { SessionCore } from './contract.ts';
 import type { Config } from '#core/types.ts';
@@ -25,8 +29,10 @@ type StopSelf = (message: string, reason: string, announce: 'failed-turns' | 'da
 
 const ZERO: MeterCum = { usd: 0, models: {} };
 
-/** The inbox's or office's daemon.dailyUsd cap, or null for none (a job scope, a null key, or caps off). */
-function dailyCap(c: Config, name: 'inbox' | 'office'): number | null {
+type Family = 'inbox' | 'office' | 'chat';
+
+/** The inbox's, office's or chats' daemon.dailyUsd cap, or null for none (a job scope, a null key, or caps off). */
+function dailyCap(c: Config, name: Family): number | null {
   const d: unknown = c?.daemon?.dailyUsd;
   if (!d || typeof d !== 'object') return null;
   const v = (d as Record<string, unknown>)[name];
@@ -34,16 +40,34 @@ function dailyCap(c: Config, name: 'inbox' | 'office'): number | null {
 }
 
 /**
- * The meter files one shared scope's cap sums: the inbox's own, or for the office family (the office and every
- * assistant foreman) all 17, so running more assistants never multiplies daemon.dailyUsd.office.
+ * The meter files one shared scope's cap sums: the inbox's own; for the office family (the office and every
+ * assistant foreman) all 17, so running more assistants never multiplies daemon.dailyUsd.office; and for a
+ * chat every chat's meter in `meter/`, so opening more chats never multiplies daemon.dailyUsd.chat. That dir
+ * must be missing or a real directory (a link or file there throws, and the cap fails closed); only names
+ * whose scope isChatScope accepts are kept.
  */
-function capScopes(shared: 'inbox' | 'office'): string[] {
-  return shared === 'inbox' ? [INBOX_SCOPE] : [OFFICE_SCOPE, ...Array.from({ length: MAX_ASSISTANTS }, (_, i) => assistantScope(i + 1))];
+function capScopes(root: string, shared: Family): string[] {
+  if (shared === 'inbox') return [INBOX_SCOPE];
+  if (shared === 'office') return [OFFICE_SCOPE, ...Array.from({ length: MAX_ASSISTANTS }, (_, i) => assistantScope(i + 1))];
+  const dir = path.join(paths(root).runtime, 'meter');
+  let st: fs.Stats;
+  try {
+    st = fs.lstatSync(dir);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw e;
+  }
+  if (!st.isDirectory()) throw new Error(`${dir} is not a directory`);
+  return fs
+    .readdirSync(dir)
+    .filter((n) => n.endsWith('.jsonl') && isChatScope(n.slice(0, -'.jsonl'.length)))
+    .map((n) => n.slice(0, -'.jsonl'.length))
+    .sort();
 }
 
 export function createMeter(core: SessionCore, stop: StopSelf) {
   const { root, scope } = core;
-  const shared = scope === INBOX_SCOPE ? 'inbox' : scope === OFFICE_SCOPE || isAssistantScope(scope) ? 'office' : null;
+  const shared: Family | null = scope === INBOX_SCOPE ? 'inbox' : scope === OFFICE_SCOPE || isAssistantScope(scope) ? 'office' : isChatScope(scope) ? 'chat' : null;
   let spawnId: string | null = null;
   /** The cumulative this spawn measures from: zero for a fresh conversation, null until a rebase. */
   let base: MeterCum | null = ZERO;
@@ -52,7 +76,8 @@ export function createMeter(core: SessionCore, stop: StopSelf) {
 
   /** The stop text when a shared scope's cap can't be checked, so it fails closed. */
   function unchecked(problem: string, fix: string): string {
-    return `meter: ${problem}, so the ${shared} session's daily cap (daemon.dailyUsd.${shared}) can't be checked and it stops; ${fix}, then start it again`;
+    const whose = shared === 'chat' ? "the chat sessions'" : `the ${shared} session's`;
+    return `meter: ${problem}, so ${whose} daily cap (daemon.dailyUsd.${shared}) can't be checked and it stops; ${fix}, then start it again`;
   }
 
   /**
@@ -62,8 +87,14 @@ export function createMeter(core: SessionCore, stop: StopSelf) {
   function overCap(c: Config, at: number): { message: string; announce: 'daily-cap' | null } | null {
     const cap = shared ? dailyCap(c, shared) : null;
     if (cap === null || !shared) return null;
+    let scopes: string[];
+    try {
+      scopes = capScopes(root, shared);
+    } catch (e) {
+      return { message: unchecked((e as Error).message, 'fix or move it aside'), announce: null };
+    }
     let spent = 0;
-    for (const s of capScopes(shared)) {
+    for (const s of scopes) {
       // A missing file reads as no records; any one that can't be read fails the whole family closed.
       const { records, problem } = readMeterChecked(root, s);
       if (problem) return { message: unchecked(problem, 'fix or move the file aside'), announce: null };
@@ -71,7 +102,7 @@ export function createMeter(core: SessionCore, stop: StopSelf) {
     }
     if (spent < cap) return null;
     const day = new Date(at).toISOString().slice(0, 10);
-    const who = shared === 'office' ? 'the office session and its assistant foremen' : 'the inbox session';
+    const who = shared === 'office' ? 'the office session and its assistant foremen' : shared === 'chat' ? 'the chat sessions' : 'the inbox session';
     return { message: `daemon stopped: ${who} spent $${spent.toFixed(2)} of the $${cap.toFixed(2)} daily cap (daemon.dailyUsd.${shared}) on ${day} (UTC); start it again after midnight UTC, or raise the cap`, announce: 'daily-cap' };
   }
 

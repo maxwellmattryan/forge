@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { archiveDir, hasLiveJob, readArchived } from '#core/job/archive.ts';
 import { listJobs, parseEventLines } from '#core/job/store.ts';
-import { ASSISTANT_SCOPE_PREFIX, INBOX_SCOPE, OFFICE_SCOPE, isAssistantScope, validScope } from '#core/job/requests.ts';
+import { ASSISTANT_SCOPE_PREFIX, INBOX_SCOPE, OFFICE_SCOPE, chatIdOf, isAssistantScope, isChatScope, validScope } from '#core/job/requests.ts';
 import { paths, stateFile } from '#core/paths.ts';
 import { estimateCost, pricing, resolveModel } from '#integrations/claude/pricing.ts';
 import type { Config, Job, JobEvent, UsageRow } from '#core/types.ts';
@@ -123,13 +123,16 @@ function bucketsOf(events: JobEvent[], config: Config, sinceMs: number | null = 
   return { buckets: out, covered };
 }
 
-/** The ledger role a meter scope's spend is: the inbox, the office, an assistant foreman, or a job's orchestrator (with every agent it ran). */
-const meterRole = (scope: string): string => (scope === INBOX_SCOPE ? 'inbox' : scope === OFFICE_SCOPE ? 'office' : isAssistantScope(scope) ? 'assistant' : 'orchestrator');
+/** The ledger role a meter scope's spend is: the inbox, the office, an assistant foreman, a chat, or a job's orchestrator (with every agent it ran). */
+const meterRole = (scope: string): string =>
+  scope === INBOX_SCOPE ? 'inbox' : scope === OFFICE_SCOPE ? 'office' : isAssistantScope(scope) ? 'assistant' : isChatScope(scope) ? 'chat' : 'orchestrator';
 
 /** A shared session's ledger title, or null for a job's meter. */
 function sessionTitle(scope: string): string | null {
   if (scope === INBOX_SCOPE) return 'Inbox session';
   if (scope === OFFICE_SCOPE) return 'Office session';
+  const chat = chatIdOf(scope);
+  if (chat !== null) return `Chat ${chat}`;
   return isAssistantScope(scope) ? `Assistant foreman ${scope.slice(ASSISTANT_SCOPE_PREFIX.length)}` : null;
 }
 
@@ -404,7 +407,7 @@ export function ledgerRows(ledger: Record<string, SpendJob>, { by }: { by: Ledge
 }
 
 /** The roles meterRole gives: the only keys sessionRows writes. */
-const SESSION_ROLES: ReadonlySet<string> = new Set(['orchestrator', 'inbox', 'office', 'assistant']);
+const SESSION_ROLES: ReadonlySet<string> = new Set(['orchestrator', 'inbox', 'office', 'assistant', 'chat']);
 
 /** The supervisor's buckets summed by role (orchestrator, inbox, office, assistant): Stats.cost.sessions. `runs` counts metered turns. */
 export function sessionRows(ledger: Record<string, SpendJob>): Record<string, UsageRow> {

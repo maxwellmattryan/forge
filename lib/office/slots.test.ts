@@ -2,7 +2,7 @@
 // held only by its own cap never blocks another, which idle sessions a reclaim stops, and the pokes.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createMachineSlots, type MachineSlots, type SlotMember } from './slots.ts';
+import { counted, createMachineSlots, sessionKind, type MachineSlots, type SlotMember } from './slots.ts';
 
 interface Fake extends SlotMember {
   name: string;
@@ -89,6 +89,20 @@ describe('machine slots', () => {
       const members = r.members();
       gate(r.setting, ...members).reclaim(members[0]!, r.n);
       assert.deepEqual(Object.fromEntries(members.map((m) => [m.name, m.stopped])), r.want);
+    });
+  }
+
+  const kinds: [string, string, boolean][] = [
+    ['_inbox', 'inbox', false],
+    ['_office', 'office', false],
+    ['_assistant-2', 'assistant', false],
+    ['_chat-0123456789ab', 'chat', false],
+    ['j-1', 'job', true],
+  ];
+  for (const [scope, kind, isCounted] of kinds) {
+    it(`sessionKind(${scope}) is ${kind}, ${isCounted ? '' : 'not '}counted`, () => {
+      assert.equal(sessionKind(scope), kind);
+      assert.equal(counted(scope), isCounted);
     });
   }
 

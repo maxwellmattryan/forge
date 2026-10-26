@@ -1,7 +1,7 @@
 // A session's two timers: the turn limit (daemon.turnTimeoutMinutes), which stops a hung turn, and
 // the idle stop (daemon.idleStopMinutes), which stops a child nothing keeps. Both stop the child
 // through the session's own kill, so its exit lets go of what it held.
-import type { SessionAgents } from '../session-agents.ts';
+import type { SessionAgents } from './owned.ts';
 import type { DaemonChild, SessionCore } from './contract.ts';
 import type { Config } from '#core/types.ts';
 

@@ -95,9 +95,9 @@ function jobBudgetProblems(b: unknown): string[] {
   return problems;
 }
 
-const DAILY_USD_KEYS = ['inbox', 'office'];
+const DAILY_USD_KEYS = ['inbox', 'office', 'chat'];
 
-/** daemon.dailyUsd: null, or a map of inbox and office, each null or a number >= 0 (dollars per UTC day). */
+/** daemon.dailyUsd: null, or a map of inbox, office and chat, each null or a number >= 0 (dollars per UTC day). */
 function dailyUsdProblems(b: unknown): string[] {
   if (b === null || b === undefined) return [];
   if (typeof b !== 'object' || Array.isArray(b)) return [`daemon.dailyUsd must be null or a map of ${DAILY_USD_KEYS.join(', ')} (got ${JSON.stringify(b)})`];

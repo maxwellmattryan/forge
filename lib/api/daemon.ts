@@ -1,5 +1,6 @@
 // The session pools: /api/daemon, /api/daemon/mode, /api/daemon/permission, /api/daemons/log and the /api/events SSE frames,
-// plus the machine dashboard's own GET and POST /api/projects, /api/projects/events and /api/projects/stats, and the machine cap every pool reports.
+// plus the machine dashboard's own GET and POST /api/projects, /api/projects/events and /api/projects/stats, the machine cap every pool reports,
+// and the owner's chats with the Foreman (/api/p/<project>/chats…).
 import type { Effort, JobState, Stage } from './enums.ts';
 
 /** The machine cap as a pool reports it: DaemonPoolState.machine. */
@@ -220,3 +221,46 @@ export interface PostDaemonModeBody {
 
 /** POST /api/daemon/mode reply on success: poolState from createContext in lib/server/start.ts. */
 export type PostDaemonModeResponse = DaemonPoolState;
+
+/** Whether a chat still takes messages. Archived is final: nothing unarchives a chat. */
+export type ChatState = 'active' | 'archived';
+
+/** A chat with the Foreman: `.forge/runtime/chats/<id>/chat.json` (lib/office/chat/store.ts), at CHAT_SCHEMA_VERSION. */
+export interface Chat {
+  schemaVersion: number;
+  /** 12 lowercase hex characters; its session's scope is `_chat-<id>`. */
+  id: string;
+  /** One line, at most 120 characters; null until the owner names it. */
+  title: string | null;
+  state: ChatState;
+  createdAt: string;
+  /** Bumped by each message, rename and archive: GET /chats sorts by it, newest first. */
+  updatedAt: string;
+  /** The chat session's Claude session id, which its next spawn resumes; null before its first spawn. */
+  sessionId: string | null;
+}
+
+/**
+ * One line of a chat's log.jsonl, after CHAT_LOG_STEPS: a message the owner sent, the reason it could not reach
+ * the session, or one line the chat's session logged (claude's stream-json or a `forge-daemon` event), already
+ * redacted, as `daemons/_chat-<id>.log` has it; a line over 256 KiB is a ForgeTruncatedLine.
+ */
+export type ChatLogEntry = { v: number; at: string } & ({ kind: 'owner'; text: string } | { kind: 'undelivered'; reason: string } | { kind: 'session'; line: string });
+
+/** GET /api/p/<project>/chats/<id>/log: the entries with index `n > after`, oldest first; `more` when later ones exist. */
+export interface ChatLogPage {
+  id: string;
+  entries: (ChatLogEntry & { n: number })[];
+  more: boolean;
+}
+
+/** GET /api/p/<project>/chats/<id>: the chat and its session's state (the off state from its record when the pool has none). */
+export interface ChatDetail {
+  chat: Chat;
+  session: DaemonSessionState;
+}
+
+/** GET /api/p/<project>/chats: every chat, newest updatedAt first. */
+export interface ChatList {
+  chats: Chat[];
+}
