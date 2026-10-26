@@ -70,7 +70,8 @@ describe('scripts/render-check.ts', () => {
       assert.deepEqual(of('overview'), [...registered, ...['Jobs shipped', 'Cost', 'Machine'].map((n) => `missing text "${n}"`)]);
       assert.deepEqual(of('machine'), registered);
       assert.deepEqual(of('switch'), ['could not switch to other-project in the project switcher']);
-      assert.equal(result.checked, VIEW_IDS.length + 1 + 3);
+      assert.deepEqual(of('add'), ['could not choose Add project in the project switcher']);
+      assert.equal(result.checked, VIEW_IDS.length + 1 + 4);
       assert.equal(result.passed, 4);
       assert.equal(renderExitCode(result), 1);
     } finally {

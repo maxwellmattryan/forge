@@ -28,7 +28,8 @@
     },
     "missing": "missing",
     "unavailable": "unavailable",
-    "rail": "Switch project"
+    "rail": "Switch project",
+    "add": "Add project"
   },
   "sidebar": {
     "resize": "Resize sidebar"
