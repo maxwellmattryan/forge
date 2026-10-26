@@ -276,7 +276,7 @@ export function defaults(): Config {
       decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal' && g !== 'release' && g !== 'milestone-approval'),
       reserved: [...DEFAULT_RESERVED],
       ship: 'propose',
-      // The director loop's own model, effort and pace (#538 reads them).
+      // The office session's model and effort when it directs mandates, and the Office pass's pace.
       model: 'inherit',
       effort: null,
       cadence: 10,

@@ -308,7 +308,7 @@ export interface Config {
     decides: GateClass[];
     reserved: string[];
     ship: ForemanShip;
-    /** The Foreman's own model, effort and pace: read by the director loop (#538). */
+    /** The office session's model and effort when it directs mandates (lib/office/slots.ts), and the Office pass's pace. */
     model: string;
     effort: Effort | null;
     /** Minutes between the director's passes (1–1440). */

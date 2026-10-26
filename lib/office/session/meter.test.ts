@@ -52,6 +52,7 @@ function rig(t: any, scope: 'job' | string, opts: { daemon?: Record<string, unkn
     permissionMode: () => null,
     permissionModeRefused: () => {},
     effort: () => ({ level: null, source: 'none' }),
+    model: () => null,
   };
   const claude = fakeClaude();
   const sink: LogSink = { write: () => true, on: () => undefined, once: () => undefined, end: (cb) => cb?.() };
