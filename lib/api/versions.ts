@@ -57,6 +57,10 @@ export const API_CHANGES = [
   { id: 'draft-request' },
   // DaemonPoolState.assistants; Stats.cost.sessions.assistant; gate requests route to _assistants.
   { id: 'assistant-foremen' },
+  // Stats.quality.verifierFirstRoundBlockRate: the share of jobs whose first round-1 verifiers record blocked.
+  { id: 'verifier-first-round-block-rate' },
+  // ApiState.drafts (DraftGate), GET and POST /api/mandates/:id/draft; a job-less milestone-approval gate request.
+  { id: 'milestone-approval' },
   // RequestType 'direct': the Office pass's wake for the office session; NotifyEvent mandate-stalled, mandate-budget and mandate-closed.
   { id: 'director-loop' },
 ] as const;

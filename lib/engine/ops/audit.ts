@@ -87,7 +87,11 @@ function detail(e: JobEvent): string | null {
     case 'mandate-pause':
     case 'mandate-resume':
     case 'mandate-close':
+    case 'mandate-filed':
     case 'mandate-draft':
+    case 'mandate-draft-approved':
+    case 'mandate-draft-revised':
+    case 'mandate-draft-rejected':
       d = str(e.mandate);
       break;
     // The director loop's record: what it did, under which mandate, to which issue and job.

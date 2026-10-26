@@ -1,10 +1,10 @@
 {
-  "backlog": {
-    "title": "Backlog",
+  "issues": {
+    "title": "Issues",
     "from": "From the",
     "tracker": "tracker",
     "refresh": "Refresh",
-    "empty": "The backlog is empty.",
+    "empty": "The tracker has no issues.",
     "ref": "Ref",
     "itemTitle": "Title",
     "status": "Status",

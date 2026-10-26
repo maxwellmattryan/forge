@@ -12,7 +12,7 @@
   import { canRunCommand, commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, scopedJob, suggest, type CommandCtx, type Suggestion, type Verb } from '../lib/command.ts';
   import { clearScope, palette } from '../lib/palette.svelte.ts';
   import { buildRequest } from '../lib/requests.ts';
-  import { routeProject, switchHash } from '../lib/routes.ts';
+  import { switchHash } from '../lib/routes.ts';
   import { switcherEntries } from '../lib/switcher.ts';
   import { TABBABLE, wrapFocus } from '../lib/settings.ts';
   import { toast } from '../lib/toast.svelte.ts';
@@ -36,7 +36,7 @@
     tracker: S.data?.config?.tracker ?? 'none',
     scope: palette.scope,
     projects: switcherEntries(S.machine),
-    project: routeProject(S.route),
+    project: S.selected,
   });
   // Null once the job is unknown or closes, even while the palette is open: then the scope is simply ignored.
   const scoped = $derived(scopedJob(ctx));
@@ -55,9 +55,9 @@
           ? $t('command.noJobs')
           : empty === 'noItems'
             ? $t('command.noItems')
-            : empty === 'backlogLoading'
-              ? $t('command.backlogLoading')
-              : $t('command.backlogFailed', { error: S.backlog?.error ?? '' }),
+            : empty === 'issuesLoading'
+              ? $t('command.issuesLoading')
+              : $t('command.issuesFailed', { error: S.backlog?.error ?? '' }),
   );
 
   const hints = $derived<Record<Verb, string>>({
@@ -74,7 +74,7 @@
     project: $t('command.hints.project'),
   });
 
-  // A new input starts at the first option again, and a list that shrank under it (the backlog finished
+  // A new input starts at the first option again, and a list that shrank under it (the issues finished
   // loading) never leaves `active` past its end, where Enter would run without a chosen option.
   $effect(() => {
     void text;
@@ -279,7 +279,7 @@
       {/each}
     </ul>
     {#if emptyText}<p class="px-4 py-3 text-sm text-muted" aria-hidden="true">{emptyText}</p>{/if}
-    <!-- The visible reason is announced here, so a screen reader hears "Loading the backlog…", not just "No suggestions". -->
+    <!-- The visible reason is announced here, so a screen reader hears "Loading issues…", not just "No suggestions". -->
     <div class="sr-only" aria-live="polite">{options.length ? $t('command.count', { count: options.length }) : (emptyText ?? $t('command.empty'))}</div>
     {#if isFree}
       <div class="flex flex-col gap-1 border-t border-line px-4 py-3">

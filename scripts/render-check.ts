@@ -204,23 +204,23 @@ export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: st
         await timed(name, 'machine', () => checkPage(context, `${base}#/machine`, (page, p) => waitForTexts(page.locator('#view'), registered, timeout, p, true)));
         // Picking the companion in the sidebar switcher opens its same view, with its content.
         await timed(name, 'switch', () =>
-          checkPage(context, at('backlog'), async (page, p) => {
+          checkPage(context, at('issues'), async (page, p) => {
             try {
               await page.locator('#project-switcher').click({ timeout });
               await page.getByRole('option', { name: OTHER_PROJECT }).click({ timeout });
-              await page.waitForURL((u) => u.hash === `#/p/${OTHER_PROJECT}/backlog`, { timeout });
+              await page.waitForURL((u) => u.hash === `#/p/${OTHER_PROJECT}/issues`, { timeout });
             } catch {
               p.push(`could not switch to ${OTHER_PROJECT} in the project switcher`);
               return;
             }
-            await waitForTexts(page.locator('#view'), other.expect.views.backlog, timeout, p);
+            await waitForTexts(page.locator('#view'), other.expect.views.issues, timeout, p);
           }),
         );
         // Add project, below the projects, opens the Machine page (and stays there when chosen again) without ever
         // becoming the switcher's selection.
         const addLabel = catalogText('switcher.add');
         await timed(name, 'add', () =>
-          checkPage(context, at('backlog'), async (page, p) => {
+          checkPage(context, at('issues'), async (page, p) => {
             try {
               const trigger = page.locator('#project-switcher');
               for (let i = 0; i < 2; i++) {

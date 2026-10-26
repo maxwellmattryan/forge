@@ -14,7 +14,7 @@ export const ICONS = {
   analytics: [{ el: 'path', d: 'M4 20V10M10 20V4M16 20v-7M3 20h18' }],
   // Forge itself: an anvil, its horn to the left.
   anvil: [{ el: 'path', d: 'M3 7h17.5v3.5H16v3h2.5V17h-12v-3.5H9v-3H8C5.5 10.5 3.8 9.2 3 7z' }],
-  backlog: [{ el: 'path', d: 'M6 6h14M6 12h14M6 18h9M3 6h.01M3 12h.01M3 18h.01' }],
+  issues: [{ el: 'path', d: 'M6 6h14M6 12h14M6 18h9M3 6h.01M3 12h.01M3 18h.01' }],
   bell: [{ el: 'path', d: 'M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z' }, { el: 'path', d: 'M10 20.5a2 2 0 0 0 4 0M12 3v2' }],
   board: [{ el: 'rect', x: '3', y: '4', width: '7', height: '16', rx: '1' }, { el: 'rect', x: '14', y: '4', width: '7', height: '10', rx: '1' }],
   branch: [{ el: 'circle', cx: '6', cy: '5', r: '2' }, { el: 'circle', cx: '6', cy: '19', r: '2' }, { el: 'circle', cx: '18', cy: '7', r: '2' }, { el: 'path', d: 'M6 7v10M18 9a5 5 0 0 1-5 5H9a3 3 0 0 0-3 3' }],
@@ -49,7 +49,8 @@ export const ICONS = {
   refresh: [{ el: 'path', d: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7' }],
   review: [{ el: 'path', d: 'M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z' }, { el: 'circle', cx: '12', cy: '12', r: '3' }],
   search: [{ el: 'circle', cx: '10.5', cy: '10.5', r: '6.5' }, { el: 'path', d: 'M15.5 15.5 21 21' }],
-  settings: [{ el: 'circle', cx: '12', cy: '12', r: '3.5' }, { el: 'path', d: 'M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1' }],
+  // A gear: the eight-toothed wheel around a hub.
+  settings: [{ el: 'circle', cx: '12', cy: '12', r: '3' }, { el: 'path', d: 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z' }],
   // A shield: what a session may do without asking.
   shield: [{ el: 'path', d: 'M12 3l7.5 3v5.5c0 4.5-3.2 8-7.5 9.5-4.3-1.5-7.5-5-7.5-9.5V6z' }],
   stop: [{ el: 'rect', x: '6', y: '6', width: '12', height: '12', rx: '1' }],

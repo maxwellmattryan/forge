@@ -29,7 +29,7 @@ const OFFICE: HelpGroup = {
         "enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary (and the next link of a chain, in the same pass), the budget pause and the cadence stall; then queue one direct request for the office session when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked}], direct, problems}); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes",
       exits: [[1, 'run in a daemon session (forge dash runs it)']],
       docs: DOCS,
-      readme: true,
+      common: true,
     },
     {
       command: 'office survey',

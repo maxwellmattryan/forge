@@ -15,7 +15,7 @@ const SERVICE: HelpGroup = {
       args: '',
       summary:
         "install the login service for the current user and load it ({installed, manager, file, log, loaded, replaced, error?, note?}): it runs <node> <plugin>/bin/forge dash --service from /, starts at login, restarts 30 s after a crash but not after a clean exit, and appends its output to <FORGE_HOME>/runtime/service.log. Its environment carries only PATH (sanitised), HOME, USER, LOGNAME, SHELL, LANG, LC_*, TZ, TMPDIR and FORGE_HOME from this shell, never a token. A reinstall overwrites its own file and reloads it, which restarts a running service dashboard; with a dashboard you started running, `note` says the service takes over at the next login",
-      readme: true,
+      common: true,
       exits: [[1, 'not supported on this platform yet (native Windows, the BSDs), a variable or path with a control character (nothing is written), the load failed (the file stays; loaded: false with error), or a daemon session ran it']],
     },
     {

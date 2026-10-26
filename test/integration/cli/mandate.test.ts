@@ -54,7 +54,7 @@ test('forge mandate new, show, pause, resume, close and list', async () => {
     const text = read(path.join(mandatesDir(r.dir), 'm1.md'));
     const [, front, body] = text.split(/^---$/m);
     const fm = yaml.parse(front);
-    assert.deepEqual(Object.keys(fm), ['schemaVersion', 'id', 'title', 'status', 'reason', 'scope', 'until', 'maxJobs', 'order', 'decides', 'budget', 'stall', 'onUnfinishable', 'after', 'createdAt', 'updatedAt', 'closedAt', 'goal']);
+    assert.deepEqual(Object.keys(fm), ['schemaVersion', 'id', 'title', 'status', 'reason', 'scope', 'until', 'maxJobs', 'order', 'decides', 'budget', 'stall', 'onUnfinishable', 'after', 'createdAt', 'updatedAt', 'closedAt', 'filedAt', 'goal']);
     assert.equal(fm.goal, null);
     assert.deepEqual(
       { scope: fm.scope, until: fm.until, maxJobs: fm.maxJobs, order: fm.order, decides: fm.decides, budget: fm.budget, stall: fm.stall, onUnfinishable: fm.onUnfinishable, after: fm.after, reason: fm.reason, closedAt: fm.closedAt },

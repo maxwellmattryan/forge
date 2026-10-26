@@ -28,20 +28,20 @@ const SECRETS: HelpGroup = {
         [1, 'a finding, an incomplete scan, or no such job or worktree'],
         [5, 'git failed'],
       ],
-      readme: true,
+      common: true,
     },
     {
       command: 'secrets list',
       args: '',
       summary: 'the declared secret references (`secrets` in .forge/config.yml): each name and its source kind, resolving nothing',
-      readme: true,
+      common: true,
     },
     {
       command: 'secrets check',
       args: '[<name>...]',
       summary: 'resolve each named secret (every declared one by default) from its source and report ok or the error; never prints a value or its length',
       exits: [[1, 'a secret failed to resolve']],
-      readme: true,
+      common: true,
     },
   ],
 };

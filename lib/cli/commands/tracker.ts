@@ -63,7 +63,7 @@ const TRACKER: HelpGroup = {
       ],
       exits: TRACKER_EXITS,
       docs: ['Linking jobs to issues', 'docs/TRACKERS.md#linking-jobs-to-issues'],
-      readme: true,
+      common: true,
     },
     { command: 'tracker claim', args: '<ref> <job>', summary: 'mark an item as taken by a job', exits: TRACKER_EXITS },
     { command: 'tracker update', args: '<ref> <job>', summary: "mirror a job's status to its item", exits: TRACKER_EXITS },
@@ -87,7 +87,7 @@ const TRACKER: HelpGroup = {
       ],
       exits: TRACKER_EXITS,
       docs: ['Readiness triage', 'docs/TRACKERS.md#readiness-triage'],
-      readme: true,
+      common: true,
     },
   ],
 };

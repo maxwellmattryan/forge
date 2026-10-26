@@ -2,7 +2,7 @@
 
 One module per command group, each with its `HELP` table, and the human-mode renderers.
 
-- A command or JSON output change edits its group's module and `HELP` table (`CORE` in `help.ts` for what `main.ts` routes), then `npm run docs` regenerates README's CLI table and docs/CLI.md's command reference. New commands return compact JSON; large outputs go to files in the job dir, and the CLI returns their paths.
+- A command or JSON output change edits its group's module and `HELP` table (`CORE` in `help.ts` for what `main.ts` routes), then `npm run docs` regenerates docs/CLI.md's Common commands table and command reference. New commands return compact JSON; large outputs go to files in the job dir, and the CLI returns their paths.
 - Only this folder and `lib/cli/main.ts` import it (`test/invariants/layers.test.ts`). It is a registry, so it may hold more than 12 entries; so is `render/`.
 - **`job/`** holds `forge job`'s help table (`help.ts`) and one handler function per subcommand, grouped by concern; `job.ts` only routes, through `JOB_HANDLERS`.
 - **CLI output**: string results print raw (e.g. `forge worktree path`), everything else prints compact JSON.
@@ -40,7 +40,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `job/retention.ts` | `forge job archive\|delete\|prune`: archiving finished jobs, deleting a mistaken one, and pruning old jobs and session logs; never from a daemon session. |
 | `job/review.ts` | `forge job round\|verdicts\|decision\|score`: review rounds, the reviewers' and approver's verdicts, and the post-merge score. |
 | `job/state.ts` | `forge job set\|effort\|note\|refresh-request\|budget`: a job's stage, state, fields, effort, notes, request and budget limits. |
-| `mandate.ts` | `forge mandate new\|edit\|pause\|resume\|close\|list\|show` and `forge mandate draft start\|prepare\|record\|show`: the owner's mandates to the Office and a goal mandate's drafting runs (lib/office/mandates/, docs/CONFIG.md "Mandates"). |
+| `mandate.ts` | `forge mandate new\|edit\|pause\|resume\|close\|list\|show` and `forge mandate draft start\|prepare\|record\|show\|approve\|revise\|reject\|assist`: the owner's mandates to the Office, a goal mandate's drafting runs and its milestone-approval gate (lib/office/mandates/, docs/CONFIG.md "Mandates"). |
 | `notify.ts` | `forge notify test\|send`: a sample notification to every configured target, and the detached sender lib/office/notify.ts queueNotify spawns. |
 | `office.ts` | `forge office pass\|survey\|board\|start\|resume\|note`: the Office's director loop (lib/office/mandates/pass.ts and director.ts). |
 | `project.ts` | `forge project add\|remove\|list\|settings`: the machine index of registered projects and the machine settings (lib/engine/project/machine-index.ts). |

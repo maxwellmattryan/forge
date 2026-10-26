@@ -3,7 +3,7 @@ import { isOpen, needsHuman } from './job-state.ts';
 import type { JobLike } from './job-state.ts';
 
 // Labels come from messages/en/app.json (nav.<id>), through Nav.svelte.
-/** The machine's own pages, shown with no project selected: `#/overview` and `#/machine`. */
+/** The machine's own pages, which keep the selected project: `#/overview` and `#/machine`. */
 export const GLOBAL_VIEWS = [
   { id: 'overview', icon: 'dashboard' },
   { id: 'machine', icon: 'gauge' },
@@ -12,9 +12,9 @@ export type GlobalViewId = (typeof GLOBAL_VIEWS)[number]['id'];
 
 /** One project's pages, at `#/p/<project>/<view>`. */
 export const VIEWS = [
-  { id: 'pipeline', icon: 'pipeline' },
   { id: 'project', icon: 'graph' },
-  { id: 'backlog', icon: 'backlog' },
+  { id: 'pipeline', icon: 'pipeline' },
+  { id: 'issues', icon: 'issues' },
   { id: 'agents', icon: 'agents' },
   { id: 'analytics', icon: 'analytics' },
   { id: 'evals', icon: 'evals' },

@@ -22,8 +22,8 @@ export { MANDATE_ID };
 /** A mandate file is a short contract and at most 8000 characters of guidance: anything larger is not one. */
 const MAX_BYTES = 64 * 1024;
 
-/** The audit actions a mandate write logs, as `mandate-<action>`. */
-export type MandateAction = 'new' | 'edit' | 'pause' | 'resume' | 'close';
+/** The audit actions a mandate write logs, as `mandate-<action>`; `filed` is a goal mandate's draft filed (filing.ts). */
+export type MandateAction = 'new' | 'edit' | 'pause' | 'resume' | 'close' | 'filed';
 
 const fileOf = (root: string, id: string): string => path.join(paths(root).mandates, `${id}.md`);
 
@@ -115,8 +115,8 @@ export const summaryFile = (root: string, id: string): string => path.join(manda
 /**
  * The one write path. Under the mandates lock, `plan` gets every mandate as it is now and returns the
  * record to write with its audit action, or null to write nothing (it throws to refuse). A written
- * record appends one `mandate-<action>` event to the repo audit log, by `actor` when the plan names one
- * (the Office pass: FOREMAN_ACTOR), else by this process's actor.
+ * record appends one `mandate-<action>` event to the repo audit log, with `actor` when the plan names
+ * one (the foreman or the dashboard deciding a draft), else whoever runs the CLI.
  */
 export function writeMandate<T extends { mandate: Mandate; action: MandateAction; reason?: string | null; actor?: EventActor } | null>(root: string, plan: (all: ReadMandate[]) => T): T {
   return withMandatesLock(root, () => {
@@ -143,9 +143,19 @@ export function mandateJobs(root: string, id: string): string[] {
  * paused mandate's in-flight jobs finish); or the problem when its file is missing or can't be read,
  * which the callers treat as no class delegated (fail closed).
  */
-export function jobMandateDecides(root: string, config: Config, job: Pick<Job, 'mandate'>): null | { id: string; decides: GateClass[]; mandate: Mandate } | { id: string; problem: string } {
-  if (job.mandate === null || job.mandate === undefined) return null;
-  const m = readMandate(root, job.mandate);
+export function jobMandateDecides(root: string, config: Config, job: Pick<Job, 'mandate'>): MandateDecides | null {
+  return job.mandate === null || job.mandate === undefined ? null : mandateDecides(root, config, job.mandate);
+}
+
+/** What mandateDecides returns: the cut decides and the mandate, or why its file can't be read. */
+export type MandateDecides = { id: string; decides: GateClass[]; mandate: Mandate } | { id: string; problem: string };
+
+/**
+ * What mandate `id` lets the Foreman decide: its written decides cut to the effective foreman.decides,
+ * whatever its status, or the problem when its file is missing or can't be read (no class delegated).
+ */
+export function mandateDecides(root: string, config: Config, id: string): MandateDecides {
+  const m = readMandate(root, id);
   if (!isReadable(m)) return { id: m.id, problem: m.problem };
   if (m.status === 'closed') return { id: m.id, decides: [], mandate: m };
   const granted = decides(config);
