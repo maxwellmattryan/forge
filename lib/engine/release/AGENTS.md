@@ -3,14 +3,15 @@
 Releases: plans, runs and approvals, and interim releases across member repos.
 
 - `interim.ts` is pure (no fs or git), so `forge job step` can import it; the git-dependent half is `interim-apply.ts`.
-- `plan.ts` was split in #419, with runtime imports one way: `manifest.ts` imports nothing here, `steps.ts` imports only types from `plan.ts`, `plan.ts` imports `steps.ts` and `manifest.ts`, `render.ts` imports `plan.ts`, and `files.ts` imports `plan.ts` and `render.ts`.
-- This is the release flow Forge runs for the repos it works on; Forge's own release is `scripts/release.ts` (docs/RELEASES.md).
+- `plan.ts` was split in #419, with runtime imports one way: `manifest.ts` imports nothing here, `steps.ts` imports only types from `plan.ts`, `script.ts` imports `steps.ts` and only types from `plan.ts`, `plan.ts` imports `steps.ts`, `script.ts` and `manifest.ts`, `render.ts` imports `plan.ts`, `files.ts` imports `plan.ts`, `render.ts` and `script.ts`, and `dry-run.ts` imports `plan.ts`, `files.ts` and `render.ts`.
+- This is the release flow Forge runs for the repos it works on, and for Forge's own release too, once `.forge/config.yml` declares `mechanism: script` (a maintainer's edit; docs/CONFIG.md "Release strategy" has the block): `forge release plan|run` then drives `scripts/release.ts`, which keeps every trust check, as `npm run release` does (docs/RELEASES.md "Releasing"). `script.ts` only ever spawns `node <script> …`.
 - Design: [Interim strategies](../../../docs/architecture/interim-strategies.md), [Foreman](../../../docs/architecture/foreman.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
 |---|---|
 | `approval.ts` | The `release` gate class (#192): a job's release plan the Foreman may approve in place of `forge release run`'s publish prompt. |
+| `dry-run.ts` | `forge release run --dry-run`: the plan `forge release run` would run, recomputed and compared as a run does, with each step's command, whether it would ask, and its status from a state.json of this plan. |
 | `files.ts` | The files in `.forge/runtime/release/` (their paths, symlink refusal, and reading `release.json` and `state.json` as untrusted data, since an agent session can write them) and `forge release plan`'s write. |
 | `interim-apply.ts` | The side of interim strategies that touches git (docs/CONFIG.md "Interim strategies"): verify's pin refresh, the git-dependent edge states `forge job interim` and `pr open` read, and the one command in Forge that publishes anything, `forge job interim publish`. |
 | `interim.ts` | Interim strategies: what a multi-repo job's consumer PR points at while its dependency's change is unmerged or unreleased (docs/CONFIG.md "Interim strategies"). |
@@ -18,5 +19,6 @@ Releases: plans, runs and approvals, and interim releases across member repos.
 | `plan.ts` | The release plan's shapes, and the planner that turns each repo's release strategy (lib/core/config/release-strategy.ts) and the repo graph into an ordered plan of checkable steps with rollback (docs/RELEASES.md "Releasing a project"). |
 | `render.ts` | `release.md`, the human-readable plan with its checks and rollback. |
 | `run.ts` | `forge release run` and `forge release status`: execute the release plan step by step with checkpoints in `.forge/runtime/release/state.json`, stop on the first failure, and resume there. |
+| `script.ts` | The script release mechanism's engine side (docs/CONFIG.md "Release strategy"): the notes file's path, the plan's draft through the script's `--draft-notes`, the bump a recompute takes back from release.json, and the `pr-merged` check. |
 | `steps.ts` | The mechanism table that turns one repo's strategy into release steps and their rollback lines. |
 <!-- forge:map:end -->

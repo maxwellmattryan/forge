@@ -418,6 +418,7 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   release: 'plain',
   // A release command can carry hostnames, paths or tokens like any other configured command.
   'release.command': 'command',
+  'release.script': 'path',
   resources: 'url',
   components: 'command',
   // Remotes can name private hosts and repos, so support bundles hide them like resources.
