@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { BIN, forgeAsync, forgeInProcess, parkedAt, repoTemplate, withRound } from '../../helpers.ts';
 import { TRUST_ENV, loadConfig, trustDigest } from '#core/config/load.ts';
 import { enqueue } from '#core/job/requests.ts';
+import { loadJob } from '#core/job/store.ts';
 import { appendChatEntry, archiveChat, createChat } from '#office/chat/store.ts';
 import { BRIEF_DATA_LINE, BRIEF_MAX_BYTES } from '#office/chat/brief.ts';
 import { jobAt } from '../../helpers.ts';
@@ -101,6 +102,63 @@ test('a chat records decisions as source chat and is refused reserved gates', as
     const col = lines[0]!.split(',').indexOf('source');
     assert.ok(col >= 0);
     assert.ok(lines.some((l) => l.includes(',rework,') && l.split(',')[col] === 'chat'), csv.stdout);
+  } finally {
+    a.cleanup();
+    b.cleanup();
+  }
+});
+
+test("a chat's forge job set only carries out the decision recorded at the job's gate", async () => {
+  const a = reservedGate();
+  const b = defaults();
+  try {
+    /** Every call of `steps` exits 1 with `why`, and the job's files stay byte for byte. */
+    const refused = async (root: string, id: string, steps: string[][], why: string | RegExp) => {
+      const snap = jobBytes(root, id);
+      for (const args of steps) {
+        const r = await forgeAsync(root, args, chatEnv(root));
+        assert.equal(r.status, 1, `${args.join(' ')}: ${r.stderr}`);
+        if (typeof why === 'string') assert.equal(errorOf(r), why, args.join(' '));
+        else assert.match(errorOf(r), why, args.join(' '));
+      }
+      assert.deepEqual(jobBytes(root, id), snap, `${steps.map((s) => s.join(' ')).join('; ')}: nothing written`);
+    };
+    const held = /^a chat may not decide (spec-approval|escalation) for .*: \(security review: CHANGES\)\. The owner decides it/;
+
+    // A move off a gate whose latest security review is CHANGES is an accept, never a mitigation.
+    const spec = parkedAt(b.dir, 'spec-approval', { title: 'reviewed spec' }).id;
+    const escalated = parkedAt(b.dir, 'escalation', { title: 'escalated' }).id;
+    for (const id of [spec, escalated]) withRound(b.dir, id, 1, { code: 'PASS', security: 'CHANGES' });
+    await refused(b.dir, spec, [['job', 'set', spec, '--state', 'running', '--stage', 'build']], held);
+    await refused(b.dir, escalated, [['job', 'set', escalated, '--state', 'running', '--stage', 'pr']], held);
+
+    // gate:<class>: parking the job elsewhere first doesn't free the gate.
+    const cls = parkedAt(a.dir, 'spec-approval', { title: 'held spec' }).id;
+    const steps = [
+      ['job', 'set', cls, '--waiting-on', 'input'],
+      ['job', 'human', cls, 'approve-spec', '--note', 'go'],
+      ['job', 'set', cls, '--state', 'running', '--stage', 'plan'],
+    ];
+    await refused(a.dir, cls, steps, refusal('spec-approval', cls, 'gate:spec-approval'));
+
+    // A reserved phrase: rewording the reason first doesn't free the gate.
+    const phrase = parkedAt(b.dir, 'spec-approval', { title: 'rotate', reason: 'rotate the deploy credentials' }).id;
+    await refused(b.dir, phrase, [['job', 'set', phrase, '--reason', 'plain'], ['job', 'human', phrase, 'approve-spec', '--note', 'go']], refusal('spec-approval', phrase, 'credentials'));
+
+    // Unreserved, but no decision is recorded at the park: nothing moves it.
+    const free = parkedAt(b.dir, 'spec-approval', { title: 'a plain spec' }).id;
+    const carry = /^a chat may only carry out the decision recorded at .*'s gate with forge job set: /;
+    await refused(b.dir, free, [['job', 'set', free, '--state', 'running'], ['job', 'set', free, '--field', 'complexity=low']], carry);
+
+    // A recorded mitigation past a CHANGES review moves the job only where that decision sends it.
+    const fixing = parkedAt(b.dir, 'spec-approval', { title: 'fix it' }).id;
+    withRound(b.dir, fixing, 1, { code: 'PASS', security: 'CHANGES' });
+    const revise = await forgeAsync(b.dir, ['job', 'human', fixing, 'revise-spec', '--note', 'address the review'], chatEnv(b.dir));
+    assert.equal(revise.status, 0, revise.stderr);
+    await refused(b.dir, fixing, [['job', 'set', fixing, '--state', 'running', '--stage', 'build']], /: revise-spec moves the job to spec, not build$/);
+    const moved = await forgeAsync(b.dir, ['job', 'set', fixing, '--state', 'running', '--stage', 'spec'], chatEnv(b.dir));
+    assert.equal(moved.status, 0, moved.stderr);
+    assert.deepEqual([loadJob(b.dir, fixing).stage, loadJob(b.dir, fixing).state], ['spec', 'running']);
   } finally {
     a.cleanup();
     b.cleanup();

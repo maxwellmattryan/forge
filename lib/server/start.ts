@@ -120,7 +120,8 @@ export const PROJECT_ROUTES: readonly Route<ServerCtx>[] = [
   { method: 'POST', path: /^\/jobs\/([^/]+)\/repos$/, handler: postJobRepos },
   { method: 'POST', path: '/focus', handler: postFocus },
   // The owner's chats. Only a 12-hex id matches, so any other id is a 404 here; the detail and the log carry
-  // the owner's words and the session's output, so they take the token like a POST.
+  // the owner's words, so they take the token like a POST. The session's own lines are also on /events and
+  // /daemons/log under the read guard, like every session's.
   { method: 'GET', path: '/chats', guards: ['read'], handler: getChats },
   { method: 'POST', path: '/chats', handler: postChat },
   { method: 'GET', path: /^\/chats\/([0-9a-f]{12})$/, guards: ['read', 'token'], handler: getChat },

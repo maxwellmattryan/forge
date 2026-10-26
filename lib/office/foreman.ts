@@ -114,8 +114,9 @@ export function checkForemanDecision(
 /**
  * The stages a `forge job set --state running` may move a job to right after each foreman action: the
  * second column of the gate table in skills/forge/reference/foreman.md. undefined: the stage stays.
+ * A chat's set after a recorded decision takes the same table (chatSetRefusal, lib/office/chat/authority.ts).
  */
-const SET_AFTER: Record<string, readonly (string | undefined)[]> = {
+export const SET_AFTER: Record<string, readonly (string | undefined)[]> = {
   'approve-spec': [undefined, 'spec'],
   'revise-spec': ['spec'],
   'approve-split': ['plan'],

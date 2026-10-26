@@ -12,7 +12,7 @@ The owner's chats with the Foreman: each chat's files in `.forge/runtime/chats/<
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
 |---|---|
-| `authority.ts` | What a chat session may not decide for the owner: a gate foreman.reserved keeps with a person, by class (`gate:<class>`) or by a reserved pattern in the job, its decision.md or the note, and any accept past a security review that didn't pass. |
+| `authority.ts` | What a chat session may not decide for the owner: a gate foreman.reserved keeps with a person, by class (`gate:<class>`) or by a reserved pattern in the job, its decision.md or the note, any accept past a security review that didn't pass, and any `forge job set` of a gated job beyond carrying out the decision recorded at its park. |
 | `brief.ts` | `forge chat brief`: what a chat session reads before its first reply, at most 32 KiB of Markdown. |
 | `recorder.ts` | The chat log's writer for what a chat session says: the machine dashboard calls it on every pool event (lib/server/machine.ts) before the SSE broadcast. |
 | `send.ts` | How an owner's message reaches its chat session: the pool's sendChat checks the pool, then startChat spawns the chat's session through startWork (lib/office/slots.ts, the one spawn site) and writes the message with Session.writeChat. |
