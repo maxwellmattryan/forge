@@ -370,7 +370,7 @@ outcomes:                    # what forge sync watches after a merge (see "Outco
   windowDays: 14             # 1-365: days after the merge that a revert, follow-up bug or churn counts
 
 scoring:                     # post-merge judge scores for a sample of merged jobs (see "Scoring" below)
-  sample: 0                  # 0-1: the share of merged jobs forge sync queues for one judge run; 0 is off
+  sample: 0                  # 0-1: the share of merged jobs, outside mandates that score all or off, that forge sync queues for one judge run; 0 is off outside mandates
   model: null                # the scoring judge's model; null falls through to runtime.models.judge
 
 notify:                      # push notifications on gates, PRs, failures and budget stops (see "Notifications" below)
