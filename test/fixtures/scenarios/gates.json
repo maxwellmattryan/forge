@@ -71,7 +71,7 @@
       "Human check"
     ],
     "project": ["@project.empty"],
-    "backlog": ["@backlog.empty"],
+    "issues": ["@issues.empty"],
     "agents": ["@agents.noRunning", "@agents.noSessions"],
     "analytics": ["@analytics.jobs", "@analytics.noUsage"],
     "evals": ["@evals.empty"],
