@@ -100,6 +100,8 @@ export const API_CHANGES = [
   // GateRunOutcome 'shelved' (a senior pass shelved the job, under foreman.escalations: foreman); GateRunState.attempts
   // goes up to 4, the first assistant's turns plus the senior's.
   { id: 'senior-pass' },
+  // DirectiveAction 'retro': a mandate's close queued its retro request.
+  { id: 'directive-retro' },
 ] as const;
 
 /**

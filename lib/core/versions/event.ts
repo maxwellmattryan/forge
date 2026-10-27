@@ -40,6 +40,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // v11 adds the `senior-pass` event ({ gate, first }, the Foreman's actor): the gate runner's once-per-park marker
   // under foreman.escalations: foreman. An older Forge reads it as a generic event.
   { id: 'senior-pass', up: (e) => e },
+  // v12 adds the `retro-scope` event ({mandate}): `forge retro prepare --mandate` records a mandate retro's scope
+  // on its job; an older Forge reads it as a generic event.
+  { id: 'retro-scope-event', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

@@ -1,6 +1,7 @@
 // The Office pass enforces each mandate's contract with no model: it pauses at the budget and below the
 // quality floor, stalls a mandate with no progress and a job that keeps bouncing, applies onUnfinishable, and closes a finished
-// mandate with its summary, starting the next link of its chain in the same pass.
+// mandate with its summary and one retro request, starting the next link of its chain in the same pass,
+// and rewrites a closed mandate's card once its outcomes are final.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -12,7 +13,7 @@ import { latestMandatePlan } from '#engine/release/mandate.ts';
 import { RELEASE_FILE_VERSION } from '#engine/release/plan.ts';
 import { defaults } from '#core/config/load.ts';
 import { listRequests } from '#core/job/requests.ts';
-import { createJob, jobDir, loadJob, logEvent,logHumanEvent, readEvents, repoAuditFile, setJob, updateJob } from '#core/job/store.ts';
+import { createJob, jobDir, listJobs, loadJob, logEvent,logHumanEvent, readEvents, repoAuditFile, setJob, updateJob } from '#core/job/store.ts';
 import { useMoveEffects } from '#engine/pipeline/moves/effects.ts';
 import { applyInput, blankMandate, fillDefaults } from './contract.ts';
 import { readDirectives } from './directives.ts';
@@ -388,6 +389,8 @@ test('the pass closes a finished mandate and starts the next link', async (t) =>
     // The report card, from the same progress at the close time.
     assert.ok(s.card, 'the summary carries the card');
     assert.deepEqual([s.card.mandate, s.card.at, s.card.jobs.total, s.card.interventions.total, s.card.spend.usd], ['m1', s.closedAt, s.jobs.length, s.humanInterventions, s.spend.usd]);
+    // No merged job, so no outcome is open: the card is final at close.
+    assert.deepEqual([s.card.outcomes.open, s.outcomesFinalAt], [0, s.closedAt]);
     assert.deepEqual(
       n.calls.filter(([e]) => e[0] === 'mandate-closed'),
       [[['mandate-closed'], { reason: 'mandate-closed', mandate: 'm1' }]],
@@ -426,11 +429,79 @@ test('the pass closes a finished mandate and starts the next link', async (t) =>
     const before = audit(root).length;
     config.foreman.enabled = false;
     const out = await runOfficePass(root, config, { tracker: stub({ M1: [] }), notify: notifier().fn });
-    assert.deepEqual(out, { ok: true, enabled: false, mandates: [], direct: null, problems: [] });
+    assert.deepEqual(out, { ok: true, enabled: false, mandates: [], direct: null, problems: [], finalized: [] });
     assert.equal(status(root, 'm1'), 'active');
     assert.equal(audit(root).length, before);
     assert.deepEqual(listRequests(root), []);
   });
+});
+
+test('a closed mandate queues one retro, and its card goes final once its outcomes are', async (t) => {
+  const { root, config } = scratch(t);
+  mandate(root, config, 'm1', { milestones: ['M1'] });
+  const merged = Date.now() - 2 * 86_400_000;
+  const outcome = (o: Partial<NonNullable<Job['outcome']>>): Job['outcome'] => ({
+    status: 'open',
+    windowDays: 14,
+    mergedAt: new Date(merged).toISOString(),
+    closesAt: new Date(merged + 14 * 86_400_000).toISOString(),
+    mergeSha: null,
+    reverted: null,
+    revertedBy: null,
+    followUps: null,
+    followUpRefs: [],
+    churn: null,
+    measuredAt: new Date().toISOString(),
+    attempts: 1,
+    ...o,
+  });
+  const jobs = [scoredJob(root, 1, 4), scoredJob(root, 2, 2)];
+  for (const j of jobs) updateJob(root, j.id, (job) => void (job.outcome = outcome({})));
+  const learnings = path.join(root, '.forge', 'notes', 'learnings.md');
+  const notesBefore = fs.existsSync(learnings) ? fs.readFileSync(learnings) : null;
+  const file = path.join(root, '.forge', 'runtime', 'mandates', 'm1', 'summary.json');
+  const bytes = () => fs.readFileSync(file, 'utf8');
+  const pass = (at?: number) => runOfficePass(root, config, { tracker: stub({ M1: [1, 2] }), notify: notifier().fn, at });
+
+  // AC1: the close queues one retro request and logs its directive; the card waits on the open outcomes.
+  const out = await pass();
+  assert.equal(status(root, 'm1'), 'closed');
+  assert.deepEqual(
+    listRequests(root).map((r) => ({ type: r.type, job: r.job, args: r.args, from: r.from, status: r.status })),
+    [{ type: 'retro', job: null, args: { mandate: 'm1' }, from: 'forge', status: 'pending' }],
+  );
+  assert.deepEqual(out.mandates.find((m) => m.id === 'm1')?.actions, ['close', 'retro']);
+  assert.deepEqual(readDirectives(root, { mandate: 'm1' }).map((d) => d.action), ['close', 'retro']);
+  const closed = readSummary(root, 'm1');
+  assert.ok(closed && !('problem' in closed) && closed.card, JSON.stringify(closed));
+  assert.deepEqual(
+    [closed.card.scores.scored, closed.card.scores.median, closed.card.outcomes.open, closed.card.outcomes.reverted, closed.outcomesFinalAt],
+    [2, 3, 2, 'pending', null],
+  );
+  assert.deepEqual(listJobs(root).filter((j) => j.kind === 'retro'), [], 'no retro job');
+  assert.deepEqual(fs.existsSync(learnings) ? fs.readFileSync(learnings) : null, notesBefore, 'learnings untouched');
+  const atClose = bytes();
+  const second = await pass();
+  assert.equal(listRequests(root).length, 1, 'no second request');
+  assert.deepEqual(second.finalized, []);
+  assert.equal(bytes(), atClose, 'an open outcome writes nothing');
+
+  // AC2: once both outcomes are final, the next pass rewrites the card once.
+  updateJob(root, jobs[0].id, (job) => void (job.outcome = outcome({ status: 'final', reverted: true, revertedBy: { kind: 'pr', number: 9 }, followUps: 0 })));
+  updateJob(root, jobs[1].id, (job) => void (job.outcome = outcome({ status: 'final', reverted: false, followUps: 0 })));
+  const at = Date.now() + MINUTE;
+  const third = await pass(at);
+  assert.deepEqual(third.finalized, ['m1']);
+  const final = readSummary(root, 'm1');
+  assert.ok(final && !('problem' in final) && final.card, JSON.stringify(final));
+  const { final: done, open, reverted, followedUp } = final.card.outcomes;
+  assert.deepEqual({ final: done, open, reverted, followedUp }, { final: 2, open: 0, reverted: 1, followedUp: 0 });
+  assert.deepEqual([final.card.at, final.outcomesFinalAt], [new Date(at).toISOString(), new Date(at).toISOString()]);
+  assert.deepEqual([final.closedAt, final.jobs, final.spend], [closed.closedAt, closed.jobs, closed.spend], 'the close-time fields stay');
+  const finalBytes = bytes();
+  const fourth = await pass(at + MINUTE);
+  assert.deepEqual(fourth.finalized, []);
+  assert.equal(bytes(), finalBytes, 'never rewritten again');
 });
 
 /**
