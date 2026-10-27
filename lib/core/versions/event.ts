@@ -50,6 +50,10 @@ export const EVENT_STEPS: readonly Step[] = [
   // a security review that isn't PASS, reported secrets) and step's PR13 parks on its reason. An older Forge
   // reads it as a generic event.
   { id: 'push-held-event', up: (e) => e },
+  // v15 adds the `pr-gate` event ({ action: set | clear | none, rule, waitingOn, reason, number, label, labeled, body,
+  // error? }): `forge pr gate` synced the PR's gate section and label; step's PR14 and PR18 read it. An older Forge
+  // reads it as a generic event.
+  { id: 'pr-gate-event', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

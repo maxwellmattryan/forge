@@ -1,5 +1,6 @@
-// Opening a job's PRs: the checks before anything leaves the machine, interim deferrals and drafts,
-// the pushes and the PRs, and retargeting a stacked PR.
+// Opening a job's PRs: the checks before anything leaves the machine (the held push among them),
+// interim deferrals and drafts, the pushes and the PRs, the gate section and label `forge pr gate`
+// syncs while the merge waits on a person, and retargeting a stacked PR.
 import fs from 'node:fs';
 import path from 'node:path';
 import { jobDir, loadJob, logEvent, readEvents, setJob } from '#core/job/store.ts';
@@ -7,6 +8,7 @@ import { prLinkNote } from '#core/job/issue-link.ts';
 import type { Config, Job, JobRepoPr } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { now } from '#core/utils.ts';
+import { safeText } from '#core/text.ts';
 import { git, historyEnv } from '#integrations/git/runner.ts';
 import { assertJobPr, safePrNumber } from '#integrations/github/pull-requests.ts';
 import type { GitHub } from '#integrations/github/types.ts';
@@ -28,7 +30,11 @@ import { FULL_SHA, heldConsumers, releaseGates, repoLabel, resolveInterim } from
 import type { Deferral } from '../release/interim.ts';
 import { interimStatus } from '../release/interim-apply.ts';
 import { findPr } from './adopt.ts';
-import { prText } from './body.ts';
+import { GATE_END, GATE_START, gateSection, prText, spliceSection } from './body.ts';
+import { loadStepInput } from '../pipeline/step/input.ts';
+import { computeFacts } from '../pipeline/step/facts.ts';
+import { mergeGate } from '../pipeline/step/stages/pr.ts';
+import type { MergeGate } from '../pipeline/step/stages/pr.ts';
 import { pullPrHead, pushBranch, refreshBase } from './branch.ts';
 import { checkMemberPr, linkSiblingsQuietly, memberSlug, openMemberPr, recordMemberPr } from './members.ts';
 import type { MemberPrPlan, MemberPrResult } from './members.ts';
@@ -297,6 +303,67 @@ function refusePushHold(root: string, config: Config, job: Job, head: string, pl
     logEvent(root, id, 'push-held', { kind: h.kind, reason: h.reason, head, ...(h.paths ? { paths: h.paths } : {}) });
     throw new ForgeError(`${h.reason}: nothing was pushed; a person approves it before forge pr open pushes ${id}`, 'push_held', `/forge approve ${id}`);
   }
+}
+
+/** What `forge pr gate` did: its `pr-gate` event, or `none` when the job has no open PR. */
+export type PrGateResult =
+  | { action: 'none' }
+  | { action: 'set' | 'clear'; rule: MergeGate['rule'] | null; waitingOn: string | null; reason: string | null; number: number; label: string | null; labeled: boolean; body: boolean; error?: string };
+
+const LABEL_DESCRIPTION = 'A person decides in Forge before this PR merges';
+
+/**
+ * `forge pr gate`: says on the open root PR why its merge waits on a person, or that it no longer
+ * does. The gate is mergeGate over the job as step sees it, never a reason a session passes in. The
+ * section (between the gate markers; a body without them keeps its text) is scanned for secrets
+ * before any gh call, and `pr.needsHumanLabel` is added (created in the repo when missing) while a
+ * gate is open and removed once none is, if the last sync set it. A GitHub failure is recorded as
+ * `error` and never fails the job: the park, not the label, holds the merge.
+ */
+export function syncPrGate(root: string, config: Config, github: GitHub, id: string): PrGateResult {
+  const job = loadJob(root, id);
+  const number = job.pr?.state === 'OPEN' ? safePrNumber(job.pr.number) : null;
+  if (number === null) return { action: 'none' };
+  const x = loadStepInput(root, config, id);
+  const gate = mergeGate({ x, f: computeFacts(x) });
+  const events = readEvents(root, id);
+  const text = gateSection(root, config, job, gate, events);
+  refuseSecrets(root, config, [textUnit('(pr gate section)', text)], { what: 'the PR gate section', id, gate: 'pr' });
+  const label = typeof config.pr.needsHumanLabel === 'string' && config.pr.needsHumanLabel ? config.pr.needsHumanLabel : null;
+  const last = events.findLast((e) => e.type === 'pr-gate');
+  let labeled = false;
+  let body = false;
+  let error: string | undefined;
+  try {
+    github.require();
+    const slug = github.repoSlug(root, config);
+    const view = github.viewBody(root, slug, number);
+    // A recorded number is only edited while GitHub agrees it is this job's branch.
+    if (view.headRefName !== job.branch) throw new ForgeError(`PR #${number} in ${slug} is not on ${id}'s branch`, 'external');
+    const current = view.body;
+    const next = current === null ? null : spliceSection(current, GATE_START, GATE_END, text);
+    if (next !== null && next !== current) {
+      const file = path.join(jobDir(root, id), 'pr-gate-body.md');
+      fs.writeFileSync(file, next);
+      github.editBody(root, slug, number, file);
+      body = true;
+    }
+    if (label && gate) {
+      try {
+        github.editLabels(root, slug, number, { add: [label], remove: [] });
+      } catch (e) {
+        if (!/not found/i.test((e as Error).message)) throw e;
+        github.createLabel(root, slug, label, LABEL_DESCRIPTION);
+        github.editLabels(root, slug, number, { add: [label], remove: [] });
+      }
+      labeled = true;
+    } else if (label && !gate && last?.action === 'set' && last.labeled === true) github.editLabels(root, slug, number, { add: [], remove: [label] });
+  } catch (e) {
+    error = safeText(String((e as Error).message).split('\n')[0], 200);
+  }
+  const result: PrGateResult = { action: gate ? 'set' : 'clear', rule: gate?.rule ?? null, waitingOn: gate?.waitingOn ?? null, reason: gate?.reason ?? null, number, label, labeled, body, ...(error ? { error } : {}) };
+  logEvent(root, id, 'pr-gate', result);
+  return result;
 }
 
 /**

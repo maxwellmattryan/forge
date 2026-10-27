@@ -172,6 +172,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v45 adds foreman.escalations (human) and foreman.senior (opus, high), filled from defaults, so no v44 config
   // changes; the bump lets older Forges refuse a config whose escalations or senior they would reject as unknown keys.
   { id: 'foreman-escalations', up: (c) => c },
+  // v46 adds pr.needsHumanLabel (forge:needs-human), filled from defaults, so no v45 config changes; the bump lets
+  // older Forges refuse a config whose label they would reject as an unknown key.
+  { id: 'pr-needs-human-label', up: (c) => c },
 ];
 
 const isPlainMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);

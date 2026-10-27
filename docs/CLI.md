@@ -1743,6 +1743,12 @@ A job's pull request.
 | 1 | no such job |
 | 5 | gh or git failed |
 
+**`forge pr gate <id>`**: say on the open root PR why its merge waits on a person: the gate section of the body (between its markers) and the pr.needsHumanLabel label while a merge gate (an escalation, a before-merge runbook, protected paths, a recall eval) is open; once none is, the label goes and the section shows the escalation approval. GitHub failures are recorded in the pr-gate event (error), never an exit
+
+| Exit | When |
+|---|---|
+| 1 | no such job, or a likely secret in the gate section (code secret_found; nothing is edited) |
+
 **`forge pr merge <id> [--repo NAME | --root] [--now]`**: merge once merge.auto is on, the approver's recorded APPROVE still stands and covers the PR head, no escalate-floor path changed and CI passed at a settled head; or queue auto-merge, or defer; a multi-repo job's PRs merge in the components' dependsOn order, never a PR before its dependencies; --now is a human's override
 
 | Flag | Meaning |
@@ -1766,7 +1772,7 @@ A job's pull request.
 
 | Exit | When |
 |---|---|
-| 1 | no such job or worktree, an unverified HEAD (of any job repo), nothing to push (in any job repo), no GitHub slug for a member repo, a likely secret in a PR title or body or the commits it would push (code secret_found), an interim pin that cannot be written, or one that is not the dependency's checked HEAD (code interim_stale) |
+| 1 | no such job or worktree, an unverified HEAD (of any job repo), nothing to push (in any job repo), no GitHub slug for a member repo, a likely secret in a PR title or body or the commits it would push (code secret_found), an escalate CI path no human approved (code protected_path), a held push: a CI config change, a security review that isn't PASS or secrets the scan only reported, until a person approves it (code push_held; --force doesn't bypass it), an interim pin that cannot be written, or one that is not the dependency's checked HEAD (code interim_stale) |
 | 5 | gh or git failed |
 
 **`forge pr ready <id> [--repo NAME | --root]`**: mark the job's open draft PRs ready for review, in merge order (result: ready and skipped); a consumer held by a local or sequential interim edge stays a draft until a human records its dependency's release (forge job interim release), and a consumer with a recorded release until verify bumped its manifests to it

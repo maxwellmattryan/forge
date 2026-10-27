@@ -10,7 +10,7 @@ A job's pull requests: open, update, sync, merge and adopt them, and the human d
 | File | What it holds |
 |---|---|
 | `adopt.ts` | Adopting a PR that already exists for a job's work: same repository, safe ref names, trusted closing PRs only. |
-| `body.ts` | The PR title and body Forge sends: summary, escalation approval, sibling links and issue lines. |
+| `body.ts` | The PR title and body Forge sends: summary, the gate section (why the merge waits on a person, or the escalation approval), sibling links and issue lines. |
 | `branch.ts` | The job branch against its remote: the base refresh before the secret scan, the base's tip for a merge's checks, the push of the checked commit, and pulling a PR head that moved. |
 | `delta.ts` | The human delta: what people changed on a PR branch after Forge's last push. |
 | `eligible.ts` | Whether a job's PR may merge without a person: the recorded decision, not superseded and bound to its head, recomputed protected paths and the escalate floor. |
@@ -18,7 +18,7 @@ A job's pull requests: open, update, sync, merge and adopt them, and the human d
 | `integrate.ts` | Bringing a job branch up to date with its base: merge or rebase, generated-path rebuilds, and finishing a kept conflict. |
 | `members.ts` | Member-repo PRs of a linked job: check, open, record and sync them, and keep their sibling links current. |
 | `merge.ts` | Merging a job's PRs once CI allows it, in dependency order for a linked job, forge sync's hint for which deferred merges to continue, and marking drafts ready. |
-| `open.ts` | Opening a job's PRs: the checks before anything leaves the machine, interim deferrals and drafts, the pushes and the PRs, and retargeting a stacked PR. |
+| `open.ts` | Opening a job's PRs: the checks before anything leaves the machine (the held push among them), interim deferrals and drafts, the pushes and the PRs, the gate section and label `forge pr gate` syncs while the merge waits on a person, and retargeting a stacked PR. |
 | `required.ts` | Required checks: which checks a PR's merge needs, from merge.requiredChecks or its base's protection, and whether its head satisfies them, each bound to its source. |
 | `sync.ts` | Syncing a job with its PR on GitHub: the state it leaves the job in, CI reworks, reopening deferred PRs, the human delta and pr-feedback.md. |
 <!-- forge:map:end -->

@@ -163,6 +163,7 @@ const CONFIG_ROWS: Row[] = [
   { step: 'daemon-fresh-after-tokens', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.freshAfterTokens'], note: ONLY_VERSION },
   { step: 'component-paths', input: { components: [...SINKS, { name: 'web', path: '.', kind: 'app', paths: ['web/**'] }] }, fields: { 'components.0': SINKS[0], 'components.1.paths': ['web/**'] }, note: ONLY_VERSION },
   { step: 'foreman-escalations', input: { foreman: { enabled: true, ship: 'merge' } }, fields: { 'foreman.enabled': true, 'foreman.ship': 'merge' }, removed: ['foreman.escalations', 'foreman.senior'], note: ONLY_VERSION },
+  { step: 'pr-needs-human-label', input: { pr: { labels: ['forge'] } }, fields: { 'pr.labels': ['forge'] }, removed: ['pr.needsHumanLabel'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -306,6 +307,7 @@ const EVENT_ROWS: Row[] = [
     fields: { type: 'push-held', ts: 't', kind: 'ci', head: 'a'.repeat(40), paths: ['.github/workflows/ci.yml'] },
     note: 'a held push reads as written',
   },
+  { step: 'pr-gate-event', input: { ts: 't', type: 'pr-gate', action: 'set', rule: 'PR15', waitingOn: 'escalation', reason: 'r', number: 7, label: 'forge:needs-human', labeled: true, body: true }, fields: { type: 'pr-gate', action: 'set', rule: 'PR15', labeled: true }, note: 'a gate sync reads as written' },
 ];
 
 const MACHINE_ROWS: Row[] = [

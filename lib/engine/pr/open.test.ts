@@ -7,11 +7,12 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { addOrigin, jobAt, memoryGitHub, tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
-import { loadJob, logEvent, readEvents, setJob } from '#core/job/store.ts';
+import { jobDir, loadJob, logEvent, readEvents, setJob } from '#core/job/store.ts';
+import { GATE_END, GATE_START, prText } from './body.ts';
 import type { Config } from '#core/types.ts';
 import type { BranchRules } from '#integrations/github/types.ts';
 import { createWorktree } from '../workspace/worktree.ts';
-import { openPr } from './open.ts';
+import { openPr, syncPrGate } from './open.ts';
 
 /** A job at pr whose worktree has one commit ahead of main (`files`, else work.txt), with `rules` as main's protection (else the memory default: none). */
 function opening(edit: (c: Config) => void, rules?: BranchRules | 'fail', files: Record<string, string> = { 'work.txt': 'work\n' }) {
@@ -39,16 +40,16 @@ function opening(edit: (c: Config) => void, rules?: BranchRules | 'fail', files:
   const branch = loadJob(repo.dir, id).branch!;
   /** The branch on the origin: its sha, or null when nothing was pushed. */
   const remote = () => repo.git('ls-remote', 'origin', `refs/heads/${branch}`).toString().trim().split(/\s/)[0] || null;
-  /** A park at `reason` in stage pr, then a person's (or the Foreman's) approve, both after everything logged so far. */
-  const approveAt = (reason: string, actor: Record<string, unknown> = { login: 'al', source: 'env' }) => {
+  /** A park on `waitingOn` at `reason` in stage pr, then a person's (or the Foreman's) approve, both after everything logged so far. */
+  const approveAt = (reason: string, actor: Record<string, unknown> = { login: 'al', source: 'env' }, waitingOn = 'human') => {
     tick();
-    logEvent(repo.dir, id, 'transition', { from: { stage: 'pr', state: 'running', waitingOn: null }, to: { stage: 'pr', state: 'waiting', waitingOn: 'human' }, reason });
+    logEvent(repo.dir, id, 'transition', { from: { stage: 'pr', state: 'running', waitingOn: null }, to: { stage: 'pr', state: 'waiting', waitingOn }, reason });
     tick();
     logEvent(repo.dir, id, 'human', { action: 'approve', actor });
     tick();
   };
   const events = (type: string) => readEvents(repo.dir, id).filter((e) => e.type === type);
-  return { open, github, cleanup: repo.cleanup, root: repo.dir, id, commit, remote, approveAt, events };
+  return { open, github, config, cleanup: repo.cleanup, root: repo.dir, id, commit, remote, approveAt, events };
 }
 
 /** Lets the clock move on, so an approval's ts is after a flag's `at` (ISO strings compare by millisecond). */
@@ -94,6 +95,81 @@ describe('pr open warns when the base has no required checks', { concurrency: 4 
         s.cleanup();
       }
     });
+  }
+});
+
+test("pr gate syncs the PR's gate section and label", () => {
+  const s = opening(() => {});
+  try {
+    const dir = jobDir(s.root, s.id);
+    const ESCALATED = 'approver escalated: see decision.md';
+    const first = s.open();
+    const record = () => s.github.record(first.number!)!;
+    const section = () => {
+      const body = String(record().body);
+      return body.slice(body.indexOf(GATE_START), body.indexOf(GATE_END) + GATE_END.length);
+    };
+    assert.equal(section(), `${GATE_START}\n${GATE_END}`, 'pr open creates the body with the gate markers');
+
+    // An escalation: the reason in a code span, For the human as text whose fence never closes early.
+    fs.writeFileSync(path.join(dir, 'decision.md'), 'ESCALATE: risky\n\n## Why\nwhy\n\n## For the human\nping @octocat\n```\n<img src=x onerror=alert(1)>\n````js\nx\n');
+    const set = syncPrGate(s.root, s.config, s.github, s.id);
+    assert.deepEqual([set.action, 'rule' in set && set.rule, 'labeled' in set && set.labeled, 'body' in set && set.body], ['set', 'PR15', true, true]);
+    const text = section();
+    assert.ok(text.includes(`\`${ESCALATED}\``), text);
+    assert.ok(text.includes('### For the human\n\n```text\nping @octocat\n'), text);
+    assert.equal(text.split('\n').filter((l) => /^\s*`{3,}/.test(l)).length, 2, 'one fence, opened once and closed once');
+    assert.deepEqual(record().labels, ['forge:needs-human']);
+    assert.deepEqual(s.github.calls.filter((c) => c.op === 'createLabel').map((c) => c.name), ['forge:needs-human'], 'created when the repo lacked it');
+    assert.deepEqual(s.events('pr-gate').at(-1)!.action, 'set');
+
+    // A person's approve at the escalation park: the label goes, the section shows the approval.
+    s.approveAt(ESCALATED, undefined, 'escalation');
+    const clear = syncPrGate(s.root, s.config, s.github, s.id);
+    assert.equal(clear.action, 'clear');
+    assert.deepEqual(record().labels, []);
+    assert.match(section(), /^<!-- forge:gate -->\n## Decision\n\nEscalated: `approver escalated: see decision\.md`\. Approved by `al` \(env\) on \d{4}-\d\d-\d\d\.\n<!-- \/forge:gate -->$/);
+    const body = prText(s.root, s.config, loadJob(s.root, s.id)).body;
+    assert.equal(body.split('Escalated:').length, 2, 'the approval line once');
+    assert.ok(body.indexOf('Escalated:') > body.indexOf(GATE_START) && body.indexOf('Escalated:') < body.indexOf(GATE_END), 'inside the markers');
+
+    // A runbook with steps before merge: the section holds its Steps; the label exists now.
+    fs.writeFileSync(path.join(dir, 'decision.md'), 'APPROVE\n');
+    fs.writeFileSync(path.join(dir, 'runbook.md'), '# Runbook\nWhen: before merge\n\n## Steps\n1. run the migration\n\n## Rollback\nnone\n');
+    assert.equal(syncPrGate(s.root, s.config, s.github, s.id).action, 'set');
+    assert.ok(section().includes('### Before merge\n\n```text\n1. run the migration\n```'), section());
+    assert.ok(!section().includes('Rollback'));
+    assert.equal(s.github.calls.filter((c) => c.op === 'createLabel').length, 1);
+
+    // A body without the markers gets the label only.
+    s.github.patch(first.number!, { body: 'a person rewrote it', labels: [] });
+    const edits = s.github.calls.filter((c) => c.op === 'editBody').length;
+    const bare = syncPrGate(s.root, s.config, s.github, s.id);
+    assert.deepEqual(['body' in bare && bare.body, record().body, record().labels], [false, 'a person rewrote it', ['forge:needs-human']]);
+    assert.equal(s.github.calls.filter((c) => c.op === 'editBody').length, edits);
+
+    // gh failing is recorded, never thrown.
+    s.github.fail('viewBody', 'gh: HTTP 502\nmore');
+    const failed = syncPrGate(s.root, s.config, s.github, s.id);
+    assert.equal('error' in failed && failed.error, 'gh: HTTP 502');
+    assert.equal(s.events('pr-gate').at(-1)!.error, 'gh: HTTP 502');
+    s.github.fail('viewBody', null);
+
+    // A likely secret in the section stops it before any edit.
+    const token = `gh${'p'}_${randomBytes(18).toString('hex')}`;
+    fs.writeFileSync(path.join(dir, 'runbook.md'), `When: before merge\n\n## Steps\nexport TOKEN=${token}\n`);
+    const calls = s.github.calls.length;
+    assert.equal(codeOf(() => syncPrGate(s.root, s.config, s.github, s.id)), 'secret_found');
+    assert.equal(s.github.calls.length, calls, 'nothing was called');
+
+    // pr.needsHumanLabel: null makes no label calls.
+    fs.writeFileSync(path.join(dir, 'runbook.md'), 'When: before merge\n\n## Steps\n1. go\n');
+    s.config.pr.needsHumanLabel = null;
+    const labels = s.github.calls.filter((c) => c.op === 'editLabels' || c.op === 'createLabel').length;
+    const off = syncPrGate(s.root, s.config, s.github, s.id);
+    assert.deepEqual(['labeled' in off && off.labeled, s.github.calls.filter((c) => c.op === 'editLabels' || c.op === 'createLabel').length], [false, labels]);
+  } finally {
+    s.cleanup();
   }
 });
 

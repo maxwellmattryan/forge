@@ -246,12 +246,30 @@ export const PR: Table<PrCtx> = {
       when: (c) => c.ready !== undefined,
       then: ({ x, ready }) => run(x, 'PR10', ['pr', 'ready', x.job.id, ...(ready === null ? ['--root'] : ['--repo', ready!])], 'release recorded and consumers bumped: mark the consumer ready for review'),
     },
+    // PR14: an open merge gate the PR doesn't say yet (no sync of this gate since the last push): the
+    // gate section and label first, so the person reads why on the PR.
+    {
+      id: 'PR14',
+      when: (c) => {
+        if (!c.gate || c.x.job.pr?.state !== 'OPEN') return false;
+        const at = lastIdx(c.x, (e) => e.type === 'pr-gate');
+        const e = c.x.events[at];
+        return !(e && e.action === 'set' && e.rule === c.gate.rule && e.reason === c.gate.reason && afterIdx(at, orNull(c.openedAt)));
+      },
+      then: ({ x }) => run(x, 'PR14', ['pr', 'gate', x.job.id], 'say on the PR why it waits on a decision before merge'),
+    },
     // PR15–PR17, PP1b: the merge gates, after the push, in mergeGate's order. The first open one parks
     // the job, so an open merge gate always comes before PR4.
     gateRow('PR15'),
     gateRow('PR16'),
     PP1b,
     gateRow('PR17'),
+    // PR18: no merge gate is open, and the PR still says one is: clear the label and the section.
+    {
+      id: 'PR18',
+      when: (c) => !c.gate && c.x.job.pr?.state === 'OPEN' && lastEvent(c.x, (e) => e.type === 'pr-gate')?.action === 'set',
+      then: ({ x }) => run(x, 'PR18', ['pr', 'gate', x.job.id], 'the merge no longer waits on a decision: say so on the PR'),
+    },
     { id: 'PR4', when: mergeable, then: ({ x }) => run(x, 'PR4', ['pr', 'merge', x.job.id], 'the approver marked it auto-merge eligible') },
     {
       id: 'PR5',

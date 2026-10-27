@@ -34,8 +34,8 @@ export const RULES = [
   'RC1',
   'IG1', 'IG2', 'IG2b', 'IG3', 'IG4', 'IG5', 'IG6', 'IG7', 'IG7b', 'IG8', 'IG9', 'IG10', 'IG10b', 'IG10c', 'IG11', 'IG12', 'IG13',
   'PR1', 'PR2', 'PR2b', 'PR3', 'PR4', 'PR5', 'PR6', 'PR7', 'PR8', 'PR9', 'PR9b', 'PR9c', 'PR10', 'PR11', 'PR12',
-  // The held push (PR13) and the merge gates on the open PR (PR15–PR17, PP1b).
-  'PR13', 'PR15', 'PR16', 'PP1b', 'PR17',
+  // The held push (PR13), the merge gates on the open PR (PR15–PR17, PP1b) and what the PR says of them (PR14, PR18).
+  'PR13', 'PR14', 'PR15', 'PR16', 'PP1b', 'PR17', 'PR18',
   // No rule matched: a state step can't advance, parked visibly instead of looping.
   'X1',
 ] as const;

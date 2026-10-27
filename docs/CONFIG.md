@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `/bin/sh -c <cmd>` with an allowl
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 45            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 46            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -206,6 +206,7 @@ pr:                          # the pull request each job opens
   updateStrategy: merge      # merge | rebase: how forge integrate brings a branch up to date with its base
   integrationReview: code-only  # always | code-only: skip the integration review when only docs or generated files conflicted
   maxCiReworks: 3            # the CI rework cap: CI reworks forge sync starts in a row before a red head waits for a person (0: always a person; see "Open PRs")
+  needsHumanLabel: forge:needs-human  # the label forge pr gate puts on a PR whose merge waits on a person, created when the repo lacks it; null: no label (see "Merge")
 
 merge:                       # whether and how Forge merges approved PRs
   auto: false                # let Forge merge a PR whose recorded APPROVE covers its head, with no escalate-floor path, once CI passes at a settled head (see "Merge")

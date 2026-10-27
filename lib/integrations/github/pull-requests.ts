@@ -258,6 +258,13 @@ export function createGhGitHub(run: GhRun = gh): GitHub {
     ready(cwd, slug, number) {
       call(cwd, ['pr', 'ready', String(number), '-R', slug]);
     },
+    // A label is bound to its flag (`--add-label=<l>`) or follows `--`, so a name can never be read as an option.
+    editLabels(cwd, slug, number, change) {
+      call(cwd, ['pr', 'edit', String(number), '-R', slug, ...change.add.map((l) => `--add-label=${l}`), ...change.remove.map((l) => `--remove-label=${l}`)]);
+    },
+    createLabel(cwd, slug, name, description) {
+      call(cwd, ['label', 'create', '-R', slug, `--description=${description}`, '--color=FBCA04', '--', name]);
+    },
     // One `gh pr merge`: `--auto` when asked, pinned with `--match-head-commit` when matchHead is set.
     merge(cwd, slug, number, opts) {
       const args = ['pr', 'merge', String(number), '-R', slug, `--${opts.method}`];
