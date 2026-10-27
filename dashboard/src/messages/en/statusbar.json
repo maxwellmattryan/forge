@@ -10,9 +10,7 @@
     "modeTitle": "Permission mode: {mode}",
     "off": "Daemon off",
     "rows": {
-      "label": "Job sessions",
-      "foremanRow": "Foreman",
-      "foremanRowAbout": "Supervises this pool"
+      "label": "Job sessions"
     }
   },
   "statusbar": {
