@@ -157,7 +157,16 @@
     "allowSession": "Allow for this session",
     "deny": "Deny",
     "sessionGrants": "For this session also allows: {grants}",
-    "failed": "Permission answer failed: {error}"
+    "failed": "Permission answer failed: {error}",
+    "timedOut": {
+      "heading": {
+        "one": "{count} tool call denied: nobody answered in time",
+        "other": "{count} tool calls denied: nobody answered in time"
+      },
+      "chip": "timed out",
+      "denied": "Denied {tool}",
+      "times": "asked {asked} · denied {denied}"
+    }
   },
   "needs": {
     "urgent": "Decisions only you can make",

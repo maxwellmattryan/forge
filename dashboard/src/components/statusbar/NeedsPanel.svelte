@@ -1,5 +1,5 @@
 <!-- The Needs-you popover's body (the page it replaced): every pending permission prompt in the pool, answered right here,
-     then decisions only a human can make (goal mandates' milestone drafts first, then jobs), PRs awaiting review, jobs
+     the collapsed Timed out list (TimedOutPrompts: prompts denied because nobody answered in time, not counted), then decisions only a human can make (goal mandates' milestone drafts first, then jobs), PRs awaiting review, jobs
      parked on their dependencies (listed apart: they resume by themselves, but a human may unblock one), the Shelved
      list (ShelfSection: jobs a person set aside, not counted in the badge), and queued requests (a job-less one names
      its mandate when it has one).
@@ -14,6 +14,7 @@
   import PrChip from '../PrChip.svelte';
   import RepoBudgetSection from '../RepoBudgetSection.svelte';
   import ShelfSection from './ShelfSection.svelte';
+  import TimedOutPrompts from './TimedOutPrompts.svelte';
   import { showRepoSection } from '../../lib/repo-budget.ts';
   import { safeUrl } from '../../lib/markdown.ts';
   import { ago } from '../../lib/util.ts';
@@ -21,7 +22,7 @@
   import { cardRef } from '../../lib/board.ts';
   import { inboxGroups, requestSubject } from '../../lib/inbox.ts';
   import MilestoneDraftCard from '../MilestoneDraftCard.svelte';
-  import { pendingPrompts } from '../../lib/permissions.ts';
+  import { pendingPrompts, timedOutPrompts } from '../../lib/permissions.ts';
   import { S, openDrawer, req } from '../../lib/app.svelte.ts';
   import { ticker } from '../../lib/clock.svelte.ts';
   import { keepFocus } from '../../lib/popover.svelte.ts';
@@ -34,9 +35,12 @@
   const drafts = $derived(data.drafts ?? []);
   // The same source PermissionPrompts reads, so the section renders exactly when it lists something.
   const prompts = $derived(pendingPrompts(S.data?.daemons ?? null).length);
+  // Likewise TimedOutPrompts: a record of denied calls, shown even with nothing pending and never counted in the badge.
+  const timedOut = $derived(timedOutPrompts(S.data?.daemons ?? null).length);
   // An answered prompt, a decided milestone draft or the last shelved job leaving unmounts with its buttons: focus back on the popover, not the body.
   $effect(() => {
     void prompts;
+    void timedOut;
     void drafts.length;
     void groups.shelved.length;
     keepFocus();
@@ -46,6 +50,7 @@
 <!-- plain: the popover's own surface, so the panel keeps its text off the grain wherever it renders. -->
 <div class="plain flex flex-col gap-5">
   {#if prompts}<PermissionPrompts />{/if}
+  {#if timedOut}<TimedOutPrompts />{/if}
   {#if showRepoSection(data.budget)}<RepoBudgetSection {data} />{/if}
   <section class="flex flex-col gap-3" aria-labelledby="needs-urgent">
     <h3 id="needs-urgent" class="label">{$t('needs.urgent')}</h3>
