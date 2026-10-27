@@ -53,7 +53,7 @@ test('retro signals list findings that recur across jobs', () => {
 
     // An eval job carrying the same finding is not counted, and one job alone is no group.
     assert.ok(!signals().includes(HEADING), 'no cross-job group, no heading');
-    assert.deepEqual(jobFindings(root, a).totals, { raised: 3, fixed: 0, disputed: 0, recurring: 1 });
+    assert.deepEqual(jobFindings(root, a).totals, { raised: 3, fixed: 0, disputed: 0, recurring: 1, carried: 1, new: 0 });
 
     review(b, 1, 'code', [hostile]);
     // A review file linked to another job's is never read.
