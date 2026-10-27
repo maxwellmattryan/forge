@@ -19,7 +19,9 @@ import { JOB_STEPS } from '#core/versions/job.ts';
 import { EVENT_STEPS } from '#core/versions/event.ts';
 import { MACHINE_STEPS } from '#core/versions/machine.ts';
 import { MANDATE_SCHEMA_VERSION, MANDATE_STEPS } from '#core/versions/mandate.ts';
+import { MANDATE_SUMMARY_SCHEMA_VERSION, MANDATE_SUMMARY_STEPS } from '#core/versions/mandate-summary.ts';
 import { isReadable, mandateSummary, storedMandate } from '#office/mandates/contract.ts';
+import { readSummary } from '#office/mandates/pass.ts';
 import { stepProblems } from '#core/versions/steps.ts';
 import type { Step } from '#core/versions/steps.ts';
 import { API_CHANGES } from '#api/versions.ts';
@@ -332,6 +334,27 @@ const MANDATE_ROWS: Row[] = [
   },
 ];
 
+const MANDATE_SUMMARY_ROWS: Row[] = [
+  {
+    step: 'summary-card',
+    input: {
+      mandate: 'm1',
+      closedAt: '2026-10-02T00:00:00.000Z',
+      until: 'merge-ready',
+      jobs: [],
+      spend: { usd: 1.5, started: 1 },
+      humanInterventions: 0,
+      stalls: 0,
+      parked: [],
+      skipped: [],
+      elsewhere: [],
+      needsInfo: [],
+    },
+    fields: { card: null, 'spend.usd': 1.5 },
+    note: 'a summary written before the report card reads with no card',
+  },
+];
+
 /** One versioned shape: its rows, its step list, its current version, the field that holds it, and its reader. */
 type Table = [string, Row[], readonly Step[], number, 'schemaVersion' | 'v', (input: Record<string, unknown>) => { out: any; from: unknown }];
 
@@ -375,6 +398,29 @@ const TABLES: Table[] = [
       const m = storedMandate(input, String(input.id), '');
       assert.ok(isReadable(m), JSON.stringify(m));
       return { out: { ...m, intake: mandateSummary(m, [m]).intake }, from: undefined };
+    },
+  ],
+  [
+    'mandate-summary',
+    MANDATE_SUMMARY_ROWS,
+    MANDATE_SUMMARY_STEPS,
+    MANDATE_SUMMARY_SCHEMA_VERSION,
+    'schemaVersion',
+    (input) => {
+      const repo = tempRepo();
+      try {
+        const dir = path.join(repo.dir, '.forge', 'runtime', 'mandates', String(input.mandate));
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'summary.json'), JSON.stringify(input));
+        const s = readSummary(repo.dir, String(input.mandate));
+        assert.ok(s && !('problem' in s), JSON.stringify(s));
+        // A newer version is still refused.
+        fs.writeFileSync(path.join(dir, 'summary.json'), JSON.stringify({ ...input, schemaVersion: MANDATE_SUMMARY_SCHEMA_VERSION + 1 }));
+        assert.match((readSummary(repo.dir, String(input.mandate)) as { problem: string }).problem, /^written by a newer Forge/);
+        return { out: s, from: undefined };
+      } finally {
+        repo.cleanup();
+      }
     },
   ],
 ];
