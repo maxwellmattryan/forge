@@ -299,12 +299,7 @@ const EVENT_ROWS: Row[] = [
     fields: { type: 'shelved', ts: 't', reason: 'later', 'from.waitingOn': 'escalation', actor: { login: 'al', source: 'gh' } },
     note: 'shelve and unshelve events read as written',
   },
-  {
-    step: 'senior-pass',
-    input: { ts: 't', type: 'senior-pass', gate: 'escalation', first: 'escalate', actor: FOREMAN },
-    fields: { type: 'senior-pass', ts: 't', gate: 'escalation', first: 'escalate', actor: FOREMAN },
-    note: 'a senior-pass marker reads as written',
-  },
+  { step: 'senior-pass', input: { ts: 't', type: 'senior-pass', gate: 'escalation', first: 'escalate', actor: FOREMAN }, fields: { type: 'senior-pass', ts: 't', gate: 'escalation', first: 'escalate', actor: FOREMAN }, note: 'a senior-pass marker reads as written' },
 ];
 
 const MACHINE_ROWS: Row[] = [
