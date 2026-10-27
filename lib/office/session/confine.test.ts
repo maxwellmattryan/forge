@@ -9,7 +9,7 @@ import path from 'node:path';
 import { scratchGitConfig } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
 import { DENY_TOOLS } from '#integrations/claude/argv.ts';
-import { confineDigest, denyRules, writeRoots } from './confine.ts';
+import { absoluteDenyRules, confineDigest, denyRules, writeRoots } from './confine.ts';
 import type { Config } from '#core/types.ts';
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe', encoding: 'utf8' });
@@ -153,6 +153,35 @@ test('denyRules covers the protected paths, the instruction files and an in-chec
     const deny = denyRules(p.root, p.config);
     for (const r of row.has(p)) assert.ok(deny.includes(r), `${row.name}: has ${r}`);
     for (const r of row.lacks?.(p) ?? []) assert.ok(!deny.includes(r), `${row.name}: lacks ${r}`);
+  }
+});
+
+test('absoluteDenyRules anchors every protected path at the main checkout', (t) => {
+  const p = project(t);
+  p.config.project.instructions = { default: ['AGENTS.md'], reviewer: ['docs/RULES.md'] };
+  git(p.root, 'config', 'core.hooksPath', '.githooks');
+  const link = path.join(p.parent, 'link');
+  try {
+    fs.symlinkSync(p.root, link, 'dir');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EPERM') return t.skip('no symlinks here');
+    throw e;
+  }
+  p.config.repos = [];
+  for (const [name, root, bases] of [
+    ['the checkout itself', p.root, [p.root]],
+    ['a checkout reached through a symlink', link, [p.root, link]],
+  ] as const) {
+    const rules = absoluteDenyRules(root, p.config);
+    const want = bases.flatMap((b) => [
+      ...DENY_TOOLS.map((d) => `Edit(/${b}/${d.slice('Edit('.length, -1)})`),
+      ...['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', 'docs/RULES.md'].map((f) => `Edit(/${b}/${f})`),
+    ]);
+    for (const r of want) assert.ok(rules.includes(r), `${name}: has ${r}`);
+    assert.ok(rules.includes(`Edit(/${p.root}/.githooks/**)`), `${name}: the in-checkout hooks dir`);
+    assert.deepEqual(rules.filter((r) => !r.startsWith('Edit(//')), [], `${name}: no rule without //`);
+    assert.ok(!rules.includes('Edit(.forge/config.yml)') && !rules.includes('Edit(**/CLAUDE.md)') && !rules.includes('Edit(docs/RULES.md)'), `${name}: no relative twin`);
+    if (bases.length === 1) assert.ok(!rules.some((r) => r.includes(link)), `${name}: no rule for a path it was not given`);
   }
 });
 

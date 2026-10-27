@@ -53,13 +53,17 @@ export type ClaudeEvent =
   | { kind: 'permission-cancelled'; requestId: string }
   /** claude's answer to a mode switch this child's handle sent. */
   | { kind: 'mode-answer'; requestId: string; ok: boolean; error: string | null }
-  /** A working turn; `cost` is claude's own cumulative cost report on the result line (resultCost), null when it sent none. */
-  | { kind: 'turn-ended'; ok: true; cost?: SessionCost | null }
+  /**
+   * A working turn; `cost` is claude's own cumulative cost report on the result line (resultCost), null when it sent none;
+   * `summary` the first non-empty line of its result text (at most 280 characters), null without one.
+   */
+  | { kind: 'turn-ended'; ok: true; summary?: string | null; cost?: SessionCost | null }
   /**
    * A failed turn: `limit` when it was a quota refusal, `resetsAt` (ms) when claude said when the window resets,
-   * `budget` when the child reached its --max-budget-usd cap (never a limit: retrying can't lift it).
+   * `budget` when the child reached its --max-budget-usd cap (never a limit: retrying can't lift it), `auth` when
+   * it is neither and its text reads like an expired or missing login (stream.ts AUTH_TEXT).
    */
-  | { kind: 'turn-ended'; ok: false; reason: string; limit: boolean; resetsAt: number | null; budget: boolean; cost?: SessionCost | null }
+  | { kind: 'turn-ended'; ok: false; reason: string; limit: boolean; auth?: boolean; resetsAt: number | null; budget: boolean; cost?: SessionCost | null }
   /** A line that broke the protocol and was answered with nothing. */
   | { kind: 'protocol-error'; message: string }
   /** The process failed; `started` is false when it never ran (ENOENT, EACCES). */
@@ -69,7 +73,7 @@ export type ClaudeEvent =
   /** The process closed. Sent once, last. */
   | { kind: 'exit'; code: number | null; signal: string | null };
 
-/** One running claude child. Every line it writes to claude is built from fixed text or a fixed list, except a chat's owner message (writeMessage). */
+/** One running claude child. Every line it writes to claude is built from fixed text or a fixed list, except a chat's owner message (writeMessage) and a role child's brief (writeBrief). */
 export interface ClaudeChild {
   readonly pid: number | null;
   /** Whether its stdout is paused (backpressure from a full log). */
@@ -80,8 +84,13 @@ export interface ClaudeChild {
   writeTurn(): void;
   /** Writes one owner message as a user line (stream.ts chatMessageLine); false, writing nothing, for a text it refuses. Only a chat session calls it. */
   writeMessage(text: string): boolean;
-  /** Answers a request claude asked; false, writing nothing, when it is not waiting (answered, cancelled or unknown). */
-  answerPermission(requestId: string, decision: PermissionDecision): boolean;
+  /** Writes a role child's brief as its one user line (stream.ts briefLine); false, writing nothing, for a text it refuses. Only role.ts runRoleChild calls it. */
+  writeBrief(text: string): boolean;
+  /**
+   * Answers a request claude asked; false, writing nothing, when it is not waiting (answered, cancelled or unknown).
+   * A deny with `why` `unattended` carries UNATTENDED_DENIED rather than PERMISSION_DENIED.
+   */
+  answerPermission(requestId: string, decision: PermissionDecision, why?: 'unattended'): boolean;
   /** Asks claude to switch mode; returns the request id, or null for a mode outside PERMISSION_MODES. */
   setPermissionMode(mode: DaemonPermissionMode): string | null;
   /** Ends its stdin. */

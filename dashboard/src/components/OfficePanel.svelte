@@ -111,7 +111,7 @@
         <tbody>
           {#each assistants as a (a.scope)}
             <tr>
-              <td class="whitespace-nowrap">{$t('statusbar.foreman.assistant', { n: a.n })}</td>
+              <td class="whitespace-nowrap">{$t('statusbar.foreman.assistant', { n: a.n, count: assistants.length })}</td>
               <td><Chip tone={a.status === 'busy' ? 'live' : a.status === 'off' ? 'muted' : 'ok'} text={a.status} /></td>
               <td>
                 {#if !a.gate}<span class="text-muted">{$t('foreman.office.noGate')}</span>

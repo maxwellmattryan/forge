@@ -36,6 +36,7 @@ import {
 } from './plan.ts';
 import { assertNoSymlinks, doneCount, planSteps, readPlanFile, readState, releaseFiles } from './files.ts';
 import { readManifestPackage } from './manifest.ts';
+import { CHECK_TIMEOUT_MS, fileBumps, scriptCheck } from './script.ts';
 import { stepCommand } from './render.ts';
 import { foremanReleaseApproval, releaseApprovalStatus, type ReleaseNarrow } from './approval.ts';
 import type { RepoKey } from '../project/repo-order.ts';
@@ -48,7 +49,6 @@ import { now } from '#core/utils.ts';
 const RUN_DAEMON_REFUSAL = 'forge release run runs release and publish commands, which a daemon session may not do; a human runs it in their own session';
 const RUN_WINDOWS_REFUSAL = `forge release run is not supported on native Windows; run it under WSL2: ${SUPPORT_URL}`;
 const LOCK_STALE_MS = 60_000;
-const CHECK_TIMEOUT_MS = 120_000;
 
 export type StopReason = 'exit' | 'check' | 'needs_confirmation' | 'declined' | 'manual';
 
@@ -293,6 +293,8 @@ function runCheck(kind: CheckKind, repo: ReleaseRepo, config: Config, git: GitRe
       const want = `${pkg.name} = "${pkg.version}"`;
       return r.ok && lines(r.stdout).some((l) => l === want || l.startsWith(`${want} `)) ? { ok: true, version: pkg.version } : { ok: false, detail: `crates.io has no ${pkg.name} ${pkg.version}` };
     }
+    case 'pr-merged':
+      return scriptCheck(repo, config, env);
   }
 }
 
@@ -546,7 +548,7 @@ export function releaseStatus(root: string, config: Config, opts: PlanOptions & 
   let stale = false;
   let staleReason: string | undefined;
   try {
-    const now = planRelease(root, config, file.selection, opts);
+    const now = planRelease(root, config, file.selection, { ...opts, bump: fileBumps(root, file) });
     stale = now.hash !== file.hash || planHash(file) !== file.hash;
     if (stale) staleReason = `plan ${file.hash.slice(0, 12)}, now ${now.hash.slice(0, 12)}`;
   } catch (e) {

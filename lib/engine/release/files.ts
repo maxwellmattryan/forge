@@ -9,8 +9,9 @@ import type { Config } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { writeJsonAtomic, writeTextAtomic } from '#core/os/fs.ts';
 import { assertSafeRef } from '#core/text.ts';
-import { type PlanOptions, type ReleasePlan, type ReleaseSelection, type ReleaseState, type ReleaseStep, RELEASE_FILE_VERSION, planRelease } from './plan.ts';
+import { type PlanOptions, type ReleaseBump, type ReleasePlan, type ReleaseSelection, type ReleaseState, type ReleaseStep, type VersionBump, RELEASE_FILE_VERSION, planRelease } from './plan.ts';
 import { renderReleaseMd } from './render.ts';
+import { draftBump } from './script.ts';
 
 export interface ReleaseFiles {
   dir: string;
@@ -87,6 +88,8 @@ export function readPlanFile(files: ReleaseFiles): ReleasePlan | null {
     }
   }
   if (sel.kind === 'job' && !validJobId(sel.job)) throw new ForgeError(`${files.json}: selection.job ${JSON.stringify(sel.job.slice(0, 80))} is not a valid job id; re-run forge release plan`);
+  // A file from before the script mechanism has no bump; a recompute checks any bump it does have (script.ts fileBumps).
+  for (const r of p.repos) if (r && typeof r === 'object' && r.bump === undefined) r.bump = null;
   return p as ReleasePlan;
 }
 
@@ -99,13 +102,67 @@ export const doneCount = (plan: Pick<ReleasePlan, 'repos'>, state: ReleaseState 
 export const finished = (plan: Pick<ReleasePlan, 'repos'>, state: ReleaseState | null): boolean => planSteps(plan).every((s) => state?.steps[s.id]?.status === 'done');
 
 /**
- * `forge release plan`: plans, guards an unfinished run of another plan, and writes release.md and
- * release.json (and drops state.json on `force`).
+ * Whether the notes file at `file` is the owner's for `to`: it exists and its first line is `## <to>`. Opened
+ * without following a link and without blocking, since anyone who can write the runtime dir can plant one.
  */
-export function writeReleasePlan(root: string, config: Config, selection: ReleaseSelection, opts: PlanOptions & { force?: boolean; log?: (line: string) => void } = {}) {
+function notesKept(file: string, to: string): boolean {
+  const c = fs.constants;
+  let fd: number;
+  try {
+    fd = fs.openSync(file, c.O_RDONLY | (c.O_NOFOLLOW ?? 0) | (c.O_NONBLOCK ?? 0));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw new ForgeError(`cannot read ${file}: ${(e as Error).message}; remove it and plan again`);
+  }
+  try {
+    if (!fs.fstatSync(fd).isFile()) throw new ForgeError(`${file} is not a regular file; remove it and plan again`);
+    const head = Buffer.alloc(256);
+    const n = fs.readSync(fd, head, 0, head.length, 0);
+    return head.subarray(0, n).toString('utf8').split('\n', 1)[0].trimEnd() === `## ${to}`;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/** What `forge release plan` reports for a script repo's bump. */
+export interface PlannedBump {
+  repo: string;
+  from: string;
+  to: string;
+  bump: ReleaseBump['bump'];
+  inferred: ReleaseBump['inferred'];
+  reasons: string[];
+  notes: string;
+  notesKept: boolean;
+}
+
+/**
+ * `forge release plan`: plans (running each script repo's draft), guards an unfinished run of another plan,
+ * keeps or writes each notes file, and writes release.md and release.json (and drops state.json on `force`).
+ * A notes file whose first line is already `## <to>` is the owner's edit of this version and is kept as it is.
+ */
+export function writeReleasePlan(
+  root: string,
+  config: Config,
+  selection: ReleaseSelection,
+  opts: PlanOptions & { force?: boolean; log?: (line: string) => void; versionBump?: VersionBump | null } = {},
+) {
   const files = releaseFiles(root);
   assertNoSymlinks(files);
-  const plan = planRelease(root, config, selection, opts);
+  const drafts = new Map<string, string>();
+  const versionBump = opts.versionBump ?? null;
+  const bump: PlanOptions['bump'] =
+    opts.bump ??
+    ((input) => {
+      const d = draftBump(root, config, input, versionBump);
+      drafts.set(d.bump.notes, d.draft);
+      return d.bump;
+    });
+  const plan = planRelease(root, config, selection, { ...opts, bump });
+  const bumped = plan.repos.flatMap((r) => (r.bump ? [{ label: r.label, bump: r.bump }] : []));
+  if (versionBump && !bumped.length) throw new ForgeError('--bump applies only to repos with release.mechanism: script; this plan has none');
+  const notes = bumped.map((b) => b.bump.notes);
+  assertNoSymlinks(files, notes);
   const log = opts.log ?? ((l: string) => process.stderr.write(l + '\n'));
   let state: ReleaseState | null;
   try {
@@ -135,8 +192,24 @@ export function writeReleasePlan(root: string, config: Config, selection: Releas
     fs.rmSync(files.state, { force: true });
   }
   fs.mkdirSync(files.dir, { recursive: true });
-  assertNoSymlinks(files);
+  assertNoSymlinks(files, notes);
+  // Every notes file is read before any is written, so a refusal writes none.
+  const keep = bumped.map(({ bump: b }) => notesKept(b.notes, b.to));
+  const bumps: PlannedBump[] = bumped.map(({ label, bump: b }, i) => {
+    const kept = keep[i];
+    const draft = drafts.get(b.notes);
+    if (!kept && draft !== undefined) writeTextAtomic(b.notes, draft.endsWith('\n') ? draft : `${draft}\n`);
+    return { repo: label, from: b.from, to: b.to, bump: b.bump, inferred: b.inferred, reasons: b.reasons, notes: b.notes, notesKept: kept };
+  });
   writeJsonAtomic(files.json, plan);
   writeTextAtomic(files.md, renderReleaseMd(plan, config));
-  return { plan: files.md, steps: files.json, hash: plan.hash.slice(0, 12), order: plan.order, total: planSteps(plan).length, skipped: plan.skipped.map(({ label, reason }) => ({ repo: label, reason })) };
+  return {
+    plan: files.md,
+    steps: files.json,
+    hash: plan.hash.slice(0, 12),
+    order: plan.order,
+    total: planSteps(plan).length,
+    skipped: plan.skipped.map(({ label, reason }) => ({ repo: label, reason })),
+    bumps,
+  };
 }
