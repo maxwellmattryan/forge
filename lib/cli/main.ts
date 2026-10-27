@@ -47,7 +47,7 @@ import { helpCmd, usage } from './commands/help.ts';
 import { confirmHuman, mergeNowOp } from './commands/human.ts';
 import { initWrite, migrate } from './commands/init.ts';
 import { jobCmd, refuseForemanJobCommand } from './commands/job.ts';
-import { mandateCmd, statsMandate } from './commands/mandate.ts';
+import { mandateCmd, retroMandateFlag, statsMandate } from './commands/mandate.ts';
 import { chatCmd } from './commands/chat.ts';
 import { notifyCmd } from './commands/notify.ts';
 import { officeCmd } from './commands/office.ts';
@@ -272,7 +272,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     case 'retro': {
       needInit();
       if (sub === 'due') return ok(retroDue(root, config));
-      if (sub === 'prepare') return ok(prepareRetro(root, config, requireJob(root, rest[0]).id, { since: flags.since }));
+      if (sub === 'prepare') return ok(prepareRetro(root, config, requireJob(root, rest[0]).id, { since: flags.since, mandate: retroMandateFlag(root, flags) }));
       throw usage('retro');
     }
     case 'eval':

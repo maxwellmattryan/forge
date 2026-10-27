@@ -47,6 +47,7 @@ const row = (id: string, o: Partial<MandateRow> = {}): MandateRow => ({
     spend: { usd: 0, budgetUsd: 150, started: 0, budgetJobs: 5 },
     outcomes: { final: 0, open: 0, unmeasured: 0, reverted: null, followedUp: null, finalAt: null },
   },
+  closing: null,
   ...o,
 });
 

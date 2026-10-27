@@ -108,7 +108,7 @@ const MANDATE: HelpGroup = {
     {
       command: 'mandate close',
       args: '<id> [--reason R]',
-      summary: 'close a mandate for good, which starts the next link of its chain (changed false when already closed)',
+      summary: 'close a mandate for good, which starts the next link of its chain and, with the foreman on, queues one retro over its jobs (changed false when already closed)',
       flags: [['--reason R', 'why, one line']],
       exits: [[1, `no such mandate (not_found), it can't be read, or ${DAEMON_EXIT}`]],
       docs: DOCS,
@@ -336,6 +336,18 @@ const liveFigures = (root: string, config: Config, m: Mandate, all: ReadMandate[
 const STATS_MANDATE_USAGE = 'usage: forge stats --mandate <id>';
 /** The stats flags `--mandate` refuses: each picks another output. */
 const NOT_WITH_MANDATE = ['csv', 'by', 'role', 'since', 'include-evals'];
+
+/**
+ * `forge retro prepare --mandate <id>` (the retro group's HELP is in ./help.ts): the mandate id, checked to
+ * name a known, readable mandate (mandateTarget), or undefined without the flag. Not with --since: a
+ * mandate retro reads its jobs with no date window.
+ */
+export function retroMandateFlag(root: string, flags: Record<string, any>): string | undefined {
+  if (flags.mandate === undefined) return undefined;
+  const id = str(flags.mandate, '--mandate') as string;
+  if (flags.since !== undefined) throw new ForgeError('--mandate takes no --since; usage: forge retro prepare <job> --mandate <id>', 'usage', 'forge help retro prepare');
+  return mandateTarget(listMandates(root), id).id;
+}
 
 /**
  * `forge stats --mandate <id>` (the stats group's HELP is in ./status.ts): the mandate's live report card,

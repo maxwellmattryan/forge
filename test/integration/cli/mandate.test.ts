@@ -272,6 +272,23 @@ test('forge stats --mandate prints the report card', async () => {
   }
 });
 
+test('forge retro prepare --mandate scopes the retro to the mandate', async () => {
+  const r = scratch();
+  try {
+    await ok(r.dir, ['mandate', 'new', 'm1', '--title', 'M1', '--milestones', 'M1']);
+    await ok(r.dir, ['job', 'new', '--title', 'a', '--mandate', 'm1']);
+    const retro = (await ok(r.dir, ['job', 'new', '--title', 'Forge retro: mandate m1', '--kind', 'retro'])).id as string;
+    const nope = await forgeInProcess(r.dir, ['retro', 'prepare', retro, '--mandate', 'nope']);
+    assert.deepEqual([nope.status, nope.error?.code], [1, 'not_found'], JSON.stringify(nope.error));
+    const both = await forgeInProcess(r.dir, ['retro', 'prepare', retro, '--mandate', 'm1', '--since', '2026-01-01']);
+    assert.deepEqual([both.status, both.error?.code], [2, 'usage'], JSON.stringify(both.error));
+    const out = await ok(r.dir, ['retro', 'prepare', retro, '--mandate', 'm1']);
+    assert.deepEqual([out.mandate, out.since, out.jobsInWindow], ['m1', null, 1]);
+  } finally {
+    r.cleanup();
+  }
+});
+
 test('forge job assist carries the mandate', async () => {
   const r = scratch();
   try {

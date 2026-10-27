@@ -1,11 +1,12 @@
 // The mandate report card over synthetic jobs: every count 0 and every figure null for an empty mandate,
 // the running totals, each merged job in exactly one score and outcome bucket, the pending rule, and
-// malformed record values that never reach the card raw; and the running score a quality floor reads.
+// malformed record values that never reach the card raw; the running score a quality floor reads; and a
+// closing summary's stored card, rebuilt or refused.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defaults } from '#core/config/load.ts';
 import { WAITING_ON, normalizeJob } from '#core/job/schema.ts';
-import { buildReportCard, runningScore } from './report-card.ts';
+import { buildReportCard, closingCard, runningScore } from './report-card.ts';
 import type { CardJob } from './report-card.ts';
 import type { Config, Job, JobEvent, JobOutcome, JobScore, MandateReportCard } from '#core/types.ts';
 
@@ -195,4 +196,53 @@ test('malformed record values', () => {
     leaves(x, '');
     for (const k of Object.keys(x.interventions.byGate)) assert.ok([...WAITING_ON, 'none'].includes(k), k);
   }
+});
+
+test('a stored card', () => {
+  const gated = mj('g', { class: 'reached', job: { ...merged(), score: score('queued'), verdicts: { 1: { code: 'PASS' } } }, events: [transition({ state: 'waiting', stage: 'spec', waitingOn: 'spec-approval' }), human('gh'), human('cli')] });
+  const open = mj('o', { class: 'reached', job: { ...merged(5), outcome: outcome('open', { closesAt: new Date(AT + 9 * DAY).toISOString() }) }, events: [human('gh')] });
+  const built = card([...final3(), ...finals(), gated, open], { spentUsd: 3.25 });
+  assert.deepEqual([built.scores.median, built.outcomes.reverted, built.interventions.byGate], ['pending', 'pending', { 'spec-approval': 2, none: 1 }], 'the fixture has figures pending and gates counted');
+  /** What summary.json holds: the card through a JSON round trip. */
+  const stored = (outcomesFinalAt: string | null) => JSON.parse(JSON.stringify({ card: built, outcomesFinalAt })) as { card: any; outcomesFinalAt: unknown };
+  for (const at of [ago(0), null]) assert.deepEqual(closingCard(stored(at), 'm1'), stored(at), `outcomesFinalAt ${at}`);
+  // The empty card, every figure null, reads back too.
+  const empty = JSON.parse(JSON.stringify({ card: card([], { started: 0 }), outcomesFinalAt: null }));
+  assert.deepEqual(closingCard(empty, 'm1'), empty);
+
+  // An extra key, on the card or on a section, is dropped.
+  const extra = stored(null);
+  extra.card.title = 'x';
+  extra.card.scores.title = 'x';
+  assert.deepEqual(closingCard(extra, 'm1'), stored(null));
+
+  /** A copy of the stored card with one change. */
+  const tampered = (change: (s: { card: any; outcomesFinalAt: unknown }) => void) => {
+    const s = stored(ago(0));
+    change(s);
+    return s;
+  };
+  const refused: [string, (s: { card: any; outcomesFinalAt: unknown }) => void][] = [
+    ['another mandate', (s) => (s.card.mandate = 'm2')],
+    ['card null', (s) => (s.card = null)],
+    ['a count as a string', (s) => (s.card.jobs.total = '3')],
+    ['a negative count', (s) => (s.card.scores.scored = -1)],
+    ['a NaN count', (s) => (s.card.outcomes.open = Number.NaN)],
+    ['a count null', (s) => (s.card.review.reviewed = null)],
+    ['a figure as markup', (s) => (s.card.scores.median = '<img src=x onerror=alert(1)>')],
+    ['a figure as a number string', (s) => (s.card.outcomes.reverted = '1')],
+    ['a rate as pending', (s) => (s.card.review.firstPassRate = 'pending')],
+    ['a forged gate', (s) => (s.card.interventions.byGate.evil = 1)],
+    ['a __proto__ gate', (s) => (s.card.interventions.byGate = JSON.parse('{"__proto__": 1, "none": 1}'))],
+    ['a gate count as a string', (s) => (s.card.interventions.byGate.none = '1')],
+    ['byGate a list', (s) => (s.card.interventions.byGate = [1])],
+    ['an unreadable at', (s) => (s.card.at = 'yesterday')],
+    ['an unreadable finalAt', (s) => (s.card.outcomes.finalAt = 'soon')],
+    ['an unreadable outcomesFinalAt', (s) => (s.outcomesFinalAt = 'later')],
+    ['outcomesFinalAt missing', (s) => delete s.outcomesFinalAt],
+    ['a missing section', (s) => delete s.card.review],
+    ['a section as a list', (s) => (s.card.spend = [])],
+  ];
+  for (const [label, change] of refused) assert.equal(closingCard(tampered(change), 'm1'), null, label);
+  assert.equal(closingCard({}, 'm1'), null, 'no card at all');
 });

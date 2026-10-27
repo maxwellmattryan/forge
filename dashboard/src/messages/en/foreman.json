@@ -126,6 +126,37 @@
       "resumed": "Resumed {id}",
       "closed": "Closed {id}"
     },
+    "card": {
+      "title": "Report card",
+      "live": "Live",
+      "atClose": "Recorded at close, {date}",
+      "final": "Final outcomes, recorded {date}",
+      "empty": "No jobs yet: the card fills in as this mandate's jobs run.",
+      "merged": "Merged",
+      "mergedValue": "{merged} of {total} jobs",
+      "median": "Median score",
+      "scoreValue": "{score} / 5",
+      "below3": "Below 3/5",
+      "avgRounds": "Review rounds (avg)",
+      "firstPass": "First-pass review",
+      "interventions": "Human interventions",
+      "noGate": "no gate",
+      "reverted": "Reverted",
+      "followedUp": "Drew a follow-up bug",
+      "finalAt": "Outcomes final by",
+      "scoreCounts": "Scores: {scored} scored · {pending} pending · {held} held · {failed} failed · {unscored} unscored",
+      "outcomeCounts": "Outcomes: {final} final · {open} open · {unmeasured} unmeasured",
+      "pending": "pending",
+      "pendingScores": {
+        "one": "Waiting on {count} score run",
+        "other": "Waiting on {count} score runs"
+      },
+      "pendingOutcomes": {
+        "one": "Waiting on {count} outcome window",
+        "other": "Waiting on {count} outcome windows"
+      },
+      "none": "nothing to measure"
+    },
     "editor": {
       "newTitle": "New mandate",
       "editTitle": "Edit {id}",

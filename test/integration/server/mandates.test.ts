@@ -8,7 +8,10 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { forgeInProcess, initMilestoneRepo, repoTemplate, serveProjects } from '../../helpers.ts';
+import { MANDATE_SUMMARY_SCHEMA_VERSION } from '#core/versions/mandate-summary.ts';
 import { logDirective } from '#office/mandates/directives.ts';
+import { writeSummary } from '#office/mandates/pass.ts';
+import type { MandateClosing } from '#office/mandates/pass.ts';
 
 // The foreman on, delegating four classes, one of them reserved with gate:<class>.
 const template = repoTemplate((dir) => initMilestoneRepo(dir, { decides: ['spec-approval', 'conflicts', 'escalation', 'milestone-approval'], reserved: ['gate:conflicts'] }));
@@ -173,6 +176,40 @@ test('mandates over the dashboard API', async () => {
     const closed = await t.post('/mandates/m1/close', { reason: 'done for now' });
     assert.deepEqual([closed.json.changed, closed.json.mandate.status, closed.json.mandate.reason], [true, 'closed', 'done for now']);
     assert.equal((await t.post('/mandates/m1/close', { reason: null })).json.changed, false);
+
+    // The closing card: an open row and an owner's close (no summary) carry none, the live card still there.
+    assert.equal(m1.closing, null, 'an open mandate');
+    assert.deepEqual([closed.json.mandate.closing, closed.json.mandate.card.mandate], [null, 'm1'], 'closed with no summary');
+    const card = { ...closed.json.mandate.card, scores: { ...closed.json.mandate.card.scores, median: 'pending', pending: 1 } };
+    const summary: MandateClosing = {
+      schemaVersion: MANDATE_SUMMARY_SCHEMA_VERSION,
+      mandate: 'm1',
+      closedAt: closed.json.mandate.closedAt,
+      until: 'merge-ready',
+      jobs: [],
+      spend: { usd: 0, started: 0 },
+      humanInterventions: 0,
+      stalls: 0,
+      parked: [],
+      skipped: [],
+      elsewhere: [],
+      needsInfo: [],
+      card,
+      outcomesFinalAt: '2026-10-20T12:00:00.000Z',
+    };
+    writeSummary(t.repo.dir, summary);
+    const closingOf = async (): Promise<unknown[]> => [
+      (await t.get('/mandates')).json.mandates.find((m: { id: string }) => m.id === 'm1').closing,
+      (await t.get('/mandates/m1', true)).json.closing,
+    ];
+    for (const c of await closingOf()) assert.deepEqual(c, { card, outcomesFinalAt: '2026-10-20T12:00:00.000Z' }, 'the summary card, on the list and the detail');
+    // A tampered summary: no closing card, and its text nowhere in the reply.
+    const summaryFile = path.join(t.repo.dir, '.forge', 'runtime', 'mandates', 'm1', 'summary.json');
+    const raw = JSON.parse(fs.readFileSync(summaryFile, 'utf8'));
+    raw.card.scores.median = '<script>x</script>';
+    fs.writeFileSync(summaryFile, JSON.stringify(raw));
+    assert.deepEqual(await closingOf(), [null, null], 'a tampered card falls back to the live one');
+    for (const r of [await t.get('/mandates'), await t.get('/mandates/m1', true)]) assert.ok(!r.text.includes('<script>x</script>') && !r.text.includes('\\u003cscript'), 'the tampered value never reaches the reply');
     for (const [p, body] of [['edit', { updatedAt: closed.json.mandate.updatedAt, maxJobs: 2 }], ['pause', {}], ['resume', {}]] as const) {
       const r = await t.post(`/mandates/m1/${p}`, body);
       assert.deepEqual([r.status, r.json.error], [409, 'mandate m1 is closed'], p);

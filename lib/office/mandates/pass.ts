@@ -1,8 +1,10 @@
 // The Office pass (`forge office pass`, which `forge dash` runs every foreman.cadence minutes and on
 // events): deterministic code, no model, that enforces each mandate's contract. Per mandate, in
 // creation order: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing
-// summary (then the next link of a chain, in the same pass), the budget pause, the quality pause (the
-// running median of its scored merged jobs below quality.pauseBelow) and the cadence stall.
+// summary and one retro request over the mandate's jobs (queueMandateRetro; then the next link of a chain, in
+// the same pass), the budget pause, the quality pause (the running median of its scored merged jobs
+// below quality.pauseBelow) and the cadence stall. A closed mandate whose summary's card still has an
+// open outcome gets the card rewritten once, by the first pass that finds every outcome final.
 // An `until: released` mandate whose work is done waits for its release instead of closing: the pass
 // plans it (only when unplanned, or when its own plan went stale before any step ran, and never over
 // another plan), never runs it, and closes the mandate once the release run finished and no mandate job
@@ -21,6 +23,7 @@ import { runSteps } from '#core/versions/steps.ts';
 import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
 import { foremanEnabled } from '#engine/pipeline/moves/foreman-gates.ts';
 import { buildReportCard } from '#engine/metrics/report-card.ts';
+import { queueMandateRetro } from '#engine/evals/retro.ts';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { mandateReleaseRun, mandateReleaseState, planMandateRelease } from '#engine/release/mandate.ts';
@@ -30,7 +33,7 @@ import { queueNotify } from '../notify.ts';
 import type { QueueNotify } from '../notify.ts';
 import { cleanReason, isReadable } from './contract.ts';
 import { logDirective, readDirectives } from './directives.ts';
-import { bounceHold, cadenceStalled, gateEntries, mandateProgress, qualityFloor, qualityReason, readProgressCtx, scopeItems } from './progress.ts';
+import { bounceHold, cadenceStalled, gateEntries, jobFigures, mandateProgress, qualityFloor, qualityReason, readProgressCtx, scopeItems } from './progress.ts';
 import { listMandates, mandateDir, summaryFile, withOfficeLock, writeMandate } from './store.ts';
 import type { Config, JobEvent, Tracker } from '#core/types.ts';
 import type { DirectiveAction } from './directives.ts';
@@ -58,6 +61,8 @@ export interface PassResult {
   mandates: PassMandate[];
   direct: string | null;
   problems: { id: string; problem: string }[];
+  /** The closed mandates whose summary card this pass rewrote with their final outcomes. */
+  finalized: string[];
 }
 
 export interface PassOptions {
@@ -82,8 +87,13 @@ export interface MandateClosing {
   skipped: { issue: string; why: string }[];
   elsewhere: string[];
   needsInfo: string[];
-  /** The report card at close (lib/engine/metrics/report-card.ts); null in a summary written before the card. */
+  /**
+   * The report card (lib/engine/metrics/report-card.ts): at close, then rewritten once with the final
+   * outcomes; null in a summary written before the card.
+   */
   card: MandateReportCard | null;
+  /** Set once, when the card's outcomes are all final: closedAt when they were at close, else the pass that rewrote the card; null until then. */
+  outcomesFinalAt: string | null;
 }
 
 const SUMMARY_MAX_BYTES = 64 * 1024;
@@ -129,6 +139,7 @@ export function buildSummary(m: Mandate, p: MandateProgress, closedAt: string, d
     elsewhere: [...p.elsewhere],
     needsInfo: [...p.needsInfo],
     card,
+    outcomesFinalAt: card.outcomes.open === 0 ? closedAt : null,
   };
 }
 
@@ -177,6 +188,21 @@ function guardedMove(root: string, read: Mandate, action: 'pause' | 'close', rea
   return out !== null;
 }
 
+/**
+ * A closed mandate's final card: when its readable summary's outcomes aren't final yet and none is open
+ * now, the summary is rewritten once with the live card at `at` and outcomesFinalAt, every other field as
+ * written at close. Nothing is written while an outcome is open, nor for a missing or unreadable summary.
+ * Returns whether it wrote. Runs under the office lock the pass holds.
+ */
+function finalizeCard(root: string, config: Config, m: Mandate, all: ReadMandate[], ctx: Pick<ProgressCtx, 'jobs' | 'archived' | 'ledger' | 'at'>, at: number): boolean {
+  const s = readSummary(root, m.id);
+  if (s === null || 'problem' in s || s.outcomesFinalAt !== null) return false;
+  const card = buildReportCard(m, jobFigures(root, config, m, all, ctx), config, at);
+  if (card.outcomes.open > 0) return false;
+  writeSummary(root, { ...s, card, outcomesFinalAt: new Date(at).toISOString() });
+  return true;
+}
+
 const money = (n: number): string => String(Math.round(n * 100) / 100);
 const cut = (s: string): string => s.slice(0, REASON_MAX);
 
@@ -216,11 +242,12 @@ function awaitRelease(
 
 /**
  * One run of the Office pass. With foreman.enabled false it writes nothing. Otherwise, under the office
- * lock, it enforces every readable mandate that is not closed and not a goal mandate still drafting, and
- * enqueues one `direct` request when some mandate has director work and none is open.
+ * lock, it enforces every readable mandate that is not closed and not a goal mandate still drafting,
+ * finalizes the card of each closed one whose outcomes went final (finalizeCard), and enqueues one
+ * `direct` request when some mandate has director work and none is open.
  */
 export async function runOfficePass(root: string, config: Config, opts: PassOptions = {}): Promise<PassResult> {
-  if (!foremanEnabled(config)) return { ok: true, enabled: false, mandates: [], direct: null, problems: [] };
+  if (!foremanEnabled(config)) return { ok: true, enabled: false, mandates: [], direct: null, problems: [], finalized: [] };
   return withOfficeLock(root, () => pass(root, config, opts));
 }
 
@@ -244,6 +271,7 @@ async function pass(root: string, config: Config, opts: PassOptions): Promise<Pa
   const scopes = new Map<string, ScopeResult>();
   const results = new Map<string, PassMandate>();
   const problems: PassResult['problems'] = [];
+  const finalized: string[] = [];
   let direct = false;
 
   const initial = listMandates(root);
@@ -264,7 +292,11 @@ async function pass(root: string, config: Config, opts: PassOptions): Promise<Pa
     const id = queue.shift()!;
     let all = listMandates(root);
     let m = all.find((x) => x.id === id);
-    if (!isReadable(m) || m.status === 'closed' || drafting(m)) continue;
+    if (isReadable(m) && m.status === 'closed') {
+      if (finalizeCard(root, config, m, all, base, at)) finalized.push(id);
+      continue;
+    }
+    if (!isReadable(m) || drafting(m)) continue;
     const actions: DirectiveAction[] = [];
     const directive = (action: DirectiveAction, reason: string, job?: { id: string; issue: string | null }) => {
       logDirective(root, { mandate: m!.id, action, issue: job?.issue ?? null, job: job?.id ?? null, reason, actor: FOREMAN_ACTOR });
@@ -318,6 +350,8 @@ async function pass(root: string, config: Config, opts: PassOptions): Promise<Pa
       if (guardedMove(root, m, 'close', reason, iso, () => writeSummary(root, closing))) {
         directive('close', reason);
         notify(root, ['mandate-closed'], { reason: 'mandate-closed', mandate: id });
+        const retro = queueMandateRetro(root, config, id);
+        if (retro) directive('retro', `queued request ${retro.request} over ${retro.jobs} jobs`);
         state = 'closed';
         // The next link of the chain starts in this same pass.
         for (const f of listMandates(root)) if (isReadable(f) && f.after === id && !queue.includes(f.id)) queue.push(f.id);
@@ -355,5 +389,5 @@ async function pass(root: string, config: Config, opts: PassOptions): Promise<Pa
   if (direct && !listRequests(root).some((r) => r.type === 'direct' && (r.status === 'pending' || r.status === 'in-progress'))) {
     request = enqueue(root, config, { type: 'direct', job: null, args: {}, from: 'forge' }).id;
   }
-  return { ok: true, enabled: true, mandates: [...results.values()], direct: request, problems };
+  return { ok: true, enabled: true, mandates: [...results.values()], direct: request, problems, finalized };
 }

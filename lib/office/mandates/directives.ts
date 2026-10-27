@@ -1,7 +1,8 @@
 // Directives: the director loop's record, one `directive` event per choice the office session makes
 // (start, resume, note, skip) and per enforcement the Office pass applies (pause, close, stall, park,
-// cancel). Each goes to the repo audit log (`.forge/runtime/audit.jsonl`), and one that names a job to
-// that job's events too, so `forge audit` and `forge job audit` show them with no file of their own.
+// cancel, release), plus the retro a mandate's close queues (retro, by the pass or the owner). Each goes
+// to the repo audit log (`.forge/runtime/audit.jsonl`), and one that names a job to that job's events
+// too, so `forge audit` and `forge job audit` show them with no file of their own.
 // docs/architecture/foreman.md › Director loop.
 import { logEvent, logRepoEvent, parseEventLines, repoAuditFile } from '#core/job/store.ts';
 import { validJobId } from '#core/job/requests.ts';
