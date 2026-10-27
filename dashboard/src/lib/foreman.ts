@@ -1,13 +1,11 @@
-// The Foreman page (#/p/<project>/foreman): its panels, the Office panel's mandates, assistant foremen and directives,
+// The Foreman page (#/p/<project>/foreman): its panels, the Office panel's mandates, pending gates and directives,
 // the editor's POST bodies, the mandate badge on a job, and the GETs and POSTs of /api/mandates
 // (lib/server/routes/mandates.ts). Every string from a mandate, a directive or a request is owner, session or tracker
 // text: the components render it as text. Plain TS, so a test can pin it.
 import { post } from './focus.ts';
 import { api } from './util.ts';
-import { MANDATE_ID_SOURCE, assistantNumber } from './types.ts';
+import { MANDATE_ID_SOURCE } from './types.ts';
 import type {
-  DaemonPoolState,
-  DaemonStatus,
   Directive,
   ForgeRequest,
   MandateDetailResponse,
@@ -223,33 +221,9 @@ export function mandateActions(m: MandateRow | UnreadableMandateRow): MandateAct
   return [];
 }
 
-// ---------- assistant foremen ----------
+// ---------- gate runs ----------
 
-/** An assistant foreman's current gate: the job it decides, or a goal mandate's milestone-approval gate. */
-export type AssistantGate = { job: string; gate: string } | { mandate: string; gate: string };
-
-export interface AssistantRow {
-  scope: string;
-  n: number;
-  status: DaemonStatus;
-  gate: AssistantGate | null;
-}
-
-const text = (v: unknown): string => (typeof v === 'string' ? v : '');
-
-/** One row per assistant foreman in number order, with the in-progress gate request its session claimed, if any. */
-export function assistantRows(daemons: Pick<DaemonPoolState, 'assistants'> | null | undefined, requests: readonly ForgeRequest[]): AssistantRow[] {
-  const assistants = daemons?.assistants ?? {};
-  return Object.entries(assistants)
-    .map(([scope, s]) => {
-      const r = s.sessionId ? requests.find((x) => x.type === 'gate' && x.status === 'in-progress' && x.session === s.sessionId) : undefined;
-      const gate: AssistantGate | null = !r ? null : r.job ? { job: r.job, gate: text(r.args?.gate) } : { mandate: text(r.args?.mandate), gate: text(r.args?.gate) };
-      return { scope, n: assistantNumber(scope), status: s.status, gate };
-    })
-    .sort((a, b) => a.n - b.n);
-}
-
-/** The gate requests no assistant foreman has claimed yet. */
+/** The gate requests no gate run has taken yet. */
 export const pendingGates = (requests: readonly ForgeRequest[]): number => requests.filter((r) => r.type === 'gate' && r.status === 'pending').length;
 
 // ---------- directives ----------

@@ -221,7 +221,7 @@ export const JOB: HelpGroup = {
       exits: [
         [
           1,
-          "no such job; the inbox, office, an assistant foreman or another job's session; stale_step: step no longer returns that spawn (another caller started it, or the job moved on); a worktree that is missing or under no worktrees root, a daemon.command problem, a tracker symlink, a trust digest that does not match under FORGE_DAEMON=1, or an empty brief; or the role failed (failure.class limit, auth, budget, error, timeout, untrusted or interrupted)",
+          "no such job; the inbox, office or another job's session; stale_step: step no longer returns that spawn (another caller started it, or the job moved on); a worktree that is missing or under no worktrees root, a daemon.command problem, a tracker symlink, a trust digest that does not match under FORGE_DAEMON=1, or an empty brief; or the role failed (failure.class limit, auth, budget, error, timeout, untrusted or interrupted)",
         ],
         [3, 'another live session drives the job, the session does not hold it, or stale_epoch: the lease moved past --epoch or was taken over before the end'],
         [5, 'the role failed because claude never started (failure.class spawn) or closed without a result (exit)'],

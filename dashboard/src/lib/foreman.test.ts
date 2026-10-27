@@ -1,11 +1,10 @@
 // The Foreman page's model: its panels and their keys, the editor's exact POST bodies, the mandate groups and the
-// actions each status offers, the assistant foremen with their current gates, the directives feed and the badge.
+// actions each status offers, the pending gates, the directives feed and the badge.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_FOREMAN_PANEL,
   FOREMAN_PANELS,
-  assistantRows,
   blankForm,
   directiveActor,
   directiveFeed,
@@ -19,7 +18,7 @@ import {
   pendingGates,
   type ForemanPanel,
 } from './foreman.ts';
-import type { DaemonSessionState, Directive, ForgeRequest, MandateRow, UnreadableMandateRow } from './types.ts';
+import type { Directive, ForgeRequest, MandateRow, UnreadableMandateRow } from './types.ts';
 
 const row = (id: string, o: Partial<MandateRow> = {}): MandateRow => ({
   id,
@@ -101,26 +100,17 @@ test('mandate groups and actions', () => {
   assert.deepEqual(mandateActions(bad), []);
 });
 
-test('assistant foremen and their gates', () => {
-  const session = (scope: string, status: DaemonSessionState['status'], sessionId: string | null) => ({ scope, status, sessionId }) as DaemonSessionState;
+test('the gates no gate run has taken yet', () => {
   const req = (id: string, o: Partial<ForgeRequest>): ForgeRequest => ({ id, type: 'gate', job: null, text: null, args: {}, from: 'cli', status: 'pending', createdAt: '2026-10-01T00:00:00.000Z', ...o });
-  const daemons = { assistants: { '_assistant-10': session('_assistant-10', 'idle', 's10'), '_assistant-2': session('_assistant-2', 'busy', 's2'), '_assistant-1': session('_assistant-1', 'busy', 's1') } };
   const requests = [
-    req('1-a', { job: 'j1', status: 'in-progress', session: 's1', args: { gate: 'spec-approval' } }),
-    req('2-b', { status: 'in-progress', session: 's2', args: { gate: 'milestone-approval', mandate: 'g1' } }),
-    req('3-c', { job: 'j3', status: 'done', session: 's10', args: { gate: 'escalation' } }),
+    req('1-a', { job: 'j1', status: 'in-progress', session: 'gate-run:1', args: { gate: 'spec-approval' } }),
+    req('3-c', { job: 'j3', status: 'done', args: { gate: 'escalation' } }),
     req('4-d', { job: 'j4', args: { gate: 'conflicts' } }),
     req('5-e', { job: 'j5', args: { gate: 'conflicts' } }),
-    req('6-f', { type: 'resume', job: 'j6', status: 'in-progress', session: 's10' }),
+    req('6-f', { type: 'resume', job: 'j6' }),
   ];
-  assert.deepEqual(assistantRows(daemons, requests), [
-    { scope: '_assistant-1', n: 1, status: 'busy', gate: { job: 'j1', gate: 'spec-approval' } },
-    { scope: '_assistant-2', n: 2, status: 'busy', gate: { mandate: 'g1', gate: 'milestone-approval' } },
-    { scope: '_assistant-10', n: 10, status: 'idle', gate: null },
-  ]);
-  assert.deepEqual(assistantRows({ assistants: { '_assistant-1': session('_assistant-1', 'off', null) } }, requests)[0]?.gate, null, 'no session id, no gate');
-  assert.deepEqual(assistantRows(null, requests), []);
   assert.equal(pendingGates(requests), 2);
+  assert.equal(pendingGates([]), 0);
 });
 
 test('the directives feed', () => {

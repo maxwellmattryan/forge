@@ -1,7 +1,7 @@
 {
   "foreman": {
     "title": "Foreman",
-    "sub": "The Office: the mandates you give the Foreman, the assistant foremen deciding gates, and the directives it records.",
+    "sub": "The Office: the mandates you give the Foreman, the gate runs deciding gates, and the directives it records.",
     "panels": "Foreman panels",
     "panel": {
       "office": "Office"
@@ -19,16 +19,16 @@
         "one": "Closed ({count})",
         "other": "Closed ({count})"
       },
-      "assistants": "Assistant foremen",
-      "assistant": "Assistant foreman",
-      "status": "Status",
-      "gate": "Current gate",
-      "noGate": "none",
-      "noAssistants": "No assistant foreman runs, so every gate stays with a person.",
+      "gateRuns": "Gate runs",
       "gatesWaiting": {
-        "one": "{count} gate waiting for an assistant foreman",
-        "other": "{count} gates waiting for an assistant foreman"
+        "one": "{count} gate waiting for a gate run",
+        "other": "{count} gates waiting for a gate run"
       },
+      "gate": "Gate",
+      "target": "Job or mandate",
+      "outcome": "Outcome",
+      "started": "Started",
+      "tokens": "Tokens",
       "directives": "Directives",
       "when": "When",
       "mandate": "Mandate",
