@@ -1,6 +1,7 @@
 // `npm run scenario -- <name> | --list`: seeds a named dashboard scenario (test/fixtures/scenarios/<name>.json)
 // into a fresh scratch FORGE_ROOT through the CLI alone, prints its path and waits; a signal removes it.
-// `npm run dev -- --scenario` and `npm run test:render` seed through seedScenario. docs/TESTING.md
+// `npm run dev -- --scenario` and `npm run test:render` seed through seedScenario. A scenario with a
+// `backlog` gets the local tracker and that `.forge/backlog.md`. docs/TESTING.md
 // › "Dashboard scenarios and the render check" has the format.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -36,9 +37,11 @@ const STEP_JOB_COMMANDS = new Set(['show', 'get', 'list', 'set', 'effort', 'clai
 const NEW_FLAGS_REFUSED = ['--title', '--slug', '--session', '--body-file'];
 // What a scenario's config may set. tracker, daemon, foreman, worktrees, notify, repos and the rest
 // are the seeder's or refused, so no scenario reaches GitHub, a webhook, the daemon or another repo.
+// tracker is the seeder's: none, or local with a backlog.
 const CONFIG_KEYS = new Set(['project', 'commands', 'verify', 'runtime', 'pipeline', 'review', 'components', 'budget', 'usage']);
 const FILE_PATH = /^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
 const STATE_FILES = new Set(['job.json', 'events.jsonl']);
+const BACKLOG_MAX = 64 * 1024;
 // The variables that would point a child CLI at another root, the daemon's session or a job's own
 // ports and actor; the git location variables go through gitEnv.
 export const SCENARIO_ENV_DROPPED = /^FORGE_(DAEMON|PORT|ENDPOINT|BACKING|ROOT|JOB|WORKTREE|ACTOR|NOTIFY|MODE|HOME)(_|$)/;
@@ -59,12 +62,16 @@ export interface ScenarioJob {
 export interface ResolvedExpect {
   views: Record<ViewId, string[]>;
   drawer: { title: string; text: string[] } | null;
+  /** One issue panel per entry, opened by its Issues row's title; [] when the scenario has none. */
+  issue: { title: string; text: string[] }[];
 }
 
 export interface Scenario {
   name: string;
   description: string;
   config: Record<string, unknown>;
+  /** `.forge/backlog.md`, written after every step with `{id:<key>}` filled in; null keeps the tracker `none`. */
+  backlog: string | null;
   jobs: ScenarioJob[];
   expect: ResolvedExpect;
 }
@@ -142,7 +149,7 @@ export function loadScenario(name: string, dir: string = SCENARIO_DIR): Scenario
   }
   if (!isObject(raw)) fail('a scenario is a JSON object');
   const s = raw as Record<string, unknown>;
-  onlyKeys(s, ['description', 'config', 'jobs', 'expect'], '', fail);
+  onlyKeys(s, ['description', 'config', 'backlog', 'jobs', 'expect'], '', fail);
   if (typeof s.description !== 'string' || !s.description.trim()) fail('description must be a non-empty string');
 
   const config = s.config ?? {};
@@ -217,10 +224,18 @@ export function loadScenario(name: string, dir: string = SCENARIO_DIR): Scenario
     return { key, title: j.title as string, new: flags as string[], files: files as Record<string, string>, steps };
   });
 
+  let backlog: string | null = null;
+  if (s.backlog !== undefined) {
+    if (typeof s.backlog !== 'string' || !s.backlog.trim() || s.backlog.length > BACKLOG_MAX) fail(`backlog must be a non-empty string of at most ${BACKLOG_MAX} characters`);
+    // Written after every job exists: any job may be named, but there is no own job.
+    checkPlaceholders(s.backlog as string, 'backlog', keys, false);
+    backlog = s.backlog as string;
+  }
+
   const rawExpect = s.expect;
   if (!isObject(rawExpect)) fail('expect must be an object');
   const e = rawExpect as Record<string, unknown>;
-  onlyKeys(e, [...VIEWS.map((v) => v.id), 'drawer'], 'expect', fail);
+  onlyKeys(e, [...VIEWS.map((v) => v.id), 'drawer', 'issue'], 'expect', fail);
   const resolve = (list: unknown, what: string): string[] => {
     if (!isStringList(list) || !list.length || list.some((t) => !t.trim())) fail(`expect has no text for ${what}`);
     return (list as string[]).map((t) => (t.startsWith('@') ? message(t.slice(1), fail) : t));
@@ -237,7 +252,21 @@ export function loadScenario(name: string, dir: string = SCENARIO_DIR): Scenario
     drawer = { title: job.title, text: d.text === undefined ? [] : resolve(d.text, 'drawer') };
   } else if (jobs.length) drawer = { title: jobs[0].title, text: [] };
 
-  return { name, description: s.description as string, config: config as Record<string, unknown>, jobs, expect: { views, drawer } };
+  const issue: ResolvedExpect['issue'] = [];
+  if (e.issue !== undefined) {
+    if (backlog === null) fail('expect.issue needs a backlog');
+    if (!Array.isArray(e.issue) || !e.issue.length) fail('expect.issue must be a non-empty list');
+    for (const [n, entry] of (e.issue as unknown[]).entries()) {
+      const where = `expect.issue ${n + 1}`;
+      if (!isObject(entry)) fail(`${where} must be an object`);
+      const x = entry as Record<string, unknown>;
+      onlyKeys(x, ['title', 'text'], where, fail);
+      if (typeof x.title !== 'string' || !x.title.trim()) fail(`${where}: title must be a non-empty string`);
+      issue.push({ title: x.title as string, text: x.text === undefined ? [] : resolve(x.text, where) });
+    }
+  }
+
+  return { name, description: s.description as string, config: config as Record<string, unknown>, backlog, jobs, expect: { views, drawer, issue } };
 }
 
 /**
@@ -329,7 +358,8 @@ export async function seedScenario(name: string, opts: { dir?: string; env?: Nod
     const answers = {
       ...rest,
       project: { name: `Scenario: ${name}`, ...(isObject(project) ? project : {}) },
-      tracker: { kind: 'none' },
+      // The local backlog is a file in the scratch repo, so a scenario with one still reaches no tracker service.
+      tracker: { kind: scenario.backlog === null ? 'none' : 'local' },
       daemon: { enabled: false },
       foreman: { enabled: false },
       worktrees: { root: '../{repo}.worktrees', setup: [] },
@@ -370,6 +400,8 @@ export async function seedScenario(name: string, opts: { dir?: string; env?: Nod
         await forge(`${job.key} step ${n + 1}`, step.argv.map((a) => fill(a, job.key)), step.exit);
       }
     }
+    // After the steps, so a step's tracker mirror can't rewrite it.
+    if (scenario.backlog !== null) fs.writeFileSync(path.join(root, '.forge', 'backlog.md'), fill(scenario.backlog, null));
     const ms = Date.now() - started;
     opts.log?.(`seeded ${name} in ${ms} ms`);
     return { name, root, worktrees, jobs: ids, expect: scenario.expect, ms, cleanup };

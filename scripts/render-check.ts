@@ -1,6 +1,6 @@
 // `npm run test:render [-- --scenario NAME]... [--dist DIR]`: seeds each dashboard scenario, serves it
 // from a dashboard build in-process beside a second project and a removed one, and loads every view (and
-// the job drawer), the Overview, the Machine page and a project switch in headless Chrome. A check fails
+// the job and issue panels), the Overview, the Machine page and a project switch in headless Chrome. A check fails
 // on a console error, an uncaught page error, a same-origin 5xx, an expected text that never shows, or a
 // failed load. Outside `npm test`: it needs Chrome and a build, and CI's `render` job runs it.
 // docs/TESTING.md › "Dashboard scenarios and the render check".
@@ -31,7 +31,7 @@ const OTHER_PROJECT = 'other-project';
 /** A registered project whose directory is gone: the Overview and the switcher show it as missing. */
 const GONE_PROJECT = 'gone-project';
 
-export type RenderCheckId = ViewId | 'overview' | 'machine' | 'switch' | 'add' | 'drawer';
+export type RenderCheckId = ViewId | 'overview' | 'machine' | 'switch' | 'add' | 'drawer' | 'issue';
 
 export interface RenderProblem {
   scenario: string;
@@ -116,7 +116,8 @@ async function waitForTexts(scope: Page | ReturnType<Page['locator']>, texts: st
 }
 
 /**
- * Checks each scenario's views and drawer at `#/p/<project>/<view>`, then the machine's pages (the Overview and the
+ * Checks each scenario's views and drawer at `#/p/<project>/<view>`, each issue panel its `expect.issue` names (opened
+ * from its Issues row, closed by Escape), then the machine's pages (the Overview and the
  * Machine page, which must list all three projects), a switch to the companion through the sidebar switcher and its Add
  * project entry, which must open the Add project dialog in place without becoming the selection, refuse a relative
  * directory inline and, given the companion's directory, land on its Project page. Throws
@@ -196,6 +197,27 @@ export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: st
             await waitForTexts(page.locator('#drawer'), [drawer.title, ...drawer.text], timeout, p);
           });
           record(name, 'drawer', problems, Date.now() - started);
+        }
+        // Each expected issue panel: opened by its Issues row's title, its texts in the drawer, and Escape closes it.
+        for (const issue of seeded.expect.issue) {
+          await timed(name, 'issue', () =>
+            checkPage(context, at('issues'), async (page, p) => {
+              try {
+                await page.locator('#view').getByText(issue.title, { exact: true }).first().click({ timeout });
+              } catch {
+                p.push(`could not open the issue panel for "${issue.title}"`);
+                return;
+              }
+              const drawerEl = page.locator('#drawer');
+              await waitForTexts(drawerEl, [issue.title, ...issue.text], timeout, p);
+              try {
+                await page.keyboard.press('Escape');
+                await drawerEl.waitFor({ state: 'hidden', timeout });
+              } catch {
+                p.push('Escape did not close the issue panel');
+              }
+            }),
+          );
         }
         // The machine's pages, with no project selected: every registered project by name, in the page's own content.
         const registered = [project.name, OTHER_PROJECT, GONE_PROJECT];

@@ -109,8 +109,12 @@ export default {
   milestoneAdd(ctx, ref, { milestone, labels }) {},
   // Optional: a mandate's scope: open items in `milestone` (any when null) carrying every label. Throw when they can't be listed.
   scope(ctx, { milestone, labels, limit }) { return [/* list's items: { ref, title, url, labels, priority, needsInfo, claimedBy } */]; },
+  // Optional: one item's own text and facts for the dashboard's issue panel, unfenced. Throw when it can't be read; null when there is no such item.
+  view(ctx, ref) { return { ref, title, url, state, body, comments: [/* { author, at, body } */], hiddenComments: 0, labels, assignees, milestone, author, createdAt, updatedAt }; },
 };
 ```
+
+`view` is optional and display only: the dashboard's issue panel (`GET /api/backlog/item`, docs/DASHBOARD.md "Issues") is its one caller, and no agent ever reads what it returns, so it is not fenced. The dashboard renders the body and each comment through its escape-first markdown, so markup in them shows as text, and Forge normalises the reply first (`lib/engine/trackers/view.ts`): a one-line title, strings where strings belong, an `http(s)` URL or none, and a non-negative `hiddenComments`. The built-in GitHub adapter returns the issue as GitHub holds it (`gh issue view` with `--` before the number), its state lowercased, the milestone's title, the author's login and the comments oldest first, after the same `tracker.github.comments` rule `get` uses, with `hiddenComments` counting the ones it left out; the local backlog returns an item's description without triage's `Needs info:` line, its status word as the state, the `## ` milestone it sits under, and no comments. Without `view` (and for tracker `none`) the panel shows only the list row's facts.
 
 `milestones` is optional: a goal mandate's drafting survey (docs/architecture/foreman.md "Intake") lists them in a fence, each title through `oneLineTitle`, and without the method it says `unavailable (tracker <kind> lists no milestones)`. The built-in GitHub adapter reads `gh api repos/<slug>/milestones?state=open&per_page=100`; the local backlog lists its `## ` headings.
 
