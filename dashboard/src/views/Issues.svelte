@@ -5,6 +5,8 @@
   import Empty from '../components/Empty.svelte';
   import Icon from '../components/Icon.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import IssuesTableSkeleton from '../components/skeletons/IssuesTableSkeleton.svelte';
+  import Skeleton from '../components/Skeleton.svelte';
   import { readiness } from '../lib/backlog.ts';
   import { safeUrl } from '../lib/markdown.ts';
   import { S, openDrawer, refreshBacklog, req } from '../lib/app.svelte.ts';
@@ -15,7 +17,7 @@
 </script>
 
 <PageHeader title={$t('issues.title')}>
-  {#snippet sub()}{#if b}{$t('issues.from')} <Icon name={S.data?.config?.tracker === 'github' ? 'github' : 'tracker'} /><b>{b.tracker}</b> {$t('issues.tracker')}{:else}{$t('common.loading')}{/if}{/snippet}
+  {#snippet sub()}{#if b}{$t('issues.from')} <Icon name={S.data?.config?.tracker === 'github' ? 'github' : 'tracker'} /><b>{b.tracker}</b> {$t('issues.tracker')}{:else}<Skeleton w="11rem" h="0.6875rem" class="inline-block" />{/if}{/snippet}
   {#snippet right()}<button class="btn" onclick={refreshBacklog}><Icon name="refresh" />{$t('issues.refresh')}</button><button class="btn primary" onclick={() => req({ type: 'next' })}>{$t('common.runNext')}</button>{/snippet}
 </PageHeader>
 {#if b}
@@ -50,4 +52,6 @@
       </table>
     </div></div>
   {/if}
+{:else}
+  <IssuesTableSkeleton />
 {/if}

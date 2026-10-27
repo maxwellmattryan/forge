@@ -294,18 +294,18 @@
 <div class="station flex flex-col gap-2 {hot ? 'hot' : ''} {fill ? 'min-h-0 flex-1' : ''}">
   <!-- One row that wraps: the nameplate on the left, the controls pushed right as one group, so on a phone the group wraps
        under the nameplate as a whole before its own buttons wrap. -->
-  <div class="flex flex-wrap items-center gap-x-1.5 gap-y-2">
+  <div class="flex items-center gap-x-1.5 gap-y-2 {compact ? 'flex-nowrap' : 'flex-wrap'}">
     {#key stage}
-      <div class="nameplate" in:shutter={shifted ? { ready } : { duration: 0 }}>
+      <div class="nameplate {compact ? 'flex-nowrap overflow-hidden' : ''}" in:shutter={shifted ? { ready } : { duration: 0 }}>
         <Lamp state={lamp} relit={shifted && settled(Date.now(), S.readyAt)} />
         {#if jobId}<span class="min-w-0 break-all text-fg normal-case selectable">{jobId}</span>{/if}
         {#if transcript}
           <span role="note" class="min-w-0 break-all">{transcript.label}</span>
         {:else}
-          <Chip ariaHidden tone={pill.tone} title={pill.title} text={pill.label} />
-          <span class="text-fg">{$t('session.turns', { count: view.totals.turns })}</span>
-          {#if view.totals.results}<span class="text-fg" title={$t('session.costTitle')}>{$t('session.cost', { cost: usd(view.totals.costUsd) })}</span>{/if}
-          <span class="min-w-0 break-all text-fg">{$t('session.model', { model })}</span>
+          {#if !compact}<Chip ariaHidden tone={pill.tone} title={pill.title} text={pill.label} />{/if}
+          <span class="text-fg {compact ? 'shrink-0 whitespace-nowrap' : ''}">{$t('session.turns', { count: view.totals.turns })}</span>
+          {#if view.totals.results}<span class="text-fg {compact ? 'shrink-0 whitespace-nowrap' : ''}" title={$t('session.costTitle')}>{$t('session.cost', { cost: usd(view.totals.costUsd) })}</span>{/if}
+          <span class="min-w-0 text-fg {compact ? 'truncate' : 'break-all'}" title={model}>{$t('session.model', { model })}</span>
           {#if scope === OFFICE_SCOPE}<span class="text-fg" title={$t('session.effortHint')}>{$t('session.effort', { effort: officeEffort })}</span>{/if}
         {/if}
       </div>
@@ -313,7 +313,7 @@
     <!-- The pill's live region stays mounted outside the key: a region remounted with its text, as the key does on a stage
          change, is often not read. The visible chip is aria-hidden so nothing is read twice. -->
     {#if !transcript}<span role="status" class="sr-only">{pill.label}</span>{/if}
-    <div class="ml-auto flex flex-wrap items-start justify-end gap-1.5">
+    <div class="ml-auto flex items-start justify-end gap-1.5 {compact ? 'shrink-0' : 'flex-wrap'}">
       {#if !transcript && controls}<SessionControls {scope} {live} onacted={() => (live = null)} />{/if}
       <MenuButton label={filtering ? $t('session.filterActive') : $t('session.filter')} title={$t('session.filterTitle')} icon="filter" iconOnly badge={filtering}>
         <input class="input sm w-full" type="search" placeholder={$t('session.filter')} aria-label={$t('session.filter')} bind:value={filters.text} />

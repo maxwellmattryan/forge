@@ -12,6 +12,7 @@ import { ForgeError } from '#core/errors.ts';
 import { daemonScope } from '#core/job/requests.ts';
 import { listArchived } from '#core/job/archive.ts';
 import { listJobs } from '#core/job/store.ts';
+import { buildReportCard } from '#engine/metrics/report-card.ts';
 import { spendLedger } from '#engine/metrics/spend.ts';
 import { refuseOutsideOffice } from '#office/owner.ts';
 import { readDirectives } from '#office/mandates/directives.ts';
@@ -27,7 +28,8 @@ import { prepareDraft, staleReason } from '#office/mandates/intake.ts';
 import { listMandates, mandateFile, mandateJobs, mandateTarget, mandateWrite } from '#office/mandates/store.ts';
 import type { MandateOp } from '#office/mandates/store.ts';
 import { effectiveContract, isReadable, mandateChain, mandateGoal, mandateGuidance, mandateState, mandateSummary } from '#office/mandates/contract.ts';
-import type { Mandate, MandateInput } from '#office/mandates/types.ts';
+import type { Mandate, MandateInput, MandateReportCard, ReadMandate } from '#office/mandates/types.ts';
+import type { Config } from '#core/types.ts';
 import { bodyFrom, list, req, str, usageError } from './args.ts';
 import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
 
@@ -296,13 +298,33 @@ function write(ctx: CliContext, sub: MandateOp, id: string, flags: Record<string
   return written(root, id, mandateWrite(root, config, sub, id, { input, reason }).changed);
 }
 
+/** A mandate's job figures from the CLI's records, with no tracker call: the jobs, spend and starts. */
+const liveFigures = (root: string, config: Config, m: Mandate, all: ReadMandate[], at: number) =>
+  jobFigures(root, config, m, all, { jobs: listJobs(root), archived: listArchived(root), ledger: spendLedger(root, config, { write: false }), at });
+
+const STATS_MANDATE_USAGE = 'usage: forge stats --mandate <id>';
+/** The stats flags `--mandate` refuses: each picks another output. */
+const NOT_WITH_MANDATE = ['csv', 'by', 'role', 'since', 'include-evals'];
+
+/**
+ * `forge stats --mandate <id>` (the stats group's HELP is in ./status.ts): the mandate's live report card,
+ * from the records `forge mandate show` reads. Any status, a goal mandate still drafting too.
+ */
+export function statsMandate(root: string, config: Config, flags: Record<string, any>): MandateReportCard {
+  for (const f of NOT_WITH_MANDATE) if (flags[f] !== undefined) throw new ForgeError(`--mandate takes no --${f}; ${STATS_MANDATE_USAGE}`, 'usage', 'forge help stats');
+  const id = str(flags.mandate, '--mandate') as string;
+  const all = listMandates(root);
+  const m = mandateTarget(all, id);
+  const at = Date.now();
+  return buildReportCard(m, liveFigures(root, config, m, all, at), config, at);
+}
+
 function show(ctx: CliContext, id: string) {
   const { root, config } = ctx;
   const all = listMandates(root);
   const m = mandateTarget(all, id);
   const { effective, capped } = effectiveContract(config, m);
-  // No tracker call: the jobs, spend and starts from the CLI's records.
-  const f = jobFigures(root, config, m, all, { jobs: listJobs(root), archived: listArchived(root), ledger: spendLedger(root, config, { write: false }), at: Date.now() });
+  const f = liveFigures(root, config, m, all, Date.now());
   return {
     ...mandateSummary(m, all),
     effective,

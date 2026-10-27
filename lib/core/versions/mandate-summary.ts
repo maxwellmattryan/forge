@@ -6,6 +6,9 @@
 import { versionOf } from './steps.ts';
 import type { Step } from './steps.ts';
 
-export const MANDATE_SUMMARY_STEPS: readonly Step[] = [];
+export const MANDATE_SUMMARY_STEPS: readonly Step[] = [
+  // The closing summary carries the mandate's report card at close; one written before it has none.
+  { id: 'summary-card', up: (s) => ({ ...s, card: null }) },
+];
 
 export const MANDATE_SUMMARY_SCHEMA_VERSION = versionOf(MANDATE_SUMMARY_STEPS);

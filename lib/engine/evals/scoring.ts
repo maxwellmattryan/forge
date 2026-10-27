@@ -75,6 +75,17 @@ function scoreDue(job: Job, now: Date, config: Config, mandateScoring?: MandateS
   return isSampled(job.id, config.scoring?.sample ?? 0);
 }
 
+/**
+ * Whether a merged job's score is still to come: a run is queued, or `forge sync` would still queue one
+ * under the mandate's scoring `term` (scoreDue). Never with PRs disabled, where sync scores nothing.
+ * Whether the job is live (sync and `forge job score record` read only live jobs) is the caller's check.
+ */
+export function scoreAwaited(job: Job, now: Date, config: Config, term: MandateScoring | null): boolean {
+  if (!config.pr?.enabled) return false;
+  if (job.score?.status === 'queued') return true;
+  return scoreDue(job, now, config, () => term);
+}
+
 function slugOf(root: string, config: Config): string | null {
   try {
     const s = repoSlug(root, config);
