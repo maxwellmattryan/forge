@@ -1,4 +1,5 @@
-<!-- The Evals body while its data loads: the run form plate, the five KPI tiles and the runs table. Shared by EvalsSkeleton and the view's own loading state. -->
+<!-- The Evals body while its data loads: the run form plate, the five KPI tiles and the runs table.
+     Shared by EvalsSkeleton and the view's own loading state. -->
 <script lang="ts">
   import Loading from '../Loading.svelte';
   import Skeleton from '../Skeleton.svelte';
