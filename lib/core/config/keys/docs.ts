@@ -220,6 +220,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
       ' - { name: proto, path: crates/proto, kind: library }',
       ' - { name: api, path: services/api, kind: service, commands: { test: "go test ./...", dev: "go run . -port {port}" },',
       '     dependsOn: [{ component: proto, type: build }, { backing: postgres, type: runtime }], owners: ["@team-api"] }',
+      ' - { name: web, path: ., kind: app, paths: ["web/**", "public/**"] }   # paths: globs for components that share a path',
     ],
   },
 

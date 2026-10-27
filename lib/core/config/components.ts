@@ -11,6 +11,8 @@ import { isInsidePath } from '../os/fs.ts';
 import { SAFE_REF } from '../text.ts';
 import { sinkProblems } from './sinks.ts';
 import { declaredSecrets } from './validators/secret-refs.ts';
+import { globProblem } from './validators/policy-check.ts';
+import { inSpec } from '../glob.ts';
 import { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES } from '#api/constants.ts';
 
 export { isInsidePath };
@@ -104,6 +106,40 @@ export function isManifestPath(ecosystem: unknown, p: unknown): p is string {
 
 const repoLabel = (r: unknown): string => (typeof r === 'string' ? `repo ${r}` : 'the root repo');
 
+/** A component's `paths`: a non-empty list of repo-relative paths or globs, each held to globProblem. */
+function pathsProblems(paths: unknown, at: string): string[] {
+  if (!Array.isArray(paths)) return [`${at}.paths must be a list of paths or globs (got ${show(paths, Infinity)})`];
+  if (!paths.length) return [`${at}.paths must name at least one path or glob; omit it to match by path`];
+  return paths.map((g) => globProblem(g, `${at}.paths`)).filter((p): p is string => p !== null);
+}
+
+/** `path` as a prefix: no leading `./` or trailing `/`; null for the repo root, which holds every file. */
+function pathPrefix(p: unknown): string | null {
+  const s = typeof p === 'string' ? p.replace(/^(?:\.\/)+/, '').replace(/\/+$/, '') : '.';
+  return s === '' || s === '.' ? null : s;
+}
+
+/**
+ * The configured components a set of changed files touches, in config order: `changed` maps a repo
+ * (null for the root) to its changed repo-relative files. A component matches when one of its repo's
+ * files passes `paths` (inSpec, like review.panel paths), or, without `paths`, sits at or under its
+ * `path`. A component whose repo has no entry matches nothing; a file may match several components.
+ */
+export function componentsForChanges(config: Pick<Config, 'components'>, changed: ReadonlyMap<string | null, readonly string[]>): string[] {
+  const out: string[] = [];
+  for (const c of config.components ?? []) {
+    if (!isMap(c) || typeof c.name !== 'string' || out.includes(c.name)) continue;
+    const files = changed.get(c.repo ?? null);
+    if (!files?.length) continue;
+    const prefix = pathPrefix(c.path);
+    const hit = Array.isArray(c.paths)
+      ? files.some((f) => inSpec(f, c.paths!))
+      : prefix === null || files.some((f) => f === prefix || f.startsWith(`${prefix}/`));
+    if (hit) out.push(c.name);
+  }
+  return out;
+}
+
 /** Every problem with `components` (and a leftover `services`), in the form validateConfig reports. */
 export function componentProblems(c: unknown): string[] {
   const cfg: Record<string, any> = isMap(c) ? c : {};
@@ -136,6 +172,7 @@ export function componentProblems(c: unknown): string[] {
       else for (const [k, v] of Object.entries(e.commands)) if (v !== null && typeof v !== 'string') problems.push(`${at}.commands.${k} must be a string or null (got ${show(v, Infinity)})`);
     }
     if (e.notes !== undefined && e.notes !== null && typeof e.notes !== 'string') problems.push(`${at}.notes must be a string or null (got ${show(e.notes, Infinity)})`);
+    if (e.paths !== undefined) problems.push(...pathsProblems(e.paths, at));
     if (e.config !== undefined) problems.push(...sinkProblems(e.config, `${at}.config`, e, declaredSecrets(cfg)));
     if (e.dependsOn === undefined) return;
     if (!Array.isArray(e.dependsOn)) return problems.push(`${at}.dependsOn must be a list (got ${show(e.dependsOn, Infinity)})`);

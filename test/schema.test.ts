@@ -166,6 +166,7 @@ const CONFIG_ROWS: Row[] = [
     removed: ['foreman.assistants.sessions'],
     note: 'the assistant sessions count becomes the gate runs at once',
   },
+  { step: 'component-paths', input: { components: [...SINKS, { name: 'web', path: '.', kind: 'app', paths: ['web/**'] }] }, fields: { 'components.0': SINKS[0], 'components.1.paths': ['web/**'] }, note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -243,13 +244,7 @@ const JOB_ROWS: Row[] = [
     note: "every ended run is legacy; a running agent's run is recorded by its end",
   },
   { step: 'shelved', input: { id: 'x', state: 'waiting', waitingOn: 'escalation', reason: 'r' }, fields: { shelved: null, finishedWhileShelved: false, waitingOn: 'escalation' }, note: 'a job from before the shelf is on none' },
-  {
-    step: 'job-components',
-    input: { id: 'x', services: ['api'] },
-    fields: { components: ['api'], componentsDeclared: ['api'], componentsFromDiff: null },
-    removed: ['services'],
-    note: "the old list is the job's components and its declared estimate; nothing is recomputed yet",
-  },
+  { step: 'job-components', input: { id: 'x', services: ['api'] }, fields: { components: ['api'], componentsDeclared: ['api'], componentsFromDiff: null }, removed: ['services'], note: 'the old list is declared; none recomputed' },
 ];
 
 const EVENT_ROWS: Row[] = [

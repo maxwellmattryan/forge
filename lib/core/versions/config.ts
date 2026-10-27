@@ -160,6 +160,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v41: forge dash's gate runner replaces the assistant foreman sessions, so foreman.assistants.sessions (how many
   // sessions) becomes foreman.assistants.parallel (how many gate runs at once), unless parallel is already written.
   { id: 'foreman-gate-runs', up: foremanGateRuns },
+  // v42 lets a component set `paths` (globs a changed file must match for a job to change it); a v41
+  // component has none and still matches by its `path`, so nothing moves.
+  { id: 'component-paths', up: (c) => c },
 ];
 
 const isPlainMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
