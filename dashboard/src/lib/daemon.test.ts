@@ -2,7 +2,7 @@
 // the pool model (the pill, the note and Start for a pool that is off) and its job session rows.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { billingNote, daemonRows, poolModel, scopeSession, sessionMode, sessionPill } from './daemon.ts';
+import { billingNote, daemonRows, jobFallbackMode, launchMode, poolModel, scopeSession, sessionMode, sessionPill } from './daemon.ts';
 import { activeSessions } from './live.ts';
 import { pendingPrompts, sessionPrompts } from './permissions.ts';
 import { barModel } from './statusbar.ts';
@@ -87,9 +87,21 @@ test('the office in the pool model: no session but its own', () => {
   assert.equal(scopeSession(pool, '_office'), office);
   assert.equal(scopeSession(pool, '_assistant-1'), null, 'a legacy assistant scope names no session');
   assert.equal(sessionMode(pool, '_office', office).chosen, 'default', "daemon.command's mode, not the job default");
+  // With a launch mode the inbox and office start in it, unless a human chose another; a job keeps the job default.
+  const launched = { ...pool, permissionMode: 'default', jobPermissionMode: 'dontAsk', launchPermissionMode: 'auto' };
+  assert.equal(sessionMode(launched, '_office', office).chosen, 'auto');
+  assert.equal(sessionMode(launched, '_inbox', pool.inbox).chosen, 'auto');
+  assert.equal(sessionMode({ ...launched, permissionModes: { _inbox: 'default' } }, '_inbox', pool.inbox).chosen, 'default', "the session's own choice wins");
+  assert.equal(sessionMode(launched, 'j-1', null).chosen, jobFallbackMode(launched), 'a job keeps the job default');
+  assert.equal(sessionMode(launched, 'j-1', null).chosen, 'dontAsk');
   assert.deepEqual(activeSessions(pool).ids, ['_office']);
   // The Foreman keeps the office's own pill: a gate run is no session.
   const foreman = barModel(pool, { pending: false }).foreman;
   assert.ok(foreman.on);
   assert.deepEqual(foreman.pill, sessionPill(office));
+});
+
+test('launchMode reads only the three modes', () => {
+  for (const mode of ['default', 'auto', 'dontAsk']) assert.equal(launchMode({ launchPermissionMode: mode }), mode);
+  for (const v of [{}, { launchPermissionMode: 'bypassPermissions' }, { launchPermissionMode: 1 }, { launchPermissionMode: null }, null, undefined]) assert.equal(launchMode(v), null, JSON.stringify(v));
 });

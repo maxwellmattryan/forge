@@ -4,6 +4,7 @@
 // children (fakeClaude), so nothing real is spawned or signalled.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -12,7 +13,8 @@ import type { ClaudeAdapter } from '#integrations/claude/types.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
 import { loadConfig } from '#core/config/load.ts';
-import { createJob, updateJob } from '#core/job/store.ts';
+import { createJob, repoAuditFile, updateJob } from '#core/job/store.ts';
+import { auditAll } from '#engine/ops/audit.ts';
 import { ackRequest, enqueue } from '#core/job/requests.ts';
 import { meterFile } from '#engine/metrics/meter.ts';
 import { addProject, removeProject, setMachineSettings } from '#engine/project/machine-index.ts';
@@ -293,7 +295,8 @@ test('registering and removing a project while the server runs', async () => {
   const a = tempRepo();
   const c = daemonRepo();
   const k = kit();
-  const s = await serveProjects([{ dir: a.dir, name: 'a' }], { daemon: k.opts });
+  // Started as `forge dash --permission-mode auto`: the run's launch mode.
+  const s = await serveProjects([{ dir: a.dir, name: 'a' }], { daemon: { ...k.opts, launchPermissionMode: 'auto' } });
   try {
     assert.equal(s.entry('c'), null);
     // As `forge dash` run in c leaves it: approved, then registered.
@@ -302,12 +305,28 @@ test('registering and removing a project while the server runs', async () => {
     // The timed re-read alone: no request names it.
     await waitFor(() => s.entry('c'), { what: 'c loaded', timeoutMs: 5000 });
     assert.equal((await hit(s.port, { path: s.api('c', '/state') })).status, 200);
-    assert.deepEqual((await getJson(s.port, '/api/projects')).projects.map((p: { name: string; loaded: boolean }) => [p.name, p.loaded]), [['a', true], ['c', true]]);
+    const projects = await getJson(s.port, '/api/projects');
+    assert.deepEqual(projects.projects.map((p: { name: string; loaded: boolean }) => [p.name, p.loaded]), [['a', true], ['c', true]]);
+    assert.equal(projects.machine.launchPermissionMode, 'auto');
+    assert.equal((await getJson(s.port, s.api('c', '/state'))).daemons.launchPermissionMode, 'auto');
 
+    // A project registered later starts its inbox and job sessions in the launch mode.
+    await waitFor(() => k.alive('_inbox').some((x) => x.cwd === c.dir), { what: "c's inbox" });
+    const modeOf = (argv: string[]) => argv[argv.indexOf('--permission-mode') + 1];
+    assert.equal(modeOf(k.alive('_inbox').find((x) => x.cwd === c.dir)!.argv), 'auto', "c's inbox");
     const jc = createJob(c.dir, loadConfig(c.dir).config, { title: 'in c' }).id;
     enqueue(c.dir, null, { type: 'resume', job: jc, from: 'dashboard' });
     s.entry('c')!.pool.poke();
     await waitFor(() => k.alive(jc).length === 1, { what: "c's job session" });
+    assert.equal(modeOf(k.alive(jc)[0]!.argv), 'auto', "c's job session");
+
+    // One audit line in c's log, from the launch flag; a has no .forge/config.yml, so it gets no log at all.
+    const audit = fs.readFileSync(repoAuditFile(c.dir), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.type === 'daemon-mode');
+    assert.equal(audit.length, 1);
+    assert.deepEqual([audit[0].mode, audit[0].actor.source], ['auto', 'launch']);
+    const rows = auditAll(c.dir, '1970-01-01T00:00:00.000Z', '2999-01-01T00:00:00.000Z').rows.filter((r) => r.action === 'daemon-mode');
+    assert.deepEqual(rows.map((r) => [r.detail, r.actor?.source]), [['auto', 'launch']]);
+    assert.equal(fs.existsSync(repoAuditFile(a.dir)), false, 'no audit file for a repo without .forge/config.yml');
     const events = stream(s.port, s.api('c', '/events?session=_inbox'));
     await waitFor(() => events.frames.length > 0, { what: "c's stream" });
 
@@ -321,6 +340,48 @@ test('registering and removing a project while the server runs', async () => {
     await s.cleanup();
     a.cleanup();
     c.cleanup();
+  }
+});
+
+// Every session can write a project's runtime dir. Appending to a planted FIFO would block the machine dashboard's event loop
+// for every project (so serveProjects returning is the check), and a planted link would send the line to another file.
+// The server is asked for its page and the project's entry, not /api/projects: that reads the audit log (repoBudgetStatus).
+test('a link or FIFO planted over the repo audit log never stops a launch-mode project from loading nor redirects the line', { skip: process.platform === 'win32' && 'no FIFOs or links without privileges' }, async () => {
+  const outside = tempRepo();
+  const guarded = path.join(outside.dir, 'settings.json');
+  const keep = '{"keep":true}\n';
+  const rows: { name: string; plant: (runtime: string, audit: string) => void; stillClean: () => boolean }[] = [
+    { name: 'a FIFO at audit.jsonl', plant: (_r, audit) => execFileSync('mkfifo', [audit]), stillClean: () => true },
+    { name: 'a symlink at audit.jsonl', plant: (_r, audit) => fs.symlinkSync(guarded, audit), stillClean: () => fs.readFileSync(guarded, 'utf8') === keep },
+    {
+      name: 'a symlink at .forge/runtime',
+      plant: (runtime) => {
+        fs.rmSync(runtime, { recursive: true, force: true });
+        fs.symlinkSync(outside.dir, runtime);
+      },
+      stillClean: () => !fs.existsSync(path.join(outside.dir, 'audit.jsonl')),
+    },
+  ];
+  const k = kit();
+  try {
+    for (const row of rows) {
+      fs.writeFileSync(guarded, keep);
+      const r = tempRepo();
+      fs.mkdirSync(path.join(r.dir, '.forge', 'runtime'), { recursive: true });
+      fs.writeFileSync(path.join(r.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION }));
+      row.plant(path.join(r.dir, '.forge', 'runtime'), repoAuditFile(r.dir));
+      const s = await serveProjects([{ dir: r.dir, name: 'p' }], { daemon: { ...k.opts, launchPermissionMode: 'auto' } });
+      try {
+        assert.ok(s.entry('p'), `${row.name}: the project loaded`);
+        assert.equal((await hit(s.port, { path: '/' })).status, 200, `${row.name}: the server answers`);
+        assert.ok(row.stillClean(), `${row.name}: the line went elsewhere`);
+      } finally {
+        await s.cleanup();
+        r.cleanup();
+      }
+    }
+  } finally {
+    outside.cleanup();
   }
 });
 
@@ -449,8 +510,10 @@ test('/api/projects and its stream', async () => {
     gone.cleanup();
     const body = await getJson(s.port, '/api/projects');
     assert.equal(body.error, null);
-    assert.deepEqual(Object.keys(body.machine).sort(), ['live', 'maxConcurrent', 'source']);
+    assert.deepEqual(Object.keys(body.machine).sort(), ['launchPermissionMode', 'live', 'maxConcurrent', 'source']);
     assert.equal(body.machine.source, 'auto');
+    assert.equal(body.machine.launchPermissionMode, null, 'a run without --permission-mode');
+    assert.equal(fs.existsSync(repoAuditFile(a.dir)), false, 'and no daemon-mode audit line');
     const [pa, pg] = body.projects;
     assert.deepEqual({ ...pa, daemon: Object.keys(pa.daemon).sort() }, {
       name: 'a',

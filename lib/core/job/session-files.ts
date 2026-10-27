@@ -89,6 +89,20 @@ export function openAppend(file: string): number {
   return fd;
 }
 
+/**
+ * Appends `text` to `file` as openAppend does, once every directory from `root` down to it is a real one
+ * (confinedDir): a planted link or FIFO throws and writes nothing elsewhere. For a log written from the
+ * dashboard server's event loop in a dir every session can write.
+ */
+export function appendConfined(root: string, file: string, text: string): void {
+  const fd = openAppend(path.join(confinedDir(root, path.dirname(file)), path.basename(file)));
+  try {
+    fs.writeSync(fd, text);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 /** Opens a log for reading without following a planted symlink or blocking on a FIFO; refuses non-files. */
 export function openRead(file: string): number {
   const fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK);

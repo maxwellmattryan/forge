@@ -126,5 +126,10 @@ export function dashboardActor(): EventActor {
   return { login: sanitizeLogin(osUserName()) || null, source: 'dashboard' };
 }
 
+/** The person behind `forge dash --permission-mode`: the OS user who ran it, recorded as the launch flag. */
+export function launchActor(): EventActor {
+  return { login: sanitizeLogin(osUserName()) || null, source: 'launch' };
+}
+
 /** What `forge job human --actor foreman` records. */
 export const FOREMAN_ACTOR: EventActor = Object.freeze({ login: null, source: 'foreman' });

@@ -15,7 +15,7 @@ const project = (name: string, over: Partial<MachineProjectSummary> = {}): Machi
   daemon: { enabled: true, wanted: true, foreman: true, office: 'idle', live: 0, maxConcurrent: 3 },
   ...over,
 });
-const response = (projects: MachineProjectSummary[]): ProjectsResponse => ({ error: null, machine: { maxConcurrent: 4, source: 'auto', live: 0 }, projects });
+const response = (projects: MachineProjectSummary[]): ProjectsResponse => ({ error: null, machine: { maxConcurrent: 4, source: 'auto', live: 0, launchPermissionMode: null }, projects });
 const unloaded = { loaded: false, jobs: null, latest: null, daemon: null } as const;
 
 test('overviewCards sorts what waits first and missing last', () => {

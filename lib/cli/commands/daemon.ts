@@ -14,12 +14,13 @@ import { legacyDashboardFile, machineDashboardFile, provenDashboard, readDashboa
 import { forgeHome } from '#core/paths.ts';
 import { usageError } from './args.ts';
 import type { HelpGroup } from '../types.ts';
+import type { DaemonPermissionMode } from '#core/types.ts';
 
 const DAEMON: HelpGroup = {
   name: 'daemon',
   summary: "the dashboard's headless sessions, from the terminal",
   commands: [
-    { command: 'daemon status', args: '', summary: "the daemon's sessions, from the terminal", common: true },
+    { command: 'daemon status', args: '', summary: "the daemon's sessions and the machine dashboard (pid, url, launch permission mode), from the terminal", common: true },
     {
       command: 'daemon log',
       args: '<job>|--inbox|--office|--gates [--lines N] [--follow]',
@@ -42,7 +43,8 @@ const MAX_LINES = 5000;
 const FOLLOW_MS = 250;
 
 export interface DaemonStatusOut {
-  dashboard: { pid: number; url: string | null; alive: boolean } | null;
+  /** `permissionMode`: the proven record's launch mode (`forge dash --permission-mode`), else null. */
+  dashboard: { pid: number; url: string | null; alive: boolean; permissionMode: DaemonPermissionMode | null } | null;
   sessions: {
     scope: string;
     job: string | null;
@@ -84,9 +86,9 @@ function status(root: string): DaemonStatusOut {
   const proven = files.map((f) => provenDashboard(f)).find((p) => p !== null) ?? null;
   const raw = proven ? null : (files.map((f) => readDashboardRecord(f)).find((r) => r && typeof r.pid === 'number') ?? null);
   const dashboard = proven
-    ? { pid: proven.pid, url: proven.url, alive: true }
+    ? { pid: proven.pid, url: proven.url, alive: true, permissionMode: proven.permissionMode }
     : raw && typeof raw.pid === 'number' && Number.isInteger(raw.pid)
-      ? { pid: raw.pid, url: null, alive: false }
+      ? { pid: raw.pid, url: null, alive: false, permissionMode: null }
       : null;
   // _inbox, then _office, before every job id ('_' > 'Z' in code points, so they are placed first explicitly).
   const rank = (s: string) => (s === INBOX_SCOPE ? 0 : s === OFFICE_SCOPE ? 1 : 2);

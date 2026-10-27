@@ -5,9 +5,10 @@
 /**
  * Where an event's `actor` came from: lib/integrations/github/actor.ts resolves env, gh, git, os, dashboard and
  * daemon (a daemon session's own action) and chat (a chat session's action for the owner); the foreman's decisions
- * say `foreman`; anything Forge cannot vouch for reads as `unknown`.
+ * say `foreman`; anything Forge cannot vouch for reads as `unknown`; launch (the `forge dash --permission-mode` flag's
+ * audit event).
  */
-export const ACTOR_SOURCES = ['env', 'gh', 'git', 'os', 'dashboard', 'daemon', 'foreman', 'unknown', 'chat'] as const;
+export const ACTOR_SOURCES = ['env', 'gh', 'git', 'os', 'dashboard', 'daemon', 'foreman', 'unknown', 'chat', 'launch'] as const;
 
 export const STAGES = [
   'backlog',

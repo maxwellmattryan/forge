@@ -222,6 +222,15 @@ export function jobDefaultMode(pool: PoolInput): DaemonPermissionMode | null {
   return PERMISSION_MODES.find((x) => x === m) ?? null;
 }
 
+/**
+ * The run's launch mode (`forge dash --permission-mode`) from a pool state or ProjectsResponse['machine'], or null
+ * without one; anything but the three modes reads as null.
+ */
+export function launchMode(v: unknown): DaemonPermissionMode | null {
+  const m = obj(v).launchPermissionMode;
+  return PERMISSION_MODES.find((x) => x === m) ?? null;
+}
+
 /** The mode a job session without its own choice runs in: the job default, else daemon.command's. */
 export function jobFallbackMode(pool: PoolInput): string {
   const p = obj(pool);
@@ -229,7 +238,7 @@ export function jobFallbackMode(pool: PoolInput): string {
 }
 
 export interface SessionMode {
-  /** The mode the session runs in, or starts in next: the human's choice for it, else the job default for a job, else daemon.command's. */
+  /** The mode the session runs in, or starts in next: the human's choice for it, else the job default for a job, else the launch mode for the inbox and office, else daemon.command's. */
   chosen: string;
   /** The running child reports another mode: a switch claude hasn't confirmed yet. */
   live: string | null;
@@ -242,7 +251,10 @@ export function sessionMode(pool: PoolInput, scope: string, session: SessionInpu
   const p = obj(pool);
   const override = chosenOverride(p, scope);
   const shared = sharedScope(scope);
-  const chosen = override ?? (shared ? (typeof p.permissionMode === 'string' && p.permissionMode ? p.permissionMode : 'default') : jobFallbackMode(p));
+  const command = typeof p.permissionMode === 'string' && p.permissionMode ? p.permissionMode : 'default';
+  // The launch mode reaches the inbox and office; a chat keeps its own branch.
+  const launched = scope === INBOX_SCOPE || scope === OFFICE_SCOPE ? launchMode(p) : null;
+  const chosen = override ?? (shared ? (launched ?? command) : jobFallbackMode(p));
   const s = obj(session);
   const reported = s.running === true && typeof s.permissionMode === 'string' && s.permissionMode ? s.permissionMode : null;
   return { chosen, live: reported !== null && reported !== chosen ? reported : null, overridden: override !== null };

@@ -43,6 +43,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // v12 adds the `retro-scope` event ({mandate}): `forge retro prepare --mandate` records a mandate retro's scope
   // on its job; an older Forge reads it as a generic event.
   { id: 'retro-scope-event', up: (e) => e },
+  // v13 lets an actor's `source` be `launch` (the `daemon-mode` audit event `forge dash --permission-mode` writes for each
+  // project it loads); an older Forge reads it as `unknown`.
+  { id: 'actor-source-launch', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

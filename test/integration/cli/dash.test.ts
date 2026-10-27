@@ -97,14 +97,18 @@ test('dash --stop signals only a proven dashboard', async () => {
 
       const status = await forgeAsync(repo.dir, ['daemon', 'status', '--json'], env);
       assert.equal(status.status, 0, `${row.name}: ${status.stderr}`);
-      assert.deepEqual(json(status.stdout).dashboard, row.proven ? { pid, url: row.url, alive: true } : { pid, url: null, alive: false }, `${row.name}: daemon status`);
+      // A record written without permissionMode (an older Forge, or a run without the flag) reports null.
+      assert.deepEqual(json(status.stdout).dashboard, row.proven ? { pid, url: row.url, alive: true, permissionMode: null } : { pid, url: null, alive: false, permissionMode: null }, `${row.name}: daemon status`);
       assert.ok(!status.stdout.includes('evil.example'), `${row.name}: a stale url is never printed`);
 
       if (row.proven && !row.legacy) {
+        const mismatched = await forgeAsync(repo.dir, ['dash', '--permission-mode', 'auto', '--json'], env);
+        assert.equal(mismatched.status, 1, `${row.name}: ${mismatched.stdout}${mismatched.stderr}`);
+        assert.match(json(mismatched.stdout).error.message, /runs without --permission-mode/, `${row.name}: a mode the running dashboard was not started with`);
         const running = await forgeAsync(repo.dir, ['dash', '--json'], env);
         assert.equal(running.status, 0, `${row.name}: ${running.stderr}`);
         const name = defaultProjectName(repo.dir);
-        assert.deepEqual(json(running.stdout), { url: `${row.url}/?project=${name}`, pid, running: true, project: name, added: true }, `${row.name}: dash reports the running one`);
+        assert.deepEqual(json(running.stdout), { url: `${row.url}/?project=${name}`, pid, running: true, project: name, added: true, permissionMode: null }, `${row.name}: dash reports the running one`);
       }
 
       const stop = await forgeAsync(repo.dir, ['dash', '--stop', '--json'], env);
@@ -208,6 +212,18 @@ const status = (url: string): Promise<number> =>
     req.on('error', () => resolve(0));
   });
 
+const getJson = (url: string): Promise<any> =>
+  new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = http.get({ host: u.hostname, port: u.port, path: u.pathname, agent: false }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (c: string) => (body += c));
+      res.on('end', () => (res.statusCode === 200 ? resolve(JSON.parse(body)) : reject(new Error(`${url}: ${res.statusCode} ${body}`))));
+    });
+    req.on('error', reject);
+  });
+
 test('dash in a second repo opens the running machine dashboard', { skip: process.platform === 'win32' }, async () => {
   const a = setupRepo();
   const b = setupRepo();
@@ -220,25 +236,41 @@ test('dash in a second repo opens the running machine dashboard', { skip: proces
     const port = await freePort();
     // A login shell slower than a few seconds (its capture times out at 5 s) still gives a confirmed start.
     const shell = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'bin', 'fake-login-shell');
-    const started = await forgeAsync(a.dir, ['dash', '--background', '--port', String(port), '--json'], { ...env, SHELL: shell, FAKE_SHELL_SLEEP: '3.5' });
+    const started = await forgeAsync(a.dir, ['dash', '--background', '--port', String(port), '--permission-mode', 'auto', '--json'], { ...env, SHELL: shell, FAKE_SHELL_SLEEP: '3.5' });
     assert.equal(started.status, 0, started.stderr);
     pid = json(started.stdout).pid as number;
     await waitFor(() => recordPid(home) === pid, { what: "a's dashboard record" });
-    const origin = JSON.parse(fs.readFileSync(machineDashboardFile(home), 'utf8')).url as string;
+    const rec = JSON.parse(fs.readFileSync(machineDashboardFile(home), 'utf8'));
+    const origin = rec.url as string;
+    assert.equal(rec.permissionMode, 'auto', 'the record carries the launch mode');
     const [nameA, nameB] = [defaultProjectName(a.dir), defaultProjectName(b.dir)];
-    assert.deepEqual(json(started.stdout), { url: `${origin}/?project=${nameA}`, pid, started: true, project: nameA, added: true });
+    assert.deepEqual(json(started.stdout), { url: `${origin}/?project=${nameA}`, pid, started: true, project: nameA, added: true, permissionMode: 'auto' });
     assert.equal(trustApproved(home, a.dir), true, 'a human ran forge dash in a: its files are approved');
     assert.equal(trustApproved(home, b.dir), false, "forge dash in a approves nothing of b's");
 
+    // Another mode is reported, never applied: nothing is registered, approved, written or signalled.
+    const index = () => fs.readFileSync(path.join(home, 'projects.json'), 'utf8');
+    const before = [index(), fs.readFileSync(machineDashboardFile(home), 'utf8')];
+    const mismatched = await forgeAsync(b.dir, ['dash', '--permission-mode', 'dontAsk', '--json'], env);
+    assert.equal(mismatched.status, 1, `${mismatched.stdout}${mismatched.stderr}`);
+    const refusal = json(mismatched.stdout).error;
+    assert.match(refusal.message, /runs with --permission-mode auto/);
+    assert.match(refusal.message, /--permission-mode dontAsk was not applied/);
+    assert.equal(refusal.hint, 'forge dash --stop');
+    assert.deepEqual([index(), fs.readFileSync(machineDashboardFile(home), 'utf8')], before, 'the index and the record are byte-identical');
+    assert.equal(trustApproved(home, b.dir), false, 'a refused launch approves nothing');
+    assert.equal((await getJson(`${origin}/api/projects`)).machine.launchPermissionMode, 'auto', "the running server's mode is unchanged");
+    assert.equal(json((await forgeAsync(b.dir, ['daemon', 'status', '--json'], env)).stdout).dashboard.permissionMode, 'auto');
+
     const second = await forgeAsync(b.dir, ['dash', '--json'], env);
     assert.equal(second.status, 0, second.stderr);
-    assert.deepEqual(json(second.stdout), { url: `${origin}/?project=${nameB}`, pid, running: true, project: nameB, added: true });
+    assert.deepEqual(json(second.stdout), { url: `${origin}/?project=${nameB}`, pid, running: true, project: nameB, added: true, permissionMode: 'auto' });
     assert.equal(trustApproved(home, b.dir), true, 'and forge dash in b approves its own');
     // Opening the running dashboard again for a registered repo approves nothing: a change since then waits for Start.
     fs.appendFileSync(path.join(b.dir, 'CLAUDE.md'), 'a change nobody reviewed\n');
     const reopened = await forgeAsync(b.dir, ['dash', '--json'], env);
     assert.equal(reopened.status, 0, reopened.stderr);
-    assert.deepEqual(json(reopened.stdout), { url: `${origin}/?project=${nameB}`, pid, running: true, project: nameB, added: false });
+    assert.deepEqual(json(reopened.stdout), { url: `${origin}/?project=${nameB}`, pid, running: true, project: nameB, added: false, permissionMode: 'auto' });
     assert.equal(trustApproved(home, b.dir), false, 'a report for a registered repo approves nothing');
     const list = json((await forgeAsync(b.dir, ['project', 'list', '--json'], env)).stdout);
     assert.deepEqual(list.projects.map((p: { name: string }) => p.name).sort(), [nameA, nameB].sort());
@@ -246,11 +278,12 @@ test('dash in a second repo opens the running machine dashboard', { skip: proces
       .split('\n')
       .filter((l) => l.includes(`dash --foreground --port ${port}`));
     assert.equal(dashes.length, 1, dashes.join('\n'));
+    assert.ok(dashes[0]!.includes('--permission-mode auto'), `the background child gets the launch mode: ${dashes[0]}`);
     await waitFor(async () => (await status(`${origin}/api/p/${nameB}/state`)) === 200, { what: "b's routes", timeoutMs: 5000 });
 
     const out = await forgeAsync(outside, ['dash', '--json'], { ...env, FORGE_ROOT: '' });
     assert.equal(out.status, 0, out.stderr);
-    assert.deepEqual(json(out.stdout), { url: origin, pid, running: true, project: null });
+    assert.deepEqual(json(out.stdout), { url: origin, pid, running: true, project: null, permissionMode: 'auto' });
   } finally {
     await forgeAsync(a.dir, ['dash', '--stop', '--json'], env);
     try {
@@ -287,7 +320,7 @@ test('a daemon session may only ask for the running dashboard of a registered pr
     const added = index();
     const report = await forgeAsync(registered.dir, ['dash', '--json'], daemon(registered.dir));
     assert.equal(report.status, 0, report.stderr);
-    assert.deepEqual(json(report.stdout), { url: `${url}/?project=${name}`, pid, running: true, project: name, added: false });
+    assert.deepEqual(json(report.stdout), { url: `${url}/?project=${name}`, pid, running: true, project: name, added: false, permissionMode: null });
     assert.equal(index(), added);
     assert.equal(trustApproved(home, registered.dir), false, "a session's report approves no files");
   } finally {

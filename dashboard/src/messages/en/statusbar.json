@@ -40,6 +40,7 @@
       "jobMode": "Job sessions' permissions",
       "jobModeAbout": "Every job without its own choice, now and from its next start. A job's own choice in its panel header overrides it",
       "jobModeAutoWarning": "Auto for every job: unattended sessions approve most tool calls without you. Prompts claude still raises wait until someone answers.",
+      "launchMode": "started this run: the inbox, office and job sessions start in {mode}; the job sessions' default and each session's own choice still override it.",
       "billingIgnored": "{vars} is set where forge dash started; daemon sessions ignore it and use your Claude login (daemon.auth: subscription).",
       "billingPassed": "{vars} is set where forge dash started; daemon sessions bill that account or go through that endpoint (daemon.auth: api-key)."
     },

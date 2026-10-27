@@ -5,12 +5,13 @@
 // a throttled re-read, and summarised for GET /api/projects.
 import fs from 'node:fs';
 import { daemonProblems, loadConfig } from '#core/config/load.ts';
-import { listJobs } from '#core/job/store.ts';
-import { machinePaths } from '#core/paths.ts';
+import { listJobs, logRepoEvent } from '#core/job/store.ts';
+import { machinePaths, paths } from '#core/paths.ts';
 import { scopeKnownValues } from '#engine/guard/known-secrets.ts';
 import { repoBudgetStatus } from '#engine/metrics/repo-budget.ts';
 import { PROJECT_NAME, listProjects, readMachineIndex, type MachineProject, type ProjectStatus } from '#engine/project/machine-index.ts';
 import { trustApproved } from '#engine/project/trust-approval.ts';
+import { launchActor } from '#integrations/github/actor.ts';
 import { createPreviewer, ghRunner } from '#integrations/github/preview.ts';
 import { whoDrives } from '#office/driver.ts';
 import { createPool } from '#office/pool.ts';
@@ -136,6 +137,16 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
     const entry: Loaded = { name, root, ctx, pool, cleanups: [], unsubscribe };
     loaded.set(name, entry);
     for (const fn of listeners) attach(entry, fn);
+    // The run's launch mode reaches this project's sessions from now on, so its audit log says so: at start-up, and
+    // when a project registered later loads. A repo without .forge/config.yml gets no .forge/ for it.
+    const launchMode = opts.daemon?.launchPermissionMode;
+    if (launchMode && fs.existsSync(paths(root).config)) {
+      try {
+        logRepoEvent(root, 'daemon-mode', { mode: launchMode, actor: launchActor() });
+      } catch {
+        // An unwritable audit log never stops a project from loading.
+      }
+    }
     try {
       const { config } = loadConfig(root);
       // A dev dashboard often serves fresh clones of repos that commit daemon.enabled: true, so it
@@ -266,7 +277,7 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
     refresh,
     summaries: (): ProjectsResponse => ({
       error,
-      machine: { maxConcurrent: machine.slots.cap(), source: setting === null ? 'auto' : 'settings', live: machine.slots.live() },
+      machine: { maxConcurrent: machine.slots.cap(), source: setting === null ? 'auto' : 'settings', live: machine.slots.live(), launchPermissionMode: opts.daemon?.launchPermissionMode ?? null },
       projects: statuses.map(summary),
     }),
     onProject(fn) {
