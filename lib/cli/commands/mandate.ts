@@ -60,9 +60,9 @@ const MANDATE: HelpGroup = {
   commands: [
     {
       command: 'mandate new',
-      args: '<id> --title T [terms]',
+      args: '[<id>] --title T [terms]',
       summary:
-        'create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run)',
+        'create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run); without <id>, Forge picks m- and 8 random hex digits no mandate or mandate runtime dir holds (mandate.id)',
       flags: [
         ['--title T', 'one line, at most 200 characters (required)'],
         [
@@ -71,7 +71,7 @@ const MANDATE: HelpGroup = {
         ],
         ...TERMS,
       ],
-      exits: [[1, `the id exists or is not a mandate id, a term breaks the contract (every problem named), or ${DAEMON_EXIT}`]],
+      exits: [[1, `an id given exists or is not a mandate id, a term breaks the contract (every problem named), or ${DAEMON_EXIT}`]],
       docs: DOCS,
       common: true,
     },
@@ -282,19 +282,20 @@ function written(root: string, id: string, changed: boolean) {
   return { ok: true, changed, mandate: mandateSummary(mandateTarget(all, id), all) };
 }
 
-function write(ctx: CliContext, sub: MandateOp, id: string, flags: Record<string, any>) {
+function write(ctx: CliContext, sub: MandateOp, id: string | null, flags: Record<string, any>) {
   const { root, config } = ctx;
   if (sub === 'new') {
     const goal = goalFrom(flags);
     const input = { ...inputFrom(ctx, { ...flags, title: req(flags.title, '--title') }), ...(goal === undefined ? {} : { goal }) };
-    mandateWrite(root, config, 'new', id, { input });
+    const { id: made } = mandateWrite(root, config, 'new', id, { input });
     // A goal mandate's first drafting run, for the office session to turn.
-    if (goal !== undefined) return { ...written(root, id, true), draft: { request: queueDraftRequest(root, id).request } };
-    return written(root, id, true);
+    if (goal !== undefined) return { ...written(root, made, true), draft: { request: queueDraftRequest(root, made).request } };
+    return written(root, made, true);
   }
   const input = sub === 'edit' ? inputFrom(ctx, flags) : undefined;
   const reason = sub === 'pause' || sub === 'close' ? str(flags.reason, '--reason') : undefined;
-  return written(root, id, mandateWrite(root, config, sub, id, { input, reason }).changed);
+  const out = mandateWrite(root, config, sub, id, { input, reason });
+  return written(root, out.id, out.changed);
 }
 
 /** A mandate's job figures from the CLI's records, with no tracker call: the jobs, spend and starts. */
@@ -459,9 +460,10 @@ export async function mandateCmd(ctx: CliContext, sub: string | undefined, rest:
     return { data: listCmd(ctx.root), exitCode: 0 };
   }
   if (sub === undefined || (!WRITES.has(sub) && sub !== 'show')) throw usageError(MANDATE);
-  if (rest.length !== 1) throw usageError(MANDATE, sub);
+  // `new` without an id gets one picked (newMandateId); every other write and `show` name one.
+  if (sub === 'new' ? rest.length > 1 : rest.length !== 1) throw usageError(MANDATE, sub);
   if (sub === 'edit' && (flags.goal !== undefined || flags['goal-file'] !== undefined)) throw new ForgeError('--goal is set only by forge mandate new', 'usage');
-  const id = rest[0];
-  if (sub === 'show') return { data: show(ctx, id), exitCode: 0 };
+  const id = rest[0] ?? null;
+  if (sub === 'show') return { data: show(ctx, id!), exitCode: 0 };
   return { data: write(ctx, sub as MandateOp, id, flags as Record<string, any>), exitCode: 0 };
 }

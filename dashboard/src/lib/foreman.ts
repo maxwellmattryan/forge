@@ -66,7 +66,6 @@ export function postMandateStatus(id: string, action: MandateStatusAction, reaso
 
 /** The editor's fields as typed: lists as comma-separated text, numbers as text, `after` '' for none, `decides` null until touched. */
 export interface MandateForm {
-  id: string;
   title: string;
   milestones: string;
   labels: string;
@@ -87,7 +86,6 @@ export interface MandateForm {
 
 /** An empty form: a new mandate's, before the defaults show as placeholders. */
 export const blankForm = (): MandateForm => ({
-  id: '',
   title: '',
   milestones: '',
   labels: '',
@@ -109,7 +107,6 @@ export const blankForm = (): MandateForm => ({
 export function formOf(m: MandateRow, body: string): MandateForm {
   const c = m.contract;
   return {
-    id: m.id,
     title: m.title,
     milestones: m.scope.milestones.join(', '),
     labels: m.scope.labels.join(', '),
@@ -145,9 +142,9 @@ const CHOICE_KEYS = ['until', 'order', 'onUnfinishable'] as const;
 /** A number field as sent: the server's contract judges its range, so anything typed is sent as Number reads it. */
 const numberOf = (text: string): number => Number(text.trim());
 
-/** POST /api/mandates's body: the id and title, then each filled term; the server takes the rest from foreman.mandate. */
+/** POST /api/mandates's body: the title, then each filled term; the server picks the id and takes the rest from foreman.mandate. */
 export function newMandateBody(form: MandateForm): PostMandateBody {
-  const body: PostMandateBody = { id: form.id.trim(), title: form.title.trim() };
+  const body: PostMandateBody = { title: form.title.trim() };
   for (const k of LIST_KEYS) {
     const list = splitList(form[k]);
     if (list.length) body[k] = list;
@@ -189,7 +186,7 @@ export function editMandateBody(m: MandateRow, loaded: { body: string }, form: M
   return out;
 }
 
-/** Whether a new mandate's id is one: MANDATE_ID_SOURCE, and never `none`. Checked before posting. */
+/** Whether `id` is a mandate id: MANDATE_ID_SOURCE, and never `none`. */
 export const isMandateId = (id: string): boolean => new RegExp(MANDATE_ID_SOURCE).test(id) && id !== 'none';
 
 // ---------- the mandates list ----------
