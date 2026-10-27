@@ -158,6 +158,7 @@ const CONFIG_ROWS: Row[] = [
     removed: ['release.script'],
     note: ONLY_VERSION,
   },
+  { step: 'foreman-ship-release', input: { foreman: { enabled: true, ship: 'merge' } }, fields: { 'foreman.ship': 'merge', 'foreman.enabled': true }, note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -338,6 +339,12 @@ const MANDATE_ROWS: Row[] = [
     input: { ...MANDATE_V1, goal: null, filedAt: null },
     fields: { scoring: 'all', 'scope.milestones': ['M1'] },
     note: 'a mandate written before scoring scores all its merged jobs',
+  },
+  {
+    step: 'mandate-until-released',
+    input: { ...MANDATE_V1, until: 'merged', goal: null, filedAt: null, scoring: 'all' },
+    fields: { until: 'merged', filedAt: null, scoring: 'all', 'scope.milestones': ['M1'] },
+    note: ONLY_VERSION,
   },
 ];
 

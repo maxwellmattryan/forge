@@ -4,7 +4,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { jobAt, parkedAt, recordingMoveEffects, tempRepo } from '../../../test/helpers.ts';
+import { planSteps, releaseFiles, writeReleasePlan } from '#engine/release/files.ts';
+import { latestMandatePlan } from '#engine/release/mandate.ts';
+import { RELEASE_FILE_VERSION } from '#engine/release/plan.ts';
 import { defaults } from '#core/config/load.ts';
 import { listRequests } from '#core/job/requests.ts';
 import { createJob, loadJob, logEvent,logHumanEvent, readEvents, repoAuditFile, setJob, updateJob } from '#core/job/store.ts';
@@ -303,5 +307,153 @@ test('the pass closes a finished mandate and starts the next link', async (t) =>
     assert.equal(status(root, 'm1'), 'active');
     assert.equal(audit(root).length, before);
     assert.deepEqual(listRequests(root), []);
+  });
+});
+
+/**
+ * scratch() releasing its root with a tag command under ship release, the foreman deciding `release`,
+ * and an `until: released` mandate m1 whose one job is done. `tag`: v0.1.0 on the first commit with one
+ * commit after it (behind), at HEAD (head), or none.
+ */
+function releasing(t: test.TestContext, tag: 'behind' | 'head' | 'none' = 'behind', input: MandateInput = {}, at?: string) {
+  const s = scratch(t);
+  const { root, config } = s;
+  config.foreman.ship = 'release';
+  config.foreman.decides = [...config.foreman.decides, 'release'];
+  config.foreman.reserved = config.foreman.reserved.filter((x) => x !== 'gate:release');
+  config.release = { ...config.release, mechanism: 'tag', command: 'git tag v0.2.0' };
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: root, stdio: 'pipe' });
+  if (tag !== 'none') git('tag', 'v0.1.0');
+  if (tag === 'behind') {
+    fs.writeFileSync(`${root}/a.txt`, 'a\n');
+    git('add', '-A');
+    git('commit', '-qm', 'work');
+  }
+  mandate(root, config, 'm1', { milestones: ['M1'], until: 'released', decides: ['release'], ...input }, { at });
+  const job = jobAt(root, 'done', { create: { mandate: 'm1', issues: issue(1) } }).id;
+  return { ...s, job };
+}
+
+const planned = (root: string) => audit(root).filter((e) => e.type === 'mandate-release-planned');
+const releaseGates = (root: string) => listRequests(root).filter((r) => r.type === 'gate' && r.args?.gate === 'release');
+const writeState = (root: string, hash: string, steps: Record<string, unknown>, finishedAt: string | null = null) =>
+  fs.writeFileSync(releaseFiles(root).state, JSON.stringify({ version: RELEASE_FILE_VERSION, planHash: hash, startedAt: 'x', updatedAt: 'x', finishedAt, steps }));
+
+test('a mandate until released waits for its release and never closes early', async (t) => {
+  const pass = (root: string, config: Config, at?: number, notify: QueueNotify = notifier().fn) => runOfficePass(root, config, { tracker: stub({ M1: [1] }), notify, at });
+  const blockedOf = (out: Awaited<ReturnType<typeof runOfficePass>>) => out.mandates.find((m) => m.id === 'm1')?.blocked;
+  const waits = async (root: string, config: Config, want: RegExp, plans: number, notify?: QueueNotify) => {
+    const out = await pass(root, config, undefined, notify);
+    assert.equal(status(root, 'm1'), 'active', 'not closed');
+    assert.match(String(blockedOf(out)), want);
+    assert.equal(planned(root).length, plans, 'planned events');
+    return out;
+  };
+
+  await t.test('no tag in the root', async (t) => {
+    const { root, config } = releasing(t, 'none');
+    await waits(root, config, /^release: the root repo has no tag to release since; tag its last release, or edit the mandate's until$/, 0);
+  });
+
+  await t.test('nothing to release since the tag', async (t) => {
+    const { root, config } = releasing(t, 'head');
+    await waits(root, config, /^release: nothing to release since v0\.1\.0 \(\(root\): no commits since v0\.1\.0\)$/, 0);
+  });
+
+  await t.test('an unfinished run of another plan', async (t) => {
+    const { root, config } = releasing(t);
+    fs.mkdirSync(releaseFiles(root).dir, { recursive: true });
+    writeState(root, 'c'.repeat(64), {});
+    await waits(root, config, /^release: a release run is in progress \(0\/0 steps done\)/, 0);
+    assert.deepEqual(releaseGates(root), []);
+  });
+
+  await t.test('a failed step', async (t) => {
+    const { root, config } = releasing(t);
+    await waits(root, config, /^release: plan [0-9a-f]{12} waits for release approval \(foreman\)$/, 1);
+    writeState(root, latestMandatePlan(root, 'm1')!.hash, { '(root)/preflight': { status: 'failed', at: 'x', detail: 'check ready failed: no origin/main' } });
+    await waits(root, config, /^release: step \(root\)\/preflight failed: check ready failed: no origin\/main$/, 1);
+  });
+
+  await t.test('a plan that went stale after a step ran', async (t) => {
+    const { root, config } = releasing(t);
+    await pass(root, config);
+    writeState(root, latestMandatePlan(root, 'm1')!.hash, { '(root)/preflight': { status: 'done', at: 'x' } });
+    config.release.command = 'git tag v0.3.0';
+    await waits(root, config, /^release: the plan went stale \(plan [0-9a-f]{12}, now [0-9a-f]{12}\); re-plan with forge release plan --mandate m1 --force$/, 1);
+    assert.equal(releaseGates(root).length, 1, 'no new request');
+  });
+
+  await t.test('another plan in release.json that has not started is never replaced', async (t) => {
+    const { root, config } = releasing(t);
+    const other = jobAt(root, 'done', { pr: { number: 3, url: 'https://github.com/acme/web/pull/3', state: 'MERGED' } }).id;
+    writeReleasePlan(root, config, { kind: 'job', job: other });
+    const before = fs.readFileSync(releaseFiles(root).json, 'utf8');
+    await waits(root, config, /^release: blocked by another plan, plan it with forge release plan --mandate m1$/, 0);
+    assert.equal(fs.readFileSync(releaseFiles(root).json, 'utf8'), before, 'release.json untouched');
+    assert.deepEqual([releaseGates(root), readDirectives(root, { mandate: 'm1' })], [[], []], 'no request, no directive');
+  });
+
+  await t.test('a finished release that a later merge missed is planned again, not closed', async (t) => {
+    const { root, config } = releasing(t);
+    const n = notifier();
+    await pass(root, config, undefined, n.fn);
+    const [first] = planned(root);
+    const plan = JSON.parse(fs.readFileSync(releaseFiles(root).json, 'utf8'));
+    writeState(root, first.planHash, Object.fromEntries(planSteps(plan).map((s) => [s.id, { status: 'done', at: 'x' }])), 'x');
+    // Another mandate job merges after the plan was planned: its commit lands in the root.
+    fs.writeFileSync(`${root}/b.txt`, 'b\n');
+    execFileSync('git', ['add', '-A'], { cwd: root, stdio: 'pipe' });
+    execFileSync('git', ['commit', '-qm', 'later'], { cwd: root, stdio: 'pipe' });
+    const mergedAt = new Date(Date.parse(first.ts) + 1000).toISOString();
+    jobAt(root, 'done', { create: { mandate: 'm1', issues: issue(1) }, pr: { number: 4, url: 'https://github.com/acme/web/pull/4', state: 'MERGED', mergedAt } });
+    await waits(root, config, /^release: plan [0-9a-f]{12} waits for release approval \(foreman\)$/, 2, n.fn);
+    const second = latestMandatePlan(root, 'm1')!.hash;
+    assert.notEqual(second, first.planHash, 'a new hash');
+    assert.deepEqual(releaseGates(root).map((r) => r.args?.key), [first.planHash, second], 'a new request');
+    const gate = [['gate'], { reason: 'mandate-release', mandate: 'm1' }];
+    assert.deepEqual(n.calls, [gate, gate], 'a plan after a release ran is news: notified again');
+  });
+
+  await t.test('release.json replaced by another plan', async (t) => {
+    const { root, config } = releasing(t);
+    await pass(root, config);
+    writeReleasePlan(root, config, { kind: 'since', tag: 'v0.1.0' });
+    await waits(root, config, /^release: release\.json no longer holds plan [0-9a-f]{12}; run forge release plan --mandate m1$/, 1);
+  });
+
+  await t.test('a plan that went stale before any step ran is planned again', async (t) => {
+    const { root, config } = releasing(t);
+    const n = notifier();
+    await pass(root, config, undefined, n.fn);
+    const first = latestMandatePlan(root, 'm1')!.hash;
+    config.release.command = 'git tag v0.3.0';
+    const out = await waits(root, config, /^release: plan [0-9a-f]{12} waits for release approval \(foreman\)$/, 2, n.fn);
+    assert.deepEqual(n.calls, [[['gate'], { reason: 'mandate-release', mandate: 'm1' }]], 'the re-plan notifies no one again');
+    const second = latestMandatePlan(root, 'm1')!.hash;
+    assert.notEqual(second, first, 'a new hash');
+    assert.deepEqual(releaseGates(root).map((r) => r.args?.key), [first, second], 'a new request');
+    assert.equal(out.mandates[0].release?.plan, second.slice(0, 12));
+    assert.deepEqual(readDirectives(root, { mandate: 'm1' }).map((d) => d.action), ['release', 'release']);
+  });
+
+  await t.test('over budget with old activity, it neither pauses nor stalls', async (t) => {
+    const past = new Date(Date.now() - 3 * 60 * MINUTE).toISOString();
+    const { root, config, job } = releasing(t, 'behind', { budgetUsd: 1 }, past);
+    spend(root, job, 5);
+    const out = await waits(root, config, /^release: plan [0-9a-f]{12} waits for release approval \(foreman\)$/, 1);
+    const later = await pass(root, config, Date.now() + 120 * MINUTE);
+    assert.equal(status(root, 'm1'), 'active', 'no pause');
+    assert.ok(!readDirectives(root, { mandate: 'm1' }).some((d) => d.action === 'pause'));
+    assert.deepEqual([out.direct, later.direct], [null, null], 'no direct request');
+  });
+
+  await t.test('a paused mandate is never planned', async (t) => {
+    const { root, config } = releasing(t);
+    writeMandate(root, (all) => ({ mandate: { ...(all.find((m) => m.id === 'm1') as Mandate), status: 'paused' }, action: 'pause' as const }));
+    const out = await pass(root, config);
+    assert.equal(status(root, 'm1'), 'paused');
+    assert.equal(planned(root).length, 0);
+    assert.match(String(blockedOf(out)), /^release: the Office pass plans it once the mandate's jobs have merged$/);
   });
 });

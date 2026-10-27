@@ -124,7 +124,8 @@ const issueOf = (job: Pick<Job, 'issues'>): string | null => job.issues.find((i)
 
 /**
  * reached (at its until: merge-ready is done, or a `pr` stage waiting on pr-review with a PR; merged is
- * done), handled (cancelled, or failed with a `mandate-unfinishable` event after its latest transition),
+ * done; released is done too, as merged: the release belongs to the mandate, not a job, and the Office
+ * pass waits for it once every job has merged), handled (cancelled, or failed with a `mandate-unfinishable` event after its latest transition),
  * unfinishable (failed and not handled), else in flight.
  */
 export function classifyJob(job: Pick<Job, 'state' | 'stage' | 'waitingOn' | 'pr'>, events: JobEvent[], until: MandateUntil): JobClass {

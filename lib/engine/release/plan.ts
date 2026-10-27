@@ -43,7 +43,16 @@ export interface ReleaseBump {
   notes: string;
 }
 
-export type ReleaseSelection = { kind: 'job'; job: string } | { kind: 'since'; tag: string } | { kind: 'all' };
+/**
+ * What a plan releases. A since plan the Office pass makes for an `until: released` mandate also names the
+ * mandate and, by label, the commit each planned repo's HEAD was at (only then, so a plain `--since` plan
+ * hashes as before): planHash covers both, so an approval for one mandate's plan never stands for another's,
+ * for a plain `--since` plan of the same tag, or for code merged after it was planned.
+ */
+export type ReleaseSelection = { kind: 'job'; job: string } | { kind: 'since'; tag: string; mandate?: string; heads?: Record<string, string> } | { kind: 'all' };
+
+/** A full commit id (sha1 or sha256), as `git rev-parse` prints it. */
+export const COMMIT_SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
 export interface ReleaseStep {
   /** `<label>/<kind>`. */
@@ -132,6 +141,8 @@ export type CloneResolver = (name: string) => { dir: string } | { detail: string
 export interface PlanOptions {
   git?: GitReader;
   clone?: CloneResolver;
+  /** A mandate plan's heads a recompute keeps as planned, by label (keptHeads); every other planned repo's HEAD is read now. */
+  heads?: Record<string, string>;
   /** A script repo's bump: drafted by `forge release plan`, read back from release.json by a recompute. */
   bump?: (input: RepoInput) => ReleaseBump;
 }
@@ -186,6 +197,35 @@ export function planHash(plan: Pick<ReleasePlan, 'selection' | 'order' | 'repos'
 }
 
 const SINCE = (tag: string) => `forge release plan --since ${tag}`;
+
+/** Each planned repo's HEAD commit by label, or the one `kept` holds for it (keptHeads). */
+function headsOf(order: RepoKey[], dirs: Map<RepoKey, string>, git: GitReader, kept: Record<string, string> = {}): Record<string, string> {
+  const heads: Record<string, string> = {};
+  for (const repo of order) {
+    const label = labelOf(repo);
+    if (Object.hasOwn(kept, label)) {
+      heads[label] = kept[label];
+      continue;
+    }
+    const r = git(dirs.get(repo)!, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']);
+    const sha = r.ok ? r.stdout.trim() : '';
+    if (!COMMIT_SHA.test(sha)) throw new ForgeError(`${label}: git can't read HEAD, so its release can't be planned`);
+    heads[label] = sha;
+  }
+  return heads;
+}
+
+/**
+ * The heads a recompute of a mandate plan keeps as planned: each repo where a step that acts (anything but
+ * a check-only preflight) has run under this plan's state.json, since the release's own steps move HEAD
+ * (a version commit, a fast-forward). Every other repo's HEAD is read again, so a merge makes the plan stale.
+ */
+export function keptHeads(file: Pick<ReleasePlan, 'selection' | 'hash' | 'repos'>, state: ReleaseState | null): Record<string, string> | undefined {
+  const heads = file.selection.kind === 'since' ? file.selection.heads : undefined;
+  if (!heads || !state || state.planHash !== file.hash) return undefined;
+  const acted = (r: ReleaseRepo) => Array.isArray(r?.steps) && r.steps.some((s) => s && (s.argv !== null || s.shell !== null || s.manual !== null) && Object.hasOwn(state.steps, s.id));
+  return Object.fromEntries(file.repos.filter((r) => acted(r) && typeof r.label === 'string' && Object.hasOwn(heads, r.label)).map((r) => [r.label, heads[r.label]]));
+}
 
 /**
  * The release plan for `selection`, from config, the job (for `job`) and the clones. Throws a
@@ -290,17 +330,31 @@ export function planRelease(root: string, config: Config, selection: ReleaseSele
       rollback: rollbackFor(input, steps, pkg),
     };
   });
-  const plan: Omit<ReleasePlan, 'hash'> = { version: RELEASE_FILE_VERSION, createdAt: now(), selection, order: ord.order.map(labelOf), relaxed: ord.relaxed, repos, skipped };
+  // A mandate plan pins each planned repo's HEAD, so a merge after it was planned (or approved) makes it stale.
+  const pinned: ReleaseSelection =
+    selection.kind === 'since' && selection.mandate !== undefined ? { kind: 'since', tag: selection.tag, mandate: selection.mandate, heads: headsOf(ord.order, dirs, git, opts.heads) } : selection;
+  const plan: Omit<ReleasePlan, 'hash'> = { version: RELEASE_FILE_VERSION, createdAt: now(), selection: pinned, order: ord.order.map(labelOf), relaxed: ord.relaxed, repos, skipped };
   return { ...plan, hash: planHash(plan) };
+}
+
+/**
+ * How to re-plan a stale plan. A mandate's is planned again by the Office pass or `--mandate` (a plain plan
+ * would replace it, and the mandate would never close), with `--force` once a step of its run has started.
+ */
+function replanHint(file: Pick<ReleasePlan, 'selection' | 'hash'>, state: ReleaseState | null): string {
+  const sel = file.selection;
+  if (sel.kind !== 'since' || sel.mandate === undefined) return 'run forge release plan';
+  const started = !!state && state.planHash === file.hash && !state.finishedAt && Object.keys(state.steps).length > 0;
+  return started ? `run forge release plan --mandate ${sel.mandate} --force` : `the Office pass plans it again, or run forge release plan --mandate ${sel.mandate}`;
 }
 
 /** The plan as it is now, against release.json and state.json; a mismatch is refused as stale. */
 export function freshPlan(root: string, config: Config, file: ReleasePlan, state: ReleaseState | null, opts: PlanOptions = {}): ReleasePlan {
   // A script repo's bump comes back from the file, checked, with Forge's own notes path; its draft never runs again.
-  const now = planRelease(root, config, file.selection, { ...opts, bump: opts.bump ?? fileBumps(root, file) });
+  const now = planRelease(root, config, file.selection, { ...opts, heads: keptHeads(file, state), bump: opts.bump ?? fileBumps(root, file) });
   // planHash(file) catches a release.json edited without updating its hash.
   const old = [file.hash, planHash(file), state?.planHash].find((h) => h !== undefined && h !== now.hash);
-  if (old !== undefined) throw new ForgeError(`the release plan no longer matches config and the repos (plan ${String(old).slice(0, 12)}, now ${now.hash.slice(0, 12)}); run forge release plan`);
+  if (old !== undefined) throw new ForgeError(`the release plan no longer matches config and the repos (plan ${String(old).slice(0, 12)}, now ${now.hash.slice(0, 12)}); ${replanHint(file, state)}`);
   return now;
 }
 
