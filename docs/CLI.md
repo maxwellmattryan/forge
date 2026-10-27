@@ -1907,18 +1907,19 @@ The agent roster.
 
 Run a configured command in a job's worktree.
 
-**`forge run <id> <command> [--repo NAME] [--background] [--tail N] [-- <args…>]`**: run commands.&lt;command> in the job's worktree, logging its output to the job dir and printing the tail
+**`forge run <id> <command> [--repo NAME] [--background] [--changed] [--tail N] [-- <args…>]`**: run commands.&lt;command> in the job's worktree, logging its output to the job dir and printing the tail
 
 | Flag | Meaning |
 |---|---|
 | `-- <args…>` | quoted arguments, placed at {args} in the template or appended |
 | `--background` | start it detached (dev servers); stop it with forge stop |
+| `--changed` | run only the tests related to the job's changes since its base (relatedTests): placed at {args}; the whole command when a shared test helper changed, nothing when none match; not with --repo, --background or -- &lt;args…> |
 | `--repo NAME` | run the command of member repo NAME's one component that defines it, in that member's worktree (not with --background) |
 | `--tail N` | print the last N lines (default 40) |
 
 | Exit | When |
 |---|---|
-| 1 | the command failed, is not configured (for --repo: no component of that repo, or several, define it), or the job has no worktree |
+| 1 | the command failed, is not configured (for --repo: no component of that repo, or several, define it), or the job has no worktree; with --changed also a template without {args}, a base that can't be resolved, or --changed with a value, --repo, --background or -- &lt;args…> |
 
 ### `forge secrets`
 

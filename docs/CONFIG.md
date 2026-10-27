@@ -2,11 +2,11 @@
 
 `/forge init` writes this file. Every key is optional; anything omitted takes the default shown. The file uses a strict YAML subset (block maps and lists, quoted or plain scalars, `[a, b]` / `{a: 1}` flow collections, `|` blocks, comments; no anchors or tags). `forge config validate` checks it, `forge config show` prints the effective config, `forge config get <key>` prints one effective value, and `forge config set <key> <value>` changes one editable key (see [Changing settings](#changing-settings)). The reference block below is generated from `lib/core/config/keys/` by `npm run docs` (to change a key's comment, edit its doc string in `lib/core/config/keys/docs.ts`); the sections after it are hand-written.
 
-Command templates are POSIX `sh`: each runs as `/bin/sh -c <cmd>` with an allowlisted environment and no login profile, in and out of the daemon ([Command environment](#command-environment) covers what they inherit, `commandEnv.inherit` and `commandEnv.loginShell`), and on native Windows under Git for Windows' `sh` (Git Bash; the first `sh.exe` on PATH, else `%ProgramFiles%\Git\bin\sh.exe`), or is refused with an error when there is none (see [SUPPORT.md](SUPPORT.md)). Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}`, `{base}`, `{args}`, `{endpoint.<component>}`, `{backing.<name>.port}` and `{backing.<name>.url}` (the last three under [Ports and endpoints](#ports-and-endpoints) and [Backing services](#backing-services)). `{args}` holds the extra arguments of `forge run <job> <name> -- <args…>`, each already in single quotes, and arguments go only where a template has it: `forge run` refuses arguments for a template without `{args}`, so a command takes none unless you opt in. Write `{args}` unquoted, as a whole word: after the start, a space, a tab, a newline or `(`, and before the end, a space, a tab, a newline, `;`, `&`, `|` or `)`. Arguments for a template where it sits inside `'…'` or `"…"` or touches another word (`x{args}`, `\{args}`) are refused, and so are arguments for any template containing a heredoc (`<<`), `$'` or `\'`, where the quoting would not hold. The arguments become words of whatever command surrounds `{args}`, so `exec {args}`, `env {args}` or `time {args}` runs the first one as a program. An argument containing a quote, backslash or control character is refused too. Every refusal comes before anything runs. Only `forge run` has arguments: `forge verify`, worktree setup, `forge run --background`, `forge integrate`'s rebuild and `forge eval grade` fill `{args}` with nothing. The other placeholders are filled in unquoted, so `{job}`, `{branch}` and `{base}` are checked first: each must start with a letter or digit and use only `A-Z a-z 0-9 . _ / -` (at most 200 characters), and an unsafe value stops the command before it runs, with an error naming the field. `{worktree}` is filled only with the path Forge computes for the job, `<worktrees.root>/<job id>`: a command whose template uses it stops before it runs when the job's stored `worktree` is anything else, for the same reason. Commands that don't use `{worktree}` are not affected. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB`, `FORGE_WORKTREE`, `FORGE_PORT_<C>` and `FORGE_ENDPOINT_<C>` (one pair per port-bearing component) in their environment, on top of the [command environment](#command-environment). That never holds the daemon session's `FORGE_DAEMON*` variables, so a command that calls `forge` behaves the same under the daemon as for a human, nor the source variable of a declared `env` secret: its value reaches a command only through a config sink ([Secret references](#secret-references)).
+Command templates are POSIX `sh`: each runs as `/bin/sh -c <cmd>` with an allowlisted environment and no login profile, in and out of the daemon ([Command environment](#command-environment) covers what they inherit, `commandEnv.inherit` and `commandEnv.loginShell`), and on native Windows under Git for Windows' `sh` (Git Bash; the first `sh.exe` on PATH, else `%ProgramFiles%\Git\bin\sh.exe`), or is refused with an error when there is none (see [SUPPORT.md](SUPPORT.md)). Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}`, `{base}`, `{args}`, `{endpoint.<component>}`, `{backing.<name>.port}` and `{backing.<name>.url}` (the last three under [Ports and endpoints](#ports-and-endpoints) and [Backing services](#backing-services)). `{args}` holds the extra arguments of `forge run <job> <name> -- <args…>`, or with `forge run <job> <name> --changed` the job's related tests ([Related tests](#related-tests)), each already in single quotes, and arguments go only where a template has it: `forge run` refuses arguments for a template without `{args}`, so a command takes none unless you opt in. Write `{args}` unquoted, as a whole word: after the start, a space, a tab, a newline or `(`, and before the end, a space, a tab, a newline, `;`, `&`, `|` or `)`. Arguments for a template where it sits inside `'…'` or `"…"` or touches another word (`x{args}`, `\{args}`) are refused, and so are arguments for any template containing a heredoc (`<<`), `$'` or `\'`, where the quoting would not hold. The arguments become words of whatever command surrounds `{args}`, so `exec {args}`, `env {args}` or `time {args}` runs the first one as a program. An argument containing a quote, backslash or control character is refused too. Every refusal comes before anything runs. Only `forge run` has arguments: `forge verify`, worktree setup, `forge run --background`, `forge integrate`'s rebuild and `forge eval grade` fill `{args}` with nothing. The other placeholders are filled in unquoted, so `{job}`, `{branch}` and `{base}` are checked first: each must start with a letter or digit and use only `A-Z a-z 0-9 . _ / -` (at most 200 characters), and an unsafe value stops the command before it runs, with an error naming the field. `{worktree}` is filled only with the path Forge computes for the job, `<worktrees.root>/<job id>`: a command whose template uses it stops before it runs when the job's stored `worktree` is anything else, for the same reason. Commands that don't use `{worktree}` are not affected. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB`, `FORGE_WORKTREE`, `FORGE_PORT_<C>` and `FORGE_ENDPOINT_<C>` (one pair per port-bearing component) in their environment, on top of the [command environment](#command-environment). That never holds the daemon session's `FORGE_DAEMON*` variables, so a command that calls `forge` behaves the same under the daemon as for a human, nor the source variable of a declared `env` secret: its value reaches a command only through a config sink ([Secret references](#secret-references)).
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 41            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 42            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -68,6 +68,24 @@ verifyE2e:                   # after every verify step passes, also run commands
   when: ui                   # ui: only when the job's diff touches `paths` · always · never
   paths: ["*.html", "*.css", "*.scss", "*.sass", "*.less", "*.svelte", "*.vue", "*.jsx", "*.tsx", "*.astro"]  # `forge job scope` matching: exact path, `dir/` prefix, * ** ? globs; a slash-free
                              # glob also matches the basename. A list here replaces the default.
+
+relatedTests:                # what `forge run <job> <command> --changed` passes at {args}: the tests related to the
+                             # job's changes since its base ("Related tests"). Globs use * ** ?, matched against the
+                             # whole repo-relative path; a list here replaces its default
+  tests: ["**/*.test.*", "**/*.spec.*", "**/*_test.*", "**/test_*.py", "**/__tests__/**"]  # test files: a changed one is run itself, and only these are ever passed
+  map:                       # templates naming the tests of a changed non-test file: {dir} is its directory ({dir}/
+                             # drops for a root file), {name} its file name without the last extension
+    - "{dir}/{name}.test.*"
+    - "{dir}/{name}.spec.*"
+    - "{dir}/{name}_test.*"
+    - "{dir}/test_{name}.*"
+    - "{dir}/__tests__/{name}.*"
+    - test/**/{name}.test.*
+    - test/**/{name}-*.test.*
+    - tests/**/{name}.test.*
+    - tests/**/test_{name}.*
+    - tests/**/{name}_test.*
+  full: [test/**, tests/**, "**/__fixtures__/**", "**/__mocks__/**", "**/conftest.py", "**/testdata/**"]  # shared helpers, fixtures and mocks: a change here runs the whole command, with no arguments
 
 verifyIntegrity: warn        # warn | block: block fails verify on deleted test files or added skip/focus markers
 
@@ -717,6 +735,30 @@ commandEnv:
 - One machine dashboard serves every registered project, so every project's daemon sessions and commands start from the environment of the shell that started it, not from the project's own shell: a direnv export or a project's `DATABASE_URL` set only in that project's shell never reaches them, and one set in the dashboard's shell reaches every project (through `inherit` for commands, and for sessions everything but the API and provider keys). `forge dash` run in a second repo reuses the running server and adds nothing to its environment. Start the dashboard from a shell that holds nothing one project would not want another's sessions to see.
 
 **Migration** (config `schemaVersion` 31 → 32): nothing changes on disk, and `commandEnv` comes from the defaults, so after upgrading every repo's commands get the allowlist: a command that read `AWS_REGION`, a proxy or `JAVA_HOME` from your environment needs it in `commandEnv.inherit`, which `forge doctor` suggests.
+
+## Related tests
+
+`forge run <job> test --changed` runs the configured command on the tests related to the job's changes, so a builder never waits on the whole suite while it iterates; `forge verify` still runs the whole suite every round. The changes are every path that differs between the job's merge-base with its base (the comparison point `forge job scope` and verify use) and its worktree, committed, staged or unstaged, deleted paths included, plus untracked files that are not ignored. Git config that would reshape that list (`diff.relative`, renames, path quoting, external diff drivers, replace objects) is pinned out. Each changed path takes the first rule that matches it, with globs (`*`, `**`, `?`) matched against the whole repo-relative path:
+
+1. It is a test file (`relatedTests.tests`): it is selected if it still exists.
+2. It is a shared helper, fixture or mock (`relatedTests.full`): the whole run becomes full.
+3. Otherwise each `relatedTests.map` template is filled with the path's `{dir}` (its directory; a `{dir}/` at the start drops for a root file) and `{name}` (its file name without the last extension), and every existing test file the result matches is selected. A path containing `*` or `?` is never filled in.
+
+The run then takes one of three modes, and the output is `forge run`'s usual result plus `related: { mode, files, changed, trigger?, skipped? }`:
+- **files**: the selected tests, sorted, go to `{args}`, quoted like any `-- <args…>`. A test whose path has a segment starting with `-`, or a quote, backslash or control character, is left out and listed in `skipped`.
+- **full**: a changed path matched `relatedTests.full` (the first one is `trigger`), so the command runs with `{args}` empty, which should run the whole suite.
+- **none**: nothing is related, so nothing runs: no log, no `command` event, and the output is `{ name, ok: true, ran: false, related }`.
+
+When the job's command runs in one component's `path`, only selected tests under that path are kept, passed relative to it. `--changed` needs `{args}` in the template, and refuses `-- <args…>`, `--background` and `--repo`, and a base that can't be resolved, before anything runs.
+
+The defaults cover tests beside their sources (`x.test.ts`, `x.spec.js`, `x_test.go`, `test_x.py`, `__tests__/x.js`) and tests under `test/` or `tests/` named after the source (`test/**/x.test.ts`, `test/**/x-*.test.ts`, `tests/**/test_x.py`); any other file under `test/` or `tests/`, and `__fixtures__`, `__mocks__`, `conftest.py` and `testdata`, counts as shared and runs the whole suite. A list you write replaces its default, so a Rails app might write:
+
+```yaml
+relatedTests:
+  tests: ['spec/**/*_spec.rb']
+  map: ['spec/**/{name}_spec.rb']
+  full: ['spec/support/**', 'spec/*_helper.rb']
+```
 
 ## Daemon
 
