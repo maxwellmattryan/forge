@@ -44,6 +44,8 @@ test('which changes are CI config', () => {
   ]);
   assert.match(reason, /^push held: CI config changes: \.github\/workflows\/a\.yml, \.github\/workflows\/b\.yml, lib:\.circleci\/config\.yml, \+2 more \[ci [0-9a-f]{16}\]$/);
   assert.match(reason, /^[A-Za-z0-9 ._:/@=,+\-[\]"]*$/, 'inside SAFE_ELEMENT');
+  const longest = ciHoldReason(['a', 'b', 'c', 'd'].map((c) => ({ path: `.github/workflows/${c.repeat(100 - 22)}.yml`, blob: BLOB })));
+  assert.match(longest, /^push held: [A-Za-z0-9 ._:/@=,+\-[\]"]{1,400}$/, "three of the longest printed paths still fit PR13's reason class");
   const one = (blob: string | null) => ciHoldReason([{ path: '.github/workflows/ci.yml', blob }]);
   assert.notEqual(one(BLOB), one('c'.repeat(40)), 'a new blob is a new digest');
   assert.notEqual(one(BLOB), one(null), 'a delete is a new digest');

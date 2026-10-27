@@ -31,8 +31,11 @@ const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 const LINK_MODES = new Set(['120000', '160000']);
 /** Leading directories of the CI paths: a link here replaces every workflow under it. */
 const CI_DIRS = new Set(['.github', '.github/workflows', '.circleci', '.buildkite', '.forge', '.forge/ci']);
-/** Paths printed in a reason: protectedReason's class (shellLine-safe, `:` for a member repo), never an option, and short. */
-const REASON_PATH = /^[A-Za-z0-9._:/@+-]{1,120}$/;
+/**
+ * Paths printed in a reason: protectedReason's class (shellLine-safe, `:` for a member repo), never an
+ * option, and short enough that three of them, the count and the digest stay inside PR13's 400 characters.
+ */
+const REASON_PATH = /^[A-Za-z0-9._:/@+-]{1,100}$/;
 
 /** A path, folded as a case-insensitive checkout reads it, is CI config or a CI leading directory (a link there). */
 function ciName(p: string, link: boolean): boolean {
