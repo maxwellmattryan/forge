@@ -20,7 +20,7 @@ Baseline coverage: not measured (outside `lib/` and `dashboard/src/lib/`, which 
 
 ## Regressions worth keeping
 - R1. A hostile plugin path (`a b'c$(touch pwned)\`x\``) is single-quoted in the PATH line: sourcing the env file resolves `forge` to `<that plugin>/bin/forge` and creates no `pwned` file anywhere (in the temp tree or the cwd). Old: plugin-path › "hook quotes a hostile plugin path"
-- R2. Resume, clear and compact rerun the hook on the same env file: lines are appended only when missing, so the file never grows duplicate PATH or FORGE_MODE lines (B2, B3, B4). Setup: B2–B4 (rerun on the same env file). Old: plugin-path › "SessionStart hook puts the plugin's bin first"
+- R2. Resume, clear and compact rerun the hook on the same env file: the file never grows duplicate PATH or FORGE_MODE lines (B2, B3, B4), and when another install's PATH line follows ours (a session resumed under several plugin versions), ours moves to the end so its `forge` wins again. Test: test/integration/hooks/plugin-path.test.ts. Setup: B2–B4 (rerun on the same env file). Old: plugin-path › "SessionStart hook puts the plugin's bin first"
 
 ## Cheapest layer
 Both hooks are separate processes by contract: spawn `node hooks/plugin-path.ts` with a controlled env (CLAUDE_ENV_FILE removed unless set), and source the result with `/bin/sh -c '. "$CLAUDE_ENV_FILE"; command -v forge'` under a PATH of `<decoy>:/usr/bin:/bin`. hooks.json is read as JSON. POSIX-only.
