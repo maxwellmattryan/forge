@@ -8,14 +8,15 @@
 // free text: counts, finite numbers, 'pending', null, WAITING_ON keys and ISO times it built itself. Its
 // inputs are typed by shape, as this layer can't import the office's: progress.ts's MandateJob and
 // JobFigures fit them. runningScore is the median a mandate's quality floor reads: the same scored values,
-// without the pending rule, which under continuous work would keep it 'pending'. docs/IMPROVEMENT.md ›
-// Mandate report card.
+// without the pending rule, which under continuous work would keep it 'pending'. closingCard rebuilds the
+// card a closing summary stored, for the same tokenless list. docs/IMPROVEMENT.md › Mandate report card.
 import { WAITING_ON } from '#core/job/schema.ts';
 import { isForemanActor } from '#core/job/store.ts';
+import { isMap } from '#core/shape.ts';
 import { outcomeWindowDays } from '../evals/outcome.ts';
 import { mergeTime, scoreAwaited } from '../evals/scoring.ts';
 import { median, reviewRounds } from './stats.ts';
-import type { CardFigure, Config, Job, JobEvent, MandateReportCard, MandateScoring, WaitingOn } from '#core/types.ts';
+import type { CardFigure, Config, Job, JobEvent, MandateClosingCard, MandateReportCard, MandateScoring, WaitingOn } from '#core/types.ts';
 
 /** One of a mandate's jobs as the card reads it (lib/office/mandates/progress.ts MandateJob): its CLI record, its events, its class against the until, and whether it is live. */
 export interface CardJob {
@@ -210,4 +211,76 @@ export function buildReportCard(m: CardMandate, f: CardFigures, config: Config, 
     spend: { usd: f.spentUsd, budgetUsd: m.budget.usd, started: f.started, budgetJobs: m.budget.jobs },
     outcomes: outcomesOf(merged, config),
   };
+}
+
+/** Thrown inside closingCard at the first value a card can't hold. */
+const REFUSED = Symbol('refused');
+
+/** A finite number of at least 0, else refused. */
+const countOf = (v: unknown): number => {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) throw REFUSED;
+  return v;
+};
+const figureOf = (v: unknown): CardFigure => (v === 'pending' ? 'pending' : v === null ? null : countOf(v));
+const optionalOf = (v: unknown): number | null => (v === null ? null : countOf(v));
+/** A time timeOf reads, re-serialised by isoOf, else refused. */
+const isoTimeOf = (v: unknown): string => {
+  const t = timeOf(v);
+  const iso = t === null ? null : isoOf(t);
+  if (iso === null) throw REFUSED;
+  return iso;
+};
+const optionalTimeOf = (v: unknown): string | null => (v === null ? null : isoTimeOf(v));
+
+/**
+ * A closed mandate's closing summary card, rebuilt for GET /api/mandates (no token): only what buildReportCard
+ * writes (finite non-negative numbers, 'pending', null, WAITING_ON/none keys, ISO times re-serialised here),
+ * or null when anything differs, so a tampered summary.json shows no text and the page falls back to the live card.
+ */
+export function closingCard(s: { card?: unknown; outcomesFinalAt?: unknown }, mandate: string): MandateClosingCard | null {
+  const c = s.card;
+  if (!isMap(c) || c.mandate !== mandate) return null;
+  const { jobs, scores, review, interventions, spend, outcomes } = c;
+  if (![jobs, scores, review, interventions, spend, outcomes].every(isMap)) return null;
+  const gates = [...WAITING_ON, 'none'] as const;
+  try {
+    const stored = interventions.byGate;
+    if (!isMap(stored) || !Object.keys(stored).every((k) => (gates as readonly string[]).includes(k))) return null;
+    // Built from the known keys, so no stored key is ever copied.
+    const byGate: MandateReportCard['interventions']['byGate'] = {};
+    for (const k of gates) {
+      const n = Object.hasOwn(stored, k) ? countOf(stored[k]) : 0;
+      if (n > 0) byGate[k] = n;
+    }
+    // A fresh literal with exactly the card's keys: a stored extra key is dropped.
+    const card: MandateReportCard = {
+      mandate,
+      at: isoTimeOf(c.at),
+      jobs: { total: countOf(jobs.total), reached: countOf(jobs.reached), merged: countOf(jobs.merged), inFlight: countOf(jobs.inFlight) },
+      scores: {
+        scored: countOf(scores.scored),
+        held: countOf(scores.held),
+        failed: countOf(scores.failed),
+        pending: countOf(scores.pending),
+        unscored: countOf(scores.unscored),
+        median: figureOf(scores.median),
+        below3: figureOf(scores.below3),
+      },
+      review: { reviewed: countOf(review.reviewed), avgRounds: optionalOf(review.avgRounds), firstPassRate: optionalOf(review.firstPassRate) },
+      interventions: { total: countOf(interventions.total), byGate },
+      spend: { usd: countOf(spend.usd), budgetUsd: countOf(spend.budgetUsd), started: countOf(spend.started), budgetJobs: countOf(spend.budgetJobs) },
+      outcomes: {
+        final: countOf(outcomes.final),
+        open: countOf(outcomes.open),
+        unmeasured: countOf(outcomes.unmeasured),
+        reverted: figureOf(outcomes.reverted),
+        followedUp: figureOf(outcomes.followedUp),
+        finalAt: optionalTimeOf(outcomes.finalAt),
+      },
+    };
+    return { card, outcomesFinalAt: optionalTimeOf(s.outcomesFinalAt) };
+  } catch (e) {
+    if (e === REFUSED) return null;
+    throw e;
+  }
 }
