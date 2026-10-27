@@ -17,7 +17,7 @@
 
 {#if entries.length}
   <details class="plate flat">
-    <summary class="label cursor-pointer p-3">{$t('permission.timedOut.heading', { count: entries.length })}</summary>
+    <summary class="label p-3 focus-visible:-outline-offset-2">{$t('permission.timedOut.heading', { count: entries.length })}</summary>
     <ul class="needs-list border-t border-line">
       {#each entries as { scope: s, prompt: p } (`${s}/${p.id}`)}
         <li class="needs-row">
