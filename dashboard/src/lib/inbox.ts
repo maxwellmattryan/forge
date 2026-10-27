@@ -26,12 +26,13 @@ const MANDATE_ID = new RegExp(MANDATE_ID_SOURCE);
 
 /**
  * What a queued request is about, for its row: `{job}` for a job request, `{mandate}` for a goal mandate's
- * drafting run or its milestone-approval gate request (only a valid mandate id, never `none`), else null.
+ * drafting run or its milestone-approval gate request, or for an `until: released` mandate's job-less
+ * release gate request (only a valid mandate id, never `none`), else null.
  */
 export function requestSubject(r: Pick<ForgeRequest, 'type' | 'job' | 'args'>): { job: string } | { mandate: string } | null {
   if (typeof r.job === 'string' && r.job) return { job: r.job };
   const args = obj(r.args);
-  const mandateRequest = r.type === 'draft' || (r.type === 'gate' && args.gate === 'milestone-approval');
+  const mandateRequest = r.type === 'draft' || (r.type === 'gate' && (args.gate === 'milestone-approval' || args.gate === 'release'));
   const id = args.mandate;
   return mandateRequest && typeof id === 'string' && MANDATE_ID.test(id) && id !== 'none' ? { mandate: id } : null;
 }

@@ -21,7 +21,7 @@ import type { API_VERSION as ENGINE_API_VERSION } from '#api/versions.ts';
 export type * from '#api/types.ts';
 
 /** lib/api/versions.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 58 satisfies typeof ENGINE_API_VERSION;
+export const API_VERSION = 59 satisfies typeof ENGINE_API_VERSION;
 /** lib/api/constants.ts PROJECT_NAME_SOURCE: a registered project's name, the `/api/p/<project>/` segment. */
 export const PROJECT_NAME_SOURCE = '^[a-z0-9][a-z0-9._-]{0,63}$' satisfies typeof ENGINE_PROJECT_NAME_SOURCE;
 /** lib/api/constants.ts MANDATE_ID_SOURCE: a mandate id, which is also its file name (`none` matches but is never one). */
@@ -53,7 +53,7 @@ export function assistantNumber(scope: string): number {
 export const JOBS_SCOPE = '_jobs' satisfies typeof ENGINE_JOBS_SCOPE;
 
 /** lib/api/constants.ts MANDATE_UNTIL, MANDATE_ORDERS and MANDATE_ON_UNFINISHABLE: the mandate editor's choices. */
-export const MANDATE_UNTIL = ['merge-ready', 'merged'] as const satisfies typeof ENGINE_MANDATE_UNTIL;
+export const MANDATE_UNTIL = ['merge-ready', 'merged', 'released'] as const satisfies typeof ENGINE_MANDATE_UNTIL;
 export const MANDATE_ORDERS = ['graph', 'priority', 'listed'] as const satisfies typeof ENGINE_MANDATE_ORDERS;
 export const MANDATE_ON_UNFINISHABLE = ['park', 'cancel'] as const satisfies typeof ENGINE_MANDATE_ON_UNFINISHABLE;
 

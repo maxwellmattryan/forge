@@ -82,6 +82,8 @@ export const API_CHANGES = [
   { id: 'mandate-auto-id' },
   // Shelve: WaitingOn 'shelved', Job.shelved, Job.finishedWhileShelved, Stats.counts.shelved and POST /api/shelf.
   { id: 'shelve' },
+  // MandateUntil 'released'; DirectiveAction 'release'; a job-less `release` gate request naming a mandate.
+  { id: 'mandate-until-released' },
 ] as const;
 
 /**

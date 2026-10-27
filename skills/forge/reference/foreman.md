@@ -8,7 +8,7 @@
 **Notes and reasons.** Wherever `<reason>` goes on a command line, pass it in double quotes with `"`, `` ` ``, `$`, `\` and newlines removed, at most 200 characters. One `forge` call per Bash call, as for every daemon turn.
 
 ## For each gate request (assistant foreman)
-A request with `job: null` and `args.gate: milestone-approval` is a goal mandate's milestone draft: follow "For a milestone-approval gate request" instead. Every other one is `{id, job, args: {gate, reserved, key?}}` from `forge requests`:
+A request with `job: null` and `args.gate: milestone-approval` is a goal mandate's milestone draft: follow "For a milestone-approval gate request" instead. One with `job: null` and `args.gate: release` is an `until: released` mandate's release plan: follow "For a mandate release gate request" instead. Every other one is `{id, job, args: {gate, reserved, key?}}` from `forge requests`:
 1. `forge requests claim <rid> --session ${CLAUDE_SESSION_ID}` (exit 3: another assistant foreman took it: skip it).
 2. If `args.reserved` is set: `forge job handoff <job> --class reserved --reason "reserved: <pattern>"` (skip it for `release`; if it exits 1, carry on), then `forge requests ack <rid> --status rejected --result "reserved: <pattern>"`. Done.
 3. `forge job assist <job> --gate <gate>`. Exit 1 (an unknown gate): ack `rejected` with the error. `stale: true` (the job no longer waits on that gate): ack `done` with `stale`. `reserved` set: handle it as in step 2.
@@ -39,6 +39,15 @@ Two parks are a person's alone, and the CLI refuses every foreman action there: 
 5. Read its line, `ASSIST: approve|revise|rework|escalate · <reason>`. `approve`: `forge mandate draft approve <mandate> --actor foreman --note "<reason>"`. `revise` or `rework`: `forge mandate draft revise <mandate> --actor foreman --note "<reason>"`. `escalate`, or a missing or malformed line: record nothing.
 6. Ack `done` with `<verdict>: <reason>`, or `rejected` with `escalated: <reason>`, or with the CLI's refusal cut to 200 characters when it refused. Never reject a draft, and never retry a stopped filing: both are the owner's.
 
+## For a mandate release gate request (assistant foreman)
+`{id, job: null, args: {gate: release, mandate, key, reserved}}`: the release plan the Office pass made once an `until: released` mandate's jobs merged. No job moves, so queue no resume, and there is no hand-off command for a mandate: a rejected request is the record, and the owner decides.
+1. `forge requests claim <rid> --session ${CLAUDE_SESSION_ID}` (exit 3: skip it).
+2. If `args.reserved` is set: `forge requests ack <rid> --status rejected --result "reserved: <pattern>"`. Done.
+3. `forge mandate release assist <mandate> --request <rid>`. Exit 1: ack `rejected` with the error. `stale: true`: ack `done` with `stale: <reason>`. `reserved` set: as in step 2.
+4. Spawn one `forge:assistant` sub-agent with the returned `brief` as its whole prompt, and its `model` and `effort`.
+5. Read its line, `ASSIST: approve|revise|rework|escalate · <reason>`. `approve`: `forge mandate release approve <mandate> --actor foreman --note "<reason>"`. Anything else, or a missing or malformed line: record nothing.
+6. Ack `done` with `approve: <reason>`, or `rejected` with `escalated: <reason>`, or with the CLI's refusal cut to 200 characters when it refused. The approval starts nothing: a human or CI runs `forge release run`, never you.
+
 ## For each draft request (office session)
 A drafting run turns a goal mandate's goal into its milestone draft. `{id, args: {mandate, note?, revises?}}` from `forge requests`; a request with `note` is a revision, whose brief already carries the note and the previous draft, fenced:
 1. `forge requests claim <rid> --session ${CLAUDE_SESSION_ID}` (exit 3: skip it).
@@ -48,7 +57,7 @@ A drafting run turns a goal mandate's goal into its milestone draft. `{id, args:
 5. Ack: on success `done` with `drafted: <n> issues in <w> waves` (`draft.issues` and `draft.waves` from step 4); on exit 1 `rejected` with the refusal cut to 200 characters. Queue no resume: a drafting run moves no job.
 
 ## For each direct request (office session)
-The Office pass (`forge dash` runs it; it enforces budgets, stalls and closes itself) queues a `direct` request when a mandate has issues to start or jobs to resume. `{id}` from `forge requests`:
+The Office pass (`forge dash` runs it; it enforces budgets and stalls, and closes a mandate once its work is done, an `until: released` one once its release ran) queues a `direct` request when a mandate has issues to start or jobs to resume. `{id}` from `forge requests`:
 1. `forge requests claim <rid> --session ${CLAUDE_SESSION_ID}` (exit 3: skip it).
 2. `forge office survey`. When no mandate has a non-empty `candidates` or `resumable`, ack `done` with `nothing to direct`.
 3. With `surveyors.enabled`: for each mandate with `counts.inFlight > 0`, run `forge office board <id>`, spawn one `forge:surveyor` sub-agent with the returned `brief` as its whole prompt, and its `model` and `effort`, and keep only its `SURVEY:` lines.
