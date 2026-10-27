@@ -7,7 +7,8 @@
 // PG_IDENT and double-quoted; SQL reaches psql only on stdin; Postgres only ever gets a SCRAM-SHA-256
 // verifier, never a password. The plaintext job password lives only in the 0600 backing-db.json and
 // in the env of the commands Forge runs for the job. backing-db.json is agent-writable, so it never
-// names what teardown drops, and a field that fails its regex is ignored.
+// names what teardown drops (only which configured shared entries it visits), and a field that fails
+// its regex is ignored.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -212,6 +213,18 @@ function writeDbRecord(root: string, id: string, rec: BackingDbRecord): void {
   else fs.rmSync(dbRecordFile(root, id), { force: true });
 }
 
+/**
+ * The shared entries teardown drops the job's database on: each with `database`, and each the job's
+ * record still names (the record picks among configured entries; the name dropped is always derived
+ * from the job id). `list` is a validated config's entries.
+ */
+export function teardownDbEntries(root: string, id: string, list: BackingEntry[]): BackingEntry[] {
+  const raw = readRaw(dbRecordFile(root, id));
+  const dbs = raw && typeof raw === 'object' && raw.databases && typeof raw.databases === 'object' ? raw.databases : {};
+  // Looked up by configured names only (^[a-z][a-z0-9-]{0,31}$), so `__proto__` or an unknown key never matches.
+  return list.filter((e) => e.isolation === 'shared' && (e.database !== undefined || Object.hasOwn(dbs, e.name)));
+}
+
 /** Every password in the job's record: what Forge redacts from the tails it stores. */
 export function jobDbPasswords(root: string, id: string, config: Config): string[] {
   return Object.values(readDbRecord(root, id, config).databases).map((d) => d.password);
@@ -261,6 +274,12 @@ function psql(s: PgServer, sql: string, db = 'postgres'): string[] {
 }
 
 const terminate = (db: string): string => `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = ${lit(db)} AND pid <> pg_backend_pid()`;
+/**
+ * Ends every session of `role` on the server, whatever database it is on. The role is server-wide, but
+ * each shared entry is its own container and every template build holds that entry's lock, so no other
+ * build can hold a forge_tpl session there meanwhile.
+ */
+const terminateRole = (role: string): string => `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = ${lit(role)} AND pid <> pg_backend_pid()`;
 
 /**
  * Waits until the server accepts TCP connections inside the container. TCP on purpose: the image's
@@ -309,7 +328,7 @@ function dropUnfinished(s: PgServer, t: string): void {
  * one-off password, then hands the database to the superuser and freezes it as a template that
  * takes no connections. CONNECT is revoked from PUBLIC from the start, so while it builds only
  * forge_tpl and the superuser reach it. Any failure drops the half-built database; forge_tpl always
- * loses its login.
+ * loses its login and every session, which are also ended before it gets its login.
  */
 function ensureTemplate(s: PgServer, e: BackingEntry, t: string, cmds: TemplateCommands): { action: 'built' | 'reused'; build: BackingBuildStep[] } {
   const state = psql(s, script(`SELECT datistemplate FROM pg_database WHERE datname = ${lit(t)}`))[0];
@@ -320,7 +339,7 @@ function ensureTemplate(s: PgServer, e: BackingEntry, t: string, cmds: TemplateC
   const build: BackingBuildStep[] = [];
   try {
     const hasRole = psql(s, script(`SELECT 1 FROM pg_roles WHERE rolname = ${lit(TEMPLATE_ROLE)}`)).length > 0;
-    psql(s, script(...(hasRole ? [] : [`CREATE ROLE ${q(TEMPLATE_ROLE)} NOLOGIN`]), `ALTER ROLE ${q(TEMPLATE_ROLE)} LOGIN PASSWORD ${verifierLit(scramVerifier(pw))}`, `CREATE DATABASE ${q(t)} OWNER ${q(TEMPLATE_ROLE)}`, `REVOKE CONNECT ON DATABASE ${q(t)} FROM PUBLIC`));
+    psql(s, script(terminateRole(TEMPLATE_ROLE), ...(hasRole ? [] : [`CREATE ROLE ${q(TEMPLATE_ROLE)} NOLOGIN`]), `ALTER ROLE ${q(TEMPLATE_ROLE)} LOGIN PASSWORD ${verifierLit(scramVerifier(pw))}`, `CREATE DATABASE ${q(t)} OWNER ${q(TEMPLATE_ROLE)}`, `REVOKE CONNECT ON DATABASE ${q(t)} FROM PUBLIC`));
     const env = { [cmds.envName]: fillDbUrl(cmds.url, TEMPLATE_ROLE, pw, t) };
     for (const [step, cmd] of [['migrate', e.database!.migrate], ['seed', e.database!.seed]] as const) {
       if (!cmd) continue;
@@ -339,9 +358,11 @@ function ensureTemplate(s: PgServer, e: BackingEntry, t: string, cmds: TemplateC
     throw err;
   } finally {
     try {
-      psql(s, script(`ALTER ROLE ${q(TEMPLATE_ROLE)} NOLOGIN PASSWORD NULL`));
+      // Login first, so an ended session cannot connect again.
+      psql(s, script(`ALTER ROLE ${q(TEMPLATE_ROLE)} NOLOGIN PASSWORD NULL`, terminateRole(TEMPLATE_ROLE)));
     } catch {
-      // Best effort: its password was never stored, so nothing can log in with it.
+      // Best effort: its password was never stored, so nothing can log in with it, and the next
+      // build ends any session that survived before it grants the login again.
     }
   }
   return { action: 'built', build };

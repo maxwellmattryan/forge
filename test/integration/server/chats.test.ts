@@ -43,14 +43,13 @@ function call(port: number, method: string, p: string, headers: Record<string, s
   });
 }
 
-/** One served project `a` over fake children, and calls that carry its page token. */
+/** One served project `a` over fake children, and calls that carry its token. */
 async function serve(root: string) {
   const fake = fakeClaude();
   const s: ServedProjects = await serveProjects([{ dir: root, name: 'a' }], { daemon: { claude: fake.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 } });
-  const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await call(s.port, 'GET', '/', {})).body)![1]!;
-  const headers = { 'x-forge-token': token, origin: `http://127.0.0.1:${s.port}`, 'content-type': 'application/json' };
+  const headers = { 'x-forge-token': s.token, origin: `http://127.0.0.1:${s.port}`, 'content-type': 'application/json' };
   const post = (p: string, body: unknown) => call(s.port, 'POST', `${P}${p}`, headers, typeof body === 'string' ? body : JSON.stringify(body));
-  const get = (p: string) => call(s.port, 'GET', `${P}${p}`, { 'x-forge-token': token });
+  const get = (p: string) => call(s.port, 'GET', `${P}${p}`, { 'x-forge-token': s.token });
   const of = (scope: string) => fake.children.filter((c) => c.scope === scope);
   return { s, post, get, of, children: fake.children };
 }

@@ -28,7 +28,6 @@
   import { chatScope } from '../../lib/types.ts';
   import type { Chat, ChatDetail, DaemonSessionState } from '../../lib/types.ts';
   import { clock } from '../../lib/util.ts';
-  import { forgeToken } from '../../lib/app.svelte.ts';
   import { toast } from '../../lib/toast.svelte.ts';
   import { t } from '../../lib/locale.ts';
 
@@ -60,7 +59,6 @@
 
   const log = createChatLog({
     id,
-    token: forgeToken(),
     onState: (st) => (session = mergeSessionState(session, st)),
     onChange: () => {
       entries = log.entries.slice();
@@ -75,7 +73,7 @@
   /** GET /api/chats/<id>: the chat and its session's state. A failure leaves both as they were. */
   async function reread(): Promise<void> {
     try {
-      const d = await fetchChat(id, forgeToken());
+      const d = await fetchChat(id);
       if (disposed) return;
       answered = d.chat;
       session = d.session;

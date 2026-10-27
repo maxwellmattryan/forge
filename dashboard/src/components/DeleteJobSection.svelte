@@ -4,7 +4,7 @@
      button, and any other refusal (a live session, split children, an active dependent) shows the server's message. -->
 <script lang="ts">
   import { confirmMatches, deleteBlocker, postDeleteJob } from '../lib/delete-job.ts';
-  import { closeDrawer, forgeToken, refresh } from '../lib/app.svelte.ts';
+  import { closeDrawer, refresh } from '../lib/app.svelte.ts';
   import type { Job } from '../lib/types.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
@@ -28,7 +28,7 @@
     busy = true;
     error = null;
     try {
-      await postDeleteJob(job.id, typed.trim(), forgeToken());
+      await postDeleteJob(job.id, typed.trim());
       toast($t('deleteJob.done', { id: job.id }));
       closeDrawer();
     } catch (err) {

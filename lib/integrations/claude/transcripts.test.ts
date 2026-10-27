@@ -5,9 +5,47 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { agentTranscript, agentTranscriptById, projectSlug } from './transcripts.ts';
+import { agentTranscript, agentTranscriptById, firstToolCallAt, projectSlug } from './transcripts.ts';
 
 type Refs = Parameters<typeof agentTranscriptById>[1];
+
+test('firstToolCallAt reads the head for the first tool call', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-head-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const T0 = Date.parse('2026-10-01T10:00:00.000Z');
+  const line = (type: string, sec: number, content: unknown[]) => JSON.stringify({ type, timestamp: new Date(T0 + sec * 1000).toISOString(), message: { content } });
+  const tool = (sec: number) => line('assistant', sec, [{ type: 'text', text: 'reading' }, { type: 'tool_use', id: 't', name: 'Read', input: {} }]);
+  const at = (text: string, since = T0): number | null => {
+    const file = path.join(dir, 'x.jsonl');
+    fs.writeFileSync(file, text);
+    const fd = fs.openSync(file, 'r');
+    try {
+      return firstToolCallAt(fd, fs.fstatSync(fd).size, since);
+    } finally {
+      fs.closeSync(fd);
+    }
+  };
+  const head = [line('user', 0, [{ type: 'tool_use' }]), tool(-5), 'not json', line('assistant', 1, [{ type: 'text', text: 'hi' }])];
+  assert.equal(at([...head, tool(3), tool(4)].join('\n') + '\n'), T0 + 3000, 'the first assistant tool call at or after the start');
+  assert.equal(at(head.join('\n')), null, 'none');
+  assert.equal(at(''), null, 'empty');
+  // The head is read in 64 KiB chunks up to a 512 KiB cap: a tool call past the first chunk is found, even
+  // when a multi-byte character straddles a chunk boundary; one past the cap is never read; and a last line
+  // cut by the cap is dropped even when what fits still parses.
+  const KiB = 1024;
+  const CAP = 512 * KiB;
+  const filler = (bytes: number) => line('user', 0, [{ type: 'text', text: 'x'.repeat(bytes) }]);
+  assert.equal(at([filler(100 * KiB), tool(3)].join('\n')), T0 + 3000, 'past the first chunk, inside the cap');
+  for (const shift of [0, 1]) {
+    const wide = line('assistant', 3, [{ type: 'text', text: 'é'.repeat(30_000) }, { type: 'tool_use', id: 't', name: 'Read', input: {} }]);
+    assert.equal(at([filler(100 * KiB + shift), wide].join('\n') + '\n'), T0 + 3000, `a character split across chunks (shift ${shift})`);
+  }
+  assert.equal(at([filler(CAP), tool(3)].join('\n')), null, 'past the cap');
+  const room = CAP - 1 - tool(3).length - 10;
+  const short = line('user', 0, [{ type: 'text', text: 'x'.repeat(room - line('user', 0, [{ type: 'text', text: '' }]).length) }]);
+  assert.equal(at([short, tool(3) + ' '.repeat(100)].join('\n')), null, 'a cut last line');
+  assert.equal(at([short, tool(3), 'x'.repeat(400)].join('\n')), T0 + 3000, 'a whole line inside the cap');
+});
 
 test("a role run's session transcript is found only under the job's own worktree", (t) => {
   // The worktree is reached through a link, so its given and its real path always differ.

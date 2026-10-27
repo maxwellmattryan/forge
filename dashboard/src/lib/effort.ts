@@ -29,10 +29,10 @@ export function restartPending(session: Partial<DaemonSessionState> | null | und
 }
 
 /** POST /api/jobs/:id/effort (null inherits). Throws with the server's `error` field, else its text, else the status text. */
-export async function postJobEffort(id: string, effort: Effort | null, token: string, fetchImpl: typeof fetch = fetch): Promise<PostJobEffortResponse> {
+export async function postJobEffort(id: string, effort: Effort | null, fetchImpl: typeof fetch = fetch): Promise<PostJobEffortResponse> {
   const res = await fetchImpl(projectApi(`/api/jobs/${encodeURIComponent(id)}/effort`), {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-forge-token': token },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ effort }),
   });
   const text = await res.text();

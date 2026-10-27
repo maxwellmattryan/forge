@@ -21,7 +21,7 @@
   import type { SelectOption } from '../../lib/select.ts';
   import { toast } from '../../lib/toast.svelte.ts';
   import { JOBS_SCOPE } from '../../lib/types.ts';
-  import { S, forgeToken, openDrawer, refresh } from '../../lib/app.svelte.ts';
+  import { S, openDrawer, refresh } from '../../lib/app.svelte.ts';
   import { closePopover } from '../../lib/popover.svelte.ts';
   import { t } from '../../lib/locale.ts';
   import { tokensShort } from '../../lib/util.ts';
@@ -59,7 +59,7 @@
     picked = next;
     modePending = true;
     try {
-      await postDaemonMode(JOBS_SCOPE, next, forgeToken());
+      await postDaemonMode(JOBS_SCOPE, next);
       await refresh();
     } catch (err) {
       toast($t('session.modeFailed', { error: err instanceof Error ? err.message : String(err) }), true);

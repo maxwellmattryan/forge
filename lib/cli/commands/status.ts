@@ -1,7 +1,7 @@
 // Human-readable summaries: `forge status` and the text form of `forge stats`.
 import { foremanHandoffFor } from '#office/foreman/policy.ts';
 import { isActive, listJobs, progress } from '#core/job/store.ts';
-import type { Job, Stats } from '#core/types.ts';
+import type { Job, Stats, TimeSpread } from '#core/types.ts';
 import type { HelpGroup, StatusRow } from '../types.ts';
 
 export const HELP: HelpGroup[] = [
@@ -18,7 +18,7 @@ export const HELP: HelpGroup[] = [
         command: 'stats',
         args: '[--since DATE] [--include-evals] [--json] | --by prompt [--role R] [--since DATE] [--include-evals] | --csv [--since DATE] [--by job|role|model|day] | --mandate <id>',
         summary:
-          'pipeline metrics: review and verify first-pass rates, per-lens change, dispute and miss rates, recurring findings, escalations, time to PR, tokens and cost (a text summary, or the full object with --json); --by prompt groups jobs into prompt cohorts; --mandate prints one mandate\'s live report card',
+          'pipeline metrics: review and verify first-pass rates, per-lens change, dispute and miss rates, blockers, sole-CHANGES and reopened counts, recurring, carried and new findings, escalations, time to PR, working minutes by stage, parked minutes, time between agents, stalls, agent gaps, agent start and extra-round time, tokens, cost and cache-read share (a text summary, or the full object with --json); --by prompt groups jobs into prompt cohorts; --mandate prints one mandate\'s live report card',
         flags: [
           ['--since DATE', 'only jobs created on or after DATE'],
           ['--include-evals', 'count eval jobs too (--csv always counts every job)'],
@@ -89,6 +89,13 @@ export interface StatsSections {
 export function statsSections(s: Stats): StatsSections {
   const pct = (x: number | null) => (x === null ? '—' : `${Math.round(x * 100)}%`);
   const q = s.quality;
+  // An older stats.json (or /api/stats) has none of the review and timing figures below.
+  const sp: Partial<Stats['speed']> = s.speed;
+  const spread = (x: TimeSpread | undefined, unit: string) => (x?.n ? `${x.median}${unit} (p90 ${x.p90}${unit}, n ${x.n})` : '—');
+  const keyed = (rec: Record<string, number> | undefined) => Object.entries(rec ?? {}).map(([k, v]) => `${k} ${v}`).join(' · ') || '—';
+  const gaps = sp.handoffSeconds;
+  const extra = sp.minutesPerExtraRound;
+  const shares = Object.entries(s.cost.byRole ?? {}).flatMap(([k, v]) => (typeof v.cacheReadShare === 'number' ? [`${k} ${pct(v.cacheReadShare)}`] : []));
   return {
     // An older stats.json (or /api/stats) has no shelved count.
     jobs: [`jobs ${s.counts.total}${s.counts.archived ? ` (${s.counts.archived} archived)` : ''} (active ${s.counts.active}, done ${s.counts.done}, waiting ${s.counts.waiting}, shelved ${s.counts.shelved ?? 0}, cancelled ${s.counts.cancelled})`],
@@ -97,14 +104,26 @@ export function statsSections(s: Stats): StatsSections {
       `autonomy ${pct(q.autonomyRate ?? null)} (strict ${pct(q.autonomyRateStrict ?? null)}) · reverted ${pct(q.revertRate ?? null)} · follow-ups ${pct(q.followUpRate ?? null)} · churn ${pct(q.churnRate ?? null)} · outcomes final ${q.outcomeCoverage?.final ?? 0}/${q.outcomeCoverage?.merged ?? 0} (open ${q.outcomeCoverage?.open ?? 0})`,
       // An older stats.json (or /api/stats) has no score fields either.
       `score median ${typeof q.medianScore === 'number' ? `${q.medianScore}/5` : '-'} · scored ${q.scoreCoverage?.scored ?? 0}/${q.scoreCoverage?.sampled ?? 0} sampled (held ${q.scoreCoverage?.held ?? 0}, failed ${q.scoreCoverage?.failed ?? 0})`,
-      `first-pass review ${pct(q.firstPassReviewRate)} · avg rounds ${q.avgRounds ?? '—'} · verify first-pass ${pct(q.verifyFirstPassRate)} · recurring findings ${q.recurringFindings}`,
+      `first-pass review ${pct(q.firstPassReviewRate)} · avg rounds ${q.avgRounds ?? '—'} · verify first-pass ${pct(q.verifyFirstPassRate)} · recurring findings ${q.recurringFindings} · rounds 2+ findings carried ${q.findingsCarried ?? 0}, new ${q.findingsNew ?? 0}`,
       `escalations ${pct(q.escalationRate)} · PRs with human feedback ${pct(q.humanFeedbackOnPrRate)} · human reworks ${q.humanReworks} · spec approved first try ${pct(q.specFirstApprovalRate)}`,
       `human delta after push ${pct(q.humanDeltaRate ?? null)} · median ${q.medianHumanDeltaLines ?? '—'} lines · measured ${q.humanDeltaCoverage?.measured ?? 0}/${q.humanDeltaCoverage?.merged ?? 0}`,
     ],
-    speed: [`median to PR ${s.speed.medianMinutesToPr ?? '—'} min · median to done ${s.speed.medianMinutesToDone ?? '—'} min`],
-    cost: [`tokens ${s.cost.totalTokens.toLocaleString()} · est. API cost $${s.cost.estCostUsd} · per job $${s.cost.avgCostPerJobUsd ?? '—'} · usage coverage ${s.cost.reportingCoverage.withUsage}/${s.cost.reportingCoverage.agentRuns} (exact ${s.cost.reportingCoverage.exact})`],
-    // An older stats.json (or /api/stats) has no miss rate.
-    reviewers: Object.entries(s.reviewers).map(([k, v]) => [k, `${pct(v.changeRate)} changes, ${pct(v.disputeRate)} disputed, ${pct(v.missRate ?? null)} missed`]),
+    speed: [
+      `median to PR ${s.speed.medianMinutesToPr ?? '—'} min · median to done ${s.speed.medianMinutesToDone ?? '—'} min`,
+      `working minutes by stage (median over ${sp.timedJobs ?? 0} done jobs) ${keyed(sp.stageMinutes)}`,
+      `parked minutes (median) ${keyed(sp.waitingMinutes)}`,
+      `between agents ${sp.medianHandoffMinutes ?? '—'} min/job · stalled ${sp.stalledMinutes ?? '—'} min/job · agent gaps ${spread(gaps?.withoutCommand, 's')} without a command, ${spread(gaps?.withCommand, 's')} with one`,
+      `agent start ${spread(sp.agentStartSeconds?.foreground, 's')} foreground, ${spread(sp.agentStartSeconds?.background, 's')} background · extra round ${extra?.n ? `${extra.median} min (p90 ${extra.p90})` : '—'}`,
+    ],
+    cost: [
+      `tokens ${s.cost.totalTokens.toLocaleString()} · est. API cost $${s.cost.estCostUsd} · per job $${s.cost.avgCostPerJobUsd ?? '—'} · usage coverage ${s.cost.reportingCoverage.withUsage}/${s.cost.reportingCoverage.agentRuns} (exact ${s.cost.reportingCoverage.exact})`,
+      ...(shares.length ? [`cache-read share ${shares.join(' · ')}`] : []),
+    ],
+    // An older stats.json (or /api/stats) has no miss rate, sole or reopened counts.
+    reviewers: Object.entries(s.reviewers).map(([k, v]) => [
+      k,
+      `${pct(v.changeRate)} changes, ${v.blockers ?? 0} blockers, sole ${v.soleChanges ?? 0}, reopened ${v.reopened ?? 0}, ${pct(v.disputeRate)} disputed, ${pct(v.missRate ?? null)} missed`,
+    ]),
     // An older stats.json (or /api/stats) has no verifiers.
     verifiers: Object.entries(s.verifiers ?? {}).map(([k, v]) => [k, `${pct(v.hitRate)} hit over ${v.runs} runs, ${v.blocks} blocked`]),
   };

@@ -22,24 +22,24 @@ import type {
 const mandatePath = (id: string): string => `/api/mandates/${encodeURIComponent(id)}`;
 
 /** GET /api/mandates: every mandate, the latest directives, the grantable classes and a new mandate's defaults. */
-export const fetchMandates = (token: string): Promise<MandatesResponse> => api<MandatesResponse>('/api/mandates', { headers: { 'x-forge-token': token } });
+export const fetchMandates = (): Promise<MandatesResponse> => api<MandatesResponse>('/api/mandates');
 
-/** GET /api/mandates/:id with the token: the row plus the owner's guidance and goal. */
-export const fetchMandate = (id: string, token: string): Promise<MandateDetailResponse> => api<MandateDetailResponse>(mandatePath(id), { headers: { 'x-forge-token': token } });
+/** GET /api/mandates/:id: the row plus the owner's guidance and goal. */
+export const fetchMandate = (id: string): Promise<MandateDetailResponse> => api<MandateDetailResponse>(mandatePath(id));
 
 /** POST /api/mandates; throws with the server's `error`. */
-export const postMandate = (body: PostMandateBody, token: string, fetchImpl: typeof fetch = fetch): Promise<PostMandateResponse> => post<PostMandateResponse>('/api/mandates', body, token, fetchImpl);
+export const postMandate = (body: PostMandateBody, fetchImpl: typeof fetch = fetch): Promise<PostMandateResponse> => post<PostMandateResponse>('/api/mandates', body, fetchImpl);
 
 /** POST /api/mandates/:id/edit; throws with the server's `error`. */
-export const postMandateEdit = (id: string, body: PostMandateEditBody, token: string, fetchImpl: typeof fetch = fetch): Promise<PostMandateResponse> =>
-  post<PostMandateResponse>(`${mandatePath(id)}/edit`, body, token, fetchImpl);
+export const postMandateEdit = (id: string, body: PostMandateEditBody, fetchImpl: typeof fetch = fetch): Promise<PostMandateResponse> =>
+  post<PostMandateResponse>(`${mandatePath(id)}/edit`, body, fetchImpl);
 
 export type MandateStatusAction = 'pause' | 'resume' | 'close';
 
 /** POST /api/mandates/:id/pause|resume|close; a pause or close sends its one-line reason, null when empty. */
-export function postMandateStatus(id: string, action: MandateStatusAction, reason: string, token: string, fetchImpl: typeof fetch = fetch): Promise<PostMandateResponse> {
+export function postMandateStatus(id: string, action: MandateStatusAction, reason: string, fetchImpl: typeof fetch = fetch): Promise<PostMandateResponse> {
   const body = action === 'resume' ? {} : { reason: reason.trim() || null };
-  return post<PostMandateResponse>(`${mandatePath(id)}/${action}`, body, token, fetchImpl);
+  return post<PostMandateResponse>(`${mandatePath(id)}/${action}`, body, fetchImpl);
 }
 
 // ---------- the editor ----------

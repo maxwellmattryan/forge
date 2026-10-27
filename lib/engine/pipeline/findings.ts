@@ -219,7 +219,17 @@ export function summariseFindings(raised: Map<number, { lens: string; severity: 
   recurring.sort((a, b) => a.rounds[0] - b.rounds[0] || a.lens.localeCompare(b.lens) || a.path.localeCompare(b.path));
   disputed.sort((a, b) => a.round - b.round);
   const rounds = [...perRound.entries()].sort(([a], [b]) => a - b).map(([round, c]) => ({ round, ...c }));
-  const totals = { ...zero(), recurring: recurring.length };
+  // Rounds 2+: a finding is carried when its (lens, path) was raised the round before (a round with no files raised nothing).
+  let carried = 0;
+  let fresh = 0;
+  for (const [r, findings] of raised) {
+    if (r < 2) continue;
+    for (const f of findings) {
+      if (f.path !== null && seenAt.get(JSON.stringify([f.lens, f.path]))!.rounds.has(r - 1)) carried++;
+      else fresh++;
+    }
+  }
+  const totals = { ...zero(), recurring: recurring.length, carried, new: fresh };
   for (const c of rounds) {
     totals.raised += c.raised;
     totals.fixed += c.fixed;

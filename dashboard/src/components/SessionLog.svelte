@@ -36,7 +36,7 @@
   import type { SessionLogUrls } from '../lib/daemon-log.ts';
   import { promptRefreshKey } from '../lib/permissions.ts';
   import { mergeSessionState, scopeSession, sessionPill } from '../lib/daemon.ts';
-  import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
+  import { S, refresh } from '../lib/app.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import { settled, shutter } from '../lib/motion.ts';
   import { LIVE_LAMPS, lampState, streaming } from '../lib/station.ts';
@@ -68,14 +68,13 @@
     finished?: boolean;
   } = $props();
 
-  /** The transcript routes: the page takes the token as a header, the stream (EventSource sends none) as a query parameter. */
+  /** The transcript routes: the stream (an EventSource) and the pages before it. */
   function transcriptUrls(tr: Transcript): SessionLogUrls {
     const base = projectApi(`/api/jobs/${encodeURIComponent(tr.job)}/transcript`);
     const who: Record<string, string> = tr.agent === null ? {} : { agent: tr.agent };
     return {
-      events: `${base}/events?${new URLSearchParams({ ...who, token: forgeToken() })}`,
+      events: `${base}/events?${new URLSearchParams(who)}`,
       page: (before) => `${base}?${new URLSearchParams({ ...who, ...(before === undefined ? {} : { before: String(before) }) })}`,
-      headers: { 'x-forge-token': forgeToken() },
     };
   }
 

@@ -1,5 +1,5 @@
-// The built dashboard and job images: the dist allowlist, the page with its token, hashed assets, the
-// logo, and screenshots confined to the job dir.
+// The built dashboard and job images: the dist allowlist, the page as built (no token in it), hashed
+// assets, the logo, and screenshots confined to the job dir.
 import fs from 'node:fs';
 import type http from 'node:http';
 import path from 'node:path';
@@ -25,17 +25,20 @@ export function distDirFor(opts: ServerOptions): string {
 
 /**
  * The page's own CSP, kept to framing so the inline theme script needs no hash: no other site may
- * frame the page (its scripts send token-bearing POSTs, so a framed page could be clickjacked), and
+ * frame the page (its scripts send signed-in POSTs, so a framed page could be clickjacked), and
  * the page frames only its own origin, so a link clicked inside a mockup can't load another site.
  */
 export const PAGE_CSP = "frame-src 'self'; frame-ancestors 'none'";
 
-/** GET / and /index.html: the page, with this server's token in it. */
+/**
+ * GET / and /index.html: the page as built. It carries no token, so any local process may fetch it and learn nothing;
+ * the page signs in from the login link's fragment instead, through POST /api/session.
+ */
 export function getPage(ctx: MachineCtx, _req: http.IncomingMessage, res: http.ServerResponse): void {
-  const { token, distDir, notBuilt } = ctx;
+  const { distDir, notBuilt } = ctx;
   res.setHeader('Content-Security-Policy', PAGE_CSP);
   res.setHeader('X-DNS-Prefetch-Control', 'off');
-  return page(res, token, distDir, notBuilt);
+  return page(res, distDir, notBuilt);
 }
 
 /** GET /assets/…: a hashed file the dist manifest lists. */
@@ -136,7 +139,7 @@ export function distAllowlist(distDir: string): Map<string, { file: string; type
   return out;
 }
 
-function page(res: http.ServerResponse, token: string, distDir: string, notBuilt: string): void {
+function page(res: http.ServerResponse, distDir: string, notBuilt: string): void {
   const notReady = () => {
     res.setHeader('Cache-Control', 'no-store');
     send(res, 503, 'text/plain', notBuilt);
@@ -150,7 +153,7 @@ function page(res: http.ServerResponse, token: string, distDir: string, notBuilt
     return notReady();
   }
   res.setHeader('Cache-Control', 'no-store');
-  send(res, 200, 'text/html; charset=utf-8', html.replace('__FORGE_TOKEN__', token));
+  send(res, 200, 'text/html; charset=utf-8', html);
 }
 
 /** Hashed file names change with their content, so they are cached for good. */

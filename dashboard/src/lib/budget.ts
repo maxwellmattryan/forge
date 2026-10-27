@@ -170,10 +170,10 @@ export function budgetApproveBody(note: string): PostJobBudgetBody {
 }
 
 /** POST /api/jobs/:id/budget. Throws with the server's `error` field, else its text, else the status text. */
-export async function postJobBudget(id: string, body: PostJobBudgetBody, token: string, fetchImpl: typeof fetch = fetch): Promise<PostJobBudgetResponse> {
+export async function postJobBudget(id: string, body: PostJobBudgetBody, fetchImpl: typeof fetch = fetch): Promise<PostJobBudgetResponse> {
   const res = await fetchImpl(projectApi(`/api/jobs/${encodeURIComponent(id)}/budget`), {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-forge-token': token },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
   const text = await res.text();
@@ -199,9 +199,9 @@ export interface BudgetApproveMessages {
  * The budget gate's Approve, before its approve request: raise (the note's key=value limits) or acknowledge the budget
  * through the budget route. It proceeds only when that worked and no key is still over.
  */
-export async function budgetApprove(id: string, note: string, token: string, msg: BudgetApproveMessages, fetchImpl: typeof fetch = fetch): Promise<BudgetApproveOutcome> {
+export async function budgetApprove(id: string, note: string, msg: BudgetApproveMessages, fetchImpl: typeof fetch = fetch): Promise<BudgetApproveOutcome> {
   try {
-    const r = await postJobBudget(id, budgetApproveBody(note), token, fetchImpl);
+    const r = await postJobBudget(id, budgetApproveBody(note), fetchImpl);
     return r.stillExceeded.length ? { toast: msg.stillOver(r.stillExceeded.join(', ')) } : { proceed: true };
   } catch (err) {
     return { toast: msg.failed(err instanceof Error ? err.message : String(err)) };

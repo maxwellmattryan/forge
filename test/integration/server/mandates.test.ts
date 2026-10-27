@@ -16,9 +16,10 @@ import type { MandateClosing } from '#office/mandates/pass.ts';
 // The foreman on, delegating four classes, one of them reserved with gate:<class>.
 const template = repoTemplate((dir) => initMilestoneRepo(dir, { decides: ['spec-approval', 'conflicts', 'escalation', 'milestone-approval'], reserved: ['gate:conflicts'] }));
 
-function hit(port: number, o: { method?: string; path: string; headers?: Record<string, string>; body?: string }): Promise<{ status: number; json: any; text: string }> {
+/** A request signed in with the server's token as the x-forge-token header. */
+function hit({ port, token }: { port: number; token: string }, o: { method?: string; path: string; headers?: Record<string, string>; body?: string }): Promise<{ status: number; json: any; text: string }> {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, path: o.path, method: o.method ?? 'GET', headers: { host: `127.0.0.1:${port}`, ...(o.headers ?? {}) } }, (res) => {
+    const req = http.request({ host: '127.0.0.1', port, path: o.path, method: o.method ?? 'GET', headers: { host: `127.0.0.1:${port}`, 'x-forge-token': token, ...(o.headers ?? {}) } }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
@@ -35,20 +36,18 @@ function hit(port: number, o: { method?: string; path: string; headers?: Record<
   });
 }
 
-/** A served repo and its calls: GET with or without the token, and a guarded POST. */
+/** A served repo and its signed-in calls: a GET, and a guarded POST. */
 async function served() {
   const repo = template();
   const s = await serveProjects([{ dir: repo.dir, name: 'p' }]);
-  const port = s.port;
   const api = s.api('p', '');
-  const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)![1]!;
-  const headers = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+  const headers = { origin: `http://127.0.0.1:${s.port}`, 'content-type': 'application/json' };
   const mandatesDir = path.join(repo.dir, '.forge', 'runtime', 'mandates');
   const audit = path.join(repo.dir, '.forge', 'runtime', 'audit.jsonl');
   return {
     repo,
-    get: (p: string, auth = false) => hit(port, { path: `${api}${p}`, headers: auth ? { 'x-forge-token': token } : {} }),
-    post: (p: string, body: unknown) => hit(port, { method: 'POST', path: `${api}${p}`, headers, body: typeof body === 'string' ? body : JSON.stringify(body) }),
+    get: (p: string) => hit(s, { path: `${api}${p}` }),
+    post: (p: string, body: unknown) => hit(s, { method: 'POST', path: `${api}${p}`, headers, body: typeof body === 'string' ? body : JSON.stringify(body) }),
     file: (id: string) => fs.readFileSync(path.join(mandatesDir, `${id}.md`), 'utf8'),
     auditEvents: () => (fs.existsSync(audit) ? fs.readFileSync(audit, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []),
     /** Every file under the mandates dir with its bytes, and the repo audit log: what a refused write must leave alone. */
@@ -132,13 +131,13 @@ test('mandates over the dashboard API', async () => {
     assert.deepEqual(list.json.defaults.quality, { pauseBelow: null, minScored: 3 });
 
     // AC4: the detail, with the token.
-    const detail = await t.get('/mandates/m1', true);
+    const detail = await t.get('/mandates/m1');
     assert.equal(detail.status, 200, detail.text);
     assert.deepEqual([detail.json.id, detail.json.body, detail.json.goal, detail.json.directives.length], ['m1', 'Prefer small PRs.', null, 20]);
     assert.deepEqual([detail.json.card.mandate, detail.json.card.scores.median], ['m1', null], 'the detail extends the row, card included');
-    assert.equal((await t.get('/mandates/g1', true)).json.goal, 'Halve review rounds');
-    for (const p of ['/mandates/..%2Fx', '/mandates/none', '/mandates/nope']) assert.equal((await t.get(p, true)).status, 404, p);
-    assert.equal((await t.get('/mandates/bad', true)).status, 409);
+    assert.equal((await t.get('/mandates/g1')).json.goal, 'Halve review rounds');
+    for (const p of ['/mandates/..%2Fx', '/mandates/none', '/mandates/nope']) assert.equal((await t.get(p)).status, 404, p);
+    assert.equal((await t.get('/mandates/bad')).status, 409);
 
     // AC6: an edit replaces only the terms sent, pinned to the updatedAt it read.
     const before = created.json.mandate.updatedAt;
@@ -200,7 +199,7 @@ test('mandates over the dashboard API', async () => {
     writeSummary(t.repo.dir, summary);
     const closingOf = async (): Promise<unknown[]> => [
       (await t.get('/mandates')).json.mandates.find((m: { id: string }) => m.id === 'm1').closing,
-      (await t.get('/mandates/m1', true)).json.closing,
+      (await t.get('/mandates/m1')).json.closing,
     ];
     for (const c of await closingOf()) assert.deepEqual(c, { card, outcomesFinalAt: '2026-10-20T12:00:00.000Z' }, 'the summary card, on the list and the detail');
     // A tampered summary: no closing card, and its text nowhere in the reply.
@@ -209,7 +208,7 @@ test('mandates over the dashboard API', async () => {
     raw.card.scores.median = '<script>x</script>';
     fs.writeFileSync(summaryFile, JSON.stringify(raw));
     assert.deepEqual(await closingOf(), [null, null], 'a tampered card falls back to the live one');
-    for (const r of [await t.get('/mandates'), await t.get('/mandates/m1', true)]) assert.ok(!r.text.includes('<script>x</script>') && !r.text.includes('\\u003cscript'), 'the tampered value never reaches the reply');
+    for (const r of [await t.get('/mandates'), await t.get('/mandates/m1')]) assert.ok(!r.text.includes('<script>x</script>') && !r.text.includes('\\u003cscript'), 'the tampered value never reaches the reply');
     for (const [p, body] of [['edit', { updatedAt: closed.json.mandate.updatedAt, maxJobs: 2 }], ['pause', {}], ['resume', {}]] as const) {
       const r = await t.post(`/mandates/m1/${p}`, body);
       assert.deepEqual([r.status, r.json.error], [409, 'mandate m1 is closed'], p);

@@ -1,5 +1,6 @@
-// The dashboard server's request guards: it answers loopback Hosts only, its POSTs need the token,
-// a matching Origin and a JSON body (docs/architecture/dashboard-security.md), and a resume bounces
+// The dashboard server's request guards: it answers loopback Hosts only, every /api route but the
+// login exchange needs the login (the per-port cookie or the token header), its POSTs also need a
+// matching Origin and a JSON body (docs/architecture/dashboard-security.md), and a resume bounces
 // off a live lease only when that lease is not the job's own pool session's; the job budget route lifts
 // a budget only for a well-formed body, as the dashboard. The machine routes keep the read guard, a
 // project segment is validated before the index is read, and one project's /file and /raw never reach
@@ -21,9 +22,10 @@ import { loadConfig } from '#core/config/load.ts';
 import { createJob, updateJob } from '#core/job/store.ts';
 import { listRequests } from '#core/job/requests.ts';
 import { addProject } from '#engine/project/machine-index.ts';
+import { SIGNED_OUT_ERROR } from '#api/constants.ts';
 
 // Every server here is the machine server with `root` registered as project `a`, serving the
-// committed fixture dist, so the page (and the token in it) needs no real build.
+// committed fixture dist, so the page needs no real build; requests sign in with `s.token`.
 const P = '/api/p/a';
 const startServer = (root: string, opts: ServerOptions = {}) => serveProjects([{ dir: root, name: 'a' }], opts);
 
@@ -44,11 +46,12 @@ test('dashboard server rejects DNS-rebound hosts and cross-origin posts', async 
   const s = await startServer(repo.dir);
   const port = s.port;
   try {
-    assert.equal(await call(port, { host: `127.0.0.1:${port}` }), 200);
-    assert.equal(await call(port, { host: `localhost:${port}` }), 200);
-    assert.equal(await call(port, { host: `evil.example:${port}` }), 421);
-    const post = { 'content-type': 'application/json', 'x-forge-token': 'wrong', host: `127.0.0.1:${port}`, origin: `http://127.0.0.1:${port}` };
-    assert.equal(await call(port, post, 'POST', '{"type":"sync"}'), 403);
+    const login = { 'x-forge-token': s.token };
+    assert.equal(await call(port, { ...login, host: `127.0.0.1:${port}` }), 200);
+    assert.equal(await call(port, { ...login, host: `localhost:${port}` }), 200);
+    assert.equal(await call(port, { ...login, host: `evil.example:${port}` }), 421);
+    const post = { 'content-type': 'application/json', ...login, host: `127.0.0.1:${port}`, origin: `http://127.0.0.1:${port}` };
+    assert.equal(await call(port, { ...post, 'x-forge-token': 'wrong' }, 'POST', '{"type":"sync"}'), 401);
     const { origin: _o, ...noOrigin } = post;
     assert.equal(await call(port, noOrigin, "POST", "{\"type\":\"sync\"}"), 403);
   } finally {
@@ -59,10 +62,10 @@ test('dashboard server rejects DNS-rebound hosts and cross-origin posts', async 
 
 // ---- Daemon endpoints. Every pool here gets fake claude children: nothing real is spawned or signalled.
 
-/** @param {number} port @param {{method?:string, path:string, headers?:Record<string,string>, body?:string}} o */
-function hit(port, o): any {
+/** A request signed in with the server's token as the x-forge-token header, unless `o.headers` replaces it. */
+function hit({ port, token }: { port: number; token: string }, o: { method?: string; path: string; headers?: Record<string, string>; body?: string }): any {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, path: o.path, method: o.method ?? 'GET', headers: { host: `127.0.0.1:${port}`, ...(o.headers ?? {}) } }, (res) => {
+    const req = http.request({ host: '127.0.0.1', port, path: o.path, method: o.method ?? 'GET', headers: { host: `127.0.0.1:${port}`, 'x-forge-token': token, ...(o.headers ?? {}) } }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, text: Buffer.concat(chunks).toString('utf8') }));
@@ -94,18 +97,15 @@ function writeConfig(dir, daemon) {
   fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, daemon }));
 }
 
-const tokenOf = async (port) => /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)[1];
-
 test('POST /api/daemon is token, origin and JSON guarded', async () => {
   const repo = tempRepo();
   const kit = daemonKit();
   const s = await startServer(repo.dir, { daemon: kit.opts });
   const port = s.port;
   try {
-    const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)[1];
-    const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
-    const post = (body, headers: any = good) => hit(port, { method: 'POST', path: `${P}/daemon`, headers, body });
-    assert.equal((await post('{"action":"start"}', { ...good, 'x-forge-token': 'wrong' })).status, 403);
+    const good = { 'x-forge-token': s.token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body, headers: any = good) => hit(s, { method: 'POST', path: `${P}/daemon`, headers, body });
+    assert.equal((await post('{"action":"start"}', { ...good, 'x-forge-token': 'wrong' })).status, 401);
     const { origin: _o, ...noOrigin } = good;
     assert.equal((await post('{"action":"start"}', noOrigin)).status, 403);
     assert.equal((await post('{"action":"start"}', { ...good, origin: 'http://evil.example' })).status, 403);
@@ -137,7 +137,7 @@ test('POST /api/daemon is token, origin and JSON guarded', async () => {
     const stopped = await post('{"action":"stop"}');
     assert.equal(stopped.status, 200);
     assert.equal(JSON.parse(stopped.text).wanted, false);
-    const after = JSON.parse((await hit(port, { path: `${P}/state` })).text).daemons;
+    const after = JSON.parse((await hit(s, { path: `${P}/state` })).text).daemons;
     assert.equal(after.inbox.running, false);
     assert.equal(after.inbox.status, 'off');
     assert.equal(kit.children.filter((c) => !c.exited).length, 0, 'no child left after the final stop');
@@ -155,10 +155,10 @@ test('POST /api/config is token, origin and JSON guarded', async () => {
   const s = await startServer(repo.dir, { daemon: daemonKit().opts });
   const port = s.port;
   try {
-    const good = { 'x-forge-token': await tokenOf(port), origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
-    const post = (body, headers: any = good) => hit(port, { method: 'POST', path: `${P}/config`, headers, body });
+    const good = { 'x-forge-token': s.token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body, headers: any = good) => hit(s, { method: 'POST', path: `${P}/config`, headers, body });
     const body = '{"key":"pipeline.maxRounds","value":4}';
-    assert.equal((await post(body, { ...good, 'x-forge-token': 'wrong' })).status, 403);
+    assert.equal((await post(body, { ...good, 'x-forge-token': 'wrong' })).status, 401);
     const { origin: _o, ...noOrigin } = good;
     assert.equal((await post(body, noOrigin)).status, 403);
     assert.equal((await post(body, { ...good, origin: 'http://evil.example' })).status, 403);
@@ -203,9 +203,11 @@ test('every guarded route refuses before its handler runs', async () => {
   const s = await startServer(repo.dir, { daemon: daemonKit().opts });
   const port = s.port;
   try {
-    const token = await tokenOf(port);
+    const token = s.token;
     const origin = `http://127.0.0.1:${port}`;
     const evil = 'http://evil.example';
+    const header = { 'x-forge-token': token };
+    const cookie = { cookie: `theme=dark; forge-${port}=${token}` };
     type Row = { method: string; path: string; headers: Record<string, string>; body?: string; status: number; text: string };
     const rows: Row[] = [];
     // Invalid JSON: a guard that ran after the body parse would answer 400 instead.
@@ -232,31 +234,45 @@ test('every guarded route refuses before its handler runs', async () => {
       // The machine's own POST: no project prefix.
       '/api/projects',
     ];
-    for (const p of posts) {
-      rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': 'wrong', origin, 'content-type': 'application/json' }, status: 403, text: 'bad token' });
-      rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': token, 'content-type': 'application/json' }, status: 403, text: 'bad origin' });
-      rows.push({ method: 'POST', path: p, body, headers: { 'x-forge-token': token, origin, 'content-type': 'text/plain' }, status: 415, text: 'json only' });
-      // A declared size over 64 KiB is refused before any byte is read; a wrong token still answers first.
-      const big = { 'x-forge-token': token, origin, 'content-type': 'application/json', 'content-length': '70000' };
-      rows.push({ method: 'POST', path: p, headers: big, status: 413, text: 'body too large' });
-      rows.push({ method: 'POST', path: p, headers: { ...big, 'x-forge-token': 'wrong' }, status: 403, text: 'bad token' });
-    }
-    const readRows = (p: string): Row[] => [
-      { method: 'GET', path: p, headers: { 'sec-fetch-site': 'cross-site' }, status: 403, text: 'cross-site' },
-      { method: 'GET', path: p, headers: { origin: evil }, status: 403, text: 'bad origin' },
-    ];
-    for (const p of [`${P}/doctor`, `${P}/github/preview?url=https://github.com/a/b`]) {
-      rows.push(...readRows(p), { method: 'GET', path: p, headers: {}, status: 403, text: 'bad token' });
-      rows.push({ method: 'GET', path: p, headers: { 'x-forge-token': token, origin: evil }, status: 403, text: 'bad origin' });
-    }
     const reads = ['/state', '/stats', '/evals', '/evals/compare', '/requests', '/roster', '/project', '/backlog?refresh=1', '/config', '/mandates/g1/draft', '/mandates', '/chats'].map((p) => `${P}${p}`);
     const streams = ['/events?session=_inbox', '/daemons/log?session=_inbox', '/jobs/j-1', '/jobs/j-1/file?path=x.md', '/jobs/j-1/raw?path=x.html'].map((p) => `${P}${p}`);
-    for (const p of [...reads, ...streams, '/api/about', '/api/projects', '/api/projects/events', '/api/projects/stats']) rows.push(...readRows(p));
-    for (const p of ['/environments', '/backlog/item?ref=x', '/jobs/j-1/environment', '/jobs/j-1/transcript', '/doctor/bundle', '/mandates/g1', chat, `${chat}/log?after=-1`].map((x) => `${P}${x}`)) {
-      rows.push(...readRows(p), { method: 'GET', path: p, headers: { 'sec-fetch-site': 'same-origin' }, status: 403, text: 'bad token' });
+    // These spawn git or gh, read transcripts and logs, or carry the owner's words; the two streams were ?token= routes.
+    const work = [
+      ...['/doctor', '/github/preview?url=https://github.com/a/b', '/environments', '/backlog/item?ref=x', '/jobs/j-1/environment', '/jobs/j-1/transcript', '/doctor/bundle', '/mandates/g1', chat, `${chat}/log?after=-1`],
+      ...['/jobs/j-1/transcript/events', '/jobs/j-1/environment/logs?source=dev'],
+    ].map((x) => `${P}${x}`);
+    const gets = [...reads, ...streams, ...work, '/api/about', '/api/projects', '/api/projects/events', '/api/projects/stats'];
+
+    // Signed out: 401 before any other guard, for every credential that is not this server's login.
+    const signedOut = { status: 401, text: SIGNED_OUT_ERROR };
+    const withQuery = (p: string) => `${p}${p.includes('?') ? '&' : '?'}token=${token}`;
+    const outs = (p: string): { path: string; headers: Record<string, string> }[] => [
+      { path: p, headers: {} },
+      { path: p, headers: { 'x-forge-token': 'wrong' } },
+      { path: p, headers: { cookie: `forge-${port}=${'0'.repeat(32)}` } },
+      { path: p, headers: { cookie: `forge-${port + 1}=${token}` } },
+      { path: withQuery(p), headers: {} },
+    ];
+    for (const p of posts) {
+      const json = { origin, 'content-type': 'application/json' };
+      for (const o of outs(p)) rows.push({ method: 'POST', path: o.path, body, headers: { ...json, ...o.headers }, ...signedOut });
+      // A wrong login answers before the Origin, JSON and size checks too.
+      rows.push({ method: 'POST', path: p, body, headers: { 'content-type': 'application/json' }, ...signedOut });
+      rows.push({ method: 'POST', path: p, body, headers: { origin: evil, 'content-type': 'application/json' }, ...signedOut });
+      rows.push({ method: 'POST', path: p, body, headers: { origin, 'content-type': 'text/plain' }, ...signedOut });
+      rows.push({ method: 'POST', path: p, headers: { ...json, 'content-length': '70000', 'x-forge-token': 'wrong' }, ...signedOut });
+      // Signed in, by header or cookie: the POST guards answer in order. A declared size over 64 KiB is refused before any byte is read.
+      rows.push({ method: 'POST', path: p, body, headers: { ...header, 'content-type': 'application/json' }, status: 403, text: 'bad origin' });
+      rows.push({ method: 'POST', path: p, body, headers: { ...cookie, origin: evil, 'content-type': 'application/json' }, status: 403, text: 'bad origin' });
+      rows.push({ method: 'POST', path: p, body, headers: { ...cookie, origin, 'content-type': 'text/plain' }, status: 415, text: 'json only' });
+      rows.push({ method: 'POST', path: p, headers: { ...header, ...json, 'content-length': '70000' }, status: 413, text: 'body too large' });
     }
-    for (const p of ['/jobs/j-1/transcript/events', '/jobs/j-1/environment/logs?source=dev'].map((x) => `${P}${x}`)) {
-      rows.push(...readRows(p), { method: 'GET', path: p, headers: { 'x-forge-token': token }, status: 403, text: 'bad token' });
+    for (const p of gets) {
+      for (const o of outs(p)) rows.push({ method: 'GET', path: o.path, headers: { 'sec-fetch-site': 'same-origin', ...o.headers }, ...signedOut });
+      rows.push({ method: 'GET', path: p, headers: { 'sec-fetch-site': 'cross-site' }, ...signedOut });
+      // Signed in: the read guard still refuses another site.
+      rows.push({ method: 'GET', path: p, headers: { ...header, 'sec-fetch-site': 'cross-site' }, status: 403, text: 'cross-site' });
+      rows.push({ method: 'GET', path: p, headers: { ...cookie, origin: evil }, status: 403, text: 'bad origin' });
     }
     const guarded = [...new Map(rows.map((r) => [`${r.method} ${r.path}`, r])).values()];
     for (const r of [...guarded, { method: 'GET', path: '/' }, { method: 'GET', path: '/assets/index-Fx1.js' }, { method: 'GET', path: `${P}/state` }]) {
@@ -270,10 +286,15 @@ test('every guarded route refuses before its handler runs', async () => {
     }
     assert.deepEqual(filesOf(repo.dir), before, 'a refused request writes nothing');
 
-    // A route added later with guards, or as a POST, needs a row above, in either table.
-    const covered = new Set(rows.map((r) => routeOf(r.method, r.path)));
-    const missing = [...ROUTES, ...PROJECT_ROUTES].filter((r) => (r.method === 'POST' || r.guards?.length) && !covered.has(r as never)).map((r) => `${r.method} ${r.path}`);
-    assert.deepEqual(missing, [], 'every guarded route has a row');
+    // Only the login exchange is open; every other /api route, in either table, added now or later, needs 401 rows above.
+    const all = [...ROUTES.map((r) => ({ r, api: typeof r.path === 'string' && r.path.startsWith('/api/') })), ...PROJECT_ROUTES.map((r) => ({ r, api: true }))];
+    assert.deepEqual(
+      all.filter(({ r }) => r.open).map(({ r }) => `${r.method} ${r.path}`),
+      ['POST /api/session'],
+    );
+    const covered = new Set(rows.filter((r) => r.status === 401).map((r) => routeOf(r.method, r.path)));
+    const missing = all.filter(({ r, api }) => api && !r.open && !covered.has(r as never)).map(({ r }) => `${r.method} ${r.path}`);
+    assert.deepEqual(missing, [], 'every /api route has signed-out rows');
   } finally {
     await s.cleanup();
     repo.cleanup();
@@ -287,12 +308,13 @@ test('machine routes keep the read guard and project segments are validated', as
   const s = await startServer(repo.dir, { daemon: daemonKit().opts, refreshMs: 3_600_000 });
   const port = s.port;
   try {
+    const token = s.token;
+    const login = { 'x-forge-token': token };
     for (const p of ['/api/projects', '/api/projects/events']) {
-      assert.deepEqual(await raw(port, 'GET', p, { origin: 'http://evil.example' }).then((r) => [r.status, r.text]), [403, 'bad origin'], p);
-      assert.deepEqual(await raw(port, 'GET', p, { 'sec-fetch-site': 'cross-site' }).then((r) => [r.status, r.text]), [403, 'cross-site'], p);
-      assert.equal((await raw(port, 'GET', p, { host: `evil.example:${port}` })).status, 421, p);
+      assert.deepEqual(await raw(port, 'GET', p, { ...login, origin: 'http://evil.example' }).then((r) => [r.status, r.text]), [403, 'bad origin'], p);
+      assert.deepEqual(await raw(port, 'GET', p, { ...login, 'sec-fetch-site': 'cross-site' }).then((r) => [r.status, r.text]), [403, 'cross-site'], p);
+      assert.equal((await raw(port, 'GET', p, { ...login, host: `evil.example:${port}` })).status, 421, p);
     }
-    const token = await tokenOf(port);
     const origin = `http://127.0.0.1:${port}`;
     // Past the guard, Add project's handler refuses a body with no path.
     assert.equal((await raw(port, 'POST', '/api/projects', { 'x-forge-token': token, origin, 'content-type': 'application/json' }, '{}')).status, 400);
@@ -301,17 +323,19 @@ test('machine routes keep the read guard and project segments are validated', as
     addProject(s.home, fs.realpathSync(later.dir), { name: 'c' });
     const long = 'a'.repeat(65);
     for (const p of ['/api/p/../state', '/api/p/A/state', '/api/p/a%2Fb/state', `/api/p/${long}/state`]) {
-      const r = await raw(port, 'GET', p, {});
+      const r = await raw(port, 'GET', p, login);
       assert.equal(r.status, 404, p);
       assert.ok(!r.text.includes(later.dir), p);
     }
-    assert.deepEqual(JSON.parse((await raw(port, 'GET', `/api/p/${long}/state`, {})).text), { error: `no registered project ${JSON.stringify(long.slice(0, 64))}` });
+    assert.deepEqual(JSON.parse((await raw(port, 'GET', `/api/p/${long}/state`, login)).text), { error: `no registered project ${JSON.stringify(long.slice(0, 64))}` });
     assert.equal(s.entry('c'), null, 'no invalid segment read the index');
-    assert.equal((await raw(port, 'GET', '/api/p/c/state', {})).status, 200, 'a valid unloaded name refreshes once');
+    assert.equal((await raw(port, 'GET', '/api/p/c/state', {})).status, 401, 'signed out, an unloaded name reads nothing');
+    assert.equal(s.entry('c'), null);
+    assert.equal((await raw(port, 'GET', '/api/p/c/state', login)).status, 200, 'a valid unloaded name refreshes once');
     assert.ok(s.entry('c'));
 
     const post = (headers: Record<string, string>) => raw(port, 'POST', `${P}/requests`, headers, '{"type":"sync"}').then((r) => r.status);
-    assert.equal(await post({ 'x-forge-token': 'wrong', origin, 'content-type': 'application/json' }), 403);
+    assert.equal(await post({ 'x-forge-token': 'wrong', origin, 'content-type': 'application/json' }), 401);
     assert.equal(await post({ 'x-forge-token': token, 'content-type': 'application/json' }), 403);
     assert.equal(await post({ 'x-forge-token': token, origin, 'content-type': 'text/plain' }), 415);
     assert.equal(listRequests(repo.dir).length, 0, 'nothing is queued');
@@ -336,12 +360,12 @@ test("/file and /raw for one project refuse another project's files", async () =
   try {
     for (const [kind, f] of [['file', 'secret.md'], ['raw', 'secret.html']] as const) {
       for (const rel of [path.join(bDir, f), path.relative(aDir, path.join(bDir, f)), `link-${f}`]) {
-        const r = await raw(s.port, 'GET', `/api/p/a/jobs/${ja}/${kind}?path=${encodeURIComponent(rel)}`, {});
+        const r = await raw(s.port, 'GET', `/api/p/a/jobs/${ja}/${kind}?path=${encodeURIComponent(rel)}`, { 'x-forge-token': s.token });
         assert.notEqual(r.status, 200, `${kind} ${rel}`);
         assert.ok(!r.text.includes(marker), `${kind} ${rel}: no B bytes`);
       }
       // The same file under B's own routes is B's to serve.
-      const own = await raw(s.port, 'GET', `/api/p/b/jobs/${jb}/${kind}?path=${f}`, {});
+      const own = await raw(s.port, 'GET', `/api/p/b/jobs/${jb}/${kind}?path=${f}`, { 'x-forge-token': s.token });
       assert.equal(own.status, 200, `${kind} under b`);
       assert.ok(own.text.includes(marker));
     }
@@ -365,12 +389,12 @@ test('the job budget route raises or acknowledges as the dashboard', async () =>
       j.state = 'waiting';
       j.waitingOn = 'budget';
     });
-    const headers = { 'x-forge-token': await tokenOf(port), origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
-    const post = (body: unknown, job = id, h: Record<string, string> = headers, prefix = '/api/p/b') => hit(port, { method: 'POST', path: `${prefix}/jobs/${job}/budget`, headers: h, body: JSON.stringify(body) });
+    const headers = { 'x-forge-token': s.token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body: unknown, job = id, h: Record<string, string> = headers, prefix = '/api/p/b') => hit(s, { method: 'POST', path: `${prefix}/jobs/${job}/budget`, headers: h, body: JSON.stringify(body) });
     const files = () => ['job.json', 'events.jsonl'].map((f) => fs.readFileSync(path.join(repo.dir, '.forge', 'jobs', id, f), 'utf8'));
     const before = files();
     const { origin: _o, ...noOrigin } = headers;
-    assert.equal((await post({ ack: true }, id, { ...headers, 'x-forge-token': 'wrong' })).status, 403);
+    assert.equal((await post({ ack: true }, id, { ...headers, 'x-forge-token': 'wrong' })).status, 401);
     assert.equal((await post({ ack: true }, id, noOrigin)).status, 403);
     assert.equal((await post({ ack: true }, id, { ...headers, 'content-type': 'text/plain' })).status, 415);
     assert.equal((await post({ ack: true }, id, headers, '/api')).status, 404, 'the bare path is gone');
@@ -408,7 +432,7 @@ test('POST /api/requests refuses gate and draft requests', async () => {
   const s = await startServer(repo.dir, { daemon: daemonKit().opts });
   const port = s.port;
   try {
-    const headers = { 'x-forge-token': await tokenOf(port), origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const headers = { 'x-forge-token': s.token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
     const rows: [Record<string, unknown>, string][] = [
       [{ type: 'gate', job: 'j1', args: { gate: 'spec-approval' } }, 'gate requests are written only by forge job set and forge pr sync (and forge mandate draft record for a milestone draft)'],
       [{ type: 'gate', job: null, args: { gate: 'milestone-approval', mandate: 'g1' } }, 'gate requests are written only by forge job set and forge pr sync (and forge mandate draft record for a milestone draft)'],
@@ -417,7 +441,7 @@ test('POST /api/requests refuses gate and draft requests', async () => {
       [{ type: 'retro', args: { mandate: 'm1; rm -rf ~' } }, 'args.mandate must be a mandate id'],
     ];
     for (const [body, error] of rows) {
-      const r = await hit(port, { method: 'POST', path: `${P}/requests`, headers, body: JSON.stringify(body) });
+      const r = await hit(s, { method: 'POST', path: `${P}/requests`, headers, body: JSON.stringify(body) });
       assert.deepEqual({ status: r.status, error: JSON.parse(r.text).error }, { status: 400, error }, String(body.type));
     }
     assert.deepEqual(listRequests(repo.dir), [], 'no request file');
@@ -427,7 +451,7 @@ test('POST /api/requests refuses gate and draft requests', async () => {
   }
 });
 
-test('backlog refresh needs the token', async () => {
+test('backlog refresh needs sign-in', async () => {
   const repo = tempRepo();
   const backlog = path.join(repo.dir, '.forge', 'backlog.md');
   fs.mkdirSync(path.dirname(backlog), { recursive: true });
@@ -435,13 +459,17 @@ test('backlog refresh needs the token', async () => {
   const s = await startServer(repo.dir, { daemon: daemonKit().opts });
   const port = s.port;
   try {
-    const titles = async (p: string, headers: Record<string, string> = {}) => JSON.parse((await hit(port, { path: `${P}${p}`, headers })).text).items.map((i: { title: string }) => i.title);
-    assert.deepEqual(await titles('/backlog'), ['Item A']);
+    const get = (p: string, headers: Record<string, string>) => raw(port, 'GET', `${P}${p}`, headers);
+    const titles = async (p: string, headers: Record<string, string>) => JSON.parse((await get(p, headers)).text).items.map((i: { title: string }) => i.title);
+    assert.deepEqual(await titles('/backlog', { 'x-forge-token': s.token }), ['Item A']);
     fs.writeFileSync(backlog, '# Backlog\n- [ ] Item B\n');
-    // Without the token, `refresh` is ignored and the cache answers.
-    assert.deepEqual(await titles('/backlog?refresh=1'), ['Item A']);
-    assert.deepEqual(await titles('/backlog?refresh=1', { 'x-forge-token': 'wrong' }), ['Item A']);
-    assert.deepEqual(await titles('/backlog?refresh=1', { 'x-forge-token': await tokenOf(port) }), ['Item B']);
+    // Signed out, it is a 401 and nothing is refetched.
+    for (const headers of [{}, { 'x-forge-token': 'wrong' }]) assert.deepEqual(await get('/backlog?refresh=1', headers).then((r) => [r.status, r.text]), [401, SIGNED_OUT_ERROR]);
+    assert.deepEqual(await titles('/backlog', { 'x-forge-token': s.token }), ['Item A'], 'the cache still answers');
+    // Signed in by header or by cookie, `refresh` refetches.
+    assert.deepEqual(await titles('/backlog?refresh=1', { cookie: `forge-${port}=${s.token}` }), ['Item B']);
+    fs.writeFileSync(backlog, '# Backlog\n- [ ] Item C\n');
+    assert.deepEqual(await titles('/backlog?refresh=1', { 'x-forge-token': s.token }), ['Item C']);
   } finally {
     await s.cleanup();
     repo.cleanup();
@@ -456,7 +484,7 @@ test("backlog item serves an item's text with the token", async () => {
   const s = await startServer(repo.dir, { daemon: daemonKit().opts });
   const port = s.port;
   try {
-    const headers = { 'x-forge-token': await tokenOf(port), 'sec-fetch-site': 'same-origin' };
+    const headers = { 'x-forge-token': s.token, 'sec-fetch-site': 'same-origin' };
     const get = (q: string) => raw(port, 'GET', `${P}/backlog/item${q}`, headers);
     for (const q of ['', '?ref=', `?ref=${'a'.repeat(201)}`, '?ref=a%0Ab', '?ref=a%7F']) {
       const r = await get(q);
@@ -483,7 +511,7 @@ test('the page and mockups carry the framing headers', async () => {
   const port = s.port;
   try {
     const framing = async (p: string) => {
-      const r = await hit(port, { path: p });
+      const r = await hit(s, { path: p });
       return { status: r.status, csp: r.headers['content-security-policy'], dns: r.headers['x-dns-prefetch-control'] };
     };
     const page = { status: 200, csp: "frame-src 'self'; frame-ancestors 'none'", dns: 'off' };
@@ -508,10 +536,10 @@ test("a resume reaches the job's own session under any id it has had", async () 
   const port = s.port;
   const pool = s.entry('a')!.pool;
   try {
-    const good = { 'x-forge-token': await tokenOf(port), origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
-    const post = (p: string, body: unknown) => hit(port, { method: 'POST', path: `${P}${p}`, headers: good, body: JSON.stringify(body) });
+    const good = { 'x-forge-token': s.token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (p: string, body: unknown) => hit(s, { method: 'POST', path: `${P}${p}`, headers: good, body: JSON.stringify(body) });
     const resume = (job: string) => post('/requests', { type: 'resume', job });
-    const jobSession = async (job: string) => JSON.parse((await hit(port, { path: `${P}/jobs/${job}` })).text).job.ownerStatus.jobSession;
+    const jobSession = async (job: string) => JSON.parse((await hit(s, { path: `${P}/jobs/${job}` })).text).job.ownerStatus.jobSession;
     const lease = (job: string, driver: string) =>
       updateJob(repo.dir, job, (j) => {
         const at = new Date().toISOString();
@@ -566,12 +594,12 @@ test('a route that throws answers 500 and the server keeps serving', async () =>
   const s = await startServer(repo.dir, { daemon: daemonKit().opts });
   const port = s.port;
   try {
-    const token = await tokenOf(port);
+    const token = s.token;
     const broken = await raw(port, 'GET', `${P}/jobs/j-1/environment`, { 'x-forge-token': token, 'sec-fetch-site': 'same-origin' });
     assert.equal(broken.status, 500);
     assert.match(broken.type, /^application\/json/);
     assert.match(JSON.parse(broken.text).error, /cannot read/);
-    assert.equal((await raw(port, 'GET', '/api/about', {})).status, 200);
+    assert.equal((await raw(port, 'GET', '/api/about', { 'x-forge-token': token })).status, 200);
   } finally {
     await s.cleanup();
     repo.cleanup();

@@ -33,5 +33,5 @@ export function addProjectOutcome(r: PostProjectResponse): AddProjectOutcome {
 }
 
 /** POST /api/projects, the machine's own path (projectApi leaves it bare). */
-export const postProject = (body: PostProjectBody, token: string, fetchImpl: typeof fetch = fetch): Promise<PostProjectResponse> =>
-  post<PostProjectResponse>('/api/projects', body, token, fetchImpl);
+export const postProject = (body: PostProjectBody, fetchImpl: typeof fetch = fetch): Promise<PostProjectResponse> =>
+  post<PostProjectResponse>('/api/projects', body, fetchImpl);

@@ -70,7 +70,8 @@ function render(sections: Section[]): string {
 function statLines(root: string, config: Config): string[] {
   let stats: Record<string, any>;
   try {
-    stats = computeStats(root, { config }) as unknown as Record<string, any>;
+    // Only plain numbers are listed, so the nested agent-start figure (a transcript read) is skipped.
+    stats = computeStats(root, { config, agentStart: false }) as unknown as Record<string, any>;
   } catch (e) {
     return [unavailable(e)];
   }
