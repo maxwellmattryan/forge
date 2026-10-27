@@ -1,7 +1,7 @@
 // A mandate's progress, which the Office pass enforces and `forge office survey|start` and `forge
 // mandate show` read: its jobs and how each stands against its `until`, its spend and starts, the scope
 // items the tracker lists for it, the candidates and the window the Foreman may start from, why it is
-// blocked, and its stalls. It reads only the CLI's records: listJobs and readEvents (the CLI copy), the
+// blocked, its quality floor, and its stalls. It reads only the CLI's records: listJobs and readEvents (the CLI copy), the
 // archive and the spend ledger, never a job folder's session-writable job.json or events.jsonl.
 // docs/architecture/foreman.md › Director loop.
 import { checkIssueRef, sameIssue } from '#core/job/issue-ref.ts';
@@ -11,6 +11,7 @@ import { isActive, isForemanActor, leaseStatus, listJobs, readEvents } from '#co
 import { oneLineTitle } from '#core/text.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import { checkRepoBudget, repoBudgetStatus } from '#engine/metrics/repo-budget.ts';
+import { runningScore } from '#engine/metrics/report-card.ts';
 import { spendLedger } from '#engine/metrics/spend.ts';
 import { foremanEnabled } from '#engine/pipeline/moves/foreman-gates.ts';
 import { cadenceMinutes } from './cadence.ts';
@@ -323,6 +324,7 @@ export function mandateProgress(root: string, config: Config, m: Mandate, all: R
   const trackerError = scope.error;
   const free = Math.max(0, m.maxJobs - figures.inFlight);
   const budget = m.budget;
+  const q = qualityFloor(m, figures.jobs);
   const blocked =
     state !== 'active'
       ? `mandate ${m.id} is ${state}`
@@ -330,13 +332,15 @@ export function mandateProgress(root: string, config: Config, m: Mandate, all: R
         ? `budget: $${figures.spentUsd} of $${budget.usd} spent`
         : figures.started >= budget.jobs
           ? `budget: ${figures.started} of ${budget.jobs} jobs started`
-          : ctx.repoBudget.held
-            ? `repo budget: ${ctx.repoBudget.reason ?? 'held'}`
-            : trackerError !== null
-              ? `tracker: ${trackerError}`
-              : !foremanEnabled(config)
-                ? 'foreman.enabled is false'
-                : null;
+          : q !== null
+            ? qualityReason(q)
+            : ctx.repoBudget.held
+              ? `repo budget: ${ctx.repoBudget.reason ?? 'held'}`
+              : trackerError !== null
+                ? `tracker: ${trackerError}`
+                : !foremanEnabled(config)
+                  ? 'foreman.enabled is false'
+                  : null;
   const window = free === 0 || blocked !== null ? [] : candidates.slice(0, m.order === 'listed' ? free : Math.min(WINDOW_MAX, 3 * free));
   const open = new Set(ctx.requests.filter((r) => r.status === 'pending' || r.status === 'in-progress').map((r) => r.job));
   const resumable = figures.jobs.filter((j) => j.live && j.job.state === 'queued' && leaseStatus(j.job, ctx.at).status !== 'live' && !open.has(j.id)).map((j) => j.id);
@@ -369,6 +373,28 @@ export function bounceHold(job: Pick<Job, 'state' | 'waitingOn'>, events: JobEve
   const n = gateEntries(events, w);
   return n >= m.stall.bounces ? `mandate ${m.id}: back at ${w} ${n} times (stall.bounces ${m.stall.bounces}): left for a human` : null;
 }
+
+/** A quality floor that applies: the running median, the floor and how many scored jobs it is over. */
+export interface QualityBreach {
+  median: number;
+  floor: number;
+  scored: number;
+}
+
+/**
+ * The mandate's quality floor when it applies: a floor is set, at least minScored merged jobs are scored
+ * 0-5, and their running median is strictly below the floor; else null. It reads the jobs' CLI records
+ * (jobsOf), so a score forged in a job folder's job.json never counts.
+ */
+export function qualityFloor(m: Pick<Mandate, 'quality'>, jobs: Pick<MandateJob, 'job'>[]): QualityBreach | null {
+  const floor = m.quality.pauseBelow;
+  if (floor === null) return null;
+  const r = runningScore(jobs);
+  return r.median !== null && r.scored >= m.quality.minScored && r.median < floor ? { median: r.median, floor, scored: r.scored } : null;
+}
+
+/** The pause reason and `blocked` text of a quality floor that applies. */
+export const qualityReason = (q: QualityBreach): string => `quality: median ${q.median} below pauseBelow ${q.floor} over ${q.scored} scored jobs`;
 
 /** An active mandate with no progress for stall.cadences passes of foreman.cadence minutes: the minutes and passes, else null. */
 export function cadenceStalled(m: Pick<Mandate, 'stall'>, lastActivity: string, config: Config, at: number): { minutes: number; passes: number } | null {

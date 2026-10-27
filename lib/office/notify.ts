@@ -1,7 +1,7 @@
 // Notifications: a small, fixed-shape message to the team's webhooks and command when a job needs a
 // human, a PR opens or merges, a job fails, the daemon stops, a budget is exceeded, a secret is
 // found, the login service restarted with work in flight, or the Office pass stalled, paused at its
-// budget or closed a mandate. This is the only module that does network I/O or runs notify.command. Triggers call
+// budget or below its quality floor, or closed a mandate. This is the only module that does network I/O or runs notify.command. Triggers call
 // queueNotify, which hands delivery to a detached `forge notify send` child, so a slow endpoint
 // never stalls the command that changed state. Delivery is best effort: nothing here throws into
 // a caller or changes job state.
@@ -53,13 +53,14 @@ export const REASONS = {
   'service-restarted': 'The machine dashboard restarted and resumed the work in flight',
   'mandate-stalled': 'A mandate stalled and was left for a human',
   'mandate-budget': 'A mandate reached its budget and paused',
+  'mandate-quality': "A mandate's median score fell below its floor and paused",
   'mandate-closed': 'A mandate finished its scope and closed itself',
   'mandate-release': "A mandate's release plan is waiting for approval",
   test: 'Test notification from forge notify test',
 } as const;
 
 /** The reasons that name a mandate, and the only ones `forge notify send --mandate` takes. */
-export const MANDATE_REASONS: readonly ReasonCode[] = ['mandate-stalled', 'mandate-budget', 'mandate-closed', 'mandate-release'];
+export const MANDATE_REASONS: readonly ReasonCode[] = ['mandate-stalled', 'mandate-budget', 'mandate-quality', 'mandate-closed', 'mandate-release'];
 export type ReasonCode = keyof typeof REASONS;
 
 /** The Slack header label per event. */

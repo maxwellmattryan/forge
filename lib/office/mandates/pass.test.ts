@@ -1,9 +1,10 @@
-// The Office pass enforces each mandate's contract with no model: it pauses at the budget, stalls a
-// mandate with no progress and a job that keeps bouncing, applies onUnfinishable, and closes a finished
+// The Office pass enforces each mandate's contract with no model: it pauses at the budget and below the
+// quality floor, stalls a mandate with no progress and a job that keeps bouncing, applies onUnfinishable, and closes a finished
 // mandate with its summary, starting the next link of its chain in the same pass.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { jobAt, parkedAt, recordingMoveEffects, tempRepo } from '../../../test/helpers.ts';
 import { planSteps, releaseFiles, writeReleasePlan } from '#engine/release/files.ts';
@@ -11,14 +12,14 @@ import { latestMandatePlan } from '#engine/release/mandate.ts';
 import { RELEASE_FILE_VERSION } from '#engine/release/plan.ts';
 import { defaults } from '#core/config/load.ts';
 import { listRequests } from '#core/job/requests.ts';
-import { createJob, loadJob, logEvent,logHumanEvent, readEvents, repoAuditFile, setJob, updateJob } from '#core/job/store.ts';
+import { createJob, jobDir, loadJob, logEvent,logHumanEvent, readEvents, repoAuditFile, setJob, updateJob } from '#core/job/store.ts';
 import { useMoveEffects } from '#engine/pipeline/moves/effects.ts';
 import { applyInput, blankMandate, fillDefaults } from './contract.ts';
 import { readDirectives } from './directives.ts';
 import { readSummary, runOfficePass } from './pass.ts';
 import { mandateProgress, readProgressCtx } from './progress.ts';
-import { listMandates, readMandate, writeMandate } from './store.ts';
-import type { Config, Tracker, TrackerItem } from '#core/types.ts';
+import { listMandates, mandateWrite, readMandate, writeMandate } from './store.ts';
+import type { Config, Job, Tracker, TrackerItem } from '#core/types.ts';
 import type { QueueNotify } from '../notify.ts';
 import type { Mandate, MandateInput } from './types.ts';
 
@@ -202,6 +203,128 @@ test('the pass stalls a mandate with no progress and a job that keeps bouncing',
     assert.equal(stalls().length, 1, 'nor a directive');
     assert.equal(n.calls.length, 1);
     assert.equal(loadJob(root, id).waitingOn, 'escalation', 'the job keeps waiting, as a person’s gate');
+  });
+});
+
+/** A done mandate-m1 job on issue `n`, merged unless told otherwise, with a score record holding `value`. */
+function scoredJob(root: string, n: number, value: unknown, o: { status?: 'scored' | 'queued' | 'held'; merged?: boolean } = {}) {
+  const at = new Date().toISOString();
+  const j = jobAt(root, 'done', { create: { mandate: 'm1', issues: issue(n) } });
+  updateJob(root, j.id, (job) => {
+    if (o.merged !== false) job.pr = { number: n, url: `https://github.com/acme/web/pull/${n}`, state: 'MERGED', isDraft: false, lastSyncedAt: at };
+    job.score = { status: o.status ?? 'scored', value, outOf: 5, queuedAt: at, recordedAt: at, judgeModel: null, builderModel: null } as Job['score'];
+  });
+  return j;
+}
+
+test('the pass pauses a mandate below its quality floor', async (t) => {
+  const QUALITY = 'quality: median 2 below pauseBelow 3 over 3 scored jobs';
+  const QUALITY_CALL = [['mandate-stalled'], { reason: 'mandate-quality', mandate: 'm1' }];
+  // Issues 1-3 carry the scored jobs; 4-6 stay candidates, so the mandate never closes.
+  const tracker = () => stub({ M1: [1, 2, 3, 4, 5, 6] });
+  const floored = (root: string, config: Config, input: MandateInput = {}, at?: string) =>
+    mandate(root, config, 'm1', { milestones: ['M1'], budgetJobs: 100, pauseBelow: 3, minScored: 3, ...input }, at ? { at } : {});
+  const directs = (root: string) => listRequests(root).filter((r) => r.type === 'direct');
+
+  await t.test('three merged jobs scored 1, 2 and 4 pause it once', async (t) => {
+    const { root, config } = scratch(t);
+    floored(root, config);
+    [1, 2, 4].forEach((v, i) => scoredJob(root, i + 1, v));
+    const n = notifier();
+    const out = await runOfficePass(root, config, { tracker: tracker(), notify: n.fn });
+    assert.deepEqual([status(root, 'm1'), reason(root, 'm1')], ['paused', QUALITY]);
+    assert.deepEqual(readDirectives(root, { mandate: 'm1' }).map((d) => [d.action, d.reason]), [['pause', QUALITY]]);
+    assert.deepEqual(n.calls, [QUALITY_CALL]);
+    assert.equal(out.direct, null);
+    assert.deepEqual(directs(root), []);
+  });
+
+  await t.test('no quality pause below minScored, at the floor, with no floor, or from scores that do not count', async (t) => {
+    const rows: [string, MandateInput, (root: string) => void][] = [
+      ['only 2 scored jobs', {}, (root) => [1, 2].forEach((v, i) => scoredJob(root, i + 1, v))],
+      ['a median exactly at pauseBelow', {}, (root) => [1, 3, 4].forEach((v, i) => scoredJob(root, i + 1, v))],
+      ['pauseBelow null', { pauseBelow: null }, (root) => [1, 2, 4].forEach((v, i) => scoredJob(root, i + 1, v))],
+      [
+        'low scores queued, held or unmerged',
+        {},
+        (root) => {
+          [3.5, 4, 4.5].forEach((v, i) => scoredJob(root, i + 1, v));
+          scoredJob(root, 7, 0, { status: 'queued' });
+          scoredJob(root, 8, 0, { status: 'held' });
+          scoredJob(root, 9, 0, { merged: false });
+          scoredJob(root, 10, 0.5, { merged: false });
+        },
+      ],
+    ];
+    for (const [name, input, plant] of rows) {
+      const s = scratch(t);
+      floored(s.root, s.config, input);
+      plant(s.root);
+      const n = notifier();
+      const out = await runOfficePass(s.root, s.config, { tracker: tracker(), notify: n.fn });
+      assert.equal(status(s.root, 'm1'), 'active', name);
+      assert.deepEqual(n.calls, [], name);
+      assert.equal(out.mandates[0]?.blocked, null, `${name}: not blocked`);
+      assert.ok(out.direct, `${name}: director work is queued`);
+    }
+  });
+
+  await t.test('the budget comes first; the floor comes before the cadence stall', async (t) => {
+    const budget = scratch(t);
+    floored(budget.root, budget.config, { budgetUsd: 1 });
+    const jobs = [1, 2, 4].map((v, i) => scoredJob(budget.root, i + 1, v));
+    spend(budget.root, jobs[0].id, 2);
+    const nb = notifier();
+    await runOfficePass(budget.root, budget.config, { tracker: tracker(), notify: nb.fn });
+    assert.deepEqual([status(budget.root, 'm1'), reason(budget.root, 'm1')], ['paused', 'budget: $2 of $1 spent']);
+    assert.deepEqual(nb.calls, [[['mandate-budget'], { reason: 'mandate-budget', mandate: 'm1' }]]);
+
+    const stalled = scratch(t);
+    floored(stalled.root, stalled.config, {}, new Date(Date.now() - 3 * 60 * MINUTE).toISOString());
+    [1, 2, 4].forEach((v, i) => scoredJob(stalled.root, i + 1, v));
+    const ns = notifier();
+    await runOfficePass(stalled.root, stalled.config, { tracker: tracker(), notify: ns.fn, at: Date.now() + 31 * MINUTE });
+    assert.deepEqual([status(stalled.root, 'm1'), reason(stalled.root, 'm1')], ['paused', QUALITY]);
+    assert.deepEqual(ns.calls, [QUALITY_CALL]);
+  });
+
+  await t.test('a resume below the floor stays blocked and pauses again; a lower floor lets it run', async (t) => {
+    const { root, config } = scratch(t);
+    floored(root, config);
+    [1, 2, 4].forEach((v, i) => scoredJob(root, i + 1, v));
+    const n = notifier();
+    await runOfficePass(root, config, { tracker: tracker(), notify: n.fn });
+    assert.equal(status(root, 'm1'), 'paused');
+    mandateWrite(root, config, 'resume', 'm1');
+    const all = listMandates(root);
+    const p = mandateProgress(root, config, all.find((m) => m.id === 'm1') as Mandate, all, readProgressCtx(root, config, { tracker: tracker(), trackerError: null }));
+    assert.equal(p.blocked, QUALITY, 'office start refuses it between the resume and the next pass');
+    assert.deepEqual(p.window, []);
+    const again = await runOfficePass(root, config, { tracker: tracker(), notify: n.fn });
+    assert.deepEqual([status(root, 'm1'), reason(root, 'm1'), again.direct], ['paused', QUALITY, null]);
+    assert.deepEqual(n.calls, [QUALITY_CALL, QUALITY_CALL]);
+
+    mandateWrite(root, config, 'resume', 'm1');
+    mandateWrite(root, config, 'edit', 'm1', { input: { pauseBelow: 1.5 } });
+    const after = await runOfficePass(root, config, { tracker: tracker(), notify: n.fn });
+    assert.equal(status(root, 'm1'), 'active');
+    assert.equal(n.calls.length, 2, 'no third pause');
+    assert.ok(after.direct, 'director work is queued again');
+  });
+
+  await t.test("a score forged in a job folder's job.json changes nothing", async (t) => {
+    const { root, config } = scratch(t);
+    floored(root, config);
+    const jobs = [1, 2, 4].map((v, i) => scoredJob(root, i + 1, v));
+    for (const j of jobs) {
+      const mirror = path.join(jobDir(root, j.id), 'job.json');
+      const job = JSON.parse(fs.readFileSync(mirror, 'utf8'));
+      fs.writeFileSync(mirror, JSON.stringify({ ...job, score: { ...job.score, value: 5 } }));
+    }
+    const n = notifier();
+    await runOfficePass(root, config, { tracker: tracker(), notify: n.fn });
+    assert.deepEqual([status(root, 'm1'), reason(root, 'm1')], ['paused', QUALITY]);
+    assert.deepEqual(n.calls, [QUALITY_CALL]);
   });
 });
 

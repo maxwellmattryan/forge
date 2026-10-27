@@ -7,7 +7,9 @@
 // CardFigure in lib/api/repo.ts). The card goes on GET /api/mandates without the token, so it carries no
 // free text: counts, finite numbers, 'pending', null, WAITING_ON keys and ISO times it built itself. Its
 // inputs are typed by shape, as this layer can't import the office's: progress.ts's MandateJob and
-// JobFigures fit them. docs/IMPROVEMENT.md › Mandate report card.
+// JobFigures fit them. runningScore is the median a mandate's quality floor reads: the same scored values,
+// without the pending rule, which under continuous work would keep it 'pending'. docs/IMPROVEMENT.md ›
+// Mandate report card.
 import { WAITING_ON } from '#core/job/schema.ts';
 import { isForemanActor } from '#core/job/store.ts';
 import { outcomeWindowDays } from '../evals/outcome.ts';
@@ -76,18 +78,39 @@ function gateAt(events: JobEvent[], i: number): WaitingOn | 'none' {
   return 'none';
 }
 
+/** A job's score value when it is scored with a number from 0 to 5, else null: the one rule the card and the quality floor share. */
+const scoredValue = (j: Pick<CardJob, 'job'>): number | null => {
+  const s = j.job.score;
+  return s?.status === 'scored' ? scoreValue(s.value) : null;
+};
+
+/** The values of the merged jobs scored 0-5, in job order. */
+function scoredValues(merged: Pick<CardJob, 'job'>[]): number[] {
+  const values: number[] = [];
+  for (const j of merged) {
+    const v = scoredValue(j);
+    if (v !== null) values.push(v);
+  }
+  return values;
+}
+
+/** The running median over the merged jobs scored 0-5, pending ones aside: what a mandate's quality floor reads. */
+export function runningScore(jobs: Pick<CardJob, 'job'>[]): { scored: number; median: number | null } {
+  const values = scoredValues(jobs.filter((j) => j.job.pr?.state === 'MERGED'));
+  return { scored: values.length, median: values.length ? r2(median(values) as number) : null };
+}
+
 /** The merged jobs' scores, each job in exactly one bucket. */
 function scoresOf(merged: CardJob[], m: Pick<CardMandate, 'scoring'>, config: Config, now: Date): MandateReportCard['scores'] {
-  const values: number[] = [];
+  const values = scoredValues(merged);
   let held = 0;
   let failed = 0;
   let pending = 0;
   let unscored = 0;
   for (const j of merged) {
     const s = j.job.score;
-    const value = s?.status === 'scored' ? scoreValue(s.value) : null;
-    if (value !== null) values.push(value);
-    else if (s?.status === 'held') held++;
+    if (scoredValue(j) !== null) continue;
+    if (s?.status === 'held') held++;
     else if (s?.status === 'failed') failed++;
     // Sync and `forge job score record` read only live jobs: an archived one's score never comes.
     else if (j.live && scoreAwaited(j.job, now, config, m.scoring)) pending++;

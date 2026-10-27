@@ -196,6 +196,8 @@ export interface MandateContract {
   onUnfinishable: MandateOnUnfinishable;
   /** Whether its merged jobs get a post-merge score run: all, sample (scoring.sample decides) or off. */
   scoring: MandateScoring;
+  /** The quality floor: the Office pass pauses the mandate once at least minScored merged jobs are scored and their median is below pauseBelow (null: no floor). */
+  quality: { pauseBelow: number | null; minScored: number };
 }
 
 /** `forge mandate new|edit|pause|resume|close|show`'s `mandate`. */
@@ -320,6 +322,9 @@ export interface MandateTermsBody {
   stallBounces?: number;
   onUnfinishable?: string;
   scoring?: string;
+  /** null clears the quality floor. */
+  pauseBelow?: number | null;
+  minScored?: number;
   /** null clears it. */
   after?: string | null;
   body?: string;
