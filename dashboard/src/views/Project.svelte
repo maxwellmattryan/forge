@@ -119,7 +119,13 @@
       <span id="project-job-label">{$t('project.job')}</span>
       <Select id="project-job" labelledby="project-job-label" bind:value={picked} options={[{ value: '', label: $t('project.noJob') }, ...options.map((o) => ({ value: o.id, label: o.label }))]} />
     </div>
-    {#if job && !hl?.matched}<p class="plate px-3 py-2 text-sm text-muted">{$t('project.noMatch')}</p>{/if}
+    {#if job && hl?.matched}
+      <p class="plate px-3 py-2 text-sm text-muted">{job.source === 'diff' ? $t('project.shows.diff') : $t('project.shows.declared')}</p>
+    {:else if job}
+      <p class="plate px-3 py-2 text-sm text-muted">
+        {job.reason === 'no-match' ? $t('project.reason.noMatch') : job.reason === 'no-spec' ? $t('project.reason.noSpec') : $t('project.reason.specNone')}
+      </p>
+    {/if}
   </div>
   {#if g.problems > 0}<p class="plate px-3 py-2 mb-3 text-sm text-warn">{$t('project.problems', { count: g.problems })}</p>{/if}
   <div class="plate overflow-x-auto p-3 mb-3">
