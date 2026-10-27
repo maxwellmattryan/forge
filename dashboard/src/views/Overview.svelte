@@ -8,6 +8,9 @@
   import Chip from '../components/Chip.svelte';
   import Empty from '../components/Empty.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import Loading from '../components/Loading.svelte';
+  import OverviewCardsSkeleton from '../components/skeletons/OverviewCardsSkeleton.svelte';
+  import OverviewGraphSkeleton from '../components/skeletons/OverviewGraphSkeleton.svelte';
   import Select from '../components/Select.svelte';
   import StackedBars from '../components/StackedBars.svelte';
   import { S, setOverviewWindow } from '../lib/app.svelte.ts';
@@ -79,7 +82,7 @@
     {#if s}
       <StackedBars series={s} {label} {format} {empty} />
     {:else if !S.overviewError}
-      <div class="text-sm text-muted">{$t('common.loading')}</div>
+      <Loading><OverviewGraphSkeleton /></Loading>
     {/if}
   </section>
 {/snippet}
@@ -91,7 +94,7 @@
 {#if S.machineLost}<Banner msg={S.machineLost} />{/if}
 {#if S.machine?.error}<Banner msg={$t('overview.indexError', { error: S.machine.error })} />{/if}
 {#if !S.machine}
-  {#if S.machineOnline !== false}<div class="plate w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>{/if}
+  {#if S.machineOnline !== false}<OverviewCardsSkeleton />{/if}
 {:else if !cards.length}
   <Empty>{$t('overview.empty')}</Empty>
 {:else}

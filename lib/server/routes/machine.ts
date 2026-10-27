@@ -1,12 +1,16 @@
 // The machine routes: GET /api/projects, the registered projects with their job counts, latest job, pools and the
-// machine cap; its event stream, which sends that body on connect and again whenever it changes; and
-// GET /api/projects/stats, each loaded project's shipped jobs and cost per UTC day for the Overview's graphs.
+// machine cap; POST /api/projects, the dashboard's Add project, which registers a repo as `forge project add` does
+// and never approves its trusted files; its event stream, which sends that body on connect and again whenever it
+// changes; and GET /api/projects/stats, each loaded project's shipped jobs and cost per UTC day for the Overview's graphs.
 import type http from 'node:http';
+import path from 'node:path';
 import { loadConfig } from '#core/config/load.ts';
+import { ForgeError } from '#core/errors.ts';
 import { dailyTotals, windowDays } from '#engine/metrics/daily.ts';
-import { json, jsonStatus, send } from '../http.ts';
+import { PROJECT_NAME, addProject, resolveProjectRoot } from '#engine/project/machine-index.ts';
+import { json, jsonStatus, readJsonBody, send } from '../http.ts';
 import { MAX_SSE_CLIENTS, SSE_MAX_AGE_MS, SSE_SLOW_CLIENT_BYTES, sseHead, startPing } from '../sse.ts';
-import type { ProjectStatsSeries, ProjectsResponse, ProjectsStatsResponse } from '#core/types.ts';
+import type { MachineProjectSummary, PostProjectResponse, ProjectStatsSeries, ProjectsResponse, ProjectsStatsResponse } from '#core/types.ts';
 import type { MachineCtx, RouteMatch } from '../types.ts';
 
 const PROJECTS_POLL_MS = 5000;
@@ -15,6 +19,73 @@ const PROJECTS_POLL_MS = 5000;
 export function getProjects(m: MachineCtx, _req: http.IncomingMessage, res: http.ServerResponse): void {
   m.entries.refresh(true);
   return json(res, m.entries.summaries() satisfies ProjectsResponse);
+}
+
+/** The longest `path` POST /api/projects takes: PATH_MAX on Linux. */
+const PROJECT_PATH_MAX = 4096;
+const PROJECT_BODY_KEYS = ['name', 'path'];
+const PROJECT_BODY_SHAPE = 'body must be {"path": string, "name"?: string}';
+
+/**
+ * Why `p` can't be registered before anything touches the disk, or null. A relative path would resolve against the
+ * server's cwd and `~user` against another account, so only an absolute path, `~` or `~/…` passes; NUL, CR and LF
+ * never reach the index's JSON-lines readers.
+ */
+function projectPathProblem(p: string): string | null {
+  if (!p) return 'path is empty';
+  if (p.length > PROJECT_PATH_MAX) return `path is longer than ${PROJECT_PATH_MAX} characters`;
+  if (/[\0\r\n]/.test(p)) return 'path has a NUL or a line break';
+  if (!path.isAbsolute(p) && p !== '~' && !p.startsWith('~/')) return 'path must be absolute, or start with ~/';
+  return null;
+}
+
+/**
+ * POST /api/projects: the dashboard's Add project, registering the repo at `path` (its main checkout's realpath, as
+ * `forge project add <path>`) under `name` or its default. It never approves the project's trusted files, so a
+ * project with daemon.enabled waits for a human's Start (docs/architecture/daemon-security.md). The same path again
+ * is `added: false` and writes nothing.
+ */
+export async function postProject(m: MachineCtx, req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const parsed = await readJsonBody(req);
+  if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+  const body = parsed.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return jsonStatus(res, 400, { error: PROJECT_BODY_SHAPE });
+  const b = body as Record<string, unknown>;
+  if (!Object.keys(b).every((k) => PROJECT_BODY_KEYS.includes(k)) || typeof b.path !== 'string' || (b.name !== undefined && typeof b.name !== 'string'))
+    return jsonStatus(res, 400, { error: PROJECT_BODY_SHAPE });
+  const problem = projectPathProblem(b.path);
+  if (problem) return jsonStatus(res, 400, { error: problem });
+  const name = typeof b.name === 'string' && b.name !== '' ? b.name : undefined;
+  if (name !== undefined && !PROJECT_NAME.test(name))
+    return jsonStatus(res, 400, { error: 'name must be lowercase letters, digits, dots, dashes and underscores, starting with a letter or digit, at most 64 characters' });
+  let root: string;
+  try {
+    // Relative paths were refused above, so the cwd never decides what is registered.
+    root = resolveProjectRoot(b.path, '/');
+  } catch (e) {
+    if (e instanceof ForgeError) return jsonStatus(res, 400, { error: e.message });
+    throw e;
+  }
+  let result: ReturnType<typeof addProject>;
+  try {
+    result = addProject(m.home, root, name === undefined ? {} : { name });
+  } catch (e) {
+    // A taken name, or an index this Forge can't read or must not rewrite: a conflict with the index, not a bad request.
+    if (e instanceof ForgeError) return jsonStatus(res, e.code === 'usage' ? 400 : 409, { error: e.message });
+    throw e;
+  }
+  m.entries.refresh(true);
+  const { name: added, path: at } = result.project;
+  const project: MachineProjectSummary = m.entries.summaries().projects.find((p) => p.name === added && p.path === at) ?? {
+    name: added,
+    path: at,
+    status: 'ok',
+    loaded: false,
+    jobs: null,
+    latest: null,
+    daemon: null,
+  };
+  return json(res, { added: result.added, project } satisfies PostProjectResponse);
 }
 
 /** The windows GET /api/projects/stats takes: an allowlist, so a crafted query can't widen the ledger work. */

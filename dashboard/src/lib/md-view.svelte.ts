@@ -1,5 +1,5 @@
 // The Rendered/Raw choice per surface, saved as `forge.mdView.<surface>`. One module instance, so every instance of a
-// surface (the inbox log in the Daemon popover and each drawer's log share `session`) flips together.
+// surface (the inbox log in the Inbox popover and each drawer's log share `session`) flips together.
 import { pref } from './prefs.ts';
 import { mdPrefKey, readMdView } from './md-view.ts';
 import type { MdSurface, MdView } from './md-view.ts';
@@ -8,6 +8,7 @@ class MdViewState {
   files = $state<MdView>(readMdView(pref.get(mdPrefKey('files'), '')));
   thread = $state<MdView>(readMdView(pref.get(mdPrefKey('thread'), '')));
   session = $state<MdView>(readMdView(pref.get(mdPrefKey('session'), '')));
+  chat = $state<MdView>(readMdView(pref.get(mdPrefKey('chat'), '')));
 }
 
 export const mdView = new MdViewState();

@@ -5,6 +5,7 @@
   import Empty from '../components/Empty.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import Select from '../components/Select.svelte';
+  import EvalsBodySkeleton from '../components/skeletons/EvalsBodySkeleton.svelte';
   import { safeUrl } from '../lib/markdown.ts';
   import { pct, tokensShort, usd } from '../lib/util.ts';
   import type { ApiState } from '../lib/types.ts';
@@ -36,7 +37,7 @@
   {#snippet right()}<button class="btn primary" onclick={() => request(evalRunBody({ tags, tasks, label }))}>{$t('evals.run')}</button>{/snippet}
 </PageHeader>
 {#if !e}
-  <div class="plate w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>
+  <EvalsBodySkeleton />
 {:else}
   <div class="plate p-4 mb-6 grid gap-3 md:grid-cols-4 items-end">
     <label class="flex flex-col gap-1 text-xs text-muted">{$t('evals.tags')}<input id="eval-tags" placeholder={$t('evals.tagsPlaceholder')} bind:value={tags} /></label>

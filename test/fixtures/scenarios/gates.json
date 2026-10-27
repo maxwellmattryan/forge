@@ -53,6 +53,14 @@
       "key": "human",
       "title": "Check the protected paths",
       "steps": [["job", "set", "{id}", "--stage", "verify", "--state", "waiting", "--waiting-on", "human", "--reason", "protected path changed"]]
+    },
+    {
+      "key": "shelved",
+      "title": "Shelved billing rewrite",
+      "steps": [
+        ["job", "set", "{id}", "--stage", "decide", "--state", "waiting", "--waiting-on", "escalation", "--reason", "touches billing"],
+        ["job", "shelve", "{id}", "--reason", "waiting on the billing owner"]
+      ]
     }
   ],
   "expect": {
@@ -68,11 +76,13 @@
       "Merge conflicts",
       "Review rounds exhausted",
       "Budget exceeded",
-      "Human check"
+      "Human check",
+      "Shelved"
     ],
     "project": ["@project.empty"],
-    "backlog": ["@backlog.empty"],
+    "issues": ["@issues.empty"],
     "agents": ["@agents.noRunning", "@agents.noSessions"],
+    "foreman": ["@foreman.title", "@foreman.panel.chats", "@statusbar.foreman.offTitle", "@foreman.office.noMandates", "@foreman.office.noDirectives"],
     "analytics": ["@analytics.jobs", "@analytics.noUsage"],
     "evals": ["@evals.empty"],
     "drawer": { "job": "spec", "text": ["Spec approval", "spec ready", "@dock.label"] }

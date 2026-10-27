@@ -153,6 +153,7 @@
     },
     "agentsTab": "Agents",
     "foreman": "foreman",
+    "chat": "chat",
     "by": "by {login}",
     "actorSource": "recorded from {source}"
   },
@@ -261,6 +262,34 @@
     "duration": "Duration",
     "empty": "No agents in this round yet",
     "noTranscript": "No transcript for this agent",
-    "transcript": "{role} transcript · read-only"
+    "transcript": "{role} transcript · read-only",
+    "runs": {
+      "summary": {
+        "one": "{count} run · {tokens} tokens",
+        "other": "{count} runs · {tokens} tokens"
+      },
+      "run": "Run {n}",
+      "round": "round {round}",
+      "caption": "Composition is an estimate: transcript text sizes scaled to the API's exact input totals. The harness is what transcripts don't show: Claude Code's system prompt, tools, MCP and skills.",
+      "empty": "No runs recorded yet.",
+      "running": "Run {n} is running: its usage is recorded when it ends.",
+      "noUsage": "No usage recorded for this run.",
+      "noComposition": "Context composition not recorded for this run.",
+      "composition": "Context at the last request · {total} · estimated",
+      "parts": {
+        "cacheRead": "Cache read",
+        "cacheWrite": "Cache write",
+        "input": "Fresh input",
+        "output": "Output",
+        "unsplit": "Not split",
+        "forgePrompt": "Forge prompt",
+        "harness": "Harness",
+        "carried": "Earlier runs",
+        "mcp": "{server} (MCP)",
+        "otherTools": "Other tools",
+        "assistant": "Assistant output",
+        "user": "User and brief turns"
+      }
+    }
   }
 }

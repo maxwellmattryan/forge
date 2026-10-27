@@ -1,5 +1,6 @@
 {
   "job": {
+    "mandateBadge": "Mandate {id}",
     "round": "round {round}/{max}",
     "usage": "{tokens} tok · {ago}",
     "runningReviewers": {

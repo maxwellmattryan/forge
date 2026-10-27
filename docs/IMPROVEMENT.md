@@ -9,6 +9,7 @@
 | first-pass review rate | share of jobs whose first review round passed |
 | avg rounds | build→review rounds per job |
 | verify first-pass rate | build/lint/test green before any review |
+| first-round verifier block rate | `quality.verifierFirstRoundBlockRate`: of the jobs whose first round-1 verifiers record has results, the share that blocked (CHANGES). Re-runs and later rounds don't count; null without verifiers. JSON and `/api/stats` only |
 | escalation rate | approver escalations / decisions |
 | human feedback on PRs | PRs where humans still left unresolved threads or requested changes: what the panel was asked about, not what humans actually changed |
 | **human delta after push** | the escape rate: merged PRs where humans committed file changes after Forge's last push, out of the merged PRs that could be measured. The median lines changed shows how big the escapes are, and coverage (`measured/merged`) shows how many merges were measured: PRs opened before this metric existed, adopted PRs and rewritten branches are not. Measured once, on the first `forge pr sync` that sees the merge; merges of the base branch into the PR are not counted |
@@ -18,7 +19,7 @@
 | follow-up rate | final outcomes with at least one `bug` issue created in the window that cites the job's PR or issues, out of those with a count (GitHub tracker only: other trackers record `unsupported`) |
 | churn rate | final outcomes with later non-Forge base-branch commits on the files the merge changed, inside the window: a soft signal, never counted against autonomy |
 | outcome coverage | `merged`, `final` and `open`: how many merged jobs have a settled outcome. Open outcomes and merged jobs not measured yet are in no denominator; `forge sync` measures up to 10 per run, so the first syncs after an upgrade backfill older merges |
-| `medianScore` | the median post-merge judge score (0-5) over scored jobs: the judge rates a sampled merged job's diff against its spec's acceptance criteria, without the build log or reviews. Off until `scoring.sample` is set; `scoreByBuilderModel` splits it by builder model, and `forge eval compare` sets real-job scores (`realJobs`) beside the eval judge's |
+| `medianScore` | the median post-merge judge score (0-5) over scored jobs: the judge rates a sampled merged job's diff against its spec's acceptance criteria, without the build log or reviews. Off until `scoring.sample` is set or a mandate scores its jobs; `scoreByBuilderModel` splits it by builder model, and `forge eval compare` sets real-job scores (`realJobs`) beside the eval judge's |
 | `scoreCoverage` | `merged`, `sampled` (any score), `scored`, `held` (over a budget, never run), `failed` (no valid `score.md`) and `queued`: how much of the merged work the median stands for |
 | human reworks, spec first-try approval | how often humans had to redirect |
 | median minutes to PR / to done | throughput |
@@ -36,6 +37,23 @@
 Every `agent-start` event records what the agent ran on: `pluginHash` (the running plugin's prompts, checklists, skill, step and brief), `promptHash` (the role's hash as `forge roster` reports it; for `reviewer:<lens>`, the reviewer prompt and the lens's checklist together) and `configHash` (the repo layer and the job's effective config). Events from before this have none of them.
 
 `forge stats --by prompt [--role R] [--since DATE] [--include-evals]` groups jobs into **prompt cohorts**: each job is keyed by the `promptHash` on its last start for the role (`builder` by default; any `agents/*.md` role or `reviewer:<lens>`), because a job is judged on the prompts it finished with. Each cohort has its jobs (the first 20 ids), the first and last of those starts, up to 5 plugin and config hashes, and a full `stats` object over its jobs only, oldest cohort first. `mixed` counts jobs whose starts carried more than one hash (they straddled a change) and `unrecorded` the jobs with no hashed start. Archived jobs count. It prints JSON only: `--csv` is a usage error, as is an unknown role.
+
+### Mandate report card (`forge stats --mandate`)
+
+A mandate's **report card** says how good its work was, in one fixed shape: `{ mandate, at, jobs, scores, review, interventions, spend, outcomes }`. `forge stats --mandate <id>` prints it live, for a mandate of any status, and `GET /api/mandates` carries it on every readable row. When the Office pass closes a mandate, its closing summary (`summary.json`, which `forge mandate show` returns as `summary`) records the card at the close; a summary written before the card reads `card: null`. The card is built from the mandate's jobs as the CLI records them (the live records, the archive, the CLI copy of their events and the spend ledger), with no tracker call. One builder, `buildReportCard` in `lib/engine/metrics/report-card.ts`, makes all three, and it uses the same per-job rules as `forge stats` and `forge sync`. "Merged" means the job's PR is `MERGED`.
+
+| Section | Fields |
+|---|---|
+| `jobs` | `total` (live and archived, split children included), `reached` (at the mandate's `until`), `merged`, `inFlight` |
+| `scores` | over the merged jobs, each in exactly one bucket: `scored` (a value from 0 to 5), `held`, `failed`, `pending` (a live job whose score run is queued, or that `forge sync` would still queue under the mandate's `scoring`: inside the 7-day lookback, sampled under `sample`, never under `off`, never with `pr.enabled` false) and `unscored` (everything else: not sampled, scoring off, past the lookback, archived, PRs disabled, a malformed value). `median` (2 decimals) and `below3` (scored values under 3) |
+| `review` | over the settled jobs (not in flight) with verdicts: `reviewed`, `avgRounds` (the mean last round, 2 decimals) and `firstPassRate` (the share whose first round's verdicts were all `PASS`, 3 decimals), the per-job rules of `quality.avgRounds` and `firstPassReviewRate`; null when none is reviewed |
+| `interventions` | every person's `human` event on the mandate's jobs (never the foreman's): `total`, the closing summary's `humanInterventions`, and `byGate`, keyed by the `waitingOn` of the job's latest transition before the decision when it went to `waiting`, else `none`. Only keys above 0 appear |
+| `spend` | `usd` (every ledger bucket of its jobs) against `budgetUsd`, and `started` (split children don't count) against `budgetJobs` |
+| `outcomes` | over the merged jobs, each in exactly one bucket: `final`, `open` (live with `pr.enabled`, not measured yet or still open: `forge sync` will measure it) and `unmeasured` (it will never be final: archived, or PRs disabled). `reverted` and `followedUp` count final outcomes that were reverted or drew a follow-up bug. `finalAt` is when the last window closes: the latest `closesAt` over final and open outcomes, or for an open job not yet measured its merge plus `outcomes.windowDays` |
+
+**The pending rule.** A count of what has happened (jobs, interventions, spend, the rounds of settled jobs) is a running total and is never `pending`. A figure over a post-merge measurement (`scores.median`, `scores.below3`, `outcomes.reverted`, `outcomes.followedUp`) reads `pending` while its section's `pending` (scores) or `open` (outcomes) count is above 0, `null` when it counts nothing and awaits nothing, and otherwise its value. So an empty or new mandate reads `median: null`, never 0, and one whose only merged job waits on its judge reads `median: pending`. Held and failed scores are final and never make a figure pending; in-flight jobs are in neither section.
+
+The card carries no free text (no titles, ids, reasons, issue refs or logins): only counts, finite numbers, `pending`, `null`, `byGate` keys from the `waitingOn` values, and the `at` and `finalAt` times it builds itself. A malformed stored value counts as unscored, keys as `none` or is skipped.
 
 ### Measuring a spend change
 
@@ -91,7 +109,7 @@ Both files must be regular files of at most 256 KiB. An unknown key, a bad slug 
 
 ## 3. Retros (`/forge retro`)
 
-With `foreman.enabled`, `forge sync` (which `forge dash` runs every two minutes) queues one `retro` request for the inbox once `forge retro due` says a retro is due, unless a retro request is pending or in progress or a retro job is still open. With the foreman off, the orchestrator tells the human once. Either way a retro job's spec gate stays with a human: no gate request reaches the office, and `--actor foreman` is refused there.
+With `foreman.enabled`, `forge sync` (which `forge dash` runs every two minutes) queues one `retro` request for the inbox once `forge retro due` says a retro is due, unless a retro request is pending or in progress or a retro job is still open. With the foreman off, the orchestrator tells the human once. Either way a retro job's spec gate stays with a human: no gate request reaches the assistant foremen, and `--actor foreman` is refused there.
 
 The retro agent reads the metrics (per-lens dispute, miss and blocker/major rates and recurring findings among them), a digest of human interventions, the human delta after Forge's last push and each job's recurring findings as oscillation signals, and from `forge retro prepare`'s `signals.md`: `## Experiment verdicts` (a dry run of `forge experiment evaluate`), `## Per-lens recall`, `## Recurring findings across jobs` (findings that share a **finding key**, the lens and the first four words of the title, in 2 or more jobs, with counts, job ids and one example) and `## Learnings past review-by`. It then:
 1. proposes reverting changes whose experiment was `reverted`

@@ -8,11 +8,13 @@ import { PROJECT_ROUTES, ROUTES, matchRoute } from './start.ts';
 import { getAsset, getLogo, getPage } from './static.ts';
 import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
 import { getEnvironmentLogs, getEnvironments, getJobEnvironment, postJobEnvironment } from './routes/environment.ts';
-import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor } from './routes/jobs.ts';
-import { getProjects, getProjectsEvents, getProjectsStats } from './routes/machine.ts';
+import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor, postShelf } from './routes/jobs.ts';
+import { getProjects, getProjectsEvents, getProjectsStats, postProject } from './routes/machine.ts';
+import { getMandate, getMandateDraft, getMandates, postMandate, postMandateAction, postMandateDraft } from './routes/mandates.ts';
 import { getAbout, getBacklog, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
 import { getTranscript, getTranscriptEvents } from './routes/transcripts.ts';
+import { getChat, getChatLog, getChats, postChat, postChatArchive, postChatMessage, postChatRename } from './routes/chats.ts';
 import type { Route } from './types.ts';
 
 type Hit = [string, string, unknown, string[]];
@@ -43,11 +45,13 @@ test('the route table sends each method and path to its handler, and nothing els
       ['GET', '/forge.png', getLogo, []],
       ['GET', '/api/about', getAbout, []],
       ['GET', '/api/projects', getProjects, []],
+      ['POST', '/api/projects', postProject, []],
       ['GET', '/api/projects/events', getProjectsEvents, []],
       ['GET', '/api/projects/stats', getProjectsStats, []],
     ],
     [
-      ['POST', '/api/projects'],
+      ['POST', '/api/projects/'],
+      ['POST', '/api/projects/stats'],
       ['GET', '/api/projects/'],
       ['GET', '/api/state'],
       ['GET', '/api/events'],
@@ -99,7 +103,22 @@ test('the route table sends each method and path to its handler, and nothing els
       ['POST', '/jobs/j-1/delete', postJobDelete, ['j-1']],
       ['POST', '/jobs/j-1/merge', postJobMerge, ['j-1']],
       ['POST', '/jobs/j-1/repos', postJobRepos, ['j-1']],
+      ['GET', '/mandates', getMandates, []],
+      ['GET', '/mandates/g1', getMandate, ['g1']],
+      ['POST', '/mandates', postMandate, []],
+      ['POST', '/mandates/g1/edit', postMandateAction, ['g1', 'edit']],
+      ['POST', '/mandates/g1/close', postMandateAction, ['g1', 'close']],
+      ['POST', '/shelf', postShelf, []],
+      ['GET', '/mandates/g1/draft', getMandateDraft, ['g1']],
+      ['POST', '/mandates/g1/draft', postMandateDraft, ['g1']],
       ['POST', '/focus', postFocus, []],
+      ['GET', '/chats', getChats, []],
+      ['POST', '/chats', postChat, []],
+      ['GET', '/chats/0123456789ab', getChat, ['0123456789ab']],
+      ['GET', '/chats/0123456789ab/log', getChatLog, ['0123456789ab']],
+      ['POST', '/chats/0123456789ab/rename', postChatRename, ['0123456789ab']],
+      ['POST', '/chats/0123456789ab/archive', postChatArchive, ['0123456789ab']],
+      ['POST', '/chats/0123456789ab/messages', postChatMessage, ['0123456789ab']],
       ['POST', '/jobs/j-1/run', postRunOrEditor, ['j-1', 'run']],
       ['POST', '/jobs/j-1/editor', postRunOrEditor, ['j-1', 'editor']],
     ],
@@ -111,6 +130,7 @@ test('the route table sends each method and path to its handler, and nothing els
       [undefined, '/state'],
       ['GET', '/jobs'],
       ['GET', '/jobs/'],
+      ['GET', '/shelf'],
       ['GET', '/state/'],
       ['GET', '/nope'],
       ['GET', '/api/state'],
@@ -124,6 +144,18 @@ test('the route table sends each method and path to its handler, and nothing els
       ['POST', '/jobs/j-1'],
       ['POST', '/jobs/j-1/environment/logs'],
       ['POST', '/jobs/j-1/transcript'],
+      // Only a 12-hex chat id matches.
+      ['GET', '/chats/0123456789AB'],
+      ['GET', '/chats/0123456789a'],
+      ['GET', '/chats/0123456789abc/log'],
+      ['POST', '/chats/..%2f0123456789/messages'],
+      ['POST', '/chats/0123456789ab'],
+      ['GET', '/chats/0123456789ab/messages'],
+      // Only the four mandate actions match, and only as POSTs.
+      ['POST', '/mandates/g1/delete'],
+      ['GET', '/mandates/g1/edit'],
+      ['POST', '/mandates/g1'],
+      ['GET', '/mandates/'],
     ],
   );
 });

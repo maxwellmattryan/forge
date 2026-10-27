@@ -1,4 +1,4 @@
-// `npm run dev [-- --port N] [--scenario NAME]`: a watching Vite build of the dashboard into the
+// `npm run dev [-- --port N] [--scenario NAME] [--permission-mode MODE]`: a watching Vite build of the dashboard into the
 // gitignored dev build dir, served by this checkout's `forge dash --dev` for the repo npm was run
 // from, or for a scratch repo seeded with scenario NAME (scripts/scenario.ts). One Ctrl-C stops
 // both and removes the scratch repo. The real build is never written: only `npm run build:dashboard`
@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { DEV_DIST_DIR, PLUGIN_ROOT } from '../lib/core/paths.ts';
+import { PERMISSION_MODES } from '../lib/integrations/claude/argv.ts';
 import { SCENARIO_NAME, loadScenario, scenarioEnv, seedScenario } from './scenario.ts';
 import type { Seeded } from './scenario.ts';
 
@@ -22,23 +23,26 @@ export interface DevProc {
   env?: NodeJS.ProcessEnv;
 }
 
-const USAGE = 'usage: npm run dev [-- --port N] [--scenario NAME]';
+const USAGE = 'usage: npm run dev [-- --port N] [--scenario NAME] [--permission-mode MODE]';
 // Run through node and its bin path, never npx or an import: no PATH lookup, no runtime dependency.
 const VITE_BIN = path.join(PLUGIN_ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
 
 /**
  * The two children for `argv`, and the scenario to seed (null for none); throws the usage line on
- * anything but `--port <0-65535>` and `--scenario <name>`, each at most once, in either order.
+ * anything but `--port <0-65535>`, `--scenario <name>` and `--permission-mode <mode>` (passed on to
+ * `forge dash`), each at most once, in any order.
  * Pure: whether the scenario exists is main()'s check.
  */
 export function devPlan(argv: string[], env: NodeJS.ProcessEnv = process.env): { vite: DevProc; dash: DevProc; scenario: string | null } {
   const port: string[] = [];
+  const mode: string[] = [];
   let scenario: string | null = null;
   for (let i = 0; i < argv.length; i += 2) {
     const [flag, value] = [argv[i], argv[i + 1]];
     if (value === undefined) throw new Error(USAGE);
     if (flag === '--port' && !port.length && /^\d{1,5}$/.test(value) && Number(value) <= 65535) port.push('--port', String(Number(value)));
     else if (flag === '--scenario' && scenario === null && SCENARIO_NAME.test(value)) scenario = value;
+    else if (flag === '--permission-mode' && !mode.length && (PERMISSION_MODES as readonly string[]).includes(value)) mode.push('--permission-mode', value);
     else throw new Error(USAGE);
   }
   const vite: DevProc = {
@@ -51,7 +55,7 @@ export function devPlan(argv: string[], env: NodeJS.ProcessEnv = process.env): {
   const dash: DevProc = {
     name: 'forge dash',
     command: process.execPath,
-    args: [path.join(PLUGIN_ROOT, 'bin', 'forge'), 'dash', '--dev', ...port],
+    args: [path.join(PLUGIN_ROOT, 'bin', 'forge'), 'dash', '--dev', ...port, ...mode],
     cwd: path.resolve(env.INIT_CWD || process.cwd()),
   };
   return { vite, dash, scenario };

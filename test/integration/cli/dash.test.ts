@@ -218,7 +218,9 @@ test('dash in a second repo opens the running machine dashboard', { skip: proces
   let pid: number | undefined;
   try {
     const port = await freePort();
-    const started = await forgeAsync(a.dir, ['dash', '--background', '--port', String(port), '--json'], env);
+    // A login shell slower than a few seconds (its capture times out at 5 s) still gives a confirmed start.
+    const shell = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'bin', 'fake-login-shell');
+    const started = await forgeAsync(a.dir, ['dash', '--background', '--port', String(port), '--json'], { ...env, SHELL: shell, FAKE_SHELL_SLEEP: '3.5' });
     assert.equal(started.status, 0, started.stderr);
     pid = json(started.stdout).pid as number;
     await waitFor(() => recordPid(home) === pid, { what: "a's dashboard record" });

@@ -25,6 +25,8 @@ import { memberIssues } from '#engine/trackers/mirror.ts';
 import { memberForRef, memberTrackerConfig, memberTrackers, qualify, type MemberTracker } from '#engine/project/member-trackers.ts';
 import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '#engine/trackers/triage.ts';
 import { dashRunning, reconcile, type ReconcileResult } from '#office/reconcile.ts';
+import { mandateRefusal } from '#office/foreman.ts';
+import { jobMandateScoring } from '#office/mandates/store.ts';
 import { ForgeError } from '#core/errors.ts';
 import { removeWorktree } from '#engine/workspace/worktree.ts';
 import { bodyFrom, list, num, req, str, usageError } from './args.ts';
@@ -62,7 +64,7 @@ const TRACKER: HelpGroup = {
       ],
       exits: TRACKER_EXITS,
       docs: ['Linking jobs to issues', 'docs/TRACKERS.md#linking-jobs-to-issues'],
-      readme: true,
+      common: true,
     },
     { command: 'tracker claim', args: '<ref> <job>', summary: 'mark an item as taken by a job', exits: TRACKER_EXITS },
     { command: 'tracker update', args: '<ref> <job>', summary: "mirror a job's status to its item", exits: TRACKER_EXITS },
@@ -86,7 +88,7 @@ const TRACKER: HelpGroup = {
       ],
       exits: TRACKER_EXITS,
       docs: ['Readiness triage', 'docs/TRACKERS.md#readiness-triage'],
-      readme: true,
+      common: true,
     },
   ],
 };
@@ -117,7 +119,7 @@ export const HELP: HelpGroup[] = [
   {
     name: 'sync',
     summary: 'reconcile PRs and trackers for all jobs',
-    commands: [{ command: 'sync', args: '', summary: "reconcile PRs and trackers for every job, measure merged jobs' outcomes (revert, follow-up bugs, churn; at most 10 per run), queue a post-merge judge score run for sampled merged jobs (scoring.sample; at most 5 per run), retarget stacked PRs, release dependency waits and finish umbrella jobs; a job's failure is reported in its result. Then the reconciler's pass, unless a running forge dash owns it: `reconcile` lists the running jobs it resumed or escalated for having nothing to drive them, and the requests it requeued" }],
+    commands: [{ command: 'sync', args: '', summary: "reconcile PRs and trackers for every job, measure merged jobs' outcomes (revert, follow-up bugs, churn; at most 10 per run), queue a post-merge judge score run for sampled merged jobs and every merged job of a mandate that scores all (scoring.sample, the mandate's scoring term; at most 5 per run), retarget stacked PRs, release dependency waits and finish umbrella jobs; a job's failure is reported in its result. Then the reconciler's pass, unless a running forge dash owns it: `reconcile` lists the running jobs it resumed or escalated for having nothing to drive them, and the requests it requeued" }],
   },
   TRACKER,
 ];
@@ -309,8 +311,11 @@ const CONTROL = /[\x00-\x1f\x7f\u2028\u2029]/;
 
 type Started = { id: string; existing: true; stage: Job['stage']; state: Job['state'] } | { id: string; ref: string; title: string; branch: Job['branch']; repo?: string };
 
+/** How startFromRef creates a job: its split mode, and the mandate it works under (forge office start). */
+export type StartOpts = { splitMode?: 'never'; mandate?: string | null };
+
 /** Starts (or finds) the job for a tracker item and claims the item for it. */
-export async function startFromRef(root: string, config: Config, tracker: Tracker, ref: string, flags: Record<string, any>, opts: { splitMode?: 'never' } = {}): Promise<Started> {
+export async function startFromRef(root: string, config: Config, tracker: Tracker, ref: string, flags: Record<string, any>, opts: StartOpts = {}): Promise<Started> {
   const session = str(flags.session, '--session');
   const ctx = { root, config };
   const kind = config.tracker.kind;
@@ -334,7 +339,7 @@ export async function startFromRef(root: string, config: Config, tracker: Tracke
   if (existing) return { id: existing.id, existing: true, stage: existing.stage, state: existing.state };
   const stored = kind === 'github' ? (parseIssueRef(itemRef, { tracker: kind, slug }) ?? itemRef) : itemRef;
   const issues = [{ tracker: kind, ref: stored, url: typeof item.url === 'string' ? item.url : null }];
-  const job = createJob(root, config, { title: item.title, issues, body: item.body ?? '', splitMode: opts.splitMode, origin: 'issue' });
+  const job = createJob(root, config, { title: item.title, issues, body: item.body ?? '', splitMode: opts.splitMode, origin: 'issue', mandate: opts.mandate ?? null });
   const claim = tracker.claim(ctx, item.ref, job);
   if (!claim.ok) {
     await moveJob(root, config, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` }, { mirror: false });
@@ -355,7 +360,7 @@ async function startFromMemberRef(
   member: MemberTracker & { n: string },
   slug: string | null,
   flags: Record<string, any>,
-  opts: { splitMode?: 'never' },
+  opts: StartOpts,
 ): Promise<Started> {
   const session = str(flags.session, '--session');
   const ref = qualify(member.slug, member.n);
@@ -367,7 +372,7 @@ async function startFromMemberRef(
   // Only the digits reach gh as the issue argument; -R is the configured slug.
   const item = tracker.get(ctx, member.n);
   if (!item) throw new ForgeError(`no github item "${ref}"`);
-  const job = createJob(root, config, { title: item.title, issues: [{ tracker: 'github', ref, url: isSafeUrl(item.url) ? item.url : null }], body: item.body ?? '', splitMode: opts.splitMode, origin: 'issue' });
+  const job = createJob(root, config, { title: item.title, issues: [{ tracker: 'github', ref, url: isSafeUrl(item.url) ? item.url : null }], body: item.body ?? '', splitMode: opts.splitMode, origin: 'issue', mandate: opts.mandate ?? null });
   recordJobRepo(root, config, job.id, member.name, false);
   const claim = tracker.claim(ctx, member.n, loadJob(root, job.id));
   if (!claim.ok) {
@@ -453,7 +458,7 @@ export async function syncAll(
     if (!watch || !config.pr.enabled) continue;
     try {
       const before: Partial<JobPr> = job.pr ?? {};
-      const r = await syncPr(root, config, ghGitHub, job.id);
+      const r = await syncPr(root, config, ghGitHub, job.id, { narrow: (j) => mandateRefusal(root, config, j, 'pr-feedback') });
       if (r.integrate) integrating.push(job.id);
       const after = loadJob(root, job.id);
       if (r.pr?.state === 'MERGED' && before.state !== 'MERGED') await commentApproval(root, config, after);
@@ -495,7 +500,7 @@ export async function syncAll(
   let scoring: { queued: string[]; held: string[] } | null = null;
   if (config.pr.enabled) {
     try {
-      const s = queueScores(root, config);
+      const s = queueScores(root, config, { mandateScoring: (j) => jobMandateScoring(root, j) });
       if (s.queued.length || s.held.length) scoring = s;
     } catch (e) {
       results.push({ scoring: 'error', error: (e as Error).message.slice(0, 300) });

@@ -2,12 +2,15 @@
      themes. A select-only combobox (WAI-ARIA APG): a field-styled button (or, with variant="button", a small toolbar
      button) controls a listbox that opens in the top layer (popover="manual"), so the drawer, the settings dialog and
      overflow-hidden parents never clip it. The list is a compact menu panel that fades and grows from the trigger edge it
-     opened against (`menu-pop` in style.css). Entries are dense rows: a check column, then the label with an optional
+     opened against (`menu-pop` in style.css); its first and last rows follow the plate's cut corners (`menu-list`).
+     Entries are dense rows: a check column, then the label with an optional
      icon and hint line, or the caller's `entry` snippet; `separator` rules an entry off and consecutive entries of one
-     `group` sit under its name. Focus never leaves the button and aria-activedescendant names the active option, so the
-     settings focus trap and the drawer's focus handling see one control. src/lib/select.ts decides what each key does,
-     src/lib/menu.ts placeMenu where the list opens, and dismissal follows MenuButton: Escape closes only the list, a press
-     outside, focus leaving, a resize, a scroll that moves the button or unmounting close it without a change. -->
+     `group` sit under its name; an `action` entry calls onchange but never becomes the value, and
+     its icon takes the check column it never needs, so its label lines up with the others'. Focus never leaves the
+     button and aria-activedescendant names the active option, so the settings focus trap and the drawer's focus handling
+     see one control. src/lib/select.ts decides what each key does, src/lib/menu.ts placeMenu where the list opens, and
+     dismissal follows MenuButton: Escape closes only the list, a press outside, focus leaving, a resize, a scroll that
+     moves the button or unmounting close it without a change. -->
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
   import Icon from './Icon.svelte';
@@ -128,7 +131,12 @@
 
   function choose(i: number): void {
     const o = options[i];
-    if (!o || o.disabled || o.value === value) return;
+    if (!o || o.disabled) return;
+    if (o.action) {
+      onchange?.(o.value);
+      return;
+    }
+    if (o.value === value) return;
     value = o.value;
     onchange?.(o.value);
   }
@@ -236,7 +244,7 @@
   aria-label={label}
   aria-labelledby={labelledby}
   tabindex="-1"
-  class="plate solid menu-pop fixed inset-auto m-0 p-1 text-fg hidden open:flex flex-col max-w-[calc(100vw_-_16px)] max-h-[min(20rem,calc(100dvh_-_16px))] overflow-y-auto overscroll-contain text-sm shadow-(--shadow-overlay) {variant === 'button' ? 'w-[min(16rem,calc(100vw_-_16px))]' : ''}"
+  class="plate solid menu-pop menu-list fixed inset-auto m-0 text-fg hidden open:flex flex-col max-w-[calc(100vw_-_16px)] max-h-[min(20rem,calc(100dvh_-_16px))] overflow-y-auto overscroll-contain text-sm shadow-(--shadow-overlay) {variant === 'button' ? 'w-[min(16rem,calc(100vw_-_16px))]' : ''}"
   style="left: {at.left}px; top: {at.top}px; min-width: {minWidth}px; transform-origin: {origin}"
   onmousedown={(e) => e.preventDefault()}
 >
@@ -266,6 +274,6 @@
     onmousemove={() => hover(i)}
     onclick={() => pick(i)}
   >
-    {#if i === selected}<Icon name="check" class="shrink-0" />{:else}<span class="ic shrink-0" aria-hidden="true"></span>{/if}{#if entry}{@render entry(o, i)}{:else}{#if o.icon}<Icon name={o.icon} class="shrink-0" />{/if}<span class="flex min-w-0 flex-col"><span class="truncate">{o.label}</span>{#if o.hint}<span class="text-xs text-muted whitespace-normal">{o.hint}</span>{/if}</span>{/if}
+    {#if i === selected}<Icon name="check" class="shrink-0" />{:else if o.action && o.icon && !entry}<Icon name={o.icon} class="shrink-0" />{:else}<span class="ic shrink-0" aria-hidden="true"></span>{/if}{#if entry}{@render entry(o, i)}{:else}{#if o.icon && !o.action}<Icon name={o.icon} class="shrink-0" />{/if}<span class="flex min-w-0 flex-col"><span class="truncate">{o.label}</span>{#if o.hint}<span class="text-xs text-muted whitespace-normal">{o.hint}</span>{/if}</span>{/if}
   </li>
 {/snippet}

@@ -1,8 +1,10 @@
 <!-- The dashboard shell: sidebar (with the "New job or command" input, the global pages and the project section), phone
      nav, banners, the active view (a global page, or the selected project's), the job drawer over it, the status bar
-     and its popovers, the command palette, and the toast. Everything a project owns remounts when the project changes. -->
+     and its popovers, the command palette, the Add project dialog, and the toast. Everything a project owns remounts when
+     the project changes. -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
+  import AddProject from './components/AddProject.svelte';
   import Banner from './components/Banner.svelte';
   import CommandBar from './components/CommandBar.svelte';
   import Drawer from './components/Drawer.svelte';
@@ -15,29 +17,37 @@
   import Toast from './components/Toast.svelte';
   import Tooltip from './components/Tooltip.svelte';
   import Pipeline from './views/Pipeline.svelte';
-  import Backlog from './views/Backlog.svelte';
+  import Issues from './views/Issues.svelte';
   import Agents from './views/Agents.svelte';
+  import Foreman from './views/Foreman.svelte';
   import Analytics from './views/Analytics.svelte';
   import Evals from './views/Evals.svelte';
   import Project from './views/Project.svelte';
   import Overview from './views/Overview.svelte';
   import Machine from './views/Machine.svelte';
-  import { S, closeDrawer, loadOverview, loadView, refresh, refreshMachine, route, setSidebar } from './lib/app.svelte.ts';
+  import PipelineSkeleton from './components/skeletons/PipelineSkeleton.svelte';
+  import IssuesSkeleton from './components/skeletons/IssuesSkeleton.svelte';
+  import AgentsSkeleton from './components/skeletons/AgentsSkeleton.svelte';
+  import ForemanSkeleton from './components/skeletons/ForemanSkeleton.svelte';
+  import AnalyticsSkeleton from './components/skeletons/AnalyticsSkeleton.svelte';
+  import EvalsSkeleton from './components/skeletons/EvalsSkeleton.svelte';
+  import ProjectSkeleton from './components/skeletons/ProjectSkeleton.svelte';
+  import { S, checkSelection, closeDrawer, loadOverview, loadView, refresh, refreshMachine, route, setSidebar } from './lib/app.svelte.ts';
   import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_RAIL, sidebarDrag, sidebarKey, sidebarShown } from './lib/sidebar.ts';
   import { hideTip, railTipOn } from './lib/rail-tip.svelte.ts';
   import { startClock } from './lib/clock.svelte.ts';
-  import type { GlobalViewId, ViewId } from './lib/nav.ts';
-  import { routeProject } from './lib/routes.ts';
   import { inlineInputAction, type InlineInputEvent } from './lib/statusbar.ts';
   import { t } from './lib/locale.ts';
   import { settingsKey, settingsKeyShortcuts, settingsShortcutLabel, type SettingsTabId } from './lib/settings.ts';
   import { commandKey, isMac, shellEscape, shortcutAction, shortcutLabel } from './lib/command.ts';
   import { closePalette, openPalette, palette } from './lib/palette.svelte.ts';
+  import { addProjectDialog, closeAddProject } from './lib/add-project.svelte.ts';
   import { closePopover, popover } from './lib/popover.svelte.ts';
   import { closeCard, ghCard } from './lib/github-card.svelte.ts';
+  import { lockScroll } from './lib/scroll-lock.ts';
 
   let settingsOpen = $state(false);
-  /** The tab Settings opens on: the project section's Settings asks for Pipeline; the gear opens the saved tab. */
+  /** The tab Settings opens on; unset opens the saved tab. */
   let settingsStart = $state<SettingsTabId | undefined>();
   let settings = $state<ReturnType<typeof Settings>>();
   let command = $state<ReturnType<typeof CommandBar>>();
@@ -47,20 +57,8 @@
   const shortcut = shortcutLabel(platform);
   const mac = isMac(platform);
   const settingsShortcut = settingsShortcutLabel(platform);
-  // The same map Nav.svelte builds, for the sidebar's stamp line: the page shown, global or the project's.
-  const labels = $derived<Record<ViewId | GlobalViewId, string>>({
-    overview: $t('nav.overview'),
-    machine: $t('nav.machine'),
-    pipeline: $t('nav.pipeline'),
-    project: $t('nav.project'),
-    backlog: $t('nav.backlog'),
-    agents: $t('nav.agents'),
-    analytics: $t('nav.analytics'),
-    evals: $t('nav.evals'),
-  });
-  const viewLabel = $derived(labels[S.route.view]);
   /** The selected project: every project-scoped component below is keyed on it, so none keeps another project's state. */
-  const project = $derived(routeProject(S.route));
+  const project = $derived(S.selected);
 
   // ---------- the sidebar's width and its icon-only rail ----------
   const compact = $derived(S.side.compact);
@@ -101,9 +99,9 @@
     if (!compact || covered) hideTip();
   });
 
-  // Settings or the palette taking over closes a popover and leaves focus to that dialog.
+  // Settings, the palette or the Add project dialog taking over closes a popover and leaves focus to that dialog.
   $effect(() => {
-    if (settingsOpen || palette.open) untrack(() => closePopover('external'));
+    if (settingsOpen || palette.open || addProjectDialog.open) untrack(() => closePopover('external'));
   });
 
   // The toast and the job drawer follow the md breakpoint; the drawer's width clamps to the window (bound below).
@@ -131,11 +129,10 @@
     };
   });
 
-  // The page under an open drawer does not scroll; html's scrollbar-gutter: stable keeps it from shifting.
+  // The page under an open drawer does not scroll (lib/scroll-lock.ts keeps it from shifting).
   $effect(() => {
     if (!covered) return;
-    document.documentElement.classList.add('overflow-hidden');
-    return () => document.documentElement.classList.remove('overflow-hidden');
+    return lockScroll();
   });
 
   $effect(() => {
@@ -166,7 +163,8 @@
   }
 
   function onKey(e: KeyboardEvent): void {
-    if (commandKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, open: palette.open, settingsOpen, repeat: e.repeat, composing: e.isComposing }) === 'open') {
+    // The Add project dialog counts as Settings here: while it is open, Cmd/Ctrl-K and the Settings shortcut do nothing.
+    if (commandKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, open: palette.open, settingsOpen: settingsOpen || addProjectDialog.open, repeat: e.repeat, composing: e.isComposing }) === 'open') {
       e.preventDefault();
       // Open: back to its input, keeping the scope. md and up: the first press focuses the bar's input, the second opens.
       const inline = commandState();
@@ -179,13 +177,16 @@
     if (e.key === 'Escape') {
       // Escape that cancels an IME composition closes nothing.
       if (e.isComposing) return;
-      const layer = shellEscape({ card: ghCard.link !== null, command: palette.open, settings: settingsOpen, popover: popover.open !== null, drawer: S.drawer.id !== null });
+      const layer = shellEscape({ card: ghCard.link !== null, command: palette.open, addProject: addProjectDialog.open, settings: settingsOpen, popover: popover.open !== null, drawer: S.drawer.id !== null });
       if (layer === 'card') {
         e.preventDefault();
         closeCard();
       } else if (layer === 'command') {
         e.preventDefault();
         closePalette();
+      } else if (layer === 'addProject') {
+        e.preventDefault();
+        closeAddProject();
       } else if (layer === 'settings') {
         e.preventDefault();
         settings?.requestClose();
@@ -195,7 +196,7 @@
       } else if (layer === 'drawer') closeDrawer();
       return;
     }
-    const action = settingsKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, open: settingsOpen, mac, palette: palette.open, repeat: e.repeat, composing: e.isComposing });
+    const action = settingsKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, open: settingsOpen || addProjectDialog.open, mac, palette: palette.open, repeat: e.repeat, composing: e.isComposing });
     if (action === 'open') {
       e.preventDefault();
       openSettings();
@@ -222,12 +223,13 @@
   }
 
   onMount(() => {
-    // The route selects the project, and selecting one loads it.
+    // The route (or, on a global page, the remembered project) selects the project, and selecting one loads it. The
+    // first machine list checks the remembered project is still there.
     route();
-    refreshMachine();
-    // Both project polls do nothing on a global page.
-    const poll = setInterval(() => document.visibilityState === 'visible' && S.route.scope === 'project' && refresh(), 2000);
-    const views = setInterval(() => document.visibilityState === 'visible' && S.route.scope === 'project' && ['analytics', 'evals', 'agents', 'project'].includes(S.view) && loadView(), 15000);
+    refreshMachine().then(checkSelection);
+    // The state poll runs whenever a project is selected (the nav's counts read it); the views' only on its pages.
+    const poll = setInterval(() => document.visibilityState === 'visible' && refresh(), 2000);
+    const views = setInterval(() => document.visibilityState === 'visible' && S.route.scope === 'project' && ['analytics', 'evals', 'agents', 'project', 'foreman'].includes(S.view) && loadView(), 15000);
     // A poll, not /api/projects/events: a stream held by every tab would take the machine's few SSE slots from the session logs.
     const machine = setInterval(() => document.visibilityState === 'visible' && refreshMachine(), 5000);
     // The Overview's graphs re-read every ledger, so they reload less often than its counts.
@@ -245,12 +247,11 @@
 
 <svelte:window bind:innerWidth={S.pane.viewport} onhashchange={route} onkeydown={onKey} />
 
-<div class="flex min-h-screen" style="--size-sidebar: {shown}px" inert={settingsOpen || palette.open}>
+<div class="flex min-h-screen" style="--size-sidebar: {shown}px" inert={settingsOpen || palette.open || addProjectDialog.open}>
   <!-- Compact, the sidebar is a 64px rail: the brand's mark, an icon button for the palette, the view icons and the gear,
        each named by aria-label and shown a tooltip (RailTip) on hover and focus. -->
-  <aside id="sidebar" class="hidden md:flex w-(--size-sidebar) shrink-0 flex-col gap-1 border-r chrome z-10 border-line-strong shadow-(--shadow-chrome) {compact ? 'px-2' : 'px-3'} py-4 sticky top-0 h-screen overflow-y-auto overscroll-contain" inert={covered}>
+  <aside id="sidebar" class="hidden md:flex w-(--size-sidebar) shrink-0 flex-col gap-1 border-r chrome z-10 border-line-strong shadow-(--shadow-chrome) {compact ? 'px-2 pb-2' : 'px-3 pb-3'} pt-4 sticky top-0 h-screen overflow-y-auto overscroll-contain" inert={covered}>
     <div class="plate riveted flex items-center {compact ? 'justify-center px-1 py-2' : 'gap-3 py-3 pr-3 pl-3.5'} mb-1.5"><img src="/forge.png" alt="" class="mark shrink-0" />{#if !compact}<div class="min-w-0"><div class="h sheet-title">{$t('app.brand')}</div><div class="label mt-0.5">{$t('app.tagline')}</div></div>{/if}</div>
-    {#if !compact}<div class="stamp-line wide mx-0.5 mt-0.5 mb-2">{$t('app.view', { view: viewLabel })}</div>{/if}
     <!-- A real input: typing hands its text to the palette. The kbd is hidden from assistive tech because
          aria-keyshortcuts announces it. The placeholder is its only visible label, so it takes muted (4.5:1 in both
          themes) rather than dim, and the strong edge. On the rail it is an icon button that opens the palette; with no
@@ -277,7 +278,7 @@
       <kbd class="mono muted pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-[10px]" aria-hidden="true">{shortcut}</kbd>
       {/if}
     </span>
-    <nav id="nav" class="flex flex-col gap-1"><Nav {compact} onsettings={() => openSettings('pipeline')} /></nav>
+    <nav id="nav" class="flex flex-col gap-1"><Nav {compact} /></nav>
     <div class="mt-auto flex flex-col gap-2 pt-3">
       <div class="navlist {compact ? 'rail' : ''}"><button id="settings-open" aria-label={compact ? $t('settings.open') : undefined} aria-haspopup="dialog" aria-keyshortcuts={settingsKeyShortcuts(platform)} onclick={() => openSettings()} {@attach compact && railTipOn($t('settings.open'))}>{#if compact}<Icon name="settings" />{:else}<span class="lbl"><Icon name="settings" />{$t('settings.open')}</span><kbd class="mono muted text-[10px] normal-case" aria-hidden="true">{settingsShortcut}</kbd>{/if}</button></div>
     </div>
@@ -323,13 +324,21 @@
         {#if S.route.scope === 'global'}
           {#if S.route.view === 'overview'}<Overview />{:else}<Machine />{/if}
         {:else if !S.data}
-          {#if S.error}<Banner msg={S.error} />{:else}<div class="plate w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>{/if}
+          {#if S.error}<Banner msg={S.error} />
+          {:else if S.view === 'pipeline'}<PipelineSkeleton />
+          {:else if S.view === 'issues'}<IssuesSkeleton />
+          {:else if S.view === 'agents'}<AgentsSkeleton />
+          {:else if S.view === 'foreman'}<ForemanSkeleton />
+          {:else if S.view === 'analytics'}<AnalyticsSkeleton />
+          {:else if S.view === 'project'}<ProjectSkeleton />
+          {:else}<EvalsSkeleton />{/if}
         {:else}
           {#if S.error}<Banner msg={S.error} />{/if}
           {#if !S.data.initialized}<Banner msg={$t('app.noConfig')} />{/if}
           {#if S.view === 'pipeline'}<Pipeline />
-          {:else if S.view === 'backlog'}<Backlog />
+          {:else if S.view === 'issues'}<Issues />
           {:else if S.view === 'agents'}<Agents />
+          {:else if S.view === 'foreman'}<Foreman />
           {:else if S.view === 'analytics'}<Analytics />
           {:else if S.view === 'project'}<Project />
           {:else}<Evals />{/if}
@@ -343,8 +352,9 @@
   {#if project !== null}{#key project}<StatusBar />{/key}{/if}
 </div>
 <!-- Outside main as well: inside main.falloff's stacking context, the sidebar's z-10 would sit above the backdrop. -->
-<div inert={settingsOpen || palette.open}>{#key project}<Drawer />{/key}</div>
+<div inert={settingsOpen || palette.open || addProjectDialog.open}>{#key project}<Drawer />{/key}</div>
 {#if settingsOpen}{#key project}<Settings bind:this={settings} start={settingsStart} onclose={closeSettings} />{/key}{/if}
+{#if addProjectDialog.open}<AddProject />{/if}
 {#if palette.open}{#key project}<CommandBar bind:this={command} onclose={closePalette} />{/key}{/if}
 <Toast />
 <!-- Last and outside every inert wrapper: it describes links in Settings and the palette too. -->

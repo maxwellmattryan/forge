@@ -14,7 +14,7 @@ const MESSAGE_DIR = path.resolve(import.meta.dirname, '..', '..', '..', 'dashboa
 const MESSAGES = mergeCatalogs(Object.fromEntries(
   fs.readdirSync(MESSAGE_DIR).filter((f) => f.endsWith('.json')).map((f) => [f, JSON.parse(fs.readFileSync(path.join(MESSAGE_DIR, f), 'utf8'))]),
 )) as any;
-const VIEW_IDS = ['pipeline', 'project', 'backlog', 'agents', 'analytics', 'evals'];
+const VIEW_IDS = ['project', 'pipeline', 'issues', 'agents', 'foreman', 'analytics', 'evals'];
 const SEED_BUDGET_MS = 60_000;
 
 function tempDir(): string {
@@ -44,6 +44,7 @@ interface SeededJob {
   title: string;
   stage: string;
   state: string;
+  reason: string | null;
   waitingOn: string | null;
   verify: string | null;
   lastVerdicts: Record<string, string> | null;
@@ -76,8 +77,11 @@ const ROWS: { name: string; check: (jobs: SeededJob[], seeded: { worktrees: stri
   {
     name: 'gates',
     check: (jobs) => {
-      assert.equal(jobs.length, NOTIFY_GATES.length);
-      assert.deepEqual(new Set(jobs.map((j) => j.waitingOn)), new Set(NOTIFY_GATES));
+      // One job per human gate, and one a person shelved (the Shelved list), which is no gate.
+      const gated = jobs.filter((j) => j.waitingOn !== 'shelved');
+      assert.equal(gated.length, NOTIFY_GATES.length);
+      assert.deepEqual(new Set(gated.map((j) => j.waitingOn)), new Set(NOTIFY_GATES));
+      assert.deepEqual(jobs.filter((j) => j.waitingOn === 'shelved').map((j) => [j.stage, j.reason]), [['decide', 'shelved: waiting on the billing owner']]);
     },
   },
   {

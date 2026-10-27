@@ -11,6 +11,7 @@
   import AgentActivity from './AgentActivity.svelte';
   import AgentsTab from './AgentsTab.svelte';
   import CloseButton from './CloseButton.svelte';
+  import Copyable from './Copyable.svelte';
   import CommandTrigger from './CommandTrigger.svelte';
   import Banner from './Banner.svelte';
   import BudgetPanel from './BudgetPanel.svelte';
@@ -50,7 +51,7 @@
   import { ticker } from '../lib/clock.svelte.ts';
   import { freshCount, sessionActivity } from '../lib/live.ts';
   import { t } from '../lib/locale.ts';
-  import { DRAWER_TABS, PANE_DEFAULT, PANE_MIN, actorLabel, clampPaneWidth, eventDetail, isForemanEvent, moveDrawerTab, paneKey, paneMax, verdictMatrix, verifierRounds, verifierTone, type DrawerTab } from '../lib/drawer.ts';
+  import { DRAWER_TABS, PANE_DEFAULT, PANE_MIN, actorLabel, clampPaneWidth, eventDetail, isChatEvent, isForemanEvent, moveDrawerTab, paneKey, paneMax, verdictMatrix, verifierRounds, verifierTone, type DrawerTab } from '../lib/drawer.ts';
   import { pref } from '../lib/prefs.ts';
   import { slideMarker } from '../lib/marker.ts';
   import { sidebarShown } from '../lib/sidebar.ts';
@@ -83,12 +84,27 @@
   const logKey = $derived(ownerLog && job ? `${job.id}:owner` : (job?.id ?? ''));
   let head = $state<HTMLDivElement>();
   let panel = $state<HTMLDivElement>();
+  let fileList = $state<HTMLDivElement>();
+  let fileView = $state<HTMLDivElement>();
   // Closing the drawer, or opening another job from inside it, starts the next view at the top. A 2 s poll keeps the
   // id, so it never moves the scroll.
   $effect(() => {
     void S.drawer.id;
-    if (panel) panel.scrollTop = 0;
-    if (head) head.scrollTop = 0;
+    untrack(() => {
+      if (panel) panel.scrollTop = 0;
+      if (head) head.scrollTop = 0;
+    });
+    untrack(() => {
+      if (fileList) fileList.scrollTop = 0;
+      if (fileView) fileView.scrollTop = 0;
+    });
+  });
+  // Picking another file shows it from its top. This reads the file name, never `shown`: drawerView is a new object on
+  // every 2 s refresh, which must keep the scroll.
+  const openFile = $derived(shown?.file ?? null);
+  $effect(() => {
+    void openFile;
+    if (fileView) fileView.scrollTop = 0;
   });
   /** The header and the tab strip never scroll away, so a new tab simply starts at its own top. */
   function selectTab(tab: DrawerTab, focus = false): void {
@@ -154,16 +170,16 @@
   }
 </script>
 
-{#snippet fact(k: string, v: unknown, icon: IconName | null = null)}
-  <div><div class="label">{k}</div><div class="mono text-[13px] break-all selectable">{#if icon}<Icon name={icon} class="sm mr-1 inline-block align-[-2px] text-muted" />{/if}{v}</div></div>
+{#snippet fact(k: string, v: unknown, icon: IconName | null = null, copy = false)}
+  <div><div class="label">{k}</div><div class="mono text-[13px] break-all selectable">{#if icon}<Icon name={icon} class="sm mr-1 inline-block align-[-2px] text-muted" />{/if}{#if copy && typeof v === 'string' && v !== '—'}<Copyable text={v} />{:else}{v}{/if}</div></div>
 {/snippet}
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop, as on main; Escape closes the drawer from the keyboard) -->
 <!-- Always mounted, so it fades both ways: closed, it is invisible and lets presses through. -->
 <div id="drawer-backdrop" class="fixed inset-0 backdrop z-30 {open ? 'opacity-100 transition-[opacity] duration-(--motion-base) ease-(--ease-enter)' : 'opacity-0 invisible pointer-events-none transition-[opacity,visibility] duration-(--motion-quick) ease-(--ease-exit)'}" onclick={closeDrawer}></div>
 <!-- A full-height column that never scrolls itself: the header (capped at 40%, scrolling inside itself when taller) and
-     the tab strip stay put, the tab panel under them is the one scroller (on Log, the log pane is), and the action dock
-     under it stays put on every tab. It runs to the viewport's bottom, over the status bar, which the backdrop dims like
+     the tab strip stay put, the tab panel under them is the one scroller (on Log, the log pane is; on Files, the file
+     list and the file view each scroll), and the action dock under it stays put on every tab. It runs to the viewport's bottom, over the status bar, which the backdrop dims like
      the rest of the page; the bottom inset keeps the dock clear of a phone's home indicator. Opening slides it 24px in from
      the right as it fades in (base, easing out); closing slides and fades it out (quick, easing in); the reduced-motion
      block turns both off. Only a close transitions visibility, so it turns invisible at the end of the exit: on open it
@@ -210,7 +226,7 @@
              Log, so every tab has them; its Start/Stop sits apart, at the end of the tab row), then Command, nearest the
              close button. An interactive owner's job has no session controls, as its Log follows a transcript, and keeps
              the effort chip. ml-auto keeps the cluster right-aligned when it wraps under the meta line. -->
-        <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2"><div class="mono text-[13px] muted min-w-0 break-all"><span class="selectable">{j.id}</span>{#if j.round}{' · '}<span class="whitespace-nowrap">{$t('job.round', { round: j.round, max: j.maxRounds })}</span>{/if}</div>{#if !ownerLog || verbs}<div class="ml-auto flex min-w-0 flex-wrap items-start justify-end gap-1.5">{#if !ownerLog}{#key j.id}<SessionControls scope={j.id} toggle={false} />{/key}{/if}{#if verbs}<CommandTrigger job={j.id} />{/if}</div>{/if}</div>
+        <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2"><div class="mono text-[13px] muted min-w-0 break-all"><Copyable text={j.id} />{#if j.round}{' · '}<span class="whitespace-nowrap">{$t('job.round', { round: j.round, max: j.maxRounds })}</span>{/if}</div>{#if !ownerLog || verbs}<div class="ml-auto flex min-w-0 flex-wrap items-start justify-end gap-1.5">{#if !ownerLog}{#key j.id}<SessionControls scope={j.id} toggle={false} />{/key}{/if}{#if verbs}<CommandTrigger job={j.id} />{/if}</div>{/if}</div>
         <!-- One wrapping badge row: the job's chips, the lease, the session's activity, and last the reason, one truncated
              line that wraps onto its own line here when there is no room. -->
         <div class="flex min-w-0 flex-wrap items-center gap-1.5"><Chip tone="gleam" text={STAGE_LABEL[j.stage] ?? j.stage} /><StateChip job={j} />{#if prot}<Chip tone="warn" extra="max-w-full flex-wrap whitespace-normal" text={$t('job.protectedDrawer', { reasons: prot.reasons.join(' · ') })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}{#if ownerLog}<EffortChip level={effort} />{/if}<LeaseChip owner={j.ownerStatus} />{#if activity}<SessionActivity {activity} extra="caption" />{/if}{#if j.reason}<span class="caption muted min-w-0 max-w-full truncate" title={j.reason}>{j.reason}</span>{/if}</div>
@@ -223,7 +239,7 @@
         <div role="tablist" tabindex="-1" aria-label={$t('drawer.tabs')} {@attach slideMarker('[aria-selected="true"]', 'bar-bottom')} class="tabs slide-marker min-w-0 flex-1 pl-5 md:pl-6 overflow-x-auto overflow-y-hidden" onkeydown={stripKey}>{#each DRAWER_TABS as tab (tab)}<button role="tab" id="drawer-tab-{tab}" aria-selected={shown.tab === tab} aria-controls="drawer-panel-{tab}" tabindex={shown.tab === tab ? 0 : -1} class="tab shrink-0 whitespace-nowrap focus-visible:-outline-offset-2 {shown.tab === tab ? 'active' : ''}" onclick={() => selectTab(tab)}>{#if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<Chip extra="spark ml-1.5" text={$t('drawer.threadUnread', { count: unread })} />{/if}{:else if tab === 'log'}{$t('drawer.logTab')}{#if activity?.kind === 'working'}<span class="inline-flex ml-1.5 align-middle"><LiveDot on={true} /></span><span class="sr-only">{$t('live.working')}</span>{/if}{:else if tab === 'agents'}{$t('drawer.agentsTab')}{#if running.length}<span class="muted num ml-1">({running.length})</span>{/if}{:else if tab === 'files'}{$t('drawer.files')}{:else if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted num">({d.events.length})</span>{:else if tab === 'details'}{$t('drawer.detailsTab')}{/if}</button>{/each}</div>
         {#if !ownerLog}<div class="flex shrink-0 items-center border-b border-line pl-3 pr-5 md:pr-6">{#key j.id}<SessionToggle scope={j.id} />{/key}</div>{/if}
       </div>
-      <div bind:this={panel} role="tabpanel" id="drawer-panel-{shown.tab}" aria-labelledby="drawer-tab-{shown.tab}" tabindex="0" class="min-h-0 flex-1 overscroll-contain {shown.tab === 'log' ? 'overflow-hidden' : 'overflow-y-auto'} p-5 md:p-6 flex flex-col gap-5 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
+      <div bind:this={panel} role="tabpanel" id="drawer-panel-{shown.tab}" aria-labelledby="drawer-tab-{shown.tab}" tabindex="0" class="min-h-0 flex-1 overscroll-contain {shown.tab === 'log' || shown.tab === 'files' ? 'overflow-hidden' : 'overflow-y-auto'} p-5 md:p-6 flex flex-col gap-5 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
         {#if shown.tab === 'thread'}
           <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} events={d.events ?? []} baseline={S.drawer.threadAtOpen} />
         {:else if shown.tab === 'log'}
@@ -235,13 +251,15 @@
         {:else if shown.tab === 'files'}
           {@const file = shown.file}
           {@const content = shown.content}
-          <div class="grid md:grid-cols-[180px_1fr] gap-4">
-            <div class="flex md:flex-col gap-0.5 overflow-x-auto md:overflow-visible">{#each d.files as f (f)}<button class="block w-full text-left truncate px-2 py-1 text-sm font-mono {file === f ? 'bg-raised text-fg' : 'text-muted hover:text-fg'}" onclick={() => loadFile(f)}>{f}</button>{/each}</div>
-            <div class="min-w-0">
+          {#if d.files.length}
+            <div bind:this={fileList} class="shrink-0 max-h-[30%] overflow-y-auto overscroll-contain flex flex-col gap-0.5 border-b border-line pb-3">{#each d.files as f (f)}<button class="block w-full shrink-0 text-left truncate focus-visible:-outline-offset-2 px-2 py-1 text-sm font-mono {file === f ? 'bg-raised text-fg' : 'text-muted hover:text-fg'}" onclick={() => loadFile(f)}>{f}</button>{/each}</div>
+          {/if}
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->
+          <div bind:this={fileView} role="region" aria-label={file ?? $t('drawer.files')} tabindex={d.files.length ? 0 : undefined} class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain flex flex-col focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
               {#if file && content}
                 {#if 'html' in content}
-                  <!-- svelte-ignore a11y_missing_attribute (no title, as on main: the iframe sits under the file list that names it) -->
-                  <iframe sandbox="" class="w-full h-[70vh] border border-line bg-white" src="/api/p/{project}/jobs/{encodeURIComponent(j.id)}/raw?path={encodeURIComponent(file)}"></iframe>
+                  <!-- svelte-ignore a11y_missing_attribute (no title, as on main: the iframe sits below the file list that names it) -->
+                  <iframe sandbox="" class="w-full min-h-64 flex-1 border border-line bg-white" src="/api/p/{project}/jobs/{encodeURIComponent(j.id)}/raw?path={encodeURIComponent(file)}"></iframe>
                 {:else if file.endsWith('.md')}
                   <div class="flex justify-end mb-2"><MarkdownToggle surface="files" /></div>
                   {#if mdView.files === 'rendered'}
@@ -255,14 +273,13 @@
               {:else}
                 <div class="text-sm text-muted">{$t('drawer.noFiles')}</div>
               {/if}
-            </div>
           </div>
         {:else if shown.tab === 'timeline'}
           <ul>
             {#each events as e, i (i)}
               {@const x = eventDetail(e, { tokens: tokensShort, dur })}
               {@const by = actorLabel(e)}
-              <li class="flex gap-3 py-1.5 border-b border-line text-sm">{#if i < fresh}<span class="dot spark size-1.5 shrink-0 self-center" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts, ticker.now)}</span><span class="font-mono text-gleam shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{#if isForemanEvent(e)}<Chip tone="live" extra="sm mr-1.5" text={$t('drawer.foreman')} />{/if}{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}{#if by}<span class="muted ml-1.5" title={$t('drawer.actorSource', { source: by.source })}>{$t('drawer.by', { login: by.login })}</span>{/if}</span></li>
+              <li class="flex gap-3 py-1.5 border-b border-line text-sm">{#if i < fresh}<span class="dot spark size-1.5 shrink-0 self-center" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts, ticker.now)}</span><span class="font-mono text-gleam shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{#if isForemanEvent(e)}<Chip tone="live" extra="sm mr-1.5" text={$t('drawer.foreman')} />{/if}{#if isChatEvent(e)}<Chip tone="info" extra="sm mr-1.5" text={$t('drawer.chat')} />{/if}{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}{#if by}<span class="muted ml-1.5" title={$t('drawer.actorSource', { source: by.source })}>{$t('drawer.by', { login: by.login })}</span>{/if}</span></li>
             {/each}
           </ul>
         {:else if shown.tab === 'details'}
@@ -270,10 +287,10 @@
           <ProgressBar progress={j.progress} />
           <EnvironmentSection job={j} />
           <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {@render fact($t('drawer.branch'), j.branch ?? '—', 'branch')}{@render fact($t('drawer.base'), j.base ?? '—', 'branch')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}
+            {@render fact($t('drawer.branch'), j.branch ?? '—', 'branch', true)}{@render fact($t('drawer.base'), j.base ?? '—', 'branch', true)}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—', null, true)}
             <div><div class="label">{$t('drawer.pr')}</div><div class="mono text-[13px] break-all selectable">{#if prUrl}<a class="text-gleam" href={prUrl} target="_blank" rel="noopener"><Icon name="pull-request" class="sm mr-1 inline-block align-[-2px]" />#{j.pr?.number}</a>{:else}—{/if}</div></div>
             <div><div class="label">{$t('drawer.issues')}</div><div class="mono text-[13px] break-all selectable flex flex-wrap gap-x-2">{#each j.issues ?? [] as issue, n (n)}{@const issueUrl = safeUrl(issue.url)}{#if issueUrl}<a class="text-gleam" href={issueUrl} target="_blank" rel="noopener">{#if issueUrl.startsWith('https://github.com/')}<Icon name="github" class="sm mr-1 inline-block align-[-2px]" />{/if}{issue.ref ?? $t('drawer.link')}</a>{:else}<span>{issue.ref ?? '—'}</span>{/if}{:else}—{/each}</div></div>
-            {@render fact($t('drawer.session'), j.lease?.driver ?? '—')}{@render fact($t('drawer.created'), ago(j.createdAt, ticker.now))}{@render fact($t('drawer.updated'), ago(j.updatedAt, ticker.now))}
+            {@render fact($t('drawer.session'), j.lease?.driver ?? '—', null, true)}{@render fact($t('drawer.created'), ago(j.createdAt, ticker.now))}{@render fact($t('drawer.updated'), ago(j.updatedAt, ticker.now))}
           </div>
           <RepoSection job={j} />
           <DepSection job={j} />

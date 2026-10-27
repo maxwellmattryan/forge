@@ -6,14 +6,16 @@ import { isInterimStrategy, servicesToComponents } from '../config/components.ts
 import { isSha } from '#engine/pr/delta.ts';
 import { isSafeUrl, isStoredRef, sameIssue } from './issue-ref.ts';
 import { REPO_NAME, isSafeBranch } from '#engine/project/member-repos.ts';
-import { ACTOR_SOURCES, COMPLEXITIES, EFFORTS, OFFICE_GATES } from '#api/constants.ts';
+import { ACTOR_SOURCES, COMPLEXITIES, EFFORTS, OFFICE_GATES, WAITING_ON } from '#api/constants.ts';
 import { runSteps } from '../versions/steps.ts';
 import { CONFIG_SCHEMA_VERSION, CONFIG_STEPS } from '../versions/config.ts';
 import { JOB_SCHEMA_VERSION, JOB_STEPS, noLease, ownerToLease, sourceToIssues } from '../versions/job.ts';
 import { EVENT_SCHEMA_VERSION, EVENT_STEPS } from '../versions/event.ts';
-import type { EventActor, HumanGrant, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcome, JobRepo, JobRepoPr, JobScore, LoadedJob } from '../types.ts';
+import { isMap } from '../shape.ts';
+import { safeText } from '../text.ts';
+import type { AgentRun, AgentRunEnd, AgentUsage, ContextComposition, ContextPart, EventActor, HumanGrant, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcome, JobRepo, JobRepoPr, JobScore, JobShelf, LoadedJob, RunBilling } from '../types.ts';
 
-export { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, STAGES, STATES, WAITING_ON } from '#api/constants.ts';
+export { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_SCORING, MANDATE_STATUSES, MANDATE_UNTIL, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, STAGES, STATES, WAITING_ON } from '#api/constants.ts';
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from '../config/components.ts';
 export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from '../config/validators/backing.ts';
 export { CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, noLease };
@@ -28,8 +30,11 @@ export const SEVERITIES = ['blocker', 'major', 'minor', 'nit'] as const;
 /** daemon.auth: the credential a daemon session runs on. */
 export const DAEMON_AUTH = ['subscription', 'api-key'] as const;
 
+/** daemon.keepAwake: whether this project's work in flight holds the machine's sleep assertion. */
+export const KEEP_AWAKE_MODES = ['auto', 'never'] as const;
+
 /** notify.webhooks[].events: what Forge can notify about, most specific first where two overlap. */
-export const NOTIFY_EVENTS = ['gate', 'pr-opened', 'pr-merged', 'job-failed', 'daemon-stopped', 'budget-exceeded', 'secret-found'] as const;
+export const NOTIFY_EVENTS = ['gate', 'pr-opened', 'pr-merged', 'job-failed', 'daemon-stopped', 'budget-exceeded', 'secret-found', 'service-restarted', 'mandate-stalled', 'mandate-budget', 'mandate-closed'] as const;
 
 /** notify.webhooks[].format: the body Forge posts. */
 export const NOTIFY_FORMATS = ['json', 'slack'] as const;
@@ -40,8 +45,11 @@ export const NOTIFY_GATES = ['spec-approval', 'split-approval', 'issue-link', 'i
 /** A model alias or id as runtime.models and the builder overrides take it; here so config.ts and config-fields.ts share it without an import cycle. */
 export const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]*$/;
 
-/** The roles runtime.efforts sets, in runtime.models order. No orchestrator: sessions take runtime.effort. */
-export const EFFORT_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'reviewer', 'approver', 'integrator', 'retro', 'judge', 'assistant'] as const;
+/**
+ * The roles runtime.efforts sets, in runtime.models order. No orchestrator: sessions take runtime.effort.
+ * No assistant: its effort is foreman.assistants.effort.
+ */
+export const EFFORT_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'reviewer', 'approver', 'integrator', 'retro', 'judge'] as const;
 
 /**
  * A foreman.reserved entry read as a class reservation: the class for exactly `gate:<class>`
@@ -57,8 +65,12 @@ export function reservedGateEntry(p: string): (typeof OFFICE_GATES)[number] | 'i
   return (OFFICE_GATES as readonly string[]).includes(c) ? (c as (typeof OFFICE_GATES)[number]) : 'invalid';
 }
 
-/** foreman.ship: propose leaves merging as it was; merge counts as merge.auto for the approver and PR4. */
-export const FOREMAN_SHIP = ['propose', 'merge'] as const;
+/**
+ * foreman.ship, in order, each level including the one before (shipAllows in lib/core/config/load.ts):
+ * propose leaves merging as it was; merge counts as merge.auto for the approver and PR4; release also
+ * lets a mandate run until `released`. No level makes the Foreman decide a release: foreman.decides does.
+ */
+export const FOREMAN_SHIP = ['propose', 'merge', 'release'] as const;
 
 const isoOrNull = (v: unknown): string | null => (typeof v === 'string' && v.length <= 64 && Number.isFinite(Date.parse(v)) ? v : null);
 
@@ -168,6 +180,38 @@ export function cleanOutcome(raw: unknown): JobOutcome | null {
     attempts: o.attempts,
     ...(typeof o.reason === 'string' ? { reason: o.reason } : {}),
   };
+}
+
+/** The longest shelve reason, in characters. */
+export const SHELVE_REASON_MAX = 200;
+
+/** A shelve reason as Forge stores and posts it: one line, no control characters or backticks, at most 200 characters; '' when nothing is left. */
+export function cleanShelveReason(raw: unknown): string {
+  return typeof raw === 'string' ? safeText(raw.trim(), SHELVE_REASON_MAX).trim() : '';
+}
+
+/** The states a job is shelved from, and so the states un-shelving restores. */
+export const SHELF_FROM_STATES = ['waiting', 'queued', 'failed', 'blocked'] as const;
+
+/**
+ * A stored shelf record in the shape `forge job shelve` writes, or null. Kept only on a job waiting on
+ * `shelved`. job.json is writable outside the CLI and `from` decides where un-shelving puts the job, so
+ * a record whose `from` names a state shelve never takes (running) or the shelf itself is dropped, and
+ * the job then un-shelves to a person's wait.
+ */
+export function cleanShelf(raw: unknown, job: { state?: unknown; waitingOn?: unknown }): JobShelf | null {
+  if (job.state !== 'waiting' || job.waitingOn !== 'shelved' || !isMap(raw) || !isTime(raw.at)) return null;
+  const reason = cleanShelveReason(raw.reason);
+  const from = raw.from;
+  if (!reason || !isMap(from) || !(SHELF_FROM_STATES as readonly unknown[]).includes(from.state)) return null;
+  const waits = from.state === 'waiting';
+  if (waits ? from.waitingOn === 'shelved' || !(WAITING_ON as readonly unknown[]).includes(from.waitingOn) : from.waitingOn !== null) return null;
+  if (from.reason !== null && typeof from.reason !== 'string') return null;
+  const a = raw.actor;
+  const source = isMap(a) && isActorSource(a.source) ? a.source : 'unknown';
+  // A foreman entry never carries a login, as normalizeActor reads it.
+  const login = source !== 'unknown' && source !== 'foreman' && typeof a?.login === 'string' ? sanitizeLogin(a.login) || null : null;
+  return { at: raw.at, reason, actor: { login, source }, from: { state: from.state as JobShelf['from']['state'], waitingOn: from.waitingOn as JobShelf['from']['waitingOn'], reason: from.reason as string | null } };
 }
 
 /**
@@ -293,6 +337,93 @@ export function finishedJobRoles(job: { state?: unknown; kind?: unknown; score?:
   return job.state === 'done' && job.kind !== 'eval' && (job.score as JobScore | null | undefined)?.status === 'queued' ? ['judge'] : [];
 }
 
+/** The agent runs one agent record keeps in runHistory; the oldest drop first. */
+export const MAX_AGENT_RUNS = 50;
+/** A composition tool part's name as composeContext stores it: `mcp:` and a 64-char name, with room to spare. */
+const MAX_PART_NAME = 70;
+/** A token count as usage reports it: any finite number ≥ 0. */
+const isTokens = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+const countOf = (v: unknown): number => (isTokens(v) ? v : 0);
+const strOrNull = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+
+/**
+ * A run's billing split from the usage its end reported: counts that are not finite numbers ≥ 0 read as 0, and the
+ * total is the reported one or, as addUsage computes it, their sum. Null without usage.
+ */
+export function runBilling(u?: AgentUsage | null): RunBilling | null {
+  if (!u || typeof u !== 'object') return null;
+  const b = { input: countOf(u.input), output: countOf(u.output), cacheRead: countOf(u.cacheRead), cacheWrite: countOf(u.cacheWrite) };
+  return { ...b, totalTokens: isTokens(u.totalTokens) ? u.totalTokens : b.input + b.output + b.cacheRead + b.cacheWrite };
+}
+
+/** Adds `more`'s counts to `run`'s billing. */
+export function addBilling(run: AgentRun, more: RunBilling): void {
+  const u = run.usage;
+  run.usage = u
+    ? { input: u.input + more.input, output: u.output + more.output, cacheRead: u.cacheRead + more.cacheRead, cacheWrite: u.cacheWrite + more.cacheWrite, totalTokens: u.totalTokens + more.totalTokens }
+    : more;
+}
+
+/**
+ * Records an agent end on the agent's runHistory (recordAgent in ./store.ts). The end of a running agent is a new
+ * agent run, usage or not (a lost run has none). A further end with usage on an ended agent adds its counts to the
+ * last run and, when it has one, its composition; with no recorded run it is a run of its own unless legacy runs
+ * exist, whose events fold it in. An end without usage on an ended agent records nothing. The newest MAX_AGENT_RUNS stay.
+ */
+export function recordRun(a: JobAgent, end: AgentRunEnd): void {
+  if (!Array.isArray(a.runHistory)) a.runHistory = [];
+  const list = a.runHistory;
+  const usage = runBilling(end.usage);
+  const last = list.at(-1);
+  if (!end.wasRunning) {
+    if (!usage) return;
+    if (last) {
+      addBilling(last, usage);
+      if (end.composition) last.composition = end.composition;
+      return;
+    }
+    if (countOf(a.legacyRuns) > 0) return;
+  }
+  list.push({ round: end.round, startedAt: end.wasRunning ? (a.startedAt ?? null) : null, endedAt: end.at, status: end.status, model: end.model, usage, composition: end.composition ?? null });
+  if (list.length > MAX_AGENT_RUNS) list.splice(0, list.length - MAX_AGENT_RUNS);
+}
+
+/** A stored composition, or null unless every count is a finite number ≥ 0, every tool part is named, and the parts sum to the total. */
+export function cleanComposition(v: unknown): ContextComposition | null {
+  if (!v || typeof v !== 'object') return null;
+  const c = v as Record<string, unknown>;
+  const keys = ['total', 'forgePrompt', 'harness', 'carried', 'assistant', 'user'] as const;
+  if (!keys.every((k) => isTokens(c[k])) || !Array.isArray(c.tools)) return null;
+  const tools: ContextPart[] = [];
+  for (const p of c.tools as unknown[]) {
+    const part = p as { name?: unknown; tokens?: unknown } | null;
+    if (!part || typeof part !== 'object' || typeof part.name !== 'string' || !part.name || part.name.length > MAX_PART_NAME || !isTokens(part.tokens)) return null;
+    tools.push({ name: part.name, tokens: part.tokens });
+  }
+  const n = (k: (typeof keys)[number]) => c[k] as number;
+  const sum = n('forgePrompt') + n('harness') + n('carried') + n('assistant') + n('user') + tools.reduce((s, p) => s + p.tokens, 0);
+  if (sum !== n('total')) return null;
+  return { total: n('total'), forgePrompt: n('forgePrompt'), harness: n('harness'), carried: n('carried'), tools, assistant: n('assistant'), user: n('user') };
+}
+
+/** A stored agent run, or null when it is not an object or its usage is malformed; a malformed composition reads as null. */
+export function cleanRun(v: unknown): AgentRun | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const u = r.usage as Record<string, unknown> | null | undefined;
+  const billing = ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const;
+  if (u != null && (typeof u !== 'object' || !billing.every((k) => isTokens(u[k])))) return null;
+  return {
+    round: typeof r.round === 'number' && Number.isInteger(r.round) ? r.round : null,
+    startedAt: strOrNull(r.startedAt),
+    endedAt: strOrNull(r.endedAt),
+    status: strOrNull(r.status),
+    model: strOrNull(r.model),
+    usage: u == null ? null : { input: u.input as number, output: u.output as number, cacheRead: u.cacheRead as number, cacheWrite: u.cacheWrite as number, totalTokens: u.totalTokens as number },
+    composition: cleanComposition(r.composition),
+  };
+}
+
 /**
  * Upgrades and fills defaults so every consumer can rely on the current shape.
  */
@@ -350,6 +481,9 @@ export function normalizeJob(raw: any): LoadedJob {
     splitMode: job.splitMode ?? null,
     // A hand- or session-edited value outside the fixed list must never reach a daemon's argv.
     effort: (EFFORTS as readonly unknown[]).includes(job.effort) ? job.effort : null,
+    // Never dropped to null when malformed: null would widen what the Foreman decides. A bad value
+    // stays a string, which then reads as an unreadable mandate and fails closed.
+    mandate: job.mandate == null ? null : String(job.mandate),
     complexity: (COMPLEXITIES as readonly unknown[]).includes(job.complexity) ? job.complexity : null,
     // Tolerant: anything but an object with a hits list reads as no flag. Safe, because verify and
     // pr open recompute the set from git rather than trusting this.
@@ -358,6 +492,9 @@ export function normalizeJob(raw: any): LoadedJob {
     repos: cleanRepos({ branch: job.branch ?? null, base: job.base ?? null, worktree: job.worktree ?? null, pr: job.pr ?? null, interim: job.interim, repos: job.repos }),
     outcome: cleanOutcome(job.outcome),
     score,
+    shelved: cleanShelf(job.shelved, { state: job.state ?? 'queued', waitingOn: job.waitingOn ?? null }),
+    // Only true marks it, and only on a finished job: checkShelfMove sets and clears it with the state.
+    finishedWhileShelved: job.finishedWhileShelved === true && (job.state === 'done' || job.state === 'cancelled'),
   };
 }
 

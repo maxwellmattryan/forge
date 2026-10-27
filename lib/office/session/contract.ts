@@ -121,6 +121,8 @@ export interface SessionContext {
   permissionModeRefused(scope: string, mode: DaemonPermissionMode, live: string | null): void;
   /** The --effort a spawn of `scope` gets under config `c` (resolveEffort); null level passes none. */
   effort(scope: string, c: Config): { level: Effort | null; source: EffortSource };
+  /** The --model a spawn of `scope` gets under config `c` (the office session's foreman.model); null keeps daemon.command's. */
+  model(scope: string, c: Config): string | null;
 }
 
 /** What the supervisor records about each child it spawned. */
@@ -172,6 +174,12 @@ export interface Session {
   /** Returns whether a child is now running. */
   spawn(c: Config, reason?: string): boolean;
   writeTurn(ids: string[]): void;
+  /**
+   * Hands a chat session's running child one owner message, with writeTurn's bookkeeping (busy, the turn
+   * timer, a `turn` log event marked `chat`, never the text). Throws ForgeError, writing nothing, outside a
+   * chat scope, with no child running, or for a text stream.ts chatMessageLine refuses.
+   */
+  writeChat(text: string): void;
   /** Answers a pending permission prompt with who answered; returns its tool, or null when there is none by that id (answered, or its child exited). */
   answerPermission(id: string, decision: PermissionDecision, actor?: EventActor): string | null;
   /** Asks the running child to switch permission mode; false when no child runs (the next spawn takes ctx.permissionMode). */

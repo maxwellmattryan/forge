@@ -12,7 +12,7 @@ import { hasEnvironment, teardownEnvironment } from '../environment/lifecycle.ts
 import { jobFindings } from '../pipeline/findings.ts';
 import { isActive, jobDir, leaseStatus, listJobs, logEvent, readEvents } from '#core/job/store.ts';
 import { paths, removeJobRecord, stateFile } from '#core/paths.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, validScope } from '#core/job/requests.ts';
+import { sharedScope, validScope } from '#core/job/requests.ts';
 import { ARCHIVE_SCHEMA_VERSION, normalizeJob } from '#core/job/schema.ts';
 import type { ArchiveRecord, Config, EventActor, Job, LoadedJob, RetentionTrigger } from '#core/types.ts';
 import type { ArchiveResult, PruneResult } from './types.ts';
@@ -291,7 +291,7 @@ function staleLogs(root: string, days: number, at = Date.now()): StaleLog[] {
     const newest = Math.max(...files.map((f) => f.st.mtimeMs));
     if (at - newest < days * DAY_MS) continue;
     if (daemonRunning(root, scope)) continue;
-    if (scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE && active.get(scope) === true) continue;
+    if (!sharedScope(scope) && active.get(scope) === true) continue;
     for (const f of files) out.push({ scope, file: path.relative(root, path.join(dir, f.name)), bytes: f.st.size });
   }
   return out;
@@ -317,7 +317,7 @@ function deleteLogs(root: string, logs: StaleLog[], trigger: RetentionTrigger): 
     appendRetentionLog(root, { type: 'pruned', kind: 'log', scope: l.scope, file: l.file, bytes: l.bytes, trigger });
   }
   for (const scope of scopes) {
-    if (scope === INBOX_SCOPE || scope === OFFICE_SCOPE || hasLiveJob(root, scope)) continue;
+    if (sharedScope(scope) || hasLiveJob(root, scope)) continue;
     const rec = sessionFiles(root, scope).info;
     if (lstat(rec)?.isFile()) fs.rmSync(rec, { force: true });
   }

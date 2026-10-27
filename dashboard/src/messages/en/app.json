@@ -4,20 +4,19 @@
     "titleRepo": "Forge · {repo}",
     "brand": "Forge",
     "tagline": "software factory",
-    "view": "{view}",
     "noConfig": "This repo has no .forge/config.yml yet. Run /forge init."
   },
   "nav": {
-    "global": "All projects",
+    "global": "General",
     "overview": "Overview",
     "machine": "Machine",
     "pipeline": "Pipeline",
-    "backlog": "Backlog",
+    "issues": "Issues",
     "agents": "Agents",
+    "foreman": "Foreman",
     "analytics": "Analytics",
     "evals": "Evals",
-    "project": "Project",
-    "projectSettings": "Project settings"
+    "project": "Project"
   },
   "switcher": {
     "label": "Project",
@@ -28,7 +27,27 @@
     },
     "missing": "missing",
     "unavailable": "unavailable",
-    "rail": "Switch project"
+    "rail": "Switch project",
+    "add": "Add project"
+  },
+  "addProject": {
+    "title": "Add project",
+    "close": "Close",
+    "path": "Directory",
+    "pathPlaceholder": "~/src/my-repo",
+    "pathHelp": "A git repository set up with /forge (it has .forge/config.yml): an absolute path, or one starting with ~.",
+    "name": "Name",
+    "namePlaceholder": "Defaults to the directory's name",
+    "nameHelp": "Lowercase letters, digits, dots, dashes and underscores, starting with a letter or digit; up to 64 characters.",
+    "add": "Add",
+    "adding": "Adding…",
+    "cancel": "Cancel",
+    "pathRequired": "Enter the repository's directory.",
+    "pathRelative": "Use an absolute path, or one starting with ~.",
+    "nameInvalid": "Use lowercase letters, digits, dots, dashes and underscores, starting with a letter or digit (up to 64).",
+    "added": "Added {name}",
+    "already": "{name} was already registered",
+    "unavailable": "Registered {name}, but the dashboard can't open it yet; the project switcher lists it as unavailable."
   },
   "sidebar": {
     "resize": "Resize sidebar"
@@ -51,7 +70,7 @@
     "send": "Send",
     "working": "Working…",
     "hints": {
-      "next": "Take the next ready backlog items: next [n]",
+      "next": "Take the next ready issues: next [n]",
       "issue": "Start a job from a tracker item: issue <ref>",
       "continue": "Resume a queued, failed or stalled job: continue <job> (or resume <job>)",
       "approve": "Approve a waiting job: approve <job> [note]",
@@ -70,9 +89,9 @@
     "empty": "No suggestions",
     "verbLike": "No command matches; this starts a new job",
     "noJobs": "No open jobs match",
-    "noItems": "No open backlog items match",
-    "backlogLoading": "Loading the backlog…",
-    "backlogFailed": "Couldn't load the backlog: {error}",
+    "noItems": "No open issues match",
+    "issuesLoading": "Loading issues…",
+    "issuesFailed": "Couldn't load issues: {error}",
     "noProject": "Choose a project first: project <name>"
   }
 }

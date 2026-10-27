@@ -13,7 +13,7 @@ import { usageError } from './args.ts';
 import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
 
 const DOCS: [string, string] = ['Backing services', 'docs/CONFIG.md#backing-services'];
-const REFUSED: [1, string] = [1, 'an invalid job id or no such job, or the inbox or office daemon session ran it'];
+const REFUSED: [1, string] = [1, 'an invalid job id or no such job, or the inbox, office or an assistant foreman daemon session ran it'];
 
 const ENVIRONMENT: HelpGroup = {
   name: 'environment',
@@ -24,9 +24,9 @@ const ENVIRONMENT: HelpGroup = {
       args: '<id>',
       summary:
         "start an active job's environment: run a missing per-job container, start a stopped one, give the job its job databases, and mark it running in the environment record. Forge does this itself on resume, verify, run --background and focus. Starts no background process",
-      exits: [[1, 'an invalid job id or no such job, a done or cancelled job, or the inbox or office daemon session ran it'], [5, 'a backing service did not start']],
+      exits: [[1, 'an invalid job id or no such job, a done or cancelled job, or the inbox, office or an assistant foreman daemon session ran it'], [5, 'a backing service did not start']],
       docs: DOCS,
-      readme: true,
+      common: true,
     },
     {
       command: 'environment stop',
@@ -35,7 +35,7 @@ const ENVIRONMENT: HelpGroup = {
         "stop a job's environment while keeping it: stop its background processes and docker stop its own per-job containers, keeping volumes, job databases and shared containers, and mark it stopped in the environment record. Forge does this itself when a job parks",
       exits: [REFUSED, [5, 'Docker missing, its daemon stopped or docker stop failed (the record still says stopped)']],
       docs: DOCS,
-      readme: true,
+      common: true,
     },
     {
       command: 'environment down',
@@ -44,14 +44,14 @@ const ENVIRONMENT: HelpGroup = {
         "tear the job's environment down, for any job, done or cancelled too: stop its background processes, remove its per-job containers and volumes, drop its job databases, delete backing.json and backing-db.json and drop it from the environment record; the worktree stays",
       exits: [REFUSED, [5, 'Docker missing, its daemon stopped, a docker or psql command failed, or a shared container is stopped (the records are kept for a retry)']],
       docs: DOCS,
-      readme: true,
+      common: true,
     },
     {
       command: 'environment list',
       args: '',
       summary: 'the environment record: {maxRunning, focused, jobs: [{id, state, usedAt}]}, running or stopped as Forge last left each one, most recently used first, only for jobs that exist and are active',
       docs: DOCS,
-      readme: true,
+      common: true,
     },
   ],
 };

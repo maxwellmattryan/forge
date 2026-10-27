@@ -1,6 +1,7 @@
-// /api/jobs and /api/jobs/:id/*: the job detail, transcript and files, the job POSTs, and the environment routes with GET /api/environments.
-import type { BudgetKey, Effort } from './enums.ts';
-import type { BudgetLimits, BudgetUsed, Job, JobBudget, JobEvent, OwnerStatus, Progress } from './job.ts';
+// /api/jobs and /api/jobs/:id/*: the job detail, transcript and files, the job POSTs, the Shelved list's
+// POST /api/shelf, and the environment routes with GET /api/environments.
+import type { BudgetKey, Effort, ShelfAction } from './enums.ts';
+import type { AgentRun, BudgetLimits, BudgetUsed, Job, JobBudget, JobEvent, OwnerStatus, Progress } from './job.ts';
 import type { ForgeRequest } from './state.ts';
 
 /** One agent of the job's current round (or still running) in the job detail: jobDetail() in lib/server/routes/jobs.ts. */
@@ -12,10 +13,12 @@ export interface AgentRow {
   endedAt: string | null;
   /** endedAt − startedAt; null while running or when either is unknown. */
   durationMs: number | null;
-  /** usage.totalTokens of this run's agent-end event, else null. */
+  /** The sum of `runs[].usage.totalTokens`; null when no run has usage: runsTokens in lib/engine/metrics/runs.ts. */
   tokens: number | null;
   /** Its transcript was found. */
   transcript: boolean;
+  /** Every ended run of the role across rounds, oldest first: agentRuns in lib/engine/metrics/runs.ts. */
+  runs: AgentRun[];
 }
 
 /** GET /api/jobs/:id/transcript: a page of an agent's or the interactive owner's transcript, read backwards. */
@@ -233,6 +236,28 @@ export interface PostJobBudgetResponse {
   ack: JobBudget['ack'];
   acked: BudgetKey[];
   stillExceeded: BudgetKey[];
+}
+
+/**
+ * POST /api/shelf body: the Shelved list's batch action on the rows a person selected, each pinned to
+ * the `shelved.at` the list showed (1 to 50 entries); `note` (at most 2000 characters) is required for rework.
+ */
+export interface PostShelfBody {
+  action: ShelfAction;
+  jobs: { id: string; shelvedAt: string }[];
+  note?: string | null;
+}
+
+/** What POST /api/shelf did to one job: shelfAction in lib/engine/pipeline/moves/shelve.ts; `reason` only when skipped. */
+export interface ShelfResult {
+  id: string;
+  outcome: 'approved' | 'reworked' | 'unshelved' | 'closed' | 'skipped';
+  reason?: string;
+}
+
+/** POST /api/shelf reply: one result per entry, in the body's order. */
+export interface PostShelfResponse {
+  results: ShelfResult[];
 }
 
 /** POST /api/jobs/:id/merge reply: mergePr's result in lib/engine/pr/merge.ts, whatever its action. */

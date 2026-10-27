@@ -110,7 +110,6 @@ export function defaults(): Config {
         judge: 'opus',
         // A cheap yes/no answer per verifier; not in EFFORT_ROLES, so it takes runtime.effort.
         verifier: 'haiku',
-        assistant: 'sonnet',
       },
       // The builder only (resolveModel): null falls through to runtime.models.builder.
       modelByComplexity: { low: null, medium: null, high: null },
@@ -187,7 +186,7 @@ export function defaults(): Config {
       requiredChecks: [],
     },
     aiAttribution: 'forbid',
-    release: { interim: 'local', versioning: null, mechanism: null, command: null, registry: null, cadence: null, publish: null },
+    release: { interim: 'local', versioning: null, mechanism: null, command: null, script: null, registry: null, cadence: null, publish: null },
     resources: [],
     components: [],
     repos: [],
@@ -261,18 +260,41 @@ export function defaults(): Config {
       jobBudget: { tokens: 600000000, usd: 150 },
       // Dollars per UTC day the inbox and office sessions may spend, metered from claude's own cost report;
       // above the heaviest day observed here (office $38.66, inbox about $15). null (or a null key): no cap.
-      dailyUsd: { inbox: 25, office: 60 },
+      // `chat` caps every chat session of the project together.
+      dailyUsd: { inbox: 25, office: 60, chat: 25 },
+      // While this project's pool is started and has an active mandate or a running job at an agent
+      // stage, the machine dashboard holds one sleep assertion (lib/server/uptime.ts).
+      keepAwake: 'auto',
     },
     // Opt-in: the `_office` daemon session decides gates through forge:assistant sub-agents;
     // docs/architecture/foreman.md. Whole-phrase, case-insensitive patterns: a match keeps the
     // gate with a human, and a false positive errs that way on purpose.
     foreman: {
       enabled: false,
-      // Widening the repos a job pushes to, and publishing a release, are opt-in: an owner adds
-      // repo-proposal or release deliberately (release also needs gate:release out of `reserved`).
-      decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal' && g !== 'release'),
+      // Widening the repos a job pushes to, publishing a release and filing a milestone are opt-in: an
+      // owner adds repo-proposal, release or milestone-approval deliberately (release also needs
+      // gate:release out of `reserved`).
+      decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal' && g !== 'release' && g !== 'milestone-approval'),
       reserved: [...DEFAULT_RESERVED],
       ship: 'propose',
+      // The office session's model and effort when it directs mandates, and the Office pass's pace.
+      model: 'inherit',
+      effort: null,
+      cadence: 10,
+      // forge job assist reads model and effort; assistant routing (#537) reads enabled and sessions.
+      assistants: { enabled: true, sessions: 1, model: 'sonnet', effort: null },
+      surveyors: { enabled: false, model: 'haiku', effort: null },
+      // What `forge mandate new` fills a term it isn't given with. The default decides is intersected
+      // with the effective foreman classes there, so it never causes a refusal.
+      mandate: {
+        until: 'merge-ready',
+        maxJobs: 2,
+        order: 'graph',
+        decides: ['spec-approval', 'split-approval', 'conflicts'],
+        budget: { usd: 150, jobs: 5 },
+        stall: { cadences: 3, bounces: 3 },
+        onUnfinishable: 'park',
+      },
     },
     // Enforced by the CLI at forge git add|commit, verify and pr open; docs/CONFIG.md "Protected paths".
     policy: {
@@ -304,7 +326,7 @@ export function defaults(): Config {
     outcomes: {
       windowDays: 14,
     },
-    // Off by default: sample 0 queues no post-merge score run; docs/CONFIG.md "Scoring".
+    // Off by default outside mandates: sample 0 queues no post-merge score run for a job in no mandate; docs/CONFIG.md "Scoring".
     scoring: {
       sample: 0,
       model: null,

@@ -7,17 +7,17 @@ import { paths, exists, jobDir, jobFiles, resetJobRecord, stateFile } from '../p
 import { currentActor } from '#integrations/github/actor.ts';
 import { clearFocusIf } from './focus.ts';
 import { knownRecordValues, redactDeep } from '#engine/guard/known-secrets.ts';
-import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, endFinishedJobAgents, finishedJobRoles, noLease, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
+import { EFFORTS, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, endFinishedJobAgents, finishedJobRoles, isHumanGrant, noLease, normalizeEvent, normalizeJob, recordRun, serializeJob } from './schema.ts';
 import { idPrefix } from './issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
-import type { AgentUsage, Config, Effort, EventActor, ForgeRequest, Job, JobAgent, JobIssue, JobChange, JobLease, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from '../types.ts';
+import type { AgentRecordChange, AgentUsage, Config, Effort, EventActor, Fence, ForgeRequest, HumanGrant, Job, JobAgent, JobIssue, JobChange, JobLease, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from '../types.ts';
 import { estimateCost } from '#integrations/claude/pricing.ts';
 import { agentRole, isAgentRole, reviewFileName } from './lens.ts';
 import { requeueOrphans } from './requests.ts';
 import { runTransitionHooks } from './transitions.ts';
 import { configForJob } from '#engine/evals/overlay.ts';
 import { configHash, pluginHash, promptHash } from '#engine/evals/provenance.ts';
-import { checkJobFields, checkOwnedFields } from './fields.ts';
+import { checkChange, checkJobFields, checkOwnedFields, checkShelfMove } from './fields.ts';
 import { setPath } from '../shape.ts';
 import { ForgeError } from '../errors.ts';
 import { AGENT_TEXT_MAX, confinedDir, readJson, readRegularText, readText, writeJsonAtomic } from '../os/fs.ts';
@@ -33,11 +33,7 @@ export const LEASE_MS = 30 * 60 * 1000;
  */
 export const AGENT_LEASE_MS = 2 * 60 * 60 * 1000;
 
-/** A fenced write: refused (stale_epoch) unless the lease is still at `epoch` and, with `session`, still that driver's. */
-export interface Fence {
-  epoch: number;
-  session?: string;
-}
+export type { Fence } from './types.ts';
 
 // jobDir lives in paths.ts, a leaf, so low modules can use it without loading this one.
 export { jobDir } from '../paths.ts';
@@ -64,7 +60,7 @@ export function loadJob(root: string, id: string): LoadedJob {
 export function updateJob(root: string, id: string, mutate: (job: LoadedJob) => void, fence?: Fence): LoadedJob {
   return withLock(path.join(jobDir(root, id), '.lock'), () => {
     const job = loadJob(root, id);
-    if (fence) assertEpoch(job, fence.epoch, fence.session);
+    if (fence) assertFence(job, fence);
     mutate(job);
     job.updatedAt = now();
     for (const f of jobFiles(root, id, 'job.json')) writeJsonAtomic(f, serializeJob(job));
@@ -82,9 +78,12 @@ export function assertEpoch(job: Pick<Job, 'id' | 'lease'>, epoch: number, sessi
   throw new ForgeError(`job ${job.id} was taken over (lease epoch ${l.epoch}, you hold ${epoch}); stop driving it`, 'stale_epoch');
 }
 
-/** assertEpoch under the job lock, for a fenced command whose first write is not job.json's. */
+/** assertEpoch, then the fence's own check: the caller holds the job lock. */
+const assertFence = (job: LoadedJob, fence: Fence): void => (assertEpoch(job, fence.epoch, fence.session), fence.check?.(job));
+
+/** assertFence under the job lock, for a fenced command whose first write is not job.json's. */
 export function checkFence(root: string, id: string, fence: Fence): void {
-  withLock(path.join(jobDir(root, id), '.lock'), () => assertEpoch(loadJob(root, id), fence.epoch, fence.session));
+  withLock(path.join(jobDir(root, id), '.lock'), () => assertFence(loadJob(root, id), fence));
 }
 
 /** The later of an ISO time and a ms time, as ISO; an unreadable ISO loses. */
@@ -241,7 +240,7 @@ const effortError = (v: unknown) => `unknown effort ${JSON.stringify(v)} (${EFFO
 export function createJob(
   root: string,
   config: Config,
-  opts: { title: string; issues?: JobIssue[]; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[]; origin?: string; splitMode?: 'never' | null; effort?: Effort | null },
+  opts: { title: string; issues?: JobIssue[]; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[]; origin?: string; splitMode?: 'never' | null; effort?: Effort | null; mandate?: string | null },
 ): LoadedJob {
   const title = oneLineTitle(opts.title);
   if (!title || (opts.effort != null && !isEffort(opts.effort))) throw new ForgeError(title ? effortError(opts.effort) : 'a job needs a title');
@@ -275,7 +274,7 @@ export function createJob(
     base: config.git.base,
     maxRounds: config.pipeline.maxRounds,
     splitMode: opts.splitMode ?? null,
-    effort: opts.effort ?? null,
+    effort: opts.effort ?? null, mandate: opts.mandate ?? null,
     createdAt: now(),
     updatedAt: now(),
   });
@@ -340,27 +339,19 @@ export function isActive(job: Job): boolean {
   return !['done', 'cancelled'].includes(job.state);
 }
 
-function checkChange(change: JobChange): void {
-  if (change.stage && !STAGES.includes(change.stage as any))
-    throw new ForgeError(`unknown stage "${change.stage}" (${STAGES.join(', ')})`, 'usage');
-  if (change.state && !STATES.includes(change.state as any))
-    throw new ForgeError(`unknown state "${change.state}" (${STATES.join(', ')})`, 'usage');
-  if (change.waitingOn && !WAITING_ON.includes(change.waitingOn as any))
-    throw new ForgeError(`unknown waiting-on "${change.waitingOn}" (${WAITING_ON.join(', ')})`, 'usage');
-}
-
 /**
  * `derive` decides part of the change from the job as stored at write time, inside the lock, so a
  * claim or edit that lands between a caller's load and its write is what the decision sees. Its
- * result is merged over the static change; null applies the static change alone.
+ * result is merged over the static change; null applies the static change alone. `shelf` (shelve.ts
+ * only) and a person's `grant` sit outside JobChange, so derive can't set them (checkShelfMove).
  */
 export function setJob(
   root: string,
   id: string,
-  change: JobChange & { release?: boolean; derive?: (j: LoadedJob) => JobChange | null; fence?: Fence },
+  change: JobChange & { release?: boolean; derive?: (j: LoadedJob) => JobChange | null; fence?: Fence; shelf?: 'shelve' | 'unshelve'; grant?: HumanGrant },
 ): LoadedJob {
   checkChange(change);
-  const { derive, release, fence, ...base } = change;
+  const { derive, release, fence, shelf, grant, ...base } = change;
   let before: TransitionSide | null = null;
   let released = false;
   let lost: string[] = [];
@@ -388,6 +379,7 @@ export function setJob(
     if (j.state === 'waiting' && !j.waitingOn) throw new ForgeError('state "waiting" needs --waiting-on', 'usage');
     for (const [k, v] of Object.entries(c.owned ?? {})) setPath(j, k, v);
     for (const [k, v] of Object.entries(c.fields ?? {})) setPath(j, k, v);
+    checkShelfMove(id, before, j, shelf, grant);
     if (['done', 'cancelled'].includes(j.state) && !j.finishedAt) j.finishedAt = now();
     // In the same write as the state, so no reader sees a finished job with an agent still running.
     const ended = endFinishedJobAgents(j.agents, j.state, now(), finishedJobRoles(j));
@@ -404,7 +396,7 @@ export function setJob(
   const b = before as any;
   if (b.stage !== job.stage || b.state !== job.state || b.waitingOn !== job.waitingOn) {
     const to = { stage: job.stage, state: job.state, waitingOn: job.waitingOn };
-    logEvent(root, id, 'transition', { from: b, to, reason: c.reason ?? undefined });
+    logEvent(root, id, 'transition', { from: b, to, reason: c.reason ?? undefined, actor: isHumanGrant(grant) ? grant.actor : undefined });
     // Once per state change: a repeated set with the same state and waitingOn logs no transition.
     runTransitionHooks(root, job, b, to);
   }
@@ -505,32 +497,10 @@ function startProvenance(root: string, config: Config, job: Job, role: string): 
   };
 }
 
-export function recordAgent(
-  root: string,
-  id: string,
-  rec: {
-    role: string;
-    phase: 'start' | 'end';
-    model?: string;
-    agentId?: string;
-    status?: string;
-    summary?: string;
-    usage?: AgentUsage;
-    importedThrough?: string | null;
-    /** start: the job-dir-relative output (resolveAgentOutput). */
-    output?: string | null;
-    /** start: this run is the one retry. */
-    retry?: boolean;
-    /** end: the output check's result, when an output is known. */
-    outputMissing?: boolean;
-    /** end: `metered` when the job's own daemon session's meter holds this run's cost, `unmeasured` when its transcript wasn't found. */
-    flags?: { metered?: true; unmeasured?: true };
-  },
-  config: Config,
-  fence?: Fence,
-): LoadedJob {
+export function recordAgent(root: string, id: string, rec: AgentRecordChange, config: Config, fence?: Fence): LoadedJob {
   const job = updateJob(root, id, (j) => {
     const a = Object.hasOwn(j.agents, agentRole(rec.role)) ? j.agents[rec.role] : (j.agents[rec.role] = { runs: 0 });
+    const wasRunning = a.status === 'running';
     if (rec.phase === 'start') {
       a.status = 'running';
       a.model = rec.model ?? a.model ?? null;
@@ -549,6 +519,7 @@ export function recordAgent(
       if (rec.model) a.model = rec.model;
       if (rec.summary) a.summary = rec.summary.slice(0, 280);
       if (rec.usage) addUsage(j, rec.role, a.model, rec.usage, config);
+      recordRun(a, { wasRunning, at: a.endedAt ?? null, round: a.round ?? j.round, status: a.status, model: a.model ?? null, usage: rec.usage, composition: rec.composition });
       if (rec.agentId && rec.importedThrough) (a.importedThrough ??= {})[rec.agentId] = rec.importedThrough;
       if (rec.outputMissing !== undefined) a.outputMissing = rec.outputMissing;
     }

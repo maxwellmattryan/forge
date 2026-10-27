@@ -33,9 +33,10 @@ export const JOB: HelpGroup = {
         ['--parent ID', 'the umbrella job this one was split from'],
         ['--services a,b', 'the services it touches'],
         ['--effort E', "the job's reasoning effort: low, medium, high, xhigh or max (default: inherit runtime.effort)"],
+        ['--mandate ID', "the mandate it works under, which narrows what the Foreman decides for it (default: --parent's); locked once set"],
         ['--force', 'start it past an exceeded repo budget (budget:), logged as a budget-override; a human only'],
       ],
-      exits: [[1, 'an unsafe --branch or ref, --no-issue with tracker.kind none, or --effort or --force from a daemon session']],
+      exits: [[1, "an unsafe --branch or ref, --no-issue with tracker.kind none, --effort or --force from a daemon session, or a --mandate that is unknown (not_found), closed, unreadable or not --parent's"]],
     },
     {
       command: 'job from-ref',
@@ -66,7 +67,7 @@ export const JOB: HelpGroup = {
         [5, 'gh failed (GitHub tracker)'],
       ],
       docs: ['Linking jobs to issues', 'docs/TRACKERS.md#linking-jobs-to-issues'],
-      readme: true,
+      common: true,
     },
     { command: 'job list', args: '[--all]', summary: 'active jobs, one object each', flags: [['--all', 'include finished and cancelled jobs']] },
     { command: 'job show', args: '<id> [--full]', summary: 'one job, compact (the whole job.json with --full)', flags: [['--full', 'print the whole job.json']], exits: [NO_JOB] },
@@ -74,7 +75,7 @@ export const JOB: HelpGroup = {
     {
       command: 'job set',
       args: '<id> [--stage S] [--state S] [--waiting-on W|none] [--reason R] [--note N] [--field key=value]...',
-      summary: "change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox or office daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry. `--field budget` (and any path under it) is refused for every caller: use `forge job budget` at a terminal or the dashboard's Approve on the budget gate",
+      summary: "change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox, office or an assistant foreman daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a chat session tears it down like a job session, as it may run forge environment down itself; a failed teardown keeps exit 0 and the records, for forge environment down to retry. `--field budget` (and any path under it) is refused for every caller: use `forge job budget` at a terminal or the dashboard's Approve on the budget gate",
       flags: [
         ['--stage S', 'the pipeline stage'],
         ['--state S', 'queued, running, waiting, blocked, failed, cancelled or done'],
@@ -85,7 +86,10 @@ export const JOB: HelpGroup = {
         ['--epoch N', "the driver's epoch: refused (stale_epoch) before any write once another session took the job over"],
       ],
       exits: [
-        [1, 'no such job, a field set only by another command, a list field that is not a JSON array of strings, or an unknown or cyclic dependency'],
+        [
+          1,
+          "no such job, a field set only by another command, a list field that is not a JSON array of strings, or an unknown or cyclic dependency; human_only: a shelved job moved anywhere but done or cancelled (`forge job unshelve` takes it off the shelf), or a job cancelled or set done while shelved put back to work in a daemon session or with no person at a terminal (a person types the job id to confirm), or not confirmed; in a chat session, a job waiting on a gate that foreman.reserved or a security review that didn't pass keeps with a person (`a chat may not decide <gate> for <job>: …`), or any change to such a job beyond --state running with the stage the decision recorded at its park allows (docs/architecture/daemon-security.md › Chats)",
+        ],
         [3, 'stale_epoch: the lease moved past --epoch'],
       ],
     },
@@ -96,7 +100,7 @@ export const JOB: HelpGroup = {
       flags: [['--inherit', "clear the job's effort"]],
       exits: [[1, 'no such job, or a daemon session']],
       docs: ['Effort', 'docs/CONFIG.md#effort'],
-      readme: true,
+      common: true,
     },
     {
       command: 'job claim',
@@ -107,7 +111,7 @@ export const JOB: HelpGroup = {
         ['--force', 'take it from a live lease, or claim it with dependencies not done'],
         ['--epoch N', 'a re-claim by the driver holding epoch N; refused (stale_epoch) once the job moved on'],
       ],
-      exits: [[1, 'no such job, or the office daemon session ran it'], [3, 'another session holds a live lease (owned), or the lease moved past --epoch (stale_epoch)'], [4, 'dependencies pending, or the repo budget holds new work']],
+      exits: [[1, 'no such job, or the office or an assistant foreman daemon session ran it'], [3, 'another session holds a live lease (owned), or the lease moved past --epoch (stale_epoch)'], [4, 'dependencies pending, or the repo budget holds new work']],
     },
     { command: 'job release', args: '<id>', summary: "drop the job's driver (its epoch stays)", exits: [NO_JOB] },
     {
@@ -132,7 +136,7 @@ export const JOB: HelpGroup = {
         ],
       ],
       docs: ['Job repos', 'docs/architecture/job-repos.md'],
-      readme: true,
+      common: true,
     },
     {
       command: 'job interim',
@@ -150,23 +154,26 @@ export const JOB: HelpGroup = {
         ],
       ],
       docs: ['Interim strategies', 'docs/CONFIG.md#interim-strategies'],
-      readme: true,
+      common: true,
     },
     { command: 'job note', args: '<id> [text] [--body B | --body-file F]', summary: 'log a note event', flags: BODY, exits: [NO_JOB] },
     {
       command: 'job human',
       args: '<id> <action> [--note N] [--link <ref>|new|none] [--reason R] [--repo A[,B]] [--actor human|foreman]',
       summary:
-        "record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework, answer, or approve-repos or reject-repos on the pending repo proposals named by --repo (approve adds each repo to the job), or the foreman's approve-release of the job's pending release plan (logs release-approval and moves no job)",
+        "record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework, answer, or approve-repos or reject-repos on the pending repo proposals named by --repo (approve adds each repo to the job), or the foreman's approve-release of the job's pending release plan (logs release-approval and moves no job). In a chat session the decision records actor source chat (docs/architecture/daemon-security.md › Chats)",
       flags: [
         ['--note N', 'the human\'s note'],
         ['--repo A[,B]', 'with approve-repos or reject-repos (required): the pending repos you decide; with --actor foreman, every pending one'],
         ['--link <ref>|new|none', 'with approve or approve-spec: link an issue, create one, or record that none is needed'],
         ['--reason R', 'why, with --link none'],
-        ['--actor human|foreman', 'who decided (default human); foreman only from the office daemon session, which must pass it; approve-release takes only --actor foreman and --note'],
+        ['--actor human|foreman', 'who decided (default human); foreman only from an assistant foreman daemon session, which must pass it (the office session may record neither); approve-release takes only --actor foreman and --note'],
       ],
       exits: [
-        [1, 'no such job, a --link that cannot be made, a foreman decision the authority checks refuse, or approve-repos or reject-repos with nothing pending, no --repo, a repo that is not pending, a foreman --repo that is not the whole pending set, a failing clone check, or from a daemon session other than the office'],
+        [
+          1,
+          "no such job, a --link that cannot be made, a foreman decision the authority checks refuse, a gate foreman.reserved or a security review that didn't pass keeps with a person when a chat session decides it (`a chat may not decide <gate> for <job>: …`), or approve-repos or reject-repos with nothing pending, no --repo, a repo that is not pending, a foreman --repo that is not the whole pending set, a failing clone check, or from a daemon session other than an assistant foreman",
+        ],
         [3, 'the tracker claim was lost to another job'],
         [5, 'gh failed (GitHub tracker)'],
       ],
@@ -174,19 +181,19 @@ export const JOB: HelpGroup = {
     {
       command: 'job assist',
       args: '<id> --gate G',
-      summary: "the office session's forge:assistant spawn for a gate: model, effort and a brief of paths only, and for repo-proposal the pending repos to pass as --repo; stale when the job no longer waits there. Read-only",
+      summary: "an assistant foreman's forge:assistant spawn for a gate: model, effort and a brief of paths only, and for repo-proposal the pending repos to pass as --repo; stale when the job no longer waits there. Read-only",
       flags: [['--gate G', `the gate class: ${OFFICE_GATES.join(', ')}`]],
-      exits: [[1, 'no such job, an unknown gate, or a daemon session other than the office']],
+      exits: [[1, 'no such job, an unknown gate, or a daemon session other than an assistant foreman']],
     },
     {
       command: 'job handoff',
       args: '<id> --class reserved|escalated|refused --reason R',
-      summary: 'record a Foreman hand-off: the office leaves the gate the job waits at for a person (office session only)',
+      summary: 'record a Foreman hand-off: an assistant foreman leaves the gate the job waits at for a person (assistant foreman sessions only)',
       flags: [
         ['--class C', 'why: reserved (a reserved topic or class), escalated (the assistant escalated) or refused (the CLI refused the decision)'],
         ['--reason R', 'one line for the person, at most 200 characters once control characters are removed (required)'],
       ],
-      exits: [[1, 'not the office daemon session, no such job, a job not waiting on a gate the Foreman decides, an unknown --class, or an empty --reason']],
+      exits: [[1, 'not an assistant foreman daemon session, no such job, a job not waiting on a gate the Foreman decides, an unknown --class, or an empty --reason']],
     },
     {
       command: 'job agent',
@@ -207,9 +214,29 @@ export const JOB: HelpGroup = {
         ['--epoch N', "with start and end: the driver's epoch, refused (stale_epoch) before any write once another session took the job over"],
       ],
       exits: [
-        [1, 'no such job, an --output outside the job dir, the inbox or office session starting an agent, or attach on a role that is not running'],
+        [1, 'no such job, an --output outside the job dir, the inbox, office or an assistant foreman session starting an agent, or attach on a role that is not running'],
         [3, 'stale_epoch: the lease moved past --epoch'],
       ],
+    },
+    {
+      command: 'job agent run',
+      args: '<id> --session S [--spawn-index N] [--epoch N]',
+      summary:
+        "run the spawn `forge job step` returns as its own headless `claude -p --agent forge:<role>` child in the job's worktree, the brief on its stdin, and record its start, attach and end, with the usage from its own result line; tool calls outside daemon.allowedTools are denied unattended. Prints {id, role, rule, agentId, resumed, status, summary, failure, denied, wallMs, log, usage, jobTokens, jobCostUsd} on every exit after the start",
+      flags: [
+        ['--session S', 'the session that holds the job (required): only its driver may run a role'],
+        ['--spawn-index N', "which spawn of step's list to run: 0 (the default) is the action itself, 1 on its `spawns`"],
+        ['--epoch N', "the driver's epoch, refused (stale_epoch) before any write once another session took the job over"],
+      ],
+      exits: [
+        [
+          1,
+          "no such job; the inbox, office, an assistant foreman or another job's session; stale_step: step no longer returns that spawn (another caller started it, or the job moved on); a worktree that is missing or under no worktrees root, a daemon.command problem, a tracker symlink, a trust digest that does not match under FORGE_DAEMON=1, or an empty brief; or the role failed (failure.class limit, auth, budget, error, timeout, untrusted or interrupted)",
+        ],
+        [3, 'another live session drives the job, the session does not hold it, or stale_epoch: the lease moved past --epoch or was taken over before the end'],
+        [5, 'the role failed because claude never started (failure.class spawn) or closed without a result (exit)'],
+      ],
+      common: true,
     },
     { command: 'job round', args: '<id>', summary: 'start the next review round, unless the budget is spent', exits: [NO_JOB] },
     {
@@ -223,6 +250,24 @@ export const JOB: HelpGroup = {
       exits: [[1, 'no such job, an unknown budget key or bad value, not confirmed, or human_only: --set or --ack in a daemon session or with no person at a terminal (an agent, a script or a configured command)']],
     },
     {
+      command: 'job shelve',
+      args: '<id> --reason TEXT',
+      summary:
+        "set a waiting, queued, failed or blocked job aside: it waits on `shelved` at its stage, lets go of its lease, stops its environment (the worktree stays), keeps its PR, and leaves the waiting count; one note with the reason goes to its linked issues. Nothing resumes it: only a person takes it off the shelf (`forge job unshelve`, or the dashboard's Shelved list). A person runs it from their own terminal; no daemon session does",
+      flags: [['--reason TEXT', 'why it is set aside: one line of at most 200 characters (control characters and backticks are dropped; a reason that is empty after that exits 2)']],
+      exits: [
+        [1, 'no such job; a done, cancelled, running, eval or already shelved job, or one with an agent running; or any daemon session'],
+        [2, 'usage: the call could not be parsed (no --reason, or one that is empty once control characters and backticks are dropped), or .forge/config.yml is missing or invalid'],
+      ],
+    },
+    {
+      command: 'job unshelve',
+      args: '<id>',
+      summary:
+        "take a shelved job off the shelf: back to the wait, queue or failure it was shelved from, at its stage, so it can spend again, and back in Needs you (no Foreman gate request). A human-only operation: it asks the person at the terminal to type the job id, or a person uses Un-shelve in the dashboard's Shelved list instead",
+      exits: [[1, 'no such job, a job that is not shelved, not confirmed, or human_only: run in a daemon session or with no person at a terminal (an agent, a script or a configured command)']],
+    },
+    {
       command: 'job audit',
       args: '<id> [--json|--csv]',
       summary: "the job's audit trail: who did each human action (best effort, unauthenticated), its gate transitions, and its PR opening and merge, in time order",
@@ -232,7 +277,7 @@ export const JOB: HelpGroup = {
       ],
       exits: [NO_JOB],
       docs: ['Audit trail', 'docs/architecture/audit-trail.md'],
-      readme: true,
+      common: true,
     },
     {
       command: 'job archive',
@@ -245,7 +290,7 @@ export const JOB: HelpGroup = {
       ],
       exits: [[1, 'not eligible, or a daemon session']],
       docs: ['Retention', 'docs/architecture/retention.md'],
-      readme: true,
+      common: true,
     },
     {
       command: 'job delete',
@@ -254,7 +299,7 @@ export const JOB: HelpGroup = {
       flags: [['--force', 'delete it even while a live interactive session owns it']],
       exits: [[1, 'no such job, not eligible (the message says why), a worktree or backing teardown that failed (rerun once fixed), or a daemon session']],
       docs: ['Deleting a job', 'docs/architecture/deleting-a-job.md'],
-      readme: true,
+      common: true,
     },
     {
       command: 'job prune',
@@ -266,7 +311,7 @@ export const JOB: HelpGroup = {
       ],
       exits: [[1, 'not eligible, or a daemon session']],
       docs: ['Retention', 'docs/architecture/retention.md'],
-      readme: true,
+      common: true,
     },
     {
       command: 'job verdicts',
@@ -295,7 +340,7 @@ export const JOB: HelpGroup = {
       summary: "the job's local links (config dependsOn links), active or not, with the dependency dir or the reason",
       exits: [NO_JOB],
       docs: ['Local links', 'docs/CONFIG.md#local-links'],
-      readme: true,
+      common: true,
     },
     {
       command: 'job scope',
@@ -336,7 +381,7 @@ export const JOB: HelpGroup = {
         ['--epoch N', 'the epoch your claim returned: refused (exit 3, stale_epoch) once another session took the job over'],
       ],
       exits: [NO_JOB, [3, 'stale_epoch: the lease moved past --epoch, or to another driver']],
-      readme: true,
+      common: true,
     },
     {
       command: 'job advance',
@@ -351,7 +396,7 @@ export const JOB: HelpGroup = {
         [1, 'no such job, or a command it ran failed (the result says which)'],
         [3, 'session S does not hold the job, or (stale_epoch) another session took it over'],
       ],
-      readme: true,
+      common: true,
     },
   ],
 };

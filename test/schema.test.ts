@@ -18,6 +18,10 @@ import { CONFIG_STEPS } from '#core/versions/config.ts';
 import { JOB_STEPS } from '#core/versions/job.ts';
 import { EVENT_STEPS } from '#core/versions/event.ts';
 import { MACHINE_STEPS } from '#core/versions/machine.ts';
+import { MANDATE_SCHEMA_VERSION, MANDATE_STEPS } from '#core/versions/mandate.ts';
+import { MANDATE_SUMMARY_SCHEMA_VERSION, MANDATE_SUMMARY_STEPS } from '#core/versions/mandate-summary.ts';
+import { isReadable, mandateSummary, storedMandate } from '#office/mandates/contract.ts';
+import { readSummary } from '#office/mandates/pass.ts';
 import { stepProblems } from '#core/versions/steps.ts';
 import type { Step } from '#core/versions/steps.ts';
 import { API_CHANGES } from '#api/versions.ts';
@@ -132,6 +136,29 @@ const CONFIG_ROWS: Row[] = [
   { step: 'command-env', input: { commands: { test: 'npm test' } }, fields: { 'commands.test': 'npm test' }, removed: ['commandEnv'], note: ONLY_VERSION },
   { step: 'daemon-daily-usd', input: { daemon: { enabled: true, jobBudget: null } }, fields: { daemon: { enabled: true, jobBudget: null } }, removed: ['daemon.dailyUsd'], note: ONLY_VERSION },
   { step: 'merge-required-checks', input: { merge: { auto: true } }, fields: { 'merge.auto': true }, removed: ['merge.requiredChecks'], note: ONLY_VERSION },
+  {
+    step: 'foreman-office',
+    input: { runtime: { models: { builder: 'opus', assistant: 'haiku' }, efforts: { assistant: 'low' } } },
+    fields: { 'foreman.assistants': { model: 'haiku', effort: 'low' }, 'runtime.models': { builder: 'opus' }, 'runtime.efforts': {} },
+    removed: ['runtime.models.assistant', 'runtime.efforts.assistant'],
+    note: "the assistant's model and effort move under foreman.assistants",
+  },
+  { step: 'office-uptime', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.keepAwake'], note: ONLY_VERSION },
+  {
+    step: 'mandate-notify',
+    input: { notify: { webhooks: [{ url: 'https://example.com/hook', events: ['gate'] }] } },
+    fields: { 'notify.webhooks': [{ url: 'https://example.com/hook', events: ['gate'] }] },
+    note: ONLY_VERSION,
+  },
+  { step: 'daemon-daily-usd-chat', input: { daemon: { enabled: true, dailyUsd: { inbox: 25, office: 60 } } }, fields: { 'daemon.dailyUsd': { inbox: 25, office: 60 } }, removed: ['daemon.dailyUsd.chat'], note: ONLY_VERSION },
+  {
+    step: 'release-script',
+    input: { release: { interim: 'local', mechanism: 'tag', command: 'git tag v1' }, repos: [{ ...REPOS[0], release: { mechanism: 'changesets' } }] },
+    fields: { release: { interim: 'local', mechanism: 'tag', command: 'git tag v1' }, 'repos.0.release': { mechanism: 'changesets' } },
+    removed: ['release.script'],
+    note: ONLY_VERSION,
+  },
+  { step: 'foreman-ship-release', input: { foreman: { enabled: true, ship: 'merge' } }, fields: { 'foreman.ship': 'merge', 'foreman.enabled': true }, note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -161,7 +188,7 @@ const JOB_ROWS: Row[] = [
   {
     step: 'split-mode',
     input: { id: 'x', agents: AGENTS, verifyRuns: [run(1, 1, false, 'abc')] },
-    fields: { splitMode: null, effort: null, agents: AGENTS, verifyRuns: [run(1, 1, false, 'abc')] },
+    fields: { splitMode: null, effort: null, agents: { builder: { ...AGENTS.builder, legacyRuns: 2 } }, verifyRuns: [run(1, 1, false, 'abc')] },
   },
   { step: 'job-effort', input: { id: 'x' }, fields: { effort: null } },
   {
@@ -200,6 +227,15 @@ const JOB_ROWS: Row[] = [
     removed: ['owner'],
     note: 'the owner keeps driving as epoch 1 for the 30 minutes its heartbeat gave it',
   },
+  { step: 'job-mandate', input: { id: 'x', title: 'Old', state: 'running' }, fields: { mandate: null, state: 'running' }, note: 'a job from before mandates is in none' },
+  {
+    step: 'agent-run-history',
+    input: { id: 'x', state: 'running', agents: { builder: { runs: 2, status: 'done', model: 'opus' }, 'reviewer:code': { runs: 1, status: 'running' } } },
+    fields: { 'agents.builder': { runs: 2, status: 'done', model: 'opus', legacyRuns: 2 }, 'agents.reviewer:code': { runs: 1, status: 'running', legacyRuns: 0 } },
+    removed: ['agents.builder.runHistory', 'agents.reviewer:code.runHistory'],
+    note: "every ended run is legacy; a running agent's run is recorded by its end",
+  },
+  { step: 'shelved', input: { id: 'x', state: 'waiting', waitingOn: 'escalation', reason: 'r' }, fields: { shelved: null, finishedWhileShelved: false, waitingOn: 'escalation' }, note: 'a job from before the shelf is on none' },
 ];
 
 const EVENT_ROWS: Row[] = [
@@ -243,6 +279,18 @@ const EVENT_ROWS: Row[] = [
     removed: ['metered', 'unmeasured'],
     note: 'an agent-end from before metering reads unchanged: reported usage no meter covers',
   },
+  {
+    step: 'actor-source-chat',
+    input: { ts: 't', type: 'human', action: 'rework', actor: { login: 'al', source: 'chat' } },
+    fields: { type: 'human', ts: 't', action: 'rework', actor: { login: 'al', source: 'chat' } },
+    note: 'an actor recorded by a chat session keeps source chat',
+  },
+  {
+    step: 'shelve-events',
+    input: { ts: 't', type: 'shelved', reason: 'later', from: { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }, actor: { login: 'al', source: 'gh' } },
+    fields: { type: 'shelved', ts: 't', reason: 'later', 'from.waitingOn': 'escalation', actor: { login: 'al', source: 'gh' } },
+    note: 'shelve and unshelve events read as written',
+  },
 ];
 
 const MACHINE_ROWS: Row[] = [
@@ -251,6 +299,73 @@ const MACHINE_ROWS: Row[] = [
     input: { projects: [{ name: 'web', path: path.join(os.tmpdir(), 'web'), addedAt: 't' }] },
     fields: { settings: { maxConcurrent: null }, 'projects.0.name': 'web' },
     note: 'a v1 index gains the machine settings with the cap unset',
+  },
+];
+
+const MANDATE_V1 = {
+  id: 'm1',
+  title: 'M1',
+  status: 'active',
+  reason: null,
+  scope: { milestones: ['M1'], labels: [], issues: [] },
+  until: 'merge-ready',
+  maxJobs: 1,
+  order: 'graph',
+  decides: [],
+  budget: { usd: 10, jobs: 2 },
+  stall: { cadences: 3, bounces: 3 },
+  onUnfinishable: 'park',
+  after: null,
+  createdAt: '2026-10-01T00:00:00.000Z',
+  updatedAt: '2026-10-01T00:00:00.000Z',
+  closedAt: null,
+};
+
+const MANDATE_ROWS: Row[] = [
+  {
+    step: 'mandate-goal',
+    input: MANDATE_V1,
+    fields: { goal: null, intake: false, 'scope.milestones': ['M1'] },
+    note: 'a mandate written before goals reads as a scoped mandate with no goal',
+  },
+  {
+    step: 'mandate-filed',
+    input: { ...MANDATE_V1, goal: null },
+    fields: { filedAt: null, goal: null, 'scope.milestones': ['M1'] },
+    note: 'a mandate written before filing reads as never filed',
+  },
+  {
+    step: 'mandate-scoring',
+    input: { ...MANDATE_V1, goal: null, filedAt: null },
+    fields: { scoring: 'all', 'scope.milestones': ['M1'] },
+    note: 'a mandate written before scoring scores all its merged jobs',
+  },
+  {
+    step: 'mandate-until-released',
+    input: { ...MANDATE_V1, until: 'merged', goal: null, filedAt: null, scoring: 'all' },
+    fields: { until: 'merged', filedAt: null, scoring: 'all', 'scope.milestones': ['M1'] },
+    note: ONLY_VERSION,
+  },
+];
+
+const MANDATE_SUMMARY_ROWS: Row[] = [
+  {
+    step: 'summary-card',
+    input: {
+      mandate: 'm1',
+      closedAt: '2026-10-02T00:00:00.000Z',
+      until: 'merge-ready',
+      jobs: [],
+      spend: { usd: 1.5, started: 1 },
+      humanInterventions: 0,
+      stalls: 0,
+      parked: [],
+      skipped: [],
+      elsewhere: [],
+      needsInfo: [],
+    },
+    fields: { card: null, 'spend.usd': 1.5 },
+    note: 'a summary written before the report card reads with no card',
   },
 ];
 
@@ -284,6 +399,41 @@ const TABLES: Table[] = [
         return { out: readMachineIndex(home), from: undefined };
       } finally {
         fs.rmSync(home, { recursive: true, force: true });
+      }
+    },
+  ],
+  [
+    'mandate',
+    MANDATE_ROWS,
+    MANDATE_STEPS,
+    MANDATE_SCHEMA_VERSION,
+    'schemaVersion',
+    (input) => {
+      const m = storedMandate(input, String(input.id), '');
+      assert.ok(isReadable(m), JSON.stringify(m));
+      return { out: { ...m, intake: mandateSummary(m, [m]).intake }, from: undefined };
+    },
+  ],
+  [
+    'mandate-summary',
+    MANDATE_SUMMARY_ROWS,
+    MANDATE_SUMMARY_STEPS,
+    MANDATE_SUMMARY_SCHEMA_VERSION,
+    'schemaVersion',
+    (input) => {
+      const repo = tempRepo();
+      try {
+        const dir = path.join(repo.dir, '.forge', 'runtime', 'mandates', String(input.mandate));
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'summary.json'), JSON.stringify(input));
+        const s = readSummary(repo.dir, String(input.mandate));
+        assert.ok(s && !('problem' in s), JSON.stringify(s));
+        // A newer version is still refused.
+        fs.writeFileSync(path.join(dir, 'summary.json'), JSON.stringify({ ...input, schemaVersion: MANDATE_SUMMARY_SCHEMA_VERSION + 1 }));
+        assert.match((readSummary(repo.dir, String(input.mandate)) as { problem: string }).problem, /^written by a newer Forge/);
+        return { out: s, from: undefined };
+      } finally {
+        repo.cleanup();
       }
     },
   ],
@@ -434,6 +584,16 @@ test('config v17 → v18: gate:release is never added twice, nor a foreman block
   assert.equal('foreman' in migrateConfig({ schemaVersion: 17, git: { base: 'trunk' } }).config, false);
 });
 
+test('config v34 → v35: other assistant shapes', () => {
+  const v34 = (c: Record<string, unknown>) => migrateConfig({ ...c, schemaVersion: CONFIG_STEPS.findIndex((s) => s.id === 'foreman-office') + 1 }).config;
+  assert.equal('foreman' in v34({ runtime: { models: { builder: 'opus' } } }), false, 'no old key: no foreman block invented');
+  const notMap = v34({ foreman: 'off', runtime: { models: { assistant: 'haiku' } } });
+  assert.deepEqual([notMap.foreman, notMap.runtime.models.assistant], ['off', 'haiku'], 'a foreman that is not a map is left for validation');
+  const kept = v34({ foreman: { enabled: true, assistants: { model: 'opus' } }, runtime: { models: { assistant: 'haiku' }, efforts: { assistant: 'low' } } });
+  assert.deepEqual(kept.foreman, { enabled: true, assistants: { model: 'opus', effort: 'low' } }, 'a value already under foreman.assistants wins');
+  assert.deepEqual(kept.runtime, { models: {}, efforts: {} });
+});
+
 test('config v23 → v24: no outcomes key is added, defaults fill it', () => {
   assert.equal('outcomes' in migrateConfig({ schemaVersion: 23 }).config, false);
 });
@@ -564,6 +724,34 @@ test('a current-version lease is read field by field', () => {
   // A partial or planted lease never reads as live by accident.
   assert.deepEqual(normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x' }).lease, { driver: null, epoch: 0, since: null, renewedAt: null, expiresAt: null });
   assert.deepEqual(normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x', lease: { driver: 'S', epoch: -2, expiresAt: 42 } }).lease, { driver: 'S', epoch: 0, since: null, renewedAt: null, expiresAt: null });
+});
+
+test('a shelf record is kept only well formed and only on a job waiting on shelved', () => {
+  const at = '2026-10-01T10:00:00.000Z';
+  const shelf = { at, reason: ' later\u0007 `x` ', actor: { login: 'al', source: 'gh' }, from: { state: 'waiting', waitingOn: 'escalation', reason: 'touches billing' } };
+  const read = (shelved: unknown, waitingOn = 'shelved') => normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x', state: 'waiting', waitingOn, shelved }).shelved;
+  assert.deepEqual(read(shelf), { ...shelf, reason: 'later x' }, 'the reason is cleaned again');
+  assert.equal(read(shelf, 'escalation'), null, 'a job off the shelf keeps none');
+  const queued = { ...shelf, from: { state: 'queued', waitingOn: null, reason: null } };
+  assert.deepEqual(read(queued)?.from, queued.from);
+  assert.deepEqual(read({ ...shelf, actor: { login: 'al', source: 'root' } })?.actor, { login: null, source: 'unknown' }, 'an unknown source keeps no login');
+  const malformed: [string, unknown][] = [
+    ['a bad time', { ...shelf, at: 'yesterday' }],
+    ['an empty reason', { ...shelf, reason: '``' }],
+    ['from running', { ...shelf, from: { state: 'running', waitingOn: null, reason: null } }],
+    ['from the shelf', { ...shelf, from: { state: 'waiting', waitingOn: 'shelved', reason: null } }],
+    ['a wait with no waitingOn', { ...shelf, from: { state: 'waiting', waitingOn: null, reason: null } }],
+    ['a queued job with a waitingOn', { ...shelf, from: { state: 'queued', waitingOn: 'escalation', reason: null } }],
+    ['a reason that is not text', { ...shelf, from: { ...shelf.from, reason: 3 } }],
+    ['no record', 'shelved'],
+  ];
+  for (const [name, raw] of malformed) assert.equal(read(raw), null, name);
+});
+
+test('a finished-while-shelved mark is kept only as true, and only on a done or cancelled job', () => {
+  const read = (mark: unknown, state: string) => normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x', state, finishedWhileShelved: mark }).finishedWhileShelved;
+  assert.deepEqual([read(true, 'cancelled'), read(true, 'done')], [true, true]);
+  assert.deepEqual([read(true, 'queued'), read(true, 'waiting'), read('true', 'cancelled'), read(1, 'done'), read(undefined, 'cancelled')], [false, false, false, false, false]);
 });
 
 test('validates maxTotalRounds, maxCiReworks and daemon.jobBudget', () => {

@@ -6,6 +6,7 @@ import { isMac } from './command.ts';
 /** The tab rail, in order; config tabs name the ConfigSection their fields come from. */
 export const SETTINGS_TABS = [
   { id: 'general', icon: 'general', section: null },
+  { id: 'about', icon: 'about', section: null },
   { id: 'pipeline', icon: 'pipeline', section: 'pipeline' },
   { id: 'review', icon: 'review', section: 'review' },
   { id: 'agents', icon: 'agents', section: 'agents' },
@@ -13,7 +14,6 @@ export const SETTINGS_TABS = [
   { id: 'dashboard', icon: 'dashboard', section: 'dashboard' },
   { id: 'daemon', icon: 'daemon', section: 'daemon' },
   { id: 'diagnostics', icon: 'diagnostics', section: null },
-  { id: 'about', icon: 'about', section: null },
 ] as const satisfies readonly { id: string; icon: IconName; section: ConfigSection | null }[];
 
 export type SettingsTabId = (typeof SETTINGS_TABS)[number]['id'];

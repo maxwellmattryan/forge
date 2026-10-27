@@ -264,12 +264,20 @@ export function commandKey(e: CommandKeyInput): 'open' | 'close' | null {
 
 /**
  * Which layer Escape closes: a GitHub hover card first (it floats over every layer, including the one its link is in),
- * then the palette (it can open over the drawer), then Settings, then a status bar popover (it opens over the drawer at md
- * and up), then the drawer, so one Escape never closes two layers.
+ * then the palette (it can open over the drawer), then the Add project dialog, then Settings, then a status bar popover
+ * (it opens over the drawer at md and up), then the drawer, so one Escape never closes two layers.
  */
-export function shellEscape(s: { card?: boolean; command: boolean; settings: boolean; popover: boolean; drawer: boolean }): 'card' | 'command' | 'settings' | 'popover' | 'drawer' | null {
+export function shellEscape(s: {
+  card?: boolean;
+  command: boolean;
+  addProject?: boolean;
+  settings: boolean;
+  popover: boolean;
+  drawer: boolean;
+}): 'card' | 'command' | 'addProject' | 'settings' | 'popover' | 'drawer' | null {
   if (s.card) return 'card';
   if (s.command) return 'command';
+  if (s.addProject) return 'addProject';
   if (s.settings) return 'settings';
   if (s.popover) return 'popover';
   return s.drawer ? 'drawer' : null;
@@ -296,13 +304,13 @@ export const shortcutLabel = (platform: string): string => (isMac(platform) ? 'â
  * Why the input has no options, for the visible line in place of the list; null when it has some. `noProject`: with no
  * project selected, anything but `project â€¦` waits for one.
  */
-export function emptyReason(p: Parsed, options: Suggestion[], backlogError: string | null | undefined, ctx: CommandCtx): 'noJobs' | 'noItems' | 'backlogLoading' | 'backlogFailed' | 'noProject' | null {
+export function emptyReason(p: Parsed, options: Suggestion[], backlogError: string | null | undefined, ctx: CommandCtx): 'noJobs' | 'noItems' | 'issuesLoading' | 'issuesFailed' | 'noProject' | null {
   if (options.length) return null;
   if (ctx.project === null && p.kind !== 'empty' && p.kind !== 'project' && !(p.kind === 'partial' && p.verb === 'project')) return 'noProject';
   if (p.kind !== 'partial') return null;
   if (p.verb !== 'issue') return isJobVerb(p.verb) ? 'noJobs' : null;
-  if (backlogError) return 'backlogFailed';
-  return ctx.backlog === null ? 'backlogLoading' : 'noItems';
+  if (backlogError) return 'issuesFailed';
+  return ctx.backlog === null ? 'issuesLoading' : 'noItems';
 }
 
 /** The toast after a command: a job verb names its job. */

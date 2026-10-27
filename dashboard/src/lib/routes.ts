@@ -1,5 +1,6 @@
-// The hash router: `#/overview` and `#/machine` (global pages, no project selected) and `#/p/<project>/<view>`. A project
-// segment is checked raw, never decoded, against PROJECT_NAME before anything uses it. Old links land on the new routes.
+// The hash router: `#/overview` and `#/machine` (global pages, which keep the selected project) and `#/p/<project>/<view>`. A project
+// segment is checked raw, never decoded, against PROJECT_NAME before anything uses it. Old links land on the new routes,
+// and a renamed view's old id on its new one (`backlog` is now `issues`).
 import { GLOBAL_VIEWS, VIEWS, type GlobalViewId, type ViewId } from './nav.ts';
 import { projectFromSearch } from './project.ts';
 import { PROJECT_NAME_SOURCE } from './types.ts';
@@ -24,6 +25,9 @@ const validName = (name: string | null): name is string => name !== null && PROJ
 const projectRoute = (project: string, view: ViewId): Route => ({ scope: 'project', project, view });
 const toOverview: ParsedRoute = { route: OVERVIEW, replace: '#/overview', openNeeds: false };
 
+/** Old view ids, each to the view that replaced it, so printed links and bookmarks keep working. */
+const RENAMED_VIEWS: ReadonlyMap<string, ViewId> = new Map([['backlog', 'issues']]);
+
 /**
  * The route a location hash names. `lastProject` (the machine pref) sends an old `#/<view>` or `#/inbox` link to that
  * project's page; anything unknown, and a project segment failing PROJECT_NAME, is the Overview with a rewrite.
@@ -36,13 +40,15 @@ export function parseRoute(hash: string, lastProject: string | null): ParsedRout
     if (!validName(name)) return toOverview;
     const canonical = view !== undefined && isView(view) && !extra.length;
     if (canonical) return { route: projectRoute(name, view), replace: null, openNeeds: false };
+    const renamed = view !== undefined && !extra.length ? RENAMED_VIEWS.get(view) : undefined;
+    if (renamed !== undefined) return { route: projectRoute(name, renamed), replace: `#/p/${name}/${renamed}`, openNeeds: false };
     return { route: projectRoute(name, 'pipeline'), replace: `#/p/${name}/pipeline`, openNeeds: view === 'inbox' && !extra.length };
   }
   const bare = h.replace(/^\//, '');
   if (h.startsWith('/') && isGlobalView(bare)) return { route: { scope: 'global', view: bare }, replace: null, openNeeds: false };
-  if (isView(bare) || bare === 'inbox') {
+  const view: ViewId | undefined = bare === 'inbox' ? 'pipeline' : isView(bare) ? bare : RENAMED_VIEWS.get(bare);
+  if (view !== undefined) {
     if (!validName(lastProject)) return toOverview;
-    const view: ViewId = bare === 'inbox' ? 'pipeline' : bare;
     return { route: projectRoute(lastProject, view), replace: `#/p/${lastProject}/${view}`, openNeeds: bare === 'inbox' };
   }
   return toOverview;
@@ -61,6 +67,8 @@ export function entryRedirect(search: string, hash: string): string | null {
   if (h.startsWith('/p/') || isGlobalView(h.slice(1))) return `/${hash}`;
   const bare = h.replace(/^\//, '');
   if (isView(bare) || bare === 'inbox') return `/#/p/${name}/${bare}`;
+  const renamed = RENAMED_VIEWS.get(bare);
+  if (renamed !== undefined) return `/#/p/${name}/${renamed}`;
   return `/#/p/${name}/pipeline`;
 }
 

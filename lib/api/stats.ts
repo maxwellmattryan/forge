@@ -60,12 +60,15 @@ export interface Stats {
   generatedAt: string;
   since: string | null;
   /** `archived`: how many of `total` were read from .forge/archive/ (lib/core/job/archive.ts). */
-  counts: { total: number; active: number; done: number; cancelled: number; failed: number; waiting: number; archived: number };
+  /** `shelved` counts jobs waiting on `shelved`: in `active`, never in `waiting` or `waitingOn`; an older stats.json has none. */
+  counts: { total: number; active: number; done: number; cancelled: number; failed: number; waiting: number; shelved?: number; archived: number };
   waitingOn: Record<string, number>;
   quality: {
     firstPassReviewRate: number | null;
     avgRounds: number | null;
     verifyFirstPassRate: number | null;
+    /** Of jobs whose first round-1 verifiers record has results, the share whose outcome was CHANGES. */
+    verifierFirstRoundBlockRate: number | null;
     escalationRate: number | null;
     humanFeedbackOnPrRate: number | null;
     humanDeltaRate: number | null;
@@ -103,7 +106,7 @@ export interface Stats {
     reportingCoverage: { agentRuns: number; withUsage: number; exact: number };
     byRole: Record<string, UsageRow>;
     byModel: Record<string, UsageRow>;
-    /** Supervisor-metered spend by session kind (orchestrator, inbox, office), on or after `since`; {} over a given job list. */
+    /** Supervisor-metered spend by session kind (orchestrator, inbox, office, assistant, chat), on or after `since`; {} over a given job list. */
     sessions: Record<string, UsageRow>;
   };
   reviewers: Record<string, ReviewerStats>;

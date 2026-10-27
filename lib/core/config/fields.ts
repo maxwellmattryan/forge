@@ -6,7 +6,7 @@
 // CONFIG_DISCLOSURE, at the end, is a separate map rather than a ConfigField property: it must
 // classify every key (commands.* and worktrees.setup are not settings), and /api/config stays as is.
 import { defaults } from './load.ts';
-import { COMPLEXITIES, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, MODEL_RE, OFFICE_GATES } from '../job/schema.ts';
+import { COMPLEXITIES, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, KEEP_AWAKE_MODES, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL, MODEL_RE, OFFICE_GATES } from '../job/schema.ts';
 import type { Config, ConfigField, ConfigFieldType, ConfigSection, ConfigValue } from '../types.ts';
 import { getPath } from '../shape.ts';
 import { ForgeError } from '../errors.ts';
@@ -14,7 +14,14 @@ import * as yaml from '../format/yaml.ts';
 
 export { MODEL_RE };
 /** Keys whose value is a model alias or id, checked against MODEL_RE. */
-const isModelKey = (key: string) => key.startsWith('runtime.models.') || key.startsWith('runtime.modelByComplexity.') || key === 'runtime.reworkModel' || key === 'scoring.model';
+const isModelKey = (key: string) =>
+  key.startsWith('runtime.models.') ||
+  key.startsWith('runtime.modelByComplexity.') ||
+  key === 'runtime.reworkModel' ||
+  key === 'scoring.model' ||
+  key === 'foreman.model' ||
+  key === 'foreman.assistants.model' ||
+  key === 'foreman.surveyors.model';
 const LABEL_PREFIX_RE = /^.+[:/-]$/;
 const MODEL_SUGGESTIONS = ['inherit', 'opus', 'sonnet', 'haiku', 'fable'];
 const SEVERITIES = ['blocker', 'major', 'minor', 'nit'];
@@ -84,7 +91,6 @@ const MODEL_LABEL: Record<string, string> = {
   retro: 'Retro model',
   judge: 'Judge model',
   verifier: 'Verifier model',
-  assistant: 'Assistant model',
 };
 
 const EFFORT_LABEL: Record<(typeof EFFORT_ROLES)[number], string> = {
@@ -97,7 +103,6 @@ const EFFORT_LABEL: Record<(typeof EFFORT_ROLES)[number], string> = {
   integrator: 'Integrator effort',
   retro: 'Retro effort',
   judge: 'Judge effort',
-  assistant: 'Assistant effort',
 };
 
 export const FIELDS: ConfigField[] = [
@@ -128,7 +133,7 @@ export const FIELDS: ConfigField[] = [
   // Locked: the dashboard token alone must not be able to delete job files or session logs.
   field('retention.jobsDays', 'pipeline', 'Archive jobs after (days)', 'forge sync and forge dash archive finished jobs this many days old into .forge/archive/ and delete their job folders. Empty keeps them forever.', { type: 'integer', min: 1, max: 3650, nullable: true, locked: 'deletes job files' }),
   field('outcomes.windowDays', 'pipeline', 'Outcome window (days)', 'After a merge, forge sync watches this many days for a revert, follow-up bug issues and churn before the outcome is final and counts in the autonomy rate.', { type: 'integer', min: 1, max: 365 }),
-  field('scoring.sample', 'pipeline', 'Score sample', 'The share of merged jobs forge sync queues for one post-merge judge run, from 0 (off) to 1 (every job). The run counts toward spend and budgets.', { type: 'number', min: 0, max: 1 }),
+  field('scoring.sample', 'pipeline', 'Score sample', "The share of merged jobs, outside mandates that score all or off, that forge sync queues for one post-merge judge run, from 0 (off outside mandates) to 1 (every job). A mandate's scoring term decides its own jobs. The run counts toward spend and budgets.", { type: 'number', min: 0, max: 1 }),
   field('scoring.model', 'pipeline', 'Scoring judge model', "The judge's model for post-merge score runs. Empty falls through to the judge model.", { type: 'string', nullable: true, suggestions: MODEL_SUGGESTIONS }),
   field('policy.protectedPaths', 'pipeline', 'Protected paths', 'Globs Forge refuses to write or escalates to a human; checked at forge git add/commit, verify and pr open.', { type: 'object', locked: 'names what Forge refuses to write' }),
   // Locked: the dashboard token alone must not redirect notifications or run a program.
@@ -200,14 +205,38 @@ export const FIELDS: ConfigField[] = [
   field('daemon.jobBudget.tokens', 'daemon', 'Unattended job tokens', 'With the daemon on, fills the token limit of a job whose budget leaves it unset.', { type: 'integer', min: 0, nullable: true, locked: 'caps unattended spend' }),
   field('daemon.jobBudget.usd', 'daemon', 'Unattended job cost (USD)', 'With the daemon on, fills the cost limit of a job whose budget leaves it unset.', { type: 'number', min: 0, nullable: true, locked: 'caps unattended spend' }),
   field('daemon.dailyUsd.inbox', 'daemon', 'Inbox daily cap (USD)', 'Dollars per UTC day the inbox session may spend, as the supervisor meters it. At the cap it stops; start it again after midnight UTC, or raise the cap. Empty means no cap.', { type: 'number', min: 0, nullable: true, locked: 'caps unattended spend' }),
-  field('daemon.dailyUsd.office', 'daemon', 'Office daily cap (USD)', "Dollars per UTC day the office session (the foreman's assistants included) may spend, as the supervisor meters it. At the cap it stops; start it again after midnight UTC, or raise the cap. Empty means no cap.", { type: 'number', min: 0, nullable: true, locked: 'caps unattended spend' }),
+  field('daemon.dailyUsd.office', 'daemon', 'Office daily cap (USD)', "Dollars per UTC day the office session and its assistant foremen may spend together, as the supervisor meters it. At the cap it stops; start it again after midnight UTC, or raise the cap. Empty means no cap.", { type: 'number', min: 0, nullable: true, locked: 'caps unattended spend' }),
+  field('daemon.dailyUsd.chat', 'daemon', 'Chat daily cap (USD)', "Dollars per UTC day every chat with the Foreman may spend together, as the supervisor meters it. At the cap a chat refuses the next message and a running one stops after its reply; send again after midnight UTC, or raise the cap. Empty means no cap.", { type: 'number', min: 0, nullable: true, locked: 'caps unattended spend' }),
+  // Editable: it names no command, file or tool and loosens no policy; it only decides whether this project holds the machine awake.
+  field('daemon.keepAwake', 'daemon', 'Keep awake', "Hold the machine awake while this project's pool has an active mandate or a running job at an agent stage.", { type: 'enum', options: [...KEEP_AWAKE_MODES] }),
   // Locked: each one widens or narrows what an unattended session decides for a human.
   field('retention.logsDays', 'daemon', 'Delete session logs after (days)', 'forge sync and forge dash delete daemon session logs this many days old whose session is not running. Empty keeps them forever.', { type: 'integer', min: 1, max: 3650, nullable: true, locked: 'deletes session logs' }),
   field('retention.logMaxBytes', 'daemon', 'Rotate session logs at (bytes)', 'Rotate a session log to <scope>.log.1 as soon as it reaches this size, keeping one older generation. Empty rotates only at spawn, past 20 MiB.', { type: 'integer', min: 1048576, max: 1073741824, nullable: true }),
-  field('foreman.enabled', 'daemon', 'Foreman', 'The office session decides gates through assistant sub-agents, unattended.', { type: 'boolean', locked: 'turns on unattended gate decisions' }),
+  field('foreman.enabled', 'daemon', 'Foreman', 'Assistant foremen decide parked gates through assistant sub-agents, unattended.', { type: 'boolean', locked: 'turns on unattended gate decisions' }),
   field('foreman.decides', 'daemon', 'Foreman decides', 'The gate classes the foreman may decide; the rest stay with a human.', { type: 'list', options: [...OFFICE_GATES], locked: 'widens what the foreman may decide' }),
   field('foreman.reserved', 'daemon', 'Reserved topics', 'Whole-phrase patterns that keep a gate with a human when the reason, decision or note mentions them; a gate:<class> entry keeps that whole gate class with a human.', { type: 'list', locked: 'narrows what stays with a human' }),
-  field('foreman.ship', 'daemon', 'Foreman ship', 'propose leaves merging as it is; merge counts as merge.auto for PRs the approver marks eligible.', { type: 'enum', options: [...FOREMAN_SHIP], locked: "lets the foreman's pipeline merge" }),
+  field('foreman.ship', 'daemon', 'Foreman ship', 'propose leaves merging as it is; merge counts as merge.auto for PRs the approver marks eligible; release does too, and lets a mandate run until its release.', { type: 'enum', options: [...FOREMAN_SHIP], locked: "lets the foreman's pipeline merge" }),
+  // Editable like runtime.models and runtime.efforts: they pick a model and how much it thinks, never what it may do.
+  field('foreman.model', 'daemon', 'Foreman model', "The office session's model when it directs work under mandates: --model on its spawn. An alias (inherit, opus, sonnet, haiku, fable) or a full model id; inherit keeps daemon.command's.", { type: 'string', suggestions: MODEL_SUGGESTIONS }),
+  field('foreman.effort', 'daemon', 'Foreman effort', 'How much the office session thinks when it directs work under mandates. Empty falls through to the default effort.', { type: 'enum', options: [...EFFORTS], nullable: true }),
+  field('foreman.assistants.model', 'daemon', 'Assistant model', "The model of the forge:assistant sub-agent that judges one gate for the Foreman. An alias (inherit, opus, sonnet, haiku, fable) or a full model id.", { type: 'string', suggestions: MODEL_SUGGESTIONS }),
+  field('foreman.assistants.effort', 'daemon', 'Assistant effort', "Effort for the Foreman's gate assistant; a job's own effort beats it. Empty falls through to the complexity mapping, then the default effort.", { type: 'enum', options: [...EFFORTS], nullable: true }),
+  field('foreman.surveyors.model', 'daemon', 'Surveyor model', "The model of the sub-agents that summarise the board for the Foreman. An alias (inherit, opus, sonnet, haiku, fable) or a full model id.", { type: 'string', suggestions: MODEL_SUGGESTIONS }),
+  field('foreman.surveyors.effort', 'daemon', 'Surveyor effort', 'How much the surveyors think. Empty falls through to the default effort.', { type: 'enum', options: [...EFFORTS], nullable: true }),
+  // Locked: each one paces, caps or widens unattended work.
+  field('foreman.cadence', 'daemon', 'Foreman cadence (minutes)', "Minutes between the Office's passes over its mandates (budgets, stalls, closes and the next starts); a mandate stalls after its stall passes of this many minutes with no progress.", { type: 'integer', min: 1, max: 1440, locked: 'paces unattended work' }),
+  field('foreman.assistants.enabled', 'daemon', 'Assistant foremen', "Assistant foremen: pool sessions that claim the Foreman's gate requests and decide them. Off leaves parked gates for a human.", { type: 'boolean', locked: 'changes who decides gates unattended' }),
+  field('foreman.assistants.sessions', 'daemon', 'Assistant sessions', 'Assistant foreman sessions the pool runs at once. They count against neither max concurrent sessions nor the machine cap.', { type: 'integer', min: 1, max: 16, locked: 'caps unattended sessions' }),
+  field('foreman.surveyors.enabled', 'daemon', 'Surveyors', "The Foreman summarises each mandate's board through surveyor sub-agents before it chooses what to start.", { type: 'boolean', locked: 'adds unattended sub-agents' }),
+  field('foreman.mandate.until', 'daemon', 'Mandate until', "A new mandate's stop: a merge-ready PR, a merged one (needs Foreman ship: merge or release), or its finished release run (needs Foreman ship: release).", { type: 'enum', options: [...MANDATE_UNTIL], locked: 'sets where unattended work stops' }),
+  field('foreman.mandate.maxJobs', 'daemon', 'Mandate jobs at once', "A new mandate's cap on its jobs running at once.", { type: 'integer', min: 1, max: 16, locked: 'caps unattended jobs' }),
+  field('foreman.mandate.order', 'daemon', 'Mandate order', "How a new mandate orders its work: graph, priority or listed.", { type: 'enum', options: [...MANDATE_ORDERS], locked: 'orders unattended work' }),
+  field('foreman.mandate.decides', 'daemon', 'Mandate decides', "The gate classes a new mandate delegates, always within Foreman decides.", { type: 'list', options: [...OFFICE_GATES], locked: 'widens what a mandate delegates' }),
+  field('foreman.mandate.budget.usd', 'daemon', 'Mandate budget (USD)', "A new mandate's spend cap in USD.", { type: 'number', min: 0, minExclusive: true, max: 100000, locked: 'caps unattended spend' }),
+  field('foreman.mandate.budget.jobs', 'daemon', 'Mandate budget (jobs)', "A new mandate's cap on the jobs it starts.", { type: 'integer', min: 1, max: 1000, locked: 'caps unattended spend' }),
+  field('foreman.mandate.stall.cadences', 'daemon', 'Mandate stall (passes)', "A new mandate's passes with no progress before it counts as stalled.", { type: 'integer', min: 1, max: 100, locked: 'decides when unattended work stops' }),
+  field('foreman.mandate.stall.bounces', 'daemon', 'Mandate stall (bounces)', "A new mandate's gate bounces on one job before it counts as stalled.", { type: 'integer', min: 1, max: 100, locked: 'decides when unattended work stops' }),
+  field('foreman.mandate.onUnfinishable', 'daemon', 'Mandate unfinishable job', "What a new mandate does with a job it can't finish: park it or cancel it.", { type: 'enum', options: [...MANDATE_ON_UNFINISHABLE], locked: 'can cancel jobs unattended' }),
 ];
 
 function hasPath(obj: any, key: string): boolean {
@@ -389,6 +418,7 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   release: 'plain',
   // A release command can carry hostnames, paths or tokens like any other configured command.
   'release.command': 'command',
+  'release.script': 'path',
   resources: 'url',
   components: 'command',
   // Remotes can name private hosts and repos, so support bundles hide them like resources.

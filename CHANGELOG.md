@@ -1,5 +1,79 @@
 # Changelog
 
+## 0.22.0
+
+- Chats panel on the Foreman page (#602)
+- Mandates: until released (#597)
+- Shelve outcome for jobs (#608)
+- Copyable job ID and details fields in the job drawer (#606)
+- Open the Mandate editor in a centered modal (#607)
+- Inbox popover: just the live feed and its controls (#599)
+- Mandate form: hint icons on fields, auto-generated id (#605)
+- Slide the nav marker between the global and project sections (#603)
+- Workers popover: one controls row, fixed-height session list (#604)
+- Mandate report card engine and forge stats --mandate (#600)
+- Up concurrent agents
+- Headless role runner: `forge job agent run` (#598)
+- Forge's own release as a release strategy (#596)
+- Mandate scoring key (#595)
+- Per-run token breakdown in the Agents tab (#588)
+- Foreman page and mandate badges (#589)
+- File viewer: separately scrollable file list and file view (#582)
+- Status bar: split Daemon into Workers and Inbox, consistent buttons (#581)
+- Chat engine: storage, _chat scope, API, audit, CLI (#580)
+- Fit the scrollbar thumb inside its rail
+- Settings modal: Forge and Project tab section headers (#574)
+- Director loop: budgets, stalls and chaining (#571)
+- Fix the page shifting under modals and the Add project row's alignment
+- Add project modal from the sidebar project select (#570)
+- README: shorter, one screenshot, CLI table moves to docs/CLI.md (#567)
+- Fix sidebar
+- Daemon turns start with forge requests scope, so a fresh assistant foreman decides its gates (#566)
+- Intake: milestone-approval gate and filing (#555)
+- Fixes
+- Dashboard: clip first and last select option corners to match the popover (#557)
+- Builders see the review standards before they build: the panel's checklists and matching verifiers in the first-round brief (#554)
+- Dashboard: rename the Backlog page to Issues (#545)
+- Gate routing to assistant foreman sessions (#553)
+- Office uptime: start at login, stay awake while a mandate runs, resume after a restart (#550)
+- Intake: goal mandates and the milestone draft (#549)
+- Office foundations: mandates, forge mandate CLI and foreman.* config (#546)
+- Add a "Add project" option to the select (#544)
+- Dev dashboard: npm run dev forwards --permission-mode, and forge dash --dev refuses without Vite
+- Dashboard: Overview page with project cards and cross-project graphs (#534)
+- Dashboard: sidebar split into global and project pages, with a project switcher (#533)
+- One forge dash per machine: serve every registered project from one server (#532)
+- Machine index: register projects in ~/.forge with forge project add|remove|list (#531)
+- merge.requiredChecks, with branch protection as the fallback and a doctor warning when neither exists (#530)
+- Meter every session the supervisor runs: orchestrators, inbox, office, foreman assistants, into the one spend ledger (#528)
+- privileged-ops test fails from a checkout at a high-entropy path (#527)
+- Daemon budget enforcement: refuse self-raises, a dashboard budget route, --max-budget-usd, a resume ceiling (#526)
+- Releases as PRs against the previous tag; installs follow tags; the write-token job runs only gh (#524)
+- Flaky test: a forge process notifies through the hook main registers (#522)
+- A stale deferred merge ships a PR after a human asked for rework (#519)
+- Privileged CLI operations are reachable from branch code: env-keyed daemon refusals don't hold (#518)
+- Small CLI input hardening: role names, triage verdicts, capped review reads, --body-file, CI install (#516)
+- Bind the pushed head to the reviewed head: commits after review ship unreviewed (#515)
+- Strict command environment: an allowlist with commands.env.inherit and commands.loginShell, default on (#512)
+- Attribution hook follow-ups: a byte cap on message-file reads, a garbled escape in policies.md (#514)
+- Engine hardening follow-ups: attribution hook cost and file flags, writeAtomic parent dirs (#392 follow-up) (#505)
+- Instructions from the main checkout, an untrusted paragraph for the approver, adopt-by-number through the CLI path (#502)
+- Run the render and touchpoints checks in this repo's verify (#485)
+- Job view: a typed Thread with a colour per sender, Start/Stop by the tabs (#496)
+- Daemon write confinement: scoped file tools, extended deny list and trust digest, a write-guard hook (#503)
+- Daemon command environment: strip declared secrets, drop token-like variables and the login shell (#498)
+- Engine hardening: random atomic temp names, YAML proto-key refusal, attribution hook gaps, cache dir inside the plugin root (#501)
+- Merge path in code: no --now under the daemon, approval bound to the head, an escalate floor (#495)
+- Recall evals grade a caught defect as missed when the reviewer cites the patch's line (#499)
+- forge dash record proof: forge dash only in the script position, and docs (#453 follow-up) (#500)
+- forge dash --stop signals whatever pid runtime/dashboard.json names (#493)
+- Import hygiene: strip hidden text, fence local and PR feedback bodies, filter PR comments by association (#492)
+- Dashboard reads: confine /file and /raw, guard backlog refresh, frame-src on the page, bound readBody (#491)
+- forge tracker verbs pass the raw ref to gh: a URL reaches any repo (#489)
+- forge worktree remove trusts the stored job.worktree and job.branch (#487)
+- Update config
+- Versions: config schema 34 → 40, job schema 17 → 20, event schema 7 → 9, `API_VERSION` 44 → 59.
+
 ## 0.21.0
 
 - Dashboard: Overview page with project cards and cross-project graphs (#534)

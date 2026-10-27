@@ -1,8 +1,8 @@
-// The status bar's Daemon popover's and the session log's pure, DOM-free half: session pills, the pool summary and POST /api/daemon.
+// The status bar's Workers and Inbox popovers' and the session log's pure, DOM-free half: session pills, the pool summary and POST /api/daemon.
 // Session state and errors come from session output, i.e. untrusted text: these return plain strings rendered as text.
 import { ago } from './util.ts';
 import { projectApi } from './project.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE } from './types.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, isAssistantScope, sharedScope } from './types.ts';
 import type { DaemonBilling, DaemonPermissionMode, DaemonPoolState, DaemonSessionState } from './types.ts';
 
 export const START_HINT = 'Set daemon.enabled: true in .forge/config.yml';
@@ -58,7 +58,7 @@ const running = (s: unknown) => obj(s).running === true;
 /** A running session with a tool call waiting on a human: the status bar's and the board's "needs permission". */
 export const asking = (s: unknown): boolean => running(s) && Array.isArray(obj(s).permissions) && obj(s).permissions.length > 0;
 
-/** Status labels in the order the Daemon popover lists job chips. */
+/** Status labels in the order the Workers popover lists job sessions. */
 const ORDER = ['needs permission', 'busy', 'agents running', 'failing', 'idle', 'stopping', 'waiting for slot', 'held: repo budget', 'held: budget', 'error', 'stopped', 'standby', 'no session'];
 
 /**
@@ -95,12 +95,23 @@ export function sessionPill(session: SessionInput): Pill {
   return { label, tone, title };
 }
 
-/** Everything the Daemon popover shows, or null exactly when the daemon is off (not enabled, not wanted, nothing running). */
+/**
+ * Several sessions as one chip: the most urgent of their pills by ORDER (needs permission first, the first session on a
+ * tie), titled with one `name: label` line per session. One session keeps its own pill. The Foreman's: the office and its assistant foremen.
+ */
+export function familyPill(sessions: readonly { name: string; session: SessionInput }[]): Pill {
+  const pills = sessions.map(({ name, session }) => ({ name, pill: sessionPill(session) }));
+  if (pills.length <= 1) return pills[0]?.pill ?? sessionPill(null);
+  const top = pills.reduce((a, b) => (ORDER.indexOf(b.pill.label) < ORDER.indexOf(a.pill.label) ? b : a)).pill;
+  return { label: top.label, tone: top.tone, title: pills.map(({ name, pill }) => `${name}: ${pill.label}`).join('\n') };
+}
+
+/** Everything the Workers popover shows, and the inbox pill the Inbox popover shows, or null exactly when the daemon is off (not enabled, not wanted, nothing running). */
 export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): PoolModel | null {
   const p = obj(pool);
   const jobs = Object.entries(obj(p.jobs)).map(([id, s]) => [id, obj(s)] as const);
   const foreman = p.foreman === true;
-  const sessions = [obj(p.inbox), ...(foreman ? [obj(p.office)] : []), ...jobs.map(([, s]) => s)];
+  const sessions = [obj(p.inbox), ...(foreman ? [obj(p.office), ...Object.values(obj(p.assistants)).map(obj)] : []), ...jobs.map(([, s]) => s)];
   const anyRunning = sessions.some(running);
   if (!pool || (!p.enabled && !p.wanted && !anyRunning)) return null;
   // Off because nobody has approved the files yet: an expected state a human acts on, never an error.
@@ -145,22 +156,17 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
   };
 }
 
-/** One row of the Daemon popover: a session, its pill, and for a job its title (null when the job is unknown). */
-export type DaemonRow =
-  | { kind: 'inbox'; pill: Pill }
-  | { kind: 'job'; id: string; title: string | null; pill: Pill; mode: DaemonPermissionMode | null };
+/** One row of the Workers popover: a job session, its pill, its job's title (null when the job is unknown) and its own mode. */
+export type DaemonRow = { id: string; title: string | null; pill: Pill; mode: DaemonPermissionMode | null };
 
 /**
- * The Daemon popover's session rows: the Inbox session first, then one per job session in the model's status order. The Foreman
- * supervises the pool and leads the popover in its own row, never among these. A title comes from `jobs` (the /api/state
- * list); it is untrusted text.
+ * The Workers popover's session rows: one per job session, in the model's status order. The inbox session has its own
+ * Inbox popover, and the Foreman leads the Workers popover in its own row, so neither is among these. A title comes from
+ * `jobs` (the /api/state list); it is untrusted text.
  */
 export function daemonRows(model: PoolModel, jobs: readonly { id: string; title?: string | null }[]): DaemonRow[] {
   const titles = new Map(jobs.map((j) => [j.id, typeof j.title === 'string' ? j.title : null]));
-  return [
-    { kind: 'inbox', pill: model.inbox },
-    ...model.jobs.map((j) => ({ kind: 'job' as const, id: j.id, title: titles.get(j.id) ?? null, pill: j.pill, mode: j.mode })),
-  ];
+  return model.jobs.map((j) => ({ id: j.id, title: titles.get(j.id) ?? null, pill: j.pill, mode: j.mode }));
 }
 
 /**
@@ -188,11 +194,15 @@ export function sessionToggle(controls: { canStart: boolean; canStop: boolean },
   return { action: 'stop', enabled: controls.canStop };
 }
 
-/** The pool's session for a scope (the inbox's, the office's or a job's; own keys only, so a job id never reads Object.prototype), or null. */
+/** The pool's session for a scope (the inbox's, the office's, an assistant foreman's or a job's; own keys only, so a job id never reads Object.prototype), or null. */
 export function scopeSession(pool: PoolInput, scope: string): Partial<DaemonSessionState> | null {
   const p = obj(pool);
   if (scope === INBOX_SCOPE) return p.inbox ?? null;
   if (scope === OFFICE_SCOPE) return p.office ?? null;
+  if (isAssistantScope(scope)) {
+    const assistants = obj(p.assistants);
+    return Object.hasOwn(assistants, scope) ? (assistants[scope] ?? null) : null;
+  }
   const jobs = obj(p.jobs);
   return Object.hasOwn(jobs, scope) ? (jobs[scope] ?? null) : null;
 }
@@ -230,7 +240,7 @@ export interface SessionMode {
 export function sessionMode(pool: PoolInput, scope: string, session: SessionInput): SessionMode {
   const p = obj(pool);
   const override = chosenOverride(p, scope);
-  const shared = scope === INBOX_SCOPE || scope === OFFICE_SCOPE;
+  const shared = sharedScope(scope);
   const chosen = override ?? (shared ? (typeof p.permissionMode === 'string' && p.permissionMode ? p.permissionMode : 'default') : jobFallbackMode(p));
   const s = obj(session);
   const reported = s.running === true && typeof s.permissionMode === 'string' && s.permissionMode ? s.permissionMode : null;
@@ -261,7 +271,7 @@ export async function postDaemon(action: 'start' | 'stop', token: string, scope?
 }
 
 /**
- * The Daemon popover's billing line: whether sessions get the variables, their names joined, and whether it is a warning
+ * The Workers popover's billing line: whether sessions get the variables, their names joined, and whether it is a warning
  * (a provider switch or ANTHROPIC_BASE_URL is set, doctor's rule; else it is muted); null when none is set.
  */
 export function billingNote(b: DaemonBilling | null | undefined): { passed: boolean; vars: string; warn: boolean } | null {

@@ -17,11 +17,10 @@ const TEST_CAP = 800;
 /** Lib-relative path → its line count when pinned. Lower a pin when a file shrinks; never raise one. */
 const ALLOWED: Record<string, number> = {
   'engine/environment/backing.ts': 632,
-  'office/pool.ts': 608,
   'engine/guard/integrity.ts': 832,
   'engine/release/interim-apply.ts': 905,
   'engine/release/interim.ts': 698,
-  'core/job/store.ts': 808,
+  'core/job/store.ts': 780,
   'engine/guard/secrets.ts': 705,
 };
 

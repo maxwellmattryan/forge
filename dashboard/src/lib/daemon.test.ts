@@ -1,10 +1,38 @@
-// The Daemon popover's two pure halves: the billing line (which text /api/state's config.daemon.billing shows, and whether it warns)
-// and the pool model (the pill, the note and Start for a pool that is off).
+// The Workers popover's pure halves: the billing line (which text /api/state's config.daemon.billing shows, and whether it warns),
+// the pool model (the pill, the note and Start for a pool that is off) and its job session rows.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { billingNote, poolModel } from './daemon.ts';
+import { billingNote, daemonRows, poolModel, scopeSession, sessionMode, sessionPill } from './daemon.ts';
+import { activeSessions } from './live.ts';
+import { pendingPrompts, sessionPrompts } from './permissions.ts';
+import { barModel } from './statusbar.ts';
 
-test("billingNote picks the Daemon popover's warning", () => {
+test('daemonRows lists only job sessions, in status order', () => {
+  const pool = {
+    enabled: true,
+    wanted: true,
+    maxConcurrent: 3,
+    live: 2,
+    lastError: null,
+    foreman: false,
+    inbox: { scope: '_inbox', status: 'idle', running: true, wanted: true },
+    jobs: {
+      'b-job': { scope: 'b-job', status: 'idle', running: true, wanted: true },
+      'a-job': { scope: 'a-job', status: 'busy', running: true, wanted: true },
+      ghost: { scope: 'ghost', status: 'off', running: false, held: 'budget' },
+    },
+    permissionModes: { 'b-job': 'auto' },
+  } as any;
+  const rows = daemonRows(poolModel(pool, { pending: false })!, [{ id: 'a-job', title: 'Job A' }]);
+  assert.deepEqual(rows.map((r) => r.id), ['a-job', 'b-job', 'ghost']);
+  assert.equal(rows.find((r) => r.id === 'b-job')!.mode, 'auto');
+  assert.equal(rows.find((r) => r.id === 'ghost')!.title, null);
+  assert.equal(rows.find((r) => r.id === 'a-job')!.title, 'Job A');
+  assert.ok(!rows.some((r) => r.id === '_inbox' || r.id === 'inbox'), 'no row is the inbox');
+  assert.deepEqual(daemonRows(poolModel({ ...pool, jobs: {}, permissionModes: {} }, { pending: false })!, []), []);
+});
+
+test("billingNote picks the Workers popover's warning", () => {
   assert.equal(billingNote(null), null);
   assert.equal(billingNote(undefined), null);
   assert.equal(billingNote({ vars: [], passed: false, warn: false }), null);
@@ -29,4 +57,45 @@ test('a pool off until a human approves its files asks for that, and is no error
   const failed = poolModel({ ...off, needsApproval: false, lastError: 'cannot start daemon: no claude' }, opts)!;
   assert.deepEqual([failed.pill.label, failed.pill.tone, failed.approval], ['error', 'bad', false]);
   assert.equal(poolModel(off, opts)!.approval, false);
+});
+
+test('assistant foremen in the pool model', () => {
+  const prompt = { id: 'p1', tool: 'Bash', input: '{}', description: null, agentId: null, blockedPath: null, sessionRules: [], sessionDirs: [], at: '2026-10-25T00:00:00.000Z' };
+  const assistant = { scope: '_assistant-1', status: 'busy', running: true, wanted: true, permissions: [prompt] } as any;
+  const pool = {
+    enabled: true,
+    wanted: true,
+    maxConcurrent: 2,
+    live: 0,
+    lastError: null,
+    inbox: { scope: '_inbox', status: 'off', running: false },
+    office: { scope: '_office', status: 'off', running: false },
+    foreman: true,
+    assistants: { '_assistant-1': assistant },
+    jobs: {},
+    permissionMode: 'default',
+    jobPermissionMode: 'auto',
+    permissionModes: {},
+  } as any;
+  assert.deepEqual(pendingPrompts(pool).map((p) => [p.scope, p.prompt.id]), [['_assistant-1', 'p1']]);
+  // A session the pool doesn't list (a chat's): its own prompts, with the scope given, oldest first, skipping one with no id.
+  const chat = { status: 'busy', permissions: [{ ...prompt, id: 'p3', at: '2026-10-25T00:00:02.000Z' }, { ...prompt, id: '' }, { ...prompt, id: 'p2', at: '2026-10-25T00:00:01.000Z' }, 'junk'] } as any;
+  assert.deepEqual(sessionPrompts(chat, '_chat-0123456789ab').map((p) => [p.scope, p.prompt.id]), [['_chat-0123456789ab', 'p2'], ['_chat-0123456789ab', 'p3']]);
+  assert.deepEqual(sessionPrompts(chat, '_chat-0123456789ab')[0]?.prompt, { ...prompt, id: 'p2', at: '2026-10-25T00:00:01.000Z' });
+  for (const none of [null, undefined, { status: 'idle' }, { permissions: 'x' }] as any[]) assert.deepEqual(sessionPrompts(none, '_chat-0123456789ab'), [], JSON.stringify(none));
+  assert.equal(scopeSession(pool, '_assistant-1'), assistant);
+  assert.equal(sessionMode(pool, '_assistant-1', assistant).chosen, 'default', "daemon.command's mode, not the job default");
+  const foreman = barModel(pool, { pending: false }).foreman;
+  assert.ok(foreman.on);
+  assert.deepEqual([foreman.active, foreman.prompts, foreman.assistants], [true, 1, ['_assistant-1']]);
+  // The office never runs here: the Foreman's pill is its most urgent session's, with one title line per session.
+  assert.deepEqual([foreman.pill.label, foreman.pill.tone], ['needs permission', 'warn']);
+  assert.equal(foreman.pill.title.split('\n').length, 2);
+  const working = barModel({ ...pool, assistants: { '_assistant-1': { ...assistant, permissions: [] } } }, { pending: false }).foreman;
+  assert.ok(working.on);
+  assert.deepEqual([working.pill.label, working.pill.tone], ['busy', 'live']);
+  const alone = barModel({ ...pool, assistants: {} }, { pending: false }).foreman;
+  assert.ok(alone.on);
+  assert.deepEqual(alone.pill, sessionPill(pool.office), 'with no assistant foremen, the office keeps its own pill');
+  assert.deepEqual(activeSessions(pool).ids, ['_assistant-1']);
 });

@@ -1,8 +1,9 @@
 // The permission modes `forge dash`'s pool holds for its sessions: a human's choice per scope, and
-// the default for job sessions without one. In memory on purpose: a session can write files in the
+// the default for job sessions without one. A chat launches in `default` (it asks) unless its owner chose
+// otherwise, whatever daemon.command says. In memory on purpose: a session can write files in the
 // repo, runtime records included, so a mode read back from disk would be one the session could pick
 // for itself.
-import { INBOX_SCOPE, OFFICE_SCOPE } from '#core/job/requests.ts';
+import { isChatScope, sharedScope as shared } from '#core/job/requests.ts';
 import { PERMISSION_MODES, commandPermissionMode } from '#integrations/claude/argv.ts';
 import type { DaemonOptions } from './session/contract.ts';
 import type { MachineSlots } from './slots.ts';
@@ -10,14 +11,15 @@ import type { DaemonPermissionMode, DaemonPoolState } from '#core/types.ts';
 
 /**
  * createPool's options. `jobPermissionMode` is `forge dash --permission-mode`: the human's own command line.
- * `slots` is the machine dashboard's slot gate (./slots.ts), shared by every project's pool.
+ * `slots` is the machine dashboard's slot gate (./slots.ts), shared by every project's pool. `runPass`
+ * stands in for the Office pass child (./sync-child.ts runPassChild), as `runSync` does for sync's.
  */
-export type PoolOptions = DaemonOptions & { jobPermissionMode?: DaemonPermissionMode | null; slots?: MachineSlots };
+export type PoolOptions = DaemonOptions & { jobPermissionMode?: DaemonPermissionMode | null; slots?: MachineSlots; runPass?: (root: string) => Promise<string | null> };
 
 export interface ModeBook {
   /** Re-reads daemon.command's mode, the one a scope runs in when nobody chose another. */
   setCommand(template: unknown): void;
-  /** The mode a spawn of `scope` gets: its own choice, else the job default for a job; null keeps daemon.command's. */
+  /** The mode a spawn of `scope` gets: its own choice, else `default` for a chat, else the job default for a job; null keeps daemon.command's. */
   launch(scope: string): DaemonPermissionMode | null;
   /** Whether a human chose a mode for this one scope. */
   chosen(scope: string): boolean;
@@ -34,14 +36,13 @@ export function createModeBook(jobDefault: DaemonPermissionMode | null = null): 
   const modes = new Map<string, DaemonPermissionMode>();
   let base = 'default';
   let jobs: DaemonPermissionMode | null = PERMISSION_MODES.find((m) => m === jobDefault) ?? null;
-  const shared = (scope: string) => scope === INBOX_SCOPE || scope === OFFICE_SCOPE;
   /** What a scope runs in without its own choice. */
-  const fallback = (scope: string): string => (shared(scope) ? base : (jobs ?? base));
+  const fallback = (scope: string): string => (isChatScope(scope) ? 'default' : shared(scope) ? base : (jobs ?? base));
   return {
     setCommand(template) {
       base = commandPermissionMode(template);
     },
-    launch: (scope) => modes.get(scope) ?? (shared(scope) ? null : jobs),
+    launch: (scope) => modes.get(scope) ?? (isChatScope(scope) ? 'default' : shared(scope) ? null : jobs),
     chosen: (scope) => modes.has(scope),
     choose(scope, mode) {
       if (mode === fallback(scope)) modes.delete(scope);

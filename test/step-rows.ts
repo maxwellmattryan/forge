@@ -142,6 +142,24 @@ const inRework = (agents: Job['agents'] = {}, more: Partial<Job> = {}): Partial<
   job({ stage: 'review', round: 2, reviewers: R2_LENSES, verifyRuns: [vr(1, 10, true), vr(2, 30, true)], verdicts: { 1: { code: 'PASS', security: 'PASS', docs: 'CHANGES' } }, agents: { builder: ag(2, 25, 29), ...agents }, ...more });
 const reworkScoped = (rerun: unknown, at = 31) => [ev('round', 20, { round: 2 }), ev('panel', at, { round: 2, lenses: R2_LENSES, rerun }), ev('scope', 31, { round: 2 })];
 const withDocsLens = (c: Config) => c.review.panel.push({ name: 'docs', paths: ['docs/**'] });
+/** n verifier questions, named v00, v01, … in loadVerifiers' order. */
+const QUESTIONS = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `v${String(i).padStart(2, '0')}`, question: `Does change ${i} hold?` }));
+/** The panel's checklists: code from the plugin, docs from the repo, tests without one. */
+const STANDARDS: Pick<FixtureOpts, 'checklists'> = { checklists: { code: path.join(PLUGIN_ROOT, 'reviewers', 'code.md'), tests: null, docs: path.join(ROOT, '.forge', 'reviewers', 'docs.md') } };
+const CHECKLISTS_LINE = `Review checklists (JSON): ${JSON.stringify({ code: path.join(PLUGIN_ROOT, 'reviewers', 'code.md'), docs: path.join(ROOT, '.forge', 'reviewers', 'docs.md') })} · the panel reviews against these: read each before you write code`;
+const QUESTIONS_SUFFIX = ' · yes/no checks the main checkout runs on files your file map names: read them before you write code';
+/** The round-1 builder's brief with n matching verifiers: both standards lines directly after File map:, checklists first. */
+const standardsCheck = (n: number) => (a: any) => {
+  const lines: string[] = a.brief.split('\n');
+  const i = lines.findIndex((l) => l.startsWith('File map: '));
+  assert.ok(i >= 0, a.brief);
+  assert.equal(lines[i + 1], CHECKLISTS_LINE);
+  const shown = QUESTIONS(n).slice(0, 20).map((v) => `${v.name} · ${v.question}`);
+  assert.equal(lines[i + 2], `Verifier questions (JSON): ${JSON.stringify(shown)}${n > 20 ? ` (+${n - 20} more)` : ''}${QUESTIONS_SUFFIX}`);
+  assert.equal(lines.filter((l) => l.startsWith('Review checklists (JSON): ')).length, 1);
+  assert.equal(lines.filter((l) => l.startsWith('Verifier questions (JSON): ')).length, 1);
+  assert.equal(lines.length, 16);
+};
 
 /** Verifiers: the round's run event at minute 8, its files, and the failing verify run a CHANGES record appends at 12. */
 const VF_RUN = ev('verifiers', 8, { phase: 'run', round: 1, sha: 's', selected: ['help-rows', 'docs-links'], problems: 0, truncated: false });
@@ -367,6 +385,12 @@ export const rows: Row[] = [
   },
   { name: 'G4b budget still exceeded', fx: { ...answeredAt('build', 'budget', 'approve', { reason: 'budget exceeded: usd 12.00/10.00' }), budgetExceeded: ['usd'] }, want: { action: 'wait', waitingOn: 'budget', tell: 'j over budget: budget exceeded: usd 12.00/10.00. A human presses Approve & continue on the budget gate in the dashboard (new limits such as usd=… go in its note), or runs forge job budget j --ack (or --set usd=…) in their own terminal, then /forge approve j' } },
   { name: 'G4b … not an answer: approve at a repo budget hold', fx: { ...answeredAt('build', 'budget', 'approve', { reason: 'repo budget: $5.00 of $5.00 today' }), budgetExceeded: [] }, want: { action: 'wait', waitingOn: 'budget' } },
+  {
+    name: 'G4b a shelved job waits and names the un-shelve',
+    fx: { job: job({ stage: 'decide', state: 'waiting', waitingOn: 'shelved', reason: 'shelved: waiting on the billing owner' }) },
+    want: { action: 'wait', rule: 'G4b', waitingOn: 'shelved', tell: "j is shelved (waiting on the billing owner). A person un-shelves it with forge job unshelve j in their own terminal, or with Approve, Rework, Un-shelve or Close in the dashboard's Shelved list" },
+  },
+  { name: 'G4b … not an answer: approve at a shelved park', fx: answeredAt('decide', 'shelved', 'approve'), want: { action: 'wait', rule: 'G4b', waitingOn: 'shelved' } },
   { name: 'G5 waits on running agents', fx: { job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5) } }) }, want: { action: 'wait', waitingOn: 'agents', running: ['builder'] } },
   { name: 'L1 respawns a lost builder without resume', fx: { files: ['spec'], job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5, 6, { status: 'lost' }) } }), events: [ev('round', 4)] }, want: { action: 'spawn', role: 'builder' }, check: (a) => assert.equal(a.resume, undefined) },
   { name: 'L1 respawns a failed approver', fx: { job: atDecide({ agents: { approver: ag(1, 20, 21, { status: 'failed' }) } }) }, want: { action: 'spawn', role: 'approver' } },
@@ -676,12 +700,26 @@ export const rows: Row[] = [
     check: (a) => assert.ok(!a.brief.includes('Maps (JSON):'), a.brief),
   },
   {
+    name: 'B4 the round-1 builder sees the review standards',
+    fx: { files: ['spec', 'tasks'], ...STANDARDS, verifierQuestions: QUESTIONS(23), job: job({ stage: 'build', round: 1, reviewers: ['code', 'tests', 'docs'] }), events: [ev('round', 4)] },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: standardsCheck(23),
+  },
+  {
+    name: 'B4 the round-1 builder sees exactly 20 verifier questions without a suffix',
+    fx: { files: ['spec', 'tasks'], ...STANDARDS, verifierQuestions: QUESTIONS(20), job: job({ stage: 'build', round: 1, reviewers: ['code', 'tests', 'docs'] }), events: [ev('round', 4)] },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: standardsCheck(20),
+  },
+  {
     name: 'B4 a review rework spawns a fresh builder with a findings-first brief',
     fx: {
       files: ['spec', 'feedback', 'tasks', 'build'],
       present: [path.join(JOB_DIR, 'review', 'round-1', 'code.md'), path.join(JOB_DIR, 'review', 'round-1', 'tests.md')],
       folderMaps: { maps: [path.join(WT, 'lib', 'AGENTS.md')], topics: [] },
-      job: job({ stage: 'build', round: 2, verdicts: { 1: { code: 'CHANGES', tests: 'PASS' } }, agents: { builder: ag(1, 5, 6, { agentId: 'b1' }) } }),
+      ...STANDARDS,
+      verifierQuestions: QUESTIONS(3),
+      job: job({ stage: 'build', round: 2, reviewers: ['code', 'tests', 'docs'], verdicts: { 1: { code: 'CHANGES', tests: 'PASS' } }, agents: { builder: ag(1, 5, 6, { agentId: 'b1' }) } }),
       events: [ev('round', 7)],
     },
     want: { action: 'spawn', rule: 'B4', role: 'builder' },
@@ -695,6 +733,8 @@ export const rows: Row[] = [
       assert.ok(lines.includes(`Reference: ${path.join(JOB_DIR, 'spec.md')}`));
       assert.ok(!a.brief.includes('File map:'));
       assert.ok(!a.brief.includes('Maps (JSON):'));
+      assert.ok(!a.brief.includes('Review checklists (JSON):'));
+      assert.ok(!a.brief.includes('Verifier questions (JSON):'));
     },
   },
   {
@@ -1379,6 +1419,7 @@ export const rows: Row[] = [
   { name: 'PR4 merges an eligible PR', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11)] }, want: run('pr', 'merge', 'j') },
   { name: 'PR5 ship propose never merges (PR4 holds off)', fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'propose' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
   { name: 'PR4 ship merge needs approver eligibility: eligible merges', fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'merge' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11)] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },
+  { name: 'PR4 ship release merges like merge', fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'release' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11)] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },
   { name: 'PR5 ship merge needs approver eligibility: not eligible waits', fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'merge' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [decided('APPROVE', false), ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
   { name: 'PR5 an ESCALATE marked eligible never merges, even after a human cleared it', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'ESCALATE' }, events: [decided('ESCALATE', true), ev('human', 10, { action: 'approve' }), ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
   { name: 'PR5 a yes written into decision.md after a recorded no waits', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [decided('APPROVE', false), ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },

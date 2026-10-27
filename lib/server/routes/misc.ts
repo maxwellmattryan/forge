@@ -8,6 +8,7 @@ import { dashboardActor } from '#integrations/github/actor.ts';
 import { buildBundle, bundleFileName } from '#engine/ops/bundle.ts';
 import { doctor } from '#engine/ops/doctor.ts';
 import { readSmallJson } from '#core/job/focus.ts';
+import { withoutRunHistory } from '#engine/metrics/runs.ts';
 import { CheckoutError } from '#engine/workspace/checkout.ts';
 import { InactiveJobError, currentFocus, focusJob } from '#engine/workspace/focus-actions.ts';
 import { parseGitHubUrl } from '#integrations/github/preview.ts';
@@ -21,6 +22,7 @@ import { billingOf } from '#integrations/claude/argv.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from '#engine/evals/run.ts';
 import { listRequests, validJobId } from '#core/job/requests.ts';
 import { foremanHandoff, gateOwner } from '#office/foreman.ts';
+import { draftGates } from '#office/mandates/gate.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { roster } from '#engine/pipeline/roster.ts';
 import { readTriageCache } from '#engine/trackers/triage.ts';
@@ -219,7 +221,8 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
   const jobs = listJobs(root).map((j) => {
     const events = readEvents(root, j.id);
     const last = events[events.length - 1] ?? null;
-    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: leaseStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events), endpoints: endpointsFor(root, config, j), foremanHandoff: foremanHandoff(j, events) };
+    // Without the per-run lists, so /api/state doesn't grow with every run: the job detail serves them.
+    return { ...j, agents: withoutRunHistory(j.agents), progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: leaseStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events), endpoints: endpointsFor(root, config, j), foremanHandoff: foremanHandoff(j, events) };
   });
   // Every string leaf: titles, events and activity lines can all carry what a command printed.
   return redactDeep<ApiState>({
@@ -241,6 +244,7 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
     // `enabled` and the cap from this read of config.yml, so they are current even while the pool is stopped.
     daemons: { ...daemons, enabled: config.daemon?.enabled === true, foreman: config.foreman?.enabled === true, maxConcurrent: validCap(config.daemon?.maxConcurrent) ?? daemons.maxConcurrent },
     jobs,
+    drafts: draftGates(root, config, requests),
     requests: requests.filter((r) => r.status === 'pending' || r.status === 'in-progress'),
     focus: currentFocus(root),
     budget,

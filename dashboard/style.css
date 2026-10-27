@@ -426,7 +426,7 @@
 
 /* ---------- base (preflight already zeroes margins and box-sizing) ---------- */
 @layer base {
-  /* A stable gutter: locking body scroll under the palette or a dialog does not shift the page sideways. */
+  /* A stable gutter where the browser honours it; lib/scroll-lock.ts pads the page where it does not (Chromium under ::-webkit-scrollbar). */
   html { background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; scrollbar-gutter: stable; }
   body { font-family: var(--font-sans); font-size: 14px; line-height: 20px; }
   /* The chrome is an app, not a document: no I-beam and no drag-selection over buttons, chips, labels and cards, and
@@ -444,14 +444,16 @@
   :is(button, summary, input, [role]):disabled, [role][aria-disabled=true], label:has(>input:disabled) { cursor: not-allowed; }
   h1, h2, h3, h4 { font-family: var(--font-head); letter-spacing: 0; }
   ::selection { background: var(--spark); color: var(--on-spark); }
-  /* Slim scrollbars: a hairline rail and a squared thumb that heats to ember while held or hovered. WebKit/Blink get the
-     pseudo-elements (setting the standard properties there would disable them); Firefox gets the standard pair. */
+  /* Slim scrollbars: a 2px rail and a squared thumb that heats to ember while held or hovered. WebKit/Blink get the
+     pseudo-elements (setting the standard properties there would disable them); Firefox gets the standard pair. The
+     thumb's transparent border clips its paint to the rail's 2px, so it rides inside the line, while the whole 6px
+     gutter stays grabbable. */
   ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: linear-gradient(to right, transparent 2.5px, var(--line-soft) 2.5px, var(--line-soft) 3.5px, transparent 3.5px); }
-  ::-webkit-scrollbar-track:horizontal { background: linear-gradient(to bottom, transparent 2.5px, var(--line-soft) 2.5px, var(--line-soft) 3.5px, transparent 3.5px); }
-  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 1px; }
-  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ember) 55%, var(--line)); }
-  ::-webkit-scrollbar-thumb:active { background: var(--ember); }
+  ::-webkit-scrollbar-track { background: linear-gradient(to right, transparent 2px, var(--line-soft) 2px, var(--line-soft) 4px, transparent 4px); }
+  ::-webkit-scrollbar-track:horizontal { background: linear-gradient(to bottom, transparent 2px, var(--line-soft) 2px, var(--line-soft) 4px, transparent 4px); }
+  ::-webkit-scrollbar-thumb { background-color: var(--line); background-clip: padding-box; border: 2px solid transparent; border-radius: 1px; }
+  ::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--ember) 55%, var(--line)); }
+  ::-webkit-scrollbar-thumb:active { background-color: var(--ember); }
   ::-webkit-scrollbar-corner { background: transparent; }
   @supports not selector(::-webkit-scrollbar) {
     * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
@@ -518,8 +520,8 @@
 @utility solid { background-color: var(--panel); --surface: var(--panel); }
 /* The anvil: the sidebar, the phone header and the status bar. Opaque, the furthest step from the ground. */
 @utility chrome { background-color: var(--chrome); --surface: var(--chrome); }
-/* foreman: the supervisor above the daemon pool (the Foreman popover's header and tag, the Daemon popover's Foreman
-   row). The status bar's Foreman and Daemon indicators are ghosts like the rest of the bar. Gleam text on a gleam tint
+/* foreman: the supervisor above the daemon pool (the Foreman popover's header and tag, the Workers popover's Foreman
+   row). The status bar's Foreman and Workers indicators are ghosts like the rest of the bar. Gleam text on a gleam tint
    behind a gleam seam, so it stands out without taking a status tone. Gleam, not gleam-hot: gleam-hot sits too close to fg on the dark themes and
    under 4.5:1 on ash's pale ground. .off: a dashed seam, muted text, no tint. The :is() raises it over the base btn, chip
    and plain rules whatever order Tailwind emits them in. */
@@ -856,7 +858,7 @@
   /* .badge: a count pinned to the top-right corner of an icon (the status bar's bell). Its parent is the relative glyph
      box, so it sits on the glyph whatever the button's width. 10px on a 14px slug: the smallest that still reads. */
   &.badge { position: absolute; top: -5px; right: -9px; min-height: 0; height: 14px; min-width: 14px; padding: 0 3px; justify-content: center; font-size: 10px; line-height: 12px; letter-spacing: 0; }
-  /* A chip in a row of sm controls (the status bar's Daemon popover, the palette's scope) takes their height. */
+  /* A chip in a row of sm controls (the status bar's Workers popover, the palette's scope) takes their height. */
   &.sm { min-height: var(--control-sm); padding-inline: 9px; }
   /* A glyph struck on the slug: the PR chip's pull-request mark. */
   & .ic { width: 12px; height: 12px; }
@@ -966,8 +968,26 @@
   &:focus-within { border-color: var(--gleam); outline: 2px solid var(--line-strong); outline-offset: 2px; }
 }
 
+/* ---------- skeleton: the shape of a page still loading ---------- */
+/* One bone (components/Skeleton.svelte): a line-coloured bar on whatever surface holds it, sized like the text, chip or
+   panel that will sit there, breathing over --heat-breathe while the data is on its way. Reduced motion holds it still.
+   .round for a dot or pill. */
+@utility skeleton {
+  display: block;
+  flex: none;
+  max-width: 100%;
+  background-color: color-mix(in srgb, var(--line) 75%, var(--surface, var(--panel)));
+  corner-shape: bevel;
+  border-radius: 0 3px 0 3px;
+  animation: skeleton-breathe var(--heat-breathe) ease-in-out infinite;
+  &.round { corner-shape: round; border-radius: 9999px; }
+}
+@keyframes skeleton-breathe { 50% { opacity: .5; } }
+
 /* ---------- progress: a hot bar in a cold track ---------- */
 @utility track { height: 8px; border: 1px solid var(--line); corner-shape: bevel; border-radius: 0 3px 0 3px; position: relative; background-color: var(--surface, var(--bg)); box-shadow: inset 0 1px 0 0 var(--edge-dark); }
+/* A stacked bar on the track's frame: its series spans sit side by side, each as wide as its share (AgentRuns.svelte). */
+@utility run-bar { display: flex; height: 8px; overflow: hidden; border: 1px solid var(--line); corner-shape: bevel; border-radius: 0 3px 0 3px; background-color: var(--surface, var(--bg)); box-shadow: inset 0 1px 0 0 var(--edge-dark); }
 @utility fill {
   height: 100%;
   background: var(--gleam-fill-bar);
@@ -1079,6 +1099,9 @@
 @utility series-4 { fill: var(--warn); background-color: var(--warn); }
 @utility series-5 { fill: var(--info); background-color: var(--info); }
 @utility series-6 { fill: var(--ember); background-color: var(--ember); }
+/* The rest of a bar that names no part of its own: the Agents tab's "not split" tokens and earlier runs
+   (src/lib/agent-runs.ts). A neutral rule colour, so it never reads as one of the named series. */
+@utility series-rest { fill: var(--line-strong); background-color: var(--line-strong); }
 @utility series-swatch { display: inline-block; width: 10px; height: 10px; flex: none; border-radius: var(--radius-1); box-shadow: inset 0 0 0 1px var(--edge-dark); }
 
 /* ---------- facts: the status bar's stamped row (version, API, sessions, sheet) ---------- */
@@ -1120,6 +1143,19 @@
   flex: none;
   /* Inline in 13-14px text: the job pane's Branch, Base, PR and Source. */
   &.sm { width: 14px; height: 14px; }
+}
+/* A field's info icon (FieldHint.svelte): a native button for focus and Enter/Space, drawn as the bare glyph, muted
+   until hovered. Focus takes the global :focus-visible ring. */
+@utility hint-icon {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  transition: color var(--motion-quick) var(--ease-enter);
+  @media (hover: hover) { &:hover { color: var(--fg); } }
 }
 @utility dot {
   width: 8px;
@@ -1206,6 +1242,19 @@
   &:popover-open { opacity: 1; scale: 1; transition-duration: var(--motion-base); transition-timing-function: var(--ease-enter); }
   @starting-style { &:popover-open { opacity: 0; scale: .96; } }
 }
+/* menu-list: an option list on a plate popover (Select's listbox). It owns the list's padding, so the first and last
+   rows can cut the outer corner that meets the plate's cut (top-left, bottom-right) parallel to it: a bevel of leg c
+   inset by d sits d away from it all round with leg c - d(2 - sqrt(2)), here d = the plate's 1px border + the padding.
+   Only an ungrouped first row reaches the top corner (a leading group's label sits there); the last row may sit in
+   the last group. A browser without corner-shape shows a soft corner of the same size, inside the plate's soft one. */
+@utility menu-list {
+  --menu-pad: calc(var(--spacing) * 1);
+  --menu-row-cut: calc(var(--radius-cut) - (var(--stroke-line) + var(--menu-pad)) * (2 - sqrt(2)));
+  padding: var(--menu-pad);
+  & > [role="option"]:first-child { corner-shape: bevel; border-top-left-radius: var(--menu-row-cut); }
+  & > [role="option"]:last-child,
+  & > [role="group"]:last-child > [role="none"] > [role="option"]:last-child { corner-shape: bevel; border-bottom-right-radius: var(--menu-row-cut); }
+}
 /* A tooltip: a fade only, quick both ways (Tooltip.svelte). */
 @utility tip-fade {
   opacity: 0;
@@ -1226,8 +1275,8 @@
   /* The nav: a 3px gleam bar over the active item's left edge, in place of its own inset bar. The clip follows the
      item's bottom-left chamfer (a --radius-nick bevel: its diagonal is 5px up the bar's left edge and 2px up its right
      edge), so the bar's corner doesn't poke past it. */
-  &.navlist[data-marker]::before { background: var(--gleam); z-index: 2; clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--radius-nick) + var(--bar-rule)), 0 calc(100% - var(--radius-nick))); }
-  &.navlist[data-marker] :is(a, button).active { box-shadow: var(--shadow-bevel); }
+  &:is(.navlist, .navlist-marks)[data-marker]::before { background: var(--gleam); z-index: 2; clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--radius-nick) + var(--bar-rule)), 0 calc(100% - var(--radius-nick))); }
+  &:is(.navlist, .navlist-marks)[data-marker] :is(a, button).active { box-shadow: var(--shadow-bevel); }
   /* The tab strip: a 2px gleam baseline in place of the active tab's own. */
   &.tabs[data-marker]::before { background: var(--gleam); z-index: 2; }
   &.tabs[data-marker] .tab.active { border-bottom-color: transparent; }
@@ -1392,13 +1441,18 @@ input[type=checkbox]:focus-visible, input[type=radio]:focus-visible { outline: 2
   /* The status bar holds 44px indicators here, so it grows to hold them; the view, the toast and the drawer read the
      token and clear it either way. */
   :root { --size-statusbar: var(--space-11); }
-  button:not(.chip), a.btn, .navlist a, [role="tab"], [role="option"], summary, select, input:not([type="checkbox"], [type="radio"]), label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) { min-height: 44px; }
+  button:not(.chip, .hint-icon), a.btn, .navlist a, [role="tab"], [role="option"], summary, select, input:not([type="checkbox"], [type="radio"]), label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) { min-height: 44px; }
   .btn.icon { min-width: 44px; justify-content: center; }
   .chip:is(button) { position: relative; }
   .chip:is(button)::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); translate: -50% -50%; z-index: -1; }
   /* A chip's hit area sits under its neighbours: z-index -1 inside an isolated parent paints it above the
      parent's background but below every sibling, so a tap just outside a chip still reaches the control there. */
   :has(> .chip:is(button)) { isolation: isolate; }
+  /* A field's info icon keeps its 14px glyph and its label row's height, with the same hit area under its
+     neighbours, so a tap on the label text beside it still reaches the label. */
+  .hint-icon { position: relative; }
+  .hint-icon::after { content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; translate: -50% -50%; z-index: -1; }
+  :has(> .hint-icon) { isolation: isolate; }
   /* A checkbox with no label around it (a config field's boolean) gets the same transparent hit area. Its
      neighbours are text (the On/Off beside it), so this one stays on top and a tap on that text toggles it. */
   .check:not(label > .check)::before { content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; translate: -50% -50%; }

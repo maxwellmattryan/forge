@@ -212,6 +212,18 @@ function agentHash(root: string, role: string): string | null {
   return role === 'verifier' ? shortHash(body, addendum, learnings, verifierDigest(root)) : shortHash(body, addendum, learnings);
 }
 
+/**
+ * The length of a role's prompt body (`reviewer`'s for `reviewer:<lens>`), the Forge share of its start prefix beside
+ * the brief (composeContext in lib/engine/metrics/composition.ts). Learnings and addenda are read through tools, so
+ * they count as tool results, not prompt. 0 for a name that is not a role or a role with no agent file.
+ */
+export function rolePromptChars(role: string): number {
+  const base = role.startsWith('reviewer:') ? 'reviewer' : role;
+  if (!ROLE_NAME.test(base)) return 0;
+  const file = path.join(PLUGIN_ROOT, 'agents', `${base}.md`);
+  return exists(file) ? frontmatter(readText(file)).body.length : 0;
+}
+
 /** A lens's checklist file as the panel resolves it, and its hash; both null without one. */
 export function lensChecklist(root: string, config: Config, lens: string): { file: string | null; hash: string | null } {
   const entry = (config.review?.panel ?? []).find((r) => r?.name === lens);

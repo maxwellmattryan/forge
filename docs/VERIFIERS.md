@@ -20,7 +20,7 @@ mode: block
 ---
 Does every new `forge` subcommand in this diff have a row in its group's HELP table?
 
-`forge help` and README's CLI table are generated from HELP, so a missing row hides the command.
+`forge help` and docs/CLI.md's command tables are generated from HELP, so a missing row hides the command.
 ```
 
 - **`<name>`** matches `^[a-z0-9][a-z0-9-]{0,63}$`.
@@ -36,6 +36,10 @@ Any other frontmatter key, a missing or empty `paths`, an invalid value, an empt
 ## Where they are read from
 
 Always the **main checkout**, never a job's worktree or branch, the same rule as `.forge/config.yml` and `.forge/secrets-allow.txt`. A job that adds or edits a verifier on its branch changes nothing until that change is merged and lands in the main checkout. `forge job step` counts the main checkout's `.forge/verifiers/*.md` to decide whether the gate runs at all.
+
+## Before the build
+
+The builder sees the questions before it writes code. A fresh builder brief (round 1, or a round whose only rework input is an answered question) carries a `Verifier questions (JSON)` line: `<name> · <question>` for each of the main checkout's valid verifiers with a `paths` glob matching a path in the spec's Approach › `Files:` table, the same glob match the round uses on the diff, at most 20 with ` (+<k> more)` past that. Problem files and a worktree's `.forge/verifiers/` never appear, and a spec without a `Files:` table gets no line. Above it, a `Review checklists (JSON)` line maps each lens on the job's panel to the checklist that lens reviews against. Both lines carry paths and the parsed one-line questions only, never a checklist or a verifier's rationale, and a findings-first rework brief carries neither. The builder prompt asks the builder to meet them as standards, not to copy them into `tasks.md`.
 
 ## What happens in a round
 
@@ -96,6 +100,8 @@ Each round's `verify/` directory holds the input, the snapshot, the answers and 
 ## Stats and retro
 
 `forge stats` (and `/api/stats`) reports `verifiers.<name>` from the window's record events: `runs`, `fails` (NO), `unanswered` (no valid answer), `blocks` (NO or no answer in block mode) and `hitRate` (`fails / runs`, null at 0 runs). The text form prints one `verifiers:` line.
+
+`quality.verifierFirstRoundBlockRate` (JSON and `/api/stats` only) is the share of jobs whose first round-1 verifiers record blocked: of the jobs whose first `verifiers` record event of round 1 has results, those whose outcome was CHANGES, null when none has. Re-runs after a verifiers rework and later rounds don't count, so it measures what the first build got right.
 
 The retro proposes verifiers as part of the repo layer: a new one, always `mode: warn` first, for a class of issue that recurs in PR feedback or review findings across two or more jobs and fits one yes/no question over file globs; promoting a warn verifier to `block` once its hits were fixed rather than disputed; and deleting one with `runs` ≥ 10 and `hitRate` 0. Its metric is a `stats.json` path such as `verifiers.<name>.hitRate`. Promotion is never automatic: a human merges it.
 

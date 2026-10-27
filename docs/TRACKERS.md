@@ -57,8 +57,9 @@ In a project with [member repos](CONFIG.md#repos), work can be filed where it is
 - `forge next --claim` and `forge job from-ref owner/name#N` on a member issue: an active job that already carries the issue is returned unchanged. Otherwise doctor's check runs on the member's clone (a failure refuses before anything is created or claimed), the issue is read in the member's repo, and the job is created with that issue (id `<name>-N-<slug>`) and the member as its first job repo, as `forge job repo add` records it (`job-repo-added`). The issue is then claimed in the member's repo; a failed claim cancels the job. This works in a daemon session, where `forge job repo add|remove` stays refused: intake adds only a configured member, and only to the job it creates.
 - Status mirroring updates each linked issue in its own repo: this repo's through the root tracker, a member tracker's through that member's. Members get **labels only**: `statusSync: none` stays none, and `labels`, `project` and `both` all mean labels for a member issue; the root's GitHub Project is never applied to one. One repo's tracker error is logged (`tracker-error`) and never stops another's update. A member issue linked with `forge job link` is mirrored too, though linking never claims it or adds the repo.
 - The approval comment (`tracker-approval-comment`) goes on every root and member issue, each in its own repo. A member issue cites the PR as `<root owner/name>#N`, since a bare `#N` there would link the member's own PR; without a known root slug the member issue gets no comment.
+- The shelve note goes on the same issues, once, when a person runs `forge job shelve`: fixed text around the reason in a code span (so no mention or link in it renders) that says nothing more runs until a person picks the job up from the dashboard's Shelved list or runs `forge job unshelve <id>`, and that its PR stays open. A failure is logged as `tracker-error` and never undoes the shelve; eval jobs and `tracker.kind: none` get none. The status a shelved job mirrors stays the adapter contract's (`blocked`, or `review` at stage `pr`).
 
-`forge tracker <sub>`, readiness triage and the dashboard backlog read and write the root tracker only.
+`forge tracker <sub>`, readiness triage and the dashboard's Issues page read and write the root tracker only.
 
 ## Readiness triage
 
@@ -94,14 +95,30 @@ export default {
   claim(ctx, ref, job) { return { ok: true } /* or { ok: false, reason } if someone else has it */; },
   update(ctx, ref, job) { /* mirror statusKey(job) → your workflow */ },
   comment(ctx, ref, body) {},
-  create(ctx, { title, body, labels, parentRef }) { return { ref, url }; },
+  create(ctx, { title, body, labels, parentRef, milestone }) { return { ref, url }; },
   close(ctx, ref, { reason }) {},
   // Optional: open items matching a free-text query, bodies included, at most `limit` of them.
   search(ctx, query, { limit }) { return [/* { ref, title, url, labels, body } */]; },
   // Optional: readiness triage's mark. A one-line note marks the item needs-info; null clears it.
   setNeedsInfo(ctx, ref, note) {},
+  // Optional: the open milestones, for a goal mandate's drafting survey. Throw when they can't be listed.
+  milestones(ctx) { return [/* { title, openIssues: number or null, dueOn: string or null } */]; },
+  // Optional: create an open milestone, or return the open one with exactly that title (filing a milestone draft).
+  createMilestone(ctx, { title, description }) { return { ref, url }; },
+  // Optional: put an existing item in a milestone, with the labels where the tracker has them.
+  milestoneAdd(ctx, ref, { milestone, labels }) {},
+  // Optional: a mandate's scope: open items in `milestone` (any when null) carrying every label. Throw when they can't be listed.
+  scope(ctx, { milestone, labels, limit }) { return [/* list's items: { ref, title, url, labels, priority, needsInfo, claimedBy } */]; },
 };
 ```
+
+`milestones` is optional: a goal mandate's drafting survey (docs/architecture/foreman.md "Intake") lists them in a fence, each title through `oneLineTitle`, and without the method it says `unavailable (tracker <kind> lists no milestones)`. The built-in GitHub adapter reads `gh api repos/<slug>/milestones?state=open&per_page=100`; the local backlog lists its `## ` headings.
+
+**Filing a milestone draft.** Approving a goal mandate's milestone draft (`forge mandate draft approve`, docs/architecture/foreman.md "Milestone approval and filing") files it through the tracker: `createMilestone`, then `create` with `milestone` (the milestone's title) and a `wave-<n>` label for each new issue, and `milestoneAdd` for each existing issue the draft reuses or amends (an amendment also gets a `comment`). A tracker without `createMilestone` (and `none`) can't take a draft, and one without `milestoneAdd` can't take a draft that names existing issues; approve refuses before writing anything. The loader's guard scans `createMilestone`'s title and description and `milestoneAdd`'s milestone title for likely credentials before the adapter runs.
+- **Local backlog.** A milestone is a level-2 heading, `## <title>`, with its description as `> ` lines; its section runs to the next `#` or `##` heading. `create` with `milestone` puts the item at the end of that section (an unknown milestone throws), and `milestoneAdd` moves an item with its body lines there, ignoring labels. The backlog's `comment` does nothing, so an amendment there only moves the item.
+- **GitHub.** `createMilestone` lists the open milestones first and posts a new one only when none has the title (`gh api -X POST repos/<slug>/milestones -f title=… -f description=…`). Each wave label is created once without `--force`, so an existing label keeps its colour and description, and it never carries `tracker.github.labels.prefix`, which `list` reads as a Forge claim and would hide the issue from triage. `create` adds `--milestone=<title>`, and `milestoneAdd` runs `gh issue edit --milestone=<title> --add-label wave-<n> -- <n>`. Filing composes the bodies, amendments and milestone description with a zero-width joiner after each `@name`'s @ (except inside a fenced code block that opens at column 0), so a draft notifies no one; titles go as written. Live filing against GitHub is untested here: try it on a throwaway repo first.
+
+`scope` is optional: the Office pass and `forge office survey|start` call it once per milestone of a mandate's scope (or once with `milestone: null` for a labels-only scope) to find the issues a mandate may start (docs/architecture/foreman.md "Director loop"). Mark items as `list` does (`needsInfo`, `claimedBy`, `priority`). Without the method, or when it throws, a mandate with a milestone or label scope gets a tracker error: nothing starts and it never closes itself; a mandate with `order: listed` needs no tracker call. The built-in GitHub adapter runs `gh issue list -R <slug> --state open --json number,title,url,labels,assignees --limit <limit>` plus `--milestone <m>` and one `--label <l>` per label, and throws before gh runs on a milestone or label that starts with `-`; the local backlog has none.
 
 `needsInfo: true` on a `list` item means triage asked for more information first: `forge next` skips it even when `list({ ready: true })` returns it, though `ready` lists should leave such items out. Without `setNeedsInfo`, triage still posts its comment and reports `marked: false`.
 

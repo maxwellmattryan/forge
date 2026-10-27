@@ -1,26 +1,53 @@
 // Claude Code's stream-json protocol, with no I/O of its own: claude's output lines become ClaudeEvents,
-// and every line written to its stdin is built here, from fixed text or a fixed list: the one turn,
-// permission answers and mode switches, plus an error reply that repeats claude's own capped subtype back
-// to it. Nothing from requests, HTTP or config reaches any of them (docs/architecture/daemon-security.md).
+// and every line written to its stdin is built here: the one fixed turn, permission answers and mode
+// switches from a fixed list, an error reply that repeats claude's own capped subtype back to it, and
+// two free-text lines: in a chat session only, the owner's own message (writeMessage), and in a role
+// child only, the brief `forge job step` built (writeBrief, sent once by role.ts runRoleChild). Nothing
+// from requests or config reaches any of them (docs/architecture/daemon-security.md).
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { CHAT_MESSAGE_MAX } from '#api/constants.ts';
 import { now } from '#core/utils.ts';
 import { PERMISSION_MODES } from './argv.ts';
 import type { ClaudeEvent, ModelCost, SessionCost } from './types.ts';
 import type { DaemonPermissionMode, PermissionDecision } from '#core/types.ts';
 
 /**
- * The only user message the daemon ever writes to the child's stdin; the only other lines are
- * permission answers (permissionResponse) and mode switches (modeRequest), whose only variable part
- * is a value from a fixed list. Nothing from requests, HTTP or config reaches either,
- * so inbox text can't become a prompt: the session reads requests through `forge requests`,
- * where they are fenced as data.
+ * The fixed user message the daemon writes to a session's stdin. The other lines are permission answers
+ * (permissionResponse) and mode switches (modeRequest), whose only variable part is a value from a fixed
+ * list, a chat session's owner messages (chatMessageLine), which only lib/office/session/lifecycle.ts
+ * writeChat sends and only in a chat scope, and a role child's brief (briefLine), which only role.ts
+ * runRoleChild sends, once, from `forge job step`'s brief. Nothing from requests or config reaches any of them, so inbox
+ * text can't become a prompt: the session reads requests through `forge requests`, where they are fenced as data.
  */
 export const TURN = Object.freeze({
   type: 'user',
   message: Object.freeze({ role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: '/forge requests' })]) }),
 });
 export const TURN_LINE = JSON.stringify(TURN) + '\n';
+
+/**
+ * The stdin line for one owner message in a chat, or null for anything but a string that is non-empty
+ * once trimmed and at most CHAT_MESSAGE_MAX characters. JSON.stringify escapes every newline and quote,
+ * so the text stays one user line whatever it holds and can never become a control line.
+ */
+export function chatMessageLine(text: unknown): string | null {
+  if (typeof text !== 'string' || !text.trim() || text.length > CHAT_MESSAGE_MAX) return null;
+  return JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }) + '\n';
+}
+
+/** The longest brief a role child is sent: far above any `forge job step` brief, which holds paths and lines, not files. */
+export const BRIEF_MAX_CHARS = 200_000;
+
+/**
+ * The stdin line carrying a role child's brief, its only user message, or null for anything but a
+ * string that is non-empty once trimmed and at most BRIEF_MAX_CHARS characters. Built like
+ * chatMessageLine: JSON.stringify escapes every newline and quote, so the brief stays one user line.
+ */
+export function briefLine(text: unknown): string | null {
+  if (typeof text !== 'string' || !text.trim() || text.length > BRIEF_MAX_CHARS) return null;
+  return JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }) + '\n';
+}
 
 /** The control_request line asking claude to switch the session's permission mode. */
 function modeRequest(requestId: string, mode: DaemonPermissionMode): string {
@@ -30,6 +57,9 @@ function modeRequest(requestId: string, mode: DaemonPermissionMode): string {
 /** What a denied tool call returns to the agent. Fixed text: nothing a human types reaches the session. */
 export const PERMISSION_DENIED =
   'A human denied this tool call from the Forge dashboard. Do not retry it or work around it with another tool: continue without it, or record what you needed and why in your output file.';
+/** What a tool call outside the allowed list returns to an unattended role child, where no one is there to approve it. Fixed text. */
+export const UNATTENDED_DENIED =
+  'This role runs unattended: no one is there to approve tool calls outside its allowed list, so this one was denied. Do not retry it or work around it with another tool: continue without it, and record what you needed and why in your output file.';
 /**
  * The longest tool input a prompt shows. It is never truncated: what the human reads is exactly
  * what an allow runs, so a longer input is denied without asking.
@@ -84,11 +114,12 @@ export function ruleText(r: { toolName: string; ruleContent?: string }): string 
 
 /**
  * The control_response line answering a `can_use_tool` request. An allow echoes the input claude
- * sent, unchanged; a deny carries PERMISSION_DENIED. The human picks only the decision.
+ * sent, unchanged; a deny carries PERMISSION_DENIED, or UNATTENDED_DENIED when `why` is `unattended`.
+ * The human picks only the decision.
  */
-function permissionResponse(requestId: string, decision: PermissionDecision, input: Record<string, unknown>, grant: SessionGrant): string {
+function permissionResponse(requestId: string, decision: PermissionDecision, input: Record<string, unknown>, grant: SessionGrant, why?: 'unattended'): string {
   let response: Record<string, unknown>;
-  if (decision === 'deny') response = { behavior: 'deny', message: PERMISSION_DENIED };
+  if (decision === 'deny') response = { behavior: 'deny', message: why === 'unattended' ? UNATTENDED_DENIED : PERMISSION_DENIED };
   else {
     response = { behavior: 'allow', updatedInput: input };
     if (decision === 'session') {
@@ -107,6 +138,22 @@ function permissionResponse(requestId: string, decision: PermissionDecision, inp
  * subscription windows and the API's 400 for a spend cap ("usage limits"), 429 and 529 all match.
  */
 export const LIMIT_TEXT = /usage limit|rate limit|limit reached|hit your limit|too many requests|\b429\b|overloaded|\b529\b/i;
+
+/**
+ * A failed turn whose message reads like an expired or missing login: retrying can't help until a
+ * human logs in again. Only checked when the turn is neither a quota limit nor the dollar cap.
+ */
+export const AUTH_TEXT = /\/login\b|not logged in|invalid api key|invalid x-api-key|oauth token|token (has )?expired|authentication[_ ]error|\b401\b/i;
+
+/** The longest summary an ok result gives: its first non-empty line, as `forge job agent end --summary` keeps it. */
+const SUMMARY_CHARS = 280;
+
+/** The first non-empty line of a result's text, trimmed and cut to SUMMARY_CHARS; null without one. */
+function firstLine(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const line = v.split('\n').find((l) => l.trim());
+  return line ? line.trim().slice(0, SUMMARY_CHARS) : null;
+}
 
 /** The part of a `rate_limit_event` the supervisor uses: whether the last request was refused, and when the window resets. */
 export interface RateLimitInfo {
@@ -207,7 +254,11 @@ export interface ClaudeStream {
   stdout(chunk: Buffer | string): void;
   stderr(chunk: Buffer | string): void;
   writeTurn(): void;
-  answerPermission(requestId: string, decision: PermissionDecision): boolean;
+  /** Writes one owner message (chatMessageLine); false, writing nothing, for a text it refuses. */
+  writeMessage(text: string): boolean;
+  /** Writes a role child's brief (briefLine); false, writing nothing, for a text it refuses. */
+  writeBrief(text: string): boolean;
+  answerPermission(requestId: string, decision: PermissionDecision, why?: 'unattended'): boolean;
   setPermissionMode(mode: DaemonPermissionMode): string | null;
 }
 
@@ -299,16 +350,18 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
   /**
    * claude reports an API failure (an expired login, an exhausted quota) as a result with is_error,
    * often with subtype "success". It is a quota limit when a rate_limit_event since the last written
-   * turn said `rejected`, or when its text reads like one.
+   * turn said `rejected`, or when its text reads like one; a login failure when it is neither that nor
+   * the dollar cap and its text reads like AUTH_TEXT.
    */
   function onResult(ev: Record<string, any>): void {
     const cost = resultCost(ev);
     // The --max-budget-usd stop is a failed turn whatever is_error says, and never a quota limit to wait out.
     const budget = ev.subtype === 'error_max_budget_usd';
-    if (ev.is_error !== true && !budget) return emit({ kind: 'turn-ended', ok: true, cost });
+    if (ev.is_error !== true && !budget) return emit({ kind: 'turn-ended', ok: true, summary: firstLine(ev.result), cost });
     const reason = (typeof ev.result === 'string' && ev.result.trim() ? ev.result.trim() : String(ev.subtype ?? 'error')).slice(0, 300);
     const rejected = rateLimit?.status === 'rejected';
-    emit({ kind: 'turn-ended', ok: false, reason, limit: budget ? false : rejected || LIMIT_TEXT.test(reason), resetsAt: rejected && !budget ? rateLimit!.resetsAt : null, budget, cost });
+    const limit = budget ? false : rejected || LIMIT_TEXT.test(reason);
+    emit({ kind: 'turn-ended', ok: false, reason, limit, auth: !limit && !budget && AUTH_TEXT.test(reason), resetsAt: rejected && !budget ? rateLimit!.resetsAt : null, budget, cost });
   }
 
   return {
@@ -318,11 +371,25 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
       rateLimit = null;
       write(TURN_LINE);
     },
-    answerPermission(requestId, decision) {
+    writeMessage(text) {
+      const msg = chatMessageLine(text);
+      if (msg === null) return false;
+      rateLimit = null;
+      write(msg);
+      return true;
+    },
+    writeBrief(text) {
+      const line = briefLine(text);
+      if (line === null) return false;
+      rateLimit = null;
+      write(line);
+      return true;
+    },
+    answerPermission(requestId, decision, why) {
       const p = pending.get(requestId);
       if (!p) return false;
       pending.delete(requestId);
-      write(permissionResponse(requestId, decision, p.input, p.grant));
+      write(permissionResponse(requestId, decision, p.input, p.grant, why));
       return true;
     },
     setPermissionMode(mode) {

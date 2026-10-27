@@ -7,6 +7,7 @@
 import { daemonTrust, loadConfig } from '#core/config/load.ts';
 import { refuseBrokenScope, refuseDaemonMerge, refuseInboxDrive } from '#office/owner.ts';
 import { registerNotify } from '#office/notify.ts';
+import { mandateRefusal } from '#office/foreman.ts';
 import { NEED_INIT } from '#core/config/set.ts';
 import { detect } from '#engine/ops/detect.ts';
 import { stopBackground } from '#engine/environment/lifecycle.ts';
@@ -28,6 +29,7 @@ import { readJson } from '#core/os/fs.ts';
 import { createWorktree, removeWorktree } from '#engine/workspace/worktree.ts';
 import { verify } from '#engine/verify/gate.ts';
 import { advanceCmd } from './commands/advance.ts';
+import { agentRunCmd } from './commands/job/agent-run.ts';
 import { auditCmd } from './commands/audit.ts';
 import { backingCmd } from './commands/backing.ts';
 import { budgetCmd } from './commands/budget.ts';
@@ -44,13 +46,17 @@ import { gitRead, gitWrite } from './commands/git.ts';
 import { helpCmd, usage } from './commands/help.ts';
 import { confirmHuman, mergeNowOp } from './commands/human.ts';
 import { initWrite, migrate } from './commands/init.ts';
-import { jobCmd } from './commands/job.ts';
+import { jobCmd, refuseForemanJobCommand } from './commands/job.ts';
+import { mandateCmd, statsMandate } from './commands/mandate.ts';
+import { chatCmd } from './commands/chat.ts';
 import { notifyCmd } from './commands/notify.ts';
+import { officeCmd } from './commands/office.ts';
 import { projectCmd } from './commands/project.ts';
 import { releaseCmd } from './commands/release.ts';
 import { requestsCmd } from './commands/requests.ts';
 import { runCmd } from './commands/run.ts';
 import { secretsCmd } from './commands/secrets.ts';
+import { serviceCmd } from './commands/service.ts';
 import { verifiersCmd } from './commands/verifiers.ts';
 import { renderKey } from './commands/render/registry.ts';
 import { statsText, statusRows, statusTable, statusView } from './commands/status.ts';
@@ -84,6 +90,7 @@ export async function main(rawArgv: string[]): Promise<void> {
   if (cmd === 'version') return versionCmd(flags);
   if (cmd === 'update') return updateCmd(flags);
   if (cmd === 'project') return projectCmd(pos.slice(1), flags);
+  if (cmd === 'service') return serviceCmd(pos.slice(1), flags);
 
   let root: string;
   try {
@@ -156,7 +163,15 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       return ok(await nextCmd(root, config, flags));
     case 'job':
       needInit();
-      if (sub === 'advance') return advanceCmd(ctx, rest, flags, dispatch);
+      if (sub === 'advance') {
+        refuseForemanJobCommand(sub);
+        return advanceCmd(ctx, rest, flags, dispatch);
+      }
+      // Like advance, its non-zero exits carry data; `forge job agent <id> run` stays an unknown phase.
+      if (sub === 'agent' && rest[0] === 'run') {
+        refuseForemanJobCommand(sub);
+        return agentRunCmd(ctx, rest.slice(1), flags);
+      }
       return ok(await jobCmd(root, config, sub, rest, flags));
     case 'worktree': {
       needInit();
@@ -216,7 +231,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       const id = req(rest[0], 'job id');
       if (sub === 'find') return ok(findPr(root, config, ghGitHub, id));
       if (sub === 'open') return ok(openPr(root, config, ghGitHub, id, { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) }));
-      if (sub === 'sync') return ok(await syncPr(root, config, ghGitHub, id));
+      if (sub === 'sync') return ok(await syncPr(root, config, ghGitHub, id, { narrow: (j) => mandateRefusal(root, config, j, 'pr-feedback') }));
       if (sub === 'merge') {
         // Strictly `true`: `--now <id>` would make parseArgs swallow the id as the flag's value,
         // and that mistake must not silently bypass CI.
@@ -239,6 +254,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       needInit();
       return ok(await trackerCmd(root, config, sub, rest, flags));
     case 'stats': {
+      if (flags.mandate !== undefined) return ok(statsMandate(root, config, flags));
       if (flags.by === 'prompt') return ok(statsByPromptCmd(root, config, flags));
       if (flags.csv || flags.by !== undefined) return ok(statsCsv(root, config, flags));
       const s = computeStats(root, { since: flags.since, includeEvals: Boolean(flags['include-evals']), config });
@@ -265,6 +281,15 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     case 'experiment':
       needInit();
       return experimentCmd(ctx, sub, rest, flags);
+    case 'mandate':
+      needInit();
+      return mandateCmd(ctx, sub, rest, flags);
+    case 'chat':
+      needInit();
+      return chatCmd(ctx, sub, rest, flags);
+    case 'office':
+      needInit();
+      return officeCmd(ctx, sub, rest, flags);
     case 'requests':
       return ok(requestsCmd(root, config, sub, rest, flags));
     case 'notify':

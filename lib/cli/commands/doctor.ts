@@ -27,7 +27,7 @@ const DOCTOR: HelpGroup = {
       ],
       exits: [[1, 'bundle: an invalid or unknown job, a bad --out, a write failure, or a daemon session']],
       docs: ['Support bundle', 'docs/CLI.md#support-bundle'],
-      readme: true,
+      common: true,
     },
   ],
 };
