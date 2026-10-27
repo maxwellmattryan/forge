@@ -151,7 +151,10 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v38 adds daemon.dailyUsd.chat (25), filled from defaults, so no v37 config changes; the bump lets older
   // Forges refuse a config whose chat cap they would reject as an unknown key.
   { id: 'daemon-daily-usd-chat', up: (c) => c },
-  // v39: forge dash's gate runner replaces the assistant foreman sessions, so foreman.assistants.sessions (how many
+  // v39 adds the script release mechanism and release.script (null), filled from defaults, so no v38 config
+  // changes; the bump lets older Forges refuse a config whose mechanism they would reject or never run.
+  { id: 'release-script', up: (c) => c },
+  // v40: forge dash's gate runner replaces the assistant foreman sessions, so foreman.assistants.sessions (how many
   // sessions) becomes foreman.assistants.parallel (how many gate runs at once), unless parallel is already written.
   { id: 'foreman-gate-runs', up: foremanGateRuns },
 ];

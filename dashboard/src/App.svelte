@@ -19,6 +19,7 @@
   import Pipeline from './views/Pipeline.svelte';
   import Issues from './views/Issues.svelte';
   import Agents from './views/Agents.svelte';
+  import Foreman from './views/Foreman.svelte';
   import Analytics from './views/Analytics.svelte';
   import Evals from './views/Evals.svelte';
   import Project from './views/Project.svelte';
@@ -221,7 +222,7 @@
     refreshMachine().then(checkSelection);
     // The state poll runs whenever a project is selected (the nav's counts read it); the views' only on its pages.
     const poll = setInterval(() => document.visibilityState === 'visible' && refresh(), 2000);
-    const views = setInterval(() => document.visibilityState === 'visible' && S.route.scope === 'project' && ['analytics', 'evals', 'agents', 'project'].includes(S.view) && loadView(), 15000);
+    const views = setInterval(() => document.visibilityState === 'visible' && S.route.scope === 'project' && ['analytics', 'evals', 'agents', 'project', 'foreman'].includes(S.view) && loadView(), 15000);
     // A poll, not /api/projects/events: a stream held by every tab would take the machine's few SSE slots from the session logs.
     const machine = setInterval(() => document.visibilityState === 'visible' && refreshMachine(), 5000);
     // The Overview's graphs re-read every ledger, so they reload less often than its counts.
@@ -323,6 +324,7 @@
           {#if S.view === 'pipeline'}<Pipeline />
           {:else if S.view === 'issues'}<Issues />
           {:else if S.view === 'agents'}<Agents />
+          {:else if S.view === 'foreman'}<Foreman />
           {:else if S.view === 'analytics'}<Analytics />
           {:else if S.view === 'project'}<Project />
           {:else}<Evals />{/if}

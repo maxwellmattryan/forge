@@ -18,11 +18,11 @@ export interface FakeClaudeChild extends ClaudeChild {
   turns: number;
   /** Owner messages written (writeMessage), in order. */
   messages: string[];
-  /** Gate-run briefs written (writeBrief), in order. */
+  /** Gate-run and role briefs written (writeBrief), in order. */
   briefs: string[];
   /** Verdict retries written (writeVerdictRetry). */
   verdictRetries: number;
-  answers: { requestId: string; decision: PermissionDecision }[];
+  answers: { requestId: string; decision: PermissionDecision; why?: 'unattended' }[];
   /** Mode switches asked, with ids `fake-mode-<n>`. */
   modes: { requestId: string; mode: DaemonPermissionMode }[];
   signals: NodeJS.Signals[];
@@ -84,6 +84,7 @@ export function fakeClaude(opts: { exitOnSignal?: boolean } = {}): { adapter: Cl
           return true;
         },
         writeBrief(text) {
+          // The real stream's own check (briefLine), so a fake child refuses what a real one would.
           if (briefLine(text) === null) return false;
           c.briefs.push(text);
           return true;
@@ -91,9 +92,9 @@ export function fakeClaude(opts: { exitOnSignal?: boolean } = {}): { adapter: Cl
         writeVerdictRetry() {
           c.verdictRetries++;
         },
-        answerPermission(requestId, decision) {
+        answerPermission(requestId, decision, why) {
           if (!asked.delete(requestId)) return false;
-          c.answers.push({ requestId, decision });
+          c.answers.push({ requestId, decision, ...(why ? { why } : {}) });
           return true;
         },
         setPermissionMode(mode) {

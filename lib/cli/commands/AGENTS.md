@@ -31,6 +31,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `human.ts` | A person at this terminal confirming a human-only operation: the CLI's half of the human channel; the dashboard's routes are the other (docs/architecture/daemon-security.md). |
 | `init.ts` | `forge init write` and `forge migrate`: setting a repo up and keeping its files current. |
 | `job.ts` | `forge job …`: every write to a job's state goes through here. |
+| `job/agent-run.ts` | `forge job agent run`: one spawn `forge job step` chose, run as its own headless claude child in the job's worktree (lib/integrations/claude/role.ts), with Forge recording the agent's start, attach and end itself and its usage taken from the child's own result line. |
 | `job/agent.ts` | `forge job agent start\|end\|attach`: recording an agent's run, its usage and the secret scan of what it wrote. |
 | `job/create.ts` | `forge job new\|from-ref\|link`: creating a job, starting one from a tracker item, and the issues it carries. |
 | `job/decide.ts` | `forge job human\|assist`: recording a person's decision at a gate, the refusal of a foreman one (only forge dash's gate runner records those, in-process), and the read-only assist for a person's own terminal. |

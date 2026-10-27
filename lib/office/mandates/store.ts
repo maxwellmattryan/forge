@@ -1,21 +1,25 @@
 // Mandate files: `.forge/runtime/mandates/<id>.md`, YAML frontmatter then the owner's guidance. Read
-// without following a link or blocking on a FIFO, written only by `forge mandate` and the Office pass
-// (`forge office pass`, which pauses and closes) under one lock, and read for a job whose `mandate` is
-// set to narrow what the Foreman decides (jobMandateDecides). A mandate's runtime dir `<id>/` beside it
-// holds its drafting runs' files (draft.ts, intake.ts), its board and its closing summary (pass.ts,
-// director.ts). docs/architecture/foreman.md.
+// without following a link or blocking on a FIFO, and written under one lock only through mandateWrite
+// (`forge mandate new|edit|pause|resume|close` and the dashboard's Foreman page, the same checks for
+// both) and by the Office pass (`forge office pass`, which pauses and closes). Read for a job whose
+// `mandate` is set to narrow what the Foreman decides (jobMandateDecides), and to tell `forge sync`
+// whether its merged work gets a score run (jobMandateScoring). A mandate's runtime dir `<id>/`
+// beside it holds its drafting runs' files (draft.ts, intake.ts), its board and its closing summary
+// (pass.ts, director.ts). docs/architecture/foreman.md.
 import fs from 'node:fs';
 import path from 'node:path';
 import { paths } from '#core/paths.ts';
+import { ForgeError } from '#core/errors.ts';
 import { listJobs, logRepoEvent } from '#core/job/store.ts';
 import { readRegular, writeTextAtomic } from '#core/os/fs.ts';
 import { withLock, withLockAsync } from '#core/os/lock.ts';
+import { now } from '#core/utils.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { currentActor } from '#integrations/github/actor.ts';
 import { decides } from '#engine/pipeline/moves/foreman-gates.ts';
-import { MANDATE_ID, MANDATE_KEYS, isMandateId, isReadable, storedMandate } from './contract.ts';
-import type { Config, EventActor, GateClass, Job } from '#core/types.ts';
-import type { Mandate, ReadMandate } from './types.ts';
+import { MANDATE_ID, MANDATE_KEYS, applyInput, blankMandate, cleanReason, fillDefaults, isMandateId, isReadable, issueRefs, mandateProblems, storedMandate } from './contract.ts';
+import type { Config, EventActor, GateClass, Job, MandateScoring } from '#core/types.ts';
+import type { Mandate, MandateInput, ReadMandate } from './types.ts';
 
 export { MANDATE_ID };
 
@@ -129,6 +133,69 @@ export function writeMandate<T extends { mandate: Mandate; action: MandateAction
   });
 }
 
+/** The owner's mandate writes: `forge mandate <op>` and the Foreman page's POSTs. */
+export type MandateOp = 'new' | 'edit' | 'pause' | 'resume' | 'close';
+
+/** The readable mandate `id` among `all`; not_found when there is none, refused when it can't be read. */
+export function mandateTarget(all: ReadMandate[], id: string): Mandate {
+  const m = all.find((x) => x.id === id);
+  if (!m) throw new ForgeError(`no mandate ${JSON.stringify(id).slice(0, 60)}`, 'not_found');
+  if (!isReadable(m)) throw new ForgeError(`mandate ${id} can't be read (${m.problem})`, 1);
+  return m;
+}
+
+/** Whether two records say the same thing, the edit time aside. */
+const same = (a: Mandate, b: Mandate): boolean => JSON.stringify({ ...a, updatedAt: '' }) === JSON.stringify({ ...b, updatedAt: '' });
+
+/** The status moves: each idempotent, so the move to the status a mandate already has writes nothing. */
+function statusMove(op: 'pause' | 'resume' | 'close', m: Mandate, reason: string | null, at: string): Mandate | null {
+  if (op === 'close') return m.status === 'closed' ? null : { ...m, status: 'closed', reason, closedAt: at, updatedAt: at };
+  if (m.status === 'closed') throw new ForgeError(`mandate ${m.id} is closed`, 1);
+  if (op === 'pause') return m.status === 'paused' ? null : { ...m, status: 'paused', reason, updatedAt: at };
+  return m.status === 'active' ? null : { ...m, status: 'active', reason: null, updatedAt: at };
+}
+
+/**
+ * The one owner's mandate write, for the CLI and the dashboard: under the mandates lock, every check
+ * before the write, so a refusal (a ForgeError: not_found, or exit 1 with every problem joined by `; `)
+ * writes no file and no audit line. `new` takes every term not given from foreman.mandate; `edit` replaces
+ * only the terms given, and with `updatedAt` refuses once the stored mandate has moved on (a CLI edit or a
+ * pass pause in between); the status moves are idempotent. `changed` is false when nothing was written.
+ */
+export function mandateWrite(
+  root: string,
+  config: Config,
+  op: MandateOp,
+  id: string,
+  o: { input?: MandateInput; reason?: string | null; updatedAt?: string; actor?: EventActor } = {},
+): { changed: boolean } {
+  const actor = o.actor ? { actor: o.actor } : {};
+  const input = o.input ?? {};
+  const out = writeMandate(root, (all) => {
+    if (op === 'new') {
+      if (all.some((m) => m.id === id)) throw new ForgeError(`mandate ${id} exists; change it with forge mandate edit`, 1);
+      const refs = issueRefs(root, config, fillDefaults(config, input));
+      const m = applyInput(blankMandate(id, now()), refs.input);
+      const problems = [...refs.problems, ...mandateProblems(config, m, all, null)];
+      if (problems.length) throw new ForgeError(problems.join('; '), 1);
+      return { mandate: m, action: 'new' as MandateAction, ...actor };
+    }
+    const existing = mandateTarget(all, id);
+    if (op !== 'edit') {
+      const reason = op === 'resume' ? null : cleanReason(o.reason);
+      const next = statusMove(op, existing, reason, now());
+      return next ? { mandate: next, action: op as MandateAction, reason, ...actor } : null;
+    }
+    if (o.updatedAt !== undefined && o.updatedAt !== existing.updatedAt) throw new ForgeError(`mandate ${id} changed since you read it; reload and edit again`, 1);
+    const refs = issueRefs(root, config, input);
+    const m = applyInput(existing, refs.input);
+    const problems = [...refs.problems, ...mandateProblems(config, m, all, existing)];
+    if (problems.length) throw new ForgeError(problems.join('; '), 1);
+    return same(m, existing) ? null : { mandate: { ...m, updatedAt: now() }, action: 'edit' as MandateAction, ...actor };
+  });
+  return { changed: out !== null };
+}
+
 /** The ids of the jobs whose `mandate` is `id`. */
 export function mandateJobs(root: string, id: string): string[] {
   return listJobs(root)
@@ -145,6 +212,17 @@ export function mandateJobs(root: string, id: string): string[] {
  */
 export function jobMandateDecides(root: string, config: Config, job: Pick<Job, 'mandate'>): MandateDecides | null {
   return job.mandate === null || job.mandate === undefined ? null : mandateDecides(root, config, job.mandate);
+}
+
+/**
+ * A job's mandate's scoring term, whatever the mandate's status (a closed mandate's merged jobs are still
+ * scored by it); null when the job is in no mandate, or its file is missing or can't be read, so the job
+ * falls back to scoring.sample: an unreadable file never forces a score run.
+ */
+export function jobMandateScoring(root: string, job: Pick<Job, 'mandate'>): MandateScoring | null {
+  if (typeof job.mandate !== 'string' || !job.mandate) return null;
+  const m = readMandate(root, job.mandate);
+  return isReadable(m) ? m.scoring : null;
 }
 
 /** What mandateDecides returns: the cut decides and the mandate, or why its file can't be read. */

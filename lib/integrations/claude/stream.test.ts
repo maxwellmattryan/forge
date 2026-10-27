@@ -1,7 +1,7 @@
 // createStream as a pure decoder: claude's stream-json chunks in, ClaudeEvents and stdin lines out.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PERMISSION_DENIED, TURN_LINE, VERDICT_RETRY_LINE, briefLine, createStream, resultCost, sessionGrant } from './stream.ts';
+import { AUTH_TEXT, BRIEF_MAX_CHARS, PERMISSION_DENIED, TURN_LINE, UNATTENDED_DENIED, VERDICT_RETRY_LINE, briefLine, createStream, resultCost, sessionGrant } from './stream.ts';
 import type { ClaudeEvent, SessionCost } from './types.ts';
 
 /** One stream over in-memory sinks. */
@@ -74,24 +74,47 @@ test("claude's stream-json lines become domain events", () => {
       events: [logged({ type: 'system', subtype: 'background_tasks_changed', tasks: [{}, {}] }), { kind: 'background', count: 2 }],
     },
     { name: 'background without tasks', feed: (s) => s.stdout(line({ type: 'system', subtype: 'background_tasks_changed' })), events: [logged({ type: 'system', subtype: 'background_tasks_changed' })] },
-    { name: 'a working result', feed: (s) => s.stdout(line({ type: 'result', is_error: false })), events: [logged({ type: 'result', is_error: false }), { kind: 'turn-ended', ok: true, cost: null, text: null }] },
+    { name: 'a working result', feed: (s) => s.stdout(line({ type: 'result', is_error: false })), events: [logged({ type: 'result', is_error: false }), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null }] },
+    ...[
+      ['the first non-empty line', '\n  \nPLAN: SINGLE · one job  \nthe rest of the reply', 'PLAN: SINGLE · one job'],
+      ['a line cut to 280 characters', 'x'.repeat(400), 'x'.repeat(280)],
+      ['only whitespace', ' \n\t\n', null],
+    ].map(([name, result, summary]) => {
+      const ev = { type: 'result', subtype: 'success', is_error: false, result };
+      return { name: `an ok summary: ${name}`, feed: (s: S) => s.stdout(line(ev)), events: [logged(ev), { kind: 'turn-ended', ok: true, summary, cost: null, text: result } as ClaudeEvent] };
+    }),
     {
       name: "a working result's text, its last 4000 characters",
       feed: (s) => s.stdout(line({ type: 'result', is_error: false, result: `${'x'.repeat(5000)}\nASSIST: approve · fine` })),
-      events: [logged({ type: 'result', is_error: false, result: `${'x'.repeat(5000)}\nASSIST: approve · fine` }), { kind: 'turn-ended', ok: true, cost: null, text: `${'x'.repeat(3977)}\nASSIST: approve · fine` }],
+      events: [logged({ type: 'result', is_error: false, result: `${'x'.repeat(5000)}\nASSIST: approve · fine` }), { kind: 'turn-ended', ok: true, summary: 'x'.repeat(280), cost: null, text: `${'x'.repeat(3977)}\nASSIST: approve · fine` }],
+    },
+    {
+      name: 'an expired login',
+      feed: (s) => s.stdout(line(errorResult('OAuth token has expired · Please run /login'))),
+      events: [logged(errorResult('OAuth token has expired · Please run /login')), { kind: 'turn-ended', ok: false, reason: 'OAuth token has expired · Please run /login', limit: false, auth: true, resetsAt: null, budget: false, cost: null }],
+    },
+    {
+      name: 'a limit wins over a login',
+      feed: (s) => s.stdout(line(errorResult('API Error: 429 rate limit; run /login to switch accounts'))),
+      events: [logged(errorResult('API Error: 429 rate limit; run /login to switch accounts')), { kind: 'turn-ended', ok: false, reason: 'API Error: 429 rate limit; run /login to switch accounts', limit: true, auth: false, resetsAt: null, budget: false, cost: null }],
+    },
+    {
+      name: 'the dollar cap wins over a login',
+      feed: (s) => s.stdout(line({ type: 'result', subtype: 'error_max_budget_usd', is_error: true, result: 'Invalid API key' })),
+      events: [logged({ type: 'result', subtype: 'error_max_budget_usd', is_error: true, result: 'Invalid API key' }), { kind: 'turn-ended', ok: false, reason: 'Invalid API key', limit: false, auth: false, resetsAt: null, budget: true, cost: null }],
     },
     {
       name: 'a failed result',
       feed: (s) => s.stdout(line(errorResult('Failed to authenticate'))),
-      events: [logged(errorResult('Failed to authenticate')), { kind: 'turn-ended', ok: false, reason: 'Failed to authenticate', limit: false, resetsAt: null, budget: false, cost: null }],
+      events: [logged(errorResult('Failed to authenticate')), { kind: 'turn-ended', ok: false, reason: 'Failed to authenticate', limit: false, auth: false, resetsAt: null, budget: false, cost: null }],
     },
     ...[true, false].map((is_error) => {
       const ev = { type: 'result', subtype: 'error_max_budget_usd', is_error };
-      return { name: `the dollar cap (is_error ${is_error})`, feed: (s: S) => s.stdout(line(ev)), events: [logged(ev), { kind: 'turn-ended', ok: false, reason: 'error_max_budget_usd', limit: false, resetsAt: null, budget: true, cost: null } as ClaudeEvent] };
+      return { name: `the dollar cap (is_error ${is_error})`, feed: (s: S) => s.stdout(line(ev)), events: [logged(ev), { kind: 'turn-ended', ok: false, reason: 'error_max_budget_usd', limit: false, auth: false, resetsAt: null, budget: true, cost: null } as ClaudeEvent] };
     }),
     ...costRows.map(([name, fields, cost, ok]) => {
       const ev = ok ? { type: 'result', is_error: false, ...fields } : { ...errorResult('boom'), ...fields };
-      const ended: ClaudeEvent = ok ? { kind: 'turn-ended', ok: true, cost, text: null } : { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, resetsAt: null, budget: false, cost };
+      const ended: ClaudeEvent = ok ? { kind: 'turn-ended', ok: true, summary: null, cost, text: null } : { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, auth: false, resetsAt: null, budget: false, cost };
       return { name: `cost: ${name}`, feed: (s: S) => s.stdout(line(ev)), events: [logged(ev), ended] };
     }),
     {
@@ -100,7 +123,7 @@ test("claude's stream-json lines become domain events", () => {
       events: [
         logged({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: resetSeconds } }),
         logged({ type: 'result', subtype: 'error_max_budget_usd', is_error: true, result: 'usage limit' }),
-        { kind: 'turn-ended', ok: false, reason: 'usage limit', limit: false, resetsAt: null, budget: true, cost: null },
+        { kind: 'turn-ended', ok: false, reason: 'usage limit', limit: false, auth: false, resetsAt: null, budget: true, cost: null },
       ],
     },
     {
@@ -108,7 +131,7 @@ test("claude's stream-json lines become domain events", () => {
       feed: (s) => s.stdout(line(errorResult('API Error: 400 You have reached your specified API usage limits'))),
       events: [
         logged(errorResult('API Error: 400 You have reached your specified API usage limits')),
-        { kind: 'turn-ended', ok: false, reason: 'API Error: 400 You have reached your specified API usage limits', limit: true, resetsAt: null, budget: false, cost: null },
+        { kind: 'turn-ended', ok: false, reason: 'API Error: 400 You have reached your specified API usage limits', limit: true, auth: false, resetsAt: null, budget: false, cost: null },
       ],
     },
     ...[resetSeconds, resetSeconds * 1000].map((resetsAt) => ({
@@ -117,7 +140,7 @@ test("claude's stream-json lines become domain events", () => {
       events: [
         logged({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt } }),
         logged(errorResult('boom')),
-        { kind: 'turn-ended', ok: false, reason: 'boom', limit: true, resetsAt: resetSeconds * 1000, budget: false, cost: null } as ClaudeEvent,
+        { kind: 'turn-ended', ok: false, reason: 'boom', limit: true, auth: false, resetsAt: resetSeconds * 1000, budget: false, cost: null } as ClaudeEvent,
       ],
     })),
     {
@@ -127,7 +150,7 @@ test("claude's stream-json lines become domain events", () => {
         s.writeTurn();
         s.stdout(line(errorResult('boom')));
       },
-      events: [logged({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: resetSeconds } }), logged(errorResult('boom')), { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, resetsAt: null, budget: false, cost: null }],
+      events: [logged({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: resetSeconds } }), logged(errorResult('boom')), { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, auth: false, resetsAt: null, budget: false, cost: null }],
       written: [TURN_LINE],
     },
     { name: 'can_use_tool', feed: (s) => s.stdout(line(ask)), events: [logged(ask), askedEvent] },
@@ -214,6 +237,8 @@ test("claude's stream-json lines become domain events", () => {
       `${row.name}: stdin`,
     );
   }
+  // AUTH_TEXT reads claude's text, and a 10k-character hostile line must not backtrack it into a hang.
+  assert.equal(AUTH_TEXT.test(`${'token '.repeat(2000)}x${' '.repeat(8000)}`), false);
   // JSON can't carry NaN, so the decoder's own reader takes it directly.
   assert.deepEqual(resultCost({ total_cost_usd: NaN, modelUsage: { m: { ...usageOf(NaN), outputTokens: Infinity } } }), { usd: null, models: { m: { ...costOf(0), output: 0 } } });
 });
@@ -242,28 +267,33 @@ test('every stdin line is built from fixed text', () => {
   assert.deepEqual(refused.written, [], 'a refused message writes nothing');
   assert.equal(decoder().s.writeMessage('x'.repeat(8000)), true, '8000 characters is allowed');
 
-  // A gate run's brief: one user line, whatever it holds, up to 256 KiB; and the one fixed verdict retry.
+  // A role child's or gate run's brief: one user line carrying the text verbatim, whatever it holds.
   const brief = decoder();
   assert.equal(brief.s.writeBrief(hostile), true);
-  assert.equal(brief.written.length, 1);
-  assert.equal(brief.written[0].indexOf('\n'), brief.written[0].length - 1, 'the brief is one line');
-  assert.equal(JSON.parse(brief.written[0]).message.content[0].text, hostile);
-  assert.notEqual(briefLine('é'.repeat(128 * 1024)), null, 'exactly 256 KiB of UTF-8 is allowed');
+  assert.deepEqual(brief.written, [briefLine(hostile)]);
+  assert.equal(brief.written[0].indexOf('\n'), brief.written[0].length - 1, 'the brief is one line, ended by its newline');
+  const briefed = JSON.parse(brief.written[0]);
+  assert.deepEqual([briefed.type, briefed.message.role, briefed.message.content.length, briefed.message.content[0].text], ['user', 'user', 1, hostile]);
+  for (const bad of ['', '  \n\t', 'x'.repeat(BRIEF_MAX_CHARS + 1), 42, null, undefined, ['brief'], { text: 'brief' }]) assert.equal(briefLine(bad), null, `briefLine ${JSON.stringify(bad)?.slice(0, 20)}`);
+  assert.notEqual(briefLine('x'.repeat(BRIEF_MAX_CHARS)), null, 'BRIEF_MAX_CHARS characters is allowed');
   const noBrief = decoder();
-  for (const bad of ['', '  \n', 'é'.repeat(128 * 1024 + 1), 42, null, undefined, ['hi']]) assert.equal(noBrief.s.writeBrief(bad as never), false, JSON.stringify(bad)?.slice(0, 20));
+  assert.equal(noBrief.s.writeBrief('   '), false);
   assert.deepEqual(noBrief.written, [], 'a refused brief writes nothing');
+  // The one fixed verdict retry a gate run sends.
   const retry = decoder();
   retry.s.writeVerdictRetry();
   assert.deepEqual(retry.written, [VERDICT_RETRY_LINE]);
   assert.match(JSON.parse(VERDICT_RETRY_LINE).message.content[0].text, /^Your reply did not end with the line Forge needs\. Reply with exactly one line: `ASSIST: approve\|revise\|rework\|escalate · <reason>`/);
 
   const input = { command: 'cp a b', nested: { keep: [1, 2] } };
-  const answer = (decision: 'allow' | 'session' | 'deny') => {
+  const answer = (decision: 'allow' | 'session' | 'deny', why?: 'unattended') => {
     const d = decoder();
     d.s.stdout(line({ ...ask, request: { ...ask.request, input } }));
-    assert.equal(d.s.answerPermission('req-1', decision), true, decision);
+    assert.equal(d.s.answerPermission('req-1', decision, why), true, decision);
     return stdin(d)[0].response;
   };
+  assert.deepEqual(answer('deny', 'unattended'), { subtype: 'success', request_id: 'req-1', response: { behavior: 'deny', message: UNATTENDED_DENIED } });
+  assert.notEqual(UNATTENDED_DENIED, PERMISSION_DENIED);
   assert.deepEqual(answer('allow'), { subtype: 'success', request_id: 'req-1', response: { behavior: 'allow', updatedInput: input } });
   assert.deepEqual(answer('session'), {
     subtype: 'success',

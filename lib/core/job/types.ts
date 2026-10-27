@@ -1,6 +1,39 @@
 // The job shapes the store, the archive and the findings summary share, type-only: re-exported by lib/core/types.ts.
 import type { SEVERITIES } from './schema.ts';
-import type { EventActor, Job, JobEvent } from '#api/types.ts';
+import type { AgentUsage, ContextComposition, EventActor, Job, JobEvent } from '#api/types.ts';
+
+/** What recordAgent knows about an agent end when it records the run: recordRun in lib/core/job/schema.ts. */
+export interface AgentRunEnd {
+  wasRunning: boolean;
+  at: string | null;
+  round: number;
+  status: string;
+  model: string | null;
+  usage?: AgentUsage;
+  composition?: ContextComposition | null;
+}
+
+/** What recordAgent in lib/core/job/store.ts records for one agent start or end. */
+export interface AgentRecordChange {
+  role: string;
+  phase: 'start' | 'end';
+  model?: string;
+  agentId?: string;
+  status?: string;
+  summary?: string;
+  usage?: AgentUsage;
+  importedThrough?: string | null;
+  /** end: the imported transcript's context composition, recorded on the run only (recordRun in ./schema.ts), never in the event. */
+  composition?: ContextComposition | null;
+  /** start: the job-dir-relative output (resolveAgentOutput). */
+  output?: string | null;
+  /** start: this run is the one retry. */
+  retry?: boolean;
+  /** end: the output check's result, when an output is known. */
+  outputMissing?: boolean;
+  /** end: `metered` when the job's own daemon session's meter holds this run's cost, `unmeasured` when its transcript wasn't found. */
+  flags?: { metered?: true; unmeasured?: true };
+}
 
 /**
  * A person's go-ahead for a human-only operation, from a channel a session's children can't reach:
@@ -17,6 +50,17 @@ export type Severity = (typeof SEVERITIES)[number];
 
 /** A job as loadJob and normalizeJob return it: normalizeJob marks one written by a newer Forge. */
 export type LoadedJob = Job & { _unsupported?: true };
+
+/**
+ * A fenced write (lib/core/job/store.ts updateJob, checkFence): refused (stale_epoch) unless the lease
+ * is still at `epoch` and, with `session`, still that driver's. `check` then runs under the same job
+ * lock and throws to refuse, so a caller can re-check what it decided from before writing.
+ */
+export interface Fence {
+  epoch: number;
+  session?: string;
+  check?: (job: LoadedJob) => void;
+}
 
 /** What setJob in lib/core/job/store.ts applies; stage, state and waitingOn are checked against their lists before the write. */
 export interface JobChange {

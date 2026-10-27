@@ -257,12 +257,21 @@ const columns = (rows: [string, string][], max: number, indent = '  '): string =
 
 export type HelpTarget = { group?: undefined; command?: undefined } | { group: HelpGroup; command?: CommandHelp };
 
+/** The group's command named by the longest prefix of `words` after the group's own (`job agent run`, then `job agent`). */
+function commandOf(group: HelpGroup, words: readonly string[]): CommandHelp | undefined {
+  const named = (n: number) => (words.length > n ? group.commands.find((c) => c.command === [group.name, ...words.slice(1, n + 1)].join(' ')) : undefined);
+  return named(2) ?? named(1);
+}
+
+/** The commands nested under `c` (`job agent run` under `job agent`), which its help lists after its own. */
+const nestedUnder = (g: HelpGroup, c: CommandHelp): CommandHelp[] => g.commands.filter((x) => x.command.startsWith(`${c.command} `));
+
 /** What `forge help <words>` shows: the overview, a group or one command; null for an unknown command. */
 export function findHelp(words: readonly string[]): HelpTarget | null {
   if (!words.length) return {};
   const group = GROUPS.find((g) => g.name === words[0]);
   if (!group) return null;
-  const command = words[1] === undefined ? undefined : group.commands.find((c) => c.command === `${group.name} ${words[1]}`);
+  const command = commandOf(group, words);
   if (command) return { group, command };
   return single(group) ? { group, command: group.commands[0] } : { group };
 }
@@ -297,7 +306,7 @@ function renderGroup(g: HelpGroup): string {
   ].join('\n');
 }
 
-export function renderCommand(c: CommandHelp): string {
+export function renderCommand(c: CommandHelp, nested: readonly CommandHelp[] = []): string {
   const exits = new Map<number, string>([[0, 'ok'], [2, `usage: ${USAGE_EXIT}`]]);
   for (const [code, when] of c.exits ?? []) exits.set(code, when);
   const lines = [
@@ -313,6 +322,7 @@ export function renderCommand(c: CommandHelp): string {
     ...[...exits].sort(([a], [b]) => a - b).map(([code, when]) => `  ${code}  ${when}`),
   ];
   if (c.docs) lines.push('', `See: ${c.docs[0]} (${c.docs[1]})`);
+  if (nested.length) lines.push('', 'Subcommands:', columns(nested.map((n) => [usageLine(n), n.summary]), 48), '', `Run forge help ${c.command} <subcommand> for its flags and exit codes.`);
   return lines.join('\n');
 }
 
@@ -331,7 +341,7 @@ export function helpCmd(words: readonly string[], flags: Record<string, any>): v
   const h = findHelp(words);
   if (!h) throw new ForgeError(`unknown command "${words[0]}"; run \`forge help\` to list commands`, 'unknown_command', 'forge help');
   if (flags.json) return out(h.command ? publicCommand(h.command) : h.group ? publicGroup(h.group) : { version: forgeVersion(), groups: GROUPS.map(publicGroup) }, flags);
-  out(h.command ? renderCommand(h.command) : h.group ? renderGroup(h.group) : renderOverview(), flags);
+  out(h.command ? renderCommand(h.command, nestedUnder(h.group, h.command)) : h.group ? renderGroup(h.group) : renderOverview(), flags);
 }
 
 export const COMMON_START = '<!-- forge:commands:start (generated from lib/cli/commands/*.ts by npm run docs:commands; edit those tables) -->';
@@ -412,10 +422,10 @@ export function usage(name: string, sub?: string): ForgeError {
 
 /** The help for the longest known prefix of the call's words: `forge help job claim`. */
 function usageHint(argv: readonly string[]): string {
-  const [cmd, sub] = parseArgs([...argv]).pos;
-  const g = GROUPS.find((x) => x.name === cmd);
+  const pos = parseArgs([...argv]).pos;
+  const g = GROUPS.find((x) => x.name === pos[0]);
   if (!g) return 'forge help';
-  const c = g.commands.find((x) => x.command === `${g.name} ${sub}`);
+  const c = commandOf(g, pos);
   return `forge help ${c ? c.command : g.name}`;
 }
 

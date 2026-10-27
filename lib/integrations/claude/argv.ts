@@ -1,11 +1,13 @@
 // Claude Code's command line and environment for a headless session: the permission-mode and effort
-// flags, `daemon.command` to argv, and the child's env. createSession (lib/office/session/lifecycle.ts)
-// spawns with them; docs/architecture/daemon-security.md describes the rules they keep.
+// flags, `daemon.command` to argv, a role child's argv, and the child's env. createSession
+// (lib/office/session/lifecycle.ts) and `forge job agent run` spawn with them;
+// docs/architecture/daemon-security.md describes the rules they keep.
 import path from 'node:path';
 import { ForgeError } from '#core/errors.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { EFFORTS } from '#core/job/schema.ts';
 import { validModel } from '#core/config/models.ts';
+import { UUID } from '#core/job/session-files.ts';
 import { SESSION_PINS, pinEnv } from '../git/runner.ts';
 import { splitWords } from '#core/text.ts';
 import type { DaemonAuth, DaemonBilling, DaemonPermissionMode, Effort } from '#core/types.ts';
@@ -218,6 +220,17 @@ export function parseTemplate(template: string): string[] {
 }
 
 /**
+ * `allowedTools` as one --allowedTools value: every file tool, bare or scoped, goes, and when there was
+ * one, an `Edit(//<root>/**)` rule per write root takes its place, so a session writes without a
+ * prompt only inside those roots.
+ */
+export function scopedTools(allowedTools: readonly string[], writeRoots: readonly string[]): string {
+  const kept = allowedTools.filter((t) => !isFileTool(t));
+  const scoped = kept.length < allowedTools.length ? writeRoots.map((r) => `Edit(${absRule(r)}/**)`) : [];
+  return [...kept, ...scoped].join(',');
+}
+
+/**
  * Placeholders expand after splitting, so a plugin path with spaces stays one argument.
  * `{allowedTools}` loses every file tool, bare or scoped; when it had one, an Edit rule per write
  * root takes its place, so a session writes without a prompt only inside those roots.
@@ -244,10 +257,7 @@ export function buildArgv(
     agent?: 'forge:assistant' | null;
   },
 ): string[] {
-  const listed = vars.allowedTools ?? [];
-  const kept = listed.filter((t) => !isFileTool(t));
-  const scoped = kept.length < listed.length ? (vars.writeRoots ?? []).map((r) => `Edit(${absRule(r)}/**)`) : [];
-  const tools = [...kept, ...scoped].join(',');
+  const tools = scopedTools(vars.allowedTools ?? [], vars.writeRoots ?? []);
   let argv = parseTemplate(template).flatMap((tok) => {
     if (tok === '{session}') return [vars.session.resume ? '--resume' : '--session-id', vars.session.id];
     return [tok.replaceAll('{pluginRoot}', vars.pluginRoot).replaceAll('{allowedTools}', tools)];
@@ -263,4 +273,69 @@ export function buildArgv(
   if (typeof vars.appendSystemPrompt === 'string') argv.push('--append-system-prompt', vars.appendSystemPrompt);
   if (vars.agent === 'forge:assistant') argv.push('--agent', 'forge:assistant');
   return [...argv, '--disallowedTools', [...DENY_TOOLS, ...(vars.deny ?? [])].join(','), ...PROMPT_TOOL];
+}
+
+/** A plugin agent a role child may run: `forge:` and a role's base name. */
+const ROLE_AGENT = /^forge:[a-z0-9-]+$/;
+/** An absolute file rule as confine.ts absoluteDenyRules writes one: `Edit(//…)`, with no comma to split the list. */
+const ABSOLUTE_RULE = /^Edit\(\/\/[^,\r\n]+\)$/;
+
+/**
+ * One role child's command line (`forge job agent run`, lib/cli/commands/job/agent-run.ts): one pipeline
+ * role as its own headless `claude -p --agent forge:<role>` in the job's worktree, with the brief on
+ * stdin (stream.ts briefLine), never in argv. Only `executable` comes from daemon.command (its first
+ * word); none of the template's other words. `model` and `effort` are dropped unless valid, and the
+ * agent and session id must match their patterns or this throws, so no value can become a flag.
+ * DENY_TOOLS are not appended: anchored at the worktree cwd they would deny the branch's own
+ * `.forge/notes/**` and `CLAUDE.md`. The caller passes the absolute rules (absoluteDenyRules), and a
+ * relative one throws. The cwd is also a branch's checkout of files agents write, so `--setting-sources user`
+ * keeps its project and local scope out (CLAUDE.md and CLAUDE.local.md memory, `.claude/settings*.json` hooks,
+ * permissions and env, `.claude/skills` and `commands`) and `--strict-mcp-config` its `.mcp.json`: only the
+ * user's own settings and the `--plugin-dir` plugin load, as for a subagent of a session at the main checkout.
+ */
+export function roleArgv(vars: {
+  executable: string;
+  pluginRoot: string;
+  agent: string;
+  model?: string | null;
+  effort?: Effort | null;
+  permissionMode: string;
+  allowedTools: readonly string[];
+  writeRoots: readonly string[];
+  deny: readonly string[];
+  session: { id: string; resume: boolean };
+}): string[] {
+  if (typeof vars.agent !== 'string' || !ROLE_AGENT.test(vars.agent)) throw new ForgeError(`a role child's agent must match ${ROLE_AGENT.source} (got ${JSON.stringify(String(vars.agent).slice(0, 80))})`);
+  if (typeof vars.session?.id !== 'string' || !UUID.test(vars.session.id)) throw new ForgeError(`a role child's session id must be a uuid (got ${JSON.stringify(String(vars.session?.id).slice(0, 80))})`);
+  const relative = vars.deny.find((r) => typeof r !== 'string' || !ABSOLUTE_RULE.test(r));
+  if (relative !== undefined) throw new ForgeError(`a role child's deny rules must be absolute Edit(//…) rules: ${JSON.stringify(String(relative).slice(0, 200))} would anchor at the worktree`);
+  const model = validModel(vars.model);
+  const effort = vars.effort && (EFFORTS as readonly unknown[]).includes(vars.effort) ? vars.effort : null;
+  return [
+    vars.executable,
+    '-p',
+    '--input-format',
+    'stream-json',
+    '--output-format',
+    'stream-json',
+    '--verbose',
+    '--plugin-dir',
+    vars.pluginRoot,
+    '--agent',
+    vars.agent,
+    '--setting-sources',
+    'user',
+    '--strict-mcp-config',
+    ...(model && model !== 'inherit' ? ['--model', model] : []),
+    ...(effort ? ['--effort', effort] : []),
+    '--permission-mode',
+    vars.permissionMode,
+    '--allowedTools',
+    scopedTools(vars.allowedTools, vars.writeRoots),
+    vars.session.resume ? '--resume' : '--session-id',
+    vars.session.id,
+    '--disallowedTools',
+    vars.deny.join(','),
+    ...PROMPT_TOOL,
+  ];
 }

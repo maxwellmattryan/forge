@@ -68,6 +68,14 @@ export const API_CHANGES = [
   // The chat routes under /api/p/<project>/chats (Chat, ChatLogEntry, ChatLogPage, ChatDetail, ChatList); scope `_chat-<id>`
   // in /events, /daemons/log, /daemon/permission, /daemon/mode and /daemon; ActorSource 'chat'; Stats.cost.sessions.chat.
   { id: 'chats' },
+  // The Foreman page's mandate routes: GET /api/mandates (MandatesResponse), GET /api/mandates/:id (MandateDetailResponse),
+  // POST /api/mandates and /api/mandates/:id/edit|pause|resume|close (PostMandateResponse); MandateRow, Directive.
+  { id: 'foreman-page' },
+  // AgentRow.runs: every ended run of the role with its billing split and context composition; AgentRow.tokens is now
+  // the sum of those runs' totals. JobAgent.runHistory and .legacyRuns are kept out of /api/state and JobDetail.job.
+  { id: 'agent-runs' },
+  // MandateContract.scoring (all | sample | off); the scoring term on POST /api/mandates and /api/mandates/:id/edit.
+  { id: 'mandate-scoring' },
   // DaemonPoolState.gates (GateRunsState, GateRunState): forge dash's gate runner and its runs; gate requests route to
   // `_gates`, which no session serves; DaemonPoolState.assistants is gone.
   { id: 'gate-runs' },

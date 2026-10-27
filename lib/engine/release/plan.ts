@@ -1,7 +1,8 @@
 // The release plan's shapes, and the planner that turns each repo's release strategy
 // (lib/core/config/release-strategy.ts) and the repo graph into an ordered plan of checkable steps
 // with rollback (docs/RELEASES.md "Releasing a project"). Planning only reads: local git, the
-// manifests and config. It never runs a release command, a registry command or `git fetch`.
+// manifests and config. It never runs a release command, a registry command or `git fetch`; a script
+// repo's bump comes from `opts.bump` (the draft `forge release plan` runs, or release.json on a recompute).
 // lib/engine/release/run.ts executes the plan, and recomputes it here first rather than trusting
 // release.json, which an agent session could have edited.
 
@@ -19,12 +20,28 @@ import { assertSafeRef } from '#core/text.ts';
 import { now } from '#core/utils.ts';
 import { ecosystemOf, readManifestPackage } from './manifest.ts';
 import { type RepoInput, labelOf, rollbackFor, stepsFor } from './steps.ts';
+import { fileBumps } from './script.ts';
 
 /** The release.json and state.json format; a file of any other version is planned again, never read. */
 export const RELEASE_FILE_VERSION = 1;
 
-const CHECK_KINDS = ['ready', 'clean', 'tagged', 'tag-pushed', 'remote-tagged', 'at-remote', 'registry'] as const;
+const CHECK_KINDS = ['ready', 'clean', 'tagged', 'tag-pushed', 'remote-tagged', 'at-remote', 'registry', 'pr-merged'] as const;
 export type CheckKind = (typeof CHECK_KINDS)[number];
+
+export const VERSION_BUMPS = ['patch', 'minor', 'major'] as const;
+export type VersionBump = (typeof VERSION_BUMPS)[number];
+
+/** A script repo's version bump: what its `--draft-notes` drafted at plan time, and the notes file the owner edits. */
+export interface ReleaseBump {
+  from: string;
+  /** X.Y.Z: the version the release makes, which every step's argv names. */
+  to: string;
+  bump: VersionBump;
+  inferred: 'patch' | 'minor';
+  reasons: string[];
+  /** Always Forge's own notes path (script.ts `notesPath`), never a value read back from release.json. */
+  notes: string;
+}
 
 export type ReleaseSelection = { kind: 'job'; job: string } | { kind: 'since'; tag: string } | { kind: 'all' };
 
@@ -61,6 +78,8 @@ export interface ReleaseRepo {
   cadence: ReleaseCadence | null;
   version: string | null;
   package: ReleasePackage | null;
+  /** `mechanism: script` only; null otherwise, and when a file from before the mechanism lacks it. */
+  bump: ReleaseBump | null;
   steps: ReleaseStep[];
   rollback: string[];
 }
@@ -113,6 +132,8 @@ export type CloneResolver = (name: string) => { dir: string } | { detail: string
 export interface PlanOptions {
   git?: GitReader;
   clone?: CloneResolver;
+  /** A script repo's bump: drafted by `forge release plan`, read back from release.json by a recompute. */
+  bump?: (input: RepoInput) => ReleaseBump;
 }
 
 /** git in a clone through the shared wrapper (pins, no inherited GIT_DIR-style variables), as memberCheck runs it. */
@@ -244,10 +265,15 @@ export function planRelease(root: string, config: Config, selection: ReleaseSele
   const repos: ReleaseRepo[] = ord.order.map((repo) => {
     const strategy = strategyOf(config, repo) as ReleaseStrategy & { mechanism: ReleaseMechanism };
     const registry = strategy.registry ?? null;
-    const eco = ecosystemOf(strategy.mechanism, registry);
+    // The script publishes nothing to a registry, whatever `registry` says.
+    const eco = strategy.mechanism === 'script' ? null : ecosystemOf(strategy.mechanism, registry);
     const dir = dirs.get(repo)!;
     const manifest = eco ? readManifestPackage(dir, eco) : null;
-    const input: RepoInput = { repo, dir, base: repoBase(config, repo), remote, strategy, manifest };
+    const input: RepoInput = { repo, dir, base: repoBase(config, repo), remote, strategy, manifest, bump: null };
+    if (strategy.mechanism === 'script') {
+      if (!opts.bump) throw new ForgeError(`${labelOf(repo)}: a script release needs its version bump; re-run forge release plan`);
+      input.bump = opts.bump(input);
+    }
     const steps = stepsFor(input);
     const pkg = eco && manifest && 'name' in manifest ? { ecosystem: eco, name: manifest.name } : null;
     return {
@@ -259,6 +285,7 @@ export function planRelease(root: string, config: Config, selection: ReleaseSele
       cadence: strategy.cadence ?? null,
       version: manifest && 'version' in manifest ? manifest.version : null,
       package: pkg,
+      bump: input.bump,
       steps,
       rollback: rollbackFor(input, steps, pkg),
     };
@@ -269,7 +296,8 @@ export function planRelease(root: string, config: Config, selection: ReleaseSele
 
 /** The plan as it is now, against release.json and state.json; a mismatch is refused as stale. */
 export function freshPlan(root: string, config: Config, file: ReleasePlan, state: ReleaseState | null, opts: PlanOptions = {}): ReleasePlan {
-  const now = planRelease(root, config, file.selection, opts);
+  // A script repo's bump comes back from the file, checked, with Forge's own notes path; its draft never runs again.
+  const now = planRelease(root, config, file.selection, { ...opts, bump: opts.bump ?? fileBumps(root, file) });
   // planHash(file) catches a release.json edited without updating its hash.
   const old = [file.hash, planHash(file), state?.planHash].find((h) => h !== undefined && h !== now.hash);
   if (old !== undefined) throw new ForgeError(`the release plan no longer matches config and the repos (plan ${String(old).slice(0, 12)}, now ${now.hash.slice(0, 12)}); run forge release plan`);
@@ -292,4 +320,11 @@ export function selectionFrom(flags: { job?: unknown; since?: unknown }): Releas
     }
   }
   return { kind: 'all' };
+}
+
+/** The plan command's `--bump`, or null without it; a usage error for any other value. */
+export function bumpFrom(flags: { bump?: unknown }): VersionBump | null {
+  if (flags.bump === undefined) return null;
+  if (typeof flags.bump !== 'string' || !(VERSION_BUMPS as readonly string[]).includes(flags.bump)) throw new ForgeError('--bump must be patch, minor or major', 'usage', 'forge help release plan');
+  return flags.bump as VersionBump;
 }

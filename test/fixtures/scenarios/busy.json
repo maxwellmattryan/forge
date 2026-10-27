@@ -98,6 +98,7 @@
     "project": ["@project.empty"],
     "issues": ["@issues.empty"],
     "agents": ["@agents.running", "Build the export command"],
+    "foreman": ["@foreman.title", "@statusbar.foreman.offTitle", "@foreman.office.noMandates", "@foreman.office.noDirectives"],
     "analytics": ["@analytics.jobs", "@analytics.noUsage"],
     "evals": ["@evals.empty"],
     "drawer": { "job": "build", "text": ["@thread.progress.stage", "builder"] }

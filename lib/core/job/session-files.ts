@@ -1,11 +1,13 @@
-// The daemon's session records and logs under .forge/runtime/daemons/, opened without following
-// links or blocking on a FIFO. A leaf, so the modules that read a session's files (notify,
-// transcripts, retention, the server) don't load the supervisor in lib/office/session/lifecycle.ts.
+// The daemon's session records and logs under .forge/runtime/daemons/, and a role run's log and cost
+// sidecar under .forge/runtime/agents/, opened without following links or blocking on a FIFO. A leaf, so
+// the modules that read a session's files (notify, transcripts, retention, the server) don't load the
+// supervisor in lib/office/session/lifecycle.ts.
 import fs from 'node:fs';
 import path from 'node:path';
 import { paths } from '../paths.ts';
-import { validRuntimeScope, validScope } from './requests.ts';
+import { validJobId, validRuntimeScope, validScope } from './requests.ts';
 import { ForgeError } from '../errors.ts';
+import { confinedDir } from '../os/fs.ts';
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -21,6 +23,27 @@ export function sessionFiles(root: string, scope: string): { dir: string; info: 
 
 export function daemonsDir(root: string): string {
   return path.join(paths(root).runtime, 'daemons');
+}
+
+/**
+ * A role run's files (`forge job agent run`): its run log and the sidecar holding claude's last
+ * cumulative cost, which a later resume of that session subtracts, as
+ * `.forge/runtime/agents/<jobId>/<sessionId>.{log,json}`. Both ids are checked first.
+ */
+export function roleRunFiles(root: string, jobId: string, sessionId: string): { dir: string; log: string; cum: string } {
+  if (!validJobId(jobId)) throw new ForgeError(`invalid job id ${JSON.stringify(String(jobId).slice(0, 80))}`, 'usage');
+  if (typeof sessionId !== 'string' || !UUID.test(sessionId)) throw new ForgeError(`a role run's session id must be a uuid (got ${JSON.stringify(String(sessionId).slice(0, 80))})`, 'usage');
+  const dir = path.join(paths(root).runtime, 'agents', jobId);
+  return { dir, log: path.join(dir, `${sessionId}.log`), cum: path.join(dir, `${sessionId}.json`) };
+}
+
+/**
+ * Creates a role run's dir before a writer opens a file there, a level at a time below `.forge/`
+ * (confinedDir): a `runtime/`, `agents/` or job dir that is a planted link or not a directory is
+ * refused, so no write is redirected. Returns the dir's real path.
+ */
+export function ensureRoleRunDir(root: string, files: { dir: string }): string {
+  return confinedDir(paths(root).dir, files.dir);
 }
 
 const MAX_RECORD = 64 * 1024;

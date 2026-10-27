@@ -55,14 +55,16 @@ export type ClaudeEvent =
   | { kind: 'mode-answer'; requestId: string; ok: boolean; error: string | null }
   /**
    * A working turn; `cost` is claude's own cumulative cost report on the result line (resultCost), null when it sent none;
-   * `text` is the line's `result` (its last 4000 characters), null when it carried none: a gate run reads its verdict there.
+   * `summary` the first non-empty line of its result text (at most 280 characters), null without one.
+   * `text` is the result's last 4000 characters, null when it carried none: a gate run reads its verdict there.
    */
-  | { kind: 'turn-ended'; ok: true; cost?: SessionCost | null; text?: string | null }
+  | { kind: 'turn-ended'; ok: true; summary?: string | null; cost?: SessionCost | null; text?: string | null }
   /**
    * A failed turn: `limit` when it was a quota refusal, `resetsAt` (ms) when claude said when the window resets,
-   * `budget` when the child reached its --max-budget-usd cap (never a limit: retrying can't lift it).
+   * `budget` when the child reached its --max-budget-usd cap (never a limit: retrying can't lift it), `auth` when
+   * it is neither and its text reads like an expired or missing login (stream.ts AUTH_TEXT).
    */
-  | { kind: 'turn-ended'; ok: false; reason: string; limit: boolean; resetsAt: number | null; budget: boolean; cost?: SessionCost | null }
+  | { kind: 'turn-ended'; ok: false; reason: string; limit: boolean; auth?: boolean; resetsAt: number | null; budget: boolean; cost?: SessionCost | null }
   /** A line that broke the protocol and was answered with nothing. */
   | { kind: 'protocol-error'; message: string }
   /** The process failed; `started` is false when it never ran (ENOENT, EACCES). */
@@ -72,7 +74,7 @@ export type ClaudeEvent =
   /** The process closed. Sent once, last. */
   | { kind: 'exit'; code: number | null; signal: string | null };
 
-/** One running claude child. Every line it writes to claude is built from fixed text or a fixed list, except a chat's owner message (writeMessage) and a gate run's brief (writeBrief). */
+/** One running claude child. Every line it writes to claude is built from fixed text or a fixed list, except a chat's owner message (writeMessage) and a role child's or gate run's brief (writeBrief). */
 export interface ClaudeChild {
   readonly pid: number | null;
   /** Whether its stdout is paused (backpressure from a full log). */
@@ -83,12 +85,15 @@ export interface ClaudeChild {
   writeTurn(): void;
   /** Writes one owner message as a user line (stream.ts chatMessageLine); false, writing nothing, for a text it refuses. Only a chat session calls it. */
   writeMessage(text: string): boolean;
-  /** Writes a gate run's assist brief as its first user line (stream.ts briefLine); false, writing nothing, for a text it refuses. Only a gate run calls it. */
+  /** Writes a role child's or gate run's brief as its first user line (stream.ts briefLine); false, writing nothing, for a text it refuses. Only role.ts runRoleChild and a gate run call it. */
   writeBrief(text: string): boolean;
   /** Writes the fixed verdict retry (stream.ts VERDICT_RETRY_LINE). Only a gate run calls it. */
   writeVerdictRetry(): void;
-  /** Answers a request claude asked; false, writing nothing, when it is not waiting (answered, cancelled or unknown). */
-  answerPermission(requestId: string, decision: PermissionDecision): boolean;
+  /**
+   * Answers a request claude asked; false, writing nothing, when it is not waiting (answered, cancelled or unknown).
+   * A deny with `why` `unattended` carries UNATTENDED_DENIED rather than PERMISSION_DENIED.
+   */
+  answerPermission(requestId: string, decision: PermissionDecision, why?: 'unattended'): boolean;
   /** Asks claude to switch mode; returns the request id, or null for a mode outside PERMISSION_MODES. */
   setPermissionMode(mode: DaemonPermissionMode): string | null;
   /** Ends its stdin. */

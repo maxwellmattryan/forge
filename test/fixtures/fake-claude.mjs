@@ -1,6 +1,11 @@
 // A stand-in for `claude -p --input-format stream-json --output-format stream-json`, used by the
 // daemon tests. Knobs (environment):
-//   FAKE_CLAUDE_LOG           append {pid, argv, scope} at start and {pid, stdin} per input line
+//   FAKE_CLAUDE_LOG           append {pid, argv, scope, cwd, env} at start and {pid, stdin} per input line; env holds the
+//                             FORGE_* keys a role child gets, and only whether ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN are set
+//   FAKE_CLAUDE_RESULT_TEXT   the text of every working result (a role's reply)
+//   FAKE_CLAUDE_MODEL_USAGE   JSON modelUsage for every result, with total_cost_usd the sum of its costUSD
+//   FAKE_CLAUDE_RATE_LIMIT    a rejected rate_limit_event with this resetsAt (epoch seconds) before every result
+//   FAKE_CLAUDE_WRITE         `path=text`: write text to path before every result (a role's output, or a trusted file)
 //   FAKE_CLAUDE_DELAY_MS      delay before each `result` (default 0)
 //   FAKE_CLAUDE_DELAY_SCOPE   apply that delay only in this FORGE_DAEMON_SCOPE
 //   FAKE_CLAUDE_MISSING       with --resume: an error `result` on stdout, "No conversation found…" on stderr, exit 1
@@ -37,7 +42,13 @@ const scope = env.FORGE_DAEMON_SCOPE ?? null;
 // Before the start record: a test that sees the record may signal at once, and a SIGTERM that
 // arrived before the handler would kill a child that is supposed to ignore it.
 if (env.FAKE_CLAUDE_IGNORE_TERM) process.on('SIGTERM', () => {});
-log({ argv, scope });
+const ROLE_ENV = ['FORGE_DAEMON', 'FORGE_MODE', 'FORGE_ROOT', 'FORGE_DAEMON_SCOPE', 'FORGE_DAEMON_TRUST', 'FORGE_DAEMON_WRITE_ROOTS'];
+log({
+  argv,
+  scope,
+  cwd: process.cwd(),
+  env: { ...Object.fromEntries(ROLE_ENV.map((k) => [k, env[k] ?? null])), ANTHROPIC_API_KEY: Boolean(env.ANTHROPIC_API_KEY), ANTHROPIC_AUTH_TOKEN: Boolean(env.ANTHROPIC_AUTH_TOKEN) },
+});
 
 const resume = flag('--resume');
 const session = resume && env.FAKE_CLAUDE_FORK ? crypto.randomUUID() : (resume ?? flag('--session-id') ?? 'no-session');
@@ -93,9 +104,21 @@ function serve() {
     if (env.FAKE_CLAUDE_NO_RESULT) return;
     if (env.FAKE_CLAUDE_SUBAGENT) subagent(out, session, turn);
     const cost = env.FAKE_CLAUDE_SUBAGENT ? { total_cost_usd: 0.25, num_turns: 3, duration_ms: 1200 } : {};
-    const failed = env.FAKE_CLAUDE_RESULT_ERROR ? { is_error: true, result: env.FAKE_CLAUDE_RESULT_ERROR } : { is_error: false };
+    if (env.FAKE_CLAUDE_MODEL_USAGE) {
+      const modelUsage = JSON.parse(env.FAKE_CLAUDE_MODEL_USAGE);
+      Object.assign(cost, { modelUsage, total_cost_usd: Object.values(modelUsage).reduce((n, /** @type {any} */ m) => n + (m.costUSD ?? 0), 0) });
+    }
+    const text = env.FAKE_CLAUDE_RESULT_TEXT ? { result: env.FAKE_CLAUDE_RESULT_TEXT } : {};
+    const failed = env.FAKE_CLAUDE_RESULT_ERROR ? { is_error: true, result: env.FAKE_CLAUDE_RESULT_ERROR } : { is_error: false, ...text };
     const finish = (/** @type {string | null} */ answer) =>
-      setTimeout(() => out({ type: 'result', subtype: 'success', session_id: session, ...cost, ...failed, ...(answer ? { result: `permission: ${answer}` } : {}) }), delay);
+      setTimeout(() => {
+        if (env.FAKE_CLAUDE_WRITE) {
+          const at = env.FAKE_CLAUDE_WRITE.indexOf('=');
+          fs.writeFileSync(env.FAKE_CLAUDE_WRITE.slice(0, at), env.FAKE_CLAUDE_WRITE.slice(at + 1));
+        }
+        if (env.FAKE_CLAUDE_RATE_LIMIT) out({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: Number(env.FAKE_CLAUDE_RATE_LIMIT) }, session_id: session });
+        out({ type: 'result', subtype: 'success', session_id: session, ...cost, ...failed, ...(answer ? { result: `permission: ${answer}` } : {}) });
+      }, delay);
     if (!env.FAKE_CLAUDE_ASK) return finish(null);
     const requestId = `ask-${turn}`;
     pending.set(requestId, finish);

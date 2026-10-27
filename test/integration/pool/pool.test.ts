@@ -17,6 +17,10 @@ import { createPool } from '#office/pool.ts';
 import { createMachineSlots } from '#office/slots.ts';
 import { CHAT_PROMPT } from '#office/session/launch.ts';
 
+// The Office pass child's stand-in for tests that don't look at the pass: the real one is a `forge office pass`
+// process that close() doesn't wait for, so it could still write in the temp repo while cleanup removes it.
+const noPass = async (): Promise<string | null> => null;
+
 test('a draft request turns the office session, never the inbox', async (t) => {
   for (const foreman of [true, false]) {
     const repo = tempRepo();
@@ -27,7 +31,7 @@ test('a draft request turns the office session, never the inbox', async (t) => {
     const { config } = loadConfig(root);
     const r = enqueue(root, config, { type: 'draft', args: { mandate: 'g1' }, from: 'forge' });
     const fake = fakeClaude();
-    const pool = createPool(root, { claude: fake.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 });
+    const pool = createPool(root, { claude: fake.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
     t.after(() => pool.close());
     pool.start('boot');
     const of = (scope: string) => fake.children.filter((c) => c.scope === scope);
@@ -119,7 +123,7 @@ test('chat text reaches only its chat session', async (t) => {
   enqueue(root, config, { type: 'resume', job, from: 'dashboard' });
   enqueue(root, config, { type: 'draft', args: { mandate: 'g1' }, from: 'forge' });
   const claude = fakeClaude();
-  const pool = createPool(root, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 });
+  const pool = createPool(root, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
   t.after(() => pool.close());
   pool.start('boot');
   const others = ['_inbox', '_office', job];

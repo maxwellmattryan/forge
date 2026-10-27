@@ -208,6 +208,26 @@ export const JOB: HelpGroup = {
         [3, 'stale_epoch: the lease moved past --epoch'],
       ],
     },
+    {
+      command: 'job agent run',
+      args: '<id> --session S [--spawn-index N] [--epoch N]',
+      summary:
+        "run the spawn `forge job step` returns as its own headless `claude -p --agent forge:<role>` child in the job's worktree, the brief on its stdin, and record its start, attach and end, with the usage from its own result line; tool calls outside daemon.allowedTools are denied unattended. Prints {id, role, rule, agentId, resumed, status, summary, failure, denied, wallMs, log, usage, jobTokens, jobCostUsd} on every exit after the start",
+      flags: [
+        ['--session S', 'the session that holds the job (required): only its driver may run a role'],
+        ['--spawn-index N', "which spawn of step's list to run: 0 (the default) is the action itself, 1 on its `spawns`"],
+        ['--epoch N', "the driver's epoch, refused (stale_epoch) before any write once another session took the job over"],
+      ],
+      exits: [
+        [
+          1,
+          "no such job; the inbox, office, an assistant foreman or another job's session; stale_step: step no longer returns that spawn (another caller started it, or the job moved on); a worktree that is missing or under no worktrees root, a daemon.command problem, a tracker symlink, a trust digest that does not match under FORGE_DAEMON=1, or an empty brief; or the role failed (failure.class limit, auth, budget, error, timeout, untrusted or interrupted)",
+        ],
+        [3, 'another live session drives the job, the session does not hold it, or stale_epoch: the lease moved past --epoch or was taken over before the end'],
+        [5, 'the role failed because claude never started (failure.class spawn) or closed without a result (exit)'],
+      ],
+      common: true,
+    },
     { command: 'job round', args: '<id>', summary: 'start the next review round, unless the budget is spent', exits: [NO_JOB] },
     {
       command: 'job budget',
