@@ -10,7 +10,10 @@
     "job": "Job",
     "rounds": "Rounds",
     "you": "YOU",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "copy": "Copy {text}",
+    "copied": "Copied {text}",
+    "copyFailed": "Couldn't copy {text}"
   },
   "verdict": {
     "title": "{name}: {verdict}",
