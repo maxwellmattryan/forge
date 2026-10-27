@@ -1,7 +1,7 @@
 // The Office pass (`forge office pass`, which `forge dash` runs every foreman.cadence minutes and on
 // events): deterministic code, no model, that enforces each mandate's contract. Per mandate, in
 // creation order: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing
-// summary and one retro request over the mandate's jobs (./retro.ts; then the next link of a chain, in
+// summary and one retro request over the mandate's jobs (queueMandateRetro; then the next link of a chain, in
 // the same pass), the budget pause, the quality pause (the running median of its scored merged jobs
 // below quality.pauseBelow) and the cadence stall. A closed mandate whose summary's card still has an
 // open outcome gets the card rewritten once, by the first pass that finds every outcome final.
@@ -23,6 +23,7 @@ import { runSteps } from '#core/versions/steps.ts';
 import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
 import { foremanEnabled } from '#engine/pipeline/moves/foreman-gates.ts';
 import { buildReportCard } from '#engine/metrics/report-card.ts';
+import { queueMandateRetro } from '#engine/evals/retro.ts';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { mandateReleaseRun, mandateReleaseState, planMandateRelease } from '#engine/release/mandate.ts';
@@ -33,7 +34,6 @@ import type { QueueNotify } from '../notify.ts';
 import { cleanReason, isReadable } from './contract.ts';
 import { logDirective, readDirectives } from './directives.ts';
 import { bounceHold, cadenceStalled, gateEntries, jobFigures, mandateProgress, qualityFloor, qualityReason, readProgressCtx, scopeItems } from './progress.ts';
-import { queueMandateRetro } from './retro.ts';
 import { listMandates, mandateDir, summaryFile, withOfficeLock, writeMandate } from './store.ts';
 import type { Config, JobEvent, Tracker } from '#core/types.ts';
 import type { DirectiveAction } from './directives.ts';

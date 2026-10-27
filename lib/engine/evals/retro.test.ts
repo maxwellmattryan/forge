@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tempRepo } from '../../../test/helpers.ts';
+import { jobAt, tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
 import { ForgeError } from '#core/errors.ts';
+import { ackRequest, enqueue, listRequests } from '#core/job/requests.ts';
 import { createJob, jobDir, logHumanEvent, updateJob } from '#core/job/store.ts';
+import { archiveJob } from '../ops/retention.ts';
 import { jobFindings } from '../pipeline/findings.ts';
-import { lastRetro, prepareRetro, retroDue } from './retro.ts';
+import { lastRetro, prepareRetro, queueMandateRetro, retroDue } from './retro.ts';
 
 const HEADING = '## Recurring findings across jobs';
 
@@ -117,4 +119,50 @@ test("a mandate's retro reads only its jobs, keeps its scope and leaves the cade
   } finally {
     repo.cleanup();
   }
+});
+
+test("a closed mandate's retro is queued once, over its live and archived jobs, with the foreman on", async (t) => {
+  const scratch = (t: test.TestContext) => {
+    const r = tempRepo();
+    t.after(() => r.cleanup());
+    const config = defaults();
+    config.foreman.enabled = true;
+    return { root: r.dir, config };
+  };
+  const retros = (root: string) => listRequests(root).filter((r) => r.type === 'retro');
+
+  await t.test('nothing with the foreman off, or for a mandate with no jobs', (t) => {
+    const { root, config } = scratch(t);
+    assert.equal(queueMandateRetro(root, config, 'm1'), null, 'no jobs');
+    jobAt(root, 'done', { create: { mandate: 'm1' } });
+    config.foreman.enabled = false;
+    assert.equal(queueMandateRetro(root, config, 'm1'), null, 'foreman off');
+    assert.deepEqual(retros(root), []);
+  });
+
+  await t.test('one request over a live and an archived job; never a second, whatever its status', (t) => {
+    const { root, config } = scratch(t);
+    jobAt(root, 'build', { create: { mandate: 'm1' } });
+    archiveJob(root, jobAt(root, 'done', { create: { mandate: 'm1' } }).id, 'cli');
+    jobAt(root, 'done');
+    const out = queueMandateRetro(root, config, 'm1');
+    assert.equal(out?.jobs, 2);
+    assert.deepEqual(
+      retros(root).map((r) => [r.id, r.job, r.args, r.from, r.status, r.text]),
+      [[out?.request, null, { mandate: 'm1' }, 'forge', 'pending', 'mandate m1 closed: a retro over its 2 jobs']],
+    );
+    assert.equal(queueMandateRetro(root, config, 'm1'), null, 'pending');
+    ackRequest(root, out!.request, { status: 'done' });
+    assert.equal(queueMandateRetro(root, config, 'm1'), null, 'done');
+    assert.equal(retros(root).length, 1);
+  });
+
+  await t.test('enqueue refuses a retro request whose args.mandate is not a mandate id', (t) => {
+    const { root, config } = scratch(t);
+    assert.throws(
+      () => enqueue(root, config, { type: 'retro', job: null, args: { mandate: 'm1; rm -rf ~' }, from: 'forge' }),
+      (e) => e instanceof ForgeError && e.message === "a retro request's args.mandate must be a mandate id",
+    );
+    assert.deepEqual(listRequests(root), []);
+  });
 });

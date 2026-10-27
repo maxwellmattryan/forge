@@ -1,7 +1,8 @@
 // Assembles the retro agent's inputs deterministically, so the expensive model spends its
-// context on judgement rather than on trawling job folders. A mandate retro (`forge retro prepare
-// --mandate`, queued when a mandate closes) reads only that mandate's jobs, records its scope on the
-// retro job as a `retro-scope` event, and never counts as the last retro for the improve.retroEvery cadence.
+// context on judgement rather than on trawling job folders. Also the retro queue: the cadence retro
+// `forge sync` queues, and a closed mandate's (queueMandateRetro). A mandate retro (`forge retro prepare
+// --mandate`) reads only that mandate's jobs, records its scope on the retro job as a `retro-scope`
+// event, and never counts as the last retro for the improve.retroEvery cadence.
 import fs from 'node:fs';
 import path from 'node:path';
 import { ForgeError } from '#core/errors.ts';
@@ -39,7 +40,7 @@ export function retroScope(events: JobEvent[]): string | null {
 }
 
 /** The lock the retro queue's check-then-enqueue runs under: the cadence retro's and a closed mandate's. */
-export function withRetroQueueLock<T>(root: string, fn: () => T): T {
+function withRetroQueueLock<T>(root: string, fn: () => T): T {
   return withLock(path.join(paths(root).locks, 'retro-queue'), fn);
 }
 
@@ -78,6 +79,28 @@ export function queueRetro(root: string, config: Config): string | null {
     if (listRequests(root).some((r) => r.type === 'retro' && (r.status === 'pending' || r.status === 'in-progress'))) return null;
     if (allJobs(root).some((j) => j.kind === 'retro' && !['done', 'cancelled', 'failed'].includes(j.state))) return null;
     return enqueue(root, config, { type: 'retro', from: 'foreman', text: 'a retro is due: improve.retroEvery jobs finished since the last one' }).id;
+  });
+}
+
+/**
+ * A closed mandate's retro, queued by both closes (the Office pass's and the owner's mandateWrite): one
+ * `retro` request with `args.mandate`, which the inbox turns into a retro job scoped to the mandate. Returns
+ * the request id and the count of the mandate's live and archived jobs, or null with the foreman off, for a
+ * mandate with no jobs, or when a `retro` request for it exists in any status (once per mandate). It logs
+ * no directive: the callers do, since only they know the actor.
+ */
+export function queueMandateRetro(root: string, config: Config, id: string): { request: string; jobs: number } | null {
+  if (config.foreman?.enabled !== true) return null;
+  const ids = new Set<string>();
+  for (const j of listJobs(root)) if (j.mandate === id) ids.add(j.id);
+  for (const a of listArchived(root)) if (a.job.mandate === id) ids.add(a.id);
+  const jobs = ids.size;
+  if (!jobs) return null;
+  // The pass and an owner's close can overlap: the check and the enqueue happen under one lock.
+  return withRetroQueueLock(root, () => {
+    if (listRequests(root).some((r) => r.type === 'retro' && r.args?.mandate === id)) return null;
+    const rec = enqueue(root, config, { type: 'retro', job: null, args: { mandate: id }, from: 'forge', text: `mandate ${id} closed: a retro over its ${jobs} jobs` });
+    return { request: rec.id, jobs };
   });
 }
 

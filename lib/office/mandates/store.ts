@@ -19,8 +19,8 @@ import * as yaml from '#core/format/yaml.ts';
 import { currentActor } from '#integrations/github/actor.ts';
 import { decides } from '#engine/pipeline/moves/foreman-gates.ts';
 import { MANDATE_ID, MANDATE_KEYS, applyInput, blankMandate, cleanReason, fillDefaults, isMandateId, isReadable, issueRefs, mandateProblems, storedMandate } from './contract.ts';
+import { queueMandateRetro } from '#engine/evals/retro.ts';
 import { logDirective } from './directives.ts';
-import { queueMandateRetro } from './retro.ts';
 import type { Config, EventActor, GateClass, Job, MandateScoring } from '#core/types.ts';
 import type { Mandate, MandateInput, ReadMandate } from './types.ts';
 
