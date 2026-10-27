@@ -12,7 +12,7 @@ import { hasEnvironment, stopEnvironment } from '../../environment/lifecycle.ts'
 import { noteIssues } from '../../trackers/mirror.ts';
 import { mirrorJob, moveJob } from './apply.ts';
 import type { EnvironmentStopResult } from '../../environment/types.ts';
-import type { Config, EventActor, HumanGrant, Job, JobChange, JobShelf, LoadedJob, ShelfAction, ShelfResult, Tracker, WaitingOn } from '#core/types.ts';
+import type { Config, EventActor, GateClass, HumanGrant, Job, JobChange, JobShelf, LoadedJob, ShelfAction, ShelfResult, Tracker, WaitingOn } from '#core/types.ts';
 
 export { cleanShelveReason, SHELVE_REASON_MAX };
 
@@ -60,17 +60,28 @@ function shelveRefusal(j: LoadedJob): string | null {
   return null;
 }
 
+/** What both tracker notes end with: how the job comes off the shelf, and that its PR is left alone. */
+const shelfTail = (id: string): string =>
+  `Nothing more runs on it until a person picks it up from the dashboard's Shelved list or runs \`forge job unshelve ${id}\`; its pull request, if it has one, stays open.`;
+
 /** The tracker note: fixed text around the cleaned reason in a code span, so no mention or link in it renders. */
-export const shelveNote = (id: string, reason: string): string =>
-  `Forge shelved this job: \`${reason}\`. Nothing more runs on it until a person picks it up from the dashboard's Shelved list or runs \`forge job unshelve ${id}\`; its pull request, if it has one, stays open.`;
+export const shelveNote = (id: string, reason: string): string => `Forge shelved this job: \`${reason}\`. ${shelfTail(id)}`;
+
+/**
+ * The tracker note for a Foreman shelve: fixed words and the gate's name, never its reason. That reason is model text
+ * (the assistant's, the senior's or a failure message), and a tracker comment can be public; it stays on the job.
+ */
+export const foremanShelveNote = (id: string, gate: GateClass): string =>
+  `Forge's Foreman shelved this job at its \`${gate}\` gate because it needs a person to decide; the reason is on the job in the dashboard. ${shelfTail(id)}`;
 
 /**
  * Sets a waiting, queued, failed or blocked job aside in one locked write: it waits on `shelved` at
  * its stage, records where it was in `job.shelved`, and lets go of its lease. Then it logs `shelved`
- * with the actor, stops its environment (the worktree stays) and posts one note to its issues. It
- * never calls `gh pr`. Not human-only: shelving only stops spend and is undone by a person.
+ * with the actor, stops its environment (the worktree stays) and posts one note to its issues: `note`
+ * when given (the caller's own fixed text), else shelveNote. It never calls `gh pr`. Not human-only:
+ * shelving only stops spend and is undone by a person.
  */
-export async function shelveJob(root: string, config: Config, id: string, opts: { reason: string; actor: EventActor; tracker?: Tracker }): Promise<ShelveResult> {
+export async function shelveJob(root: string, config: Config, id: string, opts: { reason: string; actor: EventActor; tracker?: Tracker; note?: string }): Promise<ShelveResult> {
   const reason = cleanShelveReason(opts.reason);
   if (!reason) throw new ForgeError(`forge job shelve needs --reason: some text, at most ${SHELVE_REASON_MAX} characters, without backticks`, 'usage');
   let shelf = null as JobShelf | null;
@@ -90,7 +101,7 @@ export async function shelveJob(root: string, config: Config, id: string, opts: 
   });
   logHumanEvent(root, job.id, 'shelved', { reason, from: { stage: before.stage, state: before.state, waitingOn: before.waitingOn } }, opts.actor);
   const environment = hasEnvironment(root, job.id) ? stopEnvironment(root, config, job.id, 'park') : null;
-  const tracker = await noteIssues(root, config, job, shelveNote(job.id, reason), opts.tracker);
+  const tracker = await noteIssues(root, config, job, opts.note ?? shelveNote(job.id, reason), opts.tracker);
   return { ok: true, id: job.id, shelved: shelf!, environment, tracker };
 }
 

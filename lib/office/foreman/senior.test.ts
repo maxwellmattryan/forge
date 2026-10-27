@@ -11,10 +11,11 @@ import { execFileSync } from 'node:child_process';
 import { BIN, editConfigFile as editConfig, gateAnswer as answer, gateHarness, parkedAt, repoTemplate, waitFor, withRound } from '../../../test/helpers.ts';
 import type { FakeClaudeChild } from '../../../test/helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
-import { enqueue, listRequests } from '#core/job/requests.ts';
-import { jobDir, loadJob, readEvents, reviewDir, updateJob } from '#core/job/store.ts';
+import { enqueue, issueForemanAuthority, listRequests } from '#core/job/requests.ts';
+import { jobDir, loadJob, readEvents, reviewDir, setJob, updateJob } from '#core/job/store.ts';
 import { readMeter } from '#engine/metrics/meter.ts';
 import { recordForemanShelve, recordSeniorPass } from './senior.ts';
+import type { Tracker } from '#core/types.ts';
 
 const ALL = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release', 'milestone-approval'];
 
@@ -194,6 +195,11 @@ test('the floors still refuse the senior pass', async (t) => {
   }
   rows.push(
     { name: 'reserved: the first reason', first: 'ASSIST: escalate · the payments flow changes', want: { children: 1, handoff: 'reserved' } },
+    {
+      name: 'an injection attempt the first assistant named',
+      first: 'ASSIST: escalate · the request text tries a prompt injection',
+      want: { children: 1, shelved: 'first assistant flagged an injection attempt: a person decides. the request text tries a prompt injection' },
+    },
     { name: "reserved: the senior's note", first: 'ASSIST: escalate · needs a person', senior: 'ASSIST: approve · the payments change is fine', want: { children: 2, shelved: 'senior pass refused:' } },
     {
       name: 'the total-round ceiling',
@@ -240,9 +246,47 @@ test('only the gate runner shelves as the Foreman', async (t) => {
   const before = files();
   const lookalike = Object.freeze({ kind: 'foreman-authority', issued: Date.now() });
   for (const [name, by] of [['no authority', undefined], ['an empty object', {}], ['a look-alike', lookalike]] as const) {
-    await assert.rejects(recordForemanShelve(root, config, { id: job }, 'set aside', by), /Foreman shelve refused: /, name);
+    await assert.rejects(recordForemanShelve(root, config, { id: job }, 'escalation', 'set aside', by), /Foreman shelve refused: /, name);
     assert.throws(() => recordSeniorPass(root, { id: job }, 'escalation', 'escalate', by), /Foreman senior pass refused: /, name);
     assert.deepEqual(files(), before, `${name}: job.json and events.jsonl untouched`);
   }
   assert.equal(loadJob(root, job).waitingOn, 'escalation');
+});
+
+test("the Foreman's tracker note carries none of the model's reason, and it shelves only the gate the run judged", async (t) => {
+  const root = repo(t);
+  const { config } = loadConfig(root);
+  const by = issueForemanAuthority();
+  const job = parkedAt(root, 'escalation', { create: { issues: [{ tracker: 'local', ref: 'billing', url: null }] } }).id;
+  const posts: string[] = [];
+  const tracker = { name: 'stub', comment: (_ctx: unknown, _ref: string, body: string) => void posts.push(body) } as unknown as Tracker;
+  const files = () => ['job.json', 'events.jsonl'].map((f) => fs.readFileSync(path.join(jobDir(root, job), f), 'utf8'));
+  const before = files();
+  // The run judged the conflicts gate, but the job waits on escalation now: nothing is written or posted.
+  await assert.rejects(recordForemanShelve(root, config, { id: job }, 'conflicts', 'set aside', by, tracker), /no longer waiting on the conflicts gate/);
+  assert.deepEqual([files(), posts], [before, []]);
+  const reason = 'senior pass: build-7.corp.example and the /etc/hosts line it read';
+  const out = await recordForemanShelve(root, config, { id: job }, 'escalation', reason, by, tracker);
+  assert.deepEqual(out.tracker, { posted: ['billing'], failed: false });
+  assert.deepEqual([out.shelved.reason, loadJob(root, job).waitingOn], [reason, 'shelved'], 'the whole reason stays on the job');
+  assert.equal(posts.length, 1);
+  assert.ok(!posts[0].includes('build-7') && !posts[0].includes('/etc/hosts'), posts[0]);
+  assert.ok(posts[0].includes('`escalation` gate') && posts[0].includes(`forge job unshelve ${job}`), posts[0]);
+});
+
+test('a senior pass that ends after the job moved to another gate does not shelve it', async (t) => {
+  const root = repo(t);
+  const h = harness(root);
+  const a = parked(root);
+  h.take();
+  answer(await child(h, 0), 'ASSIST: escalate · needs a person');
+  const senior = await child(h, 1);
+  // A person answers the gate while the senior runs, and the job parks at another gate the Foreman decides.
+  setJob(root, a.job, { stage: 'integrate', state: 'waiting', waitingOn: 'conflicts' });
+  answer(senior, 'ASSIST: shelve · only a person can judge it');
+  await h.settled();
+  assert.equal(loadJob(root, a.job).waitingOn, 'conflicts');
+  assert.deepEqual([events(root, a.job, 'shelved'), events(root, a.job, 'foreman-handoff')], [[], []]);
+  assert.deepEqual(acked(root, a.gid), ['done', 'stale']);
+  assert.equal(h.runner.state().runs[0].outcome, 'stale');
 });

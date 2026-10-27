@@ -236,7 +236,7 @@ export function createGateRunner(root: string, deps: { ctx: SessionContext; o: S
   /** Shelves the job as the Foreman and acks; a refused shelve falls back to today's hand-off, so a person still sees it. */
   async function shelve(r: ForgeRequest, t: Target, c: Config, reason: string): Promise<[GateRunOutcome, string]> {
     try {
-      const out = await recordForemanShelve(root, c, { id: t.job! }, reason, authority);
+      const out = await recordForemanShelve(root, c, { id: t.job! }, t.gate, reason, authority);
       ack(r.id, 'done', cut(`shelved: ${out.shelved.reason}`));
       return ['shelved', out.shelved.reason];
     } catch (e) {
