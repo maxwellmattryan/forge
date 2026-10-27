@@ -1,6 +1,7 @@
 // Agents that read untrusted text keep their tool limits: the tools and disallowedTools frontmatter of
-// agents/assistant.md, agents/triage.md and agents/drafter.md, which Claude Code enforces and no Forge
-// function reads.
+// agents/assistant.md, agents/triage.md, agents/drafter.md and agents/reviewer.md, which Claude Code
+// enforces and no Forge function reads (a role run's argv adds no tool flags: one agent's children share
+// one tool list, which keeps their prompt prefix cacheable).
 // Kept through the test rewrite (docs/test-rewrite/README.md; docs/TESTING.md › Allowed source-text
 // tests, entry 9).
 import test from 'node:test';
@@ -23,6 +24,12 @@ test('drafter agent has no Bash or web tools', () => {
   const front = fs.readFileSync(path.join(ROOT, 'agents', 'drafter.md'), 'utf8').match(/^---\n([\s\S]*?)\n---\n/)![1];
   assert.match(front, /^tools: Read, Grep, Glob, Write$/m);
   assert.match(front, /^disallowedTools: Bash, Edit, NotebookEdit, WebFetch, WebSearch$/m);
+});
+
+test('reviewer agent has no Edit', () => {
+  // A reviewer reads the branch's diff and build.md, both builder-written: it writes its one review file and edits nothing.
+  const front = fs.readFileSync(path.join(ROOT, 'agents', 'reviewer.md'), 'utf8').match(/^---\n([\s\S]*?)\n---\n/)![1];
+  assert.match(front, /^disallowedTools: Edit, NotebookEdit$/m);
 });
 
 test('triage agent runs on haiku without a config key', () => {
