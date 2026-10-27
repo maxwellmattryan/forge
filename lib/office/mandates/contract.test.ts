@@ -91,6 +91,11 @@ test('mandate input refusals', async () => {
       ['an unknown enum value', [...NEW, '--until', 'shipped'], /^until must be one of merge-ready \| merged \| released/],
       ['an unknown scoring term on new', [...NEW, '--scoring', 'some'], /^scoring must be one of all \| sample \| off \(got "some"\)$/],
       ['an unknown scoring term on edit', ['mandate', 'edit', 'a', '--scoring', 'some'], /^scoring must be one of all \| sample \| off \(got "some"\)$/],
+      ['pauseBelow 0', [...NEW, '--pause-below', '0'], /^quality\.pauseBelow must be null or a number over 0 and at most 5 \(got 0\)$/],
+      ['pauseBelow 6', [...NEW, '--pause-below', '6'], /^quality\.pauseBelow must be null or a number over 0 and at most 5 \(got 6\)$/],
+      ['pauseBelow not a number', [...NEW, '--pause-below', 'x'], /^quality\.pauseBelow must be null or a number over 0 and at most 5 \(got NaN\)$/],
+      ['minScored 0', [...NEW, '--min-scored', '0'], /^quality\.minScored must be an integer 1-100 \(got 0\)$/],
+      ['minScored 0 on edit', ['mandate', 'edit', 'a', '--min-scored', '0'], /^quality\.minScored must be an integer 1-100 \(got 0\)$/],
       ['every problem, joined', [...NEW, '--max-jobs', '0', '--stall-bounces', '101'], /^maxJobs must be an integer 1-16 \(got 0\); stall\.bounces must be an integer 1-100 \(got 101\)$/],
       ['editing a closed mandate', ['mandate', 'edit', 'c', '--title', 'Again'], /^mandate c is closed$/],
       ['pausing a closed mandate', ['mandate', 'pause', 'c'], /^mandate c is closed$/],
@@ -233,8 +238,12 @@ test('unreadable mandate files', async () => {
       ['an unknown key', () => fs.writeFileSync(path.join(dir, 'extra.md'), good.replace('id: good', 'id: extra').replace('---\n', '---\nwiden: true\n')), /unknown key "widen"/],
       ['a current file with no scoring', () => fs.writeFileSync(path.join(dir, 'unscored.md'), good.replace('id: good', 'id: unscored').replace(/^scoring: all\n/m, '')), /^no scoring$/],
       ['an unknown scoring term', () => fs.writeFileSync(path.join(dir, 'maybe.md'), good.replace('id: good', 'id: maybe').replace(/^scoring: all$/m, 'scoring: maybe')), /^scoring must be one of all \| sample \| off \(got "maybe"\)$/],
+      ['a current file with no quality', () => fs.writeFileSync(path.join(dir, 'unfloored.md'), good.replace('id: good', 'id: unfloored').replace(/^quality:\n {2}pauseBelow: null\n {2}minScored: 3\n/m, '')), /^no quality$/],
+      ['a quoted pauseBelow', () => fs.writeFileSync(path.join(dir, 'quoted.md'), good.replace('id: good', 'id: quoted').replace(/^ {2}pauseBelow: null$/m, '  pauseBelow: "3"')), /^quality\.pauseBelow must be null or a number over 0 and at most 5 \(got "3"\)$/],
+      ['a minScored of 0', () => fs.writeFileSync(path.join(dir, 'zero.md'), good.replace('id: good', 'id: zero').replace(/^ {2}minScored: 3$/m, '  minScored: 0')), /^quality\.minScored must be an integer 1-100 \(got 0\)$/],
+      ['quality not a map', () => fs.writeFileSync(path.join(dir, 'flat.md'), good.replace('id: good', 'id: flat').replace(/^quality:\n {2}pauseBelow: null\n {2}minScored: 3$/m, 'quality: 3')), /^quality must be a map of pauseBelow and minScored$/],
     ];
-    const ids = ['link', 'big', 'broken', 'plain', 'newer', 'other', 'wide', 'extra', 'unscored', 'maybe'];
+    const ids = ['link', 'big', 'broken', 'plain', 'newer', 'other', 'wide', 'extra', 'unscored', 'maybe', 'unfloored', 'quoted', 'zero', 'flat'];
     rows.forEach(([, plant]) => plant());
     rows.forEach(([name, , want], i) => {
       const m = readMandate(r.dir, ids[i]);

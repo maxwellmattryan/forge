@@ -87,6 +87,8 @@ export const API_CHANGES = [
   // DaemonPoolState.gates (GateRunsState, GateRunState): forge dash's gate runner and its runs; gate requests route to
   // `_gates`, which no session serves; DaemonPoolState.assistants is gone.
   { id: 'gate-runs' },
+  // MandateContract.quality ({pauseBelow, minScored}); the pauseBelow and minScored terms on POST /api/mandates and /api/mandates/:id/edit.
+  { id: 'mandate-quality' },
 ] as const;
 
 /**

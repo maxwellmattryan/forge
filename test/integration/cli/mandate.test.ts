@@ -54,7 +54,7 @@ test('forge mandate new, show, pause, resume, close and list', async () => {
     const text = read(path.join(mandatesDir(r.dir), 'm1.md'));
     const [, front, body] = text.split(/^---$/m);
     const fm = yaml.parse(front);
-    assert.deepEqual(Object.keys(fm), ['schemaVersion', 'id', 'title', 'status', 'reason', 'scope', 'until', 'maxJobs', 'order', 'decides', 'budget', 'stall', 'onUnfinishable', 'scoring', 'after', 'createdAt', 'updatedAt', 'closedAt', 'filedAt', 'goal']);
+    assert.deepEqual(Object.keys(fm), ['schemaVersion', 'id', 'title', 'status', 'reason', 'scope', 'until', 'maxJobs', 'order', 'decides', 'budget', 'stall', 'onUnfinishable', 'scoring', 'quality', 'after', 'createdAt', 'updatedAt', 'closedAt', 'filedAt', 'goal']);
     assert.equal(fm.goal, null);
     assert.deepEqual(
       { scope: fm.scope, until: fm.until, maxJobs: fm.maxJobs, order: fm.order, decides: fm.decides, budget: fm.budget, stall: fm.stall, onUnfinishable: fm.onUnfinishable, scoring: fm.scoring, after: fm.after, reason: fm.reason, closedAt: fm.closedAt },
@@ -117,6 +117,31 @@ test('forge mandate new, show, pause, resume, close and list', async () => {
         ['mandate-close', 'm1', null],
       ],
     );
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('forge mandate quality floor terms', async () => {
+  const r = scratch();
+  try {
+    const front = (id: string) => yaml.parse(read(path.join(mandatesDir(r.dir), `${id}.md`)).split(/^---$/m)[1]);
+    const plain = await ok(r.dir, ['mandate', 'new', 'q0', '--title', 'Plain', '--milestones', 'M1']);
+    assert.deepEqual(plain.mandate.contract.quality, { pauseBelow: null, minScored: 3 });
+    assert.deepEqual(front('q0').quality, { pauseBelow: null, minScored: 3 });
+
+    const floored = await ok(r.dir, ['mandate', 'new', 'q1', '--title', 'Floored', '--milestones', 'M1', '--pause-below', '3.5', '--min-scored', '2']);
+    assert.deepEqual(floored.mandate.contract.quality, { pauseBelow: 3.5, minScored: 2 });
+    assert.deepEqual(front('q1').quality, { pauseBelow: 3.5, minScored: 2 }, 'a nested map with a decimal round-trips');
+    const shown = await ok(r.dir, ['mandate', 'show', 'q1']);
+    assert.deepEqual(shown.effective.quality, shown.contract.quality, 'no config key caps the floor');
+
+    // --pause-below none clears the floor and keeps minScored.
+    const cleared = await ok(r.dir, ['mandate', 'edit', 'q1', '--pause-below', 'none']);
+    assert.deepEqual([cleared.changed, cleared.mandate.contract.quality], [true, { pauseBelow: null, minScored: 2 }]);
+    assert.deepEqual(front('q1').quality, { pauseBelow: null, minScored: 2 });
+    const raised = await ok(r.dir, ['mandate', 'edit', 'q1', '--min-scored', '5']);
+    assert.deepEqual(raised.mandate.contract.quality, { pauseBelow: null, minScored: 5 });
   } finally {
     r.cleanup();
   }

@@ -79,7 +79,7 @@ export function mandateRow(root: string, config: Config, m: Mandate, all: ReadMa
   };
 }
 
-/** The contract a new mandate takes when no term is sent: foreman.mandate, its decides cut to the grantable classes, and scoring all. */
+/** The contract a new mandate takes when no term is sent: foreman.mandate, its decides cut to the grantable classes, scoring all and no quality floor. */
 function newDefaults(config: Config): MandateContract {
   const d = fillDefaults(config, {});
   return {
@@ -91,6 +91,7 @@ function newDefaults(config: Config): MandateContract {
     stall: { cadences: d.stallCadences!, bounces: d.stallBounces! },
     onUnfinishable: d.onUnfinishable as MandateContract['onUnfinishable'],
     scoring: d.scoring as MandateContract['scoring'],
+    quality: { pauseBelow: d.pauseBelow ?? null, minScored: d.minScored! },
   };
 }
 
@@ -132,8 +133,8 @@ export function getMandate(ctx: ServerCtx, _req: http.IncomingMessage, res: http
 // The body's shape, checked before anything is read: the contract judges the values, as for the CLI.
 const STRING_MAX: Record<string, number> = { title: 1000, until: 40, order: 40, onUnfinishable: 40, scoring: 40, body: BODY_MAX, updatedAt: 64 };
 const LISTS = ['milestones', 'labels', 'issues', 'decides'];
-const NUMBERS = ['maxJobs', 'budgetUsd', 'budgetJobs', 'stallCadences', 'stallBounces'];
-const TERMS = ['title', ...LISTS, 'until', ...NUMBERS, 'order', 'onUnfinishable', 'scoring', 'after', 'body'];
+const NUMBERS = ['maxJobs', 'budgetUsd', 'budgetJobs', 'stallCadences', 'stallBounces', 'minScored'];
+const TERMS = ['title', ...LISTS, 'until', ...NUMBERS, 'order', 'onUnfinishable', 'scoring', 'pauseBelow', 'after', 'body'];
 const LIST_MAX = 100;
 const ENTRY_MAX = 200;
 const AFTER_MAX = 60;
@@ -141,7 +142,7 @@ const REASON_BODY_MAX = 1000;
 
 const TERMS_SHAPE =
   `title (at most 1000 characters), milestones, labels, issues and decides (lists of at most ${LIST_MAX} strings of at most ${ENTRY_MAX}), ` +
-  `until, order, onUnfinishable and scoring (strings), maxJobs, budgetUsd, budgetJobs, stallCadences and stallBounces (numbers), after (a mandate id or null), body (at most ${BODY_MAX} characters)`;
+  `until, order, onUnfinishable and scoring (strings), maxJobs, budgetUsd, budgetJobs, stallCadences, stallBounces and minScored (numbers), pauseBelow (a number or null), after (a mandate id or null), body (at most ${BODY_MAX} characters)`;
 const SHAPE = {
   new: `body must be {"id"?: <mandate id>, "title": string, ...terms}, terms: ${TERMS_SHAPE}`,
   edit: `body must be {"updatedAt": string, ...terms}, terms: ${TERMS_SHAPE}`,
@@ -155,6 +156,7 @@ function termOk(k: string, v: unknown): boolean {
   if (LISTS.includes(k)) return Array.isArray(v) && v.length <= LIST_MAX && v.every((e) => typeof e === 'string' && e.length <= ENTRY_MAX);
   if (NUMBERS.includes(k)) return typeof v === 'number' && Number.isFinite(v);
   if (k === 'after') return v === null || (typeof v === 'string' && v.length <= AFTER_MAX);
+  if (k === 'pauseBelow') return v === null || (typeof v === 'number' && Number.isFinite(v));
   return false;
 }
 
