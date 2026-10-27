@@ -48,7 +48,6 @@ function harness() {
   let clock = 0;
   const log = createChatLog({
     id: ID,
-    token: 'tok',
     onChange: () => changes++,
     onState: (st) => states.push(st),
     connect: (url) => {

@@ -12,7 +12,6 @@
   import { archiveChat, renameChat } from '../../lib/chats.ts';
   import { sessionPill } from '../../lib/daemon.ts';
   import type { Chat, DaemonSessionState } from '../../lib/types.ts';
-  import { forgeToken } from '../../lib/app.svelte.ts';
   import { toast } from '../../lib/toast.svelte.ts';
   import { t } from '../../lib/locale.ts';
 
@@ -65,7 +64,7 @@
     busy = true;
     let saved = false;
     try {
-      onchanged((await renameChat(chat.id, draft, forgeToken())).chat);
+      onchanged((await renameChat(chat.id, draft)).chat);
       saved = true;
     } catch (err) {
       fail(err);
@@ -97,7 +96,7 @@
     busy = true;
     let done = false;
     try {
-      onchanged((await archiveChat(chat.id, forgeToken())).chat);
+      onchanged((await archiveChat(chat.id)).chat);
       confirming = false;
       done = true;
     } catch (err) {

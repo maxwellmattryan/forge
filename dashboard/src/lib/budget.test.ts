@@ -61,13 +61,13 @@ test("the budget gate's Approve body comes from the note", async () => {
       seen.push({ url, init });
       return new Response(body, { status });
     }) as unknown as typeof fetch;
-  const ok = await postJobBudget('a b', { ack: true }, 'tok', reply(200, JSON.stringify({ id: 'a b', stillExceeded: [] })));
+  const ok = await postJobBudget('a b', { ack: true }, reply(200, JSON.stringify({ id: 'a b', stillExceeded: [] })));
   assert.deepEqual(ok.stillExceeded, []);
   assert.equal(seen[0].url, '/api/p/web/jobs/a%20b/budget');
   assert.equal(seen[0].init.method, 'POST');
-  assert.deepEqual(seen[0].init.headers, { 'content-type': 'application/json', 'x-forge-token': 'tok' });
+  assert.deepEqual(seen[0].init.headers, { 'content-type': 'application/json' });
   assert.equal(seen[0].init.body, '{"ack":true}');
-  await assert.rejects(postJobBudget('j', { set: ['usd=-1'] }, 'tok', reply(400, JSON.stringify({ error: 'bad budget value in "usd=-1"' }))), /^Error: bad budget value in "usd=-1"$/);
+  await assert.rejects(postJobBudget('j', { set: ['usd=-1'] }, reply(400, JSON.stringify({ error: 'bad budget value in "usd=-1"' }))), /^Error: bad budget value in "usd=-1"$/);
 });
 
 test("the budget gate's Approve queues approve only once the budget route clears the job", async () => {
@@ -85,11 +85,11 @@ test("the budget gate's Approve queues approve only once the budget route clears
       bodies.push(init.body);
       return new Response(JSON.stringify(reply), { status });
     }) as unknown as typeof fetch;
-    assert.deepEqual(await budgetApprove('j-1', note, 'tok', msg, fetchImpl), want, name);
+    assert.deepEqual(await budgetApprove('j-1', note, msg, fetchImpl), want, name);
     assert.deepEqual(bodies, [sent], `${name}: one POST`);
   }
   const offline = (async () => {
     throw new TypeError('fetch failed');
   }) as unknown as typeof fetch;
-  assert.deepEqual(await budgetApprove('j-1', 'usd=20', 'tok', msg, offline), { toast: 'failed: fetch failed' }, 'a network error');
+  assert.deepEqual(await budgetApprove('j-1', 'usd=20', msg, offline), { toast: 'failed: fetch failed' }, 'a network error');
 });

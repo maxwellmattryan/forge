@@ -48,8 +48,8 @@ export function environmentModel(job: Pick<Job, 'id' | 'state' | 'worktree'> & {
 }
 
 /** A JSON POST to this page's project that throws with the server's `error` field, else its text, else the status text (as postJobEffort). */
-export async function post<T>(url: string, body: unknown, token: string, fetchImpl: typeof fetch): Promise<T> {
-  const res = await fetchImpl(projectApi(url), { method: 'POST', headers: { 'content-type': 'application/json', 'x-forge-token': token }, body: JSON.stringify(body) });
+export async function post<T>(url: string, body: unknown, fetchImpl: typeof fetch): Promise<T> {
+  const res = await fetchImpl(projectApi(url), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const text = await res.text();
   let parsed: unknown = null;
   try {
@@ -61,7 +61,7 @@ export async function post<T>(url: string, body: unknown, token: string, fetchIm
 }
 
 /** POST /api/focus: a job id focuses it, null clears focus. */
-export const postFocus = (job: string | null, token: string, fetchImpl: typeof fetch = fetch): Promise<FocusResponse> => post<FocusResponse>('/api/focus', { job }, token, fetchImpl);
+export const postFocus = (job: string | null, fetchImpl: typeof fetch = fetch): Promise<FocusResponse> => post<FocusResponse>('/api/focus', { job }, fetchImpl);
 
 /** POST /api/jobs/:id/editor: opens the job's worktree in FORGE_EDITOR on the machine running forge dash. */
-export const postEditor = (id: string, token: string, fetchImpl: typeof fetch = fetch): Promise<PostEditorResponse> => post<PostEditorResponse>(`/api/jobs/${encodeURIComponent(id)}/editor`, {}, token, fetchImpl);
+export const postEditor = (id: string, fetchImpl: typeof fetch = fetch): Promise<PostEditorResponse> => post<PostEditorResponse>(`/api/jobs/${encodeURIComponent(id)}/editor`, {}, fetchImpl);

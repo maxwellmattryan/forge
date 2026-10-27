@@ -55,9 +55,9 @@ export const pendingRepos = (rows: RepoProposal[]): string[] => rows.filter((r) 
  * answers 409 unless they are the whole pending set from the job's events, so a repo the edited file hid,
  * or one proposed since the list loaded, is never decided unseen.
  */
-export async function postRepoDecision(id: string, decision: PostJobReposBody['decision'], repos: string[], note: string, token: string, fetchImpl: typeof fetch = fetch): Promise<PostJobReposResponse> {
+export async function postRepoDecision(id: string, decision: PostJobReposBody['decision'], repos: string[], note: string, fetchImpl: typeof fetch = fetch): Promise<PostJobReposResponse> {
   const body: PostJobReposBody = { decision, repos, note: note.trim() ? note.trim() : null };
-  const res = await fetchImpl(projectApi(`/api/jobs/${encodeURIComponent(id)}/repos`), { method: 'POST', headers: { 'content-type': 'application/json', 'x-forge-token': token }, body: JSON.stringify(body) });
+  const res = await fetchImpl(projectApi(`/api/jobs/${encodeURIComponent(id)}/repos`), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const raw = await res.text();
   let parsed: unknown = null;
   try {

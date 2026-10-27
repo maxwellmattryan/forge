@@ -271,16 +271,16 @@ export function mergeSessionState(prev: SessionInput, next: unknown): Partial<Da
 }
 
 /** POST /api/daemon/mode: puts one session (or, as JOBS_SCOPE, the job sessions' default) in a permission mode. Resolves with the pool state; throws like postDaemon. */
-export async function postDaemonMode(scope: string, mode: DaemonPermissionMode, token: string, fetchImpl: typeof fetch = fetch): Promise<DaemonPoolState> {
-  return postJson('/api/daemon/mode', { scope, mode }, token, fetchImpl);
+export async function postDaemonMode(scope: string, mode: DaemonPermissionMode, fetchImpl: typeof fetch = fetch): Promise<DaemonPoolState> {
+  return postJson('/api/daemon/mode', { scope, mode }, fetchImpl);
 }
 
 /**
  * POST /api/daemon, for the pool or (with `scope`) one session. Resolves with the pool state;
  * throws with the server's `error` field, else its text, else the status text.
  */
-export async function postDaemon(action: 'start' | 'stop', token: string, scope?: string, fetchImpl: typeof fetch = fetch): Promise<DaemonPoolState> {
-  return postJson('/api/daemon', scope === undefined ? { action } : { action, scope }, token, fetchImpl);
+export async function postDaemon(action: 'start' | 'stop', scope?: string, fetchImpl: typeof fetch = fetch): Promise<DaemonPoolState> {
+  return postJson('/api/daemon', scope === undefined ? { action } : { action, scope }, fetchImpl);
 }
 
 /**
@@ -292,10 +292,10 @@ export function billingNote(b: DaemonBilling | null | undefined): { passed: bool
   return { passed: b.passed === true, vars: b.vars.join(', '), warn: b.warn === true };
 }
 
-async function postJson(url: string, payload: unknown, token: string, fetchImpl: typeof fetch): Promise<DaemonPoolState> {
+async function postJson(url: string, payload: unknown, fetchImpl: typeof fetch): Promise<DaemonPoolState> {
   const res = await fetchImpl(projectApi(url), {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-forge-token': token },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),
   });
   const text = await res.text();

@@ -9,7 +9,7 @@
   import { INBOX_SCOPE, OFFICE_SCOPE, sharedScope } from '../lib/types.ts';
   import type { DaemonSessionState, PermissionDecision } from '../lib/types.ts';
   import { grantsMore, pendingPrompts, postPermission, promptInput, sessionPrompts } from '../lib/permissions.ts';
-  import { S, forgeToken, openDrawer, refresh } from '../lib/app.svelte.ts';
+  import { S, openDrawer, refresh } from '../lib/app.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
 
@@ -32,7 +32,7 @@
   async function answer(promptScope: string, id: string, decision: PermissionDecision): Promise<void> {
     answering = [...answering, id];
     try {
-      await postPermission(promptScope, id, decision, forgeToken());
+      await postPermission(promptScope, id, decision);
     } catch (err) {
       toast($t('permission.failed', { error: err instanceof Error ? err.message : String(err) }), true);
     }

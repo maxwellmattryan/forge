@@ -85,6 +85,7 @@ describe('forge service', { concurrency: 4 }, () => {
       assert.deepEqual(rec.restart.projects, []);
       assert.equal(rec.restart.pid, child.pid);
       assert.match(stdout, /Forge dashboard → http:\/\/127\.0\.0\.1:\d+/);
+      assert.doesNotMatch(stdout, /#k=/, "the service's log never holds the login key");
       // FORGE_KEEP_AWAKE=never (test/helpers.ts) reaches it, so it held nothing.
       assert.equal(rec.keepAwake, null);
     } finally {

@@ -13,7 +13,7 @@
   import { decisionInFlight } from '../lib/decision.ts';
   import { inboxActions, inboxKind, notePlaceholder, showsNote, specLinkPending, type InboxAction } from '../lib/inbox.ts';
   import { budgetApprove, type BudgetApproveOutcome } from '../lib/budget.ts';
-  import { S, forgeToken, req } from '../lib/app.svelte.ts';
+  import { S, req } from '../lib/app.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
   import type { Job } from '../lib/types.ts';
@@ -49,7 +49,7 @@
       busy = true;
       let r: BudgetApproveOutcome;
       try {
-        r = await budgetApprove(j.id, text, forgeToken(), {
+        r = await budgetApprove(j.id, text, {
           stillOver: (keys) => $t('inbox.budgetStillOver', { keys }),
           failed: (error) => $t('inbox.budgetFailed', { error }),
         });

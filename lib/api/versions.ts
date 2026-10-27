@@ -110,6 +110,9 @@ export const API_CHANGES = [
   // speed.stageMinutes, .waitingMinutes, .medianHandoffMinutes, .stalledMinutes, .handoffSeconds, .agentStartSeconds,
   // .minutesPerExtraRound and .timedJobs (TimeSpread), and UsageRow.cacheReadShare on cost.byRole rows.
   { id: 'stats-review-timing' },
+  // POST /api/session (PostSessionBody, PostSessionResponse): the login exchange; every other /api route needs the
+  // forge-<port> cookie or x-forge-token, 401 otherwise, and ?token= is gone.
+  { id: 'session-login' },
 ] as const;
 
 /**

@@ -5,7 +5,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import { confirmMatches, mergeNowDone, postMergeNow } from '../lib/merge-now.ts';
-  import { forgeToken, refresh } from '../lib/app.svelte.ts';
+  import { refresh } from '../lib/app.svelte.ts';
   import type { Job } from '../lib/types.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
@@ -40,7 +40,7 @@
     busy = true;
     error = null;
     try {
-      const r = await postMergeNow(job.id, typed.trim(), forgeToken());
+      const r = await postMergeNow(job.id, typed.trim());
       if (mergeNowDone(r)) {
         toast($t('mergeNow.done', { id: job.id }));
         await cancel();

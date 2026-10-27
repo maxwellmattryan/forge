@@ -5,7 +5,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import CloseButton from './CloseButton.svelte';
-  import { forgeToken, refreshMachine } from '../lib/app.svelte.ts';
+  import { refreshMachine } from '../lib/app.svelte.ts';
   import { addProjectBody, addProjectOutcome, postProject, type AddProjectError } from '../lib/add-project.ts';
   import { closeAddProject } from '../lib/add-project.svelte.ts';
   import { t } from '../lib/locale.ts';
@@ -67,7 +67,7 @@
     failed = null;
     busy = true;
     try {
-      const reply = await postProject(r.body, forgeToken());
+      const reply = await postProject(r.body);
       await refreshMachine();
       if (!alive) return;
       const out = addProjectOutcome(reply);

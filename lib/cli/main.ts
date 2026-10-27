@@ -98,7 +98,7 @@ export async function main(rawArgv: string[]): Promise<void> {
     root = mainRoot();
   } catch (e) {
     // The machine's dashboard serves every registered project, so it opens outside any repo too.
-    if (cmd === 'dash' && e instanceof ForgeError && e.code === 'not_a_repo') return dash(null, null, flags);
+    if (cmd === 'dash' && e instanceof ForgeError && e.code === 'not_a_repo') return dash(null, null, flags, false, pos[1]);
     throw e;
   }
   let loadOpts: { text?: string | null } = {};
@@ -307,7 +307,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       return r === undefined ? printed : ok(r);
     }
     case 'dash':
-      await dash(root, config, flags, ctx.initialized);
+      await dash(root, config, flags, ctx.initialized, sub);
       return printed;
     case 'git':
       needInit();

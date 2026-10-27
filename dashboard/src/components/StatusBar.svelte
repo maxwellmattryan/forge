@@ -34,7 +34,7 @@
   import { mergePoolState, poolModel, postDaemon } from '../lib/daemon.ts';
   import { FACTS_MAX, barLamps, barModel, connectionState, factsHidden, modelSummary, promptAnnouncement, summaryText } from '../lib/statusbar.ts';
   import { needsCount } from '../lib/inbox.ts';
-  import { S, forgeToken, openDrawer, refresh } from '../lib/app.svelte.ts';
+  import { S, openDrawer, refresh } from '../lib/app.svelte.ts';
   import { focusFact } from '../lib/focus.ts';
   import { closePopover, focusInPopover, keepFocus, openPopover, popover, reanchor } from '../lib/popover.svelte.ts';
   import type { PopoverId } from '../lib/popover.ts';
@@ -127,7 +127,7 @@
   async function act(action: 'start' | 'stop'): Promise<void> {
     pending = true;
     try {
-      const st = await postDaemon(action, forgeToken());
+      const st = await postDaemon(action);
       pending = false;
       pool = mergePoolState(pool, st);
       refresh();

@@ -1,16 +1,25 @@
 // The machine routes: GET /api/projects, the registered projects with their job counts, latest job, pools and the
 // machine cap; POST /api/projects, the dashboard's Add project, which registers a repo as `forge project add` does
 // and never approves its trusted files; its event stream, which sends that body on connect and again whenever it
-// changes; and GET /api/projects/stats, each loaded project's shipped jobs and cost per UTC day for the Overview's graphs.
+// changes; GET /api/projects/stats, each loaded project's shipped jobs and cost per UTC day for the Overview's graphs;
+// and POST /api/session, the login link's exchange of its key for the login cookie.
 import type http from 'node:http';
 import path from 'node:path';
 import { loadConfig } from '#core/config/load.ts';
 import { ForgeError } from '#core/errors.ts';
 import { dailyTotals, windowDays } from '#engine/metrics/daily.ts';
 import { PROJECT_NAME, addProject, resolveProjectRoot } from '#engine/project/machine-index.ts';
-import { json, jsonStatus, readJsonBody, send } from '../http.ts';
+import { json, jsonStatus, loginCookieName, readJsonBody, send, tokenMatches } from '../http.ts';
 import { MAX_SSE_CLIENTS, SSE_MAX_AGE_MS, SSE_SLOW_CLIENT_BYTES, sseHead, startPing } from '../sse.ts';
-import type { MachineProjectSummary, PostProjectResponse, ProjectStatsSeries, ProjectsResponse, ProjectsStatsResponse } from '#core/types.ts';
+import type {
+  MachineProjectSummary,
+  PostProjectResponse,
+  PostSessionBody,
+  PostSessionResponse,
+  ProjectStatsSeries,
+  ProjectsResponse,
+  ProjectsStatsResponse,
+} from '#core/types.ts';
 import type { MachineCtx, RouteMatch } from '../types.ts';
 
 const PROJECTS_POLL_MS = 5000;
@@ -86,6 +95,28 @@ export async function postProject(m: MachineCtx, req: http.IncomingMessage, res:
     daemon: null,
   };
   return json(res, { added: result.added, project } satisfies PostProjectResponse);
+}
+
+const SESSION_BODY_SHAPE = 'body must be {"k": string}';
+
+/**
+ * POST /api/session: the login link's exchange, the one /api route that needs no login (dispatch still runs
+ * its peer, Host, Origin, JSON and size checks). A right key sets the `forge-<port>` cookie, valued the
+ * token: HttpOnly so no script reads it, SameSite=Strict so no other site's request carries it, with no
+ * Max-Age so it ends with the browser session and no Secure, since the dashboard is plain loopback http.
+ * A wrong key sets nothing, so a forged link can't replace the cookie the owner's browser holds.
+ */
+export async function postSession(m: MachineCtx, req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const parsed = await readJsonBody(req);
+  if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+  const body = parsed.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return jsonStatus(res, 400, { error: SESSION_BODY_SHAPE });
+  const keys = Object.keys(body);
+  const k = (body as Partial<PostSessionBody>).k;
+  if (keys.length !== 1 || keys[0] !== 'k' || typeof k !== 'string') return jsonStatus(res, 400, { error: SESSION_BODY_SHAPE });
+  if (!tokenMatches(k, m.token)) return jsonStatus(res, 401, { error: 'wrong login key' });
+  res.setHeader('Set-Cookie', `${loginCookieName(m.port)}=${m.token}; HttpOnly; SameSite=Strict; Path=/`);
+  return json(res, { ok: true } satisfies PostSessionResponse);
 }
 
 /** The windows GET /api/projects/stats takes: an allowlist, so a crafted query can't widen the ledger work. */

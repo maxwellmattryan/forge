@@ -11,7 +11,7 @@
   import { postShelf, shelfActionReady, shelfBody, shelfPress, shelfRows, shelfSummary } from '../../lib/shelf.ts';
   import type { JobLike } from '../../lib/job-state.ts';
   import type { ShelfAction } from '../../lib/types.ts';
-  import { forgeToken, openDrawer, refresh } from '../../lib/app.svelte.ts';
+  import { openDrawer, refresh } from '../../lib/app.svelte.ts';
   import { keepFocus } from '../../lib/popover.svelte.ts';
   import { toast } from '../../lib/toast.svelte.ts';
   import { ticker } from '../../lib/clock.svelte.ts';
@@ -73,7 +73,7 @@
     }
     busy = true;
     try {
-      const r = await postShelf(shelfBody(a, chosen, note), forgeToken());
+      const r = await postShelf(shelfBody(a, chosen, note));
       const summary = shelfSummary(r.results, {
         outcome: doneText,
         skipped: (id, reason) => $t('shelf.skipped', { id, reason }),

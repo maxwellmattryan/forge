@@ -1,12 +1,12 @@
 // Mandates over the dashboard's Office page: GET /api/mandates lists them, each with its live report card and,
 // once closed, its closing summary's card (closingCard rebuilds it, or it is null), with the latest directives, the
 // classes a mandate may be given and a new mandate's defaults; GET /api/mandates/:id adds the owner's
-// guidance and goal (token: they are the owner's own words); POST /api/mandates (which picks the id when
+// guidance and goal (the owner's own words); POST /api/mandates (which picks the id when
 // none is sent, as `forge mandate new` does) and /api/mandates/:id/edit|pause|resume|close write as a
 // person through the same mandateWrite `forge mandate` calls, so the dashboard gets the CLI's exact
 // refusals. A goal mandate's milestone draft: GET /api/mandates/:id/draft
 // renders it, and POST decides it through the same decideDraft the CLI calls, pinned to the request and
-// digest the card read. Every POST's token, Origin and JSON guard runs before these handlers (start.ts).
+// digest the card read. Every POST's login, Origin and JSON guard runs before these handlers (start.ts).
 import type http from 'node:http';
 import { listArchived } from '#core/job/archive.ts';
 import { listRequests } from '#core/job/requests.ts';
@@ -83,9 +83,9 @@ export function mandateRow(root: string, config: Config, m: Mandate, all: ReadMa
       lastActivity: f.lastActivity,
     },
     draft: gate === null ? null : { status: gate.draftStatus as DraftStatus, gate: gate.status },
-    // Live, closed mandates too: numbers, 'pending', null, WAITING_ON keys and ISO times only, so the tokenless list may carry it.
+    // Live, closed mandates too: numbers, 'pending', null, WAITING_ON keys and ISO times only, no owner text.
     card: buildReportCard(m, f, config, ctx.at),
-    // Rebuilt from summary.json by closingCard, the same values only, so the tokenless list may carry it too.
+    // Rebuilt from summary.json by closingCard, the same values only.
     closing: m.status === 'closed' ? closingOf(root, m.id) : null,
   };
 }

@@ -131,7 +131,7 @@ test('pickChat keeps the saved chat or falls back', () => {
   assert.equal(pickChat([chat('nope'), chat('dddddddddddd')], ''), 'dddddddddddd', 'a malformed id is never picked');
 });
 
-test('chat API helpers send the token and refuse bad ids', async () => {
+test('chat API helpers send no token and refuse bad ids', async () => {
   const calls: { url: string; init: RequestInit | undefined }[] = [];
   let reply: { status: number; body: string } = { status: 200, body: '{"ok":true}' };
   const fetchImpl = (async (url: string, init?: RequestInit) => {
@@ -140,15 +140,15 @@ test('chat API helpers send the token and refuse bad ids', async () => {
   }) as typeof fetch;
   const id = '0123456789ab';
   const rows: [() => Promise<unknown>, string, string | null, unknown][] = [
-    [() => listChats('tok', fetchImpl), '/api/p/web/chats', null, null],
-    [() => createChat('tok', fetchImpl), '/api/p/web/chats', 'POST', {}],
-    [() => renameChat(id, '  New name ', 'tok', fetchImpl), `/api/p/web/chats/${id}/rename`, 'POST', { title: 'New name' }],
-    [() => renameChat(id, '   ', 'tok', fetchImpl), `/api/p/web/chats/${id}/rename`, 'POST', { title: null }],
-    [() => archiveChat(id, 'tok', fetchImpl), `/api/p/web/chats/${id}/archive`, 'POST', {}],
-    [() => sendChatMessage(id, '  as typed\n', 'tok', fetchImpl), `/api/p/web/chats/${id}/messages`, 'POST', { text: '  as typed\n' }],
-    [() => fetchChat(id, 'tok', fetchImpl), `/api/p/web/chats/${id}`, null, null],
-    [() => fetchChatLog(id, -1, 'tok', fetchImpl), `/api/p/web/chats/${id}/log?after=-1&limit=1000`, null, null],
-    [() => fetchChatLog(id, 41, 'tok', fetchImpl), `/api/p/web/chats/${id}/log?after=41&limit=1000`, null, null],
+    [() => listChats(fetchImpl), '/api/p/web/chats', null, null],
+    [() => createChat(fetchImpl), '/api/p/web/chats', 'POST', {}],
+    [() => renameChat(id, '  New name ', fetchImpl), `/api/p/web/chats/${id}/rename`, 'POST', { title: 'New name' }],
+    [() => renameChat(id, '   ', fetchImpl), `/api/p/web/chats/${id}/rename`, 'POST', { title: null }],
+    [() => archiveChat(id, fetchImpl), `/api/p/web/chats/${id}/archive`, 'POST', {}],
+    [() => sendChatMessage(id, '  as typed\n', fetchImpl), `/api/p/web/chats/${id}/messages`, 'POST', { text: '  as typed\n' }],
+    [() => fetchChat(id, fetchImpl), `/api/p/web/chats/${id}`, null, null],
+    [() => fetchChatLog(id, -1, fetchImpl), `/api/p/web/chats/${id}/log?after=-1&limit=1000`, null, null],
+    [() => fetchChatLog(id, 41, fetchImpl), `/api/p/web/chats/${id}/log?after=41&limit=1000`, null, null],
   ];
   for (const [call, url, method, body] of rows) {
     calls.length = 0;
@@ -156,30 +156,28 @@ test('chat API helpers send the token and refuse bad ids', async () => {
     assert.equal(calls.length, 1);
     const { url: got, init } = calls[0]!;
     assert.equal(got, url);
-    const headers = init?.headers as Record<string, string>;
-    assert.equal(headers['x-forge-token'], 'tok', url);
     if (method) {
       assert.equal(init?.method, method);
-      assert.equal(headers['content-type'], 'application/json');
+      assert.deepEqual(init?.headers, { 'content-type': 'application/json' }, url);
       assert.deepEqual(JSON.parse(String(init?.body)), body);
-    } else assert.equal(init?.method, undefined, `${url} is a GET`);
+    } else assert.equal(init, undefined, `${url} is a GET with no headers`);
   }
   // A non-2xx throws the server's error, else its text, else the status text.
   for (const [body, want] of [['{"error":"chat 0123456789ab is archived"}', 'chat 0123456789ab is archived'], ['plain text', 'plain text'], ['', 'Nope']]) {
     reply = { status: 409, body };
-    await assert.rejects(sendChatMessage(id, 'hi', 'tok', fetchImpl), { message: want });
-    await assert.rejects(fetchChat(id, 'tok', fetchImpl), { message: want });
+    await assert.rejects(sendChatMessage(id, 'hi', fetchImpl), { message: want });
+    await assert.rejects(fetchChat(id, fetchImpl), { message: want });
   }
   // A bad id throws before anything is fetched.
   calls.length = 0;
   for (const bad of ['', '0123456789AB', '0123456789a', '0123456789abc', '../chats', 'x/../../y']) {
-    await assert.rejects(renameChat(bad, 't', 'tok', fetchImpl), /no chat/);
-    await assert.rejects(archiveChat(bad, 'tok', fetchImpl), /no chat/);
-    await assert.rejects(sendChatMessage(bad, 't', 'tok', fetchImpl), /no chat/);
-    await assert.rejects(fetchChat(bad, 'tok', fetchImpl), /no chat/);
-    await assert.rejects(fetchChatLog(bad, 0, 'tok', fetchImpl), /no chat/);
+    await assert.rejects(renameChat(bad, 't', fetchImpl), /no chat/);
+    await assert.rejects(archiveChat(bad, fetchImpl), /no chat/);
+    await assert.rejects(sendChatMessage(bad, 't', fetchImpl), /no chat/);
+    await assert.rejects(fetchChat(bad, fetchImpl), /no chat/);
+    await assert.rejects(fetchChatLog(bad, 0, fetchImpl), /no chat/);
   }
-  await assert.rejects(fetchChatLog(id, 1.5, 'tok', fetchImpl), /cursor/);
+  await assert.rejects(fetchChatLog(id, 1.5, fetchImpl), /cursor/);
   assert.equal(calls.length, 0);
 });
 

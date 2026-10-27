@@ -1,7 +1,7 @@
 // POST /api/p/:project/jobs/:id/merge: the dashboard's half of the human channel for `forge pr merge
 // --now`. It merges only with `now: true` and the job id typed back, as the dashboard, through the
 // GitHub adapter the server is given (the in-memory one here, so nothing is spawned), and only behind
-// the token, a matching Origin and JSON.
+// the login, a matching Origin and JSON.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -32,14 +32,13 @@ test('POST /api/p/:project/jobs/:id/merge merges now as the dashboard, only with
     const id = parkedAt(repo.dir, 'pr-review', { title: 'merge me' }).id;
     github.put(ghPr({ statusCheckRollup: [{ name: 'test', conclusion: 'FAILURE' }] }));
     const noPr = createJob(repo.dir, loadConfig(repo.dir).config, { title: 'no pr yet' }).id;
-    const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)![1];
-    const headers = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const headers = { 'x-forge-token': s.token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
     const post = (job: string, body: unknown, h: Record<string, string> = headers, prefix = s.api('b', '')) => hit(port, { method: 'POST', path: `${prefix}/jobs/${job}/merge`, headers: h, body: JSON.stringify(body) });
     const merges = () => github.calls.filter((c) => c.op === 'merge');
 
     const good = { now: true, confirm: id };
     const { origin: _o, ...noOrigin } = headers;
-    assert.equal((await post(id, good, { ...headers, 'x-forge-token': 'wrong' })).status, 403);
+    assert.equal((await post(id, good, { ...headers, 'x-forge-token': 'wrong' })).status, 401);
     assert.equal((await post(id, good, noOrigin)).status, 403);
     assert.equal((await post(id, good, { ...headers, 'content-type': 'text/plain' })).status, 415);
     assert.equal((await post(id, good, headers, '/api')).status, 404, 'the bare path is gone');

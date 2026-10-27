@@ -13,9 +13,10 @@ const template = repoTemplate((dir) => {
   seedBacklog(dir);
 });
 
-function hit(port: number, o: { method?: string; path: string; headers?: Record<string, string>; body?: string }): Promise<{ status: number; json: any; text: string }> {
+/** A request signed in with the server's token as the x-forge-token header. */
+function hit({ port, token }: { port: number; token: string }, o: { method?: string; path: string; headers?: Record<string, string>; body?: string }): Promise<{ status: number; json: any; text: string }> {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, path: o.path, method: o.method ?? 'GET', headers: { host: `127.0.0.1:${port}`, ...(o.headers ?? {}) } }, (res) => {
+    const req = http.request({ host: '127.0.0.1', port, path: o.path, method: o.method ?? 'GET', headers: { host: `127.0.0.1:${port}`, 'x-forge-token': token, ...(o.headers ?? {}) } }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
@@ -39,20 +40,19 @@ test('the milestone draft gate over the dashboard API', async () => {
   try {
     const { request, digest } = await readyGoal(repo.dir, 'g1');
     const api = s.api('p', '');
-    const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)![1];
-    const headers = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
-    const post = (body: unknown) => hit(port, { method: 'POST', path: `${api}/mandates/g1/draft`, headers, body: JSON.stringify(body) });
+    const headers = { origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body: unknown) => hit(s, { method: 'POST', path: `${api}/mandates/g1/draft`, headers, body: JSON.stringify(body) });
     const backlog = () => fs.readFileSync(path.join(repo.dir, '.forge', 'backlog.md'), 'utf8');
     const mandate = () => fs.readFileSync(path.join(repo.dir, '.forge', 'runtime', 'mandates', 'g1.md'), 'utf8');
 
-    const got = await hit(port, { path: `${api}/mandates/g1/draft` });
+    const got = await hit(s, { path: `${api}/mandates/g1/draft` });
     assert.equal(got.status, 200, got.text);
     assert.deepEqual([got.json.status, got.json.digest, got.json.request, got.json.goal], ['pending', digest, request, 'Halve review rounds']);
     assert.equal(got.json.draft.milestone.title, 'Fewer review rounds');
-    assert.equal((await hit(port, { path: `${api}/mandates/..%2Fx/draft` })).status, 404);
-    assert.equal((await hit(port, { path: `${api}/mandates/nope/draft` })).status, 404);
+    assert.equal((await hit(s, { path: `${api}/mandates/..%2Fx/draft` })).status, 404);
+    assert.equal((await hit(s, { path: `${api}/mandates/nope/draft` })).status, 404);
 
-    const state = await hit(port, { path: `${api}/state` });
+    const state = await hit(s, { path: `${api}/state` });
     assert.deepEqual(state.json.drafts.map((d: { mandate: string; digest: string; owner: string }) => [d.mandate, d.digest, d.owner]), [['g1', digest, 'human']]);
 
     const [b0, m0] = [backlog(), mandate()];
@@ -71,7 +71,7 @@ test('the milestone draft gate over the dashboard API', async () => {
     assert.deepEqual([ok.json.decision, typeof ok.json.filing.completedAt], ['approve', 'string']);
     const events = fs.readFileSync(path.join(repo.dir, '.forge', 'runtime', 'audit.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
     assert.equal(events.find((e) => e.type === 'mandate-draft-approved')?.actor?.source, 'dashboard');
-    assert.deepEqual((await hit(port, { path: `${api}/state` })).json.drafts, [], 'filed: off the list');
+    assert.deepEqual((await hit(s, { path: `${api}/state` })).json.drafts, [], 'filed: off the list');
   } finally {
     await s.cleanup();
     repo.cleanup();

@@ -8,7 +8,7 @@
   import { keepFocus } from '../lib/menu.ts';
   import type { DaemonSessionState } from '../lib/types.ts';
   import { postDaemon, scopeSession, sessionControls, sessionToggle } from '../lib/daemon.ts';
-  import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
+  import { S, refresh } from '../lib/app.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
 
@@ -23,7 +23,7 @@
     const restore = keepFocus(el);
     pending = true;
     try {
-      await postDaemon(action, forgeToken(), scope);
+      await postDaemon(action, scope);
       onacted?.();
       refresh();
     } catch (err) {

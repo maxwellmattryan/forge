@@ -10,14 +10,14 @@ import { claudeProjectsDir } from '#integrations/claude/transcripts.ts';
 import { versionInfo } from '#engine/ops/version.ts';
 import { createMachineSlots } from '#office/slots.ts';
 import type { ApiError } from '#core/types.ts';
-import { guardPost, guardQueryToken, guardToken, isLoopbackAddress, isLoopbackHost, readGuard, send } from './http.ts';
+import { guardAuth, guardPost, isLoopbackAddress, isLoopbackHost, readGuard, send } from './http.ts';
 import { createEntries } from './machine.ts';
 import { startKeepAwake } from './uptime.ts';
 import { DEV_NOT_BUILT, NOT_BUILT, distDirFor, getAsset, getLogo, getPage } from './static.ts';
 import { postJobEnvironment, getEnvironmentLogs, getEnvironments, getJobEnvironment } from './routes/environment.ts';
 import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
 import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor, postShelf } from './routes/jobs.ts';
-import { getProjects, getProjectsEvents, getProjectsStats, postProject } from './routes/machine.ts';
+import { getProjects, getProjectsEvents, getProjectsStats, postProject, postSession } from './routes/machine.ts';
 import { getMandate, getMandateDraft, getMandates, postMandate, postMandateAction, postMandateDraft } from './routes/mandates.ts';
 import { getAbout, getBacklog, getBacklogItem, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
@@ -54,23 +54,24 @@ function observeRequest(req: http.IncomingMessage, res: http.ServerResponse, hoo
 }
 
 /** Each Guard name's check (lib/server/http.ts); each returns true when it has already answered the request. */
-const GUARDS: Record<Guard, (m: MachineCtx, req: http.IncomingMessage, res: http.ServerResponse, url: URL) => boolean> = {
-  read: (_m, req, res) => readGuard(req, res),
-  token: (m, req, res) => guardToken(req, res, m.token),
-  queryToken: (m, _req, res, url) => guardQueryToken(res, url, m.token),
+const GUARDS: Record<Guard, (req: http.IncomingMessage, res: http.ServerResponse) => boolean> = {
+  read: readGuard,
 };
 
 /**
- * The machine's routes, matched on the full pathname: the page and its assets, /api/about, the
- * registered projects and the dashboard's Add project. Rows are a method, an exact path or an anchored
- * RegExp with no flags, the guards a GET runs before its handler, and the handler. Every POST row gets
- * guardPost first, so a POST row names no guards. Anything that matches no row in either table is a 404.
+ * The machine's routes, matched on the full pathname: the page and its assets, the login exchange,
+ * /api/about, the registered projects and the dashboard's Add project. Rows are a method, an exact path
+ * or an anchored RegExp with no flags, the guards a GET runs before its handler, and the handler. Every
+ * /api row but the `open` one needs the login first; every POST row gets guardPost next, so a POST row
+ * names no guards. Anything that matches no row in either table is a 404.
  */
 export const ROUTES: readonly Route<MachineCtx>[] = [
   { method: 'GET', path: '/', handler: getPage },
   { method: 'GET', path: '/index.html', handler: getPage },
   { method: 'GET', path: /^\/assets\//, handler: getAsset },
   { method: 'GET', path: '/forge.png', handler: getLogo },
+  // The login link's exchange: the one /api route without a login, since it issues one.
+  { method: 'POST', path: '/api/session', open: true, handler: postSession },
   { method: 'GET', path: '/api/about', guards: ['read'], handler: getAbout },
   { method: 'GET', path: '/api/projects', guards: ['read'], handler: getProjects },
   // Registers a repo; it never approves its trusted files, so its pool waits for a human's Start.
@@ -81,8 +82,8 @@ export const ROUTES: readonly Route<MachineCtx>[] = [
 
 /**
  * Each project's routes, matched on the path after `/api/p/<project>`, in the order dispatch tries them;
- * rows are as in ROUTES. Every GET takes the read guard: a no-cors GET from another site can't read the
- * reply, but without it could still loop the expensive reads.
+ * rows are as in ROUTES, and every one needs the login. Every GET also takes the read guard: the login
+ * cookie is SameSite=Strict, but a page on another 127.0.0.1 port is same-site and would send it.
  */
 export const PROJECT_ROUTES: readonly Route<ServerCtx>[] = [
   { method: 'GET', path: '/state', guards: ['read'], handler: getState },
@@ -95,22 +96,19 @@ export const PROJECT_ROUTES: readonly Route<ServerCtx>[] = [
   { method: 'GET', path: '/roster', guards: ['read'], handler: getRoster },
   { method: 'GET', path: '/project', guards: ['read'], handler: getProject },
   { method: 'GET', path: '/backlog', guards: ['read'], handler: getBacklog },
-  // It runs the tracker (gh for GitHub) on the login's rate limit and returns issue text, so it takes the token like a POST.
-  { method: 'GET', path: '/backlog/item', guards: ['read', 'token'], handler: getBacklogItem },
+  { method: 'GET', path: '/backlog/item', guards: ['read'], handler: getBacklogItem },
   { method: 'GET', path: '/config', guards: ['read'], handler: getConfig },
-  { method: 'GET', path: '/environments', guards: ['read', 'token'], handler: getEnvironments },
-  { method: 'GET', path: /^\/jobs\/([^/]+)\/environment$/, guards: ['read', 'token'], handler: getJobEnvironment },
-  { method: 'GET', path: /^\/jobs\/([^/]+)\/environment\/logs$/, guards: ['read', 'queryToken'], handler: getEnvironmentLogs },
+  { method: 'GET', path: '/environments', guards: ['read'], handler: getEnvironments },
+  { method: 'GET', path: /^\/jobs\/([^/]+)\/environment$/, guards: ['read'], handler: getJobEnvironment },
+  { method: 'GET', path: /^\/jobs\/([^/]+)\/environment\/logs$/, guards: ['read'], handler: getEnvironmentLogs },
   { method: 'POST', path: /^\/jobs\/([^/]+)\/environment$/, handler: postJobEnvironment },
-  // It spawns git and gh, so it takes the token like a POST.
-  { method: 'GET', path: '/doctor', guards: ['read', 'token'], handler: getDoctor },
-  { method: 'GET', path: '/doctor/bundle', guards: ['read', 'token'], handler: getSupportBundle },
-  // It spawns gh and spends the login's GitHub rate limit, so it takes the token like a POST.
-  { method: 'GET', path: '/github/preview', guards: ['read', 'token'], handler: getGitHubPreview },
+  { method: 'GET', path: '/doctor', guards: ['read'], handler: getDoctor },
+  { method: 'GET', path: '/doctor/bundle', guards: ['read'], handler: getSupportBundle },
+  { method: 'GET', path: '/github/preview', guards: ['read'], handler: getGitHubPreview },
   { method: 'POST', path: '/jobs', handler: postJob },
   { method: 'GET', path: /^\/jobs\/([A-Za-z0-9._-]+)$/, guards: ['read'], handler: getJob },
-  { method: 'GET', path: /^\/jobs\/([A-Za-z0-9._-]+)\/transcript$/, guards: ['read', 'token'], handler: getTranscript },
-  { method: 'GET', path: /^\/jobs\/([A-Za-z0-9._-]+)\/transcript\/events$/, guards: ['read', 'queryToken'], handler: getTranscriptEvents },
+  { method: 'GET', path: /^\/jobs\/([A-Za-z0-9._-]+)\/transcript$/, guards: ['read'], handler: getTranscript },
+  { method: 'GET', path: /^\/jobs\/([A-Za-z0-9._-]+)\/transcript\/events$/, guards: ['read'], handler: getTranscriptEvents },
   { method: 'GET', path: /^\/jobs\/([A-Za-z0-9._-]+)\/(file|raw)$/, guards: ['read'], handler: getJobFile },
   { method: 'POST', path: '/requests', handler: postRequest },
   { method: 'POST', path: '/config', handler: postConfig },
@@ -123,11 +121,10 @@ export const PROJECT_ROUTES: readonly Route<ServerCtx>[] = [
   { method: 'POST', path: /^\/jobs\/([^/]+)\/delete$/, handler: postJobDelete },
   { method: 'POST', path: /^\/jobs\/([^/]+)\/merge$/, handler: postJobMerge },
   { method: 'POST', path: /^\/jobs\/([^/]+)\/repos$/, handler: postJobRepos },
-  // The Office page's mandates. The list carries titles only; the detail carries the owner's guidance and
-  // goal, so it takes the token like a POST. Writes run while the pool runs: a mandate is runtime state, and
-  // a change wakes the Office pass.
+  // The Office page's mandates. Writes run while the pool runs: a mandate is runtime state, and a change
+  // wakes the Office pass.
   { method: 'GET', path: '/mandates', guards: ['read'], handler: getMandates },
-  { method: 'GET', path: /^\/mandates\/([^/]+)$/, guards: ['read', 'token'], handler: getMandate },
+  { method: 'GET', path: /^\/mandates\/([^/]+)$/, guards: ['read'], handler: getMandate },
   { method: 'POST', path: '/mandates', handler: postMandate },
   { method: 'POST', path: /^\/mandates\/([^/]+)\/(edit|pause|resume|close)$/, handler: postMandateAction },
   { method: 'POST', path: '/shelf', handler: postShelf },
@@ -135,13 +132,11 @@ export const PROJECT_ROUTES: readonly Route<ServerCtx>[] = [
   // Filing runs in the handler: the tracker methods are synchronous by contract.
   { method: 'POST', path: /^\/mandates\/([^/]+)\/draft$/, handler: postMandateDraft },
   { method: 'POST', path: '/focus', handler: postFocus },
-  // The owner's chats. Only a 12-hex id matches, so any other id is a 404 here; the detail and the log carry
-  // the owner's words, so they take the token like a POST. The session's own lines are also on /events and
-  // /daemons/log under the read guard, like every session's.
+  // The owner's chats. Only a 12-hex id matches, so any other id is a 404 here.
   { method: 'GET', path: '/chats', guards: ['read'], handler: getChats },
   { method: 'POST', path: '/chats', handler: postChat },
-  { method: 'GET', path: /^\/chats\/([0-9a-f]{12})$/, guards: ['read', 'token'], handler: getChat },
-  { method: 'GET', path: /^\/chats\/([0-9a-f]{12})\/log$/, guards: ['read', 'token'], handler: getChatLog },
+  { method: 'GET', path: /^\/chats\/([0-9a-f]{12})$/, guards: ['read'], handler: getChat },
+  { method: 'GET', path: /^\/chats\/([0-9a-f]{12})\/log$/, guards: ['read'], handler: getChatLog },
   { method: 'POST', path: /^\/chats\/([0-9a-f]{12})\/rename$/, handler: postChatRename },
   { method: 'POST', path: /^\/chats\/([0-9a-f]{12})\/archive$/, handler: postChatArchive },
   { method: 'POST', path: /^\/chats\/([0-9a-f]{12})\/messages$/, handler: postChatMessage },
@@ -176,12 +171,14 @@ function createMachine(opts: ServerOptions): MachineCtx & { entries: ReturnType<
     opts,
     home: opts.home ?? forgeHome(),
     token: crypto.randomBytes(16).toString('hex'),
+    // Set in listen's callback, once the port is bound.
+    port: 0,
     distDir: distDirFor(opts),
     notBuilt: opts.dev ? DEV_NOT_BUILT : NOT_BUILT,
     github: opts.github ?? ghGitHub,
     projects: opts.projectsDir ?? claudeProjectsDir(),
-    // Once per server: finding the commit can spawn git, and /api/about takes no token. The running
-    // code's commit can't change under a live server (`forge update` restarts the dashboard).
+    // Once per server: finding the commit can spawn git. The running code's commit can't change under
+    // a live server (`forge update` restarts the dashboard).
     provenance: versionInfo(PLUGIN_ROOT),
     /** Open event streams and what each follows; MAX_SSE_CLIENTS counts them all, across projects. */
     clients: new Map<http.ServerResponse, string>(),
@@ -197,10 +194,10 @@ function createMachine(opts: ServerOptions): MachineCtx & { entries: ReturnType<
 const noProject = (segment: string): string => JSON.stringify({ error: `no registered project ${JSON.stringify(segment.slice(0, 64))}` } satisfies ApiError);
 
 /**
- * Read-mostly, localhost-only server for every project registered on the machine. POSTs need the
- * per-process token embedded in the page, so another site in the same browser cannot enqueue work or
- * start a pool. `distDir` is a test seam like `sseMaxAgeMs`; it defaults to the plugin's
- * dashboard/dist, or to the dev build under `dev`.
+ * Read-mostly, localhost-only server for every project registered on the machine. Every /api route
+ * needs the per-process token, as the `forge-<port>` cookie POST /api/session sets from the login
+ * link's fragment or as the CLI's token header (LOGIN_HEADER); the page itself carries no token. `distDir` is a
+ * test seam like `sseMaxAgeMs`; it defaults to the plugin's dashboard/dist, or to the dev build under `dev`.
  */
 export function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
   const machine = createMachine(opts);
@@ -216,9 +213,10 @@ export function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
       const scoped = PROJECT_PREFIX.exec(url.pathname);
       const hit = scoped ? matchRoute(PROJECT_ROUTES, req.method, scoped[2]!) : matchRoute(ROUTES, req.method, url.pathname);
       if (!hit) return send(res, 404, 'text/plain', 'not found');
-      // Every guard runs before the project is resolved, so a cross-site or untokened request never reads the index.
-      if (hit.route.method === 'POST' && guardPost(req, res, machine.token)) return;
-      for (const g of hit.route.guards ?? []) if (GUARDS[g](machine, req, res, url)) return;
+      // Every guard runs before the project is resolved, so a cross-site or signed-out request never reads the index.
+      if (url.pathname.startsWith('/api/') && !hit.route.open && guardAuth(req, res, machine.token, machine.port)) return;
+      if (hit.route.method === 'POST' && guardPost(req, res)) return;
+      for (const g of hit.route.guards ?? []) if (GUARDS[g](req, res)) return;
       const match = { url, params: hit.params };
       if (!scoped) return await (hit.route as Route<MachineCtx>).handler(machine, req, res, match);
       const entry = machine.entries.resolve(scoped[1]!);
@@ -233,6 +231,9 @@ export function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(opts.port ?? 7400, host, () => {
+      const port = (server.address() as AddressInfo).port;
+      // Before any request can arrive: it names the login cookie.
+      machine.port = port;
       // Loaded only once the port is ours, so a dash retrying ports never starts a pool.
       machine.entries.start();
       // Only a non-dev `forge dash` passes keepAwake, so no test or dev dashboard holds the machine awake.
@@ -251,7 +252,8 @@ export function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
       };
       resolve({
         server,
-        url: `http://${host}:${(server.address() as AddressInfo).port}`,
+        url: `http://${host}:${port}`,
+        token: machine.token,
         entry: (name) => machine.entries.get(name),
         entries: () => machine.entries.list(),
         onProject: (fn) => machine.entries.onProject(fn),
