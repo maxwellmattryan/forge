@@ -1,5 +1,6 @@
 <!-- The dashboard shell: sidebar (with the "New job or command" input, the global pages and the project section), phone
-     nav, banners, the active view (a global page, or the selected project's), the job drawer over it, the status bar
+     nav, banners, the active view (a global page, or the selected project's), the drawer over it (the job or the issue
+     panel, in one shell), the status bar
      and its popovers, the command palette, the Add project dialog, and the toast. Everything a project owns remounts when
      the project changes. -->
 <script lang="ts">
@@ -8,6 +9,7 @@
   import Banner from './components/Banner.svelte';
   import CommandBar from './components/CommandBar.svelte';
   import Drawer from './components/Drawer.svelte';
+  import DrawerShell from './components/DrawerShell.svelte';
   import GitHubCard from './components/GitHubCard.svelte';
   import Icon from './components/Icon.svelte';
   import Nav from './components/Nav.svelte';
@@ -118,14 +120,14 @@
   // An open drawer covers the view, the sidebar and the phone header: they leave the tab order, the drawer takes focus
   // (Drawer), and closing it hands focus back to the control that opened it (WCAG 2.4.11). Pre-effect, so the opener is
   // read before inert lands on it.
-  const covered = $derived(S.drawer.id !== null);
+  const covered = $derived(S.drawer.open);
   $effect.pre(() => {
     if (!covered) return;
     const active = untrack(() => document.activeElement);
     const opener = active instanceof HTMLElement && active !== document.body ? active : null;
     return () => {
-      // Read after the flush: the cleanup can run before the close lands, and switching jobs keeps the drawer open.
-      if (opener) tick().then(() => S.drawer.id === null && opener.isConnected && opener.focus());
+      // Read after the flush: the cleanup can run before the close lands, and switching jobs or panels keeps the drawer open.
+      if (opener) tick().then(() => !S.drawer.open && opener.isConnected && opener.focus());
     };
   });
 
@@ -177,7 +179,7 @@
     if (e.key === 'Escape') {
       // Escape that cancels an IME composition closes nothing.
       if (e.isComposing) return;
-      const layer = shellEscape({ card: ghCard.link !== null, command: palette.open, addProject: addProjectDialog.open, settings: settingsOpen, popover: popover.open !== null, drawer: S.drawer.id !== null });
+      const layer = shellEscape({ card: ghCard.link !== null, command: palette.open, addProject: addProjectDialog.open, settings: settingsOpen, popover: popover.open !== null, drawer: S.drawer.open });
       if (layer === 'card') {
         e.preventDefault();
         closeCard();
@@ -352,7 +354,8 @@
   {#if project !== null}{#key project}<StatusBar />{/key}{/if}
 </div>
 <!-- Outside main as well: inside main.falloff's stacking context, the sidebar's z-10 would sit above the backdrop. -->
-<div inert={settingsOpen || palette.open || addProjectDialog.open}>{#key project}<Drawer />{/key}</div>
+<!-- One shell for both panels; `kind` outlives a close, so the drawer slides out with the panel it showed. -->
+<div inert={settingsOpen || palette.open || addProjectDialog.open}>{#key project}<DrawerShell open={S.drawer.open} label={$t('drawer.label')}>{#snippet children(focusTitle)}<Drawer {focusTitle} />{/snippet}</DrawerShell>{/key}</div>
 {#if settingsOpen}{#key project}<Settings bind:this={settings} start={settingsStart} onclose={closeSettings} />{/key}{/if}
 {#if addProjectDialog.open}<AddProject />{/if}
 {#if palette.open}{#key project}<CommandBar bind:this={command} onclose={closePalette} />{/key}{/if}

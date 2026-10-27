@@ -106,7 +106,7 @@
   },
   "drawer": {
     "label": "Job panel",
-    "resize": "Resize job panel",
+    "resize": "Resize panel",
     "close": "Close",
     "branch": "Branch",
     "base": "Base",
