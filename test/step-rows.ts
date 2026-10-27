@@ -464,6 +464,7 @@ export const rows: Row[] = [
   // ---- Kind gates
   { name: 'K1 a retro job starts with the procedure', fx: { job: job({ kind: 'retro', stage: 'backlog' }) }, want: { action: 'procedure', reference: path.join(path.resolve(import.meta.dirname, '..'), 'skills', 'forge', 'reference', 'retro.md') } },
   { name: 'K1 a retro that wrote no spec.md', fx: { job: job({ kind: 'retro', stage: 'backlog', agents: { retro: ag(0, 1, 2) } }) }, want: { action: 'procedure' } },
+  { name: 'K1 a retro whose digests ended still starts with the procedure', fx: { job: job({ kind: 'retro', stage: 'backlog', agents: { digest: ag(0, 1, 2) } }) }, want: { action: 'procedure' } },
   { name: 'K2 a retro with spec.md moves to spec', fx: { files: ['spec'], job: job({ kind: 'retro', stage: 'backlog', agents: { retro: ag(0, 1, 2) } }) }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'running') },
 
   // ---- Intake

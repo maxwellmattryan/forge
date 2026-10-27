@@ -1,6 +1,6 @@
 // Agents that read untrusted text keep their tool limits: the tools and disallowedTools frontmatter of
-// agents/assistant.md, agents/triage.md and agents/drafter.md, which Claude Code enforces and no Forge
-// function reads.
+// agents/assistant.md, agents/triage.md, agents/drafter.md and agents/digest.md, which Claude Code enforces
+// and no Forge function reads.
 // Kept through the test rewrite (docs/test-rewrite/README.md; docs/TESTING.md › Allowed source-text
 // tests, entry 9).
 import test from 'node:test';
@@ -39,6 +39,21 @@ test('triage agent runs on haiku without a config key', () => {
     const front = text.match(/^---\n([\s\S]*?)\n---\n/)![1];
     assert.match(front, /^disallowedTools: Bash, Edit, NotebookEdit$/m);
     assert.match(front, /^tools: Read, Write$/m, 'an allowlist: no WebFetch, WebSearch, Glob or Grep');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('digest agent runs on sonnet with only Read and Write', () => {
+  const repo = tempRepo();
+  try {
+    const cfg = defaults();
+    assert.equal(cfg.runtime.models.digest, undefined, 'no config key');
+    assert.equal(roster(repo.dir, cfg).agents.find((a) => a.role === 'digest')?.model, 'sonnet');
+    // The digest reads transcript logs agents and their programs wrote: it can only read its input and write its file.
+    const front = fs.readFileSync(path.join(ROOT, 'agents', 'digest.md'), 'utf8').match(/^---\n([\s\S]*?)\n---\n/)![1];
+    assert.match(front, /^tools: Read, Write$/m);
+    assert.match(front, /^disallowedTools: Bash, Edit, NotebookEdit, WebFetch, WebSearch$/m);
   } finally {
     repo.cleanup();
   }
