@@ -76,6 +76,8 @@ export const API_CHANGES = [
   { id: 'agent-runs' },
   // MandateContract.scoring (all | sample | off); the scoring term on POST /api/mandates and /api/mandates/:id/edit.
   { id: 'mandate-scoring' },
+  // MandateRow.card (MandateReportCard, CardFigure): the live report card on GET /api/mandates and /api/mandates/:id.
+  { id: 'mandate-report-card' },
 ] as const;
 
 /**
