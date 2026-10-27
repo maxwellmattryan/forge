@@ -92,6 +92,10 @@ function detail(e: JobEvent): string | null {
     case 'mandate-draft-approved':
     case 'mandate-draft-revised':
     case 'mandate-draft-rejected':
+    // An `until: released` mandate's release: planned, approved by the foreman, finished.
+    case 'mandate-release-planned':
+    case 'mandate-release-approved':
+    case 'mandate-release-finished':
       d = str(e.mandate);
       break;
     // The director loop's record: what it did, under which mandate, to which issue and job.

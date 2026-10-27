@@ -154,7 +154,10 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v39 adds the script release mechanism and release.script (null), filled from defaults, so no v38 config
   // changes; the bump lets older Forges refuse a config whose mechanism they would reject or never run.
   { id: 'release-script', up: (c) => c },
-  // v40: forge dash's gate runner replaces the assistant foreman sessions, so foreman.assistants.sessions (how many
+  // v40 adds foreman.ship release (and foreman.mandate.until released), so no v39 config changes; the
+  // bump lets older Forges refuse a config whose ship or until they would reject.
+  { id: 'foreman-ship-release', up: (c) => c },
+  // v41: forge dash's gate runner replaces the assistant foreman sessions, so foreman.assistants.sessions (how many
   // sessions) becomes foreman.assistants.parallel (how many gate runs at once), unless parallel is already written.
   { id: 'foreman-gate-runs', up: foremanGateRuns },
 ];

@@ -120,6 +120,9 @@ export function readText(file: string, fallback = ''): string {
 /** The cap for agent-written text Forge parses: reviews, decisions, a daemon session's `--body-file`. */
 export const AGENT_TEXT_MAX = 1024 * 1024;
 
+/** readRegular's answer when the path named another file by the time it was opened: an atomic rename can do that, so a reader may try again. */
+export const SWAPPED_WHILE_READ = 'changed while it was read';
+
 /**
  * A regular file's bytes, at most `max`, without following a link or blocking on a FIFO; a string
  * says why not. Windows has no O_NOFOLLOW, so the lstat refuses a link and the descriptor must still
@@ -135,7 +138,7 @@ export function readRegular(file: string, max: number): Buffer | string {
     fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
     const fst = fs.fstatSync(fd);
     if (!fst.isFile()) return 'not a regular file';
-    if (fst.dev !== st.dev || fst.ino !== st.ino) return 'changed while it was read';
+    if (fst.dev !== st.dev || fst.ino !== st.ino) return SWAPPED_WHILE_READ;
     if (fst.size > max) return `larger than ${max / 1024} KiB`;
     const buf = Buffer.alloc(max + 1);
     const n = fs.readSync(fd, buf, 0, buf.length, 0);

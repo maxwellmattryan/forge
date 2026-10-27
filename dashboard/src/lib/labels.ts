@@ -15,6 +15,7 @@ export const WAIT_LABEL: Record<WaitingOn, string> = {
   external: 'External dependency',
   budget: 'Budget exceeded',
   human: 'Human check',
+  shelved: 'Shelved',
 };
 /** A gate class's name, for a gate run: the waiting reason's label where the class is one, else its own. */
 export const GATE_LABEL: Record<GateClass, string> = {

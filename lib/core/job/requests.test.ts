@@ -114,17 +114,21 @@ test('chat scopes', (t) => {
   assert.equal(inChat({ FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_inbox' }), false);
 });
 
-test('a gate request without a job is only a milestone draft with a valid mandate id', (t) => {
+test("a gate request without a job is only a milestone draft or a mandate's release, with a valid mandate id", (t) => {
   const r = tempRepo();
   t.after(r.cleanup);
   const args = { gate: 'milestone-approval', mandate: 'g1', key: '1-a', digest: 'd'.repeat(64), reserved: null };
-  for (const job of [null, undefined]) {
-    const ok = enqueue(r.dir, null, { type: 'gate', job, args, from: 'forge' });
-    assert.deepEqual([ok.job, ok.args], [null, args], `job ${job}`);
+  const release = { gate: 'release', mandate: 'm1', key: 'a'.repeat(64), reserved: null };
+  for (const [job, a] of [[null, args], [undefined, args], [null, release]] as const) {
+    const ok = enqueue(r.dir, null, { type: 'gate', job, args: a, from: 'forge' });
+    assert.deepEqual([ok.job, ok.args], [null, a], `job ${job} ${a.gate}`);
     assert.equal(requestScope(r.dir, ok), GATES_SCOPE);
   }
   const refused: [string, { job?: string | null; args?: Record<string, unknown> }][] = [
     ['another gate class', { job: null, args: { ...args, gate: 'spec-approval' } }],
+    ['a release gate with no mandate', { job: null, args: { gate: 'release', key: 'a'.repeat(64) } }],
+    ['a release gate with a bad mandate id', { job: null, args: { ...release, mandate: '../m1' } }],
+    ['a release gate for the mandate id none', { job: null, args: { ...release, mandate: 'none' } }],
     ['a mandate id that climbs', { job: null, args: { ...args, mandate: '../x' } }],
     ['the mandate id none', { job: null, args: { ...args, mandate: 'none' } }],
     ['an upper-case mandate id', { job: null, args: { ...args, mandate: 'G1' } }],

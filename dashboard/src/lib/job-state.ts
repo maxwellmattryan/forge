@@ -13,7 +13,7 @@ export function stateTone(job: JobLike): Tone {
   if (job.state === 'done') return 'ok';
   if (job.state === 'failed') return 'bad';
   if (job.state === 'cancelled') return 'muted';
-  if (isDependencyPark(job)) return 'muted';
+  if (isDependencyPark(job) || isShelved(job)) return 'muted';
   // Every other wait but pr-review needs a human (needsHuman), which Smithy marks in ember.
   if (job.state === 'waiting') return job.waitingOn === 'pr-review' ? 'info' : 'you';
   if (job.state === 'blocked') return 'bad';
@@ -64,8 +64,11 @@ export const DEP_PARK_PREFIX = 'dependencies not done: ';
 /** A job the engine parked until its dependencies finish: it resumes by itself, so no human is needed. */
 export const isDependencyPark = (j: JobLike): boolean => j.state === 'waiting' && j.waitingOn === 'external' && s(j.reason).startsWith(DEP_PARK_PREFIX);
 
-/** A waiting job a human must act on (pr-review waits are listed separately; dependency parks wait on other jobs). */
-export const needsHuman = (j: JobLike): boolean => j.state === 'waiting' && j.waitingOn !== 'pr-review' && !isDependencyPark(j);
+/** A job a person set aside (`forge job shelve`): it blocks nothing until a person picks it up from the Shelved list. */
+export const isShelved = (j: JobLike): boolean => j.state === 'waiting' && j.waitingOn === 'shelved';
+
+/** A waiting job a human must act on (pr-review waits are listed separately; dependency parks wait on other jobs; shelved jobs on nobody). */
+export const needsHuman = (j: JobLike): boolean => j.state === 'waiting' && j.waitingOn !== 'pr-review' && !isDependencyPark(j) && !isShelved(j);
 
 /** Not done and not cancelled: the board's Active filter and the nav's count. */
 export const isOpen = (j: JobLike): boolean => !['done', 'cancelled'].includes(j.state as string);

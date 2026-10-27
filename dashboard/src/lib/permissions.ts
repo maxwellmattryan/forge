@@ -1,7 +1,7 @@
 // Permission prompts from daemon sessions: the pure half of PermissionPrompts.svelte and POST /api/daemon/permission.
 // Every prompt field but id and at is session output, i.e. untrusted text: these return plain strings rendered as text.
 import { projectApi } from './project.ts';
-import type { DaemonPermissionPrompt, DaemonPoolState, PermissionDecision } from './types.ts';
+import type { DaemonPermissionPrompt, DaemonPoolState, DaemonSessionState, PermissionDecision } from './types.ts';
 
 const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
 const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []);
@@ -30,6 +30,19 @@ export function readPrompt(v: unknown): DaemonPermissionPrompt | null {
   };
 }
 
+const oldestFirst = (a: PendingPrompt, b: PendingPrompt): number => (a.prompt.at < b.prompt.at ? -1 : a.prompt.at > b.prompt.at ? 1 : 0);
+
+/** One session's valid prompts, each with `scope`, unsorted. */
+function promptsOf(session: unknown, scope: string): PendingPrompt[] {
+  const list = obj(session).permissions;
+  const out: PendingPrompt[] = [];
+  for (const raw of Array.isArray(list) ? list : []) {
+    const prompt = readPrompt(raw);
+    if (prompt) out.push({ scope, prompt });
+  }
+  return out;
+}
+
 /** Every prompt in the pool (the inbox's, the office's, then each job's), oldest first; only `scope`'s when given. */
 export function pendingPrompts(pool: Partial<DaemonPoolState> | null | undefined, scope?: string): PendingPrompt[] {
   const p = obj(pool);
@@ -37,12 +50,17 @@ export function pendingPrompts(pool: Partial<DaemonPoolState> | null | undefined
   const out: PendingPrompt[] = [];
   for (const s of sessions) {
     if (typeof s.scope !== 'string' || (scope !== undefined && s.scope !== scope)) continue;
-    for (const raw of Array.isArray(s.permissions) ? s.permissions : []) {
-      const prompt = readPrompt(raw);
-      if (prompt) out.push({ scope: s.scope, prompt });
-    }
+    out.push(...promptsOf(s, s.scope));
   }
-  return out.sort((a, b) => (a.prompt.at < b.prompt.at ? -1 : a.prompt.at > b.prompt.at ? 1 : 0));
+  return out.sort(oldestFirst);
+}
+
+/**
+ * One session's prompts as `scope`'s, oldest first: a session the pool state doesn't list (a chat's, from GET
+ * /api/chats/<id> and its stream's state frames). Null, or a session without `permissions`, has none.
+ */
+export function sessionPrompts(session: Partial<DaemonSessionState> | null | undefined, scope: string): PendingPrompt[] {
+  return promptsOf(session, scope).sort(oldestFirst);
 }
 
 /** The sorted ids of a session's valid prompts, one per line; null when it carries no `permissions` array. */

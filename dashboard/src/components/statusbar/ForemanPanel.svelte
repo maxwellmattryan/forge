@@ -5,15 +5,17 @@
      its mandate, an outcome chip, the reason on one line, when it started and its tokens, with the dollars only in a
      title. The list follows /api/state's refreshes. Off: what the Foreman is and how to turn it on by hand.
      foreman.enabled is locked in Settings and forge config set, so nothing here writes config. A reason is model or
-     policy text and every value here renders as text, never markup. -->
+     policy text and every value here renders as text, never markup. Both states end their identity block with Open chat,
+     which lands on the Foreman page's Chats tab (chats don't need foreman.enabled) and closes the popover. -->
 <script lang="ts">
   import Chip from '../Chip.svelte';
+  import Icon from '../Icon.svelte';
   import PermissionPrompts from '../PermissionPrompts.svelte';
   import { OFFICE_SCOPE } from '../../lib/types.ts';
   import type { ForemanIndicator } from '../../lib/statusbar.ts';
   import { gateRunRows, gateRunsHeader, type GateRunShown } from '../../lib/gate-runs.ts';
   import { clock } from '../../lib/util.ts';
-  import { openDrawer } from '../../lib/app.svelte.ts';
+  import { S, openDrawer } from '../../lib/app.svelte.ts';
   import { closePopover } from '../../lib/popover.svelte.ts';
   import { t } from '../../lib/locale.ts';
 
@@ -50,6 +52,20 @@
   {#each parts(text) as part, i (i)}{#if Object.hasOwn(CODE, part)}<code class="mono">{CODE[part]}</code>{:else}{part}{/if}{/each}
 {/snippet}
 
+<!-- The hash may already be the Foreman page's, so the click sets the tab itself rather than leaving it to the route. -->
+{#snippet openChat()}
+  {#if S.selected}
+    <a
+      class="btn sm"
+      href="#/p/{S.selected}/foreman"
+      onclick={() => {
+        S.foremanPanel = 'chats';
+        closePopover('navigate');
+      }}><Icon name="foreman" />{$t('statusbar.foreman.openChat')}</a
+    >
+  {/if}
+{/snippet}
+
 {#if foreman.on}
   <div class="flex min-h-0 flex-1 flex-col gap-3">
     <div class="flex shrink-0 flex-col items-start gap-1.5">
@@ -57,6 +73,7 @@
       <p class="text-sm text-muted">{$t('statusbar.foreman.about')}</p>
       {#if !foreman.daemon}<p class="text-sm text-muted">{@render howTo($t('statusbar.foreman.daemonOffHow'))}</p>{/if}
       {#if foreman.officeError}<p class="w-full truncate text-sm text-bad" title={foreman.officeError}>{$t('statusbar.foreman.officeError', { error: foreman.officeError })}</p>{/if}
+      {@render openChat()}
     </div>
     {#if foreman.prompts}
       <div class="flex max-h-[40%] shrink-0 flex-col gap-2 overflow-y-auto">
@@ -108,5 +125,6 @@
     <p class="text-sm">{$t('statusbar.foreman.about')}</p>
     <p class="text-sm text-muted">{$t('statusbar.foreman.offTitle')} {$t('statusbar.foreman.offBody')}</p>
     <p class="text-sm text-muted">{@render howTo($t('statusbar.foreman.offHow'))}</p>
+    {@render openChat()}
   </div>
 {/if}

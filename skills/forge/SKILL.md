@@ -1,7 +1,7 @@
 ---
 name: forge
 description: Run Forge, a software factory. Turns features, bugs and backlog items into reviewed pull requests via a team of agents, each job in its own git worktree, with PR/tracker sync, a live dashboard, evals and self-improving retros. Use for "/forge <feature>", "/forge next", approving/reworking Forge jobs, Forge status, or setting Forge up in a repo.
-argument-hint: "<feature> | next [n] | triage [n] | issue <ref> | continue <job|#pr> | approve <job> [<ref>|new|none] [note] | revise|answer|rework|cancel <job> [note] | status | sync | dash | init | retro | eval … | requests | doctor | update"
+argument-hint: "<feature> | next [n] | triage [n] | issue <ref> | continue <job|#pr> | approve <job> [<ref>|new|none] [note] | revise|answer|rework|cancel <job> [note] | shelve <job> <reason> | status | sync | dash | init | retro | eval … | requests | doctor | update"
 ---
 
 # Forge: orchestrator
@@ -39,7 +39,7 @@ Report `sync`, a line each: merges, PR feedback, conflicts, finished umbrellas, 
 | `next [n]` | `triage`, then up to `n` (default 1, max `runtime.maxParallelJobs`) times `forge next --claim --session ${CLAUDE_SESSION_ID}` (a queued job nobody drives, `resumed: true`, else a tracker item), then run them in parallel. |
 | `issue <ref>` | `forge job from-ref <ref> --session ${CLAUDE_SESSION_ID}` (planned as one job), then **Run a job**. |
 | `continue <job \| #pr \| ref> [note]` | `reference/pr-lifecycle.md` |
-| `approve <job> [<ref>\|new\|none] [note]`, `revise`, `answer`, `rework`, `cancel <job> [note]` | record the decision (`reference/commands.md`); step moves the job; then **Run a job** |
+| `approve <job> [<ref>\|new\|none] [note]`, `revise`, `answer`, `rework`, `cancel <job> [note]`, `shelve <job> <reason>` | record the decision (`reference/commands.md`); step moves the job; then **Run a job** |
 | `sync` | the sync above; report |
 | `dash` | `forge dash --background`; give the URL |
 | `init`, `retro`, `eval …`, `requests`, `triage` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md`, `triage.md` |

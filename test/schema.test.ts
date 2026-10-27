@@ -158,6 +158,7 @@ const CONFIG_ROWS: Row[] = [
     removed: ['release.script'],
     note: ONLY_VERSION,
   },
+  { step: 'foreman-ship-release', input: { foreman: { enabled: true, ship: 'merge' } }, fields: { 'foreman.ship': 'merge', 'foreman.enabled': true }, note: ONLY_VERSION },
   {
     step: 'foreman-gate-runs',
     input: { foreman: { assistants: { enabled: true, sessions: 3 } } },
@@ -241,6 +242,7 @@ const JOB_ROWS: Row[] = [
     removed: ['agents.builder.runHistory', 'agents.reviewer:code.runHistory'],
     note: "every ended run is legacy; a running agent's run is recorded by its end",
   },
+  { step: 'shelved', input: { id: 'x', state: 'waiting', waitingOn: 'escalation', reason: 'r' }, fields: { shelved: null, finishedWhileShelved: false, waitingOn: 'escalation' }, note: 'a job from before the shelf is on none' },
 ];
 
 const EVENT_ROWS: Row[] = [
@@ -290,6 +292,12 @@ const EVENT_ROWS: Row[] = [
     fields: { type: 'human', ts: 't', action: 'rework', actor: { login: 'al', source: 'chat' } },
     note: 'an actor recorded by a chat session keeps source chat',
   },
+  {
+    step: 'shelve-events',
+    input: { ts: 't', type: 'shelved', reason: 'later', from: { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }, actor: { login: 'al', source: 'gh' } },
+    fields: { type: 'shelved', ts: 't', reason: 'later', 'from.waitingOn': 'escalation', actor: { login: 'al', source: 'gh' } },
+    note: 'shelve and unshelve events read as written',
+  },
 ];
 
 const MACHINE_ROWS: Row[] = [
@@ -338,6 +346,12 @@ const MANDATE_ROWS: Row[] = [
     input: { ...MANDATE_V1, goal: null, filedAt: null },
     fields: { scoring: 'all', 'scope.milestones': ['M1'] },
     note: 'a mandate written before scoring scores all its merged jobs',
+  },
+  {
+    step: 'mandate-until-released',
+    input: { ...MANDATE_V1, until: 'merged', goal: null, filedAt: null, scoring: 'all' },
+    fields: { until: 'merged', filedAt: null, scoring: 'all', 'scope.milestones': ['M1'] },
+    note: ONLY_VERSION,
   },
 ];
 
@@ -728,6 +742,34 @@ test('a current-version lease is read field by field', () => {
   // A partial or planted lease never reads as live by accident.
   assert.deepEqual(normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x' }).lease, { driver: null, epoch: 0, since: null, renewedAt: null, expiresAt: null });
   assert.deepEqual(normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x', lease: { driver: 'S', epoch: -2, expiresAt: 42 } }).lease, { driver: 'S', epoch: 0, since: null, renewedAt: null, expiresAt: null });
+});
+
+test('a shelf record is kept only well formed and only on a job waiting on shelved', () => {
+  const at = '2026-10-01T10:00:00.000Z';
+  const shelf = { at, reason: ' later\u0007 `x` ', actor: { login: 'al', source: 'gh' }, from: { state: 'waiting', waitingOn: 'escalation', reason: 'touches billing' } };
+  const read = (shelved: unknown, waitingOn = 'shelved') => normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x', state: 'waiting', waitingOn, shelved }).shelved;
+  assert.deepEqual(read(shelf), { ...shelf, reason: 'later x' }, 'the reason is cleaned again');
+  assert.equal(read(shelf, 'escalation'), null, 'a job off the shelf keeps none');
+  const queued = { ...shelf, from: { state: 'queued', waitingOn: null, reason: null } };
+  assert.deepEqual(read(queued)?.from, queued.from);
+  assert.deepEqual(read({ ...shelf, actor: { login: 'al', source: 'root' } })?.actor, { login: null, source: 'unknown' }, 'an unknown source keeps no login');
+  const malformed: [string, unknown][] = [
+    ['a bad time', { ...shelf, at: 'yesterday' }],
+    ['an empty reason', { ...shelf, reason: '``' }],
+    ['from running', { ...shelf, from: { state: 'running', waitingOn: null, reason: null } }],
+    ['from the shelf', { ...shelf, from: { state: 'waiting', waitingOn: 'shelved', reason: null } }],
+    ['a wait with no waitingOn', { ...shelf, from: { state: 'waiting', waitingOn: null, reason: null } }],
+    ['a queued job with a waitingOn', { ...shelf, from: { state: 'queued', waitingOn: 'escalation', reason: null } }],
+    ['a reason that is not text', { ...shelf, from: { ...shelf.from, reason: 3 } }],
+    ['no record', 'shelved'],
+  ];
+  for (const [name, raw] of malformed) assert.equal(read(raw), null, name);
+});
+
+test('a finished-while-shelved mark is kept only as true, and only on a done or cancelled job', () => {
+  const read = (mark: unknown, state: string) => normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x', state, finishedWhileShelved: mark }).finishedWhileShelved;
+  assert.deepEqual([read(true, 'cancelled'), read(true, 'done')], [true, true]);
+  assert.deepEqual([read(true, 'queued'), read(true, 'waiting'), read('true', 'cancelled'), read(1, 'done'), read(undefined, 'cancelled')], [false, false, false, false, false]);
 });
 
 test('validates maxTotalRounds, maxCiReworks and daemon.jobBudget', () => {

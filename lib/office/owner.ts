@@ -73,7 +73,7 @@ export function refuseDaemonMerge(id: string, flags: Record<string, unknown>, en
   const scope = daemonScope(env);
   if ('problem' in scope) throw new ForgeError(scope.problem, 1);
   if (!scope.daemon) return;
-  const never = '; the foreman never merges; foreman.ship merge only feeds the approver and step PR4';
+  const never = '; the foreman never merges; foreman.ship merge or release only feeds the approver and step PR4';
   if (flags.now !== undefined) throw new ForgeError("forge pr merge --now is a human's override; a daemon session never passes it. A human runs it in their own terminal", 1);
   if (scope.scope === OFFICE_SCOPE) throw new ForgeError(`${OFFICE_REFUSAL}${never}`, 1);
   if (scope.scope !== id) throw new ForgeError(`a daemon session merges only its own job (${scope.scope}), not ${String(id).slice(0, 200)}`, 1);

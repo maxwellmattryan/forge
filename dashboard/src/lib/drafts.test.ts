@@ -55,9 +55,10 @@ test("requestSubject names a request's job or mandate", () => {
   const r = (over: Partial<ForgeRequest>) => ({ type: 'draft', job: null, args: {}, ...over }) as Pick<ForgeRequest, 'type' | 'job' | 'args'>;
   assert.deepEqual(requestSubject(r({ type: 'draft', args: { mandate: 'g1' } })), { mandate: 'g1' });
   assert.deepEqual(requestSubject(r({ type: 'gate', args: { gate: 'milestone-approval', mandate: 'g1', key: '1-a' } })), { mandate: 'g1' });
+  assert.deepEqual(requestSubject(r({ type: 'gate', job: null, args: { gate: 'release', mandate: 'm1' } })), { mandate: 'm1' });
   assert.deepEqual(requestSubject(r({ type: 'resume', job: 'j-1' })), { job: 'j-1' });
   assert.equal(requestSubject(r({ type: 'draft', args: { mandate: '../x' } })), null);
   assert.equal(requestSubject(r({ type: 'draft', args: { mandate: 'none' } })), null);
-  assert.equal(requestSubject(r({ type: 'gate', args: { gate: 'spec-approval', mandate: 'g1' } })), null, 'only a milestone-approval gate names a mandate');
+  assert.equal(requestSubject(r({ type: 'gate', args: { gate: 'spec-approval', mandate: 'g1' } })), null, 'only a milestone-approval or release gate names a mandate');
   assert.equal(requestSubject(r({ type: 'next' })), null);
 });

@@ -1,11 +1,12 @@
-// `forge mandate new|edit|pause|resume|close|list|show` and `forge mandate draft
-// start|prepare|record|show|approve|revise|reject|assist`: the owner's mandates to the Office, a goal
-// mandate's drafting runs and its milestone-approval gate (lib/office/mandates/, docs/CONFIG.md
-// "Mandates"). Every write and `draft start` is refused in a daemon session, before anything is read: a
-// session misled by tracker or PR text must not widen or create what directs the Office, or spend on
-// drafting. `draft prepare|record` run only in the office session or a person's terminal; `draft
-// approve|revise|reject` are a person's: `--actor foreman` is refused in every scope, since only forge dash's
-// gate runner records the Foreman's decision on a draft, in-process.
+// `forge mandate new|edit|pause|resume|close|list|show`, `forge mandate draft
+// start|prepare|record|show|approve|revise|reject|assist` and `forge mandate release assist|approve`: the
+// owner's mandates to the Office, a goal mandate's drafting runs and its milestone-approval gate, and an
+// `until: released` mandate's release at the `release` gate class (lib/office/mandates/, docs/CONFIG.md "Mandates"). Every write
+// and `draft start` is refused in a daemon session, before anything is read: a session misled by tracker
+// or PR text must not widen or create what directs the Office, or spend on drafting. `draft
+// prepare|record` run only in the office session or a person's terminal; `draft approve|revise|reject` are
+// a person's: `--actor foreman` is refused in every scope, as is `release approve`, which is only the
+// foreman's: forge dash's gate runner records the Foreman's decisions in-process.
 import fs from 'node:fs';
 import path from 'node:path';
 import { ForgeError } from '#core/errors.ts';
@@ -15,6 +16,8 @@ import { listJobs } from '#core/job/store.ts';
 import { buildReportCard } from '#engine/metrics/report-card.ts';
 import { spendLedger } from '#engine/metrics/spend.ts';
 import { refuseOutsideOffice } from '#office/owner.ts';
+import { assistMandateRelease, mandateReleaseRefusal } from '#office/foreman/policy.ts';
+import { approveMandateRelease, mandateReleaseState } from '#engine/release/mandate.ts';
 import { readDirectives } from '#office/mandates/directives.ts';
 import { readSummary } from '#office/mandates/pass.ts';
 import { jobFigures } from '#office/mandates/progress.ts';
@@ -37,7 +40,7 @@ const TERMS: [string, string][] = [
   ['--milestones A,B', 'milestones in the order they are worked (none: empty the list on edit)'],
   ['--labels a,b', 'labels an issue in scope carries (none: empty)'],
   ['--issues r1,r2', 'issues worked in the order given; needs --order listed (none: empty)'],
-  ['--until merge-ready|merged', 'where its work stops (merged applies only under foreman.ship: merge)'],
+  ['--until merge-ready|merged|released', 'where its work stops (merged applies only under foreman.ship: merge or release, released only under release)'],
   ['--max-jobs N', 'its jobs running at once, 1-16'],
   ['--order graph|priority|listed', 'how it orders its work'],
   ['--decides g1,g2|none', 'the gate classes it delegates, within foreman.decides minus gate:<class> reservations'],
@@ -53,6 +56,7 @@ const TERMS: [string, string][] = [
 
 const DOCS: [string, string] = ['Mandates', 'docs/CONFIG.md#mandates'];
 const INTAKE: [string, string] = ['Foreman › Intake', 'docs/architecture/foreman.md'];
+const RELEASE_DOCS: [string, string] = ['Releasing a project', 'docs/RELEASES.md#releasing-a-project'];
 const DAEMON_EXIT = 'a daemon session ran it';
 
 const MANDATE: HelpGroup = {
@@ -61,9 +65,9 @@ const MANDATE: HelpGroup = {
   commands: [
     {
       command: 'mandate new',
-      args: '<id> --title T [terms]',
+      args: '[<id>] --title T [terms]',
       summary:
-        'create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run)',
+        'create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run); without <id>, Forge picks m- and 8 random hex digits no mandate or mandate runtime dir holds (mandate.id)',
       flags: [
         ['--title T', 'one line, at most 200 characters (required)'],
         [
@@ -72,7 +76,7 @@ const MANDATE: HelpGroup = {
         ],
         ...TERMS,
       ],
-      exits: [[1, `the id exists or is not a mandate id, a term breaks the contract (every problem named), or ${DAEMON_EXIT}`]],
+      exits: [[1, `an id given exists or is not a mandate id, a term breaks the contract (every problem named), or ${DAEMON_EXIT}`]],
       docs: DOCS,
       common: true,
     },
@@ -118,7 +122,7 @@ const MANDATE: HelpGroup = {
       command: 'mandate show',
       args: '<id>',
       summary:
-        "one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request, gate} (gate: none, pending, filing or filed; else null), its file, its progress {jobs: {reached, inFlight, handled, unfinishable}, spend: {usd, budget}, started: {jobs, budget}, lastActivity} (no tracker call), its closing summary once the Office pass closed it (else null) and its latest 10 directives",
+        "one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request, gate} (gate: none, pending, filing or filed; else null), its file, its progress {jobs: {reached, inFlight, handled, unfinishable}, spend: {usd, budget}, started: {jobs, budget}, lastActivity} (no tracker call), its closing summary once the Office pass closed it (else null), its latest 10 directives, and release: for an effective until: released, its release {status (unplanned, done, replaced, failed, stale, started, approved or pending), plan, tag, done, total, next, owner, detail} (else null)",
       exits: [[1, "no such mandate (not_found), or it can't be read"]],
       docs: DOCS,
     },
@@ -210,6 +214,27 @@ const MANDATE: HelpGroup = {
       exits: [[1, 'run in any daemon session, or G is not an in-progress milestone-approval gate request for this mandate']],
       docs: INTAKE,
     },
+    {
+      command: 'mandate release assist',
+      args: '<id> --request R',
+      summary:
+        "read-only, for a person's own terminal: what a gate run's forge:assistant is briefed with for an until: released mandate's gate request of the release gate class ({mandate, gate, stale, reason?, reserved, subagent, model, effort, brief}); stale once the release is no longer pending approval or its plan is not the one the request was queued for",
+      flags: [['--request R', 'the claimed gate request of the release gate class (required): in progress, job-less, for this mandate']],
+      exits: [[1, 'run in any daemon session, or R is not an in-progress gate request of the release gate class for this mandate']],
+      docs: RELEASE_DOCS,
+    },
+    {
+      command: 'mandate release approve',
+      args: '<id> --actor foreman --note N',
+      summary:
+        "refused in every scope: only forge dash's gate runner approves an until: released mandate's pending release plan in place of forge release run's publish prompt ({ok, mandate, release: {plan, actor}}); it starts nothing: a human or CI runs forge release run, which without a terminal then passes each publish step of that exact plan while the mandate still delegates release. A person approves by answering forge release run's publish prompt in a terminal instead",
+      flags: [
+        ['--actor foreman', "refused in every scope: only forge dash's gate runner records the Foreman's decision"],
+        ['--note N', 'why (required)'],
+      ],
+      exits: [[1, "no --actor foreman, or refused: always from the CLI (only forge dash's gate runner records it), and for the gate runner when the foreman doesn't decide release, the mandate doesn't delegate it (narrowed, paused, closed, unreadable, until capped or reserved), no current plan of this mandate, a stale plan, no queued gate request of the release gate class for it, already approved, or a reserved pattern in the note"]],
+      docs: RELEASE_DOCS,
+    },
   ],
 };
 
@@ -283,19 +308,20 @@ function written(root: string, id: string, changed: boolean) {
   return { ok: true, changed, mandate: mandateSummary(mandateTarget(all, id), all) };
 }
 
-function write(ctx: CliContext, sub: MandateOp, id: string, flags: Record<string, any>) {
+function write(ctx: CliContext, sub: MandateOp, id: string | null, flags: Record<string, any>) {
   const { root, config } = ctx;
   if (sub === 'new') {
     const goal = goalFrom(flags);
     const input = { ...inputFrom(ctx, { ...flags, title: req(flags.title, '--title') }), ...(goal === undefined ? {} : { goal }) };
-    mandateWrite(root, config, 'new', id, { input });
+    const { id: made } = mandateWrite(root, config, 'new', id, { input });
     // A goal mandate's first drafting run, for the office session to turn.
-    if (goal !== undefined) return { ...written(root, id, true), draft: { request: queueDraftRequest(root, id).request } };
-    return written(root, id, true);
+    if (goal !== undefined) return { ...written(root, made, true), draft: { request: queueDraftRequest(root, made).request } };
+    return written(root, made, true);
   }
   const input = sub === 'edit' ? inputFrom(ctx, flags) : undefined;
   const reason = sub === 'pause' || sub === 'close' ? str(flags.reason, '--reason') : undefined;
-  return written(root, id, mandateWrite(root, config, sub, id, { input, reason }).changed);
+  const out = mandateWrite(root, config, sub, id, { input, reason });
+  return written(root, out.id, out.changed);
 }
 
 /** A mandate's job figures from the CLI's records, with no tracker call: the jobs, spend and starts. */
@@ -343,6 +369,7 @@ function show(ctx: CliContext, id: string) {
     },
     summary: m.status === 'closed' ? readSummary(root, m.id) : null,
     directives: readDirectives(root, { mandate: m.id, limit: 10 }),
+    release: effective.until === 'released' ? mandateReleaseState(root, config, m.id, (x) => mandateReleaseRefusal(root, config, x)) : null,
   };
 }
 
@@ -358,10 +385,37 @@ function listCmd(root: string) {
 }
 
 /** assist: only a person's own terminal; every daemon session is refused, since forge dash's gate runner assists in-process. Checked before anything is read. */
-function outsideDaemon(env: NodeJS.ProcessEnv): void {
+function outsideDaemon(command: string, env: NodeJS.ProcessEnv): void {
   const s = daemonScope(env);
   if ('problem' in s) throw new ForgeError(s.problem, 1);
-  if (s.daemon) throw new ForgeError("forge mandate draft assist is for a person's own terminal: forge dash's gate runner assists each gate in-process", 1);
+  if (s.daemon) throw new ForgeError(`forge mandate ${command} is for a person's own terminal: forge dash's gate runner assists each gate in-process`, 1);
+}
+
+const RELEASE_APPROVE_FLAGS = new Set(['actor', 'note']);
+
+/**
+ * `release assist|approve`: an `until: released` mandate's release at the `release` gate class. approve is only the foreman's,
+ * refused without `--actor foreman` before anything is read; approveMandateRelease then refuses it, since only forge
+ * dash's gate runner holds the Foreman's authority.
+ */
+function releaseCmd(ctx: CliContext, rest: string[], flags: Record<string, any>, env: NodeJS.ProcessEnv = process.env) {
+  const { root, config } = ctx;
+  const action = rest[0];
+  if (action === 'assist') {
+    outsideDaemon('release assist', env);
+    if (rest.length !== 2) throw usageError(MANDATE, 'release assist');
+    return assistMandateRelease(root, config, rest[1], req(str(flags.request, '--request'), '--request'));
+  }
+  if (action !== 'approve') throw usageError(MANDATE, 'release');
+  if (str(flags.actor, '--actor') !== 'foreman')
+    throw new ForgeError("approve is the foreman's (--actor foreman); a person approves a mandate's release by answering forge release run's publish prompt in a terminal", 1);
+  if (rest.length !== 2) throw usageError(MANDATE, 'release approve');
+  const extra = Object.keys(flags).find((k) => !RELEASE_APPROVE_FLAGS.has(k));
+  if (extra !== undefined) throw new ForgeError(`forge mandate release approve takes only --actor foreman and --note (not --${extra.slice(0, 40)})`, 'usage');
+  const id = rest[1];
+  const note = flags.note === undefined || flags.note === true ? null : String(flags.note);
+  const hash = approveMandateRelease(root, config, id, note, (x) => mandateReleaseRefusal(root, config, x));
+  return { ok: true, mandate: id, release: { plan: hash.slice(0, 12), actor: 'foreman' as const } };
 }
 
 const DECISIONS = new Set(['approve', 'revise', 'reject']);
@@ -411,7 +465,7 @@ async function draftCmd(ctx: CliContext, rest: string[], flags: Record<string, a
   // decideDraft refuses a daemon session without --actor foreman first, before anything is read.
   if (DECISIONS.has(action)) return decide(ctx, action as DraftDecision, rest, flags, env);
   if (action === 'assist') {
-    outsideDaemon(env);
+    outsideDaemon('draft assist', env);
     if (rest.length !== 2) throw usageError(MANDATE, 'draft assist');
     return assistDraft(root, config, rest[1], req(str(flags.request, '--request'), '--request'));
   }
@@ -455,14 +509,16 @@ export async function mandateCmd(ctx: CliContext, sub: string | undefined, rest:
   if (sub !== undefined && WRITES.has(sub) && process.env.FORGE_DAEMON === '1')
     throw new ForgeError(`forge mandate ${sub} writes the owner's instructions to the Office, which a daemon session may not do; run it in your own terminal`, 1);
   if (sub === 'draft') return { data: await draftCmd(ctx, rest, flags as Record<string, any>), exitCode: 0 };
+  if (sub === 'release') return { data: releaseCmd(ctx, rest, flags as Record<string, any>), exitCode: 0 };
   if (sub === 'list') {
     if (rest.length) throw usageError(MANDATE, sub);
     return { data: listCmd(ctx.root), exitCode: 0 };
   }
   if (sub === undefined || (!WRITES.has(sub) && sub !== 'show')) throw usageError(MANDATE);
-  if (rest.length !== 1) throw usageError(MANDATE, sub);
+  // `new` without an id gets one picked (newMandateId); every other write and `show` name one.
+  if (sub === 'new' ? rest.length > 1 : rest.length !== 1) throw usageError(MANDATE, sub);
   if (sub === 'edit' && (flags.goal !== undefined || flags['goal-file'] !== undefined)) throw new ForgeError('--goal is set only by forge mandate new', 'usage');
-  const id = rest[0];
-  if (sub === 'show') return { data: show(ctx, id), exitCode: 0 };
+  const id = rest[0] ?? null;
+  if (sub === 'show') return { data: show(ctx, id!), exitCode: 0 };
   return { data: write(ctx, sub as MandateOp, id, flags as Record<string, any>), exitCode: 0 };
 }

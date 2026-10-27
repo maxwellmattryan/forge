@@ -10,7 +10,8 @@ import { defaults } from '#core/config/load.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { MANDATE_SCHEMA_VERSION } from '#core/versions/mandate.ts';
 import { applyInput, blankMandate, effectiveContract, isReadable, mandateChain, mandateState, mandateSummary } from './contract.ts';
-import { jobMandateScoring, listMandates, readMandate, writeMandate } from './store.ts';
+import { ForgeError } from '#core/errors.ts';
+import { jobMandateScoring, listMandates, newMandateId, readMandate, writeMandate } from './store.ts';
 import type { Config } from '#core/types.ts';
 import type { Mandate, MandateInput, ReadMandate } from './types.ts';
 
@@ -87,7 +88,7 @@ test('mandate input refusals', async () => {
       ['maxJobs 17', [...NEW, '--max-jobs', '17'], /^maxJobs must be an integer 1-16 \(got 17\)$/],
       ['maxJobs not a number', [...NEW, '--max-jobs', 'two'], /^maxJobs must be an integer 1-16 \(got NaN\)$/],
       ['budget.usd 0', [...NEW, '--budget-usd', '0'], /^budget\.usd must be a number over 0 and at most 100000 \(got 0\)$/],
-      ['an unknown enum value', [...NEW, '--until', 'released'], /^until must be one of merge-ready \| merged/],
+      ['an unknown enum value', [...NEW, '--until', 'shipped'], /^until must be one of merge-ready \| merged \| released/],
       ['an unknown scoring term on new', [...NEW, '--scoring', 'some'], /^scoring must be one of all \| sample \| off \(got "some"\)$/],
       ['an unknown scoring term on edit', ['mandate', 'edit', 'a', '--scoring', 'some'], /^scoring must be one of all \| sample \| off \(got "some"\)$/],
       ['every problem, joined', [...NEW, '--max-jobs', '0', '--stall-bounces', '101'], /^maxJobs must be an integer 1-16 \(got 0\); stall\.bounces must be an integer 1-100 \(got 101\)$/],
@@ -166,7 +167,9 @@ const mandate = (id: string, input: MandateInput & { status?: Mandate['status'] 
 
 test('effective contract', () => {
   const m = mandate('m', { decides: ['spec-approval', 'conflicts'], until: 'merged' });
-  const rows: [string, Config, { decides: string[]; until: string }, string[]][] = [
+  const released = mandate('r', { decides: ['spec-approval', 'conflicts'], until: 'released' });
+  const both = ['spec-approval', 'conflicts'];
+  const rows: [string, Config, { decides: string[]; until: string }, string[], Mandate?][] = [
     [
       'a class dropped from foreman.decides after it was written',
       config((f) => (f.decides = ['spec-approval'])),
@@ -176,13 +179,17 @@ test('effective contract', () => {
     ['a class reserved later', config((f) => (f.reserved = [...f.reserved, 'gate:conflicts'])), { decides: ['spec-approval'], until: 'merge-ready' }, ['decides: conflicts dropped (reserved: gate:conflicts)', 'until: merged needs foreman.ship: merge; merge-ready applies']],
     ['foreman.enabled false', config((f) => (f.enabled = false)), { decides: [], until: 'merge-ready' }, ['decides: none apply (foreman.enabled is false)', 'until: merged needs foreman.ship: merge; merge-ready applies']],
     ['an invalid reserved', config((f) => (f.reserved = ['Gate:release'])), { decides: [], until: 'merge-ready' }, ['decides: none apply (foreman.reserved is invalid)', 'until: merged needs foreman.ship: merge; merge-ready applies']],
-    ['until merged under ship: merge', config((f) => (f.ship = 'merge')), { decides: ['spec-approval', 'conflicts'], until: 'merged' }, []],
+    ['until merged under ship: merge', config((f) => (f.ship = 'merge')), { decides: both, until: 'merged' }, []],
+    ['until merged under ship: release', config((f) => (f.ship = 'release')), { decides: both, until: 'merged' }, []],
+    ['until released under ship: release', config((f) => (f.ship = 'release')), { decides: both, until: 'released' }, [], released],
+    ['until released under ship: merge', config((f) => (f.ship = 'merge')), { decides: both, until: 'merged' }, ['until: released needs foreman.ship: release; merged applies'], released],
+    ['until released under ship: propose', config((f) => (f.ship = 'propose')), { decides: both, until: 'merge-ready' }, ['until: released needs foreman.ship: release; merge-ready applies'], released],
   ];
-  for (const [name, c, want, capped] of rows) {
-    const got = effectiveContract(c, m);
+  for (const [name, c, want, capped, row = m] of rows) {
+    const got = effectiveContract(c, row);
     assert.deepEqual({ decides: got.effective.decides, until: got.effective.until }, want, name);
     assert.deepEqual(got.capped, capped, name);
-    assert.deepEqual([got.effective.maxJobs, got.effective.budget], [m.maxJobs, m.budget], `${name}: the other terms are as written`);
+    assert.deepEqual([got.effective.maxJobs, got.effective.budget], [row.maxJobs, row.budget], `${name}: the other terms are as written`);
   }
 });
 
@@ -240,6 +247,52 @@ test('unreadable mandate files', async () => {
     // An unreadable mandate is never acted on: no write goes through it.
     const edit = await forgeInProcess(r.dir, ['mandate', 'pause', 'wide']);
     assert.deepEqual([edit.status, edit.error?.message], [1, "mandate wide can't be read (maxJobs must be an integer 1-16 (got 99))"]);
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('a generated mandate id is never one already taken', async () => {
+  const r = scratch();
+  try {
+    await ok(r.dir, ['mandate', 'new', 'm-00000001', '--title', 'Taken', '--milestones', 'M1']);
+    const dir = path.join(r.dir, '.forge', 'runtime', 'mandates');
+    fs.writeFileSync(path.join(dir, 'm-00000002.md'), 'not a mandate\n');
+    // A leftover runtime dir with no file beside it: an old mandate's survey, draft and ledger.
+    fs.mkdirSync(path.join(dir, 'm-00000003'));
+    fs.writeFileSync(path.join(dir, 'm-00000003', 'ledger.jsonl'), '');
+    fs.symlinkSync(path.join(r.dir, 'nowhere'), path.join(dir, 'm-00000004.md'));
+    const all = listMandates(r.dir);
+    const seq = (values: string[]) => {
+      let i = 0;
+      return () => values[i++] ?? 'ffffffff';
+    };
+    const rows: [string, string[], string][] = [
+      ['a free first candidate', ['0000000a'], 'm-0000000a'],
+      ['a readable mandate', ['00000001', '0000000b'], 'm-0000000b'],
+      ['an unreadable <id>.md', ['00000002', '0000000c'], 'm-0000000c'],
+      ['a bare runtime dir', ['00000003', '0000000d'], 'm-0000000d'],
+      ['a dangling link at <id>.md', ['00000004', '0000000e'], 'm-0000000e'],
+      ['a candidate that is no mandate id', ['NOT/HEX', '0000000f'], 'm-0000000f'],
+      ['each kind in a row', ['00000001', '00000002', '00000003', '00000004', 'X', '00000010'], 'm-00000010'],
+    ];
+    for (const [name, values, want] of rows) assert.equal(newMandateId(r.dir, all, seq(values)), want, name);
+    // The list alone, with no file on disk: a mandate the caller read is taken.
+    assert.equal(newMandateId(r.dir, [...all, mandate('m-00000020')], seq(['00000020', '00000021'])), 'm-00000021', 'a listed mandate');
+    assert.match(newMandateId(r.dir, all), /^m-[0-9a-f]{8}$/, 'the default draws 8 random hex digits');
+
+    const before = fs.readdirSync(dir).sort();
+    let calls = 0;
+    assert.throws(
+      () =>
+        newMandateId(r.dir, all, () => {
+          calls++;
+          return ['00000001', '00000002', '00000003'][calls % 3]!;
+        }),
+      (e: unknown) => e instanceof ForgeError && e.exitCode === 1 && e.message === "couldn't pick an unused mandate id; pass one",
+    );
+    assert.equal(calls, 16, 'it gives up after 16 taken candidates');
+    assert.deepEqual(fs.readdirSync(dir).sort(), before, 'the mandates dir is unchanged');
   } finally {
     r.cleanup();
   }

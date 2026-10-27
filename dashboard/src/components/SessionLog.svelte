@@ -1,9 +1,8 @@
 <!-- One session's structured log (a job's, or the inbox's in the status bar's Inbox popover): one compact control row
      (status facts, then SessionControls' Permissions and Effort dropdowns and Start/Stop toggle, the Filter button, the rendered/raw
      icon toggle, Follow and Load older; the filters sit in a MenuButton popover), and turns with tool calls
-     and subagents, followed live. Every log string is untrusted session output: text and thinking bodies and a
-     subagent's prompt and result render only through the escape-first md() (as text in Raw or above 20k characters); tool
-     input, tool results and every other line render as text. With `transcript`, it follows a job's Claude Code transcript
+     and subagents, followed live. Each turn's items render through LogItem.svelte, which holds the escaping rules for
+     untrusted session output (md() for prose only, everything else as text). With `transcript`, it follows a job's Claude Code transcript
      instead (an agent's, or an interactive owner's): read-only, with no status, Start/Stop, mode or effort controls.
      With `controls` false (the job drawer, whose header holds them) it leaves out SessionControls.
      With `fill` (the drawer's Log tab, the Foreman popover), it takes its container's remaining height and its log pane is the one scroller,
@@ -17,15 +16,13 @@
   import { onDestroy, tick, untrack } from 'svelte';
   import Banner from './Banner.svelte';
   import Chip from './Chip.svelte';
-  import Icon from './Icon.svelte';
   import Lamp from './Lamp.svelte';
+  import LogItem from './LogItem.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
   import MenuButton from './MenuButton.svelte';
   import SessionControls from './SessionControls.svelte';
-  import { md } from '../lib/markdown.ts';
-  import { renderable } from '../lib/md-view.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
-  import { TONE_CLASS, clock, usd } from '../lib/util.ts';
+  import { clock, usd } from '../lib/util.ts';
   import { projectApi } from '../lib/project.ts';
   import { INBOX_SCOPE, OFFICE_SCOPE, sharedScope } from '../lib/types.ts';
   import type { DaemonSessionState } from '../lib/types.ts';
@@ -34,16 +31,15 @@
   import { EFFORTS } from '../lib/types.ts';
   import type { Effort } from '../lib/types.ts';
   import type { Filters } from '../lib/session-log.ts';
-  import type { Entry, Item } from '../lib/session-parse.ts';
+  import type { Entry } from '../lib/session-parse.ts';
   import { createSessionLog } from '../lib/daemon-log.ts';
-  import { TINT, logSender } from '../lib/sender.ts';
   import type { SessionLogUrls } from '../lib/daemon-log.ts';
   import { promptRefreshKey } from '../lib/permissions.ts';
   import { mergeSessionState, scopeSession, sessionPill } from '../lib/daemon.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import { settled, shutter } from '../lib/motion.ts';
-  import { LIVE_LAMPS, lampState, streaming, struck } from '../lib/station.ts';
+  import { LIVE_LAMPS, lampState, streaming } from '../lib/station.ts';
   import { pref } from '../lib/prefs.ts';
   import { t } from '../lib/locale.ts';
 
@@ -206,91 +202,6 @@
 
 <svelte:document onvisibilitychange={() => log.visibilityChanged()} />
 
-<!-- Every line is a log-row (style.css): time, caret, tag, body, each in its own column whatever the line's kind, so the
-     times, tags and bodies line up down the pane. A line that expands is a log-fold whose open content sits in the body
-     column; the summary's one-line preview hides while it is open. -->
-{#snippet when(at: string | null)}
-  <time datetime={at ?? undefined} title={at ?? undefined} class="log-time">{clock(at)}</time>
-{/snippet}
-
-{#snippet caret()}
-  <span class="log-caret"><Icon name="chevron-down" /></span>
-{/snippet}
-
-{#snippet chip(tone: string | null, tag: string, title: string = tag)}
-  <span class="log-tag"><Chip tone={tone && TONE_CLASS[tone] ? tone : 'muted'} extra="max-w-full" {title}><span class="truncate">{tag}</span></Chip></span>
-{/snippet}
-
-{#snippet line(at: string | null, tone: string | null, tag: string, text: string)}
-  <div class="log-row {TINT.cli} px-1.5 -mx-1.5 py-0.5">{@render when(at)}{@render chip(tone, tag)}<span class="log-body whitespace-pre-wrap break-words">{text}</span></div>
-{/snippet}
-
-{#snippet result(r: NonNullable<Extract<Item, { kind: 'tool' }>['result']>)}
-  <div class="mt-1">
-    <div class="label">{$t('session.result')}</div>
-    <pre class="whitespace-pre-wrap break-words border border-line-soft p-2 {r.isError ? 'text-bad' : ''}">{r.preview}</pre>
-    {#if r.more}<details class="mt-1"><summary class="text-muted">{$t('session.fullResult')}</summary><pre class="whitespace-pre-wrap break-words border border-line-soft p-2 {r.isError ? 'text-bad' : ''}">{r.full}</pre></details>{/if}
-  </div>
-{/snippet}
-
-{#snippet item(it: Item)}
-  {#if it.kind === 'text'}
-    {@const prose = renderable(it.text, mdView.session)}
-    {@const toneText = it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}
-    {#if it.long}
-      <details class="log-fold group font-sans {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5">
-        <summary class="log-row">{@render when(it.at)}{@render caret()}<span class="log-body whitespace-pre-wrap break-words group-open:hidden {toneText}">{it.text.slice(0, 200)}…</span></summary>
-        <div class="log-row"><div class="log-body">{#if prose}<div class="{compact ? 'prose compact' : 'prose'} break-words [&>:first-child]:mt-0 {toneText}">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words {toneText}">{it.text}</div>{/if}</div></div>
-      </details>
-    {:else}
-      <div class="log-row font-sans {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5">{@render when(it.at)}{#if prose}<div class="log-body {compact ? 'prose compact' : 'prose'} break-words [&>:first-child]:mt-0 [&>:last-child]:mb-0 {toneText}">{@html md(it.text)}</div>{:else}<div class="log-body whitespace-pre-wrap break-words {toneText}">{it.text}</div>{/if}</div>
-    {/if}
-  {:else if it.kind === 'thinking'}
-    <details class="log-fold group text-muted {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5">
-      <summary class="log-row">{@render when(it.at)}{@render caret()}<span class="log-tag"><span>{$t('session.thinkingItem')}</span></span><span class="log-body truncate italic group-open:hidden">{it.text.trim().split('\n', 1)[0]}</span></summary>
-      <div class="log-row"><div class="log-body">{#if renderable(it.text, mdView.session)}<div class="{compact ? 'prose compact' : 'prose'} font-sans break-words [&>:first-child]:mt-0">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</div></div>
-    </details>
-  {:else if it.kind === 'tool'}
-    <details class="log-fold {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5 {struck(log.arrivedAt(it.offset), ticker.now) ? 'strike' : ''}">
-      <summary class="log-row">{@render when(it.at)}{@render caret()}<span class="log-tag" title={it.name}><span class={it.result?.isError ? 'text-bad' : 'text-gleam'}>{it.name}</span></span><span class="log-body flex items-baseline gap-2"><span class="min-w-0 truncate" title={it.summary}>{it.summary}</span>{#if it.task?.text}<span class="min-w-0 shrink-[3] truncate text-muted" title={it.task.text}>{it.task.text}</span>{/if}{#if it.result?.isError}<Chip tone="bad" text={$t('session.error')} extra="shrink-0" />{/if}</span></summary>
-      <div class="log-row pb-1"><div class="log-body">
-        <div class="label mt-1">{$t('session.input')}</div>
-        <pre class="whitespace-pre-wrap break-words border border-line-soft p-2">{it.input}</pre>
-        {#if it.result}{@render result(it.result)}{/if}
-      </div></div>
-    </details>
-  {:else if it.kind === 'subagent'}
-    <details class="log-fold {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5 {struck(log.arrivedAt(it.offset), ticker.now) ? 'strike' : ''}">
-      <!-- A Forge role drops its plugin prefix so it fits the tag column; the chip's title keeps the full name. -->
-      <summary class="log-row">{@render when(it.at)}{@render caret()}{@render chip(it.known ? 'info' : 'muted', it.role.replace(/^forge:/, ''), it.role)}<span class="log-body flex items-baseline gap-2"><span class="min-w-0 truncate" title={it.description}>{it.description}</span>{#if it.task?.text}<span class="min-w-0 shrink-[3] truncate text-muted" title={it.task.text}>{it.task.text}</span>{/if}{#if it.hidden}<span class="shrink-0 text-muted">{$t('session.hiddenLines', { count: it.hidden })}</span>{/if}{#if it.result?.isError}<Chip tone="bad" text={$t('session.error')} extra="shrink-0" />{/if}</span></summary>
-      <div class="log-row pb-1">
-        {#if it.prompt}
-          <details class="log-body mt-1">
-            <summary class="text-muted">{$t('session.prompt')}</summary>
-            {#if renderable(it.prompt, mdView.session)}<div class="prose compact break-words border border-line-soft p-2">{@html md(it.prompt)}</div>{:else}<pre class="whitespace-pre-wrap break-words border border-line-soft p-2">{it.prompt}</pre>{/if}
-          </details>
-        {/if}
-        {#if it.items.length}<div class="log-nest mt-1 flex flex-col gap-1 border-l border-info/40 pl-2">{#each it.items as child, i (i)}{@render item(child)}{/each}</div>{/if}
-        {#if it.result}
-          {#if renderable(it.result.full, mdView.session)}
-            <div class="log-body mt-1"><div class="label">{$t('session.result')}</div><div class="prose compact break-words border border-line-soft p-2 {it.result.isError ? 'text-bad' : ''}">{@html md(it.result.full)}</div></div>
-          {:else}<div class="log-body">{@render result(it.result)}</div>{/if}
-        {/if}
-      </div>
-    </details>
-  {:else if it.kind === 'init'}
-    {@render line(it.at, 'muted', 'init', [it.model, it.session].filter(Boolean).join(' · '))}
-  {:else if it.kind === 'result'}
-    {@render line(it.at, it.tone, 'result', it.text)}
-  {:else if it.kind === 'supervisor'}
-    {@render line(it.at, it.tone, 'supervisor', it.text)}
-  {:else if it.kind === 'task'}
-    {@render line(it.at, it.tone, it.role || 'task', it.text)}
-  {:else}
-    {@render line(it.at, it.tone, it.kind, it.text)}
-  {/if}
-{/snippet}
-
 <div class="station flex flex-col gap-2 {hot ? 'hot' : ''} {fill ? 'min-h-0 flex-1' : ''}">
   <!-- One row that wraps: the nameplate on the left, the controls pushed right as one group, so on a phone the group wraps
        under the nameplate as a whole before its own buttons wrap. -->
@@ -352,7 +263,7 @@
     {#each view.turns as g (g.offset)}
       <section class="mb-2">
         <h3 class="label sticky top-0 z-10 bg-(--screen) pt-2 pb-1">{g.label}{#if g.at} <time datetime={g.at} title={g.at} class="font-normal tabular-nums">· {clock(g.at)}</time>{/if}</h3>
-        <div class="flex flex-col gap-1">{#each g.items as it, i (i)}{@render item(it)}{/each}</div>
+        <div class="flex flex-col gap-1">{#each g.items as it, i (i)}<LogItem {it} {compact} view={mdView.session} arrived={(o) => log.arrivedAt(o)} />{/each}</div>
       </section>
     {/each}
   </div>

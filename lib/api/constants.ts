@@ -39,7 +39,12 @@ export const WAITING_ON = [
   'budget',
   // A CLI check stopped the job and only a human can clear it; the reason names the check.
   'human',
+  // A person set the job aside (`forge job shelve`): nothing resumes it, and only a person takes it off the shelf.
+  'shelved',
 ] as const;
+
+/** What the dashboard's Shelved list does to the jobs a person selects (POST /api/shelf). */
+export const SHELF_ACTIONS = ['approve', 'rework', 'unshelve', 'close'] as const;
 
 /** Budget keys in the fixed order reasons and reports list them. */
 export const BUDGET_KEYS = ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries'] as const;
@@ -66,8 +71,11 @@ export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'r
 
 /** A mandate's status (`.forge/runtime/mandates/<id>.md`): only `forge mandate pause|resume|close` moves it. */
 export const MANDATE_STATUSES = ['active', 'paused', 'closed'] as const;
-/** Where a mandate's work stops: a merge-ready PR, or a merged one (which needs foreman.ship: merge). */
-export const MANDATE_UNTIL = ['merge-ready', 'merged'] as const;
+/**
+ * Where a mandate's work stops: a merge-ready PR, a merged one (which needs foreman.ship: merge or
+ * release), or its release run finished once every job merged (which needs foreman.ship: release).
+ */
+export const MANDATE_UNTIL = ['merge-ready', 'merged', 'released'] as const;
 /** How a mandate orders its work: the dependency graph, tracker priority, or scope.issues as listed. */
 export const MANDATE_ORDERS = ['graph', 'priority', 'listed'] as const;
 /** What a mandate does with a job it can't finish. */
@@ -82,9 +90,10 @@ export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework',
 
 /**
  * A directive's action: one record of the director loop (`directive` in the repo audit log). The office
- * session's choices are start, resume, note and skip; the Office pass's enforcements are the rest.
+ * session's choices are start, resume, note and skip; the Office pass's enforcements are the rest
+ * (release: it planned an `until: released` mandate's release).
  */
-export const DIRECTIVE_ACTIONS = ['start', 'resume', 'note', 'skip', 'pause', 'close', 'stall', 'park', 'cancel'] as const;
+export const DIRECTIVE_ACTIONS = ['start', 'resume', 'note', 'skip', 'pause', 'close', 'stall', 'park', 'cancel', 'release'] as const;
 
 /**
  * The daemon session for requests without a (valid, existing) job. Job ids start with an

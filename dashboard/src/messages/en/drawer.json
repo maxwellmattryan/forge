@@ -153,6 +153,7 @@
     },
     "agentsTab": "Agents",
     "foreman": "foreman",
+    "chat": "chat",
     "by": "by {login}",
     "actorSource": "recorded from {source}"
   },

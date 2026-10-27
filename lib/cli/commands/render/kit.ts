@@ -117,8 +117,9 @@ function stateStyle(state: unknown, p: Paint): Style | undefined {
   return undefined;
 }
 
-/** A job's state as a cell: `waiting:<on>` when waiting, coloured by stateStyle. */
+/** A job's state as a cell: `waiting:<on>` when waiting, coloured by stateStyle; `shelved`, muted, for a job set aside. */
 export function stateSeg(state: unknown, waitingOn: unknown, p: Paint): Seg {
+  if (state === 'waiting' && waitingOn === 'shelved') return { text: 'shelved', style: p.dim };
   const text = state === 'waiting' ? `waiting:${txt(waitingOn)}` : txt(state);
   return { text, style: stateStyle(state, p) };
 }

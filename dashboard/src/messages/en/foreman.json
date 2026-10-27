@@ -1,10 +1,61 @@
 {
   "foreman": {
     "title": "Foreman",
-    "sub": "The Office: the mandates you give the Foreman, the gate runs deciding gates, and the directives it records.",
+    "sub": "The Office: the mandates you give the Foreman, the gate runs deciding gates, and the directives it records. Chats: talk with the Foreman.",
     "panels": "Foreman panels",
     "panel": {
-      "office": "Office"
+      "office": "Office",
+      "chats": "Chats"
+    },
+    "chats": {
+      "list": "Chats",
+      "new": "New chat",
+      "untitled": "Untitled chat",
+      "archived": {
+        "one": "Archived ({count})",
+        "other": "Archived ({count})"
+      },
+      "loadFailed": "Couldn't load the chats: {error}",
+      "retry": "Retry",
+      "emptyTitle": "No chats yet",
+      "emptyBody": "Ask the Foreman about the board, or have it act for you through the CLI.",
+      "pick": "Pick a chat, or start a new one.",
+      "archivedChip": "archived",
+      "rename": "Rename",
+      "titleLabel": "Chat title",
+      "save": "Save",
+      "cancel": "Cancel",
+      "archive": "Archive",
+      "archiveConfirm": "Archive this chat? It stops its session, and an archived chat can't be reopened.",
+      "logLabel": "Chat log",
+      "logEmpty": "Send a message to start. The Foreman reads the board before it replies.",
+      "logFailed": "Couldn't load the chat log: {error}",
+      "trimmed": "Showing the newest {max} entries. {cmd} prints the full history.",
+      "jump": "Jump to latest",
+      "you": "you",
+      "undelivered": "not delivered",
+      "thisChat": "This chat",
+      "copyYours": "Copy your message",
+      "copyNote": "Copy the not-delivered note",
+      "copyReply": "Copy the Foreman's reply",
+      "copyCli": "Copy the forge call",
+      "copyTool": "Copy the tool call",
+      "copyEntry": "Copy this entry",
+      "copied": "Copied",
+      "copyFailed": "Couldn't copy: {error}",
+      "cliTag": "forge",
+      "cliRunning": "running…",
+      "message": "Message the Foreman",
+      "placeholder": "Ask the Foreman about the board…",
+      "send": "Send",
+      "replying": "The Foreman is replying…",
+      "replied": "The Foreman replied",
+      "counter": "{count} / {max}",
+      "tooLong": "The message is over {max} characters.",
+      "daemonDisabled": "Chats run in the daemon. Set {daemonKey} in {file} to use them.",
+      "daemonStopped": "Chats run in the daemon. Start it to send a message.",
+      "startDaemon": "Start daemon",
+      "archivedNote": "This chat is archived. Start a new chat to keep talking."
     },
     "office": {
       "session": "Office session",
@@ -82,9 +133,6 @@
       "newTitle": "New mandate",
       "editTitle": "Edit {id}",
       "loadFailed": "Couldn't load the mandate: {error}",
-      "id": "Id",
-      "idHint": "Lowercase letters, digits and -, at most 40, not starting with -.",
-      "badId": "The id must be lowercase letters, digits and -, at most 40 characters, not start with - and not be none.",
       "title": "Title",
       "scope": "Scope",
       "listsHint": "Comma-separated. Issues need order listed and no milestones or labels.",
@@ -101,7 +149,36 @@
       "save": "Save",
       "cancel": "Cancel",
       "created": "Created {id}",
-      "saved": "Saved {id}"
+      "saved": "Saved {id}",
+      "hints": {
+        "title": "One line naming the mandate, shown on its card and in its directives. At most 200 characters.",
+        "scope": "Which tracker issues this mandate works on. Give milestones, labels or a list of issues.",
+        "milestones": "Milestones whose open issues are in scope, worked one milestone at a time, in the order given.",
+        "labels": "Open issues carrying every one of these labels are in scope (within each milestone, when milestones are set).",
+        "issues": "Exact issues to work, in the order given. Needs Order set to listed, and no milestones or labels.",
+        "until": "Where each job's work stops: merge-ready (an open PR waiting for review) or merged. Merged applies only when foreman.ship is merge.",
+        "maxJobs": "How many of its jobs may run at once, 1 to 16.",
+        "order": "How the next issue is picked: graph follows dependencies, priority the tracker's priority, listed the Issues list in order.",
+        "budgetUsd": "Its spend cap in USD. Once its jobs have spent this much, the Office pass pauses the mandate.",
+        "budgetJobs": "How many jobs it may start. Once it has started this many with issues left, the Office pass pauses it. Split jobs don't count.",
+        "stallCadences": "How many Office passes (every foreman.cadence minutes) may go by with no progress before the mandate is paused as stalled.",
+        "stallBounces": "How many times one job may come back to the same gate before that gate is left for you (the bounce hold).",
+        "onUnfinishable": "What happens to a job that failed: park leaves it failed for you to retry, cancel cancels it.",
+        "after": "Start this mandate only once the chosen mandate is closed, so mandates run one after another as a chain.",
+        "decides": "The gates the Foreman may decide on its own for this mandate's jobs. Only classes the project's foreman.decides grants are offered; unchecked gates wait for you.",
+        "guidance": "Free-text instructions for the Foreman. It reads them as data, fenced, and they never widen what it may decide.",
+        "classes": {
+          "specApproval": "Approve a job's spec, or send it back for revision, so building starts without you.",
+          "splitApproval": "Approve or revise the planner's split of a large request into several jobs.",
+          "escalation": "Decide a job the approver escalated: approve it, revise its spec or send it back for rework.",
+          "roundsExhausted": "Decide a job that used up its review rounds: approve it, revise its spec or order another rework. Past the total-round ceiling it stays yours.",
+          "conflicts": "Approve fixing a PR that conflicts with its base branch, which sends the job to the integrator.",
+          "prFeedback": "Send a job back to rework when its open PR gets requested changes or failing checks, without waiting for you.",
+          "repoProposal": "Approve or reject an agent's request to add another repo to a job, which widens the repos the job pushes to.",
+          "release": "Approve a job's release plan, which publishes versions that can't be unpublished. Also needs gate:release removed from foreman.reserved.",
+          "milestoneApproval": "Approve or revise this goal mandate's milestone draft, which files its issues to the tracker. Rejecting it stays yours."
+        }
+      }
     }
   }
 }

@@ -7,14 +7,14 @@ import { chatSetRefusal } from '#office/chat/authority.ts';
 import { refreshDependencyWait, validateDependsOn } from '#engine/pipeline/moves/deps.ts';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
 import { loadJob, logEvent, setJobEffort } from '#core/job/store.ts';
-import { checkFieldKey, checkJobFields } from '#core/job/fields.ts';
+import { checkFieldKey, checkJobFields, reopensShelved } from '#core/job/fields.ts';
 import { EFFORTS } from '#core/job/schema.ts';
 import { refreshRequest } from '#engine/trackers/request-refresh.ts';
 import { ForgeError } from '#core/errors.ts';
 import { coerce } from '#core/text.ts';
 import type { Config } from '#core/types.ts';
 import { bodyFrom, list, oneOf, requireJob, str, usageError } from '../args.ts';
-import { confirmHuman, jobBudgetOp } from '../human.ts';
+import { confirmHuman, jobBudgetOp, reopenShelvedOp } from '../human.ts';
 import { JOB } from './help.ts';
 import { epochFence } from './lease.ts';
 
@@ -59,13 +59,16 @@ export async function set(root: string, config: Config, rest: string[], flags: R
   checkJobFields(fields, before);
   if (inOffice()) checkOfficeSetFor(root, before, change);
   if ('dependsOn' in fields) fields.dependsOn = validateDependsOn(root, jobId, fields.dependsOn);
+  // A job cancelled or set done while shelved goes back to work only through a person, who types its
+  // id back at this terminal; setJob refuses the move without the grant whoever writes it.
+  const grant = reopensShelved(before, flags.state) ? await confirmHuman(root, reopenShelvedOp(jobId)) : undefined;
   // A failed teardown is never rolled back: the result says so and any later teardown path retries.
   // The inbox and office sessions only stop it, as `forge environment down` is refused there.
   const { job, gate, environment } = await moveJob(
     root,
     config,
     jobId,
-    { stage: flags.stage, state: flags.state, waitingOn, reason: flags.reason, note, fields, fence: epochFence(flags) },
+    { stage: flags.stage, state: flags.state, waitingOn, reason: flags.reason, note, fields, fence: epochFence(flags), grant },
     {
       environment: inInboxOrOffice() ? 'stop' : 'teardown',
       afterWrite: 'dependsOn' in fields ? (j) => (refreshDependencyWait(root, j.id), loadJob(root, j.id)) : undefined,

@@ -16,12 +16,14 @@ import { openAppend, openRead, readLogPage, sessionFiles } from '#core/job/sessi
 import { now } from '#core/utils.ts';
 import { gateClassFor, isGateClass } from '#engine/pipeline/moves/foreman-gates.ts';
 import { pendingReleaseHash } from '#engine/release/approval.ts';
+import { approveMandateRelease, mandateReleaseState } from '#engine/release/mandate.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
 import { assistDraft, decideDraft } from '../mandates/gate.ts';
 import { officeCapRefusal } from '../session/meter.ts';
 import type { SessionContext, SessionOptions } from '../session/contract.ts';
 import { startAttempt, type Attempt, type AttemptResult } from './attempt.ts';
+import { assistMandateRelease, mandateReleaseRefusal } from './policy.ts';
 import { gateAssist, recordForemanDecision, recordHandoff, titleOnlyRevise, writeTitleOnlyFeedback } from './decide.ts';
 import { cleanReason, gateMove, type Verdict } from './verdict.ts';
 import type { Config, Effort, ForgeRequest, GateClass, GateRunOutcome, GateRunState, GateRunsState, HandoffClass } from '#core/types.ts';
@@ -74,7 +76,8 @@ interface Live {
 function targetOf(r: ForgeRequest): { gate: GateClass; job: string | null; mandate: string | null } | null {
   const gate = r.args?.gate;
   if (!isGateClass(gate)) return null;
-  if (gate === 'milestone-approval' && (r.job === null || r.job === undefined)) {
+  // A goal mandate's milestone draft, or an `until: released` mandate's release plan: job-less, naming the mandate.
+  if ((gate === 'milestone-approval' || gate === 'release') && (r.job === null || r.job === undefined)) {
     const m = r.args?.mandate;
     return typeof m === 'string' && MANDATE_ID.test(m) && m !== 'none' ? { gate, job: null, mandate: m } : null;
   }
@@ -204,10 +207,10 @@ export function createGateRunner(root: string, deps: { ctx: SessionContext; o: S
     }
   }
 
-  /** Whether the job still waits on the gate the run decided (for release: its plan is still pending). */
-  function stillAt(t: { gate: GateClass; job: string | null }): boolean {
-    if (t.job === null) return true;
+  /** Whether the job still waits on the gate the run decided (for release: its plan, or its mandate's, is still pending). */
+  function stillAt(t: { gate: GateClass; job: string | null; mandate: string | null }): boolean {
     try {
+      if (t.job === null) return t.gate !== 'release' || (lastConfig !== null && mandateReleaseState(root, lastConfig, t.mandate!, (x) => mandateReleaseRefusal(root, lastConfig!, x)).status === 'pending');
       return t.gate === 'release' ? pendingReleaseHash(root, t.job, readEvents(root, t.job)) !== null : gateClassFor(root, loadJob(root, t.job)) === t.gate;
     } catch {
       return false;
@@ -237,6 +240,7 @@ export function createGateRunner(root: string, deps: { ctx: SessionContext; o: S
     }
     try {
       if ('draft' in move) await decideDraft(root, c, t.mandate!, move.draft, { note, foreman: true, actor: FOREMAN_ACTOR, tracker: () => loadTracker(root, c), env: {}, by: authority });
+      else if (t.job === null) approveMandateRelease(root, c, t.mandate!, note, (x) => mandateReleaseRefusal(root, c, x), authority);
       else recordForemanDecision(root, c, loadJob(root, t.job!), move.action, note, repos ? { repos } : {}, authority);
     } catch (e) {
       if (!(e instanceof ForgeError)) throw e;
@@ -285,7 +289,7 @@ export function createGateRunner(root: string, deps: { ctx: SessionContext; o: S
       let repos: string[] | undefined;
       try {
         if (t.job === null) {
-          const a = assistDraft(root, c, t.mandate!, r.id);
+          const a = t.gate === 'release' ? assistMandateRelease(root, c, t.mandate!, r.id) : assistDraft(root, c, t.mandate!, r.id);
           if (a.stale) {
             ack(r.id, 'done', `stale: ${a.reason ?? ''}`);
             [outcome, reason] = ['stale', cleanReason(a.reason) || 'stale'];

@@ -11,6 +11,7 @@
   import AgentActivity from './AgentActivity.svelte';
   import AgentsTab from './AgentsTab.svelte';
   import CloseButton from './CloseButton.svelte';
+  import Copyable from './Copyable.svelte';
   import CommandTrigger from './CommandTrigger.svelte';
   import Banner from './Banner.svelte';
   import BudgetPanel from './BudgetPanel.svelte';
@@ -50,7 +51,7 @@
   import { ticker } from '../lib/clock.svelte.ts';
   import { freshCount, sessionActivity } from '../lib/live.ts';
   import { t } from '../lib/locale.ts';
-  import { DRAWER_TABS, PANE_DEFAULT, PANE_MIN, actorLabel, clampPaneWidth, eventDetail, isForemanEvent, moveDrawerTab, paneKey, paneMax, verdictMatrix, verifierRounds, verifierTone, type DrawerTab } from '../lib/drawer.ts';
+  import { DRAWER_TABS, PANE_DEFAULT, PANE_MIN, actorLabel, clampPaneWidth, eventDetail, isChatEvent, isForemanEvent, moveDrawerTab, paneKey, paneMax, verdictMatrix, verifierRounds, verifierTone, type DrawerTab } from '../lib/drawer.ts';
   import { pref } from '../lib/prefs.ts';
   import { slideMarker } from '../lib/marker.ts';
   import { sidebarShown } from '../lib/sidebar.ts';
@@ -169,8 +170,8 @@
   }
 </script>
 
-{#snippet fact(k: string, v: unknown, icon: IconName | null = null)}
-  <div><div class="label">{k}</div><div class="mono text-[13px] break-all selectable">{#if icon}<Icon name={icon} class="sm mr-1 inline-block align-[-2px] text-muted" />{/if}{v}</div></div>
+{#snippet fact(k: string, v: unknown, icon: IconName | null = null, copy = false)}
+  <div><div class="label">{k}</div><div class="mono text-[13px] break-all selectable">{#if icon}<Icon name={icon} class="sm mr-1 inline-block align-[-2px] text-muted" />{/if}{#if copy && typeof v === 'string' && v !== '—'}<Copyable text={v} />{:else}{v}{/if}</div></div>
 {/snippet}
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop, as on main; Escape closes the drawer from the keyboard) -->
@@ -225,7 +226,7 @@
              Log, so every tab has them; its Start/Stop sits apart, at the end of the tab row), then Command, nearest the
              close button. An interactive owner's job has no session controls, as its Log follows a transcript, and keeps
              the effort chip. ml-auto keeps the cluster right-aligned when it wraps under the meta line. -->
-        <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2"><div class="mono text-[13px] muted min-w-0 break-all"><span class="selectable">{j.id}</span>{#if j.round}{' · '}<span class="whitespace-nowrap">{$t('job.round', { round: j.round, max: j.maxRounds })}</span>{/if}</div>{#if !ownerLog || verbs}<div class="ml-auto flex min-w-0 flex-wrap items-start justify-end gap-1.5">{#if !ownerLog}{#key j.id}<SessionControls scope={j.id} toggle={false} />{/key}{/if}{#if verbs}<CommandTrigger job={j.id} />{/if}</div>{/if}</div>
+        <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2"><div class="mono text-[13px] muted min-w-0 break-all"><Copyable text={j.id} />{#if j.round}{' · '}<span class="whitespace-nowrap">{$t('job.round', { round: j.round, max: j.maxRounds })}</span>{/if}</div>{#if !ownerLog || verbs}<div class="ml-auto flex min-w-0 flex-wrap items-start justify-end gap-1.5">{#if !ownerLog}{#key j.id}<SessionControls scope={j.id} toggle={false} />{/key}{/if}{#if verbs}<CommandTrigger job={j.id} />{/if}</div>{/if}</div>
         <!-- One wrapping badge row: the job's chips, the lease, the session's activity, and last the reason, one truncated
              line that wraps onto its own line here when there is no room. -->
         <div class="flex min-w-0 flex-wrap items-center gap-1.5"><Chip tone="gleam" text={STAGE_LABEL[j.stage] ?? j.stage} /><StateChip job={j} />{#if prot}<Chip tone="warn" extra="max-w-full flex-wrap whitespace-normal" text={$t('job.protectedDrawer', { reasons: prot.reasons.join(' · ') })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}{#if ownerLog}<EffortChip level={effort} />{/if}<LeaseChip owner={j.ownerStatus} />{#if activity}<SessionActivity {activity} extra="caption" />{/if}{#if j.reason}<span class="caption muted min-w-0 max-w-full truncate" title={j.reason}>{j.reason}</span>{/if}</div>
@@ -278,7 +279,7 @@
             {#each events as e, i (i)}
               {@const x = eventDetail(e, { tokens: tokensShort, dur })}
               {@const by = actorLabel(e)}
-              <li class="flex gap-3 py-1.5 border-b border-line text-sm">{#if i < fresh}<span class="dot spark size-1.5 shrink-0 self-center" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts, ticker.now)}</span><span class="font-mono text-gleam shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{#if isForemanEvent(e)}<Chip tone="live" extra="sm mr-1.5" text={$t('drawer.foreman')} />{/if}{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}{#if by}<span class="muted ml-1.5" title={$t('drawer.actorSource', { source: by.source })}>{$t('drawer.by', { login: by.login })}</span>{/if}</span></li>
+              <li class="flex gap-3 py-1.5 border-b border-line text-sm">{#if i < fresh}<span class="dot spark size-1.5 shrink-0 self-center" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts, ticker.now)}</span><span class="font-mono text-gleam shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{#if isForemanEvent(e)}<Chip tone="live" extra="sm mr-1.5" text={$t('drawer.foreman')} />{/if}{#if isChatEvent(e)}<Chip tone="info" extra="sm mr-1.5" text={$t('drawer.chat')} />{/if}{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}{#if by}<span class="muted ml-1.5" title={$t('drawer.actorSource', { source: by.source })}>{$t('drawer.by', { login: by.login })}</span>{/if}</span></li>
             {/each}
           </ul>
         {:else if shown.tab === 'details'}
@@ -286,10 +287,10 @@
           <ProgressBar progress={j.progress} />
           <EnvironmentSection job={j} />
           <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {@render fact($t('drawer.branch'), j.branch ?? '—', 'branch')}{@render fact($t('drawer.base'), j.base ?? '—', 'branch')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}
+            {@render fact($t('drawer.branch'), j.branch ?? '—', 'branch', true)}{@render fact($t('drawer.base'), j.base ?? '—', 'branch', true)}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—', null, true)}
             <div><div class="label">{$t('drawer.pr')}</div><div class="mono text-[13px] break-all selectable">{#if prUrl}<a class="text-gleam" href={prUrl} target="_blank" rel="noopener"><Icon name="pull-request" class="sm mr-1 inline-block align-[-2px]" />#{j.pr?.number}</a>{:else}—{/if}</div></div>
             <div><div class="label">{$t('drawer.issues')}</div><div class="mono text-[13px] break-all selectable flex flex-wrap gap-x-2">{#each j.issues ?? [] as issue, n (n)}{@const issueUrl = safeUrl(issue.url)}{#if issueUrl}<a class="text-gleam" href={issueUrl} target="_blank" rel="noopener">{#if issueUrl.startsWith('https://github.com/')}<Icon name="github" class="sm mr-1 inline-block align-[-2px]" />{/if}{issue.ref ?? $t('drawer.link')}</a>{:else}<span>{issue.ref ?? '—'}</span>{/if}{:else}—{/each}</div></div>
-            {@render fact($t('drawer.session'), j.lease?.driver ?? '—')}{@render fact($t('drawer.created'), ago(j.createdAt, ticker.now))}{@render fact($t('drawer.updated'), ago(j.updatedAt, ticker.now))}
+            {@render fact($t('drawer.session'), j.lease?.driver ?? '—', null, true)}{@render fact($t('drawer.created'), ago(j.createdAt, ticker.now))}{@render fact($t('drawer.updated'), ago(j.updatedAt, ticker.now))}
           </div>
           <RepoSection job={j} />
           <DepSection job={j} />

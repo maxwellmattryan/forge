@@ -1144,6 +1144,19 @@
   /* Inline in 13-14px text: the job pane's Branch, Base, PR and Source. */
   &.sm { width: 14px; height: 14px; }
 }
+/* A field's info icon (FieldHint.svelte): a native button for focus and Enter/Space, drawn as the bare glyph, muted
+   until hovered. Focus takes the global :focus-visible ring. */
+@utility hint-icon {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  transition: color var(--motion-quick) var(--ease-enter);
+  @media (hover: hover) { &:hover { color: var(--fg); } }
+}
 @utility dot {
   width: 8px;
   height: 8px;
@@ -1428,13 +1441,18 @@ input[type=checkbox]:focus-visible, input[type=radio]:focus-visible { outline: 2
   /* The status bar holds 44px indicators here, so it grows to hold them; the view, the toast and the drawer read the
      token and clear it either way. */
   :root { --size-statusbar: var(--space-11); }
-  button:not(.chip), a.btn, .navlist a, [role="tab"], [role="option"], summary, select, input:not([type="checkbox"], [type="radio"]), label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) { min-height: 44px; }
+  button:not(.chip, .hint-icon), a.btn, .navlist a, [role="tab"], [role="option"], summary, select, input:not([type="checkbox"], [type="radio"]), label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) { min-height: 44px; }
   .btn.icon { min-width: 44px; justify-content: center; }
   .chip:is(button) { position: relative; }
   .chip:is(button)::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); translate: -50% -50%; z-index: -1; }
   /* A chip's hit area sits under its neighbours: z-index -1 inside an isolated parent paints it above the
      parent's background but below every sibling, so a tap just outside a chip still reaches the control there. */
   :has(> .chip:is(button)) { isolation: isolate; }
+  /* A field's info icon keeps its 14px glyph and its label row's height, with the same hit area under its
+     neighbours, so a tap on the label text beside it still reaches the label. */
+  .hint-icon { position: relative; }
+  .hint-icon::after { content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; translate: -50% -50%; z-index: -1; }
+  :has(> .hint-icon) { isolation: isolate; }
   /* A checkbox with no label around it (a config field's boolean) gets the same transparent hit area. Its
      neighbours are text (the On/Off beside it), so this one stays on top and a tap on that text toggles it. */
   .check:not(label > .check)::before { content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; translate: -50% -50%; }

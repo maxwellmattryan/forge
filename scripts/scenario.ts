@@ -31,7 +31,7 @@ const STEP_TIMEOUT_MS = 60_000;
 // `forge job step` returns (a dev server that outlives cleanup, a PR), and `job from-ref` and
 // `job link` exist to reach a tracker, so a group name alone is not enough.
 const STEP_COMMANDS = new Set(['job', 'worktree', 'verify', 'requests']);
-const STEP_JOB_COMMANDS = new Set(['show', 'get', 'list', 'set', 'effort', 'claim', 'release', 'note', 'human', 'agent', 'round', 'budget', 'verdicts', 'decision', 'score']);
+const STEP_JOB_COMMANDS = new Set(['show', 'get', 'list', 'set', 'effort', 'claim', 'release', 'note', 'human', 'agent', 'round', 'budget', 'shelve', 'verdicts', 'decision', 'score']);
 // The seeder passes these to `forge job new` itself.
 const NEW_FLAGS_REFUSED = ['--title', '--slug', '--session', '--body-file'];
 // What a scenario's config may set. tracker, daemon, foreman, worktrees, notify, repos and the rest

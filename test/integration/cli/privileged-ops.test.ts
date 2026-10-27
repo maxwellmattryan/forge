@@ -1,5 +1,5 @@
 // The human-only operations against the session's own children: branch code a daemon session's
-// `forge verify` runs can't merge past the checks or lift a spend cap, with or without the daemon's
+// `forge verify` runs can't merge past the checks, lift a spend cap or un-shelve a job, with or without the daemon's
 // markers; `forge budget ack` refuses a period it could not grant before it asks for a person; a daemon
 // session of one project can't reach another's through FORGE_ROOT; and a daemon session whose scope is
 // empty is refused by every scope-gated command.
@@ -10,9 +10,9 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { BIN, fakeGh, forgeAsync, ghPr, tempRepo } from '../../helpers.ts';
+import { BIN, fakeGh, forgeAsync, ghPr, parkedAt, tempRepo } from '../../helpers.ts';
 import { TRUST_ENV, loadConfig, trustDigest } from '#core/config/load.ts';
-import { createJob, jobDir, repoAuditFile, setJob } from '#core/job/store.ts';
+import { createJob, jobDir, loadJob, readEvents, repoAuditFile, setJob } from '#core/job/store.ts';
 
 const POSIX = { skip: process.platform === 'win32' };
 const PRIVILEGED = ['pr-merge-bypass', 'pr-merged', 'budget-set', 'budget-ack'];
@@ -60,10 +60,12 @@ test("branch code run by forge verify can't merge --now or lift a budget", POSIX
   try {
     const wt = JSON.parse((await forgeAsync(s.repo.dir, ['worktree', 'create', s.id], s.gh.env)).stdout).path as string;
     const month = new Date().toISOString().slice(0, 7);
+    // Another job a person shelved: only a person takes it off the shelf.
+    const shelved = parkedAt(s.repo.dir, 'shelved').id;
     // The branch's test script: each nested call's exit and output, on the step's captured output.
     // It names node and the CLI through FORGE_TEST_NODE / FORGE_TEST_BIN, so it carries no path.
     const call = (args: string) => `out=$("$FORGE_TEST_NODE" "$FORGE_TEST_BIN" ${args} --json 2>&1); echo "NESTED $? ${args} :: $out"`;
-    const script = [call('pr merge "$FORGE_JOB" --now'), call('job budget "$FORGE_JOB" --set usd=1000000'), call('job budget "$FORGE_JOB" --ack'), call(`budget ack --period ${month}`)].join('\n');
+    const script = [call('pr merge "$FORGE_JOB" --now'), call('job budget "$FORGE_JOB" --set usd=1000000'), call('job budget "$FORGE_JOB" --ack'), call(`budget ack --period ${month}`), call(`job unshelve ${shelved}`)].join('\n');
     fs.writeFileSync(path.join(wt, 'nested.sh'), `${script}\n`);
     execFileSync('git', ['add', '-A'], { cwd: wt });
     execFileSync('git', ['-c', 'user.email=t@e.st', '-c', 'user.name=T', 'commit', '-qm', 'branch code'], { cwd: wt });
@@ -84,9 +86,10 @@ test("branch code run by forge verify can't merge --now or lift a budget", POSIX
       assert.ok(log, `${name}: the test step ran (${r.stdout.slice(0, 400)})`);
       const text = fs.readFileSync(path.isAbsolute(log) ? log : path.join(jobDir(s.repo.dir, s.id), log), 'utf8');
       const nested = text.split('\n').filter((l) => l.startsWith('NESTED '));
-      assert.equal(nested.length, 4, `${name}: ${text}`);
+      assert.equal(nested.length, 5, `${name}: ${text}`);
       for (const line of nested) assert.match(line, /^NESTED 1 .*human_only/, `${name}: ${line}`);
       assert.deepEqual(budget(), before, `${name}: budget.limits and budget.ack unchanged`);
+      assert.deepEqual([loadJob(s.repo.dir, shelved).waitingOn, readEvents(s.repo.dir, shelved).some((e) => e.type === 'unshelved')], ['shelved', false], `${name}: still shelved`);
     }
     assert.deepEqual(s.gh.calls().filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge'), []);
     const types = s.file('events.jsonl').split('\n').filter(Boolean).map((l) => JSON.parse(l).type);

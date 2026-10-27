@@ -15,7 +15,7 @@ export const SCRIPT_RELEASE = ['release:', '  interim: local', '  versioning: se
  * credential variable reached it). `--draft-notes` prints a fixed draft from 1.0.0, honouring `--bump`, or
  * misbehaves as `scripts/mode` says; `--check merged` exits 0 only while `scripts/merged` exists.
  */
-const FAKE_SCRIPT = `import fs from 'node:fs';
+export const FAKE_SCRIPT = `import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const dir = path.dirname(fileURLToPath(import.meta.url));

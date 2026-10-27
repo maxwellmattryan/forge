@@ -78,6 +78,12 @@ export const API_CHANGES = [
   { id: 'mandate-scoring' },
   // MandateRow.card (MandateReportCard, CardFigure): the live report card on GET /api/mandates and /api/mandates/:id.
   { id: 'mandate-report-card' },
+  // PostMandateBody.id is optional: POST /api/mandates without one gets a generated id (m-<8 hex>), returned as mandate.id.
+  { id: 'mandate-auto-id' },
+  // Shelve: WaitingOn 'shelved', Job.shelved, Job.finishedWhileShelved, Stats.counts.shelved and POST /api/shelf.
+  { id: 'shelve' },
+  // MandateUntil 'released'; DirectiveAction 'release'; a job-less `release` gate request naming a mandate.
+  { id: 'mandate-until-released' },
   // DaemonPoolState.gates (GateRunsState, GateRunState): forge dash's gate runner and its runs; gate requests route to
   // `_gates`, which no session serves; DaemonPoolState.assistants is gone.
   { id: 'gate-runs' },

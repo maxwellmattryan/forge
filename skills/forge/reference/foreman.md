@@ -17,7 +17,7 @@ A drafting run turns a goal mandate's goal into its milestone draft. `{id, args:
 5. Ack: on success `done` with `drafted: <n> issues in <w> waves` (`draft.issues` and `draft.waves` from step 4); on exit 1 `rejected` with the refusal cut to 200 characters. Queue no resume: a drafting run moves no job.
 
 ## For each direct request (office session)
-The Office pass (`forge dash` runs it; it enforces budgets, stalls and closes itself) queues a `direct` request when a mandate has issues to start or jobs to resume. `{id}` from `forge requests`:
+The Office pass (`forge dash` runs it; it enforces budgets and stalls, and closes a mandate once its work is done, an `until: released` one once its release ran) queues a `direct` request when a mandate has issues to start or jobs to resume. `{id}` from `forge requests`:
 1. `forge requests claim <rid> --session ${CLAUDE_SESSION_ID}` (exit 3: skip it).
 2. `forge office survey`. When no mandate has a non-empty `candidates` or `resumable`, ack `done` with `nothing to direct`.
 3. With `surveyors.enabled`: for each mandate with `counts.inFlight > 0`, run `forge office board <id>`, spawn one `forge:surveyor` sub-agent with the returned `brief` as its whole prompt, and its `model` and `effort`, and keep only its `SURVEY:` lines.

@@ -88,7 +88,7 @@ export const JOB: HelpGroup = {
       exits: [
         [
           1,
-          "no such job, a field set only by another command, a list field that is not a JSON array of strings, or an unknown or cyclic dependency; in a chat session, a job waiting on a gate that foreman.reserved or a security review that didn't pass keeps with a person (`a chat may not decide <gate> for <job>: …`), or any change to such a job beyond --state running with the stage the decision recorded at its park allows (docs/architecture/daemon-security.md › Chats)",
+          "no such job, a field set only by another command, a list field that is not a JSON array of strings, or an unknown or cyclic dependency; human_only: a shelved job moved anywhere but done or cancelled (`forge job unshelve` takes it off the shelf), or a job cancelled or set done while shelved put back to work in a daemon session or with no person at a terminal (a person types the job id to confirm), or not confirmed; in a chat session, a job waiting on a gate that foreman.reserved or a security review that didn't pass keeps with a person (`a chat may not decide <gate> for <job>: …`), or any change to such a job beyond --state running with the stage the decision recorded at its park allows (docs/architecture/daemon-security.md › Chats)",
         ],
         [3, 'stale_epoch: the lease moved past --epoch'],
       ],
@@ -238,6 +238,24 @@ export const JOB: HelpGroup = {
         ['--ack', 'accept the limits now exceeded, so the job goes on'],
       ],
       exits: [[1, 'no such job, an unknown budget key or bad value, not confirmed, or human_only: --set or --ack in a daemon session or with no person at a terminal (an agent, a script or a configured command)']],
+    },
+    {
+      command: 'job shelve',
+      args: '<id> --reason TEXT',
+      summary:
+        "set a waiting, queued, failed or blocked job aside: it waits on `shelved` at its stage, lets go of its lease, stops its environment (the worktree stays), keeps its PR, and leaves the waiting count; one note with the reason goes to its linked issues. Nothing resumes it: only a person takes it off the shelf (`forge job unshelve`, or the dashboard's Shelved list). A person runs it from their own terminal; no daemon session does",
+      flags: [['--reason TEXT', 'why it is set aside: one line of at most 200 characters (control characters and backticks are dropped; a reason that is empty after that exits 2)']],
+      exits: [
+        [1, 'no such job; a done, cancelled, running, eval or already shelved job, or one with an agent running; or any daemon session'],
+        [2, 'usage: the call could not be parsed (no --reason, or one that is empty once control characters and backticks are dropped), or .forge/config.yml is missing or invalid'],
+      ],
+    },
+    {
+      command: 'job unshelve',
+      args: '<id>',
+      summary:
+        "take a shelved job off the shelf: back to the wait, queue or failure it was shelved from, at its stage, so it can spend again, and back in Needs you (no Foreman gate request). A human-only operation: it asks the person at the terminal to type the job id, or a person uses Un-shelve in the dashboard's Shelved list instead",
+      exits: [[1, 'no such job, a job that is not shelved, not confirmed, or human_only: run in a daemon session or with no person at a terminal (an agent, a script or a configured command)']],
     },
     {
       command: 'job audit',

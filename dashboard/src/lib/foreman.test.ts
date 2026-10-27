@@ -55,11 +55,20 @@ const row = (id: string, o: Partial<MandateRow> = {}): MandateRow => ({
 });
 
 test("the Foreman page's panels start with the Office", () => {
-  assert.equal(FOREMAN_PANELS[0], 'office');
-  assert.equal(DEFAULT_FOREMAN_PANEL, FOREMAN_PANELS[0]);
-  for (const key of ['ArrowLeft', 'ArrowRight', 'Home', 'End']) assert.equal(panelKey('office', key), 'office', key);
+  assert.deepEqual(FOREMAN_PANELS, ['office', 'chats']);
+  assert.equal(DEFAULT_FOREMAN_PANEL, 'office');
+  // The two real panels: Left and Right wrap, Home and End jump.
+  assert.deepEqual(
+    ['ArrowLeft', 'ArrowRight', 'Home', 'End'].map((key) => panelKey('office', key)),
+    ['chats', 'chats', 'office', 'chats'],
+  );
+  assert.deepEqual(
+    ['ArrowLeft', 'ArrowRight', 'Home', 'End'].map((key) => panelKey('chats', key)),
+    ['office', 'office', 'office', 'chats'],
+  );
   assert.equal(panelKey('office', 'ArrowDown'), null);
-  // With more panels (#396's Chats), the keys wrap and jump through the list in order.
+  assert.equal(panelKey('chats', 'Enter'), null);
+  // With more panels, the keys wrap and jump through the list in order.
   const three = ['office', 'chats', 'third'] as unknown as ForemanPanel[];
   const at = (p: string) => p as ForemanPanel;
   assert.deepEqual(
@@ -69,11 +78,11 @@ test("the Foreman page's panels start with the Office", () => {
 });
 
 test('editor bodies send only what changed', () => {
-  // A new mandate: id and title, each filled term, comma lists split and trimmed with empty entries dropped, after null for none.
-  assert.deepEqual(newMandateBody({ ...blankForm(), id: ' m1 ', title: ' First ', milestones: ' M1 , ,M2,' }), { id: 'm1', title: 'First', milestones: ['M1', 'M2'], after: null });
+  // A new mandate: the title (the server picks the id), each filled term, comma lists split and trimmed with empty entries dropped, after null for none.
+  assert.deepEqual(newMandateBody({ ...blankForm(), title: ' First ', milestones: ' M1 , ,M2,' }), { title: 'First', milestones: ['M1', 'M2'], after: null });
   assert.deepEqual(
-    newMandateBody({ ...blankForm(), id: 'm2', title: 'T', labels: 'infra', until: 'merged', maxJobs: '3', budgetUsd: '20.5', decides: [], after: 'm1', body: 'Guidance.' }),
-    { id: 'm2', title: 'T', labels: ['infra'], until: 'merged', maxJobs: 3, budgetUsd: 20.5, decides: [], after: 'm1', body: 'Guidance.' },
+    newMandateBody({ ...blankForm(), title: 'T', labels: 'infra', until: 'merged', maxJobs: '3', budgetUsd: '20.5', decides: [], after: 'm1', body: 'Guidance.' }),
+    { title: 'T', labels: ['infra'], until: 'merged', maxJobs: 3, budgetUsd: 20.5, decides: [], after: 'm1', body: 'Guidance.' },
   );
 
   // An edit: an unchanged form sends updatedAt alone.

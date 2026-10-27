@@ -16,6 +16,7 @@ import { interim, repo } from './job/repos.ts';
 import { agent } from './job/agent.ts';
 import { decision, round, score, verdicts } from './job/review.ts';
 import { archive, deleteCmd, pruneCmd } from './job/retention.ts';
+import { shelve, unshelve } from './job/shelf.ts';
 
 /** Each `forge job <sub>` word to its handler, in the help table's order; `advance` is routed by lib/cli/main.ts. Exported for its test. */
 export const JOB_HANDLERS: Readonly<Record<string, JobHandler>> = {
@@ -38,6 +39,8 @@ export const JOB_HANDLERS: Readonly<Record<string, JobHandler>> = {
   agent,
   round,
   budget,
+  shelve,
+  unshelve,
   audit,
   archive,
   delete: deleteCmd,

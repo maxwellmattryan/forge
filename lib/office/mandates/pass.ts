@@ -2,9 +2,14 @@
 // events): deterministic code, no model, that enforces each mandate's contract. Per mandate, in
 // creation order: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing
 // summary (then the next link of a chain, in the same pass), the budget pause and the cadence stall.
+// An `until: released` mandate whose work is done waits for its release instead of closing: the pass
+// plans it (only when unplanned, or when its own plan went stale before any step ran, and never over
+// another plan), never runs it, and closes the mandate once the release run finished and no mandate job
+// merged after it was planned; while it waits, no budget pause or stall applies.
 // When a mandate has director work it wakes the office session with one `direct` request. Every
 // status write is guarded: it lands only while the mandate still has the status and updatedAt the
 // pass read, so an owner's edit, pause or close wins. docs/architecture/foreman.md › Director loop.
+import { ForgeError } from '#core/errors.ts';
 import { listRequests, enqueue } from '#core/job/requests.ts';
 import { isForemanActor, logEvent } from '#core/job/store.ts';
 import { confinedDir, readRegular, writeJsonAtomic } from '#core/os/fs.ts';
@@ -17,6 +22,9 @@ import { foremanEnabled } from '#engine/pipeline/moves/foreman-gates.ts';
 import { buildReportCard } from '#engine/metrics/report-card.ts';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
+import { mandateReleaseRun, mandateReleaseState, planMandateRelease } from '#engine/release/mandate.ts';
+import type { MandateReleaseNarrow, MandateReleaseView } from '#engine/release/mandate.ts';
+import { mandateReleaseRefusal } from '../foreman/policy.ts';
 import { queueNotify } from '../notify.ts';
 import type { QueueNotify } from '../notify.ts';
 import { cleanReason, isReadable } from './contract.ts';
@@ -39,6 +47,8 @@ export interface PassMandate {
   spentUsd: number;
   started: number;
   blocked: string | null;
+  /** An effective `until: released` mandate's release state, else null. */
+  release: MandateReleaseView | null;
 }
 
 export interface PassResult {
@@ -170,6 +180,40 @@ const money = (n: number): string => String(Math.round(n * 100) / 100);
 const cut = (s: string): string => s.slice(0, REASON_MAX);
 
 /**
+ * An `until: released` mandate whose work is done: its release state, after planning it when it is
+ * unplanned, or stale with no run of it in progress, and the mandate is active (a paused one is never
+ * planned). A plan logs a `release` directive, and notifies `gate` when it is the mandate's first or
+ * follows a release that ran: a re-plan of a plan that never ran asks nothing new of a person, so it
+ * notifies no one again. A refusal (no tag, nothing to release, another plan in release.json that hasn't
+ * started, another plan's unfinished run…) plans nothing and becomes the mandate's `blocked`.
+ */
+function awaitRelease(
+  root: string,
+  config: Config,
+  m: Mandate,
+  state: MandateState,
+  narrow: MandateReleaseNarrow,
+  directive: (action: DirectiveAction, reason: string) => void,
+  notify: QueueNotify,
+): { view: MandateReleaseView; blocked: string } {
+  let view = mandateReleaseState(root, config, m.id, narrow);
+  let refusal: string | null = null;
+  const run = view.status === 'stale' ? mandateReleaseRun(root, m.id) : 'none';
+  if (state === 'active' && (view.status === 'unplanned' || (view.status === 'stale' && run !== 'started'))) {
+    try {
+      const planned = planMandateRelease(root, config, m.id, { narrow, actor: FOREMAN_ACTOR, byPass: true });
+      directive('release', `planned ${planned.hash} since ${planned.tag}`);
+      if (view.status === 'unplanned' || run === 'finished') notify(root, ['gate'], { reason: 'mandate-release', mandate: m.id });
+      view = mandateReleaseState(root, config, m.id, narrow);
+    } catch (e) {
+      if (!(e instanceof ForgeError)) throw e;
+      refusal = oneLineTitle(e.message);
+    }
+  }
+  return { view, blocked: cut(`release: ${refusal ?? view.detail}`) };
+}
+
+/**
  * One run of the Office pass. With foreman.enabled false it writes nothing. Otherwise, under the office
  * lock, it enforces every readable mandate that is not closed and not a goal mandate still drafting, and
  * enqueues one `direct` request when some mandate has director work and none is open.
@@ -253,9 +297,19 @@ async function pass(root: string, config: Config, opts: PassOptions): Promise<Pa
       p = progressOf(m, all);
     }
 
-    // 3. Close: no tracker error, nothing left to start, nothing in flight or unfinishable.
+    // 3. Close: no tracker error, nothing left to start, nothing in flight or unfinishable. An until:
+    // released mandate first waits for its release, and closes once the release run finished.
     let state = p.state;
-    if ((state === 'active' || state === 'paused') && p.trackerError === null && !p.candidates.length && !p.counts.inFlight && !p.counts.unfinishable) {
+    const narrow: MandateReleaseNarrow = (x) => mandateReleaseRefusal(root, config, x);
+    const workDone = (state === 'active' || state === 'paused') && p.trackerError === null && !p.candidates.length && !p.counts.inFlight && !p.counts.unfinishable;
+    let release: MandateReleaseView | null = null;
+    let waiting: string | null = null;
+    if (workDone && p.until === 'released') {
+      const r = awaitRelease(root, config, m, state, narrow, directive, notify);
+      release = r.view;
+      if (r.view.status !== 'done') waiting = r.blocked;
+    } else if (p.until === 'released') release = mandateReleaseState(root, config, id, narrow);
+    if (workDone && waiting === null) {
       const parked = p.jobs.filter((j) => j.class === 'handled' && j.job.state === 'failed').length;
       const reason = cut(`done: ${p.counts.reached} jobs reached ${p.until}, ${parked} parked, $${money(p.spentUsd)}`);
       const pauses = readDirectives(root, { mandate: id }).filter((d) => d.action === 'pause' && d.reason.startsWith('stalled:')).length;
@@ -269,8 +323,8 @@ async function pass(root: string, config: Config, opts: PassOptions): Promise<Pa
       }
     }
 
-    // 4. Budget, then 5. the cadence stall: active mandates only.
-    if (state === 'active') {
+    // 4. Budget, then 5. the cadence stall: active mandates only, and never one waiting on a person for its release.
+    if (state === 'active' && waiting === null) {
       let pause: { reason: string; event: 'mandate-budget' | 'mandate-stalled' } | null = null;
       if (p.spentUsd >= m.budget.usd) pause = { reason: `budget: $${money(p.spentUsd)} of $${money(m.budget.usd)} spent`, event: 'mandate-budget' };
       else if (p.started >= m.budget.jobs && p.candidates.length) pause = { reason: `budget: ${p.started} of ${m.budget.jobs} jobs started`, event: 'mandate-budget' };
@@ -286,9 +340,9 @@ async function pass(root: string, config: Config, opts: PassOptions): Promise<Pa
     }
 
     // 6. Director work: something to start or resume under an active mandate that is not blocked.
-    const blocked = state === 'active' ? p.blocked : `mandate ${id} is ${state}`;
+    const blocked = waiting ?? (state === 'active' ? p.blocked : `mandate ${id} is ${state}`);
     if (state === 'active' && blocked === null && (p.window.length || p.resumable.length)) direct = true;
-    results.set(id, { id, state, actions, inFlight: p.inFlight, free: p.free, candidates: p.candidates.length, spentUsd: p.spentUsd, started: p.started, blocked });
+    results.set(id, { id, state, actions, inFlight: p.inFlight, free: p.free, candidates: p.candidates.length, spentUsd: p.spentUsd, started: p.started, blocked, release });
   }
 
   let request: string | null = null;

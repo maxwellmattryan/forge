@@ -357,6 +357,29 @@ export interface Job {
   outcome: JobOutcome | null;
   /** The post-merge judge score of a merged job, sampled or in a mandate that scores all (lib/engine/evals/scoring.ts); null until forge sync queues one. */
   score: JobScore | null;
+  /** Why and from where a person shelved the job (`forge job shelve`); non-null only while it waits on `shelved`. */
+  shelved: JobShelf | null;
+  /**
+   * True when the job was cancelled or set done while shelved (a cancel, Close in the Shelved list, a
+   * merge or close on GitHub), and only while it stays done or cancelled: only a person's grant moves it back to work.
+   */
+  finishedWhileShelved: boolean;
+}
+
+/** A shelved job's record: shelveJob in lib/engine/pipeline/moves/shelve.ts, cleanShelf in lib/core/job/schema.ts. */
+export interface JobShelf {
+  /** When it was shelved. */
+  at: string;
+  /** The person's reason: one line of 1 to 200 characters, with no control characters or backticks. */
+  reason: string;
+  actor: EventActor;
+  /** Where un-shelving puts it back. */
+  from: {
+    state: 'waiting' | 'queued' | 'failed' | 'blocked';
+    /** Never `shelved`; non-null exactly when `state` is `waiting`. */
+    waitingOn: WaitingOn | null;
+    reason: string | null;
+  };
 }
 
 /** A changed path an escalate rule matched; `rule` is 1-based and `blob` is null for a deletion. */

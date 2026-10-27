@@ -142,6 +142,8 @@ function dir(root: string): string {
 const MANDATE_ID = new RegExp(MANDATE_ID_SOURCE);
 /** A mandate id as a request's `args.mandate`: the id grammar, and never `none`. */
 const isMandateIdArg = (v: unknown): v is string => typeof v === 'string' && MANDATE_ID.test(v) && v !== 'none';
+/** The gate classes a job-less gate request may carry: a mandate's, never a job's. */
+const MANDATE_GATES = ['milestone-approval', 'release'] as const;
 
 /**
  * `_config` is kept so callers need not change.
@@ -154,8 +156,10 @@ export function enqueue(
   if (!(REQUEST_TYPES as readonly string[]).includes(req.type)) throw new ForgeError(`unknown request type "${req.type}"`);
   if ((JOB_REQUEST_TYPES as readonly string[]).includes(req.type) && !req.job)
     throw new ForgeError(`request "${req.type}" needs a job`);
-  // A goal mandate's milestone draft is the one gate no job waits on: job-less, with a valid mandate id instead.
-  const mandateGate = req.type === 'gate' && (req.job === null || req.job === undefined) && req.args?.gate === 'milestone-approval' && isMandateIdArg(req.args?.mandate);
+  // A goal mandate's milestone draft and an `until: released` mandate's release plan are the gates no job
+  // waits on: job-less, with a valid mandate id instead.
+  const mandateGate =
+    req.type === 'gate' && (req.job === null || req.job === undefined) && (MANDATE_GATES as readonly unknown[]).includes(req.args?.gate) && isMandateIdArg(req.args?.mandate);
   if (req.type === 'gate' && !mandateGate && !validJobId(req.job)) throw new ForgeError('a gate request needs a valid job');
   const id = `${Date.now()}-${shortId()}`;
   const rec: ForgeRequest = {
