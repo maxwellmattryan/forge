@@ -2,9 +2,11 @@
 // failing command run again, permission denials, re-reads and refused forge calls, plus a condensed one-line
 // log of the run for a digest agent. A transcript is text agents and the programs they ran wrote, so only
 // counts, hashes and charset-limited keys leave this module for transcripts.json, and every log line is made
-// one safe line here: the caller fences it. Reading is bounded by a line cap, a byte cap and a log cap.
+// one safe line here: the caller fences it, and its `clean` hook (the caller's redaction) runs on each text
+// before it is cut. Reading is bounded by a line cap, a byte cap and a log cap.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import { safeText, visibleText } from '#core/text.ts';
 import { UNATTENDED_DENIED } from './stream.ts';
 import { PATH_KEYS, TARGET_KEYS, relativeTo, transcriptBases } from './transcripts.ts';
@@ -16,6 +18,9 @@ export interface LogLine {
   kind: 'tool' | 'error' | 'denied' | 'text';
   text: string;
 }
+
+/** The caller's redaction of one text (known secret values, credential patterns); it runs before the text is cut to a log line. */
+type Clean = (text: string) => string;
 
 const MiB = 1024 * 1024;
 const CHUNK_BYTES = MiB;
@@ -88,10 +93,20 @@ export function errorKey(text: string): string {
   return words.length ? words.join(' ') : '(empty)';
 }
 
-/** A file's key: its path relative to the first of `bases` it sits under, or `#<8 hex of sha256>` when that is outside the charset or has a `..` segment. */
-export function fileKey(p: string, bases: string[]): string {
-  const rel = relativeTo(String(p), bases);
-  return SAFE_FILE.test(rel) && !rel.split('/').includes('..') ? rel : `#${sha8(String(p))}`;
+/**
+ * A file's key: its path relative to the first of `bases` it sits under, else `~/…` when it sits under `home`
+ * (so no login or home path leaves this module), or `#<8 hex of sha256>` when that is outside the charset or
+ * has a `..` segment.
+ */
+export function fileKey(p: string, bases: string[], home: string | null = os.homedir()): string {
+  const abs = String(p);
+  let rel = relativeTo(abs, bases);
+  let prefix = '';
+  if (rel === abs && home) {
+    const under = relativeTo(abs, transcriptBases({ root: home }));
+    if (under !== abs) [rel, prefix] = [under, '~/'];
+  }
+  return SAFE_FILE.test(rel) && !rel.split('/').includes('..') ? prefix + rel : `#${sha8(abs)}`;
 }
 
 /** The `forge` key of a command's words, `forge` plus up to 2 subcommand words, or null when it is no forge call. */
@@ -106,13 +121,13 @@ function forgeKey(words: string[]): string | null {
   return key.join(' ');
 }
 
-/** What a tool call acts on, in TARGET_KEYS order: the first line of its command, a file key, or its pattern, url, query, description or skill. */
-function target(input: Record<string, unknown>, bases: string[]): string {
+/** What a tool call acts on, in TARGET_KEYS order: the first line of its command, a file key, or its pattern, url, query, description or skill; each cleaned before the line is cut. */
+function target(input: Record<string, unknown>, bases: string[], clean: Clean): string {
   for (const k of TARGET_KEYS) {
     const v = input[k];
     if (typeof v !== 'string' || !v.trim()) continue;
-    if (k === 'command') return firstLine(v);
-    return PATH_KEYS.has(k) ? fileKey(v, bases) : v;
+    if (k === 'command') return firstLine(clean(v));
+    return clean(PATH_KEYS.has(k) ? fileKey(v, bases) : v);
   }
   return '';
 }
@@ -183,14 +198,18 @@ interface Call {
  * A run's friction from its transcript (`fd`, `size` bytes), per the counting rules in docs/IMPROVEMENT.md
  * "Agent transcripts". Blank, unparseable and non-object lines are skipped. `worktree` and `root` are the
  * bases file keys are relative to. With `log`, also the condensed log, one entry per tool call, errored
- * result and assistant text, in turn order.
+ * result and assistant text, in turn order. `clean` redacts each text a log entry shows (a command, a result,
+ * the agent's words) before it is cut to its line, so no secret is left half-cut at a cap; counts and keys
+ * never hold such text, and the redaction costs nothing without `log`.
  */
 export function runFriction(
   fd: number,
   size: number,
-  opts: { worktree?: string | null; root?: string | null; log?: boolean; maxBytes?: number; maxLine?: number } = {},
+  opts: { worktree?: string | null; root?: string | null; log?: boolean; clean?: Clean; maxBytes?: number; maxLine?: number } = {},
 ): RunCounts & { log?: LogLine[] } {
   const bases = transcriptBases(opts);
+  // Invisible characters go first, so none can split a secret out of the redaction's reach.
+  const clean: Clean = (text) => (opts.clean ? opts.clean(visibleText(text.slice(0, TEXT_SCAN)).text) : text);
   const turns = new Map<string, number>();
   const calls = new Map<string, Call>();
   const results = new Set<string>();
@@ -226,9 +245,9 @@ export function runFriction(
           ranges.set(range, n);
           rereads.set(file, Math.max(rereads.get(file) ?? 0, n));
         }
-        log?.push({ turn, kind: 'tool', text: oneLine(`${name} ${target(input, bases)}`, 160) });
+        log?.push({ turn, kind: 'tool', text: oneLine(`${name} ${target(input, bases, clean)}`, 160) });
       } else if (b.type === 'text' && typeof b.text === 'string' && log) {
-        const first = firstLine(b.text);
+        const first = firstLine(clean(b.text));
         if (first) log.push({ turn, kind: 'text', text: oneLine(first, 160) });
       }
     }
@@ -276,7 +295,7 @@ export function runFriction(
           else exits.set(k, { key: forge, code, count: 1 });
         }
       }
-      log?.push({ turn, kind: denied ? 'denied' : 'error', text: oneLine(text, 200) });
+      log?.push({ turn, kind: denied ? 'denied' : 'error', text: oneLine(clean(text), 200) });
     }
   };
 

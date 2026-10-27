@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +10,8 @@ import { ForgeError } from '#core/errors.ts';
 import { ackRequest, enqueue, listRequests } from '#core/job/requests.ts';
 import { createJob, jobDir, logEvent, logHumanEvent, updateJob } from '#core/job/store.ts';
 import { projectSlug } from '#integrations/claude/transcripts.ts';
+import { recordKnown } from '../guard/known-secrets.ts';
+import { maskCredentials } from '../guard/redact.ts';
 import { archiveJob } from '../ops/retention.ts';
 import { unfenced } from '../pipeline/acs.ts';
 import { jobFindings } from '../pipeline/findings.ts';
@@ -217,9 +220,9 @@ function transcripts(t: test.TestContext, edit: (c: ReturnType<typeof defaults>)
   };
   const retro = createJob(root, config, { title: 'Retro', kind: 'retro' }).id;
   const dir = jobDir(root, retro);
-  const prepare = () => prepareRetro(root, config, retro, { since: '1970-01-01', today: '2026-10-27', projects });
+  const prepare = (extra: { mask?: (text: string) => string } = {}) => prepareRetro(root, config, retro, { since: '1970-01-01', today: '2026-10-27', projects, ...extra });
   const stats = (): TranscriptStats => JSON.parse(fs.readFileSync(path.join(dir, 'transcripts.json'), 'utf8'));
-  return { projects, dir, job, write, run, prepare, stats };
+  return { root, config, projects, dir, job, write, run, prepare, stats };
 }
 
 test('transcript stats count a repeated failing command and pick its run for deep reading', (t) => {
@@ -304,6 +307,34 @@ test('transcript text reaches a digest input only inside its fence', (t) => {
   assert.deepEqual(open.filter((l) => l !== null && /^#+ Run/.test(l)), [`## Run 1: job ${j.id} · role builder · run 1`], "Forge's own heading only");
   assert.ok(!out.digests[0].brief.includes(phrase));
   assert.ok(!fs.readFileSync(out.transcripts, 'utf8').includes(phrase));
+});
+
+test('a digest input shows no known secret and no credential pattern, even at a cap', (t) => {
+  const x = transcripts(t);
+  const a = x.job();
+  const b = x.job();
+  // Built at run time: no secret-like literal in this file. `pw` is job a's, `key` job b's (a pooled input redacts every job's), `token` is known to no job.
+  const hex = (n: number): string => crypto.randomBytes(n).toString('hex');
+  const [pw, key, token] = [`pw-${hex(8)}`, `sk_${hex(8)}`, `ghp_${hex(18)}`];
+  recordKnown(x.root, a.id, { DB_PASSWORD: pw });
+  recordKnown(x.root, b.id, { API_KEY: key });
+  x.run(a, 'builder', [
+    say('m0', `connecting with ${pw} and ${key}`),
+    // The command line is cut at 160 characters: its second value would be left half-cut there. The result's token is within its 200.
+    ...failing('m1', `PGPASSWORD=${pw} psql ${'x'.repeat(100)} ${pw}`, `FATAL: ${'y'.repeat(100)} postgres://app:${pw}@db/forge ${token}`),
+    ...failing('m2', `DATABASE_URL=postgres://app:${pw}@db/forge npm test`, `Exit code 1\n${key}`),
+  ]);
+  const input = (out: ReturnType<typeof x.prepare>): string => fs.readFileSync(out.digests[0].input, 'utf8');
+  const shows = (md: string, v: string): boolean => md.includes(v.slice(0, 8));
+  // Known values of every job go whatever the caller passes; the scanner's patterns go through the caller's mask (the CLI's).
+  const plain = input(x.prepare());
+  assert.ok(plain.includes('[redacted]') && !shows(plain, pw) && !shows(plain, key), plain);
+  const out = x.prepare({ mask: (s) => maskCredentials(s, x.config) });
+  const md = input(out);
+  for (const v of [pw, key, token]) assert.ok(!shows(md, v), `${v.slice(0, 3)}… reaches the digest input`);
+  // The fence still holds, and nothing else in the prepare result or the stats carries them either.
+  assert.deepEqual(unfenced(md).filter((l) => l !== null && /^#+ Run/.test(l)), [`## Run 1: job ${a.id} · role builder · run 1`]);
+  for (const s of [JSON.stringify(out), fs.readFileSync(out.transcripts, 'utf8')]) for (const v of [pw, key, token]) assert.ok(!s.includes(v), v.slice(0, 3));
 });
 
 test('max 0 writes the stats and no digest', (t) => {

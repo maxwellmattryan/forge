@@ -41,7 +41,7 @@ Write the output path from your brief with the Write tool, and no other file. At
 - Fix: learning | addendum <role> | tool — <one sentence>
 ```
 
-`<n>` is the batch number in your input's title. `learning` is a line for `.forge/notes/learnings.md`, `addendum <role>` one for that role's `.forge/notes/<role>.md`, and `tool` a change to a Forge CLI command or tool. Quote no more than 80 characters from a log. With no friction, write the title and `No friction found.`
+`<n>` is the batch number in your input's title. `learning` is a line for `.forge/notes/learnings.md`, `addendum <role>` one for that role's `.forge/notes/<role>.md`, and `tool` a change to a Forge CLI command or tool. Quote no more than 80 characters from a log, and never copy a token, password, key or connection string from one, even partly: write `[redacted]` in its place. Forge already replaced the secrets it knows with `[redacted]`, but it can't know them all. With no friction, write the title and `No friction found.`
 
 ## Finish
 Confirm the file exists before you reply.

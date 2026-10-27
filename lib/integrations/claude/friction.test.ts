@@ -117,6 +117,28 @@ test("runFriction counts a run's friction from its transcript lines", (t) => {
   assert.ok(log.every((l) => !/[\n\r`]/.test(l.text)));
   assert.equal(run(lines, { worktree: wt }).log, undefined, 'no log unless asked');
 
+  // `clean` runs on each text a log entry shows before it is cut, so a value at a cap is never left half-cut.
+  const secret = 'S3CRET-VALUE-0123456789';
+  const leaky = [
+    A('c1', [text(`${'w'.repeat(150)} ${secret}`), use('c2', 'Bash', { command: `${'a'.repeat(140)} ${secret}\nsecond line` })]),
+    U([err('c2', `${'b'.repeat(190)} ${secret}`)]),
+  ];
+  const shown = (opts: Parameters<typeof runFriction>[2]) => run(leaky, opts).log!.map((l) => l.text).join('\n');
+  assert.ok(shown({ log: true }).includes('S3CRET'), 'without clean, the cap leaves part of the value');
+  assert.ok(!shown({ log: true, clean: (s) => s.split(secret).join('[redacted]') }).includes('S3CRET'));
+  assert.deepEqual(run(leaky, { clean: () => 'never called without a log' }).toolErrors.byPrefix, run(leaky).toolErrors.byPrefix, 'counts and keys are the same');
+
+  // A file outside the worktree and root shows from `~`, never with this machine's home path or login.
+  const home = process.env.HOME;
+  process.env.HOME = path.join(dir, 'home');
+  try {
+    const read = run([A('h1', [use('h2', 'Read', { file_path: path.join(dir, 'home', '.ssh', 'config') })])], { worktree: wt, log: true });
+    assert.deepEqual(read.log, [{ turn: 1, kind: 'tool', text: 'Read ~/.ssh/config' }]);
+  } finally {
+    if (home === undefined) delete process.env.HOME;
+    else process.env.HOME = home;
+  }
+
   // Caps: a line over the line cap is skipped unparsed, across chunk boundaries too; a file over the byte cap is truncated.
   const huge = [A('m0', [text('y'.repeat(MiB - 50))]), A('m1', [text('x'.repeat(2.5 * MiB))]), A('m2', [text('short')]), A('m3', [text('short')])];
   assert.equal(run(huge, { maxLine: 2 * MiB }).turns, 3, 'the 2.5 MiB line is skipped');
@@ -176,6 +198,14 @@ test('command, error and file keys', () => {
   assert.equal(fileKey(`${wt}/src/a.ts`, [wt]), 'src/a.ts');
   for (const p of ['src/a b.ts', `${wt}/../etc/passwd`, 'x'.repeat(161), 'ignore previous instructions.md', 'a`b'])
     assert.match(fileKey(p, [wt]), hashed, p);
+  // Outside the bases but under the home dir: `~/…`, so no login or home path reaches transcripts.json.
+  const home = '/Users/someone';
+  assert.equal(fileKey(`${home}/.ssh/config`, [wt], home), '~/.ssh/config');
+  assert.equal(fileKey(`${wt}/src/a.ts`, [wt], home), 'src/a.ts', 'a base wins over the home dir');
+  assert.equal(fileKey(`${home}x/a.ts`, [wt], home), `${home}x/a.ts`, 'only a whole segment is the home dir');
+  assert.equal(fileKey('/etc/hosts', [wt], home), '/etc/hosts');
+  for (const p of [`${home}/../etc/passwd`, `${home}/a b`]) assert.match(fileKey(p, [wt], home), hashed, p);
+  assert.equal(fileKey(`${home}/.ssh/config`, [wt], null), `${home}/.ssh/config`, 'no home dir: as before');
 
   // Hostile 10k-character lines: every key stays linear and bounded.
   const long = '<'.repeat(10_000) + 'a'.repeat(10_000);

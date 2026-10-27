@@ -3,8 +3,8 @@
 // `forge sync` queues, and a closed mandate's (queueMandateRetro). A mandate retro (`forge retro prepare
 // --mandate`) reads only that mandate's jobs, records its scope on the retro job as a `retro-scope`
 // event, and never counts as the last retro for the improve.retroEvery cadence. Prepare's transcript pass
-// counts each agent run's friction into transcripts.json and writes the fenced inputs of the digest agents
-// that read the worst runs in depth, so the retro reads short digests and never a raw transcript.
+// counts each agent run's friction into transcripts.json and writes the fenced, secret-redacted inputs of the
+// digest agents that read the worst runs in depth, so the retro reads short digests and never a raw transcript.
 import fs from 'node:fs';
 import path from 'node:path';
 import { ForgeError } from '#core/errors.ts';
@@ -26,6 +26,7 @@ import type { DigestBatch, ExperimentEntry, ExperimentResult, LearningEntry, Tra
 import { readText, writeJsonAtomic, writeTextAtomic } from '#core/os/fs.ts';
 import { withLock } from '#core/os/lock.ts';
 import { fenced, safeText } from '#core/text.ts';
+import { allKnownValues, redactKnown } from '../guard/known-secrets.ts';
 import { agentTranscriptById, claudeProjectsDir, openTranscript } from '#integrations/claude/transcripts.ts';
 import type { TranscriptHit } from '#integrations/claude/transcripts.ts';
 import { renderLog, runFriction } from '#integrations/claude/friction.ts';
@@ -252,8 +253,26 @@ export function deepReadOrder<T extends Ranked>(runs: T[], max: number): T[] {
     .slice(0, Math.max(0, max));
 }
 
+/**
+ * What a digest input may show of a text: every job's known values (sink-rendered secrets, job database
+ * passwords) replaced by `[redacted]`, then `mask`'s pass over it. The input pools other jobs' transcripts
+ * under the retro's id, where the file route redacts only the retro's own. `mask` is the secret scanner's
+ * credential patterns (maskCredentials), given by the caller: importing the scanner here would close an
+ * import cycle through lib/office/mandates/store.ts.
+ */
+function redactor(known: readonly string[], mask: ((text: string) => string) | undefined): (text: string) => string {
+  return (text) => {
+    const out = redactKnown(text, known);
+    return mask ? mask(out) : out;
+  };
+}
+
 /** One located transcript's friction, or null when it can't be opened, is empty or fails to read; the descriptor is always closed. */
-function readRun(hit: TranscriptHit, projects: string, opts: { worktree: string | null; root: string; log?: boolean }): ReturnType<typeof runFriction> | null {
+function readRun(
+  hit: TranscriptHit,
+  projects: string,
+  opts: { worktree: string | null; root: string; log?: boolean; clean?: (text: string) => string },
+): ReturnType<typeof runFriction> | null {
   try {
     const t = openTranscript(hit, projects);
     if (!t) return null;
@@ -278,7 +297,7 @@ function transcriptPass(
   config: Config,
   retroJobId: string,
   jobs: LoadedJob[],
-  opts: { since: string | null; mandate: string | null; projects: string },
+  opts: { since: string | null; mandate: string | null; projects: string; mask?: (text: string) => string },
 ): { file: string; stats: TranscriptStats; digests: DigestBatch[] } {
   const dir = jobDir(root, retroJobId);
   const max = config.improve?.transcripts?.max ?? 12;
@@ -372,13 +391,14 @@ function transcriptPass(
   const digests: DigestBatch[] = [];
   const index: { batch: number; job: string; role: string; run: number; agentId: string; transcript: string }[] = [];
   const row = deep.length ? roster(root, config).agents.find((a) => a.role === 'digest') : undefined;
+  const clean = deep.length ? redactor(allKnownValues(root, config), opts.mask) : undefined;
   for (let batch = 1; batch <= total; batch++) {
     const runs = deep.slice((batch - 1) * DIGEST_RUNS, batch * DIGEST_RUNS);
     const md = [`# Digest input · retro ${retroJobId} · batch ${batch} of ${total}`, '', DIGEST_INTRO, ''];
     runs.forEach((r, k) => {
       const { hit, worktree } = located.get(r)!;
       // Only the deep-read runs are read again for their log, one at a time.
-      const log = readRun(hit, opts.projects, { worktree, root, log: true })?.log ?? [];
+      const log = readRun(hit, opts.projects, { worktree, root, log: true, clean })?.log ?? [];
       const exits = r.forgeExits.reduce((n, e) => n + e.count, 0);
       md.push(
         `## Run ${k + 1}: job ${r.job} · role ${r.role} · run ${r.run}`,
@@ -411,7 +431,7 @@ export function prepareRetro(
   root: string,
   config: Config,
   retroJobId: string,
-  opts: { since?: string; today?: string; mandate?: string; projects?: string } = {},
+  opts: { since?: string; today?: string; mandate?: string; projects?: string; mask?: (text: string) => string } = {},
 ): {
   stats: string;
   signals: string;
@@ -516,7 +536,7 @@ export function prepareRetro(
   }
   fs.writeFileSync(path.join(dir, 'signals.md'), out.join('\n') + '\n');
   const experiments = path.join(paths(root).notes, 'experiments.md');
-  const tx = transcriptPass(root, config, retroJobId, jobs, { since: since ?? null, mandate, projects: opts.projects ?? claudeProjectsDir() });
+  const tx = transcriptPass(root, config, retroJobId, jobs, { since: since ?? null, mandate, projects: opts.projects ?? claudeProjectsDir(), mask: opts.mask });
   return {
     stats: path.join(dir, 'stats.json'),
     signals: path.join(dir, 'signals.md'),
