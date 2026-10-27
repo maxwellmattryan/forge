@@ -174,13 +174,17 @@ test("a pool lists the gate log's last runs before it starts, and only the valid
       end('4-d', 'approved', '2026-10-26T10:15:00.000Z'),
       end('5-e', 'approve', '2026-10-26T10:20:00.000Z', { job: '../x' }),
       JSON.stringify({ type: 'forge-gates', at: '2026-10-26T10:25:00.000Z', event: 'gate-start', request: '6-f' }),
+      // A senior pass's run: both children's turns, at most 4.
+      end('7-g', 'shelved', '2026-10-26T10:30:00.000Z', { attempts: 4, reason: 'senior pass escalated: needs a person' }),
+      end('8-h', 'shelved', '2026-10-26T10:35:00.000Z', { attempts: 5 }),
       '',
     ].join('\n'),
   );
   const { pool: p, claude } = pool(t, r);
   const g = p.state().gates;
   assert.deepEqual([g.enabled, g.parallel, g.live], [true, 2, 0], 'on, from the config the pool read, before any start');
-  assert.deepEqual(g.runs.map((x) => [x.request, x.outcome, x.status]), [['3-c', 'failed', 'done'], ['2-b', 'escalated', 'done'], ['1-a', 'approve', 'done']]);
+  assert.deepEqual(g.runs.map((x) => [x.request, x.outcome, x.status]), [['7-g', 'shelved', 'done'], ['3-c', 'failed', 'done'], ['2-b', 'escalated', 'done'], ['1-a', 'approve', 'done']]);
+  assert.deepEqual([g.runs[0].attempts, g.runs[0].reason], [4, 'senior pass escalated: needs a person']);
   assert.deepEqual(claude.children, [], 'nothing spawned');
 });
 

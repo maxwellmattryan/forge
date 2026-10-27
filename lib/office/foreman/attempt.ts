@@ -18,7 +18,7 @@ import { checkLaunch } from '../session/launch.ts';
 import { confineDigest, spawnConfinement } from '../session/confine.ts';
 import { officeCapLeft } from '../session/meter.ts';
 import type { SessionContext, SessionOptions } from '../session/contract.ts';
-import { parseVerdict, type Verdict } from './verdict.ts';
+import { parseVerdict, type SeniorVerdict } from './verdict.ts';
 import type { Config, Effort } from '#core/types.ts';
 
 /** The assistant's tools: it reads the files its brief names and writes feedback.md; Write becomes the write-root Edit rules. */
@@ -28,7 +28,7 @@ export const GATE_RUN_TOOLS: readonly string[] = Object.freeze(['Read', 'Grep', 
 export type AttemptFailure = 'no-result' | 'failed-turn' | 'timed-out' | 'spawn-refused' | 'stopped';
 
 export type AttemptResult =
-  | { verdict: Verdict; reason: string; malformed: boolean; attempts: number; usd: number; tokens: number }
+  | { verdict: SeniorVerdict; reason: string; malformed: boolean; attempts: number; usd: number; tokens: number }
   | { failure: AttemptFailure; limit?: { resetsAt: number | null }; attempts: number; usd: number; tokens: number; message: string };
 
 /** A started attempt: its outcome, and the stops the runner calls on a pool stop, close or exit. */
@@ -44,6 +44,8 @@ export interface AttemptInput {
   brief: string;
   model: string | null;
   effort: Effort | null;
+  /** A senior pass (./senior.ts): its parser takes `shelve` too. */
+  senior?: boolean;
   /** Logs one line to the gate log (never claude's text). */
   log(event: string, extra: Record<string, unknown>): void;
 }
@@ -167,7 +169,7 @@ export function startAttempt(root: string, ctx: SessionContext, o: SessionOption
       if (e.limit) return void finish(fail('failed-turn', `usage limit: ${e.reason}`, { resetsAt: e.resetsAt }), true);
       return void finish(fail('failed-turn', `the assistant's turn failed: ${e.reason}`), true);
     }
-    const parsed = parseVerdict(e.text);
+    const parsed = parseVerdict(e.text, { senior: input.senior === true });
     if (parsed) return void finish({ ...parsed, malformed: false, attempts, usd, tokens }, false);
     // Asked once more on the same child, which keeps its reading; a second malformed line is an escalate.
     if (attempts >= 2) return void finish({ verdict: 'escalate', reason: 'malformed verdict', malformed: true, attempts, usd, tokens }, false);

@@ -87,6 +87,9 @@ export const API_CHANGES = [
   // DaemonPoolState.gates (GateRunsState, GateRunState): forge dash's gate runner and its runs; gate requests route to
   // `_gates`, which no session serves; DaemonPoolState.assistants is gone.
   { id: 'gate-runs' },
+  // GateRunOutcome 'shelved' (a senior pass shelved the job, under foreman.escalations: foreman); GateRunState.attempts
+  // goes up to 4, the first assistant's turns plus the senior's.
+  { id: 'senior-pass' },
 ] as const;
 
 /**

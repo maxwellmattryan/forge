@@ -36,8 +36,11 @@ test('gateRunRows: newest first, with tone, target and token text', () => {
       ['1-old', 'Spec approval', 'add-json-flag', null, 'escalated', 'you', 'needs a person', '2h ago', '123k', '$0.420'],
     ],
   );
-  const tones = Object.fromEntries(['approve', 'revise', 'rework', 'no-action', 'reserved', 'refused', 'stale', 'requeued'].map((o) => [o, gateRunRows({ runs: [run({ outcome: o })] }, NOW)[0]?.tone]));
-  assert.deepEqual(tones, { approve: 'ok', revise: 'info', rework: 'info', 'no-action': 'muted', reserved: 'you', refused: 'warn', stale: 'muted', requeued: 'muted' });
+  const tones = Object.fromEntries(['approve', 'revise', 'rework', 'no-action', 'reserved', 'refused', 'stale', 'requeued', 'shelved'].map((o) => [o, gateRunRows({ runs: [run({ outcome: o })] }, NOW)[0]?.tone]));
+  assert.deepEqual(tones, { approve: 'ok', revise: 'info', rework: 'info', 'no-action': 'muted', reserved: 'you', refused: 'warn', stale: 'muted', requeued: 'muted', shelved: 'warn' });
+  // A senior pass that shelved the job: its two children's turns, and the reason it shelved.
+  const shelved = gateRunRows({ runs: [run({ outcome: 'shelved', attempts: 4, reason: 'senior pass escalated: needs a person' })] }, NOW)[0];
+  assert.deepEqual([shelved.label, shelved.outcome, shelved.tone, shelved.reason], ['Spec approval', 'shelved', 'warn', 'senior pass escalated: needs a person']);
 });
 
 test('gateRunRows drops malformed runs', () => {

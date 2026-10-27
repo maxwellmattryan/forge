@@ -110,8 +110,8 @@ export const OFFICE_SCOPE = '_office';
 export const GATES_SCOPE = '_gates';
 /** The most gate runs a pool runs at once (foreman.assistants.parallel). */
 export const MAX_GATE_RUNS = 16;
-/** How a gate run ended, as the Foreman popover's activity list shows it. */
-export const GATE_RUN_OUTCOMES = ['approve', 'revise', 'rework', 'no-action', 'escalated', 'reserved', 'refused', 'stale', 'requeued', 'failed'] as const;
+/** How a gate run ended, as the Foreman popover's activity list shows it; `shelved` is a senior pass that shelved the job. */
+export const GATE_RUN_OUTCOMES = ['approve', 'revise', 'rework', 'no-action', 'escalated', 'reserved', 'refused', 'stale', 'requeued', 'failed', 'shelved'] as const;
 /** A chat's session scope is this prefix and the chat's id, 12 lowercase hex characters. */
 export const CHAT_SCOPE_PREFIX = '_chat-';
 /** The longest owner message a chat takes, in characters. */

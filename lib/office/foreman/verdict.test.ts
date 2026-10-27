@@ -28,6 +28,17 @@ test('parseVerdict takes only the exact last line', () => {
     ['a 10k hostile line', `ASSIST: approve · ${'· '.repeat(5000)}x\nASSIST`, null],
   ];
   for (const [name, text, want] of rows) assert.deepEqual(parseVerdict(text), want, name);
+  // shelve is the senior pass's verdict only: the assistant's is malformed.
+  const senior: [string, unknown, { verdict: string; reason: string } | null][] = [
+    ['shelve', 'ASSIST: shelve · only a person can judge the migration', { verdict: 'shelve', reason: 'only a person can judge the migration' }],
+    ['approve', 'Read the diff.\nASSIST: approve · cosmetic only', { verdict: 'approve', reason: 'cosmetic only' }],
+    ['a capitalised shelve', 'ASSIST: Shelve · x', null],
+    ['an unknown verdict', 'ASSIST: split · x', null],
+    ['a 10k hostile line', `ASSIST: shelve · ${'· '.repeat(5000)}x\nASSIST`, null],
+  ];
+  for (const [name, text, want] of senior) assert.deepEqual(parseVerdict(text, { senior: true }), want, `senior ${name}`);
+  assert.equal(parseVerdict('ASSIST: shelve · x'), null, 'shelve without { senior: true }');
+  assert.equal(parseVerdict('ASSIST: shelve · x', { senior: false }), null, 'shelve with { senior: false }');
   const dirty = parseVerdict(`ASSIST: approve · a "quoted" \`code\` $HOME \\path\tand  ${'long '.repeat(80)}`);
   assert.ok(dirty);
   assert.ok(!/["`$\\\t]/.test(dirty.reason), dirty.reason);

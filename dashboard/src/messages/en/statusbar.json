@@ -82,6 +82,7 @@
           "stale": "stale",
           "requeued": "requeued",
           "failed": "failed",
+          "shelved": "shelved",
           "running": "Running"
         }
       },

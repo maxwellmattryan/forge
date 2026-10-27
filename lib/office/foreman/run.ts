@@ -2,9 +2,10 @@
 // forge:assistant process (./attempt.ts) as its only model call. A run claims the request, hands off a
 // reserved one, runs assist, parses the verdict strictly (./verdict.ts), records the gate table's decision
 // through the policy checks (./policy.ts, ./decide.ts) with the runner's ForemanAuthority, queues the
-// job's resume and acks. It never leaves a request claimed: a failed run requeues it (counted, once), a usage
-// limit or a stop gives the claim back. It shares the office's daily cap and keeps a JSON-lines gate log.
-// docs/architecture/foreman.md › Gate runs.
+// job's resume and acks. Under foreman.escalations: foreman, an escalate or a refused decision at a job's gate
+// gets one senior pass (./senior.ts) that decides it or shelves the job. It never leaves a request claimed: a
+// failed run requeues it (counted, once), a usage limit or a stop gives the claim back. It shares the office's
+// daily cap and keeps a JSON-lines gate log. docs/architecture/foreman.md › Gate runs.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,7 +26,8 @@ import type { SessionContext, SessionOptions } from '../session/contract.ts';
 import { startAttempt, type Attempt, type AttemptResult } from './attempt.ts';
 import { assistMandateRelease, mandateReleaseRefusal } from './policy.ts';
 import { gateAssist, recordForemanDecision, recordHandoff, titleOnlyRevise, writeTitleOnlyFeedback } from './decide.ts';
-import { cleanReason, gateMove, type Verdict } from './verdict.ts';
+import { escalationsMode, recordForemanShelve, recordSeniorPass, seniorGate, seniorStart, type SeniorFirst } from './senior.ts';
+import { cleanReason, gateMove, type SeniorVerdict, type Verdict } from './verdict.ts';
 import type { Config, Effort, ForgeRequest, GateClass, GateRunOutcome, GateRunState, GateRunsState, HandoffClass } from '#core/types.ts';
 
 /** The runs the list keeps, and the gate log seeds it with. */
@@ -70,7 +72,11 @@ interface Live {
   state: GateRunState;
   attempt: Attempt | null;
   flow: Promise<void>;
+  /** A stop reached this run: no senior pass starts after it. */
+  stopping: boolean;
 }
+
+type Target = { gate: GateClass; job: string | null; mandate: string | null };
 
 /** A gate request's target as validated before any path or argv is built from it, or null. */
 function targetOf(r: ForgeRequest): { gate: GateClass; job: string | null; mandate: string | null } | null {
@@ -98,7 +104,7 @@ export function seededRun(raw: unknown): GateRunState | null {
   if (job === undefined || mandate === undefined || (job === null) === (mandate === null)) return null;
   const startedAt = isoOrNull(r.startedAt);
   const endedAt = isoOrNull(r.at);
-  if (!startedAt || !endedAt || !finite(r.attempts) || !Number.isInteger(r.attempts) || r.attempts > 2 || !finite(r.usd) || !finite(r.tokens)) return null;
+  if (!startedAt || !endedAt || !finite(r.attempts) || !Number.isInteger(r.attempts) || r.attempts > 4 || !finite(r.usd) || !finite(r.tokens)) return null;
   if (!(r.reason === null || typeof r.reason === 'string')) return null;
   return {
     request: r.request,
@@ -217,8 +223,96 @@ export function createGateRunner(root: string, deps: { ctx: SessionContext; o: S
     }
   }
 
+  /** A stop or a usage limit: the claim goes back uncounted, and a limit holds new runs until it resets. */
+  function giveBack(r: ForgeRequest, session: string, res: { limit?: { resetsAt: number | null }; message: string }): [GateRunOutcome, string] {
+    releaseClaim(root, r.id, session);
+    if (res.limit) {
+      const t0 = Date.now();
+      hold('limit', res.limit.resetsAt !== null && res.limit.resetsAt > t0 ? res.limit.resetsAt : t0 + retryWait(Math.max(1, streak)));
+    }
+    return ['requeued', res.message];
+  }
+
+  /** Shelves the job as the Foreman and acks; a refused shelve falls back to today's hand-off, so a person still sees it. */
+  async function shelve(r: ForgeRequest, t: Target, c: Config, reason: string): Promise<[GateRunOutcome, string]> {
+    try {
+      const out = await recordForemanShelve(root, c, { id: t.job! }, reason, authority);
+      ack(r.id, 'done', cut(`shelved: ${out.shelved.reason}`));
+      return ['shelved', out.shelved.reason];
+    } catch (e) {
+      if (!(e instanceof ForgeError)) throw e;
+      if (!stillAt(t)) {
+        ack(r.id, 'done', 'stale');
+        return ['stale', 'the job moved off the gate'];
+      }
+      const why = cut(`shelve refused: ${errText(e)}`);
+      handoff(t, 'escalated', why);
+      ack(r.id, 'rejected', why);
+      return ['escalated', why];
+    }
+  }
+
+  /**
+   * The senior pass (./senior.ts): seniorStart's checks, then its marker, one more forge:assistant on the senior's model
+   * and effort, and its verdict recorded through the same checks; whatever it can't settle shelves the job.
+   */
+  async function escalate(r: ForgeRequest, t: Target, c: Config, entry: Live, first: SeniorFirst): Promise<[GateRunOutcome, string]> {
+    const start = seniorStart(root, c, loadJob(root, t.job!), t.gate, first, Date.now());
+    if (start.kind === 'stale') {
+      ack(r.id, 'done', 'stale');
+      return ['stale', 'the job no longer waits on this gate'];
+    }
+    if (start.kind === 'reserved') {
+      handoff(t, 'reserved', `reserved: ${start.reason}`);
+      ack(r.id, 'rejected', `reserved: ${start.reason}`);
+      return ['reserved', cleanReason(start.reason)];
+    }
+    if (start.kind === 'shelve') return shelve(r, t, c, start.reason);
+    if (closed || entry.stopping) return giveBack(r, entry.session, { message: 'the pool stopped' });
+    const a = start.assist;
+    recordSeniorPass(root, { id: t.job! }, t.gate, first.first, authority);
+    const attempt = startAttempt(root, ctx, o, { brief: a.brief, model: a.model, effort: a.effort as Effort | null, log, senior: true });
+    entry.attempt = attempt;
+    log('senior-start', { run: entry.session, request: r.id, gate: t.gate, job: t.job, mandate: t.mandate, model: a.model, effort: a.effort, pid: attempt.pid });
+    const res = await attempt.done;
+    const s = entry.state;
+    Object.assign(s, { attempts: s.attempts + res.attempts, usd: s.usd + res.usd, tokens: s.tokens + res.tokens });
+    if ('failure' in res) {
+      if (res.failure === 'stopped' || res.failure === 'spawn-refused' || res.limit) return giveBack(r, entry.session, res);
+      return shelve(r, t, c, `senior pass failed: ${res.message}`);
+    }
+    return seniorDecide(r, t, c, res.verdict, res.reason, a.repos);
+  }
+
+  /** The senior's verdict, by the Behaviour table in docs/architecture/foreman.md › Senior pass. */
+  async function seniorDecide(r: ForgeRequest, t: Target, c: Config, verdict: SeniorVerdict, reason: string, repos: string[] | undefined): Promise<[GateRunOutcome, string]> {
+    if (verdict === 'shelve') return shelve(r, t, c, `senior pass: ${reason}`);
+    const move = gateMove(t.gate, verdict);
+    const note = cleanReason(`senior pass: ${reason}`);
+    if (move === 'no-action') {
+      ack(r.id, 'done', `no action: ${note}`);
+      return ['no-action', note];
+    }
+    if (move === 'escalate' || !('action' in move)) return shelve(r, t, c, `senior pass escalated: ${reason}`);
+    try {
+      recordForemanDecision(root, c, loadJob(root, t.job!), move.action, note, repos ? { repos } : {}, authority);
+    } catch (e) {
+      if (!(e instanceof ForgeError)) throw e;
+      if (!stillAt(t)) {
+        ack(r.id, 'done', 'stale');
+        return ['stale', 'the job moved off the gate'];
+      }
+      return shelve(r, t, c, `senior pass refused: ${cut(e.message)}`);
+    }
+    resume(t.job!);
+    ack(r.id, 'done', `${verdict}: ${note}`);
+    return [verdict as GateRunOutcome, note];
+  }
+
   /** Records the verdict's decision and acks; returns the outcome and its reason. Throws only a non-ForgeError. */
-  async function decide(r: ForgeRequest, t: { gate: GateClass; job: string | null; mandate: string | null }, c: Config, verdict: Verdict, reason: string, malformed: boolean, repos: string[] | undefined): Promise<[GateRunOutcome, string]> {
+  async function decide(r: ForgeRequest, t: Target, c: Config, entry: Live, verdict: Verdict, reason: string, malformed: boolean, repos: string[] | undefined): Promise<[GateRunOutcome, string]> {
+    // Under escalations: foreman, a job gate's escalate or refused decision goes to the senior pass instead of a person.
+    const senior = escalationsMode(c) === 'foreman' && seniorGate(t);
     let move = gateMove(t.gate, verdict);
     let note = reason;
     let shown: Verdict = verdict;
@@ -230,6 +324,7 @@ export function createGateRunner(root: string, deps: { ctx: SessionContext; o: S
       shown = 'revise';
     }
     if (move === 'escalate') {
+      if (senior) return escalate(r, t, c, entry, { first: 'escalate', reason });
       handoff(t, 'escalated', reason);
       ack(r.id, 'rejected', `escalated: ${reason}`);
       return ['escalated', reason];
@@ -249,6 +344,7 @@ export function createGateRunner(root: string, deps: { ctx: SessionContext; o: S
         return ['stale', 'the job moved off the gate'];
       }
       const why = cut(e.message);
+      if (senior) return escalate(r, t, c, entry, { first: 'refused', reason: why });
       handoff(t, 'refused', why);
       ack(r.id, 'rejected', why);
       return ['refused', why];
@@ -335,21 +431,15 @@ export function createGateRunner(root: string, deps: { ctx: SessionContext; o: S
       const res: AttemptResult = await attempt.done;
       Object.assign(s, { attempts: res.attempts, usd: res.usd, tokens: res.tokens });
       if ('failure' in res) {
-        if (res.failure === 'stopped' || res.failure === 'spawn-refused') {
-          releaseClaim(root, r.id, session);
-          [outcome, reason] = ['requeued', res.message];
-        } else if (res.limit) {
-          releaseClaim(root, r.id, session);
-          const t0 = Date.now();
-          hold('limit', res.limit.resetsAt !== null && res.limit.resetsAt > t0 ? res.limit.resetsAt : t0 + retryWait(Math.max(1, streak)));
-          [outcome, reason] = ['requeued', res.message];
-        } else [outcome, reason] = failed(r, t, session, res.message);
+        [outcome, reason] = res.failure === 'stopped' || res.failure === 'spawn-refused' || res.limit ? giveBack(r, session, res) : failed(r, t, session, res.message);
         reason = cleanReason(reason);
         return;
       }
       // A verdict resets the backoff's exponent; a hold another run's failure set expires on its own.
       streak = 0;
-      [outcome, reason] = await decide(r, t, c, res.verdict, res.reason, res.malformed, repos);
+      // Only a senior's parser takes shelve: the assistant's never returns it.
+      const verdict: Verdict = res.verdict === 'shelve' ? 'escalate' : res.verdict;
+      [outcome, reason] = await decide(r, t, c, entry, verdict, res.reason, res.malformed, repos);
     } catch (e) {
       // A non-ForgeError is an infrastructure failure: the request goes back through the counted requeue.
       log('error', { message: errText(e) });
@@ -381,7 +471,7 @@ export function createGateRunner(root: string, deps: { ctx: SessionContext; o: S
       return;
     }
     const state: GateRunState = { request: r.id, gate: t.gate, job: t.job, mandate: t.mandate, status: 'running', outcome: null, reason: null, startedAt: now(), endedAt: null, attempts: 0, usd: 0, tokens: 0 };
-    const entry: Live = { session, state, attempt: null, flow: Promise.resolve() };
+    const entry: Live = { session, state, attempt: null, flow: Promise.resolve(), stopping: false };
     live.set(r.id, entry);
     // The request's own reserved hit: handed off before assist, with no child spawned.
     const reserved = typeof r.args?.reserved === 'string' && r.args.reserved ? cleanReason(r.args.reserved) || 'reserved' : null;
@@ -401,6 +491,8 @@ export function createGateRunner(root: string, deps: { ctx: SessionContext; o: S
 
   async function stopAll(): Promise<void> {
     const entries = [...live.values()];
+    // Marked first: a run whose assistant is settling must not start its senior pass once the stop has passed it.
+    for (const e of entries) e.stopping = true;
     await Promise.all(entries.map((e) => e.attempt?.stop()));
     await Promise.all(entries.map((e) => e.flow));
   }
