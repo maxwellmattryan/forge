@@ -36,8 +36,9 @@ export interface GateAssist {
 /**
  * One gate's assist: read-only. `stale` when the job no longer waits on that gate (someone acted meanwhile);
  * `reserved` is re-checked now, never taken from the request. Throws ForgeError (exit 1) for an unknown gate.
+ * With `opts.senior` it is a senior pass's (./senior.ts): the brief gains its lines, on the senior's model and effort.
  */
-export function gateAssist(root: string, config: Config, job: Job, rawGate: unknown): GateAssist {
+export function gateAssist(root: string, config: Config, job: Job, rawGate: unknown, opts: { senior?: { first: 'escalate' | 'refused'; reason: string } } = {}): GateAssist {
   const gate = rawGate;
   if (!isGateClass(gate)) throw new ForgeError(`--gate must be one of ${OFFICE_GATES.join(', ')} (got ${JSON.stringify(String(gate ?? '').slice(0, 40))})`, 1);
   const events = readEvents(root, job.id);
@@ -66,14 +67,15 @@ export function gateAssist(root: string, config: Config, job: Job, rawGate: unkn
   // One read of the events for both the brief and `repos`, so the decision's repos are exactly the set the assistant judged.
   const pending = gate === 'repo-proposal' && !stale ? pendingRepoProposals(job, events) : [];
   const mandate = delegated ? { id: delegated.id, decides: delegated.decides, guidance: mandateGuidance(delegated.mandate) } : null;
+  const role = opts.senior ? 'senior' : 'assistant';
   return {
     gate,
     stale,
     reserved,
-    model: resolveModel(config, job, 'assistant'),
-    effort: resolveEffort(config, job, 'assistant').level,
+    model: resolveModel(config, job, role),
+    effort: resolveEffort(config, job, role).level,
     subagent: 'forge:assistant',
-    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved, events, pending, releaseHash, stale ? null : securityHold(job), mandate),
+    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved, events, pending, releaseHash, stale ? null : securityHold(job), mandate, opts.senior ?? null),
     // The brief's `Pending repos` names: a repo decision names exactly these, and `exact` refuses once they stop being the pending set.
     ...(gate === 'repo-proposal' && !stale ? { repos: pending.map((r) => r.repo) } : {}),
   };

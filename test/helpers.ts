@@ -10,6 +10,7 @@ import { BIN, type CliResult } from './support/cli.ts';
 export { BIN, cliEnv, forgeSync, type CliResult } from './support/cli.ts';
 export { fakeClaude, type FakeClaudeChild } from './support/claude-adapter.ts';
 export { fakeBin } from './support/fake-bin.ts';
+export { editConfigFile, gateAnswer, gateCost, gateHarness, type GateHarness } from './support/gate-runner.ts';
 export { fakeGh, type GhReply } from './support/fake-gh.ts';
 export { forgeInProcess, type InProcessResult } from './support/in-process.ts';
 export { jobAt, parkedAt, withLease, withRound, type JobAtOptions } from './support/job-state.ts';

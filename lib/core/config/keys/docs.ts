@@ -339,6 +339,12 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'foreman.surveyors.enabled': { doc: 'the Foreman spawns surveyors' },
   'foreman.surveyors.model': { doc: "the surveyors' model" },
   'foreman.surveyors.effort': { doc: "the surveyors' effort (null: runtime.effort)" },
+  'foreman.escalations': {
+    doc: 'human | foreman: who takes a gate the assistant escalated or the CLI refused; foreman runs one senior pass, which decides it or shelves the job (see "Foreman")',
+  },
+  'foreman.senior': { doc: "the senior pass's forge:assistant under escalations: foreman" },
+  'foreman.senior.model': { doc: "the senior pass's model, stronger than the assistant's (inherit: daemon.command's)" },
+  'foreman.senior.effort': { doc: "the senior pass's effort; it beats the job's own effort, and null falls through to the assistant's" },
   'foreman.mandate': { doc: 'what forge mandate new fills a contract term it is not given with (see "Mandates" below)' },
   'foreman.mandate.until': {
     doc: 'merge-ready | merged | released: where its work stops (merged needs ship: merge or release, else merge-ready applies; released needs ship: release, else merged or merge-ready applies)',

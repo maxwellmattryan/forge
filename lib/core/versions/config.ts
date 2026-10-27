@@ -169,6 +169,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v44 lets a component set `paths` (globs a changed file must match for a job to change it); a v43
   // component has none and still matches by its `path`, so nothing moves.
   { id: 'component-paths', up: (c) => c },
+  // v45 adds foreman.escalations (human) and foreman.senior (opus, high), filled from defaults, so no v44 config
+  // changes; the bump lets older Forges refuse a config whose escalations or senior they would reject as unknown keys.
+  { id: 'foreman-escalations', up: (c) => c },
 ];
 
 const isPlainMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);

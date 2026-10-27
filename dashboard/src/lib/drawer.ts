@@ -93,8 +93,8 @@ export function eventDetail(e: JobEvent, fmt: { tokens: (n: number | null | unde
   return plain(JSON.stringify(Object.fromEntries(Object.entries(e).filter(([k]) => !['v', 'ts', 'type', 'actor'].includes(k)))).slice(0, 240));
 }
 
-/** A `human` event the foreman recorded: the timeline labels it so a reader can tell it from a person's decision. */
-export const isForemanEvent = (e: Partial<JobEvent> | null | undefined): boolean => e?.type === 'human' && e.actor?.source === 'foreman';
+/** An event the foreman recorded (a decision, a hand-off, a senior pass, a shelve): the timeline labels it so a reader can tell it from a person's. */
+export const isForemanEvent = (e: Partial<JobEvent> | null | undefined): boolean => e?.actor?.source === 'foreman';
 
 /** An event a chat session recorded (a CLI action the owner asked for in a chat): the timeline marks it with a `chat` chip. */
 export const isChatEvent = (e: Partial<JobEvent> | null | undefined): boolean => e?.actor?.source === 'chat';

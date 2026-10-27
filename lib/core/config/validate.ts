@@ -18,7 +18,7 @@ import { commandEnvProblems } from './validators/command-env.ts';
 import { requiredChecksProblems } from './validators/required-checks.ts';
 import { PLUGIN_ROOT, exists, paths, resolveFrom } from '../paths.ts';
 import { globProblem, policyProblems } from './validators/policy-check.ts';
-import { CONFIG_SCHEMA_VERSION, EFFORTS, FOREMAN_SHIP, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL, OFFICE_GATES, REPO_BUDGET_MODES, reservedGateEntry } from '../job/schema.ts';
+import { CONFIG_SCHEMA_VERSION, EFFORTS, FOREMAN_ESCALATIONS, FOREMAN_SHIP, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL, OFFICE_GATES, REPO_BUDGET_MODES, reservedGateEntry } from '../job/schema.ts';
 import { secretRefProblems } from './validators/secret-refs.ts';
 import { MAX_GATE_RUNS } from '#api/constants.ts';
 import { instructionsProblems } from './validators/instructions.ts';
@@ -251,7 +251,7 @@ export function foremanProblems(c: unknown): string[] {
 }
 
 /**
- * The Office's foreman.* keys (model, effort, cadence, assistants, surveyors, mandate), each checked
+ * The Office's foreman.* keys (model, effort, cadence, assistants, surveyors, escalations, senior, mandate), each checked
  * only when present, so a partial block a user wrote still merges over the defaults.
  */
 function foremanOfficeProblems(f: Record<string, any>): string[] {
@@ -293,6 +293,13 @@ function foremanOfficeProblems(f: Record<string, any>): string[] {
       // The foreman-gate-runs step moved it; written again by hand, it would be ignored without a word.
       if (Object.hasOwn(m, 'sessions')) problems.push('foreman.assistants has unknown key "sessions": gate runs replaced the assistant sessions; set foreman.assistants.parallel');
     }
+  }
+  // An invalid escalations reads as human at run time, so a typo never hands gates to the senior pass.
+  oneOf('escalations', f.escalations, FOREMAN_ESCALATIONS);
+  const senior = map('senior', f.senior);
+  if (senior) {
+    model('senior.model', senior.model);
+    effort('senior.effort', senior.effort);
   }
   const m = map('mandate', f.mandate);
   if (!m) return problems;

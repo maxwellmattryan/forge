@@ -1,5 +1,5 @@
 // The effective config and its sections' shapes, type-only: re-exported by lib/core/types.ts; unions with a runtime list derive from it.
-import type { BACKING_DB_ENGINES, BACKING_ISOLATIONS, DAEMON_AUTH, EFFORT_ROLES, KEEP_AWAKE_MODES, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS } from '../job/schema.ts';
+import type { BACKING_DB_ENGINES, BACKING_ISOLATIONS, DAEMON_AUTH, EFFORT_ROLES, KEEP_AWAKE_MODES, FOREMAN_ESCALATIONS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS } from '../job/schema.ts';
 import type { LINK_ECOSYSTEMS } from './components.ts';
 import type { SINK_FORMATS, SINK_MODES } from './sinks.ts';
 import type { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_PUBLISH, RELEASE_REGISTRIES, RELEASE_VERSIONINGS } from './release-strategy.ts';
@@ -324,6 +324,10 @@ export interface Config {
     /** forge:assistant's model and effort (assist); enabled and parallel (1–16 gate runs at once) are read by the gate runner. */
     assistants: ForemanSubRole & { parallel: number };
     surveyors: ForemanSubRole;
+    /** Who takes a gate the assistant escalated or the CLI refused: a person, or one senior pass (lib/office/foreman/senior.ts). */
+    escalations: ForemanEscalations;
+    /** The senior pass's model and effort; a valid effort beats the job's own. */
+    senior: { model: string; effort: Effort | null };
     /** What `forge mandate new` fills a term it isn't given with. */
     mandate: MandateDefaults;
   };
@@ -363,6 +367,8 @@ export interface NotifyWebhook {
 }
 /** foreman.ship: FOREMAN_SHIP in lib/core/job/schema.ts. */
 export type ForemanShip = (typeof FOREMAN_SHIP)[number];
+/** foreman.escalations: FOREMAN_ESCALATIONS in lib/core/job/schema.ts. */
+export type ForemanEscalations = (typeof FOREMAN_ESCALATIONS)[number];
 
 /** foreman.assistants and foreman.surveyors: whether the Office runs them, and on which model and effort. */
 export interface ForemanSubRole {

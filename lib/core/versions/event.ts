@@ -37,6 +37,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // v10 adds the `components` event (forge verify's recompute of a job's components from its diff:
   // declared, components, added, dropped, sha); an older Forge reads it as a generic event.
   { id: 'components-event', up: (e) => e },
+  // v11 adds the `senior-pass` event ({ gate, first }, the Foreman's actor): the gate runner's once-per-park marker
+  // under foreman.escalations: foreman. An older Forge reads it as a generic event.
+  { id: 'senior-pass', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

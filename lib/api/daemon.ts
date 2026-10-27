@@ -171,7 +171,7 @@ export interface GateRunState {
   reason: string | null;
   startedAt: string;
   endedAt: string | null;
-  /** Assistant turns: 1, or 2 after a malformed verdict was asked again. */
+  /** Assistant turns: 1, or 2 after a malformed verdict was asked again; up to 4 with a senior pass, whose turns add to the first's. */
   attempts: number;
   /** Metered spend of the run's turns. */
   usd: number;

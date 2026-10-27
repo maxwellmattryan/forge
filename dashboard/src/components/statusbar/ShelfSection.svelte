@@ -119,7 +119,7 @@
               <p class="break-words">{r.reason}</p>
               <div class="flex flex-wrap items-center gap-2 text-muted text-xs">
                 <span>{$t('shelf.from', { gate: r.from })}</span>
-                <span>{r.by ? $t('shelf.byWhen', { who: r.by, ago: ago(r.at, ticker.now) }) : $t('shelf.when', { ago: ago(r.at, ticker.now) })}</span>
+                <span>{r.foreman ? $t('shelf.byForeman', { ago: ago(r.at, ticker.now) }) : r.by ? $t('shelf.byWhen', { who: r.by, ago: ago(r.at, ticker.now) }) : $t('shelf.when', { ago: ago(r.at, ticker.now) })}</span>
                 <PrChip pr={r.pr} />
               </div>
             </div>

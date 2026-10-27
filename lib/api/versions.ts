@@ -97,6 +97,9 @@ export const API_CHANGES = [
   // Job.componentsFromDiff (forge verify's recompute from the committed diff) and Job.componentsUnmatched (that recompute
   // found changed root files no component covers, so the top-level commands run).
   { id: 'job-components' },
+  // GateRunOutcome 'shelved' (a senior pass shelved the job, under foreman.escalations: foreman); GateRunState.attempts
+  // goes up to 4, the first assistant's turns plus the senior's.
+  { id: 'senior-pass' },
 ] as const;
 
 /**

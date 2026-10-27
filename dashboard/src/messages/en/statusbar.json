@@ -58,7 +58,7 @@
         "one": "{count} prompt",
         "other": "{count} prompts"
       },
-      "about": "Supervises the pool: forge dash decides each parked gate in a gate run, one assistant per gate, and hands the job back.",
+      "about": "Supervises the pool: forge dash decides each parked gate in a gate run, one assistant per gate (and one senior pass when foreman.escalations is foreman), and hands the job back or shelves it.",
       "tag": "Foreman",
       "officeLog": "Foreman",
       "officeError": "Office session: {error}",
@@ -83,6 +83,7 @@
           "stale": "stale",
           "requeued": "requeued",
           "failed": "failed",
+          "shelved": "shelved",
           "running": "Running"
         }
       },
@@ -195,11 +196,12 @@
   },
   "shelf": {
     "heading": "Shelved",
-    "about": "Set aside by a person: nothing runs on these until you decide, and they don't count as waiting on you.",
+    "about": "Set aside by a person or the Foreman: nothing runs on these until you decide, and they don't count as waiting on you.",
     "select": "Select {id}",
     "selectAll": "Select all ({count} of {total} selected)",
     "from": "From: {gate}",
     "byWhen": "Shelved by {who} · {ago}",
+    "byForeman": "Shelved by the Foreman · {ago}",
     "when": "Shelved {ago}",
     "note": "Note for the agents (sent with Approve and Rework; Rework needs one)",
     "action": {

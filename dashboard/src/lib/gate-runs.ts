@@ -12,7 +12,7 @@ import { ago, tokensShort, usd } from './util.ts';
 export type GateRunShown = GateRunOutcome | 'running';
 export type GateRunTone = 'ok' | 'info' | 'warn' | 'bad' | 'you' | 'muted' | 'live';
 
-/** A decision is ok or info, a gate left for a person is you, a refusal warns, a failure is bad, the rest muted. */
+/** A decision is ok or info, a gate left for a person is you, a refusal or a shelve warns, a failure is bad, the rest muted. */
 export const GATE_RUN_TONE: Record<GateRunShown, GateRunTone> = {
   approve: 'ok',
   revise: 'info',
@@ -24,6 +24,7 @@ export const GATE_RUN_TONE: Record<GateRunShown, GateRunTone> = {
   stale: 'muted',
   requeued: 'muted',
   failed: 'bad',
+  shelved: 'warn',
   running: 'live',
 };
 

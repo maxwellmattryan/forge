@@ -6,6 +6,9 @@ import type { GateClass } from '#core/types.ts';
 
 export const VERDICTS = ['approve', 'revise', 'rework', 'escalate'] as const;
 export type Verdict = (typeof VERDICTS)[number];
+/** A senior pass's verdicts (./senior.ts): the assistant's, plus shelve, which the gate runner handles before the gate table. */
+export const SENIOR_VERDICTS = [...VERDICTS, 'shelve'] as const;
+export type SeniorVerdict = (typeof SENIOR_VERDICTS)[number];
 
 /** The longest reason kept: it becomes the decision's note and the hand-off reason. */
 export const REASON_MAX = 200;
@@ -15,6 +18,8 @@ export const REASON_MAX = 200;
  * and a reason. One unbounded group after fixed text, so no input backtracks.
  */
 const VERDICT_LINE = /^ASSIST: (approve|revise|rework|escalate) · (.+)$/;
+/** The senior pass's line: the same shape, with shelve too. */
+const SENIOR_VERDICT_LINE = /^ASSIST: (approve|revise|rework|escalate|shelve) · (.+)$/;
 
 /** What a reason loses: quotes, backticks, `$`, backslashes, control characters, and the line and paragraph separators. */
 const UNSAFE = /["`$\\\p{Cc}\p{Zl}\p{Zp}]/gu;
@@ -32,19 +37,20 @@ export function cleanReason(raw: unknown): string {
 /**
  * The verdict on the last non-empty line of the assistant's final result text, trimmed, or null when that
  * line is not exactly `ASSIST: <verdict> · <reason>` or its reason is empty once cleaned. Lines before it
- * (a preamble, an earlier ASSIST line) are ignored; a line after it makes the reply malformed.
+ * (a preamble, an earlier ASSIST line) are ignored; a line after it makes the reply malformed. Only with
+ * `senior` (a senior pass) is `shelve` a verdict; the assistant's `shelve` is malformed.
  */
-export function parseVerdict(text: unknown): { verdict: Verdict; reason: string } | null {
+export function parseVerdict(text: unknown, opts: { senior?: boolean } = {}): { verdict: SeniorVerdict; reason: string } | null {
   if (typeof text !== 'string') return null;
   const last = text
     .split(/\r?\n|\r/)
     .map((l) => l.trim())
     .filter((l) => l !== '')
     .at(-1);
-  const m = last === undefined ? null : VERDICT_LINE.exec(last);
+  const m = last === undefined ? null : (opts.senior === true ? SENIOR_VERDICT_LINE : VERDICT_LINE).exec(last);
   if (!m) return null;
   const reason = cleanReason(m[2]);
-  return reason ? { verdict: m[1] as Verdict, reason } : null;
+  return reason ? { verdict: m[1] as SeniorVerdict, reason } : null;
 }
 
 /** What a gate's verdict becomes: a `forge job human` action, a milestone-draft decision, a hand-off, or (pr-feedback) nothing. */

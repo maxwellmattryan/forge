@@ -72,6 +72,12 @@ export function reservedGateEntry(p: string): (typeof OFFICE_GATES)[number] | 'i
  */
 export const FOREMAN_SHIP = ['propose', 'merge', 'release'] as const;
 
+/**
+ * foreman.escalations: who takes a gate the assistant escalated or the CLI refused. human leaves it for a
+ * person (a Foreman hand-off); foreman runs one senior pass, which decides it or shelves the job.
+ */
+export const FOREMAN_ESCALATIONS = ['human', 'foreman'] as const;
+
 const isoOrNull = (v: unknown): string | null => (typeof v === 'string' && v.length <= 64 && Number.isFinite(Date.parse(v)) ? v : null);
 
 /**

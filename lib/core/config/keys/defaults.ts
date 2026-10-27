@@ -304,6 +304,10 @@ export function defaults(): Config {
       // The gate runner (lib/office/foreman/run.ts) reads enabled and parallel; assist reads model and effort.
       assistants: { enabled: true, parallel: 2, model: 'sonnet', effort: null },
       surveyors: { enabled: false, model: 'haiku', effort: null },
+      // A gate the assistant escalated, or whose decision the CLI refused, waits for a person; `foreman` gives it one
+      // senior pass on the stronger model below, which decides it under the same checks or shelves the job.
+      escalations: 'human',
+      senior: { model: 'opus', effort: 'high' },
       // What `forge mandate new` fills a term it isn't given with. The default decides is intersected
       // with the effective foreman classes there, so it never causes a refusal.
       mandate: {

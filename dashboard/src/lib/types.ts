@@ -23,7 +23,7 @@ import type { API_VERSION as ENGINE_API_VERSION } from '#api/versions.ts';
 export type * from '#api/types.ts';
 
 /** lib/api/versions.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 64 satisfies typeof ENGINE_API_VERSION;
+export const API_VERSION = 65 satisfies typeof ENGINE_API_VERSION;
 /** lib/api/constants.ts PROJECT_NAME_SOURCE: a registered project's name, the `/api/p/<project>/` segment. */
 export const PROJECT_NAME_SOURCE = '^[a-z0-9][a-z0-9._-]{0,63}$' satisfies typeof ENGINE_PROJECT_NAME_SOURCE;
 /** lib/api/constants.ts MANDATE_ID_SOURCE: a mandate id, which is also its file name (`none` matches but is never one). */
@@ -59,7 +59,7 @@ export function sharedScope(s: unknown): boolean {
 /** lib/api/constants.ts OFFICE_GATES: the gate classes the Foreman may decide, each a gate run's gate. */
 export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release', 'milestone-approval'] as const satisfies typeof ENGINE_OFFICE_GATES;
 /** lib/api/constants.ts GATE_RUN_OUTCOMES: how a gate run ended. */
-export const GATE_RUN_OUTCOMES = ['approve', 'revise', 'rework', 'no-action', 'escalated', 'reserved', 'refused', 'stale', 'requeued', 'failed'] as const satisfies typeof ENGINE_GATE_RUN_OUTCOMES;
+export const GATE_RUN_OUTCOMES = ['approve', 'revise', 'rework', 'no-action', 'escalated', 'reserved', 'refused', 'stale', 'requeued', 'failed', 'shelved'] as const satisfies typeof ENGINE_GATE_RUN_OUTCOMES;
 /** lib/api/constants.ts JOBS_SCOPE: POST /api/daemon/mode's scope for the job sessions' default. */
 export const JOBS_SCOPE = '_jobs' satisfies typeof ENGINE_JOBS_SCOPE;
 

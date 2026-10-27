@@ -6,18 +6,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { BIN, fakeClaude, forgeInProcess, jobAt, parkedAt, readyGoal, repoTemplate, waitFor } from '../../../test/helpers.ts';
+import { BIN, editConfigFile as editConfig, forgeInProcess, gateAnswer as answer, gateHarness, jobAt, parkedAt, readyGoal, repoTemplate, waitFor } from '../../../test/helpers.ts';
 import type { FakeClaudeChild } from '../../../test/helpers.ts';
-import * as yaml from '#core/format/yaml.ts';
-import { loadConfig, trustDigest } from '#core/config/load.ts';
+import { loadConfig } from '#core/config/load.ts';
 import { REQUEUE_REJECTED, enqueue, listRequests } from '#core/job/requests.ts';
 import { jobDir, readEvents, setJob } from '#core/job/store.ts';
 import { METER_VERSION, appendMeter, readMeter } from '#engine/metrics/meter.ts';
-import { confineDigest } from '../session/confine.ts';
-import { sessionOptions, type DaemonOptions, type SessionContext } from '../session/contract.ts';
-import { createGateRunner } from './run.ts';
+import type { DaemonOptions } from '../session/contract.ts';
 import { TITLE_ONLY_FEEDBACK } from './decide.ts';
-import type { ClaudeEvent } from '#integrations/claude/types.ts';
 
 const ALL = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release', 'milestone-approval'];
 
@@ -28,46 +24,9 @@ const scratch = repoTemplate((dir) => {
   fs.rmSync(answers);
 });
 
-/** Edits config.yml before a harness takes its trust snapshot. */
-function editConfig(root: string, edit: (c: any) => void): void {
-  const file = path.join(root, '.forge', 'config.yml');
-  const c = yaml.parse(fs.readFileSync(file, 'utf8'));
-  edit(c);
-  fs.writeFileSync(file, yaml.stringify(c));
-}
-
 /** A runner over `root` with the trust and confine snapshot a pool start takes. */
-function harness(root: string, over: DaemonOptions = {}) {
-  const fake = fakeClaude();
-  const o = sessionOptions({ claude: fake.adapter, graceMs: 20, retryMinMs: 1, retryMaxMs: 1, ...over, env: { ...process.env, FORGE_ROOT: root } });
-  const config = () => o.readConfig(root).config;
-  const trusted = trustDigest(root);
-  const confined = confineDigest(root, config());
-  const stops: string[] = [];
-  const ctx: SessionContext = {
-    trusted: () => trusted,
-    confined: () => confined,
-    poolWanted: () => true,
-    config,
-    untrusted: () => void stops.push('untrusted'),
-    fatal: (m) => void stops.push(m),
-    emit: () => {},
-    onResult: () => {},
-    onExit: () => {},
-    poke: () => {},
-    permissionMode: () => null,
-    permissionModeRefused: () => {},
-    effort: () => ({ level: null, source: 'none' }),
-    model: () => null,
-  };
-  const runner = createGateRunner(root, { ctx, o });
-  const take = () => runner.take(config(), listRequests(root, { status: 'pending' }).filter((r) => r.type === 'gate'));
-  const settled = () => waitFor(() => runner.state().live === 0, { what: 'every gate run ended' });
-  return { fake, runner, take, settled, stops };
-}
+const harness = await gateHarness();
 
-const cost = (usd: number) => ({ usd, models: { 'claude-sonnet-5-5': { usd, input: 100, output: 10, cacheRead: 0, cacheWrite: 0 } } });
-const answer = (c: FakeClaudeChild, text: string, usd = 0): void => c.emit({ kind: 'turn-ended', ok: true, text, cost: usd ? cost(usd) : null } as ClaudeEvent);
 const request = (root: string, id: string) => listRequests(root).find((r) => r.id === id)!;
 const human = (root: string, job: string) => readEvents(root, job).filter((e) => e.type === 'human');
 const handoffs = (root: string, job: string) => readEvents(root, job).filter((e) => e.type === 'foreman-handoff');

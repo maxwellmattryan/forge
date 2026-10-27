@@ -57,7 +57,7 @@ test('field schema is an allowlist over documented keys', async () => {
     // environments.maxRunning only caps running environments: a wrong value stops (never removes) one.
     // pr.maxCiReworks only caps how many CI reworks sync starts before a person decides.
     // foreman model and effort keys pick a model and how much it thinks, never what it may do.
-    assert.match(f.key, /^((pipeline|review|runtime|tracker|dashboard|daemon|budget)\.|pr\.(integrationReview|maxCiReworks)$|retention\.logMaxBytes$|outcomes\.windowDays$|environments\.maxRunning$|scoring\.(sample|model)$|foreman\.((assistants|surveyors)\.)?(model|effort)$)/, `${f.key} is in an editable section`);
+    assert.match(f.key, /^((pipeline|review|runtime|tracker|dashboard|daemon|budget)\.|pr\.(integrationReview|maxCiReworks)$|retention\.logMaxBytes$|outcomes\.windowDays$|environments\.maxRunning$|scoring\.(sample|model)$|foreman\.((assistants|surveyors|senior)\.)?(model|effort)$)/, `${f.key} is in an editable section`);
     for (const p of forbidden) assert.ok(!f.key.startsWith(p), `${f.key} must not be editable (${p})`);
   }
   assert.ok(FIELDS.some((f) => f.key === 'runtime.models.builder' && f.editable));

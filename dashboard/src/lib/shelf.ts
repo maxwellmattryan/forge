@@ -15,8 +15,10 @@ export interface ShelfRow {
   from: string;
   /** `shelved.at`, which the batch body pins each entry to. */
   at: string;
-  /** Who shelved it: a login, or null when none resolved. */
+  /** Who shelved it: a login, or null when none resolved (the Foreman has no login: see `foreman`). */
   by: string | null;
+  /** The Foreman shelved it (the gate runner's senior pass), not a person: the row says so. */
+  foreman: boolean;
   pr: JobPr | null;
 }
 
@@ -30,7 +32,8 @@ export function shelfRows(jobs: JobLike[]): ShelfRow[] {
     if (!isShelved(j) || !s || typeof s.at !== 'string') return [];
     const state = String(s.from?.state ?? '');
     const from = s.from?.waitingOn ? (WAIT_LABEL[s.from.waitingOn as WaitingOn] ?? s.from.waitingOn) : state.charAt(0).toUpperCase() + state.slice(1);
-    return [{ id: String(j.id), title: String(j.title ?? j.id), reason: String(s.reason ?? ''), from, at: s.at, by: s.actor?.login ?? null, pr: j.pr ?? null }];
+    const foreman = s.actor?.source === 'foreman';
+    return [{ id: String(j.id), title: String(j.title ?? j.id), reason: String(s.reason ?? ''), from, at: s.at, by: s.actor?.login ?? null, foreman, pr: j.pr ?? null }];
   });
 }
 

@@ -35,6 +35,7 @@
     stale: $t('statusbar.foreman.gates.outcome.stale'),
     requeued: $t('statusbar.foreman.gates.outcome.requeued'),
     failed: $t('statusbar.foreman.gates.outcome.failed'),
+    shelved: $t('statusbar.foreman.gates.outcome.shelved'),
     running: $t('statusbar.foreman.gates.outcome.running'),
   });
 
