@@ -301,6 +301,8 @@ export interface Config {
     idleStopMinutes: number | null;
     /** A turn busy past this is stopped and its work requeued; null: no limit. */
     turnTimeoutMinutes: number | null;
+    /** A permission prompt nobody answers this long after it was asked is denied with TIMEOUT_DENIED; null: it waits. */
+    permissionTimeoutMinutes: number | null;
     /** A job session whose turn's context passes this many tokens starts its next spawn fresh, stopped at a safe boundary; null: never. */
     freshAfterTokens: number | null;
     auth: DaemonAuth;

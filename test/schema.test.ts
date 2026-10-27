@@ -163,6 +163,7 @@ const CONFIG_ROWS: Row[] = [
   { step: 'daemon-fresh-after-tokens', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.freshAfterTokens'], note: ONLY_VERSION },
   { step: 'component-paths', input: { components: [...SINKS, { name: 'web', path: '.', kind: 'app', paths: ['web/**'] }] }, fields: { 'components.0': SINKS[0], 'components.1.paths': ['web/**'] }, note: ONLY_VERSION },
   { step: 'foreman-escalations', input: { foreman: { enabled: true, ship: 'merge' } }, fields: { 'foreman.enabled': true, 'foreman.ship': 'merge' }, removed: ['foreman.escalations', 'foreman.senior'], note: ONLY_VERSION },
+  { step: 'daemon-permission-timeout', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.permissionTimeoutMinutes'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
