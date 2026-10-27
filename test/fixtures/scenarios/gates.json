@@ -55,6 +55,11 @@
       "steps": [["job", "set", "{id}", "--stage", "verify", "--state", "waiting", "--waiting-on", "human", "--reason", "protected path changed"]]
     },
     {
+      "key": "held",
+      "title": "Hold the workflow push",
+      "steps": [["job", "set", "{id}", "--stage", "pr", "--state", "waiting", "--waiting-on", "human", "--reason", "push held: CI config changes: .github/workflows/ci.yml [ci 0123456789abcdef]"]]
+    },
+    {
       "key": "shelved",
       "title": "Shelved billing rewrite",
       "steps": [
