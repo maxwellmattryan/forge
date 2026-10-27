@@ -19,17 +19,39 @@ try {
   const file = process.env.CLAUDE_ENV_FILE;
   if (file && process.platform !== 'win32') {
     const bin = path.resolve(import.meta.dirname, '..', 'bin');
-    const lines = [`export PATH=${q(bin)}:"$PATH"`, 'export FORGE_MODE=agent'];
+    const pathLine = `export PATH=${q(bin)}:"$PATH"`;
+    const modeLine = 'export FORGE_MODE=agent';
     let current = '';
     try {
       current = fs.readFileSync(file, 'utf8');
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
     }
-    // Resume, clear and compact run the hook again on the same file.
+    // Resume, clear and compact run the hook again on the same file, and a long-lived session may have
+    // been resumed under other installs too, each prepending its own bin/. The last PATH line sourced
+    // wins, so ours must be the last one, not merely present: move it to the end when it isn't.
     const have = current.split('\n');
-    const missing = lines.filter((l) => !have.includes(l));
-    if (missing.length) fs.appendFileSync(file, (current && !current.endsWith('\n') ? '\n' : '') + missing.map((l) => l + '\n').join(''));
+    if (have.at(-1) === '') have.pop();
+    const ours = have.filter((l) => l.startsWith('export PATH=')).at(-1) === pathLine;
+    const mode = have.includes(modeLine);
+    if (!ours || !mode) {
+      const next = ours ? have : [...have.filter((l) => l !== pathLine), pathLine];
+      if (!mode) next.push(modeLine);
+      // Claude Code sources this file before every Bash command: write aside and rename, so none reads half of it.
+      // The copy keeps the file's mode (a new file is private), and `wx` refuses a path someone planted first.
+      let perm = 0o600;
+      try {
+        perm = fs.statSync(file).mode & 0o777;
+      } catch {}
+      const tmp = `${file}.${process.pid}.tmp`;
+      try {
+        fs.writeFileSync(tmp, next.map((l) => l + '\n').join(''), { mode: perm, flag: 'wx' });
+        fs.chmodSync(tmp, perm);
+        fs.renameSync(tmp, file);
+      } finally {
+        fs.rmSync(tmp, { force: true });
+      }
+    }
   }
 } catch (e) {
   process.stderr.write(`forge plugin-path hook: ${(e as Error).message}\n`);

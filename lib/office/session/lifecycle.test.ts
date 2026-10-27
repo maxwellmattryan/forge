@@ -12,8 +12,8 @@ import path from 'node:path';
 import { fakeClaude, repoTemplate, waitFor, withLease, type FakeClaudeChild } from '../../../test/helpers.ts';
 import { defaults, trustDigest } from '#core/config/load.ts';
 import { createJob, loadJob, readEvents, recordAgent, updateJob } from '#core/job/store.ts';
-import { INBOX_SCOPE, claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
-import { sessionFiles } from '#core/job/session-files.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
+import { UUID, sessionFiles } from '#core/job/session-files.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { appendMeter } from '#engine/metrics/meter.ts';
 import { buildArgv } from '#integrations/claude/argv.ts';
@@ -361,7 +361,8 @@ test('each Claude event changes the session', async (t) => {
     },
     {
       name: 'a resume whose transcript is gone starts one fresh session',
-      opts: { record: { sessionId: uuid, resumable: true } },
+      // A job session: the inbox and the office never resume.
+      opts: { job: true, record: { sessionId: uuid, resumable: true } },
       run: (r, c) => {
         assert.deepEqual(c.argv.slice(1, 3), ['--resume', uuid]);
         c.emit(failed('error_during_execution'));
@@ -542,6 +543,104 @@ test("an exit lets go of its job's agents and lease", async (t) => {
     assert.deepEqual(r.event('lease-expired').map((l) => ({ job: l.job, session: l.session, reason: l.reason })), [{ job: r.scope, session: s, reason: row.reason }], row.name);
     assert.deepEqual(r.event('requeued').map((l) => ({ requests: l.requests, rejected: l.rejected })), [{ requests: [req.id], rejected: [] }], row.name);
     assert.equal(r.calls.onExit, 1, `${row.name}: onExit ran once`);
+  }
+});
+
+// The inbox and the office never resume, whatever their record says; a job session with the same record still does.
+test('the inbox and office start a new conversation at every spawn', async (t) => {
+  const stored = crypto.randomUUID();
+  const record = { sessionId: stored, resumable: true };
+  const idOf = (argv: string[]) => argv[argv.indexOf('--session-id') + 1];
+  for (const scope of [INBOX_SCOPE, OFFICE_SCOPE]) {
+    const r = rig(t, { scope, record, daemon: { idleStopMinutes: 0.001 } });
+    assert.equal(r.s.spawn(r.cfg), true, scope);
+    const [first] = r.children;
+    const a = idOf(first.argv);
+    assert.ok(!first.argv.includes('--resume') && UUID.test(a) && a !== stored, `${scope}: a new uuid, no --resume`);
+    first.emit({ kind: 'log', stream: 'stdout', line: JSON.stringify({ type: 'system' }) });
+    assert.equal(r.record().resumable, true, `${scope}: its record says resumable`);
+    await waitFor(() => !r.s.running && r.s.status === 'off', { what: `${scope}: the idle child stopped` });
+    assert.equal(r.event('idle-stop').length, 1, scope);
+    assert.equal(r.s.spawn(r.cfg), true, scope);
+    const b = idOf(r.children[1].argv);
+    assert.ok(!r.children[1].argv.includes('--resume') && UUID.test(b) && b !== a && b !== stored, `${scope}: another new uuid`);
+    assert.deepEqual(r.event('spawn').map((l) => l.resume), [false, false], scope);
+  }
+  const job = rig(t, { job: true, record });
+  assert.equal(job.s.spawn(job.cfg), true);
+  assert.deepEqual(job.children[0].argv.slice(1, 3), ['--resume', stored], 'a job session resumes');
+});
+
+// A turn's context past the threshold retires a job session's conversation at the first safe boundary.
+test('a job session past daemon.freshAfterTokens rotates at a safe boundary', async (t) => {
+  type Rig = ReturnType<typeof rig>;
+  const ended = (context?: number): ClaudeEvent => ({ kind: 'turn-ended', ok: true, ...(context === undefined ? {} : { context }) });
+  /** A wake turn: claude's own turn after a background agent's end, and its result. */
+  const wake = (c: FakeClaudeChild) => (c.emit({ kind: 'turn-started' }), c.emit(ended()));
+  const job = (freshAfterTokens: number | null): RigOpts => ({ job: true, daemon: { freshAfterTokens } });
+  const rows: { name: string; opts: RigOpts; context: number; rotates: boolean; before?: (r: Rig, c: FakeClaudeChild) => void; release?: (r: Rig, c: FakeClaudeChild) => void }[] = [
+    { name: 'idle and unkept', opts: job(1000), context: 1500, rotates: true },
+    {
+      name: 'kept by its agent, then its agent ends',
+      opts: job(1000),
+      context: 1500,
+      rotates: true,
+      before: (r) => void recordAgent(r.root, r.scope, { role: 'builder', phase: 'start' }, defaults()),
+      release: (r, c) => (recordAgent(r.root, r.scope, { role: 'builder', phase: 'end' }, defaults()), wake(c)),
+    },
+    {
+      name: 'a background task, then none',
+      opts: job(1000),
+      context: 1500,
+      rotates: true,
+      before: (_r, c) => c.emit({ kind: 'background', count: 1 }),
+      release: (_r, c) => (c.emit({ kind: 'background', count: 0 }), wake(c)),
+    },
+    { name: 'at the threshold', opts: job(1000), context: 1000, rotates: false },
+    { name: 'null never rotates', opts: job(null), context: 5_000_000, rotates: false },
+    { name: 'the inbox never rotates', opts: { daemon: { freshAfterTokens: 1000 } }, context: 1500, rotates: false },
+  ];
+  for (const row of rows) {
+    const r = rig(t, row.opts);
+    assert.equal(r.s.spawn(r.cfg), true, row.name);
+    const [c] = r.children;
+    c.emit({ kind: 'log', stream: 'stdout', line: JSON.stringify({ type: 'system' }) });
+    const sid = r.s.state().sessionId!;
+    assert.equal(r.s.state().contextTokens, null, `${row.name}: no reading yet`);
+    const isJob = r.scope !== INBOX_SCOPE;
+    let req: { id: string } | null = null;
+    if (isJob) {
+      withLease(r.root, r.scope, sid);
+      req = enqueue(r.root, r.cfg, { type: 'resume', job: r.scope, from: 'dashboard' });
+      claimRequest(r.root, req.id, sid);
+    }
+    row.before?.(r, c);
+    r.s.writeTurn([req?.id ?? 'r1']);
+    c.emit({ kind: 'turn-started' });
+    c.emit(ended(row.context));
+    assert.equal(r.s.state().contextTokens, row.context, `${row.name}: the latest reading`);
+    assert.deepEqual(r.event('rotated').map((l) => ({ tokens: l.tokens, threshold: l.threshold })), row.rotates ? [{ tokens: row.context, threshold: 1000 }] : [], row.name);
+    assert.equal(r.record().resumable, !row.rotates, `${row.name}: resumable`);
+    if (row.release || !row.rotates) assert.deepEqual([r.s.status, r.s.running, r.event('stop').length], ['idle', true, 0], `${row.name}: keeps running`);
+    if (!row.rotates) {
+      if (!isJob) continue;
+      await r.s.kill('stop', true);
+      assert.equal(r.s.state().contextTokens, null, `${row.name}: no child, no reading`);
+      assert.equal(r.s.spawn(r.cfg), true, row.name);
+      assert.deepEqual(r.children[1].argv.slice(1, 3), ['--resume', sid], `${row.name}: resumes the same id`);
+      continue;
+    }
+    row.release?.(r, c);
+    await waitFor(() => !r.s.running && r.s.status === 'off', { what: `${row.name}: the rotated child stopped` });
+    assert.deepEqual(r.event('stop').map((l) => l.reason), ['rotate'], row.name);
+    assert.equal(r.s.state().contextTokens, null, `${row.name}: no child, no reading`);
+    assert.equal(r.event('rotated').length, 1, `${row.name}: logged once`);
+    assert.deepEqual(readEvents(r.root, r.scope).filter((e) => e.type === 'lease-expired').map((e) => e.reason), ['rotate'], row.name);
+    assert.equal(listRequests(r.root).find((x) => x.id === req!.id)?.status, 'pending', `${row.name}: its claim requeued`);
+    assert.equal(r.s.spawn(r.cfg), true, row.name);
+    const next = r.children[1].argv;
+    const id = next[next.indexOf('--session-id') + 1];
+    assert.ok(!next.includes('--resume') && UUID.test(id) && id !== sid, `${row.name}: a new conversation`);
   }
 });
 

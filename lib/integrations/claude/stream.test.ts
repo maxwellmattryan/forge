@@ -43,6 +43,14 @@ const askedEvent: ClaudeEvent = { kind: 'permission-asked', requestId: 'req-1', 
 const askRepeat = { ...ask, request: { ...ask.request, input: { command: 'rm -rf ~' } } };
 const errorResult = (result: string) => ({ type: 'result', subtype: 'success', is_error: true, result });
 const resetSeconds = 2_000_000_000;
+/** A main-loop assistant line with its usage, a subagent's, and a working result. */
+const main = (input: number, cacheRead: number, cacheCreation: number) => ({
+  type: 'assistant',
+  parent_tool_use_id: null,
+  message: { usage: { input_tokens: input, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheCreation, output_tokens: 50 } },
+});
+const sub = { type: 'assistant', parent_tool_use_id: 'toolu_1', message: { usage: { input_tokens: 1, cache_read_input_tokens: 900_000, cache_creation_input_tokens: 0 } } };
+const ok = { type: 'result', is_error: false };
 
 /** A modelUsage entry in claude's words, and the ModelCost it becomes. */
 const usageOf = (n: number) => ({ costUSD: n, inputTokens: 1, outputTokens: 2, cacheReadInputTokens: 3, cacheCreationInputTokens: 4 });
@@ -117,6 +125,26 @@ test("claude's stream-json lines become domain events", () => {
       const ended: ClaudeEvent = ok ? { kind: 'turn-ended', ok: true, summary: null, cost, text: null } : { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, auth: false, resetsAt: null, budget: false, cost };
       return { name: `cost: ${name}`, feed: (s: S) => s.stdout(line(ev)), events: [logged(ev), ended] };
     }),
+    {
+      name: "context: the last main-loop call's, not a later subagent's",
+      feed: (s) => s.stdout([main(100, 2000, 300), main(10, 5000, 20), sub, ok].map(line).join('')),
+      events: [logged(main(100, 2000, 300)), logged(main(10, 5000, 20)), logged(sub), logged(ok), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null, context: 5030 }],
+    },
+    {
+      name: 'context: a non-finite or negative count reads as 0, on a failed turn too',
+      feed: (s) => s.stdout('{"type":"assistant","parent_tool_use_id":null,"message":{"usage":{"input_tokens":1e400,"cache_read_input_tokens":-3,"cache_creation_input_tokens":7,"output_tokens":50}}}\n' + line(errorResult('boom'))),
+      events: [logged(main(Infinity, -3, 7)), logged(errorResult('boom')), { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, auth: false, resetsAt: null, budget: false, cost: null, context: 7 }],
+    },
+    {
+      name: 'context: none without a main-loop usage',
+      feed: (s) => s.stdout([sub, { type: 'assistant', parent_tool_use_id: null, message: { usage: 'lots' } }, ok].map(line).join('')),
+      events: [logged(sub), logged({ type: 'assistant', parent_tool_use_id: null, message: { usage: 'lots' } }), logged(ok), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null }],
+    },
+    {
+      name: 'context: cleared after each result',
+      feed: (s) => s.stdout([main(1, 2, 3), ok, ok].map(line).join('')),
+      events: [logged(main(1, 2, 3)), logged(ok), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null, context: 6 }, logged(ok), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null }],
+    },
     {
       name: 'the dollar cap after a rejected rate limit',
       feed: (s) => s.stdout(line({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: resetSeconds } }) + line({ type: 'result', subtype: 'error_max_budget_usd', is_error: true, result: 'usage limit' })),

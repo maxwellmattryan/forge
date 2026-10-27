@@ -72,6 +72,16 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
     doc: '`forge job scope` matching: exact path, `dir/` prefix, * ** ? globs; a slash-free\nglob also matches the basename. A list here replaces the default.',
   },
 
+  relatedTests: {
+    doc: 'what `forge run <job> <command> --changed` passes at {args}: the tests related to the\njob\'s changes since its base ("Related tests"). Globs use * ** ?, matched against the\nwhole repo-relative path; a list here replaces its default',
+  },
+  'relatedTests.tests': { doc: 'test files: a changed one is run itself, and only these are ever passed' },
+  'relatedTests.map': {
+    doc: 'templates naming the tests of a changed non-test file: {dir} is its directory ({dir}/\ndrops for a root file), {name} its file name without the last extension',
+    layout: 'block',
+  },
+  'relatedTests.full': { doc: 'shared helpers, fixtures and mocks: a change here runs the whole command, with no arguments' },
+
   verifyIntegrity: { doc: 'warn | block: block fails verify on deleted test files or added skip/focus markers' },
 
   verifySecrets: {
@@ -288,8 +298,9 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
     layout: 'block',
   },
   'daemon.maxConcurrent': { doc: 'job sessions at once (1-16), besides the inbox' },
-  'daemon.idleStopMinutes': { doc: 'stop an idle session after this long (null: never); new work resumes it' },
+  'daemon.idleStopMinutes': { doc: 'stop an idle session after this long (null: never); new work starts it again' },
   'daemon.turnTimeoutMinutes': { doc: 'stop a turn still running after this long and requeue its work (null: no limit)' },
+  'daemon.freshAfterTokens': { doc: "a job session whose last turn's context (input + cache) passes this many tokens stops at the next safe moment and starts its next spawn fresh (null: never)" },
   'daemon.auth': { doc: "what sessions run on: your Claude login, or api-key for an ANTHROPIC_API_KEY in forge dash's shell" },
   'daemon.jobBudget': {
     doc: 'with enabled: true, fills each of tokens, usd and minutes the job\'s budget leaves unset (null: off; see "Daemon" below)',

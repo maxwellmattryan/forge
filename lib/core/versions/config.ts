@@ -160,7 +160,13 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v41: forge dash's gate runner replaces the assistant foreman sessions, so foreman.assistants.sessions (how many
   // sessions) becomes foreman.assistants.parallel (how many gate runs at once), unless parallel is already written.
   { id: 'foreman-gate-runs', up: foremanGateRuns },
-  // v42 lets a component set `paths` (globs a changed file must match for a job to change it); a v41
+  // v42 adds relatedTests, filled from defaults, so no v41 config changes; the bump lets older Forges refuse
+  // a config whose relatedTests they would reject as an unknown key.
+  { id: 'related-tests', up: (c) => c },
+  // v43 adds daemon.freshAfterTokens (200000), filled from defaults, so no v42 config changes; the bump lets older
+  // Forges refuse a config whose threshold they would reject as an unknown key.
+  { id: 'daemon-fresh-after-tokens', up: (c) => c },
+  // v44 lets a component set `paths` (globs a changed file must match for a job to change it); a v43
   // component has none and still matches by its `path`, so nothing moves.
   { id: 'component-paths', up: (c) => c },
 ];
