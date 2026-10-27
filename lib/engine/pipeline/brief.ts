@@ -15,6 +15,7 @@ import { releaseFiles } from '../release/files.ts';
 import { SECRET_NAME, secretSourceOf } from '#core/config/validators/secret-refs.ts';
 import { instructionsFor } from '#core/config/validators/instructions.ts';
 import { recallLine } from './step/recall.ts';
+import { parsePromptTimeoutReason } from './step/facts.ts';
 import { lastRun } from '../verify/record.ts';
 import type { Config, GateClass, Job, JobEvent } from '#core/types.ts';
 import type { StepInput } from './types.ts';
@@ -457,6 +458,22 @@ export function renderBrief(input: StepInput, spec: BriefSpec): string {
  * pass (lib/office/foreman/senior.ts) adds its `Senior pass (JSON)`, `Diff` and `Verdicts` lines before Untrusted;
  * its reason is already cleanReason'd (no quotes, backslashes or line separators), and JSON keeps it on one line.
  */
+/** Where each role NP1b parks for records what it needed. */
+const PROMPT_TIMEOUT_NOTES: Record<string, string> = { planner: 'plan.md', 'spec-writer': 'spec.md', builder: 'build.md', integrator: 'build.md' };
+
+/**
+ * The escalation brief's line for a park NP1b wrote (step/facts.ts promptTimeoutReason): built from the reason only, which
+ * parsePromptTimeoutReason checks again, since job.json is a file the session can reach. None for another gate or reason.
+ */
+function promptTimeoutLines(gate: GateClass, reason: unknown, dir: string): string[] {
+  const p = gate === 'escalation' ? parsePromptTimeoutReason(reason) : null;
+  const notes = p ? PROMPT_TIMEOUT_NOTES[p.role] : undefined;
+  if (!p || !notes) return [];
+  return [
+    `Prompt timed out: ${p.role} needed ${p.tool}, and Forge denied it because nobody answered within daemon.permissionTimeoutMinutes; no human saw the prompt, and you cannot grant it. What ${p.role} needed is in ${path.join(dir, notes)}. Approve only when the work is complete without it; rework or revise with a note on how to go on without the call; escalate when only the call will do, so a person can allow it.`,
+  ];
+}
+
 export function assistantBrief(
   root: string,
   config: Config,
@@ -506,6 +523,7 @@ export function assistantBrief(
       : []),
     releaseGateLine(config, job, events),
     ...(security ? [`Security review: ${security}. Approving is refused while it stands: security always has to pass, so rework or revise to fix the findings.`] : []),
+    ...promptTimeoutLines(gate, job.reason, dir),
     ...(repos ? [repos] : []),
     ...(gate === 'release' ? [`Release plan: ${releaseMd} (plan ${releaseHash ? releaseHash.slice(0, 12) : 'none'})`] : []),
     // From events, not the session-editable repo-proposals.md: the only set the assistant may decide, and the one the foreman passes as --repo.

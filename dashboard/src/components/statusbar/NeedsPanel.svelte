@@ -1,5 +1,6 @@
 <!-- The Needs-you popover's body (the page it replaced): every pending permission prompt in the pool, answered right here,
-     the collapsed Timed out list (TimedOutPrompts: prompts denied because nobody answered in time, not counted), then decisions only a human can make (goal mandates' milestone drafts first, then jobs), PRs awaiting review, jobs
+     the collapsed Timed out list (TimedOutPrompts: prompts denied because nobody answered in time, not counted),
+     then decisions only a human can make (goal mandates' milestone drafts first, then jobs), PRs awaiting review, jobs
      parked on their dependencies (listed apart: they resume by themselves, but a human may unblock one), the Shelved
      list (ShelfSection: jobs a person set aside, not counted in the badge), and queued requests (a job-less one names
      its mandate when it has one).

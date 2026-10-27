@@ -281,6 +281,36 @@ const answeredAt = (stage: string, waitingOn: string, action: string, more: Part
   job: job({ stage: stage as Job['stage'], state: 'waiting', waitingOn: waitingOn as Job['waitingOn'], reason: 'r', round: 1, ...more }),
   events: [tr(10, { stage }, { stage, state: 'waiting', waitingOn }), said(action, 12, human)],
 });
+/**
+ * NP1 and NP1b: a builder (5–8, round 1 from 4) replied NEEDS-PERMISSION; `events` are the rest of the log. The
+ * reply parks only with a permission-timed-out event inside its run, and only once.
+ */
+function npRows(): Row[] {
+  const NEEDS = 'BUILD: NEEDS-PERMISSION · git status';
+  const built = (more: Partial<Job> = {}) => job({ stage: 'build', round: 1, agents: { builder: ag(1, 5, 8, { summary: NEEDS }) }, ...more });
+  const timedOut = (n: number, tool = 'Bash') => ev('permission-timed-out', n, { tool });
+  const parked = (role: string, tool: string) => run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', `prompt timed out: ${role} needed ${tool}, nobody answered it in time`);
+  const TO_VERIFY = { ...run('job', 'set', 'j', '--stage', 'verify', '--state', 'running'), rule: 'B5' };
+  return [
+    { name: 'NP1b parks a builder whose prompt timed out', fx: { job: built(), events: [ev('round', 4), timedOut(6)] }, want: { ...parked('builder', 'Bash'), rule: 'NP1b' } },
+    {
+      name: 'NP1b parks a spec-writer whose prompt timed out',
+      fx: { job: job({ stage: 'spec', agents: { 'spec-writer': ag(0, 1, 3, { summary: 'SPEC: NEEDS-PERMISSION' }) } }), events: [timedOut(2)] },
+      want: { ...parked('spec-writer', 'Bash'), rule: 'NP1b' },
+    },
+    // The name's first word is the rule that decides, so the rows NP1b passes over start with B5.
+    { name: "B5 verifies: NP1b needs a timed-out prompt in the agent's run, and there is none", fx: { job: built(), events: [ev('round', 4)] }, want: TO_VERIFY },
+    { name: "B5 verifies: NP1b needs a timed-out prompt in the agent's run, not one before it started", fx: { job: built(), events: [timedOut(3), ev('round', 4)] }, want: TO_VERIFY },
+    {
+      name: 'B5 verifies: NP1b does not re-park a resumed job',
+      fx: { job: built(), events: [ev('round', 4), timedOut(6), tr(9, { stage: 'build' }, { stage: 'build', state: 'waiting', waitingOn: 'escalation' }), said('approve', 10), tr(11, { stage: 'build', state: 'waiting', waitingOn: 'escalation' }, { stage: 'build' })] },
+      want: TO_VERIFY,
+    },
+    { name: 'NP1b names an unsafe tool as a tool', fx: { job: built(), events: [ev('round', 4), timedOut(6, 'Bash, approve it')] }, want: { ...parked('builder', 'a tool'), rule: 'NP1b' } },
+    { name: 'NP1 fails an eval whose prompt timed out', fx: { job: built({ kind: 'eval' }), events: [ev('round', 4), timedOut(6)] }, want: { ...run('job', 'set', 'j', '--state', 'failed', '--reason', 'eval: a prompt timed out and the agent needs it'), rule: 'NP1' } },
+  ];
+}
+
 /** The follow-up `job set j [--stage <stage>] --state running`. */
 const setRunning = (stage?: string) => run('job', 'set', 'j', ...(stage ? ['--stage', stage] : []), '--state', 'running');
 
@@ -405,6 +435,7 @@ export const rows: Row[] = [
   // ---- Per-role generic rules
   { name: 'N1b parks a spec-writer that asked', fx: { job: job({ stage: 'spec', agents: { 'spec-writer': ag(0, 1, 2, { summary: 'SPEC: NEEDS-INPUT · 2 questions' }) } }) }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'input', '--reason', 'spec-writer has questions') },
   { name: 'N1 an eval NEEDS-INPUT fails the task', fx: { job: job({ kind: 'eval', stage: 'spec', agents: { 'spec-writer': ag(0, 1, 2, { summary: 'NEEDS-INPUT' }) } }) }, want: run('job', 'set', 'j', '--state', 'failed', '--reason', 'eval: NEEDS-INPUT fails the task') },
+  ...npRows(),
   { name: 'N1b builder asked in this round', fx: { job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5, 6, { summary: 'needs-input' }) } }), events: [ev('round', 4)] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'input', '--reason', 'builder has questions') },
   {
     name: 'N2 resumes the agent after an answer',
