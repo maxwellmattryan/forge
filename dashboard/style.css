@@ -1061,6 +1061,17 @@
   & .r { text-align: right; }
 }
 
+/* A table row that folds open: the row stays in the table and its cell's padding and the content's height ease between
+   closed and open (data-open on the tr), so the rows below move with it. Closed content is inert to focus and readers
+   once the fold ends (visibility). Reduced motion zeroes the transitions below. Used by the Agents tab's runs panel. */
+@utility fold-row {
+  & > td { transition: padding var(--motion-base) var(--ease-enter), border-color var(--motion-base) var(--ease-enter); }
+  &:not([data-open]) > td { padding-block: 0; border-bottom-color: transparent; }
+  & .fold { display: grid; grid-template-rows: 1fr; transition: grid-template-rows var(--motion-base) var(--ease-enter), visibility var(--motion-base) allow-discrete; }
+  &:not([data-open]) .fold { grid-template-rows: 0fr; visibility: hidden; }
+  & .fold > * { min-height: 0; overflow: clip; overflow-clip-margin: 4px; }
+}
+
 /* ---------- graph: the Project view's SVG (views/Project.svelte) ----------
    Bands are a faint step off the plate's panel; nodes are panel boxes with the strong seam, a component square-cut
    and a backing service rounded. A selected job's touched components take gleam (a gleam seam on a gleam wash) and

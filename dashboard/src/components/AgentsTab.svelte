@@ -59,7 +59,7 @@
             <td class="r num">{dur(r.elapsedMs)}</td>
             <td class="r num">{tokensShort(r.tokens)}</td>
           </tr>
-          <tr id="agent-runs-{i}" hidden={!expanded}><td colspan="5"><div class="max-w-[calc(100cqw-24px)]"><AgentRuns runs={r.runs ?? []} running={r.running} /></div></td></tr>
+          <tr id="agent-runs-{i}" class="fold-row" data-open={expanded ? '' : undefined}><td colspan="5"><div class="fold"><div class="max-w-[calc(100cqw-24px)]"><AgentRuns runs={r.runs ?? []} running={r.running} /></div></div></td></tr>
         {/each}
       </tbody>
     </table>
