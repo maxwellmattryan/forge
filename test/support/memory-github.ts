@@ -4,7 +4,7 @@
 // tests that use it can run concurrently. Spawned CLIs can't take it: they use fakeGh.
 import fs from 'node:fs';
 import { ForgeError } from '#core/errors.ts';
-import { parseClosing, parseFeedback, parsePr, parsePrBody } from '#integrations/github/pull-requests.ts';
+import { parseClosing, parseFeedback, parsePr, parsePrBody, parseRun } from '#integrations/github/pull-requests.ts';
 import { parseHeadChecks } from '#integrations/github/protection.ts';
 import type { BranchRules, GitHub } from '#integrations/github/types.ts';
 
@@ -48,7 +48,9 @@ export interface MemoryGitHub extends GitHub {
   setBranchRules(base: string, rules: BranchRules, slug?: string): void;
   /** HEAD_CHECKS_QUERY's raw `.data` for commit `sha`, read through parseHeadChecks (else no checks, complete). */
   setHeadChecks(sha: string, data: unknown, slug?: string): void;
-  /** Every later call of `op` fails with `error` (null clears it): reads and edits throw, merge returns it, branchRules answers unavailable. */
+  /** `gh run view`'s JSON for workflow run `run`, read through parseRun (else viewRun throws `external`). rerunFailed never changes it or the rollup. */
+  setRun(run: string, raw: unknown, slug?: string): void;
+  /** Every later call of `op` fails with `error` (null clears it): reads and edits throw, merge and rerunFailed return it, branchRules answers unavailable. */
   fail(op: keyof GitHub, error: string | null): void;
   /** The raw record stored for PR `number`. */
   record(number: number, slug?: string): Record<string, unknown> | undefined;
@@ -61,6 +63,7 @@ export function memoryGitHub({ slug: home = 'o/r' }: { slug?: string } = {}): Me
   const closing = new Map<string, unknown>();
   const rules = new Map<string, BranchRules>();
   const heads = new Map<string, unknown>();
+  const runs = new Map<string, unknown>();
   const failing = new Map<keyof GitHub, string>();
   const calls: GitHubCall[] = [];
   const key = (slug: string, n: number) => `${slug}#${n}`;
@@ -97,6 +100,9 @@ export function memoryGitHub({ slug: home = 'o/r' }: { slug?: string } = {}): Me
     },
     setHeadChecks(sha, data, slug = home) {
       heads.set(`${slug}@${sha}`, data);
+    },
+    setRun(run, raw, slug = home) {
+      runs.set(`${slug}!${run}`, raw);
     },
     fail(op, error) {
       if (error === null) failing.delete(op);
@@ -177,5 +183,16 @@ export function memoryGitHub({ slug: home = 'o/r' }: { slug?: string } = {}): Me
         const k = `${slug}@${sha}`;
         return heads.has(k) ? parseHeadChecks(heads.get(k)) : { checks: [], complete: true };
       }),
+    viewRun: (_cwd, slug, run) =>
+      read('viewRun', { slug, run }, () => {
+        const k = `${slug}!${run}`;
+        if (!runs.has(k)) throw new ForgeError(`gh run view: no run ${run} in ${slug}`, 'external');
+        return parseRun(runs.get(k));
+      }),
+    rerunFailed(_cwd, slug, run) {
+      calls.push({ op: 'rerunFailed', slug, run });
+      const error = failing.get('rerunFailed');
+      return error !== undefined ? { ok: false, error } : { ok: true };
+    },
   };
 }
