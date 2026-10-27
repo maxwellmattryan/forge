@@ -8,7 +8,6 @@ Stats, token usage, spend and budgets.
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
 |---|---|
-| `agent-start.ts` | Seconds from an agent run's start to its first tool call, read from the head of its Claude Code transcript for forge stats; bounded, and null-safe where transcripts are gone. |
 | `budget.ts` | Per-job budgets. |
 | `composition.ts` | What filled an agent run's context, estimated from its Claude Code transcript: the start prefix split into the Forge prompt and the harness, then the messages by kind and tool, scaled to the API's exact input totals. |
 | `daily.ts` | Per-UTC-day totals over a window ending today: the jobs shipped (non-eval, state done, on the day of finishedAt, live or archived) and the spend ledger's cost (reported and metered), for the Overview's graphs (GET /api/projects/stats). |
