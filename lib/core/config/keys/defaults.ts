@@ -82,6 +82,23 @@ export function defaults(): Config {
       when: 'ui',
       paths: ['*.html', '*.css', '*.scss', '*.sass', '*.less', '*.svelte', '*.vue', '*.jsx', '*.tsx', '*.astro'],
     },
+    // `forge run <job> test --changed`: test files beside their sources or under test/ and tests/ by name.
+    relatedTests: {
+      tests: ['**/*.test.*', '**/*.spec.*', '**/*_test.*', '**/test_*.py', '**/__tests__/**'],
+      map: [
+        '{dir}/{name}.test.*',
+        '{dir}/{name}.spec.*',
+        '{dir}/{name}_test.*',
+        '{dir}/test_{name}.*',
+        '{dir}/__tests__/{name}.*',
+        'test/**/{name}.test.*',
+        'test/**/{name}-*.test.*',
+        'tests/**/{name}.test.*',
+        'tests/**/test_{name}.*',
+        'tests/**/{name}_test.*',
+      ],
+      full: ['test/**', 'tests/**', '**/__fixtures__/**', '**/__mocks__/**', '**/conftest.py', '**/testdata/**'],
+    },
     verifyIntegrity: 'warn',
     // block fails verify (and refuses commits and pr open) on a likely credential; warn reports it.
     verifySecrets: 'block',

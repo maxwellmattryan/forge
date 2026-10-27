@@ -435,9 +435,9 @@ The commands worth knowing by hand, generated from the `HELP` rows marked `commo
 | `forge job prune --older-than D [--dry-run]` | archive every eligible finished job at least D days old and delete stale daemon session logs; --dry-run lists what it would free and writes nothing (see [Retention](architecture/retention.md)) |
 | `forge job repo add <id> <name> [--verify-only] \| remove <id> <name> \| propose <id> <name> --reason R \| downstream <id> \| interim <id> (<name> \| --root) canary\|git-ref\|local\|sequential\|inherit` | add a member repo (a config repos entry whose clone passes doctor's check) to a job, which then gets its own worktree, verify evidence and PR on the job's branch; remove drops one that has no PR and no worktree left; interim sets one job repo's interim strategy as a dependency (what a consumer's PR points at while it is unmerged: docs/CONFIG.md "Interim strategies"), overriding release.interim, and inherit clears it (add, remove and interim are human-only). propose records an agent's proposal of a repos entry with its reason in repo-proposals.md; the job then waits until a human, or the foreman when allowed, runs forge job human <id> approve-repos\|reject-repos (approving a verify-only member promotes it to an edited one). downstream adds the changed repos' linked consumers as verify-only repos, so verify runs their tests against the job's changes, and prints what it added and skipped with each reason (docs/CONFIG.md "Downstream verification"); it takes no repo name, and the job's own session may run it (see [Job repos](architecture/job-repos.md)) |
 | `forge job step <id> [--session S] [--epoch N]` | the job's next action (`spawn` with a ready agent brief, `run`, `wait`, `procedure` or `done`); read-only, the same state always gives the same answer, except that `--session <driver>` renews that session's lease |
-| `forge mandate new [<id>] --title T [terms]` | create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run); without <id>, Forge picks m- and 8 random hex digits no mandate or mandate runtime dir holds (mandate.id) (see [Mandates](CONFIG.md#mandates)) |
+| `forge mandate new [<id>] --title T [terms]` | create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all and no quality floor; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run); without <id>, Forge picks m- and 8 random hex digits no mandate or mandate runtime dir holds (mandate.id) (see [Mandates](CONFIG.md#mandates)) |
 | `forge notify test [--event <name>]` | send one sample notification (job null, title "Forge test notification") to every valid notify.webhooks entry regardless of its events, and run notify.command if set; prints {event, results: [{target, host, format, ok, status, error, attempts}]} and records nothing (see [Notifications](CONFIG.md#notifications)) |
-| `forge office pass` | enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary (and the next link of a chain, in the same pass), the budget pause and the cadence stall; an until: released mandate whose jobs have all merged plans its release since the root's latest tag and waits for release approval (no budget pause or stall meanwhile), closing once the release run finished; then queue one direct request for the office session when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked, release}], direct, problems}; release is the mandate's release state for an effective until: released, else null); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes (see [Foreman › Director loop](architecture/foreman.md)) |
+| `forge office pass` | enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary (and the next link of a chain, in the same pass), the budget pause, the quality pause and the cadence stall; an until: released mandate whose jobs have all merged plans its release since the root's latest tag and waits for release approval (no pause or stall meanwhile), closing once the release run finished; then queue one direct request for the office session when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked, release}], direct, problems}; release is the mandate's release state for an effective until: released, else null); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes (see [Foreman › Director loop](architecture/foreman.md)) |
 | `forge release plan [--job ID \| --since TAG \| --mandate ID] [--bump patch\|minor\|major] [--force]` | plan a release from each repo's release strategy, dependencies first: write .forge/runtime/release/release.md (steps, checks and rollback) and release.json; no release step runs. A repo with release.mechanism: script runs its release script's --draft-notes (the command environment, local git only) and gets a version bump (bumps: from, to, bump, inferred, reasons) and a notes file to edit, notes-root.md or notes-<repo>.md, which a re-plan of the same version keeps (notesKept). With --job, the job's PRs must be merged, except a consumer of an interim edge, which is skipped (it merges after its dependencies' release); the plan logs release-planned and, when the Foreman decides the release gate class, queues its gate request, and approval says who owns the publish decision. With --mandate, an until: released mandate's release is planned again since the root's latest tag (the Office pass plans it first, unless another plan in release.json holds the pass back), with the same event and gate request as the pass (see [Releasing a project](RELEASES.md#releasing-a-project)) |
 | `forge release run [--dry-run]` | run the plan step by step, checking each, with checkpoints so a second run resumes at the first step not done; a step whose check already passes is skipped, and publish steps ask on a terminal unless the repo sets release.publish: allow, and without a terminal they run only when the Foreman approved this exact plan (approvedBy: foreman). On a --job plan, each dependency repo whose last step finished in this run gets its release recorded on the job from the checks of this run (released: version, recorded, and a hint when no single version showed), which resumes the job to bump its consumers. Prints its own result. --dry-run recomputes and checks the plan as a run does and prints dryRun: true with each step (command, publish, manual, asks, check, status) and the bumps, running nothing and writing nothing (see [Releasing a project](RELEASES.md#releasing-a-project)) |
 | `forge release status` | the plan's progress: each step's status with the tags and versions its checks recorded, the next step, whether config or the repos have moved since planning, and the publish approval (owner, pending or approved) (see [Releasing a project](RELEASES.md#releasing-a-project)) |
@@ -1473,8 +1473,10 @@ See [Foreman › Intake](architecture/foreman.md).
 | `--labels a,b` | labels an issue in scope carries (none: empty) |
 | `--max-jobs N` | its jobs running at once, 1-16 |
 | `--milestones A,B` | milestones in the order they are worked (none: empty the list on edit) |
+| `--min-scored N` | scored jobs the median needs before --pause-below applies, 1-100 (default 3) |
 | `--on-unfinishable park\|cancel` | what it does with a job it can't finish |
 | `--order graph\|priority\|listed` | how it orders its work |
+| `--pause-below N\|none` | pause it when the median post-merge score of its scored merged jobs falls below N, over 0 and at most 5 (none: no floor, the default) |
 | `--scoring all\|sample\|off` | whether its merged jobs get a post-merge score run: all (the default) whatever scoring.sample says, sample (scoring.sample decides) or off |
 | `--stall-bounces N` | gate bounces on one job before it is stalled, 1-100 |
 | `--stall-cadences N` | the Foreman's passes with no progress before it is stalled, 1-100 |
@@ -1491,7 +1493,7 @@ See [Mandates](CONFIG.md#mandates).
 
 See [Mandates](CONFIG.md#mandates).
 
-**`forge mandate new [<id>] --title T [terms]`**: create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run); without &lt;id>, Forge picks m- and 8 random hex digits no mandate or mandate runtime dir holds (mandate.id)
+**`forge mandate new [<id>] --title T [terms]`**: create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all and no quality floor; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run); without &lt;id>, Forge picks m- and 8 random hex digits no mandate or mandate runtime dir holds (mandate.id)
 
 | Flag | Meaning |
 |---|---|
@@ -1505,8 +1507,10 @@ See [Mandates](CONFIG.md#mandates).
 | `--labels a,b` | labels an issue in scope carries (none: empty) |
 | `--max-jobs N` | its jobs running at once, 1-16 |
 | `--milestones A,B` | milestones in the order they are worked (none: empty the list on edit) |
+| `--min-scored N` | scored jobs the median needs before --pause-below applies, 1-100 (default 3) |
 | `--on-unfinishable park\|cancel` | what it does with a job it can't finish |
 | `--order graph\|priority\|listed` | how it orders its work |
+| `--pause-below N\|none` | pause it when the median post-merge score of its scored merged jobs falls below N, over 0 and at most 5 (none: no floor, the default) |
 | `--scoring all\|sample\|off` | whether its merged jobs get a post-merge score run: all (the default) whatever scoring.sample says, sample (scoring.sample decides) or off |
 | `--stall-bounces N` | gate bounces on one job before it is stalled, 1-100 |
 | `--stall-cadences N` | the Foreman's passes with no progress before it is stalled, 1-100 |
@@ -1607,7 +1611,7 @@ Push gate, PR, failure and budget notifications to webhooks and a command.
 |---|---|
 | `--events <e1[,e2]>` | the events, most specific first |
 | `--job <id>` | the job it is about (none for a pool-wide daemon stop) |
-| `--mandate <id>` | the mandate it is about, with no job: only for the mandate-stalled, mandate-budget, mandate-closed and mandate-release reasons |
+| `--mandate <id>` | the mandate it is about, with no job: only for the mandate-stalled, mandate-budget, mandate-quality, mandate-closed and mandate-release reasons |
 | `--reason <code>` | the reason code, mapped to a fixed English string |
 
 | Exit | When |
@@ -1650,7 +1654,7 @@ See [Foreman › Director loop](architecture/foreman.md).
 
 See [Foreman › Director loop](architecture/foreman.md).
 
-**`forge office pass`**: enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary (and the next link of a chain, in the same pass), the budget pause and the cadence stall; an until: released mandate whose jobs have all merged plans its release since the root's latest tag and waits for release approval (no budget pause or stall meanwhile), closing once the release run finished; then queue one direct request for the office session when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked, release}], direct, problems}; release is the mandate's release state for an effective until: released, else null); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes
+**`forge office pass`**: enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary (and the next link of a chain, in the same pass), the budget pause, the quality pause and the cadence stall; an until: released mandate whose jobs have all merged plans its release since the root's latest tag and waits for release approval (no pause or stall meanwhile), closing once the release run finished; then queue one direct request for the office session when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked, release}], direct, problems}; release is the mandate's release state for an effective until: released, else null); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes
 
 | Exit | When |
 |---|---|
@@ -1903,18 +1907,19 @@ The agent roster.
 
 Run a configured command in a job's worktree.
 
-**`forge run <id> <command> [--repo NAME] [--background] [--tail N] [-- <args…>]`**: run commands.&lt;command> in the job's worktree, logging its output to the job dir and printing the tail
+**`forge run <id> <command> [--repo NAME] [--background] [--changed] [--tail N] [-- <args…>]`**: run commands.&lt;command> in the job's worktree, logging its output to the job dir and printing the tail
 
 | Flag | Meaning |
 |---|---|
 | `-- <args…>` | quoted arguments, placed at {args} in the template or appended |
 | `--background` | start it detached (dev servers); stop it with forge stop |
+| `--changed` | run only the tests related to the job's changes since its base (relatedTests): placed at {args}; the whole command when a shared test helper changed, nothing when none match; not with --repo, --background or -- &lt;args…> |
 | `--repo NAME` | run the command of member repo NAME's one component that defines it, in that member's worktree (not with --background) |
 | `--tail N` | print the last N lines (default 40) |
 
 | Exit | When |
 |---|---|
-| 1 | the command failed, is not configured (for --repo: no component of that repo, or several, define it), or the job has no worktree |
+| 1 | the command failed, is not configured (for --repo: no component of that repo, or several, define it), or the job has no worktree; with --changed also a template without {args}, a base that can't be resolved, or --changed with a value, --repo, --background or -- &lt;args…> |
 
 ### `forge secrets`
 

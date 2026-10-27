@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { forgeInProcess, jobAt, tempRepo } from '../../test/helpers.ts';
 import fs from 'node:fs';
 import path from 'node:path';
-import { LABELS, REASONS, buildPayload, contextFor, dashboardUrl, notifyProblems, registerNotify, runCommand, type QueueNotify } from './notify.ts';
+import { LABELS, MANDATE_REASONS, REASONS, buildPayload, contextFor, dashboardUrl, notifyProblems, registerNotify, runCommand, type QueueNotify } from './notify.ts';
 import { applyInput, blankMandate } from './mandates/contract.ts';
 import { writeMandate } from './mandates/store.ts';
 import { CONFIG_SCHEMA_VERSION } from '#core/versions/config.ts';
@@ -138,6 +138,9 @@ test('mandate notifications name the mandate', async () => {
     const ctx = contextFor(repo.dir, null, 'mandate-closed', home, 'm1');
     assert.equal(buildPayload('mandate-closed', ctx, 'http://127.0.0.1:7400/#/pipeline').title, 'Mandate m1: Ship M1');
     assert.equal(contextFor(repo.dir, null, 'mandate-closed', home, 'gone').title, 'Mandate gone', 'an unreadable mandate keeps its id');
+    // The quality pause rides the mandate-stalled event with its own reason, which names the mandate too.
+    assert.ok(REASONS['mandate-quality'] && MANDATE_REASONS.includes('mandate-quality'));
+    assert.equal(contextFor(repo.dir, null, 'mandate-quality', home, 'm1').title, 'Mandate m1: Ship M1');
     fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\n`);
     const bad = await forgeInProcess(repo.dir, ['notify', 'send', '--events', 'mandate-closed', '--reason', 'mandate-closed', '--mandate', 'BAD']);
     assert.equal(bad.error?.code, 'usage', JSON.stringify(bad.error));

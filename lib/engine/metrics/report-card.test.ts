@@ -1,11 +1,11 @@
 // The mandate report card over synthetic jobs: every count 0 and every figure null for an empty mandate,
 // the running totals, each merged job in exactly one score and outcome bucket, the pending rule, and
-// malformed record values that never reach the card raw.
+// malformed record values that never reach the card raw; and the running score a quality floor reads.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defaults } from '#core/config/load.ts';
 import { WAITING_ON, normalizeJob } from '#core/job/schema.ts';
-import { buildReportCard } from './report-card.ts';
+import { buildReportCard, runningScore } from './report-card.ts';
 import type { CardJob } from './report-card.ts';
 import type { Config, Job, JobEvent, JobOutcome, JobScore, MandateReportCard } from '#core/types.ts';
 
@@ -123,6 +123,21 @@ test('scores: never-to-be-scored jobs are unscored', () => {
   assert.deepEqual(unscored(card([queued(true)], { prEnabled: false })), [0, 1, null, null], 'a queued run with PRs disabled');
   // Beside final scores the figures are values again.
   assert.deepEqual(card([...final3(), none({ live: false })]).scores, { scored: 3, held: 1, failed: 1, pending: 0, unscored: 1, median: 3, below3: 1 });
+});
+
+test('running score', () => {
+  assert.deepEqual(runningScore([]), { scored: 0, median: null });
+  const queued = mj('q', { class: 'reached', job: { ...merged(), score: score('queued') } });
+  // Scored but not merged: never counted, as the card leaves it out.
+  const unmerged = mj('u', { job: { score: score('scored', 0) } });
+  const bad = [9, -1, '1', NaN].map((v, i) => mj(`b${i}`, { class: 'reached', job: { ...merged(), score: score('scored', v) } }));
+  const jobs = [...final3(), queued, unmerged, ...bad];
+  // 4.5, 2 and 3: the pending run aside, where the card's median reads 'pending'.
+  assert.deepEqual(runningScore(jobs), { scored: 3, median: 3 });
+  assert.equal(runningScore(jobs).scored, card(jobs).scores.scored, 'the card and the floor count the same scored jobs');
+  assert.equal(card(jobs).scores.median, 'pending');
+  const even = [1, 2.004, 3.3, 5].map((v, i) => mj(`e${i}`, { class: 'reached', job: { ...merged(), score: score('scored', v) } }));
+  assert.deepEqual(runningScore(even), { scored: 4, median: 2.65 }, 'the median to 2 decimals');
 });
 
 const finals = () => [

@@ -159,13 +159,8 @@ const CONFIG_ROWS: Row[] = [
     note: ONLY_VERSION,
   },
   { step: 'foreman-ship-release', input: { foreman: { enabled: true, ship: 'merge' } }, fields: { 'foreman.ship': 'merge', 'foreman.enabled': true }, note: ONLY_VERSION },
-  {
-    step: 'foreman-gate-runs',
-    input: { foreman: { assistants: { enabled: true, sessions: 3 } } },
-    fields: { 'foreman.assistants': { enabled: true, parallel: 3 } },
-    removed: ['foreman.assistants.sessions'],
-    note: 'the assistant sessions count becomes the gate runs at once',
-  },
+  { step: 'foreman-gate-runs', input: { foreman: { assistants: { enabled: true, sessions: 3 } } }, fields: { 'foreman.assistants': { enabled: true, parallel: 3 } }, removed: ['foreman.assistants.sessions'], note: 'the assistant sessions count becomes the gate runs at once' },
+  { step: 'related-tests', input: { commands: { test: 'npm test -- {args}' } }, fields: { 'commands.test': 'npm test -- {args}' }, removed: ['relatedTests'], note: ONLY_VERSION },
   { step: 'foreman-escalations', input: { foreman: { enabled: true, ship: 'merge' } }, fields: { 'foreman.enabled': true, 'foreman.ship': 'merge' }, removed: ['foreman.escalations', 'foreman.senior'], note: ONLY_VERSION },
 ];
 
@@ -354,6 +349,12 @@ const MANDATE_ROWS: Row[] = [
     input: { ...MANDATE_V1, until: 'merged', goal: null, filedAt: null, scoring: 'all' },
     fields: { until: 'merged', filedAt: null, scoring: 'all', 'scope.milestones': ['M1'] },
     note: ONLY_VERSION,
+  },
+  {
+    step: 'mandate-quality',
+    input: { ...MANDATE_V1, goal: null, filedAt: null, scoring: 'all' },
+    fields: { 'quality.pauseBelow': null, 'quality.minScored': 3, scoring: 'all', 'scope.milestones': ['M1'] },
+    note: 'a mandate written before the quality floor has none',
   },
 ];
 
