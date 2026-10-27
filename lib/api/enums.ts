@@ -18,6 +18,7 @@ import type {
   REPO_BUDGET_KEYS,
   REPO_BUDGET_MODES,
   REQUEST_TYPES,
+  SHELF_ACTIONS,
   STAGES,
   STATES,
   WAITING_ON,
@@ -68,3 +69,5 @@ export type MandateOnUnfinishable = (typeof MANDATE_ON_UNFINISHABLE)[number];
 export type MandateScoring = (typeof MANDATE_SCORING)[number];
 /** A directive's action: DIRECTIVE_ACTIONS. */
 export type DirectiveAction = (typeof DIRECTIVE_ACTIONS)[number];
+/** A Shelved list batch action: SHELF_ACTIONS in lib/api/constants.ts. */
+export type ShelfAction = (typeof SHELF_ACTIONS)[number];

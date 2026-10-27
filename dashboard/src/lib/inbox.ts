@@ -3,17 +3,19 @@ import { MANDATE_ID_SOURCE } from './types.ts';
 import type { DraftGate, ForgeRequest, HandoffClass, LastHuman, RequestType, StateJob, WaitingOn } from './types.ts';
 import { isRepoHold } from './repo-budget.ts';
 import { isRepoProposal } from './repo-proposals.ts';
-import { hasLinkedIssue, isDependencyPark, needsHuman } from './job-state.ts';
+import { hasLinkedIssue, isDependencyPark, isShelved, needsHuman } from './job-state.ts';
 import type { JobLike } from './job-state.ts';
 
 const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
 const s = (v: unknown): string => String(v ?? '');
 
-export function inboxGroups<T extends JobLike>(jobs: T[]): { urgent: T[]; prs: T[]; parks: T[] } {
+/** The Needs-you popover's groups; only `urgent` counts towards Needs you, and `shelved` is the Shelved list. */
+export function inboxGroups<T extends JobLike>(jobs: T[]): { urgent: T[]; prs: T[]; parks: T[]; shelved: T[] } {
   return {
     urgent: jobs.filter((j) => needsHuman(j) || j.state === 'failed' || j.state === 'blocked'),
     prs: jobs.filter((j) => j.state === 'waiting' && j.waitingOn === 'pr-review'),
     parks: jobs.filter(isDependencyPark),
+    shelved: jobs.filter(isShelved),
   };
 }
 

@@ -1,7 +1,8 @@
 <!-- The Needs-you popover's body (the page it replaced): every pending permission prompt in the pool, answered right here,
      then decisions only a human can make (goal mandates' milestone drafts first, then jobs), PRs awaiting review, jobs
-     parked on their dependencies (listed apart: they resume by themselves, but a human may unblock one), and queued
-     requests (a job-less one names its mandate when it has one).
+     parked on their dependencies (listed apart: they resume by themselves, but a human may unblock one), the Shelved
+     list (ShelfSection: jobs a person set aside, not counted in the badge), and queued requests (a job-less one names
+     its mandate when it has one).
      Opening a job opens its pane, and StatusBar closes the popover. Titles, reasons and request text are untrusted and
      render as text; the PR link goes through safeUrl. -->
 <script lang="ts">
@@ -12,6 +13,7 @@
   import PermissionPrompts from '../PermissionPrompts.svelte';
   import PrChip from '../PrChip.svelte';
   import RepoBudgetSection from '../RepoBudgetSection.svelte';
+  import ShelfSection from './ShelfSection.svelte';
   import { showRepoSection } from '../../lib/repo-budget.ts';
   import { safeUrl } from '../../lib/markdown.ts';
   import { ago } from '../../lib/util.ts';
@@ -32,10 +34,11 @@
   const drafts = $derived(data.drafts ?? []);
   // The same source PermissionPrompts reads, so the section renders exactly when it lists something.
   const prompts = $derived(pendingPrompts(S.data?.daemons ?? null).length);
-  // An answered prompt or a decided milestone draft unmounts with its buttons: focus back on the popover, not the body.
+  // An answered prompt, a decided milestone draft or the last shelved job leaving unmounts with its buttons: focus back on the popover, not the body.
   $effect(() => {
     void prompts;
     void drafts.length;
+    void groups.shelved.length;
     keepFocus();
   });
 </script>
@@ -92,6 +95,7 @@
       </ul>
     </section>
   {/if}
+  {#if groups.shelved.length}<ShelfSection jobs={groups.shelved} />{/if}
   {#if reqs.length}
     <section class="flex flex-col gap-2" aria-labelledby="needs-queued">
       <h3 id="needs-queued" class="label">{$t('inbox.queued')}</h3>

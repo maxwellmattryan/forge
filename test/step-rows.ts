@@ -385,6 +385,12 @@ export const rows: Row[] = [
   },
   { name: 'G4b budget still exceeded', fx: { ...answeredAt('build', 'budget', 'approve', { reason: 'budget exceeded: usd 12.00/10.00' }), budgetExceeded: ['usd'] }, want: { action: 'wait', waitingOn: 'budget', tell: 'j over budget: budget exceeded: usd 12.00/10.00. A human presses Approve & continue on the budget gate in the dashboard (new limits such as usd=… go in its note), or runs forge job budget j --ack (or --set usd=…) in their own terminal, then /forge approve j' } },
   { name: 'G4b … not an answer: approve at a repo budget hold', fx: { ...answeredAt('build', 'budget', 'approve', { reason: 'repo budget: $5.00 of $5.00 today' }), budgetExceeded: [] }, want: { action: 'wait', waitingOn: 'budget' } },
+  {
+    name: 'G4b a shelved job waits and names the un-shelve',
+    fx: { job: job({ stage: 'decide', state: 'waiting', waitingOn: 'shelved', reason: 'shelved: waiting on the billing owner' }) },
+    want: { action: 'wait', rule: 'G4b', waitingOn: 'shelved', tell: "j is shelved (waiting on the billing owner). A person un-shelves it with forge job unshelve j in their own terminal, or with Approve, Rework, Un-shelve or Close in the dashboard's Shelved list" },
+  },
+  { name: 'G4b … not an answer: approve at a shelved park', fx: answeredAt('decide', 'shelved', 'approve'), want: { action: 'wait', rule: 'G4b', waitingOn: 'shelved' } },
   { name: 'G5 waits on running agents', fx: { job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5) } }) }, want: { action: 'wait', waitingOn: 'agents', running: ['builder'] } },
   { name: 'L1 respawns a lost builder without resume', fx: { files: ['spec'], job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5, 6, { status: 'lost' }) } }), events: [ev('round', 4)] }, want: { action: 'spawn', role: 'builder' }, check: (a) => assert.equal(a.resume, undefined) },
   { name: 'L1 respawns a failed approver', fx: { job: atDecide({ agents: { approver: ag(1, 20, 21, { status: 'failed' }) } }) }, want: { action: 'spawn', role: 'approver' } },
