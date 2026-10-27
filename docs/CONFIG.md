@@ -1087,7 +1087,7 @@ The hints: `npm install --save-dev release-please`, `npm install --save-dev @cha
 
 | Call | Who runs it | What the script does |
 |---|---|---|
-| `--draft-notes [--bump patch\|minor\|major]` | `forge release plan`, under the [command environment](#command-environment) with the Node that runs Forge | reads only local git and the working tree, and prints one JSON object on stdout: `{current, next, bump, inferred, reasons, since, draft}` (the current version, the version the release makes, the chosen bump, the inferred one, `patch` or `minor`, up to 5 short reasons, the last tag or `null`, and the draft CHANGELOG section, whose first line is `## <next>`) |
+| `--draft-notes [--bump patch\|minor\|major]` | `forge release plan`, and the Office pass when it plans an `until: released` mandate's release ([Mandates](#mandates)), under the [command environment](#command-environment) with the Node that runs Forge | reads only local git and the working tree, and prints one JSON object on stdout: `{current, next, bump, inferred, reasons, since, draft}` (the current version, the version the release makes, the chosen bump, the inferred one, `patch` or `minor`, up to 5 short reasons, the last tag or `null`, and the draft CHANGELOG section, whose first line is `## <next>`) |
 | `--phase start <X.Y.Z> --notes-file <file>` | the `start` step | cuts the release with the file as its CHANGELOG section, and pushes it |
 | `--phase wait-build <X.Y.Z>` | the `build` step | waits for CI's build of the release |
 | `--phase pr <X.Y.Z>` | the `pr` step | opens the release PR, or checks the one that is open |

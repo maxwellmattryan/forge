@@ -1768,7 +1768,7 @@ Plan and run a release of the root repo and its member repos.
 
 | Flag | Meaning |
 |---|---|
-| `--bump patch\|minor\|major` | the version bump for the repos with release.mechanism: script, in place of the one the draft infers; any other value is a usage error (exit 2) |
+| `--bump patch\|minor\|major` | the version bump for the repos with release.mechanism: script, in place of the one the draft infers; any other value is a usage error (exit 2). On an until: released mandate's plan, every re-plan without --bump (the Office pass's too) keeps it until that plan's run finishes |
 | `--force` | discard an unfinished run's checkpoints (not in a daemon session) |
 | `--job ID` | release the job's merged PR repos; an unmerged consumer of an interim edge is skipped |
 | `--mandate ID` | re-plan an active until: released mandate's release since the root repo's latest tag, or plan it first while another plan in release.json holds the Office pass back (not with --job or --since, not in a daemon session) |
