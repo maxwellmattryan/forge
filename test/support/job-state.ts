@@ -39,6 +39,7 @@ const GATE_STAGE: Record<WaitingOn, Stage> = {
   external: 'build', // no step rule; set by hand
   budget: 'build', // the round-start budget check
   human: 'build', // SC1b/PP1/RP1: any stage
+  shelved: 'decide', // forge job shelve: any stage; keeps the one it had
 };
 
 const configOf = (root: string, opts: { config?: Config }): Config => opts.config ?? loadConfig(root).config;
@@ -52,7 +53,11 @@ export function jobAt(root: string, stage: Stage, opts: JobAtOptions = {}): Load
   if (opts.reason !== undefined) change.reason = opts.reason;
   if (opts.pr !== undefined) change.owned = { pr: opts.pr };
   if (opts.fields !== undefined) change.fields = opts.fields;
-  return setJob(root, id, change);
+  if (opts.waitingOn !== 'shelved') return setJob(root, id, change);
+  // Only forge job shelve puts a job on the shelf (checkShelfMove): written as it writes one, shelved from queued.
+  const reason = 'set aside';
+  const shelved = { at: new Date().toISOString(), reason, actor: { login: null, source: 'unknown' }, from: { state: 'queued', waitingOn: null, reason: null } };
+  return setJob(root, id, { reason: `shelved: ${reason}`, ...change, owned: { ...change.owned, shelved }, shelf: 'shelve' });
 }
 
 /** A new job parked on `gate`, at the stage the pipeline parks it (or `opts.stage`). */

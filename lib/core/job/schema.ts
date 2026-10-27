@@ -6,12 +6,14 @@ import { isInterimStrategy, servicesToComponents } from '../config/components.ts
 import { isSha } from '#engine/pr/delta.ts';
 import { isSafeUrl, isStoredRef, sameIssue } from './issue-ref.ts';
 import { REPO_NAME, isSafeBranch } from '#engine/project/member-repos.ts';
-import { ACTOR_SOURCES, COMPLEXITIES, EFFORTS, OFFICE_GATES } from '#api/constants.ts';
+import { ACTOR_SOURCES, COMPLEXITIES, EFFORTS, OFFICE_GATES, WAITING_ON } from '#api/constants.ts';
 import { runSteps } from '../versions/steps.ts';
 import { CONFIG_SCHEMA_VERSION, CONFIG_STEPS } from '../versions/config.ts';
 import { JOB_SCHEMA_VERSION, JOB_STEPS, noLease, ownerToLease, sourceToIssues } from '../versions/job.ts';
 import { EVENT_SCHEMA_VERSION, EVENT_STEPS } from '../versions/event.ts';
-import type { AgentRun, AgentRunEnd, AgentUsage, ContextComposition, ContextPart, EventActor, HumanGrant, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcome, JobRepo, JobRepoPr, JobScore, LoadedJob, RunBilling } from '../types.ts';
+import { isMap } from '../shape.ts';
+import { safeText } from '../text.ts';
+import type { AgentRun, AgentRunEnd, AgentUsage, ContextComposition, ContextPart, EventActor, HumanGrant, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcome, JobRepo, JobRepoPr, JobScore, JobShelf, LoadedJob, RunBilling } from '../types.ts';
 
 export { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_SCORING, MANDATE_STATUSES, MANDATE_UNTIL, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, STAGES, STATES, WAITING_ON } from '#api/constants.ts';
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from '../config/components.ts';
@@ -174,6 +176,38 @@ export function cleanOutcome(raw: unknown): JobOutcome | null {
     attempts: o.attempts,
     ...(typeof o.reason === 'string' ? { reason: o.reason } : {}),
   };
+}
+
+/** The longest shelve reason, in characters. */
+export const SHELVE_REASON_MAX = 200;
+
+/** A shelve reason as Forge stores and posts it: one line, no control characters or backticks, at most 200 characters; '' when nothing is left. */
+export function cleanShelveReason(raw: unknown): string {
+  return typeof raw === 'string' ? safeText(raw.trim(), SHELVE_REASON_MAX).trim() : '';
+}
+
+/** The states a job is shelved from, and so the states un-shelving restores. */
+export const SHELF_FROM_STATES = ['waiting', 'queued', 'failed', 'blocked'] as const;
+
+/**
+ * A stored shelf record in the shape `forge job shelve` writes, or null. Kept only on a job waiting on
+ * `shelved`. job.json is writable outside the CLI and `from` decides where un-shelving puts the job, so
+ * a record whose `from` names a state shelve never takes (running) or the shelf itself is dropped, and
+ * the job then un-shelves to a person's wait.
+ */
+export function cleanShelf(raw: unknown, job: { state?: unknown; waitingOn?: unknown }): JobShelf | null {
+  if (job.state !== 'waiting' || job.waitingOn !== 'shelved' || !isMap(raw) || !isTime(raw.at)) return null;
+  const reason = cleanShelveReason(raw.reason);
+  const from = raw.from;
+  if (!reason || !isMap(from) || !(SHELF_FROM_STATES as readonly unknown[]).includes(from.state)) return null;
+  const waits = from.state === 'waiting';
+  if (waits ? from.waitingOn === 'shelved' || !(WAITING_ON as readonly unknown[]).includes(from.waitingOn) : from.waitingOn !== null) return null;
+  if (from.reason !== null && typeof from.reason !== 'string') return null;
+  const a = raw.actor;
+  const source = isMap(a) && isActorSource(a.source) ? a.source : 'unknown';
+  // A foreman entry never carries a login, as normalizeActor reads it.
+  const login = source !== 'unknown' && source !== 'foreman' && typeof a?.login === 'string' ? sanitizeLogin(a.login) || null : null;
+  return { at: raw.at, reason, actor: { login, source }, from: { state: from.state as JobShelf['from']['state'], waitingOn: from.waitingOn as JobShelf['from']['waitingOn'], reason: from.reason as string | null } };
 }
 
 /**
@@ -454,6 +488,9 @@ export function normalizeJob(raw: any): LoadedJob {
     repos: cleanRepos({ branch: job.branch ?? null, base: job.base ?? null, worktree: job.worktree ?? null, pr: job.pr ?? null, interim: job.interim, repos: job.repos }),
     outcome: cleanOutcome(job.outcome),
     score,
+    shelved: cleanShelf(job.shelved, { state: job.state ?? 'queued', waitingOn: job.waitingOn ?? null }),
+    // Only true marks it, and only on a finished job: checkShelfMove sets and clears it with the state.
+    finishedWhileShelved: job.finishedWhileShelved === true && (job.state === 'done' || job.state === 'cancelled'),
   };
 }
 

@@ -8,7 +8,7 @@ import { PROJECT_ROUTES, ROUTES, matchRoute } from './start.ts';
 import { getAsset, getLogo, getPage } from './static.ts';
 import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
 import { getEnvironmentLogs, getEnvironments, getJobEnvironment, postJobEnvironment } from './routes/environment.ts';
-import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor } from './routes/jobs.ts';
+import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor, postShelf } from './routes/jobs.ts';
 import { getProjects, getProjectsEvents, getProjectsStats, postProject } from './routes/machine.ts';
 import { getMandate, getMandateDraft, getMandates, postMandate, postMandateAction, postMandateDraft } from './routes/mandates.ts';
 import { getAbout, getBacklog, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
@@ -108,6 +108,7 @@ test('the route table sends each method and path to its handler, and nothing els
       ['POST', '/mandates', postMandate, []],
       ['POST', '/mandates/g1/edit', postMandateAction, ['g1', 'edit']],
       ['POST', '/mandates/g1/close', postMandateAction, ['g1', 'close']],
+      ['POST', '/shelf', postShelf, []],
       ['GET', '/mandates/g1/draft', getMandateDraft, ['g1']],
       ['POST', '/mandates/g1/draft', postMandateDraft, ['g1']],
       ['POST', '/focus', postFocus, []],
@@ -129,6 +130,7 @@ test('the route table sends each method and path to its handler, and nothing els
       [undefined, '/state'],
       ['GET', '/jobs'],
       ['GET', '/jobs/'],
+      ['GET', '/shelf'],
       ['GET', '/state/'],
       ['GET', '/nope'],
       ['GET', '/api/state'],

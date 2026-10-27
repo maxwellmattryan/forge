@@ -7,7 +7,8 @@ import path from 'node:path';
 import { tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
 import { jobFiles, stateFile } from '#core/paths.ts';
-import { EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from '#core/job/schema.ts';
+import { EVENT_SCHEMA_VERSION } from '#core/job/schema.ts';
+import { JOB_STEPS } from '#core/versions/job.ts';
 import { createJob, loadJob, readEvents, recordAgent } from '#core/job/store.ts';
 import { roundAgents } from './transcripts.ts';
 
@@ -22,7 +23,7 @@ test('round agents list every run of the role and total them', (t) => {
 
   // A job from the schema before runHistory: the builder ran twice, and only its events say what each run used.
   const old = JSON.parse(fs.readFileSync(stateFile(root, id, 'job.json'), 'utf8'));
-  old.schemaVersion = JOB_SCHEMA_VERSION - 1; // old-version fixture
+  old.schemaVersion = JOB_STEPS.findIndex((s) => s.id === 'agent-run-history') + 1; // the version before runHistory: its step counts the legacy runs
   old.round = 1;
   old.agents = { builder: { runs: 2, status: 'done', model: 'opus', startedAt: '2026-10-02T10:10:00.000Z', endedAt: '2026-10-02T10:20:00.000Z', round: 1 } };
   for (const f of jobFiles(root, id, 'job.json')) fs.writeFileSync(f, JSON.stringify(old));
