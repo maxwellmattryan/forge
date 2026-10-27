@@ -968,6 +968,22 @@
   &:focus-within { border-color: var(--gleam); outline: 2px solid var(--line-strong); outline-offset: 2px; }
 }
 
+/* ---------- skeleton: the shape of a page still loading ---------- */
+/* One bone (components/Skeleton.svelte): a line-coloured bar on whatever surface holds it, sized like the text, chip or
+   panel that will sit there, breathing over --heat-breathe while the data is on its way. Reduced motion holds it still.
+   .round for a dot or pill. */
+@utility skeleton {
+  display: block;
+  flex: none;
+  max-width: 100%;
+  background-color: color-mix(in srgb, var(--line) 75%, var(--surface, var(--panel)));
+  corner-shape: bevel;
+  border-radius: 0 3px 0 3px;
+  animation: skeleton-breathe var(--heat-breathe) ease-in-out infinite;
+  &.round { corner-shape: round; border-radius: 9999px; }
+}
+@keyframes skeleton-breathe { 50% { opacity: .5; } }
+
 /* ---------- progress: a hot bar in a cold track ---------- */
 @utility track { height: 8px; border: 1px solid var(--line); corner-shape: bevel; border-radius: 0 3px 0 3px; position: relative; background-color: var(--surface, var(--bg)); box-shadow: inset 0 1px 0 0 var(--edge-dark); }
 /* A stacked bar on the track's frame: its series spans sit side by side, each as wide as its share (AgentRuns.svelte). */
@@ -1128,6 +1144,19 @@
   /* Inline in 13-14px text: the job pane's Branch, Base, PR and Source. */
   &.sm { width: 14px; height: 14px; }
 }
+/* A field's info icon (FieldHint.svelte): a native button for focus and Enter/Space, drawn as the bare glyph, muted
+   until hovered. Focus takes the global :focus-visible ring. */
+@utility hint-icon {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  transition: color var(--motion-quick) var(--ease-enter);
+  @media (hover: hover) { &:hover { color: var(--fg); } }
+}
 @utility dot {
   width: 8px;
   height: 8px;
@@ -1246,8 +1275,8 @@
   /* The nav: a 3px gleam bar over the active item's left edge, in place of its own inset bar. The clip follows the
      item's bottom-left chamfer (a --radius-nick bevel: its diagonal is 5px up the bar's left edge and 2px up its right
      edge), so the bar's corner doesn't poke past it. */
-  &.navlist[data-marker]::before { background: var(--gleam); z-index: 2; clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--radius-nick) + var(--bar-rule)), 0 calc(100% - var(--radius-nick))); }
-  &.navlist[data-marker] :is(a, button).active { box-shadow: var(--shadow-bevel); }
+  &:is(.navlist, .navlist-marks)[data-marker]::before { background: var(--gleam); z-index: 2; clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--radius-nick) + var(--bar-rule)), 0 calc(100% - var(--radius-nick))); }
+  &:is(.navlist, .navlist-marks)[data-marker] :is(a, button).active { box-shadow: var(--shadow-bevel); }
   /* The tab strip: a 2px gleam baseline in place of the active tab's own. */
   &.tabs[data-marker]::before { background: var(--gleam); z-index: 2; }
   &.tabs[data-marker] .tab.active { border-bottom-color: transparent; }
@@ -1412,13 +1441,18 @@ input[type=checkbox]:focus-visible, input[type=radio]:focus-visible { outline: 2
   /* The status bar holds 44px indicators here, so it grows to hold them; the view, the toast and the drawer read the
      token and clear it either way. */
   :root { --size-statusbar: var(--space-11); }
-  button:not(.chip), a.btn, .navlist a, [role="tab"], [role="option"], summary, select, input:not([type="checkbox"], [type="radio"]), label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) { min-height: 44px; }
+  button:not(.chip, .hint-icon), a.btn, .navlist a, [role="tab"], [role="option"], summary, select, input:not([type="checkbox"], [type="radio"]), label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) { min-height: 44px; }
   .btn.icon { min-width: 44px; justify-content: center; }
   .chip:is(button) { position: relative; }
   .chip:is(button)::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); translate: -50% -50%; z-index: -1; }
   /* A chip's hit area sits under its neighbours: z-index -1 inside an isolated parent paints it above the
      parent's background but below every sibling, so a tap just outside a chip still reaches the control there. */
   :has(> .chip:is(button)) { isolation: isolate; }
+  /* A field's info icon keeps its 14px glyph and its label row's height, with the same hit area under its
+     neighbours, so a tap on the label text beside it still reaches the label. */
+  .hint-icon { position: relative; }
+  .hint-icon::after { content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; translate: -50% -50%; z-index: -1; }
+  :has(> .hint-icon) { isolation: isolate; }
   /* A checkbox with no label around it (a config field's boolean) gets the same transparent hit area. Its
      neighbours are text (the On/Off beside it), so this one stays on top and a tap on that text toggles it. */
   .check:not(label > .check)::before { content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; translate: -50% -50%; }

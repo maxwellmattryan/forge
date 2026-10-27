@@ -1,6 +1,7 @@
 {
   "common": {
     "loading": "Loading…",
+    "hintAbout": "About {field}",
     "runNext": "Run next",
     "tokens": "Tokens",
     "estCost": "Est. cost",

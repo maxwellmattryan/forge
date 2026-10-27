@@ -6,6 +6,7 @@
 // whether its merged work gets a score run (jobMandateScoring). A mandate's runtime dir `<id>/`
 // beside it holds its drafting runs' files (draft.ts, intake.ts), its board and its closing summary
 // (pass.ts, director.ts). docs/architecture/foreman.md.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { paths } from '#core/paths.ts';
@@ -155,32 +156,64 @@ function statusMove(op: 'pause' | 'resume' | 'close', m: Mandate, reason: string
   return m.status === 'active' ? null : { ...m, status: 'active', reason: null, updatedAt: at };
 }
 
+/** Whether anything sits at `p`, a link or a dir included. */
+function present(p: string): boolean {
+  try {
+    fs.lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Attempts newMandateId makes before it refuses: with 2^32 candidates, a run of taken ones means something is wrong. */
+const ID_ATTEMPTS = 16;
+
+/**
+ * A new mandate's id when the owner gives none: `m-` and 8 random hex digits that no mandate holds,
+ * readable or not, and that no `<id>.md` entry or runtime dir `<id>/` holds either. A leftover runtime
+ * dir keeps an old mandate's survey, draft, ledger and filing.json, which a new mandate must never
+ * inherit. Call it under the mandates lock, inside the write, so two creates can't pick the same id.
+ */
+export function newMandateId(root: string, all: ReadMandate[], random: () => string = () => crypto.randomBytes(4).toString('hex')): string {
+  for (let i = 0; i < ID_ATTEMPTS; i++) {
+    const c = `m-${random()}`;
+    if (!isMandateId(c) || all.some((m) => m.id === c) || present(fileOf(root, c)) || present(mandateDir(root, c))) continue;
+    return c;
+  }
+  throw new ForgeError("couldn't pick an unused mandate id; pass one", 1);
+}
+
 /**
  * The one owner's mandate write, for the CLI and the dashboard: under the mandates lock, every check
  * before the write, so a refusal (a ForgeError: not_found, or exit 1 with every problem joined by `; `)
- * writes no file and no audit line. `new` takes every term not given from foreman.mandate; `edit` replaces
- * only the terms given, and with `updatedAt` refuses once the stored mandate has moved on (a CLI edit or a
- * pass pause in between); the status moves are idempotent. `changed` is false when nothing was written.
+ * writes no file and no audit line. `new` takes every term not given from foreman.mandate, and with a
+ * null id picks one (newMandateId, under the same lock); `edit` replaces only the terms given, and with
+ * `updatedAt` refuses once the stored mandate has moved on (a CLI edit or a pass pause in between); the
+ * status moves are idempotent. `changed` is false when nothing was written; `id` is the mandate's id,
+ * the picked one for a new mandate without one.
  */
 export function mandateWrite(
   root: string,
   config: Config,
   op: MandateOp,
-  id: string,
+  id: string | null,
   o: { input?: MandateInput; reason?: string | null; updatedAt?: string; actor?: EventActor } = {},
-): { changed: boolean } {
+): { changed: boolean; id: string } {
+  if (id === null && op !== 'new') throw new ForgeError('a mandate id is required', 'usage');
   const actor = o.actor ? { actor: o.actor } : {};
   const input = o.input ?? {};
   const out = writeMandate(root, (all) => {
     if (op === 'new') {
-      if (all.some((m) => m.id === id)) throw new ForgeError(`mandate ${id} exists; change it with forge mandate edit`, 1);
+      const mid = id ?? newMandateId(root, all);
+      if (all.some((m) => m.id === mid)) throw new ForgeError(`mandate ${mid} exists; change it with forge mandate edit`, 1);
       const refs = issueRefs(root, config, fillDefaults(config, input));
-      const m = applyInput(blankMandate(id, now()), refs.input);
+      const m = applyInput(blankMandate(mid, now()), refs.input);
       const problems = [...refs.problems, ...mandateProblems(config, m, all, null)];
       if (problems.length) throw new ForgeError(problems.join('; '), 1);
       return { mandate: m, action: 'new' as MandateAction, ...actor };
     }
-    const existing = mandateTarget(all, id);
+    const existing = mandateTarget(all, id as string);
     if (op !== 'edit') {
       const reason = op === 'resume' ? null : cleanReason(o.reason);
       const next = statusMove(op, existing, reason, now());
@@ -193,7 +226,7 @@ export function mandateWrite(
     if (problems.length) throw new ForgeError(problems.join('; '), 1);
     return same(m, existing) ? null : { mandate: { ...m, updatedAt: now() }, action: 'edit' as MandateAction, ...actor };
   });
-  return { changed: out !== null };
+  return { changed: out !== null, id: out?.mandate.id ?? (id as string) };
 }
 
 /** The ids of the jobs whose `mandate` is `id`. */

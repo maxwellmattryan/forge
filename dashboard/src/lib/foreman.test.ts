@@ -79,11 +79,11 @@ test("the Foreman page's panels start with the Office", () => {
 });
 
 test('editor bodies send only what changed', () => {
-  // A new mandate: id and title, each filled term, comma lists split and trimmed with empty entries dropped, after null for none.
-  assert.deepEqual(newMandateBody({ ...blankForm(), id: ' m1 ', title: ' First ', milestones: ' M1 , ,M2,' }), { id: 'm1', title: 'First', milestones: ['M1', 'M2'], after: null });
+  // A new mandate: the title (the server picks the id), each filled term, comma lists split and trimmed with empty entries dropped, after null for none.
+  assert.deepEqual(newMandateBody({ ...blankForm(), title: ' First ', milestones: ' M1 , ,M2,' }), { title: 'First', milestones: ['M1', 'M2'], after: null });
   assert.deepEqual(
-    newMandateBody({ ...blankForm(), id: 'm2', title: 'T', labels: 'infra', until: 'merged', maxJobs: '3', budgetUsd: '20.5', decides: [], after: 'm1', body: 'Guidance.' }),
-    { id: 'm2', title: 'T', labels: ['infra'], until: 'merged', maxJobs: 3, budgetUsd: 20.5, decides: [], after: 'm1', body: 'Guidance.' },
+    newMandateBody({ ...blankForm(), title: 'T', labels: 'infra', until: 'merged', maxJobs: '3', budgetUsd: '20.5', decides: [], after: 'm1', body: 'Guidance.' }),
+    { title: 'T', labels: ['infra'], until: 'merged', maxJobs: 3, budgetUsd: 20.5, decides: [], after: 'm1', body: 'Guidance.' },
   );
 
   // An edit: an unchanged form sends updatedAt alone.

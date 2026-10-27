@@ -23,7 +23,7 @@
   // leaving popover must never close (or steal focus from) the one replacing it. It counts as leaving from the moment
   // another one is open, not only from its outro: the next one takes focus as it mounts, before this one's outro starts,
   // and this one's focusin listener would otherwise read that as focus leaving and close the next (a row that opens
-  // another popover, such as Workers' Foreman row or Inbox's "Open Needs you"). Its id is read once: the prop follows the
+  // another popover, such as Workers' Foreman row). Its id is read once: the prop follows the
   // parent's open popover, so a leaving one's `id` already names the next.
   const own = untrack(() => id);
   let outro = false;
