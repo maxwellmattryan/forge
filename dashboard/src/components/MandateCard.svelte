@@ -1,4 +1,4 @@
-<!-- One readable mandate on the Office panel: its title, id, state and reason; its scope; its chain (with the active link
+<!-- One readable mandate on the Office page: its title, id, state and reason; its scope; its chain (with the active link
      marked) and what it waits on; its progress against its budget; the contract as it applies now and every line the
      config capped; its live jobs (each opens the drawer); a goal mandate's draft and gate, pointing at Needs you, which
      decides it. Then the actions its status offers (mandateActions): Pause and Close open a confirm row with an optional

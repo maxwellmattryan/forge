@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { entryRedirect, parseRoute, routeProject, switchHash, type ParsedRoute } from './routes.ts';
-import { VIEWS } from './nav.ts';
+import { GENERAL_NAV, PROJECT_NAV, VIEWS } from './nav.ts';
 
 const overview = { scope: 'global', view: 'overview' } as const;
 const toOverview: ParsedRoute = { route: overview, replace: '#/overview', openNeeds: false };
@@ -22,6 +22,7 @@ test('parseRoute', () => {
     ['an old backlog link goes to Issues', '#/p/web/backlog', null, at('web', 'issues', '#/p/web/issues')],
     ['an inherited property is not a view', '#/p/web/constructor', null, at('web', 'pipeline', '#/p/web/pipeline')],
     ['every project view', '#/p/a.b-c_d/evals', null, at('a.b-c_d', 'evals')],
+    ['the Office page', '#/p/web/office', null, at('web', 'office')],
     ['the Foreman page', '#/p/web/foreman', null, at('web', 'foreman')],
     ['the Foreman page with more segments', '#/p/web/foreman/x', null, at('web', 'pipeline', '#/p/web/pipeline')],
     ['no view', '#/p/web', null, at('web', 'pipeline', '#/p/web/pipeline')],
@@ -56,10 +57,18 @@ test('parseRoute', () => {
     ['old #/inbox with no last project', '#/inbox', '', toOverview],
   ];
   for (const [name, hash, last, want] of rows) assert.deepEqual(parseRoute(hash, last), want, name);
-  // The sidebar lists the Foreman page right after Agents.
-  const ids = VIEWS.map((v) => v.id);
-  assert.equal(ids[ids.indexOf('agents') + 1], 'foreman');
+  // The General section lists the Office and the Foreman, in that order, between the Overview and the Machine page.
+  assert.deepEqual(
+    GENERAL_NAV.map((g) => `${g.scope}:${g.id}`),
+    ['global:overview', 'project:office', 'project:foreman', 'global:machine'],
+  );
   assert.equal(VIEWS.find((v) => v.id === 'foreman')?.icon, 'foreman');
+  assert.equal(VIEWS.find((v) => v.id === 'office')?.icon, 'office');
+  // The project section holds every other view, and only those.
+  assert.deepEqual(
+    PROJECT_NAV.map((v) => v.id),
+    VIEWS.map((v) => v.id).filter((id) => id !== 'office' && id !== 'foreman'),
+  );
 });
 
 test('entryRedirect', () => {

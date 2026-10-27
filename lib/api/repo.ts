@@ -1,6 +1,6 @@
 // What the repo holds outside any job: /api/project, /api/roster, /api/backlog with the tracker item, /api/backlog/item
 // (one item's text and facts for the issue panel), /api/github/preview,
-// the mandates with their directives (GET and POST /api/mandates and /api/mandates/:id/*, the Foreman page), and a
+// the mandates with their directives (GET and POST /api/mandates and /api/mandates/:id/*, the Office page), and a
 // goal mandate's milestone draft (/api/state's drafts, GET and POST /api/mandates/:id/draft).
 import type { ComponentKind, DependencyType, DirectiveAction, Effort, EffortSource, GateClass, MandateOnUnfinishable, MandateOrder, MandateScoring, MandateStatus, MandateUntil, WaitingOn } from './enums.ts';
 import type { EventActor, GateOwner } from './job.ts';
@@ -301,7 +301,7 @@ export interface MandateReportCard {
   outcomes: { final: number; open: number; unmeasured: number; reverted: CardFigure; followedUp: CardFigure; finalAt: string | null };
 }
 
-/** One readable mandate on the Foreman page: its summary, the contract as it applies now, its chain, its progress and its live report card. Never its body or goal. */
+/** One readable mandate on the Office page: its summary, the contract as it applies now, its chain, its progress and its live report card. Never its body or goal. */
 export interface MandateRow extends MandateSummary {
   effective: MandateContract;
   /** One line per term the config changed. */

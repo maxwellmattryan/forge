@@ -1,12 +1,13 @@
-<!-- The sidebar's two sections: the machine's global pages (Overview, Machine), then the project section, which is the
-     project switcher and, with a project selected, its view links. As the sidebar list, the phone strip
-     (`mobile`: no icons, one scrolling row) or the icon-only rail (`compact`: each control named by aria-label, with a
-     rail tooltip). Each section is its own navlist, so the Select never takes the list's link styles. -->
+<!-- The sidebar's two sections: General (the Overview, then, with a project selected, its Office and Foreman, then the
+     Machine page: GENERAL_NAV), then the project section, which is the project switcher and, with a project selected, its
+     other view links. As the sidebar list, the phone strip (`mobile`: no icons, one scrolling row) or the icon-only rail
+     (`compact`: each control named by aria-label, with a rail tooltip). Each section is its own navlist, so the Select
+     never takes the list's link styles. -->
 <script lang="ts">
   import Icon from './Icon.svelte';
   import ProjectSwitcher from './ProjectSwitcher.svelte';
   import { S } from '../lib/app.svelte.ts';
-  import { GLOBAL_VIEWS, VIEWS, navCounts, type GlobalViewId, type ViewId } from '../lib/nav.ts';
+  import { GENERAL_NAV, PROJECT_NAV, navCounts, type GlobalViewId, type ViewId } from '../lib/nav.ts';
   import { railTipOn } from '../lib/rail-tip.svelte.ts';
   import { slideMarker } from '../lib/marker.ts';
   import { t } from '../lib/locale.ts';
@@ -14,8 +15,10 @@
   let { mobile = false, compact = false }: { mobile?: boolean; compact?: boolean } = $props();
   const project = $derived(S.selected);
   const counts = $derived(navCounts(S.data?.jobs ?? []));
-  const globalLabels = $derived<Record<GlobalViewId, string>>({ overview: $t('nav.overview'), machine: $t('nav.machine') });
-  const labels = $derived<Record<ViewId, string>>({
+  const labels = $derived<Record<GlobalViewId | ViewId, string>>({
+    overview: $t('nav.overview'),
+    machine: $t('nav.machine'),
+    office: $t('nav.office'),
     pipeline: $t('nav.pipeline'),
     project: $t('nav.project'),
     issues: $t('nav.issues'),
@@ -35,10 +38,10 @@
 
 {#snippet globals()}
   <div class={list}>
-    {#each GLOBAL_VIEWS as g (g.id)}
-      {@const on = S.route.scope === 'global' && S.route.view === g.id}
-      <a href="#/{g.id}" class={on ? 'active' : ''} aria-current={on ? 'page' : undefined} aria-label={compact ? globalLabels[g.id] : undefined} {@attach compact && railTipOn(globalLabels[g.id])}
-        >{#if compact}<Icon name={g.icon} />{:else}<span class="lbl">{#if !mobile}<Icon name={g.icon} />{/if}{globalLabels[g.id]}</span>{/if}</a
+    {#each GENERAL_NAV.filter((g) => g.scope === 'global' || project) as g (g.id)}
+      {@const on = S.route.scope === g.scope && S.route.view === g.id}
+      <a href="#/{g.scope === 'global' ? g.id : `p/${project}/${g.id}`}" class={on ? 'active' : ''} aria-current={on ? 'page' : undefined} aria-label={compact ? labels[g.id] : undefined} {@attach compact && railTipOn(labels[g.id])}
+        >{#if compact}<Icon name={g.icon} />{:else}<span class="lbl">{#if !mobile}<Icon name={g.icon} />{/if}{labels[g.id]}</span>{/if}</a
       >
     {/each}
   </div>
@@ -46,7 +49,7 @@
 
 {#snippet views(name: string)}
   <div class={list}>
-    {#each VIEWS as v (v.id)}
+    {#each PROJECT_NAV as v (v.id)}
       {@const n = badge(v.id)}
       {@const on = S.route.scope === 'project' && S.route.view === v.id}
       <a href="#/p/{name}/{v.id}" class={on ? 'active' : ''} aria-current={on ? 'page' : undefined} aria-label={compact ? railName(v.id, n) : undefined} {@attach compact && railTipOn(railName(v.id, n))}

@@ -1,4 +1,4 @@
-// Mandates over the dashboard's Foreman page: GET /api/mandates lists them with the latest directives, the
+// Mandates over the dashboard's Office page: GET /api/mandates lists them with the latest directives, the
 // classes a mandate may be given and a new mandate's defaults; GET /api/mandates/:id adds the owner's
 // guidance and goal (token: they are the owner's own words); POST /api/mandates (which picks the id when
 // none is sent, as `forge mandate new` does) and /api/mandates/:id/edit|pause|resume|close write as a
@@ -57,7 +57,7 @@ const rowCtx = (root: string, config: Config): RowCtx => ({
   at: Date.now(),
 });
 
-/** One readable mandate as the Foreman page shows it: never its body or goal. */
+/** One readable mandate as the Office page shows it: never its body or goal. */
 export function mandateRow(root: string, config: Config, m: Mandate, all: ReadMandate[], ctx: RowCtx): MandateRow {
   const { effective, capped } = effectiveContract(config, m);
   const f = jobFigures(root, config, m, all, ctx);

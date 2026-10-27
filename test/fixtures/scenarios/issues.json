@@ -33,7 +33,8 @@
     "project": ["@project.empty"],
     "issues": ["Add the export command", "Faster search", "Retry flaky uploads", "@issues.needsInfo"],
     "agents": ["@agents.running", "Export command"],
-    "foreman": ["@foreman.title", "@foreman.panel.chats", "@statusbar.foreman.offTitle", "@foreman.office.noMandates", "@foreman.office.noDirectives"],
+    "office": ["@foreman.office.title", "@statusbar.foreman.offTitle", "@foreman.office.noMandates", "@foreman.office.noDirectives"],
+    "foreman": ["@foreman.title", "@foreman.chats.emptyTitle"],
     "analytics": ["@analytics.jobs", "@analytics.noUsage"],
     "evals": ["@evals.empty"],
     "issue": [

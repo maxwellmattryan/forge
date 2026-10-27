@@ -1,10 +1,8 @@
-// The Foreman page's model: its panels and their keys, the editor's exact POST bodies, the mandate groups and the
+// The Office page's model: the editor's exact POST bodies, the mandate groups and the
 // actions each status offers, the pending gates, the directives feed and the badge.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEFAULT_FOREMAN_PANEL,
-  FOREMAN_PANELS,
   blankForm,
   directiveActor,
   directiveFeed,
@@ -14,9 +12,7 @@ import {
   mandateBadge,
   mandateGroups,
   newMandateBody,
-  panelKey,
   pendingGates,
-  type ForemanPanel,
 } from './foreman.ts';
 import type { Directive, ForgeRequest, MandateRow, UnreadableMandateRow } from './types.ts';
 
@@ -52,29 +48,6 @@ const row = (id: string, o: Partial<MandateRow> = {}): MandateRow => ({
     outcomes: { final: 0, open: 0, unmeasured: 0, reverted: null, followedUp: null, finalAt: null },
   },
   ...o,
-});
-
-test("the Foreman page's panels start with the Office", () => {
-  assert.deepEqual(FOREMAN_PANELS, ['office', 'chats']);
-  assert.equal(DEFAULT_FOREMAN_PANEL, 'office');
-  // The two real panels: Left and Right wrap, Home and End jump.
-  assert.deepEqual(
-    ['ArrowLeft', 'ArrowRight', 'Home', 'End'].map((key) => panelKey('office', key)),
-    ['chats', 'chats', 'office', 'chats'],
-  );
-  assert.deepEqual(
-    ['ArrowLeft', 'ArrowRight', 'Home', 'End'].map((key) => panelKey('chats', key)),
-    ['office', 'office', 'office', 'chats'],
-  );
-  assert.equal(panelKey('office', 'ArrowDown'), null);
-  assert.equal(panelKey('chats', 'Enter'), null);
-  // With more panels, the keys wrap and jump through the list in order.
-  const three = ['office', 'chats', 'third'] as unknown as ForemanPanel[];
-  const at = (p: string) => p as ForemanPanel;
-  assert.deepEqual(
-    [panelKey(at('office'), 'ArrowRight', three), panelKey(at('third'), 'ArrowRight', three), panelKey(at('office'), 'ArrowLeft', three), panelKey(at('chats'), 'Home', three), panelKey(at('office'), 'End', three)],
-    ['chats', 'office', 'third', 'office', 'third'],
-  );
 });
 
 test('editor bodies send only what changed', () => {
