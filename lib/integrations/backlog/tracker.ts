@@ -14,7 +14,8 @@
 // (`## <title>`, its description as `> ` lines); its section, and the items in it, run to the next level-1
 // or level-2 heading.
 // Titles and descriptions are outside text: list and search return them cleaned by visibleText, and
-// get fences the description behind `>` under Forge's column-0 provenance line, as GitHub's get does.
+// get fences the description behind `>` under Forge's column-0 provenance line, as GitHub's get does;
+// view returns the description unfenced, for the dashboard only.
 import fs from 'node:fs';
 import path from 'node:path';
 import { queryTerms, scoreItems } from '#core/job/issue-link.ts';
@@ -108,6 +109,16 @@ function insertInSection(doc: BacklogDoc, title: string, block: string[]): void 
   doc.lines.splice(at, 0, ...(afterItem ? [] : ['']), ...block);
 }
 
+/** The milestone an item sits in: the nearest `## ` heading above its line with no level-1 or level-2 heading between; null outside one. */
+function milestoneOf(lines: string[], line: number): string | null {
+  for (let i = line - 1; i >= 0; i--) {
+    if (!isSectionEnd(lines[i])) continue;
+    const title = headingTitle(lines[i]);
+    return title ? oneLineTitle(title) || null : null;
+  }
+  return null;
+}
+
 /** An item's description: its indented lines without triage's note. */
 const description = (item: BacklogEntry): string => item.body.filter((l) => !isNote(l)).join('\n');
 
@@ -157,6 +168,29 @@ export default {
     const desc = description(it);
     const quoted = desc.trim() ? quote(desc, hidden) : '';
     return { ...toItem(it), title, body: `${importHeader(`the local backlog item "${it.ref}"`, hidden)}\n\n${quoted}` };
+  },
+  view(ctx, ref) {
+    const f = file(ctx);
+    if (!exists(f)) return null;
+    const doc = parse(fs.readFileSync(f, 'utf8'));
+    const it = doc.items.find((i) => i.ref === ref);
+    if (!it) return null;
+    // Unfenced on purpose: this is the panel's text, never an agent's (lib/engine/trackers/view.ts), and md() escapes it.
+    return {
+      ref: it.ref,
+      title: oneLineTitle(it.title),
+      url: null,
+      state: statusOf(it.mark),
+      body: description(it),
+      comments: [],
+      hiddenComments: 0,
+      labels: [],
+      assignees: [],
+      milestone: milestoneOf(doc.lines, it.line),
+      author: null,
+      createdAt: null,
+      updatedAt: null,
+    };
   },
   claim(ctx, ref, job) {
     return edit(ctx, (doc) => {

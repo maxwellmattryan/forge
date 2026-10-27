@@ -26,7 +26,8 @@
   import type { StateJob } from '../lib/types.ts';
   import { t } from '../lib/locale.ts';
 
-  let { job: j }: { job: StateJob } = $props();
+  /** `onopen` replaces opening the job's panel: the issue panel's card opens it with a Back button. */
+  let { job: j, onopen }: { job: StateJob; onopen?: () => void } = $props();
   const m = $derived(cardModel(j));
   // An older server sends no activity: the role summary in the footer stands in for the activity line.
   const agents = $derived(j.activity ? null : agentsSummary(runningRoles(j)));
@@ -39,7 +40,7 @@
   const protTitle = $derived(m.protected ? $t('job.protectedTitle', { reasons: m.protected.reasons.join(' · ') }) : '');
 </script>
 
-<button class="plate clickable {needsHuman(j) ? 'ember' : ''} {cooling ? 'cooling' : ''} w-full text-left p-3 pb-2.5 flex flex-col gap-2" onclick={() => openDrawer(j.id)}>
+<button class="plate clickable {needsHuman(j) ? 'ember' : ''} {cooling ? 'cooling' : ''} w-full text-left p-3 pb-2.5 flex flex-col gap-2" onclick={() => (onopen ?? (() => openDrawer(j.id)))()}>
   <span data-slot="title" class="h card line-clamp-2">{j.title}</span>
   <span data-slot="ref" class="mono muted text-[11px] truncate" title={m.refTitle}>{m.ref}</span>
   <div data-slot="state" class="flex flex-wrap items-center gap-1.5"><StateChip job={j} />{#if m.protected}<Chip tone="warn" title={protTitle}><span aria-hidden="true">{$t('job.protected')}</span><span class="sr-only">{protTitle}</span></Chip>{/if}<PrChip pr={j.pr} inButton />{#each memberPrs(j) as mp (mp.repo)}<PrChip pr={mp.pr} repo={mp.repo} inButton />{/each}<BudgetChip job={j} /><EffortChip level={effort} /><MandateBadge mandate={j.mandate} />{#if agentsLive}<div class="basis-full min-w-0"><AgentActivity activity={agentsLive} owner={j.ownerStatus} /></div>{/if}<DepChips job={j} /></div>

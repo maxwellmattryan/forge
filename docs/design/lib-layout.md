@@ -85,7 +85,7 @@ Every `lib/` file sits under `lib/<layer>/`, except the two deprecated tracker r
 | `daemon.ts` | the session pool's /api/daemon* routes and the /api/events SSE frames |
 | `config.ts` | /api/config, /api/doctor and /api/about |
 | `stats.ts` | /api/stats, /api/evals and /api/evals/compare |
-| `repo.ts` | /api/project, /api/roster, /api/backlog with the tracker item, and /api/github/preview |
+| `repo.ts` | /api/project, /api/roster, /api/backlog with the tracker item, /api/backlog/item, and /api/github/preview |
 | `constants.ts` | `constants.ts` |
 | `tracker.ts` | ← `trackers/status.ts`; `trackers/status.ts` and `trackers/status.mjs` stay as deprecated one-line re-exports for one minor release, and the stability contract in docs/RELEASES.md moved to `lib/api/tracker.ts` |
 

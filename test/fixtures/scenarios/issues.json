@@ -1,0 +1,45 @@
+{
+  "description": "Issues on the local backlog: one a job holds, one triage marked needs-info, one with earlier jobs",
+  "backlog": "# Backlog\n\n## Next\n\n- [~] Add the export command → {id:export}\n  Export the board as **one file** per project.\n  Hostile text stays text: <script>alert(1)</script> <img src=x onerror=alert(1)>\n- [?] Faster search\n  Needs info: acceptance criteria or a reproduction\n- [ ] Retry flaky uploads\n  Retry an upload twice before it fails.\n",
+  "jobs": [
+    {
+      "key": "export",
+      "title": "Export command",
+      "new": ["--issue", "add-the-export-command", "--tracker", "local"],
+      "steps": [
+        ["job", "set", "{id}", "--stage", "build", "--state", "running"],
+        ["job", "agent", "{id}", "start", "--role", "builder", "--model", "sonnet"]
+      ]
+    },
+    {
+      "key": "retry-a",
+      "title": "Retry uploads, first try",
+      "new": ["--issue", "retry-flaky-uploads", "--tracker", "local"],
+      "steps": [
+        ["job", "set", "{id}", "--state", "cancelled", "--reason", "superseded"]
+      ]
+    },
+    {
+      "key": "retry-b",
+      "title": "Retry uploads, second try",
+      "new": ["--issue", "retry-flaky-uploads", "--tracker", "local"],
+      "steps": [
+        ["job", "set", "{id}", "--stage", "done", "--state", "done"]
+      ]
+    }
+  ],
+  "expect": {
+    "pipeline": ["Export command"],
+    "project": ["@project.empty"],
+    "issues": ["Add the export command", "Faster search", "Retry flaky uploads", "@issues.needsInfo"],
+    "agents": ["@agents.running", "Export command"],
+    "foreman": ["@foreman.title", "@foreman.panel.chats", "@statusbar.foreman.offTitle", "@foreman.office.noMandates", "@foreman.office.noDirectives"],
+    "analytics": ["@analytics.jobs", "@analytics.noUsage"],
+    "evals": ["@evals.empty"],
+    "issue": [
+      { "title": "Add the export command", "text": ["Export command", "@issues.view.openJob", "<script>alert(1)</script>", "<img src=x onerror=alert(1)>"] },
+      { "title": "Faster search", "text": ["@issues.view.override", "@issues.start"] },
+      { "title": "Retry flaky uploads", "text": ["@issues.view.earlier", "Retry uploads, first try", "Retry uploads, second try"] }
+    ]
+  }
+}

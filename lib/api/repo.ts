@@ -1,4 +1,5 @@
-// What the repo holds outside any job: /api/project, /api/roster, /api/backlog with the tracker item, /api/github/preview,
+// What the repo holds outside any job: /api/project, /api/roster, /api/backlog with the tracker item, /api/backlog/item
+// (one item's text and facts for the issue panel), /api/github/preview,
 // the mandates with their directives (GET and POST /api/mandates and /api/mandates/:id/*, the Foreman page), and a
 // goal mandate's milestone draft (/api/state's drafts, GET and POST /api/mandates/:id/draft).
 import type { ComponentKind, DependencyType, DirectiveAction, Effort, EffortSource, GateClass, MandateOnUnfinishable, MandateOrder, MandateScoring, MandateStatus, MandateUntil, WaitingOn } from './enums.ts';
@@ -170,6 +171,40 @@ export interface BacklogItem extends TrackerItem {
 export interface BacklogResponse {
   tracker: string;
   items: BacklogItem[];
+  error?: string;
+}
+
+/** One comment on a tracker item, for display. Text is outside text: the dashboard renders it through md() only. */
+export interface TrackerComment {
+  author: string | null;
+  at: string | null;
+  body: string;
+}
+
+/** A tracker item's display detail: the tracker's optional view(), normalised by lib/engine/trackers/view.ts. */
+export interface TrackerItemView {
+  ref: string;
+  title: string;
+  url: string | null;
+  /** The tracker's own state: GitHub's `open` | `closed`, the local backlog's status words. */
+  state: string | null;
+  body: string;
+  /** Oldest first, after the tracker's import rule (GitHub: tracker.github.comments). */
+  comments: TrackerComment[];
+  /** Comments that rule left out. */
+  hiddenComments: number;
+  labels: string[];
+  assignees: string[];
+  milestone: string | null;
+  author: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+/** GET /api/backlog/item?ref=: one item's view. `view` is null with no `error` when the tracker has no view(). */
+export interface BacklogItemResponse {
+  tracker: string;
+  view: TrackerItemView | null;
   error?: string;
 }
 

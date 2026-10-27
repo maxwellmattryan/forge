@@ -1,5 +1,5 @@
-// The other read routes and focus: /api/state, stats, evals, roster, project graph, backlog, about,
-// doctor and its bundle, GitHub previews, and POST /api/focus.
+// The other read routes and focus: /api/state, stats, evals, roster, project graph, backlog, backlog items,
+// about, doctor and its bundle, GitHub previews, and POST /api/focus.
 import type http from 'node:http';
 import path from 'node:path';
 import { loadConfig, resolveEffort } from '#core/config/load.ts';
@@ -24,6 +24,7 @@ import { listRequests, validJobId } from '#core/job/requests.ts';
 import { foremanHandoff, gateOwner } from '#office/foreman/policy.ts';
 import { draftGates } from '#office/mandates/gate.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
+import { itemView } from '#engine/trackers/view.ts';
 import { roster } from '#engine/pipeline/roster.ts';
 import { readTriageCache } from '#engine/trackers/triage.ts';
 import { redactContext, redactText } from '#engine/guard/redact.ts';
@@ -37,6 +38,7 @@ import { zip } from '#core/format/zip.ts';
 import type {
   AboutResponse,
   ApiState,
+  BacklogItemResponse,
   BacklogResponse,
   Config,
   DaemonPoolState,
@@ -50,6 +52,7 @@ import type {
   LoadedJob,
   ProjectResponse,
   RepoBudgetStatus,
+  Tracker,
 } from '#core/types.ts';
 import type { VersionInfo } from '#engine/ops/types.ts';
 import { json, jsonStatus, readJsonBody, tokenMatches } from '../http.ts';
@@ -116,6 +119,21 @@ export async function getBacklog(ctx: ServerCtx, req: http.IncomingMessage, res:
     return e ? { ...item, triage: { ready: e.ready, missing: e.missing, at: e.at } } : item;
   });
   return json(res, { ...ctx.backlogCache.data, items } satisfies BacklogResponse);
+}
+
+/** GET /api/backlog/item?ref=: one tracker item's text and facts for the issue panel (lib/engine/trackers/view.ts). */
+export async function getBacklogItem(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): Promise<void> {
+  const { root } = ctx;
+  const ref = match.url.searchParams.get('ref');
+  if (ref === null || ref.length < 1 || ref.length > 200 || /[\x00-\x1f\x7f]/.test(ref)) return jsonStatus(res, 400, { error: 'ref must be a tracker ref' });
+  const { config } = loadConfig(root);
+  let tracker: Tracker;
+  try {
+    tracker = await loadTracker(root, config);
+  } catch (e) {
+    return json(res, { tracker: config.tracker.kind, view: null, error: (e as Error).message } satisfies BacklogItemResponse);
+  }
+  return json(res, itemView(tracker, { root, config }, ref) satisfies BacklogItemResponse);
 }
 
 /** GET /api/about: versions and links. */

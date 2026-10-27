@@ -1,12 +1,11 @@
-<!-- The job drawer: it slides in from the right over a backdrop, over the whole viewport height (the status bar included), and
-     the view keeps its centred width underneath. It renders the drawerView snapshot, so it changes only where the old
-     renderDrawer() ran. At md and up its width is the viewer's (pref paneWidth, one for every job), clamped so it never
-     covers the sidebar column, and the separator on its left edge resizes it; below md it is full width. The backdrop,
-     Escape or the close button closes it; closed, it is invisible, so out of the tab order. Its header is four rows: the
-     title with the close button, the meta line (id · round) with one right-aligned controls cluster, one badge row, and
-     the live agent line while agents run. Every row wraps, so it never scrolls sideways at any width. -->
+<!-- The job panel, inside the drawer's shell (DrawerShell.svelte, shared with the issue panel). It renders the drawerView
+     snapshot, so it changes only where the old renderDrawer() ran. Its header is four rows: the title with the close
+     button, the meta line (id · round) with one right-aligned controls cluster, one badge row, and the live agent line
+     while agents run; opened from the issue panel, a Back to <ref> button sits above them. Every row wraps, so it never
+     scrolls sideways at any width. -->
 <script lang="ts">
   import { untrack } from 'svelte';
+  import type { Attachment } from 'svelte/attachments';
   import ActionDock from './ActionDock.svelte';
   import AgentActivity from './AgentActivity.svelte';
   import AgentsTab from './AgentsTab.svelte';
@@ -47,14 +46,16 @@
   import { ago, dur, num, tokensShort, usd } from '../lib/util.ts';
   import { currentProject } from '../lib/project.ts';
   import { scopeVerbs } from '../lib/command.ts';
-  import { S, closeDrawer, loadFile, setDrawerTab } from '../lib/app.svelte.ts';
+  import { S, backToIssue, closeDrawer, loadFile, setDrawerTab } from '../lib/app.svelte.ts';
+  import { refLabel } from '../lib/issue-view.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import { freshCount, sessionActivity } from '../lib/live.ts';
   import { t } from '../lib/locale.ts';
-  import { DRAWER_TABS, PANE_DEFAULT, PANE_MIN, actorLabel, clampPaneWidth, eventDetail, isChatEvent, isForemanEvent, moveDrawerTab, paneKey, paneMax, verdictMatrix, verifierRounds, verifierTone, type DrawerTab } from '../lib/drawer.ts';
-  import { pref } from '../lib/prefs.ts';
+  import { DRAWER_TABS, actorLabel, eventDetail, isChatEvent, isForemanEvent, moveDrawerTab, verdictMatrix, verifierRounds, verifierTone, type DrawerTab } from '../lib/drawer.ts';
   import { slideMarker } from '../lib/marker.ts';
-  import { sidebarShown } from '../lib/sidebar.ts';
+
+  /** The shell's: the job title takes focus through it on open. */
+  let { focusTitle }: { focusTitle: Attachment<HTMLElement> } = $props();
 
   /** The page's project (a PROJECT_NAME, set before mount): the mockup frame's route is that project's. */
   const project = currentProject();
@@ -112,55 +113,6 @@
     if (panel) panel.scrollTop = 0;
     if (focus) document.getElementById('drawer-tab-' + tab)?.focus();
   }
-  // ---------- the separator ----------
-  // A saved width wider than the window shows clamped; the pref keeps it, so widening the window gives it back.
-  // The drawer stops at the sidebar's current edge: the rail or the viewer's width.
-  const gutter = $derived(sidebarShown(S.side));
-  const width = $derived(clampPaneWidth(S.pane.width, S.pane.viewport, gutter));
-  let drag: { x: number; w: number } | null = null;
-  let dragging = $state(false);
-  const save = (): void => pref.set('paneWidth', String(S.pane.width));
-  function dragStart(e: PointerEvent & { currentTarget: HTMLElement }): void {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    drag = { x: e.clientX, w: width };
-    dragging = true;
-  }
-  function dragMove(e: PointerEvent): void {
-    // The separator is the drawer's left edge: moving left widens it.
-    if (drag) S.pane.width = clampPaneWidth(drag.w + (drag.x - e.clientX), S.pane.viewport, gutter);
-  }
-  // Both pointerup and lostpointercapture end a drag (capture can be lost without a pointerup); the second call finds
-  // drag null and returns, so the width is saved once.
-  function dragEnd(): void {
-    if (!drag) return;
-    drag = null;
-    dragging = false;
-    save();
-  }
-  function sepKey(e: KeyboardEvent): void {
-    const next = paneKey(width, e.key, e.shiftKey, S.pane.viewport, gutter);
-    if (next === null) return;
-    e.preventDefault();
-    S.pane.width = next;
-    save();
-  }
-  function sepReset(): void {
-    S.pane.width = clampPaneWidth(PANE_DEFAULT, S.pane.viewport, gutter);
-    save();
-  }
-
-  // The drawer covers the view, which App makes inert: focus moves to the job title once it renders, unless it is already
-  // in the drawer. App hands it back to the opener on close.
-  let pane = $state<HTMLElement>();
-  let title = $state<HTMLHeadingElement>();
-  $effect(() => {
-    if (!open || !title || !pane) return;
-    const el = pane;
-    if (!untrack(() => el.contains(document.activeElement))) title.focus();
-  });
-
   function stripKey(e: KeyboardEvent): void {
     if (!shown) return;
     const next = moveDrawerTab(shown.tab, e.key);
@@ -174,45 +126,9 @@
   <div><div class="label">{k}</div><div class="mono text-[13px] break-all selectable">{#if icon}<Icon name={icon} class="sm mr-1 inline-block align-[-2px] text-muted" />{/if}{#if copy && typeof v === 'string' && v !== '—'}<Copyable text={v} />{:else}{v}{/if}</div></div>
 {/snippet}
 
-<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop, as on main; Escape closes the drawer from the keyboard) -->
-<!-- Always mounted, so it fades both ways: closed, it is invisible and lets presses through. -->
-<div id="drawer-backdrop" class="fixed inset-0 backdrop z-30 {open ? 'opacity-100 transition-[opacity] duration-(--motion-base) ease-(--ease-enter)' : 'opacity-0 invisible pointer-events-none transition-[opacity,visibility] duration-(--motion-quick) ease-(--ease-exit)'}" onclick={closeDrawer}></div>
-<!-- A full-height column that never scrolls itself: the header (capped at 40%, scrolling inside itself when taller) and
-     the tab strip stay put, the tab panel under them is the one scroller (on Log, the log pane is; on Files, the file
-     list and the file view each scroll), and the action dock under it stays put on every tab. It runs to the viewport's bottom, over the status bar, which the backdrop dims like
-     the rest of the page; the bottom inset keeps the dock clear of a phone's home indicator. Opening slides it 24px in from
-     the right as it fades in (base, easing out); closing slides and fades it out (quick, easing in); the reduced-motion
-     block turns both off. Only a close transitions visibility, so it turns invisible at the end of the exit: on open it
-     turns visible at once, as a transition would hold it hidden for the first frame and the title could not take focus.
-     A drag drops the transition, so the width follows the pointer. -->
-<aside
-  bind:this={pane}
-  id="drawer"
-  aria-label={$t('drawer.label')}
-  class="fixed right-0 top-0 bottom-0 pb-[env(safe-area-inset-bottom)] z-40 solid w-full flex flex-col overflow-hidden {open ? 'opacity-100 shadow-(--shadow-drawer)' : 'translate-x-6 opacity-0 invisible'} {dragging ? '' : open ? 'transition-[translate,opacity] duration-(--motion-base) ease-(--ease-enter)' : 'transition-[translate,opacity,visibility] duration-(--motion-quick) ease-(--ease-exit)'}"
-  style={S.pane.md ? `width: ${width}px` : undefined}
->
-  {#if S.pane.md && open}
-    <!-- An 8px hit area over the drawer's left rule; the rule turns gleam while it is hovered, focused or dragged. -->
-    <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (a focusable separator with a value is a widget in ARIA: the window splitter pattern) -->
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      aria-controls="drawer"
-      aria-label={$t('drawer.resize')}
-      aria-valuemin={PANE_MIN}
-      aria-valuemax={paneMax(S.pane.viewport, gutter)}
-      aria-valuenow={width}
-      tabindex="0"
-      class="group absolute inset-y-0 left-0 z-30 w-2 cursor-col-resize touch-none focus-visible:-outline-offset-2"
-      onpointerdown={dragStart}
-      onpointermove={dragMove}
-      onpointerup={dragEnd}
-      onlostpointercapture={dragEnd}
-      onkeydown={sepKey}
-      ondblclick={sepReset}
-    ><span class="absolute inset-y-0 left-0 border-l {dragging ? 'border-gleam' : 'border-line group-hover:border-gleam group-focus-visible:border-gleam'}" aria-hidden="true"></span></div>
-  {/if}
+<!-- The header (capped at 40%, scrolling inside itself when taller) and the tab strip stay put, the tab panel under them is
+     the one scroller (on Log, the log pane is; on Files, the file list and the file view each scroll), and the action dock
+     under it stays put on every tab. -->
   {#if view && 'error' in view}
     <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6"><Banner msg={view.error} /></div>
   {:else if shown && job}
@@ -221,7 +137,10 @@
     {@const verbs = scopeVerbs(j).length > 0}
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div bind:this={head} class="shrink-0 max-h-[40%] overflow-y-auto overscroll-contain p-5 md:p-6 pb-3 md:pb-4 flex flex-col gap-2">
-        <div class="flex items-start justify-between gap-3"><h2 bind:this={title} tabindex="-1" class="h sheet-title min-w-0">{j.title}</h2><CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div>
+        <!-- Opened from the issue panel (its card, Open job or an earlier job): Back returns to that issue. A local ref can be
+             a long slug, so the label truncates at the header's width and the title carries it whole. -->
+        {#if S.drawer.back}{@const back = S.drawer.back}{@const label = $t('drawer.backToIssue', { ref: refLabel(back) })}<button class="btn sm self-start min-w-0 max-w-full" title={label} onclick={backToIssue}><Icon name="chevron-down" class="sm shrink-0 rotate-90" /><span class="min-w-0 truncate">{label}</span></button>{/if}
+        <div class="flex items-start justify-between gap-3"><h2 {@attach focusTitle} tabindex="-1" class="h sheet-title min-w-0">{j.title}</h2><CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div>
         <!-- The meta line, then one right-aligned controls cluster: a daemon-backed job's session controls (here, not in its
              Log, so every tab has them; its Start/Stop sits apart, at the end of the tab row), then Command, nearest the
              close button. An interactive owner's job has no session controls, as its Log follows a transcript, and keeps
@@ -351,4 +270,3 @@
     </div>
     <ActionDock job={j} />
   {/if}
-</aside>

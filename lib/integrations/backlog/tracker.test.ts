@@ -78,3 +78,46 @@ test("get fences an item's description as data", () => {
     repo.cleanup();
   }
 });
+
+test("view returns an item's description and milestone for display", () => {
+  const repo = tempRepo();
+  try {
+    const config = defaults();
+    config.tracker.kind = 'local';
+    const ctx = { root: repo.dir, config };
+    assert.equal(local.view!(ctx, 'loose-item'), null, 'no backlog file');
+    const lines = [
+      '# Backlog',
+      '- [ ] Loose item',
+      '  Its **body**. <!-- shown -->',
+      '## M0',
+      '> about M0',
+      '- [~] Claimed one → j1',
+      '### Not a milestone',
+      '- [?] Asked one',
+      '  Needs info: acceptance criteria or a reproduction',
+      '  What it is.',
+      '- [x] Done one',
+      '- [-] Dropped one',
+      '# Archive',
+      '- [ ] After the archive',
+      '',
+    ];
+    fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
+    fs.writeFileSync(path.join(repo.dir, config.tracker.local.path), lines.join('\n'));
+    const empty = { url: null, comments: [], hiddenComments: 0, labels: [], assignees: [], author: null, createdAt: null, updatedAt: null };
+    assert.deepEqual(local.view!(ctx, 'loose-item'), { ...empty, ref: 'loose-item', title: 'Loose item', state: 'ready', body: 'Its **body**. <!-- shown -->', milestone: null });
+    assert.deepEqual(local.view!(ctx, 'asked-one'), { ...empty, ref: 'asked-one', title: 'Asked one', state: 'needs-info', body: 'What it is.', milestone: 'M0' });
+    const facts = (ref: string) => {
+      const v = local.view!(ctx, ref)!;
+      return [v.state, v.milestone, v.body];
+    };
+    assert.deepEqual(facts('claimed-one'), ['in-progress', 'M0', '']);
+    assert.deepEqual(facts('done-one'), ['done', 'M0', '']);
+    assert.deepEqual(facts('dropped-one'), ['dropped', 'M0', '']);
+    assert.deepEqual(facts('after-the-archive'), ['ready', null, ''], 'a level-1 heading ends the milestone');
+    assert.equal(local.view!(ctx, 'nope'), null);
+  } finally {
+    repo.cleanup();
+  }
+});
