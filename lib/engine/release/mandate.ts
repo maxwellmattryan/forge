@@ -16,9 +16,10 @@ import { MANDATE_ID_SOURCE } from '#api/constants.ts';
 import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
 import { classReservation, decides, foremanEnabled, reservedMatch } from '../pipeline/moves/foreman-gates.ts';
 import { memberRepos } from '../project/job-repos.ts';
-import { type GitReader, type PlanOptions, type ReleasePlan, type ReleaseState, type VersionBump, cloneGit, freshPlan, keptHeads, planHash, planRelease } from './plan.ts';
+import { type GitReader, type PlanOptions, type ReleasePlan, type ReleaseState, type VersionBump, VERSION_BUMPS, cloneGit, freshPlan, keptHeads, planHash, planRelease } from './plan.ts';
 import { assertNoSymlinks, doneCount, finished, planSteps, readPlanFile, readState, releaseFiles, writeReleasePlan } from './files.ts';
-import { draftBump, fileBumps } from './script.ts';
+import { fileBumps } from './script.ts';
+import { labelOf } from './steps.ts';
 import type { Config, EventActor, ForgeRequest, Job, JobEvent } from '#core/types.ts';
 
 /** Why mandate `id` keeps its release with a human, or null when it delegates it (lib/office/foreman.ts mandateReleaseRefusal). */
@@ -61,6 +62,7 @@ const AUDIT_MAX_BYTES = 32 * 1024 * 1024;
 const DETAIL_MAX = 200;
 
 const isMandateId = (v: unknown): v is string => typeof v === 'string' && MANDATE_ID.test(v) && v !== 'none';
+const isMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const h12 = (hash: string): string => hash.slice(0, 12);
 const line = (s: string): string => oneLineTitle(s).slice(0, DETAIL_MAX);
 
@@ -175,12 +177,35 @@ export function otherReleasePlan(root: string, id: string): 'none' | 'waiting' |
 }
 
 /**
+ * The bump a person picked with `--bump` (one other than the inferred) for each script repo of mandate `id`'s
+ * plan in release.json, by label, while that plan's run hasn't finished: a re-plan without `--bump`, the
+ * Office pass's included, drafts with it, so a commit that makes the plan stale never quietly reverts the
+ * version, nor the notes edited for it. Empty for another plan, a finished one or a file it can't read; the
+ * file is untrusted, so only a name in VERSION_BUMPS reaches the draft's argv.
+ */
+export function pickedBumps(root: string, id: string): Map<string, VersionBump> {
+  const picked = new Map<string, VersionBump>();
+  const files = readFiles(root);
+  const file = files?.plan;
+  if (!files || !file || file.selection.kind !== 'since' || file.selection.mandate !== id) return picked;
+  if ((files.state?.planHash === file.hash && files.state.finishedAt) || releaseEvents(root, id).some((e) => e.type === FINISHED && hashOf(e) === file.hash)) return picked;
+  for (const r of file.repos as unknown[]) {
+    if (!isMap(r) || typeof r.label !== 'string' || !isMap(r.bump)) continue;
+    const { bump, inferred } = r.bump;
+    if ((VERSION_BUMPS as readonly unknown[]).includes(bump) && bump !== inferred) picked.set(r.label, bump as VersionBump);
+  }
+  return picked;
+}
+
+/**
  * Plans mandate `id`'s release since the root's latest tag, through writeReleasePlan (so an unfinished run
  * of another plan is refused), logs `mandate-release-planned`, and queues one job-less `release` gate
  * request when the Foreman decides the class and the mandate delegates it: at most one per mandate and
- * hash, in any status, so a gate left for a human is never re-armed for that plan. Throws a ForgeError
- * for no tag, nothing to release, and every planner refusal, and, for the Office pass (`byPass`), when
- * release.json holds another plan that hasn't started; writes nothing then.
+ * hash, in any status, so a gate left for a human is never re-armed for that plan. A script repo drafts
+ * once, in writeReleasePlan, with `versionBump`, else with the bump a person picked for the plan it
+ * replaces (pickedBumps). Throws a ForgeError for no tag, nothing to release, and every planner refusal,
+ * and, for the Office pass (`byPass`), when release.json holds another plan that hasn't started, before
+ * any draft runs; writes nothing then.
  */
 export function planMandateRelease(
   root: string,
@@ -191,13 +216,20 @@ export function planMandateRelease(
   if (!isMandateId(id)) throw new ForgeError(`${JSON.stringify(String(id).slice(0, 60))} is not a mandate id`);
   const tag = lastReleaseTag(root, opts.git ?? cloneGit);
   if (tag === null) throw new ForgeError("the root repo has no tag to release since; tag its last release, or edit the mandate's until");
-  const selection = { kind: 'since' as const, tag, mandate: id };
-  // A script repo's bump comes from its draft (local git only), which writeReleasePlan runs again to write the notes.
-  const bump: PlanOptions['bump'] = opts.bump ?? ((input) => draftBump(root, config, input, opts.versionBump ?? null).bump);
-  const plan = planRelease(root, config, selection, { git: opts.git, clone: opts.clone, bump });
-  if (!planSteps(plan).length) throw new ForgeError(line(`nothing to release since ${tag} (${plan.skipped.map((s) => `${s.label}: ${s.reason}`).join('; ')})`));
   if (opts.byPass && otherReleasePlan(root, id) === 'waiting') throw new ForgeError(`blocked by another plan, plan it with forge release plan --mandate ${id}`);
-  const written = writeReleasePlan(root, config, selection, { git: opts.git, clone: opts.clone, bump: opts.bump, force: opts.force, versionBump: opts.versionBump });
+  const selection = { kind: 'since' as const, tag, mandate: id };
+  const picked = pickedBumps(root, id);
+  const written = writeReleasePlan(root, config, selection, {
+    git: opts.git,
+    clone: opts.clone,
+    bump: opts.bump,
+    force: opts.force,
+    versionBump: opts.versionBump,
+    keptBump: (input) => picked.get(labelOf(input.repo)) ?? null,
+    check: (plan) => {
+      if (!planSteps(plan).length) throw new ForgeError(line(`nothing to release since ${tag} (${plan.skipped.map((s) => `${s.label}: ${s.reason}`).join('; ')})`));
+    },
+  });
   const file = readFiles(root)?.plan;
   if (!file || file.selection.kind !== 'since' || file.selection.mandate !== id || !PLAN_HASH.test(file.hash)) throw new ForgeError('release.json changed while it was written; plan again');
   const hash = file.hash;

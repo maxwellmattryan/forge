@@ -1,14 +1,16 @@
 // An `until: released` mandate's plan file and tag: readPlanFile refuses a since selection whose mandate
 // isn't a mandate id or whose heads aren't commit ids (anyone who can write .forge/runtime/ can plant
 // release.json), lastReleaseTag is null for a repo with no tag or with a tag that isn't a safe ref, and
-// otherReleasePlan says what in release.json holds the Office pass back from the mandate's first plan.
+// otherReleasePlan says what in release.json holds the Office pass back from the mandate's first plan, and
+// pickedBumps is the `--bump` a person picked that the mandate's next re-plan keeps.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { tempRepo } from '../../../test/helpers.ts';
+import { logRepoEvent, repoAuditFile } from '#core/job/store.ts';
 import { RELEASE_FILE_VERSION } from './plan.ts';
 import { readPlanFile, releaseFiles } from './files.ts';
-import { lastReleaseTag, otherReleasePlan } from './mandate.ts';
+import { lastReleaseTag, otherReleasePlan, pickedBumps } from './mandate.ts';
 
 test('readPlanFile checks a since selection’s mandate', (t) => {
   const r = tempRepo();
@@ -91,4 +93,40 @@ test('otherReleasePlan: what in release.json the Office pass won’t write over 
   fs.writeFileSync(`${r.dir}/elsewhere.json`, other);
   fs.symlinkSync(`${r.dir}/elsewhere.json`, files.json);
   assert.equal(otherReleasePlan(r.dir, 'm1'), 'none', 'a symlinked release.json');
+});
+
+test('pickedBumps: the bump a person picked, by repo, while the mandate’s plan has not finished', (t) => {
+  const r = tempRepo();
+  t.after(r.cleanup);
+  const files = releaseFiles(r.dir);
+  const hash = 'a'.repeat(64);
+  const bump = (b: unknown) => ({ from: '1.0.0', to: '1.0.1', bump: b, inferred: 'minor', reasons: [], notes: 'x' });
+  const plan = (selection: Record<string, unknown>, repos: unknown[]) => JSON.stringify({ version: RELEASE_FILE_VERSION, hash, selection, repos, skipped: [], order: [] });
+  const own = { kind: 'since', tag: 'v1.0.0', mandate: 'm1' };
+  const repos = [
+    { label: '(root)', bump: bump('patch') },
+    { label: 'lib', bump: bump('major') },
+    { label: 'api', bump: bump('minor') },
+    { label: 'web', bump: null },
+  ];
+  const finished = JSON.stringify({ version: RELEASE_FILE_VERSION, planHash: hash, startedAt: 'x', updatedAt: 'x', finishedAt: 'x', steps: {} });
+  const rows: [string, string | null, string | null, boolean, Record<string, string>][] = [
+    ['nothing', null, null, false, {}],
+    ["the mandate's own plan: each pick other than the inferred", plan(own, repos), null, false, { '(root)': 'patch', lib: 'major' }],
+    ['a bump that is no bump name', plan(own, [{ label: '(root)', bump: bump('huge') }, { label: 'lib', bump: bump('--upload-pack=x') }]), null, false, {}],
+    ['its run finished in state.json', plan(own, repos), finished, false, {}],
+    ['a finished event for its hash', plan(own, repos), null, true, {}],
+    ["another mandate's plan", plan({ ...own, mandate: 'm2' }, repos), null, false, {}],
+    ['a plain --since plan', plan({ kind: 'since', tag: 'v1.0.0' }, repos), null, false, {}],
+    ['a release.json it cannot read', '{', null, false, {}],
+  ];
+  for (const [name, json, st, finishedEvent, want] of rows) {
+    fs.rmSync(files.dir, { recursive: true, force: true });
+    fs.rmSync(repoAuditFile(r.dir), { force: true });
+    fs.mkdirSync(files.dir, { recursive: true });
+    if (json !== null) fs.writeFileSync(files.json, json);
+    if (st !== null) fs.writeFileSync(files.state, st);
+    if (finishedEvent) logRepoEvent(r.dir, 'mandate-release-finished', { mandate: 'm1', planHash: hash });
+    assert.deepEqual(Object.fromEntries(pickedBumps(r.dir, 'm1')), want, name);
+  }
 });

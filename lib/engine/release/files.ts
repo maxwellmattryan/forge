@@ -13,6 +13,7 @@ import { MANDATE_ID_SOURCE } from '#api/constants.ts';
 import { type PlanOptions, type ReleaseBump, type ReleasePlan, type ReleaseSelection, type ReleaseState, type ReleaseStep, type VersionBump, COMMIT_SHA, RELEASE_FILE_VERSION, planRelease } from './plan.ts';
 import { renderReleaseMd } from './render.ts';
 import { draftBump } from './script.ts';
+import type { RepoInput } from './steps.ts';
 
 const MANDATE_ID = new RegExp(MANDATE_ID_SOURCE);
 
@@ -155,7 +156,15 @@ export function writeReleasePlan(
   root: string,
   config: Config,
   selection: ReleaseSelection,
-  opts: PlanOptions & { force?: boolean; log?: (line: string) => void; versionBump?: VersionBump | null } = {},
+  opts: PlanOptions & {
+    force?: boolean;
+    log?: (line: string) => void;
+    versionBump?: VersionBump | null;
+    /** A repo's bump without --bump: an until: released mandate's re-plan keeps the one a person picked. */
+    keptBump?: (input: RepoInput) => VersionBump | null;
+    /** Throws to refuse the plan before anything is written (a mandate's "nothing to release"). */
+    check?: (plan: ReleasePlan) => void;
+  } = {},
 ) {
   const files = releaseFiles(root);
   assertNoSymlinks(files);
@@ -164,11 +173,12 @@ export function writeReleasePlan(
   const bump: PlanOptions['bump'] =
     opts.bump ??
     ((input) => {
-      const d = draftBump(root, config, input, versionBump);
+      const d = draftBump(root, config, input, versionBump ?? opts.keptBump?.(input) ?? null);
       drafts.set(d.bump.notes, d.draft);
       return d.bump;
     });
   const plan = planRelease(root, config, selection, { ...opts, bump });
+  opts.check?.(plan);
   const bumped = plan.repos.flatMap((r) => (r.bump ? [{ label: r.label, bump: r.bump }] : []));
   if (versionBump && !bumped.length) throw new ForgeError('--bump applies only to repos with release.mechanism: script; this plan has none');
   const notes = bumped.map((b) => b.bump.notes);

@@ -4,14 +4,15 @@
 // the next pass closes the mandate. A merge after the approval makes the plan stale, so the approval stops
 // counting, unless a step of the run that acts moved that head itself. With `gate:release` reserved the plan
 // stays a person's, and `forge release plan --mandate` re-plans what the pass planned first, or plans first
-// what another plan in release.json held the pass back from. Serial: the daemon rows set process.env
+// what another plan in release.json held the pass back from. A script repo's bump is drafted only for a
+// plan the pass writes, and a re-plan keeps a person's --bump. Serial: the daemon rows set process.env
 // through forgeInProcess.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { BIN, FAKE_SCRIPT, SCRIPT_RELEASE, forgeInProcess, jobAt, repoTemplate, setReleaseBlock } from '../../helpers.ts';
+import { BIN, FAKE_SCRIPT, SCRIPT_RELEASE, forgeInProcess, jobAt, repoTemplate, scriptCalls, setReleaseBlock } from '../../helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { claimRequest, listRequests } from '#core/job/requests.ts';
@@ -317,7 +318,7 @@ test('forge release plan --mandate', async (t) => {
   assert.deepEqual(releaseGates(r.dir).map((g) => g.args?.key), [first, second]);
 });
 
-test('a mandate plan for a script repo takes the inferred bump from the draft, keeps it on a recompute and takes --bump on a re-plan', async (t) => {
+test("a script repo's mandate plan: no draft while another plan holds the pass back, the inferred bump, and a person's --bump kept by a re-plan with the notes edited for it", async (t) => {
   const r = scratch(t);
   fs.mkdirSync(path.join(r.dir, 'scripts'), { recursive: true });
   fs.writeFileSync(path.join(r.dir, 'scripts', 'release.mjs'), FAKE_SCRIPT);
@@ -325,8 +326,15 @@ test('a mandate plan for a script repo takes the inferred bump from the draft, k
   setReleaseBlock(r.dir, SCRIPT_RELEASE);
   await mandateWithDoneJob(r.dir);
   const config = loadConfig(r.dir).config;
+  const drafts = () => scriptCalls(r.dir).filter((c) => c.argv[0] === '--draft-notes').map((c) => c.argv.slice(1));
+  // A plain --since plan holds the pass back: the pass runs no draft for a plan it won't write.
+  await ok(r.dir, ['release', 'plan', '--since', 'v0.1.0']);
+  assert.equal((await pass(r.dir, config)).mandates[0].blocked, 'release: blocked by another plan, plan it with forge release plan --mandate m1');
+  assert.deepEqual(drafts(), [[]], "only the --since plan's draft ran");
+  fs.rmSync(releaseFiles(r.dir).json);
   const out = await pass(r.dir, config);
   assert.equal(out.mandates.find((m) => m.id === 'm1')!.state, 'active');
+  assert.deepEqual(drafts(), [[], []], "the pass's plan drafts once");
   const file = readPlanFile(releaseFiles(r.dir))!;
   assert.deepEqual([file.selection.kind, file.repos[0].bump?.from, file.repos[0].bump?.to, file.repos[0].bump?.bump], ['since', '1.0.0', '1.1.0', 'minor']);
   assert.ok(fs.existsSync(file.repos[0].bump!.notes), 'the draft notes are written');
@@ -334,4 +342,22 @@ test('a mandate plan for a script repo takes the inferred bump from the draft, k
   const again = await ok(r.dir, ['release', 'plan', '--mandate', 'm1', '--bump', 'patch']);
   assert.equal(again.bumps[0].to, '1.0.1');
   assert.equal(events(r.dir, 'mandate-release-planned').length, 2);
+
+  // A commit lands, so the plan goes stale: the pass plans again with the person's bump, and keeps the notes edited for it.
+  const notes = file.repos[0].bump!.notes;
+  fs.writeFileSync(notes, '## 1.0.1\n\nEdited by hand.\n');
+  fs.writeFileSync(path.join(r.dir, 'b.txt'), 'b\n');
+  r.git('add', 'b.txt');
+  r.git('commit', '-qm', 'later');
+  assert.equal((await ok(r.dir, ['mandate', 'show', 'm1'])).release.status, 'stale');
+  await pass(r.dir, config);
+  assert.equal(events(r.dir, 'mandate-release-planned').length, 3);
+  assert.deepEqual(drafts().at(-1), ['--bump', 'patch']);
+  const kept = readPlanFile(releaseFiles(r.dir))!.repos[0].bump!;
+  assert.deepEqual([kept.bump, kept.inferred, kept.to], ['patch', 'minor', '1.0.1']);
+  assert.equal(fs.readFileSync(notes, 'utf8'), '## 1.0.1\n\nEdited by hand.\n', 'the notes edited for 1.0.1 are kept');
+  // A person's re-plan without --bump keeps it too; --bump with the inferred bump drops it.
+  assert.equal((await ok(r.dir, ['release', 'plan', '--mandate', 'm1'])).bumps[0].to, '1.0.1');
+  assert.equal((await ok(r.dir, ['release', 'plan', '--mandate', 'm1', '--bump', 'minor'])).bumps[0].to, '1.1.0');
+  assert.equal((await ok(r.dir, ['release', 'plan', '--mandate', 'm1'])).bumps[0].to, '1.1.0');
 });
