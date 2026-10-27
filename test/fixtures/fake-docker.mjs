@@ -7,9 +7,18 @@ import fs from 'node:fs';
  * A fresh state: daemon up, nothing created. `pg[container]` models each Postgres server psql
  * reaches through `docker exec`; `failExec` is a regex source failing any SQL statement it matches,
  * `notReadyFor[container]` how many pg_isready calls fail first, and `sql` logs every statement.
+ * `sessions` lists the open client sessions, `{ container, user, db }`, that a test plants and the
+ * `pg_terminate_backend` statements end.
  */
 export function emptyState() {
-  return { daemon: 'up', version: '27.1.1', containers: {}, volumes: {}, failRun: false, failStart: false, failRm: false, envFiles: [], pg: {}, failExec: null, notReadyFor: {}, sql: [] };
+  return { daemon: 'up', version: '27.1.1', containers: {}, volumes: {}, failRun: false, failStart: false, failRm: false, envFiles: [], pg: {}, failExec: null, notReadyFor: {}, sql: [], sessions: [] };
+}
+
+/** Ends the container's sessions `match` picks: one `t` per session, as Postgres prints. */
+function endSessions(state, container, match) {
+  const ended = state.sessions.filter((x) => x.container === container && match(x));
+  state.sessions = state.sessions.filter((x) => !ended.includes(x));
+  return { out: ended.map(() => 't') };
 }
 
 // A database's `objectsOwner` is the role that owns what is inside it: its owner when created (migrate
@@ -20,7 +29,7 @@ const pgOf = (state, container, admin) =>
 const sqlErr = (msg) => ({ error: `ERROR:  ${msg}` });
 
 /** One SQL statement against a server, run in database `db`, as the exact statements lib/backing-db.ts sends; an unknown one fails loudly. */
-function statement(pg, admin, s, db) {
+function statement(pg, admin, s, db, end) {
   let m;
   if ((m = /^SELECT datname FROM pg_database WHERE datdba = \(SELECT oid FROM pg_roles WHERE rolname = '(\w+)'\)$/.exec(s))) return { out: Object.keys(pg.dbs).filter((d) => pg.dbs[d].owner === m[1]) };
   if ((m = /^REASSIGN OWNED BY "(\w+)" TO "(\w+)"$/.exec(s))) {
@@ -34,7 +43,8 @@ function statement(pg, admin, s, db) {
   if ((m = /^SELECT 1 FROM pg_roles WHERE rolname = '(\w+)'$/.exec(s))) return { out: pg.roles[m[1]] ? ['1'] : [] };
   if ((m = /^SELECT 1 FROM pg_database WHERE datname = '(\w+)'$/.exec(s))) return { out: pg.dbs[m[1]] ? ['1'] : [] };
   if (s === "SELECT datname FROM pg_database WHERE datname ~ '^forge_tpl_[0-9a-f]{12}$'") return { out: Object.keys(pg.dbs).filter((d) => /^forge_tpl_[0-9a-f]{12}$/.test(d)) };
-  if ((m = /^SELECT pg_terminate_backend\(pid\) FROM pg_stat_activity WHERE datname = '(\w+)' AND pid <> pg_backend_pid\(\)$/.exec(s))) return { out: [] };
+  if ((m = /^SELECT pg_terminate_backend\(pid\) FROM pg_stat_activity WHERE datname = '(\w+)' AND pid <> pg_backend_pid\(\)$/.exec(s))) return end((x) => x.db === m[1]);
+  if ((m = /^SELECT pg_terminate_backend\(pid\) FROM pg_stat_activity WHERE usename = '(\w+)' AND pid <> pg_backend_pid\(\)$/.exec(s))) return end((x) => x.user === m[1]);
   if ((m = /^CREATE ROLE "(\w+)" NOLOGIN$/.exec(s))) {
     if (pg.roles[m[1]]) return sqlErr(`role "${m[1]}" already exists`);
     pg.roles[m[1]] = { login: false, verifier: null, memberOf: [] };
@@ -124,7 +134,7 @@ function dockerExec(state, rest, input) {
     if (!s) continue;
     state.sql.push({ container, db: flagValues(argv, '-d')[0], s });
     if (state.failExec && new RegExp(state.failExec).test(s)) return { status: 3, stdout: '', stderr: `psql:<stdin>:1: ERROR:  injected failure\n` };
-    const r = statement(pg, admin, s, flagValues(argv, '-d')[0]);
+    const r = statement(pg, admin, s, flagValues(argv, '-d')[0], (match) => endSessions(state, container, match));
     if (r.error) return { status: 3, stdout: '', stderr: `psql:<stdin>:1: ${r.error}\n` };
     out.push(...r.out);
   }

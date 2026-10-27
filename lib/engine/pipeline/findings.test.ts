@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findingTitle, recurringAcrossJobs } from './findings.ts';
+import { findingTitle, recurringAcrossJobs, summariseFindings } from './findings.ts';
 import type { LensFinding } from './findings.ts';
+import type { Severity } from '#core/job/types.ts';
 
 test('findingTitle normalises a finding to its first words', () => {
   const rows: [string, string | null][] = [
@@ -20,6 +21,22 @@ test('findingTitle normalises a finding to its first words', () => {
   const started = Date.now();
   findingTitle(hostile);
   assert.ok(Date.now() - started < 1000, 'linear on a long hostile line');
+});
+
+test('summariseFindings counts carried and new findings in later rounds', () => {
+  const at = (lens: string, path: string | null, severity: Severity = 'minor') => ({ lens, path, severity });
+  const raised = new Map([
+    [1, [at('code', 'lib/a.ts'), at('security', 'lib/b.ts', 'blocker')]],
+    // Carried, then a new path, a path-less finding and another lens's path: new.
+    [2, [at('code', 'lib/a.ts'), at('code', 'lib/c.ts'), at('security', null), at('docs', 'lib/b.ts')]],
+    // Round 3 has no review files, so round 4's finding is new; round 5's is carried again.
+    [4, [at('code', 'lib/a.ts')]],
+    [5, [at('code', 'lib/a.ts')]],
+  ]);
+  const totals = summariseFindings(raised, []).totals;
+  assert.deepEqual([totals.carried, totals.new], [2, 4]);
+  assert.deepEqual([totals.raised, totals.recurring], [8, 1], 'the other totals are unchanged');
+  assert.deepEqual(summariseFindings(new Map([[1, [at('code', 'lib/a.ts')]]]), []).totals, { raised: 1, fixed: 0, disputed: 0, recurring: 0, carried: 0, new: 0 }, 'round 1 only');
 });
 
 const f = (lens: string, title: string | null, text = `${title}`): LensFinding => ({ lens, title, text, severity: 'minor', path: null, line: null });

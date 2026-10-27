@@ -1,5 +1,5 @@
 // GET /api/stats, /api/evals and /api/evals/compare: the Analytics and Evals pages.
-import type { Stage } from './enums.ts';
+import type { Stage, WaitingOn } from './enums.ts';
 import type { EvalOverlay } from './job.ts';
 
 /** Usage per role or model in stats: computeStats in lib/engine/metrics/stats.ts. */
@@ -7,13 +7,27 @@ export interface UsageRow {
   tokens: number;
   estCostUsd: number;
   runs: number;
+  /** cost.byRole rows only: cacheRead / (input + cacheRead + cacheWrite) over the role's usage; null at 0. */
+  cacheReadShare?: number | null;
+}
+
+/** A sample's median, nearest-rank 90th percentile and size: spread in lib/engine/metrics/speed.ts; both null at n 0. */
+export interface TimeSpread {
+  median: number | null;
+  p90: number | null;
+  n: number;
 }
 
 /** One review lens's record: computeStats in lib/engine/metrics/stats.ts. */
 export interface ReviewerStats {
   reviews: number;
   changes: number;
+  /** Blocker findings, where the findings record carries severities. */
   blockers: number;
+  /** Review rounds where this lens's verdict was the only CHANGES. */
+  soleChanges: number;
+  /** Rounds where this lens said CHANGES after a PASS in the nearest earlier round it ran in. */
+  reopened: number;
   changeRate: number | null;
   /** Tagged findings the lens raised in its review files. */
   findings: number;
@@ -82,6 +96,10 @@ export interface Stats {
     specFirstApprovalRate: number | null;
     /** Recurring (lens, path) review findings across every job in the window. */
     recurringFindings: number;
+    /** Findings in rounds 2+ whose (lens, path) was raised the round before. */
+    findingsCarried: number;
+    /** Findings in rounds 2+ that were not: a new path, a path-less finding, or one after a round with no review files. */
+    findingsNew: number;
     /** Autonomous jobs (lib/engine/evals/autonomy.ts) over merged jobs with a final outcome. */
     autonomyRate: number | null;
     /** The same, also without a person's approval at a required gate. */
@@ -97,7 +115,27 @@ export interface Stats {
     /** Scored jobs per builder model (`unknown` when none was recorded). */
     scoreByBuilderModel: Record<string, { scored: number; medianScore: number | null }>;
   };
-  speed: { medianMinutesToPr: number | null; medianMinutesToDone: number | null };
+  /** The figures after medianMinutesToDone cover done jobs with a finishedAt only: lib/engine/metrics/speed.ts. */
+  speed: {
+    medianMinutesToPr: number | null;
+    medianMinutesToDone: number | null;
+    /** Per stage, in STAGES order: the median minutes a done job spent running in it, over the jobs that did. */
+    stageMinutes: Partial<Record<Stage, number>>;
+    /** Per waitingOn, in WAITING_ON order: the median total minutes parked on it, over the done jobs that parked there. */
+    waitingMinutes: Partial<Record<WaitingOn, number>>;
+    /** Time between agents: the median minutes per job running with no agent run open. */
+    medianHandoffMinutes: number | null;
+    /** The median minutes per job (zeros included) in stalls: 5+ minutes running with no agent, no command and no event. */
+    stalledMinutes: number | null;
+    /** Agent gaps in seconds, from the latest end of a job's earlier runs to a run that overlaps none, while running; split by whether a command event fell inside. */
+    handoffSeconds: { withoutCommand: TimeSpread; withCommand: TimeSpread };
+    /** Seconds from agent-start to the transcript's first tool call; background runs overlap another run. n 0 over a given job list. */
+    agentStartSeconds: { foreground: TimeSpread; background: TimeSpread };
+    /** Wall minutes from a round's first `round` event (round 2+) to the first later `verdicts` event for it. */
+    minutesPerExtraRound: TimeSpread;
+    /** Done jobs with a readable createdAt and finishedAt: the population of the figures above. */
+    timedJobs: number;
+  };
   cost: {
     totalTokens: number;
     estCostUsd: number;

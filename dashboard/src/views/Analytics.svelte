@@ -41,6 +41,21 @@
   </div></div>
 {/snippet}
 
+{#snippet minutesTable(title: string, keyHead: string, rows: Record<string, number>)}
+  <div class="plate flat"><div class="label callout px-3 pt-3">{title}</div><div class="overflow-x-auto">
+    <table class="tbl">
+      <thead><tr><th>{keyHead}</th><th class="r">{$t('analytics.median')}</th></tr></thead>
+      <tbody>
+        {#each Object.entries(rows) as [key, minutes] (key)}
+          <tr><td class="font-medium">{key}</td><td class="r num">{$t('analytics.minutes', { count: minutes })}</td></tr>
+        {:else}
+          <tr><td colspan="2" class="text-muted">{$t('analytics.noTiming')}</td></tr>
+        {/each}
+      </tbody>
+    </table>
+  </div></div>
+{/snippet}
+
 <PageHeader title={$t('analytics.title')}>
   {#snippet sub()}{$t('analytics.sub')}{/snippet}
   {#snippet right()}<Select label={$t('analytics.window')} value={S.window} options={STATS_WINDOWS.map(([value, label]) => ({ value, label }))} onchange={setWindow} />{/snippet}
@@ -73,16 +88,18 @@
   <div class="grid gap-3 lg:grid-cols-2 mt-6">{@render usageTable($t('analytics.byRole'), s.cost.byRole)}{@render usageTable($t('analytics.byModel'), s.cost.byModel)}{@render usageTable($t('analytics.bySession'), s.cost.sessions ?? {})}</div>
   <div class="plate flat mt-6"><div class="label callout px-3 pt-3">{$t('analytics.lenses')}</div><div class="overflow-x-auto">
     <table class="tbl">
-      <thead><tr><th>{$t('common.lens')}</th><th>{$t('analytics.reviews')}</th><th>{$t('analytics.askedChanges')}</th></tr></thead>
+      <thead><tr><th>{$t('common.lens')}</th><th>{$t('analytics.reviews')}</th><th>{$t('analytics.askedChanges')}</th><th>{$t('analytics.blockers')}</th><th>{$t('analytics.soleChanges')}</th><th>{$t('analytics.reopened')}</th></tr></thead>
       <tbody>
         {#each Object.entries(s.reviewers) as [k, v] (k)}
-          <tr><td class="font-medium">{k}</td><td class="num">{v.reviews}</td><td class="num">{pct(v.changeRate)}</td></tr>
+          <!-- An older /api/stats has no sole or reopened counts. -->
+          <tr><td class="font-medium">{k}</td><td class="num">{v.reviews}</td><td class="num">{pct(v.changeRate)}</td><td class="num">{v.blockers}</td><td class="num">{v.soleChanges ?? 0}</td><td class="num">{v.reopened ?? 0}</td></tr>
         {:else}
-          <tr><td colspan="3" class="text-muted">{$t('analytics.noReviews')}</td></tr>
+          <tr><td colspan="6" class="text-muted">{$t('analytics.noReviews')}</td></tr>
         {/each}
       </tbody>
     </table>
   </div></div>
+  <div class="grid gap-3 lg:grid-cols-2 mt-6">{@render minutesTable($t('analytics.stageTime'), $t('analytics.stage'), s.speed.stageMinutes ?? {})}{@render minutesTable($t('analytics.parkedTime'), $t('analytics.waitingOn'), s.speed.waitingMinutes ?? {})}</div>
   {#if jobs.length}
     <div class="plate flat mt-6"><div class="label callout px-3 pt-3">{$t('analytics.byUsage')}</div><div class="overflow-x-auto">
       <table class="tbl">
