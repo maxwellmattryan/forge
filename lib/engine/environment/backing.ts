@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { backingProblems, isManaged } from '#core/config/validators/backing.ts';
-import { adminOf, dbEntries, dbRecordFile, dropJobDatabase, fillDbUrl, jobDbName, jobDbPasswords, readDbRecord, removeDbRecord, upDatabase, type DatabaseOpts } from './backing-db.ts';
+import { adminOf, dbEntries, dbRecordFile, dropJobDatabase, fillDbUrl, jobDbName, jobDbPasswords, readDbRecord, removeDbRecord, teardownDbEntries, upDatabase, type DatabaseOpts } from './backing-db.ts';
 import { containerName, ownersOf, projectSlug, rootLabel, volumeName } from './backing-names.ts';
 import { emptyRecord, entries, entriesOrNone, jobRecordFile, portsLock, rawPorts, readJobRecord, readRaw, readSharedRecord, sharedRecordFile, takenPorts } from './backing-records.ts';
 import { otherProjectsPorts, withPortsLock } from './ports.ts';
@@ -396,8 +396,8 @@ export function hasJobBacking(root: string, config: Config, id: string): boolean
 
 /**
  * Removes the job's per-job containers and their volumes, only those labelled with this root and
- * job, and drops its job databases (names derived from the job id, never read from a record), then
- * deletes backing.json and backing-db.json. On any docker or psql failure, or a stopped shared
+ * job, drops its job database on each shared entry with `database` or named in its record (the name
+ * always derived from the job id), then deletes both records. On any docker or psql failure, or a stopped shared
  * container, the records are kept so a retry still works; a shared container that no longer exists
  * holds nothing to drop.
  */
@@ -405,7 +405,7 @@ export function backingDown(root: string, config: Config, id: string, runner: Do
   const file = jobRecordFile(root, id);
   const all = entries(config);
   const list = all.filter((e) => e.isolation === 'per-job');
-  const dbs = dbEntries(config);
+  const dbs = teardownDbEntries(root, id, all);
   const removed: string[] = [];
   const volumes: string[] = [];
   const databases: string[] = [];
