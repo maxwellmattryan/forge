@@ -129,9 +129,9 @@ function chatPath(id: string): string {
   return `/api/chats/${id}`;
 }
 
-/** A GET to this page's project with the token; throws with the server's `error` field, else its text, else the status text (as post). */
-async function getJson<T>(url: string, token: string, fetchImpl: typeof fetch): Promise<T> {
-  const res = await fetchImpl(projectApi(url), { headers: { 'x-forge-token': token } });
+/** A GET to this page's project; throws with the server's `error` field, else its text, else the status text (as post). */
+async function getJson<T>(url: string, fetchImpl: typeof fetch): Promise<T> {
+  const res = await fetchImpl(projectApi(url));
   const text = await res.text();
   let parsed: unknown = null;
   try {
@@ -143,37 +143,37 @@ async function getJson<T>(url: string, token: string, fetchImpl: typeof fetch): 
 }
 
 /** GET /api/chats: every chat, newest updatedAt first. */
-export const listChats = (token: string, fetchImpl: typeof fetch = fetch): Promise<ChatList> => getJson<ChatList>('/api/chats', token, fetchImpl);
+export const listChats = (fetchImpl: typeof fetch = fetch): Promise<ChatList> => getJson<ChatList>('/api/chats', fetchImpl);
 
 /** POST /api/chats `{}`: a new, untitled chat. */
-export const createChat = (token: string, fetchImpl: typeof fetch = fetch): Promise<{ chat: Chat }> => post<{ chat: Chat }>('/api/chats', {}, token, fetchImpl);
+export const createChat = (fetchImpl: typeof fetch = fetch): Promise<{ chat: Chat }> => post<{ chat: Chat }>('/api/chats', {}, fetchImpl);
 
 /** POST /api/chats/<id>/rename: the title trimmed, an empty one as null (untitled); the server makes it one line. */
-export async function renameChat(id: string, title: string | null, token: string, fetchImpl: typeof fetch = fetch): Promise<{ chat: Chat }> {
-  return post<{ chat: Chat }>(`${chatPath(id)}/rename`, { title: title?.trim() || null }, token, fetchImpl);
+export async function renameChat(id: string, title: string | null, fetchImpl: typeof fetch = fetch): Promise<{ chat: Chat }> {
+  return post<{ chat: Chat }>(`${chatPath(id)}/rename`, { title: title?.trim() || null }, fetchImpl);
 }
 
 /** POST /api/chats/<id>/archive `{}`: archived for good, its session stopped. */
-export async function archiveChat(id: string, token: string, fetchImpl: typeof fetch = fetch): Promise<{ chat: Chat }> {
-  return post<{ chat: Chat }>(`${chatPath(id)}/archive`, {}, token, fetchImpl);
+export async function archiveChat(id: string, fetchImpl: typeof fetch = fetch): Promise<{ chat: Chat }> {
+  return post<{ chat: Chat }>(`${chatPath(id)}/archive`, {}, fetchImpl);
 }
 
 /** POST /api/chats/<id>/messages `{ text }`, the text as typed: the chat and its session's state after the hand-off. */
-export async function sendChatMessage(id: string, text: string, token: string, fetchImpl: typeof fetch = fetch): Promise<ChatDetail> {
-  return post<ChatDetail>(`${chatPath(id)}/messages`, { text }, token, fetchImpl);
+export async function sendChatMessage(id: string, text: string, fetchImpl: typeof fetch = fetch): Promise<ChatDetail> {
+  return post<ChatDetail>(`${chatPath(id)}/messages`, { text }, fetchImpl);
 }
 
 /** GET /api/chats/<id>: the chat and its session's state. */
-export async function fetchChat(id: string, token: string, fetchImpl: typeof fetch = fetch): Promise<ChatDetail> {
-  return getJson<ChatDetail>(chatPath(id), token, fetchImpl);
+export async function fetchChat(id: string, fetchImpl: typeof fetch = fetch): Promise<ChatDetail> {
+  return getJson<ChatDetail>(chatPath(id), fetchImpl);
 }
 
 /** How many entries one log page asks for. */
 export const CHAT_PAGE = 1000;
 
 /** GET /api/chats/<id>/log?after=<after>&limit=CHAT_PAGE: the entries after index `after` (-1 for the start), oldest first. */
-export async function fetchChatLog(id: string, after: number, token: string, fetchImpl: typeof fetch = fetch): Promise<ChatLogPage> {
+export async function fetchChatLog(id: string, after: number, fetchImpl: typeof fetch = fetch): Promise<ChatLogPage> {
   const path = chatPath(id);
   if (!Number.isInteger(after) || after < -1) throw new Error(`bad log cursor ${after}`);
-  return getJson<ChatLogPage>(`${path}/log?after=${after}&limit=${CHAT_PAGE}`, token, fetchImpl);
+  return getJson<ChatLogPage>(`${path}/log?after=${after}&limit=${CHAT_PAGE}`, fetchImpl);
 }

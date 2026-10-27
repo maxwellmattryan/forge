@@ -6,7 +6,7 @@
 <script lang="ts">
   import Chip from './Chip.svelte';
   import { api } from '../lib/util.ts';
-  import { forgeToken, refresh } from '../lib/app.svelte.ts';
+  import { refresh } from '../lib/app.svelte.ts';
   import { parseRepoProposals, pendingRepos, postRepoDecision, proposalTone } from '../lib/repo-proposals.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
@@ -37,7 +37,7 @@
     const text = note;
     note = '';
     try {
-      const r = await postRepoDecision(id, decision, shown, text, forgeToken());
+      const r = await postRepoDecision(id, decision, shown, text);
       toast(decision === 'approve' ? $t('repoProposal.approved', { repos: r.repos.join(', ') }) : $t('repoProposal.rejected', { repos: r.repos.join(', ') }));
       await refresh();
     } catch (e) {

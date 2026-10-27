@@ -32,7 +32,7 @@
     session.loadAbout();
   });
 
-  /** Saves the zip through a temporary object URL; the token went in a header, never in this URL. */
+  /** Saves the zip through a temporary object URL; the download URL carries nothing secret. */
   async function download(): Promise<void> {
     bundling = true;
     let href: string | null = null;

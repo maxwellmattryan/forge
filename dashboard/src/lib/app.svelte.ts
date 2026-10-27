@@ -1,6 +1,7 @@
 // The dashboard's state and actions, ported from the pre-Svelte app.js: same fetches, toasts and follow-up refreshes.
 // API payloads are $state.raw and replaced wholesale, so a poll re-renders only what reads them.
 import { api, errorText } from './util.ts';
+import { connectionBanner } from './login.ts';
 import { API_VERSION } from './types.ts';
 import { currentProject, isNotRegisteredError, notRegistered, projectApi, setProject } from './project.ts';
 import { parseRoute, routeProject, type Route } from './routes.ts';
@@ -171,11 +172,6 @@ class AppState {
 
 export const S = new AppState();
 
-const TOKEN = (): string => document.querySelector<HTMLMetaElement>('meta[name="forge-token"]')?.content ?? '';
-let token: string | null = null;
-/** Read once, as the old app.js did at load. */
-export const forgeToken = (): string => (token ??= TOKEN());
-
 /** The last poll's job signatures; null until the first poll, so the page's first load flashes nothing. */
 let memo: PollMemo | null = null;
 
@@ -186,7 +182,9 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
 /** The server answered 404 for a project that is not (or no longer) registered: it is up, so this is not a lost connection. */
 const isUnregistered = (e: unknown): boolean => isNotRegisteredError(errorText(message(e)));
 
-const lostConnection = (e: unknown): string => `Lost connection to the Forge server (${message(e)}). Is \`forge dash\` still running?`;
+// A 401 from a running server means this browser holds no login cookie (a new profile, a restart, a localhost URL), which
+// a new login link fixes; anything else is a lost connection.
+const lostConnection = (e: unknown): string => connectionBanner(errorText(message(e)), `Lost connection to the Forge server (${message(e)}). Is \`forge dash\` still running?`);
 
 /** GET /api/projects into S.machine: the switcher, the Overview and the Machine page read it. A failure keeps the last list. */
 export async function refreshMachine(): Promise<void> {
@@ -302,7 +300,7 @@ export async function loadView(): Promise<void> {
     }
     if (S.view === 'project') {
       // Its own failure is a line in its section, not a toast every 15 s, and never blocks the graph.
-      const envs = fetchEnvironments(forgeToken()).then(
+      const envs = fetchEnvironments().then(
         (r) => {
           if (!current()) return;
           S.environments = r;
@@ -333,7 +331,7 @@ export async function loadMandates(): Promise<void> {
   const project = currentProject();
   if (project === null) return;
   try {
-    const r = await fetchMandates(forgeToken());
+    const r = await fetchMandates();
     if (currentProject() !== project) return;
     S.mandates = r;
     S.mandatesError = null;
@@ -436,8 +434,8 @@ export function setWindow(w: string): void {
 }
 
 export async function refreshBacklog(): Promise<void> {
-  // A refetch spends the tracker's rate limit, so the server honours `refresh` only with the token.
-  S.backlog = await api<BacklogResponse>('/api/backlog?refresh=1', { headers: { 'x-forge-token': forgeToken() } }).catch((e: unknown) => ({ items: [], error: message(e) }));
+  // A refetch spends the tracker's rate limit, so only this button asks for one.
+  S.backlog = await api<BacklogResponse>('/api/backlog?refresh=1').catch((e: unknown) => ({ items: [], error: message(e) }));
 }
 
 export async function compareRuns(a: string, b: string): Promise<void> {
@@ -454,7 +452,7 @@ export async function compareRuns(a: string, b: string): Promise<void> {
 
 const postInit = (body: unknown): RequestInit => ({
   method: 'POST',
-  headers: { 'content-type': 'application/json', 'x-forge-token': forgeToken() },
+  headers: { 'content-type': 'application/json' },
   body: JSON.stringify(body),
 });
 
@@ -539,26 +537,23 @@ export const fetchConfig = (): Promise<ConfigResponse> => jsonFetch<ConfigRespon
 export const postConfig = (key: string, value: ConfigValue): Promise<PostConfigResponse> =>
   jsonFetch<PostConfigResponse>('/api/config', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-forge-token': forgeToken() },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ key, value } satisfies PostConfigBody),
   });
 
-/** Takes the token: the server runs git and gh for it. */
-export const fetchDoctor = (): Promise<DoctorResponse> => jsonFetch<DoctorResponse>('/api/doctor', { headers: { 'x-forge-token': forgeToken() } });
+/** The server runs git and gh for it. */
+export const fetchDoctor = (): Promise<DoctorResponse> => jsonFetch<DoctorResponse>('/api/doctor');
 
-/**
- * The support bundle as a blob and the name to save it under. Takes the token in a header, never in
- * the URL: the server runs git and gh and reads job logs for it.
- */
+/** The support bundle as a blob and the name to save it under: the server runs git and gh and reads job logs for it. */
 export async function fetchBundle(): Promise<{ blob: Blob; filename: string }> {
-  const res = await fetch(projectApi('/api/doctor/bundle'), { headers: { 'x-forge-token': forgeToken() } });
+  const res = await fetch(projectApi('/api/doctor/bundle'));
   if (!res.ok) throw new Error(errorText(await res.text()) || res.statusText);
   return { blob: await res.blob(), filename: bundleFilename(res.headers.get('content-disposition')) };
 }
 
-/** Takes the token: the server runs gh for it, on the login's rate limit. */
+/** The server runs gh for it, on the login's rate limit. */
 export const fetchGitHubPreview = (url: string): Promise<GitHubPreviewResponse> =>
-  jsonFetch<GitHubPreviewResponse>(`/api/github/preview?url=${encodeURIComponent(url)}`, { headers: { 'x-forge-token': forgeToken() } });
+  jsonFetch<GitHubPreviewResponse>(`/api/github/preview?url=${encodeURIComponent(url)}`);
 
 export const fetchAbout = (): Promise<AboutResponse> => jsonFetch<AboutResponse>('/api/about');
 
@@ -608,9 +603,9 @@ export function closeDrawer(): void {
   S.drawer.back = null;
 }
 
-/** Takes the token: the server runs the tracker (gh for GitHub) for it, on the login's rate limit. */
+/** The server runs the tracker (gh for GitHub) for it, on the login's rate limit. */
 export const fetchBacklogItem = (ref: string): Promise<BacklogItemResponse> =>
-  jsonFetch<BacklogItemResponse>(`/api/backlog/item?ref=${encodeURIComponent(ref)}`, { headers: { 'x-forge-token': forgeToken() } });
+  jsonFetch<BacklogItemResponse>(`/api/backlog/item?ref=${encodeURIComponent(ref)}`);
 
 /**
  * Opens the issue panel on `ref` and fetches its text. The same ref keeps its last text while it re-fetches, so Back

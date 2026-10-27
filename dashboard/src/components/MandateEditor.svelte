@@ -16,7 +16,7 @@
   import Select from './Select.svelte';
   import { blankForm, editMandateBody, fetchMandate, formOf, inIntake, isUnreadable, newMandateBody, postMandate, postMandateEdit, type MandateForm } from '../lib/foreman.ts';
   import { MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL } from '../lib/types.ts';
-  import { forgeToken, loadMandates, refresh } from '../lib/app.svelte.ts';
+  import { loadMandates, refresh } from '../lib/app.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
   import { EXIT, fade, pop } from '../lib/motion.ts';
@@ -81,7 +81,7 @@
       return;
     }
     const id = row.id;
-    fetchMandate(id, forgeToken())
+    fetchMandate(id)
       .then((r) => {
         detail = r;
         form = formOf(r, r.body);
@@ -128,10 +128,10 @@
     saving = true;
     try {
       if (detail) {
-        await postMandateEdit(detail.id, editMandateBody(detail, detail, form), forgeToken());
+        await postMandateEdit(detail.id, editMandateBody(detail, detail, form));
         toast($t('foreman.editor.saved', { id: row?.id ?? '' }));
       } else {
-        const res = await postMandate(newMandateBody(form), forgeToken());
+        const res = await postMandate(newMandateBody(form));
         toast($t('foreman.editor.created', { id: res.mandate.id }));
       }
       onclose();

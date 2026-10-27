@@ -15,7 +15,6 @@
   import { pref } from '../../lib/prefs.ts';
   import type { Chat } from '../../lib/types.ts';
   import { ago } from '../../lib/util.ts';
-  import { forgeToken } from '../../lib/app.svelte.ts';
   import { ticker } from '../../lib/clock.svelte.ts';
   import { toast } from '../../lib/toast.svelte.ts';
   import { t } from '../../lib/locale.ts';
@@ -37,7 +36,7 @@
   async function load(): Promise<void> {
     const project = currentProject();
     try {
-      const r = await listChats(forgeToken());
+      const r = await listChats();
       if (currentProject() !== project) return;
       chats = (Array.isArray(r.chats) ? r.chats : []).filter((c) => isChatId(c.id));
       loadError = null;
@@ -57,7 +56,7 @@
     if (creating) return;
     creating = true;
     try {
-      const { chat } = await createChat(forgeToken());
+      const { chat } = await createChat();
       await load();
       if (isChatId(chat?.id)) {
         select(chat.id);

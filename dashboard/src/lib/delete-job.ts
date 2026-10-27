@@ -16,5 +16,5 @@ export function deleteBlocker(job: Pick<Job, 'kind' | 'pr'>): 'eval' | 'pr' | nu
 export const confirmMatches = (typed: string, id: string): boolean => typed.trim() === id;
 
 /** POST /api/jobs/:id/delete with the id typed back. */
-export const postDeleteJob = (id: string, confirm: string, token: string, fetchImpl: typeof fetch = fetch): Promise<DeleteJobResult> =>
-  post<DeleteJobResult>(`/api/jobs/${encodeURIComponent(id)}/delete`, { confirm } satisfies PostDeleteJobBody, token, fetchImpl);
+export const postDeleteJob = (id: string, confirm: string, fetchImpl: typeof fetch = fetch): Promise<DeleteJobResult> =>
+  post<DeleteJobResult>(`/api/jobs/${encodeURIComponent(id)}/delete`, { confirm } satisfies PostDeleteJobBody, fetchImpl);

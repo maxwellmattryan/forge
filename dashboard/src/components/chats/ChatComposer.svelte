@@ -10,7 +10,7 @@
   import { postDaemon } from '../../lib/daemon.ts';
   import { CHAT_MESSAGE_MAX } from '../../lib/types.ts';
   import type { ChatDetail, DaemonSessionState } from '../../lib/types.ts';
-  import { S, forgeToken, refresh } from '../../lib/app.svelte.ts';
+  import { S, refresh } from '../../lib/app.svelte.ts';
   import { toast } from '../../lib/toast.svelte.ts';
   import { t } from '../../lib/locale.ts';
 
@@ -51,7 +51,7 @@
     if (!canSend) return;
     sending = true;
     try {
-      const detail = await sendChatMessage(id, text, forgeToken());
+      const detail = await sendChatMessage(id, text);
       text = '';
       error = null;
       onsent(detail);
@@ -73,7 +73,7 @@
   async function startDaemon(): Promise<void> {
     starting = true;
     try {
-      await postDaemon('start', forgeToken());
+      await postDaemon('start');
       await refresh();
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), true);

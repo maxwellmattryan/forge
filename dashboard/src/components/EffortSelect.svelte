@@ -10,7 +10,7 @@
   import type { Effort } from '../lib/types.ts';
   import type { SelectOption } from '../lib/select.ts';
   import { effortTone, postJobEffort, restartPending } from '../lib/effort.ts';
-  import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
+  import { S, refresh } from '../lib/app.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
 
@@ -36,7 +36,7 @@
     picked = value;
     pending = true;
     try {
-      await postJobEffort(job, next, forgeToken());
+      await postJobEffort(job, next);
       await refresh();
     } catch (err) {
       toast($t('effort.failed', { error: err instanceof Error ? err.message : String(err) }), true);

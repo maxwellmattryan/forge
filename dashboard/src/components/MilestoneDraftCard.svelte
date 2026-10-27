@@ -12,7 +12,7 @@
   import { draftCardActions, draftDecisionBody, fetchDraft, postDraftDecision, wavesOf } from '../lib/drafts.ts';
   import { gateOwnerBadge } from '../lib/inbox.ts';
   import { errorText } from '../lib/util.ts';
-  import { forgeToken, refresh } from '../lib/app.svelte.ts';
+  import { refresh } from '../lib/app.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
   import type { DraftGate, MandateDraftResponse, PostMandateDraftBody } from '../lib/types.ts';
@@ -68,7 +68,7 @@
     if (!data?.request || !data.digest || busy) return;
     busy = true;
     try {
-      const r = await postDraftDecision(gate.mandate, draftDecisionBody(decision, data.request, data.digest, note), forgeToken());
+      const r = await postDraftDecision(gate.mandate, draftDecisionBody(decision, data.request, data.digest, note));
       if (r.decision === 'approve') toast($t('milestoneDraft.filed', { milestone: r.filing.milestone.title, count: r.filing.issues.length }));
       else toast(r.decision === 'revise' ? $t('milestoneDraft.revised') : $t('milestoneDraft.rejected'));
       note = '';
