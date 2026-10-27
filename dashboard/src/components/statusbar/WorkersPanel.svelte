@@ -2,7 +2,8 @@
      left; on the right the job sessions' default permission mode (a job's own choice in its Log tab overrides it; Auto
      adds a warn icon whose tooltip carries the warning) and the pool's one Start/Stop icon toggle. Under it the pool error
      or, for a project whose files no human has approved, the line that says to review them and press Start, and a line when
-     billing variables are set where forge dash started (warn tone for a provider switch or ANTHROPIC_BASE_URL, as doctor).
+     billing variables are set where forge dash started (warn tone for a provider switch or ANTHROPIC_BASE_URL, as doctor),
+     and a line naming the run's launch mode (forge dash --permission-mode; warn tone for Auto), shown with the daemon on or off.
      Then one row per job session in status order, in a fixed-height list that alone scrolls, or a muted line when there is
      none. A row's second line is its job id, its own mode when it has one, and its running child's last turn context
      (` · 245k context`). A row opens that job's pane on the Log tab. The rows say held and waiting themselves, so no
@@ -15,7 +16,7 @@
   import IconButton from '../IconButton.svelte';
   import Select from '../Select.svelte';
   import Tooltip from '../Tooltip.svelte';
-  import { PERMISSION_MODES, START_HINT, billingNote, daemonRows, jobFallbackMode, postDaemonMode, type Pill, type PoolModel } from '../../lib/daemon.ts';
+  import { PERMISSION_MODES, START_HINT, billingNote, daemonRows, jobFallbackMode, launchMode, postDaemonMode, type Pill, type PoolModel } from '../../lib/daemon.ts';
   import type { DaemonBilling } from '../../lib/types.ts';
   import type { SelectOption } from '../../lib/select.ts';
   import { toast } from '../../lib/toast.svelte.ts';
@@ -42,6 +43,8 @@
   const named = (mode: string): string => (Object.hasOwn(modeName, mode) ? modeName[mode] : mode);
   // What a job session without its own choice runs in: the default chosen here, else daemon.command's.
   const jobMode = $derived(jobFallbackMode(S.data?.daemons ?? null));
+  // The run's launch mode, from the machine summary, else this project's pool state.
+  const launch = $derived(launchMode(S.machine?.machine) ?? launchMode(S.data?.daemons));
   let modePending = $state(false);
   /** Shown until the next /api/state carries the new default, so the trigger doesn't jump back meanwhile. */
   let picked = $state<string | null>(null);
@@ -74,6 +77,7 @@
 </script>
 
 {#snippet pill(p: Pill)}<Chip tone={p.tone} extra="sm shrink-0" title={p.title} text={p.label} />{/snippet}
+{#snippet launchLine()}{#if launch !== null}<p class="text-xs {launch === 'auto' ? 'text-warn' : 'muted'}"><span class="mono">{$t('app.launchCommand', { mode: launch })}</span> {$t('statusbar.workers.launchMode', { mode: named(launch) })}</p>{/if}{/snippet}
 
 {#if model}
   <div class="flex flex-col gap-3" aria-busy={pending}>
@@ -93,6 +97,7 @@
     {#if model.error !== null}<p class="text-sm text-bad whitespace-pre-line break-words">{model.error}</p>{/if}
     {#if model.approval}<p class="text-sm text-warn break-words">{$t('statusbar.workers.approval')}</p>{/if}
     {#if note}<p class="text-xs {note.warn ? 'text-warn' : 'muted'}">{note.passed ? $t('statusbar.workers.billingPassed', { vars: note.vars }) : $t('statusbar.workers.billingIgnored', { vars: note.vars })}</p>{/if}
+    {@render launchLine()}
     {#if rows.length === 0}
       <p class="text-sm text-muted border-t border-line pt-3">{$t('statusbar.workers.empty')}</p>
     {:else}
@@ -111,6 +116,7 @@
 {:else}
   <div class="flex flex-col gap-3">
     <p class="text-sm text-muted">{$t('statusbar.workers.disabled')}</p>
+    {@render launchLine()}
     <div><IconButton icon="play" label={$t('daemon.start')} hint={START_HINT} disabled /></div>
   </div>
 {/if}

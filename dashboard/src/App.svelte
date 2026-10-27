@@ -1,5 +1,5 @@
 <!-- The dashboard shell: sidebar (with the "New job or command" input, the global pages and the project section), phone
-     nav, banners, the active view (a global page, or the selected project's), the drawer over it (the job or the issue
+     nav, banners, the run's launch-mode line, the active view (a global page, or the selected project's), the drawer over it (the job or the issue
      panel, in one shell), the status bar
      and its popovers, the command palette, the Add project dialog, and the toast. Everything a project owns remounts when
      the project changes. -->
@@ -48,6 +48,7 @@
   import { closePopover, popover } from './lib/popover.svelte.ts';
   import { closeCard, ghCard } from './lib/github-card.svelte.ts';
   import { lockScroll } from './lib/scroll-lock.ts';
+  import { launchMode } from './lib/daemon.ts';
 
   let settingsOpen = $state(false);
   /** The tab Settings opens on; unset opens the saved tab. */
@@ -62,6 +63,9 @@
   const settingsShortcut = settingsShortcutLabel(platform);
   /** The selected project: every project-scoped component below is keyed on it, so none keeps another project's state. */
   const project = $derived(S.selected);
+  /** `forge dash --permission-mode`, the run's launch mode for every project, or null without one. */
+  const launch = $derived(launchMode(S.machine?.machine));
+  const launchName = $derived(launch === 'auto' ? $t('session.modes.auto') : launch === 'dontAsk' ? $t('session.modes.dontAsk') : $t('session.modes.default'));
 
   // ---------- the sidebar's width and its icon-only rail ----------
   const compact = $derived(S.side.compact);
@@ -323,6 +327,8 @@
     <!-- The view keeps its centred width whether the drawer is open or not: the drawer overlays it. #view is the board's
          container-query root. -->
     <div id="view" class="@container mx-auto max-w-[1400px] px-4 md:px-8 pt-4 pb-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-6))]" inert={covered}>
+      <!-- The run's launch mode, once for the machine on every page. Not the ember Banner: nothing waits on you. Auto in warn tone. -->
+      {#if launch !== null}<p role="note" class="plate w-fit flex items-center gap-2 px-3 py-1.5 mx-1.5 mb-4 text-sm {launch === 'auto' ? 'text-warn' : 'muted'}"><Icon name="shield" /><span class="min-w-0"><span class="mono">{$t('app.launchCommand', { mode: launch })}</span> {$t('app.launchMode', { mode: launchName })}</span></p>{/if}
       {#key project}
         {#if S.route.scope === 'global'}
           {#if S.route.view === 'overview'}<Overview />{:else}<Machine />{/if}
