@@ -345,6 +345,8 @@ Every `agent-start` event (event schema v3) carries `pluginHash` (10 hex), `prom
 
 `forge stats --by prompt [--role R] [--since DATE] [--include-evals]` prints `{ by: "prompt", role, since, cohorts, unrecorded, mixed }`. A job's cohort is the `promptHash` on its last hashed `agent-start` for `R` (default `builder`). Each cohort is `{ promptHash, jobs, jobIds, firstAt, lastAt, pluginHashes, configHashes, stats }`: the first 20 job ids, the first and last of those starts, at most 5 distinct plugin and config hashes, and a full `forge stats --json` object over the cohort's jobs only; oldest `firstAt` first. `mixed` counts jobs whose starts for `R` carried more than one hash, `unrecorded` jobs with none. Archived jobs count. A `--role` that is neither an `agents/*.md` role nor `reviewer:<lens>`, and `--by prompt` with `--csv`, exit 2 (`usage`).
 
+`forge stats --mandate <id>` prints the mandate's live report card as JSON, the object itself in every output mode: `{ mandate, at, jobs, scores, review, interventions, spend, outcomes }`, where a figure still waiting on a score run or an outcome window reads `pending` and one with nothing to measure `null` (docs/IMPROVEMENT.md "Mandate report card"). It reads the CLI's records with no tracker call, and works for every status, a goal mandate still drafting too (every count 0, every figure null). `--json` is allowed. A bare or repeated `--mandate`, or `--mandate` with `--csv`, `--by`, `--role`, `--since` or `--include-evals`, exits 2 (`usage`, naming the flag and `usage: forge stats --mandate <id>`). An unknown id exits 1 (`not_found`), as does an unreadable mandate. A closed mandate's summary records the card at its close (`forge mandate show`'s `summary.card`).
+
 ## Experiments
 
 `forge experiment evaluate [<job>] [--dry-run]` settles `.forge/notes/experiments.md` (docs/IMPROVEMENT.md "Settling experiments"): the job worktree's ledger with `<job>`, else the repo's. It prints `{ file, dryRun, written, entries }`, one entry per ledger item: `{ id, metric, direction, baseline, baselineN, jobsAfter, n, value, method, interval, verdict, status, reason }`. `verdict` is `kept`, `reverted`, `inconclusive`, `pending`, or `settled` for an entry that was not open; `status` is the entry's status segment after the run (with `--dry-run`, what the run would write); `reason` names why an entry was closed at once or left open (`status segment is not "status open"`, `no id`, `no date`). It writes only that one file, atomically, and nothing under `.forge/` in the root it reads jobs from. Exit 1: no such job, the job has no worktree, or the ledger (or `.forge` or `.forge/notes` above it) is a link, not a regular file or over 1 MiB.
@@ -1927,13 +1929,14 @@ The per-user login service that starts the machine dashboard at login (a LaunchA
 
 Pipeline metrics: quality, speed and cost.
 
-**`forge stats [--since DATE] [--include-evals] [--json] | --by prompt [--role R] [--since DATE] [--include-evals] | --csv [--since DATE] [--by job|role|model|day]`**: pipeline metrics: review and verify first-pass rates, per-lens change, dispute and miss rates, recurring findings, escalations, time to PR, tokens and cost (a text summary, or the full object with --json); --by prompt groups jobs into prompt cohorts
+**`forge stats [--since DATE] [--include-evals] [--json] | --by prompt [--role R] [--since DATE] [--include-evals] | --csv [--since DATE] [--by job|role|model|day] | --mandate <id>`**: pipeline metrics: review and verify first-pass rates, per-lens change, dispute and miss rates, recurring findings, escalations, time to PR, tokens and cost (a text summary, or the full object with --json); --by prompt groups jobs into prompt cohorts; --mandate prints one mandate's live report card
 
 | Flag | Meaning |
 |---|---|
 | `--by K` | with --csv: one row per job (default, keyed job,kind,title), role, model or day; `prompt` (JSON only): one cohort per prompt hash the role last started on, each with its own stats |
 | `--csv` | spend as RFC 4180 CSV with CRLF line ends: key columns, then runs,tokens,input,output,cache_read,cache_write,usd; with it, --since keeps events at or after DATE |
 | `--include-evals` | count eval jobs too (--csv always counts every job) |
+| `--mandate ID` | the mandate's report card as JSON, computed live (any status): what merged, scores, review rounds, interventions by gate, spend against budget and outcomes, a figure still awaiting a score run or outcome window reading pending; takes no other stats flag |
 | `--role R` | with --by prompt: the agents/\*.md role or reviewer:&lt;lens> whose starts key the cohorts (default builder) |
 | `--since DATE` | only jobs created on or after DATE |
 

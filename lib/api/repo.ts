@@ -1,7 +1,7 @@
 // What the repo holds outside any job: /api/project, /api/roster, /api/backlog with the tracker item, /api/github/preview,
 // the mandates with their directives (GET and POST /api/mandates and /api/mandates/:id/*, the Foreman page), and a
 // goal mandate's milestone draft (/api/state's drafts, GET and POST /api/mandates/:id/draft).
-import type { ComponentKind, DependencyType, DirectiveAction, Effort, EffortSource, GateClass, MandateOnUnfinishable, MandateOrder, MandateScoring, MandateStatus, MandateUntil } from './enums.ts';
+import type { ComponentKind, DependencyType, DirectiveAction, Effort, EffortSource, GateClass, MandateOnUnfinishable, MandateOrder, MandateScoring, MandateStatus, MandateUntil, WaitingOn } from './enums.ts';
 import type { EventActor, GateOwner } from './job.ts';
 
 /** A backlog item, as a tracker's list() and get() return it (lib/engine/trackers/load.ts). */
@@ -231,7 +231,40 @@ export interface Directive {
   actor: EventActor | null;
 }
 
-/** One readable mandate on the Foreman page: its summary, the contract as it applies now, its chain and its progress. Never its body or goal. */
+/**
+ * A report card figure: its value; 'pending' while a job it counts still waits on a measurement (a score
+ * run or an outcome window); null when there is nothing to measure.
+ *
+ * The pending rule: a count of what has happened (jobs, interventions, spend, rounds of settled jobs) is a
+ * running total and is never pending. A figure over post-merge measurements (scores, outcomes) is
+ * 'pending' while its section's `pending` (scores) or `open` (outcomes) count is above 0, null when it
+ * counts nothing and awaits nothing, and otherwise its value. So an empty mandate reads null, never 0.
+ */
+export type CardFigure = number | 'pending' | null;
+
+/**
+ * A mandate's report card (lib/engine/metrics/report-card.ts buildReportCard): what merged, how it scored, how
+ * much review and human help it took, what it cost against its budget and what happened after the
+ * merges. Numbers, 'pending', null, WAITING_ON keys and ISO times only: no free text.
+ */
+export interface MandateReportCard {
+  /** The mandate id. */
+  mandate: string;
+  /** When it was computed. */
+  at: string;
+  jobs: { total: number; reached: number; merged: number; inFlight: number };
+  /** Over the merged jobs, each in exactly one bucket; median and below3 over the scored values. */
+  scores: { scored: number; held: number; failed: number; pending: number; unscored: number; median: CardFigure; below3: CardFigure };
+  /** Over the settled jobs with verdicts. */
+  review: { reviewed: number; avgRounds: number | null; firstPassRate: number | null };
+  /** Every person's `human` event, keyed by the park the job was at. */
+  interventions: { total: number; byGate: Partial<Record<WaitingOn | 'none', number>> };
+  spend: { usd: number; budgetUsd: number; started: number; budgetJobs: number };
+  /** Over the merged jobs, each in exactly one bucket; finalAt is the latest window close. */
+  outcomes: { final: number; open: number; unmeasured: number; reverted: CardFigure; followedUp: CardFigure; finalAt: string | null };
+}
+
+/** One readable mandate on the Foreman page: its summary, the contract as it applies now, its chain, its progress and its live report card. Never its body or goal. */
 export interface MandateRow extends MandateSummary {
   effective: MandateContract;
   /** One line per term the config changed. */
@@ -246,6 +279,8 @@ export interface MandateRow extends MandateSummary {
   };
   /** A goal mandate's draft: its status and the milestone-approval gate's; null for any other mandate. */
   draft: { status: DraftStatus; gate: DraftGateStatus } | null;
+  /** The report card, computed live, closed mandates too. */
+  card: MandateReportCard;
 }
 
 /** A mandate file that can't be read safely: never acted on. */
