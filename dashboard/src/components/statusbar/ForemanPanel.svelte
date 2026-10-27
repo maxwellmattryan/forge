@@ -27,7 +27,7 @@
   const promptScopes = $derived([OFFICE_SCOPE, ...assistants].filter((s) => pendingPrompts(S.data?.daemons ?? null, s).length));
   const logOptions = $derived<SelectOption[]>([
     { value: OFFICE_SCOPE, label: $t('statusbar.foreman.officeLog') },
-    ...assistants.map((a) => ({ value: a, label: $t('statusbar.foreman.assistant', { n: assistantNumber(a) }) })),
+    ...assistants.map((a) => ({ value: a, label: $t('statusbar.foreman.assistant', { n: assistantNumber(a), count: assistants.length }) })),
   ]);
   /** The log the human picked; null follows the default, the first assistant foreman (or the office with none). */
   let picked = $state<string | null>(null);

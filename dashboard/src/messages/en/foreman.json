@@ -70,15 +70,15 @@
         "one": "Closed ({count})",
         "other": "Closed ({count})"
       },
-      "assistants": "Assistant foremen",
-      "assistant": "Assistant foreman",
+      "assistants": "Assistants",
+      "assistant": "Assistant",
       "status": "Status",
       "gate": "Current gate",
       "noGate": "none",
-      "noAssistants": "No assistant foreman runs, so every gate stays with a person.",
+      "noAssistants": "No assistant runs, so every gate stays with a person.",
       "gatesWaiting": {
-        "one": "{count} gate waiting for an assistant foreman",
-        "other": "{count} gates waiting for an assistant foreman"
+        "one": "{count} gate waiting for an assistant",
+        "other": "{count} gates waiting for an assistant"
       },
       "directives": "Directives",
       "when": "When",
