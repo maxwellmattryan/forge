@@ -113,7 +113,10 @@
     switch (m.kind) {
       case 'stage':
       case 'pr-opened':
+      case 'ci-rerun':
         return 'gleam plain';
+      case 'ci-rerun-failed':
+        return 'spark';
       case 'waiting':
         return m.on === 'external' ? 'hollow' : 'spark';
       case 'blocked':
@@ -161,6 +164,10 @@
         return $t('thread.progress.prMerged', { number: m.number });
       case 'conflicts':
         return $t('thread.progress.conflicts', { count: m.count });
+      case 'ci-rerun':
+        return $t('thread.progress.ciRerun');
+      case 'ci-rerun-failed':
+        return m.reran ? $t('thread.progress.ciRerunFailed') : $t('thread.progress.ciRerunRefused');
       case 'note':
         return $t('thread.forge');
     }
@@ -171,6 +178,7 @@
     if (m.kind === 'agent') return m.summary;
     if (m.kind === 'note') return m.text;
     if (m.kind === 'waiting' || m.kind === 'blocked' || m.kind === 'ended' || m.kind === 'decision') return m.reason;
+    if (m.kind === 'ci-rerun' || m.kind === 'ci-rerun-failed') return m.checks.length ? m.checks.join(', ') : null;
     return null;
   }
 
