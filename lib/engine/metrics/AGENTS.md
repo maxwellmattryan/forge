@@ -18,5 +18,5 @@ Stats, token usage, spend and budgets.
 | `spend.ts` | The repo spend ledger, one ledger from two sources: every job's agent-end usage (reported), re-priced with today's table, and every daemon session's supervisor-metered spend (lib/engine/metrics/meter.ts), each bucketed by UTC day, role and model, across live jobs, archive records and the inbox and office sessions. |
 | `stats.ts` | Forge metrics. |
 | `types.ts` | The spend ledger's bucket and `forge stats --by prompt`'s shapes, type-only. |
-| `usage.ts` | Token usage read from Claude Code transcripts: deduped by message id, tools counted by block id, output estimated from content because the logged count is the stream's opening snapshot. |
+| `usage.ts` | Token usage read from Claude Code transcripts (a subagent's, or a role run's own session): deduped by message id, tools counted by block id, output estimated from content because the logged count is the stream's opening snapshot. |
 <!-- forge:map:end -->

@@ -15,7 +15,8 @@ import { JOB_HANDLERS, jobCmd } from './job.ts';
 import { HELP, JOB } from './job/help.ts';
 
 test('every documented job subcommand has one handler', () => {
-  const documented = HELP[0].commands.map((c) => c.command.replace(/^job /, '')).filter((s) => s !== 'advance');
+  // lib/cli/main.ts routes these two itself: their non-zero exits carry data.
+  const documented = HELP[0].commands.map((c) => c.command.replace(/^job /, '')).filter((s) => s !== 'advance' && s !== 'agent run');
   assert.deepEqual(Object.keys(JOB_HANDLERS).sort(), [...documented].sort());
 });
 

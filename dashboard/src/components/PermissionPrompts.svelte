@@ -40,7 +40,7 @@
           {:else if scope === undefined}
             {#if s === INBOX_SCOPE}<span class="text-muted">{$t('permission.inbox')}</span>
             {:else if s === OFFICE_SCOPE}<span class="text-muted">{$t('statusbar.foreman.officeLog')}</span>
-            {:else if isAssistantScope(s)}<span class="text-muted">{$t('statusbar.foreman.assistant', { n: assistantNumber(s) })}</span>
+            {:else if isAssistantScope(s)}<span class="text-muted">{$t('statusbar.foreman.assistant', { n: assistantNumber(s), count: Object.keys(S.data?.daemons?.assistants ?? {}).length })}</span>
             {:else if sharedScope(s)}<span class="mono text-muted">{s}</span>
             {:else}<button class="mono text-fg underline decoration-dotted truncate max-w-full" title={s} onclick={() => openDrawer(s, null, 'log')}>{s}</button>{/if}
           {/if}

@@ -148,7 +148,7 @@ export function barModel(pool: PoolInput, opts: { pending: boolean }): BarModel 
       ? {
           on: true,
           daemon: m !== null,
-          pill: familyPill([{ name: 'Foreman', session: office }, ...assistants.map((a) => ({ name: `Assistant foreman ${assistantNumber(a)}`, session: helpers[a] }))]),
+          pill: familyPill([{ name: 'Foreman', session: office }, ...assistants.map((a) => ({ name: assistants.length > 1 ? `Assistant ${assistantNumber(a)}` : 'Assistant', session: helpers[a] }))]),
           active: obj(office).status === 'busy' || assistants.some((a) => obj(helpers[a]).status === 'busy'),
           prompts: scopes.reduce((n, s) => n + pendingPrompts(pool ?? null, s).length, 0),
           assistants,
