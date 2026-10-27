@@ -66,6 +66,17 @@ test("a resume moves our PATH line after another install's, once, keeping the ot
   assert.deepEqual(fs.readFileSync(file), before);
 });
 
+test('a rewrite keeps the env file mode, and a new file is private', posix, (t) => {
+  const { file, otherLine } = scratch(t);
+  fs.writeFileSync(file, `${OURS}\n${MODE}\n${otherLine}\n`, { mode: 0o640 });
+  fs.chmodSync(file, 0o640);
+  assert.equal(hook(file).status, 0);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o640);
+  const fresh = path.join(path.dirname(file), 'fresh.sh');
+  assert.equal(hook(fresh).status, 0);
+  assert.equal(fs.statSync(fresh).mode & 0o777, 0o600);
+});
+
 test('a file with our PATH line last but no FORGE_MODE gains only that line', posix, (t) => {
   const { file, otherLine } = scratch(t);
   fs.writeFileSync(file, `${otherLine}\n${OURS}\n`);

@@ -38,9 +38,15 @@ try {
       const next = ours ? have : [...have.filter((l) => l !== pathLine), pathLine];
       if (!mode) next.push(modeLine);
       // Claude Code sources this file before every Bash command: write aside and rename, so none reads half of it.
+      // The copy keeps the file's mode (a new file is private), and `wx` refuses a path someone planted first.
+      let perm = 0o600;
+      try {
+        perm = fs.statSync(file).mode & 0o777;
+      } catch {}
       const tmp = `${file}.${process.pid}.tmp`;
       try {
-        fs.writeFileSync(tmp, next.map((l) => l + '\n').join(''));
+        fs.writeFileSync(tmp, next.map((l) => l + '\n').join(''), { mode: perm, flag: 'wx' });
+        fs.chmodSync(tmp, perm);
         fs.renameSync(tmp, file);
       } finally {
         fs.rmSync(tmp, { force: true });
