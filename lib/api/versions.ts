@@ -93,6 +93,10 @@ export const API_CHANGES = [
   { id: 'session-context' },
   // GET /api/backlog/item?ref= (BacklogItemResponse, TrackerItemView, TrackerComment): one tracker item's text and facts for the issue panel.
   { id: 'backlog-item' },
+  // Job.services is gone: Job.components (the list Forge acts on), Job.componentsDeclared (the spec's estimate) and
+  // Job.componentsFromDiff (forge verify's recompute from the committed diff) and Job.componentsUnmatched (that recompute
+  // found changed root files no component covers, so the top-level commands run).
+  { id: 'job-components' },
 ] as const;
 
 /**

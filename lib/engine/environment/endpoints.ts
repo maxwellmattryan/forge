@@ -29,7 +29,7 @@ function portOf(job: Pick<Job, 'port' | 'ports'>, name: string, first: boolean):
 }
 
 /** The job's endpoints from job state, config and the backing records; nothing is probed. */
-export function jobEndpoints(root: string, config: Config, job: Pick<Job, 'id' | 'port' | 'ports' | 'services'>): JobEndpoints {
+export function jobEndpoints(root: string, config: Config, job: Pick<Job, 'id' | 'port' | 'ports' | 'components' | 'componentsUnmatched'>): JobEndpoints {
   const components: JobEndpoints['components'] = [];
   portBearing(config, job).forEach((name, i) => {
     const port = portOf(job, name, i === 0);
@@ -81,7 +81,7 @@ export function endpointEnv(ep: JobEndpoints): Record<string, string> {
  * for when that component has one, else `job.port` for a root command, and nothing for a member
  * repo's command (its component is in another repo and holds no job port).
  */
-export function commandPort(config: Config, job: Pick<Job, 'port' | 'ports' | 'services'>, component: ComponentConfig | null): number | null {
+export function commandPort(config: Config, job: Pick<Job, 'port' | 'ports' | 'components' | 'componentsUnmatched'>, component: ComponentConfig | null): number | null {
   if (component) {
     const names = portBearing(config, job);
     const i = names.indexOf(component.name);

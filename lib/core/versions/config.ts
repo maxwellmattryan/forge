@@ -166,6 +166,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v43 adds daemon.freshAfterTokens (200000), filled from defaults, so no v42 config changes; the bump lets older
   // Forges refuse a config whose threshold they would reject as an unknown key.
   { id: 'daemon-fresh-after-tokens', up: (c) => c },
+  // v44 lets a component set `paths` (globs a changed file must match for a job to change it); a v43
+  // component has none and still matches by its `path`, so nothing moves.
+  { id: 'component-paths', up: (c) => c },
 ];
 
 const isPlainMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);

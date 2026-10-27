@@ -18,7 +18,7 @@ import { ForgeError } from '#core/errors.ts';
  * `job.port` is the port of the component the job builds. Libraries listen on nothing; a repo with
  * no service or app component gets the single `dev` entry, which is what every job had before.
  */
-export function portBearing(config: Pick<Config, 'components'>, job: Pick<Job, 'services'>): string[] {
+export function portBearing(config: Pick<Config, 'components'>, job: Pick<Job, 'components' | 'componentsUnmatched'>): string[] {
   const names = (config.components ?? []).filter((c) => c && (c.kind === 'service' || c.kind === 'app') && typeof c.name === 'string').map((c) => c.name);
   const own = jobComponent(config, job)?.name;
   const ordered = own !== undefined && names.includes(own) ? [own, ...names.filter((n) => n !== own)] : names;
@@ -78,7 +78,7 @@ export function otherProjectsPorts(home: string, root: string): Set<number> {
  * keeps its port while it is free and in range, a job with `port` but no `ports` (a v13 job) keeps it
  * as its first entry's, and a key naming no current entry is dropped. Throws, recording nothing, when the range is short.
  */
-export function allocatePorts(root: string, config: Config, job: Pick<Job, 'id' | 'port' | 'ports' | 'services'>, home: string = forgeHome()): Record<string, number> {
+export function allocatePorts(root: string, config: Config, job: Pick<Job, 'id' | 'port' | 'ports' | 'components' | 'componentsUnmatched'>, home: string = forgeHome()): Record<string, number> {
   const names = portBearing(config, job);
   const taken = new Set<number>([...takenPorts(root, config), ...otherProjectsPorts(home, root)]);
   for (const j of listJobs(root)) {

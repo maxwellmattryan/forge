@@ -20,7 +20,7 @@ Planned in M004, except where a config key exists today.
 | **issue panel** | The drawer panel the Issues page opens on a row: the issue's text, comments and facts beside the job holding it, Start and its earlier jobs; it shares the job panel's shell. | `tracker.github.comments` |
 | **root repo** | The repo that holds the project's `.forge/`, which for a project of one repo is that repo and is never listed in `repos`. | `repos` |
 | **member repo** | Any other repo the root repo's config lists as part of the project. | `repos` |
-| **component** | A buildable unit inside a repo, of kind `library`, `service` or `app`. | planned (M004) |
+| **component** | A buildable unit inside a repo, of kind `library`, `service` or `app`. A job's components are the ones it changes: the spec's `Components:` header declares them, and `forge verify` recomputes them from the job's committed diff. | `components` |
 | **port-bearing component** | A `service` or `app` component, which holds one job port (`ports` in `job.json`, `{endpoint.<component>}` in commands); a `library` holds none. | `components`, `ports` |
 | **dependency** | An edge from one component to another, `build` when it is needed to compile or bundle and `runtime` when it must be running. | planned (M004) |
 | **project graph** | The components of all of a project's repos and the dependencies between them, drawn by the dashboard's project view. | `components` |
@@ -147,7 +147,7 @@ Some of these words already mean something in Forge. They keep those meanings:
 - `resources` stays the reference links agents should know about, and `infra.mode` stays the policy for cloud and infrastructure commands. That is why runtime infrastructure is a "backing service", never a "resource" or "infra".
 - "GitHub Project" always carries the prefix (`tracker.github.project`, `statusSync: project`). Bare "project" means the glossary's project.
 - The top-level `project:` block (name, description, kinds, instructions, notes) today describes the root repo of a one-repo project.
-- `services:` today lists a monorepo's sub-paths with their own commands. It keeps its name, and a component of kind `service` is not a `services:` entry.
+- A job's components were once its `services` (the job field and the spec's `Services:` header), which still read as deprecated aliases. A component of kind `service` is not a backing service.
 - "Model profiles" in [CONFIG.md](CONFIG.md) are `runtime.models` presets from `/forge init`. "Profile" alone means the glossary's profile.
 - A job's `dependsOn` is a job dependency. "Dependency" alone means a component edge.
 - "Environment" alone never means environment variables (say "environment variables"), and "focus" never means a test's focus marker or keyboard focus.

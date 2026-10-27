@@ -11,6 +11,8 @@ import { isInsidePath } from '../os/fs.ts';
 import { SAFE_REF } from '../text.ts';
 import { sinkProblems } from './sinks.ts';
 import { declaredSecrets } from './validators/secret-refs.ts';
+import { globProblem } from './validators/policy-check.ts';
+import { inSpec } from '../glob.ts';
 import { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES } from '#api/constants.ts';
 
 export { isInsidePath };
@@ -49,13 +51,15 @@ export function servicesToComponents(c: any): any {
 }
 
 /**
- * The component whose commands a job uses: the one root-repo component its `services` names when it
+ * The component whose commands a job uses: the one root-repo component its `components` names when it
  * names exactly one. A component in another repo has no checkout in the job's worktree, so it is
- * never selected and the top-level commands run instead.
+ * never selected and the top-level commands run instead; so do they when the last recompute found
+ * changed files no component covers (`componentsUnmatched`), since the one component's commands
+ * would not test those.
  */
-export function jobComponent(config: Pick<Config, 'components'>, job: Pick<Job, 'services'>): ComponentConfig | null {
-  if (job.services.length !== 1) return null;
-  const c = (config.components ?? []).find((s) => s?.name === job.services[0]);
+export function jobComponent(config: Pick<Config, 'components'>, job: Pick<Job, 'components' | 'componentsUnmatched'>): ComponentConfig | null {
+  if (job.components.length !== 1 || job.componentsUnmatched) return null;
+  const c = (config.components ?? []).find((s) => s?.name === job.components[0]);
   return c && (c.repo === undefined || c.repo === null) ? c : null;
 }
 
@@ -104,6 +108,61 @@ export function isManifestPath(ecosystem: unknown, p: unknown): p is string {
 
 const repoLabel = (r: unknown): string => (typeof r === 'string' ? `repo ${r}` : 'the root repo');
 
+/** A component's `paths`: a non-empty list of repo-relative paths or globs, each held to globProblem. */
+function pathsProblems(paths: unknown, at: string): string[] {
+  if (!Array.isArray(paths)) return [`${at}.paths must be a list of paths or globs (got ${show(paths, Infinity)})`];
+  if (!paths.length) return [`${at}.paths must name at least one path or glob; omit it to match by path`];
+  return paths.map((g) => globProblem(g, `${at}.paths`)).filter((p): p is string => p !== null);
+}
+
+/** `path` as a prefix: no leading `./` or trailing `/`; null for the repo root, which holds every file. */
+function pathPrefix(p: unknown): string | null {
+  const s = typeof p === 'string' ? p.replace(/^(?:\.\/)+/, '').replace(/\/+$/, '') : '.';
+  return s === '' || s === '.' ? null : s;
+}
+
+/**
+ * Whether `c` covers the repo-relative `file`: it passes `paths` (inSpec, like review.panel paths), or,
+ * without `paths`, sits at or under `path`. A `paths` entry that is not a string (validation reports it)
+ * covers nothing, so such a component never claims a file it should not.
+ */
+function covers(c: ComponentConfig, file: string): boolean {
+  if (Array.isArray(c.paths)) return inSpec(file, c.paths.filter((g): g is string => typeof g === 'string'));
+  const prefix = pathPrefix(c.path);
+  return prefix === null || file === prefix || file.startsWith(`${prefix}/`);
+}
+
+/** The components `componentsForChanges` and `unmatchedChanges` look at: maps with a name. */
+const named = (config: Pick<Config, 'components'>): ComponentConfig[] => (config.components ?? []).filter((c) => isMap(c) && typeof c.name === 'string');
+
+/**
+ * The configured components a set of changed files touches, in config order: `changed` maps a repo
+ * (null for the root) to its changed repo-relative files. A component matches when one of its repo's
+ * files is covered by it (`paths`, else `path`). A component whose repo has no entry matches nothing;
+ * a file may match several components.
+ */
+export function componentsForChanges(config: Pick<Config, 'components'>, changed: ReadonlyMap<string | null, readonly string[]>): string[] {
+  const out: string[] = [];
+  for (const c of named(config)) {
+    if (out.includes(c.name)) continue;
+    const files = changed.get(c.repo ?? null);
+    if (files?.some((f) => covers(c, f))) out.push(c.name);
+  }
+  return out;
+}
+
+/**
+ * How many changed files of the root repo no root component covers. The recompute names only the
+ * components the diff touches, so a commit in one component plus a file outside every component still
+ * names one; this count is what tells verify the job changed more than that component, and that the
+ * top-level commands must run. Member repos pick their commands by repo, not by the job's components,
+ * so only the root list counts.
+ */
+export function unmatchedChanges(config: Pick<Config, 'components'>, changed: ReadonlyMap<string | null, readonly string[]>): number {
+  const own = named(config).filter((c) => (c.repo ?? null) === null);
+  return (changed.get(null) ?? []).filter((f) => !own.some((c) => covers(c, f))).length;
+}
+
 /** Every problem with `components` (and a leftover `services`), in the form validateConfig reports. */
 export function componentProblems(c: unknown): string[] {
   const cfg: Record<string, any> = isMap(c) ? c : {};
@@ -136,6 +195,7 @@ export function componentProblems(c: unknown): string[] {
       else for (const [k, v] of Object.entries(e.commands)) if (v !== null && typeof v !== 'string') problems.push(`${at}.commands.${k} must be a string or null (got ${show(v, Infinity)})`);
     }
     if (e.notes !== undefined && e.notes !== null && typeof e.notes !== 'string') problems.push(`${at}.notes must be a string or null (got ${show(e.notes, Infinity)})`);
+    if (e.paths !== undefined) problems.push(...pathsProblems(e.paths, at));
     if (e.config !== undefined) problems.push(...sinkProblems(e.config, `${at}.config`, e, declaredSecrets(cfg)));
     if (e.dependsOn === undefined) return;
     if (!Array.isArray(e.dependsOn)) return problems.push(`${at}.dependsOn must be a list (got ${show(e.dependsOn, Infinity)})`);

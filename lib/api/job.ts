@@ -304,7 +304,21 @@ export interface Job {
   parent: string | null;
   children: string[];
   dependsOn: string[];
-  services: string[];
+  /**
+   * The configured components Forge acts on (`jobComponent`, ports, verify's commands, the Project page): the
+   * declared list until `forge verify` recomputes it from the diff (lib/engine/verify/components.ts).
+   */
+  components: string[];
+  /** The estimate: the spec's `Components:` list (SP3) or `forge job new --components`; null until one is recorded. */
+  componentsDeclared: string[] | null;
+  /** The last recompute from the committed diff; null before the first. Only `forge verify` writes it. */
+  componentsFromDiff: string[] | null;
+  /**
+   * Whether the last recompute found changed files in the root repo that no root component covers. Then
+   * `jobComponent` selects none, so the top-level commands run, however many components matched. Only
+   * `forge verify` writes it.
+   */
+  componentsUnmatched: boolean;
   stage: Stage;
   state: JobState;
   waitingOn: WaitingOn | null;
