@@ -5,7 +5,7 @@
 import type { DraftBody, EventActor, MandateContract, MandateScope, MandateStatus } from '#core/types.ts';
 
 // The shapes the Foreman page reads too are /api shapes, owned by lib/api/repo.ts and lib/api/enums.ts.
-export type { DraftStatus, MandateContract, MandateScope, MandateState, MandateStatus, MandateSummary } from '#api/types.ts';
+export type { CardFigure, DraftStatus, MandateContract, MandateReportCard, MandateScope, MandateState, MandateStatus, MandateSummary } from '#api/types.ts';
 
 /** One `.forge/runtime/mandates/<id>.md`: every frontmatter key, then the owner's guidance as `body`. */
 export interface Mandate extends MandateContract {

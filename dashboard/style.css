@@ -968,6 +968,22 @@
   &:focus-within { border-color: var(--gleam); outline: 2px solid var(--line-strong); outline-offset: 2px; }
 }
 
+/* ---------- skeleton: the shape of a page still loading ---------- */
+/* One bone (components/Skeleton.svelte): a line-coloured bar on whatever surface holds it, sized like the text, chip or
+   panel that will sit there, breathing over --heat-breathe while the data is on its way. Reduced motion holds it still.
+   .round for a dot or pill. */
+@utility skeleton {
+  display: block;
+  flex: none;
+  max-width: 100%;
+  background-color: color-mix(in srgb, var(--line) 75%, var(--surface, var(--panel)));
+  corner-shape: bevel;
+  border-radius: 0 3px 0 3px;
+  animation: skeleton-breathe var(--heat-breathe) ease-in-out infinite;
+  &.round { corner-shape: round; border-radius: 9999px; }
+}
+@keyframes skeleton-breathe { 50% { opacity: .5; } }
+
 /* ---------- progress: a hot bar in a cold track ---------- */
 @utility track { height: 8px; border: 1px solid var(--line); corner-shape: bevel; border-radius: 0 3px 0 3px; position: relative; background-color: var(--surface, var(--bg)); box-shadow: inset 0 1px 0 0 var(--edge-dark); }
 /* A stacked bar on the track's frame: its series spans sit side by side, each as wide as its share (AgentRuns.svelte). */
@@ -1246,8 +1262,8 @@
   /* The nav: a 3px gleam bar over the active item's left edge, in place of its own inset bar. The clip follows the
      item's bottom-left chamfer (a --radius-nick bevel: its diagonal is 5px up the bar's left edge and 2px up its right
      edge), so the bar's corner doesn't poke past it. */
-  &.navlist[data-marker]::before { background: var(--gleam); z-index: 2; clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--radius-nick) + var(--bar-rule)), 0 calc(100% - var(--radius-nick))); }
-  &.navlist[data-marker] :is(a, button).active { box-shadow: var(--shadow-bevel); }
+  &:is(.navlist, .navlist-marks)[data-marker]::before { background: var(--gleam); z-index: 2; clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--radius-nick) + var(--bar-rule)), 0 calc(100% - var(--radius-nick))); }
+  &:is(.navlist, .navlist-marks)[data-marker] :is(a, button).active { box-shadow: var(--shadow-bevel); }
   /* The tab strip: a 2px gleam baseline in place of the active tab's own. */
   &.tabs[data-marker]::before { background: var(--gleam); z-index: 2; }
   &.tabs[data-marker] .tab.active { border-bottom-color: transparent; }

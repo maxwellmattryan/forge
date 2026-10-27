@@ -26,12 +26,26 @@ export interface StatsSource {
   archived: boolean;
 }
 
-const median = (xs: number[]): number | null => {
+/** The median of `xs`, null for none. */
+export const median = (xs: number[]): number | null => {
   if (!xs.length) return null;
   const s = [...xs].sort((a, b) => a - b);
   const m = Math.floor(s.length / 2);
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
+
+/**
+ * A job's review rounds: its last round number, and whether its first round's verdicts were all PASS;
+ * null for a job with no verdicts. The per-job rule behind quality.avgRounds and firstPassReviewRate,
+ * and the mandate report card's review figures.
+ */
+export function reviewRounds(job: Pick<Job, 'verdicts'>): { rounds: number; firstPass: boolean } | null {
+  const rounds = Object.keys(job.verdicts ?? {}).map(Number).sort((a, b) => a - b);
+  if (!rounds.length) return null;
+  const first = job.verdicts[rounds[0]];
+  return { rounds: rounds[rounds.length - 1], firstPass: Boolean(first) && Object.values(first).every((v) => v === 'PASS') };
+}
+
 const ratio = (n: number, d: number): number | null => (d ? Math.round((n / d) * 1000) / 1000 : null);
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -148,14 +162,13 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
       // setJob refuses state "waiting" without a waitingOn.
       waitingOn[j.waitingOn!] = (waitingOn[j.waitingOn!] ?? 0) + 1;
     }
-    const rounds = Object.keys(j.verdicts ?? {}).map(Number).sort((a, b) => a - b);
-    if (rounds.length) {
+    const review = reviewRounds(j);
+    if (review) {
       reviewed++;
-      roundsSum += rounds[rounds.length - 1];
-      const first = j.verdicts[rounds[0]];
-      if (first && Object.values(first).every((v) => v === 'PASS')) firstPass++;
+      roundsSum += review.rounds;
+      if (review.firstPass) firstPass++;
       const lenses = new Set<string>();
-      for (const r of rounds) {
+      for (const r of Object.keys(j.verdicts).map(Number).sort((a, b) => a - b)) {
         for (const [name, v] of Object.entries(j.verdicts[r] ?? {})) {
           // The rates and the trend are filled in for every lens after the loop.
           const s = (reviewers[name] ??= { reviews: 0, changes: 0, blockers: 0, findings: 0, fixed: 0, disputes: 0, recurring: 0, missChecked: 0, missed: 0, blockerMajor: 0, severityKnown: 0 } as ReviewerStats);

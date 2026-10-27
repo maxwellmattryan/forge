@@ -25,6 +25,13 @@
   import Project from './views/Project.svelte';
   import Overview from './views/Overview.svelte';
   import Machine from './views/Machine.svelte';
+  import PipelineSkeleton from './components/skeletons/PipelineSkeleton.svelte';
+  import IssuesSkeleton from './components/skeletons/IssuesSkeleton.svelte';
+  import AgentsSkeleton from './components/skeletons/AgentsSkeleton.svelte';
+  import ForemanSkeleton from './components/skeletons/ForemanSkeleton.svelte';
+  import AnalyticsSkeleton from './components/skeletons/AnalyticsSkeleton.svelte';
+  import EvalsSkeleton from './components/skeletons/EvalsSkeleton.svelte';
+  import ProjectSkeleton from './components/skeletons/ProjectSkeleton.svelte';
   import { S, checkSelection, closeDrawer, loadOverview, loadView, refresh, refreshMachine, route, setSidebar } from './lib/app.svelte.ts';
   import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_RAIL, sidebarDrag, sidebarKey, sidebarShown } from './lib/sidebar.ts';
   import { hideTip, railTipOn } from './lib/rail-tip.svelte.ts';
@@ -317,7 +324,14 @@
         {#if S.route.scope === 'global'}
           {#if S.route.view === 'overview'}<Overview />{:else}<Machine />{/if}
         {:else if !S.data}
-          {#if S.error}<Banner msg={S.error} />{:else}<div class="plate w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>{/if}
+          {#if S.error}<Banner msg={S.error} />
+          {:else if S.view === 'pipeline'}<PipelineSkeleton />
+          {:else if S.view === 'issues'}<IssuesSkeleton />
+          {:else if S.view === 'agents'}<AgentsSkeleton />
+          {:else if S.view === 'foreman'}<ForemanSkeleton />
+          {:else if S.view === 'analytics'}<AnalyticsSkeleton />
+          {:else if S.view === 'project'}<ProjectSkeleton />
+          {:else}<EvalsSkeleton />{/if}
         {:else}
           {#if S.error}<Banner msg={S.error} />{/if}
           {#if !S.data.initialized}<Banner msg={$t('app.noConfig')} />{/if}
