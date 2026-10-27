@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { billingNote, daemonRows, poolModel, scopeSession, sessionMode, sessionPill } from './daemon.ts';
 import { activeSessions } from './live.ts';
-import { pendingPrompts } from './permissions.ts';
+import { pendingPrompts, sessionPrompts } from './permissions.ts';
 import { barModel } from './statusbar.ts';
 
 test('daemonRows lists only job sessions, in status order', () => {
@@ -78,6 +78,11 @@ test('assistant foremen in the pool model', () => {
     permissionModes: {},
   } as any;
   assert.deepEqual(pendingPrompts(pool).map((p) => [p.scope, p.prompt.id]), [['_assistant-1', 'p1']]);
+  // A session the pool doesn't list (a chat's): its own prompts, with the scope given, oldest first, skipping one with no id.
+  const chat = { status: 'busy', permissions: [{ ...prompt, id: 'p3', at: '2026-10-25T00:00:02.000Z' }, { ...prompt, id: '' }, { ...prompt, id: 'p2', at: '2026-10-25T00:00:01.000Z' }, 'junk'] } as any;
+  assert.deepEqual(sessionPrompts(chat, '_chat-0123456789ab').map((p) => [p.scope, p.prompt.id]), [['_chat-0123456789ab', 'p2'], ['_chat-0123456789ab', 'p3']]);
+  assert.deepEqual(sessionPrompts(chat, '_chat-0123456789ab')[0]?.prompt, { ...prompt, id: 'p2', at: '2026-10-25T00:00:01.000Z' });
+  for (const none of [null, undefined, { status: 'idle' }, { permissions: 'x' }] as any[]) assert.deepEqual(sessionPrompts(none, '_chat-0123456789ab'), [], JSON.stringify(none));
   assert.equal(scopeSession(pool, '_assistant-1'), assistant);
   assert.equal(sessionMode(pool, '_assistant-1', assistant).chosen, 'default', "daemon.command's mode, not the job default");
   const foreman = barModel(pool, { pending: false }).foreman;

@@ -50,6 +50,7 @@
     "files": "Show file as",
     "thread": "Show conversation as",
     "session": "Show session log as",
+    "chat": "Show chat as",
     "rendered": "Rendered",
     "raw": "Raw",
     "sessionRendered": "Render markdown in the session log"

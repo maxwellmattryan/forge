@@ -11,7 +11,7 @@
   let { surface, iconOnly = false }: { surface: MdSurface; iconOnly?: boolean } = $props();
 
   // One label per surface: the drawer's Thread tab shows two toggles at once, and a screen reader must tell them apart.
-  const groupLabel = $derived<Record<MdSurface, string>>({ files: $t('markdown.files'), thread: $t('markdown.thread'), session: $t('markdown.session') });
+  const groupLabel = $derived<Record<MdSurface, string>>({ files: $t('markdown.files'), thread: $t('markdown.thread'), session: $t('markdown.session'), chat: $t('markdown.chat') });
   const viewLabel = $derived<Record<MdView, string>>({ rendered: $t('markdown.rendered'), raw: $t('markdown.raw') });
   const rendered = $derived(mdView[surface] === 'rendered');
 </script>

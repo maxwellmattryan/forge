@@ -22,7 +22,7 @@ import type {
 // ---------- the page's panels ----------
 
 /** The Foreman page's panels, in tab order; the first is the one the page opens on. A new panel is one entry here. */
-export const FOREMAN_PANELS = ['office'] as const;
+export const FOREMAN_PANELS = ['office', 'chats'] as const;
 export type ForemanPanel = (typeof FOREMAN_PANELS)[number];
 export const DEFAULT_FOREMAN_PANEL: ForemanPanel = FOREMAN_PANELS[0];
 

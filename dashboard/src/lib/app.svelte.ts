@@ -32,7 +32,8 @@ import type {
 } from './types.ts';
 import { bundleFilename } from './diagnostics.ts';
 import { fetchEnvironments } from './environment.ts';
-import { fetchMandates } from './foreman.ts';
+import { DEFAULT_FOREMAN_PANEL, fetchMandates } from './foreman.ts';
+import type { ForemanPanel } from './foreman.ts';
 import { pref } from './prefs.ts';
 import { toast } from './toast.svelte.ts';
 import { buildRequest, queuedMessage } from './requests.ts';
@@ -129,6 +130,11 @@ class AppState {
   /** The Foreman page's GET /api/mandates; a failed load keeps the last answer and sets `mandatesError`. */
   mandates = $state.raw<MandatesResponse | null>(null);
   mandatesError = $state<string | null>(null);
+  /**
+   * The Foreman page's selected tab. App state, not the page's own, so it survives leaving the page and the status bar's
+   * Open chat link can switch it while the page is open; a project switch resets it.
+   */
+  foremanPanel = $state<ForemanPanel>(DEFAULT_FOREMAN_PANEL);
   compare = new CompareState();
   drawer = new DrawerState();
   drawerView = $state.raw<DrawerView>(null);
@@ -375,6 +381,7 @@ export function switchProject(name: string | null): void {
   S.backlog = null;
   S.mandates = null;
   S.mandatesError = null;
+  S.foremanPanel = DEFAULT_FOREMAN_PANEL;
   S.compare.a = '';
   S.compare.b = '';
   S.compare.result = null;
