@@ -1,13 +1,14 @@
 // The Shelved list: a shelved job blocks nothing and is listed apart; the batch body pins each row to the
-// time the list showed it shelved; the toast lists every outcome and skip.
+// time the list showed it shelved; the toast lists every outcome and skip; a Foreman shelve says who did it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { inboxGroups, needsCount } from './inbox.ts';
 import { filterJobs, pipelineCounts, sortByRank } from './board.ts';
 import { needsHuman, stateText, stateTone } from './job-state.ts';
+import { actorLabel, isForemanEvent } from './drawer.ts';
 import { postShelf, shelfActionReady, shelfBody, shelfNeedsConfirm, shelfPress, shelfRows, shelfSummary } from './shelf.ts';
 import { setProject } from './project.ts';
-import type { Job } from './types.ts';
+import type { Job, JobEvent } from './types.ts';
 
 const AT = '2026-10-26T10:00:00.000Z';
 const shelf = (from: NonNullable<Job['shelved']>['from']): Job['shelved'] => ({ at: AT, reason: 'waiting on the billing owner', actor: { login: 'alice', source: 'gh' }, from });
@@ -44,6 +45,20 @@ test('the batch body names each row\'s shelvedAt', () => {
   assert.equal(shelfActionReady('unshelve', 0, ''), false, 'nothing selected');
   assert.equal(shelfActionReady('rework', 2, ' '), false, 'rework needs its note');
   assert.equal(shelfActionReady('rework', 2, 'why'), true);
+});
+
+test('a Foreman shelve is named as the Foreman on its row and in the timeline', () => {
+  const foreman = { login: null, source: 'foreman' };
+  const byForeman = { ...shelved, id: 'f', shelved: { ...shelf({ state: 'waiting', waitingOn: 'escalation', reason: 'r' }), actor: foreman } } as Partial<Job>;
+  assert.deepEqual(
+    shelfRows([shelved, byForeman]).map((r) => [r.id, r.by, r.foreman]),
+    [['s', 'alice', false], ['f', null, true]],
+  );
+  // Every event the Foreman recorded gets the Foreman chip and no "by"; a person's, or one with no actor, does neither.
+  const event = (type: string, actor?: { login: string | null; source: string }) => ({ type, actor }) as Partial<JobEvent>;
+  assert.deepEqual(['human', 'shelved', 'senior-pass'].map((t) => [isForemanEvent(event(t, foreman)), actorLabel(event(t, foreman))]), Array(3).fill([true, null]));
+  assert.deepEqual([event('shelved', { login: 'alice', source: 'gh' }), event('shelved')].map((e) => isForemanEvent(e)), [false, false]);
+  assert.deepEqual(actorLabel(event('shelved', { login: 'alice', source: 'gh' })), { login: 'alice', source: 'gh' });
 });
 
 test('pressing the same action twice from the bar never posts', () => {
