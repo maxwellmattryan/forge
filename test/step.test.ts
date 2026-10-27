@@ -275,10 +275,12 @@ test('loadStepInput parsers read plan, spec header and design deltas', () => {
   assert.deepEqual(parsePlan('PLAN: SINGLE\n## External\n- Recommend splitting: (a) x (b) y\n'), { verdict: 'SINGLE', jobs: 0, recommendSplit: true });
   assert.deepEqual(parsePlan('# no plan line\n'), { verdict: null, jobs: 0, recommendSplit: false });
   const header = parseSpecHeader('# T\n\nSize: L\nServices: -\nNeeds design: yes\nSuggested reviewers: code, tests, UI , evil;rm\n\n## Goal\nSize: S\n');
-  assert.deepEqual(header, { size: 'L', complexity: null, needsDesign: true, services: [], suggested: ['code', 'tests', 'UI', 'evil;rm'] });
+  assert.deepEqual(header, { size: 'L', complexity: null, needsDesign: true, components: [], suggested: ['code', 'tests', 'UI', 'evil;rm'] });
   assert.equal(parseSpecHeader('Size: M\nComplexity: High\n').complexity, 'high', 'stored lowercase');
   assert.equal(parseSpecHeader('Size: M\nComplexity: extreme\n').complexity, 'extreme', 'SP3 decides validity');
-  assert.deepEqual(parseSpecHeader('Services: api, web\n').services, ['api', 'web']);
+  assert.deepEqual(parseSpecHeader('Components: dashboard, cli\n').components, ['dashboard', 'cli']);
+  assert.deepEqual(parseSpecHeader('Services: api, web\n').components, ['api', 'web'], 'an older spec reads the same way');
+  assert.deepEqual(parseSpecHeader('Services: api\nComponents: web\n').components, ['web'], 'Components: wins over Services:');
   assert.equal(hasSpecDeltas('## Spec deltas\n"None"\n## Open questions\nx\n'), false);
   assert.equal(hasSpecDeltas('## Spec deltas\n- None.\n'), false);
   assert.equal(hasSpecDeltas('## Spec deltas\n- AC3 needs an empty state\n'), true);

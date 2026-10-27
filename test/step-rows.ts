@@ -118,6 +118,13 @@ const PANEL_SET = ev('fields', 3, { fields: { reviewers: ['code', 'tests'] } });
 const PROPOSED = (n: number) => ev('repo-proposed', n, { repo: 'lib', reason: 'core API' });
 /** The job's repos once lib was added: the root mirror, then lib. */
 const WITH_LIB = [{ repo: null }, { repo: 'lib', worktree: '/lib.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }] as Job['repos'];
+/** Two single-repo components, one with paths and notes, and the brief line they make. */
+const BRIEFED_COMPONENTS: Config['components'] = [
+  { name: 'cli', path: '.', kind: 'library', paths: ['lib/cli/**', 'bin/**'], notes: 'the forge command' },
+  { name: 'dashboard', path: 'dashboard', kind: 'app' },
+];
+const BRIEFED_LINE =
+  'Components (JSON): [{"name":"cli","repo":null,"kind":"library","path":".","paths":["lib/cli/**","bin/**"],"notes":"the forge command"},{"name":"dashboard","repo":null,"kind":"app","path":"dashboard","paths":null,"notes":null}]';
 
 /** A per-role project.instructions map, with both files in the main checkout (AC5 of #433; #388). */
 const ROLE_INSTRUCTIONS: Pick<FixtureOpts, 'config' | 'present'> = {
@@ -497,6 +504,12 @@ export const rows: Row[] = [
     want: { action: 'spawn', rule: 'P1', role: 'planner' },
     check: (a) => assert.deepEqual(briefInstructions(a.brief), { files: [path.join(ROOT, 'AGENTS.md')], line: true }),
   },
+  {
+    name: 'P1 the planner is briefed the components',
+    fx: { config: (c) => ((c.repos = []), (c.components = BRIEFED_COMPONENTS)), job: job({ stage: 'plan' }) },
+    want: { action: 'spawn', rule: 'P1', role: 'planner' },
+    check: (a) => assert.ok(a.brief.split('\n').includes(BRIEFED_LINE), a.brief),
+  },
   { name: 'P1 re-plans after revise-split with split mode never', fx: { job: job({ stage: 'plan', splitMode: 'never', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SPLIT', jobs: 2 }, events: [ev('human', 3, { action: 'revise-split' })] }, want: { action: 'spawn', role: 'planner' }, check: (a) => assert.ok(a.brief.includes('Split mode: never')) },
   { name: 'P2 a split under auto follows split.md', fx: { config: (c) => (c.pipeline.split = 'auto'), job: job({ stage: 'plan', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SPLIT', jobs: 3 } }, want: { action: 'procedure', why: 'PLAN: SPLIT under pipeline.split auto' }, check: (a) => assert.ok(a.reference.endsWith(path.join('reference', 'split.md'))) },
   { name: 'P2b approve-split recorded → split.md', fx: { job: job({ stage: 'plan', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SPLIT', jobs: 3 }, events: [ev('human', 5, { action: 'approve-split', actor: 'foreman' })] }, want: { action: 'procedure', rule: 'P2b', why: 'PLAN: SPLIT approved' }, check: (a) => assert.ok(a.reference.endsWith(path.join('reference', 'split.md'))) },
@@ -518,7 +531,21 @@ export const rows: Row[] = [
   { name: 'split mode: a revise-split job moves on once re-planned', fx: { config: (c) => (c.pipeline.split = 'auto'), job: job({ stage: 'plan', splitMode: 'never', agents: { planner: ag(0, 4, 5) } }), plan: { verdict: 'SINGLE' }, events: [ev('human', 3, { action: 'revise-split' })] }, want: { action: 'run', rule: 'P4' } },
 
   // ---- Spec
-  { name: 'SP1 spawns the spec-writer', fx: { files: ['request'], job: job({ stage: 'spec' }) }, want: { action: 'spawn', role: 'spec-writer', agent: 'forge:spec-writer', model: 'opus', output: path.join(JOB_DIR, 'spec.md') }, check: (a) => assert.ok(a.brief.includes('Review panel: code, tests, security')) },
+  {
+    name: 'SP1 spawns the spec-writer',
+    fx: { files: ['request'], job: job({ stage: 'spec' }) },
+    want: { action: 'spawn', role: 'spec-writer', agent: 'forge:spec-writer', model: 'opus', output: path.join(JOB_DIR, 'spec.md') },
+    check: (a) => {
+      assert.ok(a.brief.includes('Review panel: code, tests, security'));
+      assert.ok(!a.brief.includes('Components (JSON)'), 'no components configured: no line');
+    },
+  },
+  {
+    name: 'SP1 the spec-writer is briefed the components',
+    fx: { config: (c) => ((c.repos = []), (c.components = BRIEFED_COMPONENTS)), files: ['request'], job: job({ stage: 'spec' }) },
+    want: { action: 'spawn', rule: 'SP1', role: 'spec-writer' },
+    check: (a) => assert.ok(a.brief.split('\n').includes(BRIEFED_LINE), a.brief),
+  },
   {
     name: "SP1 the spec-writer gets its role's instruction files",
     fx: { ...ROLE_INSTRUCTIONS, files: ['request'], job: job({ stage: 'spec' }) },
@@ -526,9 +553,9 @@ export const rows: Row[] = [
     check: (a) => assert.deepEqual(briefInstructions(a.brief), { files: [path.join(ROOT, 'AGENTS.md'), path.join(ROOT, 'docs', 'DEVELOPING.md')], line: true }),
   },
   { name: 'SP2 a revise-spec re-runs the spec-writer with feedback', fx: { files: ['feedback'], job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'revise-spec' })] }, want: { action: 'spawn', role: 'spec-writer' }, check: (a) => assert.ok(a.brief.includes(path.join(JOB_DIR, 'feedback.md'))) },
-  { name: 'SP3 panel always lenses', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }) }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]') },
-  { name: 'SP3 panel adds suggested lenses that exist', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { suggested: ['security', 'docs'] } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests","security"]') },
-  { name: 'SP3 panel drops unknown and malformed names', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { suggested: ['evil;rm', 'UI ', 'Security', 'a\';touch x;\''] } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]') },
+  { name: 'SP3 panel always lenses', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }) }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'componentsDeclared=[]') },
+  { name: 'SP3 panel adds suggested lenses that exist', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { suggested: ['security', 'docs'] } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests","security"]', '--field', 'componentsDeclared=[]') },
+  { name: 'SP3 panel drops unknown and malformed names', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { suggested: ['evil;rm', 'UI ', 'Security', 'a\';touch x;\''] } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'componentsDeclared=[]') },
   {
     name: 'SP3 panel adds lenses whose when paths the Approach names, in panel order',
     fx: {
@@ -543,7 +570,7 @@ export const rows: Row[] = [
       job: job({ stage: 'spec', agents: SPEC_DONE }),
       spec: { approachPaths: ['dashboard/src/App.svelte', 'lib/trackers/github.ts'] },
     },
-    want: run('job', 'set', 'j', '--field', 'reviewers=["ui","code","security"]'),
+    want: run('job', 'set', 'j', '--field', 'reviewers=["ui","code","security"]', '--field', 'componentsDeclared=[]'),
   },
   {
     name: 'SP3 panel adds lenses whose paths the Approach names',
@@ -558,19 +585,32 @@ export const rows: Row[] = [
       job: job({ stage: 'spec', agents: SPEC_DONE }),
       spec: { approachPaths: ['ui/Widget.svelte', 'lib/server.ts'] },
     },
-    want: run('job', 'set', 'j', '--field', 'reviewers=["code","design","security"]'),
+    want: run('job', 'set', 'j', '--field', 'reviewers=["code","design","security"]', '--field', 'componentsDeclared=[]'),
   },
   {
-    name: 'SP3 panel records size and known services only',
-    fx: { config: (c) => (c.components = [{ name: 'api', path: 'api', kind: 'service' }]), job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { size: 'L', services: ['api', 'evil;x', 'web'] } },
-    want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'size=L', '--field', 'services=["api"]'),
+    name: 'SP3 panel records size and known components only',
+    fx: {
+      config: (c) => (c.components = [{ name: 'dashboard', path: 'dashboard', kind: 'app' }, { name: 'cli', path: 'bin', kind: 'library' }]),
+      job: job({ stage: 'spec', agents: SPEC_DONE }),
+      spec: { size: 'L', components: ['dashboard', 'evil;x', 'web', 'cli', 'dashboard'] },
+    },
+    want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'size=L', '--field', 'componentsDeclared=["dashboard","cli"]', '--field', 'components=["dashboard","cli"]'),
   },
-  { name: 'SP3 panel ignores a size that is not S, M or L', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { size: 'XL;rm' } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]') },
-  { name: 'SP3 panel for a retro job is code and docs', fx: { files: ['spec'], job: job({ kind: 'retro', stage: 'spec', agents: { retro: ag(0, 1, 2) } }), spec: { suggested: ['security'] } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","docs"]') },
-  { name: 'SP3 records the spec\'s complexity', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { complexity: 'high' } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'complexity=high') },
-  { name: 'SP3 without a Complexity header records none', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }) }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]') },
-  { name: 'SP3 clears a stale complexity', fx: { job: job({ stage: 'spec', complexity: 'low', agents: SPEC_DONE }) }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'complexity=null') },
-  { name: 'SP3 ignores an invalid complexity', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { complexity: 'extreme' } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]') },
+  {
+    name: 'SP3 leaves a recomputed components list alone',
+    fx: {
+      config: (c) => (c.components = [{ name: 'dashboard', path: 'dashboard', kind: 'app' }, { name: 'cli', path: 'bin', kind: 'library' }]),
+      job: job({ stage: 'spec', agents: SPEC_DONE, components: ['cli'], componentsDeclared: ['cli'], componentsFromDiff: ['cli'] }),
+      spec: { components: ['dashboard', 'cli'] },
+    },
+    want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'componentsDeclared=["dashboard","cli"]'),
+  },
+  { name: 'SP3 panel ignores a size that is not S, M or L', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { size: 'XL;rm' } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'componentsDeclared=[]') },
+  { name: 'SP3 panel for a retro job is code and docs', fx: { files: ['spec'], job: job({ kind: 'retro', stage: 'spec', agents: { retro: ag(0, 1, 2) } }), spec: { suggested: ['security'] } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","docs"]', '--field', 'componentsDeclared=[]') },
+  { name: 'SP3 records the spec\'s complexity', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { complexity: 'high' } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'complexity=high', '--field', 'componentsDeclared=[]') },
+  { name: 'SP3 without a Complexity header records none', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }) }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'componentsDeclared=[]') },
+  { name: 'SP3 clears a stale complexity', fx: { job: job({ stage: 'spec', complexity: 'low', agents: SPEC_DONE }) }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'complexity=null', '--field', 'componentsDeclared=[]') },
+  { name: 'SP3 ignores an invalid complexity', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { complexity: 'extreme' } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'componentsDeclared=[]') },
   { name: 'SP3 panel is re-recorded after a new spec', fx: { job: job({ stage: 'spec', agents: { 'spec-writer': ag(0, 4, 5) } }), events: [PANEL_SET] }, want: { action: 'run', rule: 'SP3' } },
   { name: 'SP4 a spec that needs design', fx: { config: (c) => (c.pipeline.design = 'reference'), job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET], spec: { needsDesign: true } }, want: run('job', 'set', 'j', '--stage', 'design', '--state', 'running') },
   { name: 'SP5 the spec gate under always', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET] }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready') },

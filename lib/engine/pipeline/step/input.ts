@@ -356,7 +356,8 @@ export function parseSpecHeader(text: string): Omit<StepInput['spec'], 'approach
     size: value('Size'),
     complexity: value('Complexity')?.toLowerCase() ?? null,
     needsDesign: /^yes\b/i.test(value('Needs design') ?? ''),
-    services: items(value('Services')),
+    // `Services:` is the header's old name: a spec written before the rename reads the same way.
+    components: items(value('Components') ?? value('Services')),
     suggested: items(value('Suggested reviewers')),
   };
 }
