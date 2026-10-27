@@ -8,7 +8,8 @@ import { confirmHuman, unshelveOp } from '../human.ts';
 import { JOB } from './help.ts';
 
 export async function shelve(root: string, config: Config, rest: string[], flags: Record<string, any>) {
-  // A person shelves from their own terminal; the Foreman's senior pass (#556) will get its own path.
+  // A person shelves from their own terminal; the Foreman's senior pass shelves in-process through
+  // recordForemanShelve (lib/office/foreman/senior.ts), never through this command.
   if (process.env.FORGE_DAEMON === '1') throw new ForgeError('forge job shelve is run by a person in their own terminal, never by a daemon session', 1);
   const jobId = requireJob(root, rest[0]).id;
   const reason = cleanShelveReason(str(flags.reason, '--reason'));

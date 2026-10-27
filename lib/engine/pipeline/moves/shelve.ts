@@ -1,7 +1,8 @@
 // The shelf: a person setting a job aside (`forge job shelve`) and taking it off again (`forge job
-// unshelve`, the dashboard's Shelved list). A shelved job waits on `shelved` at its stage, spends
-// nothing, keeps its PR and answers no gate; checkShelfMove (lib/core/job/fields.ts) holds that only
-// un-shelving, a finish or a cancel moves it.
+// unshelve`, the dashboard's Shelved list). The gate runner shelves too, as the Foreman, when its senior
+// pass can't settle a gate (lib/office/foreman/senior.ts recordForemanShelve). A shelved job waits on
+// `shelved` at its stage, spends nothing, keeps its PR and answers no gate; checkShelfMove
+// (lib/core/job/fields.ts) holds that only un-shelving, a finish or a cancel moves it.
 import { loadJob, logHumanEvent, setJob } from '#core/job/store.ts';
 import { cleanShelveReason, isHumanGrant, SHELVE_REASON_MAX } from '#core/job/schema.ts';
 import { enqueue } from '#core/job/requests.ts';

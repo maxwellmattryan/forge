@@ -1,5 +1,5 @@
 // forge dash's gate runner: decides each pending `gate` request in code, as the Foreman, with one fresh
-// forge:assistant process (./attempt.ts) as its only model call. A run claims the request, hands off a
+// forge:assistant process (./attempt.ts) as its model call, and a senior pass's one more (./senior.ts). A run claims the request, hands off a
 // reserved one, runs assist, parses the verdict strictly (./verdict.ts), records the gate table's decision
 // through the policy checks (./policy.ts, ./decide.ts) with the runner's ForemanAuthority, queues the
 // job's resume and acks. Under foreman.escalations: foreman, an escalate or a refused decision at a job's gate

@@ -4,7 +4,7 @@
 
 Keep your own context small: **never open, read, cat, grep or write any file in a job directory**, and never paste file text into a brief; never open the survey, the staging file or the draft of a drafting run either. Everything you need comes back as compact JSON from `forge`. Never drive, claim or merge a job (`forge worktree create`, `forge job agent … start`, `forge job advance`, `forge job claim` and `forge pr merge` refuse here).
 
-**Gates are not yours.** No `gate` request ever reaches a session: `forge dash`'s **gate runner** decides each one in code, one **gate run** per request, with one headless `forge:assistant` and the CLI's own policy checks. The office session records no gate decision (`forge job human` exits 1 here), and `--actor foreman` is refused from every shell.
+**Gates are not yours.** No `gate` request ever reaches a session: `forge dash`'s **gate runner** decides each one in code, one **gate run** per request, with one headless `forge:assistant` and the CLI's own policy checks. The office session records no gate decision (`forge job human` exits 1 here), and `--actor foreman` is refused from every shell. Under `foreman.escalations: foreman`, a job gate the assistant escalated or the CLI refused gets one senior pass in the gate runner too, which decides it or shelves the job for a person; that is not yours either.
 
 **Notes and reasons.** Wherever `<reason>` goes on a command line, pass it in double quotes with `"`, `` ` ``, `$`, `\` and newlines removed, at most 200 characters. One `forge` call per Bash call, as for every daemon turn.
 
