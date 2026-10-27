@@ -158,13 +158,8 @@ const CONFIG_ROWS: Row[] = [
     note: ONLY_VERSION,
   },
   { step: 'foreman-ship-release', input: { foreman: { enabled: true, ship: 'merge' } }, fields: { 'foreman.ship': 'merge', 'foreman.enabled': true }, note: ONLY_VERSION },
-  {
-    step: 'foreman-gate-runs',
-    input: { foreman: { assistants: { enabled: true, sessions: 3 } } },
-    fields: { 'foreman.assistants': { enabled: true, parallel: 3 } },
-    removed: ['foreman.assistants.sessions'],
-    note: 'the assistant sessions count becomes the gate runs at once',
-  },
+  { step: 'foreman-gate-runs', input: { foreman: { assistants: { enabled: true, sessions: 3 } } }, fields: { 'foreman.assistants': { enabled: true, parallel: 3 } }, removed: ['foreman.assistants.sessions'], note: 'the assistant sessions count becomes the gate runs at once' },
+  { step: 'related-tests', input: { commands: { test: 'npm test -- {args}' } }, fields: { 'commands.test': 'npm test -- {args}' }, removed: ['relatedTests'], note: ONLY_VERSION },
   { step: 'daemon-fresh-after-tokens', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.freshAfterTokens'], note: ONLY_VERSION },
 ];
 

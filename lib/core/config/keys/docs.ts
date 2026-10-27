@@ -72,6 +72,16 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
     doc: '`forge job scope` matching: exact path, `dir/` prefix, * ** ? globs; a slash-free\nglob also matches the basename. A list here replaces the default.',
   },
 
+  relatedTests: {
+    doc: 'what `forge run <job> <command> --changed` passes at {args}: the tests related to the\njob\'s changes since its base ("Related tests"). Globs use * ** ?, matched against the\nwhole repo-relative path; a list here replaces its default',
+  },
+  'relatedTests.tests': { doc: 'test files: a changed one is run itself, and only these are ever passed' },
+  'relatedTests.map': {
+    doc: 'templates naming the tests of a changed non-test file: {dir} is its directory ({dir}/\ndrops for a root file), {name} its file name without the last extension',
+    layout: 'block',
+  },
+  'relatedTests.full': { doc: 'shared helpers, fixtures and mocks: a change here runs the whole command, with no arguments' },
+
   verifyIntegrity: { doc: 'warn | block: block fails verify on deleted test files or added skip/focus markers' },
 
   verifySecrets: {

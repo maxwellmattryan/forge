@@ -393,6 +393,7 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   verify: 'plain',
   verifyE2e: 'plain',
   'verifyE2e.paths': 'path',
+  relatedTests: 'path',
   verifyIntegrity: 'plain',
   verifySecrets: 'plain',
   ports: 'plain',

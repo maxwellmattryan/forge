@@ -192,6 +192,8 @@ export interface Config {
     when: 'ui' | 'always' | 'never';
     paths: string[];
   };
+  /** What `forge run <job> <command> --changed` runs (lib/engine/workspace/related-tests.ts): globs and `{dir}`/`{name}` templates over repo-relative paths. */
+  relatedTests: { tests: string[]; map: string[]; full: string[] };
   verifyIntegrity: 'warn' | 'block';
   verifySecrets: 'block' | 'warn';
   ports: { base: number; span: number };
