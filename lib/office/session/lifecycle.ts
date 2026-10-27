@@ -25,7 +25,7 @@ import { chatPrompt, checkLaunch } from './launch.ts';
 import { createSessionLog } from './log.ts';
 import { createOwned } from './owned.ts';
 import { withSessionId } from './records.ts';
-import { createTimers } from './timers.ts';
+import { createFreshness, createTimers } from './timers.ts';
 import type { Config, DaemonSessionState, DaemonStatus, Effort } from '#core/types.ts';
 
 const MAX_FAILURES = 3;
@@ -117,6 +117,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   const control = createControl(core);
   const { setPermissionMode, answerPermission, clearModeRequests } = control;
   const { armTurn, clearTurn, armIdle, clearIdle } = createTimers(core, agents);
+  const fresh = createFreshness(core, agents);
   const meter = createMeter(core, stopSelf);
 
   function state(): DaemonSessionState {
@@ -138,6 +139,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       permissionMode: child ? liveMode : null,
       kept,
       effort: child ? spawnEffort : null,
+      contextTokens: child ? fresh.context() : null,
     };
   }
 
@@ -146,12 +148,6 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     if (next === kept) return;
     kept = next;
     changed();
-  }
-
-  /** Its child is gone, so nothing can answer them, and nothing it reported about its mode holds. */
-  function dropPrompts(): void {
-    control.dropPrompts();
-    liveMode = null;
   }
 
   /** This session can't start (its executable is missing, say): stop wanting it, and only it. */
@@ -181,8 +177,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     if (!launch) return false;
     c = launch.config;
     log.armRotation(c.retention?.logMaxBytes);
-    // The record is a local file anyone with repo access can edit; only a uuid may follow --resume.
-    const resume = Boolean(info.resumable && typeof info.sessionId === 'string' && UUID.test(info.sessionId));
+    const resume = fresh.resumes(info);
     if (!resume) info = { ...withSessionId(info, crypto.randomUUID()), resumable: false };
     let argv;
     let confined: ReturnType<typeof spawnConfinement>;
@@ -344,6 +339,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     } catch {}
     if (!same) return ctx.untrusted();
     if (stop) stopSelf(stop.message, stop.reason, stop.announce, stop.keepWanted);
+    fresh.result(e);
     ctx.onResult(scope);
   }
 
@@ -398,7 +394,9 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     kept = null;
     clearIdle();
     clearTurn();
-    dropPrompts();
+    // Its child is gone, so nothing can answer its prompts, and nothing it reported about its mode holds.
+    control.dropPrompts();
+    liveMode = null;
     inFlight = [];
     status = 'off';
     info = { ...info, pid: null };

@@ -1,9 +1,8 @@
-// Every schema migration, one table per versioned shape. Rows are keyed by step id (the lists in
-// lib/core/versions/): a row runs the real reader from the version its step upgrades (the step's
-// position + 1, which the runner sets) to the current one, and checks only the fields that step (and
-// the later ones it chains through) is about. This is the only test file that may state a version
-// number: a new step adds one row here and edits nothing else (`every migration has a table row`
-// names a missing one).
+// Every schema migration, one table per versioned shape. Rows are keyed by step id (the lists in lib/core/versions/):
+// a row runs the real reader from the version its step upgrades (the step's position + 1, which the runner sets) to
+// the current one, and checks only the fields that step (and the later ones it chains through) is about. This is the
+// only test file that may state a version number: a new step adds one row here and edits nothing else (`every
+// migration has a table row` names a missing one).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -161,6 +160,7 @@ const CONFIG_ROWS: Row[] = [
   { step: 'foreman-ship-release', input: { foreman: { enabled: true, ship: 'merge' } }, fields: { 'foreman.ship': 'merge', 'foreman.enabled': true }, note: ONLY_VERSION },
   { step: 'foreman-gate-runs', input: { foreman: { assistants: { enabled: true, sessions: 3 } } }, fields: { 'foreman.assistants': { enabled: true, parallel: 3 } }, removed: ['foreman.assistants.sessions'], note: 'the assistant sessions count becomes the gate runs at once' },
   { step: 'related-tests', input: { commands: { test: 'npm test -- {args}' } }, fields: { 'commands.test': 'npm test -- {args}' }, removed: ['relatedTests'], note: ONLY_VERSION },
+  { step: 'daemon-fresh-after-tokens', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.freshAfterTokens'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [

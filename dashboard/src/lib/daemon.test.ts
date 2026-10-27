@@ -17,8 +17,8 @@ test('daemonRows lists only job sessions, in status order', () => {
     foreman: false,
     inbox: { scope: '_inbox', status: 'idle', running: true, wanted: true },
     jobs: {
-      'b-job': { scope: 'b-job', status: 'idle', running: true, wanted: true },
-      'a-job': { scope: 'a-job', status: 'busy', running: true, wanted: true },
+      'b-job': { scope: 'b-job', status: 'idle', running: true, wanted: true, contextTokens: 'lots' },
+      'a-job': { scope: 'a-job', status: 'busy', running: true, wanted: true, contextTokens: 245000 },
       ghost: { scope: 'ghost', status: 'off', running: false, held: 'budget' },
     },
     permissionModes: { 'b-job': 'auto' },
@@ -28,6 +28,7 @@ test('daemonRows lists only job sessions, in status order', () => {
   assert.equal(rows.find((r) => r.id === 'b-job')!.mode, 'auto');
   assert.equal(rows.find((r) => r.id === 'ghost')!.title, null);
   assert.equal(rows.find((r) => r.id === 'a-job')!.title, 'Job A');
+  assert.deepEqual(rows.map((r) => r.context), [245000, null, null], 'a number, a non-number, none');
   assert.ok(!rows.some((r) => r.id === '_inbox' || r.id === 'inbox'), 'no row is the inbox');
   assert.deepEqual(daemonRows(poolModel({ ...pool, jobs: {}, permissionModes: {} }, { pending: false })!, []), []);
 });

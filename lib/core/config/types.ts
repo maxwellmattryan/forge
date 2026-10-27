@@ -299,6 +299,8 @@ export interface Config {
     idleStopMinutes: number | null;
     /** A turn busy past this is stopped and its work requeued; null: no limit. */
     turnTimeoutMinutes: number | null;
+    /** A job session whose turn's context passes this many tokens starts its next spawn fresh, stopped at a safe boundary; null: never. */
+    freshAfterTokens: number | null;
     auth: DaemonAuth;
     jobBudget: DaemonJobBudget;
     /** Dollars per UTC day the inbox, office and chat sessions may spend (metered); a null key, or null, has no cap. */

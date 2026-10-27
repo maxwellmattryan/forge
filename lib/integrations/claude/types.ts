@@ -57,14 +57,16 @@ export type ClaudeEvent =
    * A working turn; `cost` is claude's own cumulative cost report on the result line (resultCost), null when it sent none;
    * `summary` the first non-empty line of its result text (at most 280 characters), null without one.
    * `text` is the result's last 4000 characters, null when it carried none: a gate run reads its verdict there.
+   * `context` (on a failed turn too) is the turn's last main-loop API call's input + cache-read + cache-creation
+   * tokens, absent when the turn had none: subagent calls never count.
    */
-  | { kind: 'turn-ended'; ok: true; summary?: string | null; cost?: SessionCost | null; text?: string | null }
+  | { kind: 'turn-ended'; ok: true; summary?: string | null; cost?: SessionCost | null; text?: string | null; context?: number }
   /**
    * A failed turn: `limit` when it was a quota refusal, `resetsAt` (ms) when claude said when the window resets,
    * `budget` when the child reached its --max-budget-usd cap (never a limit: retrying can't lift it), `auth` when
    * it is neither and its text reads like an expired or missing login (stream.ts AUTH_TEXT).
    */
-  | { kind: 'turn-ended'; ok: false; reason: string; limit: boolean; auth?: boolean; resetsAt: number | null; budget: boolean; cost?: SessionCost | null }
+  | { kind: 'turn-ended'; ok: false; reason: string; limit: boolean; auth?: boolean; resetsAt: number | null; budget: boolean; cost?: SessionCost | null; context?: number }
   /** A line that broke the protocol and was answered with nothing. */
   | { kind: 'protocol-error'; message: string }
   /** The process failed; `started` is false when it never ran (ENOENT, EACCES). */
