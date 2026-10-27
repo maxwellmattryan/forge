@@ -1,5 +1,5 @@
-// Syncing a job with its PR on GitHub: the state it leaves the job in, CI reworks, reopening
-// deferred PRs, the human delta and pr-feedback.md.
+// Syncing a job with its PR on GitHub: the state it leaves the job in, CI reworks and re-runs,
+// reopening deferred PRs, the human delta and pr-feedback.md.
 import fs from 'node:fs';
 import path from 'node:path';
 import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
@@ -8,7 +8,7 @@ import { enqueue, listRequests } from '#core/job/requests.ts';
 import type { Config, HumanDelta, Job, JobChange, JobEvent, JobPr } from '#core/types.ts';
 import { now } from '#core/utils.ts';
 import { git } from '#integrations/git/runner.ts';
-import { checksText, safePrNumber } from '#integrations/github/pull-requests.ts';
+import { RUN_ID, checksText, safePrNumber } from '#integrations/github/pull-requests.ts';
 import type { GitHub, PrSnapshot } from '#integrations/github/types.ts';
 import { decides, enqueuePrFeedbackGate, foremanEnabled, reservedFor } from '../pipeline/moves/foreman-gates.ts';
 import { moveJob } from '../pipeline/moves/apply.ts';
@@ -21,7 +21,6 @@ import { findPr } from './adopt.ts';
 import { writeFeedback } from './feedback.ts';
 import { linkSiblingsQuietly, syncMemberPrs } from './members.ts';
 import type { MemberSync } from './members.ts';
-import { CI_RERUN_PREFIX, ciRerun } from './rerun.ts';
 
 /** What syncTransition decides: the job change, whether it routes to integrate, and the integrateFor to keep. */
 export interface SyncTransition {
@@ -136,13 +135,103 @@ function ciReworkStreak(events: JobEvent[]): number {
   return n;
 }
 
+/** How every CI re-run park reason starts; startCiRework's reserved check and prReviewTell key on it. */
+const CI_RERUN_PREFIX = 'CI re-run:';
+
+/** At most this many workflow runs are re-run per head. */
+const MAX_RERUNS = 5;
+
+/** Why a re-run head waits for a person: its re-run finished red, or nothing could be re-run. */
+type CiRerunCause = 'still-failing' | 'not-rerun';
+
+/** The re-run park reason: Forge's fixed text around CHECK_NAME names, a PR number and a short sha, so step's CI_RERUN_REASON holds it. */
+function ciRerunReason(cause: CiRerunCause, failing: { names: string[]; more: number }, n: number | string, head: string): string {
+  const at = `on PR #${n} at ${head.slice(0, 12)}`;
+  return cause === 'still-failing'
+    ? `${CI_RERUN_PREFIX} ${checksText(failing)} still failing ${at} after a CI rework with no new commit and one re-run. Local verify passes. A human decides`
+    : `${CI_RERUN_PREFIX} ${checksText(failing)} failing ${at} after a CI rework with no new commit, and Forge could not re-run them. Local verify passes. A human decides`;
+}
+
+const parkedOnReview = (j: Pick<Job, 'stage' | 'state' | 'waitingOn'>) => j.stage === 'pr' && j.state === 'waiting' && j.waitingOn === 'pr-review';
+const latestFor = (events: JobEvent[], type: string, head: string): JobEvent | undefined => events.findLast((e) => e.type === type && e.head === head);
+/** An event's ids, read defensively: events.jsonl is agent-appendable, and anything else counts as none, which leans toward parking. */
+const runIds = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && RUN_ID.test(x)) : []);
+
+/**
+ * The CI re-run for `head`, a red head the foreman already reworked (its round ended with no new
+ * commit; startCiRework checked the rest). Once per head, with no gate, rework or resume, so a check
+ * that keeps failing can't make Forge loop:
+ * - checks still pending: wait;
+ * - a `ci-rerun-failed` for this head: park again with its cause (a person's action earns no second re-run);
+ * - a `ci-rerun` for this head: wait while a failing check is still one of the jobs it re-ran (GitHub has
+ *   not replaced them yet), else park with `still-failing`;
+ * - else re-run the failing Actions runs in the PR's own repo whose run is on this head and completed,
+ *   at most 5, and log `ci-rerun`; when none is accepted, park with `not-rerun`.
+ * `job` is the CLI's record after this sync; `pr` the snapshot this sync read.
+ */
+async function ciRerun(
+  root: string,
+  github: GitHub,
+  slug: string,
+  job: Job,
+  head: string,
+  pr: Pick<PrSnapshot, 'failingChecks' | 'failingRuns'>,
+  events: JobEvent[],
+): Promise<'rerun' | 'waiting' | 'held'> {
+  if (job.pr?.checks?.pending !== 0) return 'waiting';
+  const failed = latestFor(events, 'ci-rerun-failed', head);
+  if (failed) return parkRerun(root, job, head, failed.cause === 'not-rerun' ? 'not-rerun' : 'still-failing', pr.failingChecks);
+  const rerun = latestFor(events, 'ci-rerun', head);
+  if (rerun) {
+    const jobs = new Set(runIds(rerun.jobs));
+    return pr.failingRuns.some((r) => jobs.has(r.job)) ? 'waiting' : parkRerun(root, job, head, 'still-failing', pr.failingChecks);
+  }
+  // Only the PR's own repo, and every call passes -R slug: a detailsUrl elsewhere never picks the repo.
+  const own = pr.failingRuns.filter((r) => r.slug.toLowerCase() === slug.toLowerCase());
+  const accepted: string[] = [];
+  for (const run of [...new Set(own.map((r) => r.run))].slice(0, MAX_RERUNS)) {
+    try {
+      // A detailsUrl may point at any failed run in the repo (a deploy, say): only one on this head counts.
+      const view = github.viewRun(root, slug, run);
+      if (view.headSha !== head || view.status !== 'completed') continue;
+      if (github.rerunFailed(root, slug, run).ok) accepted.push(run);
+    } catch {
+      // A run GitHub can't show or re-run is skipped; none left parks below.
+    }
+  }
+  if (accepted.length) {
+    const jobs = [...new Set(own.filter((r) => accepted.includes(r.run)).map((r) => r.job))];
+    logEvent(root, job.id, 'ci-rerun', { head, runs: accepted, jobs, checks: pr.failingChecks.names });
+    return 'rerun';
+  }
+  // A concurrent sync may have re-run this head during the gh calls above: its re-run stands.
+  if (latestFor(readEvents(root, job.id), 'ci-rerun', head)) return 'rerun';
+  return parkRerun(root, job, head, 'not-rerun', pr.failingChecks);
+}
+
+/** Writes the reason only (waitingOn stays pr-review, as at the CI rework cap) while the job is parked at `head`; `ci-rerun-failed` once per head. */
+function parkRerun(root: string, job: Job, head: string, cause: CiRerunCause, failing: { names: string[]; more: number }): 'held' {
+  const reason = ciRerunReason(cause, failing, safePrNumber(job.pr?.number) ?? '?', head);
+  let here = false;
+  setJob(root, job.id, {
+    derive: (j) => {
+      if (!parkedOnReview(j) || j.pr?.headOid !== head) return null;
+      here = true;
+      return j.reason === reason ? null : { reason };
+    },
+  });
+  // Moved under us: the next sync that finds it parked at this head records it.
+  if (here && !latestFor(readEvents(root, job.id), 'ci-rerun-failed', head)) logEvent(root, job.id, 'ci-rerun-failed', { head, cause, checks: failing.names });
+  return 'held';
+}
+
 /**
  * Failing checks on a parked PR the foreman would decide are a rework, not a judgement: sync records
  * it as the foreman's and queues the job's session, so no office turn sits between a red check and
  * the fix. Once per PR head; a reserved match goes through the gate.
  * Any head counts, a GitHub "Update branch" included: `forge job round` pulls it into the worktree.
- * A head the foreman already reworked (the round ended with no new commit) goes to ciRerun instead
- * (rerun.ts): one re-run of its failed checks, then a park for a person, and never a gate. That comes
+ * A head the foreman already reworked (the round ended with no new commit) goes to ciRerun instead:
+ * one re-run of its failed checks, then a park for a person, and never a gate. That comes
  * before the cap: a re-run is not a rework.
  * After `pr.maxCiReworks` in a row with no person's event between, a red head starts nothing: the
  * reason says so, a `ci-rework-capped` event is logged once per head, and the caller queues no gate.
@@ -164,7 +253,7 @@ async function startCiRework(
   if (job.mandate != null && (!narrow || narrow(job) !== null)) return false;
   const head = job.pr?.headOid;
   if (job.pr?.checks?.state !== 'failing' || typeof head !== 'string' || !isSha(head)) return false;
-  const parked = (j: Pick<Job, 'stage' | 'state' | 'waitingOn'>) => j.stage === 'pr' && j.state === 'waiting' && j.waitingOn === 'pr-review';
+  const parked = parkedOnReview;
   // The cap's and the re-run park's reasons name CI, which the default foreman.reserved lists; they are
   // Forge's fixed text, so they must not hold the rework a person's reset allows again, or send a
   // re-run head to the gate.

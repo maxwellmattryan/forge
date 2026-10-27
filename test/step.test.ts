@@ -139,7 +139,7 @@ for (const row of ig1Skips) {
 
 // The pr-review wait a CI rework cap leaves: G3 waits, so the PR5 tell rows can't be `rows`.
 const CAP_REASON = 'CI rework cap: 3 CI reworks in a row, checks still failing on PR #3: lint, verify (node 22.18.0, shard 2/2) and 2 more. A human decides';
-// The park a failed CI re-run leaves (lib/engine/pr/rerun.ts ciRerunReason).
+// The park a failed CI re-run leaves (ciRerunReason in lib/engine/pr/sync.ts).
 const RERUN_REASON = 'CI re-run: verify (node 22.18.0, shard 2/2) still failing on PR #7 at bbbbbbbbbbbb after a CI rework with no new commit and one re-run. Local verify passes. A human decides';
 const prTellRows: Row[] = [
   {

@@ -461,10 +461,7 @@ const ROWS: { name: string; arrange: () => Scenario; config?: typeof config; opt
   {
     name: 'a CI re-run after the decision still merges',
     arrange: () => after(scenario('passing'), (s) => logEvent(s.root, s.id, 'ci-rerun', { head: s.head, runs: ['101'], jobs: ['201'], checks: ['test'] })),
-    check: (s, r) => {
-      assert.ok(!(r instanceof Error), String(r));
-      assert.deepEqual([r.action, s.merges().length], ['merged', 1]);
-    },
+    check: (s, r) => assert.deepEqual(r instanceof Error ? String(r) : [r.action, s.merges().length], ['merged', 1]),
   },
   {
     name: 'superseded: the job moved to build after a rework',
