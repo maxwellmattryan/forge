@@ -106,6 +106,9 @@ export const API_CHANGES = [
   { id: 'mandate-closing-card' },
   // DaemonPoolState.launchPermissionMode, ProjectsResponse.machine.launchPermissionMode, ActorSource 'launch'.
   { id: 'launch-permission-mode' },
+  // DaemonSessionState.timedOut (DaemonTimedOutPrompt): the session's last 10 prompts denied because nobody answered
+  // them within daemon.permissionTimeoutMinutes, newest first.
+  { id: 'permission-timeout' },
 ] as const;
 
 /**

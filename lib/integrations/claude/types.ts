@@ -76,6 +76,9 @@ export type ClaudeEvent =
   /** The process closed. Sent once, last. */
   | { kind: 'exit'; code: number | null; signal: string | null };
 
+/** Why the supervisor denied a call nobody chose to deny: a role run has no one to ask, or a prompt nobody answered in time. */
+export type DenyWhy = 'unattended' | 'timeout';
+
 /** One running claude child. Every line it writes to claude is built from fixed text or a fixed list, except a chat's owner message (writeMessage) and a role child's or gate run's brief (writeBrief). */
 export interface ClaudeChild {
   readonly pid: number | null;
@@ -93,9 +96,9 @@ export interface ClaudeChild {
   writeVerdictRetry(): void;
   /**
    * Answers a request claude asked; false, writing nothing, when it is not waiting (answered, cancelled or unknown).
-   * A deny with `why` `unattended` carries UNATTENDED_DENIED rather than PERMISSION_DENIED.
+   * A deny with `why` `unattended` carries UNATTENDED_DENIED, and one with `timeout` TIMEOUT_DENIED, rather than PERMISSION_DENIED.
    */
-  answerPermission(requestId: string, decision: PermissionDecision, why?: 'unattended'): boolean;
+  answerPermission(requestId: string, decision: PermissionDecision, why?: DenyWhy): boolean;
   /** Asks claude to switch mode; returns the request id, or null for a mode outside PERMISSION_MODES. */
   setPermissionMode(mode: DaemonPermissionMode): string | null;
   /** Ends its stdin. */

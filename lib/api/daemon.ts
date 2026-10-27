@@ -113,6 +113,11 @@ export interface DaemonSessionState {
   lastError: string | null;
   /** Tool calls outside the allowlist the session is waiting on a human for, oldest first. */
   permissions: DaemonPermissionPrompt[];
+  /**
+   * The last 10 prompts the supervisor denied because nobody answered them within daemon.permissionTimeoutMinutes,
+   * newest first. Held by forge dash in memory: kept across child exits and respawns, gone when it restarts.
+   */
+  timedOut: DaemonTimedOutPrompt[];
   /** The permission mode claude last reported for the running child (at init or after a switch); null while none runs. */
   permissionMode: string | null;
   /** A running agent of the job this session drives keeps it from slot eviction and idle stop; null otherwise and while none runs. */
@@ -155,6 +160,12 @@ export interface DaemonPermissionPrompt {
   sessionDirs: string[];
   /** When the supervisor received it. */
   at: string;
+}
+
+/** A prompt nobody answered in time, which the supervisor denied with its fixed timeout text. Untrusted text but id, at and deniedAt. */
+export interface DaemonTimedOutPrompt extends DaemonPermissionPrompt {
+  /** When the supervisor denied it at its timeout. */
+  deniedAt: string;
 }
 
 /** One gate run of forge dash's gate runner (lib/office/foreman/run.ts): running, or one of the 50 last kept. */

@@ -46,6 +46,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // v13 lets an actor's `source` be `launch` (the `daemon-mode` audit event `forge dash --permission-mode` writes for each
   // project it loads); an older Forge reads it as `unknown`.
   { id: 'actor-source-launch', up: (e) => e },
+  // v14 adds the `permission-timed-out` event ({tool}): the supervisor denied a job session's permission prompt nobody
+  // answered within daemon.permissionTimeoutMinutes. An older Forge reads it as a generic event.
+  { id: 'permission-timed-out-event', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);
