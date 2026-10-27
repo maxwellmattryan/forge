@@ -151,6 +151,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v38 adds daemon.dailyUsd.chat (25), filled from defaults, so no v37 config changes; the bump lets older
   // Forges refuse a config whose chat cap they would reject as an unknown key.
   { id: 'daemon-daily-usd-chat', up: (c) => c },
+  // v39 adds the script release mechanism and release.script (null), filled from defaults, so no v38 config
+  // changes; the bump lets older Forges refuse a config whose mechanism they would reject or never run.
+  { id: 'release-script', up: (c) => c },
 ];
 
 const isPlainMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);

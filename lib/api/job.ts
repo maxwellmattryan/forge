@@ -53,7 +53,7 @@ export interface JobOutcome {
   reason?: string;
 }
 
-/** A sampled merged job's post-merge judge score: queueScores and recordScore in lib/engine/evals/scoring.ts. */
+/** A merged job's post-merge judge score (sampled, or in a mandate that scores all): queueScores and recordScore in lib/engine/evals/scoring.ts. */
 export interface JobScore {
   status: 'queued' | 'held' | 'scored' | 'failed';
   /** null when held */
@@ -355,7 +355,7 @@ export interface Job {
   repos: JobRepo[];
   /** The merged root PR's post-merge outcome, written by `forge sync` (lib/engine/evals/outcome.ts); null until measured. */
   outcome: JobOutcome | null;
-  /** The post-merge judge score of a sampled merged job (lib/engine/evals/scoring.ts); null until forge sync queues one. */
+  /** The post-merge judge score of a merged job, sampled or in a mandate that scores all (lib/engine/evals/scoring.ts); null until forge sync queues one. */
   score: JobScore | null;
   /** Why and from where a person shelved the job (`forge job shelve`); non-null only while it waits on `shelved`. */
   shelved: JobShelf | null;

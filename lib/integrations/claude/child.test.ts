@@ -40,7 +40,7 @@ test('the real adapter runs claude and reports its events', async (t) => {
   assert.deepEqual(calls, [{ cmd: CLAUDE, args: ['--session-id', id], opts: { cwd: os.tmpdir(), env: process.env, detached: true, stdio: ['pipe', 'pipe', 'pipe'] } }]);
   a.child.writeTurn();
   await waitFor(() => a.events.some((e) => e.kind === 'turn-ended'), { what: 'the turn to end' });
-  assert.deepEqual(a.kinds(), [{ kind: 'turn-started' }, { kind: 'session-id', id }, { kind: 'permission-mode', mode: 'default' }, { kind: 'turn-ended', ok: true, cost: null }]);
+  assert.deepEqual(a.kinds(), [{ kind: 'turn-started' }, { kind: 'session-id', id }, { kind: 'permission-mode', mode: 'default' }, { kind: 'turn-ended', ok: true, summary: null, cost: null }]);
   a.child.endInput();
   await a.child.closed;
   assert.deepEqual(a.events.at(-1), { kind: 'exit', code: 0, signal: null });

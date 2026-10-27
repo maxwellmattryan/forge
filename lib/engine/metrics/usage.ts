@@ -1,5 +1,6 @@
-// Token usage read from Claude Code transcripts: deduped by message id, tools counted by block id,
-// output estimated from content because the logged count is the stream's opening snapshot.
+// Token usage read from Claude Code transcripts (a subagent's, or a role run's own session): deduped by
+// message id, tools counted by block id, output estimated from content because the logged count is the
+// stream's opening snapshot.
 import fs from 'node:fs';
 import path from 'node:path';
 import { agentTranscriptById, claudeProjectsDir, openTranscript } from '#integrations/claude/transcripts.ts';
@@ -28,9 +29,10 @@ export type TranscriptUsage = Required<Pick<AgentUsage, 'input' | 'output' | 'ca
  * A resumed agent (SendMessage) appends to the same file, so `since` (the previous import's
  * `through`) skips every line at or before it: each import counts, and times, only the new span.
  * A line without a timestamp belongs to the span of the timestamped line before it.
- * Given the job and root, the transcript is looked up under the job's sessions in this repo's project
- * dirs first (lib/integrations/claude/transcripts.ts); the scan of every project dir stays as the fallback for an agent
- * whose parent session isn't recorded. `promptChars` is the role prompt's length, the Forge share
+ * Given the job and root, the transcript is looked up first (lib/integrations/claude/transcripts.ts): a role
+ * run's own session file at the job's worktree slug for a uuid id, else the subagent file under the job's
+ * sessions in this repo's project dirs; the scan of every project dir's subagent files stays as the fallback
+ * for an agent whose parent session isn't recorded. `promptChars` is the role prompt's length, the Forge share
  * of the composition's start prefix beside the brief (composeContext in ./composition.ts).
  */
 export function importClaudeCodeTranscript(

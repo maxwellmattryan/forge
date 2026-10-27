@@ -2,6 +2,8 @@
 // Every id that becomes a path segment comes from job.json, which an agent or a checkout can write,
 // so ids are validated, only this repo's project dirs are tried, and each hit is resolved and
 // confined under the projects dir before it is opened (one non-blocking, no-follow descriptor).
+// A role run (`forge job agent run`) is its own session in the job's worktree: its uuid agent id is
+// tried as `<slug(worktree)>/<uuid>.jsonl`, only for the job's own worktree, before the subagent files.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -134,12 +136,29 @@ function realProjects(projects: string): string | null {
   }
 }
 
-/** The transcript of agent `agentId` under one of this job's sessions, or null. */
+/**
+ * A role run's own session transcript (`forge job agent run`): `<projects>/<slug(worktree)>/<uuid>.jsonl`,
+ * under the job's own worktree as given and as resolved, never the root's slug dirs. Null otherwise.
+ */
+function roleRunTranscript(root: string, job: JobRefs, agentId: string, projects: string, projectsReal: string, worktrees: string | null | undefined): TranscriptHit | null {
+  if (!UUID.test(agentId)) return null;
+  const wt = ownWorktree(root, job, worktrees);
+  if (!wt) return null;
+  for (const cwd of new Set([wt, realOrSelf(wt)])) {
+    const hit = confined(projectsReal, path.join(projects, projectSlug(cwd)), [`${agentId}.jsonl`]);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** The transcript of agent `agentId`: a role run's session file, else a subagent's under one of this job's sessions, or null. */
 export function agentTranscriptById(root: string, job: JobRefs, agentId: unknown, opts: TranscriptOpts = {}): TranscriptHit | null {
   if (typeof agentId !== 'string' || !AGENT_ID.test(agentId)) return null;
   const projects = opts.projects ?? claudeProjectsDir();
   const projectsReal = realProjects(projects);
   if (!projectsReal) return null;
+  const run = roleRunTranscript(root, job, agentId, projects, projectsReal, opts.worktrees);
+  if (run) return run;
   const sessions = jobSessions(job);
   for (const dir of transcriptProjectDirs(root, job, projects, opts.worktrees)) {
     for (const s of sessions) {

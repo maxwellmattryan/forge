@@ -17,6 +17,20 @@
 // merged is derived again before step 3 lands anything: the merge published whatever the head was by then.
 // A human pushes and merges, not CI: a push or merge GITHUB_TOKEN makes starts no workflow run, and
 // GITHUB_TOKEN can't push a commit that changes .github/workflows/.
+//
+// The script protocol, which `forge release plan|run` drives for `release.mechanism: script` (docs/CONFIG.md
+// "Release strategy"). Progress goes to stderr; a refusal exits 1 with `release: <message>`:
+//   --draft-notes [--bump patch|minor|major]   one JSON line on stdout: {current, next, bump, inferred, reasons,
+//                                              since, draft}, from local git and the working tree only;
+//   --phase start <X.Y.Z> --notes-file <f>     step 1 with <f> as the CHANGELOG section, then push the branch;
+//   --phase wait-build <X.Y.Z>                 wait for main-update.yml's build of the release commit;
+//   --phase pr <X.Y.Z>                         the resume before the merge, with all of its checks;
+//   --phase wait-tag <X.Y.Z>                   wait for release.yml's tag, which must peel to the merge commit;
+//   --phase land <X.Y.Z>                       derive the merged head again, land on develop and push it;
+//   --check merged <X.Y.Z>                     exit 0 only when the release PR into main is merged.
+// Each phase finds the release in flight as a resume does and does nothing once its release is past it. Phase
+// mode never asks: the engine asked before each pushing step, so the push questions are answered yes, a release
+// behind origin/develop warns and goes on, and unported hotfixes on main refuse (PHASE_ASK).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -435,6 +449,46 @@ async function confirm(question: string, yes: boolean, declined = 'stopped: noth
   if (!/^y(es)?$/i.test(answer.trim())) throw new Refusal(declined);
 }
 
+/** A commit on main that the release lacks. */
+export interface MainOnly {
+  sha: string;
+  subject: string;
+}
+
+/** The questions `toPr` and `land` ask before they push or go on; each resolves to go on and throws to stop. */
+export interface Ask {
+  /** Push the release branch, the main update or develop. */
+  push(question: string, declined?: string): Promise<void>;
+  /** The release lacks `count` commits origin/develop has. */
+  behind(question: string, count: number, declined: string): Promise<void>;
+  /** These commits are on main but not in the release (already listed on stderr): were they all ported? */
+  hotfixes(list: MainOnly[]): Promise<void>;
+}
+
+/** `npm run release`'s questions: asked on a terminal, or all answered by `--yes`. */
+export const plainAsk = (yes: boolean): Ask => ({
+  push: (question, declined) => confirm(question, yes, declined),
+  behind: (question, _count, declined) => confirm(question, yes, declined),
+  hotfixes: () => confirm('Were they all ported?', yes),
+});
+
+/**
+ * Phase mode's answers. The engine asked before each pushing step, so a push goes ahead. A release behind
+ * origin/develop goes on: the planned release is develop as it was at `start`. Hotfixes are a judgement only
+ * the maintainer can make, on a terminal.
+ */
+export const PHASE_ASK: Ask = {
+  push: async () => {},
+  behind: async (_question, count) => {
+    say(`going on without ${count === 1 ? 'it' : 'them'}: the planned release is develop as it was when the start step cut it`);
+  },
+  hotfixes: async (list) => {
+    throw new Refusal(
+      `these commits are on main but not in the release, which undoes any not ported to develop:\n${list.map((c) => `  ${c.sha} ${c.subject}`).join('\n')}\nPort them to develop, answer the question with \`npm run release\` on a terminal, then run forge release run again`,
+    );
+  },
+};
+
 function editNotes(file: string): void {
   const editor = process.env.VISUAL || process.env.EDITOR || 'vi';
   if (!process.stdin.isTTY) throw new Refusal('editing the notes needs a terminal: pass --notes-file <file> instead');
@@ -442,12 +496,8 @@ function editNotes(file: string): void {
   sh('/bin/sh', ['-c', `${editor} "$1"`, 'editor', file], { inherit: true });
 }
 
-/**
- * Bumps, drafts and commits `Release <next>` (the release commit) on a new branch release/v<next> cut
- * from the current branch, then switches back to it: that branch, its tip and its tree do not change.
- * Returns the release commit's sha. A refusal leaves no branch, no commit and the tree as it was.
- */
-export function prepare(root: string, current: string, next: string, notesFile: string | null): string {
+/** What a notes draft is made of: the last tag, the first-parent subjects since it, and the versions line. */
+export function notesInputs(root: string): { since: string | null; subjects: string[]; versions: string | null } {
   const since = lastTag(root);
   const subjects = subjectsSince(root, since);
   const before = since ? versionsAt((rel) => (gitOk(root, ['cat-file', '-e', `${since}:${rel}`]) ? gitOut(root, ['show', `${since}:${rel}`]) : null)) : {};
@@ -455,16 +505,29 @@ export function prepare(root: string, current: string, next: string, notesFile: 
     const file = path.join(root, rel);
     return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
   });
+  return { since, subjects, versions: versionsLine(before, after) };
+}
+
+/**
+ * Bumps, drafts and commits `Release <next>` (the release commit) on a new branch release/v<next> cut
+ * from the current branch, then switches back to it: that branch, its tip and its tree do not change.
+ * Returns the release commit's sha. A refusal leaves no branch, no commit and the tree as it was.
+ * `notes` is a notes file, null for the editor, or (phase mode) a section `phaseSection` already checked.
+ */
+export function prepare(root: string, current: string, next: string, notes: string | { section: string } | null): string {
+  const { since, subjects, versions } = notesInputs(root);
   const changelogFile = path.join(root, 'CHANGELOG.md');
   const changelog = fs.readFileSync(changelogFile, 'utf8');
 
   let section: string;
-  if (notesFile) {
+  const notesFile = typeof notes === 'string' ? notes : null;
+  if (notes !== null && typeof notes === 'object') section = notes.section;
+  else if (notesFile) {
     const notes = fs.readFileSync(path.resolve(notesFile), 'utf8').trim();
     section = notes.startsWith(`## ${next}\n`) ? notes : `## ${next}\n\n${notes}`;
   } else {
     const draft = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-release-')), `CHANGELOG-${next}.md`);
-    fs.writeFileSync(draft, `${draftSection(next, since, subjects, versionsLine(before, after))}\n`);
+    fs.writeFileSync(draft, `${draftSection(next, since, subjects, versions)}\n`);
     editNotes(draft);
     section = dropNotes(fs.readFileSync(draft, 'utf8')).trim();
     fs.rmSync(path.dirname(draft), { recursive: true, force: true });
@@ -572,7 +635,7 @@ function withDist<T>(repo: string, build: Run, use: (dist: string) => T): T {
 }
 
 /** Before the PR merges: the release commit pushed, the main update on top of main pushed, the PR open. */
-async function toPr(root: string, repo: string, previous: string, version: string, pr: ReleasePr | null, yes: boolean): Promise<void> {
+async function toPr(root: string, repo: string, previous: string, version: string, pr: ReleasePr | null, ask: Ask): Promise<void> {
   const branch = `release/v${version}`;
   const remote = remoteTip(root, branch);
   let tip = remote ?? localTip(root, branch);
@@ -584,10 +647,10 @@ async function toPr(root: string, repo: string, previous: string, version: strin
   const behind = behindDevelop(root, release);
   if (behind > 0) {
     say(`origin/develop has ${behind} commit${behind === 1 ? '' : 's'} that Release ${version} (${release.slice(0, 7)}) lacks, and the release would ship without them: git log --oneline ${release.slice(0, 7)}..origin/develop lists them`);
-    await confirm(`Go on with Release ${version} without them?`, yes, `stopped: nothing more was pushed. To release develop as it is now, close the release PR if one is open, delete ${branch} (git push origin --delete ${branch}; git branch -D ${branch}) and start again`);
+    await ask.behind(`Go on with Release ${version} without them?`, behind, `stopped: nothing more was pushed. To release develop as it is now, close the release PR if one is open, delete ${branch} (git push origin --delete ${branch}; git branch -D ${branch}) and start again`);
   }
   if (!remote) {
-    await confirm(`Push Release ${version} (${tip.slice(0, 7)}) to origin ${branch}?`, yes);
+    await ask.push(`Push Release ${version} (${tip.slice(0, 7)}) to origin ${branch}?`);
     gitOut(root, ['push', '--quiet', 'origin', `${tip}:refs/heads/${branch}`]);
   }
   const main = git(root, 'rev-parse', 'refs/remotes/origin/main');
@@ -612,11 +675,11 @@ async function toPr(root: string, repo: string, previous: string, version: strin
     if (hotfixes.length) {
       say('These commits are on main but not in the release; it undoes any not ported to develop:');
       for (const c of hotfixes) say(`  ${c.sha} ${c.subject}`);
-      await confirm('Were they all ported?', yes);
+      await ask.hotfixes(hotfixes);
     }
     const update = withDist(repo, build, (dist) => mainCommit(main, release, dist));
     if (!SHA.test(update)) throw new Refusal(`the main update is ${JSON.stringify(update)}`);
-    await confirm(`Push the main update (${update.slice(0, 7)}: Release ${version} plus the dashboard from ${build.html_url}) to ${branch}?`, yes);
+    await ask.push(`Push the main update (${update.slice(0, 7)}: Release ${version} plus the dashboard from ${build.html_url}) to ${branch}?`);
     try {
       gitOut(root, ['push', '--quiet', 'origin', `${update}:refs/heads/${branch}`]);
     } catch (e) {
@@ -667,20 +730,27 @@ export function landOnDevelop(root: string, release: string, version: string): s
   return git(root, 'rev-parse', 'HEAD');
 }
 
+/** Waits for release.yml's run on the merge commit unless `v<version>` is already on origin, fetches the tag and refuses unless it peels to the merge. */
+async function waitForTag(root: string, repo: string, version: string, pr: ReleasePr): Promise<void> {
+  const merge = pr.merge as string;
+  const tag = `v${version}`;
+  if (!gitOk(root, ['ls-remote', '--exit-code', '--tags', 'origin', `refs/tags/${tag}`])) await waitForRun(repo, 'release.yml', merge, 'main');
+  gitOut(root, ['fetch', '--quiet', 'origin', `refs/tags/${tag}:refs/tags/${tag}`]);
+  const peeled = git(root, 'rev-parse', '--verify', `refs/tags/${tag}^{commit}`);
+  if (peeled !== merge) throw new Refusal(`${tag} points at ${peeled.slice(0, 7)}, not the release PR's merge commit ${merge.slice(0, 7)}: check the tag by hand; nothing landed on develop`);
+}
+
 /**
  * After the PR merged: release.yml's tag on the merge commit, the merged head derived once more, then the release
  * commit landed on develop. The merge published whatever the head was when it happened (a push after the resume
  * vouched for it counts) and release.yml reads no tree, while landing moves develop's marketplace.json, the switch
  * every install reads, to the tag. This is the last place to stop installs from following a bad tag.
  */
-async function land(root: string, repo: string, version: string, pr: ReleasePr, yes: boolean): Promise<void> {
+async function land(root: string, repo: string, version: string, pr: ReleasePr, ask: Ask): Promise<void> {
   const merge = pr.merge as string;
   const tag = `v${version}`;
   const branch = `release/v${version}`;
-  if (!gitOk(root, ['ls-remote', '--exit-code', '--tags', 'origin', `refs/tags/${tag}`])) await waitForRun(repo, 'release.yml', merge, 'main');
-  gitOut(root, ['fetch', '--quiet', 'origin', `refs/tags/${tag}:refs/tags/${tag}`]);
-  const peeled = git(root, 'rev-parse', '--verify', `refs/tags/${tag}^{commit}`);
-  if (peeled !== merge) throw new Refusal(`${tag} points at ${peeled.slice(0, 7)}, not the release PR's merge commit ${merge.slice(0, 7)}: check the tag by hand; nothing landed on develop`);
+  await waitForTag(root, repo, version, pr);
   const release = releaseCommitOf(root, pr.head, version);
   if (!release) throw notARelease(branch, pr.head);
 
@@ -696,7 +766,7 @@ async function land(root: string, repo: string, version: string, pr: ReleasePr, 
   if (head === null) say(`Release ${version} is already on develop`);
   else {
     const state = `develop (${head.slice(0, 7)}) holds Release ${version} and origin/develop does not`;
-    await confirm(`Push develop (${head.slice(0, 7)}, with Release ${version}) to origin?`, yes, `stopped: local ${state}; the next npm run release pushes it`);
+    await ask.push(`Push develop (${head.slice(0, 7)}, with Release ${version}) to origin?`, `stopped: local ${state}; the next npm run release pushes it`);
     try {
       gitOut(root, ['push', '--quiet', 'origin', `${head}:refs/heads/develop`]);
     } catch (e) {
@@ -708,7 +778,7 @@ async function land(root: string, repo: string, version: string, pr: ReleasePr, 
   process.stdout.write(`${url}\n`);
 }
 
-interface Args {
+export interface Args {
   want: string | null;
   notesFile: string | null;
   yes: boolean;
@@ -739,22 +809,34 @@ export function releaseState(root: string): { developVersion: string; mainVersio
   return { developVersion, mainVersion, flight: inFlight(developVersion, mainVersion, releaseBranches(refs, developVersion)) };
 }
 
-async function release(args: Args): Promise<void> {
-  const root = ROOT;
+/** On develop, with a clean tree: fetches develop, main, the release branches and the tags, and reads the release state. */
+function preamble(root: string): ReturnType<typeof releaseState> {
   if (git(root, 'symbolic-ref', '--short', 'HEAD') !== 'develop') throw new Refusal('check out develop first');
   const dirty = gitOut(root, ['status', '--porcelain', '--untracked-files=all']).trimEnd();
   if (dirty) throw new Refusal(`the working tree is not clean:\n${dirty}`);
   say('fetching develop, main, the release branches and the tags');
   gitOut(root, ['fetch', '--quiet', '--prune', '--tags', 'origin', '+refs/heads/develop:refs/remotes/origin/develop', '+refs/heads/main:refs/remotes/origin/main', '+refs/heads/release/*:refs/remotes/origin/release/*']);
+  return releaseState(root);
+}
 
-  const { developVersion, flight } = releaseState(root);
+const inFlightRefusal = (flight: NonNullable<ReturnType<typeof inFlight>>) => {
+  const where = flight.from === 'branch' ? `branch release/v${flight.version}` : `origin/main is at ${flight.version}`;
+  return new Refusal(`Release ${flight.version} is in flight (${where}): run \`npm run release\` with no version to finish it, or, for a hotfix on main, port it to develop first`);
+};
+const closedRefusal = (pr: ReleasePr, branch: string) =>
+  new Refusal(`the release PR ${pr.url} was closed without merging: reopen it, or delete ${branch} (git push origin --delete ${branch}; git branch -D ${branch}) and start over`);
+
+/** This repo's release PR from release/v<version> into main, or null. */
+const releasePr = (repo: string, version: string): ReleasePr | null =>
+  pickReleasePr(JSON.parse(sh('gh', ['pr', 'list', '--repo', repo, '--base', 'main', '--head', `release/v${version}`, '--state', 'all', '--json', PR_FIELDS])), { version });
+
+async function release(args: Args): Promise<void> {
+  const root = ROOT;
+  const { developVersion, flight } = preamble(root);
 
   let version: string;
   if (args.want) {
-    if (flight) {
-      const where = flight.from === 'branch' ? `branch release/v${flight.version}` : `origin/main is at ${flight.version}`;
-      throw new Refusal(`Release ${flight.version} is in flight (${where}): run \`npm run release\` with no version to finish it, or, for a hotfix on main, port it to develop first`);
-    }
+    if (flight) throw inFlightRefusal(flight);
     if (!tagged(root, developVersion)) throw new Refusal(`${developVersion} is not tagged: finish or fix that release first (docs/RELEASES.md "Recovery")`);
     if (git(root, 'rev-parse', 'HEAD') !== git(root, 'rev-parse', 'refs/remotes/origin/develop')) throw new Refusal('develop differs from origin/develop: pull or push first');
     const next = nextVersion(developVersion, args.want);
@@ -768,19 +850,194 @@ async function release(args: Args): Promise<void> {
 
   const repo = repoName();
   const branch = `release/v${version}`;
-  const pr = pickReleasePr(JSON.parse(sh('gh', ['pr', 'list', '--repo', repo, '--base', 'main', '--head', branch, '--state', 'all', '--json', PR_FIELDS])), { version });
-  if (pr?.state === 'merged') return land(root, repo, version, pr, args.yes);
-  if (pr?.state === 'closed') throw new Refusal(`the release PR ${pr.url} was closed without merging: reopen it, or delete ${branch} (git push origin --delete ${branch}; git branch -D ${branch}) and start over`);
-  return toPr(root, repo, `v${developVersion}`, version, pr, args.yes);
+  const pr = releasePr(repo, version);
+  if (pr?.state === 'merged') return land(root, repo, version, pr, plainAsk(args.yes));
+  if (pr?.state === 'closed') throw closedRefusal(pr, branch);
+  return toPr(root, repo, `v${developVersion}`, version, pr, plainAsk(args.yes));
 }
 
+export type Bump = (typeof BUMPS)[number];
+const PHASES = ['start', 'wait-build', 'pr', 'wait-tag', 'land'] as const;
+export type Phase = (typeof PHASES)[number];
+export type PhaseMode = { kind: 'phase'; phase: Phase; version: string; notesFile: string | null } | { kind: 'check'; version: string };
+export type Mode = { kind: 'release'; args: Args } | PhaseMode | { kind: 'draft'; bump: Bump | null };
+
+/**
+ * The script's argv as one of its modes, or null for a usage error. Without `--phase`, `--check` or `--draft-notes`
+ * it is `npm run release`'s argv, read by `parseArgs` as it always was; with one, only the exact protocol forms pass.
+ */
+export function parseMode(argv: string[]): Mode | null {
+  if (!argv.some((a) => a === '--phase' || a === '--check' || a === '--draft-notes')) {
+    const args = parseArgs(argv);
+    return args ? { kind: 'release', args } : null;
+  }
+  const [first, ...rest] = argv;
+  const isBump = (v: string | undefined): v is Bump => (BUMPS as readonly string[]).includes(v ?? '');
+  const isVersion = (v: string | undefined): v is string => SEMVER.test(v ?? '');
+  if (first === '--draft-notes') {
+    if (!rest.length) return { kind: 'draft', bump: null };
+    return rest.length === 2 && rest[0] === '--bump' && isBump(rest[1]) ? { kind: 'draft', bump: rest[1] } : null;
+  }
+  if (first === '--check') return rest.length === 2 && rest[0] === 'merged' && isVersion(rest[1]) ? { kind: 'check', version: rest[1] } : null;
+  if (first !== '--phase') return null;
+  const [phase, version, ...more] = rest;
+  if (!(PHASES as readonly string[]).includes(phase ?? '') || !isVersion(version)) return null;
+  if (phase !== 'start') return more.length ? null : { kind: 'phase', phase: phase as Phase, version, notesFile: null };
+  const [flag, file, ...extra] = more;
+  return flag === '--notes-file' && file && !file.startsWith('-') && !extra.length ? { kind: 'phase', phase: 'start', version, notesFile: file } : null;
+}
+
+const FIX = /^fix(?:es|ed)?\b/i;
+const REASONS_MAX = 5;
+
+/**
+ * The version bump the commits since the last tag call for, with up to five short reasons: minor when a version list
+ * moved or any subject (release subjects aside) does not start with the word fix, fixes or fixed; patch otherwise.
+ * Never major: that is the maintainer's call.
+ */
+export function inferBump(subjects: string[], versions: string | null): { bump: 'patch' | 'minor'; reasons: string[] } {
+  const kept = subjects.filter((s) => !isReleaseSubject(s));
+  const notFixes = kept.filter((s) => !FIX.test(s.trim()));
+  const reasons: string[] = [];
+  if (versions) reasons.push(`a version list moved: ${versions.replace(/^- Versions: /, '').replace(/\.$/, '')}`);
+  if (notFixes.length) reasons.push(`${notFixes.length} of ${kept.length} commits are not fixes, such as ${JSON.stringify(oneLine(notFixes[0]))}`);
+  if (!reasons.length) reasons.push(`all ${kept.length} commits are fixes and no version moved`);
+  return { bump: versions || notFixes.length ? 'minor' : 'patch', reasons: reasons.slice(0, REASONS_MAX) };
+}
+
+/** What `--draft-notes` prints. */
+export interface DraftNotes {
+  current: string;
+  next: string;
+  bump: Bump;
+  inferred: 'patch' | 'minor';
+  reasons: string[];
+  since: string | null;
+  draft: string;
+}
+
+/** The next release's draft from local git and the working tree only: `bump` when given, else the inferred one. */
+export function draftNotes(root: string, bump: Bump | null): DraftNotes {
+  const current = readVersion(fs.readFileSync(path.join(root, 'package.json'), 'utf8'), 'package.json');
+  const { since, subjects, versions } = notesInputs(root);
+  if (!subjects.some((s) => !isReleaseSubject(s))) throw new Refusal(`nothing to release: no commits since ${since ?? 'the first commit'}`);
+  const { bump: inferred, reasons } = inferBump(subjects, versions);
+  const chosen = bump ?? inferred;
+  const next = nextVersion(current, chosen);
+  return { current, next, bump: chosen, inferred, reasons, since, draft: draftSection(next, since, subjects, versions) };
+}
+
+/** A notes file as the `## <version>` section `prepare` takes: `<!--` lines dropped, trimmed, and refused unless it starts with exactly that heading. */
+export function phaseSection(text: string, version: string): string {
+  const section = dropNotes(text).trim();
+  const first = section.split('\n', 1)[0].trimEnd();
+  if (first !== `## ${version}`) throw new Refusal(`the notes file must start with "## ${version}", not ${JSON.stringify(oneLine(first))}: run forge release plan again`);
+  return section;
+}
+
+/** Whether `version` is released and landed: origin/develop is at it and `v<version>` exists. Reads the refs the preamble fetched. */
+export function isLanded(root: string, version: string): boolean {
+  const developVersion = readVersion(gitOut(root, ['show', 'refs/remotes/origin/develop:package.json']), "origin/develop's package.json");
+  return developVersion === version && tagged(root, version);
+}
+
+/** `--phase start`: cut the release commit from `notesFile` and push it, or push the one cut already. */
+function phaseStart(root: string, version: string, developVersion: string, flight: ReturnType<typeof inFlight>, notesFile: string): void {
+  const branch = `release/v${version}`;
+  if (flight) {
+    if (flight.from === 'main' || remoteTip(root, branch)) {
+      say(`${branch} is already on origin: nothing to do`);
+      return;
+    }
+    const local = localTip(root, branch);
+    if (!local) throw new Refusal(`${branch} is neither on origin nor here: run forge release plan again`);
+    if (releaseCommitOf(root, local, version) !== local) throw notARelease(branch, local);
+    gitOut(root, ['push', '--quiet', 'origin', `${local}:refs/heads/${branch}`]);
+    say(`pushed Release ${version} (${local.slice(0, 7)}) to origin ${branch}`);
+    return;
+  }
+  if (!tagged(root, developVersion)) throw new Refusal(`${developVersion} is not tagged: finish or fix that release first (docs/RELEASES.md "Recovery")`);
+  if (git(root, 'rev-parse', 'HEAD') !== git(root, 'rev-parse', 'refs/remotes/origin/develop')) throw new Refusal('develop differs from origin/develop: pull or push first');
+  if (tagged(root, version)) throw new Refusal(`v${version} is already tagged`);
+  if (!BUMPS.some((b) => nextVersion(developVersion, b) === version)) throw new Refusal(`${version} is not the patch, minor or major release after ${developVersion}: run forge release plan again`);
+  const section = phaseSection(fs.readFileSync(path.resolve(notesFile), 'utf8'), version);
+  const commit = prepare(root, developVersion, version, { section });
+  gitOut(root, ['push', '--quiet', 'origin', `${commit}:refs/heads/${branch}`]);
+  say(`pushed Release ${version} (${commit.slice(0, 7)}) to origin ${branch}`);
+}
+
+/**
+ * One phase of the release in flight, or the merged check. A phase does nothing once its release is past it, and
+ * refuses another version while one is in flight. Every check `npm run release` makes stays in the functions it calls.
+ */
+export async function runPhase(root: string, mode: PhaseMode): Promise<void> {
+  const branch = `release/v${mode.version}`;
+  if (mode.kind === 'check') {
+    const pr = releasePr(repoName(), mode.version);
+    if (pr?.state !== 'merged') throw new Refusal(pr ? `the release PR ${pr.url} is ${pr.state}, not merged` : `there is no release PR from ${branch} into main`);
+    say(`the release PR ${pr.url} is merged`);
+    return;
+  }
+  const { version, phase } = mode;
+  const { developVersion, flight } = preamble(root);
+  if (isLanded(root, version)) {
+    say(`Release ${version} is already landed on develop: nothing to do`);
+    if (phase === 'land') {
+      try {
+        process.stdout.write(`${sh('gh', ['release', 'view', `v${version}`, '--repo', repoName(), '--json', 'url', '--jq', '.url']).trim()}\n`);
+      } catch {
+        // Best effort: the release is landed either way.
+      }
+    }
+    return;
+  }
+  if (flight && flight.version !== version) throw inFlightRefusal(flight);
+  if (phase === 'start') return phaseStart(root, version, developVersion, flight, mode.notesFile as string);
+  if (!flight) throw new Refusal(`Release ${version} is not in flight: the start step cuts it`);
+  const repo = repoName();
+  const pr = releasePr(repo, version);
+  const merged = pr?.state === 'merged' ? pr : null;
+  if (phase === 'wait-build' || phase === 'pr') {
+    if (merged) {
+      say(`the release PR ${merged.url} is merged: nothing to do`);
+      return;
+    }
+    if (pr?.state === 'closed') throw closedRefusal(pr, branch);
+    if (phase === 'pr') return toPr(root, repo, `v${developVersion}`, version, pr, PHASE_ASK);
+    const tip = remoteTip(root, branch);
+    if (!tip) throw new Refusal(`${branch} is not on origin yet: the start step pushes it`);
+    const release = releaseCommitOf(root, tip, version);
+    if (!release) throw notARelease(branch, tip);
+    await waitForRun(repo, 'main-update.yml', release, branch);
+    return;
+  }
+  if (!merged) throw pr?.state === 'closed' ? closedRefusal(pr, branch) : new Refusal(`the release PR from ${branch} is not merged yet: merge it first (the merge step)`);
+  if (phase === 'wait-tag') return waitForTag(root, repo, version, merged);
+  return land(root, repo, version, merged, PHASE_ASK);
+}
+
+const USAGE = [
+  'usage: npm run release -- [patch|minor|major|X.Y.Z [--notes-file <file>]] [--yes]',
+  '       node scripts/release.ts --draft-notes [--bump patch|minor|major]',
+  '       node scripts/release.ts --phase start <X.Y.Z> --notes-file <file> | --phase wait-build|pr|wait-tag|land <X.Y.Z>',
+  '       node scripts/release.ts --check merged <X.Y.Z>',
+].join('\n');
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const args = parseArgs(process.argv.slice(2));
-  if (!args) {
-    process.stderr.write('usage: npm run release -- [patch|minor|major|X.Y.Z [--notes-file <file>]] [--yes]\n');
+  const mode = parseMode(process.argv.slice(2));
+  if (!mode) {
+    process.stderr.write(`${USAGE}\n`);
     process.exit(2);
   }
-  release(args).catch((e) => {
+  const work = async (): Promise<void> => {
+    if (mode.kind === 'release') return release(mode.args);
+    if (mode.kind === 'draft') {
+      process.stdout.write(`${JSON.stringify(draftNotes(ROOT, mode.bump))}\n`);
+      return;
+    }
+    return runPhase(ROOT, mode);
+  };
+  work().catch((e) => {
     process.stderr.write(`release: ${(e as Error).message}\n`);
     process.exit(1);
   });

@@ -76,6 +76,7 @@ test('mandates over the dashboard API', async () => {
       budget: { usd: 150, jobs: 5 },
       stall: { cadences: 3, bounces: 3 },
       onUnfinishable: 'park',
+      scoring: 'all',
     });
     const newEvent = t.auditEvents().find((e) => e.type === 'mandate-new' && e.mandate === 'm1');
     assert.equal(newEvent?.actor?.source, 'dashboard');
@@ -111,6 +112,7 @@ test('mandates over the dashboard API', async () => {
     assert.deepEqual([list.json.directives[0].reason, list.json.directives.at(-1).reason], ['note 5', 'note 54'], 'the latest 50, oldest first');
     assert.deepEqual(list.json.grantable, ['spec-approval', 'escalation', 'milestone-approval']);
     assert.deepEqual(list.json.defaults, created.json.mandate.contract);
+    assert.equal(list.json.defaults.scoring, 'all');
 
     // AC4: the detail, with the token.
     const detail = await t.get('/mandates/m1', true);
@@ -131,6 +133,12 @@ test('mandates over the dashboard API', async () => {
     const stale = await t.post('/mandates/m1/edit', { updatedAt: before, maxJobs: 4 });
     assert.deepEqual([stale.status, stale.json.error], [409, 'mandate m1 changed since you read it; reload and edit again']);
     assert.equal(t.file('m1'), file, 'a stale edit leaves the file byte-identical');
+    const notString = await t.post('/mandates/m1/edit', { updatedAt: edited.json.mandate.updatedAt, scoring: 1 });
+    assert.equal(notString.status, 400, notString.text);
+    assert.match(notString.json.error, /^body must be/);
+    const sampled = await t.post('/mandates/m1/edit', { updatedAt: edited.json.mandate.updatedAt, scoring: 'sample' });
+    assert.equal(sampled.status, 200, sampled.text);
+    assert.deepEqual([sampled.json.mandate.contract.scoring, sampled.json.mandate.effective.scoring, sampled.json.mandate.contract.maxJobs], ['sample', 'sample', 3]);
 
     // AC7: the status moves, each idempotent; pause and close keep the reason.
     const paused = await t.post('/mandates/m1/pause', { reason: 'waiting on infra' });

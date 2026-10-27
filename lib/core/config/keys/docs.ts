@@ -202,8 +202,9 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
     doc: "canary | git-ref | local | sequential: what a consumer's PR points at while this (root) repo's change is unmerged (see Interim strategies)",
   },
   'release.versioning': { doc: 'semver | calver; null = undeclared (see Release strategy)' },
-  'release.mechanism': { doc: 'release-please | cargo-release | changesets | tag: the tool that cuts a release; doctor checks it is installed' },
+  'release.mechanism': { doc: 'release-please | cargo-release | changesets | tag | script: the tool that cuts a release; doctor checks it is installed' },
   'release.command': { doc: 'with mechanism: tag only, the one-line command a human runs to release (never run by Forge)' },
+  'release.script': { doc: 'with mechanism: script only, the repo-relative release script forge release plan and run drive through the script protocol (see Release strategy)' },
   'release.registry': { doc: 'crates.io | npm | none' },
   'release.cadence': { doc: 'on-merge | scheduled | manual' },
   'release.publish': { doc: 'confirm | allow: whether forge release run asks on a terminal before a publish step (null: asks)' },
@@ -354,7 +355,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'outcomes.windowDays': { doc: '1-365: days after the merge that a revert, follow-up bug or churn counts' },
 
   scoring: { doc: 'post-merge judge scores for a sample of merged jobs (see "Scoring" below)' },
-  'scoring.sample': { doc: "0-1: the share of merged jobs forge sync queues for one judge run; 0 is off" },
+  'scoring.sample': { doc: "0-1: the share of merged jobs, outside mandates that score all or off, that forge sync queues for one judge run; 0 is off outside mandates" },
   'scoring.model': { doc: "the scoring judge's model; null falls through to runtime.models.judge" },
 
   notify: { doc: 'push notifications on gates, PRs, failures and budget stops (see "Notifications" below)' },

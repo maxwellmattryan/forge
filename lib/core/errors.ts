@@ -5,7 +5,7 @@
  * The CLI's error codes and the exit each one fixes (docs/CLI.md "Error codes"). Scripts branch on
  * these, so renaming or removing one is a breaking change.
  */
-export const ERROR_CODES = { failed: 1, not_found: 1, internal: 1, secret_found: 1, protected_path: 1, interim_stale: 1, release_gate: 1, human_only: 1, usage: 2, unknown_command: 2, not_initialized: 2, not_a_repo: 2, config_invalid: 2, owned: 3, stale_epoch: 3, blocked: 4, external: 5, docker_missing: 5, docker_stopped: 5 } as const;
+export const ERROR_CODES = { failed: 1, not_found: 1, internal: 1, secret_found: 1, protected_path: 1, interim_stale: 1, release_gate: 1, human_only: 1, stale_step: 1, usage: 2, unknown_command: 2, not_initialized: 2, not_a_repo: 2, config_invalid: 2, owned: 3, stale_epoch: 3, blocked: 4, external: 5, docker_missing: 5, docker_stopped: 5 } as const;
 export type ErrorCode = keyof typeof ERROR_CODES;
 export type ExitCode = (typeof ERROR_CODES)[ErrorCode];
 /** What each code means, as docs/CLI.md "Error codes" shows it (markdown; npm run docs:cli escapes `|`). */
@@ -22,6 +22,8 @@ export const ERROR_CODE_DOCS: Record<ErrorCode, string> = {
     "`forge pr ready` targeted a consumer PR whose local or sequential dependency's release is not recorded (a human runs `forge job interim release <id> <name>|--root <version>`), or whose manifests don't name a recorded release yet (gate `bump-due`, or a HEAD that doesn't carry it: run `forge verify <id>`, then `forge pr open <id>`); nothing was called (docs/CONFIG.md \"Interim strategies\")",
   human_only:
     'a human-only operation (`forge pr merge --now`, `forge job budget --set|--ack`, `forge budget ack`, `forge job unshelve`) needs a person who confirms it at a terminal by typing the job id or period, or, for `pr merge --now`, the dashboard\'s Merge now, for `job budget`, its Approve & continue on the budget gate, for `budget ack`, its Acknowledge in Needs you and, for `job unshelve`, Un-shelve in its Shelved list; a daemon session, an agent, a script or a configured command can\'t run it, and nothing was changed. A write that moves a shelved job any other way than un-shelving, finishing or cancelling it is refused the same way (docs/architecture/daemon-security.md "Human-only operations")',
+  stale_step:
+    '`forge job agent run` found that `forge job step` no longer returns that spawn (another caller started it, the job moved on, or a human changed it); nothing was started: read step again',
   usage: 'the default for exit 2: the call could not be parsed; the hint names the help to read',
   unknown_command: 'the first word is not a command',
   not_initialized: 'the repo has no `.forge/config.yml`; run `/forge init`',
