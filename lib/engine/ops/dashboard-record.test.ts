@@ -31,10 +31,14 @@ for (const [kind, fileOf] of RECORDS) test(`a ${kind} dashboard record counts on
       ...o,
     });
     const json = (v: unknown) => () => fs.writeFileSync(file, JSON.stringify(v));
-    const proven = { pid: 4242, url: 'http://127.0.0.1:7400', startedAt: STARTED_AT };
+    const proven = { pid: 4242, url: 'http://127.0.0.1:7400', startedAt: STARTED_AT, permissionMode: null as string | null };
     type Row = { name: string; plant: () => void; probe?: DashboardProbe; want: typeof proven | null; posixOnly?: boolean };
     const rows: Row[] = [
       { name: 'a proven record', plant: json(BASE), want: proven },
+      // The launch mode is reported as recorded, and only as one of the three modes.
+      { name: 'a launch mode', plant: json({ ...BASE, permissionMode: 'auto' }), want: { ...proven, permissionMode: 'auto' } },
+      { name: 'a mode outside the three', plant: json({ ...BASE, permissionMode: 'bypassPermissions' }), want: proven },
+      { name: 'a non-string mode', plant: json({ ...BASE, permissionMode: 1 }), want: proven },
       { name: 'a trailing slash becomes the origin', plant: json({ ...BASE, url: 'http://127.0.0.1:7400/' }), want: proven },
       { name: 'the start 29 s off', plant: json(BASE), probe: probe({ startMs: () => STARTED + 29_000 }), want: proven },
       { name: 'npm run dev\'s command', plant: json(BASE), probe: probe({ command: () => 'node bin/forge dash --dev' }), want: proven },

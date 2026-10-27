@@ -53,7 +53,8 @@ export interface ProjectsStatsResponse {
 export interface ProjectsResponse {
   /** Why the machine index could not be read at the last refresh (the loaded projects stay), else null. */
   error: string | null;
-  machine: { maxConcurrent: number; source: 'settings' | 'auto'; live: number };
+  /** `launchPermissionMode`: `forge dash --permission-mode`, the run's launch mode for every project; null without one. */
+  machine: { maxConcurrent: number; source: 'settings' | 'auto'; live: number; launchPermissionMode: DaemonPermissionMode | null };
   /** Sorted by name. */
   projects: MachineProjectSummary[];
 }
@@ -214,7 +215,10 @@ export interface DaemonPoolState {
   permissionMode: string;
   /** Sessions a human put in another mode, by scope, and the default for job sessions without an entry (null: daemon.command's). Held in memory only, so they end with `forge dash`. */
   permissionModes: Record<string, DaemonPermissionMode>;
+  /** The job sessions' default: starts at the launch mode and moves only by the popover's choice (null: daemon.command's). */
   jobPermissionMode: DaemonPermissionMode | null;
+  /** `forge dash --permission-mode`, the run's launch mode: the job, inbox and office sessions start in it; null without one. */
+  launchPermissionMode: DaemonPermissionMode | null;
   /** The machine cap across every project the machine dashboard serves; null for a pool outside one. */
   machine: MachineSlotsState | null;
   /** Open event streams on the machine dashboard. */

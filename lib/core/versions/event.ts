@@ -40,6 +40,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // v11 adds the `senior-pass` event ({ gate, first }, the Foreman's actor): the gate runner's once-per-park marker
   // under foreman.escalations: foreman. An older Forge reads it as a generic event.
   { id: 'senior-pass', up: (e) => e },
+  // v12 lets an actor's `source` be `launch` (the `daemon-mode` audit event `forge dash --permission-mode` writes for each
+  // project it loads); an older Forge reads it as `unknown`.
+  { id: 'actor-source-launch', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

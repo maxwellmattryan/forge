@@ -1,16 +1,22 @@
 // The running dashboard's record, proven before anyone signals its pid or shows its URL: the machine
 // dashboard's `<FORGE_HOME>/dashboard.json`, or a legacy per-repo `forge dash`'s
-// `.forge/runtime/dashboard.json`. Every function takes the record's file path.
+// `.forge/runtime/dashboard.json`. Every function takes the record's file path. Its `permissionMode` (the run's
+// launch mode) is only ever reported, never applied: a mode reaches sessions only from `forge dash`'s own argv.
+// The record has no schemaVersion: an older one simply lacks the field, which reads as null.
 import fs from 'node:fs';
 import path from 'node:path';
 import { machinePaths, paths, PLUGIN_ROOT } from '#core/paths.ts';
 import { pidAlive, processStartMs, run, START_SLACK_MS } from '#core/os/process.ts';
+import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
+import type { DaemonPermissionMode } from '#core/types.ts';
 
 /** A proven record: `url` is the loopback origin, with no trailing slash. */
 export interface DashboardRecord {
   pid: number;
   url: string;
   startedAt: string;
+  /** `forge dash --permission-mode`, the run's launch mode; null without one, for an older record, or for any other value. Reported only. */
+  permissionMode: DaemonPermissionMode | null;
 }
 
 /** What provenDashboard asks of the OS: `systemProbe` in production, a plain object in tests. */
@@ -144,5 +150,5 @@ export function provenDashboard(file: string, probe: DashboardProbe = systemProb
   if (started === null || Math.abs(started - recorded) > START_SLACK_MS) return null;
   const command = probe.command(pid);
   if (command === null || !isForgeDash(command)) return null;
-  return { pid, url, startedAt: startedAt as string };
+  return { pid, url, startedAt: startedAt as string, permissionMode: PERMISSION_MODES.find((m) => m === rec.permissionMode) ?? null };
 }

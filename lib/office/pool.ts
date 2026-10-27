@@ -111,7 +111,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     daemonLock = null;
   };
   const repoBudget = createRepoBudgetMemo(root);
-  const modes = createModeBook(opts.jobPermissionMode);
+  const modes = createModeBook(opts.launchPermissionMode);
   const subscribers = new Set<(e: SessionEvent) => void>();
 
   const emit = (e: SessionEvent) => {

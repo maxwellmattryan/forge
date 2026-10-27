@@ -210,6 +210,7 @@ export function idlePoolState(root: string): PoolState {
     permissionMode: 'default',
     permissionModes: {},
     jobPermissionMode: null,
+    launchPermissionMode: null,
     machine: null,
   };
 }

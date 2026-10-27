@@ -36,13 +36,13 @@ export const HELP: HelpGroup[] = [
         command: 'dash',
         args: '[--background|--stop|--service] [--port N] [--permission-mode MODE] [--dev] [--quiet]',
         summary:
-          "open the machine's dashboard, one server for every project in the machine index: in a repo with .forge/config.yml it registers that repo first (forge project add's default name) and, when it registers it or starts the dashboard, approves the files Forge trusts there as they are (a project's daemon boots with the dashboard only while they still match; a report for a repo already registered approves nothing), then prints the running one's {url: <origin>/?project=<name>, pid, running: true, project, added}, or starts it in the foreground (prints its URL), or detached with --background ({url, pid, started: true, project, added}); outside a project it registers nothing (project: null). Its record is <FORGE_HOME>/dashboard.json ({pid, url, startedAt}, 0600, never the token); a daemon session may only get the report for a registered project",
+          "open the machine's dashboard, one server for every project in the machine index: in a repo with .forge/config.yml it registers that repo first (forge project add's default name) and, when it registers it or starts the dashboard, approves the files Forge trusts there as they are (a project's daemon boots with the dashboard only while they still match; a report for a repo already registered approves nothing), then prints the running one's {url: <origin>/?project=<name>, pid, running: true, project, added, permissionMode}, or starts it in the foreground (prints its URL), or detached with --background ({url, pid, started: true, project, added, permissionMode}); outside a project it registers nothing (project: null). permissionMode is the run's launch mode (--permission-mode), or null. Its record is <FORGE_HOME>/dashboard.json ({pid, url, startedAt, permissionMode}, 0600, never the token; the mode is only reported, never applied); a daemon session may only get the report for a registered project",
         flags: [
-          ['--background', 'start it detached and print {url, pid, started: true, project, added}'],
+          ['--background', 'start it detached and print {url, pid, started: true, project, added, permissionMode}'],
           ['--stop', "stop the machine's dashboard and, in a repo, an older per-repo dashboard (.forge/runtime/dashboard.json), then reap every registered project's orphaned sessions ({stopped, daemonReaped}); a record whose pid is not provably that dashboard is cleared without signalling anything"],
           ['--port N', "the first port to try (default: this repo's dashboard.port, 7400)"],
           ['--foreground', 'run in the foreground even when one is running'],
-          ['--permission-mode MODE', "the job sessions' default permission mode until it stops: default (ask), auto or dontAsk (refuse); refused in a daemon session"],
+          ['--permission-mode MODE', 'the permission mode every job, inbox and office session of every project starts in until it stops: default (ask), auto or dontAsk (refuse); a running dashboard with another mode is reported, never changed; refused in a daemon session'],
           ['--dev', "serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist for every project of FORGE_HOME, with no pool booting until Start; it builds nothing itself, so start it through npm run dev; refused from a forge without Vite (an installed plugin) and while a proven machine dashboard runs (a stale record does not block it)"],
           ['--quiet', 'in the foreground in human mode, print only the banner (no activity log)'],
           [
@@ -53,7 +53,7 @@ export const HELP: HelpGroup[] = [
         exits: [
           [
             1,
-            "no free port near N, --dev from a forge without Vite or while a proven machine dashboard is running, this repo's default name registered for another path, --permission-mode in a daemon session, or a daemon session that would start, stop or register, or ran --service (only the report for a registered project is allowed)",
+            "no free port near N, --dev from a forge without Vite or while a proven machine dashboard is running, this repo's default name registered for another path, --permission-mode in a daemon session, --permission-mode that differs from the running machine dashboard's, or a daemon session that would start, stop or register, or ran --service (only the report for a registered project is allowed)",
           ],
         ],
       },
@@ -135,21 +135,28 @@ async function retainAll(home: string): Promise<void> {
 
 /** The detached child's argv: --quiet, since its stdio is ignored and an activity log would only cost it work. */
 export function backgroundArgs(port: number, flags: Record<string, any>): string[] {
-  const mode = jobPermissionMode(flags);
+  const mode = launchPermissionMode(flags);
   return ['dash', '--foreground', '--port', String(port), ...(mode ? ['--permission-mode', mode] : []), ...(flags.dev ? ['--dev'] : []), '--quiet'];
 }
 
-// Auto lets most calls run unread, so only the human's own command line may make it every job's default.
-const MODE_DAEMON_REFUSAL = "forge dash --permission-mode sets every job session's permission mode, which a daemon session may not do; a human runs it in their own terminal or chooses it in the dashboard";
+// Auto lets most calls run unread, so only the human's own command line may make it the run's launch mode.
+const MODE_DAEMON_REFUSAL =
+  'forge dash --permission-mode sets the permission mode every session of the run starts in, which a daemon session may not do; a human runs it in their own terminal or chooses it in the dashboard';
 
-/** --permission-mode, validated; null when absent. */
-export function jobPermissionMode(flags: Record<string, any>, env: NodeJS.ProcessEnv = process.env): DaemonPermissionMode | null {
+/** --permission-mode, validated: the run's launch mode; null when absent. */
+export function launchPermissionMode(flags: Record<string, any>, env: NodeJS.ProcessEnv = process.env): DaemonPermissionMode | null {
   const v = flags['permission-mode'];
   if (v === undefined) return null;
   if (env.FORGE_DAEMON === '1') throw new ForgeError(MODE_DAEMON_REFUSAL);
   const mode = PERMISSION_MODES.find((m) => m === v);
   if (!mode) throw new ForgeError(`--permission-mode must be one of ${PERMISSION_MODES.join(', ')} (got ${JSON.stringify(String(v).slice(0, 40))})`, 'usage', 'forge help dash');
   return mode;
+}
+
+/** Why a `forge dash --permission-mode <mode>` was not applied to the running machine dashboard. */
+function modeMismatch(current: DashboardRecord, mode: DaemonPermissionMode): string {
+  const running = current.permissionMode ? `runs with --permission-mode ${current.permissionMode}` : "runs without --permission-mode (each project's sessions start in daemon.command's mode)";
+  return `the machine's dashboard at ${current.url} (pid ${current.pid}) ${running}, so --permission-mode ${mode} was not applied; stop it with forge dash --stop and start it again with --permission-mode ${mode}, or run forge dash without the flag`;
 }
 
 // Registering a project boots a pool under that project's config, and starting or stopping the
@@ -198,7 +205,7 @@ function stopDashboards(home: string, root: string | null, current: DashboardRec
  */
 export async function dash(root: string | null, config: Config | null, flags: Record<string, any>, initialized = root !== null): Promise<void> {
   if (flags.service && (flags.background || flags.stop || flags.dev)) throw new ForgeError('--service runs the dashboard in the foreground, so it takes no --background, --stop or --dev', 'usage', 'forge help dash');
-  const mode = jobPermissionMode(flags);
+  const mode = launchPermissionMode(flags);
   const home = forgeHome();
   const machineFile = machineDashboardFile(home);
   // The record is proven before its pid is signalled or its url shown: anything else counts as no dashboard at all.
@@ -209,7 +216,7 @@ export async function dash(root: string | null, config: Config | null, flags: Re
     // Only a report: a running machine dashboard, for a project already registered.
     const known = project ? projectByRoot(home, project) : null;
     if (flags.stop || flags.dev || flags.background || flags.foreground || flags.service || !current || !known) throw new ForgeError(DASH_DAEMON_REFUSAL);
-    return out({ url: `${current.url}/?project=${known.name}`, pid: current.pid, running: true, project: known.name, added: false }, flags);
+    return out({ url: `${current.url}/?project=${known.name}`, pid: current.pid, running: true, project: known.name, added: false, permissionMode: current.permissionMode }, flags);
   }
   if (flags.stop) return stopDashboards(home, root, current, flags);
   // The dev build comes from a checkout's `npm run dev`; an installed plugin has no Vite, so its page would
@@ -217,6 +224,9 @@ export async function dash(root: string | null, config: Config | null, flags: Re
   if (flags.dev && !exists(path.join(PLUGIN_ROOT, 'node_modules', 'vite'))) {
     throw new ForgeError(`--dev serves a Forge checkout's npm run dev build, and this forge (${PLUGIN_ROOT}) has none; run npm run dev [-- --permission-mode MODE] in the checkout`);
   }
+  // The running server keeps the mode it was started with: a different flag would look applied when it is not, so
+  // it is refused before this command registers, approves or writes anything.
+  if (current && mode !== null && !flags.foreground && !flags.dev && mode !== current.permissionMode) throw new ForgeError(modeMismatch(current, mode), 'failed', 'forge dash --stop');
   // A human's `forge dash` in this repo approves the files Forge trusts as they are now when it starts the dashboard or
   // registers the repo: its pool boots with them, and a later restart boots it only while they stay the same. A dev
   // dashboard boots nothing, so it approves nothing.
@@ -243,7 +253,7 @@ export async function dash(root: string | null, config: Config | null, flags: Re
     );
   }
   // The running server picks up a new registration at its next index refresh (2 s).
-  if (current && !flags.foreground) return out({ url: urlOf(current.url), pid: current.pid, running: true, ...named, ...uninitialized }, flags);
+  if (current && !flags.foreground) return out({ url: urlOf(current.url), pid: current.pid, running: true, ...named, permissionMode: current.permissionMode, ...uninitialized }, flags);
   const port = Number(flags.port ?? config?.dashboard.port ?? 7400);
   const note = project && config ? await dashNotes(project, config, flags) : {};
   // After the notes: the billing answer may have written daemon.auth to config.yml, which the pool must boot with.
@@ -261,10 +271,10 @@ export async function dash(root: string | null, config: Config | null, flags: Re
       // The pid is the child just spawned, so only the url needs proving.
       const rt = readDashboardRecord(machineFile);
       const url = rt && rt.pid === child.pid ? loopbackOrigin(rt.url) : null;
-      if (url) return out({ url: urlOf(url), pid: child.pid, started: true, ...named, ...uninitialized, ...note }, flags);
+      if (url) return out({ url: urlOf(url), pid: child.pid, started: true, ...named, permissionMode: mode, ...uninitialized, ...note }, flags);
       sleepSync(50);
     }
-    return out({ url: urlOf(`http://127.0.0.1:${port}`), pid: child.pid, started: true, unconfirmed: true, ...named, ...uninitialized, ...note }, flags);
+    return out({ url: urlOf(`http://127.0.0.1:${port}`), pid: child.pid, started: true, unconfirmed: true, ...named, permissionMode: mode, ...uninitialized, ...note }, flags);
   }
   if ('note' in uninitialized) process.stderr.write(`${uninitialized.note}\n`);
   if (note.note) process.stderr.write(`${note.note}\n`);
@@ -291,7 +301,7 @@ export async function dash(root: string | null, config: Config | null, flags: Re
         home,
         port: p,
         dev: Boolean(flags.dev),
-        ...(mode ? { daemon: { jobPermissionMode: mode } } : {}),
+        ...(mode ? { daemon: { launchPermissionMode: mode } } : {}),
         ...(onRequest ? { onRequest } : {}),
         // The one place the real sleep helper is passed: FORGE_KEEP_AWAKE=never here turns it off.
         ...(flags.dev ? {} : { keepAwake: { spawn: spawnSleepHelper, env: process.env } }),
@@ -304,7 +314,8 @@ export async function dash(root: string | null, config: Config | null, flags: Re
   if (!res) throw new ForgeError(`no free port near ${port}`);
   // Outside every repo, 0600 in a 0700 home: no session can plant or read it, and it never holds the token.
   ensureMachineDirs(home);
-  writeJsonPrivate(machineFile, { pid: process.pid, url: res.url, startedAt: new Date().toISOString() });
+  // permissionMode is only reported (a mismatched launch, forge daemon status): nothing reads it back to set a mode.
+  writeJsonPrivate(machineFile, { pid: process.pid, url: res.url, startedAt: new Date().toISOString(), permissionMode: mode });
   const server = res;
   let closing = false;
   let detach: (() => void) | null = null;

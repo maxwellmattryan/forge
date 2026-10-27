@@ -298,6 +298,12 @@ const EVENT_ROWS: Row[] = [
   },
   { step: 'components-event', input: { ts: 't', type: 'components', declared: null, components: ['cli'], added: ['cli'], dropped: [], sha: 'abc' }, fields: { type: 'components', components: ['cli'], added: ['cli'], dropped: [] }, note: 'read as written' },
   { step: 'senior-pass', input: { ts: 't', type: 'senior-pass', gate: 'escalation', first: 'escalate', actor: FOREMAN }, fields: { type: 'senior-pass', ts: 't', gate: 'escalation', first: 'escalate', actor: FOREMAN }, note: 'a senior-pass marker reads as written' },
+  {
+    step: 'actor-source-launch',
+    input: { ts: 't', type: 'daemon-mode', mode: 'auto', actor: { login: 'al', source: 'launch' } },
+    fields: { type: 'daemon-mode', ts: 't', mode: 'auto', actor: { login: 'al', source: 'launch' } },
+    note: 'the launch flag\'s daemon-mode event keeps source launch',
+  },
 ];
 
 const MACHINE_ROWS: Row[] = [
