@@ -53,10 +53,12 @@ export function servicesToComponents(c: any): any {
 /**
  * The component whose commands a job uses: the one root-repo component its `components` names when it
  * names exactly one. A component in another repo has no checkout in the job's worktree, so it is
- * never selected and the top-level commands run instead.
+ * never selected and the top-level commands run instead; so do they when the last recompute found
+ * changed files no component covers (`componentsUnmatched`), since the one component's commands
+ * would not test those.
  */
-export function jobComponent(config: Pick<Config, 'components'>, job: Pick<Job, 'components'>): ComponentConfig | null {
-  if (job.components.length !== 1) return null;
+export function jobComponent(config: Pick<Config, 'components'>, job: Pick<Job, 'components' | 'componentsUnmatched'>): ComponentConfig | null {
+  if (job.components.length !== 1 || job.componentsUnmatched) return null;
   const c = (config.components ?? []).find((s) => s?.name === job.components[0]);
   return c && (c.repo === undefined || c.repo === null) ? c : null;
 }
@@ -120,24 +122,45 @@ function pathPrefix(p: unknown): string | null {
 }
 
 /**
+ * Whether `c` covers the repo-relative `file`: it passes `paths` (inSpec, like review.panel paths), or,
+ * without `paths`, sits at or under `path`. A `paths` entry that is not a string (validation reports it)
+ * covers nothing, so such a component never claims a file it should not.
+ */
+function covers(c: ComponentConfig, file: string): boolean {
+  if (Array.isArray(c.paths)) return inSpec(file, c.paths.filter((g): g is string => typeof g === 'string'));
+  const prefix = pathPrefix(c.path);
+  return prefix === null || file === prefix || file.startsWith(`${prefix}/`);
+}
+
+/** The components `componentsForChanges` and `unmatchedChanges` look at: maps with a name. */
+const named = (config: Pick<Config, 'components'>): ComponentConfig[] => (config.components ?? []).filter((c) => isMap(c) && typeof c.name === 'string');
+
+/**
  * The configured components a set of changed files touches, in config order: `changed` maps a repo
  * (null for the root) to its changed repo-relative files. A component matches when one of its repo's
- * files passes `paths` (inSpec, like review.panel paths), or, without `paths`, sits at or under its
- * `path`. A component whose repo has no entry matches nothing; a file may match several components.
+ * files is covered by it (`paths`, else `path`). A component whose repo has no entry matches nothing;
+ * a file may match several components.
  */
 export function componentsForChanges(config: Pick<Config, 'components'>, changed: ReadonlyMap<string | null, readonly string[]>): string[] {
   const out: string[] = [];
-  for (const c of config.components ?? []) {
-    if (!isMap(c) || typeof c.name !== 'string' || out.includes(c.name)) continue;
+  for (const c of named(config)) {
+    if (out.includes(c.name)) continue;
     const files = changed.get(c.repo ?? null);
-    if (!files?.length) continue;
-    const prefix = pathPrefix(c.path);
-    const hit = Array.isArray(c.paths)
-      ? files.some((f) => inSpec(f, c.paths!))
-      : prefix === null || files.some((f) => f === prefix || f.startsWith(`${prefix}/`));
-    if (hit) out.push(c.name);
+    if (files?.some((f) => covers(c, f))) out.push(c.name);
   }
   return out;
+}
+
+/**
+ * How many changed files of the root repo no root component covers. The recompute names only the
+ * components the diff touches, so a commit in one component plus a file outside every component still
+ * names one; this count is what tells verify the job changed more than that component, and that the
+ * top-level commands must run. Member repos pick their commands by repo, not by the job's components,
+ * so only the root list counts.
+ */
+export function unmatchedChanges(config: Pick<Config, 'components'>, changed: ReadonlyMap<string | null, readonly string[]>): number {
+  const own = named(config).filter((c) => (c.repo ?? null) === null);
+  return (changed.get(null) ?? []).filter((f) => !own.some((c) => covers(c, f))).length;
 }
 
 /** Every problem with `components` (and a leftover `services`), in the form validateConfig reports. */

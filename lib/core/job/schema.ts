@@ -455,6 +455,8 @@ export function normalizeJob(raw: any): LoadedJob {
     components: stringList(job.components ?? legacyServices) ?? [],
     componentsDeclared: stringList(job.componentsDeclared),
     componentsFromDiff: stringList(job.componentsFromDiff),
+    // Absent or false is "nothing found outside the components"; a malformed value reads as true, so it can't unlock a component's commands.
+    componentsUnmatched: job.componentsUnmatched !== undefined && job.componentsUnmatched !== false,
     stage: job.stage ?? 'backlog',
     state: job.state ?? 'queued',
     waitingOn: job.waitingOn ?? null,

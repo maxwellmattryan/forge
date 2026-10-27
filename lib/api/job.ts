@@ -313,6 +313,12 @@ export interface Job {
   componentsDeclared: string[] | null;
   /** The last recompute from the committed diff; null before the first. Only `forge verify` writes it. */
   componentsFromDiff: string[] | null;
+  /**
+   * Whether the last recompute found changed files in the root repo that no root component covers. Then
+   * `jobComponent` selects none, so the top-level commands run, however many components matched. Only
+   * `forge verify` writes it.
+   */
+  componentsUnmatched: boolean;
   stage: Stage;
   state: JobState;
   waitingOn: WaitingOn | null;

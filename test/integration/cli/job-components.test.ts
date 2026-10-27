@@ -79,12 +79,12 @@ test('verify recomputes components from the diff and runs the top-level commands
     s.commit(['lib/cli/a.ts', 'dashboard/src/b.ts']);
     const { ran, job, events } = await s.verify();
     assert.deepEqual(
-      { components: job.components, componentsDeclared: job.componentsDeclared, componentsFromDiff: job.componentsFromDiff },
-      { components: ['cli', 'dashboard'], componentsDeclared: ['dashboard'], componentsFromDiff: ['cli', 'dashboard'] },
+      { components: job.components, componentsDeclared: job.componentsDeclared, componentsFromDiff: job.componentsFromDiff, componentsUnmatched: job.componentsUnmatched },
+      { components: ['cli', 'dashboard'], componentsDeclared: ['dashboard'], componentsFromDiff: ['cli', 'dashboard'], componentsUnmatched: false },
     );
     assert.equal(events.length, 1);
     const { ts: _ts, v: _v, actor: _actor, sha, ...event } = events[0];
-    assert.deepEqual(event, { type: 'components', declared: ['dashboard'], components: ['cli', 'dashboard'], added: ['cli'], dropped: [] });
+    assert.deepEqual(event, { type: 'components', declared: ['dashboard'], components: ['cli', 'dashboard'], added: ['cli'], dropped: [], unmatched: 0 });
     assert.match(String(sha), /^[0-9a-f]{40}$/);
     assert.deepEqual(ran, ['top']);
   } finally {
@@ -104,6 +104,26 @@ test('a declared component the diff never touches is dropped', async () => {
     const again = await s.verify();
     assert.equal(again.events.length, 1);
     assert.deepEqual(again.ran, ['cli']);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('a changed file outside every component runs the top-level commands', async () => {
+  const s = await scratch('cli');
+  try {
+    // One component's files plus root files no component covers: the diff names only `cli`, but the
+    // component's own `test` would never see the stray files, so the top-level suite runs.
+    s.commit(['lib/cli/x.ts', 'Makefile', 'tools/check.sh']);
+    const { ran, job, events } = await s.verify();
+    assert.deepEqual([job.components, job.componentsFromDiff, job.componentsUnmatched], [['cli'], ['cli'], true]);
+    assert.deepEqual(events.map((e) => [e.components, e.added, e.dropped, e.unmatched]), [[['cli'], [], [], 2]]);
+    assert.deepEqual(ran, ['top']);
+    // Another file outside the components changes nothing about the finding, so nothing more is logged.
+    s.commit(['notes/more.txt']);
+    const again = await s.verify();
+    assert.equal(again.events.length, 1);
+    assert.deepEqual(again.ran, ['top']);
   } finally {
     s.cleanup();
   }

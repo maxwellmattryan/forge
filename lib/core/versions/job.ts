@@ -93,7 +93,7 @@ export const JOB_STEPS: readonly Step[] = [
   { id: 'shelved', up: (j) => ({ ...j, shelved: j.shelved ?? null, finishedWhileShelved: j.finishedWhileShelved ?? false }) },
   // v21 renames `services` to `components` (the list Forge acts on), keeps the old list as the
   // declared estimate (`componentsDeclared`, null when none was recorded) and adds
-  // `componentsFromDiff`, which only `forge verify` writes; no v20 job has been recomputed.
+  // `componentsFromDiff` and `componentsUnmatched`, which only `forge verify` writes; no v20 job has been recomputed.
   { id: 'job-components', up: (j) => {
     const { services, ...rest } = j;
     const list = Array.isArray(services) ? services : [];
@@ -102,6 +102,7 @@ export const JOB_STEPS: readonly Step[] = [
       components: rest.components ?? list,
       componentsDeclared: rest.componentsDeclared !== undefined ? rest.componentsDeclared : list.length ? list : null,
       componentsFromDiff: rest.componentsFromDiff ?? null,
+      componentsUnmatched: rest.componentsUnmatched ?? false,
     };
   } },
 ];

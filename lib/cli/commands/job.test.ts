@@ -1,6 +1,6 @@
 // jobCmd's dispatch table in-process: one handler per documented subcommand, and the group usage error otherwise;
-// `job set` refusing the locked budget and componentsFromDiff fields; and the components flags with their
-// deprecated `services` aliases.
+// `job set` refusing the locked budget, componentsFromDiff and componentsUnmatched fields, and `components`
+// once forge verify has recomputed it; and the components flags with their deprecated `services` aliases.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -9,7 +9,7 @@ import path from 'node:path';
 import { tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
 import { ForgeError } from '#core/errors.ts';
-import { createJob } from '#core/job/store.ts';
+import { createJob, updateJob } from '#core/job/store.ts';
 import { jobDir } from '#core/paths.ts';
 import { usageError } from './args.ts';
 import { JOB_HANDLERS, jobCmd } from './job.ts';
@@ -115,14 +115,44 @@ test('componentsFromDiff is not settable through job set', async () => {
     const id = createJob(repo.dir, config, { title: 'recomputed' }).id;
     const file = path.join(jobDir(repo.dir, id), 'job.json');
     const before = fs.readFileSync(file, 'utf8');
-    for (const field of ['componentsFromDiff=[]', 'componentsFromDiff.0=api']) {
+    for (const field of ['componentsFromDiff=[]', 'componentsFromDiff.0=api', 'componentsUnmatched=false']) {
       await assert.rejects(quietly(() => jobCmd(repo.dir, config, 'set', [id], { field: [field] })), (e: unknown) => {
         assert.ok(e instanceof ForgeError, `${field}: not a ForgeError`);
-        assert.equal(e.message, '--field componentsFromDiff is not settable; use forge verify', field);
+        assert.equal(e.message, `--field ${field.split(/[=.]/)[0]} is not settable; use forge verify`, field);
         return true;
       });
       assert.equal(fs.readFileSync(file, 'utf8'), before, `${field}: job.json unchanged`);
     }
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('components is not settable once forge verify has recomputed it', async () => {
+  const repo = tempRepo();
+  try {
+    const config = defaults();
+    const id = createJob(repo.dir, config, { title: 'recomputed', components: ['api'] }).id;
+    const file = path.join(jobDir(repo.dir, id), 'job.json');
+    // Before the first recompute the list is settable, and the old name reaches the same rule.
+    await quietly(() => jobCmd(repo.dir, config, 'set', [id], { field: ['components=["web"]'] }));
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).components, ['web']);
+    updateJob(repo.dir, id, (j) => {
+      j.componentsFromDiff = ['api'];
+      j.components = ['api'];
+    });
+    const before = fs.readFileSync(file, 'utf8');
+    for (const field of ['components=["web"]', 'components.0=web', 'services=["web"]']) {
+      await assert.rejects(quietly(() => jobCmd(repo.dir, config, 'set', [id], { field: [field] })), (e: unknown) => {
+        assert.ok(e instanceof ForgeError, `${field}: not a ForgeError`);
+        assert.match(e.message, /^--field components is not settable once forge verify has recomputed it from the diff;/, field);
+        return true;
+      });
+      assert.equal(fs.readFileSync(file, 'utf8'), before, `${field}: job.json unchanged`);
+    }
+    // The spec's estimate stays settable: it is the declared list, not the one Forge acts on.
+    await quietly(() => jobCmd(repo.dir, config, 'set', [id], { field: ['componentsDeclared=["web"]'] }));
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).componentsDeclared, ['web']);
   } finally {
     repo.cleanup();
   }

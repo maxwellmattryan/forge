@@ -53,6 +53,8 @@ export const LOCKED_FIELDS: Record<string, string> = {
   finishedWhileShelved: 'forge job set --state, from a person, which clears it as the job goes back to work',
   // The recompute from the committed diff: a session that set it could pass off its own list as the diff's.
   componentsFromDiff: 'forge verify',
+  // Likewise its finding that changed files sit outside every component: clearing it would hand back a component's commands.
+  componentsUnmatched: 'forge verify',
 };
 
 // Kinds step routes differently: a retro job's review panel is fixed at code and docs, and an eval
@@ -73,8 +75,12 @@ export function checkFieldKey(key: string): void {
 }
 
 /** Throws the first rule `fields` breaks for `job`, with `forge job set`'s message, before anything is written. */
-export function checkJobFields(fields: Record<string, unknown>, job: Pick<Job, 'id' | 'kind'>): void {
+export function checkJobFields(fields: Record<string, unknown>, job: Pick<Job, 'id' | 'kind' | 'componentsFromDiff'>): void {
   for (const key of Object.keys(fields)) checkFieldKey(key);
+  // Once forge verify has recomputed the list from the diff, it owns it: the next verify overwrites any list set
+  // by hand, but until then `forge run` and the Project page would act on it as if the diff had said so.
+  if (Array.isArray(job.componentsFromDiff) && Object.keys(fields).some((key) => key.split('.')[0] === 'components'))
+    throw new ForgeError(`--field components is not settable once forge verify has recomputed it from the diff; the spec's list is --field componentsDeclared, and the next forge verify rewrites components`);
   // Every rule below keys on a path's first segment, because setPath walks `reviewers.0` into the list
   // and `kind.x` over the string: a nested key must not get past a rule meant for the whole value.
   for (const key of Object.keys(fields)) {

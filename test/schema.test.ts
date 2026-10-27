@@ -244,7 +244,7 @@ const JOB_ROWS: Row[] = [
     note: "every ended run is legacy; a running agent's run is recorded by its end",
   },
   { step: 'shelved', input: { id: 'x', state: 'waiting', waitingOn: 'escalation', reason: 'r' }, fields: { shelved: null, finishedWhileShelved: false, waitingOn: 'escalation' }, note: 'a job from before the shelf is on none' },
-  { step: 'job-components', input: { id: 'x', services: ['api'] }, fields: { components: ['api'], componentsDeclared: ['api'], componentsFromDiff: null }, removed: ['services'], note: 'the old list is declared; none recomputed' },
+  { step: 'job-components', input: { id: 'x', services: ['api'] }, fields: { components: ['api'], componentsDeclared: ['api'], componentsFromDiff: null, componentsUnmatched: false }, removed: ['services'], note: 'the old list is declared; none recomputed, so nothing is found outside the components' },
 ];
 
 const EVENT_ROWS: Row[] = [
