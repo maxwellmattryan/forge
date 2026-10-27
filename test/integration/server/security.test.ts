@@ -414,6 +414,7 @@ test('POST /api/requests refuses gate and draft requests', async () => {
       [{ type: 'gate', job: null, args: { gate: 'milestone-approval', mandate: 'g1' } }, 'gate requests are written only by forge job set and forge pr sync (and forge mandate draft record for a milestone draft)'],
       [{ type: 'draft', args: { mandate: 'g1' } }, 'draft requests are written only by forge mandate'],
       [{ type: 'direct' }, 'direct requests are written only by the Office pass'],
+      [{ type: 'retro', args: { mandate: 'm1; rm -rf ~' } }, 'args.mandate must be a mandate id'],
     ];
     for (const [body, error] of rows) {
       const r = await hit(port, { method: 'POST', path: `${P}/requests`, headers, body: JSON.stringify(body) });

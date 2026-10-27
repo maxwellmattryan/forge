@@ -141,7 +141,7 @@ function dir(root: string): string {
 
 const MANDATE_ID = new RegExp(MANDATE_ID_SOURCE);
 /** A mandate id as a request's `args.mandate`: the id grammar, and never `none`. */
-const isMandateIdArg = (v: unknown): v is string => typeof v === 'string' && MANDATE_ID.test(v) && v !== 'none';
+export const isMandateIdArg =(v: unknown): v is string => typeof v === 'string' && MANDATE_ID.test(v) && v !== 'none';
 /** The gate classes a job-less gate request may carry: a mandate's, never a job's. */
 const MANDATE_GATES = ['milestone-approval', 'release'] as const;
 
@@ -161,6 +161,8 @@ export function enqueue(
   const mandateGate =
     req.type === 'gate' && (req.job === null || req.job === undefined) && (MANDATE_GATES as readonly unknown[]).includes(req.args?.gate) && isMandateIdArg(req.args?.mandate);
   if (req.type === 'gate' && !mandateGate && !validJobId(req.job)) throw new ForgeError('a gate request needs a valid job');
+  // The inbox puts a mandate retro's `args.mandate` on a `forge retro prepare --mandate` command line.
+  if (req.type === 'retro' && req.args?.mandate !== undefined && !isMandateIdArg(req.args.mandate)) throw new ForgeError("a retro request's args.mandate must be a mandate id");
   const id = `${Date.now()}-${shortId()}`;
   const rec: ForgeRequest = {
     id,

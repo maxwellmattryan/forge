@@ -4,9 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
-import { createJob, jobDir } from '#core/job/store.ts';
+import { ForgeError } from '#core/errors.ts';
+import { createJob, jobDir, logHumanEvent, updateJob } from '#core/job/store.ts';
 import { jobFindings } from '../pipeline/findings.ts';
-import { prepareRetro } from './retro.ts';
+import { lastRetro, prepareRetro, retroDue } from './retro.ts';
 
 const HEADING = '## Recurring findings across jobs';
 
@@ -77,6 +78,42 @@ test('retro signals list findings that recur across jobs', () => {
     const firstJob = all.findIndex((l) => /^## [a-z0-9]/.test(l));
     assert.ok(firstJob > at, 'before the first per-job section');
     assert.ok(all.indexOf('## Per-lens recall') < at, 'after per-lens recall when present');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("a mandate's retro reads only its jobs, keeps its scope and leaves the cadence alone", () => {
+  const repo = tempRepo();
+  try {
+    const root = repo.dir;
+    const config = defaults();
+    const today = '2026-10-23';
+    const read = (file: string) => fs.readFileSync(file, 'utf8');
+    const cadence = createJob(root, config, { title: 'Retro', kind: 'retro' }).id;
+    // Older than everything else, so a mandate retro created later would be the newest retro.
+    updateJob(root, cadence, (j) => void (j.createdAt = '2026-01-01T00:00:00.000Z'));
+    const mine = [createJob(root, config, { title: 'A', mandate: 'm1' }).id, createJob(root, config, { title: 'B', mandate: 'm1' }).id];
+    const other = createJob(root, config, { title: 'Other' }).id;
+    for (const id of [...mine, other]) logHumanEvent(root, id, 'human', { action: 'rework', note: `redo ${id}` }, { login: 'alice', source: 'gh' });
+    const retro = createJob(root, config, { title: 'Forge retro: mandate m1', kind: 'retro' }).id;
+
+    const out = prepareRetro(root, config, retro, { mandate: 'm1', today });
+    const text = read(out.signals);
+    assert.ok(text.startsWith('# Signals for mandate m1\n'), text);
+    assert.ok(text.includes('\n2 job(s) in mandate m1.\n'), text);
+    for (const id of mine) assert.ok(text.includes(`## ${id} (`), `${id} has its section`);
+    assert.ok(!text.includes(other), 'no job outside the mandate');
+    assert.deepEqual([JSON.parse(read(out.stats)).counts.total, out.mandate, out.since], [2, 'm1', null]);
+
+    const again = prepareRetro(root, config, retro, { today });
+    assert.deepEqual([again.mandate, again.since, read(again.signals).split('\n')[0]], ['m1', null, '# Signals for mandate m1'], 'a later prepare keeps the scope');
+    const usage = (re: RegExp) => (e: unknown) => e instanceof ForgeError && e.code === 'usage' && re.test(e.message);
+    assert.throws(() => prepareRetro(root, config, retro, { mandate: 'm2', today }), usage(/scoped to mandate m1/));
+    assert.throws(() => prepareRetro(root, config, other, { mandate: 'm1', today }), usage(/is a \S+ job/));
+
+    assert.equal(lastRetro(root)?.id, cadence, 'the mandate retro is not the last retro');
+    assert.equal(retroDue(root, config).lastRetro, cadence);
   } finally {
     repo.cleanup();
   }
