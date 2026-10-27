@@ -12,7 +12,7 @@ import { ForgeError } from '#core/errors.ts';
 import type { Config, Effort, JobIssue } from '#core/types.ts';
 import { readMandate } from '#office/mandates/store.ts';
 import { isReadable } from '#office/mandates/contract.ts';
-import { bodyFrom, list, oneOf, req, requireJob, str, usageError } from '../args.ts';
+import { aliasClash, bodyFrom, deprecatedAlias, list, oneOf, req, requireJob, str, usageError } from '../args.ts';
 import { startFromRef } from '../tracker.ts';
 import { JOB } from './help.ts';
 import { refuseEffortInDaemon } from './state.ts';
@@ -86,6 +86,10 @@ export function newCmd(root: string, config: Config, rest: string[], flags: Reco
   }
   const force = flags.force !== undefined && flags.force !== false;
   if (force) refuseForceInDaemon();
+  // --services is the old name of --components, kept for one release.
+  if (flags.services !== undefined && flags.components !== undefined) throw aliasClash('--services', '--components');
+  const deprecated = flags.services !== undefined ? [deprecatedAlias('--services', '--components')] : [];
+  const components = list(flags.components ?? flags.services);
   // Checked before the job exists, so release never frees the job being created.
   const status = checkRepoBudget(root, config);
   const job = createJob(root, config, {
@@ -96,12 +100,18 @@ export function newCmd(root: string, config: Config, rest: string[], flags: Reco
     branch: flags.branch,
     kind: flags.kind,
     slug: flags.slug,
-    services: list(flags.services),
+    components,
     effort,
     mandate,
   });
   const waived = noIssue ? markNoIssue(root, job.id, noIssue.reason).noIssue : null;
-  const created = { id: job.id, branch: job.branch, dir: path.relative(root, jobDir(root, job.id)), issueLink: issueLinkStatus({ ...job, noIssue: waived }, config) };
+  const created = {
+    id: job.id,
+    branch: job.branch,
+    dir: path.relative(root, jobDir(root, job.id)),
+    issueLink: issueLinkStatus({ ...job, noIssue: waived }, config),
+    ...(deprecated.length ? { deprecated } : {}),
+  };
   if (force) logHumanEvent(root, job.id, 'budget-override', { day: status.day, month: status.month, spent: status.spent, caps: status.caps });
   const limited = Boolean(status.reason) && !force && job.kind !== 'retro';
   // Still created, so the human's request is kept, but parked and unclaimed until the budget allows it.

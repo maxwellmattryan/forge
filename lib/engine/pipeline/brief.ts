@@ -176,6 +176,18 @@ function projectReposLine(config: Config, job: Pick<Job, 'repos'>): string | nul
   return rows.length ? `Project repos (JSON): ${JSON.stringify(rows)}` : null;
 }
 
+/**
+ * The `Components (JSON)` line the planner and spec-writer get, single- or multi-repo alike: each
+ * configured component in config order, so the spec's `Components:` header names real ones. JSON,
+ * so a config value can't start a line of the brief; null with no components.
+ */
+function componentsLine(config: Pick<Config, 'components'>): string | null {
+  const rows = (config.components ?? [])
+    .filter((c) => c && typeof c === 'object' && typeof c.name === 'string')
+    .map((c) => ({ name: c.name, repo: c.repo ?? null, kind: c.kind ?? null, path: c.path ?? null, paths: c.paths ?? null, notes: c.notes ?? null }));
+  return rows.length ? `Components (JSON): ${JSON.stringify(rows)}` : null;
+}
+
 /** The inputs, outputs and extra lines each role gets: the brief half of Approach in issue #68. */
 /** The approver's `Protected paths:` line. JSON, so a path can't start a line of the brief. */
 function protectedLine(job: Pick<Job, 'protectedPaths'>): string {
@@ -260,10 +272,12 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
   const base = role.split(':')[0];
   const reposLine = base === 'planner' || base === 'spec-writer' ? projectReposLine(c, j) : null;
   const repos = reposLine ? [reposLine] : [];
+  const compLine = base === 'planner' || base === 'spec-writer' ? componentsLine(c) : null;
+  const components = compLine ? [compLine] : [];
   const out = (o: string[], inputs: string[], extra: string[]): BriefSpec => ({ role: base, lens: ctx.lens, inputs, outputs: ctx.output ? [ctx.output] : o, extra, retry: ctx.retry });
   switch (base) {
     case 'planner':
-      return out([p('plan')], [p('request'), p('feedback'), p('repoProposals'), ...(ctx.answered ? [p('questions')] : [])], [`Split mode: ${ctx.splitMode ?? c.pipeline.split}`, ...repos]);
+      return out([p('plan')], [p('request'), p('feedback'), p('repoProposals'), ...(ctx.answered ? [p('questions')] : [])], [`Split mode: ${ctx.splitMode ?? c.pipeline.split}`, ...components, ...repos]);
     case 'spec-writer':
       return out(
         [p('spec')],
@@ -272,6 +286,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
           `Review panel: ${c.review.panel.map((x) => x.name).join(', ') || 'none'}`,
           c.resources.length ? `Resources: ${c.resources.length} in ${p('config')}` : 'Resources: none configured',
           ...(ctx.foldIn ? ['Fold in the Spec deltas from design.md.'] : []),
+          ...components,
           ...repos,
         ],
       );

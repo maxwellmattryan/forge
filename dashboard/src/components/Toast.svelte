@@ -16,7 +16,7 @@
   import { sidebarShown } from '../lib/sidebar.ts';
   import { t } from '../lib/locale.ts';
 
-  const place = $derived(toastPlacement({ narrow: !S.pane.md, paneOpen: S.drawer.id !== null, paneWidth: clampPaneWidth(S.pane.width, S.pane.viewport, sidebarShown(S.side)) }));
+  const place = $derived(toastPlacement({ narrow: !S.pane.md, paneOpen: S.drawer.open, paneWidth: clampPaneWidth(S.pane.width, S.pane.viewport, sidebarShown(S.side)) }));
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions (hover and focus only pause the auto-hide; Dismiss is the control) -->

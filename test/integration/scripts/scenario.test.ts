@@ -51,6 +51,7 @@ interface SeededJob {
   estCostUsd: number;
   agents: Record<string, { status?: string; model?: string | null }>;
   models: string[];
+  issues: { tracker: string; ref: string | null }[];
 }
 
 async function readJobs(root: string): Promise<SeededJob[]> {
@@ -60,12 +61,12 @@ async function readJobs(root: string): Promise<SeededJob[]> {
       const [show, full] = await Promise.all([forgeAsync(root, ['job', 'show', j.id, '--json']), forgeAsync(root, ['job', 'show', j.id, '--full', '--json'])]);
       const c = json(show);
       const f = json(full);
-      return { ...c, agents: f.agents, models: Object.keys(f.usage.byModel) };
+      return { ...c, agents: f.agents, models: Object.keys(f.usage.byModel), issues: f.issues };
     }),
   );
 }
 
-const ROWS: { name: string; check: (jobs: SeededJob[], seeded: { worktrees: string }) => void }[] = [
+const ROWS: { name: string; check: (jobs: SeededJob[], seeded: { worktrees: string; root: string; jobs: Record<string, string> }) => void }[] = [
   { name: 'empty', check: (jobs) => assert.equal(jobs.length, 0) },
   {
     name: 'busy',
@@ -104,11 +105,20 @@ const ROWS: { name: string; check: (jobs: SeededJob[], seeded: { worktrees: stri
       assert.ok(new Set(spent.flatMap((j) => j.models)).size >= 3, 'three models');
     },
   },
+  {
+    name: 'issues',
+    check: (jobs, seeded) => {
+      assert.deepEqual(jobs.map((j) => j.state).sort(), ['cancelled', 'done', 'running']);
+      for (const j of jobs) assert.ok(j.issues.length && j.issues.every((i) => i.tracker === 'local' && typeof i.ref === 'string'), `${j.title}: ${JSON.stringify(j.issues)}`);
+      // Written after the steps, with the holding job's id filled in.
+      assert.ok(fs.readFileSync(path.join(seeded.root, '.forge', 'backlog.md'), 'utf8').includes(`→ ${seeded.jobs.export}`));
+    },
+  },
 ];
 
 describe('scripts/scenario.ts', () => {
   it('listScenarios reads the scenario dir', async () => {
-    assert.deepEqual(listScenarios(), ['busy', 'costs', 'empty', 'failures', 'gates']);
+    assert.deepEqual(listScenarios(), ['busy', 'costs', 'empty', 'failures', 'gates', 'issues']);
     const dir = tempDir();
     try {
       writeScenario(dir, 'extra', valid());
@@ -185,6 +195,9 @@ describe('scripts/scenario.ts', () => {
       ['bad-message', { ...valid(), expect: { ...valid().expect, evals: ['@nope.key'] } }, 'unknown message key "nope.key"'],
       ['plural-message', { ...valid(), expect: { ...valid().expect, evals: ['@project.problems'] } }, 'not a plain string'],
       ['drawer-no-job', { ...valid(), jobs: [], expect: { ...valid().expect, drawer: { text: ['x'] } } }, 'drawer needs a job'],
+      ['backlog-not-string', { ...valid(), backlog: ['- [ ] x'] }, 'backlog must be a non-empty string'],
+      ['backlog-unknown-key', { ...valid(), backlog: '- [~] x → {id:nope}' }, 'backlog: unknown job key "nope"'],
+      ['issue-no-backlog', { ...valid(), expect: { ...valid().expect, issue: [{ title: 'x' }] } }, 'expect.issue needs a backlog'],
     ];
     try {
       for (const [name, body] of rows) writeScenario(dir, name, body);

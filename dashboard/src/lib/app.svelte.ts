@@ -7,6 +7,7 @@ import { parseRoute, routeProject, type Route } from './routes.ts';
 import type {
   AboutResponse,
   ApiState,
+  BacklogItemResponse,
   BacklogResponse,
   ConfigResponse,
   ConfigValue,
@@ -61,7 +62,17 @@ class CompareState {
   result = $state.raw<EvalCompare | null>(null);
 }
 
+/** The issue panel's GET /api/backlog/item for `ref`: null data while it loads, `error` when the fetch itself failed. */
+export type IssueViewState = { ref: string; data: BacklogItemResponse | null; error: string | null };
+
+/** The drawer's two panels share one shell. At most one of `id` (the job panel's) and `issue` (the issue panel's) is set. */
 class DrawerState {
+  /** The panel the drawer shows; kept after a close, so the drawer slides out with its last content. */
+  kind = $state<'job' | 'issue'>('job');
+  /** The open issue's ref. */
+  issue = $state<string | null>(null);
+  /** The issue ref the job panel's Back button returns to; null when the job was opened any other way. */
+  back = $state<string | null>(null);
   id = $state<string | null>(null);
   file = $state<string | null>(null);
   tab = $state<DrawerTab>(DEFAULT_DRAWER_TAB);
@@ -71,6 +82,10 @@ class DrawerState {
   eventsAtOpen = $state<number | null>(null);
   /** The Thread's marks when this drawer opened: messages new or changed since are marked. Null until the first load. */
   threadAtOpen = $state.raw<string[] | null>(null);
+  /** Either panel is open: the drawer covers the page. */
+  get open(): boolean {
+    return this.id !== null || this.issue !== null;
+  }
 }
 
 /** The job drawer's layout. App binds the window width and the md breakpoint; the separator sets the width. */
@@ -138,6 +153,8 @@ class AppState {
   compare = new CompareState();
   drawer = new DrawerState();
   drawerView = $state.raw<DrawerView>(null);
+  /** The issue panel's item text; kept after a close, like drawerView, and for the same ref while it re-fetches. */
+  issueView = $state.raw<IssueViewState | null>(null);
   pane = new PaneState();
   side = new SideState();
   /** `#/inbox` was opened: StatusBar opens the Needs-you popover once its button renders, then clears this. */
@@ -386,6 +403,7 @@ export function switchProject(name: string | null): void {
   S.compare.b = '';
   S.compare.result = null;
   S.drawerView = null;
+  S.issueView = null;
   S.flashes = {};
   S.cooling = {};
   S.threadSeen = {};
@@ -564,7 +582,11 @@ function renderDrawer(): void {
   if (id && (!Object.hasOwn(S.threadSeen, id) || S.drawer.tab === 'thread')) S.threadSeen = { ...S.threadSeen, [id]: marksOf(d) };
 }
 
-export async function openDrawer(id: string, file: string | null = null, tab: DrawerTab = DEFAULT_DRAWER_TAB): Promise<void> {
+/** Opens job `id`'s panel; `back` is the issue ref its Back button returns to (only the issue panel passes one). */
+export async function openDrawer(id: string, file: string | null = null, tab: DrawerTab = DEFAULT_DRAWER_TAB, back: string | null = null): Promise<void> {
+  S.drawer.issue = null;
+  S.drawer.kind = 'job';
+  S.drawer.back = back;
   S.drawer.id = id;
   S.drawer.detail = null;
   S.drawer.file = file;
@@ -575,8 +597,8 @@ export async function openDrawer(id: string, file: string | null = null, tab: Dr
   await loadDrawer(true);
 }
 
-/** Keeps drawerView, so the panel slides out with its content. */
-export function closeDrawer(): void {
+/** The job panel's fields back to closed. */
+function clearJob(): void {
   S.drawer.id = null;
   S.drawer.detail = null;
   S.drawer.file = null;
@@ -584,6 +606,43 @@ export function closeDrawer(): void {
   S.drawer.tab = DEFAULT_DRAWER_TAB;
   S.drawer.eventsAtOpen = null;
   S.drawer.threadAtOpen = null;
+}
+
+/** Keeps `kind`, drawerView and issueView, so the panel slides out with its content. */
+export function closeDrawer(): void {
+  clearJob();
+  S.drawer.issue = null;
+  S.drawer.back = null;
+}
+
+/** Takes the token: the server runs the tracker (gh for GitHub) for it, on the login's rate limit. */
+export const fetchBacklogItem = (ref: string): Promise<BacklogItemResponse> =>
+  jsonFetch<BacklogItemResponse>(`/api/backlog/item?ref=${encodeURIComponent(ref)}`, { headers: { 'x-forge-token': forgeToken() } });
+
+/**
+ * Opens the issue panel on `ref` and fetches its text. The same ref keeps its last text while it re-fetches, so Back
+ * doesn't flash; a reply for an issue or a project no longer shown is dropped.
+ */
+export async function openIssue(ref: string): Promise<void> {
+  clearJob();
+  S.drawer.back = null;
+  S.drawer.issue = ref;
+  S.drawer.kind = 'issue';
+  if (S.issueView?.ref !== ref) S.issueView = { ref, data: null, error: null };
+  const project = currentProject();
+  const current = (): boolean => S.drawer.issue === ref && currentProject() === project;
+  try {
+    const data = await fetchBacklogItem(ref);
+    if (current()) S.issueView = { ref, data, error: null };
+  } catch (e) {
+    if (current()) S.issueView = { ref, data: null, error: message(e) };
+  }
+}
+
+/** The job panel's Back button: the issue panel it was opened from. */
+export function backToIssue(): void {
+  const ref = S.drawer.back;
+  if (ref) void openIssue(ref);
 }
 
 async function loadDrawer(full: boolean): Promise<void> {

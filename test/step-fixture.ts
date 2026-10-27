@@ -131,7 +131,7 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     memberWorktreesMissing: o.memberWorktreesMissing ?? false,
     request: { length: 40, listLines: 0, ...o.request },
     plan: { verdict: null, jobs: 0, recommendSplit: false, ...o.plan },
-    spec: { size: null, complexity: null, needsDesign: false, services: [], suggested: [], approachPaths: [], uiAcs: [], ...o.spec },
+    spec: { size: null, complexity: null, needsDesign: false, components: [], suggested: [], approachPaths: [], uiAcs: [], ...o.spec },
     designDeltas: o.designDeltas ?? false,
     decision: { decision: null, ...o.decision },
     decisionCurrent: o.decisionCurrent ?? true,

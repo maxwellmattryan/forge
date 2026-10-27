@@ -19,7 +19,7 @@ import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
 import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor, postShelf } from './routes/jobs.ts';
 import { getProjects, getProjectsEvents, getProjectsStats, postProject } from './routes/machine.ts';
 import { getMandate, getMandateDraft, getMandates, postMandate, postMandateAction, postMandateDraft } from './routes/mandates.ts';
-import { getAbout, getBacklog, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
+import { getAbout, getBacklog, getBacklogItem, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
 import { getChat, getChatLog, getChats, postChat, postChatArchive, postChatMessage, postChatRename } from './routes/chats.ts';
 import { getTranscript, getTranscriptEvents } from './routes/transcripts.ts';
@@ -95,6 +95,8 @@ export const PROJECT_ROUTES: readonly Route<ServerCtx>[] = [
   { method: 'GET', path: '/roster', guards: ['read'], handler: getRoster },
   { method: 'GET', path: '/project', guards: ['read'], handler: getProject },
   { method: 'GET', path: '/backlog', guards: ['read'], handler: getBacklog },
+  // It runs the tracker (gh for GitHub) on the login's rate limit and returns issue text, so it takes the token like a POST.
+  { method: 'GET', path: '/backlog/item', guards: ['read', 'token'], handler: getBacklogItem },
   { method: 'GET', path: '/config', guards: ['read'], handler: getConfig },
   { method: 'GET', path: '/environments', guards: ['read', 'token'], handler: getEnvironments },
   { method: 'GET', path: /^\/jobs\/([^/]+)\/environment$/, guards: ['read', 'token'], handler: getJobEnvironment },

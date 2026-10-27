@@ -9,7 +9,7 @@ import { defaults } from '#core/config/keys/defaults.ts';
 import { sessionEnv } from '#integrations/claude/argv.ts';
 import type { Config, Job } from '#core/types.ts';
 
-const job = { id: 'j1', branch: 'forge/j1', base: 'main', port: null, ports: {}, services: [] } as unknown as Job;
+const job = { id: 'j1', branch: 'forge/j1', base: 'main', port: null, ports: {}, components: [] } as unknown as Job;
 
 /** A config that declares one secret of each kind; only the `env` one names a variable to strip. */
 function configWithSecrets(inherit: string[] = []): Config {

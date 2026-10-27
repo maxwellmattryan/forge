@@ -1,5 +1,6 @@
 // The Project view's graph logic (issue #175): a deterministic layered layout of GET /api/project, the
-// highlight of a job's components and their downstream consumers, and the job selector's options.
+// highlight of a job's components and their downstream consumers, and the job selector's options with
+// where each job's list came from (the diff or the spec) and why an unmatched one is empty.
 // Plain functions and constants, no DOM access, so node:test can pin them.
 import type { ProjectResponse, StateJob } from './types.ts';
 
@@ -149,7 +150,7 @@ export function layoutProject(g: ProjectResponse, rootLabel: string, backingLabe
 export interface Highlight {
   /** Whether the job names any component in the graph. */
   matched: boolean;
-  /** Component names the job's services name. */
+  /** Configured component names among the job's `components`. */
   touched: Set<string>;
   /** Component names that depend on a touched one, directly or transitively; never touched ones. */
   consumers: Set<string>;
@@ -159,10 +160,10 @@ export interface Highlight {
 
 export const edgeKey = (e: { from: string; to: string; type: string }): string => `${e.from}|${e.to}|${e.type}`;
 
-/** What a job with `services` touches in `g`, and what consumes it downstream over build and runtime edges. */
-export function highlight(g: ProjectResponse, services: readonly string[]): Highlight {
+/** What a job with `components` touches in `g`, and what consumes it downstream over build and runtime edges. */
+export function highlight(g: ProjectResponse, components: readonly string[]): Highlight {
   const names = new Set(g.components.map((c) => c.name));
-  const touched = new Set(services.filter((s) => names.has(s)));
+  const touched = new Set(components.filter((s) => names.has(s)));
   const dependents = new Map<string, string[]>();
   for (const e of g.edges) if (e.target === 'component') dependents.set(e.to, [...(dependents.get(e.to) ?? []), e.from]);
   const consumers = new Set<string>();
@@ -181,11 +182,33 @@ export function highlight(g: ProjectResponse, services: readonly string[]): High
 }
 
 const FINISHED = new Set(['done', 'cancelled', 'failed']);
+/** Stages before the build: a job there with no declared list has no spec yet. */
+const PRE_BUILD = new Set(['backlog', 'plan', 'spec', 'design']);
 
-/** The job selector's choices: unfinished jobs by id, each with the components it names. */
-export function jobOptions(jobs: readonly Pick<StateJob, 'id' | 'title' | 'state' | 'services'>[]): { id: string; label: string; services: string[] }[] {
+export interface ComponentsView {
+  /** The components the page highlights: the job's `components`. */
+  components: string[];
+  /** Where that list came from: forge verify's recompute from the diff, or the spec's estimate. */
+  source: 'diff' | 'declared';
+  /** Why a list that matches no configured component is empty: the reason line shown instead of a highlight. */
+  reason: 'no-match' | 'no-spec' | 'spec-none';
+}
+
+const list = (v: unknown): string[] => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []);
+
+/** The list a job's highlight uses, where it came from, and the reason to show when it matches no component. */
+export function componentsView(job: Pick<StateJob, 'stage' | 'components' | 'componentsDeclared' | 'componentsFromDiff'>): ComponentsView {
+  const source = Array.isArray(job.componentsFromDiff) ? 'diff' : 'declared';
+  const reason = source === 'diff' ? 'no-match' : job.componentsDeclared == null && PRE_BUILD.has(job.stage) ? 'no-spec' : 'spec-none';
+  return { components: list(job.components), source, reason };
+}
+
+/** The job selector's choices: unfinished jobs by id, each with the components it names and where they came from. */
+export function jobOptions(
+  jobs: readonly Pick<StateJob, 'id' | 'title' | 'state' | 'stage' | 'components' | 'componentsDeclared' | 'componentsFromDiff'>[],
+): ({ id: string; label: string } & ComponentsView)[] {
   return jobs
     .filter((j) => !FINISHED.has(j.state))
-    .map((j) => ({ id: j.id, label: `${j.id} · ${j.title}`, services: Array.isArray(j.services) ? j.services : [] }))
+    .map((j) => ({ id: j.id, label: `${j.id} · ${j.title}`, ...componentsView(j) }))
     .sort((a, b) => cmp(a.id, b.id));
 }

@@ -147,3 +147,24 @@ test('worktrees.seed commands get the placeholder check', () => {
   c.worktrees.seed = block({ warm: ['curl {endpoint.api}'] });
   assert.ok(validateConfig(c, os.tmpdir()).some((p) => p.startsWith('worktrees.seed.warm[0] uses {endpoint.api}')));
 });
+
+test('validates maxTotalRounds, maxCiReworks and daemon.jobBudget', () => {
+  const problems = (edit: (c: any) => void, key: string) => {
+    const c: any = defaults();
+    edit(c);
+    return validateConfig(c, process.cwd()).filter((p) => p.startsWith(key));
+  };
+  assert.deepEqual(problems(() => {}, 'pipeline.maxTotalRounds'), []);
+  assert.deepEqual(problems((c) => (c.pipeline.maxTotalRounds = 8), 'pipeline.maxTotalRounds'), []);
+  assert.equal(problems((c) => (c.pipeline.maxTotalRounds = 0), 'pipeline.maxTotalRounds').length, 1);
+  assert.equal(problems((c) => (c.pipeline.maxTotalRounds = 2.5), 'pipeline.maxTotalRounds').length, 1);
+  assert.deepEqual(problems((c) => (c.pr.maxCiReworks = 0), 'pr.maxCiReworks'), []);
+  assert.equal(problems((c) => (c.pr.maxCiReworks = -1), 'pr.maxCiReworks').length, 1);
+  assert.equal(problems((c) => (c.pr.maxCiReworks = 1.5), 'pr.maxCiReworks').length, 1);
+  assert.deepEqual(problems((c) => (c.daemon.jobBudget = null), 'daemon.jobBudget'), []);
+  assert.deepEqual(problems((c) => (c.daemon.jobBudget = { tokens: null, usd: 20, minutes: 90 }), 'daemon.jobBudget'), []);
+  assert.equal(problems((c) => (c.daemon.jobBudget = { usd: -1 }), 'daemon.jobBudget').length, 1);
+  assert.equal(problems((c) => (c.daemon.jobBudget = { changedLines: 5 }), 'daemon.jobBudget').length, 1);
+  assert.equal(problems((c) => (c.daemon.jobBudget = { tokens: 1.5 }), 'daemon.jobBudget').length, 1);
+  assert.equal(problems((c) => (c.daemon.jobBudget = [1]), 'daemon.jobBudget').length, 1);
+});

@@ -3,7 +3,7 @@
 // `#core/types.ts` imports keep compiling, plus the tracker contract. Shapes a higher layer owns live
 // in that module's own types.ts.
 import type { Config } from './config/types.ts';
-import type { Job, TrackerItem } from '#api/types.ts';
+import type { Job, TrackerItem, TrackerItemView } from '#api/types.ts';
 
 export type * from '#api/types.ts';
 export type * from './job/types.ts';
@@ -62,4 +62,10 @@ export interface Tracker {
   createMilestone?: (ctx: TrackerCtx, milestone: { title: string; description: string }) => { ref: string; url?: string | null };
   /** Optional: puts an existing item in a milestone, with the labels where the tracker supports them (a draft's `existing` issues). */
   milestoneAdd?: (ctx: TrackerCtx, ref: string, opts: { milestone: string; labels: string[] }) => void;
+  /**
+   * Optional: one item's text and facts for the dashboard's issue panel (GET /api/backlog/item), unfenced.
+   * Display only: no agent path calls it, and the dashboard renders its text through md(). Throws when it
+   * can't read the item; null when there is no such item.
+   */
+  view?: (ctx: TrackerCtx, ref: string) => TrackerItemView | null;
 }

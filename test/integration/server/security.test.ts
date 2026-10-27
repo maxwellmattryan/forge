@@ -252,7 +252,7 @@ test('every guarded route refuses before its handler runs', async () => {
     const reads = ['/state', '/stats', '/evals', '/evals/compare', '/requests', '/roster', '/project', '/backlog?refresh=1', '/config', '/mandates/g1/draft', '/mandates', '/chats'].map((p) => `${P}${p}`);
     const streams = ['/events?session=_inbox', '/daemons/log?session=_inbox', '/jobs/j-1', '/jobs/j-1/file?path=x.md', '/jobs/j-1/raw?path=x.html'].map((p) => `${P}${p}`);
     for (const p of [...reads, ...streams, '/api/about', '/api/projects', '/api/projects/events', '/api/projects/stats']) rows.push(...readRows(p));
-    for (const p of ['/environments', '/jobs/j-1/environment', '/jobs/j-1/transcript', '/doctor/bundle', '/mandates/g1', chat, `${chat}/log?after=-1`].map((x) => `${P}${x}`)) {
+    for (const p of ['/environments', '/backlog/item?ref=x', '/jobs/j-1/environment', '/jobs/j-1/transcript', '/doctor/bundle', '/mandates/g1', chat, `${chat}/log?after=-1`].map((x) => `${P}${x}`)) {
       rows.push(...readRows(p), { method: 'GET', path: p, headers: { 'sec-fetch-site': 'same-origin' }, status: 403, text: 'bad token' });
     }
     for (const p of ['/jobs/j-1/transcript/events', '/jobs/j-1/environment/logs?source=dev'].map((x) => `${P}${x}`)) {
@@ -441,6 +441,33 @@ test('backlog refresh needs the token', async () => {
     assert.deepEqual(await titles('/backlog?refresh=1'), ['Item A']);
     assert.deepEqual(await titles('/backlog?refresh=1', { 'x-forge-token': 'wrong' }), ['Item A']);
     assert.deepEqual(await titles('/backlog?refresh=1', { 'x-forge-token': await tokenOf(port) }), ['Item B']);
+  } finally {
+    await s.cleanup();
+    repo.cleanup();
+  }
+});
+
+test("backlog item serves an item's text with the token", async () => {
+  const repo = tempRepo();
+  const backlog = path.join(repo.dir, '.forge', 'backlog.md');
+  fs.mkdirSync(path.dirname(backlog), { recursive: true });
+  fs.writeFileSync(backlog, '# Backlog\n- [ ] Item A\n  Its <script>alert(1)</script> text.\n');
+  const s = await startServer(repo.dir, { daemon: daemonKit().opts });
+  const port = s.port;
+  try {
+    const headers = { 'x-forge-token': await tokenOf(port), 'sec-fetch-site': 'same-origin' };
+    const get = (q: string) => raw(port, 'GET', `${P}/backlog/item${q}`, headers);
+    for (const q of ['', '?ref=', `?ref=${'a'.repeat(201)}`, '?ref=a%0Ab', '?ref=a%7F']) {
+      const r = await get(q);
+      assert.deepEqual({ status: r.status, body: JSON.parse(r.text) }, { status: 400, body: { error: 'ref must be a tracker ref' } }, q);
+    }
+    const ok = await get('?ref=item-a');
+    assert.equal(ok.status, 200);
+    const body = JSON.parse(ok.text);
+    assert.equal(body.tracker, 'local');
+    assert.equal(body.view.title, 'Item A');
+    assert.equal(body.view.body, 'Its <script>alert(1)</script> text.', 'unfenced: the dashboard escapes it');
+    assert.deepEqual(JSON.parse((await get('?ref=nope')).text), { tracker: 'local', view: null, error: 'no such item in the tracker' });
   } finally {
     await s.cleanup();
     repo.cleanup();

@@ -97,7 +97,7 @@ export interface StepInput {
   request: { length: number; listLines: number };
   plan: { verdict: 'SINGLE' | 'SPLIT' | null; jobs: number; recommendSplit: boolean };
   /** spec.md's header lines and Approach paths; suggested names and services are raw, step filters them. `uiAcs`: specUiAcs, the builder's `UI proof:` line. */
-  spec: { size: string | null; complexity: string | null; needsDesign: boolean; services: string[]; suggested: string[]; approachPaths: string[]; uiAcs: string[] };
+  spec: { size: string | null; complexity: string | null; needsDesign: boolean; components: string[]; suggested: string[]; approachPaths: string[]; uiAcs: string[] };
   /** design.md's `## Spec deltas` section is non-empty and not None. */
   designDeltas: boolean;
   /** decision.md's first line. Its Auto-merge eligible line is not here: only the recorded decision event counts (lib/engine/pr/eligible.ts). */

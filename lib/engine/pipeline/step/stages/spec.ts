@@ -24,7 +24,13 @@ function context(c: Ctx): SpecCtx {
   return { ...c, sw: agent(c.x, 'spec-writer'), authored: ends.sort().at(-1) ?? null, missing: issueLinkStatus(c.x.job, c.x.config) === 'missing' };
 }
 
-/** SP3's fields: the panel, and the size, complexity and services the spec header names. */
+const sameList = (a: readonly string[] | null | undefined, b: readonly string[]): boolean => Array.isArray(a) && a.length === b.length && a.every((s, i) => s === b[i]);
+
+/**
+ * SP3's fields: the panel, and the size, complexity and components the spec header names. The
+ * components are the declared estimate, and the list Forge acts on until `forge verify` recomputes
+ * it from the diff; each is written only when it changes.
+ */
 function panelFields(x: StepInput): string[] {
   const fields = [`reviewers=${JSON.stringify(selectPanel(x))}`];
   if (x.spec.size && /^[SML]$/.test(x.spec.size)) fields.push(`size=${x.spec.size}`);
@@ -32,8 +38,9 @@ function panelFields(x: StepInput): string[] {
   // A revised spec without the line must not keep a stale level-picking value.
   if (complexity) fields.push(`complexity=${complexity}`);
   else if (x.job.complexity != null) fields.push('complexity=null');
-  const services = x.spec.services.filter((s) => SAFE_REF.test(s) && x.config.components.some((cs) => cs.name === s));
-  if (services.length) fields.push(`services=${JSON.stringify(services)}`);
+  const components = [...new Set(x.spec.components.filter((s) => SAFE_REF.test(s) && x.config.components.some((cs) => cs.name === s)))];
+  if (!sameList(x.job.componentsDeclared, components)) fields.push(`componentsDeclared=${JSON.stringify(components)}`);
+  if (x.job.componentsFromDiff == null && !sameList(x.job.components, components)) fields.push(`components=${JSON.stringify(components)}`);
   return fields;
 }
 

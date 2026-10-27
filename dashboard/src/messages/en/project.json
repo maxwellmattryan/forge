@@ -5,7 +5,15 @@
     "empty": "No components are configured. The graph is drawn from components in .forge/config.yml (docs/CONFIG.md, “Components”).",
     "job": "Highlight a job",
     "noJob": "No job",
-    "noMatch": "This job names no configured components",
+    "shows": {
+      "diff": "Components from the files this job changed.",
+      "declared": "Components the spec named. After the first build, the files the job changed decide."
+    },
+    "reason": {
+      "noMatch": "No configured component matches the files this job changed.",
+      "noSpec": "No spec yet: the spec names the components this job will change.",
+      "specNone": "The spec names no configured component."
+    },
     "problems": {
       "one": "components has {count} problem. Run forge config validate.",
       "other": "components has {count} problems. Run forge config validate."

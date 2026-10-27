@@ -94,6 +94,8 @@ export interface ComponentConfig {
   repo?: string | null;
   path: string;
   kind: ComponentKind;
+  /** Paths or globs, relative to the repo root, a changed file must match for a job to change this component; absent: by `path`. */
+  paths?: string[];
   commands?: Record<string, string | null>;
   dependsOn?: ComponentDependency[];
   owners?: string[];

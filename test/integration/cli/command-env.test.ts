@@ -66,7 +66,7 @@ async function scratch() {
     assert.equal(res.status, 0, `forge ${args.join(' ')} exited ${res.status}: ${res.stderr}${res.stdout}`);
     return JSON.parse(res.stdout);
   };
-  const job = await forge(['job', 'new', '--title', 'env dump', '--services', 'app']);
+  const job = await forge(['job', 'new', '--title', 'env dump', '--components', 'app']);
   await forge(['worktree', 'create', job.id]);
   await forge(['job', 'round', job.id]);
   let n = 0;

@@ -166,7 +166,10 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v43 adds daemon.freshAfterTokens (200000), filled from defaults, so no v42 config changes; the bump lets older
   // Forges refuse a config whose threshold they would reject as an unknown key.
   { id: 'daemon-fresh-after-tokens', up: (c) => c },
-  // v44 adds foreman.escalations (human) and foreman.senior (opus, high), filled from defaults, so no v43 config
+  // v44 lets a component set `paths` (globs a changed file must match for a job to change it); a v43
+  // component has none and still matches by its `path`, so nothing moves.
+  { id: 'component-paths', up: (c) => c },
+  // v45 adds foreman.escalations (human) and foreman.senior (opus, high), filled from defaults, so no v44 config
   // changes; the bump lets older Forges refuse a config whose escalations or senior they would reject as unknown keys.
   { id: 'foreman-escalations', up: (c) => c },
 ];

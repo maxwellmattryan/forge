@@ -257,7 +257,7 @@
 >
   <!-- Under an open job pane the indicators go inert, as the sidebar does; the live region stays out of it, since an inert
        region never speaks. display: contents keeps the three parts in the bar's own flex row. -->
-  <div class="contents" inert={S.drawer.id !== null}>
+  <div class="contents" inert={S.drawer.open}>
   <!-- Below md the clusters drop their padding so six 44px indicators and the FOCUS glyph fit 320px; the focus outline is inset there. -->
   <div bind:this={leftBox} class="flex min-w-0 items-center overflow-x-clip max-md:px-0 md:px-1">
     <div bind:this={leftRow} class="flex w-max items-center gap-0.5 md:gap-1">

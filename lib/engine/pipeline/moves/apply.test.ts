@@ -52,7 +52,7 @@ const ROWS: Row[] = [
         waitingOn: 'escalation',
         reason: 'stuck',
         note: 'parked by the test',
-        fields: { services: ['api'] },
+        fields: { components: ['api'] },
         owned: { noIssue: true },
         fence: { epoch, session: 'sess-1' },
         release: true,
@@ -63,7 +63,7 @@ const ROWS: Row[] = [
     check: (root, id, r) => {
       const job = loadJob(root, id);
       assert.equal(job.reason, 'stuck, derived');
-      assert.deepEqual(job.services, ['api']);
+      assert.deepEqual(job.components, ['api']);
       assert.equal(job.noIssue, true);
       assert.equal(job.lease.driver, null);
       const events = readEvents(root, id);
