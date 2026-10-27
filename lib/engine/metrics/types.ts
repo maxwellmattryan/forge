@@ -1,5 +1,14 @@
-// The spend ledger's bucket and `forge stats --by prompt`'s shapes, type-only.
-import type { Stats } from '#api/types.ts';
+// The spend ledger's bucket, the job source stats reads and `forge stats --by prompt`'s shapes, type-only.
+import type { Job, JobEvent, Stats } from '#api/types.ts';
+import type { JobFindings } from '#core/job/types.ts';
+
+/** One job stats reads: live (its files on disk) or archived (its record), with the same accessors. */
+export interface StatsSource {
+  job: Job;
+  events: () => JobEvent[];
+  findings: () => JobFindings;
+  archived: boolean;
+}
 
 /** One day, role and model's spend in the ledger: lib/engine/metrics/spend.ts. */
 export interface SpendBucket {

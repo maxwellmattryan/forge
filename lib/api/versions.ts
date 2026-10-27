@@ -106,6 +106,10 @@ export const API_CHANGES = [
   { id: 'mandate-closing-card' },
   // DaemonPoolState.launchPermissionMode, ProjectsResponse.machine.launchPermissionMode, ActorSource 'launch'.
   { id: 'launch-permission-mode' },
+  // Stats review and timing figures: ReviewerStats.soleChanges and .reopened, quality.findingsCarried and .findingsNew,
+  // speed.stageMinutes, .waitingMinutes, .medianHandoffMinutes, .stalledMinutes, .handoffSeconds, .agentStartSeconds,
+  // .minutesPerExtraRound and .timedJobs (TimeSpread), and UsageRow.cacheReadShare on cost.byRole rows.
+  { id: 'stats-review-timing' },
 ] as const;
 
 /**

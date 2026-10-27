@@ -17,6 +17,8 @@ export const AGENT_ID = /^[A-Za-z0-9_-]{1,100}$/;
 const MAX_RUN_SESSIONS = 5;
 /** lastActivity reads at most this much of a transcript's end. */
 const ACTIVITY_TAIL_BYTES = 64 * 1024;
+/** firstToolCallAt reads at most this much of a transcript's start. */
+const START_HEAD_BYTES = 64 * 1024;
 const ACTIVITY_CHARS = 160;
 const CACHE_MAX = 64;
 const TARGET_KEYS = ['file_path', 'notebook_path', 'path', 'pattern', 'command', 'url', 'query', 'description', 'skill'];
@@ -284,6 +286,34 @@ export function lastActivity(fd: number, size: number, opts: { worktree?: string
       const first = String(prose.text).split('\n').find((l) => l.trim()) ?? '';
       return { kind: 'text', text: capText(collapse(first)), at };
     }
+  }
+  return null;
+}
+
+/**
+ * The timestamp (ms) of the first assistant line at or after `sinceMs` with a tool_use block, from at
+ * most the transcript's first 64 KiB; a last line cut by that cap is dropped. Null when there is none.
+ */
+export function firstToolCallAt(fd: number, size: number, sinceMs: number): number | null {
+  const len = Math.min(size, START_HEAD_BYTES);
+  if (len <= 0) return null;
+  const buf = Buffer.alloc(len);
+  const read = fs.readSync(fd, buf, 0, len, 0);
+  const lines = buf.subarray(0, read).toString('utf8').split('\n');
+  if (size > len) lines.pop();
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let o: any;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!o || o.type !== 'assistant' || typeof o.timestamp !== 'string') continue;
+    const at = Date.parse(o.timestamp);
+    if (!Number.isFinite(at) || at < sinceMs) continue;
+    const blocks: unknown[] = Array.isArray(o.message?.content) ? o.message.content : [];
+    if (blocks.some((b) => (b as { type?: unknown } | null)?.type === 'tool_use')) return at;
   }
   return null;
 }

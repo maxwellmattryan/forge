@@ -5,9 +5,38 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { agentTranscript, agentTranscriptById, projectSlug } from './transcripts.ts';
+import { agentTranscript, agentTranscriptById, firstToolCallAt, projectSlug } from './transcripts.ts';
 
 type Refs = Parameters<typeof agentTranscriptById>[1];
+
+test('firstToolCallAt reads the head for the first tool call', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-head-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const T0 = Date.parse('2026-10-01T10:00:00.000Z');
+  const line = (type: string, sec: number, content: unknown[]) => JSON.stringify({ type, timestamp: new Date(T0 + sec * 1000).toISOString(), message: { content } });
+  const tool = (sec: number) => line('assistant', sec, [{ type: 'text', text: 'reading' }, { type: 'tool_use', id: 't', name: 'Read', input: {} }]);
+  const at = (text: string, since = T0): number | null => {
+    const file = path.join(dir, 'x.jsonl');
+    fs.writeFileSync(file, text);
+    const fd = fs.openSync(file, 'r');
+    try {
+      return firstToolCallAt(fd, fs.fstatSync(fd).size, since);
+    } finally {
+      fs.closeSync(fd);
+    }
+  };
+  const head = [line('user', 0, [{ type: 'tool_use' }]), tool(-5), 'not json', line('assistant', 1, [{ type: 'text', text: 'hi' }])];
+  assert.equal(at([...head, tool(3), tool(4)].join('\n') + '\n'), T0 + 3000, 'the first assistant tool call at or after the start');
+  assert.equal(at(head.join('\n')), null, 'none');
+  assert.equal(at(''), null, 'empty');
+  // A tool call past the first 64 KiB is never read; one cut by the cap is dropped even when what fits still parses.
+  const filler = line('user', 0, [{ type: 'text', text: 'x'.repeat(64 * 1024) }]);
+  assert.equal(at([filler, tool(3)].join('\n')), null, 'past the head');
+  const pad = 64 * 1024 - 1 - tool(3).length - 10;
+  const short = line('user', 0, [{ type: 'text', text: 'x'.repeat(pad - line('user', 0, [{ type: 'text', text: '' }]).length) }]);
+  assert.equal(at([short, tool(3) + ' '.repeat(100)].join('\n')), null, 'a cut last line');
+  assert.equal(at([short, tool(3), 'x'.repeat(400)].join('\n')), T0 + 3000, 'a whole line inside the cap');
+});
 
 test("a role run's session transcript is found only under the job's own worktree", (t) => {
   // The worktree is reached through a link, so its given and its real path always differ.
