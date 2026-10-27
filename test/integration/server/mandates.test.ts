@@ -106,6 +106,10 @@ test('mandates over the dashboard API', async () => {
     assert.equal(typeof m1.progress.lastActivity, 'string');
     assert.equal(m1.draft, null);
     assert.equal(byId.m2.state, 'waiting');
+    // The live report card on every readable row; the unreadable one stays {id, problem}.
+    assert.deepEqual([m1.card.mandate, m1.card.scores.median, m1.card.jobs.total], ['m1', null, 0]);
+    for (const id of ['g1', 'm1', 'm2']) assert.equal(byId[id].card?.mandate, id, `${id} carries its card`);
+    assert.equal(byId.g1.card.outcomes.finalAt, null, 'a goal mandate still drafting: every figure null');
     assert.deepEqual(byId.g1.draft, { status: 'queued', gate: 'none' });
     for (const m of list.json.mandates) assert.ok(!('body' in m) && !('goal' in m), `${m.id} carries no body or goal`);
     assert.equal(list.json.directives.length, 50);
@@ -118,6 +122,7 @@ test('mandates over the dashboard API', async () => {
     const detail = await t.get('/mandates/m1', true);
     assert.equal(detail.status, 200, detail.text);
     assert.deepEqual([detail.json.id, detail.json.body, detail.json.goal, detail.json.directives.length], ['m1', 'Prefer small PRs.', null, 20]);
+    assert.deepEqual([detail.json.card.mandate, detail.json.card.scores.median], ['m1', null], 'the detail extends the row, card included');
     assert.equal((await t.get('/mandates/g1', true)).json.goal, 'Halve review rounds');
     for (const p of ['/mandates/..%2Fx', '/mandates/none', '/mandates/nope']) assert.equal((await t.get(p, true)).status, 404, p);
     assert.equal((await t.get('/mandates/bad', true)).status, 409);
