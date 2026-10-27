@@ -12,6 +12,7 @@ import { ForgeError } from '#core/errors.ts';
 import { daemonScope, inAssistant } from '#core/job/requests.ts';
 import { listArchived } from '#core/job/archive.ts';
 import { listJobs } from '#core/job/store.ts';
+import { buildReportCard } from '#engine/metrics/report-card.ts';
 import { spendLedger } from '#engine/metrics/spend.ts';
 import { refuseOutsideOffice } from '#office/owner.ts';
 import { assistMandateRelease, mandateReleaseRefusal } from '#office/foreman.ts';
@@ -29,7 +30,8 @@ import { prepareDraft, staleReason } from '#office/mandates/intake.ts';
 import { listMandates, mandateFile, mandateJobs, mandateTarget, mandateWrite } from '#office/mandates/store.ts';
 import type { MandateOp } from '#office/mandates/store.ts';
 import { effectiveContract, isReadable, mandateChain, mandateGoal, mandateGuidance, mandateState, mandateSummary } from '#office/mandates/contract.ts';
-import type { Mandate, MandateInput } from '#office/mandates/types.ts';
+import type { Mandate, MandateInput, MandateReportCard, ReadMandate } from '#office/mandates/types.ts';
+import type { Config } from '#core/types.ts';
 import { bodyFrom, list, req, str, usageError } from './args.ts';
 import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
 
@@ -62,9 +64,9 @@ const MANDATE: HelpGroup = {
   commands: [
     {
       command: 'mandate new',
-      args: '<id> --title T [terms]',
+      args: '[<id>] --title T [terms]',
       summary:
-        'create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run)',
+        'create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run); without <id>, Forge picks m- and 8 random hex digits no mandate or mandate runtime dir holds (mandate.id)',
       flags: [
         ['--title T', 'one line, at most 200 characters (required)'],
         [
@@ -73,7 +75,7 @@ const MANDATE: HelpGroup = {
         ],
         ...TERMS,
       ],
-      exits: [[1, `the id exists or is not a mandate id, a term breaks the contract (every problem named), or ${DAEMON_EXIT}`]],
+      exits: [[1, `an id given exists or is not a mandate id, a term breaks the contract (every problem named), or ${DAEMON_EXIT}`]],
       docs: DOCS,
       common: true,
     },
@@ -305,19 +307,41 @@ function written(root: string, id: string, changed: boolean) {
   return { ok: true, changed, mandate: mandateSummary(mandateTarget(all, id), all) };
 }
 
-function write(ctx: CliContext, sub: MandateOp, id: string, flags: Record<string, any>) {
+function write(ctx: CliContext, sub: MandateOp, id: string | null, flags: Record<string, any>) {
   const { root, config } = ctx;
   if (sub === 'new') {
     const goal = goalFrom(flags);
     const input = { ...inputFrom(ctx, { ...flags, title: req(flags.title, '--title') }), ...(goal === undefined ? {} : { goal }) };
-    mandateWrite(root, config, 'new', id, { input });
+    const { id: made } = mandateWrite(root, config, 'new', id, { input });
     // A goal mandate's first drafting run, for the office session to turn.
-    if (goal !== undefined) return { ...written(root, id, true), draft: { request: queueDraftRequest(root, id).request } };
-    return written(root, id, true);
+    if (goal !== undefined) return { ...written(root, made, true), draft: { request: queueDraftRequest(root, made).request } };
+    return written(root, made, true);
   }
   const input = sub === 'edit' ? inputFrom(ctx, flags) : undefined;
   const reason = sub === 'pause' || sub === 'close' ? str(flags.reason, '--reason') : undefined;
-  return written(root, id, mandateWrite(root, config, sub, id, { input, reason }).changed);
+  const out = mandateWrite(root, config, sub, id, { input, reason });
+  return written(root, out.id, out.changed);
+}
+
+/** A mandate's job figures from the CLI's records, with no tracker call: the jobs, spend and starts. */
+const liveFigures = (root: string, config: Config, m: Mandate, all: ReadMandate[], at: number) =>
+  jobFigures(root, config, m, all, { jobs: listJobs(root), archived: listArchived(root), ledger: spendLedger(root, config, { write: false }), at });
+
+const STATS_MANDATE_USAGE = 'usage: forge stats --mandate <id>';
+/** The stats flags `--mandate` refuses: each picks another output. */
+const NOT_WITH_MANDATE = ['csv', 'by', 'role', 'since', 'include-evals'];
+
+/**
+ * `forge stats --mandate <id>` (the stats group's HELP is in ./status.ts): the mandate's live report card,
+ * from the records `forge mandate show` reads. Any status, a goal mandate still drafting too.
+ */
+export function statsMandate(root: string, config: Config, flags: Record<string, any>): MandateReportCard {
+  for (const f of NOT_WITH_MANDATE) if (flags[f] !== undefined) throw new ForgeError(`--mandate takes no --${f}; ${STATS_MANDATE_USAGE}`, 'usage', 'forge help stats');
+  const id = str(flags.mandate, '--mandate') as string;
+  const all = listMandates(root);
+  const m = mandateTarget(all, id);
+  const at = Date.now();
+  return buildReportCard(m, liveFigures(root, config, m, all, at), config, at);
 }
 
 function show(ctx: CliContext, id: string) {
@@ -325,8 +349,7 @@ function show(ctx: CliContext, id: string) {
   const all = listMandates(root);
   const m = mandateTarget(all, id);
   const { effective, capped } = effectiveContract(config, m);
-  // No tracker call: the jobs, spend and starts from the CLI's records.
-  const f = jobFigures(root, config, m, all, { jobs: listJobs(root), archived: listArchived(root), ledger: spendLedger(root, config, { write: false }), at: Date.now() });
+  const f = liveFigures(root, config, m, all, Date.now());
   return {
     ...mandateSummary(m, all),
     effective,
@@ -491,9 +514,10 @@ export async function mandateCmd(ctx: CliContext, sub: string | undefined, rest:
     return { data: listCmd(ctx.root), exitCode: 0 };
   }
   if (sub === undefined || (!WRITES.has(sub) && sub !== 'show')) throw usageError(MANDATE);
-  if (rest.length !== 1) throw usageError(MANDATE, sub);
+  // `new` without an id gets one picked (newMandateId); every other write and `show` name one.
+  if (sub === 'new' ? rest.length > 1 : rest.length !== 1) throw usageError(MANDATE, sub);
   if (sub === 'edit' && (flags.goal !== undefined || flags['goal-file'] !== undefined)) throw new ForgeError('--goal is set only by forge mandate new', 'usage');
-  const id = rest[0];
-  if (sub === 'show') return { data: show(ctx, id), exitCode: 0 };
+  const id = rest[0] ?? null;
+  if (sub === 'show') return { data: show(ctx, id!), exitCode: 0 };
   return { data: write(ctx, sub as MandateOp, id, flags as Record<string, any>), exitCode: 0 };
 }

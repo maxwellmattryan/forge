@@ -122,6 +122,36 @@ test('forge mandate new, show, pause, resume, close and list', async () => {
   }
 });
 
+test('forge mandate new picks an id when none is given', async () => {
+  const r = scratch();
+  try {
+    const out = await ok(r.dir, ['mandate', 'new', '--title', 'T', '--milestones', 'M1']);
+    const id = out.mandate.id as string;
+    assert.match(id, /^m-[0-9a-f]{8}$/);
+    assert.deepEqual([out.ok, out.changed, out.mandate.title], [true, true, 'T']);
+    const fm = yaml.parse(read(path.join(mandatesDir(r.dir), `${id}.md`)).split(/^---$/m)[1]);
+    assert.equal(fm.id, id);
+    const events = read(auditFile(r.dir)).split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.type === 'mandate-new');
+    assert.deepEqual(events.map((e) => e.mandate), [id], 'one mandate-new event naming the picked id');
+
+    // Two ids are a usage error, and write nothing.
+    const before = snapshot(r.dir);
+    const two = await forgeInProcess(r.dir, ['mandate', 'new', 'a', 'b', '--title', 'T', '--milestones', 'M1']);
+    assert.equal(two.error?.code, 'usage', JSON.stringify(two.error));
+    assert.deepEqual(snapshot(r.dir), before);
+
+    // A goal mandate's first drafting run is queued for the picked id.
+    const goal = await ok(r.dir, ['mandate', 'new', '--title', 'G', '--goal', 'Halve review rounds']);
+    assert.match(goal.mandate.id, /^m-[0-9a-f]{8}$/);
+    assert.notEqual(goal.mandate.id, id);
+    assert.equal(typeof goal.draft.request, 'string');
+    const draft = await ok(r.dir, ['mandate', 'draft', 'show', goal.mandate.id]);
+    assert.deepEqual([draft.status, draft.request?.id], ['queued', goal.draft.request]);
+  } finally {
+    r.cleanup();
+  }
+});
+
 test('mandate writes are refused in daemon sessions', async () => {
   const r = scratch();
   try {
@@ -186,6 +216,32 @@ test('jobs join a mandate at creation and keep it', async () => {
     assert.equal(jobFile(first).mandate, 'm1');
 
     assert.deepEqual((await ok(r.dir, ['mandate', 'show', 'm1'])).jobs, [first, child].sort());
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('forge stats --mandate prints the report card', async () => {
+  const r = scratch();
+  try {
+    await ok(r.dir, ['mandate', 'new', 'm1', '--title', 'M1', '--milestones', 'M1']);
+    await ok(r.dir, ['job', 'new', '--title', 'a', '--mandate', 'm1']);
+    await ok(r.dir, ['job', 'new', '--title', 'b', '--mandate', 'm1']);
+    await ok(r.dir, ['job', 'new', '--title', 'no mandate']);
+    const shown = await forgeAsync(r.dir, ['stats', '--mandate', 'm1']);
+    assert.equal(shown.status, 0, shown.stderr);
+    const card = JSON.parse(shown.stdout);
+    assert.deepEqual([card.mandate, card.jobs.total, card.jobs.merged, card.scores.median, card.outcomes.finalAt], ['m1', 2, 0, null, null]);
+    assert.equal((await ok(r.dir, ['stats', '--mandate', 'm1', '--json'])).mandate, 'm1', '--json is allowed');
+
+    const nope = await forgeInProcess(r.dir, ['stats', '--mandate', 'nope']);
+    assert.deepEqual([nope.status, nope.error?.code], [1, 'not_found'], JSON.stringify(nope.error));
+    for (const args of [['--mandate'], ['--mandate', 'm1', '--mandate', 'm1'], ['--mandate', 'm1', '--csv'], ['--mandate', 'm1', '--since', '2026-01-01'], ['--mandate', 'm1', '--by', 'prompt']]) {
+      const refused = await forgeInProcess(r.dir, ['stats', ...args]);
+      assert.deepEqual([refused.status, refused.error?.code], [2, 'usage'], `${args.join(' ')}: ${JSON.stringify(refused.error)}`);
+    }
+    const csv = await forgeInProcess(r.dir, ['stats', '--mandate', 'm1', '--csv']);
+    assert.equal(csv.error?.message, '--mandate takes no --csv; usage: forge stats --mandate <id>');
   } finally {
     r.cleanup();
   }

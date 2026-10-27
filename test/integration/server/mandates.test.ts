@@ -83,6 +83,14 @@ test('mandates over the dashboard API', async () => {
     const dup = await t.post('/mandates', { id: 'm1', title: 'Again', milestones: ['M1'] });
     assert.deepEqual([dup.status, dup.json.error], [409, 'mandate m1 exists; change it with forge mandate edit']);
 
+    // No id sent: the server picks one, through the same write.
+    const picked = await t.post('/mandates', { title: 'Picked', milestones: ['M1'] });
+    assert.equal(picked.status, 200, picked.text);
+    const pid = picked.json.mandate.id as string;
+    assert.match(pid, /^m-[0-9a-f]{8}$/);
+    assert.match(t.file(pid), new RegExp(`^id: ${pid}$`, 'm'));
+    assert.equal(t.auditEvents().find((e) => e.type === 'mandate-new' && e.mandate === pid)?.actor?.source, 'dashboard');
+
     // A second link, a goal mandate and an unreadable file, then the directives.
     assert.equal((await t.post('/mandates', { id: 'm2', title: 'Second', labels: ['infra'], after: 'm1' })).status, 200);
     const goal = await forgeInProcess(t.repo.dir, ['mandate', 'new', 'g1', '--title', 'Goal', '--goal', 'Halve review rounds']);
@@ -94,7 +102,7 @@ test('mandates over the dashboard API', async () => {
     const list = await t.get('/mandates');
     assert.equal(list.status, 200, list.text);
     const byId = Object.fromEntries(list.json.mandates.map((m: { id: string }) => [m.id, m]));
-    assert.deepEqual(Object.keys(byId).sort(), ['bad', 'g1', 'm1', 'm2']);
+    assert.deepEqual(Object.keys(byId).sort(), ['bad', 'g1', 'm1', 'm2', pid].sort());
     assert.deepEqual(byId.bad, { id: 'bad', problem: 'no frontmatter between --- lines' });
     const m1 = byId.m1;
     assert.equal(m1.title, 'First');
@@ -106,6 +114,10 @@ test('mandates over the dashboard API', async () => {
     assert.equal(typeof m1.progress.lastActivity, 'string');
     assert.equal(m1.draft, null);
     assert.equal(byId.m2.state, 'waiting');
+    // The live report card on every readable row; the unreadable one stays {id, problem}.
+    assert.deepEqual([m1.card.mandate, m1.card.scores.median, m1.card.jobs.total], ['m1', null, 0]);
+    for (const id of ['g1', 'm1', 'm2']) assert.equal(byId[id].card?.mandate, id, `${id} carries its card`);
+    assert.equal(byId.g1.card.outcomes.finalAt, null, 'a goal mandate still drafting: every figure null');
     assert.deepEqual(byId.g1.draft, { status: 'queued', gate: 'none' });
     for (const m of list.json.mandates) assert.ok(!('body' in m) && !('goal' in m), `${m.id} carries no body or goal`);
     assert.equal(list.json.directives.length, 50);
@@ -118,6 +130,7 @@ test('mandates over the dashboard API', async () => {
     const detail = await t.get('/mandates/m1', true);
     assert.equal(detail.status, 200, detail.text);
     assert.deepEqual([detail.json.id, detail.json.body, detail.json.goal, detail.json.directives.length], ['m1', 'Prefer small PRs.', null, 20]);
+    assert.deepEqual([detail.json.card.mandate, detail.json.card.scores.median], ['m1', null], 'the detail extends the row, card included');
     assert.equal((await t.get('/mandates/g1', true)).json.goal, 'Halve review rounds');
     for (const p of ['/mandates/..%2Fx', '/mandates/none', '/mandates/nope']) assert.equal((await t.get(p, true)).status, 404, p);
     assert.equal((await t.get('/mandates/bad', true)).status, 409);
@@ -183,7 +196,8 @@ test('mandate writes the dashboard refuses write nothing', async () => {
       ['/mandates', { ...ok, body: 'x'.repeat(8001) }, 400, /^body must be/],
       ['/mandates', { ...ok, maxJobs: '3' }, 400, /^body must be/],
       ['/mandates', { ...ok, after: 'x'.repeat(61) }, 400, /^body must be/],
-      ['/mandates', { title: 'N1', milestones: ['M1'] }, 400, /^body must be/],
+      ['/mandates', { ...ok, id: null }, 400, /^body must be \{"id"\?: /],
+      ['/mandates', { ...ok, id: 7 }, 400, /^body must be/],
       ['/mandates', { id: 'n1', milestones: ['M1'] }, 400, /^body must be/],
       ['/mandates', { ...ok, id: 'Bad' }, 400, /^body must be/],
       ['/mandates', { ...ok, id: 'none' }, 400, /^body must be/],

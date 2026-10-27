@@ -262,6 +262,9 @@ test('the pass closes a finished mandate and starts the next link', async (t) =>
       [[reached.id, 'reached'], [cancelled.id, 'cancelled'], [parked.id, 'parked']].sort(),
     );
     assert.deepEqual([s.spend.usd, s.humanInterventions, s.stalls, s.parked], [1.5, 1, 1, [{ job: parked.id, why: 'failed' }]]);
+    // The report card, from the same progress at the close time.
+    assert.ok(s.card, 'the summary carries the card');
+    assert.deepEqual([s.card.mandate, s.card.at, s.card.jobs.total, s.card.interventions.total, s.card.spend.usd], ['m1', s.closedAt, s.jobs.length, s.humanInterventions, s.spend.usd]);
     assert.deepEqual(
       n.calls.filter(([e]) => e[0] === 'mandate-closed'),
       [[['mandate-closed'], { reason: 'mandate-closed', mandate: 'm1' }]],

@@ -2,9 +2,12 @@
      components and their downstream consumers highlighted (issue #175). Read-only. -->
 <script lang="ts">
   import Empty from '../components/Empty.svelte';
+  import Loading from '../components/Loading.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import Select from '../components/Select.svelte';
   import StateChip from '../components/StateChip.svelte';
+  import ProjectEnvironmentsSkeleton from '../components/skeletons/ProjectEnvironmentsSkeleton.svelte';
+  import ProjectGraphSkeleton from '../components/skeletons/ProjectGraphSkeleton.svelte';
   import type { ApiState, Job } from '../lib/types.ts';
   import { S, openDrawer } from '../lib/app.svelte.ts';
   import { projectRows } from '../lib/environment.ts';
@@ -69,7 +72,7 @@
   {#if S.environmentsError}<p class="plate px-3 py-2 mb-3 text-sm text-muted selectable">{$t('project.environments.failed', { error: S.environmentsError })}</p>{/if}
   {#if envs && envs.docker !== 'ok'}<p class="plate px-3 py-2 mb-3 text-sm text-warn">{$t('project.environments.dockerDown')}</p>{/if}
   {#if !envs}
-    {#if !S.environmentsError}<Empty>{$t('project.environments.loading')}</Empty>{/if}
+    {#if !S.environmentsError}<Loading><ProjectEnvironmentsSkeleton /></Loading>{/if}
   {:else if envRows.length === 0}
     <Empty>{$t('project.environments.empty')}</Empty>
   {:else}
@@ -107,7 +110,7 @@
   {/if}
 </section>
 {#if !g || !layout}
-  <Empty>{$t('project.loading')}</Empty>
+  <Loading><ProjectGraphSkeleton /></Loading>
 {:else if g.components.length === 0}
   <Empty>{$t('project.empty')}</Empty>
 {:else}

@@ -3,6 +3,7 @@
   import PageHeader from '../components/PageHeader.svelte';
   import PeriodMeter from '../components/PeriodMeter.svelte';
   import Select from '../components/Select.svelte';
+  import AnalyticsStatsSkeleton from '../components/skeletons/AnalyticsStatsSkeleton.svelte';
   import { dur, num, pct, tokensShort, usd } from '../lib/util.ts';
   import type { ApiState, UsageRow } from '../lib/types.ts';
   import { STATS_WINDOWS, jobMs, jobsSummary, topJobsByUsage, usageBars } from '../lib/analytics.ts';
@@ -46,7 +47,7 @@
 </PageHeader>
 <PeriodMeter budget={data.budget} />
 {#if !s}
-  <div class="plate w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>
+  <AnalyticsStatsSkeleton />
 {:else}
   {@const q = s.quality}
   {@const cov = s.cost.reportingCoverage}

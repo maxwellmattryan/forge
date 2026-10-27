@@ -13,6 +13,8 @@
   import MandateEditor from './MandateEditor.svelte';
   import PermissionPrompts from './PermissionPrompts.svelte';
   import SessionLog from './SessionLog.svelte';
+  import ForemanDirectivesSkeleton from './skeletons/ForemanDirectivesSkeleton.svelte';
+  import ForemanMandatesSkeleton from './skeletons/ForemanMandatesSkeleton.svelte';
   import { DIRECTIVE_TONE, assistantRows, directiveActor, directiveFeed, isUnreadable, mandateGroups, pendingGates } from '../lib/foreman.ts';
   import { pendingPrompts } from '../lib/permissions.ts';
   import { OFFICE_SCOPE } from '../lib/types.ts';
@@ -79,7 +81,7 @@
 {#if S.mandatesError}<Banner msg={$t('foreman.office.loadFailed', { error: S.mandatesError })} />{/if}
 {#if list && editing?.mode === 'new'}<div class="mb-3"><MandateEditor mandates={list} onclose={closeEditor} /></div>{/if}
 {#if !list}
-  {#if !S.mandatesError}<div class="plate w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>{/if}
+  {#if !S.mandatesError}<ForemanMandatesSkeleton />{/if}
 {:else if !list.mandates.length}
   {#if editing?.mode !== 'new'}<Empty><p>{$t('foreman.office.noMandates')}</p><p class="text-xs mt-1">{#each $t('foreman.office.noMandatesHow').split('{cmd}') as part, i (i)}{#if i}<code class="mono">{NEW_CMD}</code>{/if}{part}{/each}</p></Empty>{/if}
 {:else}
@@ -111,7 +113,7 @@
         <tbody>
           {#each assistants as a (a.scope)}
             <tr>
-              <td class="whitespace-nowrap">{$t('statusbar.foreman.assistant', { n: a.n })}</td>
+              <td class="whitespace-nowrap">{$t('statusbar.foreman.assistant', { n: a.n, count: assistants.length })}</td>
               <td><Chip tone={a.status === 'busy' ? 'live' : a.status === 'off' ? 'muted' : 'ok'} text={a.status} /></td>
               <td>
                 {#if !a.gate}<span class="text-muted">{$t('foreman.office.noGate')}</span>
@@ -135,7 +137,7 @@
 
 <h2 class="plate h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('foreman.office.directives')}</h2>
 {#if !list}
-  {#if !S.mandatesError}<div class="plate w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>{/if}
+  {#if !S.mandatesError}<ForemanDirectivesSkeleton />{/if}
 {:else if directives.length}
   <div class="plate flat"><div class="overflow-x-auto">
     <table class="tbl">

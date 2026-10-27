@@ -42,6 +42,9 @@ const DEFAULT_WINDOW_DAYS = 14;
 
 const defaultGh = (root: string): GhFn => (args) => gh(root, args, { allowFail: true });
 
+/** How many days after its merge a job's outcome window closes: outcomes.windowDays, else 14. */
+export const outcomeWindowDays = (config: Config): number => config.outcomes?.windowDays ?? DEFAULT_WINDOW_DAYS;
+
 const isPositiveInt = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) > 0;
 const timeOf = (v: unknown): number | null => {
   if (typeof v !== 'string' || !v || v.length > 40) return null;
@@ -239,7 +242,7 @@ export function measureOutcome(root: string, config: Config, job: Job, deps: Par
   const gh = deps.gh ?? defaultGh(root);
   const at = (deps.now ?? (() => new Date()))().getTime();
   const prev = job.outcome;
-  const windowDays = config.outcomes?.windowDays ?? DEFAULT_WINDOW_DAYS;
+  const windowDays = outcomeWindowDays(config);
   const number = isPositiveInt(job.pr?.number) ? job.pr!.number : null;
   const slug = slugOf(root, config);
   const reasons: string[] = [];

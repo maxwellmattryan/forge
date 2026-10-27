@@ -41,6 +41,17 @@ const row = (id: string, o: Partial<MandateRow> = {}): MandateRow => ({
   activeLink: id,
   progress: { jobs: { reached: 0, inFlight: 0, handled: 0, unfinishable: 0 }, spend: { usd: 0, budget: 150 }, started: { jobs: 0, budget: 5 }, lastActivity: '2026-10-02T00:00:00.000Z' },
   draft: null,
+  // An empty mandate's card: every count 0, every figure null.
+  card: {
+    mandate: id,
+    at: '2026-10-02T00:00:00.000Z',
+    jobs: { total: 0, reached: 0, merged: 0, inFlight: 0 },
+    scores: { scored: 0, held: 0, failed: 0, pending: 0, unscored: 0, median: null, below3: null },
+    review: { reviewed: 0, avgRounds: null, firstPassRate: null },
+    interventions: { total: 0, byGate: {} },
+    spend: { usd: 0, budgetUsd: 150, started: 0, budgetJobs: 5 },
+    outcomes: { final: 0, open: 0, unmeasured: 0, reverted: null, followedUp: null, finalAt: null },
+  },
   ...o,
 });
 
@@ -59,11 +70,11 @@ test("the Foreman page's panels start with the Office", () => {
 });
 
 test('editor bodies send only what changed', () => {
-  // A new mandate: id and title, each filled term, comma lists split and trimmed with empty entries dropped, after null for none.
-  assert.deepEqual(newMandateBody({ ...blankForm(), id: ' m1 ', title: ' First ', milestones: ' M1 , ,M2,' }), { id: 'm1', title: 'First', milestones: ['M1', 'M2'], after: null });
+  // A new mandate: the title (the server picks the id), each filled term, comma lists split and trimmed with empty entries dropped, after null for none.
+  assert.deepEqual(newMandateBody({ ...blankForm(), title: ' First ', milestones: ' M1 , ,M2,' }), { title: 'First', milestones: ['M1', 'M2'], after: null });
   assert.deepEqual(
-    newMandateBody({ ...blankForm(), id: 'm2', title: 'T', labels: 'infra', until: 'merged', maxJobs: '3', budgetUsd: '20.5', decides: [], after: 'm1', body: 'Guidance.' }),
-    { id: 'm2', title: 'T', labels: ['infra'], until: 'merged', maxJobs: 3, budgetUsd: 20.5, decides: [], after: 'm1', body: 'Guidance.' },
+    newMandateBody({ ...blankForm(), title: 'T', labels: 'infra', until: 'merged', maxJobs: '3', budgetUsd: '20.5', decides: [], after: 'm1', body: 'Guidance.' }),
+    { title: 'T', labels: ['infra'], until: 'merged', maxJobs: 3, budgetUsd: 20.5, decides: [], after: 'm1', body: 'Guidance.' },
   );
 
   // An edit: an unchanged form sends updatedAt alone.

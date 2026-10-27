@@ -29,6 +29,7 @@ import { readJson } from '#core/os/fs.ts';
 import { createWorktree, removeWorktree } from '#engine/workspace/worktree.ts';
 import { verify } from '#engine/verify/gate.ts';
 import { advanceCmd } from './commands/advance.ts';
+import { agentRunCmd } from './commands/job/agent-run.ts';
 import { auditCmd } from './commands/audit.ts';
 import { backingCmd } from './commands/backing.ts';
 import { budgetCmd } from './commands/budget.ts';
@@ -46,7 +47,7 @@ import { helpCmd, usage } from './commands/help.ts';
 import { confirmHuman, mergeNowOp } from './commands/human.ts';
 import { initWrite, migrate } from './commands/init.ts';
 import { jobCmd, refuseForemanJobCommand } from './commands/job.ts';
-import { mandateCmd } from './commands/mandate.ts';
+import { mandateCmd, statsMandate } from './commands/mandate.ts';
 import { chatCmd } from './commands/chat.ts';
 import { notifyCmd } from './commands/notify.ts';
 import { officeCmd } from './commands/office.ts';
@@ -166,6 +167,11 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
         refuseForemanJobCommand(sub);
         return advanceCmd(ctx, rest, flags, dispatch);
       }
+      // Like advance, its non-zero exits carry data; `forge job agent <id> run` stays an unknown phase.
+      if (sub === 'agent' && rest[0] === 'run') {
+        refuseForemanJobCommand(sub);
+        return agentRunCmd(ctx, rest.slice(1), flags);
+      }
       return ok(await jobCmd(root, config, sub, rest, flags));
     case 'worktree': {
       needInit();
@@ -248,6 +254,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       needInit();
       return ok(await trackerCmd(root, config, sub, rest, flags));
     case 'stats': {
+      if (flags.mandate !== undefined) return ok(statsMandate(root, config, flags));
       if (flags.by === 'prompt') return ok(statsByPromptCmd(root, config, flags));
       if (flags.csv || flags.by !== undefined) return ok(statsCsv(root, config, flags));
       const s = computeStats(root, { since: flags.since, includeEvals: Boolean(flags['include-evals']), config });

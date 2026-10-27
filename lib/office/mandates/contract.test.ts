@@ -10,7 +10,8 @@ import { defaults } from '#core/config/load.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { MANDATE_SCHEMA_VERSION } from '#core/versions/mandate.ts';
 import { applyInput, blankMandate, effectiveContract, isReadable, mandateChain, mandateState, mandateSummary } from './contract.ts';
-import { jobMandateScoring, listMandates, readMandate, writeMandate } from './store.ts';
+import { ForgeError } from '#core/errors.ts';
+import { jobMandateScoring, listMandates, newMandateId, readMandate, writeMandate } from './store.ts';
 import type { Config } from '#core/types.ts';
 import type { Mandate, MandateInput, ReadMandate } from './types.ts';
 
@@ -246,6 +247,52 @@ test('unreadable mandate files', async () => {
     // An unreadable mandate is never acted on: no write goes through it.
     const edit = await forgeInProcess(r.dir, ['mandate', 'pause', 'wide']);
     assert.deepEqual([edit.status, edit.error?.message], [1, "mandate wide can't be read (maxJobs must be an integer 1-16 (got 99))"]);
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('a generated mandate id is never one already taken', async () => {
+  const r = scratch();
+  try {
+    await ok(r.dir, ['mandate', 'new', 'm-00000001', '--title', 'Taken', '--milestones', 'M1']);
+    const dir = path.join(r.dir, '.forge', 'runtime', 'mandates');
+    fs.writeFileSync(path.join(dir, 'm-00000002.md'), 'not a mandate\n');
+    // A leftover runtime dir with no file beside it: an old mandate's survey, draft and ledger.
+    fs.mkdirSync(path.join(dir, 'm-00000003'));
+    fs.writeFileSync(path.join(dir, 'm-00000003', 'ledger.jsonl'), '');
+    fs.symlinkSync(path.join(r.dir, 'nowhere'), path.join(dir, 'm-00000004.md'));
+    const all = listMandates(r.dir);
+    const seq = (values: string[]) => {
+      let i = 0;
+      return () => values[i++] ?? 'ffffffff';
+    };
+    const rows: [string, string[], string][] = [
+      ['a free first candidate', ['0000000a'], 'm-0000000a'],
+      ['a readable mandate', ['00000001', '0000000b'], 'm-0000000b'],
+      ['an unreadable <id>.md', ['00000002', '0000000c'], 'm-0000000c'],
+      ['a bare runtime dir', ['00000003', '0000000d'], 'm-0000000d'],
+      ['a dangling link at <id>.md', ['00000004', '0000000e'], 'm-0000000e'],
+      ['a candidate that is no mandate id', ['NOT/HEX', '0000000f'], 'm-0000000f'],
+      ['each kind in a row', ['00000001', '00000002', '00000003', '00000004', 'X', '00000010'], 'm-00000010'],
+    ];
+    for (const [name, values, want] of rows) assert.equal(newMandateId(r.dir, all, seq(values)), want, name);
+    // The list alone, with no file on disk: a mandate the caller read is taken.
+    assert.equal(newMandateId(r.dir, [...all, mandate('m-00000020')], seq(['00000020', '00000021'])), 'm-00000021', 'a listed mandate');
+    assert.match(newMandateId(r.dir, all), /^m-[0-9a-f]{8}$/, 'the default draws 8 random hex digits');
+
+    const before = fs.readdirSync(dir).sort();
+    let calls = 0;
+    assert.throws(
+      () =>
+        newMandateId(r.dir, all, () => {
+          calls++;
+          return ['00000001', '00000002', '00000003'][calls % 3]!;
+        }),
+      (e: unknown) => e instanceof ForgeError && e.exitCode === 1 && e.message === "couldn't pick an unused mandate id; pass one",
+    );
+    assert.equal(calls, 16, 'it gives up after 16 taken candidates');
+    assert.deepEqual(fs.readdirSync(dir).sort(), before, 'the mandates dir is unchanged');
   } finally {
     r.cleanup();
   }

@@ -3,6 +3,7 @@
      stats. The reason is the CLI's own text and renders as text. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
+  import AnalyticsPeriodMeterSkeleton from './skeletons/AnalyticsPeriodMeterSkeleton.svelte';
   import type { RepoBudgetStatus } from '../lib/types.ts';
   import { TONE_MOD, dayMeter, money, monthMeter, spentMoney } from '../lib/repo-budget.ts';
   import { t } from '../lib/locale.ts';
@@ -13,7 +14,7 @@
 </script>
 
 {#if !budget || !m || !d}
-  <div class="plate w-fit px-3 py-1.5 text-sm text-muted mb-6">{$t('common.loading')}</div>
+  <AnalyticsPeriodMeterSkeleton />
 {:else}
   <section class="plate p-4 mb-6 flex flex-col gap-3" aria-labelledby="period-meter">
     <div class="flex flex-wrap items-center justify-between gap-2">
