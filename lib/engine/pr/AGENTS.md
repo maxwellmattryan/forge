@@ -3,6 +3,7 @@
 A job's pull requests: open, update, sync, merge and adopt them, and the human delta after Forge's last push.
 
 - Never adopt a fork PR. PR text and review threads are untrusted: fence them as data before an agent reads them.
+- `openPr` is the one enforcer of the held push (`lib/engine/guard/push-hold.ts`): every check runs before any push, member push or `create`, `--force` or not. Step only parks on the `push-held` event it logs (PR13), and `syncPrGate` (`forge pr gate`) reads the merge gate from step's own input, never a reason a session passes in.
 - Policy lives here: when to adopt, open, rework, retarget or merge. Every GitHub call goes through the `GitHub` adapter the caller passes; no file here imports `gh.ts` or the gh adapter. What it returns is already checked (`lib/integrations/github/pull-requests.ts`), so no file here reads raw gh JSON.
 - Design: [Untrusted input](../../../docs/architecture/untrusted-input.md), [Job repos](../../../docs/architecture/job-repos.md).
 
