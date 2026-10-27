@@ -451,13 +451,6 @@ export function renderBrief(input: StepInput, spec: BriefSpec): string {
   return lines.join('\n');
 }
 
-/**
- * The forge:assistant brief a gate run writes to its child's stdin (lib/office/foreman/decide.ts gateAssist,
- * and `forge job assist` for a person): paths, the gate class and the reserved list, never file contents.
- * Reads nothing: every path is listed whether or not it exists, and the assistant skips the missing. A senior
- * pass (lib/office/foreman/senior.ts) adds its `Senior pass (JSON)`, `Diff` and `Verdicts` lines before Untrusted;
- * its reason is already cleanReason'd (no quotes, backslashes or line separators), and JSON keeps it on one line.
- */
 /** Where each role NP1b parks for records what it needed. */
 const PROMPT_TIMEOUT_NOTES: Record<string, string> = { planner: 'plan.md', 'spec-writer': 'spec.md', builder: 'build.md', integrator: 'build.md' };
 
@@ -474,6 +467,13 @@ function promptTimeoutLines(gate: GateClass, reason: unknown, dir: string): stri
   ];
 }
 
+/**
+ * The forge:assistant brief a gate run writes to its child's stdin (lib/office/foreman/decide.ts gateAssist,
+ * and `forge job assist` for a person): paths, the gate class and the reserved list, never file contents.
+ * Reads nothing: every path is listed whether or not it exists, and the assistant skips the missing. A senior
+ * pass (lib/office/foreman/senior.ts) adds its `Senior pass (JSON)`, `Diff` and `Verdicts` lines before Untrusted;
+ * its reason is already cleanReason'd (no quotes, backslashes or line separators), and JSON keeps it on one line.
+ */
 export function assistantBrief(
   root: string,
   config: Config,
