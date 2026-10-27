@@ -13,7 +13,7 @@ import { resolveEffort, resolveModel } from '#core/config/load.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import { foremanEnabled } from '#engine/pipeline/moves/foreman-gates.ts';
 import { cadenceMinutes } from './cadence.ts';
-import { gateOwner } from '../foreman.ts';
+import { gateOwner } from '../foreman/policy.ts';
 import { isReadable, mandateGuidance, mandateState } from './contract.ts';
 import { logDirective, readDirectives } from './directives.ts';
 import { jobFigures, mandateProgress, readProgressCtx } from './progress.ts';

@@ -1,17 +1,20 @@
 // The milestone-approval gate through the CLI: no daemon session decides as a person, approve files the
 // draft to the backlog and scopes the mandate, revise queues a drafting run with the note fenced, reject
-// closes the mandate, and a recorded draft's gate request reaches an assistant foreman (or, when the
-// mandate's decides leaves the class out, stays a person's). Serial: the daemon rows set process.env
-// through forgeInProcess.
+// closes the mandate, and a recorded draft's gate request reaches forge dash's gate runner, which alone records
+// the Foreman's decision (or, when the mandate's decides leaves the class out, stays a person's). Serial: the
+// daemon rows set process.env through forgeInProcess.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { MILESTONE_DRAFT, draftJson, forgeAsync, forgeInProcess, gateRequests, initMilestoneRepo, readyGoal, repoTemplate, seedBacklog } from '../../helpers.ts';
 import { loadConfig, resolveModel, worktreeRoot } from '#core/config/load.ts';
-import { ackRequest, claimRequest, listRequests, requestScope } from '#core/job/requests.ts';
+import { ackRequest, claimRequest, issueForemanAuthority, listRequests, requestScope } from '#core/job/requests.ts';
 import { isFencedImport } from '#core/text.ts';
 import { FILING_SCHEMA_VERSION } from '#core/versions/filing.ts';
+import { loadTracker } from '#engine/trackers/load.ts';
+import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
+import { decideDraft } from '#office/mandates/gate.ts';
 
 const template = repoTemplate((dir) => {
   initMilestoneRepo(dir);
@@ -26,7 +29,12 @@ function scratch() {
 
 const env = (scope: string): NodeJS.ProcessEnv => ({ FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: scope });
 const OFFICE = env('_office');
-const ASSISTANT = env('_assistant-1');
+
+/** The gate runner's decision on mandate `id`'s draft, in-process with its authority. */
+function foremanDecides(root: string, id: string, decision: 'approve' | 'revise', note: string) {
+  const { config } = loadConfig(root);
+  return decideDraft(root, config, id, decision, { note, foreman: true, actor: FOREMAN_ACTOR, tracker: () => loadTracker(root, config), env: {}, by: issueForemanAuthority() });
+}
 
 async function ok(root: string, args: string[], e?: NodeJS.ProcessEnv): Promise<any> {
   const r = await forgeInProcess(root, args, e ? { env: e } : {});
@@ -78,7 +86,7 @@ test('a daemon session decides no milestone draft', async () => {
     await readyGoal(r.dir, 'g1');
     const job = (await ok(r.dir, ['job', 'new', '--title', 'a job'])).id as string;
     const before = snapshot(r.dir);
-    for (const scope of ['_inbox', '_office', '_assistant-1', job]) {
+    for (const scope of ['_inbox', '_office', job]) {
       for (const action of ['approve', 'revise', 'reject']) {
         const res = await forgeInProcess(r.dir, ['mandate', 'draft', action, 'g1', '--note', 'n'], { env: env(scope) });
         assert.deepEqual(
@@ -89,10 +97,12 @@ test('a daemon session decides no milestone draft', async () => {
         assert.deepEqual(snapshot(r.dir), before, `${scope} ${action}: nothing written`);
       }
     }
-    const reject = await forgeInProcess(r.dir, ['mandate', 'draft', 'reject', 'g1', '--actor', 'foreman', '--note', 'no'], { env: ASSISTANT });
-    assert.equal(reject.status, 1);
-    assert.match(reject.error?.message ?? '', /^--actor foreman refused: /);
-    assert.deepEqual(snapshot(r.dir), before, 'reject --actor foreman: nothing written');
+    // --actor foreman is refused in every scope, a person's terminal included: only the gate runner holds the authority.
+    for (const scope of [undefined, '_office', job]) {
+      const reject = await forgeInProcess(r.dir, ['mandate', 'draft', 'reject', 'g1', '--actor', 'foreman', '--note', 'no'], scope ? { env: env(scope) } : {});
+      assert.deepEqual([reject.status, reject.error?.message], [1, "--actor foreman refused: only the Foreman's gate runner in forge dash records foreman decisions"], `reject --actor foreman in ${scope ?? 'a terminal'}`);
+      assert.deepEqual(snapshot(r.dir), before, `reject --actor foreman in ${scope ?? 'a terminal'}: nothing written`);
+    }
   } finally {
     r.cleanup();
   }
@@ -223,7 +233,7 @@ test('reject closes the mandate and files nothing', async () => {
   }
 });
 
-test("a milestone draft's gate request reaches an assistant foreman, which files it", async () => {
+test("a milestone draft's gate request reaches the gate runner, which files it", async () => {
   const r = scratch();
   try {
     await ok(r.dir, ['mandate', 'new', 'g1', '--title', 'G1', '--goal', 'Halve review rounds', '--decides', 'milestone-approval']);
@@ -244,12 +254,13 @@ test("a milestone draft's gate request reaches an assistant foreman, which files
     assert.equal(gates.length, 1);
     const [g] = gates;
     assert.deepEqual([g.type, g.job, g.args], ['gate', null, { gate: 'milestone-approval', mandate: 'g1', key: run.request, digest: shown.digest, reserved: null }]);
-    assert.equal(requestScope(s.dir, g), '_assistants');
+    assert.equal(requestScope(s.dir, g), '_gates');
     assert.equal(shown.gate.owner, 'foreman');
 
-    assert.ok((await ok(s.dir, ['requests'], ASSISTANT)).some((x: { id: string }) => x.id === g.id));
-    await ok(s.dir, ['requests', 'claim', g.id, '--session', 'a-1'], ASSISTANT);
-    const assist = await ok(s.dir, ['mandate', 'draft', 'assist', 'g1', '--request', g.id], ASSISTANT);
+    // No session lists it; the gate runner claims it in-process, and a person may read its assist.
+    assert.ok(!(await ok(s.dir, ['requests'], OFFICE)).some((x: { id: string }) => x.id === g.id));
+    claimRequest(s.dir, g.id, 'gate-run:a');
+    const assist = await ok(s.dir, ['mandate', 'draft', 'assist', 'g1', '--request', g.id]);
     assert.deepEqual([assist.stale, assist.reserved, assist.subagent, assist.model], [false, null, 'forge:assistant', resolveModel(loadConfig(s.dir).config, null, 'assistant')]);
     const brief = assist.brief as string;
     assert.ok(brief.includes('Gate: milestone-approval') && brief.includes(path.resolve(draftJson(s.dir, 'g1'))), brief);
@@ -258,9 +269,9 @@ test("a milestone draft's gate request reaches an assistant foreman, which files
     assert.ok(goalAt >= 0 && lines[goalAt + 1] === '> Halve review rounds', brief);
     for (const it of MILESTONE_DRAFT.issues) assert.ok(!brief.includes(it.title), `${it.title} is not in the brief`);
     const office = await forgeInProcess(s.dir, ['mandate', 'draft', 'assist', 'g1', '--request', g.id], { env: OFFICE });
-    assert.deepEqual([office.status, office.error?.message], [1, 'forge mandate draft assist is for an assistant foreman session (or a person outside the daemon)']);
+    assert.deepEqual([office.status, office.error?.message], [1, "forge mandate draft assist is for a person's own terminal: forge dash's gate runner assists each gate in-process"]);
 
-    await ok(s.dir, ['mandate', 'draft', 'approve', 'g1', '--actor', 'foreman', '--note', 'covers the goal'], ASSISTANT);
+    await foremanDecides(s.dir, 'g1', 'approve', 'covers the goal');
     assert.ok(backlog(s.dir).includes('## Fewer review rounds'));
     const approved = audit(s.dir).find((e) => e.type === 'mandate-draft-approved');
     assert.deepEqual(approved?.actor, { login: null, source: 'foreman' });
@@ -278,8 +289,7 @@ test('a mandate whose decides lacks milestone-approval leaves the draft for a hu
     assert.deepEqual(gateRequests(r.dir, 'g1'), [], 'no gate request');
     assert.equal((await ok(r.dir, ['mandate', 'draft', 'show', 'g1'])).gate.owner, 'human');
     const before = backlog(r.dir);
-    const res = await forgeInProcess(r.dir, ['mandate', 'draft', 'approve', 'g1', '--actor', 'foreman', '--note', 'ok'], { env: ASSISTANT });
-    assert.deepEqual([res.status, res.error?.message], [1, "--actor foreman refused: milestone-approval is not in mandate g1's decides: left for a human"]);
+    await assert.rejects(foremanDecides(r.dir, 'g1', 'approve', 'ok'), { message: "--actor foreman refused: milestone-approval is not in mandate g1's decides: left for a human" });
     assert.equal((await ok(r.dir, ['mandate', 'draft', 'show', 'g1'])).gate.status, 'pending');
     assert.equal(backlog(r.dir), before);
   } finally {

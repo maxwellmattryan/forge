@@ -266,7 +266,7 @@ export function defaults(): Config {
       // stage, the machine dashboard holds one sleep assertion (lib/server/uptime.ts).
       keepAwake: 'auto',
     },
-    // Opt-in: the `_office` daemon session decides gates through forge:assistant sub-agents;
+    // Opt-in: forge dash's gate runner decides parked gates in code, one forge:assistant process per gate;
     // docs/architecture/foreman.md. Whole-phrase, case-insensitive patterns: a match keeps the
     // gate with a human, and a false positive errs that way on purpose.
     foreman: {
@@ -281,8 +281,8 @@ export function defaults(): Config {
       model: 'inherit',
       effort: null,
       cadence: 10,
-      // forge job assist reads model and effort; assistant routing (#537) reads enabled and sessions.
-      assistants: { enabled: true, sessions: 1, model: 'sonnet', effort: null },
+      // The gate runner (lib/office/foreman/run.ts) reads enabled and parallel; assist reads model and effort.
+      assistants: { enabled: true, parallel: 2, model: 'sonnet', effort: null },
       surveyors: { enabled: false, model: 'haiku', effort: null },
       // What `forge mandate new` fills a term it isn't given with. The default decides is intersected
       // with the effective foreman classes there, so it never causes a refusal.

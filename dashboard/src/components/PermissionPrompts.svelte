@@ -6,7 +6,7 @@
 <script lang="ts">
   import Chip from './Chip.svelte';
   import { ago } from '../lib/util.ts';
-  import { INBOX_SCOPE, OFFICE_SCOPE, assistantNumber, isAssistantScope, sharedScope } from '../lib/types.ts';
+  import { INBOX_SCOPE, OFFICE_SCOPE, sharedScope } from '../lib/types.ts';
   import type { DaemonSessionState, PermissionDecision } from '../lib/types.ts';
   import { grantsMore, pendingPrompts, postPermission, promptInput, sessionPrompts } from '../lib/permissions.ts';
   import { S, forgeToken, openDrawer, refresh } from '../lib/app.svelte.ts';
@@ -53,7 +53,6 @@
           {:else if scope === undefined}
             {#if s === INBOX_SCOPE}<span class="text-muted">{$t('permission.inbox')}</span>
             {:else if s === OFFICE_SCOPE}<span class="text-muted">{$t('statusbar.foreman.officeLog')}</span>
-            {:else if isAssistantScope(s)}<span class="text-muted">{$t('statusbar.foreman.assistant', { n: assistantNumber(s), count: Object.keys(S.data?.daemons?.assistants ?? {}).length })}</span>
             {:else if sharedScope(s)}<span class="mono text-muted">{s}</span>
             {:else}<button class="mono text-fg underline decoration-dotted truncate max-w-full" title={s} onclick={() => openDrawer(s, null, 'log')}>{s}</button>{/if}
           {/if}

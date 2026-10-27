@@ -410,7 +410,7 @@ export interface DraftGate {
   /** The stopped filing's error, or null. */
   error: string | null;
   owner: GateOwner;
-  /** The latest gate request for this draft was rejected: an assistant foreman left it for a person. */
+  /** The latest gate request for this draft was rejected: a gate run left it for a person. */
   leftForHuman: boolean;
 }
 

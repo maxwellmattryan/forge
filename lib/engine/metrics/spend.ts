@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { archiveDir, hasLiveJob, readArchived } from '#core/job/archive.ts';
 import { listJobs, parseEventLines } from '#core/job/store.ts';
-import { ASSISTANT_SCOPE_PREFIX, INBOX_SCOPE, OFFICE_SCOPE, chatIdOf, isAssistantScope, isChatScope, validScope } from '#core/job/requests.ts';
+import { GATES_SCOPE, INBOX_SCOPE, LEGACY_ASSISTANT_SCOPE, OFFICE_SCOPE, chatIdOf, isChatScope, validRuntimeScope, validScope } from '#core/job/requests.ts';
 import { paths, stateFile } from '#core/paths.ts';
 import { estimateCost, pricing, resolveModel } from '#integrations/claude/pricing.ts';
 import type { Config, Job, JobEvent, UsageRow } from '#core/types.ts';
@@ -123,17 +123,24 @@ function bucketsOf(events: JobEvent[], config: Config, sinceMs: number | null = 
   return { buckets: out, covered };
 }
 
-/** The ledger role a meter scope's spend is: the inbox, the office, an assistant foreman, a chat, or a job's orchestrator (with every agent it ran). */
+/** Whether a meter scope is a legacy assistant session's (`_assistant-<n>`), metered before gate runs: its past spend stays role `assistant`. */
+const legacyAssistant = (scope: string): boolean => LEGACY_ASSISTANT_SCOPE.test(scope);
+
+/**
+ * The ledger role a meter scope's spend is: the inbox, the office, the gate runs (`assistant`, as a legacy assistant
+ * scope's past spend is too), a chat, or a job's orchestrator (with every agent it ran).
+ */
 const meterRole = (scope: string): string =>
-  scope === INBOX_SCOPE ? 'inbox' : scope === OFFICE_SCOPE ? 'office' : isAssistantScope(scope) ? 'assistant' : isChatScope(scope) ? 'chat' : 'orchestrator';
+  scope === INBOX_SCOPE ? 'inbox' : scope === OFFICE_SCOPE ? 'office' : scope === GATES_SCOPE || legacyAssistant(scope) ? 'assistant' : isChatScope(scope) ? 'chat' : 'orchestrator';
 
 /** A shared session's ledger title, or null for a job's meter. */
 function sessionTitle(scope: string): string | null {
   if (scope === INBOX_SCOPE) return 'Inbox session';
   if (scope === OFFICE_SCOPE) return 'Office session';
+  if (scope === GATES_SCOPE) return 'Foreman gates';
   const chat = chatIdOf(scope);
   if (chat !== null) return `Chat ${chat}`;
-  return isAssistantScope(scope) ? `Assistant foreman ${scope.slice(ASSISTANT_SCOPE_PREFIX.length)}` : null;
+  return legacyAssistant(scope) ? `Assistant foreman ${scope.slice('_assistant-'.length)}` : null;
 }
 
 /**
@@ -186,7 +193,7 @@ function meterPrint(root: string, scope: string): { meterSize: number; meterMtim
 
 /** A scope's metered buckets, or none for a scope that can't name a meter file. */
 function meteredOf(root: string, scope: string, covered: Record<string, SpendBucket>, config: Config, sinceMs: number | null): Record<string, SpendBucket> {
-  return validScope(scope) ? meteredBuckets(readMeter(root, scope), covered, meterRole(scope), config, sinceMs) : {};
+  return validRuntimeScope(scope) ? meteredBuckets(readMeter(root, scope), covered, meterRole(scope), config, sinceMs) : {};
 }
 
 /** Reads a regular file through one descriptor that follows no link and never blocks on a FIFO. */
@@ -326,7 +333,7 @@ export function spendLedger(root: string, config: Config, { write = true, since 
   } catch {}
   for (const e of meters) {
     const scope = e.name.slice(0, -'.jsonl'.length);
-    if (!e.isFile() || !e.name.endsWith('.jsonl') || !validScope(scope) || Object.hasOwn(jobs, scope)) continue;
+    if (!e.isFile() || !e.name.endsWith('.jsonl') || !validRuntimeScope(scope) || Object.hasOwn(jobs, scope)) continue;
     const print = meterPrint(root, scope);
     const prev = Object.hasOwn(old, scope) ? old[scope] : undefined;
     if (sameFile(prev, 'session', 0, 0, print)) {

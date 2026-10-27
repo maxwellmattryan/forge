@@ -125,14 +125,15 @@ test('office commands run only where they may', async () => {
       ['office', 'resume', 'm1', job, '--reason', 'resume it'],
       ['office', 'note', 'm1', '--reason', 'holding'],
     ];
-    for (const scope of ['_inbox', '_assistant-1', job, 'not a scope']) {
+    for (const scope of ['_inbox', job, 'not a scope', '_assistant-1', '_gates']) {
       for (const args of subs) {
         const res = await cli(r.dir, args, { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: scope });
         assert.equal(res.status, 1, `${args.join(' ')} in ${scope}: ${JSON.stringify(res.error)}`);
-        if (scope !== 'not a scope') assert.match(res.error?.message ?? '', new RegExp(`forge office ${args[1]} runs in the office session or a person's own terminal, not the ${scope} session`));
+        // A broken scope (a legacy assistant's or a gate run's too) is refused before the command's own check.
+        if (scope === '_inbox' || scope === job) assert.match(res.error?.message ?? '', new RegExp(`forge office ${args[1]} runs in the office session or a person's own terminal, not the ${scope} session`));
       }
     }
-    for (const scope of ['_office', '_inbox', '_assistant-1', job]) {
+    for (const scope of ['_office', '_inbox', job]) {
       const res = await cli(r.dir, ['office', 'pass'], { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: scope });
       assert.equal(res.status, 1, scope);
       assert.match(res.error?.message ?? '', /forge office pass runs outside daemon sessions \(forge dash runs it\)/);

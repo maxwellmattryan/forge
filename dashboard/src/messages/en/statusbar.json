@@ -57,13 +57,33 @@
         "one": "{count} prompt",
         "other": "{count} prompts"
       },
-      "about": "Supervises the pool: its assistant foremen decide parked gates through assistant sub-agents and hand each job back.",
+      "about": "Supervises the pool: forge dash decides each parked gate in a gate run, one assistant per gate, and hands the job back.",
       "tag": "Foreman",
-      "logLabel": "Session",
       "officeLog": "Foreman",
-      "assistant": {
-        "one": "Assistant",
-        "other": "Assistant {n}"
+      "officeError": "Office session: {error}",
+      "gates": {
+        "title": "Gate runs",
+        "running": "{live} of {parallel} running",
+        "pausedCap": "Paused: {message}",
+        "pausedUntil": "Paused until {clock}",
+        "off": "Gate runs are off (foreman.assistants.enabled: false): parked gates wait for a person.",
+        "empty": "No gate has run yet. A job parked at a gate the Foreman decides starts one.",
+        "openJob": "Open {job}",
+        "tokens": "{tokens} tokens",
+        "spend": "{usd} metered",
+        "outcome": {
+          "approve": "approve",
+          "revise": "revise",
+          "rework": "rework",
+          "noAction": "no action",
+          "escalated": "escalated",
+          "reserved": "reserved",
+          "refused": "refused",
+          "stale": "stale",
+          "requeued": "requeued",
+          "failed": "failed",
+          "running": "Running"
+        }
       },
       "offTitle": "The Foreman is off.",
       "offBody": "Without it, every parked gate (spec approval, escalation, PR feedback) waits for you.",
@@ -250,7 +270,7 @@
   "gate": {
     "foreman": "Foreman deciding",
     "human": "Human-owned",
-    "foremanTitle": "The foreman decides this gate through an assistant sub-agent",
+    "foremanTitle": "The Foreman decides this gate in a gate run",
     "humanTitle": "This gate stays with a human: a reserved topic, or a gate the foreman does not decide",
     "leftForHuman": "Left for a human",
     "leftForHumanTitle": "The Foreman looked at this gate and left it for a person",

@@ -38,7 +38,7 @@ const CLOCK_SKEW_MS = 60_000;
  * after its start, the lease agent start gives, so a phantom can't hold a slot forever.
  */
 export function sessionAgents(root: string, scope: string, ids: readonly string[], at = Date.now()): SessionAgents {
-  // The office's, an assistant's and a chat's scopes are not job ids either, so they never have agents to keep them.
+  // The office's and a chat's scopes are not job ids either, so they never have agents to keep them.
   if (scope === INBOX_SCOPE || !validJobId(scope) || !ids.length) return noAgents();
   let job;
   try {

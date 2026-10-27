@@ -7,7 +7,7 @@
 import { daemonTrust, loadConfig } from '#core/config/load.ts';
 import { refuseBrokenScope, refuseDaemonMerge, refuseInboxDrive } from '#office/owner.ts';
 import { registerNotify } from '#office/notify.ts';
-import { mandateRefusal } from '#office/foreman.ts';
+import { mandateRefusal } from '#office/foreman/policy.ts';
 import { NEED_INIT } from '#core/config/set.ts';
 import { detect } from '#engine/ops/detect.ts';
 import { stopBackground } from '#engine/environment/lifecycle.ts';

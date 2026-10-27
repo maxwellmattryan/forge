@@ -475,7 +475,7 @@ export interface JobEvent {
   configHash?: string | null;
   [key: string]: unknown;
 }
-/** A Foreman hand-off still standing at the job's current park: foremanHandoff in lib/office/foreman.ts. */
+/** A Foreman hand-off still standing at the job's current park: foremanHandoff in lib/office/foreman/policy.ts. */
 export interface ForemanHandoff {
   gate: GateClass;
   class: HandoffClass;
@@ -487,7 +487,7 @@ export interface EventActor {
   login: string | null;
   source: ActorSource;
 }
-/** Who owns a waiting job's gate: gateOwner in lib/office/foreman.ts; null when the job waits on nothing. */
+/** Who owns a waiting job's gate: gateOwner in lib/office/foreman/policy.ts; null when the job waits on nothing. */
 export type GateOwner = 'foreman' | 'human' | null;
 
 /** A per-run config overlay: dotted config keys to typed values, parseOverlay in lib/engine/evals/overlay.ts. */

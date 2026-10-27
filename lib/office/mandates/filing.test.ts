@@ -9,7 +9,7 @@ import path from 'node:path';
 import { MILESTONE_DRAFT, draftJson, fakeGh, forgeInProcess, initMilestoneRepo, readyGoal, repoTemplate, seedBacklog } from '../../../test/helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
 import { ForgeError } from '#core/errors.ts';
-import { claimRequest, enqueue } from '#core/job/requests.ts';
+import { claimRequest, enqueue, issueForemanAuthority } from '#core/job/requests.ts';
 import { withLockAsync } from '#core/os/lock.ts';
 import { paths } from '#core/paths.ts';
 import local from '#integrations/backlog/tracker.ts';
@@ -244,14 +244,15 @@ test("a foreman's stopped filing carries no tracker text", async () => {
     seedBacklog(r.dir);
     const d = await readyGoal(r.dir, 'g1', ['--decides', 'milestone-approval']);
     const gate = enqueue(r.dir, null, { type: 'gate', job: null, args: { gate: 'milestone-approval', mandate: 'g1', key: d.request, digest: d.digest, reserved: null }, from: 'forge' });
-    claimRequest(r.dir, gate.id, 'assistant-1');
+    claimRequest(r.dir, gate.id, 'gate-run:a');
     const { config } = loadConfig(r.dir);
     // A tracker error that echoes the drafter's milestone title, as the backlog's own does.
     const failing = counting(() => {
       throw new ForgeError(`no milestone "${MILESTONE_DRAFT.milestone.title}" in backlog.md`, 1);
     });
-    const env = { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_assistant-1' };
-    await assert.rejects(decideDraft(r.dir, config, 'g1', 'approve', { note: 'covers the goal', foreman: true, actor: FOREMAN_ACTOR, tracker: async () => failing.tracker, env }), (e: unknown) => {
+    // As the gate runner decides it: in-process, with its authority.
+    const by = issueForemanAuthority();
+    await assert.rejects(decideDraft(r.dir, config, 'g1', 'approve', { note: 'covers the goal', foreman: true, actor: FOREMAN_ACTOR, tracker: async () => failing.tracker, env: {}, by }), (e: unknown) => {
       assert.ok(e instanceof ForgeError);
       assert.equal(e.message, 'filing stopped at issues[0] (its error is in filing.json, for a person); run forge mandate draft approve g1 again to finish');
       return true;

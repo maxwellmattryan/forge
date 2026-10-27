@@ -194,5 +194,5 @@ test('chat scopes match the engine', () => {
   for (const bad of ['', 'ABCDEF012345', '0123456789a', '../x']) assert.throws(() => chatScope(bad), /no chat/, bad);
   assert.ok(sharedScope('_chat-0123456789ab'));
   assert.ok(!sharedScope('_chat-nope'));
-  assert.ok(sharedScope('_inbox') && sharedScope('_assistant-2') && !sharedScope('some-job'));
+  assert.ok(sharedScope('_inbox') && sharedScope('_office') && !sharedScope('_assistant-2') && !sharedScope('some-job'));
 });

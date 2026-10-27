@@ -237,8 +237,9 @@ export function scopedTools(allowedTools: readonly string[], writeRoots: readonl
  * Any --max-budget-usd in the template is dropped; `maxBudgetUsd`, when a number, becomes the one
  * claude reads. A `model` (the office session's foreman.model) replaces every --model the template
  * has. `appendSystemPrompt`, when a string, follows as `--append-system-prompt <text>`: only a chat
- * session's spawn passes it, and only the fixed CHAT_PROMPT (lib/office/session/launch.ts). DENY_TOOLS, then
- * `deny`, and PROMPT_TOOL always follow the template.
+ * session's spawn passes it, and only the fixed CHAT_PROMPT (lib/office/session/launch.ts). `agent`, when set,
+ * appends `--agent forge:assistant`, the one agent a gate run (lib/office/foreman/attempt.ts) starts as; it is a
+ * fixed value, never config text. DENY_TOOLS, then `deny`, and PROMPT_TOOL always follow the template.
  */
 export function buildArgv(
   template: string,
@@ -253,6 +254,7 @@ export function buildArgv(
     deny?: string[];
     maxBudgetUsd?: number | null;
     appendSystemPrompt?: string | null;
+    agent?: 'forge:assistant' | null;
   },
 ): string[] {
   const tools = scopedTools(vars.allowedTools ?? [], vars.writeRoots ?? []);
@@ -269,6 +271,7 @@ export function buildArgv(
   argv = withoutBudgetCap(argv);
   if (typeof vars.maxBudgetUsd === 'number' && Number.isFinite(vars.maxBudgetUsd)) argv.push('--max-budget-usd', capArg(vars.maxBudgetUsd));
   if (typeof vars.appendSystemPrompt === 'string') argv.push('--append-system-prompt', vars.appendSystemPrompt);
+  if (vars.agent === 'forge:assistant') argv.push('--agent', 'forge:assistant');
   return [...argv, '--disallowedTools', [...DENY_TOOLS, ...(vars.deny ?? [])].join(','), ...PROMPT_TOOL];
 }
 

@@ -15,16 +15,18 @@ import { execFileSync } from 'node:child_process';
 import { BIN, FAKE_SCRIPT, SCRIPT_RELEASE, forgeInProcess, jobAt, repoTemplate, scriptCalls, setReleaseBlock } from '../../helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
 import * as yaml from '#core/format/yaml.ts';
-import { claimRequest, listRequests } from '#core/job/requests.ts';
+import { claimRequest, issueForemanAuthority, listRequests } from '#core/job/requests.ts';
 import { readPlanFile, readState, releaseFiles } from '#engine/release/files.ts';
 import { RELEASE_FILE_VERSION, freshPlan } from '#engine/release/plan.ts';
+import { approveMandateRelease } from '#engine/release/mandate.ts';
 import { runRelease } from '#engine/release/run.ts';
-import { mandateReleaseRefusal, releaseMandateRefusal } from '#office/foreman.ts';
+import { mandateReleaseRefusal, releaseMandateRefusal } from '#office/foreman/policy.ts';
 import { readSummary, runOfficePass } from '#office/mandates/pass.ts';
 import type { QueueNotify } from '#office/notify.ts';
 import type { Config, Job } from '#core/types.ts';
 
-const ASSISTANT: NodeJS.ProcessEnv = { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_assistant-1' };
+/** The approval forge dash's gate runner records for the Foreman, with its authority: no `forge` command can. */
+const approve = (root: string): string => approveMandateRelease(root, loadConfig(root).config, 'm1', 'the plan releases what m1 merged', (id) => mandateReleaseRefusal(root, loadConfig(root).config, id), issueForemanAuthority());
 const COMMAND = 'git tag v0.2.0 && git push -q origin HEAD:refs/heads/main refs/tags/v0.2.0';
 
 /** Edits .forge/config.yml as a person would. */
@@ -148,16 +150,15 @@ test('a mandate until released plans its release, waits for approval and closes'
   const show = await ok(r.dir, ['mandate', 'show', 'm1']);
   assert.deepEqual([show.release.status, show.release.plan, show.release.tag, show.release.owner], ['pending', h12, 'v0.1.0', 'foreman']);
 
-  // An assistant foreman takes the request: the brief, then the approval, which starts nothing.
+  // A gate run takes the request: the brief (which a person may read too), then the approval, which starts nothing.
   claimRequest(r.dir, gates[0].id, 'sess-a');
-  const assist = await ok(r.dir, ['mandate', 'release', 'assist', 'm1', '--request', gates[0].id], ASSISTANT);
+  const assist = await ok(r.dir, ['mandate', 'release', 'assist', 'm1', '--request', gates[0].id]);
   assert.deepEqual([assist.stale, assist.reserved, assist.gate, assist.subagent], [false, null, 'release', 'forge:assistant']);
   const brief = (assist.brief as string).split('\n');
   assert.ok(brief.includes('Gate: release'), assist.brief);
   assert.ok(brief.some((l) => l.startsWith('Release plan: ') && l.endsWith(`(plan ${h12})`)), assist.brief);
   assert.ok(brief.includes(`Mandate jobs (JSON): ${JSON.stringify([{ job, pr: null, repos: ['(root)'] }])}`), assist.brief);
-  const approved = await ok(r.dir, ['mandate', 'release', 'approve', 'm1', '--actor', 'foreman', '--note', 'the plan releases what m1 merged'], ASSISTANT);
-  assert.deepEqual(approved, { ok: true, mandate: 'm1', release: { plan: h12, actor: 'foreman' } });
+  assert.equal(approve(r.dir), hash);
   assert.ok(!fs.existsSync(files.state), 'the approval writes no state.json');
   const status = await ok(r.dir, ['release', 'status']);
   assert.deepEqual([status.approval.owner, status.approval.status, status.approval.actor], ['foreman', 'approved', 'foreman']);
@@ -188,7 +189,7 @@ test('a merge after the approval makes the plan stale, and the approval stops co
   await pass(r.dir, config);
   const [gate] = releaseGates(r.dir);
   claimRequest(r.dir, gate.id, 'sess-a');
-  await ok(r.dir, ['mandate', 'release', 'approve', 'm1', '--actor', 'foreman', '--note', 'the plan releases what m1 merged'], ASSISTANT);
+  approve(r.dir);
   assert.equal((await ok(r.dir, ['release', 'status'])).approval.status, 'approved');
 
   // Another commit merges into main after the approval: the planned HEAD moved, so the plan is stale.

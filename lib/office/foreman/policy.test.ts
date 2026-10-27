@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { BIN, MILESTONE_DRAFT, forgeInProcess, initMilestoneRepo, parkedAt, readyGoal, repoTemplate } from '../../test/helpers.ts';
+import { BIN, MILESTONE_DRAFT, forgeInProcess, initMilestoneRepo, parkedAt, readyGoal, repoTemplate, withRound } from '../../../test/helpers.ts';
 import { defaults, loadConfig } from '#core/config/load.ts';
 import { validateConfig } from '#core/config/validate.ts';
 import * as yaml from '#core/format/yaml.ts';
@@ -19,12 +19,17 @@ import { foremanReleaseApproval, releaseApprovalStatus } from '#engine/release/a
 import { releaseFiles } from '#engine/release/files.ts';
 import { approveMandateRelease, planMandateRelease } from '#engine/release/mandate.ts';
 import { planHash } from '#engine/release/plan.ts';
-import { draftReservedTexts } from './mandates/gate.ts';
-import { OFFICE_GATES, checkForemanDecision, checkMandateGateDecision, gateOwner, mandateReleaseRefusal, releaseMandateRefusal } from './foreman.ts';
-import type { DraftUnderDecision } from './foreman.ts';
+import { draftReservedTexts } from '../mandates/gate.ts';
+import { OFFICE_GATES, checkForemanDecision, checkMandateGateDecision, gateOwner, mandateReleaseRefusal, releaseMandateRefusal } from './policy.ts';
+import { gateAssist, recordForemanDecision } from './decide.ts';
+import { checkReleaseDecision } from '#engine/release/approval.ts';
+import { issueForemanAuthority } from '#core/job/requests.ts';
+import type { DraftUnderDecision } from './policy.ts';
 import type { ForgeRequest, Job } from '#core/types.ts';
 
-const OFFICE: NodeJS.ProcessEnv = { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_assistant-1' };
+/** The gate runner's authority: every decision here is judged as one of its runs would be. */
+const BY = issueForemanAuthority();
+const OFFICE: NodeJS.ProcessEnv = { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_office' };
 
 const scratch = repoTemplate((dir) => {
   const answers = path.join(dir, '.answers.json');
@@ -105,7 +110,7 @@ test('a mandate narrows foreman.decides', async () => {
   try {
     ROWS.forEach((row, i) => {
       const job = loadJob(r.dir, r.jobs[i]);
-      const decide = () => checkForemanDecision(r.dir, r.config, job, 'approve-spec', 'the spec is ready', {}, OFFICE);
+      const decide = () => checkForemanDecision(r.dir, r.config, job, 'approve-spec', 'the spec is ready', {}, BY);
       if (row.refused) assert.throws(decide, row.refused('spec-approval'), row.name);
       else assert.equal(decide(), 'spec-approval', row.name);
     });
@@ -120,9 +125,12 @@ test('a mandate narrows approve-release too', async () => {
   const r = await arrange();
   try {
     for (const [i, row] of ROWS.entries()) {
-      const res = await forgeInProcess(r.dir, ['job', 'human', r.jobs[i], 'approve-release', '--actor', 'foreman', '--note', 'the plan is fine'], { env: OFFICE });
-      assert.equal(res.status, 1, row.name);
-      assert.match(res.error?.message ?? '', row.refused ? row.refused('release') : /--actor foreman refused: no release plan; a human runs forge release plan --job first/, row.name);
+      const job = loadJob(r.dir, r.jobs[i]);
+      assert.throws(
+        () => recordForemanDecision(r.dir, r.config, job, 'approve-release', 'the plan is fine', {}, BY),
+        row.refused ? row.refused('release') : /--actor foreman refused: no release plan; a human runs forge release plan --job first/,
+        row.name,
+      );
       assert.ok(!readEvents(r.dir, r.jobs[i]).some((e) => e.type === 'release-approval'), `${row.name}: nothing recorded`);
     }
   } finally {
@@ -173,9 +181,7 @@ test('a foreman release approval stops counting once its mandate narrows', async
     await cli(r.dir, ['mandate', 'new', 'resting', '--title', 'resting', '--milestones', 'M1', '--decides', 'release']);
     await cli(r.dir, ['mandate', 'pause', 'resting']);
     const job = parkedAt(r.dir, 'spec-approval', { title: 'paused release', create: { mandate: 'resting' } }).id;
-    const res = await forgeInProcess(r.dir, ['job', 'human', job, 'approve-release', '--actor', 'foreman', '--note', 'ok'], { env: OFFICE });
-    assert.equal(res.status, 1);
-    assert.match(res.error?.message ?? '', /--actor foreman refused: mandate resting is paused: release left for a human/);
+    assert.throws(() => recordForemanDecision(r.dir, config, loadJob(r.dir, job), 'approve-release', 'ok', {}, BY), /--actor foreman refused: mandate resting is paused: release left for a human/);
     assert.ok(!readEvents(r.dir, job).some((e) => e.type === 'release-approval'), 'nothing recorded');
   } finally {
     r.cleanup();
@@ -199,8 +205,8 @@ test('a job back at its gate stall.bounces times is left for a human', async () 
       setJob(r.dir, id, { state: 'running' });
       setJob(r.dir, id, { state: 'waiting', waitingOn: 'escalation' });
     };
-    const decide = () => checkForemanDecision(r.dir, config, loadJob(r.dir, id), 'approve', 'the decision is sound', {}, OFFICE);
-    const assist = async () => (await forgeInProcess(r.dir, ['job', 'assist', id, '--gate', 'escalation'], { env: OFFICE })) as { data: { reserved: string | null } | null };
+    const decide = () => checkForemanDecision(r.dir, config, loadJob(r.dir, id), 'approve', 'the decision is sound', {}, BY);
+    const assist = async () => ({ data: gateAssist(r.dir, config, loadJob(r.dir, id), 'escalation') });
     repark();
     assert.equal(decide(), 'escalation', 'the second park is still the foreman’s');
     // A reason change while waiting is no new entry.
@@ -271,7 +277,7 @@ test('a foreman decision on a milestone draft', async () => {
       name: string;
       action?: string;
       note?: string | null;
-      env?: NodeJS.ProcessEnv;
+      by?: unknown;
       config?: typeof config;
       mandate?: string;
       draft?: Partial<DraftUnderDecision>;
@@ -279,12 +285,12 @@ test('a foreman decision on a milestone draft', async () => {
       refused: RegExp | null;
     }
     const refused = (why: string) => new RegExp(`--actor foreman refused: ${why}$`);
-    const SCOPE = refused('only an assistant foreman session records foreman decisions');
+    const SCOPE = refused("only the Foreman's gate runner in forge dash records foreman decisions");
     const rows: DecisionRow[] = [
-      { name: 'the inbox', env: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_inbox' }, refused: SCOPE },
-      { name: 'the office', env: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_office' }, refused: SCOPE },
-      { name: 'a job scope', env: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: 'some-job' }, refused: SCOPE },
-      { name: 'no daemon scope', env: {}, refused: SCOPE },
+      { name: 'no authority', by: null, refused: SCOPE },
+      { name: 'a lookalike object', by: {}, refused: SCOPE },
+      { name: "a legacy assistant foreman's env", by: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_assistant-1' }, refused: SCOPE },
+      { name: 'the office env', by: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_office' }, refused: SCOPE },
       { name: 'no note', note: '  ', refused: refused('a foreman decision needs --note with its reason') },
       { name: 'foreman.enabled false', config: off((c) => (c.foreman.enabled = false)), refused: refused('foreman\\.enabled is false') },
       { name: 'the class not in foreman.decides', config: off((c) => (c.foreman.decides = ['spec-approval'])), refused: refused('milestone-approval is not in foreman\\.decides') },
@@ -310,7 +316,7 @@ test('a foreman decision on a milestone draft', async () => {
           { ...draft, ...row.draft },
           row.action ?? 'approve',
           row.note === undefined ? 'covers the goal' : row.note,
-          row.env ?? OFFICE,
+          'by' in row ? row.by : BY,
           row.requests ?? [gate()],
         );
       if (row.refused) assert.throws(decide, row.refused, row.name);
@@ -380,12 +386,12 @@ test("a foreman decision on a mandate's release", async () => {
     };
     // assert.throws matches a RegExp against `${name}: ${message}`, so these anchor only at the end.
     const refused = (why: string) => new RegExp(`--actor foreman refused: ${why}$`);
-    const SCOPE = refused('only an assistant foreman session records foreman decisions');
+    const SCOPE = refused("only the Foreman's gate runner in forge dash records foreman decisions");
     interface Row {
       name: string;
       id?: string;
       note?: string | null;
-      env?: NodeJS.ProcessEnv;
+      by?: unknown;
       config?: typeof config;
       /** Changes the repo for this row; the returned function puts it back. */
       arrange?: () => () => void;
@@ -398,10 +404,10 @@ test("a foreman decision on a mandate's release", async () => {
       return () => fs.writeFileSync(files.json, json);
     };
     const rows: Row[] = [
-      { name: 'the inbox', env: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_inbox' }, refused: SCOPE },
-      { name: 'the office', env: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_office' }, refused: SCOPE },
-      { name: 'a job scope', env: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: 'some-job' }, refused: SCOPE },
-      { name: 'no daemon scope', env: {}, refused: SCOPE },
+      { name: 'no authority', by: null, refused: SCOPE },
+      { name: 'a lookalike object', by: {}, refused: SCOPE },
+      { name: "a legacy assistant foreman's env", by: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_assistant-1' }, refused: SCOPE },
+      { name: 'the office env', by: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_office' }, refused: SCOPE },
       { name: 'no note', note: '  ', refused: refused('a foreman decision needs --note with its reason') },
       { name: 'foreman.enabled false', config: off((c) => (c.foreman.enabled = false)), refused: refused('foreman\\.enabled is false') },
       { name: 'release not in foreman.decides', config: off((c) => (c.foreman.decides = ['spec-approval'])), refused: refused('release is not in foreman\\.decides') },
@@ -453,7 +459,7 @@ test("a foreman decision on a mandate's release", async () => {
       const before = approvals().length;
       const undo = row.arrange?.();
       const c = row.config ?? config;
-      const decide = () => approveMandateRelease(r.dir, c, row.id ?? 'm1', row.note === undefined ? 'the plan is fine' : row.note, narrowFor(c), row.env ?? OFFICE);
+      const decide = () => approveMandateRelease(r.dir, c, row.id ?? 'm1', row.note === undefined ? 'the plan is fine' : row.note, narrowFor(c), row.by === undefined ? BY : row.by);
       try {
         if (row.refused) {
           assert.throws(decide, row.refused, row.name);
@@ -472,6 +478,8 @@ test("a foreman decision on a mandate's release", async () => {
       ['approve without --actor foreman', ['mandate', 'release', 'approve', 'm1', '--note', 'ok'], OFFICE, /^approve is the foreman's \(--actor foreman\)/],
       ['approve without --actor foreman, outside the daemon', ['mandate', 'release', 'approve', 'm1', '--note', 'ok'], {}, /^approve is the foreman's \(--actor foreman\)/],
       ['approve from the office', ['mandate', 'release', 'approve', 'm1', '--actor', 'foreman', '--note', 'ok'], { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_office' }, SCOPE],
+      ['approve outside the daemon', ['mandate', 'release', 'approve', 'm1', '--actor', 'foreman', '--note', 'ok'], {}, SCOPE],
+      ['assist in a daemon session', ['mandate', 'release', 'assist', 'm1', '--request', planned.approval.request!], OFFICE, /^forge mandate release assist is for a person's own terminal/],
       ['release plan --mandate in a daemon session', ['release', 'plan', '--mandate', 'm1'], OFFICE, /^forge release plan --mandate re-plans a mandate's release/],
       ['release plan --mandate in a job session', ['release', 'plan', '--mandate', 'm1'], { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: 'some-job' }, /^forge release plan --mandate re-plans/],
       ['release run in a daemon session', ['release', 'run'], OFFICE, /^forge release run runs release and publish commands, which a daemon session may not do/],
@@ -554,6 +562,51 @@ test("gateOwner follows the job's mandate", async () => {
     ROWS.forEach((row, i) => {
       assert.equal(gateOwner(r.dir, r.config, loadJob(r.dir, r.jobs[i]), []), row.refused ? 'human' : 'foreman', row.name);
     });
+  } finally {
+    r.cleanup();
+  }
+});
+
+const policy = repoTemplate((dir) => {
+  const answers = path.join(dir, '.answers.json');
+  fs.writeFileSync(answers, JSON.stringify({ foreman: { enabled: true, decides: ['spec-approval', 'escalation', 'rounds-exhausted', 'pr-feedback', 'release'], reserved: ['payments'] } }));
+  execFileSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, env: { ...process.env, FORGE_ROOT: dir }, stdio: 'pipe' });
+  fs.rmSync(answers);
+});
+
+// The gate runner's authority passes only the authority check: every policy check still refuses with its own message.
+test("with the runner's authority, the policy checks still refuse", () => {
+  const r = policy();
+  try {
+    const config = loadConfig(r.dir).config;
+    // assert.throws matches a RegExp against String(error), its name first, so these are unanchored.
+    const refused = (why: string) => new RegExp(`--actor foreman refused: ${why.replace(/[()]/g, '\\$&')}`);
+    const spec = parkedAt(r.dir, 'spec-approval').id;
+    const insecure = withRound(r.dir, parkedAt(r.dir, 'escalation').id, 1, { code: 'PASS', security: 'CHANGES' }).id;
+    const ceiling = parkedAt(r.dir, 'rounds-exhausted', { fields: { round: 50 } }).id;
+    const head = 'a'.repeat(40);
+    const pr = parkedAt(r.dir, 'pr-review', { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', headOid: head } }).id;
+    enqueue(r.dir, config, { type: 'gate', job: pr, args: { gate: 'pr-feedback', key: 'b'.repeat(40), reserved: null }, from: 'forge' });
+    const rows: [string, string, string, string, RegExp | null][] = [
+      ['a reserved pattern in the note', spec, 'approve-spec', 'the payments flow is fine', refused('reserved (payments): left for a human')],
+      ['an approve past a security review of CHANGES', insecure, 'approve', 'ship it', refused('reserved ((security review: CHANGES)): left for a human')],
+      ['a rework past it', insecure, 'rework', 'fix the finding', null],
+      ['a park past the total-round ceiling', ceiling, 'rework', 'one more round', refused('reserved ((total-round ceiling: only a human clears it)): left for a human')],
+      ['pr-feedback with no gate request for the current head', pr, 'rework', 'address the threads', refused(`no queued pr-feedback gate request for ${pr}'s current PR head`)],
+      ['an action not of the gate', spec, 'rework', 'fix it', refused('rework is not a spec-approval action (approve-spec, revise-spec)')],
+    ];
+    for (const [name, job, action, note, want] of rows) {
+      const decide = () => checkForemanDecision(r.dir, config, loadJob(r.dir, job), action, note, {}, BY);
+      if (want) assert.throws(decide, want, name);
+      else assert.doesNotThrow(decide, name);
+    }
+    // Without the authority, every check refuses first, whatever else holds.
+    const AUTHORITY = /--actor foreman refused: only the Foreman's gate runner in forge dash records foreman decisions$/;
+    for (const by of [null, {}, { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_assistant-1' }]) {
+      assert.throws(() => checkForemanDecision(r.dir, config, loadJob(r.dir, spec), 'approve-spec', 'fine', {}, by), AUTHORITY, `job: ${JSON.stringify(by)}`);
+      assert.throws(() => checkReleaseDecision(r.dir, config, spec, 'fine', {}, () => null, by), AUTHORITY, `release: ${JSON.stringify(by)}`);
+      assert.throws(() => checkMandateGateDecision(r.dir, config, { id: 'g1' }, { request: '1-a', digest: 'd'.repeat(64), gate: 'pending', texts: [] }, 'approve', 'fine', by, []), AUTHORITY, `mandate: ${JSON.stringify(by)}`);
+    }
   } finally {
     r.cleanup();
   }

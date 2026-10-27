@@ -157,6 +157,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v40 adds foreman.ship release (and foreman.mandate.until released), so no v39 config changes; the
   // bump lets older Forges refuse a config whose ship or until they would reject.
   { id: 'foreman-ship-release', up: (c) => c },
+  // v41: forge dash's gate runner replaces the assistant foreman sessions, so foreman.assistants.sessions (how many
+  // sessions) becomes foreman.assistants.parallel (how many gate runs at once), unless parallel is already written.
+  { id: 'foreman-gate-runs', up: foremanGateRuns },
 ];
 
 const isPlainMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -184,6 +187,14 @@ function foremanOffice(c: any): any {
     runtime.efforts = rest;
   }
   return { ...c, runtime, foreman: { ...(c.foreman ?? {}), assistants: { ...moved, ...assistants } } };
+}
+
+/** foreman.assistants.sessions → parallel, a written parallel winning; a foreman or assistants that is not a map is left for validation. */
+function foremanGateRuns(c: any): any {
+  if (!isPlainMap(c?.foreman) || !isPlainMap(c.foreman.assistants) || !Object.hasOwn(c.foreman.assistants, 'sessions')) return c;
+  const { sessions, ...rest } = c.foreman.assistants;
+  const assistants = Object.hasOwn(rest, 'parallel') ? rest : { ...rest, parallel: sessions };
+  return { ...c, foreman: { ...c.foreman, assistants } };
 }
 
 export const CONFIG_SCHEMA_VERSION = versionOf(CONFIG_STEPS);

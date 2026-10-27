@@ -7,7 +7,7 @@ import { bumpFrom, selectionFrom } from '#engine/release/plan.ts';
 import { writeReleasePlan } from '#engine/release/files.ts';
 import { dryRunRelease } from '#engine/release/dry-run.ts';
 import { latestMandatePlan, otherReleasePlan, planMandateRelease } from '#engine/release/mandate.ts';
-import { mandateReleaseRefusal, releaseMandateRefusal } from '#office/foreman.ts';
+import { mandateReleaseRefusal, releaseMandateRefusal } from '#office/foreman/policy.ts';
 import { effectiveContract, isReadable } from '#office/mandates/contract.ts';
 import { readMandate } from '#office/mandates/store.ts';
 import { currentActor } from '#integrations/github/actor.ts';

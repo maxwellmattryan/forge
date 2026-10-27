@@ -24,7 +24,7 @@ import { moveJob } from '#engine/pipeline/moves/apply.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { mandateReleaseRun, mandateReleaseState, planMandateRelease } from '#engine/release/mandate.ts';
 import type { MandateReleaseNarrow, MandateReleaseView } from '#engine/release/mandate.ts';
-import { mandateReleaseRefusal } from '../foreman.ts';
+import { mandateReleaseRefusal } from '../foreman/policy.ts';
 import { queueNotify } from '../notify.ts';
 import type { QueueNotify } from '../notify.ts';
 import { cleanReason, isReadable } from './contract.ts';

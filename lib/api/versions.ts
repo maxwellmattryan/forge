@@ -55,7 +55,7 @@ export const API_CHANGES = [
   { id: 'job-mandate' },
   // RequestType 'draft': a goal mandate's drafting run, written only by forge mandate, routed to the office session.
   { id: 'draft-request' },
-  // DaemonPoolState.assistants; Stats.cost.sessions.assistant; gate requests route to _assistants.
+  // DaemonPoolState.assistants; Stats.cost.sessions.assistant; gate requests route to the assistant sessions' request group.
   { id: 'assistant-foremen' },
   // Stats.quality.verifierFirstRoundBlockRate: the share of jobs whose first round-1 verifiers record blocked.
   { id: 'verifier-first-round-block-rate' },
@@ -84,6 +84,9 @@ export const API_CHANGES = [
   { id: 'shelve' },
   // MandateUntil 'released'; DirectiveAction 'release'; a job-less `release` gate request naming a mandate.
   { id: 'mandate-until-released' },
+  // DaemonPoolState.gates (GateRunsState, GateRunState): forge dash's gate runner and its runs; gate requests route to
+  // `_gates`, which no session serves; DaemonPoolState.assistants is gone.
+  { id: 'gate-runs' },
 ] as const;
 
 /**

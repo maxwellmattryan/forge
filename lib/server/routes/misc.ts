@@ -21,7 +21,7 @@ import { jobBudgetOf } from '#engine/metrics/budget.ts';
 import { billingOf } from '#integrations/claude/argv.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from '#engine/evals/run.ts';
 import { listRequests, validJobId } from '#core/job/requests.ts';
-import { foremanHandoff, gateOwner } from '#office/foreman.ts';
+import { foremanHandoff, gateOwner } from '#office/foreman/policy.ts';
 import { draftGates } from '#office/mandates/gate.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { roster } from '#engine/pipeline/roster.ts';

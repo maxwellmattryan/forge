@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ForgeError } from '#core/errors.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE } from '#core/job/requests.ts';
-import { ASSISTANT_REFUSAL, OFFICE_REFUSAL, inInboxOrOffice, refuseBrokenScope, refuseDaemonMerge, refuseInOffice, refuseInboxDrive, refuseInboxOrOffice } from './owner.ts';
+import { OFFICE_REFUSAL, inInboxOrOffice, refuseBrokenScope, refuseDaemonMerge, refuseInOffice, refuseInboxDrive, refuseInboxOrOffice } from './owner.ts';
 
 const daemon = (scope: string | undefined): NodeJS.ProcessEnv => ({ FORGE_DAEMON: '1', ...(scope === undefined ? {} : { FORGE_DAEMON_SCOPE: scope }) });
 const refusal = (fn: () => void): string | null => {
@@ -25,9 +25,8 @@ test('daemon merge refusals', () => {
     ["another job's id", 'j2', {}, daemon('j1'), /a daemon session merges only its own job \(j1\), not j2/],
     ['the inbox scope', 'j1', {}, daemon(INBOX_SCOPE), new RegExp(`merges only its own job \\(${INBOX_SCOPE}\\), not j1`)],
     ['the office', 'j1', {}, daemon(OFFICE_SCOPE), new RegExp(OFFICE_REFUSAL)],
-    ['an assistant foreman', 'j1', {}, daemon('_assistant-1'), new RegExp(ASSISTANT_REFUSAL)],
-    ['an assistant foreman with --now', 'j1', { now: true }, daemon('_assistant-1'), new RegExp(ASSISTANT_REFUSAL)],
-    ['an assistant foreman naming its own scope', '_assistant-1', {}, daemon('_assistant-1'), new RegExp(ASSISTANT_REFUSAL)],
+    ['a legacy assistant scope', 'j1', {}, daemon('_assistant-1'), /FORGE_DAEMON_SCOPE is missing or invalid/],
+    ["a gate run's scope", 'j1', {}, daemon('_gates'), /a gate run's assistant runs no forge commands/],
     ['a missing FORGE_DAEMON_SCOPE', 'j1', {}, daemon(undefined), /FORGE_DAEMON_SCOPE is missing or invalid/],
     ['an invalid FORGE_DAEMON_SCOPE', 'j1', {}, daemon('../x'), /FORGE_DAEMON_SCOPE is missing or invalid/],
     ['its own id without --now', 'j1', {}, daemon('j1'), null],
@@ -49,9 +48,8 @@ test('refuseBrokenScope refuses a daemon session whose scope is missing or inval
     ['an invalid scope', daemon('../x'), BROKEN],
     ['a job scope', daemon('j1'), null],
     ['the office', daemon(OFFICE_SCOPE), null],
-    ['an assistant foreman', daemon('_assistant-1'), null],
-    ['a forged assistant scope', daemon('_assistant-01'), BROKEN],
-    ['the gate group', daemon('_assistants'), BROKEN],
+    ['a legacy assistant scope', daemon('_assistant-1'), BROKEN],
+    ["a gate run's scope", daemon('_gates'), /forge refuses: a gate run's assistant runs no forge commands/],
     ['outside a daemon', { FORGE_DAEMON_SCOPE: '' }, null],
   ];
   for (const [name, env, want] of rows) {
@@ -66,12 +64,10 @@ test('refuseInOffice refuses an invalid scope', () => {
   assert.match(refusal(() => refuseInOffice('hint', daemon(OFFICE_SCOPE))) ?? '', new RegExp(`${OFFICE_REFUSAL}; hint`));
   assert.equal(refusal(() => refuseInOffice('hint', daemon('j1'))), null);
   assert.equal(refusal(() => refuseInOffice('hint', {})), null);
-  // An assistant foreman: every refusal the office gets, with its own reason.
-  const assistant = daemon('_assistant-1');
-  assert.match(refusal(() => refuseInOffice('hint', assistant)) ?? '', new RegExp(`${ASSISTANT_REFUSAL}; hint`));
-  assert.match(refusal(() => refuseInboxDrive('j1', assistant)) ?? '', new RegExp(ASSISTANT_REFUSAL));
-  assert.match(refusal(() => refuseInboxOrOffice('hint', assistant)) ?? '', new RegExp(ASSISTANT_REFUSAL));
-  assert.equal(inInboxOrOffice(assistant), true);
+  // A gate run's scope: refused as a broken scope by every check, before any other.
+  const gates = daemon('_gates');
+  for (const fn of [() => refuseInOffice('hint', gates), () => refuseInboxDrive('j1', gates), () => refuseInboxOrOffice('hint', gates)])
+    assert.match(refusal(fn) ?? '', /a gate run's assistant runs no forge commands/);
   // A chat may drive a job when the owner asks: none of these refuse it, so forge job set tears an environment down there.
   const chat = daemon('_chat-0123456789ab');
   assert.equal(refusal(() => refuseInboxDrive('j1', chat)), null);

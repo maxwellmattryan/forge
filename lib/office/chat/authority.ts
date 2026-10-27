@@ -7,7 +7,7 @@
 import { readEvents } from '#core/job/store.ts';
 import { classReservation, gateClassFor, reservedFor, securityHold } from '#engine/pipeline/moves/foreman-gates.ts';
 import type { Config, Job, JobEvent } from '#core/types.ts';
-import { SET_AFTER } from '../foreman.ts';
+import { SET_AFTER } from '../foreman/policy.ts';
 
 /**
  * The refusal for a chat deciding `job`'s current gate with `action`, or null when the job waits on no gate

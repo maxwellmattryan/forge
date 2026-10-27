@@ -1,8 +1,8 @@
 <!-- The Foreman page's Office panel, top to bottom: the office session (the Foreman-off note, or its permission prompts and
      SessionLog), the mandates (New mandate and the editor, the open ones, unreadable ones as one line each, then the
-     closed ones folded), the assistant foremen with their current gates (only while the Foreman is on), and the latest
+     closed ones folded), the gate runs (only while the Foreman is on), and the latest
      directives, newest first. Mandates come from GET /api/mandates (S.mandates: on open, on the 15 s view poll and after
-     each write); the assistants, gates and the office log read the /api/state poll and the session stream. Mandate,
+     each write); the gate runs, pending gates and the office log read the /api/state poll and the session stream. Mandate,
      directive and request strings are owner, session or tracker text and render only as Svelte text. -->
 <script lang="ts">
   import { tick } from 'svelte';
@@ -15,10 +15,11 @@
   import SessionLog from './SessionLog.svelte';
   import ForemanDirectivesSkeleton from './skeletons/ForemanDirectivesSkeleton.svelte';
   import ForemanMandatesSkeleton from './skeletons/ForemanMandatesSkeleton.svelte';
-  import { DIRECTIVE_TONE, assistantRows, directiveActor, directiveFeed, isUnreadable, mandateGroups, pendingGates } from '../lib/foreman.ts';
+  import { DIRECTIVE_TONE, directiveActor, directiveFeed, isUnreadable, mandateGroups, pendingGates } from '../lib/foreman.ts';
+  import { gateRunRows, gateRunsHeader, type GateRunShown } from '../lib/gate-runs.ts';
   import { pendingPrompts } from '../lib/permissions.ts';
   import { OFFICE_SCOPE } from '../lib/types.ts';
-  import { ago } from '../lib/util.ts';
+  import { ago, clock } from '../lib/util.ts';
   import { S, openDrawer } from '../lib/app.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import { t } from '../lib/locale.ts';
@@ -30,7 +31,22 @@
   const groups = $derived(mandateGroups(list?.mandates ?? []));
   const jobs = $derived(data?.jobs ?? []);
   const requests = $derived(data?.requests ?? []);
-  const assistants = $derived(assistantRows(data?.daemons, requests));
+  const gates = $derived(foremanOn ? data?.daemons?.gates : null);
+  const header = $derived(gateRunsHeader(gates));
+  const runs = $derived(gateRunRows(gates));
+  const outcome = $derived<Record<GateRunShown, string>>({
+    approve: $t('statusbar.foreman.gates.outcome.approve'),
+    revise: $t('statusbar.foreman.gates.outcome.revise'),
+    rework: $t('statusbar.foreman.gates.outcome.rework'),
+    'no-action': $t('statusbar.foreman.gates.outcome.noAction'),
+    escalated: $t('statusbar.foreman.gates.outcome.escalated'),
+    reserved: $t('statusbar.foreman.gates.outcome.reserved'),
+    refused: $t('statusbar.foreman.gates.outcome.refused'),
+    stale: $t('statusbar.foreman.gates.outcome.stale'),
+    requeued: $t('statusbar.foreman.gates.outcome.requeued'),
+    failed: $t('statusbar.foreman.gates.outcome.failed'),
+    running: $t('statusbar.foreman.gates.outcome.running'),
+  });
   const waiting = $derived(pendingGates(requests));
   const directives = $derived(directiveFeed(list?.directives ?? []));
   const jobIds = $derived(new Set(jobs.map((j) => j.id)));
@@ -106,32 +122,36 @@
 {/if}
 
 {#if foremanOn}
-  <h2 class="plate h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('foreman.office.assistants')}</h2>
-  {#if assistants.length}
+  <h2 class="plate h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('foreman.office.gateRuns')}</h2>
+  {#if header.enabled}
+    <p class="plain w-fit max-w-full px-3 py-1.5 mb-3 text-sm text-muted">
+      <span class="mono num">{$t('statusbar.foreman.gates.running', { live: header.live, parallel: header.parallel })}</span>
+      {#if header.held?.kind === 'cap'}<span class="text-warn break-words"> · {$t('statusbar.foreman.gates.pausedCap', { message: header.held.message })}</span>
+      {:else if header.held?.kind === 'until'}<span class="text-warn"> · {$t('statusbar.foreman.gates.pausedUntil', { clock: clock(header.held.until) })}</span>{/if}
+    </p>
+  {/if}
+  {#if !header.enabled}
+    <p class="plate w-fit max-w-full px-3 py-1.5 text-sm text-muted">{$t('statusbar.foreman.gates.off')}</p>
+  {:else if runs.length}
     <div class="plate flat"><div class="overflow-x-auto">
       <table class="tbl">
-        <thead><tr><th>{$t('foreman.office.assistant')}</th><th>{$t('foreman.office.status')}</th><th>{$t('foreman.office.gate')}</th></tr></thead>
+        <thead><tr><th>{$t('foreman.office.gate')}</th><th>{$t('foreman.office.target')}</th><th>{$t('foreman.office.outcome')}</th><th>{$t('foreman.office.reason')}</th><th>{$t('foreman.office.started')}</th><th>{$t('foreman.office.tokens')}</th></tr></thead>
         <tbody>
-          {#each assistants as a (a.scope)}
+          {#each runs as r (r.key)}
             <tr>
-              <td class="whitespace-nowrap">{$t('statusbar.foreman.assistant', { n: a.n, count: assistants.length })}</td>
-              <td><Chip tone={a.status === 'busy' ? 'live' : a.status === 'off' ? 'muted' : 'ok'} text={a.status} /></td>
-              <td>
-                {#if !a.gate}<span class="text-muted">{$t('foreman.office.noGate')}</span>
-                {:else}
-                  <span class="flex flex-wrap items-center gap-2">
-                    {#if 'job' in a.gate}<button class="mono hover:text-gleam" onclick={() => a.gate && 'job' in a.gate && openDrawer(a.gate.job)}>{a.gate.job}</button>{:else}<span class="mono">{a.gate.mandate}</span>{/if}
-                    <Chip extra="sm" text={a.gate.gate} />
-                  </span>
-                {/if}
-              </td>
+              <td class="whitespace-nowrap">{r.label}</td>
+              <td class="mono whitespace-nowrap">{#if r.job}<button class="hover:text-gleam" onclick={() => r.job && openDrawer(r.job)}>{r.job}</button>{:else}{r.mandate}{/if}</td>
+              <td><Chip tone={r.tone} text={outcome[r.outcome]} /></td>
+              <td class="break-words min-w-[12rem]">{r.reason ?? '—'}</td>
+              <td class="text-muted whitespace-nowrap">{r.started}</td>
+              <td class="mono num whitespace-nowrap" title={$t('statusbar.foreman.gates.spend', { usd: r.usd })}>{r.tokens}</td>
             </tr>
           {/each}
         </tbody>
       </table>
     </div></div>
   {:else}
-    <p class="plate w-fit max-w-full px-3 py-1.5 text-sm text-muted">{$t('foreman.office.noAssistants')}</p>
+    <p class="plate w-fit max-w-full px-3 py-1.5 text-sm text-muted">{$t('statusbar.foreman.gates.empty')}</p>
   {/if}
   <p class="plain w-fit max-w-full px-3 py-1.5 mt-3 text-sm text-muted">{$t('foreman.office.gatesWaiting', { count: waiting })}</p>
 {/if}

@@ -1,5 +1,5 @@
 // The milestone-approval gate over a goal mandate's ready draft: its status, who owns it, the gate request
-// a recorded draft queues for an assistant foreman, the assistant's brief (`forge mandate draft assist`),
+// a recorded draft queues for forge dash's gate runner, the assistant's brief (`forge mandate draft assist`),
 // and the one decision path (`decideDraft`) the CLI and the dashboard both call, with the daemon refusal,
 // the request and digest pins and a per-mandate lock. Approve files the draft (filing.ts); revise queues
 // another drafting run with the note; reject closes the mandate. docs/architecture/foreman.md › Milestone
@@ -15,7 +15,7 @@ import { now } from '#core/utils.ts';
 import { resolveEffort, resolveModel } from '#core/config/load.ts';
 import { REPLY_LINE } from '#engine/pipeline/brief.ts';
 import { classReservation, decides, foremanEnabled, reservedMatch } from '#engine/pipeline/moves/foreman-gates.ts';
-import { checkMandateGateDecision, foremanScopeRefusal } from '../foreman.ts';
+import { checkMandateGateDecision, foremanAuthorityRefusal } from '../foreman/policy.ts';
 import { queueNotify } from '../notify.ts';
 import type { QueueNotify } from '../notify.ts';
 import { cleanReason, isReadable, mandateGoal, mandateGuidance, textLinesProblem } from './contract.ts';
@@ -135,7 +135,7 @@ export function draftGates(root: string, config: Config, requests: ForgeRequest[
 
 /**
  * Called by `forge mandate draft record` after a draft is stored: always one `gate` notification (no free
- * text: job and title are null), then one gate request for an assistant foreman when the foreman is on,
+ * text: job and title are null), then one gate request for the gate runner when the foreman is on,
  * the project and the mandate delegate the class, the mandate is active, the foreman has revised it fewer
  * than FOREMAN_REVISIONS_MAX times, and no gate request for this draft's key exists in any status.
  */
@@ -264,14 +264,16 @@ export async function decideDraft(
   config: Config,
   id: string,
   decision: DraftDecision,
-  opts: { request?: string; digest?: string; note?: string | null; foreman: boolean; actor: EventActor; tracker: () => Promise<Tracker>; env?: NodeJS.ProcessEnv; queue?: typeof queueDraftRequest },
+  opts: { request?: string; digest?: string; note?: string | null; foreman: boolean; actor: EventActor; tracker: () => Promise<Tracker>; env?: NodeJS.ProcessEnv; by?: unknown; queue?: typeof queueDraftRequest },
 ): Promise<DecideResult> {
   const env = opts.env ?? process.env;
+  // Only the gate runner passes `by`: a foreman decision from anywhere else is refused.
+  const by = opts.by ?? null;
   if (env.FORGE_DAEMON === '1' && !opts.foreman)
     refuse(`forge mandate draft ${decision} decides the owner's milestone draft, which a daemon session may not do; decide in the dashboard or your own terminal`);
   if (opts.foreman) {
-    const scope = foremanScopeRefusal(env);
-    if (scope) refuse(`--actor foreman refused: ${scope}`);
+    const authority = foremanAuthorityRefusal(by);
+    if (authority) refuse(`--actor foreman refused: ${authority}`);
   }
   let note: string | null = null;
   if (opts.note !== undefined && opts.note !== null) {
@@ -294,7 +296,7 @@ export async function decideDraft(
       { request: g.read.draft?.request ?? '', digest: g.digest, gate: g.read.status, texts: draftReservedTexts(m, g.read.draft) },
       decision,
       note,
-      env,
+      by,
       requests,
     );
     pin = { request: String(matched.args?.key), digest: String(matched.args?.digest) };
