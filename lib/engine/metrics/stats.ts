@@ -1,6 +1,7 @@
 // Forge metrics. They describe Forge's behaviour, not the codebase's quality, which is
 // what makes them comparable across every repo Forge runs in and gives the retro loop
 // something stable to improve against.
+import fs from 'node:fs';
 import { listArchived } from '#core/job/archive.ts';
 import { judgeAutonomy } from '../evals/autonomy.ts';
 import { jobFindings } from '../pipeline/findings.ts';
@@ -16,10 +17,9 @@ import { firstVerifyRun } from '../verify/record.ts';
 import type { Config, Job, JobEvent, ReviewerStats, Stats, UsageRow, VerifierStats } from '#core/types.ts';
 import type { PromptCohort, PromptStats, StatsSource } from './types.ts';
 import { ForgeError } from '#core/errors.ts';
+import { AGENT_ID, agentTranscriptById, claudeProjectsDir, firstToolCallAt, openTranscript } from '#integrations/claude/transcripts.ts';
 import { jobSpeed, median, speedFigures, spread } from './speed.ts';
 import type { JobSpeed } from './speed.ts';
-import fs from 'node:fs';
-import { AGENT_ID, agentTranscriptById, claudeProjectsDir, firstToolCallAt, openTranscript } from '#integrations/claude/transcripts.ts';
 
 export type { StatsSource } from './types.ts';
 export { median } from './speed.ts';
@@ -29,9 +29,9 @@ const MAX_START_RUNS = 200;
 
 /**
  * Foreground and background spreads of the seconds from each done job's agent-start to its transcript's
- * first tool call (the first 64 KiB). Transcripts are found only through agentTranscriptById (a valid
- * agent id, this repo's project dirs, confined) and opened through openTranscript, never by a directory
- * scan; a run without one is left out. Only numbers leave this function.
+ * first tool call (read from the transcript's first 512 KiB at most). Transcripts are found only through
+ * agentTranscriptById (a valid agent id, this repo's project dirs, confined) and opened through
+ * openTranscript, never by a directory scan; a run without one is left out. Only numbers leave this function.
  */
 export function agentStartSeconds(
   root: string,
@@ -130,6 +130,8 @@ export interface StatsOpts {
   config?: Config;
   /** Only the jobs, live and archived, whose `mandate` is this id (a mandate retro's stats). */
   mandate?: string;
+  /** False skips the transcript reads behind `speed.agentStartSeconds` (up to 200 heads of 512 KiB); for callers that never read the figure. */
+  agentStart?: boolean;
 }
 
 export function computeStats(root: string, opts: StatsOpts = {}): Stats {
@@ -138,8 +140,9 @@ export function computeStats(root: string, opts: StatsOpts = {}): Stats {
   // Jobs passed in are the whole population (tests, evals): no daemon session spent for them. Session
   // rows aren't per mandate, so a mandate's stats carry none either.
   if (!opts.jobs && !opts.mandate && opts.config) stats.cost.sessions = sessionRows(spendLedger(root, opts.config, { write: false, since: opts.since ?? null }));
-  // Only the repo's real population reads transcripts; experiments, cohorts and report cards call statsFrom.
-  if (!opts.jobs) stats.speed.agentStartSeconds = agentStartSeconds(root, sources);
+  // Only the repo's real population reads transcripts (experiments, cohorts and report cards call statsFrom),
+  // and not for the callers that opt out: mandate intake and the retro never read the figure.
+  if (!opts.jobs && opts.agentStart !== false) stats.speed.agentStartSeconds = agentStartSeconds(root, sources);
   return stats;
 }
 
@@ -172,7 +175,7 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
   let findingsCarried = 0, findingsNew = 0;
   const speeds: JobSpeed[] = [];
   // role → cache reads and all input (fresh, cache read, cache write), for cacheReadShare.
-  const cacheByRole: Record<string, { read: number; all: number }> = {};
+  const cacheByRole = new Map<string, { read: number; all: number }>();
   // Outcomes: only final ones are judged, and each rate's denominator skips checks that never completed.
   let outcomesFinal = 0, outcomesOpen = 0, autonomous = 0, autonomousStrict = 0;
   let revertChecked = 0, reverted = 0, followUpChecked = 0, followedUp = 0, churnChecked = 0, churned = 0;
@@ -214,6 +217,8 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
       for (const r of Object.keys(j.verdicts).map(Number).sort((a, b) => a - b)) {
         const changed: string[] = [];
         for (const [name, v] of Object.entries(j.verdicts[r] ?? {})) {
+          // job.json is agent-writable: a `__proto__` key must not address Object.prototype.
+          if (name === '__proto__') continue;
           // The rates and the trend are filled in for every lens after the loop.
           const s = (reviewers[name] ??= { reviews: 0, changes: 0, blockers: 0, soleChanges: 0, reopened: 0, findings: 0, fixed: 0, disputes: 0, recurring: 0, missChecked: 0, missed: 0, blockerMajor: 0, severityKnown: 0 } as ReviewerStats);
           s.reviews++;
@@ -235,8 +240,8 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
       findingsNew += f.totals.new ?? 0;
       const week = utcMonday(j.createdAt);
       for (const [lens, c] of Object.entries(f.byLens)) {
+        if (!Object.hasOwn(reviewers, lens)) continue;
         const s = reviewers[lens];
-        if (!s) continue;
         s.findings += c.raised;
         s.fixed += c.fixed;
         s.disputes += c.disputed;
@@ -359,15 +364,18 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
     cost += j.usage?.estCostUsd ?? 0;
     const n = (x: unknown): number => (typeof x === 'number' ? x : 0);
     for (const [k, v] of Object.entries(j.usage?.byRole ?? {})) {
+      if (k === '__proto__') continue;
       const b = (byRole[k] ??= { tokens: 0, estCostUsd: 0, runs: 0 });
       b.tokens += v.tokens;
       b.estCostUsd = r2(b.estCostUsd + v.estCostUsd);
       b.runs += v.runs;
-      const c = (cacheByRole[k] ??= { read: 0, all: 0 });
+      const c = cacheByRole.get(k) ?? { read: 0, all: 0 };
+      cacheByRole.set(k, c);
       c.read += n(v.cacheRead);
       c.all += n(v.input) + n(v.cacheRead) + n(v.cacheWrite);
     }
     for (const [k, v] of Object.entries(j.usage?.byModel ?? {})) {
+      if (k === '__proto__') continue;
       const b = (byModel[k] ??= { tokens: 0, estCostUsd: 0, runs: 0 });
       b.tokens += v.tokens;
       b.estCostUsd = r2(b.estCostUsd + v.estCostUsd);
@@ -390,7 +398,7 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
     });
   }
   for (const s of Object.values(verifiers)) s.hitRate = ratio(s.fails, s.runs);
-  for (const [k, c] of Object.entries(cacheByRole)) byRole[k].cacheReadShare = ratio(c.read, c.all);
+  for (const [k, c] of cacheByRole) byRole[k].cacheReadShare = ratio(c.read, c.all);
   const none = { median: null, p90: null, n: 0 };
   return {
     generatedAt: new Date().toISOString(),

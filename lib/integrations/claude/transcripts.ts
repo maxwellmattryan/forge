@@ -17,8 +17,13 @@ export const AGENT_ID = /^[A-Za-z0-9_-]{1,100}$/;
 const MAX_RUN_SESSIONS = 5;
 /** lastActivity reads at most this much of a transcript's end. */
 const ACTIVITY_TAIL_BYTES = 64 * 1024;
-/** firstToolCallAt reads at most this much of a transcript's start. */
-const START_HEAD_BYTES = 64 * 1024;
+/**
+ * firstToolCallAt reads at most this much of a transcript's start, in START_CHUNK_BYTES reads. Claude Code
+ * writes its large attachment lines (skills, tools, instructions) before the first turn, so a transcript's
+ * first tool call sits around 120-300 KB in.
+ */
+const START_HEAD_BYTES = 512 * 1024;
+const START_CHUNK_BYTES = 64 * 1024;
 const ACTIVITY_CHARS = 160;
 const CACHE_MAX = 64;
 const TARGET_KEYS = ['file_path', 'notebook_path', 'path', 'pattern', 'command', 'url', 'query', 'description', 'skill'];
@@ -290,19 +295,11 @@ export function lastActivity(fd: number, size: number, opts: { worktree?: string
   return null;
 }
 
-/**
- * The timestamp (ms) of the first assistant line at or after `sinceMs` with a tool_use block, from at
- * most the transcript's first 64 KiB; a last line cut by that cap is dropped. Null when there is none.
- */
-export function firstToolCallAt(fd: number, size: number, sinceMs: number): number | null {
-  const len = Math.min(size, START_HEAD_BYTES);
-  if (len <= 0) return null;
-  const buf = Buffer.alloc(len);
-  const read = fs.readSync(fd, buf, 0, len, 0);
-  const lines = buf.subarray(0, read).toString('utf8').split('\n');
-  if (size > len) lines.pop();
-  for (const line of lines) {
-    if (!line.trim()) continue;
+/** The first assistant line in these whole lines, at or after `sinceMs`, with a tool_use block: its timestamp. */
+function toolCallIn(text: string, sinceMs: number): number | null {
+  for (const line of text.split('\n')) {
+    // Most of a transcript's head is large lines that name no tool call: parse only the ones that could.
+    if (!line.includes('"tool_use"')) continue;
     let o: any;
     try {
       o = JSON.parse(line);
@@ -316,6 +313,35 @@ export function firstToolCallAt(fd: number, size: number, sinceMs: number): numb
     if (blocks.some((b) => (b as { type?: unknown } | null)?.type === 'tool_use')) return at;
   }
   return null;
+}
+
+/**
+ * The timestamp (ms) of the first assistant line at or after `sinceMs` with a tool_use block, from at
+ * most the transcript's first 512 KiB, read in 64 KiB chunks and stopped at the first hit; a last line
+ * cut by that cap is dropped. Null when there is none.
+ */
+export function firstToolCallAt(fd: number, size: number, sinceMs: number): number | null {
+  const cap = Math.min(size, START_HEAD_BYTES);
+  const chunk = Buffer.alloc(START_CHUNK_BYTES);
+  // The bytes after the last newline so far: a line that began in an earlier chunk (and may split a character).
+  let rest = Buffer.alloc(0);
+  let pos = 0;
+  while (pos < cap) {
+    const read = fs.readSync(fd, chunk, 0, Math.min(START_CHUNK_BYTES, cap - pos), pos);
+    if (read <= 0) break;
+    pos += read;
+    const buf = Buffer.concat([rest, chunk.subarray(0, read)]);
+    const end = buf.lastIndexOf(0x0a);
+    if (end < 0) {
+      rest = buf;
+      continue;
+    }
+    const at = toolCallIn(buf.subarray(0, end).toString('utf8'), sinceMs);
+    if (at !== null) return at;
+    rest = buf.subarray(end + 1);
+  }
+  // What follows the last newline is the file's last line when the whole file was read, else a cut line.
+  return size > cap || !rest.length ? null : toolCallIn(rest.toString('utf8'), sinceMs);
 }
 
 const activityCache = new Map<string, TranscriptActivity | null>();

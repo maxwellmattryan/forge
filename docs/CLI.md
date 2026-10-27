@@ -368,7 +368,7 @@ Every `agent-start` event (event schema v3) carries `pluginHash` (10 hex), `prom
   "timedJobs": n }
 ```
 
-`agentStartSeconds` reads each run's Claude Code transcript head (at most 64 KiB, the newest 200 runs) through the same confined lookup as the dashboard's activity line, and returns numbers only; a run whose transcript is gone is left out. Only the repo's own `forge stats` and `/api/stats` fill it: prompt cohorts, experiments and mandate report cards read no transcripts and show `n: 0`.
+`agentStartSeconds` reads each run's Claude Code transcript head (at most its first 512 KiB, in 64 KiB reads that stop at the first tool call; the newest 200 runs) through the same confined lookup as the dashboard's activity line, and returns numbers only; a run whose transcript is gone, or whose first tool call lies past the head, is left out. Only the repo's own stats fill it (`forge stats`, `/api/stats` and the retro's `stats.json`): prompt cohorts, experiments and mandate report cards read no transcripts and show `n: 0`.
 
 **Cost.** Each `cost.byRole.<role>` row adds `cacheReadShare`: `cacheRead / (input + cacheRead + cacheWrite)`, null at 0. `byModel` and `sessions` rows have none.
 

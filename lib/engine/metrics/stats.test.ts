@@ -101,6 +101,22 @@ test('cacheReadShare per role', () => {
   assert.ok(!('cacheReadShare' in s.cost.byModel['claude-x']), 'byRole rows only');
 });
 
+test('a __proto__ key in job.json or a findings record never reaches Object.prototype', (t) => {
+  const polluted = ['read', 'all', 'reviews', 'changes', 'blockers', 'soleChanges', 'reopened', 'findings', 'tokens', 'runs', 'estCostUsd'];
+  t.after(() => {
+    for (const k of polluted) delete (Object.prototype as Record<string, unknown>)[k];
+  });
+  const bucket = '{"tokens":1,"input":1,"output":0,"cacheRead":1,"cacheWrite":0,"toolUses":0,"durationMs":0,"runs":1,"estCostUsd":1}';
+  const src = reviewed('hostile', {}, JSON.parse('{"__proto__":{"raised":1,"fixed":0,"disputed":0,"recurring":0,"severity":{"blocker":1}}}'));
+  // JSON.parse makes `__proto__` an own key, as job.json and an archive record can.
+  src.job.verdicts = JSON.parse('{"1":{"__proto__":"CHANGES","code":"CHANGES"}}');
+  src.job.usage = { ...src.job.usage, byRole: JSON.parse(`{"__proto__":${bucket}}`), byModel: JSON.parse(`{"__proto__":${bucket}}`) };
+  const s = statsFrom([src]);
+  for (const k of polluted) assert.equal(Object.hasOwn(Object.prototype, k), false, k);
+  assert.deepEqual(Object.keys(s.reviewers), ['code'], 'the hostile lens name is skipped');
+  assert.deepEqual([s.reviewers.code.soleChanges, Object.keys(s.cost.byRole), Object.keys(s.cost.byModel)], [1, [], []]);
+});
+
 test('a shelved job counts as shelved, not waiting', () => {
   const s = statsFrom([
     source('shelved', [], { state: 'waiting', waitingOn: 'shelved' }),
@@ -120,9 +136,11 @@ const run = (role: string, start: number, end: number, agentId: string): JobEven
   { v: 1, ts: iso(T0 + start * MIN), type: 'agent-start', role },
   { v: 1, ts: iso(T0 + end * MIN), type: 'agent-end', role, agentId },
 ];
-/** A transcript whose first tool call comes `sec` seconds after the run's start. */
-const transcript = (startMin: number, sec: number): string =>
+/** A transcript whose first tool call comes `sec` seconds after the run's start, `attached` bytes into the file. */
+const transcript = (startMin: number, sec: number, attached = 0): string =>
   [
+    // Claude Code writes its large attachment lines (skills, tools, instructions) before the first turn.
+    { type: 'attachment', timestamp: iso(T0 + startMin * MIN), content: 'x'.repeat(attached) },
     { type: 'user', timestamp: iso(T0 + startMin * MIN), message: { content: [{ type: 'text', text: 'brief' }] } },
     { type: 'assistant', timestamp: iso(T0 + startMin * MIN + sec * 1000), message: { content: [{ type: 'tool_use', id: 't', name: 'Read', input: {} }] } },
   ]
@@ -152,7 +170,8 @@ function transcripts(t: test.TestContext) {
 
 test('seconds from agent start to first tool call, foreground and background', (t) => {
   const { root, worktrees, projects, plant, job } = transcripts(t);
-  plant('a1', transcript(1, 12));
+  // a1's first tool call sits 200 KB in, past a first 64 KiB read, as in a real transcript.
+  plant('a1', transcript(1, 12, 200 * 1024));
   plant('b1', transcript(10, 4));
   plant('b2', transcript(12, 6));
   // c1 has no transcript, and the running job's is never read.
