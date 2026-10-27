@@ -35,7 +35,7 @@
   const directives = $derived(directiveFeed(list?.directives ?? []));
   const jobIds = $derived(new Set(jobs.map((j) => j.id)));
 
-  /** The editor open: a new mandate's, or one mandate's in place of its card. */
+  /** The editor open, in a modal: a new mandate's, or one mandate's. */
   let editing = $state<{ mode: 'new' } | { mode: 'edit'; id: string } | null>(null);
   let newButton = $state<HTMLButtonElement>();
 
@@ -79,7 +79,7 @@
   <button bind:this={newButton} class="btn primary" disabled={!list || editing?.mode === 'new'} onclick={() => (editing = { mode: 'new' })}>{$t('foreman.office.new')}</button>
 </div>
 {#if S.mandatesError}<Banner msg={$t('foreman.office.loadFailed', { error: S.mandatesError })} />{/if}
-{#if list && editing?.mode === 'new'}<div class="mb-3"><MandateEditor mandates={list} onclose={closeEditor} /></div>{/if}
+{#if list && editing?.mode === 'new'}<MandateEditor mandates={list} onclose={closeEditor} />{/if}
 {#if !list}
   {#if !S.mandatesError}<ForemanMandatesSkeleton />{/if}
 {:else if !list.mandates.length}
@@ -89,13 +89,14 @@
     {#each groups.open as m (m.id)}
       {#if isUnreadable(m)}
         <div class="plate flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3 text-sm"><span class="mono">{m.id}</span><span class="text-bad break-words min-w-0">{$t('foreman.office.unreadable', { problem: m.problem })}</span></div>
-      {:else if editing?.mode === 'edit' && editing.id === m.id}
-        <MandateEditor mandates={list} row={m} onclose={closeEditor} />
       {:else}
         <MandateCard {m} jobs={jobs.filter((j) => j.mandate === m.id)} onedit={() => (editing = { mode: 'edit', id: m.id })} />
       {/if}
     {/each}
   </div>
+  {#each groups.open as m (m.id)}
+    {#if !isUnreadable(m) && editing?.mode === 'edit' && editing.id === m.id}<MandateEditor mandates={list} row={m} onclose={closeEditor} />{/if}
+  {/each}
   {#if groups.closed.length}
     <details class="mt-3">
       <summary class="plate w-fit px-3 py-1.5 text-sm cursor-pointer">{$t('foreman.office.closed', { count: groups.closed.length })}</summary>

@@ -85,6 +85,9 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
       if (reason.startsWith('secret scan'))
         return `${id} stopped on a possible secret (${reason}). Masked findings and fingerprints: forge secrets scan ${id}. Remove the value (rewrite the branch if it was committed) or add its fingerprint to .forge/secrets-allow.txt in the main checkout, then /forge approve ${id} to scan again, or /forge rework ${id} <note>`;
       return `${id} needs a human: ${reason}. /forge approve ${id} once it is resolved, or /forge rework ${id} <note>`;
+    case 'shelved':
+      // No /forge approve here: a decision logged while shelved answers nothing, and un-shelving is a person's.
+      return `${id} is shelved (${j.shelved?.reason ?? reason.replace(/^shelved: /, '')}). A person un-shelves it with forge job unshelve ${id} in their own terminal, or with Approve, Rework, Un-shelve or Close in the dashboard's Shelved list`;
     default:
       return `${id} waits: ${reason}`;
   }

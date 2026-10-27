@@ -39,7 +39,12 @@ export const WAITING_ON = [
   'budget',
   // A CLI check stopped the job and only a human can clear it; the reason names the check.
   'human',
+  // A person set the job aside (`forge job shelve`): nothing resumes it, and only a person takes it off the shelf.
+  'shelved',
 ] as const;
+
+/** What the dashboard's Shelved list does to the jobs a person selects (POST /api/shelf). */
+export const SHELF_ACTIONS = ['approve', 'rework', 'unshelve', 'close'] as const;
 
 /** Budget keys in the fixed order reasons and reports list them. */
 export const BUDGET_KEYS = ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries'] as const;

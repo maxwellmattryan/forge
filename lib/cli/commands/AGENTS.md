@@ -41,6 +41,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `job/repos.ts` | `forge job repo\|interim`: a job's member repos, their interim strategies, canary publishes and recorded releases. |
 | `job/retention.ts` | `forge job archive\|delete\|prune`: archiving finished jobs, deleting a mistaken one, and pruning old jobs and session logs; never from a daemon session. |
 | `job/review.ts` | `forge job round\|verdicts\|decision\|score`: review rounds, the reviewers' and approver's verdicts, and the post-merge score. |
+| `job/shelf.ts` | `forge job shelve\|unshelve`: a person sets a job aside and takes it off the shelf again. |
 | `job/state.ts` | `forge job set\|effort\|note\|refresh-request\|budget`: a job's stage, state, fields, effort, notes, request and budget limits. |
 | `mandate.ts` | `forge mandate new\|edit\|pause\|resume\|close\|list\|show` and `forge mandate draft start\|prepare\|record\|show\|approve\|revise\|reject\|assist`: the owner's mandates to the Office, a goal mandate's drafting runs and its milestone-approval gate (lib/office/mandates/, docs/CONFIG.md "Mandates"). |
 | `notify.ts` | `forge notify test\|send`: a sample notification to every configured target, and the detached sender lib/office/notify.ts queueNotify spawns. |

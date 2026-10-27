@@ -126,7 +126,7 @@ export function statsSources(root: string, opts: StatsOpts = {}): StatsSource[] 
 /** The metrics over exactly these sources: computeStats over a subset (one job, one prompt cohort). */
 export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' | 'config'> = {}): Stats {
   const jobs = sources.map((s) => s.job);
-  const counts = { total: jobs.length, active: 0, done: 0, cancelled: 0, failed: 0, waiting: 0, archived: sources.filter((s) => s.archived).length };
+  const counts = { total: jobs.length, active: 0, done: 0, cancelled: 0, failed: 0, waiting: 0, shelved: 0, archived: sources.filter((s) => s.archived).length };
   let reviewed = 0, firstPass = 0, roundsSum = 0, decided = 0, escalated = 0, verified = 0, verifyFirstPass = 0;
   let withPr = 0, prWithHumanFeedback = 0, humanRework = 0, foremanDecisions = 0, foremanRework = 0, specJobs = 0, specFirstTry = 0;
   let merged = 0, deltaMeasured = 0, deltaNonEmpty = 0, recurringFindings = 0, verifierChecked = 0, verifierBlocked = 0;
@@ -155,7 +155,9 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
     else if (j.state === 'cancelled') counts.cancelled++;
     else if (j.state === 'failed') counts.failed++;
     else counts.active++;
-    if (j.state === 'waiting') {
+    // A shelved job is set aside, not waiting on anyone: counted apart.
+    if (j.state === 'waiting' && j.waitingOn === 'shelved') counts.shelved++;
+    else if (j.state === 'waiting') {
       counts.waiting++;
       // setJob refuses state "waiting" without a waitingOn.
       waitingOn[j.waitingOn!] = (waitingOn[j.waitingOn!] ?? 0) + 1;

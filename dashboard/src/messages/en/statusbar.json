@@ -172,6 +172,39 @@
       "elsewhere": "a decision sent from elsewhere"
     }
   },
+  "shelf": {
+    "heading": "Shelved",
+    "about": "Set aside by a person: nothing runs on these until you decide, and they don't count as waiting on you.",
+    "select": "Select {id}",
+    "selectAll": "Select all ({count} of {total} selected)",
+    "from": "From: {gate}",
+    "byWhen": "Shelved by {who} · {ago}",
+    "when": "Shelved {ago}",
+    "note": "Note for the agents (sent with Approve and Rework; Rework needs one)",
+    "action": {
+      "approve": "Approve",
+      "rework": "Rework",
+      "unshelve": "Un-shelve",
+      "close": "Close"
+    },
+    "confirmApprove": {
+      "one": "Approve {count} job?",
+      "other": "Approve {count} jobs?"
+    },
+    "confirmClose": {
+      "one": "Close {count} job? It is cancelled and its PR stays as it is.",
+      "other": "Close {count} jobs? They are cancelled and their PRs stay as they are."
+    },
+    "cancel": "Cancel",
+    "done": {
+      "approved": "{count} approved",
+      "reworked": "{count} sent to rework",
+      "unshelved": "{count} un-shelved",
+      "closed": "{count} closed"
+    },
+    "skipped": "{id} skipped: {reason}",
+    "failed": "Shelved list action failed: {error}"
+  },
   "milestoneDraft": {
     "kicker": "Milestone draft",
     "mandate": "Goal mandate {id}",

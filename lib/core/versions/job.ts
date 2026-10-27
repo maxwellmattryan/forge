@@ -87,6 +87,10 @@ export const JOB_STEPS: readonly Step[] = [
       ]),
     ),
   }) },
+  // v20 adds `waitingOn: shelved`, the shelf record a shelved job carries and the mark a job finished
+  // while shelved keeps. No v19 job is shelved, and the bump makes an older Forge refuse a job parked
+  // where it would not know to leave it alone.
+  { id: 'shelved', up: (j) => ({ ...j, shelved: j.shelved ?? null, finishedWhileShelved: j.finishedWhileShelved ?? false }) },
 ];
 
 export const JOB_SCHEMA_VERSION = versionOf(JOB_STEPS);

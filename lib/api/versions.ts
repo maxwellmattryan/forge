@@ -80,6 +80,8 @@ export const API_CHANGES = [
   { id: 'mandate-report-card' },
   // PostMandateBody.id is optional: POST /api/mandates without one gets a generated id (m-<8 hex>), returned as mandate.id.
   { id: 'mandate-auto-id' },
+  // Shelve: WaitingOn 'shelved', Job.shelved, Job.finishedWhileShelved, Stats.counts.shelved and POST /api/shelf.
+  { id: 'shelve' },
 ] as const;
 
 /**

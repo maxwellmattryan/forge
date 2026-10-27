@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ForgeError } from '#core/errors.ts';
 import { checkoutRoot, exists, machinePaths, mainRoot, paths } from '#core/paths.ts';
-import { AGENT_TEXT_MAX, readRegular, writeJsonPrivate } from '#core/os/fs.ts';
+import { AGENT_TEXT_MAX, SWAPPED_WHILE_READ, readRegular, writeJsonPrivate } from '#core/os/fs.ts';
 import { withLock } from '#core/os/lock.ts';
 import { runSteps } from '#core/versions/steps.ts';
 import { MACHINE_INDEX_VERSION, MACHINE_STEPS } from '#core/versions/machine.ts';
@@ -74,7 +74,9 @@ export function readMachineIndex(home: string): MachineIndex {
   const file = machinePaths(home).projects;
   const bad = (why: string) => new ForgeError(`${file} ${why}; fix or remove it by hand (Forge never rewrites it)`);
   if (!fs.lstatSync(file, { throwIfNoEntry: false })) return { schemaVersion: MACHINE_INDEX_VERSION, projects: [], settings: { maxConcurrent: null } };
-  const bytes = readRegular(file, AGENT_TEXT_MAX);
+  let bytes = readRegular(file, AGENT_TEXT_MAX);
+  // A locked writer renames a new index into place, so an unlocked read can see the swap: read again, each time checked the same way.
+  for (let i = 0; i < 5 && bytes === SWAPPED_WHILE_READ; i++) bytes = readRegular(file, AGENT_TEXT_MAX);
   if (typeof bytes === 'string') throw bad(`is ${bytes}`);
   let value: unknown;
   try {
