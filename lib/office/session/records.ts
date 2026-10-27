@@ -30,6 +30,7 @@ export function offState(root: string, scope: string): DaemonSessionState {
     permissionMode: null,
     kept: null,
     effort: null,
+    contextTokens: null,
   };
 }
 

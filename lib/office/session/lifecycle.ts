@@ -139,6 +139,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       permissionMode: child ? liveMode : null,
       kept,
       effort: child ? spawnEffort : null,
+      contextTokens: child ? fresh.context() : null,
     };
   }
 

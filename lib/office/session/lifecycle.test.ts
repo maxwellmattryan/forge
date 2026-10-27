@@ -606,6 +606,7 @@ test('a job session past daemon.freshAfterTokens rotates at a safe boundary', as
     const [c] = r.children;
     c.emit({ kind: 'log', stream: 'stdout', line: JSON.stringify({ type: 'system' }) });
     const sid = r.s.state().sessionId!;
+    assert.equal(r.s.state().contextTokens, null, `${row.name}: no reading yet`);
     const isJob = r.scope !== INBOX_SCOPE;
     let req: { id: string } | null = null;
     if (isJob) {
@@ -617,12 +618,14 @@ test('a job session past daemon.freshAfterTokens rotates at a safe boundary', as
     r.s.writeTurn([req?.id ?? 'r1']);
     c.emit({ kind: 'turn-started' });
     c.emit(ended(row.context));
+    assert.equal(r.s.state().contextTokens, row.context, `${row.name}: the latest reading`);
     assert.deepEqual(r.event('rotated').map((l) => ({ tokens: l.tokens, threshold: l.threshold })), row.rotates ? [{ tokens: row.context, threshold: 1000 }] : [], row.name);
     assert.equal(r.record().resumable, !row.rotates, `${row.name}: resumable`);
     if (row.release || !row.rotates) assert.deepEqual([r.s.status, r.s.running, r.event('stop').length], ['idle', true, 0], `${row.name}: keeps running`);
     if (!row.rotates) {
       if (!isJob) continue;
       await r.s.kill('stop', true);
+      assert.equal(r.s.state().contextTokens, null, `${row.name}: no child, no reading`);
       assert.equal(r.s.spawn(r.cfg), true, row.name);
       assert.deepEqual(r.children[1].argv.slice(1, 3), ['--resume', sid], `${row.name}: resumes the same id`);
       continue;
@@ -630,6 +633,7 @@ test('a job session past daemon.freshAfterTokens rotates at a safe boundary', as
     row.release?.(r, c);
     await waitFor(() => !r.s.running && r.s.status === 'off', { what: `${row.name}: the rotated child stopped` });
     assert.deepEqual(r.event('stop').map((l) => l.reason), ['rotate'], row.name);
+    assert.equal(r.s.state().contextTokens, null, `${row.name}: no child, no reading`);
     assert.equal(r.event('rotated').length, 1, `${row.name}: logged once`);
     assert.deepEqual(readEvents(r.root, r.scope).filter((e) => e.type === 'lease-expired').map((e) => e.reason), ['rotate'], row.name);
     assert.equal(listRequests(r.root).find((x) => x.id === req!.id)?.status, 'pending', `${row.name}: its claim requeued`);
