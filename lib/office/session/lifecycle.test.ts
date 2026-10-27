@@ -12,8 +12,8 @@ import path from 'node:path';
 import { fakeClaude, repoTemplate, waitFor, withLease, type FakeClaudeChild } from '../../../test/helpers.ts';
 import { defaults, trustDigest } from '#core/config/load.ts';
 import { createJob, loadJob, readEvents, recordAgent, updateJob } from '#core/job/store.ts';
-import { INBOX_SCOPE, claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
-import { sessionFiles } from '#core/job/session-files.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
+import { UUID, sessionFiles } from '#core/job/session-files.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { appendMeter } from '#engine/metrics/meter.ts';
 import { buildArgv } from '#integrations/claude/argv.ts';
@@ -361,7 +361,8 @@ test('each Claude event changes the session', async (t) => {
     },
     {
       name: 'a resume whose transcript is gone starts one fresh session',
-      opts: { record: { sessionId: uuid, resumable: true } },
+      // A job session: the inbox and the office never resume.
+      opts: { job: true, record: { sessionId: uuid, resumable: true } },
       run: (r, c) => {
         assert.deepEqual(c.argv.slice(1, 3), ['--resume', uuid]);
         c.emit(failed('error_during_execution'));
@@ -543,6 +544,31 @@ test("an exit lets go of its job's agents and lease", async (t) => {
     assert.deepEqual(r.event('requeued').map((l) => ({ requests: l.requests, rejected: l.rejected })), [{ requests: [req.id], rejected: [] }], row.name);
     assert.equal(r.calls.onExit, 1, `${row.name}: onExit ran once`);
   }
+});
+
+// The inbox and the office never resume, whatever their record says; a job session with the same record still does.
+test('the inbox and office start a new conversation at every spawn', async (t) => {
+  const stored = crypto.randomUUID();
+  const record = { sessionId: stored, resumable: true };
+  const idOf = (argv: string[]) => argv[argv.indexOf('--session-id') + 1];
+  for (const scope of [INBOX_SCOPE, OFFICE_SCOPE]) {
+    const r = rig(t, { scope, record, daemon: { idleStopMinutes: 0.001 } });
+    assert.equal(r.s.spawn(r.cfg), true, scope);
+    const [first] = r.children;
+    const a = idOf(first.argv);
+    assert.ok(!first.argv.includes('--resume') && UUID.test(a) && a !== stored, `${scope}: a new uuid, no --resume`);
+    first.emit({ kind: 'log', stream: 'stdout', line: JSON.stringify({ type: 'system' }) });
+    assert.equal(r.record().resumable, true, `${scope}: its record says resumable`);
+    await waitFor(() => !r.s.running && r.s.status === 'off', { what: `${scope}: the idle child stopped` });
+    assert.equal(r.event('idle-stop').length, 1, scope);
+    assert.equal(r.s.spawn(r.cfg), true, scope);
+    const b = idOf(r.children[1].argv);
+    assert.ok(!r.children[1].argv.includes('--resume') && UUID.test(b) && b !== a && b !== stored, `${scope}: another new uuid`);
+    assert.deepEqual(r.event('spawn').map((l) => l.resume), [false, false], scope);
+  }
+  const job = rig(t, { job: true, record });
+  assert.equal(job.s.spawn(job.cfg), true);
+  assert.deepEqual(job.children[0].argv.slice(1, 3), ['--resume', stored], 'a job session resumes');
 });
 
 // B8 (argv, cwd and env), B10 (argv from the bytes it hashed, no second read), E7 (a config changed

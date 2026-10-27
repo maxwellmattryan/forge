@@ -18,6 +18,7 @@ import type { ClaudeChild, ClaudeEvent } from '#integrations/claude/types.ts';
 import type { ChildMeta, DaemonChild, Session, SessionContext, SessionCore, SessionOptions } from './contract.ts';
 import { budgetStopMessage, spawnBudgetCap } from './budget-cap.ts';
 import { createControl } from './control.ts';
+import { createFreshness } from './fresh.ts';
 import { createMeter } from './meter.ts';
 import { routeHolds } from './holds.ts';
 import { confineDigest, spawnConfinement } from './confine.ts';
@@ -117,6 +118,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   const control = createControl(core);
   const { setPermissionMode, answerPermission, clearModeRequests } = control;
   const { armTurn, clearTurn, armIdle, clearIdle } = createTimers(core, agents);
+  const fresh = createFreshness(core, agents);
   const meter = createMeter(core, stopSelf);
 
   function state(): DaemonSessionState {
@@ -148,12 +150,6 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     changed();
   }
 
-  /** Its child is gone, so nothing can answer them, and nothing it reported about its mode holds. */
-  function dropPrompts(): void {
-    control.dropPrompts();
-    liveMode = null;
-  }
-
   /** This session can't start (its executable is missing, say): stop wanting it, and only it. */
   function sessionFatal(message: string): void {
     wanted = false;
@@ -181,8 +177,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     if (!launch) return false;
     c = launch.config;
     log.armRotation(c.retention?.logMaxBytes);
-    // The record is a local file anyone with repo access can edit; only a uuid may follow --resume.
-    const resume = Boolean(info.resumable && typeof info.sessionId === 'string' && UUID.test(info.sessionId));
+    const resume = fresh.resumes(info);
     if (!resume) info = { ...withSessionId(info, crypto.randomUUID()), resumable: false };
     let argv;
     let confined: ReturnType<typeof spawnConfinement>;
@@ -398,7 +393,9 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     kept = null;
     clearIdle();
     clearTurn();
-    dropPrompts();
+    // Its child is gone, so nothing can answer its prompts, and nothing it reported about its mode holds.
+    control.dropPrompts();
+    liveMode = null;
     inFlight = [];
     status = 'off';
     info = { ...info, pid: null };

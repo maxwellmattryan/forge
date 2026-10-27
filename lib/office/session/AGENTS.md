@@ -14,6 +14,7 @@ One supervised headless Claude Code session (`createSession`) and the pieces it 
 | `confine.ts` | What a daemon session may write: its write roots (the job folders and every worktrees root), the deny rules for the checkout's protected paths, the env that tells hooks/write-guard.ts the same roots, and the confine digest the post-turn check compares. |
 | `contract.ts` | The session's contract with its pool: the events it reports, the context and options it is built with (sessionOptions fills in the real defaults), the child it supervises and the Session it returns. |
 | `control.ts` | The permission-prompt and mode-switch policy: which prompts a human sees and which are denied unasked, and what a refused or unconfirmed mode switch does. |
+| `fresh.ts` | When a daemon session starts a new conversation instead of resuming its stored one: the inbox and the office at every spawn, and a job session once a turn's context passed daemon.freshAfterTokens, stopped at a safe boundary (docs/architecture/daemon-runtime.md). |
 | `holds.ts` | What keeps a request waiting: a job parked on its budget, or the repo budget. |
 | `launch.ts` | The checks every spawn passes before claude starts, on the one read of `.forge/config.yml` that argv is then built from. |
 | `lifecycle.ts` | One supervised headless session. |
