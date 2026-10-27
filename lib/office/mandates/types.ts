@@ -52,6 +52,9 @@ export interface MandateInput {
   stallBounces?: number;
   onUnfinishable?: string;
   scoring?: string;
+  /** null clears the quality floor (`--pause-below none`). */
+  pauseBelow?: number | null;
+  minScored?: number;
   /** null clears it (`--after none`). */
   after?: string | null;
   body?: string;

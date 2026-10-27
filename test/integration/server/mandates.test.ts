@@ -77,6 +77,7 @@ test('mandates over the dashboard API', async () => {
       stall: { cadences: 3, bounces: 3 },
       onUnfinishable: 'park',
       scoring: 'all',
+      quality: { pauseBelow: null, minScored: 3 },
     });
     const newEvent = t.auditEvents().find((e) => e.type === 'mandate-new' && e.mandate === 'm1');
     assert.equal(newEvent?.actor?.source, 'dashboard');
@@ -125,6 +126,7 @@ test('mandates over the dashboard API', async () => {
     assert.deepEqual(list.json.grantable, ['spec-approval', 'escalation', 'milestone-approval']);
     assert.deepEqual(list.json.defaults, created.json.mandate.contract);
     assert.equal(list.json.defaults.scoring, 'all');
+    assert.deepEqual(list.json.defaults.quality, { pauseBelow: null, minScored: 3 });
 
     // AC4: the detail, with the token.
     const detail = await t.get('/mandates/m1', true);
@@ -152,6 +154,14 @@ test('mandates over the dashboard API', async () => {
     const sampled = await t.post('/mandates/m1/edit', { updatedAt: edited.json.mandate.updatedAt, scoring: 'sample' });
     assert.equal(sampled.status, 200, sampled.text);
     assert.deepEqual([sampled.json.mandate.contract.scoring, sampled.json.mandate.effective.scoring, sampled.json.mandate.contract.maxJobs], ['sample', 'sample', 3]);
+
+    // The quality floor: set on new, cleared on edit by null.
+    const floored = await t.post('/mandates', { id: 'q1', title: 'Floored', milestones: ['M1'], pauseBelow: 2.5, minScored: 4 });
+    assert.equal(floored.status, 200, floored.text);
+    assert.deepEqual([floored.json.mandate.contract.quality, floored.json.mandate.effective.quality], [{ pauseBelow: 2.5, minScored: 4 }, { pauseBelow: 2.5, minScored: 4 }]);
+    const unfloored = await t.post('/mandates/q1/edit', { updatedAt: floored.json.mandate.updatedAt, pauseBelow: null });
+    assert.equal(unfloored.status, 200, unfloored.text);
+    assert.deepEqual(unfloored.json.mandate.contract.quality, { pauseBelow: null, minScored: 4 });
 
     // AC7: the status moves, each idempotent; pause and close keep the reason.
     const paused = await t.post('/mandates/m1/pause', { reason: 'waiting on infra' });
@@ -196,6 +206,9 @@ test('mandate writes the dashboard refuses write nothing', async () => {
       ['/mandates', { ...ok, body: 'x'.repeat(8001) }, 400, /^body must be/],
       ['/mandates', { ...ok, maxJobs: '3' }, 400, /^body must be/],
       ['/mandates', { ...ok, after: 'x'.repeat(61) }, 400, /^body must be/],
+      ['/mandates', { ...ok, pauseBelow: '3' }, 400, /^body must be/],
+      ['/mandates', { ...ok, minScored: null }, 400, /^body must be/],
+      ['/mandates/a1/edit', { updatedAt, pauseBelow: '3' }, 400, /^body must be/],
       ['/mandates', { ...ok, id: null }, 400, /^body must be \{"id"\?: /],
       ['/mandates', { ...ok, id: 7 }, 400, /^body must be/],
       ['/mandates', { id: 'n1', milestones: ['M1'] }, 400, /^body must be/],
@@ -216,6 +229,8 @@ test('mandate writes the dashboard refuses write nothing', async () => {
       ['/mandates', { ...ok, decides: ['conflicts'] }, 409, 'conflicts is reserved (gate:conflicts)'],
       ['/mandates', { ...ok, milestones: ['-x'] }, 409, 'milestone "-x" must be 1-200 characters, not start with "-" and have no control or hidden characters'],
       ['/mandates', { id: 'n1', title: 'N1', issues: ['old-item'] }, 409, /scope\.issues needs order listed/],
+      ['/mandates', { ...ok, pauseBelow: 9 }, 409, 'quality.pauseBelow must be null or a number over 0 and at most 5 (got 9)'],
+      ['/mandates/a1/edit', { updatedAt, minScored: 0.5 }, 409, 'quality.minScored must be an integer 1-100 (got 0.5)'],
       ['/mandates/a1/edit', { updatedAt, after: 'a2' }, 409, '--after a2: that would close a cycle (a2 already comes after a1)'],
     ];
     const before = t.snapshot();

@@ -35,10 +35,13 @@ export const GOAL_CONTROL = new RegExp(`[\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f${SEPA
 
 /** The frontmatter keys, in the order a file holds them; every one is always written, `goal` last (store.ts). */
 export const MANDATE_KEYS = [
-  'schemaVersion', 'id', 'title', 'status', 'reason', 'scope', 'until', 'maxJobs', 'order', 'decides', 'budget', 'stall', 'onUnfinishable', 'scoring', 'after', 'createdAt', 'updatedAt', 'closedAt', 'filedAt', 'goal',
+  'schemaVersion', 'id', 'title', 'status', 'reason', 'scope', 'until', 'maxJobs', 'order', 'decides', 'budget', 'stall', 'onUnfinishable', 'scoring', 'quality', 'after', 'createdAt', 'updatedAt', 'closedAt', 'filedAt', 'goal',
 ] as const;
 
-export const isReadable = (m: ReadMandate | undefined): m is Mandate => m !== undefined && !('problem' in m);
+/** How many scored jobs a quality floor needs before it applies, unless the owner names another. */
+export const MIN_SCORED_DEFAULT = 3;
+
+export const isReadable =(m: ReadMandate | undefined): m is Mandate => m !== undefined && !('problem' in m);
 
 const got = (v: unknown) => `(got ${typeof v === 'number' ? String(v) : String(JSON.stringify(v)).slice(0, 60)})`;
 const isInt = (v: unknown, min: number, max: number): v is number => Number.isInteger(v) && (v as number) >= min && (v as number) <= max;
@@ -142,6 +145,13 @@ function termProblems(m: Record<string, any>, opts: { decides: boolean }): strin
   }
   if (!oneOf(m.onUnfinishable, MANDATE_ON_UNFINISHABLE)) problems.push(`onUnfinishable must be one of ${MANDATE_ON_UNFINISHABLE.join(' | ')} ${got(m.onUnfinishable)}`);
   if (!oneOf(m.scoring, MANDATE_SCORING)) problems.push(`scoring must be one of ${MANDATE_SCORING.join(' | ')} ${got(m.scoring)}`);
+  const q = m.quality;
+  if (!isMap(q) || Object.keys(q).some((k) => k !== 'pauseBelow' && k !== 'minScored')) problems.push('quality must be a map of pauseBelow and minScored');
+  else {
+    const pb = q.pauseBelow;
+    if (!(pb === null || (typeof pb === 'number' && Number.isFinite(pb) && pb > 0 && pb <= 5))) problems.push(`quality.pauseBelow must be null or a number over 0 and at most 5 ${got(pb)}`);
+    if (!isInt(q.minScored, 1, 100)) problems.push(`quality.minScored must be an integer 1-100 ${got(q.minScored)}`);
+  }
   if (m.after !== null && !isMandateId(m.after)) problems.push(badId('after', m.after));
   else if (m.after !== null && m.after === m.id) problems.push(`--after ${m.after}: a mandate can't follow itself`);
   for (const k of ['createdAt', 'updatedAt'] as const) if (!isIso(m[k])) problems.push(`${k} must be an ISO time`);
@@ -180,8 +190,8 @@ export function storedMandate(raw: unknown, fileId: string, body: string): ReadM
 export const grantable = (config: Config): GateClass[] => (reservedMatch(config, []) === INVALID_RESERVED ? [] : decides(config));
 
 /**
- * `input` with every contract term it lacks taken from foreman.mandate, but scoring, which is `all` (no
- * config key sets it). The default decides is cut to the classes the config grants, so a default never
+ * `input` with every contract term it lacks taken from foreman.mandate, but scoring, which is `all`, and
+ * quality, which has no floor and needs MIN_SCORED_DEFAULT scored jobs (no config key sets either). The default decides is cut to the classes the config grants, so a default never
  * causes a refusal; a decides the owner names is not.
  */
 export function fillDefaults(config: Config, input: MandateInput): MandateInput {
@@ -200,6 +210,8 @@ export function fillDefaults(config: Config, input: MandateInput): MandateInput 
     stallBounces: input.stallBounces ?? d.stall?.bounces,
     onUnfinishable: input.onUnfinishable ?? d.onUnfinishable,
     scoring: input.scoring ?? 'all',
+    pauseBelow: input.pauseBelow === undefined ? null : input.pauseBelow,
+    minScored: input.minScored ?? MIN_SCORED_DEFAULT,
   };
 }
 
@@ -220,6 +232,7 @@ export function blankMandate(id: string, at: string): Mandate {
     stall: { cadences: 1, bounces: 1 },
     onUnfinishable: 'park',
     scoring: 'all',
+    quality: { pauseBelow: null, minScored: MIN_SCORED_DEFAULT },
     after: null,
     createdAt: at,
     updatedAt: at,
@@ -245,6 +258,7 @@ export function applyInput(base: Mandate, input: MandateInput): Mandate {
     stall: { cadences: pick(input.stallCadences, base.stall.cadences), bounces: pick(input.stallBounces, base.stall.bounces) },
     onUnfinishable: pick(input.onUnfinishable, base.onUnfinishable) as Mandate['onUnfinishable'],
     scoring: pick(input.scoring, base.scoring) as Mandate['scoring'],
+    quality: { pauseBelow: pick(input.pauseBelow, base.quality.pauseBelow), minScored: pick(input.minScored, base.quality.minScored) },
     after: pick(input.after, base.after),
     goal: pick<string | null>(input.goal, base.goal),
     body: pick(input.body, base.body),
@@ -350,6 +364,7 @@ const contractOf = (m: Mandate): MandateContract => ({
   stall: { ...m.stall },
   onUnfinishable: m.onUnfinishable,
   scoring: m.scoring,
+  quality: { ...m.quality },
 });
 
 /** closed; paused; waiting while `after` names a mandate that isn't closed (or is missing or unreadable); else active. */

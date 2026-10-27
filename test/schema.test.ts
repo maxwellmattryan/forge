@@ -353,6 +353,12 @@ const MANDATE_ROWS: Row[] = [
     fields: { until: 'merged', filedAt: null, scoring: 'all', 'scope.milestones': ['M1'] },
     note: ONLY_VERSION,
   },
+  {
+    step: 'mandate-quality',
+    input: { ...MANDATE_V1, goal: null, filedAt: null, scoring: 'all' },
+    fields: { 'quality.pauseBelow': null, 'quality.minScored': 3, scoring: 'all', 'scope.milestones': ['M1'] },
+    note: 'a mandate written before the quality floor has none',
+  },
 ];
 
 const MANDATE_SUMMARY_ROWS: Row[] = [

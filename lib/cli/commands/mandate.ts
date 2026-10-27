@@ -50,6 +50,8 @@ const TERMS: [string, string][] = [
   ['--stall-bounces N', 'gate bounces on one job before it is stalled, 1-100'],
   ['--on-unfinishable park|cancel', "what it does with a job it can't finish"],
   ['--scoring all|sample|off', 'whether its merged jobs get a post-merge score run: all (the default) whatever scoring.sample says, sample (scoring.sample decides) or off'],
+  ['--pause-below N|none', 'pause it when the median post-merge score of its scored merged jobs falls below N, over 0 and at most 5 (none: no floor, the default)'],
+  ['--min-scored N', 'scored jobs the median needs before --pause-below applies, 1-100 (default 3)'],
   ['--after ID', 'start only once mandate ID has closed (none: clear it on edit)'],
   ['--body T | --body-file F', "the owner's guidance, fenced as data wherever it is shown (at most 8000 characters)"],
 ];
@@ -67,7 +69,7 @@ const MANDATE: HelpGroup = {
       command: 'mandate new',
       args: '[<id>] --title T [terms]',
       summary:
-        'create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run); without <id>, Forge picks m- and 8 random hex digits no mandate or mandate runtime dir holds (mandate.id)',
+        'create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all and no quality floor; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run); without <id>, Forge picks m- and 8 random hex digits no mandate or mandate runtime dir holds (mandate.id)',
       flags: [
         ['--title T', 'one line, at most 200 characters (required)'],
         [
@@ -296,6 +298,9 @@ function inputFrom(ctx: CliContext, flags: Record<string, any>): MandateInput {
   set('stallBounces', numFlag(flags['stall-bounces'], '--stall-bounces'));
   set('onUnfinishable', str(flags['on-unfinishable'], '--on-unfinishable'));
   set('scoring', str(flags.scoring, '--scoring'));
+  const pb = str(flags['pause-below'], '--pause-below');
+  if (pb !== undefined) input.pauseBelow = pb === 'none' ? null : Number(pb);
+  set('minScored', numFlag(flags['min-scored'], '--min-scored'));
   const after = str(flags.after, '--after');
   if (after !== undefined) input.after = after === 'none' ? null : after;
   if (flags.body !== undefined || flags['body-file'] !== undefined) input.body = bodyFrom(flags, ctx.root, ctx.config);

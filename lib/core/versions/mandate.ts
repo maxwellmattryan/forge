@@ -15,6 +15,8 @@ export const MANDATE_STEPS: readonly Step[] = [
   // until may be released (the mandate waits for its release run): no older file changes; the bump lets
   // an older Forge refuse a file whose until it would reject.
   { id: 'mandate-until-released', up: (m) => m },
+  // The mandate's quality floor (#594): every mandate written before it has none, and needs 3 scored jobs once one is set.
+  { id: 'mandate-quality', up: (m) => ({ ...m, quality: { pauseBelow: null, minScored: 3 } }) },
 ];
 
 export const MANDATE_SCHEMA_VERSION = versionOf(MANDATE_STEPS);

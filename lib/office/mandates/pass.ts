@@ -1,11 +1,12 @@
 // The Office pass (`forge office pass`, which `forge dash` runs every foreman.cadence minutes and on
 // events): deterministic code, no model, that enforces each mandate's contract. Per mandate, in
 // creation order: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing
-// summary (then the next link of a chain, in the same pass), the budget pause and the cadence stall.
+// summary (then the next link of a chain, in the same pass), the budget pause, the quality pause (the
+// running median of its scored merged jobs below quality.pauseBelow) and the cadence stall.
 // An `until: released` mandate whose work is done waits for its release instead of closing: the pass
 // plans it (only when unplanned, or when its own plan went stale before any step ran, and never over
 // another plan), never runs it, and closes the mandate once the release run finished and no mandate job
-// merged after it was planned; while it waits, no budget pause or stall applies.
+// merged after it was planned; while it waits, no pause or stall applies.
 // When a mandate has director work it wakes the office session with one `direct` request. Every
 // status write is guarded: it lands only while the mandate still has the status and updatedAt the
 // pass read, so an owner's edit, pause or close wins. docs/architecture/foreman.md › Director loop.
@@ -29,7 +30,7 @@ import { queueNotify } from '../notify.ts';
 import type { QueueNotify } from '../notify.ts';
 import { cleanReason, isReadable } from './contract.ts';
 import { logDirective, readDirectives } from './directives.ts';
-import { bounceHold, cadenceStalled, gateEntries, mandateProgress, readProgressCtx, scopeItems } from './progress.ts';
+import { bounceHold, cadenceStalled, gateEntries, mandateProgress, qualityFloor, qualityReason, readProgressCtx, scopeItems } from './progress.ts';
 import { listMandates, mandateDir, summaryFile, withOfficeLock, writeMandate } from './store.ts';
 import type { Config, JobEvent, Tracker } from '#core/types.ts';
 import type { DirectiveAction } from './directives.ts';
@@ -323,18 +324,23 @@ async function pass(root: string, config: Config, opts: PassOptions): Promise<Pa
       }
     }
 
-    // 4. Budget, then 5. the cadence stall: active mandates only, and never one waiting on a person for its release.
+    // 4. Budget, then the quality floor, then 5. the cadence stall: active mandates only, and never one
+    // waiting on a person for its release. At most one pause per pass.
     if (state === 'active' && waiting === null) {
-      let pause: { reason: string; event: 'mandate-budget' | 'mandate-stalled' } | null = null;
+      let pause: { reason: string; event: 'mandate-budget' | 'mandate-stalled'; notifyReason?: 'mandate-quality' } | null = null;
       if (p.spentUsd >= m.budget.usd) pause = { reason: `budget: $${money(p.spentUsd)} of $${money(m.budget.usd)} spent`, event: 'mandate-budget' };
       else if (p.started >= m.budget.jobs && p.candidates.length) pause = { reason: `budget: ${p.started} of ${m.budget.jobs} jobs started`, event: 'mandate-budget' };
       else {
-        const stalled = cadenceStalled(m, p.lastActivity, config, at);
-        if (stalled) pause = { reason: cut(`stalled: no progress for ${stalled.minutes} min (${stalled.passes} passes)${p.trackerError ? `; tracker: ${p.trackerError}` : ''}`), event: 'mandate-stalled' };
+        const q = qualityFloor(m, p.jobs);
+        if (q) pause = { reason: cut(qualityReason(q)), event: 'mandate-stalled', notifyReason: 'mandate-quality' };
+        else {
+          const stalled = cadenceStalled(m, p.lastActivity, config, at);
+          if (stalled) pause = { reason: cut(`stalled: no progress for ${stalled.minutes} min (${stalled.passes} passes)${p.trackerError ? `; tracker: ${p.trackerError}` : ''}`), event: 'mandate-stalled' };
+        }
       }
       if (pause && guardedMove(root, m, 'pause', pause.reason, iso)) {
         directive('pause', pause.reason);
-        notify(root, [pause.event], { reason: pause.event, mandate: id });
+        notify(root, [pause.event], { reason: pause.notifyReason ?? pause.event, mandate: id });
         state = 'paused';
       }
     }
