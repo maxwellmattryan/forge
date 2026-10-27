@@ -345,6 +345,8 @@ const MAX_PART_NAME = 70;
 const isTokens = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 const countOf = (v: unknown): number => (isTokens(v) ? v : 0);
 const strOrNull = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+/** A list's string entries, or null when it is not a list. */
+const stringList = (v: unknown): string[] | null => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : null);
 
 /**
  * A run's billing split from the usage its end reported: counts that are not finite numbers ≥ 0 read as 0, and the
@@ -435,7 +437,8 @@ export function normalizeJob(raw: any): LoadedJob {
   // A current-version file may still carry `source` (a hand edit, or a write that raced the
   // upgrade): folded the same way, then dropped, so no reader can see both.
   // `owner` likewise: a current-version file carrying one (and no lease) reads it as the migration would.
-  const { source: legacySource, owner: legacyOwner, ...rest } = job;
+  // `services` likewise: a current-version file carrying one reads it as `components`.
+  const { source: legacySource, owner: legacyOwner, services: legacyServices, ...rest } = job;
   const score = cleanScore(job.score);
   return {
     ...rest,
@@ -449,7 +452,9 @@ export function normalizeJob(raw: any): LoadedJob {
     parent: job.parent ?? null,
     children: job.children ?? [],
     dependsOn: job.dependsOn ?? [],
-    services: job.services ?? [],
+    components: stringList(job.components ?? legacyServices) ?? [],
+    componentsDeclared: stringList(job.componentsDeclared),
+    componentsFromDiff: stringList(job.componentsFromDiff),
     stage: job.stage ?? 'backlog',
     state: job.state ?? 'queued',
     waitingOn: job.waitingOn ?? null,

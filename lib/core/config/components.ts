@@ -49,13 +49,13 @@ export function servicesToComponents(c: any): any {
 }
 
 /**
- * The component whose commands a job uses: the one root-repo component its `services` names when it
+ * The component whose commands a job uses: the one root-repo component its `components` names when it
  * names exactly one. A component in another repo has no checkout in the job's worktree, so it is
  * never selected and the top-level commands run instead.
  */
-export function jobComponent(config: Pick<Config, 'components'>, job: Pick<Job, 'services'>): ComponentConfig | null {
-  if (job.services.length !== 1) return null;
-  const c = (config.components ?? []).find((s) => s?.name === job.services[0]);
+export function jobComponent(config: Pick<Config, 'components'>, job: Pick<Job, 'components'>): ComponentConfig | null {
+  if (job.components.length !== 1) return null;
+  const c = (config.components ?? []).find((s) => s?.name === job.components[0]);
   return c && (c.repo === undefined || c.repo === null) ? c : null;
 }
 

@@ -1169,6 +1169,7 @@ See [Local links](CONFIG.md#local-links).
 | `--body B` | the text |
 | `--body-file F` | read the text from F (- for stdin); in a daemon session F must be inside the session job's folder or worktree |
 | `--branch B` | the branch to push to (default: git.branchPrefix + id) |
+| `--components a,b` | the configured components it will change (the spec sets them otherwise) |
 | `--effort E` | the job's reasoning effort: low, medium, high, xhigh or max (default: inherit runtime.effort) |
 | `--force` | start it past an exceeded repo budget (budget:), logged as a budget-override; a human only |
 | `--issue R` | an issue to record, in order, the first one primary: #12, owner/repo#12, KEY-123 or a backlog ref (repeatable, or comma-separated; no tracker call) |
@@ -1178,7 +1179,7 @@ See [Local links](CONFIG.md#local-links).
 | `--parent ID` | the umbrella job this one was split from |
 | `--reason R` | why, with --no-issue |
 | `--ref R` | the one tracker ref it came from (not with --issue) |
-| `--services a,b` | the services it touches |
+| `--services a,b` | deprecated alias of --components |
 | `--session S` | claim the new job for session S |
 | `--slug S` | the words its id starts with (default: from the title) |
 | `--title T` | the title (required) |

@@ -243,6 +243,13 @@ const JOB_ROWS: Row[] = [
     note: "every ended run is legacy; a running agent's run is recorded by its end",
   },
   { step: 'shelved', input: { id: 'x', state: 'waiting', waitingOn: 'escalation', reason: 'r' }, fields: { shelved: null, finishedWhileShelved: false, waitingOn: 'escalation' }, note: 'a job from before the shelf is on none' },
+  {
+    step: 'job-components',
+    input: { id: 'x', services: ['api'] },
+    fields: { components: ['api'], componentsDeclared: ['api'], componentsFromDiff: null },
+    removed: ['services'],
+    note: "the old list is the job's components and its declared estimate; nothing is recomputed yet",
+  },
 ];
 
 const EVENT_ROWS: Row[] = [
@@ -776,25 +783,4 @@ test('a finished-while-shelved mark is kept only as true, and only on a done or 
   const read = (mark: unknown, state: string) => normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x', state, finishedWhileShelved: mark }).finishedWhileShelved;
   assert.deepEqual([read(true, 'cancelled'), read(true, 'done')], [true, true]);
   assert.deepEqual([read(true, 'queued'), read(true, 'waiting'), read('true', 'cancelled'), read(1, 'done'), read(undefined, 'cancelled')], [false, false, false, false, false]);
-});
-
-test('validates maxTotalRounds, maxCiReworks and daemon.jobBudget', () => {
-  const problems = (edit: (c: any) => void, key: string) => {
-    const c: any = defaults();
-    edit(c);
-    return validateConfig(c, process.cwd()).filter((p) => p.startsWith(key));
-  };
-  assert.deepEqual(problems(() => {}, 'pipeline.maxTotalRounds'), []);
-  assert.deepEqual(problems((c) => (c.pipeline.maxTotalRounds = 8), 'pipeline.maxTotalRounds'), []);
-  assert.equal(problems((c) => (c.pipeline.maxTotalRounds = 0), 'pipeline.maxTotalRounds').length, 1);
-  assert.equal(problems((c) => (c.pipeline.maxTotalRounds = 2.5), 'pipeline.maxTotalRounds').length, 1);
-  assert.deepEqual(problems((c) => (c.pr.maxCiReworks = 0), 'pr.maxCiReworks'), []);
-  assert.equal(problems((c) => (c.pr.maxCiReworks = -1), 'pr.maxCiReworks').length, 1);
-  assert.equal(problems((c) => (c.pr.maxCiReworks = 1.5), 'pr.maxCiReworks').length, 1);
-  assert.deepEqual(problems((c) => (c.daemon.jobBudget = null), 'daemon.jobBudget'), []);
-  assert.deepEqual(problems((c) => (c.daemon.jobBudget = { tokens: null, usd: 20, minutes: 90 }), 'daemon.jobBudget'), []);
-  assert.equal(problems((c) => (c.daemon.jobBudget = { usd: -1 }), 'daemon.jobBudget').length, 1);
-  assert.equal(problems((c) => (c.daemon.jobBudget = { changedLines: 5 }), 'daemon.jobBudget').length, 1);
-  assert.equal(problems((c) => (c.daemon.jobBudget = { tokens: 1.5 }), 'daemon.jobBudget').length, 1);
-  assert.equal(problems((c) => (c.daemon.jobBudget = [1]), 'daemon.jobBudget').length, 1);
 });

@@ -9,7 +9,7 @@ import type { Job, JobChange, TransitionSide } from '../types.ts';
 import { ForgeError } from '../errors.ts';
 
 // List fields `step`, the briefs and the dashboard iterate; each maps to the example its error shows.
-export const ARRAY_FIELDS: Record<string, string> = { reviewers: '["code","tests"]', services: '["api"]', dependsOn: '["<job id>"]', children: '["<job id>"]' };
+export const ARRAY_FIELDS: Record<string, string> = { reviewers: '["code","tests"]', components: '["api"]', componentsDeclared: '["api"]', dependsOn: '["<job id>"]', children: '["<job id>"]' };
 
 // A job's identity: what it pushes to, where it lives and who owns it. A session misled by request
 // text could otherwise run `--field branch=main` and have `forge pr open` push there, so only the
@@ -51,6 +51,8 @@ export const LOCKED_FIELDS: Record<string, string> = {
   shelved: 'forge job shelve|unshelve',
   // A cleared mark would let a cancel take a job off the shelf with nobody having decided it.
   finishedWhileShelved: 'forge job set --state, from a person, which clears it as the job goes back to work',
+  // The recompute from the committed diff: a session that set it could pass off its own list as the diff's.
+  componentsFromDiff: 'forge verify',
 };
 
 // Kinds step routes differently: a retro job's review panel is fixed at code and docs, and an eval

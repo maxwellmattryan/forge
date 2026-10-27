@@ -89,6 +89,9 @@ export const API_CHANGES = [
   { id: 'gate-runs' },
   // MandateContract.quality ({pauseBelow, minScored}); the pauseBelow and minScored terms on POST /api/mandates and /api/mandates/:id/edit.
   { id: 'mandate-quality' },
+  // Job.services is gone: Job.components (the list Forge acts on), Job.componentsDeclared (the spec's estimate) and
+  // Job.componentsFromDiff (forge verify's recompute from the committed diff).
+  { id: 'job-components' },
 ] as const;
 
 /**

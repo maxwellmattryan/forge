@@ -30,7 +30,7 @@
   const job = $derived(options.find((o) => o.id === picked) ?? null);
   const rootLabel = $derived(data.repo?.name || $t('project.thisRepo'));
   const layout = $derived(g ? layoutProject(g, rootLabel, $t('project.backing')) : null);
-  const hl = $derived(g && job ? highlight(g, job.services) : null);
+  const hl = $derived(g && job ? highlight(g, job.components) : null);
   const lit = $derived(hl?.matched ? hl : null);
   const repoCount = $derived(layout ? layout.bands.filter((b) => b.key !== BACKING_KEY).length : 0);
 

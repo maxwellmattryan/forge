@@ -1,5 +1,6 @@
 // jobCmd's dispatch table in-process: one handler per documented subcommand, and the group usage error otherwise;
-// and `job set` refusing the locked budget field.
+// `job set` refusing the locked budget and componentsFromDiff fields; and the components flags with their
+// deprecated `services` aliases.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -39,6 +40,91 @@ test('unknown and prototype-named subcommands get the group usage error', async 
   } finally {
     if (daemon !== undefined) process.env.FORGE_DAEMON = daemon;
     fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+/** `fn` with process.stderr.write captured, outside any daemon session; returns its result and what it wrote. */
+async function quietly(fn: () => Promise<unknown>): Promise<{ result: any; stderr: string }> {
+  const daemon = process.env.FORGE_DAEMON;
+  delete process.env.FORGE_DAEMON;
+  const write = process.stderr.write;
+  let stderr = '';
+  process.stderr.write = ((s: string | Uint8Array) => ((stderr += String(s)), true)) as typeof process.stderr.write;
+  try {
+    return { result: await fn(), stderr };
+  } finally {
+    process.stderr.write = write;
+    if (daemon !== undefined) process.env.FORGE_DAEMON = daemon;
+  }
+}
+
+test('components flags and their deprecated services aliases', async () => {
+  const repo = tempRepo();
+  try {
+    const config = defaults();
+    const read = (id: string) => JSON.parse(fs.readFileSync(path.join(jobDir(repo.dir, id), 'job.json'), 'utf8'));
+
+    const fresh = await quietly(() => jobCmd(repo.dir, config, 'new', [], { title: 'new name', components: 'api' }));
+    assert.equal('deprecated' in fresh.result, false);
+    assert.equal(fresh.stderr, '');
+    assert.deepEqual([read(fresh.result.id).components, read(fresh.result.id).componentsDeclared], [['api'], ['api']]);
+
+    const old = await quietly(() => jobCmd(repo.dir, config, 'new', [], { title: 'old name', services: 'api' }));
+    assert.deepEqual(old.result.deprecated, ['--services: use --components']);
+    assert.equal(old.stderr, 'forge: warning: --services is deprecated: use --components\n');
+    const created = read(old.result.id);
+    assert.deepEqual([created.components, created.componentsDeclared, created.componentsFromDiff], [['api'], ['api'], null]);
+    assert.equal('services' in created, false);
+
+    const id = createJob(repo.dir, config, { title: 'set' }).id;
+    const set = await quietly(() => jobCmd(repo.dir, config, 'set', [id], { field: ['components=["api"]'] }));
+    assert.equal('deprecated' in set.result, false);
+    assert.deepEqual(read(id).components, ['api']);
+    const aliased = await quietly(() => jobCmd(repo.dir, config, 'set', [id], { field: ['services=["web"]'] }));
+    assert.deepEqual(aliased.result.deprecated, ['--field services: use --field components']);
+    assert.equal(aliased.stderr, 'forge: warning: --field services is deprecated: use --field components\n');
+    assert.deepEqual(read(id).components, ['web']);
+    assert.equal('services' in read(id), false);
+
+    const clash = (e: unknown, message: string) => {
+      assert.ok(e instanceof ForgeError);
+      assert.equal(e.code, 'usage');
+      assert.equal(e.message, message);
+      return true;
+    };
+    const before = fs.readdirSync(path.join(repo.dir, '.forge', 'jobs')).length;
+    await assert.rejects(
+      quietly(() => jobCmd(repo.dir, config, 'new', [], { title: 'both', components: 'api', services: 'web' })),
+      (e) => clash(e, '--services is a deprecated alias of --components; pass only --components'),
+    );
+    assert.equal(fs.readdirSync(path.join(repo.dir, '.forge', 'jobs')).length, before, 'no job is created');
+    await assert.rejects(
+      quietly(() => jobCmd(repo.dir, config, 'set', [id], { field: ['components=["api"]', 'services.0=web'] })),
+      (e) => clash(e, '--field services is a deprecated alias of --field components; pass only --field components'),
+    );
+    assert.deepEqual(read(id).components, ['web']);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('componentsFromDiff is not settable through job set', async () => {
+  const repo = tempRepo();
+  try {
+    const config = defaults();
+    const id = createJob(repo.dir, config, { title: 'recomputed' }).id;
+    const file = path.join(jobDir(repo.dir, id), 'job.json');
+    const before = fs.readFileSync(file, 'utf8');
+    for (const field of ['componentsFromDiff=[]', 'componentsFromDiff.0=api']) {
+      await assert.rejects(quietly(() => jobCmd(repo.dir, config, 'set', [id], { field: [field] })), (e: unknown) => {
+        assert.ok(e instanceof ForgeError, `${field}: not a ForgeError`);
+        assert.equal(e.message, '--field componentsFromDiff is not settable; use forge verify', field);
+        return true;
+      });
+      assert.equal(fs.readFileSync(file, 'utf8'), before, `${field}: job.json unchanged`);
+    }
+  } finally {
+    repo.cleanup();
   }
 });
 

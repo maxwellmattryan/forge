@@ -183,9 +183,9 @@ export function highlight(g: ProjectResponse, services: readonly string[]): High
 const FINISHED = new Set(['done', 'cancelled', 'failed']);
 
 /** The job selector's choices: unfinished jobs by id, each with the components it names. */
-export function jobOptions(jobs: readonly Pick<StateJob, 'id' | 'title' | 'state' | 'services'>[]): { id: string; label: string; services: string[] }[] {
+export function jobOptions(jobs: readonly Pick<StateJob, 'id' | 'title' | 'state' | 'components'>[]): { id: string; label: string; components: string[] }[] {
   return jobs
     .filter((j) => !FINISHED.has(j.state))
-    .map((j) => ({ id: j.id, label: `${j.id} · ${j.title}`, services: Array.isArray(j.services) ? j.services : [] }))
+    .map((j) => ({ id: j.id, label: `${j.id} · ${j.title}`, components: Array.isArray(j.components) ? j.components : [] }))
     .sort((a, b) => cmp(a.id, b.id));
 }

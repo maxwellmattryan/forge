@@ -230,6 +230,20 @@ export function oneOf<T extends string>(v: unknown, allowed: readonly T[], what:
   return s as T;
 }
 
+/**
+ * A deprecated alias was used: one `forge: warning:` line on stderr, and the entry the result's
+ * `deprecated` list carries (`<old>: use <new>`).
+ */
+export function deprecatedAlias(old: string, use: string): string {
+  process.stderr.write(`forge: warning: ${old} is deprecated: use ${use}\n`);
+  return `${old}: use ${use}`;
+}
+
+/** A deprecated alias given beside the name that replaces it: which value was meant is unknowable. */
+export function aliasClash(old: string, use: string): ForgeError {
+  return new ForgeError(`${old} is a deprecated alias of ${use}; pass only ${use}`, 'usage');
+}
+
 /** Checked before any write: updateJob's lock would otherwise create a ghost job directory. */
 export function requireJob(root: string, id: unknown): LoadedJob {
   return loadJob(root, req(id, 'job id'));

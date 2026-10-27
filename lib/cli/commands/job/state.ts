@@ -13,7 +13,7 @@ import { refreshRequest } from '#engine/trackers/request-refresh.ts';
 import { ForgeError } from '#core/errors.ts';
 import { coerce } from '#core/text.ts';
 import type { Config } from '#core/types.ts';
-import { bodyFrom, list, oneOf, requireJob, str, usageError } from '../args.ts';
+import { aliasClash, bodyFrom, deprecatedAlias, list, oneOf, requireJob, str, usageError } from '../args.ts';
 import { confirmHuman, jobBudgetOp, reopenShelvedOp } from '../human.ts';
 import { JOB } from './help.ts';
 import { epochFence } from './lease.ts';
@@ -40,10 +40,19 @@ export async function set(root: string, config: Config, rest: string[], flags: R
   const jobId = requireJob(root, id).id;
   const note = str(flags.note, '--note');
   const fields: Record<string, any> = {};
-  for (const kv of flags.field === undefined || flags.field === true ? [] : ([] as unknown[]).concat(flags.field).map(String)) {
+  const deprecated: string[] = [];
+  const kvs = flags.field === undefined || flags.field === true ? [] : ([] as unknown[]).concat(flags.field).map(String);
+  const top = (kv: string) => kv.slice(0, kv.indexOf('=')).split('.')[0];
+  // `services` is the old name of `components`, kept for one release.
+  if (kvs.some((kv) => top(kv) === 'services') && kvs.some((kv) => top(kv) === 'components')) throw aliasClash('--field services', '--field components');
+  for (const kv of kvs) {
     const eq = kv.indexOf('=');
     if (eq < 1) throw new ForgeError(`--field expects key=value, got "${kv}"`, 'usage');
-    const key = kv.slice(0, eq);
+    let key = kv.slice(0, eq);
+    if (key.split('.')[0] === 'services') {
+      key = `components${key.slice('services'.length)}`;
+      if (!deprecated.length) deprecated.push(deprecatedAlias('--field services', '--field components'));
+    }
     // Checked before coerce, so `owner={}` gets the lock message rather than a JSON error.
     checkFieldKey(key);
     fields[key] = coerce(kv.slice(eq + 1), key);
@@ -74,7 +83,15 @@ export async function set(root: string, config: Config, rest: string[], flags: R
       afterWrite: 'dependsOn' in fields ? (j) => (refreshDependencyWait(root, j.id), loadJob(root, j.id)) : undefined,
     },
   );
-  return { id: job.id, stage: job.stage, state: job.state, waitingOn: job.waitingOn, ...(gate ? { gateRequest: gate.id } : {}), ...(environment ? { environment } : {}) };
+  return {
+    id: job.id,
+    stage: job.stage,
+    state: job.state,
+    waitingOn: job.waitingOn,
+    ...(gate ? { gateRequest: gate.id } : {}),
+    ...(environment ? { environment } : {}),
+    ...(deprecated.length ? { deprecated } : {}),
+  };
 }
 
 export function refreshRequestCmd(root: string, config: Config, rest: string[], flags: Record<string, any>) {
