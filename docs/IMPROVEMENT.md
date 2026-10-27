@@ -55,6 +55,8 @@ A mandate's **report card** says how good its work was, in one fixed shape: `{ m
 
 The card carries no free text (no titles, ids, reasons, issue refs or logins): only counts, finite numbers, `pending`, `null`, `byGate` keys from the `waitingOn` values, and the `at` and `finalAt` times it builds itself. A malformed stored value counts as unscored, keys as `none` or is skipped.
 
+The dashboard's Office page shows the card on each mandate, after its progress. An open mandate shows the live card, labelled **Live**. A closed one shows its closing summary's card, which the rows carry as `MandateRow.closing` (`{card, outcomesFinalAt}`, rebuilt by `closingCard` beside `buildReportCard`), labelled **Recorded at close** with the card's date until `outcomesFinalAt` is set, then **Final outcomes** with that date. A closed mandate with no usable summary card (an owner's close, a summary from before the card, an unreadable one, or a card that fails `closingCard`'s check) shows the live card, labelled **Live**. Every figure in a mandate's section comes from the one card shown. A `pending` figure shows as a **pending** chip whose tooltip says how many score runs or outcome windows it waits on, and a `null` one as a dash read out as "nothing to measure"; neither shows as 0. A card with no jobs is one line saying so, and spend is left out, as the progress line already shows it.
+
 ### Measuring a spend change
 
 A change meant to cut spend (a prompt rule, `runtime.modelByComplexity`, `runtime.reworkModel`, `review.onRework`, effort defaults) must not cost quality. Measure it before and after:
