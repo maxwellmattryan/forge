@@ -68,7 +68,7 @@ test('the security and secrets reasons', () => {
 test("a held push is approved only by a person's approve at exactly its reason", () => {
   const reason = `${PUSH_HELD_PREFIX}CI config changes: .github/workflows/ci.yml [ci 0123456789abcdef]`;
   const park = (r: string): JobEvent => ({ v: 1, ts: 't1', type: 'transition', from: { stage: 'pr', state: 'running', waitingOn: null }, to: { stage: 'pr', state: 'waiting', waitingOn: 'human' }, reason: r });
-  const approve = (actor: unknown = { login: 'al', source: 'env' }): JobEvent => ({ v: 1, ts: 't2', type: 'human', action: 'approve', actor });
+  const approve = (actor: unknown = { login: 'al', source: 'env' }): JobEvent => ({ v: 1, ts: 't2', type: 'human', action: 'approve', actor }) as JobEvent;
   assert.equal(pushHoldApproved([park(reason), approve()], reason), true);
   assert.equal(pushHoldApproved([park(reason), approve({ login: null, source: 'foreman' })], reason), false, "the Foreman's");
   assert.equal(pushHoldApproved([park(reason.replace('0123', 'ffff')), approve()], reason), false, 'another digest');
