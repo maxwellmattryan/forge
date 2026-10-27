@@ -287,6 +287,8 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
   const modeIds = new Set<string>();
   /** The last rate_limit_event since the last written turn. */
   let rateLimit: RateLimitInfo | null = null;
+  /** The context of the last main-loop assistant line since the last result; null while none carried a usage. */
+  let context: number | null = null;
 
   function onLine(line: string): void {
     let ev: any = null;
@@ -302,6 +304,18 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
       if (typeof ev.request_id === 'string' && pending.delete(ev.request_id)) emit({ kind: 'permission-cancelled', requestId: ev.request_id });
     } else if (ev.type === 'rate_limit_event') rateLimit = parseRateLimit(ev.rate_limit_info) ?? rateLimit;
     else if (ev.type === 'result') onResult(ev);
+    else if (ev.type === 'assistant') onAssistant(ev);
+  }
+
+  /**
+   * One API call's context: its input, cache-read and cache-creation tokens, each finite and >= 0 or else 0.
+   * Only a main-loop line counts: a subagent's (a non-empty parent_tool_use_id) runs in its own context.
+   */
+  function onAssistant(ev: Record<string, any>): void {
+    if (typeof ev.parent_tool_use_id === 'string' && ev.parent_tool_use_id) return;
+    const usage = record(ev.message).usage;
+    if (!usage || typeof usage !== 'object' || Array.isArray(usage)) return;
+    context = costCount(usage.input_tokens) + costCount(usage.cache_read_input_tokens) + costCount(usage.cache_creation_input_tokens);
   }
 
   function onSystem(ev: Record<string, any>): void {
@@ -365,17 +379,20 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
    * claude reports an API failure (an expired login, an exhausted quota) as a result with is_error,
    * often with subtype "success". It is a quota limit when a rate_limit_event since the last written
    * turn said `rejected`, or when its text reads like one; a login failure when it is neither that nor
-   * the dollar cap and its text reads like AUTH_TEXT.
+   * the dollar cap and its text reads like AUTH_TEXT. Either carries the turn's context when it had one,
+   * and the next turn starts unmeasured.
    */
   function onResult(ev: Record<string, any>): void {
     const cost = resultCost(ev);
+    const measured = context !== null ? { context } : {};
+    context = null;
     // The --max-budget-usd stop is a failed turn whatever is_error says, and never a quota limit to wait out.
     const budget = ev.subtype === 'error_max_budget_usd';
-    if (ev.is_error !== true && !budget) return emit({ kind: 'turn-ended', ok: true, summary: firstLine(ev.result), cost, text: typeof ev.result === 'string' ? ev.result.slice(-RESULT_TEXT_MAX) : null });
+    if (ev.is_error !== true && !budget) return emit({ kind: 'turn-ended', ok: true, summary: firstLine(ev.result), cost, text: typeof ev.result === 'string' ? ev.result.slice(-RESULT_TEXT_MAX) : null, ...measured });
     const reason = (typeof ev.result === 'string' && ev.result.trim() ? ev.result.trim() : String(ev.subtype ?? 'error')).slice(0, 300);
     const rejected = rateLimit?.status === 'rejected';
     const limit = budget ? false : rejected || LIMIT_TEXT.test(reason);
-    emit({ kind: 'turn-ended', ok: false, reason, limit, auth: !limit && !budget && AUTH_TEXT.test(reason), resetsAt: rejected && !budget ? rateLimit!.resetsAt : null, budget, cost });
+    emit({ kind: 'turn-ended', ok: false, reason, limit, auth: !limit && !budget && AUTH_TEXT.test(reason), resetsAt: rejected && !budget ? rateLimit!.resetsAt : null, budget, cost, ...measured });
   }
 
   return {

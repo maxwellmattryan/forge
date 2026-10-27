@@ -118,6 +118,11 @@ export interface DaemonSessionState {
   kept: 'agents' | null;
   /** The --effort Forge passed the running child; null while none runs or when it passed none. */
   effort: Effort | null;
+  /**
+   * The running child's latest turn context: its last main-loop API call's input + cache-read + cache-creation
+   * tokens. null while no child runs or before its first reading.
+   */
+  contextTokens: number | null;
 }
 
 /**

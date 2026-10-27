@@ -89,6 +89,8 @@ export const API_CHANGES = [
   { id: 'gate-runs' },
   // MandateContract.quality ({pauseBelow, minScored}); the pauseBelow and minScored terms on POST /api/mandates and /api/mandates/:id/edit.
   { id: 'mandate-quality' },
+  // DaemonSessionState.contextTokens: the running child's last turn context.
+  { id: 'session-context' },
   // GateRunOutcome 'shelved' (a senior pass shelved the job, under foreman.escalations: foreman); GateRunState.attempts
   // goes up to 4, the first assistant's turns plus the senior's.
   { id: 'senior-pass' },

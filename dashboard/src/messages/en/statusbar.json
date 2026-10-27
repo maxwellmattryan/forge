@@ -8,6 +8,7 @@
     "stop": "Stop",
     "failed": "Daemon {action} failed: {error}",
     "modeTitle": "Permission mode: {mode}",
+    "context": "{tokens} context",
     "off": "Daemon off",
     "rows": {
       "label": "Job sessions"

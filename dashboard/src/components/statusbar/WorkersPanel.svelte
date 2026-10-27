@@ -4,10 +4,11 @@
      or, for a project whose files no human has approved, the line that says to review them and press Start, and a line when
      billing variables are set where forge dash started (warn tone for a provider switch or ANTHROPIC_BASE_URL, as doctor).
      Then one row per job session in status order, in a fixed-height list that alone scrolls, or a muted line when there is
-     none. A row opens that job's pane on the Log tab. The rows say held and waiting themselves, so no chips repeat them;
-     permission prompts are answered in the Needs-you popover. The inbox session lives in its own Inbox popover. StatusBar
-     owns the pool state and act(), so the indicator and this panel agree. Session errors and job titles are untrusted and
-     render as text. -->
+     none. A row's second line is its job id, its own mode when it has one, and its running child's last turn context
+     (` · 245k context`). A row opens that job's pane on the Log tab. The rows say held and waiting themselves, so no
+     chips repeat them; permission prompts are answered in the Needs-you popover. The inbox session lives in its own Inbox
+     popover. StatusBar owns the pool state and act(), so the indicator and this panel agree. Session errors and job titles
+     are untrusted and render as text. -->
 <script lang="ts">
   import Chip from '../Chip.svelte';
   import Icon from '../Icon.svelte';
@@ -22,6 +23,7 @@
   import { S, forgeToken, openDrawer, refresh } from '../../lib/app.svelte.ts';
   import { closePopover } from '../../lib/popover.svelte.ts';
   import { t } from '../../lib/locale.ts';
+  import { tokensShort } from '../../lib/util.ts';
 
   let {
     model,
@@ -98,7 +100,7 @@
         {#each rows as r (r.id)}
           <li class="shrink-0">
             <button class="plain clickable flex w-full min-w-0 items-center gap-3 border border-line-soft px-2 py-1.5 text-left" title={[r.id, r.pill.title, ...(r.mode ? [$t('daemon.modeTitle', { mode: named(r.mode) })] : [])].join('\n')} onclick={() => openJob(r.id)}>
-              <span class="flex min-w-0 flex-1 flex-col"><span class="truncate text-sm">{r.title ?? r.id}</span><span class="mono muted truncate">{r.id}{#if r.mode} · {named(r.mode)}{/if}</span></span>
+              <span class="flex min-w-0 flex-1 flex-col"><span class="truncate text-sm">{r.title ?? r.id}</span><span class="mono muted truncate">{r.id}{#if r.mode} · {named(r.mode)}{/if}{#if r.context !== null} · {$t('daemon.context', { tokens: tokensShort(r.context) })}{/if}</span></span>
               {@render pill(r.pill)}
             </button>
           </li>
