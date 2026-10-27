@@ -91,6 +91,8 @@ export const API_CHANGES = [
   { id: 'mandate-quality' },
   // DaemonSessionState.contextTokens: the running child's last turn context.
   { id: 'session-context' },
+  // GET /api/backlog/item?ref= (BacklogItemResponse, TrackerItemView, TrackerComment): one tracker item's text and facts for the issue panel.
+  { id: 'backlog-item' },
 ] as const;
 
 /**

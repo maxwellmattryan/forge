@@ -7,6 +7,7 @@
 // left out of ready lists, and a claim with label sync drops it like any other stale status label.
 // Project coordinates come from tracker.github.project or the repo's project-config file
 // (default .github/project-config.yml); projects need a token with the "project" scope.
+// get fences an issue's text for agents; view returns it unfenced, for the dashboard's issue panel only.
 import fs from 'node:fs';
 import path from 'node:path';
 import { paths, resolveFrom, exists } from '#core/paths.ts';
@@ -82,6 +83,14 @@ const gcfg = (ctx: Pick<TrackerCtx, 'config'>) => ctx.config.tracker.github;
 /** People with write access: their comments are imported by default, and their issues refresh on claim. */
 const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 export const trustedAssociation = (association: string | null): boolean => association !== null && TRUSTED.has(association);
+
+/** tracker.github.comments' rule, which get and view share: `all` keeps every comment, `collaborators` only write access. */
+function keptComments(ctx: Pick<TrackerCtx, 'config'>, comments: unknown): { kept: any[]; dropped: number } {
+  const all = Array.isArray(comments) ? comments : [];
+  const everyone = gcfg(ctx).comments === 'all';
+  const kept = all.filter((c: any) => everyone || TRUSTED.has(c?.authorAssociation));
+  return { kept, dropped: all.length - kept.length };
+}
 
 /**
  * The issue author's association with the repo, from the REST API: `gh issue view` gives each
@@ -312,9 +321,7 @@ export default {
     item.title = oneLineTitle(i.title, hidden);
     const body = String(i.body ?? '').trim();
     const quoted = body ? quote(body, hidden) : '';
-    const everyone = gcfg(ctx).comments === 'all';
-    const kept = (i.comments ?? []).filter((c: any) => everyone || TRUSTED.has(c.authorAssociation));
-    const dropped = (i.comments ?? []).length - kept.length;
+    const { kept, dropped } = keptComments(ctx, i.comments);
     const comments = kept.slice(-15).map((c: any) => {
       const assoc = String(c.authorAssociation ?? 'NONE').toLowerCase().replace(/[^a-z_]/g, '') || 'none';
       return `**@${login(c.author?.login)}** (${assoc}):\n${quote(c.body, hidden)}`;
@@ -328,6 +335,33 @@ export default {
     ].join('\n');
     item.status = i.state;
     return item;
+  },
+  view(ctx, ref) {
+    const repo = slugOnce(ctx);
+    const n = issueNumber(ref, repo);
+    const slug = repo();
+    const fields = 'number,title,body,url,labels,assignees,comments,state,author,milestone,createdAt,updatedAt';
+    const r = gh(ctx.root, ['issue', 'view', '-R', slug, '--json', fields, '--', n], { allowFail: true });
+    if (!r.ok) throw new ForgeError(`gh issue view #${n} failed: ${oneLineTitle(String(r.stderr ?? '').split('\n')[0] ?? '').slice(0, 200) || 'gh failed'}`, 'external');
+    const i = JSON.parse(r.stdout);
+    const { kept, dropped } = keptComments(ctx, i.comments);
+    const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+    // Unfenced on purpose: this is the panel's text, never an agent's (lib/engine/trackers/view.ts), and md() escapes it.
+    return {
+      ref: String(i.number ?? n),
+      title: oneLineTitle(i.title),
+      url: str(i.url),
+      state: typeof i.state === 'string' ? i.state.toLowerCase() : null,
+      body: String(i.body ?? ''),
+      comments: kept.map((c: any) => ({ author: login(c?.author?.login), at: str(c?.createdAt), body: String(c?.body ?? '') })),
+      hiddenComments: dropped,
+      labels: (i.labels ?? []).map((l: any) => l?.name).filter((l: unknown) => typeof l === 'string'),
+      assignees: (i.assignees ?? []).map((a: any) => a?.login).filter((a: unknown) => typeof a === 'string'),
+      milestone: i.milestone?.title ? oneLineTitle(i.milestone.title) : null,
+      author: i.author?.login ? login(i.author.login) : null,
+      createdAt: str(i.createdAt),
+      updatedAt: str(i.updatedAt),
+    };
   },
   claim(ctx, ref, job) {
     const repo = slugOnce(ctx);

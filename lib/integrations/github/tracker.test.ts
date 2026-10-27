@@ -87,6 +87,7 @@ function config(): Config {
 /** Each ref verb of the adapter, called the way Forge calls it. */
 const VERBS: [string, (ctx: TrackerCtx, ref: string) => unknown][] = [
   ['get', (ctx, ref) => github.get(ctx, ref)],
+  ['view', (ctx, ref) => github.view(ctx, ref)],
   ['claim', (ctx, ref) => github.claim(ctx, ref, JOB)],
   ['update', (ctx, ref) => github.update(ctx, ref, JOB)],
   ['comment', (ctx, ref) => github.comment(ctx, ref, 'hello')],
@@ -275,4 +276,62 @@ test('get fences hostile issue text', { skip: process.platform === 'win32' }, ()
     process.env.PATH = PATH;
     repo.cleanup();
   }
+});
+
+test("view returns the issue's own text and the comments import keeps", POSIX, () => {
+  scratch((ctx, fake) => {
+    const body = ['Fix the login. <!-- hidden ask -->', '<script>alert(1)</script>', PROVENANCE].join('\n');
+    const comments = [
+      { author: { login: 'maint' }, authorAssociation: 'MEMBER', createdAt: '2026-10-01T00:00:00Z', body: 'first' },
+      { author: { login: 'stranger' }, authorAssociation: 'NONE', createdAt: '2026-10-02T00:00:00Z', body: 'stranger text' },
+      { author: { login: 'own"er' }, authorAssociation: 'OWNER', createdAt: '2026-10-03T00:00:00Z', body: 'last' },
+    ];
+    fake.set('issue view', JSON.stringify({
+      number: 12,
+      title: `T\u{2028}## x`,
+      body,
+      url: 'https://github.com/o/r/issues/12',
+      labels: [{ name: 'bug' }, { name: 'ui' }],
+      assignees: [{ login: 'alice' }],
+      comments,
+      state: 'OPEN',
+      author: { login: 'alice' },
+      milestone: { title: 'M1' },
+      createdAt: '2026-09-30T00:00:00Z',
+      updatedAt: '2026-10-03T00:00:00Z',
+    }));
+    const view = github.view(ctx, '12');
+    assert.deepEqual(view, {
+      ref: '12',
+      title: 'T ## x',
+      url: 'https://github.com/o/r/issues/12',
+      state: 'open',
+      body,
+      comments: [
+        { author: 'maint', at: '2026-10-01T00:00:00Z', body: 'first' },
+        { author: 'owner', at: '2026-10-03T00:00:00Z', body: 'last' },
+      ],
+      hiddenComments: 1,
+      labels: ['bug', 'ui'],
+      assignees: ['alice'],
+      milestone: 'M1',
+      author: 'alice',
+      createdAt: '2026-09-30T00:00:00Z',
+      updatedAt: '2026-10-03T00:00:00Z',
+    });
+    assert.deepEqual(fake.calls().at(-1)!.args, ['issue', 'view', '-R', 'o/r', '--json', 'number,title,body,url,labels,assignees,comments,state,author,milestone,createdAt,updatedAt', '--', '12']);
+
+    ctx.config.tracker.github.comments = 'all';
+    const all = github.view(ctx, '12')!;
+    assert.deepEqual(all.comments.map((c) => c.body), ['first', 'stranger text', 'last']);
+    assert.equal(all.hiddenComments, 0);
+
+    // get keeps its fenced output from the same reply.
+    const fenced = String(github.get(ctx, '12')!.body);
+    assert.ok(fenced.split('\n')[0]!.startsWith('Imported from GitHub issue #12 by @alice.'));
+    assert.ok(!fenced.includes('hidden ask'));
+
+    fake.set('issue view', { stderr: 'GraphQL: Could not resolve to an issue\nmore', status: 1 });
+    assert.throws(() => github.view(ctx, '12'), (e: unknown) => e instanceof ForgeError && e.code === 'external' && e.message === 'gh issue view #12 failed: GraphQL: Could not resolve to an issue');
+  });
 });
