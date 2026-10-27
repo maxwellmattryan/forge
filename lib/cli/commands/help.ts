@@ -82,15 +82,24 @@ export const CORE: HelpGroup[] = [
     commands: [
       {
         command: 'run',
-        args: '<id> <command> [--repo NAME] [--background] [--tail N] [-- <args…>]',
+        args: '<id> <command> [--repo NAME] [--background] [--changed] [--tail N] [-- <args…>]',
         summary: 'run commands.<command> in the job\'s worktree, logging its output to the job dir and printing the tail',
         flags: [
           ['--repo NAME', "run the command of member repo NAME's one component that defines it, in that member's worktree (not with --background)"],
           ['--background', 'start it detached (dev servers); stop it with forge stop'],
+          [
+            '--changed',
+            "run only the tests related to the job's changes since its base (relatedTests): placed at {args}; the whole command when a shared test helper changed, nothing when none match; not with --repo, --background or -- <args…>",
+          ],
           ['--tail N', 'print the last N lines (default 40)'],
           ['-- <args…>', 'quoted arguments, placed at {args} in the template or appended'],
         ],
-        exits: [[1, 'the command failed, is not configured (for --repo: no component of that repo, or several, define it), or the job has no worktree']],
+        exits: [
+          [
+            1,
+            "the command failed, is not configured (for --repo: no component of that repo, or several, define it), or the job has no worktree; with --changed also a template without {args}, a base that can't be resolved, or --changed with a value, --repo, --background or -- <args…>",
+          ],
+        ],
       },
     ],
   },

@@ -1,9 +1,11 @@
-// `forge run <job> <command> [--repo R] [--tail N] [-- <args…>]` and `forge run <job> <command> --background`.
+// `forge run <job> <command> [--repo R] [--tail N] [-- <args…>]`, `forge run <job> <command> --background`
+// and `forge run <job> <command> --changed` (the related tests of the job's changes at {args}).
 import type { Config } from '#core/types.ts';
 import type { Dispatched } from '../types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { startBackground } from '#engine/workspace/dev-server.ts';
 import { runCommand } from '#engine/workspace/run.ts';
+import { runChanged } from '#engine/workspace/related-tests.ts';
 import { num, parseArgs, req } from './args.ts';
 
 const AFTER_DASHES = 'forge run takes extra arguments only after --: forge run <job> <command> -- <args…>';
@@ -19,11 +21,19 @@ export async function runCmd(root: string, config: Config, argv: string[]): Prom
   const { pos, flags } = parseArgs(before);
   const id = req(pos[1], 'job id');
   const name = req(pos[2], 'command name');
-  if (before.some((a) => a.startsWith('--background='))) throw new ForgeError('forge run: --background takes no value');
-  // A word after --background is parsed as its value, so it is an extra argument too.
-  if (pos.length > 3 || (flags.background !== undefined && flags.background !== true)) throw new ForgeError(AFTER_DASHES);
+  for (const flag of ['background', 'changed']) if (before.some((a) => a.startsWith(`--${flag}=`))) throw new ForgeError(`forge run: --${flag} takes no value`);
+  // A word after --background or --changed is parsed as its value, so it is an extra argument too.
+  if (pos.length > 3 || [flags.background, flags.changed].some((v) => v !== undefined && v !== true)) throw new ForgeError(AFTER_DASHES);
   const tail = num(flags.tail, '--tail', { integer: true }) ?? 40;
   const repo = flags.repo === undefined ? undefined : req(typeof flags.repo === 'string' ? flags.repo : undefined, '--repo');
+  if (flags.changed) {
+    // The CLI picks the arguments, so none may come from the call, and a member has its own base.
+    if (args.length) throw new ForgeError('forge run --changed takes no -- <args…>: it passes the related tests itself');
+    if (flags.background) throw new ForgeError('forge run --changed takes no --background: it runs the tests and returns');
+    if (repo !== undefined) throw new ForgeError('forge run --changed takes no --repo: it runs only in the root worktree');
+    const r = runChanged(root, config, id, name, { tail });
+    return { data: r, exitCode: r.ok ? 0 : 1 };
+  }
   // Member worktrees get no port, so a server there would collide with the root's.
   if (repo !== undefined && flags.background) throw new ForgeError('forge run --repo takes no --background: member repos run no background commands');
   if (flags.background) {

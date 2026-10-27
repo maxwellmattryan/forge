@@ -70,6 +70,29 @@ test('merge.requiredChecks problems', () => {
   }
 });
 
+test('relatedTests problems', () => {
+  const problems = (edit: (r: any) => void): string[] => {
+    const c: any = defaults();
+    edit(c.relatedTests);
+    return validateConfig(c, os.tmpdir()).filter((p) => p.startsWith('relatedTests'));
+  };
+  assert.deepEqual(problems(() => {}), [], 'defaults() validates clean');
+  const rows: [string, (r: any) => void, RegExp | null][] = [
+    ['a custom block', (r) => Object.assign(r, { tests: ['spec/**/*_spec.rb'], map: ['spec/{dir}/{name}_spec.rb'], full: [] }), null],
+    ['tests not a list', (r) => (r.tests = '**/*.test.*'), /^relatedTests\.tests must be a list of non-empty strings/],
+    ['an empty map entry', (r) => (r.map = ['{dir}/{name}.test.*', ' ']), /^relatedTests\.map must be a list of non-empty strings/],
+    ['a non-string full entry', (r) => (r.full = [3]), /^relatedTests\.full must be a list of non-empty strings/],
+    ['an unknown placeholder', (r) => (r.map = ['{dir}/{name}.test.*', '{root}/{name}.test.*', '{job}']), /^relatedTests\.map\[1\] may use only the \{dir\} and \{name\} placeholders/],
+  ];
+  for (const [name, edit, want] of rows) {
+    const got = problems(edit);
+    if (want === null) assert.deepEqual(got, [], name);
+    else assert.ok(got.length === 1 && want.test(got[0]), `${name}: ${JSON.stringify(got)}`);
+  }
+  // Every field's problem is reported, one each.
+  assert.equal(problems((r) => Object.assign(r, { tests: null, map: ['{x}'], full: [''] })).length, 3);
+});
+
 test('foreman problems', () => {
   const problems = (edit: (f: any) => void): string[] => {
     const c: any = defaults();
