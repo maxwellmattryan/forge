@@ -1,4 +1,5 @@
-<!-- The mandate editor, inline: a new mandate's (above the list) or one mandate's (in place of its card). Fields: the id
+<!-- The mandate editor, in a centred modal (the Add project shell: backdrop, focus trap, Escape, scroll lock; a full-screen
+     sheet below md): a new mandate's or one mandate's. Fields: the id
      (new only, checked against MANDATE_ID_SOURCE before posting) and title; the scope as comma-separated milestones, labels
      and issues (hidden for a goal mandate in intake, whose scope stays empty); until, max jobs and order; one checkbox per
      grantable class (a written class the config no longer grants stays checked and disabled, with a note); the budget,
@@ -8,12 +9,16 @@
      field; a success closes the editor, reloads and toasts. Owner text renders only as Svelte text and input values. -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import CloseButton from './CloseButton.svelte';
   import Select from './Select.svelte';
   import { blankForm, editMandateBody, fetchMandate, formOf, inIntake, isMandateId, isUnreadable, newMandateBody, postMandate, postMandateEdit, type MandateForm } from '../lib/foreman.ts';
   import { MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL } from '../lib/types.ts';
   import { forgeToken, loadMandates, refresh } from '../lib/app.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
+  import { EXIT, fade, pop } from '../lib/motion.ts';
+  import { lockScroll } from '../lib/scroll-lock.ts';
+  import { wrapFocus } from '../lib/settings.ts';
   import type { MandateDetailResponse, MandateRow, MandatesResponse } from '../lib/types.ts';
   import type { SelectOption } from '../lib/select.ts';
 
@@ -30,6 +35,41 @@
   let error = $state<string | null>(null);
   let saving = $state(false);
   let first = $state<HTMLInputElement>();
+  let dialog = $state<HTMLDivElement>();
+  let pressedOnBackdrop = false;
+
+  const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+  function trap(e: KeyboardEvent): void {
+    if (e.key === 'Escape' && !e.defaultPrevented && !saving) {
+      e.stopPropagation();
+      onclose();
+      return;
+    }
+    if (e.key !== 'Tab' || !dialog) return;
+    const items = [...dialog.querySelectorAll<HTMLElement>(TABBABLE)].filter((el) => el.getClientRects().length > 0);
+    const n = wrapFocus(items.length, items.indexOf(document.activeElement as HTMLElement), e.shiftKey);
+    if (n === null) return;
+    e.preventDefault();
+    items[n].focus();
+  }
+
+  // Both ends of the click must be on the backdrop: a text selection dragged out of the dialog ends its click there too.
+  function backdropDown(e: MouseEvent): void {
+    pressedOnBackdrop = e.target === e.currentTarget;
+  }
+
+  function backdrop(e: MouseEvent): void {
+    const both = pressedOnBackdrop && e.target === e.currentTarget;
+    pressedOnBackdrop = false;
+    if (both && !saving && matchMedia('(min-width: 768px)').matches) onclose();
+  }
+
+  onMount(() => {
+    const unlock = lockScroll();
+    dialog?.focus();
+    return unlock;
+  });
 
   onMount(() => {
     if (!row) {
@@ -94,8 +134,14 @@
   <label for={id} class="label text-[10px]">{label}</label>
 {/snippet}
 
-<form class="plate p-4 flex flex-col gap-4" aria-labelledby="{uid}-title" onsubmit={(e) => { e.preventDefault(); save(); }}>
-  <h3 id="{uid}-title" class="h section">{editing ? $t('foreman.editor.editTitle', { id: row?.id ?? '' }) : $t('foreman.editor.newTitle')}</h3>
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop; Escape, Cancel and the close button close the dialog from the keyboard) -->
+<div class="fixed inset-0 z-45 flex md:items-center md:justify-center md:p-6 backdrop" in:fade|global out:fade|global={EXIT} onmousedown={backdropDown} onclick={backdrop}>
+<div bind:this={dialog} role="dialog" aria-modal="true" aria-labelledby="{uid}-title" tabindex="-1" in:pop|global class="plate solid flex flex-col w-full h-full min-w-0 md:h-auto md:max-h-[85vh] md:max-w-[672px] md:shadow-(--shadow-overlay)" onkeydown={trap}>
+<div class="flex items-center justify-between gap-3 border-b border-line px-4 py-2 md:px-5">
+  <h2 id="{uid}-title" class="h sheet-title min-w-0">{editing ? $t('foreman.editor.editTitle', { id: row?.id ?? '' }) : $t('foreman.editor.newTitle')}</h2>
+  <CloseButton label={$t('foreman.editor.cancel')} onclick={onclose} />
+</div>
+<form class="flex flex-col flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 md:px-6 gap-4" onsubmit={(e) => { e.preventDefault(); save(); }}>
   {#if loadError}
     <p class="text-[13px] text-bad break-words" role="alert">{$t('foreman.editor.loadFailed', { error: loadError })}</p>
     <div><button type="button" class="btn" onclick={onclose}>{$t('foreman.editor.cancel')}</button></div>
@@ -163,3 +209,5 @@
     </div>
   {/if}
 </form>
+</div>
+</div>
