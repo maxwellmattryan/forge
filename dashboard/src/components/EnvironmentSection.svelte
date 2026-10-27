@@ -14,7 +14,7 @@
   import { safeUrl } from '../lib/markdown.ts';
   import { environmentModel, postEditor, postFocus } from '../lib/focus.ts';
   import { actionToast, backingButtons, backingSource, devButtons, devChip, dockerDown as dockerIsDown, fetchEnvironment, logHint, postEnvironment, serviceChip, type ButtonHint } from '../lib/environment.ts';
-  import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
+  import { S, refresh } from '../lib/app.svelte.ts';
   import type { DevState, EnvironmentAction, EnvironmentService, EnvironmentTarget, Job, JobEnvironmentResponse } from '../lib/types.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
@@ -59,7 +59,7 @@
 
   async function load(): Promise<void> {
     try {
-      env = await fetchEnvironment(job.id, forgeToken());
+      env = await fetchEnvironment(job.id);
       pollError = null;
     } catch (err) {
       // The last answer stays on screen; the error shows beside it.
@@ -97,19 +97,19 @@
 
   const toggleFocus = () =>
     act('focus', async () => {
-      await postFocus(model.focused ? null : job.id, forgeToken());
+      await postFocus(model.focused ? null : job.id);
       return null;
     });
   const openEditor = () =>
     act('editor', async () => {
-      const r = await postEditor(job.id, forgeToken());
+      const r = await postEditor(job.id);
       return $t('environment.editorOpened', { editor: r.editor });
     });
   const envAction = (target: EnvironmentTarget, action: EnvironmentAction) =>
     act(target, async () => {
       let r;
       try {
-        r = await postEnvironment(job.id, target, action, forgeToken());
+        r = await postEnvironment(job.id, target, action);
       } catch (err) {
         // A refused action changed nothing it can prove; the status may still have moved on.
         await load();

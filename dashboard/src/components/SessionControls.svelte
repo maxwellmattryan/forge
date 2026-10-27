@@ -15,7 +15,7 @@
   import { sharedScope } from '../lib/types.ts';
   import type { DaemonSessionState } from '../lib/types.ts';
   import { PERMISSION_MODES, postDaemonMode, scopeSession, sessionMode } from '../lib/daemon.ts';
-  import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
+  import { S, refresh } from '../lib/app.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
 
@@ -46,7 +46,7 @@
     picked = next;
     pending = true;
     try {
-      await postDaemonMode(scope, next, forgeToken());
+      await postDaemonMode(scope, next);
       await refresh();
     } catch (err) {
       toast($t('session.modeFailed', { error: err instanceof Error ? err.message : String(err) }), true);

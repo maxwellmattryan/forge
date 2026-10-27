@@ -57,7 +57,7 @@ export function shelfPress(action: ShelfAction, via: 'bar' | 'confirm', selected
 }
 
 /** POST /api/shelf. Throws with the server's `error` field, else its text, else the status text. */
-export const postShelf = (body: PostShelfBody, token: string, fetchImpl: typeof fetch = fetch): Promise<PostShelfResponse> => post<PostShelfResponse>('/api/shelf', body, token, fetchImpl);
+export const postShelf = (body: PostShelfBody, fetchImpl: typeof fetch = fetch): Promise<PostShelfResponse> => post<PostShelfResponse>('/api/shelf', body, fetchImpl);
 
 /** The toast's words, which the component translates. */
 export interface ShelfSummaryMessages {

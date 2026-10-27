@@ -23,9 +23,14 @@ function initialized(daemon = false): ReturnType<typeof tempRepo> {
   return r;
 }
 
-function hit(port: number, o: { method?: string; path: string; headers?: Record<string, string>; body?: string }): Promise<{ status: number; text: string }> {
+/** A running server: every request here signs in with its token as the x-forge-token header. */
+type Srv = { port: number; token: string };
+
+function hit(s: Srv, o: { method?: string; path: string; headers?: Record<string, string>; body?: string }): Promise<{ status: number; text: string }> {
+  const { port } = s;
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, path: o.path, method: o.method ?? 'GET', agent: false, headers: { host: `127.0.0.1:${port}`, ...(o.headers ?? {}) } }, (res) => {
+    const headers = { host: `127.0.0.1:${port}`, 'x-forge-token': s.token, ...(o.headers ?? {}) };
+    const req = http.request({ host: '127.0.0.1', port, path: o.path, method: o.method ?? 'GET', agent: false, headers }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') }));
@@ -35,16 +40,15 @@ function hit(port: number, o: { method?: string; path: string; headers?: Record<
   });
 }
 
-/** POST /api/projects with the page's token, a matching Origin and JSON: `raw` sends the text as it is. */
-async function poster(port: number) {
-  const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)![1]!;
-  const headers = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
-  const raw = (body: string) => hit(port, { method: 'POST', path: '/api/projects', headers, body });
+/** POST /api/projects with the token, a matching Origin and JSON: `raw` sends the text as it is. */
+function poster(s: Srv) {
+  const headers = { origin: `http://127.0.0.1:${s.port}`, 'content-type': 'application/json' };
+  const raw = (body: string) => hit(s, { method: 'POST', path: '/api/projects', headers, body });
   return { raw, post: (body: unknown) => raw(JSON.stringify(body)) };
 }
 
-const getJson = async (port: number, p: string) => {
-  const r = await hit(port, { path: p });
+const getJson = async (s: Srv, p: string) => {
+  const r = await hit(s, { path: p });
   assert.equal(r.status, 200, `${p}: ${r.text}`);
   return JSON.parse(r.text);
 };
@@ -64,7 +68,7 @@ test('POST /api/projects registers a repo and serves it at once', async () => {
   // No timed re-read: only the POST's own refresh can load the project.
   const s = await serveProjects([], { refreshMs: 3_600_000 });
   try {
-    const { post } = await poster(s.port);
+    const { post } = poster(s);
     const r = await post({ path: a.dir });
     assert.equal(r.status, 200, r.text);
     const body = JSON.parse(r.text);
@@ -72,15 +76,15 @@ test('POST /api/projects registers a repo and serves it at once', async () => {
     assert.equal(body.added, true);
     assert.deepEqual([body.project.name, body.project.path, body.project.status, body.project.loaded], [name, fs.realpathSync(a.dir), 'ok', true]);
     assert.deepEqual(
-      (await getJson(s.port, '/api/projects')).projects.map((p: { name: string }) => p.name),
+      (await getJson(s, '/api/projects')).projects.map((p: { name: string }) => p.name),
       [name],
     );
-    assert.deepEqual((await getJson(s.port, s.api(name, '/state'))).jobs, []);
+    assert.deepEqual((await getJson(s, s.api(name, '/state'))).jobs, []);
 
     const custom = await post({ path: b.dir, name: 'custom' });
     assert.equal(custom.status, 200, custom.text);
     assert.deepEqual([JSON.parse(custom.text).added, JSON.parse(custom.text).project.name], [true, 'custom']);
-    assert.equal((await hit(s.port, { path: s.api('custom', '/state') })).status, 200);
+    assert.equal((await hit(s, { path: s.api('custom', '/state') })).status, 200);
   } finally {
     await s.cleanup();
     a.cleanup();
@@ -96,7 +100,7 @@ test('the same repo again is a no-op', async () => {
   fs.mkdirSync(path.join(a.dir, 'src'));
   const s = await serveProjects([]);
   try {
-    const { post } = await poster(s.port);
+    const { post } = poster(s);
     const first = JSON.parse((await post({ path: a.dir, name: 'mine' })).text);
     assert.equal(first.added, true);
     const before = indexBytes(s.home);
@@ -124,7 +128,7 @@ test('refusals', async () => {
   const random = `forge-add-missing-${crypto.randomBytes(6).toString('hex')}`;
   const s = await serveProjects([{ dir: taken.dir, name: 'taken' }]);
   try {
-    const { raw, post } = await poster(s.port);
+    const { raw, post } = poster(s);
     const before = indexBytes(s.home);
     assert.ok(before);
     type Row = { why: string; send: () => Promise<{ status: number; text: string }>; status: number; error?: string };
@@ -161,7 +165,7 @@ test('refusals', async () => {
       assert.equal(indexBytes(s.home), before, `${r.why} leaves projects.json as it was`);
     }
     assert.deepEqual(
-      (await getJson(s.port, '/api/projects')).projects.map((p: { name: string }) => p.name),
+      (await getJson(s, '/api/projects')).projects.map((p: { name: string }) => p.name),
       ['taken'],
     );
   } finally {
@@ -178,11 +182,11 @@ test('registering never approves trust', async () => {
   const fake = fakeClaude();
   const s = await serveProjects([], { daemon: { claude: fake.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 } });
   try {
-    const { post } = await poster(s.port);
+    const { post } = poster(s);
     const r = await post({ path: a.dir, name: 'auto' });
     assert.equal(r.status, 200, r.text);
     assert.equal(JSON.parse(r.text).project.daemon.wanted, false, 'its pool is off');
-    const daemons = (await getJson(s.port, s.api('auto', '/state'))).daemons;
+    const daemons = (await getJson(s, s.api('auto', '/state'))).daemons;
     assert.deepEqual([daemons.enabled, daemons.wanted, daemons.needsApproval], [true, false, true], 'it waits for a human Start');
     assert.equal(trustApproved(s.home, a.dir), false);
     assert.equal(fake.children.length, 0, 'no claude child was spawned');

@@ -11,7 +11,7 @@
   import ReportCard from './ReportCard.svelte';
   import { STATE_TONE, inIntake, mandateActions, postMandateStatus, type MandateStatusAction } from '../lib/foreman.ts';
   import { usd } from '../lib/util.ts';
-  import { S, forgeToken, loadMandates, openDrawer, refresh } from '../lib/app.svelte.ts';
+  import { S, loadMandates, openDrawer, refresh } from '../lib/app.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
   import type { MandateRow, StateJob } from '../lib/types.ts';
@@ -48,7 +48,7 @@
     if (busy) return;
     busy = true;
     try {
-      const r = await postMandateStatus(m.id, action, reason, forgeToken());
+      const r = await postMandateStatus(m.id, action, reason);
       if (r.changed) toast(action === 'pause' ? $t('foreman.mandate.paused', { id: m.id }) : action === 'resume' ? $t('foreman.mandate.resumed', { id: m.id }) : $t('foreman.mandate.closed', { id: m.id }));
       confirming = null;
       await Promise.all([loadMandates(), refresh()]);

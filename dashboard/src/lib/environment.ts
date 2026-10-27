@@ -66,9 +66,9 @@ export function actionToast(target: EnvironmentTarget, action: EnvironmentAction
   return `${target}${done}`;
 }
 
-/** A GET that sends the token header and throws the server's `error`, else its text, else the status text. */
-async function getJson<T>(url: string, token: string, fetchImpl: typeof fetch): Promise<T> {
-  const res = await fetchImpl(projectApi(url), { headers: { 'x-forge-token': token } });
+/** A GET that throws the server's `error`, else its text, else the status text. */
+async function getJson<T>(url: string, fetchImpl: typeof fetch): Promise<T> {
+  const res = await fetchImpl(projectApi(url));
   const text = await res.text();
   let parsed: unknown = null;
   try {
@@ -84,17 +84,17 @@ async function getJson<T>(url: string, token: string, fetchImpl: typeof fetch): 
 const jobPath = (id: string) => `/api/jobs/${encodeURIComponent(id)}/environment`;
 
 /** GET /api/jobs/:id/environment. */
-export const fetchEnvironment = (id: string, token: string, fetchImpl: typeof fetch = fetch): Promise<JobEnvironmentResponse> => getJson<JobEnvironmentResponse>(jobPath(id), token, fetchImpl);
+export const fetchEnvironment = (id: string, fetchImpl: typeof fetch = fetch): Promise<JobEnvironmentResponse> => getJson<JobEnvironmentResponse>(jobPath(id), fetchImpl);
 
 /** POST /api/jobs/:id/environment: start, stop or restart the dev server or the backing services. */
-export const postEnvironment = (id: string, target: EnvironmentTarget, action: EnvironmentAction, token: string, fetchImpl: typeof fetch = fetch): Promise<PostEnvironmentResponse> =>
-  post<PostEnvironmentResponse>(jobPath(id), { target, action }, token, fetchImpl);
+export const postEnvironment = (id: string, target: EnvironmentTarget, action: EnvironmentAction, fetchImpl: typeof fetch = fetch): Promise<PostEnvironmentResponse> =>
+  post<PostEnvironmentResponse>(jobPath(id), { target, action }, fetchImpl);
 
 /** GET /api/environments. */
-export const fetchEnvironments = (token: string, fetchImpl: typeof fetch = fetch): Promise<EnvironmentsResponse> => getJson<EnvironmentsResponse>('/api/environments', token, fetchImpl);
+export const fetchEnvironments = (fetchImpl: typeof fetch = fetch): Promise<EnvironmentsResponse> => getJson<EnvironmentsResponse>('/api/environments', fetchImpl);
 
-/** The log stream: EventSource sends no headers, so the token travels as a query parameter (as the transcript stream's). */
-export const logStreamUrl = (id: string, source: string, token: string): string => projectApi(`${jobPath(id)}/logs?${new URLSearchParams({ source, token })}`);
+/** The log stream for one source, as an EventSource URL. */
+export const logStreamUrl = (id: string, source: string): string => projectApi(`${jobPath(id)}/logs?${new URLSearchParams({ source })}`);
 
 /** A log source for one backing service. */
 export const backingSource = (name: string): string => `backing:${name}`;

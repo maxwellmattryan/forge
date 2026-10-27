@@ -29,8 +29,8 @@ const draftPath = (id: string): string => `/api/mandates/${encodeURIComponent(id
 export const fetchDraft = (id: string): Promise<MandateDraftResponse> => api<MandateDraftResponse>(draftPath(id));
 
 /** POST /api/mandates/:id/draft; throws with the server's `error`. */
-export async function postDraftDecision(id: string, body: PostMandateDraftBody, token: string, fetchImpl: typeof fetch = fetch): Promise<PostMandateDraftResponse> {
-  const res = await fetchImpl(projectApi(draftPath(id)), { method: 'POST', headers: { 'content-type': 'application/json', 'x-forge-token': token }, body: JSON.stringify(body) });
+export async function postDraftDecision(id: string, body: PostMandateDraftBody, fetchImpl: typeof fetch = fetch): Promise<PostMandateDraftResponse> {
+  const res = await fetchImpl(projectApi(draftPath(id)), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const raw = await res.text();
   let parsed: unknown = null;
   try {

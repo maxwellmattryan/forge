@@ -11,5 +11,5 @@ export const mergeNowOffered = (job: Pick<Job, 'kind' | 'pr'>): boolean => job.k
 export const mergeNowDone = (r: Pick<PostJobMergeResponse, 'action'>): boolean => r.action === 'merged' || r.action === 'already-merged';
 
 /** POST /api/jobs/:id/merge with the id typed back. */
-export const postMergeNow = (id: string, confirm: string, token: string, fetchImpl: typeof fetch = fetch): Promise<PostJobMergeResponse> =>
-  post<PostJobMergeResponse>(`/api/jobs/${encodeURIComponent(id)}/merge`, { now: true, confirm } satisfies PostJobMergeBody, token, fetchImpl);
+export const postMergeNow = (id: string, confirm: string, fetchImpl: typeof fetch = fetch): Promise<PostJobMergeResponse> =>
+  post<PostJobMergeResponse>(`/api/jobs/${encodeURIComponent(id)}/merge`, { now: true, confirm } satisfies PostJobMergeBody, fetchImpl);

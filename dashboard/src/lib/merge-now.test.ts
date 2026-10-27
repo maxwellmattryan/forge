@@ -30,8 +30,8 @@ test('the card arms only on the id typed back, and posts it with now: true', asy
     return new Response(JSON.stringify({ merged: true, action: 'merged' }), { status: 200 });
   }) as unknown as typeof fetch;
   setProject('web');
-  assert.deepEqual(await postMergeNow('j 1', 'j 1', 'tok', fetchImpl), { merged: true, action: 'merged' });
+  assert.deepEqual(await postMergeNow('j 1', 'j 1', fetchImpl), { merged: true, action: 'merged' });
   assert.equal(seen[0].url, '/api/p/web/jobs/j%201/merge');
   assert.deepEqual(JSON.parse(String(seen[0].init.body)), { now: true, confirm: 'j 1' });
-  assert.equal((seen[0].init.headers as Record<string, string>)['x-forge-token'], 'tok');
+  assert.deepEqual(seen[0].init.headers, { 'content-type': 'application/json' });
 });

@@ -31,7 +31,7 @@ export interface SessionLogOptions {
   visible?: () => boolean;
   /**
    * Other endpoints in place of the session's /api/events and /api/daemons/log: a job's Claude Code transcript
-   * (the drawer's Agents tab, an interactive owner's Log tab). `headers` go with each page fetch.
+   * (the drawer's Agents tab, an interactive owner's Log tab).
    */
   urls?: SessionLogUrls;
   /** The clock live lines are stamped with (epoch ms). */
@@ -41,7 +41,6 @@ export interface SessionLogOptions {
 export interface SessionLogUrls {
   events: string;
   page: (before?: number) => string;
-  headers?: Record<string, string>;
 }
 
 export interface SessionLog {
@@ -72,8 +71,8 @@ async function defaultFetchPage(scope: string, before?: number): Promise<DaemonL
 }
 
 /** A log page from `url`; the transcript pages share DaemonLogPage's lines, start, end and more. */
-async function fetchPage(url: string, headers?: Record<string, string>): Promise<DaemonLogPage> {
-  const res = await fetch(projectApi(url), headers ? { headers } : undefined);
+async function fetchPage(url: string): Promise<DaemonLogPage> {
+  const res = await fetch(projectApi(url));
   const text = await res.text();
   let body: unknown = null;
   try {
@@ -99,7 +98,7 @@ export function createSessionLog({ scope, onState, onChange, connect, fetchPage:
     }
   };
   const dial = connect ?? ((u: string): LogSource => new EventSource(u));
-  const page = customPage ?? (urls ? (_scope: string, before?: number) => fetchPage(urls.page(before), urls.headers) : defaultFetchPage);
+  const page = customPage ?? (urls ? (_scope: string, before?: number) => fetchPage(urls.page(before)) : defaultFetchPage);
   const streamUrl = urls ? urls.events : eventsUrl(scope);
 
   let closed = false;

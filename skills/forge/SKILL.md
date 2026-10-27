@@ -41,7 +41,7 @@ Report `sync`, a line each: merges, PR feedback, conflicts, finished umbrellas, 
 | `continue <job \| #pr \| ref> [note]` | `reference/pr-lifecycle.md` |
 | `approve <job> [<ref>\|new\|none] [note]`, `revise`, `answer`, `rework`, `cancel <job> [note]`, `shelve <job> <reason>` | record the decision (`reference/commands.md`); step moves the job; then **Run a job** |
 | `sync` | the sync above; report |
-| `dash` | `forge dash --background`; give the URL |
+| `dash` | `forge dash --background`; give the URL, the login link (`forge dash url` reprints it) |
 | `init`, `retro`, `eval …`, `requests`, `triage` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md`, `triage.md` |
 | `doctor` | `forge doctor`; explain failures and warnings with fixes; bug report: `forge doctor --bundle`, human checks its manifest |
 | `update` | `forge update` only; report `from → to`, each `warnings` and `next` entry, or the error. |

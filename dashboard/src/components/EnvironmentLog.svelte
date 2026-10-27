@@ -10,7 +10,7 @@
   import Lamp from './Lamp.svelte';
   import { atBottom } from '../lib/session-log.ts';
   import { logStreamUrl, parseFrame, pushLines } from '../lib/environment.ts';
-  import { S, forgeToken } from '../lib/app.svelte.ts';
+  import { S } from '../lib/app.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import { settled } from '../lib/motion.ts';
   import { LIVE_LAMPS, isLiveLine, lampState, streaming } from '../lib/station.ts';
@@ -35,7 +35,7 @@
     if (es || ended || document.visibilityState !== 'visible') return;
     // A reopened stream starts again from the last lines: drop what it will send again.
     lines = [];
-    const s = new EventSource(logStreamUrl(job, source, forgeToken()));
+    const s = new EventSource(logStreamUrl(job, source));
     openedAt = Date.now();
     s.onopen = () => (openedAt = Date.now());
     s.onmessage = (e) => {

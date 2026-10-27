@@ -45,7 +45,7 @@ test('draftDecisionBody pins the request and digest the card read', async () => 
     seen.push({ url, init });
     return new Response(JSON.stringify({ error: 'the draft changed since you read it (now 2-x)' }), { status: 409 });
   }) as unknown as typeof fetch;
-  await assert.rejects(postDraftDecision('g1', draftDecisionBody('reject', '1-abc', digest, ''), 'tok', fetchImpl), /the draft changed since you read it/);
+  await assert.rejects(postDraftDecision('g1', draftDecisionBody('reject', '1-abc', digest, ''), fetchImpl), /the draft changed since you read it/);
   assert.equal(seen[0].url, '/api/p/p/mandates/g1/draft');
   assert.deepEqual(JSON.parse(String(seen[0].init.body)), { decision: 'reject', request: '1-abc', digest, note: null });
   setProject(null);

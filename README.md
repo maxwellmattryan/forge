@@ -51,7 +51,8 @@ Run `/forge update` (or `forge update` in a terminal) when a new release is out:
 
 ```
 /forge init                      # detects your stack, asks a few questions, writes .forge/config.yml
-/forge dash                      # opens the machine's dashboard for this repo (http://127.0.0.1:7400/?project=<name>)
+/forge dash                      # opens the machine's dashboard for this repo: its login link (http://127.0.0.1:7400/?project=<name>#k=<key>)
+forge dash url                   # reprints the login link, for a new browser or after a restart
 /forge Add a reading-time badge to blog posts
 /forge next 3                    # take the next three ready backlog items, in parallel
 ```

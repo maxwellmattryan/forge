@@ -14,7 +14,6 @@ const CLOSED = 2;
 
 export interface ChatLogOptions {
   id: string;
-  token: string;
   /** entries, loading, error, closed, trimmed or lastLiveAt may have changed. */
   onChange: () => void;
   /** A `state` frame's parsed session state. */
@@ -49,7 +48,7 @@ export interface ChatLog {
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-export function createChatLog({ id, token, onChange, onState, connect, fetchPage, visible, now = Date.now }: ChatLogOptions): ChatLog {
+export function createChatLog({ id, onChange, onState, connect, fetchPage, visible, now = Date.now }: ChatLogOptions): ChatLog {
   // Defaults resolve on use, so importing this module touches no DOM.
   const isVisible = (): boolean => {
     if (visible) return visible();
@@ -60,7 +59,7 @@ export function createChatLog({ id, token, onChange, onState, connect, fetchPage
     }
   };
   const dial = connect ?? ((u: string): LogSource => new EventSource(u));
-  const page = fetchPage ?? ((after: number) => fetchChatLog(id, after, token));
+  const page = fetchPage ?? ((after: number) => fetchChatLog(id, after));
 
   let buf: ChatEntry[] = [];
   /** The newest `n` ever held; a trim keeps it, so a catch-up never refetches what was dropped. */

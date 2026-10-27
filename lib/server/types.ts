@@ -89,6 +89,8 @@ export type ProjectListener = (entry: ProjectEntry) => void | (() => void);
 export interface RunningServer {
   server: http.Server;
   url: string;
+  /** This process's login token: `forge dash` writes it to the login file, and tests send it in the token header. Never served. */
+  token: string;
   /** A loaded project by name (no refresh), or null. */
   entry(name: string): ProjectEntry | null;
   entries(): ProjectEntry[];
@@ -106,7 +108,7 @@ export interface RunningServer {
 /** One finished (or aborted) dashboard request, as startServer's onRequest hook reports it: lib/cli/activity.ts. */
 export interface RequestInfo {
   method: string;
-  /** The pathname only: a query string can carry the dashboard token. */
+  /** The pathname only: a query string can carry an issue ref or a file path, which the activity log never keeps. */
   path: string;
   status: number | 'aborted';
   ms: number;
@@ -141,6 +143,8 @@ export interface MachineCtx {
   opts: ServerOptions;
   home: string;
   token: string;
+  /** The port the server is bound to, set before any request can arrive: it names the login cookie. */
+  port: number;
   distDir: string;
   notBuilt: string;
   provenance: VersionInfo;
@@ -156,7 +160,7 @@ export interface MachineCtx {
 
 /**
  * One project's state, built by createContext in lib/server/machine.ts and handed to every project
- * route. `opts`, `token`, `clients`, `projects` and `github` are the machine's own objects. `backlogCache`,
+ * route. `opts`, `clients`, `projects` and `github` are the machine's own objects. `backlogCache`,
  * `budgetCache` and `envsCache` change while the server runs, so handlers read and write them as
  * `ctx.<field>`, never through a destructured copy.
  */
@@ -165,7 +169,6 @@ export interface ServerCtx {
   root: string;
   machine: MachineCtx;
   opts: ServerOptions;
-  token: string;
   previewGitHub: (t: GitHubTarget) => Promise<GitHubPreviewResponse>;
   /** The GitHub adapter POST /api/p/<project>/jobs/:id/merge merges through. */
   github: GitHub;
@@ -185,8 +188,8 @@ export interface ServerCtx {
   budget: () => RepoBudgetStatus;
 }
 
-/** A check the route tables run before a GET's handler: lib/server/http.ts holds each one. */
-export type Guard = 'read' | 'token' | 'queryToken';
+/** A check the route tables run before a GET's handler, after the login: lib/server/http.ts holds each one. */
+export type Guard = 'read';
 
 /** What a route matched: the request URL, and a RegExp path's capture groups ([] for a string path). */
 export interface RouteMatch {
@@ -197,7 +200,10 @@ export interface RouteMatch {
 /** A route's handler: it runs only once the route's guards have passed. */
 export type Handler<C = ServerCtx> = (ctx: C, req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch) => void | Promise<void>;
 
-/** One row of a route table. A POST row takes no `guards`: dispatch always runs guardPost for it. */
+/**
+ * One row of a route table. A POST row takes no `guards`: dispatch always runs guardPost for it. Every
+ * /api row needs the login; `open` lifts that for the one row that issues it, POST /api/session.
+ */
 export type Route<C = ServerCtx> =
-  | { method: 'GET'; path: string | RegExp; guards?: readonly Guard[]; handler: Handler<C> }
-  | { method: 'POST'; path: string | RegExp; guards?: never; handler: Handler<C> };
+  | { method: 'GET'; path: string | RegExp; guards?: readonly Guard[]; open?: never; handler: Handler<C> }
+  | { method: 'POST'; path: string | RegExp; guards?: never; open?: true; handler: Handler<C> };

@@ -93,7 +93,7 @@ test('the summary lists every skip', async () => {
     return new Response(JSON.stringify({ results: [] }), { status: 200 });
   }) as unknown as typeof fetch;
   setProject('web');
-  await postShelf({ action: 'close', jobs: [{ id: 's', shelvedAt: AT }], note: null }, 'tok', fetchImpl);
+  await postShelf({ action: 'close', jobs: [{ id: 's', shelvedAt: AT }], note: null }, fetchImpl);
   assert.equal(seen[0].url, '/api/p/web/shelf');
-  assert.equal((seen[0].init.headers as Record<string, string>)['x-forge-token'], 'tok');
+  assert.deepEqual(seen[0].init.headers, { 'content-type': 'application/json' });
 });
