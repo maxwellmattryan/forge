@@ -18,7 +18,7 @@
      barLamps), the one the session terminals use; the model button has none. Every indicator shares one class (INDICATOR). -->
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import Chip from './Chip.svelte';
+  import CountBadge from './CountBadge.svelte';
   import Icon from './Icon.svelte';
   import Lamp from './Lamp.svelte';
   import Popover from './Popover.svelte';
@@ -267,7 +267,7 @@
              permission prompts. -->
         <button bind:this={needsButton} class={INDICATOR} data-popover="needs" aria-haspopup="dialog" aria-expanded={expanded('needs')} aria-controls={controls('needs')} onclick={(e) => openPopover('needs', e.currentTarget)}>
 <!--          <Lamp state={lamps.needs} />-->
-          <span class="relative inline-flex {needsTotal > 0 ? 'text-fg' : 'text-muted'}"><Icon name="bell" />{#if needsTotal > 0}<Chip tone="you" extra="badge num" ariaHidden text={needsTotal} />{/if}</span>
+          <CountBadge count={needsTotal} extra={needsTotal > 0 ? 'text-fg' : 'text-muted'}><Icon name="bell" /></CountBadge>
           <span class="sr-only">{$t('statusbar.needs.name')}{#if needs > 0}{', '}{$t('statusbar.needs.count', { count: needs })}{/if}{#if bar.prompts > 0}{', '}{$t('permission.heading', { count: bar.prompts })}{/if}</span>
         </button>
         <!-- The supervisor: always shown, a ghost like the rest of the bar. Its state word is only in the sr-only text and title. -->
