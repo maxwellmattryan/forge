@@ -47,7 +47,7 @@ import { helpCmd, usage } from './commands/help.ts';
 import { confirmHuman, mergeNowOp } from './commands/human.ts';
 import { initWrite, migrate } from './commands/init.ts';
 import { jobCmd, refuseForemanJobCommand } from './commands/job.ts';
-import { mandateCmd } from './commands/mandate.ts';
+import { mandateCmd, statsMandate } from './commands/mandate.ts';
 import { chatCmd } from './commands/chat.ts';
 import { notifyCmd } from './commands/notify.ts';
 import { officeCmd } from './commands/office.ts';
@@ -254,6 +254,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       needInit();
       return ok(await trackerCmd(root, config, sub, rest, flags));
     case 'stats': {
+      if (flags.mandate !== undefined) return ok(statsMandate(root, config, flags));
       if (flags.by === 'prompt') return ok(statsByPromptCmd(root, config, flags));
       if (flags.csv || flags.by !== undefined) return ok(statsCsv(root, config, flags));
       const s = computeStats(root, { since: flags.since, includeEvals: Boolean(flags['include-evals']), config });

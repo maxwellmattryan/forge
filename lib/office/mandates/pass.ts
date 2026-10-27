@@ -6,7 +6,7 @@
 // status write is guarded: it lands only while the mandate still has the status and updatedAt the
 // pass read, so an owner's edit, pause or close wins. docs/architecture/foreman.md › Director loop.
 import { listRequests, enqueue } from '#core/job/requests.ts';
-import { logEvent } from '#core/job/store.ts';
+import { isForemanActor, logEvent } from '#core/job/store.ts';
 import { confinedDir, readRegular, writeJsonAtomic } from '#core/os/fs.ts';
 import { isMap } from '#core/shape.ts';
 import { oneLineTitle } from '#core/text.ts';
@@ -14,6 +14,7 @@ import { MANDATE_SUMMARY_SCHEMA_VERSION, MANDATE_SUMMARY_STEPS } from '#core/ver
 import { runSteps } from '#core/versions/steps.ts';
 import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
 import { foremanEnabled } from '#engine/pipeline/moves/foreman-gates.ts';
+import { buildReportCard } from '#engine/metrics/report-card.ts';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { queueNotify } from '../notify.ts';
@@ -25,7 +26,7 @@ import { listMandates, mandateDir, summaryFile, withOfficeLock, writeMandate } f
 import type { Config, JobEvent, Tracker } from '#core/types.ts';
 import type { DirectiveAction } from './directives.ts';
 import type { MandateProgress, ProgressCtx, ScopeResult } from './progress.ts';
-import type { Mandate, MandateState, ReadMandate } from './types.ts';
+import type { Mandate, MandateReportCard, MandateState, ReadMandate } from './types.ts';
 
 /** One mandate's line in the pass's output. */
 export interface PassMandate {
@@ -70,6 +71,8 @@ export interface MandateClosing {
   skipped: { issue: string; why: string }[];
   elsewhere: string[];
   needsInfo: string[];
+  /** The report card at close (lib/engine/metrics/report-card.ts); null in a summary written before the card. */
+  card: MandateReportCard | null;
 }
 
 const SUMMARY_MAX_BYTES = 64 * 1024;
@@ -79,7 +82,7 @@ const REASON_MAX = 200;
 const drafting = (m: Mandate): boolean => m.goal !== null && !m.scope.milestones.length && !m.scope.labels.length && !m.scope.issues.length;
 
 /** Every human decision by a person (not the foreman) on the mandate's jobs. */
-const humanCount = (events: JobEvent[]): number => events.filter((e) => e.type === 'human' && (e.actor as { source?: unknown } | undefined)?.source !== 'foreman').length;
+const humanCount = (events: JobEvent[]): number => events.filter((e) => e.type === 'human' && !isForemanActor(e)).length;
 
 /** Why a handled failed job was parked: its latest `mandate-unfinishable` event's why. */
 function parkedWhy(events: JobEvent[]): string {
@@ -87,8 +90,8 @@ function parkedWhy(events: JobEvent[]): string {
   return cleanReason(e?.why) ?? 'failed';
 }
 
-/** The closing summary of a mandate whose work is done, from its progress. */
-export function buildSummary(m: Mandate, p: MandateProgress, closedAt: string, directivePauses: number): MandateClosing {
+/** The closing summary of a mandate whose work is done, from its progress, with its report card built from the same progress. */
+export function buildSummary(m: Mandate, p: MandateProgress, closedAt: string, directivePauses: number, card: MandateReportCard): MandateClosing {
   const jobs: MandateClosing['jobs'] = [];
   const parked: MandateClosing['parked'] = [];
   let humans = 0;
@@ -114,6 +117,7 @@ export function buildSummary(m: Mandate, p: MandateProgress, closedAt: string, d
     skipped: p.skipped.map((s) => ({ ...s })),
     elsewhere: [...p.elsewhere],
     needsInfo: [...p.needsInfo],
+    card,
   };
 }
 
@@ -255,7 +259,7 @@ async function pass(root: string, config: Config, opts: PassOptions): Promise<Pa
       const parked = p.jobs.filter((j) => j.class === 'handled' && j.job.state === 'failed').length;
       const reason = cut(`done: ${p.counts.reached} jobs reached ${p.until}, ${parked} parked, $${money(p.spentUsd)}`);
       const pauses = readDirectives(root, { mandate: id }).filter((d) => d.action === 'pause' && d.reason.startsWith('stalled:')).length;
-      const closing = buildSummary(m, p, iso, pauses);
+      const closing = buildSummary(m, p, iso, pauses, buildReportCard(m, p, config, at));
       if (guardedMove(root, m, 'close', reason, iso, () => writeSummary(root, closing))) {
         directive('close', reason);
         notify(root, ['mandate-closed'], { reason: 'mandate-closed', mandate: id });
