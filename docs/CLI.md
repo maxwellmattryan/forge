@@ -622,22 +622,29 @@ The dashboard's headless sessions, from the terminal.
 
 The machine's dashboard and every registered project's session pool.
 
-**`forge dash [--background|--stop|--service] [--port N] [--permission-mode MODE] [--dev] [--quiet]`**: open the machine's dashboard, one server for every project in the machine index: in a repo with .forge/config.yml it registers that repo first (forge project add's default name) and, when it registers it or starts the dashboard, approves the files Forge trusts there as they are (a project's daemon boots with the dashboard only while they still match; a report for a repo already registered approves nothing), then prints the running one's {url: &lt;origin>/?project=&lt;name>, pid, running: true, project, added, permissionMode}, or starts it in the foreground (prints its URL), or detached with --background ({url, pid, started: true, project, added, permissionMode}); outside a project it registers nothing (project: null). permissionMode is the run's launch mode (--permission-mode), or null. Its record is &lt;FORGE_HOME>/dashboard.json ({pid, url, startedAt, permissionMode}, 0600, never the token; the mode is only reported, never applied); a daemon session may only get the report for a registered project
+**`forge dash [--background|--stop|--service] [--port N] [--permission-mode MODE] [--dev] [--quiet]`**: open the machine's dashboard, one server for every project in the machine index: in a repo with .forge/config.yml it registers that repo first (forge project add's default name) and, when it registers it or starts the dashboard, approves the files Forge trusts there as they are (a project's daemon boots with the dashboard only while they still match; a report for a repo already registered approves nothing), then prints the running one's {url, pid, running: true, project, added, permissionMode}, or starts it in the foreground (prints its login link), or detached with --background ({url, pid, started: true, project, added, permissionMode}); outside a project it registers nothing (project: null). url is the login link, &lt;origin>/?project=&lt;name>#k=&lt;key>: a browser that opens it signs in once and drops the key from the address bar (without ?project= outside a project; bare when no login record matches, as for a dashboard started by an older Forge). permissionMode is the run's launch mode (--permission-mode), or null. Its record is &lt;FORGE_HOME>/dashboard.json ({pid, url, startedAt, permissionMode}, 0600, never the token; the mode is only reported, never applied), and the key is in &lt;FORGE_HOME>/dashboard-login.json ({pid, token}, 0600); a daemon session may only get the report for a registered project, whose url carries no key
 
 | Flag | Meaning |
 |---|---|
-| `--background` | start it detached and print {url, pid, started: true, project, added, permissionMode} |
+| `--background` | start it detached and print {url, pid, started: true, project, added, permissionMode}, url the login link (bare when the start is unconfirmed) |
 | `--dev` | serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist for every project of FORGE_HOME, with no pool booting until Start; it builds nothing itself, so start it through npm run dev; refused from a forge without Vite (an installed plugin) and while a proven machine dashboard runs (a stale record does not block it) |
 | `--foreground` | run in the foreground even when one is running |
 | `--permission-mode MODE` | the permission mode every job, inbox and office session of every project starts in until it stops: default (ask), auto or dontAsk (refuse); a running dashboard with another mode is reported, never changed; refused in a daemon session |
 | `--port N` | the first port to try (default: this repo's dashboard.port, 7400) |
 | `--quiet` | in the foreground in human mode, print only the banner (no activity log) |
-| `--service` | what the login service runs (forge service install): in the foreground, and once the boot passes of the projects loaded at start settle, it records the restart in &lt;FORGE_HOME>/runtime/uptime.json and sends each project with running jobs or open Office requests one service-restarted notification; a usage error with --background, --stop or --dev |
+| `--service` | what the login service runs (forge service install): in the foreground, and once the boot passes of the projects loaded at start settle, it records the restart in &lt;FORGE_HOME>/runtime/uptime.json and sends each project with running jobs or open Office requests one service-restarted notification; its banner (in the service's log) prints the bare URL, never the login link; a usage error with --background, --stop or --dev |
 | `--stop` | stop the machine's dashboard and, in a repo, an older per-repo dashboard (.forge/runtime/dashboard.json), then reap every registered project's orphaned sessions ({stopped, daemonReaped}); a record whose pid is not provably that dashboard is cleared without signalling anything |
 
 | Exit | When |
 |---|---|
 | 1 | no free port near N, --dev from a forge without Vite or while a proven machine dashboard is running, this repo's default name registered for another path, --permission-mode in a daemon session, --permission-mode that differs from the running machine dashboard's, or a daemon session that would start, stop or register, or ran --service (only the report for a registered project is allowed) |
+| 2 | a word after dash other than url |
+
+**`forge dash url`**: reprint the running machine dashboard's login link, in or outside a repo, registering and approving nothing: {url, pid, project}, url &lt;origin>/?project=&lt;name>#k=&lt;key> when the cwd is a registered project (project its name), else &lt;origin>/#k=&lt;key> (project: null). Open it in a new browser or profile, after a restart, or when the dashboard shows it is not signed in
+
+| Exit | When |
+|---|---|
+| 1 | no proven machine dashboard is running, its login record is missing or names another pid (a dashboard started by an older Forge: restart it with forge dash --stop, then forge dash), or a daemon session ran it (checked before anything is read) |
 
 ### `forge doctor`
 

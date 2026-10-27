@@ -44,6 +44,12 @@ export const WAITING_ON = [
   'shelved',
 ] as const;
 
+/**
+ * The 401 body every /api route but POST /api/session answers without a login (the `forge-<port>` cookie or the
+ * x-forge-token header): the dashboard tells "not signed in" from "server gone" by this text.
+ */
+export const SIGNED_OUT_ERROR = 'not signed in: open the link forge dash url prints';
+
 /** What the dashboard's Shelved list does to the jobs a person selects (POST /api/shelf). */
 export const SHELF_ACTIONS = ['approve', 'rework', 'unshelve', 'close'] as const;
 

@@ -9,7 +9,7 @@ import { getAsset, getLogo, getPage } from './static.ts';
 import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
 import { getEnvironmentLogs, getEnvironments, getJobEnvironment, postJobEnvironment } from './routes/environment.ts';
 import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor, postShelf } from './routes/jobs.ts';
-import { getProjects, getProjectsEvents, getProjectsStats, postProject } from './routes/machine.ts';
+import { getProjects, getProjectsEvents, getProjectsStats, postProject, postSession } from './routes/machine.ts';
 import { getMandate, getMandateDraft, getMandates, postMandate, postMandateAction, postMandateDraft } from './routes/mandates.ts';
 import { getAbout, getBacklog, getBacklogItem, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
@@ -43,6 +43,7 @@ test('the route table sends each method and path to its handler, and nothing els
       ['GET', '/index.html', getPage, []],
       ['GET', '/assets/index-Fx1.js', getAsset, []],
       ['GET', '/forge.png', getLogo, []],
+      ['POST', '/api/session', postSession, []],
       ['GET', '/api/about', getAbout, []],
       ['GET', '/api/projects', getProjects, []],
       ['POST', '/api/projects', postProject, []],
@@ -52,6 +53,7 @@ test('the route table sends each method and path to its handler, and nothing els
     [
       ['POST', '/api/projects/'],
       ['POST', '/api/projects/stats'],
+      ['GET', '/api/session'],
       ['GET', '/api/projects/'],
       ['GET', '/api/state'],
       ['GET', '/api/events'],

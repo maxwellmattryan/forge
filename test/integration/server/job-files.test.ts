@@ -20,10 +20,10 @@ const MAX_FILE = 2 * 1024 * 1024;
 
 type Reply = { status: number; headers: http.IncomingHttpHeaders; body: Buffer; text: string };
 
-/** One GET on its own connection that fails, rather than waits, when the server takes over 5 s. */
-function get(port: number, p: string): Promise<Reply> {
+/** One signed-in GET on its own connection that fails, rather than waits, when the server takes over 5 s. */
+function get({ port, token }: { port: number; token: string }, p: string): Promise<Reply> {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, path: p, agent: false, headers: { host: `127.0.0.1:${port}` } }, (res) => {
+    const req = http.request({ host: '127.0.0.1', port, path: p, agent: false, headers: { host: `127.0.0.1:${port}`, 'x-forge-token': token } }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
@@ -51,6 +51,7 @@ async function setup() {
     id,
     dir,
     port: s.port,
+    token: s.token,
     cleanup: async () => {
       await s.cleanup();
       repo.cleanup();
@@ -106,16 +107,16 @@ test('job file reads stay inside the real job dir', async () => {
 
     for (const r of refused) {
       const p = `/api/p/a/jobs/${r.job ?? s.id}/${r.kind}?path=${encodeURIComponent(r.rel)}`;
-      const got = await get(s.port, p);
+      const got = await get(s, p);
       assert.deepEqual({ status: got.status, text: got.text }, { status: 404, text: 'not found' }, p);
       assert.ok(!got.text.includes(secret) && !got.text.includes(known), `${p} leaks nothing`);
-      assert.equal((await get(s.port, '/api/p/a/state')).status, 200, `the server still answers after ${p}`);
+      assert.equal((await get(s, '/api/p/a/state')).status, 200, `the server still answers after ${p}`);
     }
 
     // What the job really wrote is still served: text redacted, the screenshot byte for byte.
-    const notes = await get(s.port, `/api/p/a/jobs/${s.id}/file?path=notes.md`);
+    const notes = await get(s, `/api/p/a/jobs/${s.id}/file?path=notes.md`);
     assert.deepEqual({ status: notes.status, type: notes.headers['content-type'], text: notes.text }, { status: 200, type: 'text/plain; charset=utf-8', text: 'notes [redacted]\n' });
-    const shot = await get(s.port, `/api/p/a/jobs/${s.id}/file?path=screenshots/a.png`);
+    const shot = await get(s, `/api/p/a/jobs/${s.id}/file?path=screenshots/a.png`);
     assert.equal(shot.status, 200);
     assert.ok(shot.body.equals(png), 'exact bytes');
     assert.deepEqual(
@@ -142,15 +143,15 @@ test('raw serves html mockups only, capped', async () => {
     const big = Buffer.from(Array.from({ length: MAX_FILE + 4096 }, (_, i) => 97 + (i % 23)));
     fs.writeFileSync(path.join(s.dir, 'logs', 'big.log'), big);
 
-    const raw = await get(s.port, `/api/p/a/jobs/${s.id}/raw?path=mockup.html`);
+    const raw = await get(s, `/api/p/a/jobs/${s.id}/raw?path=mockup.html`);
     assert.deepEqual({ status: raw.status, type: raw.headers['content-type'], text: raw.text }, { status: 200, type: 'text/html; charset=utf-8', text: mockup.replace(known, '[redacted]') });
     for (const rel of ['logs/dev.log', 'notes.json']) {
-      const got = await get(s.port, `/api/p/a/jobs/${s.id}/raw?path=${rel}`);
+      const got = await get(s, `/api/p/a/jobs/${s.id}/raw?path=${rel}`);
       assert.deepEqual({ status: got.status, text: got.text }, { status: 404, text: 'not found' }, rel);
     }
-    const tooBig = await get(s.port, `/api/p/a/jobs/${s.id}/raw?path=big.html`);
+    const tooBig = await get(s, `/api/p/a/jobs/${s.id}/raw?path=big.html`);
     assert.deepEqual({ status: tooBig.status, text: tooBig.text }, { status: 413, text: 'file too large' });
-    const tail = await get(s.port, `/api/p/a/jobs/${s.id}/file?path=logs/big.log`);
+    const tail = await get(s, `/api/p/a/jobs/${s.id}/file?path=logs/big.log`);
     assert.equal(tail.status, 200);
     assert.equal(tail.text, `…truncated (${big.length} bytes); showing the last 2 MB…\n` + big.subarray(big.length - MAX_FILE).toString('utf8'));
   } finally {

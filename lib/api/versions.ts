@@ -106,6 +106,9 @@ export const API_CHANGES = [
   { id: 'mandate-closing-card' },
   // DaemonPoolState.launchPermissionMode, ProjectsResponse.machine.launchPermissionMode, ActorSource 'launch'.
   { id: 'launch-permission-mode' },
+  // POST /api/session (PostSessionBody, PostSessionResponse): the login exchange; every other /api route needs the
+  // forge-<port> cookie or x-forge-token, 401 otherwise, and ?token= is gone.
+  { id: 'session-login' },
 ] as const;
 
 /**

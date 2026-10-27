@@ -1,11 +1,13 @@
 // The running dashboard's record, proven before anyone signals its pid or shows its URL: the machine
 // dashboard's `<FORGE_HOME>/dashboard.json`, or a legacy per-repo `forge dash`'s
-// `.forge/runtime/dashboard.json`. Every function takes the record's file path. Its `permissionMode` (the run's
+// `.forge/runtime/dashboard.json`. Every record function takes the record's file path. Its `permissionMode` (the run's
 // launch mode) is only ever reported, never applied: a mode reaches sessions only from `forge dash`'s own argv.
-// The record has no schemaVersion: an older one simply lacks the field, which reads as null.
+// The record has no schemaVersion: an older one simply lacks the field, which reads as null. Beside it, the login
+// file `<FORGE_HOME>/dashboard-login.json` holds the server's token for the login link, trusted only for the proven pid.
 import fs from 'node:fs';
 import path from 'node:path';
 import { machinePaths, paths, PLUGIN_ROOT } from '#core/paths.ts';
+import { writeJsonPrivate } from '#core/os/fs.ts';
 import { pidAlive, processStartMs, run, START_SLACK_MS } from '#core/os/process.ts';
 import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
 import type { DaemonPermissionMode } from '#core/types.ts';
@@ -49,6 +51,34 @@ export const systemProbe: DashboardProbe = {
 /** The machine dashboard's record: one per FORGE_HOME, outside every repo and session write root. */
 export function machineDashboardFile(home: string): string {
   return machinePaths(home).dashboard;
+}
+
+/** The machine dashboard's login file: `{pid, token}` beside the record, 0600 in the 0700 FORGE_HOME. */
+export function dashboardLoginFile(home: string): string {
+  return machinePaths(home).dashboardLogin;
+}
+
+const LOGIN_TOKEN = /^[0-9a-f]{32}$/;
+
+/** Written by the `forge dash` that serves the dashboard, once its server listens and before its record. */
+export function writeDashboardLogin(home: string, pid: number, token: string): void {
+  writeJsonPrivate(dashboardLoginFile(home), { pid, token });
+}
+
+/**
+ * The token of the dashboard whose proven record names `pid`, or null: the login file is read like a record (no
+ * symlink, no FIFO, at most 4 KiB), and a pid that differs (a file left by an earlier run) or a value that is not
+ * 32 lowercase hex characters counts as no login at all.
+ */
+export function readDashboardLogin(home: string, pid: number): string | null {
+  const rec = readDashboardRecord(dashboardLoginFile(home));
+  if (!rec || rec.pid !== pid || typeof rec.token !== 'string' || !LOGIN_TOKEN.test(rec.token)) return null;
+  return rec.token;
+}
+
+/** `forge dash --stop` empties the login file as it empties the record. */
+export function clearDashboardLogin(home: string): void {
+  writeJsonPrivate(dashboardLoginFile(home), {});
 }
 
 /** An older per-repo `forge dash`'s record, read only to stop or report one still running. */

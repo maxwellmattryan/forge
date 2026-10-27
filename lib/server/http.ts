@@ -1,8 +1,9 @@
-// The request guards and HTTP plumbing every route shares: the loopback Host check, the token, Origin,
-// JSON and read guards, body readers and response writers.
+// The request guards and HTTP plumbing every route shares: the loopback Host check, the login (the
+// per-port cookie or the token header), Origin, JSON and read guards, body readers and response writers.
 import crypto from 'node:crypto';
 import type http from 'node:http';
 import path from 'node:path';
+import { SIGNED_OUT_ERROR } from '#api/constants.ts';
 import type { ApiError } from '#core/types.ts';
 
 export function isLoopbackHost(host: string | undefined): boolean {
@@ -35,21 +36,53 @@ function header(v: string | string[] | undefined): string | null {
 }
 
 /**
- * Token, then Origin, then JSON, then a declared size over MAX_BODY: the checks every POST shares.
- * Returns true when it has already answered the request.
+ * The login cookie's name. Browsers scope cookies by host, not port, so the name carries the port: a
+ * dashboard on another port never reads this one's cookie as its own login.
  */
-export function guardPost(req: http.IncomingMessage, res: http.ServerResponse, token: string): boolean {
-  if (!tokenMatches(header(req.headers['x-forge-token']), token)) return send(res, 403, 'text/plain', 'bad token'), true;
-  if (!req.headers.origin || !sameOrigin(req.headers.origin, req.headers.host)) return send(res, 403, 'text/plain', 'bad origin'), true;
-  if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return send(res, 415, 'text/plain', 'json only'), true;
-  if (Number(req.headers['content-length']) > MAX_BODY) return send(res, 413, 'text/plain', 'body too large'), true;
+export function loginCookieName(port: number): string {
+  return `forge-${port}`;
+}
+
+/**
+ * The value of cookie `name` in a Cookie header, or null when it is absent or appears more than once:
+ * a repeated name is ambiguous, so it reads as no cookie at all.
+ */
+export function cookieValue(cookie: string | null, name: string): string | null {
+  if (cookie === null) return null;
+  let found: string | null = null;
+  for (const part of cookie.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq < 0 || part.slice(0, eq).trim() !== name) continue;
+    if (found !== null) return null;
+    found = part.slice(eq + 1).trim();
+  }
+  return found;
+}
+
+/** Whether a request is signed in: the x-forge-token header or the `forge-<port>` cookie equals the token. */
+export function authorized(req: http.IncomingMessage, token: string, port: number): boolean {
+  const viaHeader = tokenMatches(header(req.headers['x-forge-token']), token);
+  const viaCookie = tokenMatches(cookieValue(header(req.headers.cookie), loginCookieName(port)), token);
+  return viaHeader || viaCookie;
+}
+
+/**
+ * The login every /api route but POST /api/session needs: 401 SIGNED_OUT_ERROR without it. Returns true
+ * when it has already answered the request.
+ */
+export function guardAuth(req: http.IncomingMessage, res: http.ServerResponse, token: string, port: number): boolean {
+  if (!authorized(req, token, port)) return send(res, 401, 'text/plain', SIGNED_OUT_ERROR), true;
   return false;
 }
 
-/** The token, plus a same-origin Origin when one is sent: for GETs that do work. */
-export function guardToken(req: http.IncomingMessage, res: http.ServerResponse, token: string): boolean {
-  if (!tokenMatches(header(req.headers['x-forge-token']), token)) return send(res, 403, 'text/plain', 'bad token'), true;
-  if (req.headers.origin !== undefined && !sameOrigin(req.headers.origin, req.headers.host)) return send(res, 403, 'text/plain', 'bad origin'), true;
+/**
+ * Origin, then JSON, then a declared size over MAX_BODY: the checks every POST shares, after the login.
+ * Returns true when it has already answered the request.
+ */
+export function guardPost(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+  if (!req.headers.origin || !sameOrigin(req.headers.origin, req.headers.host)) return send(res, 403, 'text/plain', 'bad origin'), true;
+  if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return send(res, 415, 'text/plain', 'json only'), true;
+  if (Number(req.headers['content-length']) > MAX_BODY) return send(res, 413, 'text/plain', 'body too large'), true;
   return false;
 }
 
@@ -76,21 +109,12 @@ export function sameOrigin(origin: string, host: string | undefined): boolean {
   }
 }
 
-/** A token from a header or query parameter against this server's, compared in constant time. */
+/** A token from a header, cookie or login body against this server's, compared in constant time. */
 export function tokenMatches(given: string | null, token: string): boolean {
   if (typeof given !== 'string') return false;
   const a = Buffer.from(given);
   const b = Buffer.from(token);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
-
-/**
- * The `?token=` an EventSource stream carries, since EventSource can't send headers. Returns true
- * when it has already answered the request.
- */
-export function guardQueryToken(res: http.ServerResponse, url: URL, token: string): boolean {
-  if (!tokenMatches(url.searchParams.get('token'), token)) return send(res, 403, 'text/plain', 'bad token'), true;
-  return false;
 }
 
 /** A POST body parsed as JSON, or the 400 message: never a 500 for a client's mistake. */

@@ -17,13 +17,16 @@ import type {
   MANDATE_UNTIL as ENGINE_MANDATE_UNTIL,
   OFFICE_SCOPE as ENGINE_OFFICE_SCOPE,
   PROJECT_NAME_SOURCE as ENGINE_PROJECT_NAME_SOURCE,
+  SIGNED_OUT_ERROR as ENGINE_SIGNED_OUT_ERROR,
 } from '#api/constants.ts';
 import type { API_VERSION as ENGINE_API_VERSION } from '#api/versions.ts';
 
 export type * from '#api/types.ts';
 
 /** lib/api/versions.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 68 satisfies typeof ENGINE_API_VERSION;
+export const API_VERSION = 69 satisfies typeof ENGINE_API_VERSION;
+/** lib/api/constants.ts SIGNED_OUT_ERROR: the 401 body of an /api request without the login cookie. */
+export const SIGNED_OUT_ERROR = 'not signed in: open the link forge dash url prints' satisfies typeof ENGINE_SIGNED_OUT_ERROR;
 /** lib/api/constants.ts PROJECT_NAME_SOURCE: a registered project's name, the `/api/p/<project>/` segment. */
 export const PROJECT_NAME_SOURCE = '^[a-z0-9][a-z0-9._-]{0,63}$' satisfies typeof ENGINE_PROJECT_NAME_SOURCE;
 /** lib/api/constants.ts MANDATE_ID_SOURCE: a mandate id, which is also its file name (`none` matches but is never one). */

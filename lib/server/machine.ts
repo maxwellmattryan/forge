@@ -48,7 +48,6 @@ export function createContext(machine: MachineCtx, name: string, root: string): 
     root,
     machine,
     opts,
-    token: machine.token,
     previewGitHub: createPreviewer({ run: opts.ghRun ?? ghRunner(root) }),
     github: machine.github,
     projects: machine.projects,

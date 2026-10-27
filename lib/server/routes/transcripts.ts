@@ -48,7 +48,7 @@ function locateTranscript(ctx: ServerCtx, id: string, url: URL): { hit: Transcri
 /**
  * GET /api/jobs/<id>/transcript: a page of an agent's (or the interactive owner's) Claude Code
  * transcript, read backwards from `before` like /api/daemons/log. Transcripts can hold anything
- * a session read, so it takes the token like a POST as well as the read checks.
+ * a session read; the login and the read checks run before it, as for every /api GET.
  */
 export function getTranscript(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): void {
   const { root, projects } = ctx;
@@ -71,8 +71,8 @@ export function getTranscript(ctx: ServerCtx, _req: http.IncomingMessage, res: h
 
 /**
  * GET /api/jobs/<id>/transcript/events: the transcript's last ≤64 KiB of complete lines (or what
- * follows Last-Event-ID), then each line appended later. EventSource can't send headers, so the
- * token comes as a query parameter, compared in constant time. One descriptor, opened through
+ * follows Last-Event-ID), then each line appended later. EventSource can't send headers; the browser
+ * sends the login cookie with it on its own. One descriptor, opened through
  * openTranscript, is held for the stream's life, so a symlink swapped in later can't redirect it.
  * The stream's scope contains `:`, which no session scope can, so pool frames never reach it.
  */

@@ -55,7 +55,7 @@ import type {
   Tracker,
 } from '#core/types.ts';
 import type { VersionInfo } from '#engine/ops/types.ts';
-import { json, jsonStatus, readJsonBody, tokenMatches } from '../http.ts';
+import { json, jsonStatus, readJsonBody } from '../http.ts';
 import type { MachineCtx, RouteMatch, ServerCtx } from '../types.ts';
 import { jobActivity } from './transcripts.ts';
 
@@ -89,19 +89,17 @@ export function getRoster(ctx: ServerCtx, _req: http.IncomingMessage, res: http.
   return json(res, roster(root, loadConfig(root).config));
 }
 
-// Read-only and a subset of /api/config (no commands, owners or notes), so it needs no token.
+// GET /api/project: read-only and a subset of /api/config (no commands, owners or notes).
 export function getProject(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse): void {
   const { root } = ctx;
   return json(res, projectGraph(loadConfig(root).config) satisfies ProjectResponse);
 }
 
 /** GET /api/backlog: the tracker's items, reused for a minute, with each one's triage verdict. */
-export async function getBacklog(ctx: ServerCtx, req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): Promise<void> {
+export async function getBacklog(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): Promise<void> {
   const { root } = ctx;
-  // A refetch spends the tracker's rate limit: without the page's token, `refresh` is ignored, so a
-  // no-cors GET from another site can't loop it (and it still gets no reply to read).
-  const header = req.headers['x-forge-token'];
-  const refresh = match.url.searchParams.has('refresh') && tokenMatches(typeof header === 'string' ? header : null, ctx.token);
+  // A refetch spends the tracker's rate limit; dispatch already required the login, so another site can't loop it.
+  const refresh = match.url.searchParams.has('refresh');
   if (!ctx.backlogCache || Date.now() - ctx.backlogCache.at > 60_000 || refresh) {
     const { config } = loadConfig(root);
     try {
@@ -150,9 +148,8 @@ export async function getDoctor(ctx: ServerCtx, _req: http.IncomingMessage, res:
 }
 
 /**
- * GET /api/doctor/bundle: the support bundle `forge doctor --bundle` writes, as a download. It
- * spawns git and gh and reads job logs, so it takes the token header (never a query parameter)
- * on top of the read guard. The job id is validated before any path is built, and the dashboard
+ * GET /api/doctor/bundle: the support bundle `forge doctor --bundle` writes, as a download, behind
+ * the login and the read guard like every /api GET. The job id is validated before any path is built, and the dashboard
  * never gets agent text: any other parameter, include-text among them, is ignored.
  */
 export async function getSupportBundle(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): Promise<void> {

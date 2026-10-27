@@ -26,12 +26,11 @@ function hit(port: number, o: { method?: string; path: string; headers?: Record<
   });
 }
 
-/** A served scratch repo, a POST helper with the page's token, and a job shelved from `gate`. */
+/** A served scratch repo, a POST helper with the server's token, and a job shelved from `gate`. */
 async function served() {
   const repo = tempRepo();
   const s = await serveProjects([{ dir: repo.dir, name: 'a' }]);
-  const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(s.port, { path: '/' })).text)![1];
-  const headers = { 'x-forge-token': token, origin: `http://127.0.0.1:${s.port}`, 'content-type': 'application/json' };
+  const headers = { 'x-forge-token': s.token, origin: `http://127.0.0.1:${s.port}`, 'content-type': 'application/json' };
   const post = async (p: string, body: unknown) => {
     const r = await hit(s.port, { method: 'POST', path: s.api('a', p), headers, body: JSON.stringify(body) });
     return { status: r.status, body: JSON.parse(r.text) };

@@ -53,9 +53,15 @@ function daemonRepo(maxConcurrent = 2): ReturnType<typeof tempRepo> {
   return r;
 }
 
-function hit(port: number, o: { method?: string; path: string; headers?: Record<string, string>; body?: string }): Promise<{ status: number; text: string }> {
+/** A running server: every request here signs in with its token as the x-forge-token header. */
+type Srv = Pick<RunningServer, 'url' | 'token'>;
+const portOf = (s: Srv): number => Number(new URL(s.url).port);
+
+function hit(s: Srv, o: { method?: string; path: string; headers?: Record<string, string>; body?: string }): Promise<{ status: number; text: string }> {
+  const port = portOf(s);
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, path: o.path, method: o.method ?? 'GET', agent: false, headers: { host: `127.0.0.1:${port}`, ...(o.headers ?? {}) } }, (res) => {
+    const headers = { host: `127.0.0.1:${port}`, 'x-forge-token': s.token, ...(o.headers ?? {}) };
+    const req = http.request({ host: '127.0.0.1', port, path: o.path, method: o.method ?? 'GET', agent: false, headers }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') }));
@@ -65,25 +71,25 @@ function hit(port: number, o: { method?: string; path: string; headers?: Record<
   });
 }
 
-const getJson = async (port: number, p: string) => {
-  const r = await hit(port, { path: p });
+const getJson = async (srv: Srv, p: string) => {
+  const r = await hit(srv, { path: p });
   assert.equal(r.status, 200, `${p}: ${r.text}`);
   return JSON.parse(r.text);
 };
 
-/** POST with the page's token, a matching Origin and JSON. */
-async function poster(port: number) {
-  const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)![1]!;
-  const headers = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
-  return (p: string, body: unknown) => hit(port, { method: 'POST', path: p, headers, body: JSON.stringify(body) });
+/** POST with the token, a matching Origin and JSON. */
+function poster(srv: Srv) {
+  const headers = { origin: `http://127.0.0.1:${portOf(srv)}`, 'content-type': 'application/json' };
+  return (p: string, body: unknown) => hit(srv, { method: 'POST', path: p, headers, body: JSON.stringify(body) });
 }
 
 type Frame = { event: string; id?: string; data: string };
 
 /** An event stream: the frames so far, and `ended` once the server closes it. */
-function stream(port: number, p: string) {
+function stream(srv: Srv, p: string) {
+  const port = portOf(srv);
   const s = { frames: [] as Frame[], ended: false, status: 0, close: () => {} };
-  const req = http.request({ host: '127.0.0.1', port, path: p, agent: false, headers: { host: `127.0.0.1:${port}` } }, (res) => {
+  const req = http.request({ host: '127.0.0.1', port, path: p, agent: false, headers: { host: `127.0.0.1:${port}`, 'x-forge-token': srv.token } }, (res) => {
     s.status = res.statusCode ?? 0;
     let buf = '';
     res.setEncoding('utf8');
@@ -118,11 +124,11 @@ test('one server serves every registered project under /api/p/:project', async (
   try {
     const ja = createJob(a.dir, loadConfig(a.dir).config, { title: 'only in a' }).id;
     const jb = createJob(b.dir, loadConfig(b.dir).config, { title: 'only in b' }).id;
-    const ids = async (name: string) => (await getJson(s.port, s.api(name, '/state'))).jobs.map((j: { id: string }) => j.id);
+    const ids = async (name: string) => (await getJson(s, s.api(name, '/state'))).jobs.map((j: { id: string }) => j.id);
     assert.deepEqual(await ids('a'), [ja]);
     assert.deepEqual(await ids('b'), [jb]);
-    assert.equal((await hit(s.port, { path: '/api/state' })).status, 404);
-    const post = await poster(s.port);
+    assert.equal((await hit(s, { path: '/api/state' })).status, 404);
+    const post = poster(s);
     assert.equal((await post('/api/requests', { type: 'sync' })).status, 404, 'a well-formed POST to a bare path is 404');
     assert.equal((await post(s.api('a', '/requests'), { type: 'sync' })).status, 200);
   } finally {
@@ -144,12 +150,12 @@ test('a job id in two projects resolves per project', async () => {
   const onlyB = createJob(b.dir, loadConfig(b.dir).config, { title: 'only in b' }).id;
   const s = await serveProjects([{ dir: a.dir, name: 'a' }, { dir: b.dir, name: 'b' }]);
   try {
-    assert.equal((await getJson(s.port, s.api('a', `/jobs/${id}`))).job.title, 'shared id');
-    assert.equal((await getJson(s.port, s.api('b', `/jobs/${id}`))).job.title, 'the b one');
-    assert.equal((await hit(s.port, { path: s.api('a', `/jobs/${id}/file?path=request.md`) })).text, 'request of a\n');
-    assert.equal((await hit(s.port, { path: s.api('b', `/jobs/${id}/file?path=request.md`) })).text, 'request of b\n');
-    assert.equal((await hit(s.port, { path: s.api('a', `/jobs/${onlyB}`) })).status, 404);
-    assert.equal((await hit(s.port, { path: s.api('a', `/jobs/${onlyB}/file?path=request.md`) })).status, 404);
+    assert.equal((await getJson(s, s.api('a', `/jobs/${id}`))).job.title, 'shared id');
+    assert.equal((await getJson(s, s.api('b', `/jobs/${id}`))).job.title, 'the b one');
+    assert.equal((await hit(s, { path: s.api('a', `/jobs/${id}/file?path=request.md`) })).text, 'request of a\n');
+    assert.equal((await hit(s, { path: s.api('b', `/jobs/${id}/file?path=request.md`) })).text, 'request of b\n');
+    assert.equal((await hit(s, { path: s.api('a', `/jobs/${onlyB}`) })).status, 404);
+    assert.equal((await hit(s, { path: s.api('a', `/jobs/${onlyB}/file?path=request.md`) })).status, 404);
   } finally {
     await s.cleanup();
     a.cleanup();
@@ -177,12 +183,12 @@ test("each project's pool runs on its own", async () => {
       assert.equal(c.env.FORGE_ROOT, root, `${c.scope}: FORGE_ROOT`);
     }
     assert.equal(k.alive(jb)[0]!.cwd, b.dir);
-    const post = await poster(s.port);
+    const post = poster(s);
     assert.equal((await post(s.api('b', '/daemon'), { action: 'stop' })).status, 200);
     await waitFor(() => k.children.filter((c) => c.cwd === b.dir).every((c) => c.exited), { what: "b's children to stop" });
     assert.equal(k.alive(ja).length, 1, "a's job child stays alive");
     assert.ok(k.children.filter((c) => c.cwd === a.dir).every((c) => !c.exited), 'no child of a was stopped');
-    assert.equal((await getJson(s.port, s.api('a', '/state'))).daemons.jobs[ja].running, true);
+    assert.equal((await getJson(s, s.api('a', '/state'))).daemons.jobs[ja].running, true);
   } finally {
     await s.cleanup();
     a.cleanup();
@@ -220,7 +226,7 @@ test('the machine cap holds across projects', async () => {
     pb.poke();
     assert.equal(k.liveJobs(), 2);
     assert.deepEqual(k.order, [a1, b1]);
-    const st = (await getJson(s.port, s.api('a', '/state'))).daemons;
+    const st = (await getJson(s, s.api('a', '/state'))).daemons;
     assert.deepEqual(st.machine, { maxConcurrent: 2, live: 2 });
 
     // Inbox sessions never count: one spawns while the cap is full.
@@ -304,11 +310,11 @@ test('registering and removing a project while the server runs', async () => {
     addProject(s.home, c.dir, { name: 'c' });
     // The timed re-read alone: no request names it.
     await waitFor(() => s.entry('c'), { what: 'c loaded', timeoutMs: 5000 });
-    assert.equal((await hit(s.port, { path: s.api('c', '/state') })).status, 200);
-    const projects = await getJson(s.port, '/api/projects');
+    assert.equal((await hit(s, { path: s.api('c', '/state') })).status, 200);
+    const projects = await getJson(s, '/api/projects');
     assert.deepEqual(projects.projects.map((p: { name: string; loaded: boolean }) => [p.name, p.loaded]), [['a', true], ['c', true]]);
     assert.equal(projects.machine.launchPermissionMode, 'auto');
-    assert.equal((await getJson(s.port, s.api('c', '/state'))).daemons.launchPermissionMode, 'auto');
+    assert.equal((await getJson(s, s.api('c', '/state'))).daemons.launchPermissionMode, 'auto');
 
     // A project registered later starts its inbox and job sessions in the launch mode.
     await waitFor(() => k.alive('_inbox').some((x) => x.cwd === c.dir), { what: "c's inbox" });
@@ -327,15 +333,15 @@ test('registering and removing a project while the server runs', async () => {
     const rows = auditAll(c.dir, '1970-01-01T00:00:00.000Z', '2999-01-01T00:00:00.000Z').rows.filter((r) => r.action === 'daemon-mode');
     assert.deepEqual(rows.map((r) => [r.detail, r.actor?.source]), [['auto', 'launch']]);
     assert.equal(fs.existsSync(repoAuditFile(a.dir)), false, 'no audit file for a repo without .forge/config.yml');
-    const events = stream(s.port, s.api('c', '/events?session=_inbox'));
+    const events = stream(s, s.api('c', '/events?session=_inbox'));
     await waitFor(() => events.frames.length > 0, { what: "c's stream" });
 
     removeProject(s.home, 'c');
     await waitFor(() => s.entry('c') === null, { what: 'c closed', timeoutMs: 5000 });
     await waitFor(() => k.children.filter((x) => x.cwd === c.dir).every((x) => x.exited), { what: "c's children to stop" });
     await waitFor(() => events.ended, { what: "c's stream to end" });
-    assert.equal((await hit(s.port, { path: s.api('c', '/state') })).status, 404);
-    assert.equal((await hit(s.port, { path: s.api('a', '/state') })).status, 200);
+    assert.equal((await hit(s, { path: s.api('c', '/state') })).status, 404);
+    assert.equal((await hit(s, { path: s.api('a', '/state') })).status, 200);
   } finally {
     await s.cleanup();
     a.cleanup();
@@ -373,7 +379,7 @@ test('a link or FIFO planted over the repo audit log never stops a launch-mode p
       const s = await serveProjects([{ dir: r.dir, name: 'p' }], { daemon: { ...k.opts, launchPermissionMode: 'auto' } });
       try {
         assert.ok(s.entry('p'), `${row.name}: the project loaded`);
-        assert.equal((await hit(s.port, { path: '/' })).status, 200, `${row.name}: the server answers`);
+        assert.equal((await hit(s, { path: '/' })).status, 200, `${row.name}: the server answers`);
         assert.ok(row.stillClean(), `${row.name}: the line went elsewhere`);
       } finally {
         await s.cleanup();
@@ -402,8 +408,8 @@ test('a project whose pool fails to build or to stop leaves every other project 
   try {
     // b sorts between a and c: its failure skips neither, and a request for it is a 404, not a 500.
     assert.deepEqual(s.entries().map((e) => e.name), ['a', 'c']);
-    assert.equal((await hit(s.port, { path: s.api('b', '/state') })).status, 404);
-    assert.deepEqual((await getJson(s.port, '/api/projects')).projects.map((p: { name: string; loaded: boolean }) => [p.name, p.loaded]), [['a', true], ['b', false], ['c', true]]);
+    assert.equal((await hit(s, { path: s.api('b', '/state') })).status, 404);
+    assert.deepEqual((await getJson(s, '/api/projects')).projects.map((p: { name: string; loaded: boolean }) => [p.name, p.loaded]), [['a', true], ['b', false], ['c', true]]);
 
     // Removed, c's stop rejects: the refresh neither throws nor leaves the rejection unhandled, and c's pool still closes.
     removeProject(s.home, 'c');
@@ -412,7 +418,7 @@ test('a project whose pool fails to build or to stop leaves every other project 
     await waitFor(() => cClosed, { what: "c's pool to close" });
     await new Promise((r) => setImmediate(r));
     assert.deepEqual(rejections, [], 'no unhandled rejection');
-    assert.equal((await hit(s.port, { path: s.api('a', '/state') })).status, 200);
+    assert.equal((await hit(s, { path: s.api('a', '/state') })).status, 200);
   } finally {
     process.off('unhandledRejection', onRejection);
     await s.cleanup();
@@ -429,14 +435,12 @@ test('a restart boots a project only while the files a human approved are unchan
   const first = await serveProjects([{ dir: a.dir, name: 'a' }, { dir: b.dir, name: 'b', approved: false }], { daemon: kit().opts });
   const started: RunningServer[] = [first];
   let current: RunningServer = first;
-  let port = first.port;
-  const daemons = async (name: string) => (await getJson(port, first.api(name, '/state'))).daemons;
-  /** A restart: the same home, a fresh server. */
+  const daemons = async (name: string) => (await getJson(current, first.api(name, '/state'))).daemons;
+  /** A restart: the same home, a fresh server and token. */
   const restart = async () => {
     await current.close();
     current = await startServer({ distDir: FIXTURE_DIST, port: 0, home: first.home, daemon: kit().opts });
     started.push(current);
-    port = Number(new URL(current.url).port);
   };
   try {
     const approved = await daemons('a');
@@ -446,7 +450,7 @@ test('a restart boots a project only while the files a human approved are unchan
     assert.deepEqual([idle.needsApproval, idle.lastError], [true, null], 'it asks for approval, and that is no error');
 
     // Start is a human's approval of the files as they are: b runs now and boots at the next restart.
-    const post = await poster(port);
+    const post = poster(current);
     assert.equal((await post(first.api('b', '/daemon'), { action: 'start' })).status, 200);
     const runningB = await daemons('b');
     assert.deepEqual([runningB.wanted, runningB.needsApproval, runningB.lastError], [true, false, null]);
@@ -479,7 +483,7 @@ test("Start approves the files its pool runs under, never a running session's ed
     // Booted from an approval, with its inbox child alive: a start keeps the snapshot it booted with while one lives.
     await waitFor(() => k.alive('_inbox').length === 1, { what: "a's inbox" });
     fs.appendFileSync(path.join(a.dir, 'CLAUDE.md'), 'a running session wrote this\n');
-    const post = await poster(s.port);
+    const post = poster(s);
     assert.equal((await post(s.api('a', '/daemon'), { action: 'start' })).status, 200);
     assert.equal(trustApproved(s.home, a.dir), false, "a Start pressed mid-turn approves the pool's snapshot, not the edit");
 
@@ -508,7 +512,7 @@ test('/api/projects and its stream', async () => {
   const s = await serveProjects([{ dir: a.dir, name: 'a' }, { dir: gone.dir, name: 'gone' }], { projectsPollMs: 200 });
   try {
     gone.cleanup();
-    const body = await getJson(s.port, '/api/projects');
+    const body = await getJson(s, '/api/projects');
     assert.equal(body.error, null);
     assert.deepEqual(Object.keys(body.machine).sort(), ['launchPermissionMode', 'live', 'maxConcurrent', 'source']);
     assert.equal(body.machine.source, 'auto');
@@ -527,7 +531,7 @@ test('/api/projects and its stream', async () => {
     assert.equal(pa.daemon.office, 'off');
     assert.deepEqual(pg, { name: 'gone', path: gone.dir, status: 'missing', loaded: false, jobs: null, latest: null, daemon: null });
 
-    const events = stream(s.port, '/api/projects/events');
+    const events = stream(s, '/api/projects/events');
     await waitFor(() => events.frames.length === 1, { what: 'the first frame' });
     assert.equal(events.frames[0]!.event, 'projects');
     assert.deepEqual(JSON.parse(events.frames[0]!.data).projects[0].jobs, { active: 3, waiting: 1 });
@@ -551,7 +555,7 @@ test("/api/projects/stats gives each project's daily shipped jobs and cost", asy
   try {
     gone.cleanup();
     s.refresh();
-    const body = await getJson(s.port, '/api/projects/stats?days=7');
+    const body = await getJson(s, '/api/projects/stats?days=7');
     const today = new Date().toISOString().slice(0, 10);
     assert.equal(body.days.length, 7);
     assert.equal(body.days[6], today);
@@ -563,9 +567,9 @@ test("/api/projects/stats gives each project's daily shipped jobs and cost", asy
     }
     assert.deepEqual(body.projects[1].shipped, [0, 0, 0, 0, 0, 0, 1]);
     assert.deepEqual(body.projects[0].shipped, [0, 0, 0, 0, 0, 0, 0]);
-    assert.equal((await getJson(s.port, '/api/projects/stats')).days.length, 30);
+    assert.equal((await getJson(s, '/api/projects/stats')).days.length, 30);
     for (const q of ['days=5', 'days=abc', 'days=']) {
-      const r = await hit(s.port, { path: `/api/projects/stats?${q}` });
+      const r = await hit(s, { path: `/api/projects/stats?${q}` });
       assert.deepEqual([r.status, JSON.parse(r.text)], [400, { error: 'days must be 7, 30 or 90' }], q);
     }
   } finally {
@@ -583,7 +587,7 @@ test("event streams follow one project's session", async () => {
   try {
     const inbox = (dir: string) => k.children.find((c) => c.scope === '_inbox' && c.cwd === dir && !c.exited)!;
     await waitFor(() => inbox(a.dir) && inbox(b.dir), { what: 'both inboxes' });
-    const events = stream(s.port, s.api('a', '/events?session=_inbox'));
+    const events = stream(s, s.api('a', '/events?session=_inbox'));
     await waitFor(() => events.frames.some((f) => f.event === 'state'), { what: "a's first state" });
     const [ia, ib] = [inbox(a.dir), inbox(b.dir)];
     for (const [c, mark] of [[ia, 'from-a'], [ib, 'from-b']] as const) {

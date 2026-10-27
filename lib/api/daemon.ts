@@ -74,6 +74,16 @@ export interface PostProjectResponse {
   project: MachineProjectSummary;
 }
 
+/** POST /api/session body: the login link's fragment key, which postSession in lib/server/routes/machine.ts checks against the server's token. */
+export interface PostSessionBody {
+  k: string;
+}
+
+/** POST /api/session reply on a right key, beside the `forge-<port>` cookie it sets. */
+export interface PostSessionResponse {
+  ok: true;
+}
+
 /** One /api/projects/events frame: sent on connect and whenever the summary changes. */
 export type ProjectsFrame = { event: 'projects'; data: ProjectsResponse };
 
