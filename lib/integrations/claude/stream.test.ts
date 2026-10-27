@@ -1,7 +1,7 @@
 // createStream as a pure decoder: claude's stream-json chunks in, ClaudeEvents and stdin lines out.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AUTH_TEXT, BRIEF_MAX_CHARS, PERMISSION_DENIED, TURN_LINE, UNATTENDED_DENIED, briefLine, createStream, resultCost, sessionGrant } from './stream.ts';
+import { AUTH_TEXT, BRIEF_MAX_CHARS, PERMISSION_DENIED, TURN_LINE, UNATTENDED_DENIED, VERDICT_RETRY_LINE, briefLine, createStream, resultCost, sessionGrant } from './stream.ts';
 import type { ClaudeEvent, SessionCost } from './types.ts';
 
 /** One stream over in-memory sinks. */
@@ -74,15 +74,20 @@ test("claude's stream-json lines become domain events", () => {
       events: [logged({ type: 'system', subtype: 'background_tasks_changed', tasks: [{}, {}] }), { kind: 'background', count: 2 }],
     },
     { name: 'background without tasks', feed: (s) => s.stdout(line({ type: 'system', subtype: 'background_tasks_changed' })), events: [logged({ type: 'system', subtype: 'background_tasks_changed' })] },
-    { name: 'a working result', feed: (s) => s.stdout(line({ type: 'result', is_error: false })), events: [logged({ type: 'result', is_error: false }), { kind: 'turn-ended', ok: true, summary: null, cost: null }] },
+    { name: 'a working result', feed: (s) => s.stdout(line({ type: 'result', is_error: false })), events: [logged({ type: 'result', is_error: false }), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null }] },
     ...[
       ['the first non-empty line', '\n  \nPLAN: SINGLE · one job  \nthe rest of the reply', 'PLAN: SINGLE · one job'],
       ['a line cut to 280 characters', 'x'.repeat(400), 'x'.repeat(280)],
       ['only whitespace', ' \n\t\n', null],
     ].map(([name, result, summary]) => {
       const ev = { type: 'result', subtype: 'success', is_error: false, result };
-      return { name: `an ok summary: ${name}`, feed: (s: S) => s.stdout(line(ev)), events: [logged(ev), { kind: 'turn-ended', ok: true, summary, cost: null } as ClaudeEvent] };
+      return { name: `an ok summary: ${name}`, feed: (s: S) => s.stdout(line(ev)), events: [logged(ev), { kind: 'turn-ended', ok: true, summary, cost: null, text: result } as ClaudeEvent] };
     }),
+    {
+      name: "a working result's text, its last 4000 characters",
+      feed: (s) => s.stdout(line({ type: 'result', is_error: false, result: `${'x'.repeat(5000)}\nASSIST: approve · fine` })),
+      events: [logged({ type: 'result', is_error: false, result: `${'x'.repeat(5000)}\nASSIST: approve · fine` }), { kind: 'turn-ended', ok: true, summary: 'x'.repeat(280), cost: null, text: `${'x'.repeat(3977)}\nASSIST: approve · fine` }],
+    },
     {
       name: 'an expired login',
       feed: (s) => s.stdout(line(errorResult('OAuth token has expired · Please run /login'))),
@@ -109,7 +114,7 @@ test("claude's stream-json lines become domain events", () => {
     }),
     ...costRows.map(([name, fields, cost, ok]) => {
       const ev = ok ? { type: 'result', is_error: false, ...fields } : { ...errorResult('boom'), ...fields };
-      const ended: ClaudeEvent = ok ? { kind: 'turn-ended', ok: true, summary: null, cost } : { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, auth: false, resetsAt: null, budget: false, cost };
+      const ended: ClaudeEvent = ok ? { kind: 'turn-ended', ok: true, summary: null, cost, text: null } : { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, auth: false, resetsAt: null, budget: false, cost };
       return { name: `cost: ${name}`, feed: (s: S) => s.stdout(line(ev)), events: [logged(ev), ended] };
     }),
     {
@@ -262,7 +267,7 @@ test('every stdin line is built from fixed text', () => {
   assert.deepEqual(refused.written, [], 'a refused message writes nothing');
   assert.equal(decoder().s.writeMessage('x'.repeat(8000)), true, '8000 characters is allowed');
 
-  // A role child's brief: one user line carrying the text verbatim, whatever it holds.
+  // A role child's or gate run's brief: one user line carrying the text verbatim, whatever it holds.
   const brief = decoder();
   assert.equal(brief.s.writeBrief(hostile), true);
   assert.deepEqual(brief.written, [briefLine(hostile)]);
@@ -274,6 +279,11 @@ test('every stdin line is built from fixed text', () => {
   const noBrief = decoder();
   assert.equal(noBrief.s.writeBrief('   '), false);
   assert.deepEqual(noBrief.written, [], 'a refused brief writes nothing');
+  // The one fixed verdict retry a gate run sends.
+  const retry = decoder();
+  retry.s.writeVerdictRetry();
+  assert.deepEqual(retry.written, [VERDICT_RETRY_LINE]);
+  assert.match(JSON.parse(VERDICT_RETRY_LINE).message.content[0].text, /^Your reply did not end with the line Forge needs\. Reply with exactly one line: `ASSIST: approve\|revise\|rework\|escalate · <reason>`/);
 
   const input = { command: 'cp a b', nested: { keep: [1, 2] } };
   const answer = (decision: 'allow' | 'session' | 'deny', why?: 'unattended') => {

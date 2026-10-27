@@ -18,8 +18,10 @@ export interface FakeClaudeChild extends ClaudeChild {
   turns: number;
   /** Owner messages written (writeMessage), in order. */
   messages: string[];
-  /** Role briefs written (writeBrief), in order. */
+  /** Gate-run and role briefs written (writeBrief), in order. */
   briefs: string[];
+  /** Verdict retries written (writeVerdictRetry). */
+  verdictRetries: number;
   answers: { requestId: string; decision: PermissionDecision; why?: 'unattended' }[];
   /** Mode switches asked, with ids `fake-mode-<n>`. */
   modes: { requestId: string; mode: DaemonPermissionMode }[];
@@ -53,6 +55,7 @@ export function fakeClaude(opts: { exitOnSignal?: boolean } = {}): { adapter: Cl
         turns: 0,
         messages: [],
         briefs: [],
+        verdictRetries: 0,
         answers: [],
         modes: [],
         signals: [],
@@ -85,6 +88,9 @@ export function fakeClaude(opts: { exitOnSignal?: boolean } = {}): { adapter: Cl
           if (briefLine(text) === null) return false;
           c.briefs.push(text);
           return true;
+        },
+        writeVerdictRetry() {
+          c.verdictRetries++;
         },
         answerPermission(requestId, decision, why) {
           if (!asked.delete(requestId)) return false;

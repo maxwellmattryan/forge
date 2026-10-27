@@ -7,6 +7,7 @@ import type {
   DEPENDENCY_TYPES,
   DIRECTIVE_ACTIONS,
   EFFORTS,
+  GATE_RUN_OUTCOMES,
   HANDOFF_CLASSES,
   INTERIM_STRATEGIES,
   MANDATE_ON_UNFINISHABLE,
@@ -51,6 +52,8 @@ export type InterimStrategy = (typeof INTERIM_STRATEGIES)[number];
 export type GateClass = (typeof OFFICE_GATES)[number];
 /** Why the Foreman left a gate for a person: HANDOFF_CLASSES in lib/core/job/schema.ts. */
 export type HandoffClass = (typeof HANDOFF_CLASSES)[number];
+/** How a gate run ended: GATE_RUN_OUTCOMES in lib/api/constants.ts. */
+export type GateRunOutcome = (typeof GATE_RUN_OUTCOMES)[number];
 /** Where an event's actor came from: ACTOR_SOURCES in lib/core/job/schema.ts. */
 export type ActorSource = (typeof ACTOR_SOURCES)[number];
 

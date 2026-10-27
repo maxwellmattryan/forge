@@ -2,7 +2,7 @@
 import { jobAcs } from '#engine/pipeline/acs.ts';
 import { jobFindings } from '#engine/pipeline/findings.ts';
 import { jobPathMap } from '#engine/pipeline/brief.ts';
-import { foremanHandoffFor } from '#office/foreman.ts';
+import { foremanHandoffFor } from '#office/foreman/policy.ts';
 import { ensureReviewDir, isActive, listJobs, loadJob, progress } from '#core/job/store.ts';
 import { resolveLinks } from '#engine/project/links.ts';
 import { jobPanel } from '#engine/pipeline/panel.ts';

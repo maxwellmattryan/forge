@@ -117,63 +117,17 @@ function daemonRepo(t: any, extra: Record<string, unknown>) {
   return { root, config: loadConfig(root).config };
 }
 
-/** A job parked on spec approval, with one gate request for it per `gates`. */
-function parkedGates(root: string, config: any, gates: number): string[] {
-  return Array.from({ length: gates }, (_, i) => {
-    const job = createJob(root, config, { title: `parked ${i}` }).id;
-    updateJob(root, job, (j) => {
-      j.stage = 'spec';
-      j.state = 'waiting';
-      j.waitingOn = 'spec-approval';
-    });
-    return enqueue(root, config, { type: 'gate', job, args: { gate: 'spec-approval', reserved: null }, from: 'forge' }).id;
-  });
-}
-
-test('a gate request reaches an assistant foreman', async (t) => {
-  const on = (sessions: number) => ({ foreman: { enabled: true, assistants: { enabled: true, sessions } } });
-  const rows: { name: string; config: Record<string, unknown>; gates: number; turned: string[]; mandate?: boolean }[] = [
-    { name: 'one assistant, one gate', config: on(1), gates: 1, turned: ['_assistant-1'] },
-    { name: "a milestone draft's job-less gate", config: on(1), gates: 1, turned: ['_assistant-1'], mandate: true },
-    { name: 'two assistants, two gates', config: on(2), gates: 2, turned: ['_assistant-1', '_assistant-2'] },
-    { name: 'two assistants, one gate', config: on(2), gates: 1, turned: ['_assistant-1'] },
-    { name: 'the foreman off', config: { foreman: { enabled: false, assistants: { enabled: true, sessions: 1 } } }, gates: 1, turned: [] },
-    { name: 'assistants off', config: { foreman: { enabled: true, assistants: { enabled: false, sessions: 1 } } }, gates: 1, turned: [] },
-  ];
-  for (const row of rows) {
-    const { root, config } = daemonRepo(t, row.config);
-    const ids = row.mandate
-      ? [enqueue(root, config, { type: 'gate', job: null, args: { gate: 'milestone-approval', mandate: 'g1', key: '1-abc', digest: 'a'.repeat(64), reserved: null }, from: 'forge' }).id]
-      : parkedGates(root, config, row.gates);
-    const claude = fakeClaude();
-    const pool = createPool(root, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
-    t.after(() => pool.close());
-    pool.start('boot');
-    const others = claude.children.filter((c) => c.scope !== '_inbox');
-    assert.deepEqual(others.map((c) => c.scope).sort(), row.turned, `${row.name}: the children`);
-    for (const c of others) assert.equal(c.turns, 1, `${row.name}: ${c.scope} got one turn`);
-    assert.ok(!claude.children.some((c) => c.scope === '_office'), `${row.name}: the office is never spawned`);
-    const state = pool.state();
-    for (const scope of row.turned) assert.equal(state.assistants[scope]?.status, 'busy', `${row.name}: ${scope} is busy`);
-    if (!row.turned.length) {
-      assert.deepEqual(state.assistants, {}, `${row.name}: no assistants in the state`);
-      for (const id of ids) assert.equal(listRequests(root).find((r) => r.id === id)?.status, 'pending', `${row.name}: the gate waits`);
-    }
-  }
-});
-
 test('chat text reaches only its chat session', async (t) => {
-  const { root, config } = daemonRepo(t, { foreman: { enabled: true, assistants: { enabled: true, sessions: 1 } } });
+  const { root, config } = daemonRepo(t, { foreman: { enabled: true, assistants: { enabled: true } } });
   const job = createJob(root, config, { title: 'running' }).id;
   enqueue(root, config, { type: 'resume', job, from: 'dashboard' });
   enqueue(root, config, { type: 'draft', args: { mandate: 'g1' }, from: 'forge' });
-  parkedGates(root, config, 1);
   const claude = fakeClaude();
   const pool = createPool(root, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
   t.after(() => pool.close());
   pool.start('boot');
-  const others = ['_inbox', '_office', '_assistant-1', job];
-  assert.deepEqual(others.filter((s) => !claude.children.some((c) => c.scope === s)), [], 'the inbox, office, assistant and job sessions all run');
+  const others = ['_inbox', '_office', job];
+  assert.deepEqual(others.filter((s) => !claude.children.some((c) => c.scope === s)), [], 'the inbox, office and job sessions all run');
 
   const chat = '_chat-0123456789ab';
   assert.deepEqual(pool.sendChat(chat, 'hello, Foreman'), { error: null });
@@ -259,23 +213,4 @@ test('the Office pass runs at start and on a mandate change, and its direct requ
     assert.equal(of('_office')[0].turns, 1, 'the second pass queued no direct request');
     await pool.close();
   }
-});
-
-test('assistant foremen count against neither daemon.maxConcurrent nor the machine cap', async (t) => {
-  const { root, config } = daemonRepo(t, { daemon: { maxConcurrent: 1 }, foreman: { enabled: true, assistants: { enabled: true, sessions: 1 } } });
-  const job = createJob(root, config, { title: 'running' }).id;
-  enqueue(root, config, { type: 'resume', job, from: 'dashboard' });
-  const claude = fakeClaude();
-  const slots = createMachineSlots(() => 1);
-  const pool = createPool(root, { claude: claude.adapter, slots, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
-  t.after(() => pool.close());
-  pool.start('boot');
-  assert.ok(claude.children.some((c) => c.scope === job), 'the job session holds the slot');
-  assert.deepEqual({ live: pool.state().live, machine: pool.state().machine?.live }, { live: 1, machine: 1 });
-
-  parkedGates(root, config, 1);
-  pool.poke();
-  const assistant = claude.children.find((c) => c.scope === '_assistant-1');
-  assert.equal(assistant?.turns, 1, 'the assistant is spawned and turned');
-  assert.deepEqual({ live: pool.state().live, machine: pool.state().machine?.live }, { live: 1, machine: 1 });
 });

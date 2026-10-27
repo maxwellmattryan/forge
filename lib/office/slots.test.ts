@@ -95,7 +95,6 @@ describe('machine slots', () => {
   const kinds: [string, string, boolean][] = [
     ['_inbox', 'inbox', false],
     ['_office', 'office', false],
-    ['_assistant-2', 'assistant', false],
     ['_chat-0123456789ab', 'chat', false],
     ['j-1', 'job', true],
   ];

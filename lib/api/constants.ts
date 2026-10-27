@@ -83,7 +83,7 @@ export const MANDATE_ON_UNFINISHABLE = ['park', 'cancel'] as const;
 /** Whether a mandate's merged jobs get a post-merge score run: every one, scoring.sample's share, or none. */
 export const MANDATE_SCORING = ['all', 'sample', 'off'] as const;
 
-/** Why the Foreman left a gate for a person (`forge job handoff --class`): a reserved topic or class, the assistant escalated, or the CLI refused its decision. */
+/** Why the Foreman left a gate for a person (a gate run's hand-off): a reserved topic or class, the assistant escalated, or the policy refused its decision. */
 export const HANDOFF_CLASSES = ['reserved', 'escalated', 'refused'] as const;
 
 export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume', 'sync', 'eval-run', 'retro', 'gate', 'draft', 'direct'] as const;
@@ -100,14 +100,18 @@ export const DIRECTIVE_ACTIONS = ['start', 'resume', 'note', 'skip', 'pause', 'c
  * alphanumeric, so it can never be one.
  */
 export const INBOX_SCOPE = '_inbox';
-/** The Foreman's daemon session: it receives every `draft` and `direct` request (its assistant foremen take the `gate` requests) and never drives a job. */
+/** The Foreman's daemon session: it receives every `draft` and `direct` request (forge dash's gate runner decides the `gate` requests) and never drives a job. */
 export const OFFICE_SCOPE = '_office';
-/** Not a session: the request group every `gate` request routes to, which any assistant foreman session may claim from. */
-export const ASSISTANTS_SCOPE = '_assistants';
-/** An assistant foreman session's scope is this prefix and its number, 1 to MAX_ASSISTANTS, with no leading zero. */
-export const ASSISTANT_SCOPE_PREFIX = '_assistant-';
-/** The most assistant foreman sessions a pool runs (foreman.assistants.sessions). */
-export const MAX_ASSISTANTS = 16;
+/**
+ * Not a session: the request group every `gate` request routes to. Only forge dash's gate runner
+ * (lib/office/foreman/run.ts) takes from it, and a gate run's assistant runs with it as its scope,
+ * which refuses every `forge` command.
+ */
+export const GATES_SCOPE = '_gates';
+/** The most gate runs a pool runs at once (foreman.assistants.parallel). */
+export const MAX_GATE_RUNS = 16;
+/** How a gate run ended, as the Foreman popover's activity list shows it. */
+export const GATE_RUN_OUTCOMES = ['approve', 'revise', 'rework', 'no-action', 'escalated', 'reserved', 'refused', 'stale', 'requeued', 'failed'] as const;
 /** A chat's session scope is this prefix and the chat's id, 12 lowercase hex characters. */
 export const CHAT_SCOPE_PREFIX = '_chat-';
 /** The longest owner message a chat takes, in characters. */

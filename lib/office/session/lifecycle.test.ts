@@ -144,7 +144,7 @@ const asked = (requestId: string, over: Partial<Extract<ClaudeEvent, { kind: 'pe
 const failed = (reason: string, limit = false, resetsAt: number | null = null, budget = false): ClaudeEvent => ({ kind: 'turn-ended', ok: false, reason, limit, resetsAt, budget });
 
 test('only a chat session takes owner text', async (t) => {
-  for (const scope of [INBOX_SCOPE, '_office', '_assistant-1', 'job']) {
+  for (const scope of [INBOX_SCOPE, '_office', 'job']) {
     const r = rig(t, scope === 'job' ? { job: true } : { scope });
     assert.deepEqual(startChat(r.s, r.cfg, 'hello'), { error: `${r.scope} is not a chat session` });
     assert.equal(r.children.length, 0, `${scope}: startChat spawns nothing`);

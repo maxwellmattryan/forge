@@ -17,7 +17,7 @@ Procedures: `${CLAUDE_PLUGIN_ROOT}/skills/forge/reference/`; docs: `${CLAUDE_PLU
 1. **The CLI is the only writer of state and the only decider of the next step.** Never hand-edit `job.json`, `events.jsonl`, the backlog or tracker labels, or pick a stage yourself: ask `forge job step <id>`.
 2. **Context economy.** Read CLI JSON and agents' one-line replies, not code, diffs, reviews, logs or specs. Give agents the `brief` step returns, never file contents.
 3. **Worktree isolation.** Builders and integrators work only in the job's worktree; only the CLI touches the main checkout (`.forge/`).
-4. **Stop at human gates.** Report the `tell`, work on others; never guess past one. With `foreman.enabled`, the CLI turns gates into `gate` requests. A gate answered with `forge job human` moves at the next step; from another session hand it back with `forge requests add resume --job <id>`. In an assistant foreman's daemon turn, deciding `gate` requests through `reference/foreman.md` is the work, not guessing past a gate.
+4. **Stop at human gates.** Report the `tell`, work on others; never guess past one. With `foreman.enabled`, the CLI turns gates into `gate` requests. A gate answered with `forge job human` moves at the next step; from another session hand it back with `forge requests add resume --job <id>`. No session decides a `gate` request: `forge dash`'s gate runner does, in code, so a daemon turn never sees one.
 5. **No AI attribution** in commits, PRs, issues or comments: no co-author trailers, "Generated with" footers or session links.
 6. **Be honest in the record.** `forge job note` anything that failed or was skipped.
 

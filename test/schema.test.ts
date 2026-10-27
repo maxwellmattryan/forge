@@ -159,6 +159,13 @@ const CONFIG_ROWS: Row[] = [
     note: ONLY_VERSION,
   },
   { step: 'foreman-ship-release', input: { foreman: { enabled: true, ship: 'merge' } }, fields: { 'foreman.ship': 'merge', 'foreman.enabled': true }, note: ONLY_VERSION },
+  {
+    step: 'foreman-gate-runs',
+    input: { foreman: { assistants: { enabled: true, sessions: 3 } } },
+    fields: { 'foreman.assistants': { enabled: true, parallel: 3 } },
+    removed: ['foreman.assistants.sessions'],
+    note: 'the assistant sessions count becomes the gate runs at once',
+  },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -592,6 +599,17 @@ test('config v34 → v35: other assistant shapes', () => {
   const kept = v34({ foreman: { enabled: true, assistants: { model: 'opus' } }, runtime: { models: { assistant: 'haiku' }, efforts: { assistant: 'low' } } });
   assert.deepEqual(kept.foreman, { enabled: true, assistants: { model: 'opus', effort: 'low' } }, 'a value already under foreman.assistants wins');
   assert.deepEqual(kept.runtime, { models: {}, efforts: {} });
+});
+
+test('config v38 → v39: other gate-run shapes', () => {
+  const v38 = (c: Record<string, unknown>) => migrateConfig({ ...c, schemaVersion: CONFIG_STEPS.findIndex((s) => s.id === 'foreman-gate-runs') + 1 }).config;
+  assert.deepEqual(v38({ foreman: { assistants: { sessions: 3, parallel: 5 } } }).foreman.assistants, { parallel: 5 }, 'a written parallel wins');
+  assert.equal('foreman' in v38({ git: { base: 'trunk' } }), false, 'no old key: no foreman block invented');
+  assert.deepEqual(v38({ foreman: { assistants: 'off' } }).foreman, { assistants: 'off' }, 'an assistants that is not a map is left for validation');
+  assert.equal(defaults().foreman.assistants.parallel, 2, 'a config without the keys gets the default');
+  const written = defaults() as any;
+  written.foreman.assistants.sessions = 2;
+  assert.ok(validateConfig(written, os.tmpdir()).some((p) => /^foreman\.assistants has unknown key "sessions"/.test(p)), 'a later hand-written sessions is an unknown-key problem');
 });
 
 test('config v23 → v24: no outcomes key is added, defaults fill it', () => {

@@ -3,7 +3,7 @@
 // restart record and notifications a service start writes once those passes settle.
 import { loadConfig } from '#core/config/load.ts';
 import { listJobs } from '#core/job/store.ts';
-import { ASSISTANTS_SCOPE, INBOX_SCOPE, OFFICE_SCOPE, listRequests, requestScope } from '#core/job/requests.ts';
+import { GATES_SCOPE, INBOX_SCOPE, OFFICE_SCOPE, listRequests, requestScope } from '#core/job/requests.ts';
 import { readMachineIndex } from '#engine/project/machine-index.ts';
 import { writeUptime } from '#engine/project/login-service.ts';
 import { createSleepHold, sleepHoldCommand } from '#integrations/os-service/sleep.ts';
@@ -106,7 +106,7 @@ export async function resumeProject(name: string, root: string, pool: Pick<Daemo
   try {
     const { config } = loadConfig(root);
     const state = pool.state();
-    const scopes = [INBOX_SCOPE, OFFICE_SCOPE, ...Object.keys(state.assistants ?? {}), ...Object.keys(state.jobs)];
+    const scopes = [INBOX_SCOPE, OFFICE_SCOPE, ...Object.keys(state.jobs)];
     const facts = new Map<string, SessionFacts>();
     const busy: string[] = [];
     for (const j of listJobs(root)) {
@@ -121,11 +121,11 @@ export async function resumeProject(name: string, root: string, pool: Pick<Daemo
     // The resume reaches its session at once, not at the pool's next poll.
     if (r.resumed.length) pool.poke();
     const jobs = listJobs(root).filter((j) => j.state === 'running').length;
-    // Open Office requests: the office session's draft requests and the assistant foremen's gate requests.
+    // Open Office requests: the office session's draft and direct requests and the gate runner's gate requests.
     const office = listRequests(root).filter((q) => {
       if (q.status !== 'pending' && q.status !== 'in-progress') return false;
       const scope = requestScope(root, q);
-      return scope === OFFICE_SCOPE || scope === ASSISTANTS_SCOPE;
+      return scope === OFFICE_SCOPE || scope === GATES_SCOPE;
     }).length;
     return { name, jobs, office, mandates: activeMandates(root) };
   } catch (e) {

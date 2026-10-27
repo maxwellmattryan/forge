@@ -8,12 +8,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fakeClaude, jobAt, repoTemplate, waitFor } from '../../../test/helpers.ts';
 import { defaults, trustDigest } from '#core/config/load.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE } from '#core/job/requests.ts';
+import { GATES_SCOPE, INBOX_SCOPE, OFFICE_SCOPE } from '#core/job/requests.ts';
 import { loadJob, readEvents } from '#core/job/store.ts';
 import { METER_VERSION, appendMeter, meterFile, readMeter } from '#engine/metrics/meter.ts';
 import type { SessionCost } from '#integrations/claude/types.ts';
 import { confineDigest } from './confine.ts';
 import { heldByBudget } from './holds.ts';
+import { officeCapLeft, officeCapRefusal } from './meter.ts';
 import { createSession } from './lifecycle.ts';
 import { sessionOptions, type LogSink, type SessionContext } from './contract.ts';
 import type { Config } from '#core/types.ts';
@@ -186,36 +187,48 @@ test('the office and inbox stop at their daily cap', async (t) => {
   assert.deepEqual(inbox.children[0].signals, []);
 });
 
-test('the office and its assistant foremen share one daily cap', async (t) => {
+test('the office and its gate runs share one daily cap', async (t) => {
   const caps = { daemon: { dailyUsd: { office: 1, inbox: null } } };
   const seed = (root: string, scope: string, usd: number) =>
     appendMeter(root, { v: METER_VERSION, ts: new Date().toISOString(), scope, sessionId: null, spawnId: 'seed', turn: 1, usd, tokens: 0, models: {}, cum: { usd, models: {} } });
 
-  // $0.40 + $0.70 is past the $1 cap: a third office-family session may not start.
-  const second = rig(t, '_assistant-2', caps);
-  seed(second.root, OFFICE_SCOPE, 0.4);
-  seed(second.root, '_assistant-1', 0.7);
-  assert.equal(second.s.spawn(second.cfg), false);
-  assert.equal(second.children.length, 0, 'no child');
-  assert.match(second.s.lastError ?? '', /daily cap \(daemon\.dailyUsd\.office\)/);
+  // $0.40 of gate runs + $0.70 of office is past the $1 cap: the office may not start, and no gate run may either.
+  const held = rig(t, OFFICE_SCOPE, caps);
+  seed(held.root, GATES_SCOPE, 0.4);
+  seed(held.root, OFFICE_SCOPE, 0.7);
+  assert.equal(held.s.spawn(held.cfg), false);
+  assert.equal(held.children.length, 0, 'no child');
+  assert.match(held.s.lastError ?? '', /the office session and its gate runs spent \$1\.10 of the \$1\.00 daily cap \(daemon\.dailyUsd\.office\)/);
+  assert.match(officeCapRefusal(held.root, held.cfg, Date.now())?.message ?? '', /daily cap \(daemon\.dailyUsd\.office\)/);
+  assert.equal(officeCapLeft(held.root, held.cfg, Date.now()), 0);
 
-  // The result that takes the family past the cap stops the assistant that spent it.
-  const first = rig(t, '_assistant-1', caps);
-  seed(first.root, OFFICE_SCOPE, 0.4);
+  // Below the cap: what is left is a gate run's budget. A legacy assistant session's meter no longer counts.
+  const below = rig(t, OFFICE_SCOPE, caps);
+  seed(below.root, GATES_SCOPE, 0.25);
+  seed(below.root, '_assistant-1', 5);
+  assert.equal(officeCapRefusal(below.root, below.cfg, Date.now()), null);
+  assert.equal(officeCapLeft(below.root, below.cfg, Date.now()), 0.75);
+  const uncapped = defaults();
+  assert.equal(officeCapLeft(below.root, { ...uncapped, daemon: { ...uncapped.daemon, dailyUsd: { ...uncapped.daemon.dailyUsd, office: null } } }, Date.now()), null, 'no cap: no flag');
+
+  // The office result that takes the family past the cap stops the office.
+  const first = rig(t, OFFICE_SCOPE, caps);
+  seed(first.root, GATES_SCOPE, 0.4);
   assert.equal(first.s.spawn(first.cfg), true);
   first.s.writeTurn(['r1']);
   first.children[0].emit(result(0.7));
-  assert.deepEqual(metered(first.root, '_assistant-1'), [0.7], "metered into the assistant's own file");
+  assert.deepEqual(metered(first.root, OFFICE_SCOPE), [0.7], "metered into the office's own file");
   assert.equal(first.s.wanted, false);
   assert.deepEqual(first.children[0].signals, ['SIGTERM']);
   assert.match(first.s.lastError ?? '', /daily cap \(daemon\.dailyUsd\.office\)/);
-  await waitFor(() => !first.s.running, { what: 'the capped assistant stopped' });
+  await waitFor(() => !first.s.running, { what: 'the capped office stopped' });
 
-  // One assistant's meter that can't be read fails the office's check closed.
+  // The gate runs' meter that can't be read fails the office's check closed.
   const office = rig(t, OFFICE_SCOPE, caps);
-  oversize(office.root, '_assistant-2');
+  oversize(office.root, GATES_SCOPE);
   assert.equal(office.s.spawn(office.cfg), false);
-  assert.match(office.s.lastError ?? '', /_assistant-2\.jsonl is over 64 MiB, so the office session's daily cap \(daemon\.dailyUsd\.office\) can't be checked/);
+  assert.match(office.s.lastError ?? '', /_gates\.jsonl is over 64 MiB, so the office session's daily cap \(daemon\.dailyUsd\.office\) can't be checked/);
+  assert.equal(officeCapLeft(office.root, office.cfg, Date.now()), 0, 'an unreadable meter leaves no budget');
 });
 
 test('chats share one daily cap', async (t) => {

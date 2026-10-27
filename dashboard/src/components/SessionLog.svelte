@@ -24,7 +24,7 @@
   import { mdView } from '../lib/md-view.svelte.ts';
   import { clock, usd } from '../lib/util.ts';
   import { projectApi } from '../lib/project.ts';
-  import { INBOX_SCOPE, OFFICE_SCOPE, isAssistantScope, sharedScope } from '../lib/types.ts';
+  import { INBOX_SCOPE, OFFICE_SCOPE, sharedScope } from '../lib/types.ts';
   import type { DaemonSessionState } from '../lib/types.ts';
   import { atBottom, buildSessionView, filtersActive, latestInitModel, readFilters } from '../lib/session-log.ts';
   import { modelLabel } from '../lib/statusbar.ts';
@@ -257,7 +257,7 @@
     {#if !entries.length}
       {#if error === null}
         {@const enabled = S.data?.daemons?.enabled === true}
-        <p class="pt-2 font-sans text-sm text-muted">{#if loading}{$t('session.loading')}{:else if transcript}{$t('session.transcriptEmpty')}{:else if scope === INBOX_SCOPE}{enabled ? $t('session.emptyInboxEnabled') : $t('session.emptyInbox')}{:else if scope === OFFICE_SCOPE}{$t('session.emptyOffice')}{:else if isAssistantScope(scope)}{$t('session.emptyAssistant')}{:else}{enabled ? $t('session.emptyEnabled') : $t('session.empty')}{/if}</p>
+        <p class="pt-2 font-sans text-sm text-muted">{#if loading}{$t('session.loading')}{:else if transcript}{$t('session.transcriptEmpty')}{:else if scope === INBOX_SCOPE}{enabled ? $t('session.emptyInboxEnabled') : $t('session.emptyInbox')}{:else if scope === OFFICE_SCOPE}{$t('session.emptyOffice')}{:else}{enabled ? $t('session.emptyEnabled') : $t('session.empty')}{/if}</p>
       {/if}
     {:else if !view.turns.length}<p class="pt-2 text-muted">{$t('session.noMatch')}</p>{/if}
     {#each view.turns as g (g.offset)}

@@ -4,10 +4,10 @@
 // mandate, not a job, so its records live in the repo audit log, outside every session's write roots:
 // `mandate-release-planned`, `mandate-release-approved` and `mandate-release-finished`, each naming the
 // mandate and the full plan hash. Nothing here runs a step or writes state.json. Engine code can't import
-// lib/office/, so the mandate's own policy (lib/office/foreman.ts mandateReleaseRefusal) comes in as `narrow`;
+// lib/office/, so the mandate's own policy (lib/office/foreman/policy.ts mandateReleaseRefusal) comes in as `narrow`;
 // approval.ts and run.ts import this file, never the other way round.
 import { listArchived } from '#core/job/archive.ts';
-import { enqueue, inAssistant, listRequests } from '#core/job/requests.ts';
+import { FOREMAN_AUTHORITY_REFUSAL, enqueue, holdsForemanAuthority, listRequests } from '#core/job/requests.ts';
 import { isForemanActor, listJobs, logRepoEvent, parseEventLines, readEvents, repoAuditFile } from '#core/job/store.ts';
 import { readRegularText } from '#core/os/fs.ts';
 import { assertSafeRef, oneLineTitle } from '#core/text.ts';
@@ -22,7 +22,7 @@ import { fileBumps } from './script.ts';
 import { labelOf } from './steps.ts';
 import type { Config, EventActor, ForgeRequest, Job, JobEvent } from '#core/types.ts';
 
-/** Why mandate `id` keeps its release with a human, or null when it delegates it (lib/office/foreman.ts mandateReleaseRefusal). */
+/** Why mandate `id` keeps its release with a human, or null when it delegates it (lib/office/foreman/policy.ts mandateReleaseRefusal). */
 export type MandateReleaseNarrow = (mandate: string) => string | null;
 
 export type ReleaseOwner = 'human' | 'foreman';
@@ -336,15 +336,16 @@ export function mandateReleaseRun(root: string, id: string): 'none' | 'started' 
 }
 
 /**
- * Every check on `forge mandate release approve <id> --actor foreman`, in order, before the one write
- * (`mandate-release-approved` in the repo audit log). Returns the plan hash it recorded. Throws ForgeError
- * (exit 1) with `--actor foreman refused: …`.
+ * Every check on the Foreman's approval of mandate `id`'s release, in order, before the one write
+ * (`mandate-release-approved` in the repo audit log): first that `by` is forge dash's gate runner's
+ * ForemanAuthority, so `forge mandate release approve` is always refused. Returns the plan hash it
+ * recorded. Throws ForgeError (exit 1) with `--actor foreman refused: …`.
  */
-export function approveMandateRelease(root: string, config: Config, id: string, note: string | null | undefined, narrow: MandateReleaseNarrow, env: NodeJS.ProcessEnv = process.env): string {
+export function approveMandateRelease(root: string, config: Config, id: string, note: string | null | undefined, narrow: MandateReleaseNarrow, by: unknown = null): string {
   const refuse = (why: string): never => {
     throw new ForgeError(`--actor foreman refused: ${why}`, 1);
   };
-  if (!inAssistant(env)) refuse('only an assistant foreman session records foreman decisions');
+  if (!holdsForemanAuthority(by)) refuse(FOREMAN_AUTHORITY_REFUSAL);
   if (typeof note !== 'string' || !note.trim()) refuse('a foreman decision needs --note with its reason');
   if (!foremanEnabled(config)) refuse('foreman.enabled is false');
   if (!(Array.isArray(config.foreman?.decides) && config.foreman.decides.includes(GATE))) refuse('release is not in foreman.decides');

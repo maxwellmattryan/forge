@@ -25,7 +25,7 @@ import { memberIssues } from '#engine/trackers/mirror.ts';
 import { memberForRef, memberTrackerConfig, memberTrackers, qualify, type MemberTracker } from '#engine/project/member-trackers.ts';
 import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '#engine/trackers/triage.ts';
 import { dashRunning, reconcile, type ReconcileResult } from '#office/reconcile.ts';
-import { mandateRefusal } from '#office/foreman.ts';
+import { mandateRefusal } from '#office/foreman/policy.ts';
 import { jobMandateScoring } from '#office/mandates/store.ts';
 import { ForgeError } from '#core/errors.ts';
 import { removeWorktree } from '#engine/workspace/worktree.ts';

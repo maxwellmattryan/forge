@@ -1,54 +1,42 @@
-// `forge job human|handoff|assist`: recording a human's or the foreman's decision at a gate, a Foreman hand-off, and the office's assistant spawn.
-import { assistantBrief } from '#engine/pipeline/brief.ts';
-import { checkForemanDecision, cleanHandoffReason, foremanHandoffFor, releaseMandateRefusal } from '#office/foreman.ts';
-import { classReservation, gateClassFor, isGateClass, reservedFor, securityHold } from '#engine/pipeline/moves/foreman-gates.ts';
-import { loadJob, logHumanEvent, readEvents, setJob } from '#core/job/store.ts';
+// `forge job human|assist`: recording a person's decision at a gate, the refusal of a foreman one (only forge dash's
+// gate runner records those, in-process), and the read-only assist for a person's own terminal.
+import { gateAssist, recordForemanDecision } from '#office/foreman/decide.ts';
+import { logHumanEvent, setJob } from '#core/job/store.ts';
 import { checkIssueRef } from '#core/job/issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
-import { decideRepoProposals, pendingRepoProposals } from '#engine/project/repo-proposals.ts';
-import { RELEASE_APPROVAL, checkReleaseDecision, pendingReleaseHash } from '#engine/release/approval.ts';
-import { HANDOFF_CLASSES, OFFICE_GATES } from '#core/job/schema.ts';
-import { daemonScope, inAssistant, inChat, inOffice } from '#core/job/requests.ts';
+import { decideRepoProposals } from '#engine/project/repo-proposals.ts';
+import { daemonScope, inChat, inOffice } from '#core/job/requests.ts';
 import { chatGateRefusal } from '#office/chat/authority.ts';
 import { createAndLink, linkJob, markNoIssue } from '#engine/trackers/link.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
-import { resolveEffort, resolveModel } from '#core/config/load.ts';
-import { jobMandateDecides } from '#office/mandates/store.ts';
-import { bounceHold } from '#office/mandates/progress.ts';
-import { mandateGuidance } from '#office/mandates/contract.ts';
-import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
+import { currentActor } from '#integrations/github/actor.ts';
 import { ForgeError } from '#core/errors.ts';
-import type { Config, Job } from '#core/types.ts';
+import type { Config } from '#core/types.ts';
 import { list, oneOf, requireJob, str } from '../args.ts';
 
 // `forge stats` and `forge job step` read these from `human` events, so an invented action is refused.
 const HUMAN_ACTIONS = ['approve-spec', 'revise-spec', 'approve-split', 'revise-split', 'approve', 'rework', 'answer', 'approve-repos', 'reject-repos', 'approve-release'] as const;
 const REPO_ACTIONS: readonly string[] = ['approve-repos', 'reject-repos'];
 
+/** What the office session gets for any `forge job human`: it decides no gate. */
+export const OFFICE_HUMAN_REFUSAL = "the office session records no gate decisions: forge dash's gate runner decides gates";
+
 export async function human(root: string, config: Config, rest: string[], flags: Record<string, any>) {
+  // Before anything is read: the office session reads tracker titles and mandate guidance, so it records no decision at all.
+  if (inOffice()) throw new ForgeError(OFFICE_HUMAN_REFUSAL, 1);
   const id = rest[0];
   const job = requireJob(root, id);
   const jobId = job.id;
   const action = oneOf(rest[1], HUMAN_ACTIONS, 'action');
   const note = str(flags.note, '--note');
   const who = flags.actor === undefined ? 'human' : oneOf(str(flags.actor, '--actor'), ['human', 'foreman'] as const, 'actor');
-  // An assistant foreman session records only foreman decisions, and only it may (checkForemanDecision): provenance is
-  // the daemon scope, so a job session misled by request text can't pass off a decision as the foreman's.
-  if ((inOffice() || inAssistant()) && who !== 'foreman') throw new ForgeError('a foreman session records decisions only with --actor foreman', 1);
   // A chat acts for the owner, but a reserved gate stays the owner's own to decide: refused before anything is written.
   const chatRefusal = inChat() ? chatGateRefusal(root, config, job, action, note) : null;
   if (chatRefusal) throw new ForgeError(chatRefusal, 1);
-  // No job waits on a release, so it skips checkForemanDecision; checkReleaseDecision re-plans and
-  // re-reads the policy before the one event it writes, and takes the job's mandate from here (it is
-  // engine code). The job's state never changes.
-  if (action === 'approve-release') {
-    if (who !== 'foreman') throw new ForgeError("approve-release is the foreman's (--actor foreman); a person approves a release by answering forge release run's publish prompt in a terminal", 1);
-    // The release class also refuses under a paused or closed mandate, as release run and status do, so an approval the CLI accepts is one that counts.
-    const planHash = checkReleaseDecision(root, config, jobId, note, { link: flags.link, reason: flags.reason, repo: flags.repo }, () => releaseMandateRefusal(root, config, job));
-    logHumanEvent(root, jobId, RELEASE_APPROVAL, { planHash, note }, FOREMAN_ACTOR);
-    return { ok: true, release: { plan: planHash.slice(0, 12), actor: 'foreman' } };
-  }
-  if (who === 'foreman') checkForemanDecision(root, config, job, action, note, { link: flags.link, reason: flags.reason });
+  if (action === 'approve-release' && who !== 'foreman') throw new ForgeError("approve-release is the foreman's (--actor foreman); a person approves a release by answering forge release run's publish prompt in a terminal", 1);
+  // No authority reaches the CLI, so the shared checks refuse every foreman decision here, in every scope, before any write:
+  // a session misled by request or PR text can't pass off a decision as the foreman's.
+  if (who === 'foreman') return recordForemanDecision(root, config, job, action, note, { link: flags.link, reason: flags.reason, repo: flags.repo }, null);
   // Every check runs before any write, so a refused --link leaves job.json and events untouched.
   const link = flags.link;
   if (link !== undefined && (typeof link !== 'string' || !link.trim())) throw new ForgeError('--link needs <ref>, new or none');
@@ -62,16 +50,15 @@ export async function human(root: string, config: Config, rest: string[], flags:
   if (reason !== undefined && link !== 'none') throw new ForgeError('--reason is only for --link none');
   if (flags.repo !== undefined && !REPO_ACTIONS.includes(action)) throw new ForgeError('--repo is only for approve-repos and reject-repos');
   if (REPO_ACTIONS.includes(action)) {
-    // Widening the repos a job pushes to: never from a job session or the inbox, which could be misled by request text.
+    // Widening the repos a job pushes to: never from a daemon session, which could be misled by request text.
     const s = daemonScope();
     if ('problem' in s) throw new ForgeError(s.problem);
-    if (s.daemon && !inAssistant()) throw new ForgeError(`forge job human ${action} decides which repos a job pushes to, which a daemon session may not do; decide in the dashboard or your own terminal`, 1);
-    const actor = who === 'foreman' ? FOREMAN_ACTOR : currentActor(root);
+    if (s.daemon) throw new ForgeError(`forge job human ${action} decides which repos a job pushes to, which a daemon session may not do; decide in the dashboard or your own terminal`, 1);
     // The decider names what it saw: never "every pending repo", which could include one proposed since.
     const repos = flags.repo === undefined ? [] : list(flags.repo);
     if (!repos.length) throw new ForgeError(`forge job human ${action} needs --repo A[,B]: the pending repos you decide (see repo-proposals.md)`, 1);
-    // The foreman decides the whole list its assist call returned; a person may name a subset.
-    const decided = decideRepoProposals(root, config, jobId, action === 'approve-repos' ? 'approve' : 'reject', { repos, exact: who === 'foreman', note: note ?? (rest.slice(2).join(' ') || null), actor });
+    // A person may name a subset.
+    const decided = decideRepoProposals(root, config, jobId, action === 'approve-repos' ? 'approve' : 'reject', { repos, note: note ?? (rest.slice(2).join(' ') || null), actor: currentActor(root) });
     return { ok: true, ...decided };
   }
   // A rejected split re-plans as one job; recorded before the event so step never sees one without the other.
@@ -79,7 +66,7 @@ export async function human(root: string, config: Config, rest: string[], flags:
   // The link goes first: if it throws, no approval is recorded and the job keeps waiting.
   let linked: unknown;
   // Resolved after every check, so a refused call never spawns gh to find out who asked.
-  const actor = who === 'foreman' ? FOREMAN_ACTOR : currentActor(root);
+  const actor = currentActor(root);
   if (link === 'none') linked = markNoIssue(root, jobId, reason ?? null, actor);
   else if (link === 'new') linked = createAndLink(root, config, await loadTracker(root, config), jobId, actor);
   else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, [link], actor);
@@ -87,73 +74,13 @@ export async function human(root: string, config: Config, rest: string[], flags:
   return { ok: true, ...(link !== undefined ? { link: linked } : {}) };
 }
 
-export function handoff(root: string, config: Config, rest: string[], flags: Record<string, any>) {
-  const id = rest[0];
-  // Assistant foremen only, like a foreman decision: a job session misled by request text can't hide a gate
-  // behind a fake "left for a human". Every check runs before the one write.
-  if (!inAssistant()) throw new ForgeError('only an assistant foreman session records a Foreman hand-off', 1);
-  const job = requireJob(root, id);
-  // The gate is the one the job waits at now, never passed in.
-  const gate = gateClassFor(root, job);
-  if (!gate) throw new ForgeError(`job ${job.id} is not waiting on a gate the Foreman decides`, 1);
-  const cls = flags.class;
-  if (!(HANDOFF_CLASSES as readonly unknown[]).includes(cls)) throw new ForgeError(`--class must be one of ${HANDOFF_CLASSES.join(', ')}`, 1);
-  const reason = cleanHandoffReason(flags.reason);
-  if (!reason) throw new ForgeError('forge job handoff needs --reason "<why it is left for a human>"', 1);
-  logHumanEvent(root, job.id, 'foreman-handoff', { gate, class: cls, reason }, FOREMAN_ACTOR);
-  return { ok: true, foremanHandoff: foremanHandoffFor(root, loadJob(root, job.id)) };
-}
-
-export function assistCmd(root: string, config: Config, rest: string[], flags: Record<string, any>) {
-  const id = rest[0];
-  return assist(root, config, requireJob(root, id), flags.gate);
-}
-
 /**
- * `forge job assist`: what the office session spawns for one gate. Read-only. `stale` when the job no longer
- * waits on that gate (someone acted meanwhile); `reserved` is re-checked now, not taken from the request.
+ * `forge job assist`: what a gate run's forge:assistant would be briefed with, read-only, for a person's own terminal;
+ * refused in every daemon session. `stale` when the job no longer waits on that gate; `reserved` is re-checked now.
  */
-function assist(root: string, config: Config, job: Job, rawGate: unknown) {
+export function assistCmd(root: string, config: Config, rest: string[], flags: Record<string, any>) {
   const s = daemonScope();
   if ('problem' in s) throw new ForgeError(s.problem);
-  if (s.daemon && !inAssistant()) throw new ForgeError('forge job assist is for an assistant foreman session (or a human outside the daemon)', 1);
-  const gate = str(rawGate, '--gate');
-  if (!isGateClass(gate)) throw new ForgeError(`--gate must be one of ${OFFICE_GATES.join(', ')} (got ${JSON.stringify(String(gate ?? '').slice(0, 40))})`, 1);
-  const events = readEvents(root, job.id);
-  // A release is a plan awaiting approval, not a park: stale once release.json moves on or it is approved.
-  const releaseHash = gate === 'release' ? pendingReleaseHash(root, job.id, events) : null;
-  const stale = gate === 'release' ? releaseHash === null : gateClassFor(root, job) !== gate;
-  // A job in a mandate: a class the mandate doesn't delegate, or a mandate that can't be read, is a
-  // human's, and the office's reserved path hands it off.
-  const m = stale ? null : jobMandateDecides(root, config, job);
-  // A release under a paused or closed mandate too (releaseMandateRefusal), since publishing can't be undone.
-  const halted = m !== null && !('problem' in m) && gate === 'release' && (m.mandate.status === 'paused' || m.mandate.status === 'closed') ? m.mandate.status : null;
-  const delegated = m !== null && !('problem' in m) && m.decides.includes(gate) && !halted ? m : null;
-  // A closed mandate delegates nothing (decides is empty); a delegated gate the job keeps coming back to is held too.
-  const mandateHold =
-    m === null
-      ? null
-      : delegated
-        ? bounceHold(job, events, delegated.mandate)
-        : 'problem' in m
-          ? `mandate ${m.id}: can't be read`
-          : halted
-            ? `mandate ${m.id}: ${halted}, so release is not delegated`
-            : `mandate ${m.id}: ${gate} is not delegated`;
-  // A class reserved with gate:<class> is a human's even when a request for it exists.
-  const reserved = stale ? null : (classReservation(config, gate) ?? mandateHold ?? reservedFor(root, config, job, gate));
-  // One read of the events for both the brief and `repos`, so the foreman's --repo is exactly the set the assistant judged.
-  const pending = gate === 'repo-proposal' && !stale ? pendingRepoProposals(job, events) : [];
-  const mandate = delegated ? { id: delegated.id, decides: delegated.decides, guidance: mandateGuidance(delegated.mandate) } : null;
-  return {
-    gate,
-    stale,
-    reserved,
-    model: resolveModel(config, job, 'assistant'),
-    effort: resolveEffort(config, job, 'assistant').level,
-    subagent: 'forge:assistant',
-    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved, events, pending, releaseHash, stale ? null : securityHold(job), mandate),
-    // The brief's `Pending repos` names: the foreman passes exactly these as --repo, and `exact` refuses once they stop being the pending set.
-    ...(gate === 'repo-proposal' && !stale ? { repos: pending.map((r) => r.repo) } : {}),
-  };
+  if (s.daemon) throw new ForgeError("forge job assist is for a person's own terminal: forge dash's gate runner assists each gate in-process", 1);
+  return gateAssist(root, config, requireJob(root, rest[0]), str(flags.gate, '--gate'));
 }
