@@ -3,7 +3,7 @@
 import crypto from 'node:crypto';
 import type http from 'node:http';
 import path from 'node:path';
-import { SIGNED_OUT_ERROR } from '#api/constants.ts';
+import { LOGIN_HEADER, SIGNED_OUT_ERROR } from '#api/constants.ts';
 import type { ApiError } from '#core/types.ts';
 
 export function isLoopbackHost(host: string | undefined): boolean {
@@ -59,9 +59,9 @@ export function cookieValue(cookie: string | null, name: string): string | null 
   return found;
 }
 
-/** Whether a request is signed in: the x-forge-token header or the `forge-<port>` cookie equals the token. */
+/** Whether a request is signed in: the LOGIN_HEADER header or the `forge-<port>` cookie equals the token. */
 export function authorized(req: http.IncomingMessage, token: string, port: number): boolean {
-  const viaHeader = tokenMatches(header(req.headers['x-forge-token']), token);
+  const viaHeader = tokenMatches(header(req.headers[LOGIN_HEADER]), token);
   const viaCookie = tokenMatches(cookieValue(header(req.headers.cookie), loginCookieName(port)), token);
   return viaHeader || viaCookie;
 }

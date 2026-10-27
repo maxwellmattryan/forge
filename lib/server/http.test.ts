@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type http from 'node:http';
 import { Readable } from 'node:stream';
+import { LOGIN_HEADER } from '#api/constants.ts';
 import { authorized, cookieValue, isLoopbackAddress, loginCookieName, readBody } from './http.ts';
 
 test('readBody counts bytes, cuts off oversized and stalled bodies', async () => {
@@ -53,16 +54,16 @@ test('login credentials: the per-port cookie or the header', () => {
   const req = (headers: http.IncomingHttpHeaders) => ({ headers }) as http.IncomingMessage;
   const rows: [http.IncomingHttpHeaders, boolean][] = [
     [{}, false],
-    [{ 'x-forge-token': token }, true],
-    [{ 'x-forge-token': 'b'.repeat(32) }, false],
-    [{ 'x-forge-token': [token, token] }, false],
+    [{ [LOGIN_HEADER]: token }, true],
+    [{ [LOGIN_HEADER]: 'b'.repeat(32) }, false],
+    [{ [LOGIN_HEADER]: [token, token] }, false],
     [{ cookie: `${name}=${token}` }, true],
     [{ cookie: `other=1; ${name}=${token}` }, true],
     [{ cookie: `${name}=${'b'.repeat(32)}` }, false],
     [{ cookie: `forge-7401=${token}` }, false],
     [{ cookie: `${name}=${token}; ${name}=${token}` }, false],
-    [{ cookie: `${name}=${token}`, 'x-forge-token': 'wrong' }, true],
-    [{ cookie: `${name}=wrong`, 'x-forge-token': token }, true],
+    [{ cookie: `${name}=${token}`, [LOGIN_HEADER]: 'wrong' }, true],
+    [{ cookie: `${name}=wrong`, [LOGIN_HEADER]: token }, true],
   ];
   for (const [headers, want] of rows) assert.equal(authorized(req(headers), token, port), want, JSON.stringify(headers));
 });

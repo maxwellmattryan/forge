@@ -89,7 +89,7 @@ export type ProjectListener = (entry: ProjectEntry) => void | (() => void);
 export interface RunningServer {
   server: http.Server;
   url: string;
-  /** This process's login token: `forge dash` writes it to the login file, and tests send it as x-forge-token. Never served. */
+  /** This process's login token: `forge dash` writes it to the login file, and tests send it in the token header. Never served. */
   token: string;
   /** A loaded project by name (no refresh), or null. */
   entry(name: string): ProjectEntry | null;

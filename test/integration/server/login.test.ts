@@ -1,4 +1,4 @@
-// The dashboard login: POST /api/session exchanges the login link's key for the per-port HttpOnly,
+// The dashboard login: the page itself holds no token, POST /api/session exchanges the login link's key for the per-port HttpOnly,
 // SameSite=Strict cookie, that cookie alone reaches every kind of /api request the page makes (pages,
 // POSTs, images, the raw mockup iframe and event streams), and the Origin and Fetch Metadata guards
 // still refuse another site or another loopback port that carries it (docs/architecture/dashboard-security.md).
@@ -14,6 +14,7 @@ import { loadConfig } from '#core/config/load.ts';
 import { createJob, jobDir } from '#core/job/store.ts';
 import { listRequests } from '#core/job/requests.ts';
 import { projectSlug } from '#integrations/claude/transcripts.ts';
+import { FIXTURE_DIST } from '../../dist.ts';
 
 type Reply = { status: number; headers: http.IncomingHttpHeaders; text: string };
 
@@ -43,6 +44,20 @@ function head(port: number, p: string, headers: Record<string, string>): Promise
 }
 
 const P = '/api/p/a';
+
+test('the page carries no token', async (t) => {
+  const repo = tempRepo();
+  t.after(repo.cleanup);
+  const s = await serveProjects([{ dir: repo.dir, name: 'a' }]);
+  t.after(() => s.cleanup());
+  const built = fs.readFileSync(path.join(FIXTURE_DIST, 'index.html'), 'utf8');
+  for (const p of ['/', '/index.html']) {
+    const r = await raw(s.port, 'GET', p, {});
+    assert.equal(r.status, 200, p);
+    assert.equal(r.text, built, `${p} is the dist page byte-for-byte`);
+    assert.ok(!r.text.includes(s.token) && !r.text.includes('forge-token'), `${p} holds no token`);
+  }
+});
 
 test('the session exchange sets the login cookie only for the right key', async (t) => {
   const repo = tempRepo();

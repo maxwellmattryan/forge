@@ -50,6 +50,12 @@ export const WAITING_ON = [
  */
 export const SIGNED_OUT_ERROR = 'not signed in: open the link forge dash url prints';
 
+/**
+ * The request header that carries the token for the CLI and tests, the login's other credential beside the cookie.
+ * The dashboard never sends it.
+ */
+export const LOGIN_HEADER = 'x-forge-token';
+
 /** What the dashboard's Shelved list does to the jobs a person selects (POST /api/shelf). */
 export const SHELF_ACTIONS = ['approve', 'rework', 'unshelve', 'close'] as const;
 

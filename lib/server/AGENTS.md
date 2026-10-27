@@ -17,7 +17,7 @@ The machine's dashboard HTTP server: one per machine, serving every project regi
 | `routes/` | The dashboard's route handlers, one file per area; the two route tables in `lib/server/start.ts` map each method and path to one of them and name its guards. |
 | `sse.ts` | Server-sent events: the stream head, state, line and text frames, following a file through one descriptor, the broadcast to open streams and the keep-alive ping. |
 | `start.ts` | The machine's dashboard HTTP server (`forge dash`): startServer, the two route tables (the machine's, and each project's under /api/p/<project>/) that name each route's handler and guards, and the dispatch that answers loopback Hosts only. |
-| `static.ts` | The built dashboard and job images: the dist allowlist, the page with its token, hashed assets, the logo, and screenshots confined to the job dir. |
+| `static.ts` | The built dashboard and job images: the dist allowlist, the page as built (no token in it), hashed assets, the logo, and screenshots confined to the job dir. |
 | `types.ts` | The server's shapes outside /api, type-only: startServer's options and result, the machine context and the per-project context routes get, a loaded project entry and its boot pass, the route tables' rows, and what the onRequest hook reports. |
 | `uptime.ts` | What the running machine dashboard does to stay up: the sleep assertion it holds while a project has work in flight, the boot pass that resumes a project's undriven jobs as its pool boots, and the restart record and notifications a service start writes once those passes settle. |
 <!-- forge:map:end -->

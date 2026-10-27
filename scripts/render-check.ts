@@ -1,8 +1,8 @@
 // `npm run test:render [-- --scenario NAME]... [--dist DIR]`: seeds each dashboard scenario, serves it
-// from a dashboard build in-process beside a second project and a removed one, and loads every view (and
-// the job and issue panels), the Overview, the Machine page and a project switch in headless Chrome. A check fails
-// on a console error, an uncaught page error, a same-origin 5xx, an expected text that never shows, or a
-// failed load. Outside `npm test`: it needs Chrome and a build, and CI's `render` job runs it.
+// from a dashboard build in-process beside a second project and a removed one, signs each browser context in
+// through the login link, and loads every view (and the job and issue panels), the Overview, the Machine page and
+// a project switch in headless Chrome. A check fails on a console error, an uncaught page error, a same-origin 5xx
+// or /api 4xx, an expected text that never shows, or a failed load. Outside `npm test`: it needs Chrome and a build, and CI's `render` job runs it.
 // docs/TESTING.md › "Dashboard scenarios and the render check".
 import fs from 'node:fs';
 import path from 'node:path';
@@ -31,7 +31,7 @@ const OTHER_PROJECT = 'other-project';
 /** A registered project whose directory is gone: the Overview and the switcher show it as missing. */
 const GONE_PROJECT = 'gone-project';
 
-export type RenderCheckId = ViewId | 'overview' | 'machine' | 'switch' | 'add' | 'drawer' | 'issue';
+export type RenderCheckId = ViewId | 'login' | 'overview' | 'machine' | 'switch' | 'add' | 'drawer' | 'issue';
 
 export interface RenderProblem {
   scenario: string;
@@ -91,7 +91,8 @@ async function checkPage(context: BrowserContext, url: string, act: (page: Page,
   page.on('pageerror', (e) => problems.push(`page error: ${e.message}`));
   page.on('response', (r) => {
     const u = new URL(r.url());
-    if (u.origin === origin && r.status() >= 500) problems.push(`HTTP ${r.status()} ${u.pathname}`);
+    // A 4xx from /api (a 401 above all: the context is not signed in) fails the page as a 5xx does anywhere.
+    if (u.origin === origin && (r.status() >= 500 || (r.status() >= 400 && u.pathname.startsWith('/api/')))) problems.push(`HTTP ${r.status()} ${u.pathname}`);
   });
   try {
     await page.goto(url, { waitUntil: 'load', timeout: LOAD_TIMEOUT_MS });
@@ -180,6 +181,24 @@ export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: st
         addProject(home, path.join(path.dirname(seeded.root), GONE_PROJECT), { name: GONE_PROJECT });
         server = await startServer({ home, port: 0, distDir: dist });
         const base = `${server.url}/`;
+        // Signed in as a person is: through the login link `forge dash` prints, once per context. The page must clear the
+        // key, land on the project's pipeline and hold the per-port cookie before any view is checked.
+        const cookie = `forge-${new URL(server.url).port}`;
+        const pipeline = `#/p/${project.name}/pipeline`;
+        await timed(name, 'login', () =>
+          checkPage(context, `${base}?project=${encodeURIComponent(project.name)}#k=${server!.token}`, async (page, p) => {
+            try {
+              await page.waitForURL((u) => u.hash === pipeline, { timeout });
+              for (let waited = 0; !(await context.cookies()).some((c) => c.name === cookie); waited += 50) {
+                if (waited > timeout) throw new Error('no login cookie');
+                await page.waitForTimeout(50);
+              }
+            } catch {
+              p.push(`the login link did not sign in and open ${pipeline}`);
+            }
+            if (page.url().includes('k=')) p.push('the login key stayed in the URL');
+          }),
+        );
         const at = (view: ViewId): string => `${base}#/p/${project.name}/${view}`;
         for (const { id } of VIEWS) {
           await timed(name, id, () => checkPage(context, at(id), (page, p) => waitForTexts(page, seeded.expect.views[id], timeout, p)));

@@ -196,7 +196,7 @@ const noProject = (segment: string): string => JSON.stringify({ error: `no regis
 /**
  * Read-mostly, localhost-only server for every project registered on the machine. Every /api route
  * needs the per-process token, as the `forge-<port>` cookie POST /api/session sets from the login
- * link's fragment or as the x-forge-token header; the page itself carries no token. `distDir` is a
+ * link's fragment or as the CLI's token header (LOGIN_HEADER); the page itself carries no token. `distDir` is a
  * test seam like `sseMaxAgeMs`; it defaults to the plugin's dashboard/dist, or to the dev build under `dev`.
  */
 export function startServer(opts: ServerOptions = {}): Promise<RunningServer> {

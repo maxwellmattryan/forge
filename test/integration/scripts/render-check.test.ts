@@ -71,7 +71,9 @@ describe('scripts/render-check.ts', () => {
       assert.deepEqual(of('machine'), registered);
       assert.deepEqual(of('switch'), ['could not switch to other-project in the project switcher']);
       assert.deepEqual(of('add'), ['could not choose Add project in the project switcher']);
-      assert.equal(result.checked, VIEW_IDS.length + 1 + 4);
+      // The fixture build has no login: its link neither signs in nor drops the key.
+      assert.deepEqual(of('login'), ['the login link did not sign in and open #/p/repo/pipeline', 'the login key stayed in the URL']);
+      assert.equal(result.checked, VIEW_IDS.length + 1 + 5);
       assert.equal(result.passed, 6);
       assert.equal(renderExitCode(result), 1);
     } finally {
