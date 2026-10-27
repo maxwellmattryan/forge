@@ -33,8 +33,7 @@ import type {
 } from './types.ts';
 import { bundleFilename } from './diagnostics.ts';
 import { fetchEnvironments } from './environment.ts';
-import { DEFAULT_FOREMAN_PANEL, fetchMandates } from './foreman.ts';
-import type { ForemanPanel } from './foreman.ts';
+import { fetchMandates } from './foreman.ts';
 import { pref } from './prefs.ts';
 import { toast } from './toast.svelte.ts';
 import { buildRequest, queuedMessage } from './requests.ts';
@@ -142,14 +141,9 @@ class AppState {
   environments = $state.raw<EnvironmentsResponse | null>(null);
   environmentsError = $state<string | null>(null);
   backlog = $state.raw<BacklogView | null>(null);
-  /** The Foreman page's GET /api/mandates; a failed load keeps the last answer and sets `mandatesError`. */
+  /** The Office page's GET /api/mandates; a failed load keeps the last answer and sets `mandatesError`. */
   mandates = $state.raw<MandatesResponse | null>(null);
   mandatesError = $state<string | null>(null);
-  /**
-   * The Foreman page's selected tab. App state, not the page's own, so it survives leaving the page and the status bar's
-   * Open chat link can switch it while the page is open; a project switch resets it.
-   */
-  foremanPanel = $state<ForemanPanel>(DEFAULT_FOREMAN_PANEL);
   compare = new CompareState();
   drawer = new DrawerState();
   drawerView = $state.raw<DrawerView>(null);
@@ -324,7 +318,7 @@ export async function loadView(): Promise<void> {
       const backlog = await api<BacklogResponse>('/api/backlog');
       if (current()) S.backlog = backlog;
     }
-    if (S.view === 'foreman') await loadMandates();
+    if (S.view === 'office') await loadMandates();
   } catch (e) {
     // An unregistered project is the Banner's message (the next poll sets it), not a toast of the server's JSON.
     if (current() && !isUnregistered(e)) toast(message(e), true);
@@ -332,7 +326,7 @@ export async function loadView(): Promise<void> {
 }
 
 /**
- * GET /api/mandates into S.mandates for the Foreman page: on open, on the view poll and after each write. Its failure is
+ * GET /api/mandates into S.mandates for the Office page: on open, on the view poll and after each write. Its failure is
  * the page's banner, not a toast every 15 s; a reply for another project is dropped.
  */
 export async function loadMandates(): Promise<void> {
@@ -398,7 +392,6 @@ export function switchProject(name: string | null): void {
   S.backlog = null;
   S.mandates = null;
   S.mandatesError = null;
-  S.foremanPanel = DEFAULT_FOREMAN_PANEL;
   S.compare.a = '';
   S.compare.b = '';
   S.compare.result = null;

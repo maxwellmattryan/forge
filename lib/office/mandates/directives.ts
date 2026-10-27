@@ -11,7 +11,7 @@ import { DIRECTIVE_ACTIONS } from '#api/constants.ts';
 import { cleanReason, isMandateId } from './contract.ts';
 import type { Directive, DirectiveAction, EventActor } from '#core/types.ts';
 
-// The Foreman page reads directives too, so the shapes are /api shapes (lib/api/repo.ts).
+// The Office page reads directives too, so the shapes are /api shapes (lib/api/repo.ts).
 export type { Directive, DirectiveAction } from '#api/types.ts';
 
 /** The audit log is append-only and never rotated here: past this it is read no further, rather than whole. */

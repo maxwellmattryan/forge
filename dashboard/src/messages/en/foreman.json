@@ -1,12 +1,7 @@
 {
   "foreman": {
     "title": "Foreman",
-    "sub": "The Office: the mandates you give the Foreman, the gate runs deciding gates, and the directives it records. Chats: talk with the Foreman.",
-    "panels": "Foreman panels",
-    "panel": {
-      "office": "Office",
-      "chats": "Chats"
-    },
+    "sub": "Talk with the Foreman: ask about the board, or have it act for you through the CLI.",
     "chats": {
       "list": "Chats",
       "new": "New chat",
@@ -58,6 +53,8 @@
       "archivedNote": "This chat is archived. Start a new chat to keep talking."
     },
     "office": {
+      "title": "Office",
+      "sub": "The mandates you give the Foreman, the gate runs deciding gates and the directives it records, beside the office session.",
       "session": "Office session",
       "offMandates": "Mandates stay listable and editable while it is off.",
       "mandates": "Mandates",

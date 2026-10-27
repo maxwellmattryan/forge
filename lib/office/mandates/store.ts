@@ -1,6 +1,6 @@
 // Mandate files: `.forge/runtime/mandates/<id>.md`, YAML frontmatter then the owner's guidance. Read
 // without following a link or blocking on a FIFO, and written under one lock only through mandateWrite
-// (`forge mandate new|edit|pause|resume|close` and the dashboard's Foreman page, the same checks for
+// (`forge mandate new|edit|pause|resume|close` and the dashboard's Office page, the same checks for
 // both) and by the Office pass (`forge office pass`, which pauses and closes). Read for a job whose
 // `mandate` is set to narrow what the Foreman decides (jobMandateDecides), and to tell `forge sync`
 // whether its merged work gets a score run (jobMandateScoring). A mandate's runtime dir `<id>/`
@@ -136,7 +136,7 @@ export function writeMandate<T extends { mandate: Mandate; action: MandateAction
   });
 }
 
-/** The owner's mandate writes: `forge mandate <op>` and the Foreman page's POSTs. */
+/** The owner's mandate writes: `forge mandate <op>` and the Office page's POSTs. */
 export type MandateOp = 'new' | 'edit' | 'pause' | 'resume' | 'close';
 
 /** The readable mandate `id` among `all`; not_found when there is none, refused when it can't be read. */
