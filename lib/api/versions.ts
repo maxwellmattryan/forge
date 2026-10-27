@@ -89,6 +89,8 @@ export const API_CHANGES = [
   { id: 'gate-runs' },
   // MandateContract.quality ({pauseBelow, minScored}); the pauseBelow and minScored terms on POST /api/mandates and /api/mandates/:id/edit.
   { id: 'mandate-quality' },
+  // GET /api/backlog/item?ref= (BacklogItemResponse, TrackerItemView, TrackerComment): one tracker item's text and facts for the issue panel.
+  { id: 'backlog-item' },
 ] as const;
 
 /**

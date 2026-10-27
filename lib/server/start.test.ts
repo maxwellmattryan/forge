@@ -11,7 +11,7 @@ import { getEnvironmentLogs, getEnvironments, getJobEnvironment, postJobEnvironm
 import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor, postShelf } from './routes/jobs.ts';
 import { getProjects, getProjectsEvents, getProjectsStats, postProject } from './routes/machine.ts';
 import { getMandate, getMandateDraft, getMandates, postMandate, postMandateAction, postMandateDraft } from './routes/mandates.ts';
-import { getAbout, getBacklog, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
+import { getAbout, getBacklog, getBacklogItem, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
 import { getTranscript, getTranscriptEvents } from './routes/transcripts.ts';
 import { getChat, getChatLog, getChats, postChat, postChatArchive, postChatMessage, postChatRename } from './routes/chats.ts';
@@ -77,6 +77,7 @@ test('the route table sends each method and path to its handler, and nothing els
       ['GET', '/roster', getRoster, []],
       ['GET', '/project', getProject, []],
       ['GET', '/backlog', getBacklog, []],
+      ['GET', '/backlog/item', getBacklogItem, []],
       ['GET', '/config', getConfig, []],
       ['GET', '/environments', getEnvironments, []],
       ['GET', '/jobs/j-1/environment', getJobEnvironment, ['j-1']],
