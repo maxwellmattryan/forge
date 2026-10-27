@@ -162,6 +162,7 @@ export function validateConfig(c: unknown, root: string): string[] {
   const e2ePaths = c.verifyE2e?.paths;
   if (!Array.isArray(e2ePaths) || e2ePaths.some((p: any) => typeof p !== 'string' || !p.trim()))
     problems.push(`verifyE2e.paths must be a list of non-empty strings (got ${JSON.stringify(e2ePaths)})`);
+  problems.push(...relatedTestsProblems(c));
   problems.push(...generatedProblems(c));
   problems.push(...worktreeSeedProblems(c));
   problems.push(...verifyProblems(c));
@@ -428,6 +429,29 @@ function worktreeSeedProblems(c: unknown): string[] {
     if (!Array.isArray(v) || v.some((x: unknown) => typeof x !== 'string' || !x.trim())) problems.push(`worktrees.seed.${k} must be a list of non-empty commands (got ${show(v)})`);
   }
   if (Array.isArray(s.paths) && s.paths.length && Array.isArray(s.key) && !s.key.length) problems.push('worktrees.seed.key must name at least one file when worktrees.seed.paths is set');
+  return problems;
+}
+
+/**
+ * `relatedTests.tests`, `.map` and `.full`: each a list of non-empty strings, at most one problem per
+ * field, and a `map` template fills only `{dir}` and `{name}` (anything else would stay in the glob).
+ */
+function relatedTestsProblems(c: unknown): string[] {
+  const cfg: Record<string, any> = isMap(c) ? c : {};
+  const r = cfg.relatedTests;
+  if (r === undefined) return [];
+  if (!isMap(r)) return [`relatedTests must be a map (got ${JSON.stringify(r)})`];
+  const problems: string[] = [];
+  for (const key of ['tests', 'map', 'full'] as const) {
+    const v = r[key];
+    if (!Array.isArray(v) || v.some((p: unknown) => typeof p !== 'string' || !p.trim())) {
+      problems.push(`relatedTests.${key} must be a list of non-empty strings (got ${JSON.stringify(v)})`);
+      continue;
+    }
+    if (key !== 'map') continue;
+    const i = v.findIndex((t: string) => [...t.matchAll(/\{[^{}]*\}/g)].some((m) => m[0] !== '{dir}' && m[0] !== '{name}'));
+    if (i >= 0) problems.push(`relatedTests.map[${i}] may use only the {dir} and {name} placeholders (got ${JSON.stringify(v[i])})`);
+  }
   return problems;
 }
 

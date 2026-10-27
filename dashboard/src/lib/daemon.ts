@@ -27,7 +27,12 @@ export interface JobChip {
   pill: Pill;
   /** The mode a human put this session in, when it isn't daemon.command's. */
   mode: DaemonPermissionMode | null;
+  /** The running child's latest turn context in tokens; null without a finite reading >= 0. */
+  context: number | null;
 }
+
+/** A session's contextTokens when it is a finite number >= 0 (it is claude's own report), else null. */
+const contextOf = (s: Record<string, any>): number | null => (typeof s.contextTokens === 'number' && Number.isFinite(s.contextTokens) && s.contextTokens >= 0 ? s.contextTokens : null);
 
 export interface PoolModel {
   pill: Pill;
@@ -127,7 +132,7 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
   else if (approval) [label, tone] = ['needs approval', 'warn'];
   else if (p.lastError) [label, tone] = ['error', 'bad'];
   const chips = jobs
-    .map(([id, s]) => ({ id, label: id.length > JOB_LABEL ? `${id.slice(0, JOB_LABEL)}…` : id, pill: sessionPill(s), mode: chosenOverride(p, id) }))
+    .map(([id, s]) => ({ id, label: id.length > JOB_LABEL ? `${id.slice(0, JOB_LABEL)}…` : id, pill: sessionPill(s), mode: chosenOverride(p, id), context: contextOf(s) }))
     .sort((a, b) => ORDER.indexOf(a.pill.label) - ORDER.indexOf(b.pill.label) || (a.id < b.id ? -1 : 1));
   const canStart = p.enabled === true && !p.wanted && !anyRunning && !pending;
   const canStop = Boolean(p.wanted || anyRunning) && !pending;
@@ -156,8 +161,8 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
   };
 }
 
-/** One row of the Workers popover: a job session, its pill, its job's title (null when the job is unknown) and its own mode. */
-export type DaemonRow = { id: string; title: string | null; pill: Pill; mode: DaemonPermissionMode | null };
+/** One row of the Workers popover: a job session, its pill, its job's title (null when the job is unknown), its own mode and its context. */
+export type DaemonRow = { id: string; title: string | null; pill: Pill; mode: DaemonPermissionMode | null; context: number | null };
 
 /**
  * The Workers popover's session rows: one per job session, in the model's status order. The inbox session has its own
@@ -166,7 +171,7 @@ export type DaemonRow = { id: string; title: string | null; pill: Pill; mode: Da
  */
 export function daemonRows(model: PoolModel, jobs: readonly { id: string; title?: string | null }[]): DaemonRow[] {
   const titles = new Map(jobs.map((j) => [j.id, typeof j.title === 'string' ? j.title : null]));
-  return model.jobs.map((j) => ({ id: j.id, title: titles.get(j.id) ?? null, pill: j.pill, mode: j.mode }));
+  return model.jobs.map((j) => ({ id: j.id, title: titles.get(j.id) ?? null, pill: j.pill, mode: j.mode, context: j.context }));
 }
 
 /**

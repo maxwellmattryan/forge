@@ -192,6 +192,8 @@ export interface Config {
     when: 'ui' | 'always' | 'never';
     paths: string[];
   };
+  /** What `forge run <job> <command> --changed` runs (lib/engine/workspace/related-tests.ts): globs and `{dir}`/`{name}` templates over repo-relative paths. */
+  relatedTests: { tests: string[]; map: string[]; full: string[] };
   verifyIntegrity: 'warn' | 'block';
   verifySecrets: 'block' | 'warn';
   ports: { base: number; span: number };
@@ -297,6 +299,8 @@ export interface Config {
     idleStopMinutes: number | null;
     /** A turn busy past this is stopped and its work requeued; null: no limit. */
     turnTimeoutMinutes: number | null;
+    /** A job session whose turn's context passes this many tokens starts its next spawn fresh, stopped at a safe boundary; null: never. */
+    freshAfterTokens: number | null;
     auth: DaemonAuth;
     jobBudget: DaemonJobBudget;
     /** Dollars per UTC day the inbox, office and chat sessions may spend (metered); a null key, or null, has no cap. */

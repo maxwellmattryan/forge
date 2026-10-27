@@ -82,6 +82,23 @@ export function defaults(): Config {
       when: 'ui',
       paths: ['*.html', '*.css', '*.scss', '*.sass', '*.less', '*.svelte', '*.vue', '*.jsx', '*.tsx', '*.astro'],
     },
+    // `forge run <job> test --changed`: test files beside their sources or under test/ and tests/ by name.
+    relatedTests: {
+      tests: ['**/*.test.*', '**/*.spec.*', '**/*_test.*', '**/test_*.py', '**/__tests__/**'],
+      map: [
+        '{dir}/{name}.test.*',
+        '{dir}/{name}.spec.*',
+        '{dir}/{name}_test.*',
+        '{dir}/test_{name}.*',
+        '{dir}/__tests__/{name}.*',
+        'test/**/{name}.test.*',
+        'test/**/{name}-*.test.*',
+        'tests/**/{name}.test.*',
+        'tests/**/test_{name}.*',
+        'tests/**/{name}_test.*',
+      ],
+      full: ['test/**', 'tests/**', '**/__fixtures__/**', '**/__mocks__/**', '**/conftest.py', '**/testdata/**'],
+    },
     verifyIntegrity: 'warn',
     // block fails verify (and refuses commits and pr open) on a likely credential; warn reports it.
     verifySecrets: 'block',
@@ -251,6 +268,9 @@ export function defaults(): Config {
       idleStopMinutes: 30,
       // A turn still running after this long is stopped and its work requeued; null never stops one.
       turnTimeoutMinutes: 60,
+      // A job session whose last turn held more context than this stops at a safe moment and starts its
+      // next spawn fresh: 58 of 97 job session logs here passed 200k; the largest reached ~645k.
+      freshAfterTokens: 200000,
       // Sessions run on the Claude login. An ANTHROPIC_API_KEY exported in the shell that ran
       // `forge dash` is dropped from their environment unless this is api-key, because claude
       // would silently bill it instead of the subscription.

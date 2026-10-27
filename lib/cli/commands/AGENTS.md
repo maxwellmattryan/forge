@@ -63,7 +63,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `render/version.ts` | `forge version` in human mode. |
 | `render/worktree.ts` | `forge worktree create\|remove` in human mode. |
 | `requests.ts` | `forge requests`: the dashboard inbox. |
-| `run.ts` | `forge run <job> <command> [--repo R] [--tail N] [-- <args…>]` and `forge run <job> <command> --background`. |
+| `run.ts` | `forge run <job> <command> [--repo R] [--tail N] [-- <args…>]`, `forge run <job> <command> --background` and `forge run <job> <command> --changed` (the related tests of the job's changes at {args}). |
 | `secrets.ts` | `forge secrets scan`: what the secret scanner (lib/engine/guard/secrets.ts) finds in a job's branch and PR text, or in the main checkout's tracked files. |
 | `service.ts` | `forge service install\|uninstall\|status`: the per-user login service that starts the machine dashboard at login (lib/engine/project/login-service.ts). |
 | `status.ts` | Human-readable summaries: `forge status` and the text form of `forge stats`. |
